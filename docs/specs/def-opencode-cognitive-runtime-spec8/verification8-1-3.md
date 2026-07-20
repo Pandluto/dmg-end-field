@@ -516,3 +516,68 @@ Passing checks: `npm run test:def-operator-config-atomic`,
 (50 current/tree tools), `npm run interop:check`, `npm run harness:check`,
 `npm run typecheck`, `npm run check:repo`, focused `node --check`, and
 `git diff --check`.
+
+## Horizontal configuration branches and Agent-written node metadata (2026-07-20)
+
+The hand-tested source session `ses_081eaa36fffeaNxppoPQUJwLTm` had no
+configuration failure: five tools completed without error and the single
+`def_operator_config_patch` returned `applied` with exact live, checkout and
+commit postconditions. Its node behavior nevertheless confirmed three product
+contract regressions. The applied node was a child of the then-current
+checkout, its label was the fixed `[ai] 赛希 operator config`, its description
+was empty, and the former custom hover detail card had been removed.
+
+Configuration mutations now separate two identities that were previously
+overloaded in `parentNodeId`: the current checkout remains the immutable
+base/CAS anchor, while the persisted tree parent is the checkout node's own
+parent. The resulting operator/team configuration is therefore a horizontal
+sibling branch (or a sibling root when the checkout is a root) without
+weakening session, revision, working-hash, permission, apply or discard
+checks. Ordinary timeline edits remain children; replacement of a selected
+operator explicitly requests `placement=horizontal-branch` from
+`def_node_fork`.
+
+Both single-operator and team typed mutation tools require a concise
+Agent-written `nodeTitle` and one-sentence `nodeDescription`. The native
+approval summary/diff, node and commit preserve those values; `[ai]`, ids,
+timestamps and fixed operator-config formats are prohibited by the prompt and
+Harness teaching. Work Node create/update now persist description. The node
+rectangle remains title-only, while a custom tooltip appears after 420 ms and
+shows the full title plus description.
+
+Candidate Harness `def-operator-config-atomic-failfast@1.1.0`, content hash
+`b1720dcd44ed5a69ed498ca7845fd3abbb6de6dbe77ff17f392186664315965d`,
+is registered only at `candidate/operator-config-horizontal-metadata`; stable
+was not promoted. Its package check passed.
+
+The isolated Pure Blackbox run was
+`native-harness-run-d15a0673-32ef-4e71-824f-6a897fa2e5b1`, session
+`ses_081d1cef3ffeaEPIQWHl7QAZ12`, test run
+`1a804640-5ef0-4ae2-a1e3-9592f1c09eb2`. Both turns completed and the fixture
+was cleaned. The confirmed turn called `def_operator_config_patch` exactly
+once with title `赛希骑士精神3长息1拓荒满配`, a complete Agent-written
+description, the exact weapon and all four equipment ids/slots. Its expected
+hidden-fixture `blocked-session-mismatch` was the final tool event: there was
+no retry or context/bind/materialize/read/edit recovery. Questions remained
+empty and the real Workbench state stayed at `pending:null` before and after.
+This proves the candidate tool-argument and fail-fast behavior without
+approving or changing the user's visible configuration.
+
+After macOS was unlocked, Computer Use opened the real Chrome Work Node tree
+at `127.0.0.1:3030` and moved the pointer onto the `长息蓄电核` node. About
+0.4 seconds later the separate hover card visibly showed the complete title
+and `暂无描述`, while the node rectangle itself remained title-only. This
+passes the restored hover/fallback UI check for a historical empty-description
+node. No real permission was accepted on the user's behalf, so an approved
+visible-session horizontal node remains a deliberate human verification item
+rather than a claimed pass.
+
+Passing checks: focused JavaScript syntax checks,
+`npm run test:def-operator-config-atomic`,
+`npm run test:def-team-atomic-candidate`,
+`npm run test:def-equipment-resource`,
+`npm run test:def-workbench-tool-policy`, `npm run interop:check`,
+`npm run harness:check`, `npm run typecheck`, `npm run check:repo`,
+`node scripts/timeline-repository-smoke.mjs`,
+`node scripts/ai-timeline-work-node-rest-smoke.mjs`, and
+`git diff --check`.

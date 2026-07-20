@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "harnessId": "def-operator-config-atomic-failfast",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "sourceCommit": "runtime-generated-from-git",
-  "description": "Teach one-approval atomic operator configuration and bounded fail-fast recovery.",
+  "description": "Teach Agent-named horizontal operator-configuration branches, one-approval atomic apply and bounded fail-fast recovery.",
   "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
   "slots": {
     "agentContract": { "path": "agent-contract.md", "mediaType": "text/markdown", "capability": "hotSwappable" },

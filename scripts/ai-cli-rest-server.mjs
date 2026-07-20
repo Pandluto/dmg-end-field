@@ -90,7 +90,7 @@ const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
-// Ephemeral, unforgeable capability for a reviewed operator-config child.
+// Ephemeral, unforgeable capability for a reviewed operator-config branch.
 // A sidecar restart invalidates it safely; callers must build a fresh preview.
 const defCoreState = createDefCoreRuntimeState({
   governanceToken: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN,
@@ -1239,11 +1239,16 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     ? sanitizeWorkNodeId(input.parentNodeId, 'ai-timeline-node')
     : undefined;
   const checkoutRef = getTimelineRepository().getCheckoutRef(timelineId);
-  const parentNodeId = gate?.checkoutNodeId
+  const checkoutNodeId = gate?.checkoutNodeId
     ? gate.checkoutNodeId
     : hasParentNodeInput
     ? requestedParentNodeId
     : checkoutRef?.targetType === 'work-node' ? checkoutRef.targetId : undefined;
+  const placement = input.placement === 'horizontal-branch' ? 'horizontal-branch' : 'child';
+  const checkoutNode = checkoutNodeId ? getTimelineRepository().getWorkNode(checkoutNodeId) : null;
+  const parentNodeId = placement === 'horizontal-branch'
+    ? horizontalConfigurationParent(checkoutNode)
+    : checkoutNodeId;
   const node = {
     id: sanitizeWorkNodeId(input.id, 'ai-timeline-node'),
     ...(parentNodeId ? { parentNodeId } : {}),
@@ -1265,6 +1270,8 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     logs: [makeWorkNodeLog('info', 'Created AI timeline work node from server-side payload source.', {
       source: payloadSource.source,
       sourceId: payloadSource.sourceId,
+      placement,
+      baseNodeId: checkoutNodeId || null,
     })],
   };
   // Creating a draft is deliberately not a checkout operation.  HEAD is only
@@ -1278,6 +1285,8 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     source: payloadSource.source,
     sourceId: payloadSource.sourceId,
     sourceUpdatedAt: payloadSource.sourceUpdatedAt,
+    placement,
+    baseNodeId: checkoutNodeId || null,
     buttonTargets: buildDefWorkNodeButtonTargets(payloadSource.payload),
   };
 }
@@ -1499,8 +1508,27 @@ function normalizeWorkNodeDescription(value) {
 }
 
 function aiWorkNodeLabel(value, fallback) {
-  const label = typeof value === 'string' && value.trim() ? value.trim() : fallback;
-  return /^\[(?:ai|save|baseline)\]\s*/i.test(label) ? label : `[ai] ${label}`;
+  return (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, 120);
+}
+
+function readAgentWorkNodeMetadata(input = {}) {
+  const title = typeof input.nodeTitle === 'string' ? input.nodeTitle.trim() : '';
+  const description = typeof input.nodeDescription === 'string' ? input.nodeDescription.trim() : '';
+  if (title.length < 2 || title.length > 32) {
+    return { ok: false, code: 'operator-config-node-title-required', message: 'Operator configuration requires an Agent-written 2-32 character node title.' };
+  }
+  if (description.length < 8 || description.length > 160) {
+    return { ok: false, code: 'operator-config-node-description-required', message: 'Operator configuration requires an Agent-written 8-160 character change description.' };
+  }
+  return { ok: true, title, description };
+}
+
+function horizontalConfigurationParent(node) {
+  return typeof node?.parentNodeId === 'string' && node.parentNodeId.trim() ? node.parentNodeId.trim() : '';
+}
+
+function sameOptionalNodeId(actual, expected) {
+  return String(actual || '') === String(expected || '');
 }
 
 function toAiTimelineWorkNodeListItem(node) {
@@ -1580,6 +1608,7 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body, invocation = {}
       updatedAt: now,
       contentRevision: now,
       label: aiWorkNodeLabel(body?.label, 'AI Timeline Work Node'),
+      description: normalizeWorkNodeDescription(body?.description),
       status: 'open',
       basePayload: cloneJson(basePayload),
       workingPayload: cloneJson(requestedWorkingPayload),
@@ -1660,12 +1689,22 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body, invocation = {}
       return failScript(400, 'invalid-timeline-work-node-status', `Unsupported AI Work Node status: ${String(body.status)}`);
     }
     const hasParentNodePatch = Object.prototype.hasOwnProperty.call(body || {}, 'parentNodeId');
+    const hasLabelPatch = Object.prototype.hasOwnProperty.call(body || {}, 'label');
+    const hasDescriptionPatch = Object.prototype.hasOwnProperty.call(body || {}, 'description');
+    const label = hasLabelPatch && typeof body.label === 'string' && body.label.trim()
+      ? body.label.trim().slice(0, 120)
+      : node.label;
+    const description = hasDescriptionPatch
+      ? normalizeWorkNodeDescription(body.description)
+      : (node.description || '');
     const parentNodeId = hasParentNodePatch && typeof body.parentNodeId === 'string' && body.parentNodeId.trim()
       ? sanitizeWorkNodeId(body.parentNodeId, 'ai-timeline-node')
       : undefined;
     const nextNode = {
       ...node,
       ...(hasParentNodePatch ? (parentNodeId ? { parentNodeId } : { parentNodeId: undefined }) : {}),
+      label,
+      description,
       updatedAt: Date.now(),
       status: allowedStatuses.has(body?.status) ? body.status : node.status,
       workingPayload: cloneJson(workingPayload),
@@ -1678,6 +1717,8 @@ function handleAiTimelineWorkNodeRequest(method, pathname, body, invocation = {}
         makeWorkNodeLog('info', 'Updated AI timeline work node.', {
           riskFlagCount: riskFlags.length,
           status: allowedStatuses.has(body?.status) ? body.status : node.status,
+          ...(hasLabelPatch ? { label } : {}),
+          ...(hasDescriptionPatch ? { description } : {}),
         }),
         ...(Array.isArray(node.logs) ? node.logs : []),
       ],
@@ -3655,6 +3696,7 @@ function teamCandidatePresentation(plan) {
   const candidate = plan.preparedCandidate;
   const approvalPatterns = [
     `团队计划: ${plan.planId}`, `Plan hash: ${plan.planHash}`, `来源: ${plan.sourceReferenceId} / ${plan.sourceSectionId} / ${plan.sourceContentHash}`,
+    `节点标题: ${candidate.nodeTitle}`, `修改描述: ${candidate.nodeDescription}`, '节点位置: horizontal-branch',
     `Parent: ${candidate.parentNodeId} @ r${candidate.parentRevision}`,
     `Candidate: ${candidate.nodeId} @ r${candidate.nodeRevision} / ${candidate.workingHash}`,
     ...plan.operators.flatMap((operator) => [
@@ -3674,6 +3716,9 @@ function teamCandidatePresentation(plan) {
     parentNodeId: candidate.parentNodeId,
     parentRevision: candidate.parentRevision,
     parentWorkingHash: candidate.parentWorkingHash,
+    nodeTitle: candidate.nodeTitle,
+    nodeDescription: candidate.nodeDescription,
+    nodePlacement: 'horizontal-branch',
     sessionBindingId: plan.axisBindingId,
     approvalPatterns,
     approvalDiff: candidate.diff,
@@ -3764,7 +3809,7 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (plan.preparedCandidate) {
     const existing = readRepositoryWorkNode(plan.preparedCandidate.nodeId);
     if (!existing || existing.timelineId !== plan.timelineId
-      || existing.parentNodeId !== plan.preparedCandidate.parentNodeId
+      || !sameOptionalNodeId(existing.parentNodeId, plan.preparedCandidate.structuralParentNodeId)
       || Number(existing.contentRevision || existing.updatedAt) !== plan.preparedCandidate.nodeRevision
       || hashDefNodeValue(existing.workingPayload) !== plan.preparedCandidate.workingHash) {
       return { ok: false, code: 'team-loadout-candidate-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The prepared team candidate changed; create a new plan.' };
@@ -3781,6 +3826,9 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
     || parentRevision !== Number(plan.checkoutBinding.revision)) {
     return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The parent checkout changed before the team candidate was prepared.' };
   }
+  const nodeMetadata = readAgentWorkNodeMetadata(input);
+  if (!nodeMetadata.ok) return { ...nodeMetadata, state: 'BLOCKED', component: 'team-loadout-plan', retryable: false, nextAction: nodeMetadata.message };
+  const structuralParentNodeId = horizontalConfigurationParent(parent);
   const definition = getDefToolDefinition('def.operator.config.patch');
   const atomic = await prepareAtomicTeamCandidate({
     parentPayload: parent.workingPayload,
@@ -3815,9 +3863,10 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
       }
       const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
         timelineId: gate.binding.timelineId,
-        parentNodeId: parent.id,
+        parentNodeId: structuralParentNodeId || null,
         branchId: `team-loadout-${Date.now()}`,
-        label: `[ai] team loadout ${plan.planId}`,
+        label: nodeMetadata.title,
+        description: nodeMetadata.description,
         basePayload: parent.workingPayload,
         workingPayload: candidatePayload,
         approvalPolicy: 'manual',
@@ -3825,11 +3874,11 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
       }, INTERNAL_RAW_TRANSPORT);
       return created?.status === 200 && created?.body?.node
         ? { ok: true, value: created.body.node }
-        : { ok: false, code: created?.body?.code || 'team-loadout-child-create-failed' };
+        : { ok: false, code: created?.body?.code || 'team-loadout-branch-create-failed' };
     },
   });
   if (!atomic.ok) {
-    return { ...atomic, state: 'BLOCKED', component: 'team-loadout-plan', message: 'The complete team candidate could not be prepared; no child was created.' };
+    return { ...atomic, state: 'BLOCKED', component: 'team-loadout-plan', message: 'The complete team candidate could not be prepared; no horizontal branch was created.' };
   }
   const node = atomic.candidate;
   plan.preparedCandidate = {
@@ -3839,6 +3888,9 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
     workingHash: hashDefNodeValue(node.workingPayload),
     parentNodeId: parent.id,
     parentRevision,
+    structuralParentNodeId,
+    nodeTitle: nodeMetadata.title,
+    nodeDescription: nodeMetadata.description,
     parentWorkingHash: hashDefNodeValue(parent.workingPayload),
     finalConfigs: atomic.finalConfigs,
     diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
@@ -3879,6 +3931,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
   const parent = readRepositoryWorkNode(candidate.parentNodeId);
   if (!gate.ok || (!stored.pendingCommand && gate.checkoutNodeId !== candidate.parentNodeId) || !node || !parent
     || node.timelineId !== stored.timelineId || parent.timelineId !== stored.timelineId
+    || !sameOptionalNodeId(node.parentNodeId, candidate.structuralParentNodeId)
     || Number(node.contentRevision || node.updatedAt) !== candidate.nodeRevision
     || Number(parent.contentRevision || parent.updatedAt) !== candidate.parentRevision
     || hashDefNodeValue(node.workingPayload) !== candidate.workingHash
@@ -4081,7 +4134,7 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     return rollback('team-loadout-postcondition-failed', { commandVerification, postcondition: liveVerification });
   }
   const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(node.id)}/commit`, {
-    label: `Approved team loadout ${stored.planId}`,
+    label: node.label,
     approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF complete team loadout approval.' },
   }, INTERNAL_RAW_TRANSPORT);
   if (committed?.status !== 200 || !committed?.body?.commit) {
@@ -4117,6 +4170,9 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     planHash: stored.planHash,
     nodeId: node.id,
     commitId: committed.body.commit.id,
+    nodeTitle: node.label,
+    nodeDescription: node.description || '',
+    nodePlacement: 'horizontal-branch',
     currentCheckoutTouched: true,
     commandVerification,
     finalizeVerification,
@@ -4144,7 +4200,7 @@ function discardPreparedTeamLoadoutPlan(input = {}) {
   const node = readRepositoryWorkNode(candidate.nodeId);
   const hasCommit = node ? getTimelineRepository().getLatestWorkNodeCommit(node.id) : null;
   const hasChild = node ? listRepositoryWorkNodes().some((item) => item.parentNodeId === node.id) : false;
-  if (!node || node.timelineId !== gate.binding.timelineId || node.parentNodeId !== candidate.parentNodeId
+  if (!node || node.timelineId !== gate.binding.timelineId || !sameOptionalNodeId(node.parentNodeId, candidate.structuralParentNodeId)
     || Number(node.contentRevision || node.updatedAt) !== candidate.nodeRevision
     || hashDefNodeValue(node.workingPayload) !== candidate.workingHash || hasCommit || hasChild
     || gate.checkoutNodeId !== candidate.parentNodeId) {
@@ -6352,6 +6408,8 @@ async function waitForExactDefOperatorConfigs(finalConfigs, waitMs) {
 async function executeDefOperatorConfigPrepare(input = {}) {
   const gate = resolveCanonicalWorkbenchCurrent(input);
   if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
+  const nodeMetadata = readAgentWorkNodeMetadata(input);
+  if (!nodeMetadata.ok) return { ...nodeMetadata, component: 'operator-config', retryable: false, nextAction: nodeMetadata.message };
   const planned = buildDefOperatorConfigPreviewCommand(input);
   if (!planned.ok) return planned;
   const definition = getDefToolDefinition('def.operator.config.patch');
@@ -6371,18 +6429,20 @@ async function executeDefOperatorConfigPrepare(input = {}) {
   if (!parent || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
     return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during preview. Re-read it and request a new approval.', currentCheckoutTouched: false };
   }
+  const structuralParentNodeId = horizontalConfigurationParent(parent);
   const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
     timelineId: parent.timelineId || parent.saveId,
-    parentNodeId,
+    parentNodeId: structuralParentNodeId || null,
     branchId: `operator-config-${Date.now()}`,
-    label: `[ai] ${preview.finalConfig.characterName || preview.finalConfig.characterId} operator config`,
+    label: nodeMetadata.title,
+    description: nodeMetadata.description,
     basePayload: parent.workingPayload,
     workingPayload: preview.preparedPayload,
     approvalPolicy: 'manual',
     riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Native approval is required before this prepared operator configuration can be applied.' }],
   }, INTERNAL_RAW_TRANSPORT);
   if (created?.status !== 200 || !created?.body?.node) {
-    return { ok: false, code: created?.body?.code || 'operator-config-child-create-failed', component: 'operator-config', retryable: true, nextAction: 'No configuration was applied. Rebuild the preview after resolving the Work Node error.', create: created?.body || null };
+    return { ok: false, code: created?.body?.code || 'operator-config-branch-create-failed', component: 'operator-config', retryable: true, nextAction: 'No configuration was applied. Rebuild the preview after resolving the Work Node error.', create: created?.body || null };
   }
   const node = created.body.node;
   prunePreparedOperatorConfigCapabilities();
@@ -6393,6 +6453,7 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     nodeRevision: Number(node.contentRevision || node.updatedAt),
     parentNodeId,
     parentRevision,
+    structuralParentNodeId,
     workingHash,
     sessionId: typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '',
     timelineId: gate.binding.timelineId,
@@ -6409,9 +6470,13 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     workingHash,
     parentNodeId,
     parentRevision,
+    structuralParentNodeId,
     timelineId: gate.binding.timelineId,
     axisBindingId: gate.binding.id,
     checkout: { nodeId: parentNodeId, revision: parentRevision },
+    nodeTitle: nodeMetadata.title,
+    nodeDescription: nodeMetadata.description,
+    nodePlacement: 'horizontal-branch',
     finalConfig: preview.finalConfig,
     diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
     commandVerification: verification,
@@ -6429,14 +6494,14 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   const capability = preparedOperatorConfigCapabilities.get(preparedToken);
   if (!capability || capability.nodeId !== nodeId || capability.nodeRevision !== nodeRevision
     || capability.parentNodeId !== parentNodeId || capability.parentRevision !== parentRevision) {
-    return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Build a new reviewed preview; this apply capability is missing, expired, or does not match the child.' };
+    return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Build a new reviewed preview; this apply capability is missing, expired, or does not match the horizontal branch.' };
   }
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   if (capability.sessionId && capability.sessionId !== sessionId) {
-    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared child belongs to a different native session.' };
+    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared horizontal branch belongs to a different native session.' };
   }
   if (capability.consumed) {
-    return { ok: false, code: 'prepared-capability-consumed', component: 'operator-config', retryable: false, nextAction: 'This prepared child has already begun an apply attempt; do not issue a second mutation.' };
+    return { ok: false, code: 'prepared-capability-consumed', component: 'operator-config', retryable: false, nextAction: 'This prepared horizontal branch has already begun an apply attempt; do not issue a second mutation.' };
   }
   const gate = resolveCanonicalWorkbenchCurrent(input);
   if (!gate.ok || capability.timelineId !== gate.binding.timelineId || capability.axisBindingId !== gate.binding.id) {
@@ -6446,6 +6511,7 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   const parent = readRepositoryWorkNode(parentNodeId);
   const checkout = gate.checkout;
   if (!node || !parent || node.timelineId !== gate.binding.timelineId || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
+    || !sameOptionalNodeId(node.parentNodeId, capability.structuralParentNodeId)
     || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
     || Number(node.contentRevision || node.updatedAt) !== nodeRevision
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash) {
@@ -6464,27 +6530,27 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     return { ok: false, code: 'approval-capability-required', component: 'operator-config', retryable: false, nextAction: 'Native user approval for this exact candidate is required before apply.' };
   }
   capability.consumed = true;
-  // Commit the reviewed child before touching the live renderer.  It remains
+  // Commit the reviewed horizontal branch before touching the live renderer. It remains
   // un-applied until the exact live mirror has converged.
   const committed = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/commit`, {
-    label: `Approved operator config ${finalConfig?.characterName || finalConfig?.characterId || ''}`,
+    label: node.label,
     approval: { mode: 'manual', approvedBy: 'user', approvedAt: Date.now(), rationale: 'Native DEF operator configuration approval.' },
   }, INTERNAL_RAW_TRANSPORT);
   if (committed?.status !== 200 || !committed?.body?.commit) {
-    return { ok: false, code: committed?.body?.code || 'operator-config-commit-failed', component: 'operator-config', retryable: false, nextAction: 'No live mutation was executed; inspect the prepared child node before any recovery.' };
+    return { ok: false, code: committed?.body?.code || 'operator-config-commit-failed', component: 'operator-config', retryable: false, nextAction: 'No live mutation was executed; inspect the prepared horizontal branch before any recovery.' };
   }
-  // The approval CAS above protects the reviewed child revision. Committing
-  // that exact child advances only its lifecycle revision, so the renderer
+  // The approval CAS above protects the reviewed branch revision. Committing
+  // that exact branch advances only its lifecycle revision, so the renderer
   // must check the committed revision rather than falsely treating the
   // bridge's own commit as an external checkout change.
   const committedNodeRevision = Number(committed.body.node?.contentRevision || committed.body.node?.updatedAt);
   if (!Number.isFinite(committedNodeRevision)) {
-    return { ok: false, code: 'operator-config-commit-revision-missing', component: 'operator-config', retryable: false, nextAction: 'The reviewed child commit did not return a stable revision; no renderer mutation was executed.' };
+    return { ok: false, code: 'operator-config-commit-revision-missing', component: 'operator-config', retryable: false, nextAction: 'The reviewed branch commit did not return a stable revision; no renderer mutation was executed.' };
   }
   const definition = getDefToolDefinition('def.operator.config.patch');
   const enqueued = enqueueDefToolCommands(definition, [{ op: 'applyPreparedOperatorConfig', parentNodeId, parentRevision, nodeId, nodeRevision: committedNodeRevision }], input);
   if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
-    return { ok: false, code: 'operator-config-apply-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'The reviewed child remains un-applied. Read the queue failure before retrying.', enqueue: enqueued.body || null, commitId: committed.body.commit.id };
+    return { ok: false, code: 'operator-config-apply-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'The reviewed branch remains un-applied. Read the queue failure before retrying.', enqueue: enqueued.body || null, commitId: committed.body.commit.id };
   }
   const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
   if (!commandVerification.pass) {
@@ -6492,7 +6558,7 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   }
   const liveVerification = await waitForExactDefOperatorConfig(finalConfig, input.snapshotWaitMs ?? 8000);
   if (!liveVerification.pass) {
-    return { ok: false, code: 'postcondition-failed', component: 'operator-config', retryable: true, nextAction: 'The child commit remains un-applied because the live mirror did not converge to the reviewed values.', nodeId, commitId: committed.body.commit.id, commandVerification, postcondition: { pass: false, live: liveVerification.normalized } };
+    return { ok: false, code: 'postcondition-failed', component: 'operator-config', retryable: true, nextAction: 'The branch commit remains un-applied because the live mirror did not converge to the reviewed values.', nodeId, commitId: committed.body.commit.id, commandVerification, postcondition: { pass: false, live: liveVerification.normalized } };
   }
   const applied = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/checkout-applied`, {
     commitId: committed.body.commit.id, appliedBy: 'user', appliedAt: Date.now(), rationale: 'Native DEF operator configuration approval applied exact reviewed payload.',
@@ -6520,8 +6586,10 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   if (pass) preparedOperatorConfigCapabilities.delete(preparedToken);
   return {
     ok: pass, component: 'operator-config', code: pass ? 'applied' : 'postcondition-failed', retryable: !pass,
-    nextAction: pass ? 'None.' : 'Inspect live mirror, child working payload, and checkoutApplied commit; do not describe the change as applied.',
-    nodeId, commitId: committed.body.commit.id, finalConfig, commandVerification, finalizeVerification, postcondition: { pass, exact, live: liveNormalized, checkoutPayload: payloadNormalized, commitPayload: commitNormalized },
+    nextAction: pass ? 'None.' : 'Inspect live mirror, branch working payload, and checkoutApplied commit; do not describe the change as applied.',
+    nodeId, commitId: committed.body.commit.id, nodeTitle: node.label, nodeDescription: node.description || '', nodePlacement: 'horizontal-branch',
+    structuralParentNodeId: capability.structuralParentNodeId || null,
+    finalConfig, commandVerification, finalizeVerification, postcondition: { pass, exact, live: liveNormalized, checkoutPayload: payloadNormalized, commitPayload: commitNormalized },
   };
 }
 
@@ -6540,7 +6608,7 @@ function discardDefPreparedOperatorConfig(input = {}) {
   }
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   if (capability.sessionId && capability.sessionId !== sessionId) {
-    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared child belongs to a different native session.' };
+    return { ok: false, code: 'prepared-capability-session-mismatch', component: 'operator-config', retryable: false, nextAction: 'This prepared horizontal branch belongs to a different native session.' };
   }
   const gate = resolveCanonicalWorkbenchCurrent(input);
   if (!gate.ok || capability.timelineId !== gate.binding.timelineId || capability.axisBindingId !== gate.binding.id) {
@@ -6554,18 +6622,18 @@ function discardDefPreparedOperatorConfig(input = {}) {
     ? listRepositoryWorkNodes().some((candidate) => candidate.parentNodeId === node.id)
     : false;
   if (!node || !parent || node.timelineId !== gate.binding.timelineId || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId
-    || node.parentNodeId !== parentNodeId || node.status !== 'open' || node.approvalPolicy !== 'manual'
+    || !sameOptionalNodeId(node.parentNodeId, capability.structuralParentNodeId) || node.status !== 'open' || node.approvalPolicy !== 'manual'
     || Number(node.contentRevision || node.updatedAt) !== nodeRevision
     || Number(parent.contentRevision || parent.updatedAt) !== parentRevision
     || hashDefNodeValue(node.workingPayload) !== capability.workingHash
     || latestCommit || hasPreparedChild || (checkout?.targetType === 'work-node' && checkout.targetId === nodeId)) {
-    return { ok: false, code: 'prepared-discard-precondition-failed', component: 'operator-config', retryable: false, nextAction: 'The prepared child is no longer an uncommitted open/manual leaf; no node was deleted.' };
+    return { ok: false, code: 'prepared-discard-precondition-failed', component: 'operator-config', retryable: false, nextAction: 'The prepared horizontal branch is no longer an uncommitted open/manual leaf; no node was deleted.' };
   }
   const deleted = handleAiTimelineWorkNodeRequest('POST', `/api/ai-timeline-worknodes/${encodeURIComponent(nodeId)}/delete`, {}, INTERNAL_RAW_TRANSPORT);
   if (deleted?.status === 200) preparedOperatorConfigCapabilities.delete(preparedToken);
   return deleted?.status === 200
     ? { ok: true, nodeId, discarded: true }
-    : { ok: false, code: deleted?.body?.code || 'operator-config-discard-failed', component: 'operator-config', retryable: true, nextAction: 'Remove the unapproved child node before retrying.', nodeId };
+    : { ok: false, code: deleted?.body?.code || 'operator-config-discard-failed', component: 'operator-config', retryable: true, nextAction: 'Remove the unapproved horizontal branch before retrying.', nodeId };
 }
 
 async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = false) {

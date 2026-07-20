@@ -76,13 +76,14 @@ async function waitForHealth() {
   throw new Error(`REST server did not start. ${stderr}`);
 }
 
-async function createNode(id, parentNodeId) {
+async function createNode(id, parentNodeId, description = '') {
   const result = await request('POST', '/api/ai-timeline-worknodes/create', {
     id,
     timelineId: 'save-rest',
     branchId: id,
     parentNodeId,
     label: id,
+    description,
     basePayload: payload,
     workingPayload: payload,
   });
@@ -155,7 +156,7 @@ try {
   const orphanRepositoryProjection = await request('GET', '/api/timeline-work-nodes?timelineId=save-rest');
   assert.deepEqual(orphanRepositoryProjection.body.nodes, []);
 
-  await createNode('root', null);
+  await createNode('root', null, '根节点说明');
   await createNode('child', 'root');
   await createNode('branch', 'root');
 
@@ -169,19 +170,28 @@ try {
   assert.deepEqual(deletedRepositoryTree.body.nodes, []);
 
   // Recreate the test tree for the checkout and protected-delete checks below.
-  await createNode('root', null);
+  await createNode('root', null, '根节点说明');
   await createNode('child', 'root');
   await createNode('branch', 'root');
 
   let list = await request('GET', '/api/ai-timeline-worknodes');
   assert.equal(list.status, 200);
   assert.equal(list.body.headNodeId, '');
+  assert.equal(list.body.nodes.find((node) => node.id === 'root')?.description, '根节点说明');
   assert.equal(list.body.nodes.find((node) => node.id === 'child')?.parentNodeId, 'root');
   assert.equal(list.body.nodes.some((node) => 'basePayload' in node || 'workingPayload' in node), false);
 
   const invalidStatus = await request('POST', '/api/ai-timeline-worknodes/branch/update', { status: 'made-up-state' });
   assert.equal(invalidStatus.status, 400, JSON.stringify(invalidStatus.body));
   assert.equal(invalidStatus.body.error?.code, 'invalid-timeline-work-node-status');
+
+  const metadataUpdate = await request('POST', '/api/ai-timeline-worknodes/branch/update', {
+    label: 'Agent 简短标题',
+    description: 'Agent 生成的本次修改说明。',
+  });
+  assert.equal(metadataUpdate.status, 200, JSON.stringify(metadataUpdate.body));
+  assert.equal(metadataUpdate.body.node.label, 'Agent 简短标题');
+  assert.equal(metadataUpdate.body.node.description, 'Agent 生成的本次修改说明。');
 
   const committed = await request('POST', '/api/ai-timeline-worknodes/branch/commit', {
     commitId: 'commit-branch',

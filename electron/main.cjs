@@ -6015,8 +6015,7 @@ function validateAiTimelineWorkNodePayload(payload, fieldName) {
 }
 
 function aiTimelineWorkNodeLabel(value, fallback) {
-  const label = typeof value === 'string' && value.trim() ? value.trim() : fallback;
-  return /^\[(?:ai|save|baseline)\]\s*/i.test(label) ? label : `[ai] ${label}`;
+  return (typeof value === 'string' && value.trim() ? value.trim() : fallback).slice(0, 120);
 }
 
 function toAiTimelineWorkNodeListItem(node) {

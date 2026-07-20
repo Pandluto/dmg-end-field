@@ -12,6 +12,8 @@ export function buildDefOperatorConfigInput(args = {}) {
       }
     : undefined
   return {
+    nodeTitle: typeof args.nodeTitle === 'string' ? args.nodeTitle.trim() : '',
+    nodeDescription: typeof args.nodeDescription === 'string' ? args.nodeDescription.trim() : '',
     ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
     ...(typeof args.characterName === 'string' && args.characterName.trim() ? { characterName: args.characterName.trim() } : {}),
     ...(weapon ? { weapon } : {}),
@@ -61,6 +63,12 @@ export function hasDefOperatorConfigSelection(input = {}) {
 
 export async function executeDefOperatorConfigAtomic(args, context, dependencies) {
   const input = buildDefOperatorConfigInput(args)
+  if (input.nodeTitle.length < 2 || input.nodeTitle.length > 32) {
+    throw new Error('def_operator_config_patch requires a concise 2-32 character Agent-written node title.')
+  }
+  if (input.nodeDescription.length < 8 || input.nodeDescription.length > 160) {
+    throw new Error('def_operator_config_patch requires an 8-160 character Agent-written change description.')
+  }
   if (!hasDefOperatorConfigSelection(input)) {
     throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
   }
@@ -69,7 +77,7 @@ export async function executeDefOperatorConfigAtomic(args, context, dependencies
   try {
     approval = await dependencies.askWithApproval(context, {
       action: 'Apply operator configuration',
-      summary: `Apply reviewed operator weapon/equipment configuration for ${input.characterName || input.characterId || 'selected operator'}`,
+      summary: `${prepared.nodeTitle || input.nodeTitle}：${prepared.nodeDescription || input.nodeDescription}`,
       permission: 'def_operator_config_patch',
       nodeId: prepared.nodeId,
       revision: prepared.nodeRevision,
@@ -81,9 +89,19 @@ export async function executeDefOperatorConfigAtomic(args, context, dependencies
       candidateRevision: prepared.nodeRevision,
       workingHash: prepared.workingHash,
       patterns: dependencies.formatApprovalPatterns(prepared),
-      diff: { type: 'operator-config', requested: input, finalConfig: prepared.finalConfig, checkout: prepared.checkout },
+      diff: {
+        type: 'operator-config',
+        nodeMetadata: {
+          title: prepared.nodeTitle || input.nodeTitle,
+          description: prepared.nodeDescription || input.nodeDescription,
+          placement: prepared.nodePlacement || 'horizontal-branch',
+        },
+        requested: input,
+        finalConfig: prepared.finalConfig,
+        checkout: prepared.checkout,
+      },
       riskFlags: [{ severity: 'warning', code: 'operator-config-mutation', message: 'Changes the visible operator weapon and/or equipment configuration.' }],
-      consequence: 'The approved child Work Node is committed and applied only if its checkout and revision still match this exact preview.',
+      consequence: 'The approved horizontal configuration branch is committed and applied only if its checkout and revision still match this exact preview.',
     })
   } catch (error) {
     await dependencies.callDefTool('def.operator.config.discard_prepared', prepared, context)

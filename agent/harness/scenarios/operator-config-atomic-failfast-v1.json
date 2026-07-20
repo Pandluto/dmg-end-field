@@ -16,6 +16,6 @@
   },
   "expect": {
     "slot": "toolGuidance",
-    "candidateContains": "one equipments array"
+    "candidateContains": "horizontal-branch placement"
   }
 }

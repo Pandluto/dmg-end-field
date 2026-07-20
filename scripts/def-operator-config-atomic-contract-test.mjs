@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import { buildDefOperatorConfigInput, executeDefOperatorConfigAtomic } from '../agent/runtime/def-tools/opencode/operator-config-input.mjs';
 
 const args = {
+  nodeTitle: '赛希更换长息加固板',
+  nodeDescription: '将赛希二号配件替换为长息加固板，保留其他武器与装备配置。',
   characterId: 'saixi',
   weaponName: '骑士精神',
   weaponLevel: 90,
@@ -19,6 +21,8 @@ const args = {
 };
 
 const input = buildDefOperatorConfigInput(args);
+assert.equal(input.nodeTitle, '赛希更换长息加固板');
+assert.match(input.nodeDescription, /二号配件/);
 assert.equal(input.weapon.name, '骑士精神');
 assert.equal(input.weapon.potential, 'PMAX');
 assert.equal(input.equipments.length, 4);
@@ -33,6 +37,7 @@ const calls = [];
 const prepared = {
   nodeId: 'candidate-node', nodeRevision: 12, parentNodeId: 'parent-node', parentRevision: 7,
   timelineId: 'timeline', axisBindingId: 'axis', workingHash: 'working-hash',
+  nodeTitle: args.nodeTitle, nodeDescription: args.nodeDescription, nodePlacement: 'horizontal-branch',
   finalConfig: { characterId: 'saixi', weapon: { name: '骑士精神' }, equipment: [] },
   checkout: { nodeId: 'parent-node', revision: 7 },
 };
@@ -57,6 +62,8 @@ assert.deepEqual(calls.map((call) => call.tool), [
 ]);
 assert.equal(calls[2].input.approvalCapability, 'approved-capability');
 assert.equal(calls[2].input.input.equipments.length, 4);
+assert.equal(calls[1].input.summary, `${args.nodeTitle}：${args.nodeDescription}`);
+assert.equal(calls[1].input.diff.nodeMetadata.placement, 'horizontal-branch');
 
 const rejectedCalls = [];
 await assert.rejects(() => executeDefOperatorConfigAtomic(args, { sessionID: 'session' }, {
@@ -73,9 +80,25 @@ assert.deepEqual(rejectedCalls, ['def.operator.config.prepare', 'def.operator.co
 
 const pluginSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
 assert.match(pluginSource, /equipments:\s*tool\.schema\.array\(tool\.schema\.object/);
+assert.match(pluginSource, /nodeTitle:\s*tool\.schema\.string\(\)\.min\(2\)\.max\(32\)/);
+assert.match(pluginSource, /placement.*horizontal-branch/);
 assert.match(pluginSource, /executeDefOperatorConfigAtomic\(args, context/);
+
+const restSource = fs.readFileSync(new URL('./ai-cli-rest-server.mjs', import.meta.url), 'utf8');
+assert.match(restSource, /parentNodeId:\s*structuralParentNodeId \|\| null/);
+assert.match(restSource, /label:\s*nodeMetadata\.title/);
+assert.match(restSource, /description:\s*nodeMetadata\.description/);
+assert.match(restSource, /sameOptionalNodeId\(node\.parentNodeId, capability\.structuralParentNodeId\)/);
+
+const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');
+assert.match(treeNodeSource, /work-node-tree-hover-card/);
+assert.match(treeNodeSource, /node\.description \|\| '暂无描述'/);
+const workbenchSource = fs.readFileSync(new URL('../src/components/CanvasBoard/index.tsx', import.meta.url), 'utf8');
+assert.match(workbenchSource, /label: command\.label\?\.trim\(\) \|\|/);
+assert.match(workbenchSource, /description: command\.description\?\.trim\(\) \|\| ''/);
+assert.doesNotMatch(workbenchSource, /`\[ai\] \$\{command\.label\.trim\(\)\}`/);
 
 console.log(JSON.stringify({
   ok: true,
-  checks: ['four-piece-schema', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation'],
+  checks: ['agent-node-metadata', 'horizontal-configuration-branch', 'hover-description-card', 'four-piece-schema', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation'],
 }));

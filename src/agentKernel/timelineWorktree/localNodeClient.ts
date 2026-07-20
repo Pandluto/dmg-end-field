@@ -76,6 +76,7 @@ export type CreateAiTimelineWorkNodeInput = {
   id?: string;
   parentNodeId?: string | null;
   label?: string;
+  description?: string;
   basePayload: TimelineSnapshotPayload;
   workingPayload?: TimelineSnapshotPayload;
   approvalPolicy?: AiTimelineApprovalPolicy;
@@ -85,6 +86,7 @@ export type CreateAiTimelineWorkNodeInput = {
 export type UpdateAiTimelineWorkNodeInput = {
   parentNodeId?: string;
   label?: string;
+  description?: string;
   workingPayload?: TimelineSnapshotPayload;
   // Replacing the entire working payload is guarded by the persisted content
   // revision; labels/status/log lifecycle changes do not require this CAS.

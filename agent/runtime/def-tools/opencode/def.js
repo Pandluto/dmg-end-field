@@ -128,6 +128,9 @@ function formatOperatorConfigApprovalPatterns(prepared) {
   const equipment = Array.isArray(config?.equipment) ? config.equipment : []
   const displayValue = (value) => typeof value === 'number' ? String(value) : value ?? '-'
   return [
+    `节点标题: ${prepared?.nodeTitle || '-'}`,
+    `修改描述: ${prepared?.nodeDescription || '-'}`,
+    `节点位置: ${prepared?.nodePlacement || '-'}`,
     `审批 Work Node: ${prepared?.nodeId || '-'} @ r${prepared?.nodeRevision ?? '-'}`,
     `Checkout: ${checkout?.nodeId || '-'} @ r${checkout?.revision ?? '-'}`,
     `干员: ${config?.characterName || config?.characterId || '-'}`,
@@ -456,14 +459,16 @@ export const node_code_discard = {
 }
 
 export const node_fork = {
-  description: 'Fork the current DEF Work Node/current checkout into an isolated child-node code workspace. You must provide a short change name and a concise description of the intended change and scope.',
+  description: 'Fork the current DEF Work Node/current checkout into an isolated node-code workspace. You must provide a short Agent-written change name and description. Timeline edits use child placement; a selected-operator replacement uses horizontal-branch placement.',
   args: {
     name: { type: 'string', description: 'Short phrase naming this change, for example "调整莱万汀燃烬顺序". Do not use ids or timestamps.' },
     description: { type: 'string', description: 'Concise description of the intended timeline change and scope.' },
-    approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this child node.' },
+    placement: { type: 'string', enum: ['child', 'horizontal-branch'], description: 'Use child for timeline edits. Use horizontal-branch when replacing a selected operator so the new state appears beside the current configuration.' },
+    approvalPolicy: { type: 'string', enum: ['auto-low-risk', 'ask-on-risk', 'manual'], description: 'Approval policy for using this node.' },
   },
   async execute(args, context) {
-    context.metadata({ title: 'Fork DEF child node' })
+    const placement = args.placement === 'horizontal-branch' ? 'horizontal-branch' : 'child'
+    context.metadata({ title: placement === 'horizontal-branch' ? 'Fork DEF horizontal branch' : 'Fork DEF child node' })
     const metadata = readForkMetadata(args)
     const workbench = await readOptionalWorkbenchState(context)
     if (workbench) requireWorkbenchCheckoutReady(context)
@@ -475,9 +480,10 @@ export const node_fork = {
       approvalPolicy: args.approvalPolicy,
       label: metadata.name,
       description: metadata.description,
+      placement,
     }, context)
     return {
-      title: 'DEF child node ready',
+      title: placement === 'horizontal-branch' ? 'DEF horizontal branch ready' : 'DEF child node ready',
       output: JSON.stringify(materialize(context, created.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId }), null, 2),
       metadata: { nodeId: created.node.id, family: 'def-node-crud' },
     }
@@ -888,8 +894,12 @@ export const team_loadout_plan_revise = {
 }
 
 export const team_loadout_plan_apply = {
-  description: 'Prepare one complete child candidate C from the current checkout P, request one native approval for the exact P-to-C diff, then atomically apply C and move checkout once. Rejection discards the uncommitted candidate; partial team application is never a normal result.',
-  args: { planHash: tool.schema.string().min(32).max(128) },
+  description: 'Prepare one complete Agent-named horizontal team-configuration branch C from current checkout P, request one native approval for the exact P-to-C diff, then atomically apply C and move checkout once. Rejection discards the uncommitted candidate; partial team application is never a normal result.',
+  args: {
+    planHash: tool.schema.string().min(32).max(128),
+    nodeTitle: tool.schema.string().min(2).max(32).describe('Agent-written concise Chinese title for this team configuration branch.'),
+    nodeDescription: tool.schema.string().min(8).max(160).describe('Agent-written one-sentence description of the reviewed team configuration change.'),
+  },
   async execute(args, context) {
     const pending = await callDefTool('def.team.loadout.plan.apply.reconcile', { planHash: args.planHash }, context)
     if (pending.state !== 'NOT_PENDING') {
@@ -900,7 +910,11 @@ export const team_loadout_plan_apply = {
         metadata: { family: 'def-team-loadout-plan', state: outcome.state, candidateNodeId: outcome.nodeId || null, postcondition: outcome.postcondition?.pass === true },
       }
     }
-    const prepared = await callDefTool('def.team.loadout.plan.apply.prepare', { planHash: args.planHash }, context)
+    const prepared = await callDefTool('def.team.loadout.plan.apply.prepare', {
+      planHash: args.planHash,
+      nodeTitle: args.nodeTitle,
+      nodeDescription: args.nodeDescription,
+    }, context)
     if (prepared.state !== 'READY') {
       return { title: 'DEF team loadout plan requires confirmation', output: JSON.stringify(prepared, null, 2), metadata: { family: 'def-team-loadout-plan', state: prepared.state } }
     }
@@ -916,7 +930,7 @@ export const team_loadout_plan_apply = {
     try {
       const approval = await askWithApproval(context, {
         action: 'Apply one reviewed atomic team candidate',
-        summary: `Apply reviewed team candidate ${prepared.candidateNodeId} for plan ${prepared.planId}`,
+        summary: `${prepared.nodeTitle || args.nodeTitle}：${prepared.nodeDescription || args.nodeDescription}`,
         permission: 'def_team_loadout_plan_apply',
         nodeId: prepared.candidateNodeId,
         revision: prepared.candidateRevision,
@@ -1089,11 +1103,13 @@ export const data_damage = dataResource({
 })
 
 export const operator_config_patch = {
-  description: 'Apply one complete, explicitly reviewed operator configuration through a single typed preview, native approval and atomic apply. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report the error, with no context/bind/materialize/read/edit call and no retry unless the error itself explicitly provides retryable=true plus a concrete safe nextAction.',
+  description: 'Apply one complete, explicitly reviewed operator configuration through one Agent-named horizontal branch, one typed preview, native approval and atomic apply. Write a concise nodeTitle and nodeDescription for the exact change. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report the error, with no context/bind/materialize/read/edit call and no retry unless the error itself explicitly provides retryable=true plus a concrete safe nextAction.',
   args: {
     // These must be actual optional Zod fields.  The legacy JSON-schema
     // adapter marks every property required, which coerced a model that was
     // asked to omit levels into inventing 1/1/1 and Lv0 values.
+    nodeTitle: tool.schema.string().min(2).max(32).describe('Agent-written concise Chinese title for this exact configuration change; no [ai] prefix, ids, timestamps, or generic fixed format.'),
+    nodeDescription: tool.schema.string().min(8).max(160).describe('Agent-written one-sentence description of what changes and what remains in scope.'),
     characterId: tool.schema.string().optional().describe('Selected operator id.'),
     characterName: tool.schema.string().optional().describe('Selected operator name when id is unavailable.'),
     weaponName: tool.schema.string().optional().describe('Exact weapon name from DEF weapon resource.'),
