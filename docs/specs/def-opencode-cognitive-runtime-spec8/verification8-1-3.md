@@ -396,3 +396,67 @@ The apply returned four explicit serial commit results (弭弗
 checkout-payload, and commit-payload postcondition. This verifies the approved
 plan hash against the live four-person result; it is not a repeat rejection,
 full regression, or second page round-trip.
+
+## Full equipment catalog and ASR-aware resolver (2026-07-20)
+
+The hand-tested source session `ses_0825b8d7bffezuXCo9cWbCy0q4` exposed a
+typed-tool contract failure, not stale Operator Configuration data. The page
+and resolver both read `def.equipment-sheet.library.v1`, but the REST resolver
+searched only the first eight items of each gear set and the OpenCode adapter
+displayed only four. Neither layer truthfully reported that truncation. The
+session therefore made 20 equipment calls and incorrectly claimed that
+`长息轻护甲·壹型` and `拓荒增量供氧栓·壹型` were absent.
+
+The resolver now searches a flattened full catalog before any display bound,
+falls back from the saved library to the page's draft storage with the same
+precedence as Operator Configuration, and returns V2 single/batch contracts
+with stable ids, match method, confidence, ambiguity, catalog count,
+exhaustive and truncated. Ranking is exact, normalized/phonetic, substring,
+then bounded fuzzy matching over all names. Public catalog-only equipment
+queries no longer require a matching current Workbench projection; current
+selection and every mutation/approval/postcondition gate remain unchanged.
+
+Focused contract evidence uses 18 sets / 158 equipment items:
+
+- `长息轻护甲·壹型` resolves to `equipment-c-h-a-n-g-x-i-2` from the same
+  page library, even though the item occurs after the old slice boundary.
+- `拓荒增量供氧栓一型` resolves to `equipment-g-6-1` through phonetic
+  normalization at confidence `0.96`.
+- `链结点` resolves to weapon `联结点` in one call through the shared ranking
+  helper rather than three fragment retries.
+- the ASR-like `长息轻护甲板·壹型` returns
+  `equipment-c-h-a-n-g-x-i-2` as a fuzzy `0.84` candidate with ambiguity and
+  is not silently promoted to an exact match.
+
+Candidate Harness `def-equipment-catalog-resolution@1.0.2`, content hash
+`ce0e00e0c7b9c032de7dca2c674813740b9e6dfcb0ce74df3f204cdba3753bb2`,
+teaches full-noun batch resolution, no fragment retry, honest absence claims,
+catalog-only routing, and mandatory confirmation below `0.90` or while
+ambiguous. It is registered only at
+`candidate/equipment-catalog-resolution`; stable remains
+`def-stable@0.0.0` / `90c89aa…71f16` and was not promoted.
+
+An intermediate native run after only the REST reload remained a **FAIL**:
+the running DEF sidecar still held the old OpenCode adapter, omitted
+`catalogOnly`, and returned `blocked-session-mismatch`. After a controlled
+DEF-agent-only reload, the final Pure Blackbox run passed the intended
+contract:
+
+| Evidence | Value |
+| --- | --- |
+| run / session | `native-harness-run-29f53923-195a-4f11-a3eb-bb62b1358180` / `ses_0822c54c3ffe1CalP3rK8rNbss` |
+| testRunId / turnId | `2c57c6ce-f5f3-4d4d-89e0-d0e3fb619cab` / `6dfa1c77-d415-4b5d-9f69-86ba2c14a07f` |
+| tools | one `def_data_weapon` exact query; one `def_data_equipment` four-name batch; both completed |
+| response | three exact/phonetic items confirmed; fuzzy `0.84` item explicitly left unconfirmed and one clarification requested |
+| terminal | `completed`; no native questions, mutation, permission or error; fixture cleanup completed |
+| state | main Workbench revision unchanged and `pending: null` before/after |
+
+Computer Use confirmed the real Chrome page at `127.0.0.1:3030`, AI mode,
+the embedded DEF OpenCode session, and the preserved original failure text.
+The v1 protocol remains authoritative for the new run; UI inspection was used
+only to establish that the real iframe was visible.
+
+Passing checks: `npm run test:def-equipment-resource`,
+`npm run test:def-workbench-tool-policy` (50 current/tree tools),
+`npm run interop:check`, `npm run harness:check`, `npm run typecheck`,
+`npm run check:repo`, focused `node --check`, and `git diff --check`.

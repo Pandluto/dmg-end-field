@@ -313,6 +313,10 @@ try {
   const snapshotBefore = await request('/api/main-workbench/snapshot', { internal: true });
   await mirror('formal-b', 'B');
   const mismatchSnapshot = await request('/api/main-workbench/snapshot', { internal: true });
+  const catalogOnlyAcrossMismatch = await generic('def.equipment.resolve', { query: '', catalogOnly: true }, 'session-a');
+  assert.equal(catalogOnlyAcrossMismatch.status, 200, JSON.stringify(catalogOnlyAcrossMismatch.body));
+  assert.equal(catalogOnlyAcrossMismatch.body.result.scope, 'public-catalog');
+  assert(catalogOnlyAcrossMismatch.body.result.candidates.every((candidate) => candidate.scope === 'public-catalog'));
   const tools = currentRegistryTools();
   for (const tool of tools) {
     const input = tool.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE ? { nodeId: 'node-a-only' } : {};

@@ -1,0 +1,1 @@
+For ordinary loadout-name resolution use only the typed roster, weapon and equipment resources. Do not read files or load game-knowledge merely to discover current product ids. Use game-knowledge only when the user explicitly asks about a guide, author, recommendation or game explanation.

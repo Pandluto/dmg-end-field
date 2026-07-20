@@ -1,0 +1,20 @@
+{
+  "id": "equipment-full-catalog-asr-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "我听写到一份配装清单：武器骑士精神，装备长息轻护甲板·壹型、长息蓄电核、拓荒增量供氧栓一型和长息护手一型。先从配置页目录核对名称和 ID，不要应用。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_weapon", "def_data_equipment"],
+    "forbiddenTools": ["def_node_use", "def_operator_config_patch"],
+    "maxRepeatedToolCalls": { "def_data_equipment": 1, "def_data_weapon": 1 },
+    "forbiddenAssistantText": ["只有4件", "拓荒只有护甲", "翻遍全库", "未收录", "属于同一件无误", "就是对的"],
+    "mustKeepState": true
+  },
+  "expect": {
+    "slot": "toolGuidance",
+    "candidateContains": "call def_data_equipment once with queries"
+  }
+}

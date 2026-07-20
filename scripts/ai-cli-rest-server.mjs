@@ -5,6 +5,8 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
+import Fuse from 'fuse.js';
+import { pinyin } from 'pinyin-pro';
 import { buildMainWorkbenchEvidence } from '../src/agentKernel/mainWorkbench/evidenceRuntime.mjs';
 import {
   MAIN_WORKBENCH_SUPPORTED_OPS,
@@ -82,6 +84,7 @@ const MAIN_WORKBENCH_TRANSIENT_STORAGE_KEYS = new Set([
   MAIN_WORKBENCH_SNAPSHOT_KEY,
 ]);
 const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
+const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
@@ -2367,6 +2370,79 @@ function normalizeDefToolText(value) {
     .toLowerCase();
 }
 
+function buildDefPhoneticText(value) {
+  return pinyin(String(value || ''), { toneType: 'none', type: 'array' })
+    .map((part) => normalizeDefToolText(part))
+    .filter(Boolean)
+    .join('');
+}
+
+function buildDefRankedSearchRecord(candidate, searchValues = []) {
+  const values = searchValues.map((value) => String(value || '').trim()).filter(Boolean);
+  const searchText = values.join(' ');
+  const phoneticParts = values.map(buildDefPhoneticText).filter(Boolean);
+  return {
+    candidate,
+    searchText,
+    normalizedValues: values.map(normalizeDefToolText).filter(Boolean),
+    normalizedText: normalizeDefToolText(searchText),
+    phoneticValues: phoneticParts,
+    phoneticText: phoneticParts.join(' '),
+  };
+}
+
+function rankDefResourceCandidates(records, rawQuery, limit = 12) {
+  const query = normalizeDefToolText(rawQuery);
+  const boundedLimit = Math.max(1, Math.min(Number(limit || 12) || 12, 40));
+  const finish = (matched, matchMethod, confidence) => ({
+    candidates: matched.slice(0, boundedLimit).map((record) => ({
+      ...record.candidate,
+      matchMethod,
+      confidence,
+    })),
+    matchCount: matched.length,
+    exhaustive: matched.length <= boundedLimit,
+    truncated: matched.length > boundedLimit,
+  });
+  if (!query) return finish(records, 'catalog', 1);
+
+  const exact = records.filter((record) => record.normalizedValues.includes(query));
+  if (exact.length) return finish(exact, 'exact', 1);
+
+  const queryPhonetic = buildDefPhoneticText(rawQuery);
+  const exactPhonetic = queryPhonetic
+    ? records.filter((record) => record.phoneticValues.includes(queryPhonetic))
+    : [];
+  if (exactPhonetic.length) return finish(exactPhonetic, 'phonetic', 0.96);
+
+  const substring = records.filter((record) => record.normalizedText.includes(query));
+  if (substring.length) return finish(substring, 'substring', 0.9);
+
+  const phoneticSubstring = queryPhonetic
+    ? records.filter((record) => record.phoneticText.includes(queryPhonetic))
+    : [];
+  if (phoneticSubstring.length) return finish(phoneticSubstring, 'phonetic-substring', 0.86);
+
+  const fuse = new Fuse(records, {
+    keys: ['searchText', 'normalizedText', 'phoneticText'],
+    threshold: 0.38,
+    ignoreLocation: true,
+    includeScore: true,
+    shouldSort: true,
+  });
+  const fuzzy = fuse.search(String(rawQuery || '').trim());
+  return {
+    candidates: fuzzy.slice(0, boundedLimit).map((result) => ({
+      ...result.item.candidate,
+      matchMethod: 'fuzzy',
+      confidence: Number(Math.max(0.5, Math.min(0.84, 1 - Number(result.score || 0))).toFixed(3)),
+    })),
+    matchCount: fuzzy.length,
+    exhaustive: fuzzy.length <= boundedLimit,
+    truncated: fuzzy.length > boundedLimit,
+  };
+}
+
 function parseDefOrdinalText(text) {
   const normalized = normalizeDefToolText(text);
   const digitMatch = /第?(\d+)(?:个|次|号)?/.exec(normalized);
@@ -2466,11 +2542,15 @@ function readMainWorkbenchSnapshotMirror() {
 
 function readDefEquipmentLibrary() {
   const library = readMainWorkbenchJson(EQUIPMENT_LIBRARY_STORAGE_KEY, null);
-  if (library && typeof library === 'object') return library;
+  if (library && typeof library === 'object' && Object.keys(library.gearSets || {}).length > 0) return library;
+  const draft = readMainWorkbenchJson(EQUIPMENT_DRAFT_STORAGE_KEY, null);
+  if (draft && typeof draft === 'object' && Object.keys(draft.gearSets || {}).length > 0) return draft;
   try {
     const payload = JSON.parse(fs.readFileSync(nowStoragePath, 'utf-8'));
     const storedLibrary = payload?.storage?.local?.[EQUIPMENT_LIBRARY_STORAGE_KEY];
-    return storedLibrary && typeof storedLibrary === 'object' ? storedLibrary : { gearSets: {} };
+    if (storedLibrary && typeof storedLibrary === 'object' && Object.keys(storedLibrary.gearSets || {}).length > 0) return storedLibrary;
+    const storedDraft = payload?.storage?.local?.[EQUIPMENT_DRAFT_STORAGE_KEY];
+    return storedDraft && typeof storedDraft === 'object' ? storedDraft : { gearSets: {} };
   } catch {
     return { gearSets: {} };
   }
@@ -2529,7 +2609,9 @@ function compactDefGearSet(gearSet = {}) {
     name: String(gearSet.name || ''),
     equipmentCount: equipments.length,
     parts: [...new Set(equipments.map((equipment) => equipment.part).filter(Boolean))],
-    equipments: equipments.slice(0, 8),
+    equipments: equipments.slice(0, 12),
+    equipmentListExhaustive: equipments.length <= 12,
+    equipmentListTruncated: equipments.length > 12,
     threePieceBuffs,
     summary: threePieceBuffs.length
       ? `${gearSet.name || gearSet.gearSetId} 是装备套装；三件套效果：${threePieceBuffs.map((buff) => `${buff.name || buff.typeKey}${buff.value !== null && buff.value !== undefined ? ` ${buff.value}` : ''}`).join('、')}。`
@@ -2736,37 +2818,55 @@ function compactDefWeaponLibraryEntry(raw, fallbackId) {
   };
 }
 
+function resolveDefWeaponQuery(entries, rawQuery, limit = 12) {
+  const query = normalizeDefToolText(rawQuery);
+  const ranked = rankDefResourceCandidates(entries.map((weapon) => buildDefRankedSearchRecord({
+    ...weapon,
+    kind: 'weapon',
+    scope: 'catalog',
+    source: 'operator-config-weapon-library',
+  }, [weapon.name, weapon.id, weapon.type])), rawQuery, boundedDefLimit(limit, 12));
+  return {
+    contract: 'DefWeaponResolutionV2',
+    scope: 'catalog',
+    source: 'operator-config-weapon-library',
+    catalogCount: entries.length,
+    count: ranked.candidates.length,
+    query,
+    candidates: ranked.candidates,
+    ambiguity: ranked.candidates.length !== 1 || ranked.candidates[0]?.matchMethod === 'fuzzy',
+    exhaustive: ranked.exhaustive,
+    truncated: ranked.truncated,
+    suggestedQuestion: ranked.candidates.length === 0
+      ? '干员配置页武器库中没有匹配武器；这不代表外部游戏资料不存在。'
+      : ranked.candidates.length > 1 || ranked.candidates[0]?.matchMethod === 'fuzzy'
+        ? '干员配置页武器库中有多个或近似候选。请根据名称、id、类型和匹配置信度确认。'
+        : '',
+  };
+}
+
 function resolveDefWeapons(input = {}) {
   const library = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
   const entries = library && typeof library === 'object' && !Array.isArray(library)
     ? Object.entries(library).map(([fallbackId, raw]) => compactDefWeaponLibraryEntry(raw, fallbackId)).filter(Boolean)
     : [];
-  const rawQuery = input.query || input.name || input.text || '';
-  const query = normalizeDefToolText(rawQuery);
-  const limit = boundedDefLimit(input.limit, 12);
-  const matched = entries
-    .filter((weapon) => !query || normalizeDefToolText(`${weapon.name} ${weapon.id} ${weapon.type}`).includes(query))
-    .map((weapon) => ({
-      ...weapon,
-      confidence: normalizeDefToolText(weapon.name) === query || normalizeDefToolText(weapon.id) === query ? 1 : 0.8,
-    }));
-  const candidates = matched.slice(0, limit);
-  return {
-    scope: 'catalog',
-    source: 'operator-config-weapon-library',
-    catalogCount: entries.length,
-    count: candidates.length,
-    query,
-    candidates,
-    ambiguity: matched.length !== 1,
-    exhaustive: matched.length <= limit,
-    truncated: matched.length > limit,
-    suggestedQuestion: matched.length === 0
-      ? '干员配置页武器库中没有匹配武器；这不代表外部游戏资料不存在。'
-      : matched.length > 1
-        ? '干员配置页武器库中有多个候选。请指定完整武器名、id 或武器类型。'
-        : '',
-  };
+  const queries = Array.isArray(input.queries)
+    ? [...new Set(input.queries.map((query) => String(query || '').trim()).filter(Boolean))].slice(0, 8)
+    : [];
+  if (queries.length) {
+    const results = queries.map((query) => resolveDefWeaponQuery(entries, query, input.limitPerQuery || 5));
+    return {
+      contract: 'DefWeaponBatchResolutionV2',
+      scope: 'catalog',
+      source: 'operator-config-weapon-library',
+      catalogCount: entries.length,
+      queryCount: results.length,
+      exhaustive: results.every((result) => result.exhaustive),
+      truncated: results.some((result) => result.truncated),
+      results,
+    };
+  }
+  return resolveDefWeaponQuery(entries, input.query || input.name || input.text || '', input.limit || 12);
 }
 
 function selectedDefCharacterIds(input = {}) {
@@ -4302,60 +4402,136 @@ function resolveDefBuffs(input = {}) {
   };
 }
 
-function resolveDefEquipment(input = {}) {
-  const query = normalizeDefToolText(input.query || input.name || input.text || '');
-  const publicOnly = input.__defPublicOnly === true;
-  const snapshot = publicOnly ? null : (input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror());
-  const candidates = [];
+function buildDefEquipmentSearchIndex(snapshot, library) {
+  const publicEquipmentIds = new Set();
+  const currentSelections = new Map();
   for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
     for (const equipment of Array.isArray(config?.equipment) ? config.equipment : []) {
-      const candidate = {
-        kind: 'currentEquipment',
-        source: 'current-selection',
-        scope: 'current-selection',
-        characterName: config?.characterName || '',
-        slotKey: equipment?.slotKey || '',
-        equipmentId: equipment?.equipmentId || '',
-        name: equipment?.name || '',
-        part: equipment?.part || '',
-        effectCount: Array.isArray(equipment?.effects) ? equipment.effects.length : 0,
-      };
-      if (!query || normalizeDefToolText(`${candidate.characterName} ${candidate.name} ${candidate.part} ${candidate.equipmentId}`).includes(query)) {
-        candidates.push({ ...candidate, confidence: normalizeDefToolText(candidate.name) === query ? 1 : 0.7 });
-      }
+      const equipmentId = String(equipment?.equipmentId || '');
+      if (!equipmentId) continue;
+      const selections = currentSelections.get(equipmentId) || [];
+      selections.push({
+        characterName: String(config?.characterName || ''),
+        slotKey: String(equipment?.slotKey || ''),
+      });
+      currentSelections.set(equipmentId, selections);
     }
   }
-  const library = readDefEquipmentLibrary();
-  for (const gearSet of Object.values(library.gearSets || {})) {
+
+  const records = [];
+  let catalogCount = 0;
+  let gearSetCount = 0;
+  for (const gearSet of Object.values(library?.gearSets || {})) {
     if (!gearSet || typeof gearSet !== 'object') continue;
+    gearSetCount += 1;
     const compactSet = compactDefGearSet(gearSet);
-    const haystack = normalizeDefToolText([
-      compactSet.name,
-      compactSet.gearSetId,
-      compactSet.summary,
-      ...compactSet.equipments.flatMap((equipment) => [equipment.name, equipment.part, equipment.id]),
-      ...compactSet.threePieceBuffs.flatMap((buff) => [buff.name, buff.typeKey, buff.value]),
-    ].join(' '));
-    if (query && !haystack.includes(query)) continue;
-    candidates.push({
+    records.push(buildDefRankedSearchRecord({
       kind: 'gearSet',
       source: 'equipment-library',
       scope: 'public-catalog',
       ...compactSet,
-      confidence: normalizeDefToolText(compactSet.name) === query || normalizeDefToolText(compactSet.gearSetId) === query ? 1 : 0.82,
       recommendation: compactSet.threePieceBuffs.length
         ? '这是装备套装；如果用户说“加长息 Buff”，应先确认是要装套装，还是只把三件套效果作为按钮 Buff 附加。'
         : '这是装备套装；未发现可直接附加的三件套 Buff。',
-    });
+    }, [
+      compactSet.name,
+      compactSet.gearSetId,
+      ...compactSet.threePieceBuffs.flatMap((buff) => [buff.name, buff.typeKey]),
+    ]));
+    for (const equipment of Object.values(gearSet.equipments || {})) {
+      if (!equipment || typeof equipment !== 'object') continue;
+      const compact = compactDefEquipmentItem(equipment);
+      if (!compact.id || !compact.name) continue;
+      catalogCount += 1;
+      publicEquipmentIds.add(compact.id);
+      records.push(buildDefRankedSearchRecord({
+        kind: 'equipment',
+        source: 'equipment-library',
+        scope: 'public-catalog',
+        equipmentId: compact.id,
+        name: compact.name,
+        part: compact.part,
+        effectLabels: compact.effectLabels,
+        gearSetId: compactSet.gearSetId,
+        gearSetName: compactSet.name,
+        currentSelections: currentSelections.get(compact.id) || [],
+      }, [compact.name, compact.id, compact.part, compactSet.name, compactSet.gearSetId]));
+    }
   }
+
+  for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
+    for (const equipment of Array.isArray(config?.equipment) ? config.equipment : []) {
+      const equipmentId = String(equipment?.equipmentId || '');
+      if (!equipmentId || publicEquipmentIds.has(equipmentId)) continue;
+      const candidate = {
+        kind: 'currentEquipment',
+        source: 'current-selection',
+        scope: 'current-selection',
+        characterName: String(config?.characterName || ''),
+        slotKey: String(equipment?.slotKey || ''),
+        equipmentId,
+        name: String(equipment?.name || ''),
+        part: String(equipment?.part || ''),
+        effectCount: Array.isArray(equipment?.effects) ? equipment.effects.length : 0,
+      };
+      records.push(buildDefRankedSearchRecord(candidate, [candidate.name, candidate.equipmentId, candidate.part, candidate.characterName]));
+    }
+  }
+  return { records, catalogCount, gearSetCount };
+}
+
+function resolveDefEquipmentQuery(index, rawQuery, options = {}) {
+  const query = normalizeDefToolText(rawQuery);
+  const ranked = rankDefResourceCandidates(index.records, rawQuery, options.limit || 12);
+  const publicOnly = options.publicOnly === true;
   return {
+    contract: 'DefEquipmentResolutionV2',
     query,
     scope: publicOnly ? 'public-catalog' : 'current-and-public',
     source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
-    candidates: candidates.sort((left, right) => (right.confidence || 0) - (left.confidence || 0)).slice(0, Math.max(1, Math.min(Number(input.limit || 12) || 12, 40))),
-    ambiguity: candidates.length !== 1,
-    suggestedQuestion: candidates.length > 1 ? '找到多个装备候选。请指定干员、槽位或装备名。' : '',
+    catalogCount: index.catalogCount,
+    gearSetCount: index.gearSetCount,
+    count: ranked.candidates.length,
+    candidates: ranked.candidates,
+    ambiguity: ranked.candidates.length !== 1 || ranked.candidates[0]?.matchMethod === 'fuzzy',
+    exhaustive: ranked.exhaustive,
+    truncated: ranked.truncated,
+    suggestedQuestion: ranked.candidates.length === 0
+      ? '干员配置页同源装备库中没有匹配候选；这不代表外部游戏资料不存在。'
+      : ranked.candidates.length > 1 || ranked.candidates[0]?.matchMethod === 'fuzzy'
+        ? '找到多个或近似装备候选。请根据名称、稳定 id、部位和匹配置信度确认。'
+        : '',
   };
+}
+
+function resolveDefEquipment(input = {}) {
+  const publicOnly = input.__defPublicOnly === true;
+  const snapshot = publicOnly ? null : (input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror());
+  const index = buildDefEquipmentSearchIndex(snapshot, readDefEquipmentLibrary());
+  const queries = Array.isArray(input.queries)
+    ? [...new Set(input.queries.map((query) => String(query || '').trim()).filter(Boolean))].slice(0, 8)
+    : [];
+  if (queries.length) {
+    const results = queries.map((query) => resolveDefEquipmentQuery(index, query, {
+      publicOnly,
+      limit: Math.max(1, Math.min(Number(input.limitPerQuery || 5) || 5, 12)),
+    }));
+    return {
+      contract: 'DefEquipmentBatchResolutionV2',
+      scope: publicOnly ? 'public-catalog' : 'current-and-public',
+      source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
+      catalogCount: index.catalogCount,
+      gearSetCount: index.gearSetCount,
+      queryCount: results.length,
+      exhaustive: results.every((result) => result.exhaustive),
+      truncated: results.some((result) => result.truncated),
+      results,
+    };
+  }
+  return resolveDefEquipmentQuery(index, input.query || input.name || input.text || '', {
+    publicOnly,
+    limit: input.limit || 12,
+  });
 }
 
 function readDefWorkNode(input = {}) {
@@ -6983,6 +7159,11 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
     return { ok: false, response: failScript(403, 'denied-approval-decision', 'Approval decisions are accepted only from the native permission continuation.') };
   }
   if (policy.projectionAccess === DEF_PROJECTION_ACCESS.MIXED_CURRENT_PUBLIC) {
+    if (input.catalogOnly === true) {
+      const requestedHost = typeof input.__defSessionId === 'string' && input.__defSessionId.trim() ? 'workbench' : 'ai-cli';
+      if (!policy.allowedHosts.includes(requestedHost)) return deniedHost(requestedHost);
+      return { ok: true, input: { ...input, __defPublicOnly: true }, policy };
+    }
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
     if (!sessionId) {
       if (!policy.allowedHosts.includes('ai-cli')) return deniedHost('ai-cli');

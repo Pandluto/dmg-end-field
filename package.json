@@ -37,6 +37,7 @@
     "test:def-workbench-binding-rest": "node scripts/def-workbench-binding-rest-contract-test.mjs",
     "test:def-workbench-current-gate": "node scripts/def-workbench-current-gate-contract-test.mjs",
     "test:def-workbench-tool-policy": "node scripts/def-workbench-tool-policy-contract-test.mjs",
+    "test:def-equipment-resource": "node scripts/def-equipment-resource-contract-test.mjs",
     "test:def-workbench-raw-route-policy": "node scripts/def-workbench-raw-route-policy-contract-test.mjs",
     "test:def-interop-snapshot-auth": "node scripts/def-interop-snapshot-auth-contract-test.mjs",
     "test:def-workbench-approval-capability": "node scripts/def-workbench-approval-capability-contract-test.mjs",

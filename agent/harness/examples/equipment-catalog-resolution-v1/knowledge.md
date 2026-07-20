@@ -1,0 +1,1 @@
+Punctuation, 一/壹/1, homophones and one-character ASR errors may refer to the same catalog product. Use matchMethod, confidence, ambiguity, exhaustive and truncated from the live typed result to decide whether to accept or clarify. Guides and glossaries may explain aliases, but their fixed item counts are not live catalog completeness evidence.

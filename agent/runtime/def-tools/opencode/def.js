@@ -952,47 +952,98 @@ export const team_loadout_plan_apply = {
 
 export const data_weapon = dataResource({
   title: 'DEF weapon resource',
-  description: 'Search the same read-only local weapon library shown by the Operator Configuration page. Results include catalog scope/source and never mean only currently equipped weapons.',
+  description: 'Search the same complete read-only weapon library shown by Operator Configuration. Use queries for several names in one call. Ranked phonetic/fuzzy candidates expose matchMethod and confidence; confirm ambiguous fuzzy matches instead of retrying shorter fragments.',
   tool: 'def.weapon.resolve',
-  input: ({ query }) => ({ query, limit: 12 }),
+  args: {
+    query: tool.schema.string().max(160).optional().describe('One complete weapon name, id, type, or ASR text.'),
+    queries: tool.schema.array(tool.schema.string().min(1).max(160)).min(1).max(8).optional()
+      .describe('Several complete weapon names or ASR texts to resolve together; prefer this over repeated fragment searches.'),
+  },
+  input: ({ query, queries }) => Array.isArray(queries) && queries.length
+    ? { queries, limitPerQuery: 5 }
+    : { query: query || '', limit: 12 },
 })
+
+function compactEquipmentResourceCandidate(item) {
+  return {
+    kind: item.kind,
+    scope: item.scope,
+    source: item.source,
+    characterName: item.characterName,
+    slotKey: item.slotKey,
+    equipmentId: item.equipmentId,
+    gearSetId: item.gearSetId,
+    gearSetName: item.gearSetName,
+    name: item.name,
+    part: item.part,
+    summary: item.summary,
+    matchMethod: item.matchMethod,
+    confidence: item.confidence,
+    equipmentCount: item.equipmentCount,
+    equipmentListExhaustive: item.equipmentListExhaustive,
+    equipmentListTruncated: item.equipmentListTruncated,
+    effectLabels: item.effectLabels,
+    currentSelections: item.currentSelections,
+    equipments: Array.isArray(item.equipments) ? item.equipments.slice(0, 12).map((equipment) => ({
+      id: equipment.id,
+      name: equipment.name,
+      part: equipment.part,
+    })) : undefined,
+    threePieceBuffs: Array.isArray(item.threePieceBuffs) ? item.threePieceBuffs.slice(0, 4).map((buff) => ({
+      id: buff.id,
+      name: buff.name,
+      typeKey: buff.typeKey,
+      value: buff.value,
+    })) : undefined,
+  }
+}
+
+function transformEquipmentResolution(result) {
+  const transformOne = (resolution) => ({
+    contract: resolution.contract,
+    scope: resolution.scope,
+    source: resolution.source,
+    query: resolution.query,
+    catalogCount: resolution.catalogCount,
+    gearSetCount: resolution.gearSetCount,
+    count: resolution.count,
+    ambiguity: resolution.ambiguity,
+    exhaustive: resolution.exhaustive,
+    truncated: resolution.truncated,
+    suggestedQuestion: resolution.suggestedQuestion,
+    candidates: Array.isArray(resolution.candidates)
+      ? resolution.candidates.slice(0, 12).map(compactEquipmentResourceCandidate)
+      : [],
+  })
+  if (Array.isArray(result.results)) {
+    return {
+      contract: result.contract,
+      scope: result.scope,
+      source: result.source,
+      catalogCount: result.catalogCount,
+      gearSetCount: result.gearSetCount,
+      queryCount: result.queryCount,
+      exhaustive: result.exhaustive,
+      truncated: result.truncated,
+      results: result.results.slice(0, 8).map(transformOne),
+    }
+  }
+  return transformOne(result)
+}
 
 export const data_equipment = dataResource({
   title: 'DEF equipment resource',
-  description: 'Resolve DEF equipment and gear-set data. Each result explicitly says whether it came from the current Workbench selection or the public catalog; catalog candidates are not currently equipped items.',
+  description: 'Resolve stable ids from the same complete equipment library as Operator Configuration. Use queries for several full names in one call. Results rank exact, phonetic, and fuzzy matches with honest catalogCount/exhaustive/truncated facts; never infer absence from a displayed subset.',
   tool: 'def.equipment.resolve',
-  input: ({ query }) => ({ query, limit: 12 }),
-  transform: (result) => ({
-    scope: result.scope,
-    source: result.source,
-    query: result.query,
-    ambiguity: result.ambiguity,
-    suggestedQuestion: result.suggestedQuestion,
-    candidates: Array.isArray(result.candidates) ? result.candidates.slice(0, 12).map((item) => ({
-      kind: item.kind,
-      scope: item.scope,
-      source: item.source,
-      characterName: item.characterName,
-      slotKey: item.slotKey,
-      equipmentId: item.equipmentId,
-      gearSetId: item.gearSetId,
-      name: item.name,
-      part: item.part,
-      summary: item.summary,
-      confidence: item.confidence,
-      equipments: Array.isArray(item.equipments) ? item.equipments.slice(0, 4).map((equipment) => ({
-        id: equipment.id,
-        name: equipment.name,
-        part: equipment.part,
-      })) : undefined,
-      threePieceBuffs: Array.isArray(item.threePieceBuffs) ? item.threePieceBuffs.slice(0, 4).map((buff) => ({
-        id: buff.id,
-        name: buff.name,
-        typeKey: buff.typeKey,
-        value: buff.value,
-      })) : undefined,
-    })) : [],
-  }),
+  args: {
+    query: tool.schema.string().max(160).optional().describe('One complete equipment or gear-set name, stable id, or ASR text.'),
+    queries: tool.schema.array(tool.schema.string().min(1).max(160)).min(1).max(8).optional()
+      .describe('Several complete equipment names or ASR texts to resolve together; use this instead of repeated shorter searches.'),
+  },
+  input: ({ query, queries }) => Array.isArray(queries) && queries.length
+    ? { queries, limitPerQuery: 5, catalogOnly: true }
+    : { query: query || '', limit: 12, catalogOnly: true },
+  transform: transformEquipmentResolution,
 })
 
 export const data_skill = dataResource({
