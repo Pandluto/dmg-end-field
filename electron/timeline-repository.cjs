@@ -1259,6 +1259,7 @@ function createTimelineRepository({ databasePath }) {
       timelineId: row.timeline_id,
       branchId: row.branch_id,
       label: row.label,
+      description: row.description || '',
       status: row.status,
       approvalPolicy: row.approval_policy,
       riskFlags: parse(row.risk_flags, []),
