@@ -19,7 +19,7 @@ const pages = [
   ["06-state-persistence-recovery.md", "状态、持久化与恢复"],
   ["07-developer-skill.md", "开发者自己的 Skill"],
   ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
-  ["09-mcp-as-another-solution.md", "MCP 作为另外一种解法"],
+  ["09-mcp-as-another-solution.md", "MCP 如何开放能力"],
 ]
 
 const escapeHtml = (value) =>
@@ -30,15 +30,20 @@ const navigation = (activeFile) => pages.map(([file, label], index) => `
     <span>${index === 0 ? "◎" : String(index).padStart(2, "0")}</span>${escapeHtml(label)}
   </a>`).join("")
 
-const shell = ({ file, title, content }) => `<!doctype html>
+const shell = ({ file, title, content }) => {
+  const articleLabel = file === "09-mcp-as-another-solution.md"
+    ? "09 / MODEL CONTEXT PROTOCOL"
+    : `${file.replace(/\.md$/, "").toUpperCase()} / DEF AGENT RUNTIME`
+
+  return `<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>${escapeHtml(title)} · Agent 开发随记</title>
-  <link rel="stylesheet" href="styles.css" />
-  <script src="viewer.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=20260721-11" />
+  <script src="viewer.js?v=20260721-11" defer></script>
 </head>
 <body>
   <div class="page-glow glow-one"></div>
@@ -59,7 +64,7 @@ const shell = ({ file, title, content }) => `<!doctype html>
   </aside>
   <main>
     <div class="article-meta">
-      <div class="article-kicker"><span></span> ${escapeHtml(file.replace(/\.md$/, "").toUpperCase())} / DEF AGENT RUNTIME</div>
+      <div class="article-kicker"><span></span> ${escapeHtml(articleLabel)}</div>
       <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
     </div>
     <article class="markdown-body">${content}</article>
@@ -67,6 +72,7 @@ const shell = ({ file, title, content }) => `<!doctype html>
   </main>
 </body>
 </html>`
+}
 
 await rm(outputDir, { recursive: true, force: true })
 await mkdir(outputDir, { recursive: true })

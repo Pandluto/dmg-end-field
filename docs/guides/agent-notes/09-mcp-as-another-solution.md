@@ -1,207 +1,126 @@
-# MCP 作为另外一种解法
+# MCP：把填表能力开放给 AI
+
+项目已有填表能力。问题是，外部 Codex 用不了。MCP 负责开放能力，项目负责守住写入。
+
+## 外部 AI 怎么拿到这个能力？
+
+外部 AI 要使用能力，需要 Host、Client 和 Server 配合。
+
+<div class="participant-map" role="img" aria-label="MCP Host、Client 与 Server 的关系">
+  <div class="host-participant">
+    <small>MCP HOST · CODEX</small>
+    <div><span><b>模型</b><em>决定调用什么</em></span><i><small>Function Calling</small>→</i><span><b>MCP Client</b><em>负责连接</em></span></div>
+  </div>
+  <div class="mcp-link"><small>MCP</small><b>→</b></div>
+  <div class="server-participant"><small>MCP SERVER</small><strong>填表服务</strong><em>提供能力</em></div>
+</div>
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>Host、Client、Server 分别负责什么？</strong><p>Host 管理模型和用户交互。Client 负责连接一个 Server。Server 负责提供能力。</p></div>
+</aside>
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>MCP 和 Function Calling 有什么区别？</strong><p>Function Calling 表达模型想调用什么。MCP 负责发现能力，并把调用送到外部 Server。</p></div>
+</aside>
+
+<div class="capability-strip" role="img" aria-label="项目能力被包装成 Tool 并注册到 MCP Server">
+  <div><small>项目内部</small><strong>填表能力</strong></div>
+  <b>→</b>
+  <div><small>对外描述</small><strong>Tool + Schema</strong></div>
+  <b>→</b>
+  <div class="accent"><small>能力入口</small><strong>MCP Server</strong></div>
+</div>
+
+Tool 说明能做什么。
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>Schema 有什么作用？</strong><p>Schema 描述字段、类型和约束。模型用它组织参数，Server 用它校验参数。</p></div>
+</aside>
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>MCP 为什么需要初始化和能力协商？</strong><p>Client 和 Server 支持的版本可能不同。双方先确认版本和能力，再开始调用。</p></div>
+</aside>
+
+<div class="message-flow" role="img" aria-label="MCP Client 发现和调用 Tool 的过程">
+  <div class="message-head"><strong>MCP Client</strong><strong>MCP Server</strong></div>
+  <div class="message-phase">初始化</div>
+  <div class="message-row"><span>1 · 发送版本与 Client 能力</span><i>→</i></div>
+  <div class="message-row reverse"><span>2 · 返回版本与 Server 能力</span><i>←</i></div>
+  <div class="message-phase">发现与调用</div>
+  <div class="message-row"><span>3 · 询问有哪些 Tool</span><i>→</i></div>
+  <div class="message-row reverse"><span>4 · 返回 Tool 与 Schema</span><i>←</i></div>
+  <div class="message-row"><span>5 · 提交 Tool 名称与参数</span><i>→</i></div>
+  <div class="message-row reverse"><span>6 · 返回执行结果</span><i>←</i></div>
+</div>
+
+### 消息怎么到达 Server？
+
+MCP 消息统一写成 JSON-RPC。Transport 负责把消息送到 Server。
+
+<div class="transport-map" role="img" aria-label="JSON-RPC 消息可以通过 STDIO 或 Streamable HTTP 传输">
+  <div class="transport-message"><small>消息格式</small><strong>JSON-RPC</strong></div>
+  <i class="transport-down">↓</i>
+  <span class="transport-choice">选择 Transport</span>
+  <div class="transport-branches">
+    <div class="transport-branch">
+      <small>本地子进程</small>
+      <strong>STDIO</strong>
+      <p>消息走标准输入和输出。</p>
+    </div>
+    <div class="transport-branch">
+      <small>独立服务</small>
+      <strong>Streamable HTTP</strong>
+      <p>消息走 HTTP 请求和响应。</p>
+      <span class="sse-note"><b>SSE</b>需要连续返回时，保持响应流。</span>
+    </div>
+  </div>
+</div>
+
+SSE 属于 Streamable HTTP。它不是第三种 Transport。
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>本地和远程 MCP Server 怎样认证和授权？</strong><p>STDIO 的凭据通常来自启动环境。HTTP 通常使用 OAuth。认证确认是谁，授权限制能访问什么。</p></div>
+</aside>
+
+#### 本项目怎么接？
+
+填表能力只运行一套 Streamable HTTP 服务。
+
+<aside class="qa-note">
+  <span class="qa-mark">Q</span>
+  <div><strong>STDIO Facade 解决了什么问题？</strong><p>它让只支持 STDIO 的 Client 也能连接。它把消息转给同一套 HTTP 服务，不再实现业务逻辑。</p></div>
+</aside>
+
+<div class="project-transport-paths" role="img" aria-label="本项目的 HTTP 与 STDIO 连接路径">
+  <div><strong>HTTP Client</strong><i>→</i><span>Streamable HTTP 填表服务</span></div>
+  <div><strong>STDIO Client</strong><i>→</i><span>STDIO Facade</span><i>→</i><span>Streamable HTTP 填表服务</span></div>
+</div>
 
-假设还是这组手记一直在说的任务：读取当前配装，准备替换一名角色的武器，并说明最后有没有真的换上。
+MCP 没有重写填表逻辑。它只是让已有能力可以被发现和调用。
 
-此前，DEF 的做法是把 AI 放进 Workbench。内置 OpenCode Agent 读取当前节点、调用 Typed Tool、准备候选 Work Node，再等待用户批准。这适合需要持续理解页面、时间线和当前节点的协作。
+## 拿到以后，怎样保证它不出事？
 
-但还有另一种情况：用户已经在外部 Codex 中工作，只想让它使用一组明确的填表能力。为了完成一次武器草稿，不一定要把这段对话迁进 DEF，也不一定要让外部 AI 获得整套 Workbench 能力。
+Tool 能被调用，不等于 AI 可以直接保存。AI 每次修改只能先交一份草稿。
 
-这时，MCP 提供了另一种解法：AI 留在原来的客户端，产品只通过标准协议开放一小组受限能力。
+<div class="approval-flow" role="img" aria-label="AI 提交草稿，用户确认，项目保存并重新读取">
+  <div class="approval-node"><small>AI</small><strong>提交草稿</strong><em>Proposal</em></div>
+  <i>→</i>
+  <div class="approval-node user"><small>用户</small><strong>确认内容</strong><em>不同意就结束</em></div>
+  <i>→</i>
+  <div class="approval-node"><small>项目</small><strong>正式保存</strong></div>
+  <i>→</i>
+  <div class="approval-node verify"><small>确认结果</small><strong>重新读取</strong></div>
+</div>
 
-## 同一个任务，两条路线
+这条链路只守三条规则：
 
-如果让 AI 准备一份武器配置，两条路线大致如下：
+- 用户没确认，不保存。
+- 草稿变了，重新确认。
+- 保存完成，再读一遍。
 
-```text
-内置 DEF Agent
-  → 进入 Workbench Session
-  → 读取 Checkout 和页面工作副本
-  → 创建候选 Work Node
-  → 用户在 Agent 流程中批准
-
-外部 Codex + MCP
-  → 读取填表模板和产品快照
-  → 校验武器草稿
-  → 创建一份待审核提案
-  → 用户在 MCP 填表页面决定是否写入
-```
-
-它们不是新旧替代关系，而是面向不同协作方式的两个入口：
-
-| | 内置 DEF Agent | 外部 MCP |
-| --- | --- | --- |
-| AI 在哪里 | Workbench 内的 OpenCode Session | Codex 或其他 MCP Client |
-| 读取什么 | 当前 Timeline、Work Node 和页面工作副本 | Host 发布的只读领域快照 |
-| 怎样行动 | DEF Typed Tools | MCP Resources 和 Tools |
-| 修改草稿放在哪里 | 候选 Work Node | Proposal 提案库 |
-| 用户在哪里决定 | Agent 原生审批和产品流程 | 主 Web 的 MCP 填表页面 |
-| 适合什么 | 连续推演、理解当前节点、参与工作树 | 独立填表、标准接入、外部客户端复用 |
-
-DEF Agent 更了解 Workbench 的连续上下文；MCP 的边界更窄，也更容易让不同标准客户端接入。选择哪条路线，取决于任务是否需要成为 Workbench Agent 的一部分。
-
-## MCP 不是另一个 Agent
-
-`MCP（Model Context Protocol）` 是客户端与能力服务之间的标准连接协议。它规定客户端怎样发现可读资源、调用工具并获得结构化结果，但不负责替客户端思考，也不会自动获得产品内部权限。
-
-可以先只记住四个名字：
-
-| 名称 | 通俗理解 |
-| --- | --- |
-| MCP Client | 使用能力的一方；当前通常是外部 Codex。 |
-| MCP Server | 提供能力的一方；当前是独立的填表服务。 |
-| Resource | 可以读取的模板、策略、示例或提案状态。 |
-| Tool | 一次明确操作，例如读取当前武器、校验草稿或创建提案。 |
-
-因此，MCP 与 DEF OpenCode 是两条平行链：
-
-```text
-Codex / 标准 MCP Client        DEF OpenCode
-          ↓                        ↓
-独立填表服务                  DEF Sidecar + Typed Tools
-          ↓                        ↓
-提案与只读快照                Work Node / Timeline
-```
-
-两边都可能由模型调用工具，但不会共享 Session、Harness、权限或产品坐标。DEF OpenCode 不负责注册、代理或调用这组 MCP 能力。
-
-## 为什么填表适合走 MCP
-
-角色、武器、装备和 Buff 填表有几个特点：输入和输出结构明确，可以先校验再审核，而且一次任务不必持续跟随 Timeline 或 Checkout。
-
-这让它很适合被收成一组标准能力：
-
-- 外部 Codex 可以在自己的上下文中整理资料和准备草稿；
-- 产品只公开填表所需的模板、快照和校验，不公开整个 Workbench；
-- 不同 MCP Client 可以复用同一份合同；
-- 提案先进入审核队列，客户端断开也不会变成一半写入的页面状态。
-
-MCP 的价值不只是“少写一个专用 API 客户端”。它把外部 AI 与产品之间的合作固定成一条可发现、可校验、可以限制权限的公共边界。
-
-## 先把旧实现拆成真正可复用的能力
-
-最早的 AI 填表和 DEF local core 共享同一个 REST 服务。领域校验逻辑又长期放在 `src/aiCli` 下，部分模块会直接接触 `localStorage`、浏览器类型或页面状态。
-
-如果直接在旧 REST 外面套一层 MCP，新服务就会继承浏览器环境假设、历史存储路径和产品写入能力。看起来换了协议，实际边界并没有改变。
-
-因此开发的第一步不是创建 MCP endpoint，而是抽出只负责领域规则的 `legacy-fill-core`：
-
-```text
-明确输入
-  → 生成 schema / template
-  → normalize
-  → validate
-  → 返回结构化结果或错误
-```
-
-Core 不启动服务、不读取任意文件、不接触 localStorage，也不决定是否保存。独立的 `legacy-fill-service` 再负责 MCP、只读快照和 Proposal Repository。
-
-这次开发真正完成的是职责拆分；MCP 只是让拆出来的能力拥有一个标准入口。
-
-## 一份提案怎样走完
-
-仍以武器草稿为例，外部 Codex 完成一次任务时会经过这条链：
-
-```text
-读取当前武器与模板
-  → 生成明确草稿
-  → Core 规范化和校验
-  → 创建 Proposal
-  → 用户打开 MCP 填表页面
-  → 拒绝，或确认并写入
-  → Host 重新读取产品结果
-```
-
-`Proposal（提案）` 是已经通过结构校验、可以交给用户检查的候选结果。创建成功只说明“这份草稿可以审核”，不代表用户已经同意，更不代表武器已经写进产品。
-
-这也是 MCP 能力停下来的位置。MCP 可以读取、搜索、校验、创建和查看提案；它没有 approve、reject、save、任意文件读取、脚本执行或产品存储写入能力。
-
-## 用户面对的是产品结果
-
-早期里程碑曾用独立 Electron 窗口审核提案，后来入口收敛到主 Web 应用中的 **MCP 填表** 页面。
-
-页面左侧是提案队列，右侧按武器、干员、Buff 或装备显示对应的产品结果。用户看到的是“这把武器有哪些属性和效果”，而不是 normalized payload、进程 PID、token 或协议消息。
-
-页面只提供两个决定：
-
-- **拒绝**：结束提案，不改变产品数据；
-- **确认并写入**：经过一次确认，由产品执行写入和结果核对。
-
-协议负责把候选内容送到产品边界，产品页面负责让人理解并决定。把两者混成一个“协议检查器”，技术字段就会淹没真正需要审核的内容。
-
-## 为什么最终写入仍留在产品
-
-MCP Server 能确认一份提案属于哪份受认证身份，也能固定待审核内容；它不能据此证明主 Web 中的用户已经决定写入。
-
-用户确认时，Host 会发放一个短时、一次性的操作通行证。它精确绑定当前提案、审核会话、提案版本和内容摘要。任何一项变化，旧通行证都会失效。
-
-例如，用户看到的是提案版本 2，确认前服务端已经更新到版本 3。系统不能用对版本 2 的同意写入版本 3，而要拒绝这次旧操作，让页面重新展示新内容。
-
-这里出现的三个技术名词保护不同对象：
-
-| 名称 | 它解决什么问题 |
-| --- | --- |
-| Revision | 说明提案或产品快照现在是哪一版。 |
-| Digest | 说明用户审核的内容是否仍是同一份。 |
-| CAS | 只有当前版本仍等于预期版本时才允许继续。 |
-
-写入完成后，Host 还会重新读取目标领域并检查 Postcondition。MCP 下一次读到的是产品重新发布的事实，而不是客户端自己刚提交的草稿。
-
-这和 DEF Workbench 的原则相同：无论入口是内置 Agent 还是外部 MCP，批准都必须指向明确对象，接口成功也不能代替产品结果核对。
-
-## 写成功但回执丢了怎么办
-
-产品写入可能已经成功，随后快照发布或审计却因为页面关闭、服务重启或连接中断而失败。此时重新写一遍可能制造重复副作用，直接标记失败又会让提案记录与产品事实不一致。
-
-主 Web 因此保存一份持久化 `Outbox（待投递记录）`：
-
-```text
-产品写入成功
-  → 保存待发布结果
-  → 尝试更新快照与审计
-  → 中断时保留 Outbox
-  → 下次授权页面启动后继续核对
-```
-
-恢复时先重新读取产品事实，再补齐快照和审计，而不是再次执行写入。它延续了前一篇手记中的同一条经验：响应丢失不等于操作没有发生。
-
-## 当前实现名称索引
-
-下面这些名称用于对应当前代码和开发文档。它们记录的是 2026 年 7 月这次实现，不是理解 MCP 主线的前置条件。
-
-| 项目名称 | 当前职责 |
-| --- | --- |
-| MCP 填表 | 主 Web 中审核提案并决定是否写入的产品入口。 |
-| Legacy Fill MCP | 历史填表能力独立化后的开发主题和服务链。 |
-| `legacy-fill-core` | 浏览器无关的模板、规范化与领域校验。 |
-| `legacy-fill-service` | 独立 MCP、Host 快照和提案存储服务。 |
-| Proposal Repository | 保存提案内容、版本、状态和审计记录的 SQLite 事实源。 |
-| Review Manifest | 固定一次审核对应的领域、基线、候选内容和摘要。 |
-| Host bridge | 产品内部受保护的审核与写入边界。 |
-| Compatibility proxy | 暂时承接旧 REST 调用方的兼容入口。 |
-| DEF OpenCode | 平行的 Workbench Agent Runtime，不是 MCP Host。 |
-
-当前 MCP Server 提供两种本地连接方式：主要入口是 `127.0.0.1:17323/mcp` 的 Streamable HTTP；STDIO Facade 从私有配置读取连接信息，再转到同一个服务。它们只是两种 transport，不是两套业务实现。
-
-当前七个 Tool 对应以下能力：
-
-| Tool | 作用 |
-| --- | --- |
-| `fill_get_current` | 读取 Host 已发布的当前领域快照。 |
-| `fill_search_library` | 搜索允许的领域资料。 |
-| `fill_get_template` | 取得 Core 生成的当前模板。 |
-| `fill_validate` | 规范化并校验明确提交的草稿。 |
-| `proposal_create` | 把已校验内容写入所属认证身份的提案库。 |
-| `proposal_list` | 列出当前认证身份可见的提案。 |
-| `proposal_inspect` | 查看一份提案的审核内容和状态。 |
-
-旧调用方暂时仍通过 `17321` REST compatibility proxy 访问同一 Core 和 Proposal Repository，避免迁移期形成双写事实源。新外部工作流以 MCP 为入口；旧代理只有在后续发布窗口得到明确产品确认后才会退役。
-
-## 结语
-
-内置 Agent 的解法，是让 AI 进入产品，理解持续变化的 Workbench 上下文；MCP 的解法，是让 AI 留在外部，只通过标准协议使用一组边界清楚的能力。
-
-这次填表开发选择 MCP，不是因为 Agent 路线失效，而是因为填表任务可以被拆成读取、校验、提案和人工决定。MCP 负责把候选内容送到产品门口，用户决定是否接受，Host 负责真正写入、回读和恢复。
-
-当这几层不再混在一起，外部 AI 可以方便接入，产品也不必为了支持 MCP 交出自己的最终决定权。
-
-实现、连接和验收细节仍以 [Legacy Fill MCP 文档索引](../../specs/legacy-ai-cli-mcp-extraction/README.md) 与 [日常开发说明](../../development/legacy-fill-mcp.md) 为准。
+MCP 开放调用入口。真正的写入权仍在项目里。

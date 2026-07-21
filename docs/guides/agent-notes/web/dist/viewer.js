@@ -5,8 +5,9 @@ const glossary = [
   ["Turn", ["Turn"], "会话状态", "从一次用户输入开始，到 Agent 给出最终回复为止的一轮处理。", "一个 Turn 内可以发生多次模型生成和多次工具调用。", "Turn 不是一次模型 API 请求；Agent Loop 可能在其中往返很多次。"],
   ["Agent Loop", ["Agent Loop"], "核心流程", "模型提出下一步，程序执行工具，再把结果交还模型，直到满足停止条件的循环。", "DEF 沿用 OpenCode 的循环，并在其中接入领域工具、审批和产品校验。", "它不只是 while true；还需要终止、错误、取消和步骤上限。"],
   ["Tool Use", ["Tool Use"], "工具调用", "模型用结构化请求选择一个外部能力，Runtime 执行后再把结果送回模型。", "读取配装、查询时间线和准备 Work Node 修改，都通过工具进入产品边界。", "模型只是提出调用，真正执行的是程序中的 handler。"],
+  ["Tool", ["Tool"], "工具调用", "一项带名称、说明和参数规则的可调用能力。", "填表服务把读取、校验和创建提案等操作开放成 Tool。", "Tool 描述怎样调用；真正执行的仍是项目业务代码。"],
   ["Typed Tool", ["Typed Tool", "Typed Tools"], "工具调用", "用明确 Schema 约束名称、参数与返回结构的工具。", "DEF 只向产品 Agent 暴露角色、装备、伤害和排轴等领域工具。", "类型保证输入形状，不保证调用已经获准，也不保证业务结果正确。"],
-  ["Schema", ["Schema"], "工具调用", "描述工具参数名称、类型、必填项和结构约束的机器可验证规则。", "Runtime 在执行 DEF 工具前先按 Schema 验证模型提交的输入。", "Schema 管格式；Permission 管能不能做；Postcondition 管是否真的做成。"],
+  ["Schema", ["Schema"], "工具调用", "描述参数名称、类型、必填项和结构约束的规则。", "MCP Server 用它检查 Client 提交的 Tool 参数。", "Schema 只检查参数，不代表用户已经批准操作。"],
   ["Handler", ["handler", "Handler"], "工具调用", "工具在程序里的真实实现函数，接收已验证参数并执行读取或修改。", "模型看见工具描述，但不会直接看到或执行 handler 源码。", "工具定义告诉模型怎样调用；handler 决定程序实际上做什么。"],
   ["Tool Result", ["Tool Result"], "工具调用", "工具执行后的结构化结果，会重新进入 Session 供模型继续判断。", "DEF 工具结果包含产品事实、风险或校验证据，而不只是自然语言成功提示。", "返回成功不是 Postcondition；仍可能需要重读产品状态。"],
   ["Registry", ["Registry"], "工具调用", "保存可注册能力及其元数据的目录，Runtime 再按当前场景筛选实际暴露项。", "DEF 工具进入注册表后，仍要经过 Agent、Session 与权限范围筛选。", "注册表示系统知道它，不等于每一轮模型都能调用它。"],
@@ -31,7 +32,7 @@ const glossary = [
   ["Work Node", ["Work Node"], "DEF 概念", "承载一次候选修改的隔离草稿节点，保存基线、工作内容和校验证据。", "高影响修改先进入节点，用户审查后再决定 Checkout、Apply 或放弃。", "Work Node 不是 Git worktree，也不是当前界面状态本身。"],
   ["Checkout", ["Checkout"], "DEF 概念", "指向当前应用目标或选中节点的产品坐标。", "Session 在继续执行前刷新 Checkout，避免旧对话操作错误节点。", "Checkout 是引用和切换动作，不是 Work Node 本身。"],
   ["Sidecar", ["Sidecar"], "DEF 概念", "伴随主程序运行的适配进程或服务，用来连接通用 Runtime 与产品能力。", "它管理 OpenCode Worker、注入 DEF 上下文，并接入领域工具。", "Sidecar 负责连接，不复制另一套产品事实源。"],
-  ["Postcondition", ["Postcondition"], "安全修改", "操作执行后必须成立、并需要重新读取事实确认的结果条件。", "DEF 会核对 Commit、Checkout 和真实界面，而不是只看接口返回值。", "参数校验发生在执行前；Postcondition 验证发生在执行后。"],
+  ["Postcondition", ["Postcondition", "回读验证"], "安全修改", "操作执行后需要重新读取事实确认的结果条件。", "填表写入后，Host 会重新读取产品数据。", "参数校验发生在执行前；回读验证发生在执行后。"],
   ["Worker", ["Worker"], "运行机制", "实际承载 Session、Agent Loop 和内存中等待状态的本地执行进程。", "Sidecar 创建并管理 OpenCode Worker；退出后内存中的审批等待也会消失。", "恢复 Worker 身份与记录，不等于恢复崩溃前的调用栈。"],
   ["Tool Part", ["Tool Part"], "运行状态", "Message 中记录单次工具调用输入、状态和结果的结构化部分。", "它会经历 pending、running、completed 或 error，并持久化到会话记录。", "数据库里的 running 记录不是可继续执行的函数检查点。"],
   ["callID", ["callID"], "运行状态", "一次工具调用的关联标识，用来把异步结果放回正确的调用位置。", "同一轮出现多个工具时，OpenCode 用它区分各自的 Part 与结果。", "它标识工具调用，不标识整轮用户请求。"],
@@ -43,25 +44,33 @@ const glossary = [
   ["Token", ["token", "Token"], "权限", "由系统签发、可验证范围与有效期的临时通行证。", "DEF 分别用内部访问令牌、会话归属和批准通行证保护不同边界。", "这里的 Token 不是模型生成文字时消耗的 token。"],
   ["Cache", ["cache", "Cache"], "运行机制", "为了更快读取而保留的可重新生成副本。", "DEF 的页面工作副本缓存正在显示和编辑的队伍，但正式依据仍是 SQLite 当前节点。", "缓存可以过期，不能承担数据身份或正式写入权限。"],
   ["Cache Invalidation", ["cache invalidation", "Cache Invalidation"], "运行机制", "当缓存对应的数据身份改变时，明确让旧副本失效的规则。", "切换 timeline、当前节点或正式工作区状态后，DEF 必须重新从当前正式节点加载页面工作副本。", "它不是定时刷新，更不是用旧页面内容覆盖正式节点。"],
-  ["SSE", ["SSE"], "运行机制", "服务器持续向客户端推送事件的单向连接。", "DEF 用它传递 Workbench command 的开始、执行和完成等进度。", "进度消息不等于操作已经满足最终产品结果。"],
+  ["SSE", ["SSE"], "HTTP 流式响应", "服务器通过 HTTP 响应流连续向客户端发送事件。", "Streamable HTTP 可以用它返回多条 MCP 消息。", "SSE 承载消息流，不替代 JSON-RPC，也不是第三种标准 Transport。"],
   ["Reconciliation", ["reconciliation", "Reconciliation"], "错误恢复", "超时或中断后按准确身份继续查明最终状态的后续核对过程。", "DEF 依 commandId、会话归属、timeline 和节点版本核对迟到命令是否真的写出候选结果。", "它不是盲目重试，更不能把未确定状态说成零变化。"],
   ["Working Projection", ["working projection", "Working Projection"], "DEF 概念", "React 页面内存中正在展示和编辑的队伍、技能、Buff 与配装。", "它必须与 SQLite 当前正式节点收敛后，AI 才能读取或修改同一棵工作树。", "它是页面工作副本，不是 SQLite 正式节点，也不是 AI 会话归属。"],
   ["Session Binding", ["session binding", "Session Binding"], "DEF 概念", "AI 会话与一条正式 timeline 的不可漂移归属关系。", "它限制 AI 只能读取和操作所属正式工作区的 Work Node 树。", "它不是当前页面缓存，也不能在 session 存续期间静默改绑。"],
   ["Throughput", ["throughput", "Throughput"], "运行机制", "单位时间内系统处理请求或命令的能力，以及高并发时的排队压力。", "DEF 更关心同一会话、同一 timeline 的迟到命令不会撞到用户的新操作。", "它不只是服务很多用户的性能指标，也关乎单个桌面会话的并发安全。"],
   ["Sliding Window", ["sliding window", "Sliding Window"], "运行机制", "只统计最近一小段时间内事件的限流、去重或计数方法。", "DEF 可以按会话和 timeline 管理重复读取、重复批准和频繁 SSE 重连。", "它是并发保护手段，不替代正式节点、会话归属和权限校验。"],
-  ["MCP", ["MCP"], "标准协议", "让客户端发现资源、调用工具并接收结构化结果的标准连接协议。", "Codex 直接连接独立 legacy-fill-service；DEF OpenCode 不代理这条链路。", "MCP 不是另一个 Agent，也不会自动获得产品内部写入权。"],
-  ["MCP Client", ["MCP Client", "MCP client"], "标准协议", "连接 MCP Server、读取资源并发起工具调用的客户端。", "Codex 或其他标准客户端只能读取、校验和创建填表提案。", "客户端发起提案，不等于用户已经批准或保存。"],
-  ["MCP Server", ["MCP Server", "MCP server"], "标准协议", "按 MCP 合同暴露 Resources 与 Tools 的能力服务。", "legacy-fill-service 是独立本地 MCP Server，只开放填表 allowlist。", "它不是 DEF Sidecar，也不是拥有产品写入权的 Host。"],
+  ["MCP", ["MCP"], "标准协议", "让客户端发现能力、调用工具并接收结果的标准协议。", "本项目用它把填表能力开放给外部 Codex。", "MCP 负责连接能力，不负责批准和正式写入。"],
+  ["MCP Client", ["MCP Client", "MCP client", "Client"], "标准协议", "连接 MCP Server、读取资源并发起工具调用的客户端。", "Codex 或其他标准客户端只能读取、校验和创建填表提案。", "客户端发起提案，不等于用户已经批准或保存。"],
+  ["MCP Server", ["MCP Server", "MCP server", "Server"], "标准协议", "按照 MCP 约定开放 Tool 和 Resource 的能力服务。", "本项目的 Server 只开放填表所需的能力。", "Server 开放什么，Client 才能发现和调用什么。"],
+  ["JSON-RPC", ["JSON-RPC"], "消息格式", "用统一字段表达请求、响应、错误和通知的消息格式。", "MCP Client 与 Server 用它表达发现和调用。", "它规定消息长什么样，不规定消息走哪条通道。"],
+  ["Transport", ["Transport"], "传输", "在 Client 与 Server 之间搬运 MCP 消息的通信方式。", "本项目提供 Streamable HTTP，并用 STDIO Facade 兼容标准输入输出客户端。", "Transport 负责传递，不决定 Tool 的权限。"],
   ["Streamable HTTP", ["Streamable HTTP"], "传输", "通过 HTTP 请求和可持续响应承载 MCP 消息的传输方式。", "Legacy Fill MCP 的权威本地入口是 127.0.0.1:17323/mcp。", "它定义连接方式，不决定工具权限和产品授权。"],
-  ["STDIO Facade", ["STDIO Facade"], "传输", "用标准输入输出接收 MCP 消息，再转接到实际能力服务的适配程序。", "本项目的 facade 从私有配置读取服务地址和 token，连接同一个 legacy-fill-service。", "它不是第二套 MCP 数据库或另一套业务实现。"],
+  ["STDIO", ["STDIO"], "传输", "通过标准输入和标准输出收发 MCP 消息的本地传输方式。", "本项目用它兼容只支持本地进程连接的 Client。", "STDIO 是标准 Transport，不是填表业务实现。"],
+  ["STDIO Facade", ["STDIO Facade"], "传输适配", "接收 STDIO 消息，再转发到另一种传输入口的适配程序。", "本项目用它把 STDIO Client 接到同一套 Streamable HTTP 填表服务。", "Facade 只转换传输方式，不是第二套 MCP Server。"],
   ["Resource", ["Resource", "Resources"], "标准协议", "由 MCP Server 提供、适合读取的命名内容或版本化材料。", "填表服务用它提供模板、策略、示例和 owner 范围内的提案状态。", "Resource 侧重读取；Tool 表达一次带参数的操作。"],
   ["Proposal", ["Proposal", "proposal"], "审核", "经过结构校验、等待用户检查和决定的候选结果。", "MCP 可以创建提案，但不能批准、拒绝或写入产品。", "提案创建成功不表示产品数据已经改变。"],
+  ["MCP Host", ["MCP Host", "Host"], "标准协议", "用户直接使用的 AI 应用，负责管理模型、连接和交互。", "Codex 是 Host，并为填表 Server 创建 MCP Client。", "Host 不是 Server；MCP Client 是 Host 内部的连接组件。"],
+  ["Function Calling", ["Function Calling"], "模型调用", "模型用结构化结果表达自己想调用哪个函数。", "模型决定使用填表 Tool 后，由 Host 把调用交给 MCP Client。", "它表达调用意图；MCP 负责发现能力并把调用送到 Server。"],
+  ["OAuth", ["OAuth"], "授权", "让 Client 代表用户取得受限访问令牌的授权框架。", "远程 Streamable HTTP Server 可以用它限制访问身份和范围。", "OAuth 保护连接访问，不代表用户批准了某次业务写入。"],
   ["Proposal Repository", ["Proposal Repository"], "审核", "独立保存提案内容、版本、状态和审计记录的事实源。", "legacy-fill-service 使用 SQLite Repository 隔离并持久化各 owner 的提案。", "它不保存 DEF Work Node，也不是产品领域数据本身。"],
   ["Review Manifest", ["Review Manifest"], "审核", "固定一次审核实际对应的领域、基线、候选内容和摘要。", "Host capability 会绑定 manifest digest，避免审核内容变化后继续沿用旧批准。", "它描述审核对象，不负责自行授予写入权限。"],
   ["Action Capability", ["Action Capability", "action capability"], "权限", "绑定明确对象、版本和有效期的一次性操作通行证。", "MCP 填表页面确认时，它绑定 proposal、review session、revision 和 manifest digest。", "它比笼统的登录态更窄，也不能被 MCP Client 自行签发。"],
   ["Revision", ["Revision", "revision"], "并发控制", "表示提案或产品快照当前处于哪一版的递增身份。", "Host 用它拒绝页面基于旧提案发起的迟到写入。", "Revision 标识版本；Digest 标识内容摘要。"],
   ["Digest", ["Digest", "digest"], "并发控制", "由内容计算出的稳定摘要，用于检查审核对象是否被替换或改变。", "Review manifest digest 会被绑定进一次性写入 capability。", "它用于内容身份校验，不是加密产品数据。"],
   ["CAS", ["CAS"], "并发控制", "Compare-And-Set；只有当前版本仍等于预期版本时才执行更新。", "提案状态和 Host 写入用它阻止旧页面覆盖新 revision。", "CAS 防止竞态，不替代用户 Approval 和写后 Postcondition。"],
+  ["Idempotency", ["幂等机制", "幂等"], "重复保护", "同一个操作重复到达时，只产生一次业务结果的约束。", "Proposal 创建和 Host 写入用它识别重试。", "幂等不是拒绝所有重复输入，而是识别同一次请求。"],
+  ["Audit", ["审计记录", "审计"], "结果证据", "记录谁在何时对哪份内容执行了什么操作。", "MCP 填表链会记录提案、批准版本、写入与回读结果。", "审计用于追溯，不替代权限检查和回读验证。"],
   ["Outbox", ["Outbox"], "错误恢复", "在本地持久化尚未成功发布或确认的结果，供稍后继续投递。", "产品写入已成功但快照或审计中断时，MCP 填表页面用它恢复一致性。", "Outbox 用于补齐记录，不应盲目重做已经发生的领域写入。"]
 ].map(([term, aliases, kind, meaning, project, contrast]) => ({ term, aliases, kind, meaning, project, contrast }))
 
@@ -188,7 +197,7 @@ function openGlossary(trigger) {
 
   const body = document.createElement("div")
   body.className = "glossary-body"
-  const sections = [["是什么", entry.meaning], ["在 DEF 里", entry.project], ["别混淆", entry.contrast]]
+  const sections = [["是什么", entry.meaning], ["在本项目", entry.project], ["别混淆", entry.contrast]]
   for (const [label, value] of sections) {
     const row = document.createElement("div")
     const title = document.createElement("b")
