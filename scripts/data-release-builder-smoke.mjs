@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { buildDataReleasePackage } from './build-data-release-package.mjs';
 
@@ -53,10 +52,6 @@ try {
   assert.equal(manifest.dataVersion, 'data-release-smoke-v1');
   assert.equal(manifest.source.scope, 'local');
   assert.equal(manifest.source.id, 'smoke-data');
-  const zipList = spawnSync('unzip', ['-Z1', result.packagePaths[0]], { encoding: 'utf8' });
-  assert.equal(zipList.status, 0, zipList.stderr);
-  assert.deepEqual(zipList.stdout.trim().split(/\r?\n/).sort(), ['data.json', 'manifest.json']);
-
   const installed = installLocalDataRelease({
     manifest,
     archivePath: result.packagePaths[0],

@@ -518,8 +518,44 @@ function runChecked(command, args, options = {}) {
   return result.stdout;
 }
 
+function escapePowerShellLiteral(value) {
+  return value.replace(/'/g, "''");
+}
+
+function listZipArchiveEntries(archivePath) {
+  if (process.platform !== 'win32') {
+    return runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
+  }
+  const escapedArchive = escapePowerShellLiteral(archivePath);
+  const output = runChecked('powershell.exe', [
+    '-NoProfile',
+    '-NonInteractive',
+    '-Command',
+    `Add-Type -AssemblyName System.IO.Compression.FileSystem; $archive = [System.IO.Compression.ZipFile]::OpenRead('${escapedArchive}'); try { foreach ($entry in $archive.Entries) { [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($entry.FullName)) } } finally { $archive.Dispose() }`,
+  ]).trim();
+  try {
+    return output ? output.split(/\r?\n/).map((entry) => Buffer.from(entry, 'base64').toString('utf8')) : [];
+  } catch (error) {
+    throw dataManagementError('data-release-archive-list-failed', '无法读取数据发布包文件列表。', {
+      archivePath,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function extractZipArchive(archivePath, destination) {
+  fs.mkdirSync(destination, { recursive: true });
+  if (process.platform === 'win32') {
+    const escapedArchive = escapePowerShellLiteral(archivePath);
+    const escapedDestination = escapePowerShellLiteral(destination);
+    runChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`]);
+    return;
+  }
+  runChecked('unzip', ['-q', archivePath, '-d', destination]);
+}
+
 function assertSafeDataReleaseArchive(archivePath, referenceArchives = []) {
-  const entries = runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
+  const entries = listZipArchiveEntries(archivePath);
   const expected = new Set([
     'catalog.sqlite',
     'manifest.json',
@@ -533,14 +569,7 @@ function assertSafeDataReleaseArchive(archivePath, referenceArchives = []) {
 
 function extractDataReleaseArchive(archivePath, destination, referenceArchives = []) {
   assertSafeDataReleaseArchive(archivePath, referenceArchives);
-  fs.mkdirSync(destination, { recursive: true });
-  if (process.platform === 'win32') {
-    const escapedArchive = archivePath.replace(/'/g, "''");
-    const escapedDestination = destination.replace(/'/g, "''");
-    runChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`]);
-  } else {
-    runChecked('unzip', ['-q', archivePath, '-d', destination]);
-  }
+  extractZipArchive(archivePath, destination);
 }
 
 function createDataReleasePackage({ catalogPath, outputDirectory, referenceArchiveDirectory, manifest: manifestInput, privateKey, keyId }) {
@@ -695,7 +724,7 @@ function validateLocalDataReleaseManifest(manifest, { shellVersion = '' } = {}) 
 }
 
 function assertSafeLocalDataReleaseArchive(archivePath) {
-  const entries = runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
+  const entries = listZipArchiveEntries(archivePath);
   const expected = new Set(['manifest.json', 'data.json']);
   if (entries.length !== expected.size || new Set(entries).size !== entries.length || entries.some((entry) => !expected.has(entry))) {
     throw dataManagementError('unsafe-local-data-release-archive', '数据发布包只能包含 manifest.json 与 data.json。', { entries });
@@ -704,14 +733,7 @@ function assertSafeLocalDataReleaseArchive(archivePath) {
 
 function extractLocalDataReleaseArchive(archivePath, destination) {
   assertSafeLocalDataReleaseArchive(archivePath);
-  fs.mkdirSync(destination, { recursive: true });
-  if (process.platform === 'win32') {
-    const escapedArchive = archivePath.replace(/'/g, "''");
-    const escapedDestination = destination.replace(/'/g, "''");
-    runChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`]);
-  } else {
-    runChecked('unzip', ['-q', archivePath, '-d', destination]);
-  }
+  extractZipArchive(archivePath, destination);
 }
 
 function createLocalDataReleasePackage({ dataPackagePath, sourceScope, outputDirectory, manifest: manifestInput }) {
@@ -869,19 +891,8 @@ function validateReferenceArchiveReleaseManifest(manifest, { shellVersion, publi
   return { ...manifest, releaseId, archives, signatureInfo };
 }
 
-function extractZipArchive(archivePath, destination) {
-  fs.mkdirSync(destination, { recursive: true });
-  if (process.platform === 'win32') {
-    const escapedArchive = archivePath.replace(/'/g, "''");
-    const escapedDestination = destination.replace(/'/g, "''");
-    runChecked('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -LiteralPath '${escapedArchive}' -DestinationPath '${escapedDestination}' -Force`]);
-  } else {
-    runChecked('unzip', ['-q', archivePath, '-d', destination]);
-  }
-}
-
 function assertSafeReferenceArchivePackage(archivePath, archiveIds) {
-  const entries = runChecked('unzip', ['-Z1', archivePath]).split(/\r?\n/).filter(Boolean);
+  const entries = listZipArchiveEntries(archivePath);
   const expected = new Set([
     'manifest.json',
     'archives/',
