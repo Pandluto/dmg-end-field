@@ -99,6 +99,8 @@ let opencodeProcess = null;
 let opencodeConfigHash = '';
 let opencodeReadyUrl = '';
 let opencodeReadyPort = 0;
+let opencodeStartPromise = null;
+let opencodeStartConfigHash = '';
 let activeRun = null;
 const streamSessions = new Map();
 
@@ -614,33 +616,61 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
     return opencodeReadyUrl;
   }
 
-  stopOpenCodeProcess();
-  cleanupStaleOpenCodeProcesses();
-  const directory = getAgentWorkspaceDir();
-  fs.mkdirSync(runtimeLogDir, { recursive: true });
-  opencodeConfigHash = nextHash;
-  opencodeReadyPort = await findOpenCodePort();
-  const binaryPath = resolveOpenCodeBinary();
-  appendLog(`[policy] ${JSON.stringify(capabilityPolicySummary())}`);
-  opencodeProcess = spawn(binaryPath, [
-    'serve',
-    `--hostname=${OPENCODE_HOST}`,
-    `--port=${opencodeReadyPort}`,
-  ], {
-    cwd: directory,
-    env: buildOpenCodeRuntimeEnv(openCodeConfig),
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true,
-  });
-  opencodeProcess.once('exit', (code, signal) => {
-    appendLog(`[exit] code=${code} signal=${signal}`);
-    opencodeProcess = null;
-    opencodeReadyUrl = '';
-    opencodeReadyPort = 0;
-  });
+  if (opencodeStartPromise) {
+    if (opencodeStartConfigHash === nextHash) return opencodeStartPromise;
+    try {
+      await opencodeStartPromise;
+    } catch {
+      // The next configuration still needs its own startup attempt.
+    }
+    return ensureOpenCodeServer(config, skillId, thinkingEffort);
+  }
 
-  opencodeReadyUrl = await waitForOpenCodeReady(opencodeProcess);
-  return opencodeReadyUrl;
+  const startPromise = (async () => {
+    stopOpenCodeProcess();
+    cleanupStaleOpenCodeProcesses();
+    const directory = getAgentWorkspaceDir();
+    fs.mkdirSync(runtimeLogDir, { recursive: true });
+    opencodeConfigHash = nextHash;
+    opencodeReadyPort = await findOpenCodePort();
+    const binaryPath = resolveOpenCodeBinary();
+    appendLog(`[policy] ${JSON.stringify(capabilityPolicySummary())}`);
+    const child = spawn(binaryPath, [
+      'serve',
+      `--hostname=${OPENCODE_HOST}`,
+      `--port=${opencodeReadyPort}`,
+    ], {
+      cwd: directory,
+      env: buildOpenCodeRuntimeEnv(openCodeConfig),
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    });
+    opencodeProcess = child;
+    child.once('exit', (code, signal) => {
+      appendLog(`[exit] code=${code} signal=${signal}`);
+      if (opencodeProcess !== child) return;
+      opencodeProcess = null;
+      opencodeReadyUrl = '';
+      opencodeReadyPort = 0;
+    });
+
+    const readyUrl = await waitForOpenCodeReady(child);
+    if (opencodeProcess !== child || !processRunning(child)) {
+      throw new Error('OpenCode runtime startup was superseded before it became ready.');
+    }
+    opencodeReadyUrl = readyUrl;
+    return readyUrl;
+  })();
+  opencodeStartPromise = startPromise;
+  opencodeStartConfigHash = nextHash;
+  try {
+    return await startPromise;
+  } finally {
+    if (opencodeStartPromise === startPromise) {
+      opencodeStartPromise = null;
+      opencodeStartConfigHash = '';
+    }
+  }
 }
 
 async function getOpenCodeServerForRead(config, skillId, thinkingEffort) {

@@ -140,7 +140,10 @@ export function DefOpenCodeView({
       }
       await ensureNativeSidecar();
       const ensureResponse = await fetch(`${origin}/api/runtime/ensure`, { method: 'POST' });
-      if (!ensureResponse.ok) throw new Error(`HTTP ${ensureResponse.status}`);
+      const ensurePayload = await ensureResponse.json().catch(() => null) as { error?: string } | null;
+      if (!ensureResponse.ok) {
+        throw new Error(ensurePayload?.error ? `HTTP ${ensureResponse.status}: ${ensurePayload.error}` : `HTTP ${ensureResponse.status}`);
+      }
       const stored = window.localStorage.getItem(storageKey) || window.sessionStorage.getItem(storageKey);
       if (stored) {
         try {
