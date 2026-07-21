@@ -1,11 +1,23 @@
 import type { ReactNode } from 'react';
 import { pinyin } from 'pinyin-pro';
-import type { BuffCategory, BuffEffectKind, BuffExtraHitConfig, CandidateBuff } from '../core/domain/buff';
+import type { BuffCategory, BuffEffectKind, CandidateBuff } from '../core/domain/buff';
 import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
-import { getMultiplierSupportedBuffTypes, isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
+import { isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
 import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { APP_ROUTE_PATHS } from '../utils/appRoute';
 import type { OperatorBuffEffect } from './operatorDraftBuffModel';
+import {
+  BUFF_CATEGORY_LABELS,
+  BUFF_TYPE_LABELS,
+  DEFAULT_EXTRA_HIT_CONFIG,
+  DISPLAY_FLAT_TYPES,
+  DISPLAY_PERCENT_TYPES,
+  PERCENT_STYLE_TYPES,
+  getEffectKindLabel,
+  normalizeExtraHitConfig,
+} from './buffDraftCatalog';
+
+export * from './buffDraftCatalog';
 
 export const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
@@ -23,242 +35,6 @@ export interface BuffUndoSnapshot {
   selectedItemKey?: string | null;
   selectedEffectKey?: string | null;
   localEntries: Array<[string, string | null]>;
-}
-
-export const BUFF_TYPE_OPTIONS = [
-  'atkPercentBoost',
-  'flatAtk',
-  'mainStatBoost',
-  'subStatBoost',
-  'allStatBoost',
-  'strengthBoost',
-  'agilityBoost',
-  'intelligenceBoost',
-  'willBoost',
-  'critRateBoost',
-  'critDmgBonusBoost',
-  'physicalDmgBonus',
-  'magicDmgBonus',
-  'fireDmgBonus',
-  'electricDmgBonus',
-  'iceDmgBonus',
-  'natureDmgBonus',
-  'allElementDmgBonus',
-  'allDmgBonus',
-  'skillDmgBonus',
-  'chainSkillDmgBonus',
-  'ultimateDmgBonus',
-  'normalAttackDmgBonus',
-  'dotDmgBonus',
-  'allSkillDmgBonus',
-  'physicalFragile',
-  'fireFragile',
-  'electricFragile',
-  'iceFragile',
-  'natureFragile',
-  'magicFragile',
-  'physicalVulnerability',
-  'fireVulnerability',
-  'electricVulnerability',
-  'iceVulnerability',
-  'natureVulnerability',
-  'magicVulnerability',
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'allCorrosion',
-  'physicalCorrosion',
-  'magicCorrosion',
-  'fireCorrosion',
-  'electricCorrosion',
-  'iceCorrosion',
-  'natureCorrosion',
-  'allResistanceIgnore',
-  'physicalResistanceIgnore',
-  'magicResistanceIgnore',
-  'fireResistanceIgnore',
-  'electricResistanceIgnore',
-  'iceResistanceIgnore',
-  'natureResistanceIgnore',
-  'comboDamageBonus',
-  'multiplierBonus',
-  'sourceSkillBoost',
-] as const;
-
-export const BUFF_TYPE_LABELS: Record<(typeof BUFF_TYPE_OPTIONS)[number], { label: string; keywords: string[] }> = {
-  atkPercentBoost: { label: '攻击力百分比', keywords: ['攻击', '攻击力', 'atk'] },
-  flatAtk: { label: '固定攻击力', keywords: ['攻击', '固定攻击', 'atk'] },
-  mainStatBoost: { label: '主能力提升', keywords: ['主能力', '主属性', '主词条'] },
-  subStatBoost: { label: '副能力提升', keywords: ['副能力', '副属性', '副词条'] },
-  allStatBoost: { label: '全属性提升', keywords: ['全属性', '全能力'] },
-  strengthBoost: { label: '力量提升', keywords: ['力量', 'strength'] },
-  agilityBoost: { label: '敏捷提升', keywords: ['敏捷', 'agility'] },
-  intelligenceBoost: { label: '智识提升', keywords: ['智识', '智能', 'intelligence'] },
-  willBoost: { label: '意志提升', keywords: ['意志', 'will'] },
-  critRateBoost: { label: '暴击率', keywords: ['暴击', '暴击率', 'crit'] },
-  critDmgBonusBoost: { label: '暴击伤害', keywords: ['暴伤', '暴击伤害', 'crit'] },
-  physicalDmgBonus: { label: '物理伤害加成', keywords: ['物理', '物伤'] },
-  magicDmgBonus: { label: '法术伤害加成', keywords: ['法术', '魔法', 'magic'] },
-  fireDmgBonus: { label: '灼热伤害加成', keywords: ['灼热', '火', '火伤'] },
-  electricDmgBonus: { label: '电磁伤害加成', keywords: ['电磁', '雷', '电伤'] },
-  iceDmgBonus: { label: '寒冷伤害加成', keywords: ['寒冷', '冰', '冰伤'] },
-  natureDmgBonus: { label: '自然伤害加成', keywords: ['自然', '自然伤害'] },
-  allElementDmgBonus: { label: '全元素伤害加成', keywords: ['元素', '全元素', '法术'] },
-  allDmgBonus: { label: '全伤害加成', keywords: ['全伤害', '全增伤', '全部伤害'] },
-  skillDmgBonus: { label: '战技伤害加成', keywords: ['战技', '技能', 'skill'] },
-  chainSkillDmgBonus: { label: '连携技伤害加成', keywords: ['连携', '连携技'] },
-  ultimateDmgBonus: { label: '终结技伤害加成', keywords: ['终结', '大招', 'ultimate'] },
-  normalAttackDmgBonus: { label: '普攻伤害加成', keywords: ['普攻', '普通攻击'] },
-  dotDmgBonus: { label: '持续伤害加成', keywords: ['持续伤害', 'Dot', 'DOT', 'dot'] },
-  allSkillDmgBonus: { label: '全技能伤害加成', keywords: ['全技能', '技能'] },
-  physicalFragile: { label: '物伤易伤', keywords: ['物理', '物伤', '易伤', '受伤增加'] },
-  fireFragile: { label: '灼热脆弱', keywords: ['灼热', '脆弱'] },
-  electricFragile: { label: '电磁脆弱', keywords: ['电磁', '脆弱'] },
-  iceFragile: { label: '寒冷脆弱', keywords: ['寒冷', '脆弱'] },
-  natureFragile: { label: '自然脆弱', keywords: ['自然', '脆弱'] },
-  magicFragile: { label: '法术脆弱', keywords: ['法术', '脆弱'] },
-  physicalVulnerability: { label: '物理脆弱', keywords: ['物理', '脆弱'] },
-  fireVulnerability: { label: '灼热易伤', keywords: ['灼热', '易伤'] },
-  electricVulnerability: { label: '电磁易伤', keywords: ['电磁', '易伤'] },
-  iceVulnerability: { label: '寒冷易伤', keywords: ['寒冷', '易伤'] },
-  natureVulnerability: { label: '自然易伤', keywords: ['自然', '易伤'] },
-  magicVulnerability: { label: '法术脆弱', keywords: ['法术', '异伤', '易伤', '脆弱', '魔法'] },
-  physicalAmplify: { label: '物理增幅', keywords: ['物理', '增幅'] },
-  magicAmplify: { label: '法术增幅', keywords: ['法术', '增幅'] },
-  fireAmplify: { label: '灼热增幅', keywords: ['灼热', '增幅'] },
-  electricAmplify: { label: '电磁增幅', keywords: ['电磁', '增幅'] },
-  iceAmplify: { label: '寒冷增幅', keywords: ['寒冷', '增幅'] },
-  natureAmplify: { label: '自然增幅', keywords: ['自然', '增幅'] },
-  allCorrosion: { label: '全属性降抗', keywords: ['腐蚀', '降抗', '全抗降低'] },
-  physicalCorrosion: { label: '物理降抗', keywords: ['腐蚀', '物理降抗', '物抗降低'] },
-  magicCorrosion: { label: '法术降抗', keywords: ['腐蚀', '法术降抗', '法抗降低'] },
-  fireCorrosion: { label: '灼热降抗', keywords: ['腐蚀', '灼热降抗', '火抗降低'] },
-  electricCorrosion: { label: '电磁降抗', keywords: ['腐蚀', '电磁降抗', '雷抗降低'] },
-  iceCorrosion: { label: '寒冷降抗', keywords: ['腐蚀', '寒冷降抗', '冰抗降低'] },
-  natureCorrosion: { label: '自然降抗', keywords: ['腐蚀', '自然降抗', '自然抗性降低'] },
-  allResistanceIgnore: { label: '无视全部抗性', keywords: ['无视抗性', '全部抗性忽略', '全抗穿透'] },
-  physicalResistanceIgnore: { label: '无视物理抗性', keywords: ['无视物理抗性', '物理穿透', '物理抗性忽略'] },
-  magicResistanceIgnore: { label: '无视法术抗性', keywords: ['无视法术抗性', '法术穿透', '法术抗性忽略'] },
-  fireResistanceIgnore: { label: '无视灼热抗性', keywords: ['无视灼热抗性', '灼热穿透', '火抗忽略'] },
-  electricResistanceIgnore: { label: '无视电磁抗性', keywords: ['无视电磁抗性', '电磁穿透', '雷抗忽略'] },
-  iceResistanceIgnore: { label: '无视寒冷抗性', keywords: ['无视寒冷抗性', '寒冷穿透', '冰抗忽略'] },
-  natureResistanceIgnore: { label: '无视自然抗性', keywords: ['无视自然抗性', '自然穿透', '自然抗性忽略'] },
-  comboDamageBonus: { label: '连击伤害加成', keywords: ['连击', 'combo'] },
-  multiplierBonus: { label: '倍率加算', keywords: ['倍率', '加算', '乘区'] },
-  sourceSkillBoost: { label: '源石技艺强度', keywords: ['源石技艺', '强度', '记忆强度'] },
-};
-
-export const PERCENT_STYLE_TYPES = new Set<string>([
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'multiplierBonus',
-]);
-
-export const DISPLAY_PERCENT_TYPES = new Set<string>([
-  'atkPercentBoost',
-  'mainStatBoost',
-  'subStatBoost',
-  'allStatBoost',
-  'critRateBoost',
-  'critDmgBonusBoost',
-  'physicalDmgBonus',
-  'magicDmgBonus',
-  'fireDmgBonus',
-  'electricDmgBonus',
-  'iceDmgBonus',
-  'natureDmgBonus',
-  'allElementDmgBonus',
-  'skillDmgBonus',
-  'chainSkillDmgBonus',
-  'ultimateDmgBonus',
-  'normalAttackDmgBonus',
-  'dotDmgBonus',
-  'allSkillDmgBonus',
-  'physicalFragile',
-  'fireFragile',
-  'electricFragile',
-  'iceFragile',
-  'natureFragile',
-  'magicFragile',
-  'physicalVulnerability',
-  'fireVulnerability',
-  'electricVulnerability',
-  'iceVulnerability',
-  'natureVulnerability',
-  'magicVulnerability',
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'comboDamageBonus',
-  'sourceSkillBoost',
-]);
-
-export const BUFF_CATEGORY_OPTIONS: BuffCategory[] = ['condition', 'countable', 'passive'];
-export const BUFF_CATEGORY_LABELS: Record<BuffCategory, string> = {
-  condition: '条件',
-  countable: '计层',
-  passive: '常驻',
-};
-export const MULTIPLIER_SUPPORTED_BUFF_TYPES = getMultiplierSupportedBuffTypes();
-
-export const DISPLAY_FLAT_TYPES = new Set<string>([
-  'flatAtk',
-  'strengthBoost',
-  'agilityBoost',
-  'intelligenceBoost',
-  'willBoost',
-  'allCorrosion',
-  'physicalCorrosion',
-  'magicCorrosion',
-  'fireCorrosion',
-  'electricCorrosion',
-  'iceCorrosion',
-  'natureCorrosion',
-  'allResistanceIgnore',
-  'physicalResistanceIgnore',
-  'magicResistanceIgnore',
-  'fireResistanceIgnore',
-  'electricResistanceIgnore',
-  'iceResistanceIgnore',
-  'natureResistanceIgnore',
-]);
-
-export const BUFF_EFFECT_KIND_OPTIONS: BuffEffectKind[] = ['modifier', 'extraHit'];
-
-export const DEFAULT_EXTRA_HIT_CONFIG: BuffExtraHitConfig = {
-  key: 'dianjian',
-  damageType: 'physical',
-  skillType: '',
-  baseMultiplier: 2.5,
-  imbalanceValue: 10,
-  cooldownSeconds: 15,
-  trigger: 'physicalAbnormal',
-};
-
-export function normalizeExtraHitConfig(value?: Partial<BuffExtraHitConfig>): BuffExtraHitConfig {
-  return {
-    key: value?.key?.trim() || DEFAULT_EXTRA_HIT_CONFIG.key,
-    damageType: value?.damageType || DEFAULT_EXTRA_HIT_CONFIG.damageType,
-    skillType: value?.skillType ?? DEFAULT_EXTRA_HIT_CONFIG.skillType,
-    baseMultiplier: Number(value?.baseMultiplier ?? DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier) || DEFAULT_EXTRA_HIT_CONFIG.baseMultiplier,
-    imbalanceValue: Number(value?.imbalanceValue ?? DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue) || DEFAULT_EXTRA_HIT_CONFIG.imbalanceValue,
-    cooldownSeconds: Number(value?.cooldownSeconds ?? DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds) || DEFAULT_EXTRA_HIT_CONFIG.cooldownSeconds,
-    trigger: value?.trigger || DEFAULT_EXTRA_HIT_CONFIG.trigger,
-  };
-}
-
-export function getEffectKindLabel(kind: BuffEffectKind | undefined) {
-  return kind === 'extraHit' ? '额外伤害段' : '普通加成';
 }
 
 export interface BuffEffectDraft extends CandidateBuff {
@@ -1390,4 +1166,3 @@ export function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetCo
 
   return [groupRow, headerRow, ...dataRows];
 }
-
