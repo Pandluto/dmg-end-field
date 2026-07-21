@@ -326,6 +326,13 @@ function applyWindowLifecycle(windowInstance, hideHandler, shouldAllowClose) {
   windowInstance.on('minimize', updateTrayMenu);
 }
 
+function getShellUrl({ includeRendererCapability = false } = {}) {
+  const url = isDev ? DEV_SHELL_URL : PROD_SHELL_URL;
+  return includeRendererCapability
+    ? buildRendererCapabilityUrl(url, workbenchRendererCapability)
+    : url;
+}
+
 function createShellWindow(options = {}) {
   const { startHidden = false } = options;
 
@@ -352,22 +359,20 @@ function createShellWindow(options = {}) {
   );
   shellStartedAt = Date.now();
 
-  if (isDev) {
-    shellWindow.loadURL(DEV_SHELL_URL);
-  } else {
-    shellWindow.loadURL(PROD_SHELL_URL);
-  }
+  const publicShellUrl = getShellUrl();
+  const shellUrl = getShellUrl({ includeRendererCapability: true });
+  shellWindow.loadURL(shellUrl);
 
-  appendRuntimeLog('shell', `loadURL ${isDev ? DEV_SHELL_URL : PROD_SHELL_URL}`);
+  appendRuntimeLog('shell', `loadURL ${publicShellUrl}`);
 
   shellWindow.webContents.on('did-finish-load', () => {
-    appendRuntimeLog('shell', `did-finish-load ${shellWindow.webContents.getURL()}`);
+    appendRuntimeLog('shell', `did-finish-load ${publicShellUrl}`);
     applyShellWindowContentSize(shellWindow, activeDesktopScaleKey);
     applyWebContentsScale(shellWindow, activeDesktopScaleKey);
   });
 
   shellWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    appendRuntimeLog('shell', `did-fail-load ${errorCode} ${errorDescription || '-'} ${validatedURL || '-'}`);
+    appendRuntimeLog('shell', `did-fail-load ${errorCode} ${errorDescription || '-'} ${validatedURL ? publicShellUrl : '-'}`);
   });
 
   shellWindow.webContents.on('console-message', (_event, level, message, line, sourceId) => {

@@ -101,6 +101,8 @@ assert(!mainSource.includes('installDefRawTransportHeader'),
   'Electron must not grant raw REST authority to every defaultSession renderer');
 assert(mainSource.includes('buildInteropNativeHeaders'),
   'Interop fixture creation and cleanup must carry native authority into protected local-data routes');
+assert(mainSource.includes("const shellUrl = getShellUrl({ includeRendererCapability: true });"),
+  'Desktop Shell must launch with the per-launch renderer capability for protected local-data transport');
 
 const rendererCapability = createWorkbenchRendererCapability();
 assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');
