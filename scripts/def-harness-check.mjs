@@ -32,6 +32,7 @@ for (const slot of harness.SLOT_NAMES) {
 }
 assert.match(fs.readFileSync(path.join(candidateSource, 'skills.md'), 'utf8'), /load the native `timeline-workbench` Skill/);
 assert.match(fs.readFileSync(path.join(candidateSource, 'tool-guidance.md'), 'utf8'), /Never use `lineIndex` as an action sequence number/);
+assert.match(fs.readFileSync(path.join(candidateSource, 'tool-guidance.md'), 'utf8'), /do not send the entire `timeline\.json` as one monolithic `write` call/);
 const stableBinding = harness.createSessionBinding({ sessionId: 'ses_existing_stable', resolved: stable });
 harness.setChannel(runtime, 'stable', candidateRef);
 assert.equal(stableBinding.harness.contentHash, stableRef.contentHash, 'existing bindings cannot drift after a channel change');
