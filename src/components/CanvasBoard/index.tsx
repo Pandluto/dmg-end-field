@@ -114,6 +114,7 @@ import {
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { planTimelineWorkNodeCheckoutLifecycle } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
+import { buildPersistedCharacterInput } from '../../agentKernel/timelineWorktree/operatorConfigCharacterInput';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient, formatTimelineOperationError } from '../../agentKernel/timelineRepository/localTimelineClient';
@@ -1193,14 +1194,10 @@ export function CanvasBoard({
       };
       preparedPayload.characterInputMap = {
         ...preparedPayload.characterInputMap,
-        [character.id]: {
-          ...(preparedPayload.characterInputMap[character.id] ?? {}),
-          skillLevels: {
-            ...DEFAULT_OPERATOR_SKILL_CONFIG,
-            ...(preparedPayload.characterInputMap[character.id]?.skillLevels ?? {}),
-            ...operatorSkillLevels,
-          } as typeof preparedPayload.characterInputMap[string]['skillLevels'],
-        },
+        [character.id]: buildPersistedCharacterInput(
+          resolvedSnapshot,
+          preparedPayload.characterInputMap[character.id],
+        ),
       };
       const preparedTimelineValidation = validateTimelinePayload(preparedPayload);
       if (!preparedTimelineValidation.ok) {
