@@ -42,6 +42,12 @@ const repeated = resolveCombatConventionBundle(library, {
 });
 assert.equal(repeated.bundleHash, bundle.bundleHash, 'query wording may not change the canonical selected-rule bundle');
 
+const supportBuildAlias = resolveCombatConventionBundle(library, {
+  entities: ['赛希'],
+  intent: 'support-build',
+});
+assert.equal(supportBuildAlias.bundleHash, bundle.bundleHash, 'support-build and weapon-fit must resolve the same reviewed support-build intent family');
+
 const unknown = resolveCombatConventionBundle(library, {
   entities: ['unknown-operator'],
   intent: 'weapon-fit',

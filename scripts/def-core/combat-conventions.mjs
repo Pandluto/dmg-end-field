@@ -6,6 +6,7 @@ const RULE_BLOCK_PATTERN = /```def-convention\s*\n([\s\S]*?)\n```/g;
 const CERTAINTY_VALUES = new Set(['deterministic', 'high-probability', 'low-probability', 'unknown']);
 const MAX_RULES = 64;
 const MAX_BUNDLE_RULES = 24;
+const SUPPORT_BUILD_INTENT_FAMILY = Object.freeze(['operator-fit', 'weapon-fit', 'support-build']);
 
 function normalized(value) {
   return String(value || '').normalize('NFKC').trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
@@ -157,7 +158,10 @@ function seedScore(rule, entityTerms, intentTerms, queryTerms) {
 export function resolveCombatConventionBundle(library, input = {}) {
   const rules = Array.isArray(library?.rules) ? library.rules : [];
   const entities = stringList(input.entities, 16);
-  const intents = stringList(Array.isArray(input.intents) ? input.intents : [input.intent], 8);
+  const requestedIntents = stringList(Array.isArray(input.intents) ? input.intents : [input.intent], 8);
+  const intents = requestedIntents.some((intent) => SUPPORT_BUILD_INTENT_FAMILY.includes(intent))
+    ? stringList([...requestedIntents, ...SUPPORT_BUILD_INTENT_FAMILY], 8)
+    : requestedIntents;
   const terms = stringList(Array.isArray(input.terms) ? input.terms : [input.query], 16);
   const entityTerms = entities.map(normalized).filter(Boolean);
   const intentTerms = intents.map(normalized).filter(Boolean);
@@ -214,7 +218,7 @@ export function resolveCombatConventionBundle(library, input = {}) {
     protocolVersion: 1,
     contract: 'DefCombatConventionBundleV1',
     state: !bundleRules.length ? 'NOT_FOUND' : missingEdges.length || conflicts.length || overflow ? 'INCOMPLETE' : 'READY',
-    query: { entities, intents, terms },
+    query: { entities, requestedIntents, effectiveIntents: intents, terms },
     scope: 'teacher-curated-combat-conventions',
     source: 'game-knowledge/conventions',
     sourceHash: library?.sourceHash || canonicalHash(rules),
