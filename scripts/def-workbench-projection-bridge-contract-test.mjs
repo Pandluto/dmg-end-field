@@ -41,15 +41,19 @@ assert.match(canvasSource, /isCheckoutMutationPendingRef\.current/,
   'transient hydrate state must not publish as a canonical projection');
 assert.match(canvasSource, /flushSync\(commitReactRuntime\)/,
   'renderer checkout must commit React button state before polling the visible DOM');
+assert.match(canvasSource, /loadLocalOperatorCharacters\(\)/,
+  'renderer checkout must resolve operators from the local operator library used by the selection UI');
+assert.match(canvasSource, /visibleSelectedCharacterIdsRef/,
+  'renderer checkout must verify the visible operator roster, including empty-button timelines');
 const checkoutHandlerSource = canvasSource.slice(
   canvasSource.indexOf('const checkoutAiTimelineWorkNodeFromCommand'),
   canvasSource.indexOf('const ensureTimelineDocumentBaselineWorkNode'),
 );
 assert.match(checkoutHandlerSource, /workbench-renderer-not-visible/,
   'a hidden renderer must fail closed before checkout');
-assert(checkoutHandlerSource.indexOf('visiblePostcondition = await waitForVisibleCanvasButtons')
+assert(checkoutHandlerSource.indexOf('visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds, expectedVisibleCharacterIds)')
   < checkoutHandlerSource.indexOf('client.markCheckoutApplied'),
-  'foreground DOM visibility must be proven before SQLite is marked checkout-applied');
+  'foreground button and operator visibility must be proven before SQLite is marked checkout-applied');
 const skillButtonSource = fs.readFileSync(path.join(process.cwd(), 'src/components/CanvasBoard/SkillButton.tsx'), 'utf8');
 assert.match(skillButtonSource, /data-skill-button-id=\{button\.id\}/,
   'each rendered Canvas button needs a stable DOM identity for visible postconditions');
