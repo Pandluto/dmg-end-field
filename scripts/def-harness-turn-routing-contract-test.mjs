@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
 
 const binding = {
   harnessBinding: {
@@ -22,6 +22,9 @@ assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 �
 assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '图腾下落-2层里的水龙卷算什么伤害').task, 'exact-skill-facts');
+assert.equal(classifyDefExecutableTurnPolicy('图腾下落-2层里的水龙卷算什么伤害')?.kind, 'exact-skill-facts');
+assert.equal(classifyDefExecutableTurnPolicy('这把武器的伤害倍率是多少'), null);
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
 assert.equal(isDirectCurrentNodeQuestion('请基于当前空排轴创建新节点'), false);
 
@@ -30,6 +33,8 @@ assert.match(serverSource, /getNativeHarnessSystem\(binding, rawUserText\)/);
 assert.match(serverSource, /buildWorkbenchCheckoutSystemPrompt\(checkoutState/);
 assert.match(serverSource, /same typed-tool failure code occurs twice/);
 assert.match(serverSource, /interop pending is null/);
+assert.match(serverSource, /EXACT SKILL FACT CONTRACT/);
+assert.match(serverSource, /Call def_data_skill as the first and only tool/);
 
 const skillSource = fs.readFileSync(new URL('../agent/runtime/def/skills/timeline-workbench/SKILL.md', import.meta.url), 'utf8');
 assert.match(skillSource, /approvalPolicy=manual/);
@@ -91,9 +96,35 @@ const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
   }
 `], { encoding: 'utf8' });
 assert.equal(nonRetryableMutationProbe.status, 0, nonRetryableMutationProbe.stderr || nonRetryableMutationProbe.stdout);
+
+const terminalEvidenceProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurn('evidence-session', 'evidence-turn');
+  mod.recordDefToolEventFailure({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'evidence-session', callID: 'planner-1', tool: 'def_data_weapon_fit_plan', state: { status: 'error', error: 'weapon-fit-combat-convention-incomplete: reviewed evidence is incomplete' } } } });
+  try { mod.assertDefToolTurnNotBlocked('evidence-session', 'def_data_weapon'); process.exit(2); }
+  catch (error) {
+    if (error?.code !== 'def-tool-evidence-not-attempted' || error?.details?.attempted !== false || error?.details?.originalTool !== 'def_data_weapon_fit_plan') process.exit(3);
+  }
+`], { encoding: 'utf8' });
+assert.equal(terminalEvidenceProbe.status, 0, terminalEvidenceProbe.stderr || terminalEvidenceProbe.stdout);
+
+const exactSkillFactsPolicyProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurnFromChatMessage('skill-session', 'skill-turn', [{ type: 'text', text: '图腾下落-2层里的水龙卷算什么伤害' }]);
+  try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_workbench_context', {}); process.exit(2); }
+  catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempted !== false) process.exit(3); }
+  try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { query: '图腾下落' }); process.exit(4); }
+  catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked') process.exit(5); }
+  mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: '图腾下落-2层' });
+  try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: 'skill-Q-4' }); process.exit(6); }
+  catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(7); }
+`], { encoding: 'utf8' });
+assert.equal(exactSkillFactsPolicyProbe.status, 0, exactSkillFactsPolicyProbe.stderr || exactSkillFactsPolicyProbe.stdout);
 const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
 assert.match(defToolSource, /mutationTargetFingerprint/);
 assert.match(defToolSource, /def-tool-mutation-not-attempted/);
+assert.match(defToolSource, /def-tool-evidence-not-attempted/);
+assert.match(defToolSource, /exact-skill-facts/);
 assert.match(defToolSource, /denied-native-catalog-artifact-scope/);
 assert.match(defToolSource, /hasExplicitOperatorConfigApplyIntent/);
 assert.doesNotMatch(defToolSource, /catalog-readonly-/);

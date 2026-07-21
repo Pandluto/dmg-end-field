@@ -1,0 +1,25 @@
+{
+  "id": "damage-weapon-guide-direct-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "汤汤该选什么武器" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_build_guide", "def_data_weapon_fit_plan"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_weapon_fit_plan"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_weapon_fit_plan"]
+    },
+    "forbiddenTools": ["def_data_combat_conventions", "def_data_operator_build_profile", "def_data_team_loadouts", "def_data_loadout_candidates", "def_data_weapon", "def_data_native_catalog_materialize", "def_data_skill", "def_data_damage", "def_data_buff", "def_data_game_knowledge", "def_workbench_context", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "maxRepeatedToolCalls": {
+      "def_data_operator_build_guide": 1,
+      "def_data_weapon_fit_plan": 1
+    },
+    "forbiddenAssistantText": ["唯一最优", "属性最高所以", "攻略说明Q是主要伤害", "望乡天然不契合", "无法读取武器详细技能", "定位偏辅助", "武器选择优先级不高"],
+    "mustKeepState": true
+  }
+}

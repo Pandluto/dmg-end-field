@@ -29,7 +29,7 @@ const {
   findNativeSessionBinding,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
-const { isDirectCurrentNodeQuestion } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
+const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -890,6 +890,10 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
   const currentNode = Array.isArray(state.axisContext?.nodes)
     ? state.axisContext.nodes.find((node) => node?.id === state.current?.targetId)
     : null;
+  const userText = Array.isArray(parts)
+    ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
+    : '';
+  const executablePolicy = classifyDefExecutableTurnPolicy(userText);
   const lines = [
     'DEF WORKBENCH AUTHORITATIVE STATE (system instruction, not user text):',
     'This conversation is bound to the timeline document and its Work Node tree. A Work Node is never the conversation identity.',
@@ -905,7 +909,14 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
     'Never report a mutation as successful from queue state or record count alone. Native approval and the exact visible postcondition must both pass.',
     'For 重新发出审核 / 重新提交审批 / 提交审核 / wait for my personal approval, validation alone is not enough: call def_node_use in this turn to create the native pending approval. Never say 待审批 if interop pending is null.',
   ];
-  if (state.phase === 'checkout-changed') {
+  if (executablePolicy?.kind === 'exact-skill-facts') {
+    lines.push(
+      'EXACT SKILL FACT CONTRACT: this read-only turn is about one named skill or hit, not the current canvas.',
+      'Call def_data_skill as the first and only tool. Pass the user\'s complete named variant in query, including every numeric layer/id; never shorten it to a parent skill or isolated hit term.',
+      'Do not call def_workbench_context, game knowledge, operator, buttons, damage, Buff, or any mutation tool. The skill resolver scopes selected operators and returns trusted operator-catalog hit facts.',
+      'Answer from per-hit element, skillType, and levels. A named Q skill can contain a B-classified hit; do not copy the parent skillType onto every hit.',
+    );
+  } else if (state.phase === 'checkout-changed') {
     lines.push(
       'HARD GATE: before answering the user request or calling any other DEF node tool, call def_node_bind with nodeId="".',
       'After that succeeds, call def_workbench_context again, reason at high effort from the returned checkout only, then answer or continue.',
@@ -914,9 +925,6 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
   } else {
     lines.push('Before answering a current-canvas or current-node question, call def_workbench_context and use its checkout as the only source of truth.');
   }
-  const userText = Array.isArray(parts)
-    ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
-    : '';
   if (isDirectCurrentNodeQuestion(userText)) {
     lines.push(
       'DIRECT CURRENT-NODE CONTRACT: call def_workbench_current_node before replying.',

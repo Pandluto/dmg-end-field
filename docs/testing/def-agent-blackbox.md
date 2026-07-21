@@ -295,3 +295,23 @@ first/second labels, convert evidence dimensions into an overall score, call one
 comprehensive, or name a universal winner. Personal attack, elemental damage, survivability,
 weapon element, or will are not team benefits unless the returned profile and reviewed rules
 explicitly authorize them. Claims such as “稀有乘区” also require explicit returned evidence.
+
+## Damage weapon and nested skill-hit regression
+
+For `汤汤该选什么武器`, retain the v1 transcript and require exactly one
+`def_data_operator_build_guide` followed by one `def_data_weapon_fit_plan` when the guide result is
+`GUIDE_FOUND` with `combatConvention=not-required`. The planner call must preserve the exact profile
+and capability and omit `conventionBundleHash`. The turn must not call combat conventions, fallback
+profile, selected-team/loadout candidates, legacy weapon summaries, native catalog materialization,
+generic skill/damage/Buff probes, Workbench/node tools, mutation, or approval. If the planner returns a
+terminal typed error, no later DEF data tool may execute in that turn; record the structured
+`nextAction` and do not accept a fallback ranking.
+
+For `图腾下落-2层里的水龙卷算什么伤害`, call `def_data_skill` once with exact operator `汤汤`
+or `tangtang` plus the exact skill id/name. The result must resolve one candidate from the selected
+operator catalog and expose complete per-hit facts. Verify that the parent skill is `Q`, while the
+`3个水龙卷总倍率(含天赋)` hit is independently classified as `B`, is ice, and retains its complete
+level table. A parent button type never overrides a hit-level damage type. Do not use combat
+conventions, generic knowledge, current buttons, damage reports, native artifacts, mutation, or
+approval for this catalog fact question. Both cases are read-only and must keep checkout, selection,
+pending command, branch, commit, and approval state unchanged.

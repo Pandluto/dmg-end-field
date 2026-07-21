@@ -1,0 +1,24 @@
+{
+  "id": "skill-hit-facts-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": true,
+  "turns": [
+    { "userText": "图腾下落-2层里的水龙卷算什么伤害" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_skill"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_skill"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_skill"]
+    },
+    "forbiddenTools": ["def_data_combat_conventions", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_workbench_context", "def_workbench_buttons", "def_data_damage", "def_data_buff", "def_data_operator", "def_data_native_catalog_materialize", "def_node_fork", "def_node_use"],
+    "maxRepeatedToolCalls": {
+      "def_data_skill": 1
+    },
+    "forbiddenAssistantText": ["读不到", "只能看到元数据", "需要你确认", "很可能是"],
+    "mustKeepState": true
+  }
+}

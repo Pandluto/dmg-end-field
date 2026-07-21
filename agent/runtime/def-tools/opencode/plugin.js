@@ -21,7 +21,7 @@ export default async function DefToolsPlugin() {
       definitions.beginDefToolTurnFromChatMessage(input?.sessionID, turnId, output?.parts)
     },
     'tool.execute.before': async (input, output) => {
-      definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool)
+      definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)
       definitions.assertDefNativeArtifactToolScope(input, output?.args)
     },
   }

@@ -9,6 +9,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
+import turnRouter from '../../def-opencode-adapter/harness-turn-router.cjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -27,8 +28,11 @@ const nativeCatalogArtifactTtlMs = 15 * 60 * 1000
 const nativeCatalogArtifactsBySession = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
+const defToolTurnEvidenceStops = new Map()
+const defToolTurnPolicies = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
+const { classifyDefExecutableTurnPolicy } = turnRouter
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
@@ -36,6 +40,12 @@ const NON_RETRYABLE_MUTATION_CODES = new Set([
   'prepared-capability-consumed',
   'approval-capability-required',
   'operator-config-apply-intent-required',
+])
+const NON_RETRYABLE_EVIDENCE_CODES = new Set([
+  'weapon-fit-combat-convention-incomplete',
+  'weapon-fit-convention-bundle-mismatch',
+  'weapon-fit-convention-bundle-required',
+  'weapon-fit-convention-bundle-unexpected',
 ])
 
 function defToolFailureScope(context) {
@@ -54,6 +64,12 @@ export function beginDefToolTurn(sessionID, turnID) {
   }
   for (const key of defToolTurnMutationStops.keys()) {
     if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnMutationStops.delete(key)
+  }
+  for (const key of defToolTurnEvidenceStops.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnEvidenceStops.delete(key)
+  }
+  for (const key of defToolTurnPolicies.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnPolicies.delete(key)
   }
 }
 
@@ -91,6 +107,14 @@ export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
     explicitApply: hasExplicitOperatorConfigApplyIntent(userTextFromChatParts(parts)),
     updatedAt: Date.now(),
   })
+  const scope = `${sessionID}:${turnID}`
+  const classified = classifyDefExecutableTurnPolicy(userTextFromChatParts(parts))
+  if (classified) defToolTurnPolicies.set(scope, {
+    ...classified,
+    allowedTools: new Set(['def_data_skill']),
+    attemptedTools: new Map(),
+  })
+  else defToolTurnPolicies.delete(scope)
   if (defOperatorConfigTurnIntents.size > 256) defOperatorConfigTurnIntents.delete(defOperatorConfigTurnIntents.keys().next().value)
 }
 
@@ -125,6 +149,10 @@ function mutationTargetFingerprint(toolName, input = {}) {
 
 function isDefMutationTool(toolName) {
   return /(?:operator[_.]config|worknode[_.](?:sync|create|delete|checkout|restore)|node_(?:sync|fork|use|restore)|team[_.](?:selection|loadout[_.]plan[_.]apply))/i.test(String(toolName || ''))
+}
+
+function isDefTerminalEvidenceTool(toolName) {
+  return /^(?:def\.weapon\.fit\.plan|def\.equipment\.3plus1\.plan|def_data_weapon_fit_plan|def_data_equipment_3plus1_plan)$/.test(String(toolName || ''))
 }
 
 function normalizeToolFailureCode(error) {
@@ -199,6 +227,36 @@ function notAttemptedMutationError(stop, attemptedTool) {
   return error
 }
 
+function stopFurtherTurnEvidence({ sessionID, toolName, code, failure }) {
+  const turnId = activeDefToolTurns.get(sessionID)
+  if (!turnId || !isDefTerminalEvidenceTool(toolName)) return null
+  const scope = `${sessionID}:${turnId}`
+  const existing = defToolTurnEvidenceStops.get(scope)
+  if (existing) return existing
+  const stop = {
+    tool: toolName,
+    code,
+    nextAction: failure?.nextAction || 'Report the typed evidence failure and stop this recommendation turn.',
+    updatedAt: Date.now(),
+  }
+  defToolTurnEvidenceStops.set(scope, stop)
+  if (defToolTurnEvidenceStops.size > 256) defToolTurnEvidenceStops.delete(defToolTurnEvidenceStops.keys().next().value)
+  return stop
+}
+
+function notAttemptedEvidenceError(stop, attemptedTool) {
+  const error = new Error(`def-tool-evidence-not-attempted: ${attemptedTool} was not sent because ${stop.tool} returned terminal ${stop.code}. Next action: ${stop.nextAction}`)
+  error.code = 'def-tool-evidence-not-attempted'
+  error.details = {
+    attempted: false,
+    attemptedTool,
+    originalTool: stop.tool,
+    originalCode: stop.code,
+    nextAction: stop.nextAction,
+  }
+  return error
+}
+
 function compactTypedFailureDetails(failure) {
   if (!failure || typeof failure !== 'object') return null
   const diagnostics = failure.diagnostics
@@ -228,6 +286,7 @@ export function recordDefToolEventFailure(event) {
   const part = event?.properties?.part
   if (part?.type !== 'tool' || part?.state?.status !== 'error') return
   const code = normalizeToolFailureCode(part.state.error)
+  if (code === 'def-tool-turn-policy-blocked') return
   recordTurnFailure({
     sessionID: part.sessionID,
     toolName: part.tool,
@@ -243,14 +302,49 @@ export function recordDefToolEventFailure(event) {
       failure: { failureStage: 'typed mutation', nextAction: 'Report the first non-retryable typed failure; do not issue another mutation in this turn.' },
     })
   }
+  if (NON_RETRYABLE_EVIDENCE_CODES.has(code)) {
+    stopFurtherTurnEvidence({
+      sessionID: part.sessionID,
+      toolName: part.tool,
+      code,
+      failure: { nextAction: 'Report the typed planner failure; do not issue fallback data tools in this turn.' },
+    })
+  }
 }
 
-export function assertDefToolTurnNotBlocked(sessionID, toolName) {
+export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}) {
   const turnId = activeDefToolTurns.get(sessionID)
   if (!turnId) return
   const scope = `${sessionID}:${turnId}`
+  const turnPolicy = defToolTurnPolicies.get(scope)
+  if (turnPolicy?.kind === 'exact-skill-facts') {
+    if (!turnPolicy.allowedTools.has(toolName)) {
+      const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted. This turn asks for exact skill hit facts; call def_data_skill once with the user's complete skill id/name and no context, knowledge, button, damage, or operator probe.`)
+      error.code = 'def-tool-turn-policy-blocked'
+      error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, nextAction: 'Call def_data_skill once with the complete named skill variant from the user message.' }
+      throw error
+    }
+    const priorAttempts = turnPolicy.attemptedTools.get(toolName) || 0
+    if (priorAttempts >= 1) {
+      const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted again. Exact skill facts allow one typed lookup per turn.`)
+      error.code = 'def-tool-turn-policy-blocked'
+      error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, attempts: priorAttempts, nextAction: 'Use the first typed result or report its exact missing fact without another tool call.' }
+      throw error
+    }
+    const sourceDigits = turnPolicy.sourceText.match(/\d+/g) || []
+    const queryDigits = String(args?.query || '').normalize('NFKC').match(/\d+/g) || []
+    if (sourceDigits.some((digit) => !queryDigits.includes(digit))) {
+      const error = new Error('def-tool-turn-policy-blocked: def_data_skill was not attempted because its query dropped the named skill variant number. Preserve the user\'s complete skill id/name.')
+      error.code = 'def-tool-turn-policy-blocked'
+      error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, nextAction: 'Retry the single allowed lookup with the complete named skill variant, including its numeric layer/id.' }
+      throw error
+    }
+    turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)
+  }
   const mutationStop = defToolTurnMutationStops.get(scope)
   if (mutationStop && isDefMutationTool(toolName)) throw notAttemptedMutationError(mutationStop, toolName)
+  const evidenceStop = defToolTurnEvidenceStops.get(scope)
+  if (evidenceStop) throw notAttemptedEvidenceError(evidenceStop, toolName)
   const budget = retryBudgetBlockedForScope(scope)
   if (!budget?.blocked) return
   const error = new Error(`def-tool-retry-limit-reached: ${budget.tool} failed twice with ${budget.code}. All tool use is stopped for this user turn; report that the requested change was not applied before ${toolName}.`)
@@ -261,6 +355,8 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName) {
 
 async function callDefTool(tool, input = {}, context = null) {
   const failureScope = defToolFailureScope(context)
+  const evidenceStop = defToolTurnEvidenceStops.get(failureScope)
+  if (evidenceStop) throw notAttemptedEvidenceError(evidenceStop, tool)
   const mutationStop = defToolTurnMutationStops.get(failureScope)
   if (mutationStop && isDefMutationTool(tool)) throw notAttemptedMutationError(mutationStop, tool)
   const budget = retryBudgetFor(failureScope, tool, input)
@@ -294,6 +390,12 @@ async function callDefTool(tool, input = {}, context = null) {
       callID: context?.callID,
     })
     if (failure?.retryable === false) stopFurtherTurnMutations({
+      sessionID: context?.sessionID,
+      toolName: tool,
+      code,
+      failure,
+    })
+    if (failure?.retryable === false) stopFurtherTurnEvidence({
       sessionID: context?.sessionID,
       toolName: tool,
       code,
@@ -1924,10 +2026,10 @@ const equipmentPreferenceGroupSchema = tool.schema.object({
 })
 
 export const data_weapon_fit_plan = {
-  description: 'Exhaustively compare every current-catalog weapon compatible with one exact operator. Requires the unchanged same-turn plannerProfile/plannerProfileCapability and exact conventionBundleHash. For support roles it excludes unsupported personal-damage defaults, verifies complete skill1/2/3 facts and reviewed trigger reachability, and returns an unordered READY_WITH_TRADEOFFS matrix: do not label candidates first/second, score them against one another, or claim a universal optimum. Never use truncated def_data_weapon or def_data_loadout_candidates as a substitute.',
+  description: 'Exhaustively compare every current-catalog weapon compatible with one exact operator. Always requires the unchanged same-turn plannerProfile/plannerProfileCapability. Supply conventionBundleHash only when guide/profile evidenceRequirements says combat conventions are required; omit it when GUIDE_FOUND says not-required. For support roles it excludes unsupported personal-damage defaults and verifies reviewed trigger reachability. It returns an unordered READY_WITH_TRADEOFFS matrix: do not label candidates first/second, score them against one another, or claim a universal optimum. A typed failure is terminal for this turn: report its nextAction and never fall back to def_data_weapon, loadout candidates, skill/damage/buff probes, or native artifact ranking.',
   args: {
     operatorQuery: tool.schema.string().min(1).max(160).describe('Exact operator name or stable id used by guide/profile discovery.'),
-    conventionBundleHash: tool.schema.string().min(64).max(64).describe('Exact bundleHash returned by def_data_combat_conventions for this operator and weapon-fit intent.'),
+    conventionBundleHash: tool.schema.string().min(64).max(64).optional().describe('Exact bundleHash returned by def_data_combat_conventions, only when the issued profile capability requires reviewed conventions.'),
     plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile.'),
     characterProfile: tool.schema.object({
       characterId: tool.schema.string().min(1).max(160),
@@ -1944,7 +2046,9 @@ export const data_weapon_fit_plan = {
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
     const result = await callDefTool('def.weapon.fit.plan', {
       operatorQuery: args.operatorQuery.trim(),
-      conventionBundleHash: args.conventionBundleHash.trim(),
+      ...(typeof args.conventionBundleHash === 'string' && args.conventionBundleHash.trim()
+        ? { conventionBundleHash: args.conventionBundleHash.trim() }
+        : {}),
       plannerProfileCapability: args.plannerProfileCapability.trim(),
       characterProfile: args.characterProfile,
       goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : '武器推荐',
@@ -2032,9 +2136,19 @@ export const data_equipment_3plus1_plan = {
 
 export const data_skill = dataResource({
   title: 'DEF skill resource',
-  description: 'Resolve trusted DEF skill data by id, name, or semantic query. Canonical terms are A=normal/heavy attack, B=battle skill, E=chain skill, Q=ultimate; a heavy attack never means execution or plunging attack.',
+  description: 'Resolve trusted selected-operator skill facts by exact operator plus skill id/name, or by semantic query. Exact matches include complete per-hit element, damage skillType and level multipliers from the operator catalog. A parent Q skill may contain a water-tornado hit classified as B damage; per-hit skillType is authoritative. Canonical terms are A=normal/heavy attack, B=battle skill, E=chain skill, Q=ultimate; a heavy attack never means execution or plunging attack.',
   tool: 'def.skill.resolve',
-  input: ({ query }) => ({ query, limit: 12 }),
+  args: {
+    query: tool.schema.string().min(1).max(200).describe('Exact skill id/display name or one semantic skill query.'),
+    characterQuery: tool.schema.string().min(1).max(160).optional().describe('Exact selected operator name or stable id used to scope the skill identity.'),
+  },
+  input: ({ query, characterQuery }) => ({
+    query,
+    ...(typeof characterQuery === 'string' && characterQuery.trim() ? { characterQuery: characterQuery.trim() } : {}),
+    limit: 12,
+  }),
+  contract: 'DefSkillResolutionV2',
+  preserveContract: true,
 })
 
 export const data_buff = dataResource({

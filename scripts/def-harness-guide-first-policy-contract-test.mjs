@@ -133,6 +133,22 @@ assert.ok(supportWeaponScenario.verification.forbiddenTools.includes('def_data_l
 assert.equal(supportWeaponScenario.verification.maxRepeatedToolCalls.def_data_combat_conventions, 1);
 assert.equal(supportWeaponScenario.verification.maxRepeatedToolCalls.def_data_weapon_fit_plan, 1);
 
+const damageWeaponScenario = JSON.parse(read('agent/harness/scenarios/damage-weapon-guide-direct-v1.json'));
+assert.deepEqual(damageWeaponScenario.verification.requiredToolsByTurn['1'], [
+  'def_data_operator_build_guide',
+  'def_data_weapon_fit_plan',
+]);
+assert.ok(damageWeaponScenario.verification.forbiddenTools.includes('def_data_combat_conventions'));
+assert.ok(damageWeaponScenario.verification.forbiddenTools.includes('def_data_loadout_candidates'));
+assert.ok(damageWeaponScenario.verification.forbiddenTools.includes('def_data_skill'));
+assert.equal(damageWeaponScenario.verification.maxRepeatedToolCalls.def_data_weapon_fit_plan, 1);
+
+const skillHitScenario = JSON.parse(read('agent/harness/scenarios/skill-hit-facts-v1.json'));
+assert.deepEqual(skillHitScenario.verification.requiredToolsByTurn['1'], ['def_data_skill']);
+assert.ok(skillHitScenario.verification.forbiddenTools.includes('def_data_combat_conventions'));
+assert.ok(skillHitScenario.verification.forbiddenTools.includes('def_data_game_knowledge'));
+assert.equal(skillHitScenario.verification.maxRepeatedToolCalls.def_data_skill, 1);
+
 for (const scenario of [threePlusOneScenario, correctionScenario]) {
   const fallbackRule = scenario.verification.conditionalTools.find((rule) => (
     rule.when?.tool === 'def_data_operator_build_guide'
@@ -179,5 +195,7 @@ console.log(JSON.stringify({
     'turn-scoped-tool-order',
     'read-only-scenarios',
     'support-weapon-convention-route',
+    'damage-weapon-direct-planner-route',
+    'skill-hit-facts-route',
   ],
 }));

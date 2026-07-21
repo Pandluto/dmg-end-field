@@ -4169,26 +4169,52 @@ function buildDefWeaponFitPlan(input = {}) {
   }
   const profileCapabilityResult = resolveOperatorBuildProfileCapability(input, profileResult.profile);
   if (!profileCapabilityResult.ok) return profileCapabilityResult;
-  const conventionBundle = resolveDefCombatConventions({
-    entities: [operatorId, operator?.name, operator?.profession],
-    intents: ['weapon-fit', 'operator-fit'],
-    terms: [typeof input.goal === 'string' ? input.goal : '武器推荐'],
-  });
-  if (!conventionBundle.ok || conventionBundle.state !== 'READY') {
-    return {
-      ok: false,
-      code: conventionBundle.code || 'weapon-fit-combat-convention-incomplete',
-      message: conventionBundle.message || 'Reviewed combat conventions are incomplete for this weapon-fit plan.',
-      missingEdges: conventionBundle.missingEdges || [],
-      conflicts: conventionBundle.conflicts || [],
-    };
-  }
+  const conventionRequired = profileCapabilityResult.capability.conventionRequired === true;
   const suppliedConventionHash = typeof input.conventionBundleHash === 'string' ? input.conventionBundleHash.trim() : '';
-  if (!suppliedConventionHash || suppliedConventionHash !== conventionBundle.bundleHash) {
+  let conventionBundle = {
+    state: 'NOT_REQUIRED',
+    bundleHash: null,
+    rules: [],
+    ignoredTypeKeys: [],
+    missingEdges: [],
+    conflicts: [],
+  };
+  if (conventionRequired) {
+    conventionBundle = resolveDefCombatConventions({
+      entities: [operatorId, operator?.name, operator?.profession],
+      intents: ['weapon-fit', 'operator-fit'],
+      terms: [typeof input.goal === 'string' ? input.goal : '武器推荐'],
+    });
+    if (!conventionBundle.ok || conventionBundle.state !== 'READY') {
+      return {
+        ok: false,
+        code: conventionBundle.code || 'weapon-fit-combat-convention-incomplete',
+        message: conventionBundle.message || 'Reviewed combat conventions are incomplete for this weapon-fit plan.',
+        missingEdges: conventionBundle.missingEdges || [],
+        conflicts: conventionBundle.conflicts || [],
+        retryable: false,
+        nextAction: 'Report that reviewed trigger evidence is incomplete. Do not rank weapons or fall back to legacy weapon/loadout summaries in this turn.',
+      };
+    }
+    const capabilityConventionHash = String(profileCapabilityResult.capability.conventionBundleHash || '').trim();
+    if (!suppliedConventionHash
+      || suppliedConventionHash !== conventionBundle.bundleHash
+      || (capabilityConventionHash && suppliedConventionHash !== capabilityConventionHash)) {
+      return {
+        ok: false,
+        code: suppliedConventionHash ? 'weapon-fit-convention-bundle-mismatch' : 'weapon-fit-convention-bundle-required',
+        message: 'Use the exact conventionBundleHash bound to this operator-build capability.',
+        retryable: false,
+        nextAction: 'Restart guide/profile evidence in a new user turn and preserve its exact reviewed convention bundle. Do not use legacy fallback tools.',
+      };
+    }
+  } else if (suppliedConventionHash) {
     return {
       ok: false,
-      code: suppliedConventionHash ? 'weapon-fit-convention-bundle-mismatch' : 'weapon-fit-convention-bundle-required',
-      message: 'Use the exact conventionBundleHash returned for this operator and weapon-fit intent in the current reviewed rule set.',
+      code: 'weapon-fit-convention-bundle-unexpected',
+      message: 'This planner profile capability does not require a combat-convention bundle.',
+      retryable: false,
+      nextAction: 'Call the weapon planner with the unchanged guide profile/capability and no conventionBundleHash. Do not call convention discovery or legacy fallback tools.',
     };
   }
   const weaponType = String(operator?.weapon || '').trim();
@@ -4325,6 +4351,7 @@ function buildDefWeaponFitPlan(input = {}) {
     },
     rankingBasis: {
       reviewedConventionRules: conventionBundle.rules.map((rule) => ({ ruleId: rule.ruleId, certainty: rule.certainty })),
+      conventionRequired,
       profilePreferenceOrder: groups.map((group) => ({ key: group.key, acceptedTypeKeys: group.acceptedTypeKeys })),
       personalDamageDefaultsExcluded: operatorRequiresCombatConvention(operator),
       completeSkill3Required: true,
@@ -4342,10 +4369,14 @@ function buildDefWeaponFitPlan(input = {}) {
     shortlist: tradeoffShortlist,
     missing: [],
     ambiguity: [{
-      code: 'support-weapon-tradeoffs-not-single-optimum',
-      message: 'Reviewed trigger reachability and passive utility support an unordered tradeoff matrix, not a cross-candidate score or unique universal optimum.',
+      code: conventionRequired ? 'support-weapon-tradeoffs-not-single-optimum' : 'damage-weapon-profile-tradeoffs-not-single-optimum',
+      message: conventionRequired
+        ? 'Reviewed trigger reachability and passive utility support an unordered tradeoff matrix, not a cross-candidate score or unique universal optimum.'
+        : 'The verified guide profile and direct catalog matches support a bounded tradeoff matrix; unreviewed conditional effects remain unresolved.',
     }],
-    nextAction: 'Present only shortlist facts as the returned unordered tradeoff matrix. Obey responseConstraints literally: no ordering labels, diagnostic non-shortlist candidates, overall score, winner, best-team scenario, unsourced multiplier-quality claims, or external-actor substitution for an equipped-operator trigger.',
+    nextAction: conventionRequired
+      ? 'Present only shortlist facts as the returned unordered tradeoff matrix. Obey responseConstraints literally: no ordering labels, diagnostic non-shortlist candidates, overall score, winner, best-team scenario, unsourced multiplier-quality claims, or external-actor substitution for an equipped-operator trigger.'
+      : 'Present only the bounded shortlist and its verified direct profile matches. Keep conditional weapon effects marked unverified and do not invent trigger reachability or a unique winner.',
   };
 }
 
@@ -4994,7 +5025,15 @@ function hashDefOperatorBuildPlannerProfile(plannerProfile) {
   return hashDefNativeCatalogValue(plannerProfile);
 }
 
-function mintOperatorBuildProfileCapability({ sessionId, turnId, operatorId, plannerProfile, source }) {
+function mintOperatorBuildProfileCapability({
+  sessionId,
+  turnId,
+  operatorId,
+  plannerProfile,
+  source,
+  conventionRequired = false,
+  conventionBundleHash = null,
+}) {
   pruneOperatorBuildGuideResolutions();
   const profileHash = hashDefOperatorBuildPlannerProfile(plannerProfile);
   const reusable = [...operatorBuildProfileCapabilities.values()].find((capability) => (
@@ -5014,6 +5053,10 @@ function mintOperatorBuildProfileCapability({ sessionId, turnId, operatorId, pla
     operatorId,
     profileHash,
     source,
+    conventionRequired: conventionRequired === true,
+    conventionBundleHash: typeof conventionBundleHash === 'string' && conventionBundleHash.trim()
+      ? conventionBundleHash.trim()
+      : null,
     consumed: false,
     createdAt: now,
     expiresAt: now + OPERATOR_BUILD_PROFILE_CAPABILITY_TTL_MS,
@@ -5146,6 +5189,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
         sectionId: guide.section.sectionId,
         contentHash: guide.contentHash,
       },
+      conventionRequired,
     });
     return {
       ...base,
@@ -5387,6 +5431,8 @@ function deriveDefOperatorBuildProfile(input = {}) {
       operatorSnapshotHash: resolution.operatorSnapshotHash,
       conventionBundleHash: conventionBundle?.bundleHash || null,
     },
+    conventionRequired: resolution.conventionRequired,
+    conventionBundleHash: conventionBundle?.bundleHash || null,
   });
   return {
     ok: true,
@@ -6162,15 +6208,79 @@ function discardPreparedTeamLoadoutPlan(input = {}) {
   return outcome;
 }
 
+function compactDefSkillFacts(rawSkill = {}) {
+  const rawHits = rawSkill?.hitMeta && typeof rawSkill.hitMeta === 'object' && !Array.isArray(rawSkill.hitMeta)
+    ? rawSkill.hitMeta
+    : {};
+  const hits = Object.entries(rawHits).map(([hitId, rawHit]) => {
+    const rawLevels = rawHit?.levels && typeof rawHit.levels === 'object' && !Array.isArray(rawHit.levels)
+      ? rawHit.levels
+      : {};
+    const levels = Object.fromEntries(Object.entries(rawLevels)
+      .filter(([, value]) => Number.isFinite(Number(value)))
+      .map(([level, value]) => [level, Number(value)]));
+    return {
+      hitId,
+      displayName: String(rawHit?.displayName || hitId),
+      element: String(rawHit?.element || ''),
+      skillType: String(rawHit?.skillType || rawSkill?.buttonType || rawSkill?.type || ''),
+      levels,
+      exhaustiveLevels: Object.keys(levels).length > 0,
+    };
+  });
+  return {
+    hitCount: Number.isInteger(Number(rawSkill?.hitCount)) ? Number(rawSkill.hitCount) : hits.length,
+    hits,
+    complete: hits.length > 0 && hits.every((hit) => (
+      hit.displayName
+      && hit.element
+      && ['A', 'B', 'E', 'Q', 'Dot'].includes(hit.skillType)
+      && hit.exhaustiveLevels
+    )),
+    truncated: false,
+  };
+}
+
 function resolveDefSkills(input = {}) {
   const rawQuery = input.query || input.skillName || input.text || '';
   const query = normalizeDefToolText(rawQuery);
   const requestedSkillType = normalizeDefToolText(input.skillType || inferDefSkillTypeFromText(rawQuery));
-  const explicitCharacter = normalizeDefToolText(input.characterName || input.character || '');
+  const explicitCharacter = normalizeDefToolText(input.characterQuery || input.characterName || input.character || '');
   const requestedActionVariant = inferDefSkillActionVariant(rawQuery);
   const snapshot = readMainWorkbenchSnapshotMirror();
   const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
+  const operatorCatalog = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   const bySkill = new Map();
+  for (const selected of selectedCharacters) {
+    const characterId = String(selected?.id || '').trim();
+    const rawOperator = operatorCatalog && typeof operatorCatalog === 'object' && !Array.isArray(operatorCatalog)
+      ? operatorCatalog[characterId]
+      : null;
+    const characterName = String(rawOperator?.name || selected?.name || '').trim();
+    const rawSkills = rawOperator?.skills && typeof rawOperator.skills === 'object' && !Array.isArray(rawOperator.skills)
+      ? rawOperator.skills
+      : {};
+    for (const [fallbackSkillId, rawSkill] of Object.entries(rawSkills)) {
+      const skillId = String(rawSkill?.id || fallbackSkillId || '').trim();
+      const skillType = String(rawSkill?.buttonType || rawSkill?.type || '').trim();
+      const skillDisplayName = String(rawSkill?.displayName || rawSkill?.name || '').trim();
+      if (!characterId || !characterName || !skillId || !['A', 'B', 'E', 'Q', 'Dot'].includes(skillType) || !skillDisplayName) continue;
+      bySkill.set(`${characterId}:${skillId}`, {
+        characterId,
+        characterName,
+        skillId,
+        skillType,
+        skillDisplayName,
+        semantic: describeDefSkillSemantic({ skillType, skillId, skillDisplayName }),
+        source: 'operator-config-operator-library',
+        sourceRevision: hashDefNativeCatalogValue(rawOperator),
+        facts: compactDefSkillFacts(rawSkill),
+        buttonCount: 0,
+        exampleButtonId: null,
+      });
+    }
+  }
   for (const skill of Array.isArray(snapshot?.skillCatalog) ? snapshot.skillCatalog : []) {
     const characterId = String(skill.characterId || '').trim();
     const characterName = String(skill.characterName || '').trim();
@@ -6179,16 +6289,18 @@ function resolveDefSkills(input = {}) {
     const skillDisplayName = String(skill.skillDisplayName || '').trim();
     if (!characterId || !characterName || !skillId || !['A', 'B', 'E', 'Q', 'Dot'].includes(skillType) || !skillDisplayName) continue;
     const key = `${characterId}:${skillId}`;
+    const existing = bySkill.get(key);
     bySkill.set(key, {
+      ...existing,
       characterId,
       characterName,
       skillId,
       skillType,
       skillDisplayName,
       semantic: describeDefSkillSemantic({ skillType, skillId, skillDisplayName }),
-      source: String(skill.source || 'runtime-template'),
-      buttonCount: 0,
-      exampleButtonId: null,
+      source: existing?.source || String(skill.source || 'runtime-template'),
+      buttonCount: existing?.buttonCount || 0,
+      exampleButtonId: existing?.exampleButtonId || null,
     });
   }
   for (const button of buttons) {
@@ -6213,20 +6325,45 @@ function resolveDefSkills(input = {}) {
     }
     bySkill.get(key).buttonCount += 1;
   }
-  const requestedCharacter = explicitCharacter || [...bySkill.values()]
-    .map((skill) => normalizeDefToolText(skill.characterName || ''))
-    .find((characterName) => characterName && query.includes(characterName)) || '';
-  const candidates = [...bySkill.values()]
-    .filter((skill) => !requestedSkillType || normalizeDefToolText(skill.skillType) === requestedSkillType)
+  const allSkills = [...bySkill.values()];
+  const requestedCharacter = explicitCharacter || allSkills
+    .flatMap((skill) => [normalizeDefToolText(skill.characterId || ''), normalizeDefToolText(skill.characterName || '')])
+    .find((identity) => identity && query.includes(identity)) || '';
+  const identityMatches = new Set(allSkills
+    .filter((skill) => {
+      const skillId = normalizeDefToolText(skill.skillId || '');
+      const displayName = normalizeDefToolText(skill.skillDisplayName || '');
+      const hitDisplayNames = Array.isArray(skill.facts?.hits)
+        ? skill.facts.hits.map((hit) => normalizeDefToolText(hit?.displayName || '')).filter(Boolean)
+        : [];
+      return Boolean(query && (
+        (skillId && query.includes(skillId))
+        || (displayName && (query.includes(displayName) || displayName.includes(query)))
+        || hitDisplayNames.some((hitName) => query.includes(hitName) || hitName.includes(query))
+      ));
+    })
+    .map((skill) => `${skill.characterId}:${skill.skillId}`));
+  const candidates = allSkills
     .filter((skill) => !requestedCharacter || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName}`).includes(requestedCharacter))
-    .filter((skill) => !requestedActionVariant || skill.semantic?.actionVariant === requestedActionVariant)
-    .filter((skill) => !query || requestedSkillType || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName} ${skill.skillId || ''} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
+    .filter((skill) => identityMatches.size > 0
+      ? identityMatches.has(`${skill.characterId}:${skill.skillId}`)
+      : (!requestedSkillType || normalizeDefToolText(skill.skillType) === requestedSkillType))
+    .filter((skill) => identityMatches.size > 0 || !requestedActionVariant || skill.semantic?.actionVariant === requestedActionVariant)
+    .filter((skill) => identityMatches.size > 0 || requestedCharacter || requestedSkillType || !query
+      || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName} ${skill.skillId || ''} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
     .map((skill) => ({
       ...skill,
+      ...(identityMatches.size > 0 ? {} : { facts: undefined }),
       confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillId) === query || normalizeDefToolText(skill.skillType) === requestedSkillType || skill.semantic?.actionVariant === requestedActionVariant ? 1 : 0.7,
     }));
   return {
+    protocolVersion: 1,
+    contract: 'DefSkillResolutionV2',
     query,
+    scope: 'selected-operator-catalog',
+    source: 'operator-config-operator-library',
+    exhaustive: true,
+    truncated: false,
     terminology: {
       A: '普通重击/普通攻击（处决、下落攻击是独立 A 变体）',
       B: '战技',
@@ -6236,6 +6373,9 @@ function resolveDefSkills(input = {}) {
     candidates,
     ambiguity: candidates.length !== 1,
     suggestedQuestion: candidates.length > 1 ? '找到多个技能候选。请指定干员或技能名称。' : (candidates.length === 0 ? '没有与该术语和所选干员一致的可信技能；请指定技能名称。' : ''),
+    nextAction: identityMatches.size > 0
+      ? 'Use the returned hit-level skillType, element and complete levels as typed facts. A Q button may contain individual hits whose damage skillType is B; do not overwrite hit-level classification with the parent button type.'
+      : 'For multiplier or per-hit damage-type questions, call this tool once with one exact operator plus exact skill id or display name.',
   };
 }
 
@@ -10180,6 +10320,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(409, result.code || 'weapon-fit-plan-failed', result.message || 'Unable to build an exhaustive convention-backed weapon fit plan.', {
         missingEdges: result.missingEdges,
         conflicts: result.conflicts,
+        retryable: result.retryable === true,
         nextAction: result.nextAction || 'Restart guide/convention/profile evidence in the current turn; do not rank truncated weapon summaries.',
       });
     }
