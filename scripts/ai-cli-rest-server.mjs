@@ -25,6 +25,7 @@ import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions
 import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
 import { observeAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
+import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -4276,7 +4277,15 @@ function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
       equipment: products,
       threePlusOne: { required: Boolean(target.requireThreePlusOne), composition: counts, resolved: threePlusOne },
       derived: { ultimateChargeEfficiency: charge },
-      exactProduct: { complete: products.length === 4, patch: { characterId: selected.characterId, characterName: selected.characterName, equipments: products.map((product) => ({ slotKey: product.slotKey, equipmentId: product.equipmentId, equipmentName: product.name, gearSetId: product.gearSetId, entryLevels: Object.fromEntries(product.effects.map((effect) => [effect.effectId, effect.level])) })) } },
+      exactProduct: {
+        complete: products.length === 4,
+        patch: buildGuideTeamLoadoutExactPatch({
+          selected,
+          products,
+          manifestWeapon,
+          resolvedWeapon: weapon,
+        }),
+      },
     };
   });
   const decisions = companion.manifest.operators.flatMap((target) => (target.decisions || []).map((decision) => ({ ...decision, characterName: target.characterName, status: confirmed.has(decision.decisionId) ? 'confirmed' : 'open', confirmedOptionId: confirmedChoices.get(decision.decisionId) || null })));

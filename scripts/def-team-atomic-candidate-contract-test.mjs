@@ -6,6 +6,7 @@ import {
   matchesAtomicTeamCandidateCapability,
   prepareAtomicTeamCandidate,
 } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
+import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,6 +68,34 @@ async function assertTeamSize(count) {
 
 await assertTeamSize(2);
 await assertTeamSize(4);
+
+{
+  const base = {
+    selected: { characterId: 'mifu', characterName: '弭弗' },
+    products: [{
+      slotKey: 'armor', equipmentId: 'armor-1', name: '旧锋装甲', gearSetId: 'old-edge',
+      effects: [{ effectId: 'effect1', level: 3 }],
+    }],
+    resolvedWeapon: {
+      id: 'weapon-example', name: '典范', level: 90, potential: '0潜',
+      skillLevels: { skill1: 9, skill2: 9, skill3: 4 },
+    },
+  };
+  const exact = buildGuideTeamLoadoutExactPatch({
+    ...base,
+    manifestWeapon: { mode: 'exact-name', name: '典范', level: 90 },
+  });
+  assert.deepEqual(exact.weapon, {
+    id: 'weapon-example', name: '典范', level: 90, potential: '0潜',
+    skillLevels: { skill1: 9, skill2: 9, skill3: 4 },
+  }, 'an exact guide weapon must be part of the atomic operator-config patch');
+
+  const preserved = buildGuideTeamLoadoutExactPatch({
+    ...base,
+    manifestWeapon: { mode: 'preserve-current' },
+  });
+  assert.equal(Object.hasOwn(preserved, 'weapon'), false, 'preserve-current must not overwrite the current weapon');
+}
 
 {
   const parent = parentPayload(4);
