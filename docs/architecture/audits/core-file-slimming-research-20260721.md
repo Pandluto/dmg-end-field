@@ -51,7 +51,7 @@
 - 删除伤害表 XLSX 导出入口、专用导出器和 `exceljs` 运行时依赖。
 - Buff 与 Damage 工作表改为直接从业务行数据生成 UI 单元格，不再创建临时工作簿。
 - Weapon、Buff、Equipment 三个页面拆为稳定入口、状态控制器、渲染视图和领域模型；原入口文件均缩为 8 行兼容 facade。
-- 第二轮将公式编辑器、单元格编辑器与资源树 JSX 从 controller 移回 view；当前最长 controller 为 Weapon 1,698 行，Buff 为 1,449 行，Equipment 为 1,348 行。后续若继续瘦身，应从控制器中的分享与拖拽状态分别抽 hook，而不是重新合并模型与视图。
+- 第二轮将公式编辑器、单元格编辑器与资源树 JSX 从 controller 移回 view，再将公式 binding、分享导入导出、资源树拖拽和 Equipment 图片选择器按完整职责抽到独立模块。当前 controller 为 Weapon 964 行、Buff 1,002 行、Equipment 972 行，三者均已进入约 1,000 行的目标区间。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 

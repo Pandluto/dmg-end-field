@@ -1,18 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
   buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
 } from '../utils/draftShare';
-import { imageBridge } from '../utils/imageBridge';
-import type { ImageAssetEntry } from './ImageManager/types';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import './DamageSheetPage.css';
 import './EquipmentSheetPage.css';
 
 import * as equipmentSheetPageModel from './equipmentSheetPageModel';
+import { buildEquipmentFormulaBinding } from './equipmentSheetFormula';
+import { useEquipmentImagePicker } from './useEquipmentImagePicker';
+import { useEquipmentSheetShare } from './useEquipmentSheetShare';
 type EquipmentEffectId = equipmentSheetPageModel.EquipmentEffectId;
 type EquipmentLevelKey = equipmentSheetPageModel.EquipmentLevelKey;
 type EquipmentGearSet = equipmentSheetPageModel.EquipmentGearSet;
@@ -20,8 +18,6 @@ type EquipmentLibrary = equipmentSheetPageModel.EquipmentLibrary;
 type EquipmentRow = equipmentSheetPageModel.EquipmentRow;
 type EquipmentSheetColumn = equipmentSheetPageModel.EquipmentSheetColumn;
 type EquipmentSelection = equipmentSheetPageModel.EquipmentSelection;
-type EquipmentFormulaBinding = equipmentSheetPageModel.EquipmentFormulaBinding;
-type EquipmentImageOption = equipmentSheetPageModel.EquipmentImageOption;
 type EquipmentContextMenuState = equipmentSheetPageModel.EquipmentContextMenuState;
 type EquipmentContextMenuAction = equipmentSheetPageModel.EquipmentContextMenuAction;
 
@@ -29,21 +25,14 @@ const {
   EQUIPMENT_DRAFT_STORAGE_KEY,
   EQUIPMENT_LIBRARY_STORAGE_KEY,
   EQUIPMENT_LIBRARY_SHARE_TYPE,
-  EQUIPMENT_PARTS,
   EFFECT_IDS,
   LEVEL_KEYS,
   COLUMNS,
-  BUFF_TYPE_OPTIONS,
-  BUFF_TYPE_LABELS,
   EMPTY_LIBRARY,
   writeLocalStorageJson,
-  buildEquipmentImageOption,
-  EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
-  getEquipmentBuffBusinessType,
   DEFAULT_FIXED_STAT_BY_PART,
   getEquipmentEffectShape,
   getEquipmentEffectValuePreset,
-  getEquipmentEffectTypeOptions,
   applyEffectValueCatalogForPart,
   normalizeEquipmentLibrary,
   readCachedEquipmentLibrary,
@@ -82,23 +71,9 @@ export function useEquipmentSheetPageController() {
   const [message, setMessage] = useState('正在读取装备库...');
   const [formulaInput, setFormulaInput] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
-  const [imageAssets, setImageAssets] = useState<ImageAssetEntry[]>([]);
-  const [imageAssetsLoading, setImageAssetsLoading] = useState(false);
-  const [imageAssetsError, setImageAssetsError] = useState('');
-  const [equipmentImageQuery, setEquipmentImageQuery] = useState('');
-  const [isEquipmentImageDrawerOpen, setIsEquipmentImageDrawerOpen] = useState(false);
-  const [equipmentImageLoadFailed, setEquipmentImageLoadFailed] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaveConfirmModalOpen, setIsSaveConfirmModalOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
-  const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<EquipmentGearSet> | null>(null);
-  const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
-  const equipmentImageFormulaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,30 +102,6 @@ export function useEquipmentSheetPageController() {
         } else {
           setLibrary(createEmptyLibrary());
           setMessage(`读取装备库失败，已创建空库：${error instanceof Error ? error.message : String(error)}`);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    setImageAssetsLoading(true);
-    setImageAssetsError('');
-    imageBridge.listAssets()
-      .then((assets) => {
-        if (cancelled) return;
-        setImageAssets(assets);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setImageAssets([]);
-        setImageAssetsError(error instanceof Error ? error.message : '图片资源加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setImageAssetsLoading(false);
         }
       });
     return () => {
@@ -199,47 +150,6 @@ export function useEquipmentSheetPageController() {
   );
   const workbookRows = useMemo(() => buildWorkbookRows(visibleRows), [visibleRows]);
   const selectedRow = useMemo(() => visibleRows.find((row) => row.key === selectedRowKey) ?? visibleRows[0] ?? null, [selectedRowKey, visibleRows]);
-  const previewImageMeta = useMemo(() => {
-    if (!selectedRow) {
-      return { imgUrl: '', title: '装备配图预览', alt: '装备配图' };
-    }
-    if (
-      selectedRow.kind === 'set'
-      || selectedRow.kind === 'threePieceBuffHeader'
-      || selectedRow.kind === 'threePieceBuff'
-    ) {
-      const gearSet = library.gearSets[selectedRow.gearSetId];
-      return {
-        imgUrl: gearSet?.imgUrl?.trim() || '',
-        title: gearSet?.imgUrl?.trim() || '套装配图预览',
-        alt: gearSet?.name || '套装配图',
-      };
-    }
-    const gearSet = library.gearSets[selectedRow.gearSetId];
-    const equipment = gearSet?.equipments[selectedRow.equipmentId];
-    return {
-      imgUrl: equipment?.imgUrl?.trim() || '',
-      title: equipment?.imgUrl?.trim() || '装备配图预览',
-      alt: equipment?.name || '装备配图',
-    };
-  }, [library.gearSets, selectedRow]);
-  const equipmentImageOptions = useMemo(
-    () => imageAssets.map(buildEquipmentImageOption).filter((option): option is EquipmentImageOption => option !== null),
-    [imageAssets],
-  );
-  const filteredEquipmentImageOptions = useMemo(() => {
-    const keyword = equipmentImageQuery.trim().toLowerCase();
-    if (!keyword) return equipmentImageOptions;
-    return equipmentImageOptions.filter((option) => option.searchText.includes(keyword));
-  }, [equipmentImageOptions, equipmentImageQuery]);
-  const currentShareFile = useMemo(() => {
-    const payload = exportScope === 'current' && selectedRow?.gearSetId && library.gearSets[selectedRow.gearSetId]
-      ? { [selectedRow.gearSetId]: library.gearSets[selectedRow.gearSetId] }
-      : library.gearSets;
-    return buildDraftLibraryShareFile(EQUIPMENT_LIBRARY_SHARE_TYPE, payload, exportScope === 'current' ? selectedRow?.title : 'equipment-library');
-  }, [exportScope, library.gearSets, selectedRow]);
-  const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
-
   useEffect(() => {
     if (activeGearSetId && !library.gearSets[activeGearSetId]) {
       setActiveGearSetId(null);
@@ -264,6 +174,13 @@ export function useEquipmentSheetPageController() {
       return next;
     });
   }, []);
+
+  const equipmentSheetShare = useEquipmentSheetShare({
+    library,
+    mutateLibrary,
+    selectedRow,
+    setMessage,
+  });
 
   const openEquipmentBuffDrawer = useCallback((gearSetId: string, effectId: string) => {
     setBuffDrawerTarget({ gearSetId, effectId });
@@ -816,196 +733,26 @@ export function useEquipmentSheetPageController() {
     () => selectedWorkbookRow?.cells.find((cell) => cell.columnKey === selectedCell?.columnKey) ?? null,
     [selectedCell?.columnKey, selectedWorkbookRow],
   );
-  const formulaBinding = useMemo<EquipmentFormulaBinding | null>(() => {
-    if (!selectedWorkbookRow || !selectedWorkbookCell) {
-      return null;
-    }
-    const row = selectedWorkbookRow.sourceRow;
-    const columnKey = selectedWorkbookCell.columnKey;
-    if (row.kind === 'effectLevels') {
-      const levelKey = selectedCell?.address?.replace(/^Lv/, '') as EquipmentLevelKey;
-      if (!LEVEL_KEYS.includes(levelKey)) {
-        return null;
-      }
-      const effect = library.gearSets[row.gearSetId]?.equipments[row.equipmentId]?.effects[row.effectId];
-      return {
-        key: `${row.key}:${levelKey}`,
-        value: effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey]),
-        inputMode: 'number',
-        placeholder: `Lv${levelKey}`,
-        commit: (value) => updateCellValue(row, columnKey, `${levelKey}:${value}`),
-      };
-    }
-    const editable =
-      (row.kind === 'set' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'threePieceBuffHeader' && false)
-      || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
-      || (row.kind === 'equipment' && ['name', 'field', 'description'].includes(columnKey))
-      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'effect' && ['name', 'field', 'effectKey'].includes(columnKey));
-    if (!editable) {
-      return {
-        key: `${row.key}:${columnKey}:readonly`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        readOnly: true,
-        commit: () => undefined,
-      };
-    }
-    if ((row.kind === 'set' || row.kind === 'equipment') && columnKey === 'description') {
-      const value = row.kind === 'set'
-        ? library.gearSets[row.gearSetId]?.imgUrl ?? ''
-        : library.gearSets[row.gearSetId]?.equipments[row.equipmentId]?.imgUrl ?? '';
-      return {
-        key: `${row.key}:imgUrl`,
-        value,
-        inputMode: 'text',
-        control: 'image-search-select',
-        placeholder: row.kind === 'set' ? '搜索套装配图' : '搜索装备配图',
-        commit: (nextValue) => updateCellValue(row, columnKey, nextValue),
-      };
-    }
-    if (row.kind === 'equipment' && columnKey === 'field') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'select',
-        options: EQUIPMENT_PARTS.map((part) => ({ value: part, label: part })),
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'threePieceBuff' && columnKey === 'field') {
-      const selectedBuff = library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId];
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: getEquipmentBuffBusinessType(selectedBuff),
-        inputMode: 'text',
-        control: 'select',
-        options: EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'fixedStat' && columnKey === 'effectKey') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'select',
-        options: [
-          { value: 'defense', label: '防御力 · defense' },
-          { value: 'hp', label: '生命 · hp' },
-          { value: 'flatAtk', label: '固定攻击力 · flatAtk' },
-        ],
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'effect' && columnKey === 'field') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: row.field === '能力值' ? 'ability' : 'buff',
-        inputMode: 'text',
-        control: 'select',
-        options: [
-          { value: 'ability', label: '能力值' },
-          { value: 'buff', label: 'Buff类型' },
-        ],
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if ((row.kind === 'effect' || row.kind === 'threePieceBuff') && columnKey === 'effectKey') {
-      if (row.kind === 'threePieceBuff' && library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind === 'extraHit') {
-        return {
-          key: `${row.key}:${columnKey}:extra-hit-types`,
-          value: selectedWorkbookCell.value,
-          inputMode: 'text',
-          readOnly: true,
-          commit: () => undefined,
-        };
-      }
-      const effectOptions = row.kind === 'effect'
-        ? (() => {
-            const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
-            const effect = equipment?.effects[row.effectId];
-            return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, row.effectId, effect.category, getEquipmentEffectShape(equipment)).map((typeKey) => ({
-                  value: typeKey,
-                  label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-                }))
-              : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
-          })()
-        : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'search-select',
-        options: effectOptions,
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    return {
-      key: `${row.key}:${columnKey}`,
-      value: selectedWorkbookCell.value,
-      inputMode: columnKey === 'valueText' ? 'number' : 'text',
-      commit: (value) => updateCellValue(row, columnKey, value),
-    };
-  }, [library.gearSets, selectedCell?.address, selectedWorkbookCell, selectedWorkbookRow, updateCellValue]);
+  const formulaBinding = useMemo(
+    () => buildEquipmentFormulaBinding(library, selectedCell, selectedWorkbookCell, selectedWorkbookRow, updateCellValue),
+    [library, selectedCell, selectedWorkbookCell, selectedWorkbookRow, updateCellValue],
+  );
+  const equipmentImagePicker = useEquipmentImagePicker({
+    formulaBinding,
+    library,
+    selectedRow,
+    setFormulaInput,
+  });
 
   const hasUnsavedChanges = isDirty
     || Boolean(formulaBinding && !formulaBinding.readOnly && formulaInput !== formulaBinding.value);
-
-  const handleSelectEquipmentImage = useCallback((displayUrl: string) => {
-    if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
-    formulaBinding.commit(displayUrl);
-    setFormulaInput(displayUrl);
-    setEquipmentImageQuery(displayUrl);
-    setIsEquipmentImageDrawerOpen(false);
-  }, [formulaBinding]);
-
-  const handleClearEquipmentImage = useCallback(() => {
-    if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
-    formulaBinding.commit('');
-    setFormulaInput('');
-    setEquipmentImageQuery('');
-    setIsEquipmentImageDrawerOpen(false);
-  }, [formulaBinding]);
 
   useEffect(() => {
     setFormulaInput(formulaBinding?.value ?? '');
     if (formulaBinding?.control !== 'search-select') {
       setBuffTypeQuery('');
     }
-    setEquipmentImageQuery(formulaBinding?.control === 'image-search-select' ? (formulaBinding.value ?? '') : '');
-    setIsEquipmentImageDrawerOpen(false);
   }, [formulaBinding?.key, formulaBinding?.value, formulaBinding?.control]);
-
-  useEffect(() => {
-    if (!isEquipmentImageDrawerOpen) {
-      return undefined;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      if (equipmentImageFormulaRef.current?.contains(event.target as Node)) {
-        return;
-      }
-      setIsEquipmentImageDrawerOpen(false);
-    };
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsEquipmentImageDrawerOpen(false);
-      }
-    };
-    window.addEventListener('pointerdown', handlePointerDown, true);
-    window.addEventListener('keydown', handleEscape, true);
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown, true);
-      window.removeEventListener('keydown', handleEscape, true);
-    };
-  }, [isEquipmentImageDrawerOpen]);
-
-  useEffect(() => {
-    setEquipmentImageLoadFailed(false);
-  }, [previewImageMeta.imgUrl]);
 
   const buildLibraryWithCommittedFormulaInput = useCallback((baseLibrary: EquipmentLibrary) => {
     if (!formulaBinding || formulaBinding.readOnly || formulaInput === formulaBinding.value || !selectedWorkbookRow || !selectedCell) {
@@ -1168,97 +915,6 @@ export function useEquipmentSheetPageController() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [clearSelectedCell, selectedCell, workbookRows]);
 
-  const openShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
-
-  const handleCopyShareJson = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(currentShareText);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = currentShareText;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-  }, [currentShareText]);
-
-  const prepareImportShare = useCallback((rawText: string) => {
-    const parsed = parseDraftLibraryShareFile(rawText, EQUIPMENT_LIBRARY_SHARE_TYPE);
-    if (!parsed) {
-      setPendingImportShare(null);
-      setShareImportError('导入失败：文件不是有效的装备库分享 JSON。');
-      return;
-    }
-    const normalizedPayload = normalizeEquipmentLibrary({
-      gearSets: parsed.payload,
-    }).gearSets;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效套装。');
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare({
-      ...parsed,
-      payload: normalizedPayload,
-    } as DraftLibraryShareFile<EquipmentGearSet>);
-  }, []);
-
-  const handleExportLocalLibrary = useCallback(() => {
-    downloadJson(buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt), currentShareText);
-  }, [currentShareFile.exportedAt, currentShareFile.label, currentShareText]);
-
-  const handleOpenShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const handleParseImportText = useCallback(() => {
-    prepareImportShare(shareImportText);
-  }, [prepareImportShare, shareImportText]);
-
-  const handleCancelImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
-
-  const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    const text = await file.text();
-    setShareImportText(text);
-    prepareImportShare(text);
-  }, [prepareImportShare]);
-
-  const handleConfirmImportShare = useCallback(() => {
-    if (!pendingImportShare) return;
-    mutateLibrary((prev) => normalizeEquipmentLibrary({
-      ...prev,
-      gearSets: {
-        ...prev.gearSets,
-        ...pendingImportShare.payload,
-      },
-    }));
-    setMessage(`已导入 ${Object.keys(pendingImportShare.payload).length} 个套装。`);
-    closeShareModal();
-  }, [closeShareModal, mutateLibrary, pendingImportShare]);
-
   return {
     library,
     selectedRowKey,
@@ -1272,25 +928,12 @@ export function useEquipmentSheetPageController() {
     contextMenu,
     buffDrawerTarget,
     setBuffDrawerTarget,
-    equipmentImageLoadFailed,
-    setEquipmentImageLoadFailed,
+    ...equipmentImagePicker,
     isSaveConfirmModalOpen,
     setIsSaveConfirmModalOpen,
-    isShareModalOpen,
-    shareModalMode,
-    setShareModalMode,
-    shareImportText,
-    setShareImportText,
-    shareImportError,
-    setShareImportError,
-    pendingImportShare,
-    exportScope,
-    setExportScope,
-    shareImportInputRef,
+    ...equipmentSheetShare,
     tableScrollRef,
     workbookRows,
-    previewImageMeta,
-    currentShareText,
     mutateLibrary,
     openEquipmentBuffDrawer,
     handleCreateNew,
@@ -1305,30 +948,11 @@ export function useEquipmentSheetPageController() {
     hasUnsavedChanges,
     handleSave,
     handleConfirmSave,
-    openShareModal,
-    closeShareModal,
-    handleCopyShareJson,
-    handleExportLocalLibrary,
-    handleOpenShareImportPicker,
-    handleParseImportText,
-    handleCancelImportShare,
-    handleShareFileSelected,
-    handleConfirmImportShare,
     message,
     formulaBinding,
     buffTypeQuery,
     setBuffTypeQuery,
     selectedWorkbookRow,
-    equipmentImageFormulaRef,
-    equipmentImageQuery,
-    setEquipmentImageQuery,
-    isEquipmentImageDrawerOpen,
-    setIsEquipmentImageDrawerOpen,
-    imageAssetsLoading,
-    imageAssetsError,
-    filteredEquipmentImageOptions,
-    handleSelectEquipmentImage,
-    handleClearEquipmentImage,
     formulaInput,
     setFormulaInput,
     commitFormulaInput,

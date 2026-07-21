@@ -3,21 +3,16 @@ import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
 import type { BuffEffectKind } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
 
 import * as buffDraftPageModel from './buffDraftPageModel';
+import { useBuffExplorerDrag } from './useBuffExplorerDrag';
+import { buildBuffFormulaTextBinding } from './buffDraftFormula';
+import { useBuffDraftShare } from './useBuffDraftShare';
 type BuffUndoSnapshot = buffDraftPageModel.BuffUndoSnapshot;
 type BuffEffectDraft = buffDraftPageModel.BuffEffectDraft;
 type BuffItemDraft = buffDraftPageModel.BuffItemDraft;
 type BuffDraft = buffDraftPageModel.BuffDraft;
 type BuffSheetRow = buffDraftPageModel.BuffSheetRow;
-type BuffExplorerDragNode = buffDraftPageModel.BuffExplorerDragNode;
-type BuffExplorerDragState = buffDraftPageModel.BuffExplorerDragState;
 type BuffSheetContextMenuState = buffDraftPageModel.BuffSheetContextMenuState;
 type BuffWorkbookSelection = buffDraftPageModel.BuffWorkbookSelection;
 type FormulaFocusSnapshot = buffDraftPageModel.FormulaFocusSnapshot;
@@ -25,7 +20,6 @@ type FormulaFocusSnapshot = buffDraftPageModel.FormulaFocusSnapshot;
 const {
   BUFF_DRAFT_STORAGE_KEY,
   BUFF_LIBRARY_STORAGE_KEY,
-  BUFF_LIBRARY_SHARE_TYPE,
   BUFF_TYPE_OPTIONS,
   BUFF_TYPE_LABELS,
   MULTIPLIER_SUPPORTED_BUFF_TYPES,
@@ -37,21 +31,18 @@ const {
   buildBuffDraftIdFromName,
   getBuffEffectMultiplier,
   applyBuffEffectKind,
-  cloneValue,
   getNextItemKey,
   getNextEffectKey,
   normalizeBuffDraft,
   normalizeBuffDraftLibrary,
   reorderDraftStructure,
-  parseImportedBuffDraft,
   loadDraftFromStorage,
   loadLocalBuffLibrary,
-  copyText,
+  cloneValue,
   readBuffUndoSnapshots,
   captureBuffUndoSnapshot,
   restoreBuffUndoSnapshot,
   buildBuffSheetRows,
-  reorderRecordEntries,
   buildCollapsedDraftState,
   buildCollapsedItemState,
   buildBuffSheetColumns,
@@ -74,20 +65,10 @@ export function useBuffDraftPageController() {
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
   const [effectValueInput, setEffectValueInput] = useState('');
   const [formulaTextInput, setFormulaTextInput] = useState('');
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
-  const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
-  const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ itemKey: string; effectKey: string } | null>(null);
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
-  const dragHoldTimerRef = useRef<number | null>(null);
-  const pendingDragSourceRef = useRef<{ source: BuffExplorerDragNode; x: number; y: number } | null>(null);
-  const suppressExplorerClickRef = useRef(false);
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLDivElement>(null);
   const pendingFormulaFocusRef = useRef<FormulaFocusSnapshot | null>(null);
   const [formulaFocusRestoreToken, setFormulaFocusRestoreToken] = useState(0);
@@ -179,135 +160,16 @@ export function useBuffDraftPageController() {
     }));
   }, [getItemCollapseKey, localLibrary]);
 
-  const downloadSheetShareFile = useCallback((shareFile: DraftLibraryShareFile<BuffDraft>) => {
-    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
-  }, []);
-
-  const currentSheetShareFile = useMemo(() => buildDraftLibraryShareFile(
-    BUFF_LIBRARY_SHARE_TYPE,
-    loadLocalBuffLibrary(),
-    draft.name || selectedLocalDraftId || 'buff-library',
-  ), [draft.name, selectedLocalDraftId]);
-  const currentSheetShareText = useMemo(() => JSON.stringify(currentSheetShareFile, null, 2), [currentSheetShareFile]);
-
-  const openSheetShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeSheetShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
-
-  const handleExportSheetLibraryShare = useCallback(() => {
-    const library = loadLocalBuffLibrary();
-    const draftCount = Object.keys(library).length;
-    if (draftCount === 0) {
-      return;
-    }
-    const shareFile = buildDraftLibraryShareFile(
-      BUFF_LIBRARY_SHARE_TYPE,
-      library,
-      draft.name || selectedLocalDraftId || 'buff-library',
-    );
-    downloadSheetShareFile(shareFile);
-  }, [downloadSheetShareFile, draft.name, selectedLocalDraftId]);
-
-  const handleOpenSheetShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const prepareSheetImportShare = useCallback((rawText: string) => {
-    const parsedShare = parseDraftLibraryShareFile(rawText, BUFF_LIBRARY_SHARE_TYPE);
-    if (!parsedShare) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 无效，或不是 Buff 分享文件。');
-      return;
-    }
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
-        try {
-          const normalizedDraft = parseImportedBuffDraft(JSON.stringify(value));
-          return [[draftId, normalizedDraft] as const];
-        } catch {
-          return [];
-        }
-      }),
-    ) as Record<string, BuffDraft>;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效 Buff 分组。');
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare({
-      ...parsedShare,
-      payload: normalizedPayload,
-    });
-  }, []);
-
-  const handleSheetShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const rawText = await file.text();
-    setShareImportText(rawText);
-    prepareSheetImportShare(rawText);
-    event.target.value = '';
-  }, [prepareSheetImportShare]);
-
-  const handleParseSheetImportText = useCallback(() => {
-    prepareSheetImportShare(shareImportText);
-  }, [prepareSheetImportShare, shareImportText]);
-
-  const handleCopySheetShareJson = useCallback(async () => {
-    await copyText(currentSheetShareText);
-  }, [currentSheetShareText]);
-
-  const handleCancelSheetImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
-
-  const handleConfirmSheetImportShare = useCallback(() => {
-    if (!pendingImportShare) {
-      return;
-    }
-    const nextLibrary = normalizeBuffDraftLibrary({
-      ...loadLocalBuffLibrary(),
-      ...pendingImportShare.payload,
-    });
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    setLocalLibrary(nextLibrary);
-    applyExplorerDefaultCollapse(nextLibrary);
-    const nextSelectedId = selectedLocalDraftId && nextLibrary[selectedLocalDraftId]
-      ? selectedLocalDraftId
-      : (Object.keys(pendingImportShare.payload)[0] ?? Object.keys(nextLibrary)[0] ?? '');
-    if (nextSelectedId && nextLibrary[nextSelectedId]) {
-      setSelectedLocalDraftId(nextSelectedId);
-      setDraft(nextLibrary[nextSelectedId]);
-      setPendingFocusRowKey(`group-${nextSelectedId}`);
-    }
-    setPendingImportShare(null);
-    setShareImportText('');
-    setShareImportError('');
-    setIsShareModalOpen(false);
-  }, [applyExplorerDefaultCollapse, pendingImportShare, selectedLocalDraftId]);
+  const {
+    isShareModalOpen, shareModalMode, setShareModalMode, shareImportText, setShareImportText,
+    shareImportError, setShareImportError, pendingImportShare, shareImportInputRef,
+    currentSheetShareText, openSheetShareModal, closeSheetShareModal, handleExportSheetLibraryShare,
+    handleOpenSheetShareImportPicker, handleSheetShareFileSelected, handleParseSheetImportText,
+    handleCopySheetShareJson, handleCancelSheetImportShare, handleConfirmSheetImportShare,
+  } = useBuffDraftShare({
+    applyExplorerDefaultCollapse, draft, selectedLocalDraftId, setDraft, setLocalLibrary,
+    setPendingFocusRowKey, setSelectedLocalDraftId,
+  });
 
   useEffect(() => {
     const nextLibrary = {
@@ -586,104 +448,20 @@ export function useBuffDraftPageController() {
     }));
   }, [selectedEffectKey, selectedItemKey]);
 
-  const formulaTextBinding = useMemo(() => {
-    if (!selectedWorkbookSummary) {
-      return null;
-    }
-
-    if (selectedWorkbookSummary.kind === 'group') {
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return {
-          key: 'group:id',
-          focusId: 'group-id',
-          value: draft.id,
-          placeholder: '组 ID',
-          commit: (nextValue: string) => updateDraftField('id', nextValue),
-        };
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return {
-          key: 'group:description',
-          focusId: 'group-description',
-          value: draft.description,
-          placeholder: '组描述',
-          commit: (nextValue: string) => updateDraftField('description', nextValue),
-        };
-      }
-      return {
-        key: 'group:name',
-        focusId: 'group-name',
-        value: draft.name,
-        placeholder: '组名称',
-        commit: (nextValue: string) => updateDraftField('name', nextValue),
-      };
-    }
-
-    if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return {
-          key: `item:${selectedItem.id}:id`,
-          focusId: 'item-id',
-          value: selectedItem.id,
-          placeholder: '项 ID',
-          commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, id: nextValue })),
-        };
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return {
-          key: `item:${selectedItem.id}:description`,
-          focusId: 'item-description',
-          value: selectedItem.description,
-          placeholder: '项描述',
-          commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, description: nextValue })),
-        };
-      }
-      return {
-        key: `item:${selectedItem.id}:name`,
-        focusId: 'item-name',
-        value: selectedItem.name,
-        placeholder: '项名称',
-        commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, name: nextValue })),
-      };
-    }
-
-    if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
-      switch (selectedWorkbookCell?.columnKey) {
-        case 'condition':
-          return {
-            key: `effect:${selectedEffect.id}:condition`,
-            focusId: 'effect-condition',
-            value: selectedEffect.condition || '',
-            placeholder: '条件',
-            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, condition: nextValue })),
-          };
-        case 'description':
-          return {
-            key: `effect:${selectedEffect.id}:description`,
-            focusId: 'effect-description',
-            value: selectedEffect.description || '',
-            placeholder: '描述',
-            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, description: nextValue })),
-          };
-        default:
-          return {
-            key: `effect:${selectedEffect.id}:displayName`,
-            focusId: 'effect-display-name',
-            value: selectedEffect.displayName,
-            placeholder: '效果名称',
-            commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, displayName: nextValue })),
-          };
-      }
-    }
-
-    return null;
-  }, [
-    draft.description,
-    draft.id,
-    draft.name,
+  const formulaTextBinding = useMemo(() => buildBuffFormulaTextBinding({
+    draft,
     selectedEffect,
     selectedItem,
-    selectedWorkbookCell?.columnKey,
+    selectedWorkbookCell,
+    selectedWorkbookSummary,
+    updateDraftField,
+    updateSelectedEffect,
+    updateSelectedItem,
+  }), [
+    draft,
+    selectedEffect,
+    selectedItem,
+    selectedWorkbookCell,
     selectedWorkbookSummary,
     updateDraftField,
     updateSelectedEffect,
@@ -1090,250 +868,25 @@ export function useBuffDraftPageController() {
     });
   }, [draft.id, openContextMenu]);
 
-  const getExplorerDragNodeKey = useCallback((node: BuffExplorerDragNode) => {
-    if (node.kind === 'draft') {
-      return `draft:${node.draftId}`;
-    }
-    if (node.kind === 'item') {
-      return `item:${node.draftId}:${node.itemKey}`;
-    }
-    return `effect:${node.draftId}:${node.itemKey}:${node.effectKey}`;
-  }, []);
-
-  const getExplorerDragNodeLabel = useCallback((node: BuffExplorerDragNode) => {
-    const targetDraft = localLibrary[node.draftId];
-    if (!targetDraft) {
-      return node.draftId;
-    }
-    if (node.kind === 'draft') {
-      return targetDraft.name || node.draftId;
-    }
-    const targetItem = targetDraft.items[node.itemKey];
-    if (!targetItem) {
-      return node.itemKey;
-    }
-    if (node.kind === 'item') {
-      return targetItem.name || node.itemKey;
-    }
-    const targetEffect = targetItem.effects[node.effectKey];
-    return targetEffect?.displayName || node.effectKey;
-  }, [localLibrary]);
-
-  const clearPendingExplorerDrag = useCallback(() => {
-    if (dragHoldTimerRef.current !== null) {
-      window.clearTimeout(dragHoldTimerRef.current);
-      dragHoldTimerRef.current = null;
-    }
-    pendingDragSourceRef.current = null;
-  }, []);
-
-  const consumeSuppressedExplorerClick = useCallback(() => {
-    if (!suppressExplorerClickRef.current) {
-      return false;
-    }
-    suppressExplorerClickRef.current = false;
-    return true;
-  }, []);
-
-  const canStartExplorerDrag = useCallback((node: BuffExplorerDragNode) => {
-    if (filterKeyword.trim()) {
-      return false;
-    }
-    if (node.kind === 'draft') {
-      return Boolean(collapsedDraftIds[node.draftId]);
-    }
-    if (node.kind === 'item') {
-      return Boolean(collapsedItems[getItemCollapseKey(node.draftId, node.itemKey)]);
-    }
-    return true;
-  }, [collapsedDraftIds, collapsedItems, filterKeyword, getItemCollapseKey]);
-
-  const isValidExplorerDropTarget = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode | null) => {
-    if (!target || source.kind !== target.kind) {
-      return false;
-    }
-    if (getExplorerDragNodeKey(source) === getExplorerDragNodeKey(target)) {
-      return false;
-    }
-    if (target.kind === 'draft') {
-      return canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (target.kind === 'item') {
-      return source.draftId === target.draftId && canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (source.kind !== 'effect') {
-      return false;
-    }
-    return source.draftId === target.draftId && source.itemKey === target.itemKey;
-  }, [canStartExplorerDrag, getExplorerDragNodeKey]);
-
-  const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): BuffExplorerDragNode | null => {
-    const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-buff-drag-kind]') : null;
-    if (!row) {
-      return null;
-    }
-    const kind = row.dataset.buffDragKind;
-    const draftId = row.dataset.buffDraftId;
-    if (!kind || !draftId) {
-      return null;
-    }
-    if (kind === 'draft') {
-      return { kind: 'draft', draftId };
-    }
-    const itemKey = row.dataset.buffItemKey;
-    if (!itemKey) {
-      return null;
-    }
-    if (kind === 'item') {
-      return { kind: 'item', draftId, itemKey };
-    }
-    const effectKey = row.dataset.buffEffectKey;
-    if (!effectKey) {
-      return null;
-    }
-    return { kind: 'effect', draftId, itemKey, effectKey };
-  }, []);
-
-  const applyExplorerReorder = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode) => {
-    if (!isValidExplorerDropTarget(source, target)) {
-      return;
-    }
-
-    if (source.kind === 'draft' && target.kind === 'draft') {
-      const nextLibrary = reorderRecordEntries(localLibrary, source.draftId, target.draftId);
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`group-${source.draftId}`);
-      return;
-    }
-
-    if (source.kind === 'item' && target.kind === 'item') {
-      const targetDraft = localLibrary[source.draftId];
-      if (!targetDraft) {
-        return;
-      }
-      const nextDraft = cloneValue(targetDraft);
-      nextDraft.items = reorderRecordEntries(nextDraft.items, source.itemKey, target.itemKey);
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`item-${source.itemKey}`);
-      return;
-    }
-
-    if (source.kind === 'effect' && target.kind === 'effect') {
-      const targetDraft = localLibrary[source.draftId];
-      const targetItem = targetDraft?.items[source.itemKey];
-      if (!targetDraft || !targetItem) {
-        return;
-      }
-      const nextDraft = cloneValue(targetDraft);
-      nextDraft.items[source.itemKey].effects = reorderRecordEntries(
-        nextDraft.items[source.itemKey].effects,
-        source.effectKey,
-        target.effectKey,
-      );
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`effect-${source.itemKey}-${source.effectKey}`);
-    }
-  }, [isValidExplorerDropTarget, localLibrary, persistLibraryState, selectedLocalDraftId]);
-
-  const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: BuffExplorerDragNode) => {
-    if (event.button !== 0 || !canStartExplorerDrag(source)) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.buff-sheet-explorer-toggle')) {
-      return;
-    }
-    clearPendingExplorerDrag();
-    pendingDragSourceRef.current = {
-      source,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    dragHoldTimerRef.current = window.setTimeout(() => {
-      suppressExplorerClickRef.current = true;
-      setContextMenu(null);
-      setDragState({ source, over: null, x: event.clientX, y: event.clientY });
-      pendingDragSourceRef.current = null;
-      dragHoldTimerRef.current = null;
-    }, 220);
-  }, [canStartExplorerDrag, clearPendingExplorerDrag]);
-
-  useEffect(() => {
-    if (!contextMenu) {
-      return undefined;
-    }
-    const handlePointerDown = () => setContextMenu(null);
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setContextMenu(null);
-      }
-    };
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleEscape);
-    window.addEventListener('scroll', handlePointerDown, true);
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleEscape);
-      window.removeEventListener('scroll', handlePointerDown, true);
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const pending = pendingDragSourceRef.current;
-      if (pending) {
-        const distance = Math.hypot(event.clientX - pending.x, event.clientY - pending.y);
-        if (distance > 6) {
-          clearPendingExplorerDrag();
-        }
-      }
-      if (!dragState) {
-        return;
-      }
-      event.preventDefault();
-      const hoveredNode = resolveExplorerDragNodeFromElement(document.elementFromPoint(event.clientX, event.clientY));
-      setDragState((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const nextOver = isValidExplorerDropTarget(prev.source, hoveredNode) ? hoveredNode : null;
-        const previousOverKey = prev.over ? getExplorerDragNodeKey(prev.over) : '';
-        const nextOverKey = nextOver ? getExplorerDragNodeKey(nextOver) : '';
-        if (previousOverKey === nextOverKey && prev.x === event.clientX && prev.y === event.clientY) {
-          return prev;
-        }
-        return {
-          ...prev,
-          over: nextOver,
-          x: event.clientX,
-          y: event.clientY,
-        };
-      });
-    };
-
-    const finalizeDrag = () => {
-      clearPendingExplorerDrag();
-      setDragState((prev) => {
-        if (prev?.over) {
-          applyExplorerReorder(prev.source, prev.over);
-        }
-        return null;
-      });
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', finalizeDrag, true);
-    window.addEventListener('pointercancel', finalizeDrag, true);
-    window.addEventListener('blur', finalizeDrag);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', finalizeDrag, true);
-      window.removeEventListener('pointercancel', finalizeDrag, true);
-      window.removeEventListener('blur', finalizeDrag);
-    };
-  }, [applyExplorerReorder, clearPendingExplorerDrag, dragState, getExplorerDragNodeKey, isValidExplorerDropTarget, resolveExplorerDragNodeFromElement]);
+  const {
+    dragState,
+    getExplorerDragNodeKey,
+    getExplorerDragNodeLabel,
+    consumeSuppressedExplorerClick,
+    canStartExplorerDrag,
+    handleExplorerPointerDown,
+  } = useBuffExplorerDrag({
+    collapsedDraftIds,
+    collapsedItems,
+    contextMenu,
+    filterKeyword,
+    getItemCollapseKey,
+    localLibrary,
+    persistLibraryState,
+    selectedLocalDraftId,
+    setContextMenu,
+    setPendingFocusRowKey,
+  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {

@@ -1,28 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
 import { imageBridge } from '../utils/imageBridge';
 import type { ImageAssetEntry } from './ImageManager/types';
-import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
-import * as buffModel from './operatorDraftBuffModel';
 
 import * as weaponDraftPageModel from './weaponDraftPageModel';
+import { useWeaponExplorerDrag } from './useWeaponExplorerDrag';
+import { useWeaponDraftShare } from './useWeaponDraftShare';
+import { buildWeaponFormulaBinding } from './weaponDraftFormula';
 type WeaponSkillKey = weaponDraftPageModel.WeaponSkillKey;
 type WeaponEffectBucket = weaponDraftPageModel.WeaponEffectBucket;
-type RawWeaponDraft = weaponDraftPageModel.RawWeaponDraft;
 type WeaponDraft = weaponDraftPageModel.WeaponDraft;
 type WeaponImageOption = weaponDraftPageModel.WeaponImageOption;
 type WeaponSheetRow = weaponDraftPageModel.WeaponSheetRow;
 type WeaponWorkbookSelection = weaponDraftPageModel.WeaponWorkbookSelection;
-type FormulaBinding = weaponDraftPageModel.FormulaBinding;
-type WeaponExplorerDragNode = weaponDraftPageModel.WeaponExplorerDragNode;
-type WeaponExplorerDragState = weaponDraftPageModel.WeaponExplorerDragState;
 type WeaponSheetContextMenuState = weaponDraftPageModel.WeaponSheetContextMenuState;
 type WeaponSheetContextMenuAction = weaponDraftPageModel.WeaponSheetContextMenuAction;
 
@@ -30,36 +21,26 @@ type WeaponSheetContextMenuAction = weaponDraftPageModel.WeaponSheetContextMenuA
 const {
   WEAPON_DRAFT_STORAGE_KEY,
   WEAPON_LIBRARY_STORAGE_KEY,
-  WEAPON_LIBRARY_SHARE_TYPE,
   SKILL_KEYS,
   LEVEL_KEYS,
-  SKILL1_OPTIONS,
-  SKILL2_OPTIONS,
   WEAPON_BUFF_TYPE_OPTIONS,
   cloneValue,
-  buildWeaponIdFromName,
   createEmptyWeaponDraft,
   normalizeWeaponDraft,
   projectWeaponEffectForLevel,
-  applyWeaponDrawerEffect,
   buildNextCustomWeaponId,
   writeLocalStorageJson,
   loadLocalWeaponLibrary,
   loadDraftFromStorage,
   buildWeaponSheetColumns,
-  getBuffTypeDisplayLabel,
   buildBuffTypeSearchText,
   buildWeaponImageOption,
-  EFFECT_CATEGORY_OPTIONS,
-  getEffectCategory,
   applyAttackGrowthInterpolation,
   applyEffectLevelsInterpolation,
   buildWeaponEffectRowKey,
   buildWeaponEffectLevelsRowKey,
-  parseInlineLevelAddress,
   buildWeaponSheetRows,
   buildWeaponWorkbookRows,
-  moveRecordEntry,
   reorderWeaponDraft,
 } = weaponDraftPageModel;
 
@@ -85,21 +66,9 @@ export function useWeaponDraftPageController() {
   const [collapsedLevels, setCollapsedLevels] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
-  const [shareImportError, setShareImportError] = useState('');
-  const [shareDraftName] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<WeaponDraft> | null>(null);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
-  const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
-  const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ skillKey: WeaponSkillKey; effectKey: string; levelKey: string } | null>(null);
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const weaponImageFormulaRef = useRef<HTMLDivElement>(null);
-  const pendingDragSourceRef = useRef<{ source: WeaponExplorerDragNode; x: number; y: number } | null>(null);
-  const dragHoldTimerRef = useRef<number | null>(null);
-  const suppressExplorerClickRef = useRef(false);
 
   useEffect(() => {
     if (!selectedLocalDraftId && draft.id && localLibrary[draft.id]) {
@@ -157,400 +126,10 @@ export function useWeaponDraftPageController() {
     setBuffDrawerTarget({ skillKey, effectKey, levelKey });
   }, []);
 
-  const formulaBinding = useMemo<FormulaBinding | null>(() => {
-    if (!selectedWorkbookSummary) {
-      return null;
-    }
-
-    // 对于 effectLevels 类型，必须解析 address 来确定具体的 level
-    const inlineLevelKey = selectedWorkbookSummary.kind === 'effectLevels'
-      ? parseInlineLevelAddress(selectedWorkbookCell?.address)
-      : '';
-
-    if (selectedWorkbookSummary.kind === 'weapon') {
-      if (selectedWorkbookCell?.columnKey === 'slot') {
-        return {
-          key: 'weapon:imgUrl',
-          focusId: 'weapon-img-url',
-          inputMode: 'text',
-          control: 'image-search-select',
-          value: draft.imgUrl,
-          placeholder: '搜索武器主图',
-          apply: (baseDraft, rawInput) => ({ ...baseDraft, imgUrl: rawInput.trim() }),
-        };
-      }
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return {
-          key: 'weapon:id',
-          focusId: 'weapon-id',
-          inputMode: 'text',
-          value: draft.id,
-          placeholder: '武器 ID',
-          apply: (baseDraft, rawInput) => ({ ...baseDraft, id: rawInput.trim() || baseDraft.id }),
-        };
-      }
-      if (selectedWorkbookCell?.columnKey === 'valueText') {
-        return {
-          key: 'weapon:rarity',
-          focusId: 'weapon-rarity',
-          inputMode: 'number',
-          value: String(draft.rarity),
-          placeholder: '稀有度',
-          apply: (baseDraft, rawInput) => {
-            const parsed = Number(rawInput);
-            return { ...baseDraft, rarity: Number.isFinite(parsed) ? parsed : baseDraft.rarity };
-          },
-        };
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return {
-          key: 'weapon:description',
-          focusId: 'weapon-description',
-          inputMode: 'text',
-          value: draft.description,
-          placeholder: '武器描述',
-          apply: (baseDraft, rawInput) => ({ ...baseDraft, description: rawInput }),
-        };
-      }
-      return {
-        key: 'weapon:name',
-        focusId: 'weapon-name',
-        inputMode: 'text',
-        value: draft.name,
-        placeholder: '武器名称',
-        apply: (baseDraft, rawInput) => ({
-          ...baseDraft,
-          name: rawInput,
-          id: buildWeaponIdFromName(rawInput) || baseDraft.id,
-        }),
-      };
-    }
-
-    if (selectedWorkbookSummary.kind === 'growth') {
-      return null;
-    }
-
-    if (selectedWorkbookSummary.kind === 'skill') {
-      const targetSkill = draft.skills[selectedWorkbookSummary.skillKey];
-      const skillKey = selectedWorkbookSummary.skillKey;
-      const statOptions = skillKey === 'skill1'
-        ? SKILL1_OPTIONS.map((value) => ({ value, label: value }))
-        : skillKey === 'skill2'
-          ? SKILL2_OPTIONS.map((value) => ({ value, label: value }))
-          : null;
-      if (selectedWorkbookCell?.columnKey === 'slot') {
-        return {
-          key: `${skillKey}:statType`,
-          focusId: 'skill-stat-type',
-          inputMode: 'text',
-          control: statOptions ? 'select' : 'input',
-          value: targetSkill.statType,
-          placeholder: 'skill statType',
-          options: statOptions ?? undefined,
-          apply: (baseDraft, rawInput) => ({
-            ...baseDraft,
-            skills: {
-              ...baseDraft.skills,
-              [skillKey]: {
-                ...baseDraft.skills[skillKey],
-                statType: rawInput,
-              },
-            },
-          }),
-        };
-      }
-      return {
-        key: `${skillKey}:name`,
-        focusId: 'skill-name',
-        inputMode: 'text',
-        value: targetSkill.name,
-        placeholder: 'skill 名称',
-        readOnly: skillKey !== 'skill3',
-        apply: (baseDraft, rawInput) => ({
-          ...baseDraft,
-          skills: {
-            ...baseDraft.skills,
-            [skillKey]: {
-              ...baseDraft.skills[skillKey],
-              name: rawInput,
-            },
-          },
-        }),
-      };
-    }
-
-    if (selectedWorkbookSummary.kind === 'effect') {
-      const { skillKey, bucket, sourceEffectKey } = selectedWorkbookSummary;
-      const fixedStatOptions = skillKey === 'skill1'
-        ? SKILL1_OPTIONS.map((value) => ({ value, label: value }))
-        : skillKey === 'skill2'
-          ? SKILL2_OPTIONS.map((value) => ({ value, label: value }))
-          : null;
-      const buffTypeOptions = [
-        { value: '', label: '未设置类型' },
-        ...WEAPON_BUFF_TYPE_OPTIONS.map((value) => ({ value, label: getBuffTypeDisplayLabel(value) })),
-      ];
-      if (
-        selectedWorkbookCell?.columnKey === 'name'
-        || selectedWorkbookCell?.columnKey === 'idText'
-        || selectedWorkbookCell?.columnKey === 'slot'
-      ) {
-        if (selectedWorkbookCell?.columnKey === 'name') {
-          if (fixedStatOptions && bucket === 'value') {
-            return {
-              key: `${skillKey}:fixed-effect-name`,
-              focusId: 'fixed-effect-name',
-              inputMode: 'text',
-              control: 'select',
-              value: draft.skills[skillKey].statType,
-              placeholder: '',
-              options: fixedStatOptions,
-              apply: (baseDraft, rawInput) => ({
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [skillKey]: {
-                    ...baseDraft.skills[skillKey],
-                    statType: rawInput,
-                  },
-                },
-              }),
-            };
-          }
-          return {
-            key: `${skillKey}:effect-name`,
-            focusId: 'effect-name',
-            inputMode: 'text',
-            value: draft.skills[skillKey].effects[sourceEffectKey].name,
-            placeholder: '效果名称',
-            readOnly: bucket === 'value',
-            apply: (baseDraft, rawInput) => {
-              if (bucket === 'value') {
-                return baseDraft;
-              }
-              const trimmed = rawInput.trim();
-              if (!trimmed) {
-                return baseDraft;
-              }
-              const nextEffects = { ...baseDraft.skills[skillKey].effects };
-              if (nextEffects[sourceEffectKey]) {
-                nextEffects[sourceEffectKey] = {
-                  ...nextEffects[sourceEffectKey],
-                  name: trimmed,
-                };
-              }
-              return {
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [skillKey]: {
-                    ...baseDraft.skills[skillKey],
-                    effects: nextEffects,
-                  },
-                },
-              };
-            },
-          };
-        }
-        if (selectedWorkbookCell?.columnKey === 'slot' && skillKey === 'skill3' && bucket !== 'value') {
-          return {
-            key: `${skillKey}:effect:${sourceEffectKey}:effect-category`,
-            focusId: 'effect-category',
-            inputMode: 'text',
-            control: 'select',
-            value: getEffectCategory(skillKey, draft.skills[skillKey], sourceEffectKey),
-            placeholder: '',
-            options: EFFECT_CATEGORY_OPTIONS,
-            apply: (baseDraft, rawInput) => {
-              const businessType = buffModel.OPERATOR_BUFF_BUSINESS_TYPES.includes(rawInput as buffModel.OperatorBuffBusinessType)
-                ? rawInput as buffModel.OperatorBuffBusinessType
-                : 'condition';
-              const nextEffects = { ...baseDraft.skills[skillKey].effects };
-              const current = nextEffects[sourceEffectKey];
-              if (!current) return baseDraft;
-              const projected = projectWeaponEffectForLevel(sourceEffectKey, current, '9');
-              const nextEffect = buffModel.applyBuffBusinessType(projected, businessType, sourceEffectKey);
-              nextEffects[sourceEffectKey] = applyWeaponDrawerEffect(current, '9', nextEffect);
-              return {
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [skillKey]: {
-                    ...baseDraft.skills[skillKey],
-                    effects: nextEffects,
-                  },
-                },
-              };
-            },
-          };
-        }
-        return {
-          key: `${skillKey}:${bucket}:${sourceEffectKey}:${selectedWorkbookCell?.columnKey}`,
-          focusId: `effect-${selectedWorkbookCell?.columnKey}`,
-          inputMode: 'text',
-          readOnly: true,
-          value:
-            selectedWorkbookCell?.columnKey === 'idText'
-                ? selectedWorkbookSummary.idText
-                : selectedWorkbookCell?.columnKey === 'slot'
-                  ? selectedWorkbookSummary.slot
-                  : '',
-          placeholder: '',
-          apply: (baseDraft) => baseDraft,
-        };
-      }
-
-      if (selectedWorkbookCell?.columnKey === 'effectKey') {
-        if (bucket === 'value') {
-          return {
-            key: `${skillKey}:value:key`,
-            focusId: 'effect-key',
-            inputMode: 'text',
-            readOnly: true,
-            value: 'value',
-            placeholder: '',
-            apply: (baseDraft) => baseDraft,
-          };
-        }
-        if (skillKey === 'skill3') {
-          const selectedEffect = draft.skills[skillKey].effects[sourceEffectKey];
-          if (selectedEffect?.effectKind === 'extraHit') {
-            const config = normalizeExtraHitConfig(selectedEffect.extraHitConfig, `${sourceEffectKey}-extra-hit`);
-            return {
-              key: `${skillKey}:effect:${sourceEffectKey}:extra-hit-types`,
-              focusId: 'effect-extra-hit-types',
-              inputMode: 'text',
-              readOnly: true,
-              value: `${config.damageType} / ${config.skillType || '空'}`,
-              placeholder: '',
-              apply: (baseDraft) => baseDraft,
-            };
-          }
-          return {
-            key: `${skillKey}:effect:${sourceEffectKey}:buff-type`,
-            focusId: 'effect-buff-type',
-            inputMode: 'text',
-            control: 'search-select',
-            value: draft.skills[skillKey].effects[sourceEffectKey]?.type ?? '',
-            placeholder: '',
-            options: buffTypeOptions,
-            apply: (baseDraft, rawInput) => {
-              const trimmed = rawInput.trim();
-              const nextEffects = { ...baseDraft.skills[skillKey].effects };
-              if (nextEffects[sourceEffectKey]) {
-                nextEffects[sourceEffectKey] = {
-                  ...nextEffects[sourceEffectKey],
-                  type: trimmed,
-                };
-              }
-              return {
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [skillKey]: {
-                    ...baseDraft.skills[skillKey],
-                    effects: nextEffects,
-                  },
-                },
-              };
-            },
-          };
-        }
-        return {
-          key: `${skillKey}:${bucket}:${sourceEffectKey}:key`,
-          focusId: 'effect-key',
-          inputMode: 'text',
-          value: sourceEffectKey,
-          placeholder: '效果键',
-          readOnly: true,
-          apply: (baseDraft) => baseDraft,
-        };
-      }
-
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return {
-          key: `${skillKey}:${bucket}:${sourceEffectKey}:description`,
-          focusId: 'effect-description',
-          inputMode: 'text',
-          value: '',
-          placeholder: '效果描述',
-          readOnly: true,
-          apply: (baseDraft) => baseDraft,
-        };
-      }
-
-      return null;
-    }
-
-    if (selectedWorkbookSummary.kind === 'effectLevels') {
-      if (inlineLevelKey) {
-        const rawValue = selectedWorkbookSummary.bucket === 'value'
-          ? draft.skills[selectedWorkbookSummary.skillKey].levels[inlineLevelKey]?.value
-          : draft.skills[selectedWorkbookSummary.skillKey].effects[selectedWorkbookSummary.sourceEffectKey]?.levels[inlineLevelKey];
-        return {
-          key: `${selectedWorkbookSummary.skillKey}:${selectedWorkbookSummary.bucket}:${selectedWorkbookSummary.sourceEffectKey}:level:${inlineLevelKey}:${selectedWorkbookCell?.address ?? ''}`,
-          focusId: 'effect-level-value',
-          inputMode: 'number',
-          value: rawValue == null ? '' : String(rawValue),
-          placeholder: '',
-          apply: (baseDraft, rawInput) => {
-            const parsed = Number(rawInput);
-            if (selectedWorkbookSummary.bucket === 'value') {
-              const nextLevels = { ...baseDraft.skills[selectedWorkbookSummary.skillKey].levels };
-              nextLevels[inlineLevelKey] = {
-                ...nextLevels[inlineLevelKey],
-                value: rawInput.trim() && Number.isFinite(parsed) ? parsed : undefined,
-              };
-              return {
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [selectedWorkbookSummary.skillKey]: {
-                    ...baseDraft.skills[selectedWorkbookSummary.skillKey],
-                    levels: nextLevels,
-                  },
-                },
-              };
-            }
-            const nextEffects = { ...baseDraft.skills[selectedWorkbookSummary.skillKey].effects };
-            if (nextEffects[selectedWorkbookSummary.sourceEffectKey]) {
-              const nextLevels = { ...nextEffects[selectedWorkbookSummary.sourceEffectKey].levels };
-              if (rawInput.trim() && Number.isFinite(parsed)) {
-                nextLevels[inlineLevelKey] = parsed;
-              } else {
-                delete nextLevels[inlineLevelKey];
-              }
-              nextEffects[selectedWorkbookSummary.sourceEffectKey] = {
-                ...nextEffects[selectedWorkbookSummary.sourceEffectKey],
-                levels: nextLevels,
-              };
-            }
-            return {
-              ...baseDraft,
-              skills: {
-                ...baseDraft.skills,
-                [selectedWorkbookSummary.skillKey]: {
-                  ...baseDraft.skills[selectedWorkbookSummary.skillKey],
-                  effects: nextEffects,
-                },
-              },
-            };
-          },
-        };
-      }
-      return {
-        key: `${selectedWorkbookSummary.skillKey}:${selectedWorkbookSummary.bucket}:${selectedWorkbookSummary.sourceEffectKey}:levels`,
-        focusId: 'effect-levels',
-        inputMode: 'text',
-        readOnly: true,
-        value: 'Lv1~Lv9',
-        placeholder: '',
-        apply: (baseDraft) => baseDraft,
-      };
-    }
-
-    return null;
-  }, [draft, selectedWorkbookCell?.columnKey, selectedWorkbookCell?.address, selectedWorkbookCell?.sourceRowKey, selectedWorkbookSummary]);
+  const formulaBinding = useMemo(
+    () => buildWeaponFormulaBinding(draft, selectedWorkbookCell, selectedWorkbookSummary),
+    [draft, selectedWorkbookCell, selectedWorkbookSummary],
+  );
 
   useEffect(() => {
     setFormulaInput(formulaBinding?.value ?? '');
@@ -1059,137 +638,34 @@ export function useWeaponDraftPageController() {
     setIsWeaponImageDrawerOpen(false);
   }, []);
 
-  const currentShareFile = useMemo(() => {
-    // 根据导出范围生成 payload
-    let payload: Record<string, WeaponDraft>;
-    let label: string;
-    if (exportScope === 'current') {
-      // 导出当前：payload 只包含当前 draft
-      payload = draft.id ? { [draft.id]: draft } : {};
-      label = draft.name || 'weapon';
-    } else {
-      // 导出全部：payload 为整个 localLibrary，当前 draft 覆盖同 id 条目
-      payload = { ...localLibrary };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-      label = shareDraftName || draft.name || 'weapon-library';
-    }
-    return buildDraftLibraryShareFile(
-      WEAPON_LIBRARY_SHARE_TYPE,
-      payload,
-      label,
-    );
-  }, [draft, exportScope, localLibrary, shareDraftName]);
-
-  const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
-
-  const openShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
-
-  const handleCopyShareJson = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(currentShareText);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = currentShareText;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
-  }, [currentShareText]);
-
-  const prepareImportShare = useCallback((rawText: string) => {
-    const parsed = parseDraftLibraryShareFile(rawText, WEAPON_LIBRARY_SHARE_TYPE);
-    if (!parsed) {
-      setPendingImportShare(null);
-      setShareImportError('导入失败：文件不是有效的武器库分享 JSON。');
-      return;
-    }
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsed.payload).map(([draftId, draftValue]) => [draftId, normalizeWeaponDraft({ ...(draftValue as RawWeaponDraft), id: draftId })]),
-    ) as Record<string, WeaponDraft>;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效武器。');
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare({
-      ...parsed,
-      payload: normalizedPayload,
-    } as DraftLibraryShareFile<WeaponDraft>);
-  }, []);
-
-  const handleExportLocalLibrary = useCallback(() => {
-    const blob = new Blob([JSON.stringify(currentShareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
-  }, [currentShareFile]);
-
-  const handleOpenShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const handleParseImportText = useCallback(() => {
-    prepareImportShare(shareImportText);
-  }, [prepareImportShare, shareImportText]);
-
-  const handleCancelImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
-
-  const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const rawText = await file.text();
-    setShareImportText(rawText);
-    prepareImportShare(rawText);
-    event.target.value = '';
-  }, [prepareImportShare]);
-
-  const handleConfirmImportShare = useCallback(() => {
-    if (!pendingImportShare) {
-      return;
-    }
-    const nextLibrary = {
-      ...localLibrary,
-      ...pendingImportShare.payload,
-    };
-    const nextDraftId = Object.keys(pendingImportShare.payload)[0] ?? '';
-    const nextDraft = nextDraftId && nextLibrary[nextDraftId]
-      ? nextLibrary[nextDraftId]
-      : draft;
-    persistLibraryState(nextLibrary, nextDraft, nextDraftId || selectedLocalDraftId || draft.id);
-    setPendingImportShare(null);
-    setShareImportText('');
-    setShareImportError('');
-    setIsShareModalOpen(false);
-  }, [draft, localLibrary, pendingImportShare, persistLibraryState, selectedLocalDraftId]);
+  const {
+    shareImportError,
+    setShareImportError,
+    pendingImportShare,
+    isShareModalOpen,
+    shareModalMode,
+    setShareModalMode,
+    shareImportText,
+    setShareImportText,
+    exportScope,
+    setExportScope,
+    shareImportInputRef,
+    currentShareText,
+    openShareModal,
+    closeShareModal,
+    handleCopyShareJson,
+    handleExportLocalLibrary,
+    handleOpenShareImportPicker,
+    handleParseImportText,
+    handleCancelImportShare,
+    handleShareFileSelected,
+    handleConfirmImportShare,
+  } = useWeaponDraftShare({
+    draft,
+    localLibrary,
+    persistLibraryState,
+    selectedLocalDraftId,
+  });
 
   const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: WeaponSheetContextMenuState) => {
     event.preventDefault();
@@ -1370,233 +846,22 @@ export function useWeaponDraftPageController() {
     return explorerEntries.filter((entry) => entry.name.trim().toLowerCase().includes(keyword));
   }, [explorerEntries, filterKeyword]);
 
-  // Explorer drag helpers
-  const getExplorerDragNodeKey = useCallback((node: WeaponExplorerDragNode) => {
-    if (node.kind === 'draft') {
-      return `draft:${node.draftId}`;
-    }
-    if (node.kind === 'skill') {
-      return `skill:${node.draftId}:${node.skillKey}`;
-    }
-    return `effect:${node.draftId}:${node.skillKey}:${node.bucket}:${node.effectKey}`;
-  }, []);
-
-  const getExplorerDragNodeLabel = useCallback((node: WeaponExplorerDragNode) => {
-    const targetDraft = localLibrary[node.draftId];
-    if (!targetDraft) {
-      return node.draftId;
-    }
-    if (node.kind === 'draft') {
-      return targetDraft.name || node.draftId;
-    }
-    if (node.kind === 'skill') {
-      return targetDraft.skills[node.skillKey]?.name || node.skillKey;
-    }
-    const skill = targetDraft.skills[node.skillKey];
-    if (!skill) {
-      return node.effectKey;
-    }
-    //这里对了
-    return skill.effects[node.effectKey].name;
-    
-  }, [localLibrary]);
-
-  const clearPendingExplorerDrag = useCallback(() => {
-    if (dragHoldTimerRef.current !== null) {
-      window.clearTimeout(dragHoldTimerRef.current);
-      dragHoldTimerRef.current = null;
-    }
-    pendingDragSourceRef.current = null;
-  }, []);
-
-  const canStartExplorerDrag = useCallback((node: WeaponExplorerDragNode) => {
-    if (filterKeyword.trim()) {
-      return false;
-    }
-    // 只允许 skill3 的 effect 拖拽
-    if (node.kind === 'effect') {
-      return node.skillKey === 'skill3';
-    }
-    // draft 和 skill 不允许拖拽
-    return false;
-  }, [filterKeyword]);
-
-  const isValidExplorerDropTarget = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode | null) => {
-    if (!target || source.kind !== target.kind) {
-      return false;
-    }
-    if (getExplorerDragNodeKey(source) === getExplorerDragNodeKey(target)) {
-      return false;
-    }
-    if (target.kind === 'draft') {
-      return canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (target.kind === 'skill') {
-      return source.draftId === target.draftId && canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (source.kind !== 'effect') {
-      return false;
-    }
-    return source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value';
-  }, [canStartExplorerDrag, getExplorerDragNodeKey]);
-
-  const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): WeaponExplorerDragNode | null => {
-    const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-weapon-drag-kind]') : null;
-    if (!row) {
-      return null;
-    }
-    const kind = row.dataset.weaponDragKind as WeaponExplorerDragNode['kind'] | undefined;
-    const draftId = row.dataset.weaponDraftId;
-    if (!kind || !draftId) {
-      return null;
-    }
-    if (kind === 'draft') {
-      return { kind, draftId };
-    }
-    const skillKey = row.dataset.weaponSkillKey as WeaponSkillKey | undefined;
-    if (!skillKey) {
-      return null;
-    }
-    if (kind === 'skill') {
-      return { kind, draftId, skillKey };
-    }
-    const bucket = row.dataset.weaponBucket as WeaponEffectBucket | undefined;
-    const effectKey = row.dataset.weaponEffectKey;
-    if (!bucket || !effectKey) {
-      return null;
-    }
-    return { kind: 'effect', draftId, skillKey, bucket, effectKey };
-  }, []);
-
-  const applyExplorerReorder = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode) => {
-    if (!isValidExplorerDropTarget(source, target)) {
-      return;
-    }
-
-    if (source.kind === 'draft' && target.kind === 'draft') {
-      // Reorder drafts in library
-      const nextLibrary = moveRecordEntry(localLibrary, source.draftId, target.draftId);
-      setLocalLibrary(nextLibrary);
-      window.localStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    } else if (source.kind === 'skill' && target.kind === 'skill' && source.draftId === target.draftId) {
-      // Reorder skills within a draft (SKILL_KEYS is fixed order, so we need to reorder effectTypes instead)
-      const targetDraft = localLibrary[source.draftId] || draft;
-      const nextDraft = { ...targetDraft };
-      // Skills are fixed (skill1, skill2, skill3), so we reorder their effectTypes
-      // This is a simplified implementation
-      setDraft(nextDraft);
-      window.localStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
-    } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value') {
-      // effects record 的插入顺序即显示顺序，拖拽直接移动 entry
-      const targetDraft = localLibrary[source.draftId] || draft;
-      const nextEffects = moveRecordEntry(targetDraft.skills[source.skillKey].effects, source.effectKey, target.effectKey);
-      const nextDraft: WeaponDraft = {
-        ...targetDraft,
-        skills: {
-          ...targetDraft.skills,
-          [source.skillKey]: {
-            ...targetDraft.skills[source.skillKey],
-            effects: nextEffects,
-          },
-        },
-      };
-      if (targetDraft.id === draft.id) {
-        setDraft(nextDraft);
-      }
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      setLocalLibrary(nextLibrary);
-      window.localStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    }
-  }, [draft, isValidExplorerDropTarget, localLibrary]);
-
-  const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: WeaponExplorerDragNode) => {
-    if (event.button !== 0 || !canStartExplorerDrag(source)) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.buff-sheet-explorer-toggle')) {
-      return;
-    }
-    clearPendingExplorerDrag();
-    pendingDragSourceRef.current = {
-      source,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    dragHoldTimerRef.current = window.setTimeout(() => {
-      suppressExplorerClickRef.current = true;
-      setContextMenu(null);
-      setDragState({ source, over: null, x: event.clientX, y: event.clientY });
-      pendingDragSourceRef.current = null;
-      dragHoldTimerRef.current = null;
-    }, 220);
-  }, [canStartExplorerDrag, clearPendingExplorerDrag]);
-
-  const formatWeaponExplorerDragKindLabel = (kind: WeaponExplorerDragNode['kind']): string => {
-    if (kind === 'draft') {
-      return '武器';
-    }
-    if (kind === 'skill') {
-      return '技能';
-    }
-    return '效果';
-  };
-
-  // Explorer drag global event listeners
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const pending = pendingDragSourceRef.current;
-      if (pending) {
-        const distance = Math.hypot(event.clientX - pending.x, event.clientY - pending.y);
-        if (distance > 6) {
-          clearPendingExplorerDrag();
-        }
-      }
-      if (!dragState) {
-        return;
-      }
-      event.preventDefault();
-      const hoveredNode = resolveExplorerDragNodeFromElement(document.elementFromPoint(event.clientX, event.clientY));
-      setDragState((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const nextOver = isValidExplorerDropTarget(prev.source, hoveredNode) ? hoveredNode : null;
-        const previousOverKey = prev.over ? getExplorerDragNodeKey(prev.over) : '';
-        const nextOverKey = nextOver ? getExplorerDragNodeKey(nextOver) : '';
-        if (previousOverKey === nextOverKey && prev.x === event.clientX && prev.y === event.clientY) {
-          return prev;
-        }
-        return {
-          ...prev,
-          over: nextOver,
-          x: event.clientX,
-          y: event.clientY,
-        };
-      });
-    };
-
-    const finalizeDrag = () => {
-      clearPendingExplorerDrag();
-      setDragState((prev) => {
-        if (prev?.over) {
-          applyExplorerReorder(prev.source, prev.over);
-        }
-        return null;
-      });
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', finalizeDrag, true);
-    window.addEventListener('pointercancel', finalizeDrag, true);
-    window.addEventListener('blur', finalizeDrag);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', finalizeDrag, true);
-      window.removeEventListener('pointercancel', finalizeDrag, true);
-      window.removeEventListener('blur', finalizeDrag);
-    };
-  }, [applyExplorerReorder, clearPendingExplorerDrag, dragState, getExplorerDragNodeKey, isValidExplorerDropTarget, resolveExplorerDragNodeFromElement]);
+  const {
+    dragState,
+    suppressExplorerClickRef,
+    getExplorerDragNodeKey,
+    getExplorerDragNodeLabel,
+    canStartExplorerDrag,
+    handleExplorerPointerDown,
+    formatWeaponExplorerDragKindLabel,
+  } = useWeaponExplorerDrag({
+    draft,
+    filterKeyword,
+    localLibrary,
+    setContextMenu,
+    setDraft,
+    setLocalLibrary,
+  });
 
   return {
     draft,
