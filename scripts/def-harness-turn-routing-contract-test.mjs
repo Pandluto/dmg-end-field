@@ -16,6 +16,9 @@ const binding = {
 assert.equal(routeNativeTurnHarness(binding, '把赛希配件换成长息加固板').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').selector, 'stable');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'native-catalog');
+assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
 assert.equal(isDirectCurrentNodeQuestion('请基于当前空排轴创建新节点'), false);

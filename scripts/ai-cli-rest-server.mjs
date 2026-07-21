@@ -89,6 +89,7 @@ const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
+const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
@@ -2635,20 +2636,34 @@ function readMainWorkbenchSnapshotMirror() {
   return readMainWorkbenchJson(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
 }
 
-function readDefEquipmentLibrary() {
+function readDefEquipmentLibrarySource() {
   const library = readMainWorkbenchJson(EQUIPMENT_LIBRARY_STORAGE_KEY, null);
-  if (library && typeof library === 'object' && Object.keys(library.gearSets || {}).length > 0) return library;
+  if (library && typeof library === 'object' && Object.keys(library.gearSets || {}).length > 0) {
+    return { library, storageKey: EQUIPMENT_LIBRARY_STORAGE_KEY };
+  }
   const draft = readMainWorkbenchJson(EQUIPMENT_DRAFT_STORAGE_KEY, null);
-  if (draft && typeof draft === 'object' && Object.keys(draft.gearSets || {}).length > 0) return draft;
+  if (draft && typeof draft === 'object' && Object.keys(draft.gearSets || {}).length > 0) {
+    return { library: draft, storageKey: EQUIPMENT_DRAFT_STORAGE_KEY };
+  }
   try {
     const payload = JSON.parse(fs.readFileSync(nowStoragePath, 'utf-8'));
     const storedLibrary = payload?.storage?.local?.[EQUIPMENT_LIBRARY_STORAGE_KEY];
-    if (storedLibrary && typeof storedLibrary === 'object' && Object.keys(storedLibrary.gearSets || {}).length > 0) return storedLibrary;
+    if (storedLibrary && typeof storedLibrary === 'object' && Object.keys(storedLibrary.gearSets || {}).length > 0) {
+      return { library: storedLibrary, storageKey: EQUIPMENT_LIBRARY_STORAGE_KEY };
+    }
     const storedDraft = payload?.storage?.local?.[EQUIPMENT_DRAFT_STORAGE_KEY];
-    return storedDraft && typeof storedDraft === 'object' ? storedDraft : { gearSets: {} };
+    if (storedDraft && typeof storedDraft === 'object' && Object.keys(storedDraft.gearSets || {}).length > 0) {
+      return { library: storedDraft, storageKey: EQUIPMENT_DRAFT_STORAGE_KEY };
+    }
   } catch {
-    return { gearSets: {} };
+    // The normal product path above deliberately remains authoritative. The
+    // archive is only a renderer-less sidecar fallback.
   }
+  return { library: { gearSets: {} }, storageKey: EQUIPMENT_LIBRARY_STORAGE_KEY };
+}
+
+function readDefEquipmentLibrary() {
+  return readDefEquipmentLibrarySource().library;
 }
 
 function normalizeDefToolPercent(value, unit = '') {
@@ -2657,6 +2672,280 @@ function normalizeDefToolPercent(value, unit = '') {
     return `${Number((value * 100).toFixed(2))}%`;
   }
   return value;
+}
+
+// Native catalog artifacts deliberately use their own stable serializer. A
+// local-storage object can acquire keys in a different order after a normal
+// renderer save; that must not make an unchanged catalog look like a new
+// source revision.
+function canonicalizeDefNativeCatalogValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalizeDefNativeCatalogValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().flatMap((key) => {
+    const entry = value[key];
+    return entry === undefined ? [] : [[key, canonicalizeDefNativeCatalogValue(entry)]];
+  }));
+}
+
+function serializeDefNativeCatalogValue(value) {
+  return JSON.stringify(canonicalizeDefNativeCatalogValue(value));
+}
+
+function hashDefNativeCatalogValue(value) {
+  return createHash('sha256').update(serializeDefNativeCatalogValue(value)).digest('hex');
+}
+
+function nativeCatalogText(value) {
+  return normalizeDefToolText(value)
+    .replace(/(?:套装|套)$/u, '');
+}
+
+function nativeCatalogSafeBusinessValue(value, depth = 0) {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
+  if (depth >= 10 || !value || typeof value !== 'object') return undefined;
+  if (Array.isArray(value)) return value
+    .map((item) => nativeCatalogSafeBusinessValue(item, depth + 1))
+    .filter((item) => item !== undefined);
+  const blocked = new Set([
+    'selected', 'selection', 'selectedIndex', 'draft', 'ui', 'session',
+    'chat', 'commandQueue', 'command', 'approval', 'checkout', 'timeline',
+    'workNode', 'workspace', 'storage', 'localStorage', 'sessionStorage',
+  ]);
+  return Object.fromEntries(Object.keys(value).sort().flatMap((key) => {
+    if (blocked.has(key)) return [];
+    const entry = nativeCatalogSafeBusinessValue(value[key], depth + 1);
+    return entry === undefined ? [] : [[key, entry]];
+  }));
+}
+
+function nativeEquipmentSlots(part) {
+  if (part === '护甲') return ['armor'];
+  if (part === '护手') return ['glove'];
+  if (part === '配件') return ['accessory1', 'accessory2'];
+  return [];
+}
+
+function projectDefNativeEquipment(equipment = {}, gearSet = {}) {
+  return {
+    domain: 'equipment',
+    id: String(equipment.equipmentId || ''),
+    name: String(equipment.name || ''),
+    part: String(equipment.part || ''),
+    availableSlots: nativeEquipmentSlots(String(equipment.part || '')),
+    gearSet: {
+      id: String(gearSet.gearSetId || ''),
+      name: String(gearSet.name || ''),
+    },
+    ...(equipment.imgUrl ? { icon: String(equipment.imgUrl) } : {}),
+    ...(equipment.fixedStat && typeof equipment.fixedStat === 'object'
+      ? { fixedStat: nativeCatalogSafeBusinessValue(equipment.fixedStat) }
+      : {}),
+    effects: nativeCatalogSafeBusinessValue(equipment.effects || {}),
+  };
+}
+
+function projectDefNativeGearSet(gearSet = {}) {
+  const equipments = Object.values(gearSet.equipments || {})
+    .filter((equipment) => equipment && typeof equipment === 'object')
+    .map((equipment) => projectDefNativeEquipment(equipment, gearSet));
+  return {
+    domain: 'equipment',
+    kind: 'gear-set',
+    id: String(gearSet.gearSetId || ''),
+    name: String(gearSet.name || ''),
+    ...(gearSet.buffId ? { buffId: String(gearSet.buffId) } : {}),
+    ...(gearSet.imgUrl ? { icon: String(gearSet.imgUrl) } : {}),
+    equipments,
+    threePieceBuffs: nativeCatalogSafeBusinessValue({
+      ...(gearSet.threePieceBuff ? { single: gearSet.threePieceBuff } : {}),
+      ...(gearSet.threePieceBuffs || {}),
+    }),
+  };
+}
+
+function projectDefNativeWeapon(raw = {}, fallbackId = '') {
+  const id = String(raw.id || fallbackId || '').trim();
+  const name = String(raw.name || '').trim();
+  if (!id || !name) return null;
+  return {
+    domain: 'weapon',
+    kind: 'weapon',
+    id,
+    name,
+    type: String(raw.type || ''),
+    ...(Number.isFinite(Number(raw.rarity)) ? { rarity: Number(raw.rarity) } : {}),
+    ...(raw.description ? { description: String(raw.description) } : {}),
+    ...(raw.imgUrl ? { icon: String(raw.imgUrl) } : {}),
+    ...(raw.attackGrowth && typeof raw.attackGrowth === 'object'
+      ? { attackGrowth: nativeCatalogSafeBusinessValue(raw.attackGrowth) }
+      : {}),
+    ...(raw.skills && typeof raw.skills === 'object'
+      ? { skills: nativeCatalogSafeBusinessValue(raw.skills) }
+      : {}),
+  };
+}
+
+function nativeCatalogLeafFields(value, prefix = '', fields = []) {
+  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    if (prefix) fields.push({ path: prefix, value });
+    return fields;
+  }
+  if (!value || typeof value !== 'object') return fields;
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => nativeCatalogLeafFields(item, `${prefix}[${index}]`, fields));
+    return fields;
+  }
+  Object.keys(value).sort().forEach((key) => nativeCatalogLeafFields(value[key], prefix ? `${prefix}.${key}` : key, fields));
+  return fields;
+}
+
+function nativeCatalogMinimalRecord(entity, query) {
+  const normalized = nativeCatalogText(query);
+  const matchedFields = nativeCatalogLeafFields(entity)
+    .filter((field) => nativeCatalogText(field.value).includes(normalized))
+    .map((field) => ({ path: field.path, value: field.value }));
+  if (!matchedFields.length) return null;
+  if (entity.domain === 'equipment') {
+    return {
+      domain: 'equipment',
+      kind: 'equipment',
+      id: entity.id,
+      name: entity.name,
+      part: entity.part,
+      availableSlots: entity.availableSlots,
+      gearSet: entity.gearSet,
+      matchedFields,
+    };
+  }
+  return {
+    domain: 'weapon',
+    kind: 'weapon',
+    id: entity.id,
+    name: entity.name,
+    type: entity.type,
+    ...(entity.rarity !== undefined ? { rarity: entity.rarity } : {}),
+    matchedFields,
+  };
+}
+
+function readDefNativeWeaponLibrarySource() {
+  const library = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, null);
+  if (library && typeof library === 'object' && !Array.isArray(library) && Object.keys(library).length > 0) {
+    return { library, storageKey: WEAPON_LIBRARY_STORAGE_KEY };
+  }
+  try {
+    const archive = JSON.parse(fs.readFileSync(nowStoragePath, 'utf-8'));
+    const stored = archive?.storage?.local?.[WEAPON_LIBRARY_STORAGE_KEY];
+    if (stored && typeof stored === 'object' && !Array.isArray(stored) && Object.keys(stored).length > 0) {
+      return { library: stored, storageKey: WEAPON_LIBRARY_STORAGE_KEY };
+    }
+  } catch {
+    // Report a structured source-unavailable result below rather than using a
+    // second unrelated source or manufacturing a catalog.
+  }
+  return { library: {}, storageKey: WEAPON_LIBRARY_STORAGE_KEY };
+}
+
+function buildDefNativeCatalogSnapshot(domain) {
+  const capturedAt = Date.now();
+  if (domain === 'equipment') {
+    const source = readDefEquipmentLibrarySource();
+    const gearSets = Object.values(source.library?.gearSets || {})
+      .filter((gearSet) => gearSet && typeof gearSet === 'object')
+      .map(projectDefNativeGearSet)
+      .filter((gearSet) => gearSet.id && gearSet.name)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (!gearSets.length) return { ok: false, code: 'native-catalog-source-unavailable', message: 'The current equipment local library is unavailable or empty.', domain };
+    const sourceValue = { domain, gearSets };
+    return {
+      ok: true,
+      domain,
+      source: {
+        storageKey: source.storageKey,
+        revision: `sha256:${hashDefNativeCatalogValue(sourceValue)}`,
+        capturedAt,
+      },
+      gearSets,
+      entities: gearSets.flatMap((gearSet) => gearSet.equipments),
+    };
+  }
+  if (domain === 'weapon') {
+    const source = readDefNativeWeaponLibrarySource();
+    const entities = Object.entries(source.library || {})
+      .map(([fallbackId, raw]) => projectDefNativeWeapon(raw, fallbackId))
+      .filter(Boolean)
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (!entities.length) return { ok: false, code: 'native-catalog-source-unavailable', message: 'The current weapon local library is unavailable or empty.', domain };
+    const sourceValue = { domain, weapons: entities };
+    return {
+      ok: true,
+      domain,
+      source: {
+        storageKey: source.storageKey,
+        revision: `sha256:${hashDefNativeCatalogValue(sourceValue)}`,
+        capturedAt,
+      },
+      entities,
+    };
+  }
+  return { ok: false, code: 'native-catalog-domain-invalid', message: 'domain must be equipment or weapon.', domain };
+}
+
+function buildDefNativeCatalogArtifact(input = {}) {
+  const domain = typeof input.domain === 'string' ? input.domain.trim() : '';
+  const query = typeof input.query === 'string' ? input.query.trim() : '';
+  if (!query) return { ok: false, code: 'native-catalog-query-required', message: 'A non-empty equipment or weapon query is required; an empty query cannot materialize a full domain.' };
+  const snapshot = buildDefNativeCatalogSnapshot(domain);
+  if (!snapshot.ok) return snapshot;
+  const normalized = nativeCatalogText(query);
+  const entityFull = (entity, reason) => ({
+    ok: true,
+    contract: DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT,
+    domain,
+    query,
+    selectionMode: 'entity-full',
+    selectionReason: reason,
+    source: snapshot.source,
+    files: [{ path: 'entity.full.json', records: 1, content: `${JSON.stringify(canonicalizeDefNativeCatalogValue(entity), null, 2)}\n` }],
+  });
+  if (domain === 'equipment') {
+    const matchingSets = snapshot.gearSets.filter((gearSet) => {
+      const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
+      return identities.some((identity) => normalized === identity || normalized.includes(identity));
+    });
+    if (matchingSets.length === 1) return entityFull(matchingSets[0], 'exact-gear-set');
+  }
+  const exactEntities = snapshot.entities.filter((entity) => [entity.id, entity.name].map(nativeCatalogText).some((identity) => identity === normalized));
+  if (exactEntities.length === 1) return entityFull(exactEntities[0], 'exact-entity');
+  const minimal = snapshot.entities.map((entity) => nativeCatalogMinimalRecord(entity, query)).filter(Boolean);
+  if (minimal.length) {
+    const content = `${minimal.map((record) => JSON.stringify(canonicalizeDefNativeCatalogValue(record))).join('\n')}\n`;
+    return {
+      ok: true,
+      contract: DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT,
+      domain,
+      query,
+      selectionMode: 'substring-minimal',
+      selectionReason: 'deterministic-substring',
+      source: snapshot.source,
+      files: [{ path: 'records.jsonl', records: minimal.length, content }],
+    };
+  }
+  const fallback = domain === 'equipment' ? snapshot.gearSets : snapshot.entities;
+  return {
+    ok: true,
+    contract: DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT,
+    domain,
+    query,
+    selectionMode: 'domain-full-fallback',
+    selectionReason: 'no-deterministic-match',
+    source: snapshot.source,
+    files: [{
+      path: 'domain.full.jsonl',
+      records: fallback.length,
+      content: `${fallback.map((record) => JSON.stringify(canonicalizeDefNativeCatalogValue(record))).join('\n')}\n`,
+    }],
+  };
 }
 
 function compactDefGearSetBuff(buff = {}, gearSet = {}) {
@@ -7894,6 +8183,14 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     result = resolveDefSkills(input);
   } else if (name === 'def.buff.resolve' || name === 'def.buff.search_candidates') {
     result = resolveDefBuffs(input);
+  } else if (name === 'def.native_catalog.materialize') {
+    result = buildDefNativeCatalogArtifact(input);
+    if (!result.ok) {
+      return failScript(400, result.code || 'native-catalog-materialize-failed', result.message || 'Unable to capture a native catalog artifact.', {
+        domain: result.domain || input.domain || null,
+        nextAction: 'Keep this read-only request unmodified and provide a non-empty equipment or weapon query after the local catalog is available.',
+      });
+    }
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {
     result = resolveDefEquipment(input);
   } else if (name === 'def.weapon.resolve') {

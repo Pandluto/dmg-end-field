@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
 // Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
 // a nonexistent repo-root @opencode-ai/plugin installation. This is a local
@@ -20,6 +21,9 @@ const nodeSelection = 'node/working/selection.json'
 const nodeTimeline = 'node/working/timeline.json'
 const nodeBuffs = 'node/working/buffs.json'
 const nodeInputs = 'node/working/inputs.json'
+const retrievalRoot = 'retrieval'
+const nativeCatalogArtifactContract = 'DefNativeCatalogArtifactV1'
+const nativeCatalogArtifactTtlMs = 15 * 60 * 1000
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
@@ -369,6 +373,164 @@ function inside(directory, name) {
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+}
+
+function sha256Text(value) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function nativeArtifactFileName(value) {
+  if (typeof value !== 'string' || !/^[a-z][a-z0-9._-]*\.(?:json|jsonl)$/.test(value)) {
+    throw new Error(`native-catalog-artifact-invalid-file: ${String(value || '')}`)
+  }
+  return value
+}
+
+function nativeArtifactRoot(context) {
+  return inside(context.directory, retrievalRoot)
+}
+
+function readNativeArtifactManifest(root) {
+  const manifestPath = path.join(root, 'manifest.json')
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'))
+    return manifest && typeof manifest === 'object' ? manifest : null
+  } catch {
+    return null
+  }
+}
+
+function nativeArtifactFilesMatch(root, manifest) {
+  if (!Array.isArray(manifest?.files) || manifest.files.length === 0) return false
+  return manifest.files.every((file) => {
+    try {
+      const name = nativeArtifactFileName(file?.path)
+      const content = fs.readFileSync(path.join(root, name), 'utf8')
+      return typeof file?.sha256 === 'string' && sha256Text(content) === file.sha256
+    } catch {
+      return false
+    }
+  })
+}
+
+function cleanupExpiredNativeArtifacts(context, now = Date.now()) {
+  const root = nativeArtifactRoot(context)
+  if (!fs.existsSync(root)) return
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    // Never recursively clean a caller-supplied path. The only deletable
+    // cache entries are artifact ids this bridge itself minted below.
+    if (!entry.isDirectory() || !/^catalog-[a-z0-9-]{20,}$/i.test(entry.name)) continue
+    const artifactRoot = path.join(root, entry.name)
+    const manifest = readNativeArtifactManifest(artifactRoot)
+    if (!manifest || Number(manifest.expiresAt) <= now) fs.rmSync(artifactRoot, { recursive: true, force: true })
+  }
+}
+
+function findReusableNativeArtifact(context, snapshot, now = Date.now()) {
+  const root = nativeArtifactRoot(context)
+  if (!fs.existsSync(root)) return null
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^catalog-[a-z0-9-]{20,}$/i.test(entry.name)) continue
+    const artifactRoot = path.join(root, entry.name)
+    const manifest = readNativeArtifactManifest(artifactRoot)
+    if (!manifest || manifest.contract !== nativeCatalogArtifactContract || Number(manifest.expiresAt) <= now) continue
+    if (manifest.domain !== snapshot.domain || manifest.query !== snapshot.query || manifest.source?.revision !== snapshot.source?.revision) continue
+    if (!nativeArtifactFilesMatch(artifactRoot, manifest)) continue
+    return { root: artifactRoot, manifest }
+  }
+  return null
+}
+
+function validateNativeCatalogSnapshot(snapshot) {
+  if (!snapshot || snapshot.ok !== true || snapshot.contract !== nativeCatalogArtifactContract) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: typed bridge did not return DefNativeCatalogArtifactV1')
+  }
+  if (!['equipment', 'weapon'].includes(snapshot.domain) || typeof snapshot.query !== 'string' || !snapshot.query.trim()) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: domain and non-empty query are required')
+  }
+  if (!['entity-full', 'substring-minimal', 'domain-full-fallback'].includes(snapshot.selectionMode)) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: unsupported selection mode')
+  }
+  if (!snapshot.source || typeof snapshot.source.storageKey !== 'string' || typeof snapshot.source.revision !== 'string') {
+    throw new Error('native-catalog-artifact-invalid-snapshot: source revision is required')
+  }
+  if (!Array.isArray(snapshot.files) || snapshot.files.length !== 1) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: exactly one catalog data file is required')
+  }
+  const file = snapshot.files[0]
+  nativeArtifactFileName(file?.path)
+  if (typeof file?.content !== 'string' || !file.content) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: data file content is required')
+  }
+}
+
+export function materializeNativeCatalogArtifact(context, snapshot, now = Date.now()) {
+  validateNativeCatalogSnapshot(snapshot)
+  if (!context?.directory || typeof context.directory !== 'string') throw new Error('native-catalog-artifact-session-directory-required')
+  const root = nativeArtifactRoot(context)
+  fs.mkdirSync(root, { recursive: true })
+  cleanupExpiredNativeArtifacts(context, now)
+  const reusable = findReusableNativeArtifact(context, snapshot, now)
+  if (reusable) {
+    return {
+      ...reusable.manifest,
+      root: path.relative(context.directory, reusable.root),
+      manifestPath: path.relative(context.directory, path.join(reusable.root, 'manifest.json')),
+      reused: true,
+    }
+  }
+  const artifactId = `catalog-${randomUUID()}`
+  const temporary = path.join(root, `.tmp-${artifactId}`)
+  const artifactRoot = path.join(root, artifactId)
+  const file = snapshot.files[0]
+  const fileName = nativeArtifactFileName(file.path)
+  const contentHash = sha256Text(file.content)
+  const expiresAt = now + nativeCatalogArtifactTtlMs
+  const manifest = {
+    contract: nativeCatalogArtifactContract,
+    artifactId,
+    domain: snapshot.domain,
+    selectionMode: snapshot.selectionMode,
+    selectionReason: snapshot.selectionReason || null,
+    query: snapshot.query,
+    source: snapshot.source,
+    files: [{ path: fileName, sha256: contentHash, records: Number(file.records) || 0 }],
+    createdAt: now,
+    expiresAt,
+    readOnly: true,
+    nativeAccessRoot: `${retrievalRoot}/${artifactId}`,
+  }
+  try {
+    fs.mkdirSync(temporary, { recursive: false })
+    fs.writeFileSync(path.join(temporary, fileName), file.content, 'utf8')
+    if (sha256Text(fs.readFileSync(path.join(temporary, fileName), 'utf8')) !== contentHash) {
+      throw new Error('native-catalog-artifact-hash-mismatch')
+    }
+    fs.writeFileSync(path.join(temporary, 'README.md'), [
+      '# DEF native retrieval artifact',
+      '',
+      `Domain: ${manifest.domain}`,
+      `Mode: ${manifest.selectionMode}`,
+      `Source revision: ${manifest.source.revision}`,
+      '',
+      'This directory is immutable retrieval evidence. Read manifest.json first, then use native read or grep only within this artifact root. Do not edit it or use it as Work Node input.',
+      '',
+    ].join('\n'), 'utf8')
+    fs.writeFileSync(path.join(temporary, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+    fs.renameSync(temporary, artifactRoot)
+  } catch (error) {
+    fs.rmSync(temporary, { recursive: true, force: true })
+    // A completed artifact can only be reached by the final rename. Never
+    // leave a half-written directory for the model to mistake as evidence.
+    if (!fs.existsSync(path.join(artifactRoot, 'manifest.json'))) fs.rmSync(artifactRoot, { recursive: true, force: true })
+    throw error
+  }
+  return {
+    ...manifest,
+    root: `${retrievalRoot}/${artifactId}`,
+    manifestPath: `${retrievalRoot}/${artifactId}/manifest.json`,
+    reused: false,
+  }
 }
 
 function materialize(context, node, options = {}) {
@@ -1329,6 +1491,48 @@ export const data_equipment = dataResource({
     : { query: query || '', limit: 12, catalogOnly: true },
   transform: transformEquipmentResolution,
 })
+
+export const data_native_catalog_materialize = {
+  description: 'Materialize one deterministic, read-only equipment or weapon catalog artifact inside this native session. Call once per domain/query turn, then read its manifest and use native grep/read only under the returned retrieval root. This tool never recommends, applies configuration, reads raw local storage, or returns catalog content in its model output.',
+  args: {
+    domain: tool.schema.enum(['equipment', 'weapon']).describe('Catalog domain to materialize.'),
+    query: tool.schema.string().min(1).max(240).describe('The user wording to select an exact entity, deterministic substring records, or an explicit no-match fallback.'),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'DEF native catalog artifact' })
+    const snapshot = await callDefTool('def.native_catalog.materialize', {
+      domain: args.domain,
+      query: args.query.trim(),
+    }, context)
+    const artifact = materializeNativeCatalogArtifact(context, snapshot)
+    return {
+      title: 'DEF native catalog artifact ready',
+      output: JSON.stringify({
+        contract: artifact.contract,
+        artifactId: artifact.artifactId,
+        domain: artifact.domain,
+        selectionMode: artifact.selectionMode,
+        query: artifact.query,
+        source: artifact.source,
+        root: artifact.root,
+        manifestPath: artifact.manifestPath,
+        files: artifact.files,
+        expiresAt: artifact.expiresAt,
+        readOnly: true,
+        allowedNativeOperations: ['read', 'grep'],
+        reused: artifact.reused,
+      }, null, 2),
+      metadata: {
+        family: 'def-data-resource',
+        contract: nativeCatalogArtifactContract,
+        domain: artifact.domain,
+        selectionMode: artifact.selectionMode,
+        artifactId: artifact.artifactId,
+        readOnly: true,
+      },
+    }
+  },
+}
 
 export const data_skill = dataResource({
   title: 'DEF skill resource',

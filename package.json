@@ -38,6 +38,7 @@
     "test:def-workbench-current-gate": "node scripts/def-workbench-current-gate-contract-test.mjs",
     "test:def-workbench-tool-policy": "node scripts/def-workbench-tool-policy-contract-test.mjs",
     "test:def-equipment-resource": "node scripts/def-equipment-resource-contract-test.mjs",
+    "test:def-native-catalog": "node scripts/def-native-catalog-bridge-contract-test.mjs && bun scripts/def-native-catalog-artifact-contract-test.mjs",
     "test:def-operator-config-atomic": "node scripts/def-operator-config-atomic-contract-test.mjs",
     "test:def-harness-turn-routing": "node scripts/def-harness-turn-routing-contract-test.mjs",
     "test:def-workbench-raw-route-policy": "node scripts/def-workbench-raw-route-policy-contract-test.mjs",
