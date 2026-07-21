@@ -233,6 +233,13 @@ try {
   assert.equal(rejectedInvalidShape.body.result.code, 'worknode-visible-payload-invalid');
   assert.equal(repository.getCheckoutRef('formal-a').targetId, 'node-a-only', 'invalid button identity must not touch checkout');
 
+  const unreviewedOperatorConfig = await generic('def.operator.config.prepare', {
+    __defTurnId: 'unreviewed-operator-config-attempt',
+  }, 'session-a');
+  assert.equal(unreviewedOperatorConfig.status, 409, JSON.stringify(unreviewedOperatorConfig.body));
+  assert.equal(unreviewedOperatorConfig.body.result.code, 'operator-config-explicit-review-required');
+  assert.equal(repository.getCheckoutRef('formal-a').targetId, 'node-a-only', 'an unreviewed operator configuration must not create a branch or touch checkout');
+
   const nativeServerSource = fs.readFileSync(path.join(process.cwd(), 'agent/server/def-agent-server.cjs'), 'utf8');
   const contextRoute = nativeServerSource.slice(
     nativeServerSource.indexOf("requestUrl.pathname === '/api/native/context'"),

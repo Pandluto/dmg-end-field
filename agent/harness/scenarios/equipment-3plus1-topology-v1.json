@@ -1,0 +1,14 @@
+{
+  "id": "equipment-3plus1-topology-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_native_catalog_materialize", "def_data_equipment_3plus1_facts"],
+    "forbiddenTools": ["def_data_game_knowledge", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "mustKeepState": true
+  }
+}

@@ -44,6 +44,7 @@ const SESSION_PRIVATE_TOOLS = new Set([
   'def.approval.record_decision',
   'def.team.loadout.plan.remember_guide',
   'def.native_catalog.materialize',
+  'def.equipment.3plus1.facts',
 ]);
 
 const PRIVATE_CURRENT_CONTINUATIONS = new Set([
@@ -150,6 +151,7 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.equipment.resolve',
   'def.weapon.resolve',
   'def.native_catalog.materialize',
+  'def.equipment.3plus1.facts',
   'def.gear.resolve',
   'def.workbench.list_characters',
   'def.team.loadouts.read',
@@ -217,9 +219,11 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_weapon', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.native_catalog_materialize', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_native_catalog_materialize', status: 'implemented', workspaceScope: 'session-private' },
+  { id: 'def.data.resource.equipment_3plus1_facts', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_facts', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.operator.config.preview', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_preview', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.operator.config.patch', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_patch', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
 ]);
 
@@ -231,6 +235,7 @@ function familyFor(id) {
 
 function dataTargetFor(id) {
   if (/native.*catalog|catalog.*native/.test(id)) return 'def.data.resource.native_catalog_materialize';
+  if (/equipment.*3plus1|3plus1.*equipment/.test(id)) return 'def.data.resource.equipment_3plus1_facts';
   if (/loadout.*candidate|candidate.*loadout/.test(id)) return 'def.data.resource.loadout_candidates';
   if (/loadout.*plan|plan.*loadout/.test(id)) return 'def.data.resource.team_loadout_plan';
   if (/team.*loadout|loadout.*team/.test(id)) return 'def.data.resource.team_loadouts';

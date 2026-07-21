@@ -16,8 +16,10 @@ const binding = {
 assert.equal(routeNativeTurnHarness(binding, '把赛希配件换成长息加固板').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').selector, 'stable');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'native-catalog');
+assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'candidate/operator-config-horizontal-metadata');
+assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'operator-config');
+assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').selector, 'candidate/operator-config-horizontal-metadata');
+assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
@@ -69,6 +71,16 @@ const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
 `], { encoding: 'utf8' });
 assert.equal(mutationTargetBudgetProbe.status, 0, mutationTargetBudgetProbe.stderr || mutationTargetBudgetProbe.stdout);
 
+const explicitApplyIntentProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurnFromChatMessage('intent-session', 'comparison-turn', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }]);
+  if (mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' }).applyIntent) process.exit(2);
+  mod.beginDefToolTurnFromChatMessage('intent-session', 'apply-turn', [{ type: 'text', text: '确认。' }]);
+  const intent = mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' });
+  if (intent.turnID !== 'apply-turn' || !intent.applyIntent) process.exit(3);
+`], { encoding: 'utf8', env: { ...process.env, DEF_INTERNAL_GOVERNANCE_TOKEN: 'turn-intent-contract' } });
+assert.equal(explicitApplyIntentProbe.status, 0, explicitApplyIntentProbe.stderr || explicitApplyIntentProbe.stdout);
+
 const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('mutation-session', 'mutation-turn');
@@ -83,10 +95,20 @@ const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/openco
 assert.match(defToolSource, /mutationTargetFingerprint/);
 assert.match(defToolSource, /def-tool-mutation-not-attempted/);
 assert.match(defToolSource, /denied-native-catalog-artifact-scope/);
+assert.match(defToolSource, /hasExplicitOperatorConfigApplyIntent/);
+assert.doesNotMatch(defToolSource, /catalog-readonly-/);
 
 const nativeServerSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
 assert.match(nativeServerSource, /registerNativeCatalogSession/);
 assert.match(nativeServerSource, /def\.native_catalog\.register_session/);
+
+const restServerSource = fs.readFileSync(new URL('../scripts/ai-cli-rest-server.mjs', import.meta.url), 'utf8');
+assert.match(restServerSource, /restoreRegisteredDefNativeCatalogSession/);
+assert.match(restServerSource, /getSessionAxisBindingBySession\('workbench', sessionId\)/);
+
+const adapterSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-adapter/index.cjs', import.meta.url), 'utf8');
+assert.match(adapterSource, /EQUIPMENT EVIDENCE/);
+assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
 assert.match(viewSource, /__defHarnessSelector/);

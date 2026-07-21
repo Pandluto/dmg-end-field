@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
 // Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
 // a nonexistent repo-root @opencode-ai/plugin installation. This is a local
@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto'
 // entrypoint; bare package subpaths are not resolved from this repository.
 import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
-import { executeDefOperatorConfigAtomic } from './operator-config-input.mjs'
+import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -28,12 +28,14 @@ const nativeCatalogArtifactsBySession = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
+const defOperatorConfigTurnIntents = new Map()
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
   'prepared-capability-session-mismatch',
   'prepared-capability-consumed',
   'approval-capability-required',
+  'operator-config-apply-intent-required',
 ])
 
 function defToolFailureScope(context) {
@@ -55,11 +57,60 @@ export function beginDefToolTurn(sessionID, turnID) {
   }
 }
 
+function userTextFromChatParts(parts) {
+  return (Array.isArray(parts) ? parts : [])
+    .filter((part) => part?.type === 'text')
+    .map((part) => String(part.text || ''))
+    .join('\n')
+    .trim()
+}
+
+function hasExplicitOperatorConfigApplyIntent(text) {
+  const normalized = String(text || '').normalize('NFKC').replace(/\s+/g, '')
+  if (!normalized) return false
+  if (/(?:不要|先不|暂不|别|不)\s*(?:应用|换上|执行|配置)/.test(normalized)) return false
+  if (/^确认(?:[。！!]|$)/.test(normalized)) return true
+  return /(?:确认(?:应用|换上|执行|装备|配置)|同意(?:应用|换上|执行)|(?:请|就|直接|现在)?(?:应用|换上|执行)(?:这套|该方案|此方案|它|吧|。|！|$)|按(?:这套|该方案|此方案).{0,12}(?:应用|换上|执行))/.test(normalized)
+}
+
+function operatorConfigApplyIntentSignature(sessionID, turnID) {
+  const secret = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
+    ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
+    : ''
+  if (!secret || !sessionID || !turnID) return ''
+  return createHmac('sha256', secret)
+    .update(`def-operator-config-apply:v1:${sessionID}:${turnID}`)
+    .digest('base64url')
+}
+
+export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
+  beginDefToolTurn(sessionID, turnID)
+  if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
+  defOperatorConfigTurnIntents.set(sessionID, {
+    turnID,
+    explicitApply: hasExplicitOperatorConfigApplyIntent(userTextFromChatParts(parts)),
+    updatedAt: Date.now(),
+  })
+  if (defOperatorConfigTurnIntents.size > 256) defOperatorConfigTurnIntents.delete(defOperatorConfigTurnIntents.keys().next().value)
+}
+
+export function getDefOperatorConfigTurnIdentity(context = {}) {
+  const sessionID = typeof context?.sessionID === 'string' ? context.sessionID : ''
+  const turnID = activeDefToolTurns.get(sessionID)
+    || (typeof context?.messageID === 'string' ? context.messageID : '')
+  const intent = defOperatorConfigTurnIntents.get(sessionID)
+  const explicitApply = Boolean(intent?.explicitApply && intent.turnID === turnID)
+  return {
+    turnID,
+    applyIntent: explicitApply ? operatorConfigApplyIntentSignature(sessionID, turnID) : '',
+  }
+}
+
 function stableToolInput(value) {
   if (Array.isArray(value)) return value.map(stableToolInput)
   if (!value || typeof value !== 'object') return value
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !['__defSessionId', 'waitMs', 'snapshotWaitMs'].includes(key))
+    .filter(([key]) => !['__defSessionId', '__defTurnId', '__defApplyIntent', 'waitMs', 'snapshotWaitMs'].includes(key))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, entry]) => [key, stableToolInput(entry)]))
 }
@@ -229,10 +280,9 @@ async function callDefTool(tool, input = {}, context = null) {
   })
   const payload = await response.json()
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    // `/api/def-tools/call` wraps policy failures in `error`, while successful
-    // tool executions use `result`.  Preserve the structured policy contract
-    // so a canonical-gate 409 is never misreported to the model as a missing
-    // Work Node or an empty team.
+    // `/api/def-tools/call` returns typed failures in `error`, while successful
+    // executions use `result`. Preserve structured diagnostics so a
+    // canonical-gate 409 is never misreported as a missing Work Node or team.
     const failure = payload?.result || payload?.error || payload
     const code = failure?.code || payload?.code || 'def-tool-failed'
     const message = failure?.message || failure?.note || payload?.message || `${tool} failed with HTTP ${response.status}`
@@ -1642,6 +1692,65 @@ export const data_native_catalog_materialize = {
   },
 }
 
+function readNativeCatalogArtifactForFacts(context, artifactId) {
+  const normalizedId = typeof artifactId === 'string' ? artifactId.trim() : ''
+  if (!/^catalog-[a-z0-9-]{20,}$/i.test(normalizedId)) {
+    throw new Error('native-catalog-artifact-id-required: use the artifactId returned by def_data_native_catalog_materialize')
+  }
+  cleanupExpiredNativeArtifacts(context)
+  const entry = nativeCatalogArtifactsBySession.get(context?.sessionID)?.get(normalizedId)
+  if (!entry) throw new Error('native-catalog-artifact-not-found: materialize and read an unexpired artifact in this session first')
+  const manifest = readNativeArtifactManifest(entry.root)
+  if (!manifest || manifest.contract !== nativeCatalogArtifactContract || manifest.artifactId !== normalizedId || manifest.domain !== 'equipment') {
+    throw new Error('native-catalog-artifact-invalid: the supplied artifact is not an intact equipment evidence artifact')
+  }
+  if (Number(manifest.expiresAt) <= Date.now() || !nativeArtifactFilesMatch(entry.root, manifest)) {
+    removeNativeCatalogArtifact(context, normalizedId, entry.root)
+    throw new Error('native-catalog-artifact-expired-or-tampered: materialize a fresh equipment artifact and read its manifest')
+  }
+  return { root: entry.root, manifest }
+}
+
+export const data_equipment_3plus1_facts = {
+  description: 'After reading an exact native equipment artifact manifest for an explicit 3+1 request, return evidence-backed complete slot topologies and full candidate pools. 3+1 means exactly three target-set memberships across armor, glove, accessory1, and accessory2; the off-set part is not presumed, and the same compatible accessory may legally occupy both accessory slots. It never ranks a candidate, infers attribute value, or applies equipment without explicit attribute priorities.',
+  args: {
+    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    setQuery: tool.schema.string().min(1).max(160).describe('One exact equipment set name from that artifact.'),
+    characterId: tool.schema.string().min(1).max(160).optional().describe('Optional selected character identity. It is recorded only; it never supplies an unverified attribute preference.'),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'DEF 3+1 equipment facts' })
+    const artifact = readNativeCatalogArtifactForFacts(context, args.artifactId)
+    const result = await callDefTool('def.equipment.3plus1.facts', {
+      sourceRevision: artifact.manifest.source.revision,
+      setQuery: args.setQuery.trim(),
+      ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
+    }, context)
+    if (result?.source?.revision !== artifact.manifest.source.revision) {
+      throw new Error('native-catalog-artifact-source-mismatch: the 3+1 facts result is not bound to the manifest revision')
+    }
+    return {
+      title: result.state === 'REQUIRES_ATTRIBUTE_PREFERENCE' ? 'DEF 3+1 equipment facts need priorities' : 'DEF 3+1 equipment facts',
+      output: JSON.stringify({
+        ...result,
+        artifact: {
+          artifactId: artifact.manifest.artifactId,
+          manifestPath: `${retrievalRoot}/${artifact.manifest.artifactId}/manifest.json`,
+          root: `${retrievalRoot}/${artifact.manifest.artifactId}`,
+          selectionMode: artifact.manifest.selectionMode,
+        },
+      }, null, 2),
+      metadata: {
+        family: 'def-data-resource',
+        contract: result.contract,
+        artifactId: artifact.manifest.artifactId,
+        state: result.state,
+        readOnly: true,
+      },
+    }
+  },
+}
+
 export const data_skill = dataResource({
   title: 'DEF skill resource',
   description: 'Resolve trusted DEF skill data by id, name, or semantic query. Canonical terms are A=normal/heavy attack, B=battle skill, E=chain skill, Q=ultimate; a heavy attack never means execution or plunging attack.',
@@ -1684,7 +1793,7 @@ export const data_damage = dataResource({
 })
 
 export const operator_config_patch = {
-  description: 'Apply one complete, explicitly reviewed operator configuration through one Agent-named horizontal branch, one typed preview, native approval and atomic apply. Write a concise nodeTitle and nodeDescription for the exact change. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report only the actual typed failure and its structured nextAction, with no context/bind/materialize/read/edit call and no retry unless the error explicitly provides retryable=true plus a concrete safe nextAction. If it reports def-tool-mutation-not-attempted, that later mutation never reached the backend; do not describe it as another failure.',
+  description: 'Apply one complete operator configuration only after def_operator_config_preview returned an unchanged proposalToken in an earlier user turn and the current user explicitly asks to apply it. A correction, comparison, question, changed slot, candidate, or priority invalidates the token. The tool creates one Agent-named horizontal branch, requests native approval, then atomically applies and verifies it. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report only the actual typed failure and its structured nextAction, with no context/bind/materialize/read/edit call and no retry unless the error explicitly provides retryable=true plus a concrete safe nextAction. If it reports def-tool-mutation-not-attempted, that later mutation never reached the backend; do not describe it as another failure.',
   args: {
     // These must be actual optional Zod fields.  The legacy JSON-schema
     // adapter marks every property required, which coerced a model that was
@@ -1722,17 +1831,32 @@ export const operator_config_patch = {
     operatorSkillB: tool.schema.enum(['L9', 'M3']).optional().describe('Operator B skill level.'),
     operatorSkillE: tool.schema.enum(['L9', 'M3']).optional().describe('Operator E skill level.'),
     operatorSkillQ: tool.schema.enum(['L9', 'M3']).optional().describe('Operator Q skill level.'),
+    proposalToken: tool.schema.string().min(20).max(96).optional().describe('Required only for def_operator_config_patch: unchanged proposalToken returned by def_operator_config_preview in an earlier user turn for this exact configuration.'),
   },
   async execute(args, context) {
     const result = await executeDefOperatorConfigAtomic(args, context, {
       callDefTool,
       askWithApproval,
       formatApprovalPatterns: formatOperatorConfigApprovalPatterns,
+      getOperatorConfigTurnIdentity: getDefOperatorConfigTurnIdentity,
     })
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),
       metadata: { family: 'def-operator-config', currentCheckoutTouched: result.ok === true, postcondition: result.postcondition?.pass === true },
+    }
+  },
+}
+
+export const operator_config_preview = {
+  description: 'Compute and verify one exact operator weapon/equipment proposal without creating a Work Node, requesting approval, or applying a change. Return a short-lived proposalToken. Show the verified result and wait for a later explicit user application instruction; a correction or comparison requires a fresh preview.',
+  args: operator_config_patch.args,
+  async execute(args, context) {
+    const result = await executeDefOperatorConfigPreview(args, context, { callDefTool, getOperatorConfigTurnIdentity: getDefOperatorConfigTurnIdentity })
+    return {
+      title: 'DEF operator configuration preview',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-operator-config-preview', readOnly: true, currentCheckoutTouched: false },
     }
   },
 }

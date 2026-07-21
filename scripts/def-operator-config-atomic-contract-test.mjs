@@ -12,6 +12,7 @@ const args = {
   weaponSkill2Level: 9,
   weaponSkill3Level: 4,
   weaponPotential: 'PMAX',
+  proposalToken: 'reviewed-proposal-token-1234567890',
   equipments: [
     { equipmentId: 'armor-id', equipmentName: '护甲', slotKey: 'armor', equipmentEntryLevel: 3 },
     { equipmentId: 'accessory-1-id', slotKey: 'accessory1', equipmentEntryLevel: 3 },
@@ -25,6 +26,7 @@ assert.equal(input.nodeTitle, '赛希更换长息加固板');
 assert.match(input.nodeDescription, /二号配件/);
 assert.equal(input.weapon.name, '骑士精神');
 assert.equal(input.weapon.potential, 'PMAX');
+assert.equal(input.proposalToken, args.proposalToken);
 assert.equal(input.equipments.length, 4);
 assert.deepEqual(input.equipments.map((piece) => [piece.equipmentId, piece.slotKey, piece.entryLevel]), [
   ['armor-id', 'armor', 3],
@@ -37,11 +39,12 @@ const calls = [];
 const prepared = {
   nodeId: 'candidate-node', nodeRevision: 12, parentNodeId: 'parent-node', parentRevision: 7,
   timelineId: 'timeline', axisBindingId: 'axis', workingHash: 'working-hash',
+  proposalToken: args.proposalToken,
   nodeTitle: args.nodeTitle, nodeDescription: args.nodeDescription, nodePlacement: 'horizontal-branch',
   finalConfig: { characterId: 'saixi', weapon: { name: '骑士精神' }, equipment: [] },
   checkout: { nodeId: 'parent-node', revision: 7 },
 };
-const applied = await executeDefOperatorConfigAtomic(args, { sessionID: 'session' }, {
+const applied = await executeDefOperatorConfigAtomic(args, { sessionID: 'session', messageID: 'apply-message' }, {
   callDefTool: async (tool, callInput) => {
     calls.push({ tool, input: callInput });
     if (tool === 'def.operator.config.prepare') return prepared;
@@ -53,6 +56,7 @@ const applied = await executeDefOperatorConfigAtomic(args, { sessionID: 'session
     return { approvalCapability: 'approved-capability' };
   },
   formatApprovalPatterns: () => ['complete-reviewed-config'],
+  getOperatorConfigTurnIdentity: () => ({ turnID: 'apply-turn', applyIntent: 'signed-apply-intent' }),
 });
 assert.equal(applied.code, 'applied');
 assert.deepEqual(calls.map((call) => call.tool), [
@@ -61,12 +65,15 @@ assert.deepEqual(calls.map((call) => call.tool), [
   'def.operator.config.apply_prepared',
 ]);
 assert.equal(calls[2].input.approvalCapability, 'approved-capability');
+assert.equal(calls[0].input.__defTurnId, 'apply-turn');
+assert.equal(calls[0].input.__defApplyIntent, 'signed-apply-intent');
+assert.equal(calls[2].input.proposalToken, args.proposalToken);
 assert.equal(calls[2].input.input.equipments.length, 4);
 assert.equal(calls[1].input.summary, `${args.nodeTitle}：${args.nodeDescription}`);
 assert.equal(calls[1].input.diff.nodeMetadata.placement, 'horizontal-branch');
 
 const rejectedCalls = [];
-await assert.rejects(() => executeDefOperatorConfigAtomic(args, { sessionID: 'session' }, {
+await assert.rejects(() => executeDefOperatorConfigAtomic(args, { sessionID: 'session', messageID: 'rejected-message' }, {
   callDefTool: async (tool) => {
     rejectedCalls.push(tool);
     if (tool === 'def.operator.config.prepare') return prepared;
@@ -75,6 +82,7 @@ await assert.rejects(() => executeDefOperatorConfigAtomic(args, { sessionID: 'se
   },
   askWithApproval: async () => { throw new Error('User rejected native approval.'); },
   formatApprovalPatterns: () => ['complete-reviewed-config'],
+  getOperatorConfigTurnIdentity: () => ({ turnID: 'rejected-turn', applyIntent: 'signed-apply-intent' }),
 }), /User rejected/);
 assert.deepEqual(rejectedCalls, ['def.operator.config.prepare', 'def.operator.config.discard_prepared']);
 
@@ -83,6 +91,8 @@ assert.match(pluginSource, /equipments:\s*tool\.schema\.array\(tool\.schema\.obj
 assert.match(pluginSource, /nodeTitle:\s*tool\.schema\.string\(\)\.min\(2\)\.max\(32\)/);
 assert.match(pluginSource, /placement.*horizontal-branch/);
 assert.match(pluginSource, /executeDefOperatorConfigAtomic\(args, context/);
+assert.match(pluginSource, /operator_config_preview/);
+assert.match(pluginSource, /proposalToken/);
 
 const restSource = fs.readFileSync(new URL('./ai-cli-rest-server.mjs', import.meta.url), 'utf8');
 assert.match(restSource, /parentNodeId:\s*structuralParentNodeId \|\| null/);
@@ -94,6 +104,11 @@ assert.match(restSource, /compareDefTimelineInvariants/);
 assert.match(restSource, /beforeCanonicalHash/);
 assert.match(restSource, /changedPaths/);
 assert.match(restSource, /visibleTimeline = verifyVisibleTimelineButtons/);
+assert.match(restSource, /reviewedOperatorConfigProposals/);
+assert.match(restSource, /operator-config-explicit-review-required/);
+assert.match(restSource, /proposal\.turnId === turnId/);
+assert.match(restSource, /operator-config-proposal-mismatch/);
+assert.match(restSource, /operator-config-apply-intent-required/);
 
 const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');
 assert.match(treeNodeSource, /work-node-tree-hover-card/);
@@ -107,5 +122,5 @@ assert.match(workbenchSource, /validateTimelinePayload\(child\.node\.workingPayl
 
 console.log(JSON.stringify({
   ok: true,
-  checks: ['agent-node-metadata', 'horizontal-configuration-branch', 'hover-description-card', 'four-piece-schema', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation'],
+  checks: ['agent-node-metadata', 'horizontal-configuration-branch', 'hover-description-card', 'four-piece-schema', 'review-token-preflight', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation'],
 }));

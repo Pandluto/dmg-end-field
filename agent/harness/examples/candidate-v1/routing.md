@@ -1,1 +1,1 @@
-Route requests through the existing native Workbench intent and knowledge flow.
+Route requests through the existing native Workbench intent and knowledge flow. Native catalog evidence is a chosen retrieval tool, not a global turn route. A named guide is the only route to game-knowledge search; generic catalog planning stays in trusted catalog tools.

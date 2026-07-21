@@ -41,6 +41,8 @@ const frostSet = {
   gearSetId: 'gear-set-han-liu',
   name: '寒流',
   equipments: {
+    frostArmor: equipment('frost-armor', '冻原轻甲', '护甲', { agility: effect('灵巧', 'agilityBoost') }),
+    frostGlove: equipment('frost-glove', '冻原护手', '护手', { agility: effect('灵巧', 'agilityBoost') }),
     frostAccessory: equipment('frost-accessory', '冻原供氧栓', '配件', { strength: effect('力量', 'strengthBoost') }),
   },
 };
@@ -98,17 +100,30 @@ async function waitForReady() {
   throw new Error('Timed out waiting for native catalog bridge server.');
 }
 
-async function requestNativeCatalog(input, { authenticated = true, sessionId = 'native-catalog-contract-session' } = {}) {
+async function requestNativeTool(tool, input, { authenticated = true, sessionId = 'native-catalog-contract-session' } = {}) {
   const response = await fetch(`${baseUrl}/api/def-tools/call`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(authenticated ? { 'x-def-internal-token': 'native-catalog-contract' } : {}),
     },
-    body: JSON.stringify({ tool: 'def.native_catalog.materialize', input, ...(sessionId ? { sessionId } : {}) }),
+    body: JSON.stringify({ tool, input, ...(sessionId ? { sessionId } : {}) }),
   });
   const payload = await response.json();
   return { response, payload };
+}
+
+async function requestNativeCatalog(input, options = {}) {
+  return requestNativeTool('def.native_catalog.materialize', input, options);
+}
+
+async function requestInternalRest(pathname, method, body) {
+  const response = await fetch(`${baseUrl}${pathname}`, {
+    method,
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': 'native-catalog-contract' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  return { response, payload: await response.json() };
 }
 
 async function registerNativeSession(sessionId = 'native-catalog-contract-session', { authenticated = true } = {}) {
@@ -126,6 +141,13 @@ async function registerNativeSession(sessionId = 'native-catalog-contract-sessio
 
 async function call(input) {
   const { response, payload } = await requestNativeCatalog(input);
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(payload.ok, true, JSON.stringify(payload));
+  return payload.result;
+}
+
+async function callThreePlusOneFacts(input) {
+  const { response, payload } = await requestNativeTool('def.equipment.3plus1.facts', input);
   assert.equal(response.status, 200, JSON.stringify(payload));
   assert.equal(payload.ok, true, JSON.stringify(payload));
   return payload.result;
@@ -150,6 +172,28 @@ try {
   assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
   assert.equal(registration.payload.result?.host, 'ai-cli');
 
+  // A sidecar restart clears the ephemeral registration map, but it must not
+  // leave an authenticated native Workbench session locked out when its formal
+  // SQLite binding is still live.  Recovery is intentionally unavailable to
+  // the unbound session asserted above.
+  const recoveryTimeline = await requestInternalRest('/api/timeline-documents', 'POST', {
+    id: 'native-catalog-recovery-workbench', label: 'Native catalog recovery',
+  });
+  assert.equal(recoveryTimeline.response.status, 200, JSON.stringify(recoveryTimeline.payload));
+  const recoveryBinding = await requestNativeTool('def.workbench.bind_session_axis', {
+    sessionBindingId: 'native-catalog-recovery-axis',
+    sessionID: 'native-catalog-recovery-session',
+    host: 'workbench',
+    timelineId: 'native-catalog-recovery-workbench',
+  }, { sessionId: '' });
+  assert.equal(recoveryBinding.response.status, 200, JSON.stringify(recoveryBinding.payload));
+  const recoveredMaterialize = await requestNativeCatalog(
+    { domain: 'equipment', query: '潮涌套' },
+    { sessionId: 'native-catalog-recovery-session' },
+  );
+  assert.equal(recoveredMaterialize.response.status, 200, JSON.stringify(recoveredMaterialize.payload));
+  assert.equal(recoveredMaterialize.payload.result?.contract, 'DefNativeCatalogArtifactV1');
+
   const set = await call({ domain: 'equipment', query: '潮涌套' });
   assert.equal(set.contract, 'DefNativeCatalogArtifactV1');
   assert.equal(set.selectionMode, 'entity-full');
@@ -160,6 +204,31 @@ try {
   assert.equal(fullSet.equipments.filter((item) => item.part === '配件').length, 2);
   assert.equal(fullSet.threePieceBuffs.tideThree.name, '潮涌·所有技能伤害+20%');
   assert.equal(JSON.stringify(fullSet).includes('寒流'), false, 'exact set must not leak another set');
+
+  const threePlusOne = await callThreePlusOneFacts({
+    sourceRevision: set.source.revision,
+    setQuery: '潮涌套',
+    characterId: 'bieli',
+  });
+  assert.equal(threePlusOne.contract, 'DefEquipmentThreePlusOneFactsV1');
+  assert.equal(threePlusOne.state, 'REQUIRES_ATTRIBUTE_PREFERENCE');
+  assert.equal(threePlusOne.targetSetPieceCount, 3);
+  assert.equal(threePlusOne.topologiesExhaustive, true);
+  assert.equal(threePlusOne.structuresExhaustive, true);
+  assert.equal(threePlusOne.topologies.length, 4, 'all four possible off-set physical slots are represented without expanding or truncating combinations');
+  assert.ok(threePlusOne.topologies.every((topology) => topology.status === 'AVAILABLE'));
+  const offSetArmor = threePlusOne.topologies.find((topology) => topology.id === 'off-set-armor');
+  assert.deepEqual(offSetArmor.targetSlots.map((item) => item.slot), ['glove', 'accessory1', 'accessory2']);
+  assert.equal(offSetArmor.offSetSlot.slot, 'armor');
+  assert.equal(offSetArmor.offSetCandidates[0].stableId, 'frost-armor');
+  assert.equal(offSetArmor.duplicatePolicy.allowedAcrossDistinctCompatibleSlots, true);
+  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory1.some((item) => item.stableId === 'tide-accessory-1'));
+  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory2.some((item) => item.stableId === 'tide-accessory-1'), 'the same compatible accessory can be selected once in each real accessory slot');
+  const offSetAccessoryTwo = threePlusOne.topologies.find((topology) => topology.id === 'off-set-accessory2');
+  assert.deepEqual(offSetAccessoryTwo.targetSlots.map((item) => item.slot), ['armor', 'glove', 'accessory1']);
+  assert.equal(offSetAccessoryTwo.offSetCandidates[0].stableId, 'frost-accessory');
+  assert.equal(threePlusOne.missingReasons[0].code, 'attribute-preference-required');
+  assert.match(threePlusOne.nextAction, /do not assume/i);
 
   const aliasSet = await call({ domain: 'equipment', query: 'ｔｉｄｅ　ｓｕｒｇｅ套' });
   assert.equal(aliasSet.selectionMode, 'entity-full');
@@ -197,9 +266,16 @@ try {
   const revised = await call({ domain: 'equipment', query: '潮涌套' });
   assert.notEqual(revised.source.revision, set.source.revision, 'changed catalog business data requires a new source revision');
 
+  const staleFacts = await requestNativeTool('def.equipment.3plus1.facts', {
+    sourceRevision: set.source.revision,
+    setQuery: '潮涌套',
+  });
+  assert.equal(staleFacts.response.status, 409);
+  assert.equal(staleFacts.payload.error?.code, 'equipment-3plus1-source-revision-stale');
+
   console.log(JSON.stringify({
     ok: true,
-    checks: ['native-session-registration-required', 'exact-set-full', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision'],
+    checks: ['native-session-registration-required', 'workbench-session-registration-recovery', 'exact-set-full', '3plus1-full-facts-unranked', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision', '3plus1-stale-revision'],
   }));
 } finally {
   child.kill('SIGTERM');

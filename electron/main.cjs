@@ -24,11 +24,11 @@ const {
   buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
-  createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
+  readOrCreateWorkbenchRendererCapability,
 } = require('./workbench-renderer-transport.cjs');
 const {
   app,
@@ -46,7 +46,7 @@ const {
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
-const workbenchRendererCapability = createWorkbenchRendererCapability();
+let workbenchRendererCapability = '';
 const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const SHELL_WIDTH = 1120;
 const SHELL_HEIGHT = 760;
@@ -4068,11 +4068,31 @@ async function startDefAgent() {
   }
 
   const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
+  const runtimeRoot = app.isPackaged
+    ? path.join(app.getPath('userData'), 'runtime')
+    : path.join(__dirname, '..', '.runtime');
   defAgentProcess = spawn(process.execPath, [scriptPath], {
     cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
       DEF_AGENT_PORT: '17322',
+      // The agent sidecar can own a restarted typed-tool child when the main
+      // process's original REST child is unavailable.  Give it the identical
+      // local-data topology so that recovery cannot silently bind OpenCode to
+      // the repository checkout while the Canvas is showing a different
+      // sessionStorage/SQLite workspace.
+      AI_CLI_REST_PORT: '17321',
+      AI_CLI_REST_STORAGE_DIR: path.join(runtimeRoot, 'ai-cli-rest'),
+      AI_CLI_REST_VITE_CACHE_DIR: path.join(runtimeRoot, 'vite-ai-cli-rest', String(process.pid)),
+      AI_CLI_NOW_STORAGE_PATH: getNowStoragePath(),
+      AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath(),
+      AI_TIMELINE_WORK_NODE_LEGACY_PATH: getLegacyAiTimelineWorkNodesPath(),
+      TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath(),
+      DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
+      DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
+      DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
+      LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
+      LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
     }),
     stdio: 'ignore',
     detached: false,
@@ -5278,6 +5298,17 @@ function getLocalDataDirectory() {
     return path.join(__dirname, '..', 'data', 'localdata');
   }
   return path.join(getRuntimeDataRoot(), 'localdata');
+}
+
+function getWorkbenchRendererCapabilityPath() {
+  return path.join(app.getPath('userData'), 'runtime', 'workbench-renderer-capability.json');
+}
+
+function ensureWorkbenchRendererCapability() {
+  if (!workbenchRendererCapability) {
+    workbenchRendererCapability = readOrCreateWorkbenchRendererCapability(getWorkbenchRendererCapabilityPath());
+  }
+  return workbenchRendererCapability;
 }
 
 function getShareDataDirectory() {
@@ -6767,6 +6798,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
+  ensureWorkbenchRendererCapability();
   const dataManagementState = getDataManagementStatePayload();
   if (!dataManagementState.ok) {
     appendRuntimeLog('data-management', `${dataManagementState.code}: ${dataManagementState.error}`);

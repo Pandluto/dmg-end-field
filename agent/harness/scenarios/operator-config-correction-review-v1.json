@@ -1,0 +1,14 @@
+{
+  "id": "operator-config-correction-review-v1",
+  "version": 1,
+  "fixtureMode": "clone-current",
+  "requiresSnapshot": true,
+  "turns": [
+    { "userText": "给别礼规划一套 3 潮涌+1，先给我确认方案，不要应用。" },
+    { "userText": "配件二为什么不用第二个悬河供氧栓？" }
+  ],
+  "verification": {
+    "forbiddenTools": ["def_operator_config_patch", "def_node_use"],
+    "mustKeepState": true
+  }
+}

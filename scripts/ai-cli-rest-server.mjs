@@ -90,6 +90,7 @@ const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
+const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV1';
 const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
@@ -116,6 +117,11 @@ const {
 // native host.  This map is intentionally sidecar-ephemeral: a restart makes
 // old capabilities fail closed until the host recovery route registers again.
 const registeredDefNativeCatalogSessions = new Map();
+// A proposal is the read-only, pre-confirmation counterpart to the prepared
+// branch capability below.  It binds a model-visible loadout summary to one
+// canonical checkout and one earlier assistant message.  It is deliberately
+// sidecar-ephemeral: restarting the service invalidates it and fails closed.
+const reviewedOperatorConfigProposals = new Map();
 
 function normalizeDefNativeCatalogSessionId(value) {
   const sessionId = typeof value === 'string' ? value.trim() : '';
@@ -143,6 +149,24 @@ function resolveRegisteredDefNativeCatalogSession(value) {
   pruneRegisteredDefNativeCatalogSessions();
   const sessionId = normalizeDefNativeCatalogSessionId(value);
   return sessionId ? registeredDefNativeCatalogSessions.get(sessionId) || null : null;
+}
+
+// A native catalog artifact is intentionally sidecar-ephemeral, but a
+// Workbench session binding is durable SQLite authority.  When the sidecar is
+// restarted while Electron and OpenCode remain alive, the native plugin has
+// already proved the internal governance token and can present its exact
+// session id again.  Recover only a live, non-temporary Workbench binding;
+// never infer a host from a user supplied id or grant this recovery to an
+// unauthenticated loopback caller.
+function restoreRegisteredDefNativeCatalogSession(input = {}, invocation = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const existing = resolveRegisteredDefNativeCatalogSession(sessionId);
+  if (existing) return existing;
+  if (!sessionId || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) return null;
+  const binding = getTimelineRepository().getSessionAxisBindingBySession('workbench', sessionId);
+  const document = binding ? getTimelineRepository().getDocument(binding.timelineId) : null;
+  if (!binding || binding.host !== 'workbench' || !document || document.archivedAt || document.isTemporary) return null;
+  return registerDefNativeCatalogSession({ sessionId, host: 'workbench' });
 }
 
 function consumeApprovedApplyCapability(input = {}, expected = {}) {
@@ -181,6 +205,26 @@ function prunePreparedOperatorConfigCapabilities() {
   for (const [token, prepared] of preparedOperatorConfigCapabilities) {
     if (prepared.expiresAt <= now) preparedOperatorConfigCapabilities.delete(token);
   }
+}
+
+function pruneReviewedOperatorConfigProposals() {
+  const now = Date.now();
+  for (const [token, proposal] of reviewedOperatorConfigProposals) {
+    if (!proposal || proposal.expiresAt <= now) reviewedOperatorConfigProposals.delete(token);
+  }
+}
+
+function hasDefOperatorConfigApplyIntent(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const turnId = typeof input.__defTurnId === 'string' ? input.__defTurnId.trim() : '';
+  const supplied = typeof input.__defApplyIntent === 'string' ? input.__defApplyIntent.trim() : '';
+  if (!defInternalGovernanceToken || !sessionId || !turnId || !supplied) return false;
+  const expected = crypto.createHmac('sha256', defInternalGovernanceToken)
+    .update(`def-operator-config-apply:v1:${sessionId}:${turnId}`)
+    .digest('base64url');
+  const actualBuffer = Buffer.from(supplied);
+  const expectedBuffer = Buffer.from(expected);
+  return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
 }
 
 function pruneDefTeamLoadoutPlans() {
@@ -2945,6 +2989,171 @@ function buildDefNativeCatalogSnapshot(domain) {
   return { ok: false, code: 'native-catalog-domain-invalid', message: 'domain must be equipment or weapon.', domain };
 }
 
+function resolveDefNativeEquipmentGearSet(snapshot, query) {
+  const normalized = nativeCatalogText(query);
+  if (!normalized) return { ok: false, code: 'equipment-3plus1-set-query-required', message: 'A non-empty exact equipment set query is required.' };
+  const gearSetAliases = readDefNativeGearSetAliasIndex();
+  const aliasedGearSetIds = new Set([...gearSetAliases.entries()]
+    .filter(([term]) => normalized === term || normalized.includes(term))
+    .map(([, gearSetId]) => gearSetId));
+  const matches = snapshot.gearSets.filter((gearSet) => {
+    const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
+    return aliasedGearSetIds.has(gearSet.id)
+      || identities.some((identity) => normalized === identity || normalized.includes(identity));
+  });
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      code: matches.length === 0 ? 'equipment-3plus1-set-not-found' : 'equipment-3plus1-set-ambiguous',
+      message: matches.length === 0
+        ? 'The materialized equipment catalog does not contain one exact matching set.'
+        : 'The set query resolves to multiple catalog sets; choose one exact set name.',
+      candidates: matches.map((item) => ({ id: item.id, name: item.name })),
+    };
+  }
+  return { ok: true, set: matches[0] };
+}
+
+function projectDefEquipmentThreePlusOnePiece(item, { slot, setPieceCount, selectionReason }) {
+  return {
+    stableId: item.id,
+    name: item.name,
+    part: item.part,
+    slot,
+    availableSlots: item.availableSlots,
+    gearSet: item.gearSet,
+    fixedStat: item.fixedStat || null,
+    effects: item.effects || {},
+    setPieceCount,
+    selectionReason,
+  };
+}
+
+const DEF_EQUIPMENT_SLOT_FACTS = Object.freeze([
+  { slot: 'armor', part: '护甲' },
+  { slot: 'glove', part: '护手' },
+  { slot: 'accessory1', part: '配件' },
+  { slot: 'accessory2', part: '配件' },
+]);
+
+function defEquipmentItemsForSlot(items, slot) {
+  return items
+    .filter((item) => item.availableSlots.includes(slot))
+    .sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function buildDefEquipmentThreePlusOneTopology({ gearSet, entities, offSetSlot }) {
+  const offSetSlotFact = DEF_EQUIPMENT_SLOT_FACTS.find((entry) => entry.slot === offSetSlot);
+  const targetSlots = DEF_EQUIPMENT_SLOT_FACTS.filter((entry) => entry.slot !== offSetSlot);
+  const targetPieceCandidatesBySlot = Object.fromEntries(targetSlots.map(({ slot }) => [slot,
+    defEquipmentItemsForSlot(gearSet.equipments, slot).map((item) => projectDefEquipmentThreePlusOnePiece(item, {
+      slot,
+      setPieceCount: 3,
+      selectionReason: 'Target-set candidate for this physical slot. It is a catalog fact, not an attribute ranking.',
+    })),
+  ]));
+  const plusOneCandidates = defEquipmentItemsForSlot(
+    entities.filter((item) => item.gearSet?.id !== gearSet.id),
+    offSetSlot,
+  ).map((item) => projectDefEquipmentThreePlusOnePiece(item, {
+    slot: offSetSlot,
+    setPieceCount: 0,
+    selectionReason: 'Off-set candidate for this physical slot. It is intentionally unranked until verified priorities are supplied.',
+  }));
+  const missingTargetSlots = targetSlots
+    .filter(({ slot }) => targetPieceCandidatesBySlot[slot].length === 0)
+    .map(({ slot, part }) => ({ slot, part }));
+  const status = missingTargetSlots.length || !plusOneCandidates.length ? 'UNAVAILABLE' : 'AVAILABLE';
+  const targetCombinationCount = targetSlots.reduce((count, { slot }) => count * targetPieceCandidatesBySlot[slot].length, 1);
+  return {
+    id: `off-set-${offSetSlot}`,
+    status,
+    setPieceCount: 3,
+    targetSlots: targetSlots.map(({ slot, part }) => ({ slot, part })),
+    offSetSlot: { slot: offSetSlot, part: offSetSlotFact.part, excludedGearSetId: gearSet.id },
+    targetPieceCandidatesBySlot,
+    offSetCandidates: plusOneCandidates,
+    candidateCounts: {
+      target: Object.fromEntries(targetSlots.map(({ slot }) => [slot, targetPieceCandidatesBySlot[slot].length])),
+      offSet: plusOneCandidates.length,
+      combinations: targetCombinationCount * plusOneCandidates.length,
+    },
+    duplicatePolicy: {
+      allowedAcrossDistinctCompatibleSlots: true,
+      neverWithinOneSlot: true,
+      rule: 'A stable equipment id may occupy each distinct compatible physical slot. Therefore the same target-set accessory may appear in accessory1 and accessory2 when both slot facts contain it.',
+    },
+    selectionReason: '3+1 means exactly three target-set memberships across the four physical slots; the off-set part is determined by this topology, not presumed to be an accessory.',
+    ...(missingTargetSlots.length ? { missingTargetSlots } : {}),
+    ...(!plusOneCandidates.length ? {
+      missingOffSetCandidates: [{ slot: offSetSlot, part: offSetSlotFact.part, excludedGearSetId: gearSet.id }],
+    } : {}),
+  };
+}
+
+function buildDefEquipmentThreePlusOneFacts(input = {}) {
+  const expectedRevision = typeof input.sourceRevision === 'string' ? input.sourceRevision.trim() : '';
+  const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
+  if (!expectedRevision) {
+    return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 facts request must name the source revision from a native catalog artifact.' };
+  }
+  const snapshot = buildDefNativeCatalogSnapshot('equipment');
+  if (!snapshot.ok) return snapshot;
+  if (snapshot.source.revision !== expectedRevision) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-source-revision-stale',
+      message: 'The equipment catalog changed after the native artifact was materialized. Capture a fresh artifact before planning.',
+      expectedSourceRevision: expectedRevision,
+      actualSourceRevision: snapshot.source.revision,
+    };
+  }
+  const resolved = resolveDefNativeEquipmentGearSet(snapshot, setQuery);
+  if (!resolved.ok) return { ...resolved, source: snapshot.source, setQuery };
+  const gearSet = resolved.set;
+  const topologies = DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => buildDefEquipmentThreePlusOneTopology({
+    gearSet,
+    entities: snapshot.entities,
+    offSetSlot: slot,
+  }));
+  const availableTopologies = topologies.filter((topology) => topology.status === 'AVAILABLE');
+  if (!availableTopologies.length) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-slot-structure-unavailable',
+      message: 'The exact set and the remaining catalog cannot form any complete three-target-set-plus-one topology across the four physical slots.',
+      source: snapshot.source,
+      targetSet: gearSet,
+      topologies,
+    };
+  }
+  return {
+    ok: true,
+    contract: DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT,
+    state: 'REQUIRES_ATTRIBUTE_PREFERENCE',
+    source: snapshot.source,
+    characterId: typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : null,
+    setQuery,
+    targetSet: gearSet,
+    targetSetPieceCount: 3,
+    targetSetThreePieceBuffs: gearSet.threePieceBuffs || {},
+    topologyDefinition: 'Exactly three target-set memberships across armor, glove, accessory1, and accessory2. The remaining physical slot is the off-set slot.',
+    topologies,
+    topologiesExhaustive: true,
+    // Keep the old field as a non-lossy compatibility view. Each entry is a
+    // topology with complete candidate pools, never a truncated enumeration
+    // of completed loadouts.
+    structures: topologies,
+    structuresExhaustive: true,
+    missingReasons: [{
+      code: 'attribute-preference-required',
+      message: 'The catalog proves every viable slot topology and each candidate’s fixedStat/effects, but it does not define this character’s desired primary or secondary attributes.',
+      requiredInput: ['preferredFixedStatTypeKey', 'preferredEffectTypeKeys'],
+    }],
+    nextAction: 'First present every AVAILABLE topology; do not assume the off-set part is an accessory. State the desired fixed stat and ordered secondary-effect type keys before ranking a candidate. Until then, report only these catalog facts and do not recommend or apply one loadout.',
+  };
+}
+
 function buildDefNativeCatalogArtifact(input = {}) {
   const domain = typeof input.domain === 'string' ? input.domain.trim() : '';
   const query = typeof input.query === 'string' ? input.query.trim() : '';
@@ -2963,16 +3172,8 @@ function buildDefNativeCatalogArtifact(input = {}) {
     files: [{ path: 'entity.full.json', records: 1, content: `${JSON.stringify(canonicalizeDefNativeCatalogValue(entity), null, 2)}\n` }],
   });
   if (domain === 'equipment') {
-    const gearSetAliases = readDefNativeGearSetAliasIndex();
-    const aliasedGearSetIds = new Set([...gearSetAliases.entries()]
-      .filter(([term]) => normalized === term || normalized.includes(term))
-      .map(([, gearSetId]) => gearSetId));
-    const matchingSets = snapshot.gearSets.filter((gearSet) => {
-      const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
-      return aliasedGearSetIds.has(gearSet.id)
-        || identities.some((identity) => normalized === identity || normalized.includes(identity));
-    });
-    if (matchingSets.length === 1) return entityFull(matchingSets[0], 'exact-gear-set');
+    const resolvedSet = resolveDefNativeEquipmentGearSet(snapshot, query);
+    if (resolvedSet.ok) return entityFull(resolvedSet.set, 'exact-gear-set');
   }
   const exactEntities = snapshot.entities.filter((entity) => [entity.id, entity.name].map(nativeCatalogText).some((identity) => identity === normalized));
   if (exactEntities.length === 1) return entityFull(exactEntities[0], 'exact-entity');
@@ -6946,29 +7147,75 @@ async function waitForExactDefOperatorConfigs(finalConfigs, waitMs) {
   return { snapshot, normalized, pass };
 }
 
-async function executeDefOperatorConfigPrepare(input = {}) {
-  const gate = resolveCanonicalWorkbenchCurrent(input);
+function operatorConfigProposalFailure(code, nextAction) {
+  return {
+    ok: false,
+    code,
+    component: 'operator-config',
+    retryable: false,
+    currentCheckoutTouched: false,
+    nextAction,
+  };
+}
+
+function readReviewedOperatorConfigProposal(input, gate) {
+  const proposalToken = typeof input.proposalToken === 'string' ? input.proposalToken.trim() : '';
+  if (!proposalToken) {
+    return operatorConfigProposalFailure(
+      'operator-config-explicit-review-required',
+      'Show a verified def_operator_config_preview result first. Wait for a later explicit user application instruction before preparing a branch.',
+    );
+  }
+  pruneReviewedOperatorConfigProposals();
+  const proposal = reviewedOperatorConfigProposals.get(proposalToken);
+  if (!proposal) {
+    return operatorConfigProposalFailure(
+      'operator-config-proposal-invalid',
+      'The reviewed proposal is missing or expired. Recompute a read-only preview and wait for a new explicit application instruction.',
+    );
+  }
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const turnId = typeof input.__defTurnId === 'string' ? input.__defTurnId.trim() : '';
+  if (!sessionId || proposal.sessionId !== sessionId || !turnId || proposal.turnId === turnId) {
+    return operatorConfigProposalFailure(
+      'operator-config-proposal-not-confirmed',
+      'The reviewed proposal must be applied only from a later user turn with an explicit application instruction; this turn may only present or revise the proposal.',
+    );
+  }
+  const parentNodeId = typeof gate?.checkout?.targetId === 'string' ? gate.checkout.targetId : '';
+  const parent = parentNodeId ? readRepositoryWorkNode(parentNodeId) : null;
+  const parentRevision = Number(parent?.contentRevision || parent?.updatedAt);
+  if (!parent || proposal.timelineId !== gate?.binding?.timelineId || proposal.axisBindingId !== gate?.binding?.id
+    || proposal.parentNodeId !== parentNodeId || proposal.parentRevision !== parentRevision
+    || proposal.parentWorkingHash !== hashDefNodeValue(parent.workingPayload)) {
+    return operatorConfigProposalFailure(
+      'operator-config-proposal-stale',
+      'The checkout or branch revision changed after the proposal. Recompute a read-only preview and request a new explicit confirmation.',
+    );
+  }
+  return { ok: true, proposal, parent };
+}
+
+async function verifyDefOperatorConfigPreview(input = {}, gate = resolveCanonicalWorkbenchCurrent(input)) {
   if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
-  const nodeMetadata = readAgentWorkNodeMetadata(input);
-  if (!nodeMetadata.ok) return { ...nodeMetadata, component: 'operator-config', retryable: false, nextAction: nodeMetadata.message };
   const planned = buildDefOperatorConfigPreviewCommand(input);
   if (!planned.ok) return planned;
   const definition = getDefToolDefinition('def.operator.config.patch');
   const enqueued = enqueueDefToolCommands(definition, [{ op: 'previewOperatorConfig', request: planned.command }], input);
   if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.commands?.[0]) {
-    return { ok: false, code: 'operator-config-preview-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'Restore the current Workbench connection and retry the preview.', enqueue: enqueued.body || null };
+    return { ok: false, code: 'operator-config-preview-enqueue-failed', component: 'operator-config', retryable: true, nextAction: 'Restore the current Workbench connection and retry the read-only preview.', enqueue: enqueued.body || null };
   }
-  const verification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
-  const preview = verification?.result?.result;
-  if (!verification.pass || !isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
-    return { ok: false, code: 'operator-config-preview-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result; no approval should be requested.', commandVerification: verification };
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
+  const preview = commandVerification?.result?.result;
+  if (!commandVerification.pass || !isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
+    return { ok: false, code: 'operator-config-preview-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result; no approval or branch should be requested.', commandVerification };
   }
   const parentNodeId = typeof preview.parentNodeId === 'string' ? preview.parentNodeId : '';
   const parentRevision = Number(preview.parentRevision);
   const parent = readRepositoryWorkNode(parentNodeId);
   const checkout = gate.checkout;
   if (!parent || parent.timelineId !== gate.binding.timelineId || checkout?.targetType !== 'work-node' || checkout.targetId !== parentNodeId || Number(parent.contentRevision || parent.updatedAt) !== parentRevision) {
-    return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during preview. Re-read it and request a new approval.', currentCheckoutTouched: false };
+    return { ok: false, code: 'checkout-changed', component: 'operator-config', retryable: true, nextAction: 'The checkout changed during the read-only preview. Re-read it before presenting another proposal.', currentCheckoutTouched: false };
   }
   const timelinePreservation = verifyDefTimelinePreserved(parent.workingPayload, preview.preparedPayload);
   const timelineCatalogIssues = [
@@ -6977,10 +7224,92 @@ async function executeDefOperatorConfigPrepare(input = {}) {
   ];
   if (!timelinePreservation.pass || timelineCatalogIssues.length) {
     return operatorConfigTimelineInvariantFailure({
-      stage: 'prepare',
+      stage: 'preview',
       timelinePreservation,
       timelineCatalogIssues,
     });
+  }
+  return {
+    ok: true,
+    gate,
+    parent,
+    parentNodeId,
+    parentRevision,
+    preview,
+    commandVerification,
+    timelinePreservation,
+  };
+}
+
+async function executeDefOperatorConfigPreview(input = {}) {
+  const gate = resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
+  const previewed = await verifyDefOperatorConfigPreview(input, gate);
+  if (!previewed.ok) return previewed;
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const turnId = typeof input.__defTurnId === 'string' ? input.__defTurnId.trim() : '';
+  if (!sessionId || !turnId) {
+    return operatorConfigProposalFailure(
+      'operator-config-preview-identity-missing',
+      'The native session/turn identity is unavailable. Do not prepare or apply a configuration; restore the Workbench session and preview again.',
+    );
+  }
+  pruneReviewedOperatorConfigProposals();
+  const proposalToken = crypto.randomUUID();
+  const expiresAt = Date.now() + PREPARED_OPERATOR_CONFIG_TTL_MS;
+  const finalConfigHash = hashDefNodeValue(previewed.preview.finalConfig);
+  reviewedOperatorConfigProposals.set(proposalToken, {
+    sessionId,
+    turnId,
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
+    parentNodeId: previewed.parentNodeId,
+    parentRevision: previewed.parentRevision,
+    parentWorkingHash: hashDefNodeValue(previewed.parent.workingPayload),
+    finalConfigHash,
+    createdAt: Date.now(),
+    expiresAt,
+    consumed: false,
+  });
+  return {
+    ok: true,
+    state: 'REVIEW_REQUIRED',
+    component: 'operator-config',
+    proposalToken,
+    expiresAt,
+    parentNodeId: previewed.parentNodeId,
+    parentRevision: previewed.parentRevision,
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
+    finalConfig: previewed.preview.finalConfig,
+    timelinePreservation: previewed.timelinePreservation,
+    commandVerification: previewed.commandVerification,
+    currentCheckoutTouched: false,
+    nextAction: 'Present this exact verified proposal. Do not request approval or apply it in this turn. Only a later explicit user application instruction may use this unchanged proposalToken.',
+  };
+}
+
+async function executeDefOperatorConfigPrepare(input = {}) {
+  const gate = resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, code: gate.code, component: 'operator-config', retryable: false, nextAction: gate.message };
+  const reviewed = readReviewedOperatorConfigProposal(input, gate);
+  if (!reviewed.ok) return reviewed;
+  if (!hasDefOperatorConfigApplyIntent(input)) {
+    return operatorConfigProposalFailure(
+      'operator-config-apply-intent-required',
+      'The current user turn did not explicitly authorize applying the reviewed configuration. Present or revise the proposal, then wait for a later clear confirmation such as “确认应用这套”.',
+    );
+  }
+  const nodeMetadata = readAgentWorkNodeMetadata(input);
+  if (!nodeMetadata.ok) return { ...nodeMetadata, component: 'operator-config', retryable: false, nextAction: nodeMetadata.message };
+  const previewed = await verifyDefOperatorConfigPreview(input, gate);
+  if (!previewed.ok) return previewed;
+  const { preview, parentNodeId, parentRevision, parent, timelinePreservation, commandVerification } = previewed;
+  if (reviewed.proposal.finalConfigHash !== hashDefNodeValue(preview.finalConfig)) {
+    return operatorConfigProposalFailure(
+      'operator-config-proposal-mismatch',
+      'The proposed equipment, slots, or derived configuration changed. Present a fresh read-only preview and wait for a new explicit application instruction.',
+    );
   }
   const structuralParentNodeId = horizontalConfigurationParent(parent);
   const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
@@ -7008,6 +7337,8 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     parentRevision,
     structuralParentNodeId,
     workingHash,
+    proposalToken: input.proposalToken,
+    finalConfigHash: reviewed.proposal.finalConfigHash,
     sessionId: typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '',
     timelineId: gate.binding.timelineId,
     axisBindingId: gate.binding.id,
@@ -7020,6 +7351,7 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     nodeId: node.id,
     nodeRevision: Number(node.contentRevision || node.updatedAt),
     preparedToken,
+    proposalToken: input.proposalToken,
     workingHash,
     parentNodeId,
     parentRevision,
@@ -7033,7 +7365,7 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     finalConfig: preview.finalConfig,
     diff: diffTimelinePayloadsForWorkNode(node.basePayload, node.workingPayload),
     timelinePreservation,
-    commandVerification: verification,
+    commandVerification,
   };
 }
 
@@ -7044,11 +7376,18 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   const parentRevision = Number(input.parentRevision);
   const finalConfig = input.finalConfig;
   const preparedToken = typeof input.preparedToken === 'string' ? input.preparedToken : '';
+  const proposalToken = typeof input.proposalToken === 'string' ? input.proposalToken.trim() : '';
   prunePreparedOperatorConfigCapabilities();
+  pruneReviewedOperatorConfigProposals();
   const capability = preparedOperatorConfigCapabilities.get(preparedToken);
   if (!capability || capability.nodeId !== nodeId || capability.nodeRevision !== nodeRevision
-    || capability.parentNodeId !== parentNodeId || capability.parentRevision !== parentRevision) {
+    || capability.parentNodeId !== parentNodeId || capability.parentRevision !== parentRevision
+    || capability.proposalToken !== proposalToken || capability.finalConfigHash !== hashDefNodeValue(finalConfig)) {
     return { ok: false, code: 'prepared-capability-invalid', component: 'operator-config', retryable: false, nextAction: 'Build a new reviewed preview; this apply capability is missing, expired, or does not match the horizontal branch.' };
+  }
+  const proposal = reviewedOperatorConfigProposals.get(proposalToken);
+  if (!proposal || proposal.consumed || proposal.finalConfigHash !== capability.finalConfigHash) {
+    return { ok: false, code: proposal?.consumed ? 'operator-config-proposal-consumed' : 'operator-config-proposal-invalid', component: 'operator-config', retryable: false, nextAction: 'The explicit-review proposal is missing, expired, already used, or no longer matches this branch. Create and confirm a fresh preview.' };
   }
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   if (capability.sessionId && capability.sessionId !== sessionId) {
@@ -7095,6 +7434,11 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   })) {
     return { ok: false, code: 'approval-capability-required', component: 'operator-config', retryable: false, nextAction: 'Native user approval for this exact candidate is required before apply.' };
   }
+  // The native approval has resolved and every pre-apply invariant still
+  // matches. Consume this exact review before any renderer command so it
+  // cannot be replayed after a partial or failed apply attempt.
+  proposal.consumed = true;
+  proposal.consumedAt = Date.now();
   capability.consumed = true;
   // Commit the reviewed horizontal branch before touching the live renderer. It remains
   // un-applied until the exact live mirror has converged.
@@ -7157,7 +7501,10 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
   const visibleTimeline = verifyVisibleTimelineButtons(node.workingPayload, visibleProjection.snapshot);
   const pass = exact.liveMirror && exact.checkoutPayload && exact.commitPayload
     && timelinePreservation.pass && visibleProjection.pass && visibleTimeline.pass;
-  if (pass) preparedOperatorConfigCapabilities.delete(preparedToken);
+  if (pass) {
+    preparedOperatorConfigCapabilities.delete(preparedToken);
+    reviewedOperatorConfigProposals.delete(proposalToken);
+  }
   return {
     ok: pass, component: 'operator-config', code: pass ? 'applied' : 'postcondition-failed', retryable: !pass,
     nextAction: pass ? 'None.' : 'Inspect live mirror, branch working payload, and checkoutApplied commit; do not describe the change as applied.',
@@ -7244,6 +7591,27 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
       currentCheckoutTouched: false,
     };
   }
+  // Reject an invalid reviewed payload before consuming any approval
+  // capability. This preserves both a precise failure reason and the user's
+  // one-time approval for a corrected replacement candidate.
+  const before = readMainWorkbenchSnapshotMirror();
+  const expectedPayload = restore ? node.basePayload : node.workingPayload;
+  const expectedSummary = summarizeTimelinePayload(expectedPayload);
+  const payloadFieldName = restore ? 'basePayload' : 'workingPayload';
+  const payloadIssues = [
+    ...validateDefTimelinePayload(expectedPayload, payloadFieldName),
+    ...validateDefTimelineAgainstSkillCatalog(expectedPayload, before, payloadFieldName),
+  ];
+  if (payloadIssues.length) {
+    return {
+      ok: false,
+      code: 'worknode-visible-payload-invalid',
+      message: payloadIssues.map((issue) => issue.message).join('; '),
+      nodeId,
+      validation: { ok: false, issues: payloadIssues },
+      currentCheckoutTouched: false,
+    };
+  }
   const checkoutDecision = buildAiTimelineCheckoutDecision({
     approvalPolicy: node.approvalPolicy,
     riskFlags: Array.isArray(node.riskFlags) ? node.riskFlags : [],
@@ -7273,24 +7641,6 @@ async function executeDefWorkNodeApplyAndVerify(name, input = {}, restore = fals
       mode: 'manual',
       approvedBy: 'user',
       rationale: 'Approved through the native DEF permission continuation.',
-    };
-  }
-  const before = readMainWorkbenchSnapshotMirror();
-  const expectedPayload = restore ? node.basePayload : node.workingPayload;
-  const expectedSummary = summarizeTimelinePayload(expectedPayload);
-  const payloadFieldName = restore ? 'basePayload' : 'workingPayload';
-  const payloadIssues = [
-    ...validateDefTimelinePayload(expectedPayload, payloadFieldName),
-    ...validateDefTimelineAgainstSkillCatalog(expectedPayload, before, payloadFieldName),
-  ];
-  if (payloadIssues.length) {
-    return {
-      ok: false,
-      code: 'worknode-visible-payload-invalid',
-      message: payloadIssues.map((issue) => issue.message).join('; '),
-      nodeId,
-      validation: { ok: false, issues: payloadIssues },
-      currentCheckoutTouched: false,
     };
   }
   const definition = getDefToolDefinition(restore ? 'def.worknode.restore_base' : 'def.worknode.checkout');
@@ -7862,13 +8212,13 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   // write them into its own session directory. A generic loopback caller must
   // never receive that transport payload, even though the persisted artifact
   // itself is read-only.
-  if (name === 'def.native_catalog.materialize') {
+  if (name === 'def.native_catalog.materialize' || name === 'def.equipment.3plus1.facts') {
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
-    const registration = resolveRegisteredDefNativeCatalogSession(sessionId);
+    const registration = restoreRegisteredDefNativeCatalogSession(input, invocation);
     if (!registration || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
       return {
         ok: false,
-        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization requires an authenticated, registered DEF native session.'),
+        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization and 3+1 facts require an authenticated, registered DEF native session.'),
       };
     }
     return { ok: true, input: { ...input, __defNativeCatalogSessionId: sessionId, __defNativeCatalogSession: registration }, policy };
@@ -8101,6 +8451,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     return { status: result.ok ? 200 : 400, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
   }
 
+  if (name === 'def.operator.config.preview') {
+    const result = await executeDefOperatorConfigPreview(input);
+    return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
+  }
   if (name === 'def.operator.config.patch') {
     const result = await executeDefOperatorConfigPatchAndVerify(definition, input);
     return { status: result.ok ? 200 : 409, body: { ok: result.ok, protocolVersion: 1, tool: name, result } };
@@ -8278,6 +8632,19 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(400, result.code || 'native-catalog-materialize-failed', result.message || 'Unable to capture a native catalog artifact.', {
         domain: result.domain || input.domain || null,
         nextAction: 'Keep this read-only request unmodified and provide a non-empty equipment or weapon query after the local catalog is available.',
+      });
+    }
+  } else if (name === 'def.equipment.3plus1.facts') {
+    result = buildDefEquipmentThreePlusOneFacts(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'equipment-3plus1-facts-failed', result.message || 'Unable to derive evidence-backed 3+1 equipment facts.', {
+        source: result.source,
+        candidates: result.candidates,
+        expectedSourceRevision: result.expectedSourceRevision,
+        actualSourceRevision: result.actualSourceRevision,
+        nextAction: result.code === 'equipment-3plus1-source-revision-stale'
+          ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request 3+1 facts again.'
+          : 'Use one exact set name from the materialized native artifact and report only the returned fixedStat/effects facts.',
       });
     }
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {

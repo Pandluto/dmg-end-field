@@ -18,7 +18,7 @@ export default async function DefToolsPlugin() {
     },
     'chat.message': async (input, output) => {
       const turnId = output?.message?.id || input?.messageID
-      definitions.beginDefToolTurn(input?.sessionID, turnId)
+      definitions.beginDefToolTurnFromChatMessage(input?.sessionID, turnId, output?.parts)
     },
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool)

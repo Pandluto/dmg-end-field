@@ -215,3 +215,36 @@ Choose natural-language prompts and the number of turns according to the behavio
 being checked. Prefer a short multi-turn conversation when the behavior depends on
 clarification or retained context; a focused single turn is sufficient for an
 isolated capability.
+
+## Read-only equipment 3+1 regression
+
+For the natural-language case `为别礼挑选一套装备，3 潮涌+1，需要主副属性都对`, retain the v1
+transcript and verify the tool order is: one `def_data_native_catalog_materialize`, native
+`read` of its returned `manifestPath`, artifact-only native `read` or `grep`, then
+`def_data_equipment_3plus1_facts` for the same artifact. The turn must not call legacy
+equipment/weapon/loadout-candidates, game knowledge, Workbench/node tools, mutation, or
+approval. The 3+1 result must enumerate the physical-slot topologies rather than assume
+“护甲＋护手＋一个配件，再补散件配件”: exactly three of `armor`、`glove`、`accessory1`、
+`accessory2` belong to the target set, so the off-set can be any one of those slots. If the
+typed duplicate policy allows it, the same compatible accessory id may appear in both
+accessory slots. A truncated completed-combination list must never be presented as exhaustive.
+
+The answer may report the full slot/fixed-stat/effect facts, but absent an evidence-backed
+fixed-stat and ordered secondary-effect preference it must ask the minimal clarification or
+explicitly state that the fourth item cannot be ranked. It must not invent a drop main stat,
+an elemental trigger, or a damage benefit. Record the terminal state, questions, tool input
+and result summaries, plus before/after state; all state-changing and approval fields must
+remain unchanged.
+
+If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
+iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
+that the Electron-owned REST child and any sidecar-recovered REST child use the same local
+SQLite paths before opening a fresh native session; do not bypass the panel with a direct
+OpenCode page and call that a UI pass.
+
+For a configuration proposal, record the `def_operator_config_preview` result and verify that
+it changes neither branch, checkout nor approval state. A later explicit user application turn
+must carry the unchanged proposal token into `def_operator_config_patch`; native approval and
+the visible postcondition remain required. A comparison, correction, or question such as
+“为什么不用两个悬河供氧栓” is a re-planning turn: it must not call the patch tool and requires a
+fresh preview before any later application.

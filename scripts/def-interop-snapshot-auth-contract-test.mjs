@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 const {
@@ -20,6 +22,7 @@ const {
   isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
+  readOrCreateWorkbenchRendererCapability,
 } = require('../electron/workbench-renderer-transport.cjs');
 const nativeToken = 'interop-native-snapshot-token';
 assert.equal(resolveCanonicalWorkbenchTimelineId({
@@ -97,15 +100,52 @@ assert(proxySource.includes('isAuthorizedWorkbenchRendererRequest'),
 assert(rendererTransportSource.includes("'POST /api/main-workbench/snapshot'"));
 assert(rendererTransportSource.includes("'GET /api/main-workbench/commands/events'"));
 assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
+const developmentBridgeSource = fs.readFileSync(new URL('../agent/dev-agent.cjs', import.meta.url), 'utf8');
+const developmentProxySource = developmentBridgeSource.slice(
+  developmentBridgeSource.indexOf('async function proxyMainWorkbenchRendererTransport'),
+  developmentBridgeSource.indexOf('function waitForProcessExit'),
+);
+assert(developmentProxySource.includes("requestUrl.pathname.startsWith('/local-data/')"),
+  'development bridge must translate capability-authorized /local-data renderer reads to its typed /api surface');
+assert(developmentProxySource.includes("`/api/${requestUrl.pathname.slice('/local-data/'.length)}`"),
+  'development bridge translation must preserve only the bounded /local-data suffix');
+assert(developmentProxySource.includes('isAllowedWorkbenchRendererTransport(method, upstreamPathname)'),
+  'translated development renderer requests must still pass the upstream typed-tool allowlist');
 assert(!mainSource.includes('installDefRawTransportHeader'),
   'Electron must not grant raw REST authority to every defaultSession renderer');
 assert(mainSource.includes('buildInteropNativeHeaders'),
   'Interop fixture creation and cleanup must carry native authority into protected local-data routes');
 assert(mainSource.includes("const shellUrl = getShellUrl({ includeRendererCapability: true });"),
   'Desktop Shell must launch with the per-launch renderer capability for protected local-data transport');
+assert(mainSource.includes("workbench-renderer-capability.json"),
+  'Electron must store the browser renderer capability in its app-local runtime');
+assert(mainSource.indexOf('ensureWorkbenchRendererCapability();') < mainSource.indexOf('startBridgeServer();'),
+  'Electron must restore the persistent renderer capability before accepting renderer bridge traffic');
+const agentStartSource = mainSource.slice(
+  mainSource.indexOf('async function startDefAgent'),
+  mainSource.indexOf('function warmAiRuntimeAtStartup'),
+);
+for (const requiredStorageBinding of [
+  'AI_CLI_NOW_STORAGE_PATH: getNowStoragePath()',
+  'AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath()',
+  'TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath()',
+  'DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot()',
+]) {
+  assert(agentStartSource.includes(requiredStorageBinding),
+    'DEF agent child must inherit the Electron typed-tool storage topology for safe REST recovery');
+}
 
 const rendererCapability = createWorkbenchRendererCapability();
 assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');
+const capabilityRuntimeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-renderer-capability-'));
+const capabilityRuntimePath = path.join(capabilityRuntimeRoot, 'workbench-renderer-capability.json');
+const persistedCapability = readOrCreateWorkbenchRendererCapability(capabilityRuntimePath);
+assert.equal(readOrCreateWorkbenchRendererCapability(capabilityRuntimePath), persistedCapability,
+  'the renderer capability must survive a bridge restart while the browser session remains valid');
+fs.writeFileSync(capabilityRuntimePath, '{"schemaVersion":1,"capability":"malformed"}\n');
+assert.notEqual(readOrCreateWorkbenchRendererCapability(capabilityRuntimePath), 'malformed',
+  'a malformed runtime capability must rotate rather than poison all renderer requests');
+fs.rmSync(capabilityRuntimeRoot, { recursive: true, force: true });
 assert.equal(isAuthorizedWorkbenchNativeRequest({ headers: {} }, nativeToken), false);
 assert.equal(isAuthorizedWorkbenchNativeRequest({
   headers: { 'x-def-internal-token': nativeToken },
@@ -157,6 +197,8 @@ assert.equal(isProtectedWorkbenchRendererLocalDataPath('/local-data/ai-timeline-
 assert(rendererSource.includes('withWorkbenchRendererCapability(input, init.headers)'));
 assert(rendererSource.includes('buildWorkbenchRendererEventUrl'));
 assert(rendererCapabilitySource.includes('window.history.replaceState'), 'launch capability must be removed from the visible URL');
+assert(rendererCapabilitySource.includes('window.localStorage.setItem(WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY, fromLaunch)'),
+  'a browser restart must retain the valid local renderer capability');
 assert(rendererCapabilitySource.includes('isWorkbenchRendererBridgeUrl'),
   'renderer capability must be bound to the exact Electron bridge origin');
 assert(workNodeClientSource.includes("const DEFAULT_REST_BASE_URL = DEFAULT_BRIDGE_BASE_URL"));

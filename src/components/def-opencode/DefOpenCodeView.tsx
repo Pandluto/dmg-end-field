@@ -91,9 +91,18 @@ export function DefOpenCodeView({
         ...(developmentHarnessSelector ? { harnessSelector: developmentHarnessSelector } : {}),
       }),
     });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const payload = await response.json() as { ok?: boolean; session?: NativeSession };
-    if (!payload.ok || !payload.session?.id || !payload.session.uiPath || (host === 'workbench' && payload.session.timelineId !== normalizedTimelineId)) throw new Error('Invalid native session response');
+    const payload = await response.json().catch(() => null) as {
+      ok?: boolean;
+      session?: NativeSession;
+      error?: string | { message?: string; code?: string };
+    } | null;
+    if (!response.ok) {
+      const detail = typeof payload?.error === 'string'
+        ? payload.error
+        : payload?.error?.message || payload?.error?.code || '';
+      throw new Error(detail ? `HTTP ${response.status}: ${detail}` : `HTTP ${response.status}`);
+    }
+    if (!payload?.ok || !payload.session?.id || !payload.session.uiPath || (host === 'workbench' && payload.session.timelineId !== normalizedTimelineId)) throw new Error('Invalid native session response');
     // The native session already exists once this response succeeds. A full
     // browser cache must not discard that live session or make the AI panel
     // look offline merely because its optional recovery handle cannot persist.

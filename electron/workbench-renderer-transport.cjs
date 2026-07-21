@@ -1,10 +1,59 @@
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 
 const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
 const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
 
 function createWorkbenchRendererCapability() {
   return crypto.randomBytes(32).toString('base64url');
+}
+
+function isValidWorkbenchRendererCapability(value) {
+  // 32 random bytes encoded with base64url are 43 characters.  Keep this
+  // intentionally strict so a malformed or manually edited runtime file
+  // cannot turn into an always-denied-but-hard-to-diagnose browser session.
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+/**
+ * The browser Workbench is intentionally outside the Electron renderer in
+ * development.  Its capability therefore has to outlive the Electron main
+ * process: Chromium can retain the browser tab's session/local storage while
+ * the local bridge restarts.  A per-process token made every such restart
+ * look like an unavailable SQLite workspace even though user.sqlite was
+ * healthy.
+ *
+ * This remains an unguessable local capability.  It is stored only in the
+ * app's runtime directory and is rotated automatically if that file is
+ * missing or malformed.
+ */
+function readOrCreateWorkbenchRendererCapability(filePath) {
+  if (!filePath) return createWorkbenchRendererCapability();
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    if (parsed?.schemaVersion === 1 && isValidWorkbenchRendererCapability(parsed.capability)) {
+      return parsed.capability;
+    }
+  } catch {
+    // A first launch or a corrupt runtime artifact both get a new capability.
+  }
+
+  const capability = createWorkbenchRendererCapability();
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporaryPath = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.writeFileSync(temporaryPath, `${JSON.stringify({ schemaVersion: 1, capability })}\n`, { mode: 0o600 });
+    fs.renameSync(temporaryPath, filePath);
+  } catch {
+    try {
+      if (fs.existsSync(temporaryPath)) fs.unlinkSync(temporaryPath);
+    } catch {
+      // The in-memory capability still keeps this launch functional.
+    }
+  }
+  return capability;
 }
 
 function isTrustedWorkbenchRendererOrigin(request, bridgeHost = '127.0.0.1', bridgePort = 31457) {
@@ -102,6 +151,8 @@ module.exports = {
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
+  isValidWorkbenchRendererCapability,
+  readOrCreateWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
