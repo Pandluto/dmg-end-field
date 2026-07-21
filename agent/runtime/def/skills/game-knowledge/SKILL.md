@@ -20,6 +20,8 @@ This skill distills game knowledge from 月咒's strategy video transcripts, org
 | **怎么判断** | Hot-start vs cold-start, boss-specific adaptations | Each guide's tactics section |
 | **什么不换** | Core characters that cannot be substituted | Each guide's team overview |
 
+Reviewed cross-entity causal rules live separately in `conventions/`. They are teacher-curated conclusions with stable rule ids, conditions, qualitative certainty, non-implications, and version scope. They are not guide quotations and do not replace current typed operator/weapon facts.
+
 ## Trust Order
 
 1. DEF typed tools (`def.workbench.*`, `def.character.resolve`, `def.buff.resolve`, etc.) for real-time game state.
@@ -60,3 +62,11 @@ All game knowledge is stored in `references/`:
 3. Make claims only from that exact section. After the section returns, stop data-tool use and answer; “先让我确认” means present this source-faithful draft, not resolve names against the product catalog, describe a future application, request a catalog lookup, or prepare one. If the section does not specify a weapon, slot, threshold, or condition, label it 待确认 rather than filling it from another guide. A truncated section is not complete evidence; report its returned continuation fact instead of guessing.
 4. Do not re-search the same guide with aliases, keywords, pinyin, or one-character queries after a reference is found. Do not use direct filesystem tools.
 5. Present findings concisely — do not dump entire guide files. If the user's request goes beyond the guides (e.g., real-time game state), fall back to DEF typed tools.
+
+## Combat Convention Route
+
+- For trigger analysis, rotation conditions, support-role utility, or “why this weapon works”, call `def_data_combat_conventions` with exact entities and one supported intent. Do not use `def_data_game_knowledge` for this branch.
+- Treat its connected rule bundle as reviewed reasoning evidence only. Current typed catalog facts still verify skill and weapon text, ids, effect types, and values.
+- Preserve `deterministic`, `high-probability`, `low-probability`, and `unknown` exactly. Do not convert qualitative probability into a number.
+- `missingEdges` or `conflicts` means stop before ranking. Never fill an absent edge with “likely”.
+- A conversational correction is not durable knowledge until it has been reviewed into `conventions/` by development; never write it automatically.

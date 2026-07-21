@@ -7,7 +7,7 @@ import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions
 import { buildDefToolRouteMap, createDefToolRegistry } from '../agent/runtime/def-tools/registry.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const fixturePath = path.join(root, 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'def-core-baseline-v1.json');
+const fixturePath = path.join(root, 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'def-core-baseline-v2.json');
 const baseline = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
 
 function canonical(value) {

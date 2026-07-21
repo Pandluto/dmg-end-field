@@ -219,22 +219,38 @@ isolated capability.
 ## Read-only equipment 3+1 regression
 
 For the natural-language case `为别礼挑选一套装备，3 潮涌+1，需要主副属性都对`, retain the v1
-transcript and verify the tool order is: one `def_data_native_catalog_materialize`, native
-`read` of its returned `manifestPath`, artifact-only native `read` or `grep`, then
-`def_data_equipment_3plus1_facts` for the same artifact. The turn must not call legacy
-equipment/weapon/loadout-candidates, game knowledge, Workbench/node tools, mutation, or
-approval. The 3+1 result must enumerate the physical-slot topologies rather than assume
-“护甲＋护手＋一个配件，再补散件配件”: exactly three of `armor`、`glove`、`accessory1`、
-`accessory2` belong to the target set, so the off-set can be any one of those slots. If the
-typed duplicate policy allows it, the same compatible accessory id may appear in both
-accessory slots. A truncated completed-combination list must never be presented as exhaustive.
+transcript and verify this read-only order:
 
-The answer may report the full slot/fixed-stat/effect facts, but absent an evidence-backed
-fixed-stat and ordered secondary-effect preference it must ask the minimal clarification or
-explicitly state that the fourth item cannot be ranked. It must not invent a drop main stat,
-an elemental trigger, or a damage benefit. Record the terminal state, questions, tool input
-and result summaries, plus before/after state; all state-changing and approval fields must
-remain unchanged.
+1. Call `def_data_operator_build_guide` once. It must resolve exact operator identity and
+   return `GUIDE_FOUND`, `PARTIAL_GUIDE_FOUND`, or `GUIDE_NOT_FOUND`; a generic knowledge
+   candidate is not guide evidence.
+2. Only for `PARTIAL_GUIDE_FOUND` or `GUIDE_NOT_FOUND`, call
+   `def_data_operator_build_profile` once with the exact returned fallback token. A complete
+   guide result must not call the fallback profile.
+3. Call `def_data_native_catalog_materialize` once, native-read its returned `manifestPath`,
+   and use artifact-only native `read` or `grep` for the named set and relevant effect keys.
+4. Call `def_data_equipment_3plus1_facts` with that artifact for unranked set, slot, source,
+   and duplicate-policy facts.
+5. Call `def_data_equipment_3plus1_plan` with the same artifact/source revision and the exact
+   unchanged `plannerProfile` plus `plannerProfileCapability` returned by guide discovery or
+   its authorized fallback. Only this plan result may rank and shortlist pieces.
+
+The turn must not call legacy equipment/weapon/loadout-candidates, the generic
+`def_data_game_knowledge`/section path, generic operator/skill fallback, Workbench/node tools,
+mutation, or approval. `3+1` means at least three target-set memberships across `armor`,
+`glove`, `accessory1`, and `accessory2`; a four-piece target-set plan is legal when it remains
+the best verified profile match. An off-set is selected only when it strictly improves that
+match, and it may occupy any physical slot. If typed duplicate policy allows it, the same
+compatible accessory id may appear in both accessory slots.
+
+The answer must use the bounded planner shortlist—one best combination and at most two close
+alternatives—rather than enumerate physical-slot topologies or a candidate pool. Each selected
+piece must retain its stable id, slot, set membership, matched keys, ranking basis, missing
+facts, and ambiguity from the plan. It must not reinterpret equipment `fixedStat` as the
+operator primary/secondary attribute or invent a drop main stat, elemental trigger, or damage
+benefit. Record guide state, authorized profile fallback when present, artifact/source identity,
+facts and plan inputs/results, terminal state, questions, plus before/after state; all
+state-changing and approval fields must remain unchanged.
 
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
@@ -248,3 +264,34 @@ must carry the unchanged proposal token into `def_operator_config_patch`; native
 the visible postcondition remain required. A comparison, correction, or question such as
 “为什么不用两个悬河供氧栓” is a re-planning turn: it must not call the patch tool and requires a
 fresh preview before any later application.
+
+## Support weapon convention regression
+
+For the natural-language case `给赛希挑把武器，重点考虑她给队伍带来的收益`, keep the turn
+read-only and retain the v1 transcript. The expected evidence order is:
+
+1. `def_data_operator_build_guide` resolves whether an exact operator guide exists.
+2. When the guide is partial or absent, `def_data_combat_conventions` resolves one reviewed
+   `weapon-fit` bundle before `def_data_operator_build_profile`; pass the exact fallback token
+   and `bundleHash` unchanged.
+3. `def_data_weapon_fit_plan` receives the unchanged typed profile capability and exact
+   convention hash. It must evaluate every compatible current-catalog weapon with complete
+   skill1/2/3 facts.
+
+This route must not use generic game-knowledge search, generic operator/skill fallback,
+truncated `def_data_weapon`, loadout candidates, mutation, node, or approval tools. Record the
+guide state, convention rule ids and qualitative certainty, profile derivation, compatible and
+evaluated catalog counts, complete shortlisted facts, questions, and before/after state.
+
+The answer must preserve the difference between deterministic, high-probability and
+low-probability edges. For 赛希, it may explain that two controller heavy attacks after her
+combat skill make her combo skill available; that combo skill heals the controller and applies
+ice; the reviewed chain then treats magic burst as high-probability and magic anomaly as
+low-probability. It must not turn either edge into certainty or a percentage. 骑士精神 should
+be discussed through its reachable post-heal team attack effect. 爆破单元 should be discussed
+through the reviewed magic-burst vulnerability condition and its intelligence-linked passive.
+If the planner returns `READY_WITH_TRADEOFFS`, report an unordered tradeoff matrix: do not use
+first/second labels, convert evidence dimensions into an overall score, call one candidate more
+comprehensive, or name a universal winner. Personal attack, elemental damage, survivability,
+weapon element, or will are not team benefits unless the returned profile and reviewed rules
+explicitly authorize them. Claims such as “稀有乘区” also require explicit returned evidence.

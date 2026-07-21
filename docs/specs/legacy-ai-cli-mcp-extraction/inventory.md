@@ -69,10 +69,10 @@ The MCP target must not read or write either storage directly. The Host gateway 
 
 ## Frozen DEF core surface and callers
 
-Machine baseline: `fixtures/def-core-baseline-v1.json`; deterministic verifier: `scripts/def-core-baseline-check.mjs`.
+Historical extraction baseline: `fixtures/def-core-baseline-v1.json`. The deterministic verifier now uses `fixtures/def-core-baseline-v2.json`, which preserves that file and freezes the intentionally added native catalog, operator-preview, guide-first profile, and bounded 3+1 planner tools.
 
-- 64 legacy tool definitions/registry records, 60 model-exposed, 4 internal-only, 37 native targets.
-- Frozen SHA-256: registry `0f09ca7e...84ac3`, schemas `cb0bad92...788b`, route map `beb9ed41...5ae0`.
+- 71 legacy tool definitions/registry records, 66 model-exposed, 5 internal-only, 43 native targets.
+- Frozen SHA-256: registry `a01bed9182e053daaba4a988f98e50c3406baf14a554400085e825dde5bd3a1a`, schemas `1b92ee4b181a6a2a0f550dbb1b465277ea8c0b2466d024d0ed6e200039d97e5c`, route map `d5fca41e30c77be1bb08f55a0ca5847a80c64abcd2e225b16252ccc62d5554aa`.
 - Route families: `/api/def-tools/*`, `/api/main-workbench/*`, `/api/timeline-*`, `/api/ai-timeline-worknodes*`, `/api/def-contract-test/*`.
 - Required health fields are recorded separately so volatile PID/path/time values are never treated as a stable hash.
 

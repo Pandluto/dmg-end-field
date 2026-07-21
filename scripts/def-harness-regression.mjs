@@ -29,6 +29,7 @@ function factsComplete(run) {
     && turn?.accepted?.harness?.harness?.contentHash);
 }
 function errorState(run) {
+  if (run?.status === 'FAIL_AGENT') return 'FAIL_AGENT';
   return blockedStates.has(run?.status) ? run.status : factsComplete(run) ? null : 'INCOMPLETE';
 }
 function caseResult({ scenario, kind, baseline, candidate }) {

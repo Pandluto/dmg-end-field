@@ -28,25 +28,98 @@ const tideSet = {
   gearSetId: 'gear-set-chao-yong',
   name: '潮涌',
   equipments: {
-    tideArmor: equipment('tide-armor', '落潮轻甲', '护甲', { strength: effect('力量', 'strengthBoost') }),
-    tideGlove: equipment('tide-glove', '潮涌手甲', '护手', { strength: effect('力量', 'strengthBoost') }),
-    tideAccessoryOne: equipment('tide-accessory-1', '悬河供氧栓', '配件', { strength: effect('力量', 'strengthBoost') }),
-    tideAccessoryTwo: equipment('tide-accessory-2', '浊流切割炬', '配件', { intelligence: effect('智识', 'intelligenceBoost') }),
+    tideArmor: equipment('tide-armor', '落潮轻甲', '护甲', {
+      intelligence: effect('智识', 'intelligenceBoost'),
+      strength: effect('力量', 'strengthBoost'),
+      ultimateCharge: effect('终结技充能效率', 'ultimateChargeEfficiency'),
+    }),
+    tideGlove: equipment('tide-glove', '潮涌手甲', '护手', {
+      strength: effect('力量', 'strengthBoost'),
+      will: effect('意志', 'willBoost'),
+      cold: effect('寒冷和电磁伤害', 'iceElectricDmgBonus'),
+    }),
+    tideAccessoryOne: equipment('tide-accessory-1', '悬河供氧栓', '配件', {
+      strength: effect('力量', 'strengthBoost'),
+      will: effect('意志', 'willBoost'),
+      cold: effect('寒冷和电磁伤害', 'iceElectricDmgBonus'),
+    }),
+    tideAccessoryTwo: equipment('tide-accessory-2', '浊流切割炬', '配件', {
+      intelligence: effect('智识', 'intelligenceBoost'),
+      strength: effect('力量', 'strengthBoost'),
+      normal: effect('普攻伤害', 'normalAttackDmgBonus'),
+    }),
   },
   threePieceBuffs: {
     tideThree: { effectId: 'tide-three', name: '潮涌·所有技能伤害+20%', typeKey: 'allSkillDmgBonus', value: 0.2, unit: 'percent' },
   },
 };
+tideSet.equipments.tideArmor.fixedStat = {
+  label: '意志（固定栏诱饵）',
+  typeKey: 'willBoost',
+  value: 999,
+  unit: 'flat',
+};
 const frostSet = {
   gearSetId: 'gear-set-han-liu',
   name: '寒流',
   equipments: {
-    frostArmor: equipment('frost-armor', '冻原轻甲', '护甲', { agility: effect('灵巧', 'agilityBoost') }),
+    frostArmor: equipment('frost-armor', '冻原轻甲', '护甲', {
+      strength: effect('力量', 'strengthBoost'),
+      will: effect('意志', 'willBoost'),
+      ultimate: effect('终结技伤害加成', 'ultimateDmgBonus'),
+    }),
     frostGlove: equipment('frost-glove', '冻原护手', '护手', { agility: effect('灵巧', 'agilityBoost') }),
     frostAccessory: equipment('frost-accessory', '冻原供氧栓', '配件', { strength: effect('力量', 'strengthBoost') }),
   },
 };
-const equipmentLibrary = { updatedAt: 1, gearSets: { tide: tideSet, frost: frostSet } };
+const bulkEquipments = {};
+for (let index = 0; index < 47; index += 1) {
+  bulkEquipments[`armor${index}`] = equipment(`bulk-armor-${String(index).padStart(2, '0')}`, `批量护甲${index}`, '护甲', { agility: effect('灵巧', 'agilityBoost') });
+}
+for (let index = 0; index < 42; index += 1) {
+  bulkEquipments[`glove${index}`] = equipment(`bulk-glove-${String(index).padStart(2, '0')}`, `批量护手${index}`, '护手', { agility: effect('灵巧', 'agilityBoost') });
+}
+for (let index = 0; index < 64; index += 1) {
+  bulkEquipments[`accessory${index}`] = equipment(`bulk-accessory-${String(index).padStart(2, '0')}`, `批量配件${index}`, '配件', { agility: effect('灵巧', 'agilityBoost') });
+}
+const bulkSet = { gearSetId: 'gear-set-bulk', name: '批量测试', equipments: bulkEquipments };
+const equipmentLibrary = { updatedAt: 1, gearSets: { tide: tideSet, frost: frostSet, bulk: bulkSet } };
+const operatorLibrary = {
+  bieli: {
+    id: 'bieli',
+    name: '别礼',
+    element: 'ice',
+    profession: '突击',
+    mainStat: '力量',
+    subStat: '意志',
+    skills: {
+      q: {
+        displayName: '临终别礼',
+        buttonType: 'Q',
+        hitMeta: {
+          q1: { levels: { M3: 4 } },
+          q2: { levels: { M3: 4 } },
+          q3: { levels: { M3: 8 } },
+        },
+      },
+      e: {
+        displayName: '噬冬',
+        buttonType: 'E',
+        hitMeta: {
+          e1: { levels: { M3: 1.6 } },
+          e2: { levels: { M3: 1.6 } },
+        },
+      },
+    },
+    buffs: {
+      skill: {
+        effects: {
+          e1: { name: '连携技噬冬额外伤害', description: '连携技伤害提高。' },
+        },
+      },
+    },
+  },
+};
 const weaponLibrary = {
   thunder: {
     id: 'weapon-thunder', name: '雷霆', type: '手铳', rarity: 6, description: '完整武器业务资料', imgUrl: 'asset://weapon-thunder',
@@ -56,13 +129,14 @@ const weaponLibrary = {
   wind: { id: 'weapon-wind', name: '长风', type: '手铳', rarity: 5, skills: {} },
 };
 
-function writeArchive({ equipment = equipmentLibrary, weapon = weaponLibrary } = {}) {
+function writeArchive({ equipment = equipmentLibrary, weapon = weaponLibrary, operator = operatorLibrary } = {}) {
   fs.writeFileSync(nowStoragePath, `${JSON.stringify({
     type: 'def.localdata.archive.v1', schemaVersion: 1, id: 'native-catalog-contract',
     storage: {
       local: {
         'def.equipment-sheet.library.v1': equipment,
         'def.equipment-sheet.draft.v1': {},
+        'def.operator-editor.library.v1': operator,
         'def.weapon-sheet.library.v1': weapon,
       },
       session: {},
@@ -153,6 +227,62 @@ async function callThreePlusOneFacts(input) {
   return payload.result;
 }
 
+async function callThreePlusOnePlan(input) {
+  const { response, payload } = await requestNativeTool('def.equipment.3plus1.plan', input);
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(payload.ok, true, JSON.stringify(payload));
+  return payload.result;
+}
+
+async function expectThreePlusOnePlanFailure(input, expectedCode) {
+  const { response, payload } = await requestNativeTool('def.equipment.3plus1.plan', input);
+  assert.equal(response.status, 409, JSON.stringify(payload));
+  assert.equal(payload.ok, false, JSON.stringify(payload));
+  assert.equal(payload.error?.code, expectedCode, JSON.stringify(payload));
+  return payload.error;
+}
+
+async function issueBieliPlannerEvidence(turnId) {
+  const guideCall = await requestNativeTool('def.operator.build.guide', {
+    operatorQuery: '别礼',
+    goal: 'damage',
+    setQuery: '潮涌套',
+    __defTurnId: turnId,
+  });
+  assert.equal(guideCall.response.status, 200, JSON.stringify(guideCall.payload));
+  assert.equal(guideCall.payload.ok, true, JSON.stringify(guideCall.payload));
+  const guide = guideCall.payload.result;
+  assert.equal(guide.operator?.id, 'bieli');
+  assert.ok(
+    guide.state === 'GUIDE_NOT_FOUND' || guide.state === 'PARTIAL_GUIDE_FOUND',
+    `the fixture operator has no complete allowlisted guide and must authorize fallback: ${JSON.stringify(guide)}`,
+  );
+  assert.equal(typeof guide.fallbackToken, 'string');
+  assert.ok(guide.fallbackToken.length >= 20);
+
+  const profileCall = await requestNativeTool('def.operator.build.profile', {
+    operatorQuery: '别礼',
+    fallbackToken: guide.fallbackToken,
+    __defTurnId: turnId,
+  });
+  assert.equal(profileCall.response.status, 200, JSON.stringify(profileCall.payload));
+  assert.equal(profileCall.payload.ok, true, JSON.stringify(profileCall.payload));
+  const profile = profileCall.payload.result;
+  assert.equal(profile.state, 'PROFILE_READY', JSON.stringify(profile));
+  assert.equal(profile.plannerProfile?.characterId, 'bieli');
+  assert.deepEqual(profile.plannerProfile?.keywords, ['终结技伤害', '所有技能伤害', '寒冷伤害', '力量', '意志']);
+  assert.equal(typeof profile.plannerProfileCapability, 'string');
+  assert.ok(profile.plannerProfileCapability.length >= 20);
+  assert.equal(profile.authorization?.sessionBound, true);
+  assert.equal(profile.authorization?.turnBound, true);
+  return {
+    guide,
+    profile: profile.plannerProfile,
+    capability: profile.plannerProfileCapability,
+    turnId,
+  };
+}
+
 try {
   await waitForReady();
 
@@ -210,25 +340,172 @@ try {
     setQuery: '潮涌套',
     characterId: 'bieli',
   });
-  assert.equal(threePlusOne.contract, 'DefEquipmentThreePlusOneFactsV1');
-  assert.equal(threePlusOne.state, 'REQUIRES_ATTRIBUTE_PREFERENCE');
-  assert.equal(threePlusOne.targetSetPieceCount, 3);
+  assert.equal(threePlusOne.contract, 'DefEquipmentThreePlusOneFactsV2');
+  assert.equal(threePlusOne.state, 'READY_FOR_CHARACTER_PROFILE');
+  assert.equal(threePlusOne.minimumSupportedSetPieces, 3);
   assert.equal(threePlusOne.topologiesExhaustive, true);
-  assert.equal(threePlusOne.structuresExhaustive, true);
-  assert.equal(threePlusOne.topologies.length, 4, 'all four possible off-set physical slots are represented without expanding or truncating combinations');
+  assert.equal(Object.hasOwn(threePlusOne, 'structures'), false, 'the compatibility alias must not duplicate every topology');
+  assert.equal(threePlusOne.outputShape.candidatePoolsEmbedded, false);
+  assert.equal(threePlusOne.topologies.length, 5, 'four possible off-set slots plus the all-target topology satisfy minimum-three semantics');
   assert.ok(threePlusOne.topologies.every((topology) => topology.status === 'AVAILABLE'));
   const offSetArmor = threePlusOne.topologies.find((topology) => topology.id === 'off-set-armor');
   assert.deepEqual(offSetArmor.targetSlots.map((item) => item.slot), ['glove', 'accessory1', 'accessory2']);
   assert.equal(offSetArmor.offSetSlot.slot, 'armor');
-  assert.equal(offSetArmor.offSetCandidates[0].stableId, 'frost-armor');
-  assert.equal(offSetArmor.duplicatePolicy.allowedAcrossDistinctCompatibleSlots, true);
-  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory1.some((item) => item.stableId === 'tide-accessory-1'));
-  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory2.some((item) => item.stableId === 'tide-accessory-1'), 'the same compatible accessory can be selected once in each real accessory slot');
+  assert.equal(offSetArmor.candidateCounts.offSet, 48, 'the summary proves the full realistic armor pool without embedding it');
+  assert.equal(threePlusOne.duplicatePolicy.allowedAcrossDistinctCompatibleAccessorySlots, true);
+  assert.ok(threePlusOne.targetSetCandidateIdsBySlot.accessory1.includes('tide-accessory-1'));
+  assert.ok(threePlusOne.targetSetCandidateIdsBySlot.accessory2.includes('tide-accessory-1'), 'the same compatible accessory can be selected once in each real accessory slot');
   const offSetAccessoryTwo = threePlusOne.topologies.find((topology) => topology.id === 'off-set-accessory2');
   assert.deepEqual(offSetAccessoryTwo.targetSlots.map((item) => item.slot), ['armor', 'glove', 'accessory1']);
-  assert.equal(offSetAccessoryTwo.offSetCandidates[0].stableId, 'frost-accessory');
-  assert.equal(threePlusOne.missingReasons[0].code, 'attribute-preference-required');
-  assert.match(threePlusOne.nextAction, /do not assume/i);
+  assert.equal(offSetAccessoryTwo.candidateCounts.offSet, 65);
+  assert.equal(threePlusOne.missingReasons[0].code, 'character-profile-required');
+  assert.ok(Buffer.byteLength(JSON.stringify(threePlusOne)) < 24 * 1024, 'realistic 161-piece catalog facts must remain below the bounded output budget');
+
+  const primaryEvidence = await issueBieliPlannerEvidence('native-catalog-bieli-plan-turn-1');
+  const primaryPlanInput = {
+    sourceRevision: set.source.revision,
+    setQuery: '潮涌套',
+    characterProfile: primaryEvidence.profile,
+    plannerProfileCapability: primaryEvidence.capability,
+    __defTurnId: primaryEvidence.turnId,
+    minimumSetPieces: 3,
+    minimumMatchesPerPiece: 2,
+    allowDuplicateCompatibleAccessories: true,
+    shortlistLimit: 3,
+  };
+
+  await expectThreePlusOnePlanFailure({
+    ...primaryPlanInput,
+    plannerProfileCapability: `${primaryEvidence.capability}-tampered`,
+  }, 'equipment-3plus1-profile-capability-invalid');
+
+  const tamperedProfile = structuredClone(primaryEvidence.profile);
+  tamperedProfile.keywords.push('模型擅自添加的词条');
+  await expectThreePlusOnePlanFailure({
+    ...primaryPlanInput,
+    characterProfile: tamperedProfile,
+  }, 'equipment-3plus1-profile-capability-profile-mismatch');
+
+  await expectThreePlusOnePlanFailure({
+    ...primaryPlanInput,
+    minimumMatchesPerPiece: 1,
+  }, 'equipment-3plus1-plan-constraint-invalid');
+
+  await expectThreePlusOnePlanFailure({
+    ...primaryPlanInput,
+    shortlistLimit: 4,
+  }, 'equipment-3plus1-plan-constraint-invalid');
+
+  const overlappingProfile = structuredClone(primaryEvidence.profile);
+  overlappingProfile.preferenceGroups.push({
+    key: 'duplicate-strength',
+    label: '重复力量',
+    kind: 'other',
+    acceptedTypeKeys: ['strengthBoost'],
+  });
+  overlappingProfile.keywords.push('重复力量');
+  await expectThreePlusOnePlanFailure({
+    ...primaryPlanInput,
+    characterProfile: overlappingProfile,
+  }, 'equipment-3plus1-preference-type-key-overlap');
+
+  const threePlusOnePlan = await callThreePlusOnePlan({
+    ...primaryPlanInput,
+  });
+  assert.equal(threePlusOnePlan.contract, 'DefEquipmentThreePlusOnePlanV1');
+  assert.equal(threePlusOnePlan.state, 'READY');
+  assert.equal(threePlusOnePlan.profileEvidence.sessionBound, true);
+  assert.equal(threePlusOnePlan.profileEvidence.turnBound, true);
+  assert.equal(threePlusOnePlan.searchSpace.exhaustive, true);
+  assert.ok(threePlusOnePlan.searchSpace.candidateCombinationCount > 500, 'the planner must score the complete realistic search space internally');
+  assert.ok(threePlusOnePlan.shortlist.length <= 3, 'only the requested bounded shortlist may enter model context');
+  const bestPlan = threePlusOnePlan.shortlist[0];
+  assert.deepEqual(threePlusOnePlan.rankingBasis.closeAlternativeRule, {
+    sameQualifiedPieceCount: true,
+    sameCoveredPreferenceCount: true,
+    maximumWeightedScoreDeficit: 1,
+  });
+  assert.equal(threePlusOnePlan.searchSpace.outputCandidateCount, threePlusOnePlan.shortlist.length);
+  assert.ok(threePlusOnePlan.shortlist.slice(1).every((candidate) => (
+    candidate.qualifiedPieceCount === bestPlan.qualifiedPieceCount
+    && candidate.coveredPreferenceCount === bestPlan.coveredPreferenceCount
+    && bestPlan.weightedScore - candidate.weightedScore <= 1
+  )), 'the planner may emit only genuinely close alternatives after the leading plan');
+  assert.equal(bestPlan.topologyId, 'off-set-armor');
+  assert.equal(bestPlan.setMembershipCount, 3);
+  assert.deepEqual(bestPlan.pieces.map((piece) => piece.slot), ['armor', 'glove', 'accessory1', 'accessory2']);
+  assert.equal(bestPlan.pieces.find((piece) => piece.slot === 'accessory1').stableId, 'tide-accessory-1');
+  assert.equal(bestPlan.pieces.find((piece) => piece.slot === 'accessory2').stableId, 'tide-accessory-1', 'the strongest compatible target accessory is intentionally used in both physical slots');
+  assert.deepEqual(bestPlan.duplicateAssignments, [{ stableId: 'tide-accessory-1', name: '悬河供氧栓', slots: ['accessory1', 'accessory2'] }]);
+  assert.ok(bestPlan.pieces.every((piece) => piece.matchCount >= 2));
+  assert.ok(bestPlan.pieces.every((piece) => Array.isArray(piece.missing) && Array.isArray(piece.ambiguity)));
+  assert.ok(bestPlan.pieces.every((piece) => typeof piece.selectionReason === 'string' && piece.selectionReason.length > 0));
+  assert.ok(bestPlan.pieces.every((piece) => piece.rankingBasis.every((basis) => basis.facts.every((fact) => fact.path.includes('.effects')))), 'character preferences may match only equipment effects, never fixedStat');
+  assert.equal(threePlusOnePlan.rankingBasis.equipmentFixedStatExcluded, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(threePlusOnePlan)) < 64 * 1024, 'realistic exhaustive planning must emit a bounded shortlist under 64 KiB');
+
+  await expectThreePlusOnePlanFailure(primaryPlanInput, 'equipment-3plus1-profile-capability-invalid');
+
+  const noDuplicateEvidence = await issueBieliPlannerEvidence('native-catalog-bieli-plan-turn-2');
+  const withoutDuplicatePlan = await callThreePlusOnePlan({
+    sourceRevision: set.source.revision,
+    setQuery: '潮涌套',
+    characterProfile: noDuplicateEvidence.profile,
+    plannerProfileCapability: noDuplicateEvidence.capability,
+    __defTurnId: noDuplicateEvidence.turnId,
+    minimumSetPieces: 3,
+    minimumMatchesPerPiece: 2,
+    allowDuplicateCompatibleAccessories: false,
+    shortlistLimit: 1,
+  });
+  assert.equal(withoutDuplicatePlan.shortlist[0].duplicateAssignments.length, 0, 'the same stable accessory must not be selected twice when the caller disables the compatibility rule');
+  assert.notEqual(
+    withoutDuplicatePlan.shortlist[0].pieces.find((piece) => piece.slot === 'accessory1').stableId,
+    withoutDuplicatePlan.shortlist[0].pieces.find((piece) => piece.slot === 'accessory2').stableId,
+  );
+
+  const fourSetEvidence = await issueBieliPlannerEvidence('native-catalog-bieli-plan-turn-3');
+  const fourSetPlan = await callThreePlusOnePlan({
+    sourceRevision: set.source.revision,
+    setQuery: '潮涌套',
+    characterProfile: fourSetEvidence.profile,
+    plannerProfileCapability: fourSetEvidence.capability,
+    __defTurnId: fourSetEvidence.turnId,
+    minimumSetPieces: 4,
+    minimumMatchesPerPiece: 2,
+    allowDuplicateCompatibleAccessories: true,
+    shortlistLimit: 1,
+  });
+  assert.equal(fourSetPlan.shortlist[0].topologyId, 'all-target-set');
+  assert.equal(fourSetPlan.shortlist[0].setMembershipCount, 4);
+  const tideArmorPlanPiece = fourSetPlan.shortlist[0].pieces.find((piece) => piece.stableId === 'tide-armor');
+  assert.equal(tideArmorPlanPiece.fixedStat.typeKey, 'willBoost', 'the fixture fixedStat intentionally looks like a preferred operator attribute');
+  assert.equal(tideArmorPlanPiece.matchKeys.includes('secondary-attribute'), false, 'fixedStat must not create a profile match');
+  assert.deepEqual(tideArmorPlanPiece.matchKeys, ['primary-attribute']);
+  assert.ok(tideArmorPlanPiece.missing.some((entry) => entry.code === 'piece-below-minimum-effect-match'));
+  assert.ok(fourSetPlan.shortlist[0].pieces.every((piece) => Array.isArray(piece.missing) && Array.isArray(piece.ambiguity)));
+
+  const tiedEquipmentLibrary = structuredClone(equipmentLibrary);
+  tiedEquipmentLibrary.gearSets.frost.equipments.frostArmor.effects = {
+    strength: effect('力量', 'strengthBoost'),
+  };
+  writeArchive({ equipment: tiedEquipmentLibrary });
+  const tiedSet = await call({ domain: 'equipment', query: '潮涌套' });
+  const tiedEvidence = await issueBieliPlannerEvidence('native-catalog-bieli-plan-turn-4');
+  const tiedPlan = await callThreePlusOnePlan({
+    sourceRevision: tiedSet.source.revision,
+    setQuery: '潮涌套',
+    characterProfile: tiedEvidence.profile,
+    plannerProfileCapability: tiedEvidence.capability,
+    __defTurnId: tiedEvidence.turnId,
+    minimumSetPieces: 3,
+    minimumMatchesPerPiece: 2,
+    allowDuplicateCompatibleAccessories: true,
+    shortlistLimit: 1,
+  });
+  assert.equal(tiedPlan.shortlist[0].topologyId, 'all-target-set', 'four target-set memberships must win when the off-set is only tied, not strictly better');
+  assert.equal(tiedPlan.shortlist[0].setMembershipCount, 4);
+  writeArchive();
 
   const aliasSet = await call({ domain: 'equipment', query: 'ｔｉｄｅ　ｓｕｒｇｅ套' });
   assert.equal(aliasSet.selectionMode, 'entity-full');
@@ -237,7 +514,7 @@ try {
   const strength = await call({ domain: 'equipment', query: '力量' });
   assert.equal(strength.selectionMode, 'substring-minimal');
   const strengthRecords = strength.files[0].content.trim().split('\n').map((line) => JSON.parse(line));
-  const expectedStrengthIds = ['frost-accessory', 'tide-accessory-1', 'tide-armor', 'tide-glove'];
+  const expectedStrengthIds = ['frost-accessory', 'frost-armor', 'tide-accessory-1', 'tide-accessory-2', 'tide-armor', 'tide-glove'];
   assert.deepEqual(strengthRecords.map((record) => record.id).sort(), expectedStrengthIds);
   assert.ok(strengthRecords.every((record) => record.matchedFields.some((field) => field.value === '力量')));
   assert.ok(strengthRecords.every((record) => !Object.hasOwn(record, 'effects')), 'minimal records may not carry unrelated full effects');
@@ -250,10 +527,10 @@ try {
 
   const fallback = await call({ domain: 'equipment', query: '完全不存在的词' });
   assert.equal(fallback.selectionMode, 'domain-full-fallback');
-  assert.equal(fallback.files[0].records, 2);
+  assert.equal(fallback.files[0].records, 3);
 
   const sameValueDifferentKeyOrder = {
-    gearSets: { frost: frostSet, tide: tideSet },
+    gearSets: { bulk: bulkSet, frost: frostSet, tide: tideSet },
     updatedAt: 1,
   };
   writeArchive({ equipment: sameValueDifferentKeyOrder });
@@ -273,9 +550,23 @@ try {
   assert.equal(staleFacts.response.status, 409);
   assert.equal(staleFacts.payload.error?.code, 'equipment-3plus1-source-revision-stale');
 
+  const invalidIdentityCatalog = structuredClone(changed);
+  invalidIdentityCatalog.gearSets.bulk.equipments.armor0.equipmentId = '';
+  writeArchive({ equipment: invalidIdentityCatalog });
+  const invalidIdentityArtifact = await call({ domain: 'equipment', query: '潮涌套' });
+  const invalidIdentityFacts = await requestNativeTool('def.equipment.3plus1.facts', {
+    sourceRevision: invalidIdentityArtifact.source.revision,
+    setQuery: '潮涌套',
+  });
+  assert.equal(invalidIdentityFacts.response.status, 409, JSON.stringify(invalidIdentityFacts.payload));
+  assert.equal(invalidIdentityFacts.payload.error?.code, 'equipment-3plus1-catalog-invalid');
+  assert.ok(invalidIdentityFacts.payload.error?.details?.catalogIssues?.some((issue) => (
+    issue.code === 'equipment-catalog-identity-invalid' && issue.stableId === null
+  )));
+
   console.log(JSON.stringify({
     ok: true,
-    checks: ['native-session-registration-required', 'workbench-session-registration-recovery', 'exact-set-full', '3plus1-full-facts-unranked', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision', '3plus1-stale-revision'],
+    checks: ['native-session-registration-required', 'workbench-session-registration-recovery', 'exact-set-full', 'guide-profile-capability', '3plus1-capability-tamper-replay', '3plus1-minimum-two-matches', '3plus1-maximum-three-shortlist', '3plus1-overlap-fail-closed', '3plus1-bounded-facts', '3plus1-exhaustive-bounded-plan', '3plus1-duplicate-accessory', '3plus1-four-set-tie-preference', '3plus1-fixed-stat-excluded', '3plus1-per-piece-evidence-shape', '3plus1-stable-id-fail-closed', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision', '3plus1-stale-revision'],
   }));
 } finally {
   child.kill('SIGTERM');

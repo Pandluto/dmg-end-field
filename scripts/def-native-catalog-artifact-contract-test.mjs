@@ -4,12 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  assertDefReadOnlyCatalogTurnPolicy,
   assertDefNativeArtifactToolScope,
-  beginDefToolTurn,
   cleanupNativeCatalogArtifacts,
   materializeNativeCatalogArtifact,
-  recordDefReadOnlyCatalogTurnToolOutput,
 } from '../agent/runtime/def-tools/opencode/def.js';
 
 const require = createRequire(import.meta.url);
@@ -42,44 +39,6 @@ try {
   const reused = materializeNativeCatalogArtifact(context, snapshot);
   assert.equal(reused.artifactId, first.artifactId);
   assert.equal(reused.reused, true);
-
-  beginDefToolTurn(context.sessionID, 'read-only-catalog-turn', '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对');
-  assert.throws(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'def_data_equipment', sessionID: context.sessionID },
-    { query: '潮涌' },
-  ), /catalog-readonly-legacy-tool-denied/);
-  assert.throws(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'def_workbench_context', sessionID: context.sessionID },
-    {},
-  ), /catalog-readonly-legacy-tool-denied/);
-  assert.doesNotThrow(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'def_data_native_catalog_materialize', sessionID: context.sessionID },
-    { domain: 'equipment', query: '潮涌套' },
-  ));
-  recordDefReadOnlyCatalogTurnToolOutput(
-    { tool: 'def_data_native_catalog_materialize', sessionID: context.sessionID },
-    { output: JSON.stringify(first) },
-  );
-  assert.throws(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'grep', sessionID: context.sessionID },
-    { path: first.root, pattern: '潮涌' },
-  ), /catalog-readonly-manifest-required/);
-  assert.doesNotThrow(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'read', sessionID: context.sessionID },
-    { filePath: first.manifestPath },
-  ));
-  recordDefReadOnlyCatalogTurnToolOutput(
-    { tool: 'read', sessionID: context.sessionID, args: { filePath: first.manifestPath } },
-    {},
-  );
-  assert.doesNotThrow(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'def_data_equipment_3plus1_facts', sessionID: context.sessionID },
-    { artifactId: first.artifactId, setQuery: '潮涌' },
-  ));
-  assert.throws(() => assertDefReadOnlyCatalogTurnPolicy(
-    { tool: 'def_data_native_catalog_materialize', sessionID: context.sessionID },
-    { domain: 'equipment', query: '潮涌套' },
-  ), /catalog-readonly-materialize-duplicate/);
 
   assert.doesNotThrow(() => assertDefNativeArtifactToolScope(
     { tool: 'read', sessionID: context.sessionID },
@@ -135,7 +94,7 @@ try {
   assert.match(adapterSource, /edit: nodeCode \? \{ '\*': 'deny', 'node\/working\/\*\*': 'allow'/);
   const toolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
   assert.match(toolSource, /nativeAccessRoot/);
-  console.log(JSON.stringify({ ok: true, checks: ['atomic-manifest', 'hash', 'reuse', 'turn-policy-legacy-deny', 'turn-policy-manifest-gate', 'turn-policy-3plus1', 'ttl-cleanup', 'restart-ttl-cleanup', 'exact-artifact-path-guard', 'path-rejection', 'read-only-session-permission'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['atomic-manifest', 'hash', 'reuse', 'ttl-cleanup', 'restart-ttl-cleanup', 'exact-artifact-path-guard', 'path-rejection', 'read-only-session-permission'] }));
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }

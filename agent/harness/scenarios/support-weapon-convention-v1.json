@@ -1,0 +1,27 @@
+{
+  "id": "support-weapon-convention-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "给赛希挑把武器，重点考虑她给队伍带来的收益。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_build_guide", "def_data_combat_conventions", "def_data_operator_build_profile", "def_data_weapon_fit_plan"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_combat_conventions", "def_data_operator_build_profile", "def_data_weapon_fit_plan"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_combat_conventions", "def_data_operator_build_profile", "def_data_weapon_fit_plan"]
+    },
+    "forbiddenTools": ["def_workbench_context", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_native_catalog_materialize", "def_data_weapon", "def_data_loadout_candidates", "def_data_operator", "def_data_skill", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "maxRepeatedToolCalls": {
+      "def_data_operator_build_guide": 1,
+      "def_data_combat_conventions": 1,
+      "def_data_operator_build_profile": 1,
+      "def_data_weapon_fit_plan": 1
+    },
+    "forbiddenAssistantText": ["唯一最优", "首选", "次选", "第三档", "收益更全面", "稀有乘区", "独立乘区", "最佳场景", "其他法术爆发触发源", "队友触发法术爆发", "必定触发法术爆发", "意志契合主属性", "冰属性所以适合", "提升赛希个人伤害"],
+    "mustKeepState": true
+  }
+}
