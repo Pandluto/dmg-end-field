@@ -22,11 +22,7 @@ export default async function DefToolsPlugin() {
     },
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool)
-      definitions.assertDefReadOnlyCatalogTurnPolicy(input, output?.args)
       definitions.assertDefNativeArtifactToolScope(input, output?.args)
-    },
-    'tool.execute.after': async (input, output) => {
-      definitions.recordDefReadOnlyCatalogTurnToolOutput(input, output)
     },
   }
 }

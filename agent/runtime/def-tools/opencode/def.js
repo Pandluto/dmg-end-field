@@ -25,7 +25,6 @@ const retrievalRoot = 'retrieval'
 const nativeCatalogArtifactContract = 'DefNativeCatalogArtifactV1'
 const nativeCatalogArtifactTtlMs = 15 * 60 * 1000
 const nativeCatalogArtifactsBySession = new Map()
-const nativeCatalogTurnPolicies = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
@@ -37,27 +36,6 @@ const NON_RETRYABLE_MUTATION_CODES = new Set([
   'approval-capability-required',
 ])
 
-const READ_ONLY_CATALOG_INTENT = /(装备|武器|套装|词条|属性|力量|智识|意志|寒冷|电磁|伤害|比较|对比|筛选|资料|数据|推荐|挑选|(?:3\s*[+＋]\s*1)|查(?:一)?下|看看)/i
-const EXPLICIT_LOADOUT_MUTATION_INTENT = /(换上|穿上|装上|替换|(?:确认|请).{0,12}(?:应用|配置)|(?:给|为).{0,16}(?:换|穿|装备|配置).{0,12}(?:武器|装备|套装|配件|护甲|护手)|(?:把).{0,16}(?:换|装备).{0,12}(?:成|为|上)|应用.{0,16}(?:配装|装备|武器|套装))/i
-const THREE_PLUS_ONE_INTENT = /3(?:\s|件|套|[^\d+＋]){0,20}[+＋]\s*1/i
-const CATALOG_LEGACY_TOOLS = new Set([
-  'def_data_equipment',
-  'def_data_weapon',
-  'def_data_loadout_candidates',
-  'def_data_game_knowledge',
-  'def_data_game_knowledge_section',
-  'def_data_operator_catalog',
-  'def_workbench_context',
-])
-
-// Route denials intentionally teach the model which narrow evidence path is
-// available. They are not backend failures and therefore must not consume the
-// global same-error fuse before the model gets one chance to correct course.
-// Real typed-tool failures still use the bounded retry contract below.
-function isCatalogTurnPolicyCode(code) {
-  return typeof code === 'string' && code.startsWith('catalog-readonly-')
-}
-
 function defToolFailureScope(context) {
   const sessionId = typeof context?.sessionID === 'string' ? context.sessionID : 'unknown-session'
   const turnId = activeDefToolTurns.get(sessionId)
@@ -65,30 +43,7 @@ function defToolFailureScope(context) {
   return `${sessionId}:${turnId}`
 }
 
-function nativeCatalogTurnScope(sessionID, turnID) {
-  return `${sessionID}:${turnID}`
-}
-
-function classifyReadOnlyCatalogTurn(userText = '') {
-  const text = typeof userText === 'string' ? userText.trim() : ''
-  const mutation = EXPLICIT_LOADOUT_MUTATION_INTENT.test(text)
-  return {
-    text,
-    active: READ_ONLY_CATALOG_INTENT.test(text) && !mutation,
-    threePlusOne: THREE_PLUS_ONE_INTENT.test(text),
-  }
-}
-
-function userTextFromChatParts(parts) {
-  if (!Array.isArray(parts)) return ''
-  return parts
-    .filter((part) => part?.type === 'text' && typeof part.text === 'string' && !part.synthetic)
-    .map((part) => part.text.trim())
-    .filter(Boolean)
-    .join('\n')
-}
-
-export function beginDefToolTurn(sessionID, turnID, userText = '') {
+export function beginDefToolTurn(sessionID, turnID) {
   if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
   activeDefToolTurns.set(sessionID, turnID)
   const currentPrefix = `${sessionID}:${turnID}:`
@@ -98,139 +53,10 @@ export function beginDefToolTurn(sessionID, turnID, userText = '') {
   for (const key of defToolTurnMutationStops.keys()) {
     if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnMutationStops.delete(key)
   }
-  const scope = nativeCatalogTurnScope(sessionID, turnID)
-  for (const key of nativeCatalogTurnPolicies.keys()) {
-    if (key.startsWith(`${sessionID}:`) && key !== scope) nativeCatalogTurnPolicies.delete(key)
-  }
-  const classification = classifyReadOnlyCatalogTurn(userText)
-  if (classification.active) {
-    nativeCatalogTurnPolicies.set(scope, {
-      ...classification,
-      materializeRequests: new Set(),
-      artifacts: new Map(),
-      manifestReads: new Set(),
-      teamLoadoutReads: 0,
-      threePlusOneFactsRead: false,
-      createdAt: Date.now(),
-    })
-  }
 }
 
-export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts) {
-  beginDefToolTurn(sessionID, turnID, userTextFromChatParts(parts))
-}
-
-function readOnlyCatalogTurnPolicy(sessionID) {
-  const turnID = activeDefToolTurns.get(sessionID)
-  return turnID ? nativeCatalogTurnPolicies.get(nativeCatalogTurnScope(sessionID, turnID)) || null : null
-}
-
-function catalogTurnPolicyError(code, message, details = {}) {
-  const error = new Error(`${code}: ${message}`)
-  error.code = code
-  error.details = details
-  return error
-}
-
-export function assertDefReadOnlyCatalogTurnPolicy(input = {}, args = {}) {
-  const toolName = typeof input?.tool === 'string' ? input.tool : ''
-  const sessionID = typeof input?.sessionID === 'string' ? input.sessionID : ''
-  const policy = readOnlyCatalogTurnPolicy(sessionID)
-  if (!policy) return
-  if (CATALOG_LEGACY_TOOLS.has(toolName)) {
-    throw catalogTurnPolicyError(
-      'catalog-readonly-legacy-tool-denied',
-      `${toolName} is not evidence-complete for this read-only catalog turn. Materialize the native catalog instead.`,
-      { tool: toolName, requiredTool: 'def_data_native_catalog_materialize' },
-    )
-  }
-  if (toolName === 'def_data_team_loadouts') {
-    if (policy.teamLoadoutReads >= 1) {
-      throw catalogTurnPolicyError('catalog-readonly-team-loadouts-limit', 'Read current team loadouts at most once in one catalog turn.', { tool: toolName })
-    }
-    policy.teamLoadoutReads += 1
-    return
-  }
-  if (toolName === 'def_data_native_catalog_materialize') {
-    const domain = typeof args?.domain === 'string' ? args.domain.trim() : ''
-    const query = typeof args?.query === 'string' ? args.query.trim() : ''
-    const key = `${domain}:${query}`
-    if (!domain || !query) {
-      throw catalogTurnPolicyError('catalog-readonly-materialize-input-required', 'Native catalog materialization requires a non-empty domain and query.', { tool: toolName })
-    }
-    if (policy.materializeRequests.has(key)) {
-      throw catalogTurnPolicyError('catalog-readonly-materialize-duplicate', 'Do not materialize the same catalog domain/query twice in one turn.', { tool: toolName, domain, query })
-    }
-    policy.materializeRequests.add(key)
-    return
-  }
-  if (toolName === 'def_data_equipment_3plus1_facts') {
-    const artifactId = typeof args?.artifactId === 'string' ? args.artifactId.trim() : ''
-    if (!policy.threePlusOne) {
-      throw catalogTurnPolicyError('catalog-readonly-3plus1-not-requested', '3+1 facts are available only for an explicit 3+1 request.', { tool: toolName })
-    }
-    if (!artifactId || !policy.manifestReads.has(artifactId)) {
-      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before requesting 3+1 facts.', { tool: toolName, artifactId })
-    }
-    return
-  }
-  if (toolName === 'read' || toolName === 'grep' || toolName === 'glob') {
-    const rawPath = toolName === 'read' ? args?.filePath : args?.path
-    const artifact = [...policy.artifacts.values()].find((entry) => {
-      if (typeof rawPath !== 'string') return false
-      const normalized = rawPath.replaceAll('\\', '/')
-      return normalized === entry.manifestPath || normalized === entry.root || normalized.startsWith(`${entry.root}/`)
-    })
-    if (!artifact) {
-      throw catalogTurnPolicyError('catalog-readonly-native-artifact-required', 'This read-only catalog turn may use file tools only inside a returned native artifact.', { tool: toolName })
-    }
-    if (toolName !== 'read' && !policy.manifestReads.has(artifact.artifactId)) {
-      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before searching artifact records.', { tool: toolName, artifactId: artifact.artifactId })
-    }
-    if (toolName === 'read' && rawPath !== artifact.manifestPath && !policy.manifestReads.has(artifact.artifactId)) {
-      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before reading artifact records.', { tool: toolName, artifactId: artifact.artifactId })
-    }
-    return
-  }
-  if (toolName.startsWith('def_')) {
-    throw catalogTurnPolicyError(
-      'catalog-readonly-tool-denied',
-      `${toolName} is outside the read-only native catalog plan. Use the artifact, optional current team read, and explicit 3+1 facts only.`,
-      { tool: toolName },
-    )
-  }
-}
-
-export function recordDefReadOnlyCatalogTurnToolOutput(input = {}, output = {}) {
-  const sessionID = typeof input?.sessionID === 'string' ? input.sessionID : ''
-  const policy = readOnlyCatalogTurnPolicy(sessionID)
-  if (!policy) return
-  const toolName = input?.tool
-  if (toolName === 'def_data_native_catalog_materialize') {
-    try {
-      const artifact = JSON.parse(output?.output || '')
-      if (artifact?.contract !== nativeCatalogArtifactContract || !artifact.artifactId || !artifact.root || !artifact.manifestPath) return
-      policy.artifacts.set(artifact.artifactId, {
-        artifactId: artifact.artifactId,
-        root: artifact.root,
-        manifestPath: artifact.manifestPath,
-        domain: artifact.domain,
-        source: artifact.source,
-      })
-    } catch {
-      // Failed materialization remains a normal typed-tool failure; never
-      // manufacture an artifact state merely to permit later file access.
-    }
-    return
-  }
-  if (toolName === 'read') {
-    const rawPath = output?.args?.filePath || input?.args?.filePath
-    for (const artifact of policy.artifacts.values()) {
-      if (rawPath === artifact.manifestPath) policy.manifestReads.add(artifact.artifactId)
-    }
-    return
-  }
-  if (toolName === 'def_data_equipment_3plus1_facts') policy.threePlusOneFactsRead = true
+export function beginDefToolTurnFromChatMessage(sessionID, turnID) {
+  beginDefToolTurn(sessionID, turnID)
 }
 
 function stableToolInput(value) {
@@ -355,7 +181,6 @@ export function recordDefToolEventFailure(event) {
   const part = event?.properties?.part
   if (part?.type !== 'tool' || part?.state?.status !== 'error') return
   const code = normalizeToolFailureCode(part.state.error)
-  if (isCatalogTurnPolicyCode(code)) return
   recordTurnFailure({
     sessionID: part.sessionID,
     toolName: part.tool,
@@ -408,22 +233,19 @@ async function callDefTool(tool, input = {}, context = null) {
   })
   const payload = await response.json()
   if (!response.ok || payload?.ok !== true || payload?.result?.ok === false) {
-    // `/api/def-tools/call` wraps policy failures in `error`, while successful
-    // tool executions use `result`.  Preserve the structured policy contract
-    // so a canonical-gate 409 is never misreported to the model as a missing
-    // Work Node or an empty team.
+    // `/api/def-tools/call` returns typed failures in `error`, while successful
+    // executions use `result`. Preserve structured diagnostics so a
+    // canonical-gate 409 is never misreported as a missing Work Node or team.
     const failure = payload?.result || payload?.error || payload
     const code = failure?.code || payload?.code || 'def-tool-failed'
     const message = failure?.message || failure?.note || payload?.message || `${tool} failed with HTTP ${response.status}`
-    const recorded = isCatalogTurnPolicyCode(code)
-      ? null
-      : recordTurnFailure({
-        sessionID: context?.sessionID,
-        toolName: tool,
-        input,
-        code,
-        callID: context?.callID,
-      })
+    const recorded = recordTurnFailure({
+      sessionID: context?.sessionID,
+      toolName: tool,
+      input,
+      code,
+      callID: context?.callID,
+    })
     if (failure?.retryable === false) stopFurtherTurnMutations({
       sessionID: context?.sessionID,
       toolName: tool,
