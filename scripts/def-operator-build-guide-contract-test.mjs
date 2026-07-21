@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
+  deriveOperatorBuildProfile,
   discoverOperatorBuildGuides,
   extractGuideBuildStrategy,
 } from './def-core/operator-build-evidence.mjs';
@@ -172,6 +173,42 @@ const partialDiscovery = discoverOperatorBuildGuides([{
 }], { id: 'bieli', name: '别礼' }, { goal: 'damage', setQuery: '潮涌' });
 assert.equal(partialDiscovery.state, 'PARTIAL_GUIDE_FOUND');
 assert.deepEqual(partialDiscovery.candidates[0].strategy.preferenceGroups.map((group) => group.key), ['primary-strength']);
+
+const teamGuideText = '## 汤汤装备\n终结技伤害优先，兼顾敏捷。\n';
+const teamGuideDiscovery = discoverOperatorBuildGuides([{
+  id: 'synthetic-tangtang-team',
+  title: '汤汤×赛希队伍攻略',
+  text: teamGuideText,
+  lineOffsets: [0, teamGuideText.indexOf('\n') + 1, teamGuideText.length],
+  index: { headings: [{ sectionId: 'tangtang-build', heading: '汤汤装备', level: 2, parentSectionId: null, lineStart: 0, lineEnd: 2 }] },
+}], { id: 'tangtang', name: '汤汤' }, { goal: 'damage' });
+assert.equal(teamGuideDiscovery.state, 'PARTIAL_GUIDE_FOUND', 'a team-composition guide may supplement but never define the operator-global profile');
+assert.equal(teamGuideDiscovery.candidates[0].contextScope, 'team-composition');
+
+const tangtangProfile = deriveOperatorBuildProfile({
+  id: 'tangtang',
+  name: '汤汤',
+  element: 'ice',
+  profession: '术师',
+  mainStat: '敏捷',
+  subStat: '力量',
+  skills: {
+    q4: {
+      displayName: '水龙卷',
+      buttonType: 'Q',
+      hitMeta: {
+        q: { displayName: '终结技本体', skillType: 'Q', levels: { M3: 10.2 } },
+        b: { displayName: '水龙卷持续命中', skillType: 'B', levels: { M3: 14.4 } },
+      },
+    },
+  },
+  buffs: {},
+}, { guideState: 'GUIDE_NOT_FOUND', guideResolutionId: 'tangtang-test', goal: 'damage' });
+assert.equal(tangtangProfile.state, 'PROFILE_READY');
+assert.deepEqual(tangtangProfile.skillEvidence.focusSkillTypes, ['B']);
+assert.equal(tangtangProfile.skillEvidence.skills[0].peakLevelTotalMultiplierBySkillType.B, 14.4);
+assert.equal(tangtangProfile.skillEvidence.skills[0].peakLevelTotalMultiplierBySkillType.Q, 10.2);
+assert.equal(tangtangProfile.plannerProfile.preferenceGroups[0].key, 'battle-skill-damage');
 
 const negativeContextStrategy = extractGuideBuildStrategy(
   '## 别礼装备\n不推荐力量，终结技伤害收益低。优先意志和寒冷伤害。',
@@ -477,6 +514,8 @@ try {
       'bieli-skill-priority-profile',
       'planner-profile-no-fixed-stat-confusion',
       'partial-guide-preserved-as-partial',
+      'team-guide-scope-preserved',
+      'cross-skill-hit-type-profile',
       'incomplete-profile-fails-closed',
       'guide-profile-capability-bound',
       'bounded-known-guide-section',

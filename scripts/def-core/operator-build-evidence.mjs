@@ -75,8 +75,17 @@ function summarizeSkill(skill, skillId) {
   if (!['A', 'B', 'E', 'Q'].includes(skillType) || !displayName) return null;
   const hits = objectValues(skill.hitMeta).map((hit) => ({
     displayName: String(hit?.displayName || '').trim(),
+    skillType: ['A', 'B', 'E', 'Q'].includes(String(hit?.skillType || '').trim().toUpperCase())
+      ? String(hit.skillType).trim().toUpperCase()
+      : skillType,
     peakMultiplier: maximumNumericLevel(hit?.levels),
   })).filter((hit) => Number.isFinite(hit.peakMultiplier));
+  const peakLevelTotalMultiplierBySkillType = Object.fromEntries(['A', 'B', 'E', 'Q'].flatMap((type) => {
+    const typedHits = hits.filter((hit) => hit.skillType === type);
+    return typedHits.length
+      ? [[type, Number(typedHits.reduce((total, hit) => total + hit.peakMultiplier, 0).toFixed(8))]]
+      : [];
+  }));
   return {
     skillId: String(skillId || skill.id || '').trim() || null,
     skillType,
@@ -85,6 +94,7 @@ function summarizeSkill(skill, skillId) {
     peakLevelTotalMultiplier: hits.length
       ? Number(hits.reduce((total, hit) => total + hit.peakMultiplier, 0).toFixed(8))
       : null,
+    peakLevelTotalMultiplierBySkillType,
     hits,
   };
 }
@@ -268,6 +278,7 @@ export function discoverOperatorBuildGuides(references, operator, { goal = 'dama
         matchedInBody: identityNeedles.some((needle) => normalizedBody.includes(needle)),
       },
       relevance: exact ? 'operator-build-section' : 'operator-mention-only',
+      contextScope: titleLooksLikeTeamComposition ? 'team-composition' : 'operator-general',
       recommendedSection: compactSection(operatorSpecificSection || buildSections[0] || null),
       exactReadPolicy: operatorSpecificSection ? {
         mode: 'single-exact-section',
@@ -291,7 +302,7 @@ export function discoverOperatorBuildGuides(references, operator, { goal = 'dama
   }
   candidates.sort((left, right) => right.score - left.score || left.referenceId.localeCompare(right.referenceId, 'zh-Hans-CN'));
   const exact = candidates.filter((candidate) => candidate.relevance === 'operator-build-section');
-  const complete = exact.filter((candidate) => candidate.strategy?.sufficientForPlanner);
+  const complete = exact.filter((candidate) => candidate.contextScope === 'operator-general' && candidate.strategy?.sufficientForPlanner);
   const state = complete.length ? 'GUIDE_FOUND' : exact.length ? 'PARTIAL_GUIDE_FOUND' : 'GUIDE_NOT_FOUND';
   return {
     state,
@@ -328,9 +339,11 @@ export function deriveOperatorBuildProfile(rawOperator, {
   const effects = flattenOperatorEffects(rawOperator || {});
   const maxByType = new Map();
   for (const skill of skills) {
-    const current = maxByType.get(skill.skillType);
-    if (!current || Number(skill.peakLevelTotalMultiplier || 0) > Number(current.peakLevelTotalMultiplier || 0)) {
-      maxByType.set(skill.skillType, skill);
+    for (const [hitSkillType, multiplier] of Object.entries(skill.peakLevelTotalMultiplierBySkillType || {})) {
+      const current = maxByType.get(hitSkillType);
+      if (!current || Number(multiplier || 0) > Number(current.peakLevelTotalMultiplier || 0)) {
+        maxByType.set(hitSkillType, { ...skill, skillType: hitSkillType, peakLevelTotalMultiplier: multiplier });
+      }
     }
   }
   const rankedTypes = [...maxByType.values()]

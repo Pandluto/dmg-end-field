@@ -1,0 +1,32 @@
+{
+  "id": "equipment-3plus1-set-selection-v1",
+  "version": 1,
+  "fixtureMode": "empty",
+  "requiresSnapshot": false,
+  "turns": [
+    { "userText": "为汤汤挑一套 3+1 装备，优先适配她的输出机制，不指定套装。" }
+  ],
+  "verification": {
+    "requiredTools": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"]
+    },
+    "forbiddenTools": ["def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_equipment", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "maxRepeatedToolCalls": { "def_data_operator_build_guide": 1, "def_data_operator_build_profile": 1, "def_data_native_catalog_materialize": 1, "def_data_equipment_set_fit_shortlist": 1, "def_data_equipment_3plus1_facts": 1, "def_data_equipment_3plus1_plan": 1 },
+    "conditionalTools": [
+      {
+        "when": { "tool": "def_data_operator_build_guide", "resultState": ["PARTIAL_GUIDE_FOUND", "GUIDE_NOT_FOUND"] },
+        "require": ["def_data_operator_build_profile"]
+      },
+      {
+        "when": { "tool": "def_data_operator_build_guide", "resultState": "GUIDE_FOUND" },
+        "forbid": ["def_data_operator_build_profile"]
+      }
+    ],
+    "forbiddenAssistantText": ["随便选一套", "没有攻略所以无法推荐", "术师只能输出", "敏捷够用", "专武一定最优", "唯一可用方案"],
+    "mustKeepState": true
+  }
+}

@@ -252,6 +252,14 @@ benefit. Record guide state, authorized profile fallback when present, artifact/
 facts and plan inputs/results, terminal state, questions, plus before/after state; all
 state-changing and approval fields must remain unchanged.
 
+For a `3+1` operator-fit request that does not name a target set, insert
+`def_data_equipment_set_fit_shortlist` after materialization and before exact-set facts. It must
+review the complete captured set catalog, reject sets without a typed profile-matching
+three-piece effect or a legal minimum-three-slot topology, and return at most three candidate
+sets. The Agent may pass only one returned exact set into facts/plan. The same-turn authorized
+profile capability remains unchanged and unconsumed by set selection. A shortlist, facts, or
+plan failure is terminal for the turn; legacy equipment/loadout search is not a fallback.
+
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
 that the Electron-owned REST child and any sidecar-recovered REST child use the same local

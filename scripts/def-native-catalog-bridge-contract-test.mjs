@@ -227,6 +227,13 @@ async function callThreePlusOneFacts(input) {
   return payload.result;
 }
 
+async function callEquipmentSetFitShortlist(input) {
+  const { response, payload } = await requestNativeTool('def.equipment.set_fit.shortlist', input);
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(payload.ok, true, JSON.stringify(payload));
+  return payload.result;
+}
+
 async function callThreePlusOnePlan(input) {
   const { response, payload } = await requestNativeTool('def.equipment.3plus1.plan', input);
   assert.equal(response.status, 200, JSON.stringify(payload));
@@ -373,6 +380,19 @@ try {
     allowDuplicateCompatibleAccessories: true,
     shortlistLimit: 3,
   };
+
+  const setFit = await callEquipmentSetFitShortlist({
+    sourceRevision: set.source.revision,
+    characterProfile: primaryEvidence.profile,
+    plannerProfileCapability: primaryEvidence.capability,
+    __defTurnId: primaryEvidence.turnId,
+    shortlistLimit: 3,
+  });
+  assert.equal(setFit.contract, 'DefEquipmentSetFitShortlistV1');
+  assert.equal(setFit.profileEvidence.consumed, false);
+  assert.equal(setFit.rankingBasis.reviewedCompleteCatalog, true);
+  assert.equal(setFit.shortlist[0].id, 'gear-set-chao-yong');
+  assert.ok(setFit.reviewedSets.find((gearSet) => gearSet.id === 'gear-set-han-liu').reasons.some((reason) => reason.code === 'typed-three-piece-buff-unavailable'));
 
   await expectThreePlusOnePlanFailure({
     ...primaryPlanInput,
@@ -528,6 +548,25 @@ try {
   const fallback = await call({ domain: 'equipment', query: '完全不存在的词' });
   assert.equal(fallback.selectionMode, 'domain-full-fallback');
   assert.equal(fallback.files[0].records, 3);
+  assert.equal(fallback.files[1].path, 'equipment-items.full.jsonl');
+  assert.equal(fallback.files[1].records, 160);
+
+  const duplicateAcrossSets = structuredClone(equipmentLibrary);
+  duplicateAcrossSets.gearSets.frost.equipments.frostAccessory.equipmentId = 'tide-accessory-1';
+  writeArchive({ equipment: duplicateAcrossSets });
+  const duplicateAcrossSetsArtifact = await call({ domain: 'equipment', query: '潮涌套' });
+  const duplicateAcrossSetsFull = JSON.parse(duplicateAcrossSetsArtifact.files[0].content);
+  assert.equal(
+    duplicateAcrossSetsFull.equipments.find((item) => item.equipmentId === 'tide-accessory-1').id,
+    'gear-set-chao-yong:tide-accessory-1',
+    'raw ids reused by another set must receive a composite catalog-stable identity',
+  );
+  const duplicateAcrossSetsFacts = await callThreePlusOneFacts({
+    sourceRevision: duplicateAcrossSetsArtifact.source.revision,
+    setQuery: '潮涌套',
+  });
+  assert.equal(duplicateAcrossSetsFacts.state, 'READY_FOR_CHARACTER_PROFILE');
+  writeArchive();
 
   const sameValueDifferentKeyOrder = {
     gearSets: { bulk: bulkSet, frost: frostSet, tide: tideSet },
@@ -566,7 +605,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['native-session-registration-required', 'workbench-session-registration-recovery', 'exact-set-full', 'guide-profile-capability', '3plus1-capability-tamper-replay', '3plus1-minimum-two-matches', '3plus1-maximum-three-shortlist', '3plus1-overlap-fail-closed', '3plus1-bounded-facts', '3plus1-exhaustive-bounded-plan', '3plus1-duplicate-accessory', '3plus1-four-set-tie-preference', '3plus1-fixed-stat-excluded', '3plus1-per-piece-evidence-shape', '3plus1-stable-id-fail-closed', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision', '3plus1-stale-revision'],
+    checks: ['native-session-registration-required', 'workbench-session-registration-recovery', 'exact-set-full', 'guide-profile-capability', 'equipment-set-fit-full-catalog', '3plus1-capability-tamper-replay', '3plus1-minimum-two-matches', '3plus1-maximum-three-shortlist', '3plus1-overlap-fail-closed', '3plus1-bounded-facts', '3plus1-exhaustive-bounded-plan', '3plus1-duplicate-accessory', '3plus1-four-set-tie-preference', '3plus1-fixed-stat-excluded', '3plus1-per-piece-evidence-shape', '3plus1-cross-set-raw-id-canonicalized', '3plus1-stable-id-fail-closed', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision', '3plus1-stale-revision'],
   }));
 } finally {
   child.kill('SIGTERM');

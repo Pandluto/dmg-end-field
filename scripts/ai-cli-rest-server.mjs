@@ -102,6 +102,7 @@ const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV2';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_PLAN_CONTRACT = 'DefEquipmentThreePlusOnePlanV1';
+const DEF_EQUIPMENT_SET_FIT_SHORTLIST_CONTRACT = 'DefEquipmentSetFitShortlistV1';
 const DEF_WEAPON_FIT_PLAN_CONTRACT = 'DefWeaponFitPlanV1';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_MAX_SEARCH_SPACE = 250_000;
 const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -2855,9 +2856,13 @@ function nativeEquipmentSlots(part) {
 }
 
 function projectDefNativeEquipment(equipment = {}, gearSet = {}) {
+  const equipmentId = String(equipment.equipmentId || '');
   return {
     domain: 'equipment',
-    id: String(equipment.equipmentId || ''),
+    // Canonicalized across the complete snapshot below. Operator Config still
+    // addresses equipment by gearSet.id + this raw equipmentId.
+    id: equipmentId,
+    equipmentId,
     name: String(equipment.name || ''),
     part: String(equipment.part || ''),
     availableSlots: nativeEquipmentSlots(String(equipment.part || '')),
@@ -2939,6 +2944,7 @@ function nativeCatalogMinimalRecord(entity, query) {
       domain: 'equipment',
       kind: 'equipment',
       id: entity.id,
+      equipmentId: entity.equipmentId,
       name: entity.name,
       part: entity.part,
       availableSlots: entity.availableSlots,
@@ -2979,12 +2985,27 @@ function buildDefNativeCatalogSnapshot(domain) {
   const capturedAt = Date.now();
   if (domain === 'equipment') {
     const source = readDefEquipmentLibrarySource();
-    const gearSets = Object.values(source.library?.gearSets || {})
+    let gearSets = Object.values(source.library?.gearSets || {})
       .filter((gearSet) => gearSet && typeof gearSet === 'object')
       .map(projectDefNativeGearSet)
       .filter((gearSet) => gearSet.id && gearSet.name)
       .sort((left, right) => left.id.localeCompare(right.id));
     if (!gearSets.length) return { ok: false, code: 'native-catalog-source-unavailable', message: 'The current equipment local library is unavailable or empty.', domain };
+    const rawIdCounts = new Map();
+    for (const item of gearSets.flatMap((gearSet) => gearSet.equipments)) {
+      const rawId = String(item.equipmentId || '').trim();
+      if (rawId) rawIdCounts.set(rawId, (rawIdCounts.get(rawId) || 0) + 1);
+    }
+    gearSets = gearSets.map((gearSet) => ({
+      ...gearSet,
+      equipments: gearSet.equipments.map((item) => {
+        const rawId = String(item.equipmentId || '').trim();
+        return {
+          ...item,
+          id: rawId && rawIdCounts.get(rawId) > 1 ? `${gearSet.id}:${rawId}` : rawId,
+        };
+      }),
+    }));
     const sourceValue = { domain, gearSets };
     return {
       ok: true,
@@ -3078,6 +3099,7 @@ function compactDefEquipmentThreePlusOneEffect(effect = {}, fallbackId = '') {
 function compactDefEquipmentThreePlusOnePiece(item, slot = null) {
   return {
     stableId: item.id,
+    equipmentId: item.equipmentId,
     name: item.name,
     part: item.part,
     ...(slot ? { slot } : {}),
@@ -3137,9 +3159,8 @@ function buildDefEquipmentThreePlusOneTopologySummary({ gearSet, entities, offSe
   };
 }
 
-function buildDefEquipmentThreePlusOneSource(input = {}) {
+function buildDefEquipmentCatalogSource(input = {}) {
   const expectedRevision = typeof input.sourceRevision === 'string' ? input.sourceRevision.trim() : '';
-  const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
   if (!expectedRevision) {
     return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 request must name the source revision from a native catalog artifact.' };
   }
@@ -3188,6 +3209,14 @@ function buildDefEquipmentThreePlusOneSource(input = {}) {
       catalogIssues: catalogIssues.slice(0, 24),
     };
   }
+  return { ok: true, snapshot };
+}
+
+function buildDefEquipmentThreePlusOneSource(input = {}) {
+  const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
+  const catalogResult = buildDefEquipmentCatalogSource(input);
+  if (!catalogResult.ok) return catalogResult;
+  const { snapshot } = catalogResult;
   const resolved = resolveDefNativeEquipmentGearSet(snapshot, setQuery);
   if (!resolved.ok) return { ...resolved, source: snapshot.source, setQuery };
   return { ok: true, snapshot, gearSet: resolved.set, setQuery };
@@ -3406,6 +3435,121 @@ function rankDefEquipmentFactsByProfile(facts, profile) {
       facts: match.matchedFacts,
     })),
   };
+}
+
+function buildDefEquipmentSetFitShortlist(input = {}) {
+  const sourceResult = buildDefEquipmentCatalogSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const profileResult = normalizeDefEquipmentThreePlusOneProfile(input);
+  if (!profileResult.ok) return profileResult;
+  const profileCapabilityResult = resolveOperatorBuildProfileCapability(input, profileResult.profile);
+  if (!profileCapabilityResult.ok) return profileCapabilityResult;
+  const { snapshot } = sourceResult;
+  const profile = profileResult.profile;
+  const shortlistLimit = Number.isInteger(input.shortlistLimit) ? input.shortlistLimit : 3;
+  if (shortlistLimit < 1 || shortlistLimit > 3) {
+    return { ok: false, code: 'equipment-set-fit-shortlist-limit-invalid', message: 'shortlistLimit must be 1-3.' };
+  }
+  const rankedSets = snapshot.gearSets.map((gearSet) => {
+    const topologies = [
+      ...DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => buildDefEquipmentThreePlusOneTopologySummary({ gearSet, entities: snapshot.entities, offSetSlot: slot })),
+      buildDefEquipmentThreePlusOneTopologySummary({ gearSet, entities: snapshot.entities }),
+    ];
+    const availableTopologies = topologies.filter((topology) => topology.status === 'AVAILABLE');
+    const setBonusFacts = collectDefEquipmentTypedEffects(gearSet.threePieceBuffs || {}, `gearSet.${gearSet.id}.threePieceBuffs`);
+    const setBonusRank = rankDefEquipmentFactsByProfile(setBonusFacts, profile);
+    const bestPieceBySlot = Object.fromEntries(DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => {
+      const ranked = defEquipmentItemsForSlot(gearSet.equipments, slot).map((item) => {
+        const facts = collectDefEquipmentTypedEffects(item.effects || {}, `equipment.${item.id}.effects`);
+        return { item, rank: rankDefEquipmentFactsByProfile(facts, profile) };
+      }).sort((left, right) => right.rank.matchCount - left.rank.matchCount
+        || right.rank.weightedScore - left.rank.weightedScore
+        || left.item.id.localeCompare(right.item.id));
+      const best = ranked[0];
+      return [slot, best ? {
+        stableId: best.item.id,
+        equipmentId: best.item.equipmentId,
+        name: best.item.name,
+        matchKeys: best.rank.matchKeys,
+        matchCount: best.rank.matchCount,
+        weightedScore: best.rank.weightedScore,
+      } : null];
+    }));
+    const pieceMatches = Object.values(bestPieceBySlot).filter(Boolean);
+    const eligible = availableTopologies.length > 0 && setBonusFacts.length > 0 && setBonusRank.matchCount > 0;
+    const reasons = [
+      ...(!availableTopologies.length ? [{ code: 'minimum-three-slot-topology-unavailable' }] : []),
+      ...(!setBonusFacts.length ? [{ code: 'typed-three-piece-buff-unavailable' }] : []),
+      ...(setBonusFacts.length && !setBonusRank.matchCount ? [{ code: 'three-piece-buff-profile-unmatched' }] : []),
+    ];
+    const coveredKeys = new Set([...setBonusRank.matchKeys, ...pieceMatches.flatMap((piece) => piece.matchKeys)]);
+    return {
+      id: gearSet.id,
+      name: gearSet.name,
+      eligible,
+      reasons,
+      availableTopologyIds: availableTopologies.map((topology) => topology.id),
+      threePieceBuffFacts: setBonusFacts,
+      threePieceBuffMatchKeys: setBonusRank.matchKeys,
+      bestPieceBySlot,
+      coveredPreferenceKeys: [...coveredKeys],
+      setBonusMatchCount: setBonusRank.matchCount,
+      pieceMatchCount: pieceMatches.reduce((total, piece) => total + piece.matchCount, 0),
+      _weightedScore: setBonusRank.weightedScore * 100
+        + pieceMatches.reduce((total, piece) => total + piece.weightedScore, 0),
+    };
+  }).sort((left, right) => Number(right.eligible) - Number(left.eligible)
+    || right.setBonusMatchCount - left.setBonusMatchCount
+    || right.coveredPreferenceKeys.length - left.coveredPreferenceKeys.length
+    || right._weightedScore - left._weightedScore
+    || left.id.localeCompare(right.id));
+  const shortlist = rankedSets.filter((gearSet) => gearSet.eligible).slice(0, shortlistLimit).map(({ _weightedScore, ...gearSet }) => gearSet);
+  const reviewedSets = rankedSets.map(({
+    bestPieceBySlot: _bestPieceBySlot,
+    _weightedScore,
+    ...gearSet
+  }) => gearSet);
+  const response = {
+    ok: true,
+    contract: DEF_EQUIPMENT_SET_FIT_SHORTLIST_CONTRACT,
+    state: shortlist.length ? 'READY' : 'NO_ELIGIBLE_SET',
+    source: snapshot.source,
+    characterProfile: profile,
+    profileEvidence: {
+      profileHash: profileCapabilityResult.capability.profileHash,
+      source: profileCapabilityResult.capability.source,
+      sessionBound: true,
+      turnBound: true,
+      consumed: false,
+    },
+    rankingBasis: {
+      reviewedCompleteCatalog: true,
+      typedThreePieceBuffRequired: true,
+      setBonusProfileMatchRequired: true,
+      minimumThreeMembershipTopologyRequired: true,
+      setBonusPriorityBeforePieceCoverage: true,
+      damageSimulation: false,
+    },
+    reviewedSets,
+    shortlist,
+    nextAction: shortlist.length
+      ? 'Choose only from this shortlist, then call exact-set facts and the exhaustive 3+1 planner with the unchanged profile capability.'
+      : 'Report that no catalog set has both a typed three-piece effect and a valid minimum-three-slot topology for this profile; do not invent a target set.',
+  };
+  const outputByteLimit = 64 * 1024;
+  const outputBytes = Buffer.byteLength(JSON.stringify(response));
+  if (outputBytes > outputByteLimit) {
+    return {
+      ok: false,
+      code: 'equipment-set-fit-output-too-large',
+      message: 'The complete set review exceeds its typed output budget.',
+      outputBytes,
+      outputByteLimit,
+    };
+  }
+  response.outputBytes = outputBytes;
+  response.outputByteLimit = outputByteLimit;
+  return response;
 }
 
 function defEquipmentSelectionAllowsDuplicates(selection, allowDuplicateCompatibleAccessories) {
@@ -3675,7 +3819,7 @@ function buildDefEquipmentThreePlusOnePlan(input = {}) {
       ? 'Present the bounded shortlist with its exact ids and evidence. A separate operator-config preview is still required before any mutation.'
       : 'Report the returned missing/ambiguity facts. Do not claim an optimal loadout or apply configuration without resolving them.',
   };
-  const outputByteLimit = 96 * 1024;
+  const outputByteLimit = 64 * 1024;
   const outputBytes = Buffer.byteLength(JSON.stringify(response));
   if (outputBytes > outputByteLimit) {
     return {
@@ -3714,7 +3858,7 @@ function buildDefNativeCatalogArtifact(input = {}) {
     const resolvedSet = resolveDefNativeEquipmentGearSet(snapshot, query);
     if (resolvedSet.ok) return entityFull(resolvedSet.set, 'exact-gear-set');
   }
-  const exactEntities = snapshot.entities.filter((entity) => [entity.id, entity.name].map(nativeCatalogText).some((identity) => identity === normalized));
+  const exactEntities = snapshot.entities.filter((entity) => [entity.id, entity.equipmentId, entity.name].map(nativeCatalogText).some((identity) => identity === normalized));
   if (exactEntities.length === 1) return entityFull(exactEntities[0], 'exact-entity');
   const minimal = snapshot.entities.map((entity) => nativeCatalogMinimalRecord(entity, query)).filter(Boolean);
   if (minimal.length) {
@@ -3739,11 +3883,18 @@ function buildDefNativeCatalogArtifact(input = {}) {
     selectionMode: 'domain-full-fallback',
     selectionReason: 'no-deterministic-match',
     source: snapshot.source,
-    files: [{
-      path: 'domain.full.jsonl',
-      records: fallback.length,
-      content: `${fallback.map((record) => JSON.stringify(canonicalizeDefNativeCatalogValue(record))).join('\n')}\n`,
-    }],
+    files: [
+      {
+        path: 'domain.full.jsonl',
+        records: fallback.length,
+        content: `${fallback.map((record) => JSON.stringify(canonicalizeDefNativeCatalogValue(record))).join('\n')}\n`,
+      },
+      ...(domain === 'equipment' ? [{
+        path: 'equipment-items.full.jsonl',
+        records: snapshot.entities.length,
+        content: `${snapshot.entities.map((record) => JSON.stringify(canonicalizeDefNativeCatalogValue(record))).join('\n')}\n`,
+      }] : []),
+    ],
   };
 }
 
@@ -3763,17 +3914,26 @@ function compactDefGearSetBuff(buff = {}, gearSet = {}) {
 }
 
 function compactDefEquipmentItem(equipment = {}) {
-  const effects = Object.values(equipment.effects || {})
-    .filter((effect) => effect && typeof effect === 'object')
-    .map((effect) => ({
-      label: String(effect.label || effect.effectId || ''),
+  const effects = Object.entries(equipment.effects || {})
+    .filter(([, effect]) => effect && typeof effect === 'object')
+    .map(([fallbackId, effect]) => ({
+      effectId: String(effect.effectId || fallbackId || ''),
+      label: String(effect.label || effect.name || effect.effectId || fallbackId || ''),
       typeKey: String(effect.typeKey || ''),
+      ...(effect.value !== undefined ? { value: effect.value } : {}),
+      ...(effect.unit ? { unit: String(effect.unit) } : {}),
+      ...(effect.raw ? { raw: String(effect.raw) } : {}),
     }));
   return {
     id: String(equipment.equipmentId || ''),
     name: String(equipment.name || ''),
     part: String(equipment.part || ''),
-    effectLabels: effects.slice(0, 4).map((effect) => effect.label).filter(Boolean),
+    fixedStat: equipment.fixedStat && typeof equipment.fixedStat === 'object'
+      ? nativeCatalogSafeBusinessValue(equipment.fixedStat)
+      : null,
+    effects,
+    effectLabels: effects.map((effect) => effect.label).filter(Boolean),
+    effectsExhaustive: true,
   };
 }
 
@@ -5135,8 +5295,10 @@ function discoverDefOperatorBuildGuide(input = {}) {
   let effectiveState = discovery.state;
   let guide = null;
   let guideStrategy = null;
+  let guideContextScope = null;
   if (discovery.state === 'GUIDE_FOUND' || discovery.state === 'PARTIAL_GUIDE_FOUND') {
     const candidate = discovery.candidates[0];
+    guideContextScope = candidate?.contextScope || 'operator-general';
     const sectionId = candidate?.exactReadPolicy?.requiredSectionId || candidate?.recommendedSection?.sectionId;
     const section = readCompleteDefGameKnowledgeSection({ referenceId: candidate?.referenceId, sectionId });
     if (!section.ok) return section;
@@ -5155,6 +5317,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
       truncated: section.truncated,
       source: section.source,
       strategy: guideStrategy,
+      contextScope: guideContextScope,
     };
   }
   const base = {
@@ -5248,6 +5411,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
     guideState: effectiveState,
     guide,
     guidePreferenceGroups: supportedGuideGroups,
+    guideContextScope,
     conventionRequired,
     goal: base.query.goal,
     setQuery: base.query.setQuery,
@@ -5280,11 +5444,18 @@ function mergePartialGuidePlannerProfile(profile, resolution) {
       acceptedTypeKeys: group.acceptedTypeKeys.filter((typeKey) => !ignoredTypeKeys.has(typeKey)),
     }))
     .filter((group) => group.acceptedTypeKeys.length);
+  const teamScopedGuide = resolution.guideContextScope === 'team-composition';
+  const derivedTypeKeys = new Set(profile.plannerProfile.preferenceGroups.flatMap((group) => group.acceptedTypeKeys));
   const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
   const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => (
-    !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
+    teamScopedGuide || !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
   ));
-  const preferenceGroups = [...guideGroups, ...derivedGroups];
+  const scopedGuideGroups = teamScopedGuide
+    ? guideGroups.filter((group) => !group.acceptedTypeKeys.some((typeKey) => derivedTypeKeys.has(typeKey)))
+    : guideGroups;
+  const preferenceGroups = teamScopedGuide
+    ? [...derivedGroups, ...scopedGuideGroups]
+    : [...scopedGuideGroups, ...derivedGroups];
   const guideEvidence = resolution.guide?.contentHash
     ? [`guide-sha256:${resolution.guide.contentHash}`]
     : [];
@@ -5299,7 +5470,7 @@ function mergePartialGuidePlannerProfile(profile, resolution) {
     ...profile,
     preferenceGroups: preferenceGroups.map((group) => ({
       ...group,
-      evidenceRefs: guideGroups.includes(group)
+      evidenceRefs: scopedGuideGroups.includes(group)
         ? guideEvidence
         : profile.preferenceGroups.find((entry) => entry.key === group.key)?.evidenceRefs || [],
     })),
@@ -6637,6 +6808,9 @@ function buildDefEquipmentSearchIndex(snapshot, library) {
         name: compact.name,
         part: compact.part,
         effectLabels: compact.effectLabels,
+        fixedStat: compact.fixedStat,
+        effects: compact.effects,
+        effectsExhaustive: compact.effectsExhaustive,
         gearSetId: compactSet.gearSetId,
         gearSetName: compactSet.name,
         currentSelections: currentSelections.get(compact.id) || [],
@@ -9859,6 +10033,7 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   // never receive that transport payload, even though the persisted artifact
   // itself is read-only.
   if (name === 'def.native_catalog.materialize'
+    || name === 'def.equipment.set_fit.shortlist'
     || name === 'def.equipment.3plus1.facts'
     || name === 'def.equipment.3plus1.plan'
     || name === 'def.weapon.fit.plan'
@@ -10336,6 +10511,25 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         nextAction: 'Keep this read-only request unmodified and provide a non-empty equipment or weapon query after the local catalog is available.',
       });
     }
+  } else if (name === 'def.equipment.set_fit.shortlist') {
+    result = buildDefEquipmentSetFitShortlist(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'equipment-set-fit-shortlist-failed', result.message || 'Unable to review equipment sets against the authorized operator profile.', {
+        source: result.source,
+        expectedSourceRevision: result.expectedSourceRevision,
+        actualSourceRevision: result.actualSourceRevision,
+        catalogIssues: result.catalogIssues,
+        outputBytes: result.outputBytes,
+        outputByteLimit: result.outputByteLimit,
+        retryable: false,
+        failureStage: 'typed-equipment-set-fit-shortlist',
+        nextAction: result.code === 'equipment-3plus1-source-revision-stale'
+          ? 'Stop this recommendation turn and materialize a fresh native equipment artifact in a new turn.'
+          : result.code?.startsWith('equipment-3plus1-profile-capability-')
+            ? 'Stop this recommendation turn and restart guide/profile evidence in a new turn.'
+            : 'Stop this recommendation turn and report the structured catalog/profile issue; do not choose a set by guessing.',
+      });
+    }
   } else if (name === 'def.equipment.3plus1.facts') {
     result = buildDefEquipmentThreePlusOneFacts(input);
     if (!result.ok) {
@@ -10345,9 +10539,13 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         expectedSourceRevision: result.expectedSourceRevision,
         actualSourceRevision: result.actualSourceRevision,
         catalogIssues: result.catalogIssues,
+        retryable: false,
+        failureStage: 'typed-equipment-3plus1-facts',
         nextAction: result.code === 'equipment-3plus1-source-revision-stale'
-          ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request 3+1 facts again.'
-          : 'Use one exact set name from the materialized native artifact and report only the returned fixedStat/effects facts.',
+          ? 'Stop this recommendation turn and materialize a fresh native equipment catalog artifact in a new turn.'
+          : result.code === 'equipment-3plus1-set-not-found' || result.code === 'equipment-3plus1-set-ambiguous'
+            ? 'Stop this recommendation turn and report the exact set-resolution candidates; do not substitute another set or legacy equipment search.'
+            : 'Stop this recommendation turn and report the structured catalog issue; do not bypass it with legacy equipment search.',
       });
     }
   } else if (name === 'def.equipment.3plus1.plan') {
@@ -10365,6 +10563,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         preferenceKeys: result.preferenceKeys,
         outputBytes: result.outputBytes,
         outputByteLimit: result.outputByteLimit,
+        retryable: false,
+        failureStage: 'typed-equipment-3plus1-plan',
         nextAction: result.code === 'equipment-3plus1-source-revision-stale'
           ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request the 3+1 plan again.'
           : result.code?.startsWith('equipment-3plus1-profile-capability-')

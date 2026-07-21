@@ -9,7 +9,7 @@ const root = path.join(import.meta.dirname, '..', 'agent', 'runtime', 'def', 'sk
 const library = loadCombatConventionRules(root);
 assert.equal(library.contract, 'DefCombatConventionLibraryV1');
 assert.match(library.sourceHash, /^[a-f0-9]{64}$/);
-assert.equal(library.rules.length, 11);
+assert.equal(library.rules.length, 14);
 
 const bundle = resolveCombatConventionBundle(library, {
   entities: ['saixi', '赛希'],
@@ -55,6 +55,15 @@ const unknown = resolveCombatConventionBundle(library, {
 assert.equal(unknown.state, 'NOT_FOUND');
 assert.deepEqual(unknown.rules, []);
 
+const tangtang = resolveCombatConventionBundle(library, {
+  entities: ['tangtang', '汤汤'],
+  intents: ['operator-fit', 'weapon-fit'],
+});
+assert.equal(tangtang.state, 'READY');
+assert.ok(tangtang.rules.some((rule) => rule.ruleId === 'tangtang.q-water-spout-is-b'));
+assert.ok(tangtang.rules.some((rule) => rule.ruleId === 'tangtang.signature-weapon-is-not-universal-optimum'));
+assert.ok(tangtang.rules.flatMap((rule) => rule.nonImplications).includes('单段倍率不能证明完整循环中的伤害占比'));
+
 const missingQuery = resolveCombatConventionBundle(library, {});
 assert.equal(missingQuery.ok, false);
 assert.equal(missingQuery.code, 'combat-convention-query-required');
@@ -67,6 +76,7 @@ console.log(JSON.stringify({
     'connected-dependency-closure',
     'qualitative-certainty-preserved',
     'support-profile-preferences',
+    'tangtang-scoped-teaching',
     'unknown-entity-fails-closed',
   ],
 }));

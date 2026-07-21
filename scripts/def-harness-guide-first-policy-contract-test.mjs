@@ -104,6 +104,18 @@ assert.deepEqual(threePlusOneScenario.verification.requiredToolsByTurn['1'], [
 ]);
 assert.deepEqual(threePlusOneScenario.verification.orderedToolsByTurn['1'], threePlusOneScenario.verification.requiredToolsByTurn['1']);
 
+const setSelectionScenario = JSON.parse(read('agent/harness/scenarios/equipment-3plus1-set-selection-v1.json'));
+assert.deepEqual(setSelectionScenario.verification.requiredToolsByTurn['1'], [
+  'def_data_operator_build_guide',
+  'def_data_native_catalog_materialize',
+  'def_data_equipment_set_fit_shortlist',
+  'def_data_equipment_3plus1_facts',
+  'def_data_equipment_3plus1_plan',
+]);
+assert.deepEqual(setSelectionScenario.verification.orderedToolsByTurn['1'], setSelectionScenario.verification.requiredToolsByTurn['1']);
+assert.ok(setSelectionScenario.verification.forbiddenTools.includes('def_data_equipment'));
+assert.equal(setSelectionScenario.verification.maxRepeatedToolCalls.def_data_equipment_set_fit_shortlist, 1);
+
 const correctionScenario = JSON.parse(read('agent/harness/scenarios/operator-config-correction-review-v1.json'));
 assert.ok(correctionScenario.verification.requiredTools.includes('def_data_operator_build_guide'));
 assert.ok(!correctionScenario.verification.requiredTools.includes('def_data_operator_build_profile'));

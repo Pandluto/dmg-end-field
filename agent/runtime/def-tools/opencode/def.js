@@ -46,6 +46,11 @@ const NON_RETRYABLE_EVIDENCE_CODES = new Set([
   'weapon-fit-convention-bundle-mismatch',
   'weapon-fit-convention-bundle-required',
   'weapon-fit-convention-bundle-unexpected',
+  'equipment-3plus1-catalog-invalid',
+  'equipment-3plus1-source-revision-stale',
+  'equipment-3plus1-set-not-found',
+  'equipment-3plus1-set-ambiguous',
+  'equipment-set-fit-shortlist-failed',
 ])
 
 function defToolFailureScope(context) {
@@ -152,7 +157,7 @@ function isDefMutationTool(toolName) {
 }
 
 function isDefTerminalEvidenceTool(toolName) {
-  return /^(?:def\.weapon\.fit\.plan|def\.equipment\.3plus1\.plan|def_data_weapon_fit_plan|def_data_equipment_3plus1_plan)$/.test(String(toolName || ''))
+  return /^(?:def\.weapon\.fit\.plan|def\.equipment\.(?:set_fit\.shortlist|3plus1\.(?:facts|plan))|def_data_weapon_fit_plan|def_data_equipment_(?:set_fit_shortlist|3plus1_(?:facts|plan)))$/.test(String(toolName || ''))
 }
 
 function normalizeToolFailureCode(error) {
@@ -260,14 +265,15 @@ function notAttemptedEvidenceError(stop, attemptedTool) {
 function compactTypedFailureDetails(failure) {
   if (!failure || typeof failure !== 'object') return null
   const diagnostics = failure.diagnostics
+  const compactIssues = (issues) => (Array.isArray(issues) ? issues.slice(0, 8).map((issue) => ({ code: issue?.code, path: issue?.path, stableId: issue?.stableId, message: issue?.message })) : [])
   if (!diagnostics || typeof diagnostics !== 'object') {
-    return failure.nextAction || failure.retryable !== undefined
-      ? { retryable: failure.retryable, nextAction: failure.nextAction }
+    return failure.nextAction || failure.retryable !== undefined || Array.isArray(failure.catalogIssues)
+      ? { retryable: failure.retryable, failureStage: failure.failureStage, nextAction: failure.nextAction, catalogIssues: compactIssues(failure.catalogIssues) }
       : null
   }
-  const compactIssues = (issues) => (Array.isArray(issues) ? issues.slice(0, 8).map((issue) => ({ code: issue?.code, path: issue?.path, message: issue?.message })) : [])
   return {
     retryable: failure.retryable,
+    failureStage: failure.failureStage,
     nextAction: failure.nextAction,
     stage: diagnostics.stage,
     beforeCanonicalHash: diagnostics.beforeCanonicalHash,
@@ -277,7 +283,7 @@ function compactTypedFailureDetails(failure) {
       before: compactIssues(diagnostics.validatorIssues?.before),
       after: compactIssues(diagnostics.validatorIssues?.after),
     },
-    catalogIssues: compactIssues(diagnostics.catalogIssues),
+    catalogIssues: compactIssues(diagnostics.catalogIssues || failure.catalogIssues),
   }
 }
 
@@ -1852,11 +1858,17 @@ function compactEquipmentResourceCandidate(item) {
     equipmentListExhaustive: item.equipmentListExhaustive,
     equipmentListTruncated: item.equipmentListTruncated,
     effectLabels: item.effectLabels,
+    fixedStat: item.fixedStat,
+    effects: item.effects,
+    effectsExhaustive: item.effectsExhaustive,
     currentSelections: item.currentSelections,
     equipments: Array.isArray(item.equipments) ? item.equipments.slice(0, 12).map((equipment) => ({
       id: equipment.id,
       name: equipment.name,
       part: equipment.part,
+      fixedStat: equipment.fixedStat,
+      effects: equipment.effects,
+      effectsExhaustive: equipment.effectsExhaustive,
     })) : undefined,
     threePieceBuffs: Array.isArray(item.threePieceBuffs) ? item.threePieceBuffs.slice(0, 4).map((buff) => ({
       id: buff.id,
@@ -2024,6 +2036,55 @@ const equipmentPreferenceGroupSchema = tool.schema.object({
   acceptedTypeKeys: tool.schema.array(tool.schema.string().min(2).max(80)).min(1).max(8)
     .describe('Exact canonical equipment-effect type keys accepted for this group, for example iceDmgBonus and iceElectricDmgBonus.'),
 })
+
+export const data_equipment_set_fit_shortlist = {
+  description: 'When the user asks which equipment set should anchor a 3+1 build and has not already fixed one exact set, review every set in the current native artifact before choosing. Requires the unchanged same-turn plannerProfile/capability. It requires a typed three-piece effect and a legal minimum-three-slot topology, ranks set-effect fit before piece coverage, returns the evidence for every reviewed set, and never mutates configuration. A typed failure is terminal for this recommendation turn.',
+  args: {
+    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile.'),
+    characterProfile: tool.schema.object({
+      characterId: tool.schema.string().min(1).max(160),
+      derivation: tool.schema.enum(['guide', 'guide-partial', 'skill-analysis', 'guide-and-skill-analysis', 'combat-convention-and-skill-analysis', 'user']),
+      evidenceRefs: tool.schema.array(tool.schema.string().min(1).max(240)).min(1).max(32),
+      keywords: tool.schema.array(tool.schema.string().min(1).max(80)).min(1).max(12),
+      preferenceGroups: tool.schema.array(equipmentPreferenceGroupSchema).min(1).max(12),
+    }),
+    shortlistLimit: tool.schema.number().int().min(1).max(3).optional(),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'DEF equipment set fit shortlist' })
+    const artifact = readNativeCatalogArtifactForFacts(context, args.artifactId)
+    const { turnID } = getDefOperatorConfigTurnIdentity(context)
+    const result = await callDefTool('def.equipment.set_fit.shortlist', {
+      sourceRevision: artifact.manifest.source.revision,
+      plannerProfileCapability: args.plannerProfileCapability.trim(),
+      characterProfile: args.characterProfile,
+      __defTurnId: turnID,
+      ...(args.shortlistLimit !== undefined ? { shortlistLimit: args.shortlistLimit } : {}),
+    }, context)
+    if (result?.source?.revision !== artifact.manifest.source.revision) {
+      throw new Error('native-catalog-artifact-source-mismatch: the set shortlist is not bound to the manifest revision')
+    }
+    return {
+      title: result.state === 'READY' ? 'DEF equipment set shortlist ready' : 'DEF equipment set shortlist unresolved',
+      output: JSON.stringify({
+        ...result,
+        artifact: {
+          artifactId: artifact.manifest.artifactId,
+          manifestPath: `${retrievalRoot}/${artifact.manifest.artifactId}/manifest.json`,
+          selectionMode: artifact.manifest.selectionMode,
+        },
+      }),
+      metadata: {
+        family: 'def-data-resource',
+        contract: result.contract,
+        state: result.state,
+        shortlistCount: Array.isArray(result.shortlist) ? result.shortlist.length : 0,
+        readOnly: true,
+      },
+    }
+  },
+}
 
 export const data_weapon_fit_plan = {
   description: 'Exhaustively compare every current-catalog weapon compatible with one exact operator. Always requires the unchanged same-turn plannerProfile/plannerProfileCapability. Supply conventionBundleHash only when guide/profile evidenceRequirements says combat conventions are required; omit it when GUIDE_FOUND says not-required. For support roles it excludes unsupported personal-damage defaults and verifies reviewed trigger reachability. It returns an unordered READY_WITH_TRADEOFFS matrix: do not label candidates first/second, score them against one another, or claim a universal optimum. A typed failure is terminal for this turn: report its nextAction and never fall back to def_data_weapon, loadout candidates, skill/damage/buff probes, or native artifact ranking.',
