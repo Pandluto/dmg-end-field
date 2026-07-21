@@ -102,17 +102,17 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "@tailwindcss/vite": "^4.2.2",
+    "@playwright/test": "^1.61.1",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^4.0.0",
-    "concurrently": "^9.1.2",
-    "electron": "^39.8.10",
-    "electron-builder": "^26.0.12",
+    "concurrently": "^10.0.3",
+    "electron": "^43.1.1",
+    "electron-builder": "^26.15.3",
     "tailwindcss": "^4.2.2",
-    "typescript": "^5.0.0",
-    "wait-on": "^8.0.3"
+    "typescript": "^7.0.2",
+    "wait-on": "^9.0.10"
   },
   "build": {
     "appId": "com.dmg.def",
