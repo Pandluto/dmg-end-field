@@ -2530,11 +2530,49 @@ function parseDefOrdinalText(text) {
 function inferDefSkillTypeFromText(text) {
   const normalized = normalizeDefToolText(text);
   const raw = String(text || '');
-  if (/(^|[^a-z])a([^a-z]|$)/i.test(raw) || normalized.includes('普攻') || normalized.includes('普通攻击')) return 'A';
-  if (/(^|[^a-z])e([^a-z]|$)/i.test(raw) || normalized.includes('战技')) return 'E';
+  if (/(^|[^a-z])a([^a-z]|$)/i.test(raw) || normalized.includes('普攻') || normalized.includes('普通攻击') || normalized.includes('重击')) return 'A';
+  // DEF canonical vocabulary: B is 战技 and E is 连携技.  Keep this
+  // resolver authoritative so tool results cannot teach the model the
+  // reversed mapping.
+  if (/(^|[^a-z])b([^a-z]|$)/i.test(raw) || normalized.includes('战技')) return 'B';
+  if (/(^|[^a-z])e([^a-z]|$)/i.test(raw) || normalized.includes('连携')) return 'E';
   if (/(^|[^a-z])q([^a-z]|$)/i.test(raw) || normalized.includes('终结') || normalized.includes('大招')) return 'Q';
-  if (/(^|[^a-z])b([^a-z]|$)/i.test(raw) || normalized.includes('连携')) return 'B';
   if (normalized.includes('dot') || normalized.includes('持续')) return 'Dot';
+  return '';
+}
+
+function describeDefSkillSemantic(skill = {}) {
+  const skillType = String(skill.skillType || '').trim();
+  const displayName = String(skill.skillDisplayName || '').trim();
+  if (skillType === 'B') {
+    return { category: 'battle-skill', label: '战技', aliases: ['战技', 'B'] };
+  }
+  if (skillType === 'E') {
+    return { category: 'chain-skill', label: '连携技', aliases: ['连携', '连携技', 'E'] };
+  }
+  if (skillType === 'Q') {
+    return { category: 'ultimate', label: '终结技', aliases: ['大招', '终结技', 'Q'] };
+  }
+  if (skillType === 'Dot') {
+    return { category: 'damage-over-time', label: '持续伤害', aliases: ['持续', 'Dot'] };
+  }
+  if (skillType === 'A') {
+    if (displayName.includes('下落')) {
+      return { category: 'normal-attack', actionVariant: 'plunging', label: '下落攻击', aliases: ['下落攻击'] };
+    }
+    if (displayName.includes('处决')) {
+      return { category: 'normal-attack', actionVariant: 'execution', label: '处决', aliases: ['处决'] };
+    }
+    return { category: 'normal-attack', actionVariant: 'heavy', label: '普通重击', aliases: ['重击', '普通重击', '普攻', '普通攻击', 'A'] };
+  }
+  return { category: 'unknown', label: skillType || '未知技能类型', aliases: [] };
+}
+
+function inferDefSkillActionVariant(text) {
+  const normalized = normalizeDefToolText(text);
+  if (normalized.includes('下落')) return 'plunging';
+  if (normalized.includes('处决')) return 'execution';
+  if (normalized.includes('重击') || normalized.includes('普攻') || normalized.includes('普通攻击')) return 'heavy';
   return '';
 }
 
@@ -4236,7 +4274,8 @@ function resolveDefSkills(input = {}) {
   const rawQuery = input.query || input.skillName || input.text || '';
   const query = normalizeDefToolText(rawQuery);
   const requestedSkillType = normalizeDefToolText(input.skillType || inferDefSkillTypeFromText(rawQuery));
-  const requestedCharacter = normalizeDefToolText(input.characterName || input.character || '');
+  const explicitCharacter = normalizeDefToolText(input.characterName || input.character || '');
+  const requestedActionVariant = inferDefSkillActionVariant(rawQuery);
   const snapshot = readMainWorkbenchSnapshotMirror();
   const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
   const bySkill = new Map();
@@ -4254,6 +4293,7 @@ function resolveDefSkills(input = {}) {
       skillId,
       skillType,
       skillDisplayName,
+      semantic: describeDefSkillSemantic({ skillType, skillId, skillDisplayName }),
       source: String(skill.source || 'runtime-template'),
       buttonCount: 0,
       exampleButtonId: null,
@@ -4270,25 +4310,40 @@ function resolveDefSkills(input = {}) {
         skillId: button.runtimeSkillId || null,
         skillType: button.skillType,
         skillDisplayName: button.skillDisplayName,
+        semantic: describeDefSkillSemantic({
+          skillType: button.skillType,
+          skillId: button.runtimeSkillId,
+          skillDisplayName: button.skillDisplayName,
+        }),
         buttonCount: 0,
         exampleButtonId: button.buttonId,
       });
     }
     bySkill.get(key).buttonCount += 1;
   }
+  const requestedCharacter = explicitCharacter || [...bySkill.values()]
+    .map((skill) => normalizeDefToolText(skill.characterName || ''))
+    .find((characterName) => characterName && query.includes(characterName)) || '';
   const candidates = [...bySkill.values()]
     .filter((skill) => !requestedSkillType || normalizeDefToolText(skill.skillType) === requestedSkillType)
     .filter((skill) => !requestedCharacter || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName}`).includes(requestedCharacter))
+    .filter((skill) => !requestedActionVariant || skill.semantic?.actionVariant === requestedActionVariant)
     .filter((skill) => !query || requestedSkillType || normalizeDefToolText(`${skill.characterId || ''} ${skill.characterName} ${skill.skillId || ''} ${skill.skillType} ${skill.skillDisplayName}`).includes(query))
     .map((skill) => ({
       ...skill,
-      confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillId) === query || normalizeDefToolText(skill.skillType) === requestedSkillType ? 1 : 0.7,
+      confidence: normalizeDefToolText(skill.skillDisplayName) === query || normalizeDefToolText(skill.skillId) === query || normalizeDefToolText(skill.skillType) === requestedSkillType || skill.semantic?.actionVariant === requestedActionVariant ? 1 : 0.7,
     }));
   return {
     query,
+    terminology: {
+      A: '普通重击/普通攻击（处决、下落攻击是独立 A 变体）',
+      B: '战技',
+      E: '连携技',
+      Q: '终结技/大招',
+    },
     candidates,
     ambiguity: candidates.length !== 1,
-    suggestedQuestion: candidates.length > 1 ? '找到多个技能候选。请指定干员或技能类型。' : '',
+    suggestedQuestion: candidates.length > 1 ? '找到多个技能候选。请指定干员或技能名称。' : (candidates.length === 0 ? '没有与该术语和所选干员一致的可信技能；请指定技能名称。' : ''),
   };
 }
 

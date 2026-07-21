@@ -1204,7 +1204,7 @@ export const data_equipment = dataResource({
 
 export const data_skill = dataResource({
   title: 'DEF skill resource',
-  description: 'Resolve trusted DEF skill data by id, name, or query.',
+  description: 'Resolve trusted DEF skill data by id, name, or semantic query. Canonical terms are A=normal/heavy attack, B=battle skill, E=chain skill, Q=ultimate; a heavy attack never means execution or plunging attack.',
   tool: 'def.skill.resolve',
   input: ({ query }) => ({ query, limit: 12 }),
 })

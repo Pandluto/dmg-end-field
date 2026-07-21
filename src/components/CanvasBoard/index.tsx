@@ -2018,10 +2018,18 @@ export function CanvasBoard({
       if (lifecyclePlan.markCheckoutApplied) {
         applied = await client.markCheckoutApplied(node.id, {
           commitId: commit.id,
-          appliedAt: Date.now(),
+          // Checkout identity includes updatedAt.  Reusing the exact value
+          // already persisted above keeps the renderer projection, the
+          // session binding, and SQLite checkout on one immutable identity.
+          // A second Date.now() here used to make the next Agent turn fail
+          // closed until the user refreshed the page.
+          appliedAt: checkoutRef.updatedAt,
           appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
           rationale: command.approval?.rationale || 'Foreground renderer hydrated and displayed the exact reviewed timeline.',
         });
+        if (Number(applied?.commit.checkout?.appliedAt) !== checkoutRef.updatedAt) {
+          throw new Error('checkout-identity-drift: SQLite checkout did not retain the renderer checkout revision');
+        }
       }
       checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
       if (!checkoutApplied) throw new Error('checkout-applied-record-missing: visible Canvas was restored but SQLite apply record did not commit');
