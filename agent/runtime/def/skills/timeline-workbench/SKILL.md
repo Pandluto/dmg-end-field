@@ -38,6 +38,8 @@ For a capability question such as “你可以排轴吗”, answer directly and 
 
 ## Mutations
 
+Explicit roster selection is its own typed transition, not a node-code edit. Resolve each requested operator through `def_data_operator_catalog`, then call `def_team_selection_apply` once with a concise Agent-written title and description. The policy is exact: the same ordered roster is a no-op; reorder/add/remove/replace operations that retain at least one current operator create a horizontal Work Node in the current SQLite; only a complete four-person result with zero overlap creates a new temporary SQLite, after which this DEF session is detached. Never edit `node/working/selection.json`, call `def_node_fork`, or use a generic command for roster selection. Native approval plus the tool's visible postcondition are required before saying it succeeded.
+
 1. Fork with `def_node_fork`, or bind an explicitly selected existing node with `def_node_bind`. An explicitly named ready draft may differ from the current checkout: binding it only materializes its isolated workspace and records the checkout as its anchor; it does not apply the draft. If a checkout transition guard is active, first bind `nodeId=""`, refresh context, then bind the explicitly named draft before validation/use. Never list nodes and bind an arbitrary/latest node just because it exists; if the user did not name a node, fork from the current checkout.
 2. Read `node/working/*.json` before editing. Files below `node/base`, `node/context`, `node/generated`, and the manifest are read-only.
 3. Use native `edit` or `apply_patch` on the normalized working source for flexible node changes. The codec rebuilds storage mirrors; do not translate the request into legacy button-command JSON or Patch DSL.

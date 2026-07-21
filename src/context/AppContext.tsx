@@ -43,7 +43,8 @@ import {
   loadLocalOperatorCharacters,
   loadLocalOperatorDraftMap,
 } from '../core/services/localOperatorAdapter';
-import { reconcileSelectionChange } from '../core/services/timelineService';
+import { applySelectionWorkspaceTransition } from '../core/services/selectionWorkspaceTransition';
+import { getTimelineSessionSnapshot } from '../agentKernel/timelineRepository/timelineSession';
 import {
   buildRuntimeOperatorTemplateFromOfficialCharacter,
   buildRuntimeOperatorTemplateFromDraft,
@@ -719,14 +720,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
           throw new Error(`未找到干员: ${missing.join(', ') || requestedKeys.join(', ')}`);
         }
 
-        if (command.resetTimeline) {
-          removeTimelineData();
-          setSkillButtonTable({});
-          setAllBuffList([]);
-        } else {
-          reconcileSelectionChange(state.selectedCharacters, selected);
-        }
-        dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
+        const timelineSession = getTimelineSessionSnapshot();
+        const transitionResult = await applySelectionWorkspaceTransition({
+          activeTimelineId: timelineSession.activeTimelineId,
+          activeTimelineIsTemporary: timelineSession.activeTimelineIsTemporary,
+          previousCharacters: state.selectedCharacters,
+          nextCharacters: selected,
+          actor: 'ai',
+          nodeTitle: command.nodeTitle,
+          nodeDescription: command.nodeDescription,
+          approval: command.approval,
+        });
         dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: selected });
         dispatch({ type: 'SET_VIEW', view: command.openCanvas === false ? 'selection' : 'canvas' });
 
@@ -735,6 +739,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           result: {
             selectedCharacters: selected.map((character) => ({ id: character.id, name: character.name })),
             currentView: command.openCanvas === false ? 'selection' : 'canvas',
+            transition: transitionResult.transition,
+            timelineId: transitionResult.timelineId,
+            nodeId: transitionResult.nodeId,
           },
         });
         if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);

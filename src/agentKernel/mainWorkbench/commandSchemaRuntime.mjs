@@ -77,6 +77,25 @@ export function validateMainWorkbenchCommand(command) {
     };
   }
 
+  if (command.op === 'selectCharacters') {
+    const requested = [
+      ...(Array.isArray(command.characterIds) ? command.characterIds : []),
+      ...(Array.isArray(command.characterNames) ? command.characterNames : []),
+    ].filter((value) => typeof value === 'string' && value.trim());
+    if (requested.length === 0 || requested.length > 4) {
+      return { ok: false, code: 'invalid-main-workbench-selection', message: 'selectCharacters requires one to four exact character ids or names.' };
+    }
+    if (!hasAnyString(command, ['nodeTitle', 'nodeDescription'])
+      || typeof command.nodeTitle !== 'string' || typeof command.nodeDescription !== 'string'
+      || command.nodeTitle.trim().length < 2 || command.nodeDescription.trim().length < 8
+      || /^\[ai\]/i.test(command.nodeTitle.trim())) {
+      return { ok: false, code: 'invalid-main-workbench-selection-metadata', message: 'AI selectCharacters requires an Agent-written nodeTitle and nodeDescription without an [ai] prefix.' };
+    }
+    if (command.approval?.mode !== 'manual' || command.approval?.approvedBy !== 'user') {
+      return { ok: false, code: 'approval-capability-required', message: 'AI selectCharacters requires a native manual user approval.' };
+    }
+  }
+
   if (command.op === 'addBuff' && !isRecord(command.buff)) {
     return { ok: false, code: 'invalid-main-workbench-add-buff', message: 'addBuff requires buff.' };
   }

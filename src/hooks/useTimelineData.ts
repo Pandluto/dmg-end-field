@@ -157,6 +157,15 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
   }, [selectedCharacters]);
 
   const replaceTimelineData = useCallback((nextTimelineData: TimelineData) => {
+    // Checkout/selection hydration is authoritative. Cancel any delayed save
+    // created by the previous roster and move the ref synchronously before
+    // React renders, otherwise that stale timer can overwrite the freshly
+    // hydrated SQLite/sessionStorage projection with old staff lines.
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    timelineDataRef.current = nextTimelineData;
     setTimelineData(nextTimelineData);
   }, []);
 

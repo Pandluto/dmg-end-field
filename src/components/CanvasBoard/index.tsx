@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useAppContext } from '../../context/AppContext';
+import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { SkillSandbox } from './SkillSandbox';
 import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
 import { WorkNodeTreePanel, type WorkbenchSelectedNodeContext } from './WorkNodeTreePanel';
@@ -822,14 +823,18 @@ export function CanvasBoard({
     if (!validation.ok) {
       throw new Error(`CHECKOUT_RUNTIME_HYDRATION_FAILED: ${validation.issues.map((issue) => issue.message).join('；')}`);
     }
-    const nextCharacters = payload.selectedCharacters
-      .map((id) => loadedCharacters.find((character) => character.id === id || character.name === id))
+    const restorableCharacterMap = new Map<string, Character>();
+    [...loadedCharacters, ...loadLocalOperatorCharacters()].forEach((character) => {
+      restorableCharacterMap.set(character.id, character);
+      restorableCharacterMap.set(character.name, character);
+    });
+    const resolvedCharacters = payload.selectedCharacters
+      .map((id) => restorableCharacterMap.get(id))
       .filter((character): character is Character => Boolean(character));
-    const resolvedCharacters = nextCharacters.length === payload.selectedCharacters.length
-      ? nextCharacters
-      : selectedCharacters;
-    if (resolvedCharacters.length === 0) {
-      throw new Error('CHECKOUT_RUNTIME_HYDRATION_FAILED: 无法解析 checkout 中的干员。');
+    if (resolvedCharacters.length !== payload.selectedCharacters.length) {
+      const resolvedIds = new Set(resolvedCharacters.flatMap((character) => [character.id, character.name]));
+      const missingIds = payload.selectedCharacters.filter((id) => !resolvedIds.has(id));
+      throw new Error(`CHECKOUT_RUNTIME_HYDRATION_FAILED: 无法解析 checkout 干员 ${missingIds.join('、') || 'unknown'}。`);
     }
     const normalizedSkillButtonTable = Object.fromEntries(
       Object.entries(payload.skillButtonTable).map(([buttonId, button]) => {

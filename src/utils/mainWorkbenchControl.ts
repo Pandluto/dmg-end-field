@@ -31,6 +31,14 @@ export type MainWorkbenchCommand =
       op: 'selectCharacters';
       characterIds?: string[];
       characterNames?: string[];
+      nodeTitle?: string;
+      nodeDescription?: string;
+      approval?: {
+        mode: 'manual';
+        approvedBy: 'user';
+        rationale?: string;
+      };
+      /** @deprecated Selection workspace policy decides whether a fresh SQLite is required. */
       resetTimeline?: boolean;
       openCanvas?: boolean;
     }

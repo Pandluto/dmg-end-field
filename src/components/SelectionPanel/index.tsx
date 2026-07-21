@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
-import { createEmptyTimelineData, reconcileSelectionChange } from '../../core/services/timelineService';
+import { applySelectionWorkspaceTransition } from '../../core/services/selectionWorkspaceTransition';
 import {
   isLocalOperatorLibraryStorageKey,
   loadLocalOperatorCharacters,
@@ -9,11 +9,7 @@ import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
-import { applyTimelineSnapshotPayload, type TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
-import { createTimelineRepositoryClient } from '../../agentKernel/timelineRepository/localTimelineClient';
-import { activateTimelineSession } from '../../agentKernel/timelineRepository/timelineSession';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
-import { flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
 import './SelectionPanel.css';
 
 const ELEMENT_LABELS: Record<string, string> = {
@@ -132,81 +128,16 @@ export function SelectionPanel() {
       return;
     }
 
-    const currentCharacterIds = new Set(selectedCharacters.map((character) => character.id));
-    const hasSharedCharacter = draftCharacters.some((character) => currentCharacterIds.has(character.id));
-
-    // 临时工作区只在“整队完全不同”时推倒重来。只要还保留任一干员，
-    // 就继续使用同一个 SQLite，并按既有的排轴重排规则同步数据。
-    if (activeTimelineIsTemporary && hasSharedCharacter) {
-      reconcileSelectionChange(selectedCharacters, draftCharacters);
-      await flushUserWorkspaceState();
-      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
-      dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
-      dispatch({ type: 'SET_VIEW', view: 'canvas' });
-      return;
-    }
-
     setIsCreatingWorkspace(true);
     setWorkspaceError('');
-    const createdAt = Date.now();
-    const nonce = typeof crypto?.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : Math.random().toString(36).slice(2, 12);
-    const timelineId = `timeline-${createdAt}-${nonce}`;
-    const snapshotId = `${timelineId}-initial`;
-    const documentLabel = `排轴 ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`;
-    const payload: TimelineSnapshotPayload = {
-      selectedCharacters: draftCharacters.map((character) => character.id),
-      timelineData: createEmptyTimelineData(draftCharacters),
-      skillButtonTable: {},
-      allBuffList: [],
-      anomalyStateSnapshots: [],
-      characterInputMap: {},
-      characterComputedMap: {},
-      characterDisplayCacheMap: {},
-      operatorConfigPageCache: {},
-    };
-
     try {
-      const repository = createTimelineRepositoryClient();
-      const imported = await repository.importDocumentBundle({
-        document: { id: timelineId, label: documentLabel, isTemporary: true, createdAt },
-        snapshots: [{
-          id: snapshotId,
-          label: '初始排轴',
-          createdAt,
-          payload,
-        }],
-        checkoutRef: { targetType: 'snapshot', targetId: snapshotId, updatedAt: createdAt },
+      await applySelectionWorkspaceTransition({
+        activeTimelineId,
+        activeTimelineIsTemporary,
+        previousCharacters: selectedCharacters,
+        nextCharacters: draftCharacters,
+        actor: 'user',
       });
-      const checkoutRef = {
-        timelineId: imported.document.id,
-        targetType: 'snapshot' as const,
-        targetId: snapshotId,
-        updatedAt: createdAt,
-      };
-
-      if (activeTimelineIsTemporary) {
-        try {
-          await repository.deleteDocument(activeTimelineId);
-        } catch (error) {
-          // 切换前未能清掉旧临时工作区时，回收刚创建的空工作区，避免
-          // 留下无法使用的孤立 SQLite 文档。
-          await repository.deleteDocument(imported.document.id).catch(() => undefined);
-          throw error;
-        }
-      }
-
-      // 先同步 SQLite 工作副本和会话，再切画布；这样新画布不会从上一个
-      // 工作区读取旧按钮表或旧 Work Node 树。
-      applyTimelineSnapshotPayload(payload);
-      await flushUserWorkspaceState();
-      activateTimelineSession({
-        document: imported.document,
-        checkoutRef,
-        workingPayload: payload,
-      });
-      dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
       dispatch({ type: 'SET_SELECTED_CHARACTERS', characters: draftCharacters });
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
     } catch (error) {
@@ -291,9 +222,9 @@ export function SelectionPanel() {
               onClick={handleConfirm}
               disabled={draftCharacters.length === 0 || isCreatingWorkspace}
             >
-              {isCreatingWorkspace ? '正在创建 SQLite 工作区…' : '开始排轴'}
+              {isCreatingWorkspace ? '正在应用选人结果…' : '开始排轴'}
             </button>
-            {workspaceError && <p className="selection-error">创建 SQLite 工作区失败：{workspaceError}</p>}
+            {workspaceError && <p className="selection-error">应用选人结果失败：{workspaceError}</p>}
           </aside>
 
           <section className="selection-library">

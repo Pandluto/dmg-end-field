@@ -7718,6 +7718,16 @@ function buildDefToolDefinitions() {
       checkout: { type: 'boolean', description: 'Batch changes remain staged when risk review is required.' },
     },
   };
+  const teamSelectionSchema = {
+    type: 'object',
+    required: ['characterIds', 'nodeTitle', 'nodeDescription'],
+    properties: {
+      characterIds: { type: 'array', minItems: 1, maxItems: 4, items: { type: 'string' }, description: 'Exact stable ids from def.operator.catalog.search.' },
+      nodeTitle: { type: 'string', minLength: 2, maxLength: 48, description: 'Agent-written concise title without a fixed prefix.' },
+      nodeDescription: { type: 'string', minLength: 8, maxLength: 240, description: 'Agent-written one-sentence roster-change description.' },
+      approvalCapability: { type: 'string', description: 'Opaque capability issued only by the native approval continuation.' },
+    },
+  };
   const checkoutWorkNodeSchema = {
     type: 'object',
     required: ['nodeId'],
@@ -7811,7 +7821,9 @@ function buildDefToolDefinitions() {
   };
   return DEF_TOOL_DEFINITION_BASE.map((tool) => ({
     ...tool,
-    inputSchema: tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
+    inputSchema: tool.name === 'def.team.selection.apply'
+      ? teamSelectionSchema
+      : tool.name === 'def.workbench.add_skill_button' || tool.name === 'def.workbench.add_skill_button_and_verify'
       ? addSkillButtonSchema
       : tool.name === 'def.workbench.find_buttons' || tool.name === 'def.workbench.rank_buttons_by_buff'
         ? buttonLookupSchema
@@ -7839,6 +7851,158 @@ function buildDefToolDefinitions() {
     modelOutputPolicy: 'bounded-json',
     auditLog: tool.commandOp ? 'command queue/result log' : 'rest access log',
   }));
+}
+
+async function executeDefTeamSelectionApply(input = {}) {
+  const gate = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);
+  if (!gate.ok) return { ok: false, state: 'BLOCKED', code: gate.code, message: gate.message, currentCheckoutTouched: false };
+  const requestedIds = [...new Set((Array.isArray(input.characterIds) ? input.characterIds : [])
+    .map((value) => typeof value === 'string' ? value.trim() : '')
+    .filter(Boolean))];
+  if (requestedIds.length === 0 || requestedIds.length > 4) {
+    return { ok: false, state: 'BLOCKED', code: 'invalid-team-selection', message: 'Provide one to four exact operator ids.', currentCheckoutTouched: false };
+  }
+  const catalog = listDefOperatorCatalog({ limit: 24 });
+  const catalogById = new Map(catalog.candidates.map((character) => [character.id, character]));
+  const resolved = requestedIds.map((characterId) => catalogById.get(characterId)).filter(Boolean);
+  if (resolved.length !== requestedIds.length) {
+    return {
+      ok: false,
+      state: 'BLOCKED',
+      code: 'team-selection-operator-not-found',
+      message: 'One or more requested operator ids are absent from the exact local selection catalog.',
+      missingCharacterIds: requestedIds.filter((characterId) => !catalogById.has(characterId)),
+      currentCheckoutTouched: false,
+    };
+  }
+  const nodeTitle = typeof input.nodeTitle === 'string' ? input.nodeTitle.trim() : '';
+  const nodeDescription = typeof input.nodeDescription === 'string' ? input.nodeDescription.trim() : '';
+  if (nodeTitle.length < 2 || nodeTitle.length > 48 || nodeDescription.length < 8 || nodeDescription.length > 240 || /^\[ai\]/i.test(nodeTitle)) {
+    return { ok: false, state: 'BLOCKED', code: 'invalid-team-selection-metadata', message: 'Provide an Agent-written title and description without an [ai] prefix.', currentCheckoutTouched: false };
+  }
+
+  const parent = gate.checkoutNodeId ? readRepositoryWorkNode(gate.checkoutNodeId) : null;
+  const parentRevision = parent ? Number(parent.contentRevision || parent.updatedAt) : undefined;
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (!consumeApprovedApplyCapability(input, {
+    sessionId,
+    timelineId: gate.binding.timelineId,
+    axisBindingId: gate.binding.id,
+    sessionBindingId: gate.binding.id,
+    ...(parent ? { parentNodeId: parent.id, parentRevision } : {}),
+  })) {
+    return {
+      ok: false,
+      state: 'BLOCKED',
+      code: 'approval-capability-required',
+      message: 'Native user approval for this exact roster and checkout is required before apply.',
+      currentCheckoutTouched: false,
+    };
+  }
+
+  const definition = getDefToolDefinition('def.team.selection.apply');
+  const enqueued = enqueueDefToolCommand(definition, {
+    characterIds: requestedIds,
+    nodeTitle,
+    nodeDescription,
+    approval: {
+      mode: 'manual',
+      approvedBy: 'user',
+      rationale: 'Native DEF roster selection approval.',
+    },
+    requestId: typeof input.requestId === 'string' ? input.requestId : undefined,
+    source: 'def-team-selection',
+  });
+  if (enqueued.status < 200 || enqueued.status >= 300 || !enqueued.body?.command) {
+    return { ok: false, state: 'BLOCKED', code: enqueued.body?.code || 'team-selection-enqueue-failed', currentCheckoutTouched: false };
+  }
+  const commandVerification = await buildDefToolCommandVerification(enqueued.body.command, input.waitMs);
+  const commandResult = commandVerification?.result?.result || null;
+  if (!commandVerification.pass || !commandResult) {
+    return {
+      ok: false,
+      state: 'BLOCKED',
+      code: commandVerification?.resultState === 'queued' ? 'team-selection-command-pending' : 'team-selection-command-failed',
+      commandVerification,
+      currentCheckoutTouched: null,
+    };
+  }
+
+  const deadline = Date.now() + normalizeDefVerifyWaitMs(input.snapshotWaitMs, 5000);
+  let after = readMainWorkbenchSnapshotMirror();
+  const projectionMatches = () => {
+    const actualIds = (Array.isArray(after?.selectedCharacters) ? after.selectedCharacters : []).map((character) => character?.id).filter(Boolean);
+    return JSON.stringify(actualIds) === JSON.stringify(requestedIds)
+      && (!commandResult.timelineId || after?.activeTimelineId === commandResult.timelineId || after?.timelineId === commandResult.timelineId);
+  };
+  while (!projectionMatches() && Date.now() < deadline) {
+    await sleep(150);
+    after = readMainWorkbenchSnapshotMirror();
+  }
+
+  const transition = commandResult.transition;
+  const nextTimelineId = typeof commandResult.timelineId === 'string' ? commandResult.timelineId : '';
+  const nextNode = commandResult.nodeId ? readRepositoryWorkNode(commandResult.nodeId) : null;
+  const nextCheckout = nextTimelineId ? getTimelineRepository().getCheckoutRef(nextTimelineId) : null;
+  const expectedHorizontalParentId = parent?.parentNodeId || null;
+  const branchVerification = transition === 'horizontal-branch'
+    ? Boolean(nextNode
+      && nextNode.timelineId === gate.binding.timelineId
+      && (nextNode.parentNodeId || null) === expectedHorizontalParentId
+      && nextCheckout?.targetType === 'work-node'
+      && nextCheckout.targetId === nextNode.id)
+    : true;
+  const temporaryDocument = transition === 'new-temporary-workspace' && nextTimelineId
+    ? getTimelineRepository().getDocument(nextTimelineId)
+    : null;
+  const workspaceVerification = transition === 'new-temporary-workspace'
+    ? Boolean(temporaryDocument?.isTemporary && nextTimelineId !== gate.binding.timelineId && nextCheckout?.targetType === 'snapshot')
+    : true;
+  const pass = projectionMatches() && branchVerification && workspaceVerification;
+  let axisBindingVerification = false;
+  if (pass && transition === 'horizontal-branch' && nextNode) {
+    const updatedBinding = getTimelineRepository().upsertSessionAxisBinding({
+      id: gate.binding.id,
+      timelineId: gate.binding.timelineId,
+      host: gate.binding.host,
+      opencodeSessionId: gate.binding.opencodeSessionId,
+      boundNodeId: nextNode.id,
+    });
+    axisBindingVerification = updatedBinding.boundNodeId === nextNode.id;
+  } else if (pass && transition === 'new-temporary-workspace') {
+    // A native Workbench session may only be bound to a durable workspace.
+    // Detach it after the renderer enters the new temporary SQLite instead of
+    // leaving a stale binding that can still authorize old-checkout tools.
+    getTimelineRepository().deleteSessionAxisBinding(gate.binding.id);
+    axisBindingVerification = !getTimelineRepository().getSessionAxisBinding(gate.binding.id);
+  } else if (pass && transition === 'unchanged') {
+    const unchangedBinding = getTimelineRepository().getSessionAxisBinding(gate.binding.id);
+    axisBindingVerification = unchangedBinding?.timelineId === gate.binding.timelineId
+      && (unchangedBinding.boundNodeId || null) === (gate.binding.boundNodeId || null);
+  }
+  const verified = pass && axisBindingVerification;
+  return {
+    ok: verified,
+    state: verified ? 'APPLIED' : 'BLOCKED',
+    code: verified ? 'applied' : 'team-selection-postcondition-failed',
+    transition,
+    timelineId: nextTimelineId,
+    nodeId: commandResult.nodeId || null,
+    nodeTitle,
+    nodeDescription,
+    nodePlacement: transition === 'horizontal-branch' ? 'horizontal-branch' : null,
+    currentCheckoutTouched: transition !== 'unchanged' && commandVerification.pass,
+    commandVerification,
+    postcondition: {
+      pass: verified,
+      selectedCharacterIds: requestedIds,
+      projectionMatches: projectionMatches(),
+      branchVerification,
+      workspaceVerification,
+      axisBindingVerification,
+      checkout: nextCheckout,
+    },
+  };
 }
 
 const defCoreToolRegistry = createDefCoreToolRegistry({
@@ -9776,6 +9940,13 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       if (error?.code === 'ai-worknode-current-checkout-protected') return failScript(409, error.code, error.message, { nodeId });
       throw error;
     }
+  }
+  if (name === 'def.team.selection.apply') {
+    const result = await executeDefTeamSelectionApply(input);
+    return {
+      status: result.ok ? 200 : 409,
+      body: { ok: result.ok, protocolVersion: 1, tool: name, result },
+    };
   }
   if (definition.commandOp) return enqueueDefToolCommand(definition, input);
 

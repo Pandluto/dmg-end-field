@@ -127,16 +127,21 @@ function rebuildOccupiedNodes(buttons: SkillButtonData[]): number[] {
 
 function buildTimelineButtonsFromSkillButtonTable(
   skillButtonTable: Record<string, PersistedSkillButton>,
-  nextCharacters: { name: string }[]
+  nextCharacters: { id?: string; name: string }[]
 ): StaffLineData[] {
   return nextCharacters.map((character, index) => {
     const buttons = Object.values(skillButtonTable)
-      .filter((button) => button.characterName === character.name)
+      .filter((button) => (
+        (character.id && button.characterId === character.id)
+        || button.characterName === character.name
+      ))
       .map((button) => ({
         id: button.id,
+        characterId: character.id || button.characterId,
         characterName: button.characterName,
         skillType: button.skillType as SkillType,
         staffIndex: index,
+        lineIndex: index,
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         position: button.position,
@@ -193,8 +198,11 @@ export function reconcileSelectionChange(
   _prevCharacters: { id: string; name: string }[],
   nextCharacters: { id: string; name: string }[]
 ): TimelineData {
-  const nextCharacterIndexMap = new Map(
-    nextCharacters.map((character, index) => [character.name, index])
+  const nextCharacterById = new Map(
+    nextCharacters.map((character, index) => [character.id, { character, index }])
+  );
+  const nextCharacterByName = new Map(
+    nextCharacters.map((character, index) => [character.name, { character, index }])
   );
 
   const currentTimelineData = loadTimelineRepo() ?? createEmptyTimelineData(nextCharacters);
@@ -203,17 +211,21 @@ export function reconcileSelectionChange(
   const removedButtonBuffRefs: string[][] = [];
 
   Object.values(currentSkillButtonTable).forEach((button) => {
-    const nextCharacterIndex = nextCharacterIndexMap.get(button.characterName);
+    const target = (button.characterId ? nextCharacterById.get(button.characterId) : undefined)
+      ?? nextCharacterByName.get(button.characterName);
 
-    if (nextCharacterIndex === undefined) {
+    if (!target) {
       removedButtonBuffRefs.push([...(button.selectedBuff || [])]);
       return;
     }
 
     const nextButton = {
       ...button,
-      staffIndex: nextCharacterIndex,
-      position: getReconciledButtonPosition(button.nodeIndex, nextCharacterIndex, button.position),
+      characterId: target.character.id,
+      characterName: target.character.name,
+      staffIndex: target.index,
+      lineIndex: target.index,
+      position: getReconciledButtonPosition(button.nodeIndex, target.index, button.position),
       updatedAt: Date.now(),
     };
 

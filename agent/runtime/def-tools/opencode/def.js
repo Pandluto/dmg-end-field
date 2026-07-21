@@ -124,7 +124,7 @@ function mutationTargetFingerprint(toolName, input = {}) {
 }
 
 function isDefMutationTool(toolName) {
-  return /(?:operator[_.]config|worknode[_.](?:sync|create|delete|checkout|restore)|node_(?:sync|fork|use|restore)|team[_.]loadout[_.]plan[_.]apply)/i.test(String(toolName || ''))
+  return /(?:operator[_.]config|worknode[_.](?:sync|create|delete|checkout|restore)|node_(?:sync|fork|use|restore)|team[_.](?:selection|loadout[_.]plan[_.]apply))/i.test(String(toolName || ''))
 }
 
 function normalizeToolFailureCode(error) {
@@ -775,6 +775,7 @@ function readWorkbenchApprovalIdentity(context, binding) {
   return {
     timelineId: binding.saveId || attached?.context?.timeline?.id || '',
     axisBindingId: attached?.axisBindingId || attached?.context?.axisContext?.binding?.id || '',
+    sessionBindingId: attached?.axisBindingId || attached?.context?.axisContext?.binding?.id || '',
   }
 }
 
@@ -1430,6 +1431,87 @@ export const data_operator_catalog = dataResource({
   tool: 'def.operator.catalog.search',
   input: ({ query }) => ({ query, limit: 12 }),
 })
+
+export const team_selection_apply = {
+  description: 'Apply one exact one-to-four operator roster after native user approval. Resolve every stable id with def_data_operator_catalog first. Reordering or any roster with at least one retained operator stays in the current SQLite and creates an Agent-named horizontal Work Node; only a complete four-person roster with zero overlap creates a new temporary SQLite and detaches this DEF session. Never call this for a read-only roster question.',
+  args: {
+    characterIds: tool.schema.array(tool.schema.string().min(1).max(160)).min(1).max(4)
+      .describe('One to four exact stable operator ids from def_data_operator_catalog, in the requested line order.'),
+    nodeTitle: tool.schema.string().min(2).max(48)
+      .describe('Concise Agent-written title for the roster branch; no [ai] prefix, ids, timestamps, or fixed template.'),
+    nodeDescription: tool.schema.string().min(8).max(240)
+      .describe('One Agent-written sentence describing the roster change and retained scope.'),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'Apply DEF team selection' })
+    const workbench = await readWorkbenchState(context)
+    requireWorkbenchCheckoutReady(context)
+    requireWorkbenchSelectionMatchesCheckout(workbench)
+    const checkoutNodeId = workbench.checkoutNodeId
+    const currentCharacterIds = (Array.isArray(workbench.snapshot?.selectedCharacters)
+      ? workbench.snapshot.selectedCharacters
+      : []).map((character) => character?.id).filter(Boolean)
+    if (JSON.stringify(currentCharacterIds) === JSON.stringify(args.characterIds)) {
+      const unchanged = {
+        ok: true,
+        state: 'UNCHANGED',
+        code: 'selection-unchanged',
+        transition: 'unchanged',
+        timelineId: workbench.snapshot?.axisContext?.binding?.timelineId || null,
+        nodeId: checkoutNodeId,
+        currentCheckoutTouched: false,
+        postcondition: { pass: true, selectedCharacterIds: currentCharacterIds },
+      }
+      return {
+        title: 'DEF team selection unchanged',
+        output: JSON.stringify(unchanged, null, 2),
+        metadata: { family: 'def-team-selection', transition: 'unchanged', currentCheckoutTouched: false, postcondition: true },
+      }
+    }
+    const currentNode = checkoutNodeId
+      ? await callDefTool('def.worknode.read', { nodeId: checkoutNodeId, includePayload: false }, context)
+      : null
+    const nodeRevision = currentNode?.node?.contentRevision || currentNode?.node?.updatedAt
+    const attached = workbench.attached || {}
+    const timelineId = attached?.context?.timeline?.id || workbench.snapshot?.axisContext?.binding?.timelineId || ''
+    const axisBindingId = attached.axisBindingId || workbench.snapshot?.axisContext?.binding?.id || ''
+    const approval = await askWithApproval(context, {
+      action: 'Apply team selection',
+      summary: `Apply selected roster: ${args.characterIds.join(', ')}`,
+      permission: 'def_team_selection_apply',
+      nodeId: checkoutNodeId || undefined,
+      revision: nodeRevision,
+      timelineId,
+      axisBindingId,
+      sessionBindingId: axisBindingId,
+      parentNodeId: checkoutNodeId || undefined,
+      parentRevision: nodeRevision,
+      patterns: [
+        `节点标题: ${args.nodeTitle}`,
+        `修改描述: ${args.nodeDescription}`,
+        `选中干员: ${args.characterIds.join('、')}`,
+        '规则: 保留任一原干员时横向分支；仅四人全不相同时新建临时 SQLite',
+      ],
+      consequence: 'The exact roster is applied after renderer verification. A disjoint four-person roster enters a new temporary SQLite and detaches this AI session.',
+    })
+    const result = await callDefTool('def.team.selection.apply', {
+      characterIds: args.characterIds,
+      nodeTitle: args.nodeTitle,
+      nodeDescription: args.nodeDescription,
+      approvalCapability: approval.approvalCapability,
+    }, context)
+    return {
+      title: result.ok ? 'DEF team selection applied' : 'DEF team selection not applied',
+      output: JSON.stringify(result, null, 2),
+      metadata: {
+        family: 'def-team-selection',
+        transition: result.transition || null,
+        currentCheckoutTouched: result.currentCheckoutTouched === true,
+        postcondition: result.postcondition?.pass === true,
+      },
+    }
+  },
+}
 
 export const data_operator_build_guide = {
   description: 'Required first evidence step only when judging which weapon or equipment better fits a specific operator: an operator-specific recommendation, optimization, 3+1 plan, or suitability comparison. Pure catalog facts, field/ID/slot/effect lookups, and comparisons unrelated to operator fit do not require this tool and should use the narrowest trusted typed catalog resource. For the applicable operator-fit flow, it resolves one exact operator and searches every allowlisted game-knowledge reference for an operator-specific build section. GUIDE_FOUND returns one bounded strategy section plus a server-compiled plannerProfile and same-turn plannerProfileCapability; pass that pair unchanged to planning. Only PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND returns a same-session, same-turn fallbackToken for def_data_operator_build_profile. This tool never searches the equipment catalog or mutates configuration.',
