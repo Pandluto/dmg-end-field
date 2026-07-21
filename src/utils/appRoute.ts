@@ -6,7 +6,6 @@ export const APP_ROUTE_PATHS = {
   equipmentSheet: '/sheet-equipment',
   operatorConfig: '/operator-config',
   timelineSkillDetail: '/timeline-skill-detail',
-  damageSheet: '/damage-sheet',
   damageReportPpt: '/damage-report-ppt',
   imageManager: '/image-manager',
   aiCli: '/ai-cli',

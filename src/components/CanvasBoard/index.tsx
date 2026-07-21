@@ -4167,10 +4167,6 @@ export function CanvasBoard({
     setIsReportModalOpen(false);
   };
 
-  const handleOpenReportSheet = () => {
-    navigateToAppPath(APP_ROUTE_PATHS.damageSheet);
-  };
-
   const handleSkillButtonModalOpen = () => {
     onSkillButtonModalOpen?.();
   };
@@ -4313,7 +4309,6 @@ export function CanvasBoard({
               onSave={handleOpenSaveSnapshotModal}
               onRestore={handleOpenSnapshotModal}
               onShare={handleOpenShareModal}
-              onTable={handleOpenReportSheet}
               onCalculate={handleOpenDamageReport}
             />
           </div>

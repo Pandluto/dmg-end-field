@@ -658,7 +658,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             operatorConfig: APP_ROUTE_PATHS.operatorConfig,
             weaponSheet: APP_ROUTE_PATHS.weaponSheet,
             equipmentSheet: APP_ROUTE_PATHS.equipmentSheet,
-            damageSheet: APP_ROUTE_PATHS.damageSheet,
             damageReportPpt: APP_ROUTE_PATHS.damageReportPpt,
             aiCli: APP_ROUTE_PATHS.aiCli,
           };

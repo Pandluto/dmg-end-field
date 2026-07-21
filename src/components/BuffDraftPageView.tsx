@@ -3,6 +3,7 @@ import type * as React from 'react';
 import type { BuffCategory, BuffEffectKind } from '../core/domain/buff';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
+import './WorkbookSheet.css';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 
 import * as buffDraftPageModel from './buffDraftPageModel';

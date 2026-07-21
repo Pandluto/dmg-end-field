@@ -4,7 +4,6 @@ import {
 } from '../utils/draftShare';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
-import './DamageSheetPage.css';
 import './EquipmentSheetPage.css';
 
 import * as equipmentSheetPageModel from './equipmentSheetPageModel';

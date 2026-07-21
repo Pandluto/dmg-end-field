@@ -444,7 +444,7 @@ export function handleAiCliRestRequest(
           'saveTimelineSnapshot/restoreTimelineSnapshot are legacy user snapshot compatibility tools for current checkout only; do not use them as AI branch logs or appdata work nodes.',
           'Use setOperatorConfig to atomically change a selected operator weapon and/or equipment before refreshing operator config.',
           'Legacy setOperatorWeapon/setOperatorEquipment remain supported; use setOperatorConfig with gearSetName/gearSetId and fillSlots:true for a four-piece loadout, or slotKey plus equipmentName/equipmentId for one piece.',
-          'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageSheet, damageReportPpt, aiCli, selection, or canvas.',
+          'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageReportPpt, aiCli, selection, or canvas.',
         ],
       },
       emergencyFallback: {

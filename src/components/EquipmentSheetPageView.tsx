@@ -3,7 +3,7 @@ import { normalizeAssetUrl } from '../utils/assetResolver';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
-import './DamageSheetPage.css';
+import './WorkbookSheet.css';
 import './EquipmentSheetPage.css';
 
 import * as equipmentSheetPageModel from './equipmentSheetPageModel';

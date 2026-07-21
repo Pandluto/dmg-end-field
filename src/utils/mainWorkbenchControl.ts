@@ -50,7 +50,6 @@ export type MainWorkbenchCommand =
         | 'operatorConfig'
         | 'weaponSheet'
         | 'equipmentSheet'
-        | 'damageSheet'
         | 'damageReportPpt'
         | 'aiCli';
       characterId?: string;

@@ -49,10 +49,11 @@
 
 - 删除不可达的旧 Buff 表单编辑器。
 - 删除伤害表 XLSX 导出入口、专用导出器和 `exceljs` 运行时依赖。
-- Buff 与 Damage 工作表改为直接从业务行数据生成 UI 单元格，不再创建临时工作簿。
+- Buff 工作表改为直接从业务行数据生成 UI 单元格，不再创建临时工作簿。
 - Weapon、Buff、Equipment 三个页面拆为稳定入口、状态控制器、渲染视图和领域模型；原入口文件均缩为 8 行兼容 facade。
 - 第二轮将公式编辑器、单元格编辑器与资源树 JSX 从 controller 移回 view，再将公式 binding、分享导入导出、资源树拖拽和 Equipment 图片选择器按完整职责抽到独立模块。当前 controller 为 Weapon 964 行、Buff 1,002 行、Equipment 972 行，三者均已进入约 1,000 行的目标区间。
-- `DamageSheetPage.tsx` 将伤害投影、工作表模型与 Buff 列关联收口到 `damageSheetPageModel.tsx`，将浏览器撤销快照收口到 `damageSheetUndoHistory.ts`；页面入口从 2,443 行降至 1,131 行，两个新边界分别为 1,208 行和 141 行。
+- 用户确认长期未维护的 Damage Sheet 已不再需要，因此整体删除 `DamageSheetPage`、`/damage-sheet` 路由、画布“表格”按钮及 AI 页面枚举；独立的“计算伤害”/PPT 报表保留。
+- 原 `DamageSheetPage.css` 中被 Weapon、Buff、Equipment 和 Image Manager 复用的工作表外壳已解耦为 `WorkbookSheet.css`，各消费页显式引用；伤害表专用样式随功能删除。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 

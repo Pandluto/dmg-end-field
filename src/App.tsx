@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useState } from 'react';
-import { DamageSheetPage, isDamageSheetPath } from './components/DamageSheetPage';
 import { DamageReportPptPage, isDamageReportPptPath } from './components/DamageReportPptPage';
 import { WorkbenchFrame } from './components/WorkbenchFrame';
 import { OperatorDraftPage, isDraftPath } from './components/OperatorDraftPage';
@@ -62,10 +61,6 @@ function App() {
 
   if (isEquipmentSheetPath(currentPath)) {
     return <EquipmentSheetPage />;
-  }
-
-  if (isDamageSheetPath(currentPath)) {
-    return <DamageSheetPage />;
   }
 
   if (isDamageReportPptPath(currentPath)) {
