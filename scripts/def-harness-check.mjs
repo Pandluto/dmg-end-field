@@ -23,12 +23,15 @@ const loader = harness.createLoader(runtime);
 const stable = loader.resolve('stable');
 const candidate = loader.resolve('candidate/v1');
 assert.notEqual(stable.ref.contentHash, candidate.ref.contentHash, 'stable and candidate cannot share content');
+const candidateTeachingSlots = new Set(['skills', 'routingPolicy', 'toolGuidance', 'responsePolicy', 'workflows']);
 for (const slot of harness.SLOT_NAMES) {
   const stableHashes = stable.package.slots[slot].map((artifact) => artifact.hash);
   const candidateHashes = candidate.package.slots[slot].map((artifact) => artifact.hash);
-  if (slot === 'responsePolicy') assert.notDeepEqual(candidateHashes, stableHashes, 'candidate changes only responsePolicy');
+  if (candidateTeachingSlots.has(slot)) assert.notDeepEqual(candidateHashes, stableHashes, `candidate changes the ${slot} teaching slot`);
   else assert.deepEqual(candidateHashes, stableHashes, `candidate materializes the stable ${slot} slot unchanged`);
 }
+assert.match(fs.readFileSync(path.join(candidateSource, 'skills.md'), 'utf8'), /load the native `timeline-workbench` Skill/);
+assert.match(fs.readFileSync(path.join(candidateSource, 'tool-guidance.md'), 'utf8'), /Never use `lineIndex` as an action sequence number/);
 const stableBinding = harness.createSessionBinding({ sessionId: 'ses_existing_stable', resolved: stable });
 harness.setChannel(runtime, 'stable', candidateRef);
 assert.equal(stableBinding.harness.contentHash, stableRef.contentHash, 'existing bindings cannot drift after a channel change');

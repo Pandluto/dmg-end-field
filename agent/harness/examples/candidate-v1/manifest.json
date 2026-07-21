@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "harnessId": "def-candidate",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Candidate enforcing sticky unified team planning after an exact named-guide read.",
   "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
   "slots": {
