@@ -41,6 +41,8 @@ const frostSet = {
   gearSetId: 'gear-set-han-liu',
   name: '寒流',
   equipments: {
+    frostArmor: equipment('frost-armor', '冻原轻甲', '护甲', { agility: effect('灵巧', 'agilityBoost') }),
+    frostGlove: equipment('frost-glove', '冻原护手', '护手', { agility: effect('灵巧', 'agilityBoost') }),
     frostAccessory: equipment('frost-accessory', '冻原供氧栓', '配件', { strength: effect('力量', 'strengthBoost') }),
   },
 };
@@ -211,18 +213,22 @@ try {
   assert.equal(threePlusOne.contract, 'DefEquipmentThreePlusOneFactsV1');
   assert.equal(threePlusOne.state, 'REQUIRES_ATTRIBUTE_PREFERENCE');
   assert.equal(threePlusOne.targetSetPieceCount, 3);
+  assert.equal(threePlusOne.topologiesExhaustive, true);
   assert.equal(threePlusOne.structuresExhaustive, true);
-  assert.equal(threePlusOne.structures.length, 2, 'two target-set accessories produce two evidence structures');
-  const firstStructure = threePlusOne.structures[0];
-  assert.deepEqual(firstStructure.setPieces.map((item) => item.slot), ['armor', 'glove', 'accessory1']);
-  assert.ok(firstStructure.setPieces.every((item) => item.stableId && item.fixedStat?.typeKey === 'defense' && item.effects && item.selectionReason));
-  assert.equal(firstStructure.plusOne.slot, 'accessory2');
-  assert.equal(firstStructure.plusOne.candidatesExhaustive, true);
-  assert.equal(firstStructure.plusOne.candidates.length, 1);
-  assert.equal(firstStructure.plusOne.candidates[0].stableId, 'frost-accessory');
-  assert.match(firstStructure.plusOne.selectionReason, /unranked/i);
+  assert.equal(threePlusOne.topologies.length, 4, 'all four possible off-set physical slots are represented without expanding or truncating combinations');
+  assert.ok(threePlusOne.topologies.every((topology) => topology.status === 'AVAILABLE'));
+  const offSetArmor = threePlusOne.topologies.find((topology) => topology.id === 'off-set-armor');
+  assert.deepEqual(offSetArmor.targetSlots.map((item) => item.slot), ['glove', 'accessory1', 'accessory2']);
+  assert.equal(offSetArmor.offSetSlot.slot, 'armor');
+  assert.equal(offSetArmor.offSetCandidates[0].stableId, 'frost-armor');
+  assert.equal(offSetArmor.duplicatePolicy.allowedAcrossDistinctCompatibleSlots, true);
+  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory1.some((item) => item.stableId === 'tide-accessory-1'));
+  assert.ok(offSetArmor.targetPieceCandidatesBySlot.accessory2.some((item) => item.stableId === 'tide-accessory-1'), 'the same compatible accessory can be selected once in each real accessory slot');
+  const offSetAccessoryTwo = threePlusOne.topologies.find((topology) => topology.id === 'off-set-accessory2');
+  assert.deepEqual(offSetAccessoryTwo.targetSlots.map((item) => item.slot), ['armor', 'glove', 'accessory1']);
+  assert.equal(offSetAccessoryTwo.offSetCandidates[0].stableId, 'frost-accessory');
   assert.equal(threePlusOne.missingReasons[0].code, 'attribute-preference-required');
-  assert.match(threePlusOne.nextAction, /do not recommend or apply/i);
+  assert.match(threePlusOne.nextAction, /do not assume/i);
 
   const aliasSet = await call({ domain: 'equipment', query: 'ｔｉｄｅ　ｓｕｒｇｅ套' });
   assert.equal(aliasSet.selectionMode, 'entity-full');

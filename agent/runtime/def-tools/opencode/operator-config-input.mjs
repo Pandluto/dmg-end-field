@@ -14,6 +14,7 @@ export function buildDefOperatorConfigInput(args = {}) {
   return {
     nodeTitle: typeof args.nodeTitle === 'string' ? args.nodeTitle.trim() : '',
     nodeDescription: typeof args.nodeDescription === 'string' ? args.nodeDescription.trim() : '',
+    ...(typeof args.proposalToken === 'string' && args.proposalToken.trim() ? { proposalToken: args.proposalToken.trim() } : {}),
     ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
     ...(typeof args.characterName === 'string' && args.characterName.trim() ? { characterName: args.characterName.trim() } : {}),
     ...(weapon ? { weapon } : {}),
@@ -61,6 +62,31 @@ export function hasDefOperatorConfigSelection(input = {}) {
   return Boolean(input.weapon || input.gearSetName || input.gearSetId || input.equipmentName || input.equipmentId || input.equipments?.length)
 }
 
+function assertDefOperatorConfigReviewInput(input) {
+  if (input.nodeTitle.length < 2 || input.nodeTitle.length > 32) {
+    throw new Error('Operator configuration review requires a concise 2-32 character Agent-written node title.')
+  }
+  if (input.nodeDescription.length < 8 || input.nodeDescription.length > 160) {
+    throw new Error('Operator configuration review requires an 8-160 character Agent-written change description.')
+  }
+  if (!hasDefOperatorConfigSelection(input)) {
+    throw new Error('Provide an exact weapon or equipment selection before reviewing operator configuration.')
+  }
+}
+
+export async function executeDefOperatorConfigPreview(args, context, dependencies) {
+  const input = buildDefOperatorConfigInput(args)
+  assertDefOperatorConfigReviewInput(input)
+  const turn = dependencies.getOperatorConfigTurnIdentity?.(context) || {
+    turnID: context?.messageID || context?.callID || '',
+    applyIntent: '',
+  }
+  return dependencies.callDefTool('def.operator.config.preview', {
+    ...input,
+    __defTurnId: turn.turnID,
+  }, context)
+}
+
 export async function executeDefOperatorConfigAtomic(args, context, dependencies) {
   const input = buildDefOperatorConfigInput(args)
   if (input.nodeTitle.length < 2 || input.nodeTitle.length > 32) {
@@ -72,7 +98,15 @@ export async function executeDefOperatorConfigAtomic(args, context, dependencies
   if (!hasDefOperatorConfigSelection(input)) {
     throw new Error('Provide an exact weapon or equipment selection before applying operator configuration.')
   }
-  const prepared = await dependencies.callDefTool('def.operator.config.prepare', input, context)
+  const turn = dependencies.getOperatorConfigTurnIdentity?.(context) || {
+    turnID: context?.messageID || context?.callID || '',
+    applyIntent: '',
+  }
+  const prepared = await dependencies.callDefTool('def.operator.config.prepare', {
+    ...input,
+    __defTurnId: turn.turnID,
+    __defApplyIntent: turn.applyIntent,
+  }, context)
   let approval
   try {
     approval = await dependencies.askWithApproval(context, {

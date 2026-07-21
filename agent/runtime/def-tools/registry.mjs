@@ -223,6 +223,7 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.operator.config.preview', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_preview', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.operator.config.patch', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_patch', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
 ]);
 

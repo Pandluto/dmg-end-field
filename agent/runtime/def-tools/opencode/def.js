@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createHmac, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
 // Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
 // a nonexistent repo-root @opencode-ai/plugin installation. This is a local
@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto'
 // entrypoint; bare package subpaths are not resolved from this repository.
 import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
-import { executeDefOperatorConfigAtomic } from './operator-config-input.mjs'
+import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -28,12 +28,14 @@ const nativeCatalogArtifactsBySession = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
+const defOperatorConfigTurnIntents = new Map()
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
   'prepared-capability-session-mismatch',
   'prepared-capability-consumed',
   'approval-capability-required',
+  'operator-config-apply-intent-required',
 ])
 
 function defToolFailureScope(context) {
@@ -55,15 +57,60 @@ export function beginDefToolTurn(sessionID, turnID) {
   }
 }
 
-export function beginDefToolTurnFromChatMessage(sessionID, turnID) {
+function userTextFromChatParts(parts) {
+  return (Array.isArray(parts) ? parts : [])
+    .filter((part) => part?.type === 'text')
+    .map((part) => String(part.text || ''))
+    .join('\n')
+    .trim()
+}
+
+function hasExplicitOperatorConfigApplyIntent(text) {
+  const normalized = String(text || '').normalize('NFKC').replace(/\s+/g, '')
+  if (!normalized) return false
+  if (/(?:不要|先不|暂不|别|不)\s*(?:应用|换上|执行|配置)/.test(normalized)) return false
+  if (/^确认(?:[。！!]|$)/.test(normalized)) return true
+  return /(?:确认(?:应用|换上|执行|装备|配置)|同意(?:应用|换上|执行)|(?:请|就|直接|现在)?(?:应用|换上|执行)(?:这套|该方案|此方案|它|吧|。|！|$)|按(?:这套|该方案|此方案).{0,12}(?:应用|换上|执行))/.test(normalized)
+}
+
+function operatorConfigApplyIntentSignature(sessionID, turnID) {
+  const secret = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
+    ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
+    : ''
+  if (!secret || !sessionID || !turnID) return ''
+  return createHmac('sha256', secret)
+    .update(`def-operator-config-apply:v1:${sessionID}:${turnID}`)
+    .digest('base64url')
+}
+
+export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
   beginDefToolTurn(sessionID, turnID)
+  if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
+  defOperatorConfigTurnIntents.set(sessionID, {
+    turnID,
+    explicitApply: hasExplicitOperatorConfigApplyIntent(userTextFromChatParts(parts)),
+    updatedAt: Date.now(),
+  })
+  if (defOperatorConfigTurnIntents.size > 256) defOperatorConfigTurnIntents.delete(defOperatorConfigTurnIntents.keys().next().value)
+}
+
+export function getDefOperatorConfigTurnIdentity(context = {}) {
+  const sessionID = typeof context?.sessionID === 'string' ? context.sessionID : ''
+  const turnID = activeDefToolTurns.get(sessionID)
+    || (typeof context?.messageID === 'string' ? context.messageID : '')
+  const intent = defOperatorConfigTurnIntents.get(sessionID)
+  const explicitApply = Boolean(intent?.explicitApply && intent.turnID === turnID)
+  return {
+    turnID,
+    applyIntent: explicitApply ? operatorConfigApplyIntentSignature(sessionID, turnID) : '',
+  }
 }
 
 function stableToolInput(value) {
   if (Array.isArray(value)) return value.map(stableToolInput)
   if (!value || typeof value !== 'object') return value
   return Object.fromEntries(Object.entries(value)
-    .filter(([key]) => !['__defSessionId', 'waitMs', 'snapshotWaitMs'].includes(key))
+    .filter(([key]) => !['__defSessionId', '__defTurnId', '__defApplyIntent', 'waitMs', 'snapshotWaitMs'].includes(key))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, entry]) => [key, stableToolInput(entry)]))
 }
@@ -1665,7 +1712,7 @@ function readNativeCatalogArtifactForFacts(context, artifactId) {
 }
 
 export const data_equipment_3plus1_facts = {
-  description: 'After reading an exact native equipment artifact manifest for an explicit 3+1 request, return evidence-backed three-piece topology and full off-set accessory facts. It never ranks a fourth item, infers attribute value, or applies equipment without explicit attribute priorities.',
+  description: 'After reading an exact native equipment artifact manifest for an explicit 3+1 request, return evidence-backed complete slot topologies and full candidate pools. 3+1 means exactly three target-set memberships across armor, glove, accessory1, and accessory2; the off-set part is not presumed, and the same compatible accessory may legally occupy both accessory slots. It never ranks a candidate, infers attribute value, or applies equipment without explicit attribute priorities.',
   args: {
     artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
     setQuery: tool.schema.string().min(1).max(160).describe('One exact equipment set name from that artifact.'),
@@ -1746,7 +1793,7 @@ export const data_damage = dataResource({
 })
 
 export const operator_config_patch = {
-  description: 'Apply one complete, explicitly reviewed operator configuration through one Agent-named horizontal branch, one typed preview, native approval and atomic apply. Write a concise nodeTitle and nodeDescription for the exact change. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report only the actual typed failure and its structured nextAction, with no context/bind/materialize/read/edit call and no retry unless the error explicitly provides retryable=true plus a concrete safe nextAction. If it reports def-tool-mutation-not-attempted, that later mutation never reached the backend; do not describe it as another failure.',
+  description: 'Apply one complete operator configuration only after def_operator_config_preview returned an unchanged proposalToken in an earlier user turn and the current user explicitly asks to apply it. A correction, comparison, question, changed slot, candidate, or priority invalidates the token. The tool creates one Agent-named horizontal branch, requests native approval, then atomically applies and verifies it. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report only the actual typed failure and its structured nextAction, with no context/bind/materialize/read/edit call and no retry unless the error explicitly provides retryable=true plus a concrete safe nextAction. If it reports def-tool-mutation-not-attempted, that later mutation never reached the backend; do not describe it as another failure.',
   args: {
     // These must be actual optional Zod fields.  The legacy JSON-schema
     // adapter marks every property required, which coerced a model that was
@@ -1784,17 +1831,32 @@ export const operator_config_patch = {
     operatorSkillB: tool.schema.enum(['L9', 'M3']).optional().describe('Operator B skill level.'),
     operatorSkillE: tool.schema.enum(['L9', 'M3']).optional().describe('Operator E skill level.'),
     operatorSkillQ: tool.schema.enum(['L9', 'M3']).optional().describe('Operator Q skill level.'),
+    proposalToken: tool.schema.string().min(20).max(96).optional().describe('Required only for def_operator_config_patch: unchanged proposalToken returned by def_operator_config_preview in an earlier user turn for this exact configuration.'),
   },
   async execute(args, context) {
     const result = await executeDefOperatorConfigAtomic(args, context, {
       callDefTool,
       askWithApproval,
       formatApprovalPatterns: formatOperatorConfigApprovalPatterns,
+      getOperatorConfigTurnIdentity: getDefOperatorConfigTurnIdentity,
     })
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),
       metadata: { family: 'def-operator-config', currentCheckoutTouched: result.ok === true, postcondition: result.postcondition?.pass === true },
+    }
+  },
+}
+
+export const operator_config_preview = {
+  description: 'Compute and verify one exact operator weapon/equipment proposal without creating a Work Node, requesting approval, or applying a change. Return a short-lived proposalToken. Show the verified result and wait for a later explicit user application instruction; a correction or comparison requires a fresh preview.',
+  args: operator_config_patch.args,
+  async execute(args, context) {
+    const result = await executeDefOperatorConfigPreview(args, context, { callDefTool, getOperatorConfigTurnIdentity: getDefOperatorConfigTurnIdentity })
+    return {
+      title: 'DEF operator configuration preview',
+      output: JSON.stringify(result, null, 2),
+      metadata: { family: 'def-operator-config-preview', readOnly: true, currentCheckoutTouched: false },
     }
   },
 }

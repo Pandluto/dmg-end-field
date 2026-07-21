@@ -71,6 +71,16 @@ const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
 `], { encoding: 'utf8' });
 assert.equal(mutationTargetBudgetProbe.status, 0, mutationTargetBudgetProbe.stderr || mutationTargetBudgetProbe.stdout);
 
+const explicitApplyIntentProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurnFromChatMessage('intent-session', 'comparison-turn', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }]);
+  if (mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' }).applyIntent) process.exit(2);
+  mod.beginDefToolTurnFromChatMessage('intent-session', 'apply-turn', [{ type: 'text', text: '确认。' }]);
+  const intent = mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' });
+  if (intent.turnID !== 'apply-turn' || !intent.applyIntent) process.exit(3);
+`], { encoding: 'utf8', env: { ...process.env, DEF_INTERNAL_GOVERNANCE_TOKEN: 'turn-intent-contract' } });
+assert.equal(explicitApplyIntentProbe.status, 0, explicitApplyIntentProbe.stderr || explicitApplyIntentProbe.stdout);
+
 const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('mutation-session', 'mutation-turn');
@@ -85,6 +95,7 @@ const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/openco
 assert.match(defToolSource, /mutationTargetFingerprint/);
 assert.match(defToolSource, /def-tool-mutation-not-attempted/);
 assert.match(defToolSource, /denied-native-catalog-artifact-scope/);
+assert.match(defToolSource, /hasExplicitOperatorConfigApplyIntent/);
 assert.doesNotMatch(defToolSource, /catalog-readonly-/);
 
 const nativeServerSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');

@@ -67,6 +67,7 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.verify.damage_recalculated', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify damage report exists and expose generatedAt/total.' },
   { name: 'def.verify.worknode_diff_clean', scope: 'verification', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Verify work node diff/risk before checkout.' },
   { name: 'def.operator.config.read', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read compact operator config summary from snapshot.' },
+  { name: 'def.operator.config.preview', scope: 'current-checkout', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Compute and verify one exact operator configuration proposal without creating a branch, requesting approval, or applying it.' },
   { name: 'def.operator.config.patch', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Structured operator config patch for weapon/equipment fields.' },
   { name: 'def.gear.set_entry_level', scope: 'current-checkout', riskLevel: 'medium', approval: 'ai-review', status: 'implemented', description: 'Set equipped gear entry level through structured config commands.' },
 ]);
