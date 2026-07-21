@@ -493,10 +493,18 @@ function proxySseUrl(url, clientRequest, clientResponse, options = {}) {
 
 async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
   const method = request.method || 'GET';
-  if (!requestUrl.pathname.startsWith('/api/main-workbench/')
-    && !requestUrl.pathname.startsWith('/api/ai-timeline-worknodes')
-    && !requestUrl.pathname.startsWith('/api/timeline-')) return false;
-  if (!isAllowedWorkbenchRendererTransport(method, requestUrl.pathname)
+  // The React repository clients enter through /local-data while the typed
+  // REST service exposes the same bounded renderer surface under /api.  The
+  // development bridge used to reject the former before it could reach that
+  // allowlist, leaving sessionStorage on a stale workspace id and preventing
+  // DefOpenCodeView from creating its native Workbench session.
+  const upstreamPathname = requestUrl.pathname.startsWith('/local-data/')
+    ? `/api/${requestUrl.pathname.slice('/local-data/'.length)}`
+    : requestUrl.pathname;
+  if (!upstreamPathname.startsWith('/api/main-workbench/')
+    && !upstreamPathname.startsWith('/api/ai-timeline-worknodes')
+    && !upstreamPathname.startsWith('/api/timeline-')) return false;
+  if (!isAllowedWorkbenchRendererTransport(method, upstreamPathname)
     || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
       bridgeHost: HOST,
       bridgePort: PORT,
@@ -505,8 +513,8 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
     return true;
   }
   await startAiCliRest();
-  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${buildWorkbenchUpstreamSearch(requestUrl)}`;
-  if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
+  const upstreamUrl = `http://127.0.0.1:17321${upstreamPathname}${buildWorkbenchUpstreamSearch(requestUrl)}`;
+  if (method === 'GET' && upstreamPathname === '/api/main-workbench/commands/events') {
     proxySseUrl(upstreamUrl, request, response, {
       headers: { 'x-def-internal-token': defInternalGovernanceToken },
       origin: String(request.headers.origin || ''),

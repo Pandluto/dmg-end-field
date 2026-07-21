@@ -97,10 +97,34 @@ assert(proxySource.includes('isAuthorizedWorkbenchRendererRequest'),
 assert(rendererTransportSource.includes("'POST /api/main-workbench/snapshot'"));
 assert(rendererTransportSource.includes("'GET /api/main-workbench/commands/events'"));
 assert(!proxySource.includes('checkout-projection'), 'native checkout assertion must not be exposed to browser renderers');
+const developmentBridgeSource = fs.readFileSync(new URL('../agent/dev-agent.cjs', import.meta.url), 'utf8');
+const developmentProxySource = developmentBridgeSource.slice(
+  developmentBridgeSource.indexOf('async function proxyMainWorkbenchRendererTransport'),
+  developmentBridgeSource.indexOf('function waitForProcessExit'),
+);
+assert(developmentProxySource.includes("requestUrl.pathname.startsWith('/local-data/')"),
+  'development bridge must translate capability-authorized /local-data renderer reads to its typed /api surface');
+assert(developmentProxySource.includes("`/api/${requestUrl.pathname.slice('/local-data/'.length)}`"),
+  'development bridge translation must preserve only the bounded /local-data suffix');
+assert(developmentProxySource.includes('isAllowedWorkbenchRendererTransport(method, upstreamPathname)'),
+  'translated development renderer requests must still pass the upstream typed-tool allowlist');
 assert(!mainSource.includes('installDefRawTransportHeader'),
   'Electron must not grant raw REST authority to every defaultSession renderer');
 assert(mainSource.includes('buildInteropNativeHeaders'),
   'Interop fixture creation and cleanup must carry native authority into protected local-data routes');
+const agentStartSource = mainSource.slice(
+  mainSource.indexOf('async function startDefAgent'),
+  mainSource.indexOf('function warmAiRuntimeAtStartup'),
+);
+for (const requiredStorageBinding of [
+  'AI_CLI_NOW_STORAGE_PATH: getNowStoragePath()',
+  'AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath()',
+  'TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath()',
+  'DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot()',
+]) {
+  assert(agentStartSource.includes(requiredStorageBinding),
+    'DEF agent child must inherit the Electron typed-tool storage topology for safe REST recovery');
+}
 
 const rendererCapability = createWorkbenchRendererCapability();
 assert.notEqual(rendererCapability, createWorkbenchRendererCapability(), 'renderer capability must rotate per process');

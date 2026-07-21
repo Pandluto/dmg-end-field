@@ -90,6 +90,7 @@ const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
+const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV1';
 const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
@@ -143,6 +144,24 @@ function resolveRegisteredDefNativeCatalogSession(value) {
   pruneRegisteredDefNativeCatalogSessions();
   const sessionId = normalizeDefNativeCatalogSessionId(value);
   return sessionId ? registeredDefNativeCatalogSessions.get(sessionId) || null : null;
+}
+
+// A native catalog artifact is intentionally sidecar-ephemeral, but a
+// Workbench session binding is durable SQLite authority.  When the sidecar is
+// restarted while Electron and OpenCode remain alive, the native plugin has
+// already proved the internal governance token and can present its exact
+// session id again.  Recover only a live, non-temporary Workbench binding;
+// never infer a host from a user supplied id or grant this recovery to an
+// unauthenticated loopback caller.
+function restoreRegisteredDefNativeCatalogSession(input = {}, invocation = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const existing = resolveRegisteredDefNativeCatalogSession(sessionId);
+  if (existing) return existing;
+  if (!sessionId || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) return null;
+  const binding = getTimelineRepository().getSessionAxisBindingBySession('workbench', sessionId);
+  const document = binding ? getTimelineRepository().getDocument(binding.timelineId) : null;
+  if (!binding || binding.host !== 'workbench' || !document || document.archivedAt || document.isTemporary) return null;
+  return registerDefNativeCatalogSession({ sessionId, host: 'workbench' });
 }
 
 function consumeApprovedApplyCapability(input = {}, expected = {}) {
@@ -2945,6 +2964,139 @@ function buildDefNativeCatalogSnapshot(domain) {
   return { ok: false, code: 'native-catalog-domain-invalid', message: 'domain must be equipment or weapon.', domain };
 }
 
+function resolveDefNativeEquipmentGearSet(snapshot, query) {
+  const normalized = nativeCatalogText(query);
+  if (!normalized) return { ok: false, code: 'equipment-3plus1-set-query-required', message: 'A non-empty exact equipment set query is required.' };
+  const gearSetAliases = readDefNativeGearSetAliasIndex();
+  const aliasedGearSetIds = new Set([...gearSetAliases.entries()]
+    .filter(([term]) => normalized === term || normalized.includes(term))
+    .map(([, gearSetId]) => gearSetId));
+  const matches = snapshot.gearSets.filter((gearSet) => {
+    const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
+    return aliasedGearSetIds.has(gearSet.id)
+      || identities.some((identity) => normalized === identity || normalized.includes(identity));
+  });
+  if (matches.length !== 1) {
+    return {
+      ok: false,
+      code: matches.length === 0 ? 'equipment-3plus1-set-not-found' : 'equipment-3plus1-set-ambiguous',
+      message: matches.length === 0
+        ? 'The materialized equipment catalog does not contain one exact matching set.'
+        : 'The set query resolves to multiple catalog sets; choose one exact set name.',
+      candidates: matches.map((item) => ({ id: item.id, name: item.name })),
+    };
+  }
+  return { ok: true, set: matches[0] };
+}
+
+function projectDefEquipmentThreePlusOnePiece(item, { slot, setPieceCount, selectionReason }) {
+  return {
+    stableId: item.id,
+    name: item.name,
+    part: item.part,
+    slot,
+    availableSlots: item.availableSlots,
+    gearSet: item.gearSet,
+    fixedStat: item.fixedStat || null,
+    effects: item.effects || {},
+    setPieceCount,
+    selectionReason,
+  };
+}
+
+function buildDefEquipmentThreePlusOneFacts(input = {}) {
+  const expectedRevision = typeof input.sourceRevision === 'string' ? input.sourceRevision.trim() : '';
+  const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
+  if (!expectedRevision) {
+    return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 facts request must name the source revision from a native catalog artifact.' };
+  }
+  const snapshot = buildDefNativeCatalogSnapshot('equipment');
+  if (!snapshot.ok) return snapshot;
+  if (snapshot.source.revision !== expectedRevision) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-source-revision-stale',
+      message: 'The equipment catalog changed after the native artifact was materialized. Capture a fresh artifact before planning.',
+      expectedSourceRevision: expectedRevision,
+      actualSourceRevision: snapshot.source.revision,
+    };
+  }
+  const resolved = resolveDefNativeEquipmentGearSet(snapshot, setQuery);
+  if (!resolved.ok) return { ...resolved, source: snapshot.source, setQuery };
+  const gearSet = resolved.set;
+  const byPart = {
+    armor: gearSet.equipments.filter((item) => item.availableSlots.includes('armor')),
+    glove: gearSet.equipments.filter((item) => item.availableSlots.includes('glove')),
+    accessory: gearSet.equipments.filter((item) => item.availableSlots.includes('accessory1') || item.availableSlots.includes('accessory2')),
+  };
+  const offSetAccessories = snapshot.entities
+    .filter((item) => item.gearSet?.id !== gearSet.id
+      && (item.availableSlots.includes('accessory1') || item.availableSlots.includes('accessory2')))
+    .sort((left, right) => left.id.localeCompare(right.id));
+  const allStructures = byPart.armor.flatMap((armor) => byPart.glove.flatMap((glove) => byPart.accessory.map((accessory) => ({
+    setPieceCount: 3,
+    setPieces: [
+      projectDefEquipmentThreePlusOnePiece(armor, {
+        slot: 'armor',
+        setPieceCount: 3,
+        selectionReason: 'Required target-set armor for the requested three-piece topology; no attribute ranking was applied.',
+      }),
+      projectDefEquipmentThreePlusOnePiece(glove, {
+        slot: 'glove',
+        setPieceCount: 3,
+        selectionReason: 'Required target-set glove for the requested three-piece topology; no attribute ranking was applied.',
+      }),
+      projectDefEquipmentThreePlusOnePiece(accessory, {
+        slot: 'accessory1',
+        setPieceCount: 3,
+        selectionReason: 'Required target-set accessory for the requested three-piece topology; no attribute ranking was applied.',
+      }),
+    ],
+    plusOne: {
+      requiredPart: '配件',
+      slot: 'accessory2',
+      availableSlots: ['accessory1', 'accessory2'],
+      excludedGearSetId: gearSet.id,
+      selectionReason: 'The fourth item must be an off-set accessory. It is intentionally unranked until primary and secondary attribute priorities are supplied.',
+      candidates: offSetAccessories.map((item) => projectDefEquipmentThreePlusOnePiece(item, {
+        slot: 'accessory2',
+        setPieceCount: 0,
+        selectionReason: 'Off-set accessory candidate; no preference-derived ranking or elemental trigger inference was applied.',
+      })),
+      candidatesExhaustive: true,
+    },
+  }))));
+  const structures = allStructures.slice(0, 24);
+  if (!structures.length) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-slot-structure-unavailable',
+      message: 'The exact set cannot form one armor, one glove, and one accessory structure from this catalog.',
+      source: snapshot.source,
+      targetSet: gearSet,
+    };
+  }
+  return {
+    ok: true,
+    contract: DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT,
+    state: 'REQUIRES_ATTRIBUTE_PREFERENCE',
+    source: snapshot.source,
+    characterId: typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : null,
+    setQuery,
+    targetSet: gearSet,
+    targetSetPieceCount: 3,
+    targetSetThreePieceBuffs: gearSet.threePieceBuffs || {},
+    structures,
+    structuresExhaustive: allStructures.length <= structures.length,
+    missingReasons: [{
+      code: 'attribute-preference-required',
+      message: 'The catalog proves slot topology and each item’s fixedStat/effects, but it does not define this character’s desired primary or secondary attributes.',
+      requiredInput: ['preferredFixedStatTypeKey', 'preferredEffectTypeKeys'],
+    }],
+    nextAction: 'State the desired fixed stat and ordered secondary-effect type keys before asking for a ranked +1 item. Until then, report only these catalog facts and do not recommend or apply one off-set item.',
+  };
+}
+
 function buildDefNativeCatalogArtifact(input = {}) {
   const domain = typeof input.domain === 'string' ? input.domain.trim() : '';
   const query = typeof input.query === 'string' ? input.query.trim() : '';
@@ -2963,16 +3115,8 @@ function buildDefNativeCatalogArtifact(input = {}) {
     files: [{ path: 'entity.full.json', records: 1, content: `${JSON.stringify(canonicalizeDefNativeCatalogValue(entity), null, 2)}\n` }],
   });
   if (domain === 'equipment') {
-    const gearSetAliases = readDefNativeGearSetAliasIndex();
-    const aliasedGearSetIds = new Set([...gearSetAliases.entries()]
-      .filter(([term]) => normalized === term || normalized.includes(term))
-      .map(([, gearSetId]) => gearSetId));
-    const matchingSets = snapshot.gearSets.filter((gearSet) => {
-      const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
-      return aliasedGearSetIds.has(gearSet.id)
-        || identities.some((identity) => normalized === identity || normalized.includes(identity));
-    });
-    if (matchingSets.length === 1) return entityFull(matchingSets[0], 'exact-gear-set');
+    const resolvedSet = resolveDefNativeEquipmentGearSet(snapshot, query);
+    if (resolvedSet.ok) return entityFull(resolvedSet.set, 'exact-gear-set');
   }
   const exactEntities = snapshot.entities.filter((entity) => [entity.id, entity.name].map(nativeCatalogText).some((identity) => identity === normalized));
   if (exactEntities.length === 1) return entityFull(exactEntities[0], 'exact-entity');
@@ -7862,13 +8006,13 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   // write them into its own session directory. A generic loopback caller must
   // never receive that transport payload, even though the persisted artifact
   // itself is read-only.
-  if (name === 'def.native_catalog.materialize') {
+  if (name === 'def.native_catalog.materialize' || name === 'def.equipment.3plus1.facts') {
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
-    const registration = resolveRegisteredDefNativeCatalogSession(sessionId);
+    const registration = restoreRegisteredDefNativeCatalogSession(input, invocation);
     if (!registration || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
       return {
         ok: false,
-        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization requires an authenticated, registered DEF native session.'),
+        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization and 3+1 facts require an authenticated, registered DEF native session.'),
       };
     }
     return { ok: true, input: { ...input, __defNativeCatalogSessionId: sessionId, __defNativeCatalogSession: registration }, policy };
@@ -8278,6 +8422,19 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(400, result.code || 'native-catalog-materialize-failed', result.message || 'Unable to capture a native catalog artifact.', {
         domain: result.domain || input.domain || null,
         nextAction: 'Keep this read-only request unmodified and provide a non-empty equipment or weapon query after the local catalog is available.',
+      });
+    }
+  } else if (name === 'def.equipment.3plus1.facts') {
+    result = buildDefEquipmentThreePlusOneFacts(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'equipment-3plus1-facts-failed', result.message || 'Unable to derive evidence-backed 3+1 equipment facts.', {
+        source: result.source,
+        candidates: result.candidates,
+        expectedSourceRevision: result.expectedSourceRevision,
+        actualSourceRevision: result.actualSourceRevision,
+        nextAction: result.code === 'equipment-3plus1-source-revision-stale'
+          ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request 3+1 facts again.'
+          : 'Use one exact set name from the materialized native artifact and report only the returned fixedStat/effects facts.',
       });
     }
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {

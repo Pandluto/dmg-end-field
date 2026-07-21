@@ -215,3 +215,25 @@ Choose natural-language prompts and the number of turns according to the behavio
 being checked. Prefer a short multi-turn conversation when the behavior depends on
 clarification or retained context; a focused single turn is sufficient for an
 isolated capability.
+
+## Read-only equipment 3+1 regression
+
+For the natural-language case `为别礼挑选一套装备，3 潮涌+1，需要主副属性都对`, retain the v1
+transcript and verify the tool order is: one `def_data_native_catalog_materialize`, native
+`read` of its returned `manifestPath`, artifact-only native `read` or `grep`, then
+`def_data_equipment_3plus1_facts` for the same artifact. The turn must not call legacy
+equipment/weapon/loadout-candidates, game knowledge, Workbench/node tools, mutation, or
+approval.
+
+The answer may report the full slot/fixed-stat/effect facts, but absent an evidence-backed
+fixed-stat and ordered secondary-effect preference it must ask the minimal clarification or
+explicitly state that the fourth item cannot be ranked. It must not invent a drop main stat,
+an elemental trigger, or a damage benefit. Record the terminal state, questions, tool input
+and result summaries, plus before/after state; all state-changing and approval fields must
+remain unchanged.
+
+If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
+iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
+that the Electron-owned REST child and any sidecar-recovered REST child use the same local
+SQLite paths before opening a fresh native session; do not bypass the panel with a direct
+OpenCode page and call that a UI pass.

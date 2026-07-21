@@ -25,6 +25,7 @@ const retrievalRoot = 'retrieval'
 const nativeCatalogArtifactContract = 'DefNativeCatalogArtifactV1'
 const nativeCatalogArtifactTtlMs = 15 * 60 * 1000
 const nativeCatalogArtifactsBySession = new Map()
+const nativeCatalogTurnPolicies = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
@@ -36,6 +37,27 @@ const NON_RETRYABLE_MUTATION_CODES = new Set([
   'approval-capability-required',
 ])
 
+const READ_ONLY_CATALOG_INTENT = /(装备|武器|套装|词条|属性|力量|智识|意志|寒冷|电磁|伤害|比较|对比|筛选|资料|数据|推荐|挑选|(?:3\s*[+＋]\s*1)|查(?:一)?下|看看)/i
+const EXPLICIT_LOADOUT_MUTATION_INTENT = /(换上|穿上|装上|替换|(?:确认|请).{0,12}(?:应用|配置)|(?:给|为).{0,16}(?:换|穿|装备|配置).{0,12}(?:武器|装备|套装|配件|护甲|护手)|(?:把).{0,16}(?:换|装备).{0,12}(?:成|为|上)|应用.{0,16}(?:配装|装备|武器|套装))/i
+const THREE_PLUS_ONE_INTENT = /3(?:\s|件|套|[^\d+＋]){0,20}[+＋]\s*1/i
+const CATALOG_LEGACY_TOOLS = new Set([
+  'def_data_equipment',
+  'def_data_weapon',
+  'def_data_loadout_candidates',
+  'def_data_game_knowledge',
+  'def_data_game_knowledge_section',
+  'def_data_operator_catalog',
+  'def_workbench_context',
+])
+
+// Route denials intentionally teach the model which narrow evidence path is
+// available. They are not backend failures and therefore must not consume the
+// global same-error fuse before the model gets one chance to correct course.
+// Real typed-tool failures still use the bounded retry contract below.
+function isCatalogTurnPolicyCode(code) {
+  return typeof code === 'string' && code.startsWith('catalog-readonly-')
+}
+
 function defToolFailureScope(context) {
   const sessionId = typeof context?.sessionID === 'string' ? context.sessionID : 'unknown-session'
   const turnId = activeDefToolTurns.get(sessionId)
@@ -43,7 +65,30 @@ function defToolFailureScope(context) {
   return `${sessionId}:${turnId}`
 }
 
-export function beginDefToolTurn(sessionID, turnID) {
+function nativeCatalogTurnScope(sessionID, turnID) {
+  return `${sessionID}:${turnID}`
+}
+
+function classifyReadOnlyCatalogTurn(userText = '') {
+  const text = typeof userText === 'string' ? userText.trim() : ''
+  const mutation = EXPLICIT_LOADOUT_MUTATION_INTENT.test(text)
+  return {
+    text,
+    active: READ_ONLY_CATALOG_INTENT.test(text) && !mutation,
+    threePlusOne: THREE_PLUS_ONE_INTENT.test(text),
+  }
+}
+
+function userTextFromChatParts(parts) {
+  if (!Array.isArray(parts)) return ''
+  return parts
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string' && !part.synthetic)
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+export function beginDefToolTurn(sessionID, turnID, userText = '') {
   if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
   activeDefToolTurns.set(sessionID, turnID)
   const currentPrefix = `${sessionID}:${turnID}:`
@@ -53,6 +98,139 @@ export function beginDefToolTurn(sessionID, turnID) {
   for (const key of defToolTurnMutationStops.keys()) {
     if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnMutationStops.delete(key)
   }
+  const scope = nativeCatalogTurnScope(sessionID, turnID)
+  for (const key of nativeCatalogTurnPolicies.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== scope) nativeCatalogTurnPolicies.delete(key)
+  }
+  const classification = classifyReadOnlyCatalogTurn(userText)
+  if (classification.active) {
+    nativeCatalogTurnPolicies.set(scope, {
+      ...classification,
+      materializeRequests: new Set(),
+      artifacts: new Map(),
+      manifestReads: new Set(),
+      teamLoadoutReads: 0,
+      threePlusOneFactsRead: false,
+      createdAt: Date.now(),
+    })
+  }
+}
+
+export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts) {
+  beginDefToolTurn(sessionID, turnID, userTextFromChatParts(parts))
+}
+
+function readOnlyCatalogTurnPolicy(sessionID) {
+  const turnID = activeDefToolTurns.get(sessionID)
+  return turnID ? nativeCatalogTurnPolicies.get(nativeCatalogTurnScope(sessionID, turnID)) || null : null
+}
+
+function catalogTurnPolicyError(code, message, details = {}) {
+  const error = new Error(`${code}: ${message}`)
+  error.code = code
+  error.details = details
+  return error
+}
+
+export function assertDefReadOnlyCatalogTurnPolicy(input = {}, args = {}) {
+  const toolName = typeof input?.tool === 'string' ? input.tool : ''
+  const sessionID = typeof input?.sessionID === 'string' ? input.sessionID : ''
+  const policy = readOnlyCatalogTurnPolicy(sessionID)
+  if (!policy) return
+  if (CATALOG_LEGACY_TOOLS.has(toolName)) {
+    throw catalogTurnPolicyError(
+      'catalog-readonly-legacy-tool-denied',
+      `${toolName} is not evidence-complete for this read-only catalog turn. Materialize the native catalog instead.`,
+      { tool: toolName, requiredTool: 'def_data_native_catalog_materialize' },
+    )
+  }
+  if (toolName === 'def_data_team_loadouts') {
+    if (policy.teamLoadoutReads >= 1) {
+      throw catalogTurnPolicyError('catalog-readonly-team-loadouts-limit', 'Read current team loadouts at most once in one catalog turn.', { tool: toolName })
+    }
+    policy.teamLoadoutReads += 1
+    return
+  }
+  if (toolName === 'def_data_native_catalog_materialize') {
+    const domain = typeof args?.domain === 'string' ? args.domain.trim() : ''
+    const query = typeof args?.query === 'string' ? args.query.trim() : ''
+    const key = `${domain}:${query}`
+    if (!domain || !query) {
+      throw catalogTurnPolicyError('catalog-readonly-materialize-input-required', 'Native catalog materialization requires a non-empty domain and query.', { tool: toolName })
+    }
+    if (policy.materializeRequests.has(key)) {
+      throw catalogTurnPolicyError('catalog-readonly-materialize-duplicate', 'Do not materialize the same catalog domain/query twice in one turn.', { tool: toolName, domain, query })
+    }
+    policy.materializeRequests.add(key)
+    return
+  }
+  if (toolName === 'def_data_equipment_3plus1_facts') {
+    const artifactId = typeof args?.artifactId === 'string' ? args.artifactId.trim() : ''
+    if (!policy.threePlusOne) {
+      throw catalogTurnPolicyError('catalog-readonly-3plus1-not-requested', '3+1 facts are available only for an explicit 3+1 request.', { tool: toolName })
+    }
+    if (!artifactId || !policy.manifestReads.has(artifactId)) {
+      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before requesting 3+1 facts.', { tool: toolName, artifactId })
+    }
+    return
+  }
+  if (toolName === 'read' || toolName === 'grep' || toolName === 'glob') {
+    const rawPath = toolName === 'read' ? args?.filePath : args?.path
+    const artifact = [...policy.artifacts.values()].find((entry) => {
+      if (typeof rawPath !== 'string') return false
+      const normalized = rawPath.replaceAll('\\', '/')
+      return normalized === entry.manifestPath || normalized === entry.root || normalized.startsWith(`${entry.root}/`)
+    })
+    if (!artifact) {
+      throw catalogTurnPolicyError('catalog-readonly-native-artifact-required', 'This read-only catalog turn may use file tools only inside a returned native artifact.', { tool: toolName })
+    }
+    if (toolName !== 'read' && !policy.manifestReads.has(artifact.artifactId)) {
+      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before searching artifact records.', { tool: toolName, artifactId: artifact.artifactId })
+    }
+    if (toolName === 'read' && rawPath !== artifact.manifestPath && !policy.manifestReads.has(artifact.artifactId)) {
+      throw catalogTurnPolicyError('catalog-readonly-manifest-required', 'Read the returned native catalog manifest before reading artifact records.', { tool: toolName, artifactId: artifact.artifactId })
+    }
+    return
+  }
+  if (toolName.startsWith('def_')) {
+    throw catalogTurnPolicyError(
+      'catalog-readonly-tool-denied',
+      `${toolName} is outside the read-only native catalog plan. Use the artifact, optional current team read, and explicit 3+1 facts only.`,
+      { tool: toolName },
+    )
+  }
+}
+
+export function recordDefReadOnlyCatalogTurnToolOutput(input = {}, output = {}) {
+  const sessionID = typeof input?.sessionID === 'string' ? input.sessionID : ''
+  const policy = readOnlyCatalogTurnPolicy(sessionID)
+  if (!policy) return
+  const toolName = input?.tool
+  if (toolName === 'def_data_native_catalog_materialize') {
+    try {
+      const artifact = JSON.parse(output?.output || '')
+      if (artifact?.contract !== nativeCatalogArtifactContract || !artifact.artifactId || !artifact.root || !artifact.manifestPath) return
+      policy.artifacts.set(artifact.artifactId, {
+        artifactId: artifact.artifactId,
+        root: artifact.root,
+        manifestPath: artifact.manifestPath,
+        domain: artifact.domain,
+        source: artifact.source,
+      })
+    } catch {
+      // Failed materialization remains a normal typed-tool failure; never
+      // manufacture an artifact state merely to permit later file access.
+    }
+    return
+  }
+  if (toolName === 'read') {
+    const rawPath = output?.args?.filePath || input?.args?.filePath
+    for (const artifact of policy.artifacts.values()) {
+      if (rawPath === artifact.manifestPath) policy.manifestReads.add(artifact.artifactId)
+    }
+    return
+  }
+  if (toolName === 'def_data_equipment_3plus1_facts') policy.threePlusOneFactsRead = true
 }
 
 function stableToolInput(value) {
@@ -177,6 +355,7 @@ export function recordDefToolEventFailure(event) {
   const part = event?.properties?.part
   if (part?.type !== 'tool' || part?.state?.status !== 'error') return
   const code = normalizeToolFailureCode(part.state.error)
+  if (isCatalogTurnPolicyCode(code)) return
   recordTurnFailure({
     sessionID: part.sessionID,
     toolName: part.tool,
@@ -236,13 +415,15 @@ async function callDefTool(tool, input = {}, context = null) {
     const failure = payload?.result || payload?.error || payload
     const code = failure?.code || payload?.code || 'def-tool-failed'
     const message = failure?.message || failure?.note || payload?.message || `${tool} failed with HTTP ${response.status}`
-    const recorded = recordTurnFailure({
-      sessionID: context?.sessionID,
-      toolName: tool,
-      input,
-      code,
-      callID: context?.callID,
-    })
+    const recorded = isCatalogTurnPolicyCode(code)
+      ? null
+      : recordTurnFailure({
+        sessionID: context?.sessionID,
+        toolName: tool,
+        input,
+        code,
+        callID: context?.callID,
+      })
     if (failure?.retryable === false) stopFurtherTurnMutations({
       sessionID: context?.sessionID,
       toolName: tool,
@@ -1636,6 +1817,65 @@ export const data_native_catalog_materialize = {
         domain: artifact.domain,
         selectionMode: artifact.selectionMode,
         artifactId: artifact.artifactId,
+        readOnly: true,
+      },
+    }
+  },
+}
+
+function readNativeCatalogArtifactForFacts(context, artifactId) {
+  const normalizedId = typeof artifactId === 'string' ? artifactId.trim() : ''
+  if (!/^catalog-[a-z0-9-]{20,}$/i.test(normalizedId)) {
+    throw new Error('native-catalog-artifact-id-required: use the artifactId returned by def_data_native_catalog_materialize')
+  }
+  cleanupExpiredNativeArtifacts(context)
+  const entry = nativeCatalogArtifactsBySession.get(context?.sessionID)?.get(normalizedId)
+  if (!entry) throw new Error('native-catalog-artifact-not-found: materialize and read an unexpired artifact in this session first')
+  const manifest = readNativeArtifactManifest(entry.root)
+  if (!manifest || manifest.contract !== nativeCatalogArtifactContract || manifest.artifactId !== normalizedId || manifest.domain !== 'equipment') {
+    throw new Error('native-catalog-artifact-invalid: the supplied artifact is not an intact equipment evidence artifact')
+  }
+  if (Number(manifest.expiresAt) <= Date.now() || !nativeArtifactFilesMatch(entry.root, manifest)) {
+    removeNativeCatalogArtifact(context, normalizedId, entry.root)
+    throw new Error('native-catalog-artifact-expired-or-tampered: materialize a fresh equipment artifact and read its manifest')
+  }
+  return { root: entry.root, manifest }
+}
+
+export const data_equipment_3plus1_facts = {
+  description: 'After reading an exact native equipment artifact manifest for an explicit 3+1 request, return evidence-backed three-piece topology and full off-set accessory facts. It never ranks a fourth item, infers attribute value, or applies equipment without explicit attribute priorities.',
+  args: {
+    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    setQuery: tool.schema.string().min(1).max(160).describe('One exact equipment set name from that artifact.'),
+    characterId: tool.schema.string().min(1).max(160).optional().describe('Optional selected character identity. It is recorded only; it never supplies an unverified attribute preference.'),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'DEF 3+1 equipment facts' })
+    const artifact = readNativeCatalogArtifactForFacts(context, args.artifactId)
+    const result = await callDefTool('def.equipment.3plus1.facts', {
+      sourceRevision: artifact.manifest.source.revision,
+      setQuery: args.setQuery.trim(),
+      ...(typeof args.characterId === 'string' && args.characterId.trim() ? { characterId: args.characterId.trim() } : {}),
+    }, context)
+    if (result?.source?.revision !== artifact.manifest.source.revision) {
+      throw new Error('native-catalog-artifact-source-mismatch: the 3+1 facts result is not bound to the manifest revision')
+    }
+    return {
+      title: result.state === 'REQUIRES_ATTRIBUTE_PREFERENCE' ? 'DEF 3+1 equipment facts need priorities' : 'DEF 3+1 equipment facts',
+      output: JSON.stringify({
+        ...result,
+        artifact: {
+          artifactId: artifact.manifest.artifactId,
+          manifestPath: `${retrievalRoot}/${artifact.manifest.artifactId}/manifest.json`,
+          root: `${retrievalRoot}/${artifact.manifest.artifactId}`,
+          selectionMode: artifact.manifest.selectionMode,
+        },
+      }, null, 2),
+      metadata: {
+        family: 'def-data-resource',
+        contract: result.contract,
+        artifactId: artifact.manifest.artifactId,
+        state: result.state,
         readOnly: true,
       },
     }

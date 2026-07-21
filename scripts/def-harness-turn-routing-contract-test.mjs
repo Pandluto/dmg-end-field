@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const { classifyNativeCatalogTurn, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
 
 const binding = {
   harnessBinding: {
@@ -18,6 +18,10 @@ assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛�
 assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'stable');
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'stable');
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'native-catalog');
+assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'native-catalog');
+assert.equal(classifyNativeCatalogTurn('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').threePlusOne, true);
+assert.equal(classifyNativeCatalogTurn('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').mutation, false);
 assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
@@ -40,6 +44,8 @@ assert.match(pluginSource, /'chat\.message'/);
 assert.match(pluginSource, /beginDefToolTurn/);
 assert.match(pluginSource, /'tool\.execute\.before'/);
 assert.match(pluginSource, /assertDefToolTurnNotBlocked/);
+assert.match(pluginSource, /assertDefReadOnlyCatalogTurnPolicy/);
+assert.match(pluginSource, /recordDefReadOnlyCatalogTurnToolOutput/);
 assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
@@ -55,6 +61,16 @@ const retryFuseProbe = spawnSync('bun', ['-e', `
   catch (error) { if (error?.code !== 'def-tool-retry-limit-reached') process.exit(3); }
 `], { encoding: 'utf8' });
 assert.equal(retryFuseProbe.status, 0, retryFuseProbe.stderr || retryFuseProbe.stdout);
+
+const catalogRedirectProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurn('catalog-session', 'catalog-turn', '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对');
+  const policyFailure = (callID, tool) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'catalog-session', callID, tool, state: { status: 'error', error: 'catalog-readonly-legacy-tool-denied: use native materialize' } } } });
+  mod.recordDefToolEventFailure(policyFailure('legacy-1', 'def_data_equipment'));
+  mod.recordDefToolEventFailure(policyFailure('legacy-2', 'def_data_operator_catalog'));
+  mod.assertDefToolTurnNotBlocked('catalog-session', 'def_data_native_catalog_materialize');
+`], { encoding: 'utf8' });
+assert.equal(catalogRedirectProbe.status, 0, catalogRedirectProbe.stderr || catalogRedirectProbe.stdout);
 
 const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
@@ -83,10 +99,19 @@ const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/openco
 assert.match(defToolSource, /mutationTargetFingerprint/);
 assert.match(defToolSource, /def-tool-mutation-not-attempted/);
 assert.match(defToolSource, /denied-native-catalog-artifact-scope/);
+assert.match(defToolSource, /isCatalogTurnPolicyCode/);
 
 const nativeServerSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
 assert.match(nativeServerSource, /registerNativeCatalogSession/);
 assert.match(nativeServerSource, /def\.native_catalog\.register_session/);
+
+const restServerSource = fs.readFileSync(new URL('../scripts/ai-cli-rest-server.mjs', import.meta.url), 'utf8');
+assert.match(restServerSource, /restoreRegisteredDefNativeCatalogSession/);
+assert.match(restServerSource, /getSessionAxisBindingBySession\('workbench', sessionId\)/);
+
+const adapterSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-adapter/index.cjs', import.meta.url), 'utf8');
+assert.match(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
+assert.match(adapterSource, /Do not materialize a weapon/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
 assert.match(viewSource, /__defHarnessSelector/);
