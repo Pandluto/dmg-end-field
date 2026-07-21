@@ -58,6 +58,7 @@
 - `BuffBatchEditWorkbench.tsx` 从 1,997 行降到 784 行：按钮/时间线投影和 Buff 筛选规则进入 340 行的 `buffBatchEditModel.ts`，模式切换、框选、批量增删与候选 Buff 状态进入 983 行的 `useBuffBatchEditWorkbench.ts`，单个技能按钮视图进入 87 行的 `BuffEditSkillButton.tsx`。主文件只组合工作台视图，控制器按 layout、buttons、filters、modes、candidate、catalog 六组接口输出。
 - `equipmentSheetPageModel.tsx` 从 1,411 行降到 442 行并继续作为兼容出口：工作表单元格写入、行投影和菜单视图留在页面模型；装备库 schema、兼容规范化、数值预设、持久化与不可变更新集中到 747 行的 `equipmentSheetDataModel.ts`；277 行的 `equipmentSheetTypes.ts` 作为控制器、公式、分享和图片选择器共用的单一类型合同。
 - `buffDraftPageModel.tsx` 中稳定的 Buff 类型目录、标签/搜索词、数值展示集合和额外伤害段默认值抽入 228 行的 `buffDraftCatalog.ts`；原模型继续转导出全部目录符号，控制器、视图、公式与分享模块无需改导入路径。页面模型降至约 1,050 行，保留草稿规范化、持久化、撤销和工作表投影职责。
+- `weaponDraftPageModel.tsx` 中固定的技能键、等级键、技能词条选项、Buff 类型标签和自动映射抽入 155 行的 `weaponDraftCatalog.ts`；原模型继续转导出全部目录符号，现有视图、公式、拖拽和控制器导入合同不变。页面模型降至约 1,040 行，保留草稿 schema、兼容规范化、插值、图片解析和工作表投影职责。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 

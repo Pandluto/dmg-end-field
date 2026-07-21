@@ -7,13 +7,23 @@ import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import * as buffModel from './operatorDraftBuffModel';
+import {
+  ATTACK_GROWTH_MILESTONE_KEYS,
+  LEVEL_KEYS,
+  SKILL1_BUFF_TYPE_MAP,
+  SKILL2_BUFF_TYPE_MAP,
+  SKILL_KEYS,
+  WEAPON_BUFF_TYPE_LABELS,
+  type WeaponSkillKey,
+} from './weaponDraftCatalog';
+
+export * from './weaponDraftCatalog';
 
 export const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 export const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
 export const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 export const WEAPON_LIBRARY_SHARE_TYPE = 'weapon-library-share.v1';
 
-export type WeaponSkillKey = 'skill1' | 'skill2' | 'skill3';
 export type WeaponEffectBucket = 'value' | 'effect';
 
 export interface WeaponEffectData {
@@ -249,161 +259,6 @@ export type WeaponSheetContextMenuAction = {
   label: string;
   icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
   onClick: () => void;
-};
-
-export const SKILL_KEYS: WeaponSkillKey[] = ['skill1', 'skill2', 'skill3'];
-export const LEVEL_KEYS = Array.from({ length: 9 }, (_, index) => String(index + 1));
-export const ATTACK_GROWTH_MILESTONE_KEYS = ['1', '10', '20', '30', '40', '50', '60', '70', '80', '90'] as const;
-export const SKILL1_OPTIONS = ['敏捷提升', '力量提升', '意志提升', '智识提升', '主能力提升', '副能力提升'] as const;
-export const SKILL2_OPTIONS = ['攻击提升', '生命提升', '物理伤害提升', '灼热伤害提升', '电磁伤害提升', '寒冷伤害提升', '自然伤害提升', '暴击率提升', '源石技艺提升', '终结技充能效率提升', '法术伤害提升', '治疗效率提升'] as const;
-export const WEAPON_BUFF_TYPE_OPTIONS = [
-  'atkPercentBoost',
-  'flatAtk',
-  'mainStatBoost',
-  'subStatBoost',
-  'allStatBoost',
-  'strengthBoost',
-  'agilityBoost',
-  'intelligenceBoost',
-  'willBoost',
-  'critRateBoost',
-  'critDmgBonusBoost',
-  'physicalDmgBonus',
-  'magicDmgBonus',
-  'fireDmgBonus',
-  'electricDmgBonus',
-  'iceDmgBonus',
-  'natureDmgBonus',
-  'allDmgBonus',
-  'skillDmgBonus',
-  'chainSkillDmgBonus',
-  'ultimateDmgBonus',
-  'normalAttackDmgBonus',
-  'dotDmgBonus',
-  'allSkillDmgBonus',
-  'physicalFragile',
-  'fireFragile',
-  'electricFragile',
-  'iceFragile',
-  'natureFragile',
-  'magicFragile',
-  'physicalVulnerability',
-  'fireVulnerability',
-  'electricVulnerability',
-  'iceVulnerability',
-  'natureVulnerability',
-  'magicVulnerability',
-  'physicalAmplify',
-  'magicAmplify',
-  'fireAmplify',
-  'electricAmplify',
-  'iceAmplify',
-  'natureAmplify',
-  'allCorrosion',
-  'physicalCorrosion',
-  'magicCorrosion',
-  'fireCorrosion',
-  'electricCorrosion',
-  'iceCorrosion',
-  'natureCorrosion',
-  'allResistanceIgnore',
-  'physicalResistanceIgnore',
-  'magicResistanceIgnore',
-  'fireResistanceIgnore',
-  'electricResistanceIgnore',
-  'iceResistanceIgnore',
-  'natureResistanceIgnore',
-  'comboDamageBonus',
-  'multiplierBonus',
-  'multiplierMultiplier',
-  'sourceSkillBoost',
-] as const;
-export const WEAPON_BUFF_TYPE_LABELS: Record<string, string> = {
-  atkPercentBoost: '攻击力百分比',
-  flatAtk: '固定攻击力',
-  mainStatBoost: '主能力提升',
-  subStatBoost: '副能力提升',
-  allStatBoost: '全属性提升',
-  strengthBoost: '力量提升',
-  agilityBoost: '敏捷提升',
-  intelligenceBoost: '智识提升',
-  willBoost: '意志提升',
-  critRateBoost: '暴击率',
-  critDmgBonusBoost: '暴击伤害',
-  physicalDmgBonus: '物理伤害加成',
-  magicDmgBonus: '法术伤害加成',
-  fireDmgBonus: '灼热伤害加成',
-  electricDmgBonus: '电磁伤害加成',
-  iceDmgBonus: '寒冷伤害加成',
-  natureDmgBonus: '自然伤害加成',
-  allDmgBonus: '全伤害加成',
-  skillDmgBonus: '战技伤害加成',
-  chainSkillDmgBonus: '连携技伤害加成',
-  ultimateDmgBonus: '终结技伤害加成',
-  normalAttackDmgBonus: '普攻伤害加成',
-  dotDmgBonus: '持续伤害加成',
-  allSkillDmgBonus: '全技能伤害加成',
-  physicalFragile: '物理易伤',
-  fireFragile: '灼热易伤',
-  electricFragile: '电磁易伤',
-  iceFragile: '寒冷易伤',
-  natureFragile: '自然易伤',
-  magicFragile: '法术易伤',
-  physicalVulnerability: '物理脆弱',
-  fireVulnerability: '灼热脆弱',
-  electricVulnerability: '电磁脆弱',
-  iceVulnerability: '寒冷脆弱',
-  natureVulnerability: '自然脆弱',
-  magicVulnerability: '法术脆弱',
-  physicalAmplify: '物理增幅',
-  magicAmplify: '法术增幅',
-  fireAmplify: '灼热增幅',
-  electricAmplify: '电磁增幅',
-  iceAmplify: '寒冷增幅',
-  natureAmplify: '自然增幅',
-  allCorrosion: '全属性降抗',
-  physicalCorrosion: '物理降抗',
-  magicCorrosion: '法术降抗',
-  fireCorrosion: '灼热降抗',
-  electricCorrosion: '电磁降抗',
-  iceCorrosion: '寒冷降抗',
-  natureCorrosion: '自然降抗',
-  allResistanceIgnore: '无视全部抗性',
-  physicalResistanceIgnore: '无视物理抗性',
-  magicResistanceIgnore: '无视法术抗性',
-  fireResistanceIgnore: '无视灼热抗性',
-  electricResistanceIgnore: '无视电磁抗性',
-  iceResistanceIgnore: '无视寒冷抗性',
-  natureResistanceIgnore: '无视自然抗性',
-  comboDamageBonus: '连击伤害加成',
-  multiplierBonus: '倍率加算',
-  multiplierMultiplier: '倍率乘算',
-  sourceSkillBoost: '源石技艺强度',
-  hp: '生命',
-  healingBonus: '治疗效率',
-  ultimateChargeEfficiency: '终结技充能效率',
-};
-export const SKILL1_BUFF_TYPE_MAP: Record<string, string> = {
-  敏捷提升: 'agilityBoost',
-  力量提升: 'strengthBoost',
-  意志提升: 'willBoost',
-  智识提升: 'intelligenceBoost',
-  主能力提升: 'mainStatBoost',
-  副能力提升: 'subStatBoost',
-};
-export const SKILL2_BUFF_TYPE_MAP: Record<string, string> = {
-  攻击提升: 'atkPercentBoost',
-  生命提升: 'hp',
-  物理伤害提升: 'physicalDmgBonus',
-  灼热伤害提升: 'fireDmgBonus',
-  电磁伤害提升: 'electricDmgBonus',
-  寒冷伤害提升: 'iceDmgBonus',
-  自然伤害提升: 'natureDmgBonus',
-  暴击率提升: 'critRateBoost',
-  源石技艺提升: 'sourceSkillBoost',
-  终结技充能效率提升: 'ultimateChargeEfficiency',
-  法术伤害提升: 'magicDmgBonus',
-  治疗效率提升: 'healingBonus',
 };
 
 export function isWeaponSheetPath(pathname: string) {
