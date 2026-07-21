@@ -21,7 +21,15 @@ const nodeTimeline = 'node/working/timeline.json'
 const nodeBuffs = 'node/working/buffs.json'
 const nodeInputs = 'node/working/inputs.json'
 const defToolFailureBudget = new Map()
+const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
+const NON_RETRYABLE_MUTATION_CODES = new Set([
+  'operator-config-timeline-invariant-failed',
+  'prepared-capability-invalid',
+  'prepared-capability-session-mismatch',
+  'prepared-capability-consumed',
+  'approval-capability-required',
+])
 
 function defToolFailureScope(context) {
   const sessionId = typeof context?.sessionID === 'string' ? context.sessionID : 'unknown-session'
@@ -33,9 +41,34 @@ function defToolFailureScope(context) {
 export function beginDefToolTurn(sessionID, turnID) {
   if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
   activeDefToolTurns.set(sessionID, turnID)
+  const currentPrefix = `${sessionID}:${turnID}:`
   for (const key of defToolFailureBudget.keys()) {
-    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolFailureBudget.delete(key)
+    if (key.startsWith(`${sessionID}:`) && !key.startsWith(currentPrefix)) defToolFailureBudget.delete(key)
   }
+  for (const key of defToolTurnMutationStops.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnMutationStops.delete(key)
+  }
+}
+
+function stableToolInput(value) {
+  if (Array.isArray(value)) return value.map(stableToolInput)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !['__defSessionId', 'waitMs', 'snapshotWaitMs'].includes(key))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => [key, stableToolInput(entry)]))
+}
+
+function mutationTargetFingerprint(toolName, input = {}) {
+  // Generic tool denials are process-wide for the user turn, as before. A
+  // typed mutation is different: Bieli and Saixi (or two reviewed inputs for
+  // one operator) must not consume each other's retry budget.
+  if (!isDefMutationTool(toolName)) return 'generic'
+  return `${toolName}:${JSON.stringify(stableToolInput(input))}`
+}
+
+function isDefMutationTool(toolName) {
+  return /(?:operator[_.]config|worknode[_.](?:sync|create|delete|checkout|restore)|node_(?:sync|fork|use|restore)|team[_.]loadout[_.]plan[_.]apply)/i.test(String(toolName || ''))
 }
 
 function normalizeToolFailureCode(error) {
@@ -48,39 +81,121 @@ function normalizeToolFailureCode(error) {
   return match ? match[1].toLowerCase() : 'tool-execution-failed'
 }
 
-function recordTurnFailure({ sessionID, toolName, code, callID }) {
+function recordTurnFailure({ sessionID, toolName, input, code, callID }) {
   const turnId = activeDefToolTurns.get(sessionID)
   if (!turnId || !code) return null
   const scope = `${sessionID}:${turnId}`
-  const prior = defToolFailureBudget.get(scope)
+  const targetFingerprint = mutationTargetFingerprint(toolName, input)
+  const budgetKey = `${scope}:${targetFingerprint}`
+  const prior = defToolFailureBudget.get(budgetKey)
   const stableCallId = typeof callID === 'string' && callID ? callID : ''
   if (stableCallId && prior?.seenCallIds?.has(stableCallId)) return prior
   const sameFailure = prior?.code === code
   const count = sameFailure ? prior.count + 1 : 1
   const seenCallIds = sameFailure ? new Set(prior?.seenCallIds || []) : new Set()
   if (stableCallId) seenCallIds.add(stableCallId)
-  const next = { tool: toolName, code, count, blocked: count >= 2, seenCallIds, updatedAt: Date.now() }
-  defToolFailureBudget.set(scope, next)
+  const next = { tool: toolName, code, count, blocked: count >= 2, targetFingerprint, seenCallIds, updatedAt: Date.now() }
+  defToolFailureBudget.set(budgetKey, next)
   if (defToolFailureBudget.size > 512) defToolFailureBudget.delete(defToolFailureBudget.keys().next().value)
   return next
+}
+
+function retryBudgetFor(scope, toolName, input) {
+  return defToolFailureBudget.get(`${scope}:${mutationTargetFingerprint(toolName, input)}`) || null
+}
+
+function retryBudgetBlockedForScope(scope) {
+  for (const [key, budget] of defToolFailureBudget) {
+    if (key.startsWith(`${scope}:`) && budget?.blocked) return budget
+  }
+  return null
+}
+
+function stopFurtherTurnMutations({ sessionID, toolName, code, failure }) {
+  const turnId = activeDefToolTurns.get(sessionID)
+  if (!turnId || !isDefMutationTool(toolName)) return null
+  const scope = `${sessionID}:${turnId}`
+  const existing = defToolTurnMutationStops.get(scope)
+  if (existing) return existing
+  const stop = {
+    tool: toolName,
+    code,
+    failureStage: failure?.failureStage || failure?.diagnostics?.stage || 'typed mutation',
+    nextAction: failure?.nextAction || 'Report the typed failure; do not issue another mutation in this turn.',
+    updatedAt: Date.now(),
+  }
+  defToolTurnMutationStops.set(scope, stop)
+  if (defToolTurnMutationStops.size > 256) defToolTurnMutationStops.delete(defToolTurnMutationStops.keys().next().value)
+  return stop
+}
+
+function notAttemptedMutationError(stop, attemptedTool) {
+  const error = new Error(`def-tool-mutation-not-attempted: ${attemptedTool} was not sent because ${stop.tool} returned non-retryable ${stop.code} at ${stop.failureStage}. Next action: ${stop.nextAction}`)
+  error.code = 'def-tool-mutation-not-attempted'
+  error.details = {
+    attempted: false,
+    attemptedTool,
+    originalTool: stop.tool,
+    originalCode: stop.code,
+    failureStage: stop.failureStage,
+    nextAction: stop.nextAction,
+  }
+  return error
+}
+
+function compactTypedFailureDetails(failure) {
+  if (!failure || typeof failure !== 'object') return null
+  const diagnostics = failure.diagnostics
+  if (!diagnostics || typeof diagnostics !== 'object') {
+    return failure.nextAction || failure.retryable !== undefined
+      ? { retryable: failure.retryable, nextAction: failure.nextAction }
+      : null
+  }
+  const compactIssues = (issues) => (Array.isArray(issues) ? issues.slice(0, 8).map((issue) => ({ code: issue?.code, path: issue?.path, message: issue?.message })) : [])
+  return {
+    retryable: failure.retryable,
+    nextAction: failure.nextAction,
+    stage: diagnostics.stage,
+    beforeCanonicalHash: diagnostics.beforeCanonicalHash,
+    afterCanonicalHash: diagnostics.afterCanonicalHash,
+    changedPaths: Array.isArray(diagnostics.changedPaths) ? diagnostics.changedPaths.slice(0, 24) : [],
+    validatorIssues: {
+      before: compactIssues(diagnostics.validatorIssues?.before),
+      after: compactIssues(diagnostics.validatorIssues?.after),
+    },
+    catalogIssues: compactIssues(diagnostics.catalogIssues),
+  }
 }
 
 export function recordDefToolEventFailure(event) {
   if (event?.type !== 'message.part.updated') return
   const part = event?.properties?.part
   if (part?.type !== 'tool' || part?.state?.status !== 'error') return
+  const code = normalizeToolFailureCode(part.state.error)
   recordTurnFailure({
     sessionID: part.sessionID,
     toolName: part.tool,
-    code: normalizeToolFailureCode(part.state.error),
+    input: part.input || part.state?.input,
+    code,
     callID: part.callID,
   })
+  if (NON_RETRYABLE_MUTATION_CODES.has(code)) {
+    stopFurtherTurnMutations({
+      sessionID: part.sessionID,
+      toolName: part.tool,
+      code,
+      failure: { failureStage: 'typed mutation', nextAction: 'Report the first non-retryable typed failure; do not issue another mutation in this turn.' },
+    })
+  }
 }
 
 export function assertDefToolTurnNotBlocked(sessionID, toolName) {
   const turnId = activeDefToolTurns.get(sessionID)
   if (!turnId) return
-  const budget = defToolFailureBudget.get(`${sessionID}:${turnId}`)
+  const scope = `${sessionID}:${turnId}`
+  const mutationStop = defToolTurnMutationStops.get(scope)
+  if (mutationStop && isDefMutationTool(toolName)) throw notAttemptedMutationError(mutationStop, toolName)
+  const budget = retryBudgetBlockedForScope(scope)
   if (!budget?.blocked) return
   const error = new Error(`def-tool-retry-limit-reached: ${budget.tool} failed twice with ${budget.code}. All tool use is stopped for this user turn; report that the requested change was not applied before ${toolName}.`)
   error.code = 'def-tool-retry-limit-reached'
@@ -90,7 +205,9 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName) {
 
 async function callDefTool(tool, input = {}, context = null) {
   const failureScope = defToolFailureScope(context)
-  const budget = defToolFailureBudget.get(failureScope)
+  const mutationStop = defToolTurnMutationStops.get(failureScope)
+  if (mutationStop && isDefMutationTool(tool)) throw notAttemptedMutationError(mutationStop, tool)
+  const budget = retryBudgetFor(failureScope, tool, input)
   if (budget?.blocked) {
     const error = new Error(`def-tool-retry-limit-reached: ${budget.tool} already failed twice with ${budget.code}. All tool use is stopped for this user turn; report that the requested change was not applied before ${tool}.`)
     error.code = 'def-tool-retry-limit-reached'
@@ -117,14 +234,23 @@ async function callDefTool(tool, input = {}, context = null) {
     const recorded = recordTurnFailure({
       sessionID: context?.sessionID,
       toolName: tool,
+      input,
       code,
       callID: context?.callID,
     })
+    if (failure?.retryable === false) stopFurtherTurnMutations({
+      sessionID: context?.sessionID,
+      toolName: tool,
+      code,
+      failure,
+    })
     const count = recorded?.count || 1
     const blocked = recorded?.blocked === true
+    const structuredDetails = compactTypedFailureDetails(failure)
+    const detailSuffix = structuredDetails ? ` Structured details: ${JSON.stringify(structuredDetails)}` : ''
     const error = new Error(blocked
       ? `def-tool-retry-limit-reached: ${tool} failed twice with ${code}. Stop tool use and report that the requested change was not applied at this stage. Last error: ${message}`
-      : `${code}: ${message}`)
+      : `${code}: ${message}${detailSuffix}`)
     error.code = blocked ? 'def-tool-retry-limit-reached' : code
     error.status = response.status
     error.details = blocked
@@ -132,7 +258,9 @@ async function callDefTool(tool, input = {}, context = null) {
       : failure
     throw error
   }
-  if (budget && budget.tool === tool && !budget.blocked) defToolFailureBudget.delete(failureScope)
+  if (budget && budget.tool === tool && !budget.blocked) {
+    defToolFailureBudget.delete(`${failureScope}:${mutationTargetFingerprint(tool, input)}`)
+  }
   return payload.result
 }
 
@@ -1244,7 +1372,7 @@ export const data_damage = dataResource({
 })
 
 export const operator_config_patch = {
-  description: 'Apply one complete, explicitly reviewed operator configuration through one Agent-named horizontal branch, one typed preview, native approval and atomic apply. Write a concise nodeTitle and nodeDescription for the exact change. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report the error, with no context/bind/materialize/read/edit call and no retry unless the error itself explicitly provides retryable=true plus a concrete safe nextAction.',
+  description: 'Apply one complete, explicitly reviewed operator configuration through one Agent-named horizontal branch, one typed preview, native approval and atomic apply. Write a concise nodeTitle and nodeDescription for the exact change. Put all named equipment pieces in equipments and call this tool once; never split one reviewed loadout into one mutation per slot. If this tool errors, it must be the final tool call of the turn: immediately report only the actual typed failure and its structured nextAction, with no context/bind/materialize/read/edit call and no retry unless the error explicitly provides retryable=true plus a concrete safe nextAction. If it reports def-tool-mutation-not-attempted, that later mutation never reached the backend; do not describe it as another failure.',
   args: {
     // These must be actual optional Zod fields.  The legacy JSON-schema
     // adapter marks every property required, which coerced a model that was

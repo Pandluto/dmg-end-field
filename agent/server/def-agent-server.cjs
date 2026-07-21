@@ -882,6 +882,7 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
     'The current user message is the only active task. Never repeat a previously completed equipment/configuration result unless the user explicitly asks for it.',
     'If the UI-selected node, session-axis boundNodeId, and current checkout do not identify the same Work Node, treat checkout as authoritative and do not mutate until def_workbench_context plus def_node_bind(nodeId="") converges them.',
     'If the same typed-tool failure code occurs twice in this turn, stop calling tools and report that the requested change was not applied, including the failing stage and one recovery action.',
+    'If a typed mutation reports retryable=false, stop all later mutations in this turn. A def-tool-mutation-not-attempted result means that later request was never sent to the backend: report it as 未尝试, not as a second backend failure. Report only actual tool execution and the structured nextAction returned by the tool.',
     'The same retry fuse applies to generic tool failures such as outside-session file permission denials. After one such denial, do not try another path or generic file tool for that resource.',
     'A loaded Skill is complete. Never scan, glob, grep, or read its runtime directory; use the Skill content and trusted def_data resources.',
     'Never report a mutation as successful from queue state or record count alone. Native approval and the exact visible postcondition must both pass.',

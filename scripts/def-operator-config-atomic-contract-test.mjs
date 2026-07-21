@@ -90,6 +90,9 @@ assert.match(restSource, /label:\s*nodeMetadata\.title/);
 assert.match(restSource, /description:\s*nodeMetadata\.description/);
 assert.match(restSource, /sameOptionalNodeId\(node\.parentNodeId, capability\.structuralParentNodeId\)/);
 assert.match(restSource, /verifyDefTimelinePreserved\(parent\.workingPayload, preview\.preparedPayload\)/);
+assert.match(restSource, /compareDefTimelineInvariants/);
+assert.match(restSource, /beforeCanonicalHash/);
+assert.match(restSource, /changedPaths/);
 assert.match(restSource, /visibleTimeline = verifyVisibleTimelineButtons/);
 
 const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');

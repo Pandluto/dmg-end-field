@@ -31,6 +31,7 @@ import {
   rebuildDefNodePayload,
   validateDefTimelinePayload,
 } from '../agent/runtime/def-node-workspace/codec.mjs';
+import { compareDefTimelineInvariants } from '../agent/runtime/def-node-workspace/timeline-invariant.mjs';
 import workNodeStoreModule from '../electron/ai-timeline-work-node-store.cjs';
 import timelineRepositoryModule from '../electron/timeline-repository.cjs';
 import dataManagementServiceModule from '../electron/data-management-service.cjs';
@@ -6511,26 +6512,43 @@ function exactDefOperatorConfigMatches(actual, expected) {
   return JSON.stringify(actual) === JSON.stringify(expected);
 }
 
-function defTimelineDomain(payload = {}) {
-  return {
-    selectedCharacters: payload.selectedCharacters || [],
-    timelineData: payload.timelineData || { staffLines: [] },
-    skillButtonTable: payload.skillButtonTable || {},
-    allBuffList: payload.allBuffList || [],
-    anomalyStateSnapshots: payload.anomalyStateSnapshots || [],
-  };
-}
-
 function verifyDefTimelinePreserved(before, after) {
   const beforeIssues = validateDefTimelinePayload(before, 'beforePayload');
   const afterIssues = validateDefTimelinePayload(after, 'afterPayload');
+  const invariant = compareDefTimelineInvariants(before, after);
   return {
-    pass: beforeIssues.length === 0 && afterIssues.length === 0
-      && JSON.stringify(defTimelineDomain(before)) === JSON.stringify(defTimelineDomain(after)),
+    pass: beforeIssues.length === 0 && afterIssues.length === 0 && invariant.pass,
     beforeIssues,
     afterIssues,
-    beforeButtonIds: Object.keys(isObject(before?.skillButtonTable) ? before.skillButtonTable : {}).sort(),
-    afterButtonIds: Object.keys(isObject(after?.skillButtonTable) ? after.skillButtonTable : {}).sort(),
+    ...invariant,
+  };
+}
+
+function operatorConfigTimelineInvariantFailure({ stage, timelinePreservation, timelineCatalogIssues, currentCheckoutTouched = false }) {
+  const diagnostics = {
+    stage,
+    beforeCanonicalHash: timelinePreservation.beforeCanonicalHash,
+    afterCanonicalHash: timelinePreservation.afterCanonicalHash,
+    changedPaths: timelinePreservation.changedPaths,
+    changedPathLimitReached: timelinePreservation.changedPathLimitReached,
+    validatorIssues: {
+      before: timelinePreservation.beforeIssues,
+      after: timelinePreservation.afterIssues,
+    },
+    catalogIssues: timelineCatalogIssues,
+  };
+  return {
+    ok: false,
+    code: 'operator-config-timeline-invariant-failed',
+    message: 'The operator configuration preview changed a typed timeline invariant.',
+    component: 'operator-config',
+    retryable: false,
+    failureStage: stage,
+    currentCheckoutTouched,
+    nextAction: 'No branch or checkout change was applied. Report this typed invariant failure and its changed paths; do not refresh or retry this mutation in the current turn.',
+    diagnostics,
+    timelinePreservation,
+    timelineCatalogIssues,
   };
 }
 
@@ -6610,15 +6628,11 @@ async function executeDefOperatorConfigPrepare(input = {}) {
     ...validateDefTimelineAgainstSkillCatalog(preview.preparedPayload, gate.snapshot, 'preparedPayload'),
   ];
   if (!timelinePreservation.pass || timelineCatalogIssues.length) {
-    return {
-      ok: false,
-      code: 'operator-config-timeline-invariant-failed',
-      component: 'operator-config',
-      retryable: false,
-      nextAction: 'The operator preview did not preserve the exact validated timeline; no branch was created.',
+    return operatorConfigTimelineInvariantFailure({
+      stage: 'prepare',
       timelinePreservation,
       timelineCatalogIssues,
-    };
+    });
   }
   const structuralParentNodeId = horizontalConfigurationParent(parent);
   const created = handleAiTimelineWorkNodeRequest('POST', '/api/ai-timeline-worknodes/create', {
@@ -6715,7 +6729,11 @@ async function executeDefOperatorConfigApplyPrepared(input = {}) {
     ...validateDefTimelineAgainstSkillCatalog(node.workingPayload, gate.snapshot, 'preparedPayload'),
   ];
   if (!timelinePreservation.pass || timelineCatalogIssues.length) {
-    return { ok: false, code: 'operator-config-timeline-invariant-failed', component: 'operator-config', retryable: false, nextAction: 'The reviewed branch no longer preserves the exact trusted timeline; no mutation was executed.', currentCheckoutTouched: false, timelinePreservation, timelineCatalogIssues };
+    return operatorConfigTimelineInvariantFailure({
+      stage: 'apply-prepared',
+      timelinePreservation,
+      timelineCatalogIssues,
+    });
   }
   if (!consumeApprovedApplyCapability(input, {
     sessionId,

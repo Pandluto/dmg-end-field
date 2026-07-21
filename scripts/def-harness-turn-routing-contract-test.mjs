@@ -52,6 +52,33 @@ const retryFuseProbe = spawnSync('bun', ['-e', `
 `], { encoding: 'utf8' });
 assert.equal(retryFuseProbe.status, 0, retryFuseProbe.stderr || retryFuseProbe.stdout);
 
+const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  const failure = (callID, input) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'target-session', callID, tool: 'operator_config_patch', input, state: { status: 'error', error: 'operator-config-preview-failed: temporary renderer response' } } } });
+  mod.beginDefToolTurn('target-session', 'target-turn');
+  mod.recordDefToolEventFailure(failure('bieli-1', { characterId: 'bieli', weaponName: '赫拉芬格' }));
+  mod.recordDefToolEventFailure(failure('saixi-1', { characterId: 'saixi', weaponName: '骑士精神' }));
+  mod.assertDefToolTurnNotBlocked('target-session', 'operator_config_patch');
+  mod.recordDefToolEventFailure(failure('bieli-2', { characterId: 'bieli', weaponName: '赫拉芬格' }));
+  try { mod.assertDefToolTurnNotBlocked('target-session', 'operator_config_patch'); process.exit(2); }
+  catch (error) { if (error?.code !== 'def-tool-retry-limit-reached') process.exit(3); }
+`], { encoding: 'utf8' });
+assert.equal(mutationTargetBudgetProbe.status, 0, mutationTargetBudgetProbe.stderr || mutationTargetBudgetProbe.stdout);
+
+const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurn('mutation-session', 'mutation-turn');
+  mod.recordDefToolEventFailure({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'mutation-session', callID: 'call-1', tool: 'operator_config_patch', state: { status: 'error', error: 'operator-config-timeline-invariant-failed: typed canonical invariant rejected the preview' } } } });
+  try { mod.assertDefToolTurnNotBlocked('mutation-session', 'operator_config_patch'); process.exit(2); }
+  catch (error) {
+    if (error?.code !== 'def-tool-mutation-not-attempted' || error?.details?.attempted !== false) process.exit(3);
+  }
+`], { encoding: 'utf8' });
+assert.equal(nonRetryableMutationProbe.status, 0, nonRetryableMutationProbe.stderr || nonRetryableMutationProbe.stdout);
+const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
+assert.match(defToolSource, /mutationTargetFingerprint/);
+assert.match(defToolSource, /def-tool-mutation-not-attempted/);
+
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
 assert.match(viewSource, /__defHarnessSelector/);
 assert.match(viewSource, /harnessSelector: developmentHarnessSelector/);
