@@ -459,7 +459,7 @@ try {
   assert.match(explosivePlan.fullFacts.skills.skill3.description, /法术爆发/);
   assert.match(knightPlan.fullFacts.skills.skill3.description, /自身技能治疗后/);
   assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'secondary-intelligence'));
-  assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.certainty === 'high-probability'));
+  assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.certainty === 'high-probability' && reason.triggerActor === 'equipped-operator' && reason.externalActorsMaySatisfy === false));
   assert.ok(knightPlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'reachable-team-buff'));
   assert.ok(knightPlan.excludedOrUnverifiedReasons.some((reason) => reason.typeKey === 'willBoost'));
   const loneScore = weaponPlan.catalogEvidence.allCandidateEvidence.find((candidate) => candidate.id === 'wpn_funnel_0007');

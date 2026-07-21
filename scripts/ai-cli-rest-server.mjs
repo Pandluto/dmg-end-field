@@ -4228,6 +4228,7 @@ function buildDefWeaponFitPlan(input = {}) {
         relevant: Boolean(group && requiredFactSatisfied),
         reason: !matcher ? 'condition-not-covered-by-reviewed-convention' : requiredFactSatisfied ? 'reviewed-condition-reachable' : 'reviewed-condition-prerequisite-missing',
         ...(matcher ? { conventionRuleId: matcher.ruleId, certainty: matcher.certainty, requiredFact: matcher.requiredFact, matchedGroupKey: group?.key || null, weight: group?.weight || 0 } : {}),
+        ...(matcher ? { triggerActor: 'equipped-operator', externalActorsMaySatisfy: false } : {}),
       };
     }
     const group = groups.map((candidate, index) => ({ ...candidate, weight: groups.length - index }))
@@ -4335,6 +4336,7 @@ function buildDefWeaponFitPlan(input = {}) {
       presentOnly: 'shortlist',
       forbiddenOrderingLabels: ['首选', '次选', '第一', '第二', '第三档'],
       forbiddenUnsourcedClaims: ['稀有乘区', '独立乘区', '收益更全面', '最佳场景', '唯一最优'],
+      forbiddenTriggerSubstitution: 'Only the equipped operator may satisfy a matched weapon condition; other teammates or external trigger sources may not be substituted.',
       requireQualitativeCertaintyVerbatim: true,
     },
     shortlist: tradeoffShortlist,
@@ -4343,7 +4345,7 @@ function buildDefWeaponFitPlan(input = {}) {
       code: 'support-weapon-tradeoffs-not-single-optimum',
       message: 'Reviewed trigger reachability and passive utility support an unordered tradeoff matrix, not a cross-candidate score or unique universal optimum.',
     }],
-    nextAction: 'Present only shortlist facts as the returned unordered tradeoff matrix. Obey responseConstraints literally: no ordering labels, diagnostic non-shortlist candidates, overall score, winner, best-team scenario, or unsourced multiplier-quality claims.',
+    nextAction: 'Present only shortlist facts as the returned unordered tradeoff matrix. Obey responseConstraints literally: no ordering labels, diagnostic non-shortlist candidates, overall score, winner, best-team scenario, unsourced multiplier-quality claims, or external-actor substitution for an equipped-operator trigger.',
   };
 }
 
