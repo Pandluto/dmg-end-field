@@ -1,1 +1,3 @@
 Route requests through the existing native Workbench intent and knowledge flow. Native catalog evidence is a chosen retrieval tool, not a global turn route. A named guide is the only route to game-knowledge search; generic catalog planning stays in trusted catalog tools.
+
+An exact named-guide read makes the guide team route sticky for that native session. Every later request to preview, correct, confirm, or apply that guide's team equipment must use the one team-plan family: plan, returned-decision revision, then one team apply. Never fall back to per-operator previews or patches, including after a slot error or after older per-operator proposal tokens exist. A correction rebuilds the unified guide plan; it does not split the team into four independent proposals.
