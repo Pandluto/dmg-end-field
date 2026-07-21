@@ -55,6 +55,7 @@
 - 用户确认长期未维护的 Damage Sheet 已不再需要，因此整体删除 `DamageSheetPage`、`/damage-sheet` 路由、画布“表格”按钮及 AI 页面枚举；独立的“计算伤害”/PPT 报表保留。
 - 原 `DamageSheetPage.css` 中被 Weapon、Buff、Equipment 和 Image Manager 复用的工作表外壳已解耦为 `WorkbookSheet.css`，各消费页显式引用；伤害表专用样式随功能删除。
 - `OperatorDraftPage.tsx` 从 2,280 行降到 1,330 行：领域类型、规范化与排序规则进入 534 行的 `operatorDraftPageModel.ts`，本地草稿库及分享流程进入 461 行的 `useOperatorDraftLibrary.ts`，Markdown 与路径选择字段进入 135 行的 `OperatorDraftFields.tsx`。页面仍负责编辑器状态和视图装配；草稿 Hook 仅接收编辑器写入端口，并按 library、dialogs、share、preferences、actions 返回结构化接口，没有建立跨编辑器的万能 Hook。
+- `BuffBatchEditWorkbench.tsx` 从 1,997 行降到 784 行：按钮/时间线投影和 Buff 筛选规则进入 340 行的 `buffBatchEditModel.ts`，模式切换、框选、批量增删与候选 Buff 状态进入 983 行的 `useBuffBatchEditWorkbench.ts`，单个技能按钮视图进入 87 行的 `BuffEditSkillButton.tsx`。主文件只组合工作台视图，控制器按 layout、buttons、filters、modes、candidate、catalog 六组接口输出。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 
