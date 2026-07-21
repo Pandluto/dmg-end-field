@@ -4134,6 +4134,13 @@ function defPlanEffectValue(effect = {}, level = 3) {
   return defPlanPercent(value, String(effect?.unit || ''));
 }
 
+function defPlanEquipmentPartForSlot(slotKey) {
+  if (slotKey === 'armor') return '护甲';
+  if (slotKey === 'glove') return '护手';
+  if (slotKey === 'accessory1' || slotKey === 'accessory2') return '配件';
+  return '';
+}
+
 function findDefPlanEquipment(library, selection, usedEquipmentIds) {
   const all = Object.values(library?.gearSets || {}).flatMap((gearSet) => Object.values(gearSet?.equipments || {}).map((equipment) => ({ gearSet, equipment })));
   const exact = selection?.equipmentId
@@ -4148,6 +4155,8 @@ function findDefPlanEquipment(library, selection, usedEquipmentIds) {
   if (candidates.length !== 1) return { error: candidates.length ? 'product-selector-ambiguous' : 'product-selector-empty' };
   const { gearSet, equipment } = candidates[0];
   if (selection?.name && selection.name !== equipment.name) return { error: 'product-name-mismatch' };
+  const expectedPart = defPlanEquipmentPartForSlot(selection?.slotKey);
+  if (expectedPart && equipment?.part !== expectedPart) return { error: 'product-slot-part-mismatch' };
   const entryLevel = Number.isInteger(selection?.entryLevel) ? selection.entryLevel : 3;
   const effects = Object.values(equipment?.effects || {}).map((effect) => ({
     effectId: String(effect?.effectId || ''), label: String(effect?.label || effect?.effectId || ''), typeKey: String(effect?.typeKey || ''),
