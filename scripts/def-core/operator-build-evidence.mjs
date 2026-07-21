@@ -447,6 +447,8 @@ export function deriveOperatorBuildProfile(rawOperator, {
     missing,
     nextAction: missing.length
       ? 'Do not rank equipment until the missing operator evidence is supplied.'
-      : 'Use these evidence-backed effect groups as character preferences. Do not reinterpret equipment fixedStat as the operator main or secondary attribute.',
+      : supportRole
+        ? 'Call def_data_weapon_fit_plan directly with this unchanged plannerProfile/capability and convention bundle hash. Do not call generic skill/operator, native catalog materialization, weapon summaries, or loadout candidates.'
+        : 'Use these evidence-backed effect groups as character preferences. Do not reinterpret equipment fixedStat as the operator main or secondary attribute.',
   };
 }

@@ -1463,7 +1463,7 @@ export const data_operator_build_guide = {
 }
 
 export const data_operator_build_profile = {
-  description: 'Token-gated fallback after def_data_operator_build_guide returns PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND. For a support-role operator, first call def_data_combat_conventions and pass its exact conventionBundleHash; the profile then excludes unsupported personal-damage assumptions and uses reviewed utility conditions. In the same native user turn, consume the exact opaque fallbackToken for the same operator and return the authorized plannerProfile/plannerProfileCapability pair. If evidence is incomplete, no capability is issued and planning must stop. Never call this after GUIDE_FOUND or invent a token.',
+  description: 'Token-gated fallback after def_data_operator_build_guide returns PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND. For a support-role operator, first call def_data_combat_conventions and pass its exact conventionBundleHash; the profile then excludes unsupported personal-damage assumptions and uses reviewed utility conditions. After PROFILE_READY, call def_data_weapon_fit_plan directly—do not supplement with generic skill/operator, native catalog materialization, weapon summaries, or loadout candidates. If evidence is incomplete, no capability is issued and planning must stop. Never call this after GUIDE_FOUND or invent a token.',
   args: {
     operatorQuery: tool.schema.string().min(1).max(160).describe('The same exact operator name or stable id used for guide discovery.'),
     fallbackToken: tool.schema.string().min(20).max(160).describe('Exact opaque fallbackToken returned by guide discovery in this user turn.'),

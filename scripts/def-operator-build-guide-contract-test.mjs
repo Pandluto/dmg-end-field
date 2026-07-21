@@ -449,6 +449,9 @@ try {
   assert.equal(weaponPlan.catalogEvidence.truncated, false);
   assert.equal(weaponPlan.rankingBasis.uniqueOptimalClaimAllowed, false);
   assert.equal(weaponPlan.rankingBasis.crossCandidateTotalOrderAllowed, false);
+  assert.equal(weaponPlan.responseConstraints.presentation, 'unordered-tradeoff-matrix');
+  assert.equal(weaponPlan.responseConstraints.presentOnly, 'shortlist');
+  assert.ok(weaponPlan.responseConstraints.forbiddenUnsourcedClaims.includes('稀有乘区'));
   assert.deepEqual(weaponPlan.shortlist.map((candidate) => candidate.id), ['wpn_funnel_0008', 'wpn_funnel_0010']);
   assert.ok(weaponPlan.shortlist.every((candidate) => candidate.weightedScore === undefined));
   const explosivePlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'wpn_funnel_0008');

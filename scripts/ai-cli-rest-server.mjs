@@ -4330,13 +4330,20 @@ function buildDefWeaponFitPlan(input = {}) {
       uniqueOptimalClaimAllowed: false,
       crossCandidateTotalOrderAllowed: false,
     },
+    responseConstraints: {
+      presentation: 'unordered-tradeoff-matrix',
+      presentOnly: 'shortlist',
+      forbiddenOrderingLabels: ['首选', '次选', '第一', '第二', '第三档'],
+      forbiddenUnsourcedClaims: ['稀有乘区', '独立乘区', '收益更全面', '最佳场景', '唯一最优'],
+      requireQualitativeCertaintyVerbatim: true,
+    },
     shortlist: tradeoffShortlist,
     missing: [],
     ambiguity: [{
       code: 'support-weapon-tradeoffs-not-single-optimum',
       message: 'Reviewed trigger reachability and passive utility support an unordered tradeoff matrix, not a cross-candidate score or unique universal optimum.',
     }],
-    nextAction: 'Present the returned verified tradeoffs and qualitative trigger certainty without first/second labels, an overall score, or a winner. Do not use excluded/unverified facts or unsourced multiplier-quality claims as benefits.',
+    nextAction: 'Present only shortlist facts as the returned unordered tradeoff matrix. Obey responseConstraints literally: no ordering labels, diagnostic non-shortlist candidates, overall score, winner, best-team scenario, or unsourced multiplier-quality claims.',
   };
 }
 
