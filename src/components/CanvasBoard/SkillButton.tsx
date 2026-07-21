@@ -1,64 +1,16 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { CSSProperties } from 'react';
-import { createPortal } from 'react-dom';
 import {
   SkillButton as SkillButtonType,
   SkillButtonSkillChangePayload,
   SkillButtonSkillOption,
-  SKILL_LABELS,
   TimelineData,
 } from '../../types';
 import { getElementBackgroundColor, normalizeAssetUrl } from '../../utils/assetResolver';
 import {
-  removeSkillButtonBuff,
-  decrementSkillButtonBuffStack,
-  setSelectedSkillButton,
-  getButtonBuffs,
-  recomputeSkillButtonPanel,
-  addSkillButtonBuff,
-} from '../../hooks/useSkillButtonBuffs';
-import { AnomalyStateSnapshot, HitResistanceInput, SkillButtonBuff, SkillLevelMode } from '../../types/storage';
-import { getCharacterConfig } from '../../utils/storage';
-import {
-  getCharacterComputedCache,
-  getOperatorConfigPageCache,
-} from '../../core/repositories/operatorConfigRepository';
-import { getSkillButtonById, upsertSkillButton } from '../../core/repositories';
-import {
-  APP_ROUTE_PATHS,
-  getTimelineSkillDetailPath,
-  navigateToAppPath,
-} from '../../utils/appRoute';
-import {
-  buildAttackFormulaLines,
-  buildSkillDamageModalViewModel,
-} from '../../core/calculators/skillDamageModalViewModel';
-import { calculateSkillButtonDamageV2 } from '../../core/calculators/skillButtonDamageCalculatorV2';
-import type {
-  AppliedBuffTagViewModel,
-  FormulaViewModel,
-  ResolvedSkillDamageTemplate,
-  SkillDamagePanelBase,
-} from '../../core/calculators/skillDamage.types';
-import { resolveSkillDamageTemplate } from '../../core/services/skillDamageTemplateResolver';
-import { useAppContext } from '../../context/AppContext';
-import { emitSkillButtonBuffAdded, emitSkillButtonBuffRemoved, onSkillButtonBuffAdded } from '../../core/events/buffEvents';
-import { buildBuffSearchIndex, searchBuffs } from '../../utils/buffFuzzySearch';
-import { refreshSnapshotCandidateBuffsForCharacterIds } from '../../core/services/operatorConfigCandidateBuffService';
-import { refreshOperatorConfigSnapshotsForCharacters } from '../../core/services/operatorConfigSnapshotRefreshService';
-import {
-  type AnomalyDamageSegmentView,
-  dedupeLocalBuffSearchResults,
   getNormalHitSegmentKey,
-  isExtraHitBuff,
-  isModifierBuff,
-  type LocalBuffSearchResult,
   type BuffSourceSearchMode,
   BUFF_SOURCE_SEARCH_MODE_OPTIONS,
-  filterBuffSearchEntriesBySourceMode,
   getBuffSourceSearchModeLabel,
-  readCandidateBuffSearchEntries,
-  readLocalBuffSearchEntries,
   buildAppliedBuffTags,
 } from './skillButton.shared';
 import {
@@ -67,19 +19,15 @@ import {
   SkillButtonStatePanel,
 } from './SkillButtonAnomalyPanels';
 import { useSkillButtonAnomaly } from './useSkillButtonAnomaly';
-import { buildAnomalyBuffOptionsBySegmentKey, buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
 import { TimelineSkillDetailWorkbench } from './TimelineSkillDetailWorkbench';
 import { SkillButtonDamageModal } from './SkillButtonDamageModal';
-import DeferredNumberInput from '../DeferredNumberInput';
+import { useSkillButtonRuntime } from './useSkillButtonRuntime';
+import { useSkillButtonDamageRuntime } from './useSkillButtonDamageRuntime';
+import { useSkillButtonInteractions } from './useSkillButtonInteractions';
+import { SkillButtonContextMenu } from './SkillButtonContextMenu';
+import { SkillButtonInfoModal } from './SkillButtonInfoModal';
+import { formatAnomalyStateSnapshotName, getBuffCategoryText } from './skillButtonFormatting';
 import './SkillButton.css';
-
-const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
-  physicalResistance: 0,
-  fireResistance: 0,
-  electricResistance: 0,
-  iceResistance: 0,
-  natureResistance: 0,
-};
 
 type BuffSearchMode = BuffSourceSearchMode | 'anomaly' | 'anomaly-state' | 'state';
 type OperatorBuffGroupFilter = 'talent' | 'potential' | 'skill';
@@ -109,64 +57,6 @@ function getBuffSearchModeLabel(mode: BuffSearchMode): string {
   return BUFF_SEARCH_MODE_OPTIONS.find((option) => option.key === mode)?.label || 'Buff组';
 }
 
-function getNextBuffSearchMode(mode: BuffSearchMode): BuffSearchMode {
-  const index = BUFF_SEARCH_MODE_OPTIONS.findIndex((option) => option.key === mode);
-  return BUFF_SEARCH_MODE_OPTIONS[(index + 1) % BUFF_SEARCH_MODE_OPTIONS.length].key;
-}
-
-function formatAnomalyStateSnapshotValue(snapshot: AnomalyStateSnapshot): string {
-  if (snapshot.key === 'corrosion') {
-    return `${(snapshot.currentCorrosion ?? snapshot.effectValue).toFixed(2)}点`;
-  }
-  return `${(snapshot.effectValue * 100).toFixed(1)}%`;
-}
-
-function formatAnomalyStateSnapshotField(snapshot: AnomalyStateSnapshot): string {
-  switch (snapshot.key) {
-    case 'conductive':
-      return '法术易伤';
-    case 'armor-break':
-      return '物伤易伤';
-    case 'corrosion':
-      return '全属性降抗';
-    default:
-      return '快照';
-  }
-}
-
-function formatAnomalyStateSnapshotName(snapshot: AnomalyStateSnapshot): string {
-  const secondsText = snapshot.key === 'corrosion' && typeof snapshot.durationSeconds === 'number'
-    ? `+${snapshot.durationSeconds.toFixed(0)}s`
-    : '';
-  return `${snapshot.label} Lv${snapshot.level}${secondsText} ${formatAnomalyStateSnapshotValue(snapshot)} (${formatAnomalyStateSnapshotField(snapshot)})`;
-}
-
-function getBuffCategoryText(category: SkillButtonBuff['category']): string {
-  if (category === 'countable') return '计层 countable';
-  if (category === 'condition') return '条件 condition';
-  return '常驻 passive';
-}
-
-const CHINESE_POTENTIAL_NUMBERS: Record<string, number> = {
-  一: 1,
-  二: 2,
-  三: 3,
-  四: 4,
-  五: 5,
-  六: 6,
-};
-
-function getRequiredPotentialCount(buffName: string): number | null {
-  const normalizedName = buffName.replace(/\s+/g, '');
-  const suffixMatch = normalizedName.match(/潜能([1-6一二三四五六])/);
-  const prefixMatch = normalizedName.match(/([1-6一二三四五六])潜/);
-  const token = suffixMatch?.[1] ?? prefixMatch?.[1];
-  if (!token) {
-    return null;
-  }
-  return CHINESE_POTENTIAL_NUMBERS[token] ?? Number(token);
-}
-
 interface SkillButtonProps {
   isDetailRouteActive?: boolean;
   button: SkillButtonType & { nodeNumber?: number };
@@ -187,14 +77,6 @@ interface SkillButtonProps {
   isDragDisabled?: boolean;
   resistanceRevision?: number;
 }
-
-const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
-  A: '重击',
-  B: '战技',
-  E: '连携技',
-  Q: '终结技',
-  Dot: '持续',
-};
 
 export function SkillButtonComponent({
   isDetailRouteActive = false,
@@ -228,680 +110,96 @@ export function SkillButtonComponent({
    * - timeline version >= 1.1.0 时：CanvasBoard 恢复链按 nodeIndex + lineIndex 重建标准 Y
    * - 本组件只消费最终的 position.y，不再区分旧缓存/新缓存细节
    */
-  const { position, skillType, isSelected, isDragging, characterName, skillIconUrl, element, isLocked, skillDisplayName } = button;
-  const displayName = skillDisplayName || SKILL_LABELS[skillType];
-  const browseModeDisplayName = BROWSE_MODE_SKILL_LABELS[skillType] ?? displayName;
-  const isDotButton = button.skillType === 'Dot';
-  const { state, dispatch, refreshSelectedCharacters } = useAppContext();
-  const radius = size / 2;
-  const baseWidth = 80;
-  const baseHeight = 30;
-  const visualOffsetX = 40;
-  const visualOffsetY = 15;
-  const hitWidth = radius + baseWidth;
-  const hitHeight = Math.max(size, radius + baseHeight);
-  const shouldRenderContextMenu = !isBrowseMode && contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
-
-  const isModalOpen = isDetailRouteActive;
-  // 当前技能按钮的 Buff 列表
-  const [buffList, setBuffList] = useState<SkillButtonBuff[]>([]);
-  // 当前角色的技能等级模式 (L9/M3)
-  const [skillLevelModeMap, setSkillLevelModeMap] = useState<Record<string, SkillLevelMode>>({ A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' });
-  const currentSkillLevelMode = skillLevelModeMap[skillType] ?? 'M3';
-  // 已解析的技能伤害模板（skill 是容器，hit 是计算单元）
-  const [resolvedTemplate, setResolvedTemplate] = useState<ResolvedSkillDamageTemplate | null>(null);
-  const [targetResistance, setTargetResistance] = useState<Required<HitResistanceInput>>(EMPTY_TARGET_RESISTANCE);
-
-  // 当前选中的 hit（用于详情展示）
-  const [selectedHitIndex, setSelectedHitIndex] = useState<number | null>(null);
-
-  // 面板数据 (ATK、暴击、伤害加成等)
-  const [panelData, setPanelData] = useState<{
-    atk: number;
-    critRate: number;
-    critDmg: number;
-    physicalDmgBonus: number;
-    fireDmgBonus: number;
-    electricDmgBonus: number;
-    iceDmgBonus: number;
-    natureDmgBonus: number;
-    skillDmgBonus: number;
-    chainSkillDmgBonus: number;
-    ultimateDmgBonus: number;
-    allSkillDmgBonus: number;
-    allDmgBonus: number;
-  } | null>(null);
-  // 计算过程展开状态
-  const [isExpanded, setIsExpanded] = useState(false);
-  // infoSnapshot 数据（从 sessionStorage 只读，不影响原数据）
-  const [infoSnapshotLines, setInfoSnapshotLines] = useState<string[]>([]);
-  // infoSnap JSON 数据（从 sessionStorage 只读，不影响原数据）
-  const [infoSnap, setInfoSnap] = useState<Record<string, number>>({});
-  const [selectedAnomalySegmentKey, setSelectedAnomalySegmentKey] = useState<string | null>(null);
-  const [isAnomalyFormulaExpanded, setIsAnomalyFormulaExpanded] = useState(false);
-  const [isTargetResistanceExpanded, setIsTargetResistanceExpanded] = useState(false);
-  const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
-  const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
-  const [buffSearchMode, setBuffSearchMode] = useState<BuffSearchMode>('buff-group');
-  const [operatorCharacterFilter, setOperatorCharacterFilter] = useState<string | null>(null);
-  const [operatorBuffGroupFilter, setOperatorBuffGroupFilter] = useState<OperatorBuffGroupFilter | null>(null);
-  const [candidateBuffRefreshToken, setCandidateBuffRefreshToken] = useState(0);
-  const [manuallyDisabledBuffIdsBySegmentKey, setManuallyDisabledBuffIdsBySegmentKey] = useState<Record<string, string[]>>({});
-  const [globallyDisabledBuffIds, setGloballyDisabledBuffIds] = useState<string[]>([]);
-  const [manualBuffStackCountsBySegmentKey, setManualBuffStackCountsBySegmentKey] = useState<Record<string, Record<string, number>>>({});
-  const [manuallyDisabledHitKeys, setManuallyDisabledHitKeys] = useState<string[]>([]);
-
-  // 图标加载失败状态，用于 CSS 类切换
-  const [iconLoadFailed, setIconLoadFailed] = useState(false);
-
-  // 用于区分单击/双击/长按的引用
-  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isLongPressRef = useRef(false);
-  const clickCountRef = useRef(0);
-  const wasModalOpenRef = useRef(false);
-  const localBuffSearchInputRef = useRef<HTMLInputElement | null>(null);
-  const selectedTeamCharacterIds = useMemo(() => {
-    const ids = state.selectedCharacters
-      .map((character) => character.id)
-      .filter((id): id is string => Boolean(id));
-    if (button.characterId && !ids.includes(button.characterId)) {
-      ids.push(button.characterId);
-    }
-    return ids;
-  }, [button.characterId, state.selectedCharacters]);
-
-  // skillIconUrl 变化时重置图标加载失败状态
-  useEffect(() => {
-    setIconLoadFailed(false);
-  }, [skillIconUrl]);
-
-  /**
-   * 从 buffCache 加载 Buff 列表
-   */
-  const loadBuffList = useCallback(() => {
-    const buffs = getButtonBuffs(button.id);
-    setBuffList(buffs);
-  }, [button.id]);
-
-  const localBuffSearchEntries = useMemo(() => {
-    if (!isModalOpen) return [];
-    return [
-      ...readLocalBuffSearchEntries(),
-      ...readCandidateBuffSearchEntries(),
-    ];
-  }, [candidateBuffRefreshToken, isModalOpen, isLocalBuffSearchOpen]);
-  const activeBuffSearchEntries = useMemo(() => {
-    if (!isSourceBuffSearchMode(buffSearchMode)) {
-      return [];
-    }
-    const entries = filterBuffSearchEntriesBySourceMode(localBuffSearchEntries, buffSearchMode);
-    if (buffSearchMode === 'buff-group') {
-      return entries;
-    }
-    const operatorConfigCache = getOperatorConfigPageCache();
-    return entries.filter((entry) => {
-      if (operatorCharacterFilter && entry.ownerCharacterId !== operatorCharacterFilter) {
-        return false;
-      }
-      if (buffSearchMode === 'operator' && operatorBuffGroupFilter && entry.ownerBuffGroup !== operatorBuffGroupFilter) {
-        return false;
-      }
-      if (buffSearchMode !== 'operator' || entry.ownerBuffGroup !== 'potential') {
-        return true;
-      }
-
-      const requiredPotentialCount = getRequiredPotentialCount(entry.displayName || entry.name);
-      if (requiredPotentialCount === null) {
-        return true;
-      }
-      const cachedPotentialCount = entry.ownerCharacterId
-        ? operatorConfigCache[entry.ownerCharacterId]?.operator.potentialCount ?? 0
-        : 0;
-      return cachedPotentialCount > requiredPotentialCount;
-    });
-  }, [
-    buffSearchMode,
-    candidateBuffRefreshToken,
-    localBuffSearchEntries,
-    operatorBuffGroupFilter,
-    operatorCharacterFilter,
-  ]);
-  const activeBuffSearchIndex = useMemo(() => buildBuffSearchIndex(
-    activeBuffSearchEntries,
-    (entry) => [
-      entry.displayName,
-      entry.name,
-      entry.groupName,
-      entry.itemName,
-      entry.type,
-      entry.description,
-      entry.condition,
-      entry.sourceName,
-    ]
-  ), [activeBuffSearchEntries]);
-  const localBuffSearchResults = useMemo(() => {
-    if (!isSourceBuffSearchMode(buffSearchMode)) {
-      return [];
-    }
-    if (!localBuffSearchKeyword.trim()) {
-      return ['operator', 'weapon', 'equipment'].includes(buffSearchMode)
-        && (operatorCharacterFilter || (buffSearchMode === 'operator' && operatorBuffGroupFilter))
-        ? dedupeLocalBuffSearchResults(activeBuffSearchEntries).slice(0, 50)
-        : [];
-    }
-    return dedupeLocalBuffSearchResults(searchBuffs(localBuffSearchKeyword, activeBuffSearchIndex)).slice(0, 50);
-  }, [
-    activeBuffSearchEntries,
-    activeBuffSearchIndex,
-    buffSearchMode,
+  const runtime = useSkillButtonRuntime({
+    button,
+    size,
+    timelineData,
+    isDetailRouteActive,
+    isBrowseMode,
+    contextMenuState,
+    onModalClose,
+  });
+  const {
+    position,
+    skillType,
+    isSelected,
+    isDragging,
+    characterName,
+    skillIconUrl,
+    element,
+    isLocked,
+    displayName,
+    browseModeDisplayName,
+    isDotButton,
+    state,
+    dispatch,
+    radius,
+    visualOffsetX,
+    visualOffsetY,
+    hitWidth,
+    hitHeight,
+    shouldRenderContextMenu,
+    isModalOpen,
+    buffList,
+    currentSkillLevelMode,
+    resolvedTemplate,
+    targetResistance,
+    selectedHitIndex,
+    setSelectedHitIndex,
+    panelData,
+    isExpanded,
+    setIsExpanded,
+    infoSnapshotLines,
+    selectedAnomalySegmentKey,
+    setSelectedAnomalySegmentKey,
+    isAnomalyFormulaExpanded,
+    setIsAnomalyFormulaExpanded,
+    isLocalBuffSearchOpen,
     localBuffSearchKeyword,
-    operatorBuffGroupFilter,
+    setLocalBuffSearchKeyword,
+    buffSearchMode,
+    setBuffSearchMode,
     operatorCharacterFilter,
-  ]);
-
-  const loadPersistedManualBuffTweaks = useCallback(() => {
-    const persistedButton = getSkillButtonById(button.id);
-    const persistedMap = persistedButton?.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {};
-    const normalizedMap = Object.fromEntries(
-      Object.entries(persistedMap).map(([segmentKey, buffIds]) => [
-        segmentKey,
-        Array.isArray(buffIds) ? buffIds : [],
-      ])
-    );
-    setManuallyDisabledBuffIdsBySegmentKey(normalizedMap);
-    setGloballyDisabledBuffIds(
-      Array.isArray(persistedButton?.panelConfig?.globallyDisabledBuffIds)
-        ? persistedButton.panelConfig.globallyDisabledBuffIds
-        : []
-    );
-    setManualBuffStackCountsBySegmentKey(
-      Object.fromEntries(
-        Object.entries(persistedButton?.panelConfig?.manualBuffStackCountsBySegmentKey ?? {}).map(([segmentKey, stackCounts]) => [
-          segmentKey,
-          { ...stackCounts },
-        ])
-      )
-    );
-    setManuallyDisabledHitKeys(
-      Array.isArray(persistedButton?.panelConfig?.manualDisabledHitKeys)
-        ? persistedButton.panelConfig.manualDisabledHitKeys.filter((hitKey): hitKey is string => typeof hitKey === 'string')
-        : []
-    );
-    setTargetResistance({
-      ...EMPTY_TARGET_RESISTANCE,
-      ...(persistedButton?.resistanceConfig?.targetResistance ?? {}),
-    });
-  }, [button.id]);
-
-  const closeLocalBuffSearch = useCallback(() => {
-    setIsLocalBuffSearchOpen(false);
-    setLocalBuffSearchKeyword('');
-  }, []);
-
-  const openLocalBuffSearch = useCallback(() => {
-    setIsLocalBuffSearchOpen(true);
-    setBuffSearchMode('buff-group');
-  }, []);
-
-  const handleCloseModal = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.home);
-    onModalClose?.();
-  }, [onModalClose]);
-
-  useEffect(() => {
-    if (!isLocalBuffSearchOpen) {
-      return;
-    }
-    refreshSelectedCharacters()
-      .then(async (refreshedCharacters) => {
-        const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : state.selectedCharacters;
-        const characterIdsForRefresh = Array.from(new Set([
-          ...selectedTeamCharacterIds,
-          ...charactersForRefresh.map((character) => character.id),
-        ]));
-        await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
-        return refreshSnapshotCandidateBuffsForCharacterIds(characterIdsForRefresh);
-      })
-      .then(() => setCandidateBuffRefreshToken((token) => token + 1))
-      .catch((error) => console.error('刷新技能按钮候选 Buff 失败:', error));
-    const timer = window.setTimeout(() => {
-      localBuffSearchInputRef.current?.focus();
-      localBuffSearchInputRef.current?.select();
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [isLocalBuffSearchOpen, refreshSelectedCharacters, selectedTeamCharacterIds, state.selectedCharacters]);
-
-  useEffect(() => {
-    if (!isModalOpen) {
-      if (isLocalBuffSearchOpen) {
-        closeLocalBuffSearch();
-      }
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      const isEditable =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        !!target?.closest('[contenteditable="true"]');
-
-      if (isLocalBuffSearchOpen) {
-        if (event.key === 'Tab' && !event.shiftKey) {
-          event.preventDefault();
-          setBuffSearchMode((prev) => getNextBuffSearchMode(prev));
-          return;
-        }
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeLocalBuffSearch();
-        }
-        return;
-      }
-
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        handleCloseModal();
-        return;
-      }
-
-      if (event.key === 'Tab' && !event.shiftKey && !isEditable) {
-        event.preventDefault();
-        openLocalBuffSearch();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [closeLocalBuffSearch, handleCloseModal, isLocalBuffSearchOpen, isModalOpen, openLocalBuffSearch]);
-
-  const persistManualBuffTweaks = useCallback((nextMap: Record<string, string[]>) => {
-    const persistedButton = getSkillButtonById(button.id);
-    if (!persistedButton) {
-      return;
-    }
-
-    upsertSkillButton({
-      ...persistedButton,
-      panelConfig: {
-        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-        manualDisabledBuffIdsBySegmentKey: nextMap,
-      },
-      updatedAt: Date.now(),
-    });
-  }, [button.id]);
-
-  const updateTargetResistance = useCallback((key: keyof HitResistanceInput, value: number) => {
-    const nextValue = Number.isFinite(value) ? value : 0;
-    setTargetResistance((prev) => {
-      const next = { ...prev, [key]: nextValue };
-      const persistedButton = getSkillButtonById(button.id);
-      if (persistedButton) {
-        upsertSkillButton({
-          ...persistedButton,
-          resistanceConfig: {
-            targetResistance: next,
-          },
-        });
-      }
-      return next;
-    });
-  }, [button.id]);
-
-  const persistManualDisabledHitKeys = useCallback((nextHitKeys: string[]) => {
-    const persistedButton = getSkillButtonById(button.id);
-    if (!persistedButton) {
-      return;
-    }
-
-    upsertSkillButton({
-      ...persistedButton,
-      panelConfig: {
-        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-        manualDisabledHitKeys: nextHitKeys,
-      },
-      updatedAt: Date.now(),
-    });
-  }, [button.id]);
-
-  const toggleGlobalBuffDisabled = useCallback((buffId: string) => {
-    setGloballyDisabledBuffIds((prev) => {
-      const next = prev.includes(buffId)
-        ? prev.filter((id) => id !== buffId)
-        : [...prev, buffId];
-      const persistedButton = getSkillButtonById(button.id);
-      if (persistedButton) {
-        upsertSkillButton({
-          ...persistedButton,
-          panelConfig: {
-            ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-            selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-            globallyDisabledBuffIds: next,
-          },
-          updatedAt: Date.now(),
-        });
-        recomputeSkillButtonPanel(button.id);
-      }
-      return next;
-    });
-  }, [button.id]);
-
-  const persistManualBuffStackCounts = useCallback((nextMap: Record<string, Record<string, number>>) => {
-    const persistedButton = getSkillButtonById(button.id);
-    if (!persistedButton) {
-      return;
-    }
-    upsertSkillButton({
-      ...persistedButton,
-      panelConfig: {
-        ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-        selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-        manualBuffStackCountsBySegmentKey: nextMap,
-      },
-      updatedAt: Date.now(),
-    });
-  }, [button.id]);
-
-  const clearManualBuffStackCountForBuff = useCallback((buffId: string) => {
-    setManualBuffStackCountsBySegmentKey((prev) => {
-      const nextMap = Object.fromEntries(
-        Object.entries(prev).flatMap(([segmentKey, stackCounts]) => {
-          if (!(buffId in stackCounts)) {
-            return [[segmentKey, stackCounts] as const];
-          }
-          const { [buffId]: _removed, ...remainingCounts } = stackCounts;
-          return Object.keys(remainingCounts).length > 0
-            ? [[segmentKey, remainingCounts] as const]
-            : [];
-        })
-      );
-      persistManualBuffStackCounts(nextMap);
-      return nextMap;
-    });
-  }, [persistManualBuffStackCounts]);
-
-  /**
-   * 从 sessionStorage 加载 skillLevelModeMap（角色技能等级配置）
-   */
-  const loadSkillLevelModeMap = useCallback((): Record<string, SkillLevelMode> => {
-    const characterConfig = getCharacterConfig(button.characterId);
-    if (characterConfig) {
-      return characterConfig.skillLevelModeMap ?? { A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' };
-    }
-    return { A: 'L9', B: 'L9', E: 'L9', Q: 'L9', Dot: 'M3' };
-  }, [button.characterId]);
-
-  const loadResolvedTemplate = useCallback(() => {
-    const template = resolveSkillDamageTemplate(button);
-    if (!template) {
-      setResolvedTemplate(null);
-      return;
-    }
-
-    setResolvedTemplate(template);
-    console.log(`[SkillButton] 已加载解析模板: ${template.displayName} ${template.buttonType}, hits: ${template.hits.length}`);
-  }, [button]);
-
-  /**
-   * 从 sessionStorage 加载面板数据 
-   */
-  const loadPanelData = useCallback(() => {
-    recomputeSkillButtonPanel(button.id);
-    const buttonStorage = getSkillButtonById(button.id);
-    const characterConfig = getCharacterConfig(button.characterId);
-    if (characterConfig?.panelSnapshot) {
-    const buttonSnapshot = buttonStorage?.runtimeSnapshot;
-      const snapshot = characterConfig.panelSnapshot;
-      const equipment = characterConfig.equipment ?? {};
-      setPanelData({
-        atk: buttonSnapshot?.atk ?? snapshot.atk ?? 0,
-        critRate: buttonSnapshot?.critRate ?? snapshot.critRate ?? (0.05 + (equipment.critRateBoost ?? 0)),
-        critDmg: buttonSnapshot?.critDmg ?? snapshot.critDmg ?? (0.5 + (equipment.critDmgBonusBoost ?? 0)),
-        physicalDmgBonus: equipment.physicalDmgBonus ?? 0,
-        fireDmgBonus: equipment.fireDmgBonus ?? 0,
-        electricDmgBonus: equipment.electricDmgBonus ?? 0,
-        iceDmgBonus: equipment.iceDmgBonus ?? 0,
-        natureDmgBonus: equipment.natureDmgBonus ?? 0,
-        skillDmgBonus: equipment.skillDmgBonus ?? 0,
-        chainSkillDmgBonus: equipment.chainSkillDmgBonus ?? 0,
-        ultimateDmgBonus: equipment.ultimateDmgBonus ?? 0,
-        allSkillDmgBonus: (equipment.allSkillDmgBonus ?? 0) + (snapshot.weaponAllSkillDmgBonus ?? 0),
-        allDmgBonus: equipment.allDmgBonus ?? 0,
-      });
-      setInfoSnapshotLines(characterConfig.infoSnapshot ?? []);
-      setInfoSnap((characterConfig.infoSnap ?? {}) as unknown as Record<string, number>);
-    } else {
-      // 当前按钮没有有效快照时，清空状态，避免显示上一个按钮的数据
-      setPanelData(null);
-      setInfoSnapshotLines([]);
-      setInfoSnap({});
-    }
-  }, [button.characterId, button.id]);
-
-  const handleApplyLocalBuffSearchResult = useCallback((entry: LocalBuffSearchResult) => {
-    const result = addSkillButtonBuff(button.id, {
-      name: entry.name,
-      displayName: entry.displayName,
-      sourceName: entry.sourceName,
-      level: entry.level || '',
-      type: entry.type,
-      value: entry.value,
-      description: entry.description,
-      source: entry.source,
-      condition: entry.condition,
-      category: entry.category,
-      maxStacks: entry.maxStacks,
-      ownerBuffDomain: entry.ownerBuffDomain,
-      ownerCharacterId: entry.ownerCharacterId,
-      ownerBuffGroup: entry.ownerBuffGroup,
-      valueMode: entry.valueMode,
-      derivedValue: entry.derivedValue,
-      effectKind: entry.effectKind,
-      extraHitConfig: entry.extraHitConfig,
-      multiplier: entry.multiplier,
-      refCount: 1,
-    });
-
-    if (result.success) {
-      recomputeSkillButtonPanel(button.id);
-      if (result.buffId) {
-        emitSkillButtonBuffAdded(button.id, result.buffId);
-      } else {
-        // 防御兜底：极端情况下没有 buffId 时，仍然同步当前弹窗本地状态
-        loadBuffList();
-        loadPanelData();
-      }
-    }
-  }, [button.id, loadBuffList, loadPanelData]);
-
-  const handleApplyNearbyBuff = useCallback((buff: SkillButtonBuff) => {
-    const { id: _id, refCount: _refCount, ...buffWithoutRuntimeFields } = buff;
-    const result = addSkillButtonBuff(button.id, {
-      ...buffWithoutRuntimeFields,
-      refCount: 1,
-    });
-    if (!result.success) {
-      return;
-    }
-    recomputeSkillButtonPanel(button.id);
-    if (result.buffId) {
-      emitSkillButtonBuffAdded(button.id, result.buffId);
-      return;
-    }
-    loadBuffList();
-    loadPanelData();
-  }, [button.id, loadBuffList, loadPanelData]);
-
-  /**
-   * 移除指定 Buff
-   * 同时触发事件通知 CanvasBoard 更新 timelineData
-   * @param buffId - Buff ID
-   */
-  const removeBuff = useCallback((buffId: string) => {
-    setGloballyDisabledBuffIds((prev) => prev.filter((id) => id !== buffId));
-    removeSkillButtonBuff(button.id, buffId);
-    loadBuffList(); // 重新加载列表
-    loadPanelData();
-
-    // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
-    emitSkillButtonBuffRemoved(button.id, buffId);
-  }, [button.id, loadBuffList, loadPanelData]);
-
-  const clearAllBuffs = useCallback(() => {
-    const currentBuffs = getButtonBuffs(button.id);
-    if (currentBuffs.length === 0) {
-      return;
-    }
-    currentBuffs.forEach((buff) => {
-      removeSkillButtonBuff(button.id, buff.id);
-      emitSkillButtonBuffRemoved(button.id, buff.id);
-    });
-    setGloballyDisabledBuffIds([]);
-    setManuallyDisabledBuffIdsBySegmentKey({});
-    setManualBuffStackCountsBySegmentKey({});
-    persistManualBuffTweaks({});
-    persistManualBuffStackCounts({});
-    const persistedButton = getSkillButtonById(button.id);
-    if (persistedButton) {
-      upsertSkillButton({
-        ...persistedButton,
-        panelConfig: {
-          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-          globallyDisabledBuffIds: [],
-          manualDisabledBuffIdsBySegmentKey: {},
-          manualBuffStackCountsBySegmentKey: {},
-        },
-        updatedAt: Date.now(),
-      });
-      recomputeSkillButtonPanel(button.id);
-    }
-    loadBuffList();
-    loadPanelData();
-  }, [button.id, loadBuffList, loadPanelData, persistManualBuffStackCounts, persistManualBuffTweaks]);
-
-  const enableAllBuffs = useCallback(() => {
-    const persistedButton = getSkillButtonById(button.id);
-    if (persistedButton) {
-      upsertSkillButton({
-        ...persistedButton,
-        panelConfig: {
-          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-          globallyDisabledBuffIds: [],
-        },
-        updatedAt: Date.now(),
-      });
-      recomputeSkillButtonPanel(button.id);
-    }
-    setGloballyDisabledBuffIds([]);
-    loadPanelData();
-  }, [button.id, loadPanelData]);
-
-  const disableAllBuffs = useCallback(() => {
-    const currentBuffs = getButtonBuffs(button.id);
-    const nextDisabledIds = currentBuffs.map((buff) => buff.id);
-    const persistedButton = getSkillButtonById(button.id);
-    if (persistedButton) {
-      upsertSkillButton({
-        ...persistedButton,
-        panelConfig: {
-          ...(persistedButton.panelConfig ?? { selectedBuff: [...(persistedButton.selectedBuff ?? [])] }),
-          selectedBuff: [...(persistedButton.selectedBuff ?? [])],
-          globallyDisabledBuffIds: nextDisabledIds,
-        },
-        updatedAt: Date.now(),
-      });
-      recomputeSkillButtonPanel(button.id);
-    }
-    setGloballyDisabledBuffIds(nextDisabledIds);
-    loadPanelData();
-  }, [button.id, loadPanelData]);
-
-  const resetAllBuffStacks = useCallback(() => {
-    setManualBuffStackCountsBySegmentKey({});
-    persistManualBuffStackCounts({});
-    loadPanelData();
-  }, [loadPanelData, persistManualBuffStackCounts]);
-
-  const decrementBuffStack = useCallback((buffId: string) => {
-    clearManualBuffStackCountForBuff(buffId);
-    decrementSkillButtonBuffStack(button.id, buffId);
-    loadBuffList();
-    loadPanelData();
-  }, [button.id, clearManualBuffStackCountForBuff, loadBuffList, loadPanelData]);
-
-  const incrementBuffStack = useCallback((buff: SkillButtonBuff) => {
-    clearManualBuffStackCountForBuff(buff.id);
-    const { id: _id, refCount: _refCount, ...buffWithoutRuntimeFields } = buff;
-    addSkillButtonBuff(button.id, { ...buffWithoutRuntimeFields, refCount: 1 });
-    loadBuffList();
-    loadPanelData();
-  }, [button.id, clearManualBuffStackCountForBuff, loadBuffList, loadPanelData]);
-
-  const modifierBuffList = useMemo(
-    () => buffList.filter((buff) => isModifierBuff(buff) && !globallyDisabledBuffIds.includes(buff.id)),
-    [buffList, globallyDisabledBuffIds]
-  );
-  const buttonStackCounts = useMemo(
-    () => getSkillButtonById(button.id)?.buffStackCounts ?? {},
-    [button.id, buffList]
-  );
-  const buffStackCountsByHitKey = useMemo(() => {
-    if (!resolvedTemplate) {
-      return {};
-    }
-    return Object.fromEntries(
-      resolvedTemplate.hits.map((hit) => [
-        hit.key,
-        manualBuffStackCountsBySegmentKey[getNormalHitSegmentKey(hit.key)] ?? {},
-      ])
-    );
-  }, [manualBuffStackCountsBySegmentKey, resolvedTemplate]);
-  const extraHitBuffList = useMemo(
-    () => buffList.filter(isExtraHitBuff).filter((buff) => !globallyDisabledBuffIds.includes(buff.id)),
-    [buffList, globallyDisabledBuffIds]
-  );
-  const usedLocalBuffList = useMemo(
-    () => buffList.filter((buff) => buff.source !== 'anomaly_state'),
-    [buffList]
-  );
-  const nearbyBuffList = useMemo(() => {
-    if (!timelineData || !isSourceBuffSearchMode(buffSearchMode)) {
-      return [];
-    }
-
-    const timelineButton = timelineData.staffLines
-      .flatMap((staffLine) => staffLine.buttons)
-      .find((item) => item.id === button.id);
-    const currentNodeIndex = timelineButton?.nodeIndex ?? button.nodeIndex;
-    if (typeof currentNodeIndex !== 'number') {
-      return [];
-    }
-
-    const selectedBuffIds = new Set(usedLocalBuffList.map((buff) => buff.id));
-    const nearbyBuffs = new Map<string, SkillButtonBuff>();
-    timelineData.staffLines.forEach((staffLine) => {
-      staffLine.buttons.forEach((nearbyButton) => {
-        if (
-          nearbyButton.id === button.id
-          || Math.abs(nearbyButton.nodeIndex - currentNodeIndex) !== 1
-        ) {
-          return;
-        }
-        getButtonBuffs(nearbyButton.id).forEach((buff) => {
-          if (buff.source !== 'anomaly_state' && !selectedBuffIds.has(buff.id)) {
-            nearbyBuffs.set(buff.id, buff);
-          }
-        });
-      });
-    });
-    return Array.from(nearbyBuffs.values());
-  }, [buffSearchMode, button.id, button.nodeIndex, timelineData, usedLocalBuffList]);
+    setOperatorCharacterFilter,
+    operatorBuffGroupFilter,
+    setOperatorBuffGroupFilter,
+    manuallyDisabledBuffIdsBySegmentKey,
+    globallyDisabledBuffIds,
+    setManuallyDisabledHitKeys,
+    iconLoadFailed,
+    localBuffSearchInputRef,
+    localBuffSearchResults,
+    closeLocalBuffSearch,
+    openLocalBuffSearch,
+    handleCloseModal,
+    updateTargetResistance,
+    persistManualDisabledHitKeys,
+    toggleGlobalBuffDisabled,
+    handleApplyLocalBuffSearchResult,
+    handleApplyNearbyBuff,
+    removeBuff,
+    clearAllBuffs,
+    enableAllBuffs,
+    disableAllBuffs,
+    resetAllBuffStacks,
+    decrementBuffStack,
+    incrementBuffStack,
+    modifierBuffList,
+    buttonStackCounts,
+    usedLocalBuffList,
+    nearbyBuffList,
+  } = runtime;
+  const anomaly = useSkillButtonAnomaly({
+    buttonId: button.id,
+    buttonCharacterId: button.characterId,
+    buttonSkillType: button.skillType,
+    characterName,
+    selectedCharacters: state.selectedCharacters.map((character) => ({
+      id: character.id,
+      name: character.name,
+    })),
+    modifierBuffList,
+  });
   const {
     activeAnomaly,
     activeAnomalyGroup,
@@ -922,10 +220,8 @@ export function SkillButtonComponent({
     handleCreateAnomalyStateSnapshot,
     handleSelectAnomaly,
     handleSelectAnomalyState,
-    loadPersistedAnomalyCards,
     removeAnomalyCard,
     removeAnomalyStateSnapshotCard,
-    resetAnomalyDraftState,
     selectedAnomalyDamages,
     selectedAnomalyStateSnapshots,
     selectedStatusCards,
@@ -940,603 +236,49 @@ export function SkillButtonComponent({
     setActiveDurationSeconds,
     setBurnDamageMode,
     sourceCharacters,
-    getEffectiveCharacterSourceSkillBoost,
     activeDurationSeconds,
-  } = useSkillButtonAnomaly({
-    buttonId: button.id,
-    buttonCharacterId: button.characterId,
-    buttonSkillType: button.skillType,
+  } = anomaly;
+  const {
+    activeNormalHitSegmentKey,
+    activeNormalHitKey,
+    isActiveNormalHitDisabled,
+    fullDamageResult,
+    damageResult,
+    damageViewModel,
+    activeHitBuffOptions,
+    isBuffManuallyActive,
+    toggleManualBuff,
+    resetManualBuffTweaks,
+    getEffectiveSegmentStackCounts,
+    adjustSegmentBuffStack,
+    toggleActiveNormalHitDisabled,
+    toggleManualHitDisabled,
+    anomalyDamageSegments,
+    activeAnomalySegment,
+    activeAnomalyBuffOptions,
+    isShowingAnomalyDetail,
+    activeAnomalyFormula,
+    anomalyDamageSummary,
+    inspectDamageSummary,
+    totalNonCritSummaryFormula,
+    totalNonCritSummaryParts,
+  } = useSkillButtonDamageRuntime({
+    button,
     characterName,
-    selectedCharacters: state.selectedCharacters.map((character) => ({
-      id: character.id,
-      name: character.name,
-    })),
-    modifierBuffList,
+    isInspectMode,
+    resistanceRevision,
+    runtime,
+    anomaly,
   });
-  const panelBase = useMemo<SkillDamagePanelBase | null>(() => {
-    const computedPanel = getCharacterComputedCache(button.characterId)?.panel;
-    if (!computedPanel) {
-      return null;
-    }
-
-    return {
-      baseAtk: computedPanel.baseAtk,
-      characterAtk: computedPanel.characterAtk,
-      weaponAtk: computedPanel.weaponAtk,
-      weaponAtkPercent: computedPanel.weaponAtkPercent,
-      abilityBonus: computedPanel.abilityBonus,
-      critRate: computedPanel.critRate ?? 0.05,
-      critDmg: computedPanel.critDmg ?? 0.5,
-      strength: computedPanel.strength,
-      agility: computedPanel.agility,
-      intelligence: computedPanel.intelligence,
-      will: computedPanel.will,
-      mainStatFinal: computedPanel.mainStatFinal,
-      subStatFinal: computedPanel.subStatFinal,
-      mainStatRaw: computedPanel.mainStatRaw,
-      subStatRaw: computedPanel.subStatRaw,
-      mainStatField: computedPanel.mainStatField,
-      subStatField: computedPanel.subStatField,
-      mainStatScale: computedPanel.mainStatScale,
-      subStatScale: computedPanel.subStatScale,
-      allStatScale: computedPanel.allStatScale,
-    };
-  }, [button.characterId]);
-  const activeNormalHitSegmentKey = useMemo(
-    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key) : null),
-    [resolvedTemplate, selectedHitIndex]
-  );
-  const activeNormalHitKey = useMemo(
-    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? resolvedTemplate.hits[selectedHitIndex].key : null),
-    [resolvedTemplate, selectedHitIndex]
-  );
-  const isActiveNormalHitDisabled = activeNormalHitKey ? manuallyDisabledHitKeys.includes(activeNormalHitKey) : false;
-  const disabledBuffIdsByHitKey = useMemo(() => {
-    if (!resolvedTemplate) {
-      return {};
-    }
-
-    return resolvedTemplate.hits.reduce<Record<string, string[]>>((acc, hit) => {
-      const segmentKey = getNormalHitSegmentKey(hit.key);
-      acc[hit.key] = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
-      return acc;
-    }, {});
-  }, [manuallyDisabledBuffIdsBySegmentKey, resolvedTemplate]);
-
-  const fullDamageResult = useMemo(() => {
-    if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
-      return null;
-    }
-
-    return calculateSkillButtonDamageV2({
-        buttonId: button.id,
-        characterId: button.characterId,
-        runtimeSkillId: resolvedTemplate.runtimeSkillId,
-        template: resolvedTemplate,
-        buffs: fullCombinedModifierBuffList,
-        buffStackCounts: buttonStackCounts,
-        buffStackCountsByHitKey,
-        panel: {
-          atk: panelData.atk,
-          critRate: panelData.critRate,
-          critDmg: panelData.critDmg,
-        },
-        panelBase: panelBase ?? undefined,
-      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
-      targetResistance,
-    });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
-
-  const damageResult = useMemo(() => {
-    if (!resolvedTemplate || resolvedTemplate.hits.length === 0 || !panelData) {
-      return null;
-    }
-
-    return calculateSkillButtonDamageV2({
-        buttonId: button.id,
-        characterId: button.characterId,
-        runtimeSkillId: resolvedTemplate.runtimeSkillId,
-        template: resolvedTemplate,
-        buffs: fullCombinedModifierBuffList,
-        buffStackCounts: buttonStackCounts,
-        buffStackCountsByHitKey,
-        panel: {
-          atk: panelData.atk,
-          critRate: panelData.critRate,
-          critDmg: panelData.critDmg,
-        },
-        panelBase: panelBase ?? undefined,
-        disabledBuffIdsByHitKey,
-        disabledHitKeys: manuallyDisabledHitKeys,
-      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
-      targetResistance,
-    });
-  }, [resolvedTemplate, panelData, button.id, button.characterId, targetResistance, fullCombinedModifierBuffList, panelBase, disabledBuffIdsByHitKey, manuallyDisabledHitKeys, infoSnap, buttonStackCounts, buffStackCountsByHitKey]);
-
-  const damageViewModel = useMemo(() => {
-    if (!resolvedTemplate || !damageResult || !panelData) {
-      return null;
-    }
-
-    const activeHitPanel = selectedHitIndex !== null ? damageResult.hits[selectedHitIndex]?.panel ?? panelData : panelData;
-    const activeHitStackCounts = selectedHitIndex !== null && resolvedTemplate.hits[selectedHitIndex]
-      ? {
-          ...buttonStackCounts,
-          ...(manualBuffStackCountsBySegmentKey[getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key)] ?? {}),
-        }
-      : buttonStackCounts;
-    return buildSkillDamageModalViewModel(
-      resolvedTemplate,
-      damageResult,
-      selectedHitIndex,
-      {
-        atk: activeHitPanel.atk,
-        critRate: activeHitPanel.critRate,
-        critDmg: activeHitPanel.critDmg,
-      },
-      activeHitStackCounts,
-      panelBase
-    );
-  }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts, manualBuffStackCountsBySegmentKey, panelBase]);
-  const activeHitBuffOptions = useMemo(() => {
-    if (selectedHitIndex === null || !fullDamageResult) {
-      return [];
-    }
-    const hitResult = fullDamageResult.hits[selectedHitIndex];
-    return hitResult ? buildAppliedBuffTags(hitResult.appliedBuffs, buttonStackCounts) : [];
-  }, [buttonStackCounts, fullDamageResult, selectedHitIndex]);
-  const manualBuffOptionIdsBySegmentKey = useMemo<Record<string, Set<string>>>(() => {
-    const nextMap: Record<string, Set<string>> = {};
-
-    if (fullDamageResult) {
-      fullDamageResult.hits.forEach((hit) => {
-        nextMap[getNormalHitSegmentKey(hit.hit.key)] = new Set(hit.appliedBuffs.map((buff) => buff.id));
-      });
-    }
-
-    selectedAnomalyDamages.forEach((card) => {
-      const appliedBuffs = card.selectedBuffIds.length === 0
-        ? [...fullCombinedModifierBuffList]
-        : [...fullCombinedModifierBuffList.filter((buff) => card.selectedBuffIds.includes(buff.id) || buff.source === 'anomaly_state')];
-      nextMap[card.id] = new Set(appliedBuffs.map((buff) => buff.id));
-    });
-
-    extraHitBuffList.forEach((buff) => {
-      nextMap[`buff-extra-hit-${buff.id}`] = new Set(fullCombinedModifierBuffList.map((item) => item.id));
-    });
-
-    return nextMap;
-  }, [extraHitBuffList, fullCombinedModifierBuffList, fullDamageResult, selectedAnomalyDamages]);
-
-  useEffect(() => {
-    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
-      const nextEntries = Object.entries(prev).flatMap(([segmentKey, buffIds]) => {
-        const availableIds = manualBuffOptionIdsBySegmentKey[segmentKey];
-        if (!availableIds) {
-          return [];
-        }
-        const nextBuffIds = buffIds.filter((buffId) => availableIds.has(buffId));
-        return nextBuffIds.length > 0 ? [[segmentKey, nextBuffIds] as const] : [];
-      });
-      return Object.fromEntries(nextEntries);
-    });
-  }, [manualBuffOptionIdsBySegmentKey]);
-
-  const isBuffManuallyActive = useCallback((segmentKey: string, buffId: string) => {
-    const disabledIds = manuallyDisabledBuffIdsBySegmentKey[segmentKey] ?? [];
-    return !disabledIds.includes(buffId);
-  }, [manuallyDisabledBuffIdsBySegmentKey]);
-
-  const toggleManualBuff = useCallback((segmentKey: string, buffId: string) => {
-    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
-      const current = prev[segmentKey] ?? [];
-      const next = current.includes(buffId)
-        ? current.filter((id) => id !== buffId)
-        : [...current, buffId];
-      const nextMap = next.length === 0 ? (() => {
-        const { [segmentKey]: _removed, ...rest } = prev;
-        return rest;
-      })() : {
-        ...prev,
-        [segmentKey]: next,
-      };
-      persistManualBuffTweaks(nextMap);
-      return nextMap;
-    });
-  }, [persistManualBuffTweaks]);
-
-  const resetManualBuffTweaks = useCallback((segmentKey: string) => {
-    setManuallyDisabledBuffIdsBySegmentKey((prev) => {
-      if (!(segmentKey in prev)) {
-        return prev;
-      }
-      const { [segmentKey]: _removed, ...rest } = prev;
-      persistManualBuffTweaks(rest);
-      return rest;
-    });
-  }, [persistManualBuffTweaks]);
-
-  const getEffectiveSegmentStackCounts = useCallback((segmentKey: string) => ({
-    ...buttonStackCounts,
-    ...(manualBuffStackCountsBySegmentKey[segmentKey] ?? {}),
-  }), [buttonStackCounts, manualBuffStackCountsBySegmentKey]);
-
-  const adjustSegmentBuffStack = useCallback((segmentKey: string, buffId: string, delta: number) => {
-    const buff = buffList.find((item) => item.id === buffId);
-    if (!buff || buff.category !== 'countable') {
-      return;
-    }
-    const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks)
-      ? Math.max(1, Math.floor(buff.maxStacks))
-      : 1;
-    setManualBuffStackCountsBySegmentKey((prev) => {
-      const segmentCounts = prev[segmentKey] ?? {};
-      const baseCount = segmentCounts[buffId] ?? buttonStackCounts[buffId] ?? maxStacks;
-      const nextCount = Math.min(Math.max(Math.floor(baseCount) + delta, 1), maxStacks);
-      const nextMap = {
-        ...prev,
-        [segmentKey]: {
-          ...segmentCounts,
-          [buffId]: nextCount,
-        },
-      };
-      persistManualBuffStackCounts(nextMap);
-      return nextMap;
-    });
-  }, [buffList, buttonStackCounts, persistManualBuffStackCounts]);
-
-  const toggleActiveNormalHitDisabled = useCallback(() => {
-    if (!activeNormalHitKey) {
-      return;
-    }
-
-    setManuallyDisabledHitKeys((prev) => {
-      const next = prev.includes(activeNormalHitKey)
-        ? prev.filter((hitKey) => hitKey !== activeNormalHitKey)
-        : [...prev, activeNormalHitKey];
-      persistManualDisabledHitKeys(next);
-      return next;
-    });
-  }, [activeNormalHitKey, persistManualDisabledHitKeys]);
-
-  const toggleManualHitDisabled = useCallback((hitKey: string) => {
-    if (!hitKey) {
-      return;
-    }
-
-    setManuallyDisabledHitKeys((prev) => {
-      const next = prev.includes(hitKey)
-        ? prev.filter((item) => item !== hitKey)
-        : [...prev, hitKey];
-      persistManualDisabledHitKeys(next);
-      return next;
-    });
-  }, [persistManualDisabledHitKeys]);
-
-  const anomalyDamageSegments = useMemo<AnomalyDamageSegmentView[]>(() => {
-    if (!panelData || !damageViewModel) {
-      return [];
-    }
-    return buildAnomalyDamageSegments({
-      panelBase,
-      panelData,
-      hitCards: damageViewModel.hitCards,
-      selectedAnomalyDamages,
-      buttonCharacterId: button.characterId,
-      element,
-      damageBonus: infoSnap as unknown as import('../../types/storage').DamageBonusSnapshot,
-      targetResistance,
-      fullCombinedModifierBuffList,
-      extraHitBuffList,
-      buffStackCounts: buttonStackCounts,
-      buffStackCountsBySegmentKey: manualBuffStackCountsBySegmentKey,
-      manuallyDisabledBuffIdsBySegmentKey,
-      disabledHitKeys: manuallyDisabledHitKeys,
-      getEffectiveCharacterSourceSkillBoost,
-    });
-  }, [panelBase, panelData, damageViewModel, selectedAnomalyDamages, button.characterId, button.skillType, targetResistance, element, infoSnap, fullCombinedModifierBuffList, extraHitBuffList, buttonStackCounts, manualBuffStackCountsBySegmentKey, manuallyDisabledBuffIdsBySegmentKey, manuallyDisabledHitKeys, getEffectiveCharacterSourceSkillBoost]);
-
-  useEffect(() => {
-    if (!resolvedTemplate) {
-      return;
-    }
-
-    const availableHitKeys = new Set([
-      ...resolvedTemplate.hits.map((hit) => hit.key),
-      ...anomalyDamageSegments.map((segment) => segment.key),
-    ]);
-    setManuallyDisabledHitKeys((prev) => {
-      const next = prev.filter((hitKey) => availableHitKeys.has(hitKey));
-      if (next.length === prev.length) {
-        return prev;
-      }
-      persistManualDisabledHitKeys(next);
-      return next;
-    });
-  }, [anomalyDamageSegments, persistManualDisabledHitKeys, resolvedTemplate]);
-
-  const activeAnomalySegment = useMemo(
-    () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
-    [anomalyDamageSegments, selectedAnomalySegmentKey]
-  );
-  const anomalyBuffOptionsBySegmentKey = useMemo<Record<string, AppliedBuffTagViewModel[]>>(() => {
-    return buildAnomalyBuffOptionsBySegmentKey(
-      selectedAnomalyDamages,
-      fullCombinedModifierBuffList,
-      extraHitBuffList,
-      buttonStackCounts
-    );
-  }, [buttonStackCounts, extraHitBuffList, fullCombinedModifierBuffList, selectedAnomalyDamages]);
-  const activeAnomalyBuffOptions = useMemo(
-    () => (activeAnomalySegment ? (anomalyBuffOptionsBySegmentKey[activeAnomalySegment.key] ?? activeAnomalySegment.appliedBuffTags) : []),
-    [activeAnomalySegment, anomalyBuffOptionsBySegmentKey]
-  );
-  const isShowingAnomalyDetail = Boolean(activeAnomalySegment) && selectedHitIndex === null;
-  const activeAnomalyFormula = useMemo<FormulaViewModel | null>(() => {
-    if (!activeAnomalySegment) {
-      return null;
-    }
-
-    const appliedBuffIds = new Set(activeAnomalySegment.appliedBuffTags.map((buff) => buff.id));
-    const appliedBuffs = fullCombinedModifierBuffList.filter((buff) => appliedBuffIds.has(buff.id));
-    const segmentStackCounts = getEffectiveSegmentStackCounts(activeAnomalySegment.key);
-    const panelLines = [
-      `ATK: ${activeAnomalySegment.panelAtkText}`,
-      `暴击率: ${activeAnomalySegment.critRateText}`,
-      `暴击伤害: ${activeAnomalySegment.critDmgText}`,
-    ];
-    if (activeAnomalySegment.sourceKind === 'anomaly') {
-      panelLines.push(
-        `源石技艺强度: ${activeAnomalySegment.sourceSkillBoostText}`,
-        `等级系数区: ${activeAnomalySegment.levelCoefficientText}`,
-        `源石技艺强度区: ${activeAnomalySegment.sourceSkillZoneText}`
-      );
-    }
-
-    return {
-      title: `${activeAnomalySegment.title} 计算过程`,
-      panelLines,
-      attackLines: buildAttackFormulaLines(
-        panelBase,
-        {
-          atk: Number(activeAnomalySegment.panelAtkText),
-          critRate: Number.parseFloat(activeAnomalySegment.critRateText) / 100,
-          critDmg: Number.parseFloat(activeAnomalySegment.critDmgText) / 100,
-        },
-        appliedBuffs,
-        segmentStackCounts
-      ),
-      buffTags: activeAnomalySegment.appliedBuffTags,
-      showNoBuff: activeAnomalySegment.appliedBuffTags.length === 0,
-      baseMultiplierText: activeAnomalySegment.baseMultiplierText,
-      multiplierFormulaText: activeAnomalySegment.multiplierFormulaText,
-      formulaText: activeAnomalySegment.formulaText,
-      elementBonusText: activeAnomalySegment.elementBonusText,
-      skillBonusText: activeAnomalySegment.skillBonusText,
-      allDamageBonusText: activeAnomalySegment.allDamageBonusText,
-      damageBonusRateText: activeAnomalySegment.damageBonusRateText,
-      damageBonusFormulaText: `1 + ${activeAnomalySegment.elementBonusText} + ${activeAnomalySegment.skillBonusText} + ${activeAnomalySegment.allDamageBonusText} = ${activeAnomalySegment.damageBonusRateText}`,
-      resistanceEffectiveText: (Number(activeAnomalySegment.resistanceBaseText) - Number(activeAnomalySegment.corrosionText)).toFixed(1),
-      resistanceFormulaText: activeAnomalySegment.resistanceFormulaText,
-      amplifyFormulaText: activeAnomalySegment.amplifyFormulaText,
-      fragileFormulaText: activeAnomalySegment.fragileFormulaText,
-      vulnerabilityFormulaText: activeAnomalySegment.vulnerabilityFormulaText,
-      comboFormulaText: activeAnomalySegment.comboFormulaText,
-      imbalanceFormulaText: activeAnomalySegment.imbalanceFormulaText,
-      defenseZoneText: activeAnomalySegment.defenseZoneText,
-      nonCritFormulaText: activeAnomalySegment.nonCritFormulaText,
-      expectedText: activeAnomalySegment.expectedText,
-      critText: activeAnomalySegment.critText,
-      nonCritText: activeAnomalySegment.nonCritText,
-    };
-  }, [activeAnomalySegment, fullCombinedModifierBuffList, getEffectiveSegmentStackCounts, panelBase]);
-  const anomalyDamageSummary = useMemo(() => {
-    return anomalyDamageSegments.reduce(
-      (sum, segment) => {
-        sum.expected += segment.expectedValue;
-        sum.crit += segment.critValue;
-        sum.nonCrit += segment.nonCritValue;
-        return sum;
-      },
-      { expected: 0, crit: 0, nonCrit: 0 }
-    );
-  }, [anomalyDamageSegments]);
-  const loadRuntimeDamageData = useCallback(() => {
-    loadBuffList();
-    setSkillLevelModeMap(loadSkillLevelModeMap());
-    loadResolvedTemplate();
-    loadPanelData();
-    loadPersistedAnomalyCards();
-    loadPersistedManualBuffTweaks();
-  }, [
-    loadBuffList,
-    loadSkillLevelModeMap,
-    loadResolvedTemplate,
-    loadPanelData,
-    loadPersistedAnomalyCards,
-    loadPersistedManualBuffTweaks,
-  ]);
-  useEffect(() => {
-    loadPersistedManualBuffTweaks();
-  }, [loadPersistedManualBuffTweaks, resistanceRevision]);
-  const inspectDamageSummary = useMemo(() => {
-    if (!damageViewModel) {
-      return { expected: '-', nonCrit: '-' };
-    }
-    return {
-      expected: (Number(damageViewModel.summary.totalExpectedText) + anomalyDamageSummary.expected).toFixed(0),
-      nonCrit: (Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0),
-    };
-  }, [anomalyDamageSummary.expected, anomalyDamageSummary.nonCrit, damageViewModel]);
-  const totalNonCritSummaryFormula = useMemo(() => {
-    if (!damageViewModel) {
-      return '无';
-    }
-    const allParts = [
-      ...damageViewModel.hitCards.map((hitCard) => `${hitCard.displayName} ${hitCard.nonCritText}`),
-      ...anomalyDamageSegments.map((segment) => `${segment.sequenceTitle} ${segment.nonCritText}`),
-    ];
-    if (allParts.length === 0) {
-      return '无';
-    }
-    return `${allParts.join(' + ')} = ${(Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0)}`;
-  }, [anomalyDamageSegments, anomalyDamageSummary.nonCrit, damageViewModel]);
-  const totalNonCritSummaryParts = useMemo(() => {
-    if (!damageViewModel) {
-      return [];
-    }
-    return [
-      ...damageViewModel.hitCards.map((hitCard) => ({
-        label: hitCard.displayName,
-        value: hitCard.nonCritText,
-      })),
-      ...anomalyDamageSegments.map((segment) => ({
-        label: segment.sequenceTitle,
-        value: segment.nonCritText,
-      })),
-    ];
-  }, [anomalyDamageSegments, damageViewModel]);
-
-  useEffect(() => {
-    if (!selectedAnomalySegmentKey) {
-      return;
-    }
-    if (anomalyDamageSegments.some((segment) => segment.key === selectedAnomalySegmentKey)) {
-      return;
-    }
-    setSelectedAnomalySegmentKey(null);
-    setIsAnomalyFormulaExpanded(false);
-  }, [anomalyDamageSegments, selectedAnomalySegmentKey]);
-
-  // 弹窗打开时加载数据，并设置当前选中的技能按钮
-  useEffect(() => {
-    if (isModalOpen && !wasModalOpenRef.current) {
-      loadRuntimeDamageData();
-      setIsExpanded(false);
-      setSelectedHitIndex(0);
-      setSelectedSkillButton(button.id);
-      resetAnomalyDraftState();
-      setIsTargetResistanceExpanded(false);
-      setSelectedAnomalySegmentKey(null);
-      setIsAnomalyFormulaExpanded(false);
-    } else if (!isModalOpen && wasModalOpenRef.current) {
-      setSelectedSkillButton(null);
-    }
-
-    wasModalOpenRef.current = isModalOpen;
-  }, [isModalOpen, button.id, button.characterId, characterName, loadRuntimeDamageData, resetAnomalyDraftState]);
-
-  useEffect(() => {
-    if (!isInspectMode) {
-      return;
-    }
-    loadRuntimeDamageData();
-  }, [isInspectMode, loadRuntimeDamageData]);
-
-  // 监听 Buff 添加事件，实时刷新 Buff 列表
-  useEffect(() => {
-    // 使用 events 层封装监听 Buff 添加事件
-    const unsubscribe = onSkillButtonBuffAdded(({ buttonId }) => {
-      // 只有当 Buff 是添加到当前按钮时才刷新
-      if (buttonId === button.id) {
-        loadBuffList();
-        loadPanelData();
-      }
-    });
-
-    return unsubscribe;
-  }, [button.id, loadBuffList, loadPanelData]);
-
-  /**
-   * 处理鼠标按下事件
-   * 启动长按检测，0.2秒后触发拖拽
-   */
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    if (isBrowseMode || isDragDisabled) {
-      return;
-    }
-
-    // 重置长按标志
-    isLongPressRef.current = false;
-
-    // 启动长按定时器（0.2秒 = 200ms）
-    longPressTimerRef.current = setTimeout(() => {
-      isLongPressRef.current = true;
-      // 长按触发拖拽
-      onMouseDown(e);
-    }, 200);
-
-    // 添加全局鼠标释放监听，用于清除定时器
-    const handleMouseUp = () => {
-      if (longPressTimerRef.current) {
-        clearTimeout(longPressTimerRef.current);
-        longPressTimerRef.current = null;
-      }
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [isBrowseMode, isDragDisabled, onMouseDown]);
-
-  useEffect(() => {
-    if (!isDragDisabled) return;
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-    isLongPressRef.current = false;
-  }, [isDragDisabled]);
-
-  /**
-   * 处理点击事件（区分单击和双击）
-   */
-  const handleClick = useCallback(() => {
-    if (isBrowseMode) return;
-    // 如果是长按，不处理点击
-    if (isLongPressRef.current) return;
-
-    clickCountRef.current += 1;
-
-    // 单击检测：等待一段时间确认不是双击
-    if (clickCountRef.current === 1) {
-      clickTimerRef.current = setTimeout(() => {
-        // 单击处理（目前无操作）
-        clickCountRef.current = 0;
-      }, 250); // 250ms 内无第二次点击视为单击
-    } else if (clickCountRef.current === 2) {
-      // 双击处理
-      if (clickTimerRef.current) {
-        clearTimeout(clickTimerRef.current);
-        clickTimerRef.current = null;
-      }
-      clickCountRef.current = 0;
-
-      navigateToAppPath(getTimelineSkillDetailPath(button.id));
-      // 通知父组件弹窗已打开（用于强制显示 ToolPanel）
-      onModalOpen?.();
-      console.log('双击技能按钮，打开弹窗:', button.id);
-
-      // 输出总数据结构到控制台
-      if (timelineData) {
-        console.log('【排轴数据】当前总数据结构:', timelineData);
-      }
-    }
-  }, [button.id, isBrowseMode, onModalOpen, timelineData]);
-
-  /**
-   * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。
-   */
-  const handleIconLoad = () => {
-    setIconLoadFailed(false);
-  };
-
-  /**
-   * 图标加载失败时：标记失败状态，CSS 类切换显示兜底文字
-   */
-  const handleIconError = () => {
-    setIconLoadFailed(true);
-  };
+  const { handleClick, handleIconError, handleIconLoad, handleMouseDown } = useSkillButtonInteractions({
+    button,
+    timelineData,
+    isBrowseMode,
+    isDragDisabled,
+    onMouseDown,
+    onModalOpen,
+    runtime,
+  });
 
   return (
     <>
@@ -1587,72 +329,16 @@ export function SkillButtonComponent({
       </div>
 
       {/* 右键上下文菜单 - portal 到 body，避免被右侧面板 stacking context 遮挡 */}
-      {shouldRenderContextMenu ? createPortal(
-        <div
-          className="skill-button-context-menu"
-          style={{
-            left: contextMenuState.position.x,
-            top: contextMenuState.position.y,
-          }}
-        >
-          <button
-            className="context-menu-item"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onCloseContextMenu?.();
-            }}
-          >
-            取消
-          </button>
-          <div className="context-menu-item-submenu">
-            <div className="context-menu-item context-menu-submenu-trigger">
-              <span>编辑</span>
-              <span className="context-menu-submenu-arrow">▶</span>
-            </div>
-            <div className="context-menu-submenu">
-              {skillChangeOptions.map((option, index) => (
-                <button
-                  key={`${option.nextRuntimeSkillId ?? option.nextSkillType}-${index}`}
-                  className="context-menu-item"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onChangeSkillType?.({
-                      buttonId: button.id,
-                      ...option,
-                    });
-                    onCloseContextMenu?.();
-                  }}
-                >
-                  {`改为${option.nextSkillType} / ${option.nextSkillDisplayName ?? option.nextSkillType}`}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            className="context-menu-item"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onCopy?.();
-            }}
-          >
-            复制
-          </button>
-          <button
-            className="context-menu-item context-menu-item-danger"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onConfirmRemove?.();
-            }}
-          >
-            删除
-          </button>
-        </div>,
-        document.body
-      ) : null}
+      <SkillButtonContextMenu
+        buttonId={button.id}
+        isOpen={shouldRenderContextMenu}
+        position={contextMenuState?.position}
+        skillChangeOptions={skillChangeOptions}
+        onChangeSkillType={onChangeSkillType}
+        onClose={onCloseContextMenu}
+        onCopy={onCopy}
+        onConfirmRemove={onConfirmRemove}
+      />
 
       {/* 技能信息弹窗 + 技能伤害弹窗 */}
       {isModalOpen && (
@@ -2091,160 +777,19 @@ export function SkillButtonComponent({
         >
           <div className={`skill-button-modal-pair${isLocalBuffSearchOpen ? ' is-buff-search-open' : ''}`}>
             {/* 弹窗1：技能信息 */}
-            <div className="skill-button-modal skill-button-modal-info">
-              {/* 独立标题区 */}
-              <div className="modal-header">
-                <h4 className="modal-title">技能信息</h4>
-                <button
-                  className={`lock-control ${isLocked ? 'is-locked' : ''}`}
-                  onClick={() => dispatch({ type: 'TOGGLE_SKILL_BUTTON_LOCK', buttonId: button.id })}
-                  title={isLocked ? '点击解锁，解锁后可右键删除' : '点击锁定，锁定后右键不能删除'}
-                >
-                  <span className="lock-icon">{isLocked ? '🔒' : '🔓'}</span>
-                  <span className="lock-text">{isLocked ? '已锁定' : '未锁定'}</span>
-                </button>
-              </div>
-              <div className="modal-content">
-                <p><strong>角色:</strong> {characterName}</p>
-                <p><strong>技能:</strong> {skillType} / {displayName} <strong>{currentSkillLevelMode}</strong></p>
-                <p><strong>干员索引:</strong> {(button as SkillButtonType).lineIndex}</p>
-                {(() => {
-                  const staffLine = timelineData?.staffLines?.find(s => s.staffIndex === (button as SkillButtonType).lineIndex);
-                  const btnData = staffLine?.buttons?.find(b => b.id === button.id);
-                  if (btnData) {
-                    return (
-                      <>
-                        <p><strong>节点索引:</strong> {btnData.nodeIndex}</p>
-                        <p><strong>节点编号:</strong> {btnData.nodeNumber}</p>
-                      </>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-
-              <div className="skill-button-buff-section skill-button-resistance-section">
-                <button
-                  type="button"
-                  className="skill-button-resistance-toggle"
-                  onClick={() => setIsTargetResistanceExpanded((prev) => !prev)}
-                >
-                  <span>目标抗性</span>
-                  <span>{isTargetResistanceExpanded ? '收起' : '展开'}</span>
-                </button>
-                {isTargetResistanceExpanded ? (
-                  <div className="skill-button-resistance-grid">
-                    {[
-                      ['physicalResistance', '物理'],
-                      ['fireResistance', '灼热'],
-                      ['electricResistance', '电磁'],
-                      ['iceResistance', '寒冷'],
-                      ['natureResistance', '自然'],
-                    ].map(([key, label]) => (
-                      <label key={key} className="skill-button-resistance-field">
-                        <span>{label}</span>
-                        <DeferredNumberInput
-                          step="1"
-                          value={targetResistance[key as keyof HitResistanceInput] ?? 0}
-                          onCommit={(value) => updateTargetResistance(key as keyof HitResistanceInput, value ?? 0)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Buff 列表 */}
-              <div className="skill-button-buff-section">
-                <h5>已选 Buff</h5>
-                <div className="skill-button-buff-list">
-                  {buffList.length === 0 ? (
-                    <div className="skill-button-buff-empty">按 Tab 从 Buff组、干员、武器或装备入口添加</div>
-                  ) : (
-                    buffList.map((buff) => {
-                      const isCountable = buff.category === 'countable';
-                      const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) ? Math.max(1, Math.floor(buff.maxStacks)) : 1;
-                      const stackCount = Math.min(Math.max(Math.floor(buttonStackCounts[buff.id] ?? maxStacks), 0), maxStacks);
-                      return (
-                        <div
-                          key={buff.id}
-                          className="skill-button-buff-item"
-                          title={`${buff.displayName} (${buff.sourceName})${isCountable ? ` ${stackCount}/${maxStacks}` : ''}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            removeBuff(buff.id);
-                          }}
-                        >
-                          <span>{buff.displayName}</span>
-                          {isCountable && (
-                            <span className="skill-button-buff-stack-controls">
-                              <button
-                                type="button"
-                                onClick={(event) => { event.stopPropagation(); decrementBuffStack(buff.id); }}
-                                disabled={stackCount <= 1}
-                                title={stackCount <= 1 ? '已是最低 1 层，右键删除 Buff' : '减少 1 层'}
-                              >
-                                -
-                              </button>
-                              <span>{stackCount}/{maxStacks}</span>
-                              <button
-                                type="button"
-                                onClick={(event) => { event.stopPropagation(); incrementBuffStack(buff); }}
-                                disabled={stackCount >= maxStacks}
-                                title={stackCount >= maxStacks ? '已达到最大层数' : '增加 1 层'}
-                              >
-                                +
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              <div className="skill-button-buff-section skill-button-anomaly-summary-section">
-                <h5>已选状态 / 异常</h5>
-                <div className="skill-button-anomaly-summary-list">
-                  {[...selectedStatusCards, ...selectedAnomalyStateSnapshots, ...selectedAnomalyDamages].length === 0 ? (
-                    <div className="skill-button-buff-empty">按 Tab 打开状态区、异常状态区或异常伤害页勾选要演示的项</div>
-                  ) : (
-                    [
-                      ...selectedStatusCards,
-                      ...selectedAnomalyStateSnapshots.map((snapshot) => ({
-                        ...snapshot,
-                        kind: 'state' as const,
-                      })),
-                      ...selectedAnomalyDamages,
-                    ].map((card) => (
-                      <div
-                        key={card.id}
-                        className={`skill-button-anomaly-summary-card is-${card.kind}`}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          if (typeof card.id === 'number') {
-                            removeAnomalyStateSnapshotCard(card.id);
-                            return;
-                          }
-                          removeAnomalyCard(card.kind, card.id);
-                        }}
-                        title="右键移除"
-                      >
-                        <div className="anomaly-summary-head">
-                          <span className="anomaly-summary-kind">{card.kind === 'state' ? '状态' : '伤害'}</span>
-                          <span className="anomaly-summary-title">{card.primaryText}</span>
-                        </div>
-                        <p>{card.secondaryText}</p>
-                        {card.tertiaryText ? <p>{card.tertiaryText}</p> : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <button className="modal-close-btn" onClick={handleCloseModal}>关闭</button>
-            </div>
+            <SkillButtonInfoModal
+              anomaly={anomaly}
+              button={button}
+              characterName={characterName}
+              currentSkillLevelMode={currentSkillLevelMode}
+              displayName={displayName}
+              isLocked={Boolean(isLocked)}
+              onClose={handleCloseModal}
+              onToggleLock={() => dispatch({ type: 'TOGGLE_SKILL_BUTTON_LOCK', buttonId: button.id })}
+              runtime={runtime}
+              skillType={skillType}
+              timelineData={timelineData}
+            />
 
             {/* 弹窗2：技能伤害 - Hit 主导版本 */}
             <SkillButtonDamageModal
@@ -2287,7 +832,7 @@ export function SkillButtonComponent({
               }}
             />
 
-            {/* ??4????? */}
+            {/* 弹窗4：信息快照 */}
             <div className="skill-button-modal skill-button-modal-info-snapshot">
               <h4>信息</h4>
               <div className="modal-content">
