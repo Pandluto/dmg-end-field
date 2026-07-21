@@ -49,6 +49,7 @@
     "test:def-team-late-command": "node scripts/def-team-late-command-contract-test.mjs",
     "test:def-team-pending-reconciliation": "node scripts/def-team-pending-reconciliation-rest-contract-test.mjs",
     "test:def-workbench-projection-bridge": "node scripts/def-workbench-projection-bridge-contract-test.mjs",
+    "test:def-workbench-command-bootstrap": "node scripts/def-workbench-command-bootstrap-contract-test.mjs",
     "smoke:packaged-sidecar": "node scripts/packaged-sidecar-smoke.mjs",
     "smoke:work-node-sqlite": "node scripts/ai-timeline-work-node-sqlite-smoke.mjs && node scripts/ai-timeline-work-node-rest-smoke.mjs && node scripts/ai-timeline-work-node-backup-restore-smoke.mjs && node scripts/timeline-migration-smoke.mjs",
     "smoke:timeline-bundle": "node scripts/timeline-bundle-v2-smoke.mjs",

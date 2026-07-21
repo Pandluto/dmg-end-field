@@ -2342,6 +2342,13 @@ export function CanvasBoard({
     isProcessingWorkbenchCommandRef.current = true;
     try {
       await pullRemoteMainWorkbenchCommands();
+      // A freshly reconnected renderer can receive a remote command before
+      // refreshActiveDocument has finished hydrating its persisted checkout.
+      // Leave the command pending until bootstrap completes so it is not
+      // claimed against a transiently empty activeCheckoutRef.
+      if (isCheckoutBootstrapPendingRef.current) {
+        return;
+      }
       const commandEntry = getPendingMainWorkbenchCommands([
         'addSkillButton',
         'removeSkillButton',
