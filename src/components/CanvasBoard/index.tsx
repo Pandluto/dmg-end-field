@@ -575,6 +575,7 @@ export function CanvasBoard({
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
+  const [timelineSessionError, setTimelineSessionError] = useState('');
   const activeTimelineArchiveLibrary = restorePanelTab === 'local'
     ? { title: '本地存档', emptyLabel: '本地', archives: localTimelineArchives, library: 'local' as const }
     : restorePanelTab === 'shared'
@@ -611,6 +612,11 @@ export function CanvasBoard({
   useSelectStart();
 
   const enterAiMode = async () => {
+    if (timelineSessionError) {
+      setWorkNodeSaveNotice(timelineSessionError);
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 4200);
+      return;
+    }
     if (!isTimelineSessionReady || !activeTimelineId || activeTimelineIsTemporary) {
       const message = activeTimelineIsTemporary
         ? '当前 SQLite 工作区尚未完成首次保存/命名，暂不能进入 AI 模式。'
@@ -958,7 +964,13 @@ export function CanvasBoard({
   }, []);
 
   useEffect(() => {
-    void refreshActiveDocument().catch(() => undefined).finally(() => setIsTimelineSessionReady(true));
+    void refreshActiveDocument()
+      .then(() => setTimelineSessionError(''))
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setTimelineSessionError(`无法读取正式 SQLite 工作区：${message}。请从 DEF Shell 的“打开浏览器 Web”进入工作台后重试。`);
+      })
+      .finally(() => setIsTimelineSessionReady(true));
   }, [refreshActiveDocument]);
 
   useEffect(() => {

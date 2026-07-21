@@ -9,15 +9,14 @@ const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
-  createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
+  readOrCreateWorkbenchRendererCapability,
 } = require('../electron/workbench-renderer-transport.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = 31457;
 const DEFAULT_WEB_URL = 'http://127.0.0.1:3030';
-const workbenchRendererCapability = createWorkbenchRendererCapability();
 const shouldOpenWebOnBoot = process.argv.includes('--open-web');
 
 let shellProcess = null;
@@ -82,6 +81,13 @@ function getUserDataRoot() {
   }
   return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dmg-end-field');
 }
+
+// Keep the standalone development bridge aligned with Electron's bridge.
+// Either process may temporarily own port 31457 during a restart, so both
+// must accept the browser's already-established local capability.
+const workbenchRendererCapability = readOrCreateWorkbenchRendererCapability(
+  path.join(getUserDataRoot(), 'runtime', 'workbench-renderer-capability.json'),
+);
 
 function readJsonFile(filePath) {
   try {

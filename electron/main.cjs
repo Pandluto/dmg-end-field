@@ -24,11 +24,11 @@ const {
   buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
-  createWorkbenchRendererCapability,
   isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
+  readOrCreateWorkbenchRendererCapability,
 } = require('./workbench-renderer-transport.cjs');
 const {
   app,
@@ -46,7 +46,7 @@ const {
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
-const workbenchRendererCapability = createWorkbenchRendererCapability();
+let workbenchRendererCapability = '';
 const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const SHELL_WIDTH = 1120;
 const SHELL_HEIGHT = 760;
@@ -5295,6 +5295,17 @@ function getLocalDataDirectory() {
   return path.join(getRuntimeDataRoot(), 'localdata');
 }
 
+function getWorkbenchRendererCapabilityPath() {
+  return path.join(app.getPath('userData'), 'runtime', 'workbench-renderer-capability.json');
+}
+
+function ensureWorkbenchRendererCapability() {
+  if (!workbenchRendererCapability) {
+    workbenchRendererCapability = readOrCreateWorkbenchRendererCapability(getWorkbenchRendererCapabilityPath());
+  }
+  return workbenchRendererCapability;
+}
+
 function getShareDataDirectory() {
   if (isDev) {
     return path.join(__dirname, '..', 'data', 'sharedata');
@@ -6782,6 +6793,7 @@ app.whenReady().then(() => {
     app.setAppUserModelId('com.dmg.def');
   }
   Menu.setApplicationMenu(null);
+  ensureWorkbenchRendererCapability();
   const dataManagementState = getDataManagementStatePayload();
   if (!dataManagementState.ok) {
     appendRuntimeLog('data-management', `${dataManagementState.code}: ${dataManagementState.error}`);

@@ -13,12 +13,23 @@ function readRendererCapability(): string {
     } catch {
       // The in-memory launch capability still works when sessionStorage is disabled.
     }
+    try {
+      // Electron can restart while the external browser tab remains open.  The
+      // bridge keeps the same app-local capability across that restart, so a
+      // browser restart must retain it too.  This value is still scoped to the
+      // exact local Workbench origin and is never sent to raw REST.
+      window.localStorage.setItem(WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY, fromLaunch);
+    } catch {
+      // sessionStorage/in-memory fallback above remains sufficient for this tab.
+    }
     url.searchParams.delete(WORKBENCH_RENDERER_CAPABILITY_QUERY);
     window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}${url.hash}`);
     return fromLaunch;
   }
   try {
-    return window.sessionStorage.getItem(WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY)?.trim() || '';
+    return window.sessionStorage.getItem(WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY)?.trim()
+      || window.localStorage.getItem(WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY)?.trim()
+      || '';
   } catch {
     return '';
   }
