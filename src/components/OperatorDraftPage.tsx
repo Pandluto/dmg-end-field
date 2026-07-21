@@ -1,692 +1,65 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { pinyin } from 'pinyin-pro';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import './OperatorDraftPage.css';
-import assetPathsRaw from '../data/operatorAssetPaths.txt?raw';
-import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
-import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
+import { navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import { imageBridge } from '../utils/imageBridge';
 import { toUserImageRelPath } from '../utils/imageFileService';
-import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
 import * as draftBuffModel from './operatorDraftBuffModel';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 
-const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
-const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
-const LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
-const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
-const OPERATOR_DRAFT_NAV_LINKS = [
-  { label: '主界面', path: APP_ROUTE_PATHS.home },
-  { label: '配置页', path: APP_ROUTE_PATHS.operatorConfig },
-  { label: '武器', path: APP_ROUTE_PATHS.weaponSheet },
-  { label: '装备', path: APP_ROUTE_PATHS.equipmentSheet },
-  { label: 'Buff', path: APP_ROUTE_PATHS.buffSheet },
-] as const;
-const RARITY_OPTIONS = [4, 5, 6] as const;
-const PROFESSION_OPTIONS = ['突击', '重装', '近卫', '辅助', '先锋', '术师'] as const;
-const WEAPON_OPTIONS = ['手铳', '双手剑', '长柄武器', '法术单元', '单手剑'] as const;
-const ABILITY_OPTIONS = ['力量', '敏捷', '智识', '意志'] as const;
-const ELEMENT_OPTIONS = ['physical', 'fire', 'ice', 'electric', 'nature'] as const;
-const ASSET_PATH_OPTIONS = assetPathsRaw
-  .split('\n')
-  .map((line) => line.trim())
-  .filter(Boolean);
-const AVATAR_ASSET_OPTIONS = ASSET_PATH_OPTIONS.filter((path) => /\/assets\/avatars\/[^/]+\/[^/]+\.png$/i.test(path) && !/连携技|战技|终结技|icon_/i.test(path));
-const SKILL_LEVEL_KEYS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9', 'M1', 'M2', 'M3'] as const;
-const ATTRIBUTE_LEVEL_KEYS = ['level1', 'level20', 'level40', 'level60', 'level80', 'level90'] as const;
-const ATTRIBUTE_ROWS = [
-  ['strength', '力量'],
-  ['agility', '敏捷'],
-  ['intelligence', '智识'],
-  ['will', '意志'],
-  ['atk', '攻击'],
-  ['hp', '生命'],
-] as const;
-const ATTRIBUTE_LEVEL_LABELS: Record<AttributeLevelKey, string> = {
-  level1: '1',
-  level20: '20',
-  level40: '40',
-  level60: '60',
-  level80: '80',
-  level90: '90',
-};
-const OPERATOR_BUFF_GROUPS = [
-  { key: 'talent', label: '天赋' },
-  { key: 'potential', label: '潜能' },
-  { key: 'skill', label: '技能' },
-] as const;
-const SKILL_BUTTON_TYPES = ['A', 'B', 'E', 'Q', 'Dot'] as const;
-const SKILL_TYPE_FILTERS = [
-  { key: 'all', label: '全部' },
-  { key: 'A', label: 'A' },
-  { key: 'B', label: 'B' },
-  { key: 'E', label: 'E' },
-  { key: 'Q', label: 'Q' },
-  { key: 'Dot', label: 'Dot' },
-  { key: 'other', label: '其他' },
-] as const;
-const OPERATOR_BUFF_CATEGORIES = ['passive', 'condition', 'countable'] as const;
-const OPERATOR_BUFF_TYPE_LABELS: Record<string, string> = {
-  atkPercentBoost: '攻击力百分比',
-  atk: '固定攻击力',
-  flatAtk: '固定攻击力',
-  mainStat: '主能力固定值',
-  subStat: '副能力固定值',
-  mainStatBoost: '主能力提升',
-  subStatBoost: '副能力提升',
-  allStatBoost: '全属性提升',
-  strengthBoost: '力量提升',
-  agilityBoost: '敏捷提升',
-  intelligenceBoost: '智识提升',
-  willBoost: '意志提升',
-  hpPercent: '生命百分比',
-  critRateBoost: '暴击率',
-  critDmgBonusBoost: '暴击伤害',
-  physicalDmgBonus: '物理伤害加成',
-  magicDmgBonus: '法术伤害加成',
-  fireDmgBonus: '灼热伤害加成',
-  electricDmgBonus: '电磁伤害加成',
-  iceDmgBonus: '寒冷伤害加成',
-  natureDmgBonus: '自然伤害加成',
-  allDmgBonus: '全伤害加成',
-  skillDmgBonus: '战技伤害加成',
-  chainSkillDmgBonus: '连携技伤害加成',
-  ultimateDmgBonus: '终结技伤害加成',
-  normalAttackDmgBonus: '普攻伤害加成',
-  dotDmgBonus: '持续伤害加成',
-  allSkillDmgBonus: '全技能伤害加成',
-  imbalanceDmgBonus: '失衡伤害加成',
-  physicalFragile: '物理易伤',
-  fireFragile: '灼热易伤',
-  electricFragile: '电磁易伤',
-  iceFragile: '寒冷易伤',
-  natureFragile: '自然易伤',
-  magicFragile: '法术易伤',
-  physicalVulnerability: '物理脆弱',
-  fireVulnerability: '灼热脆弱',
-  electricVulnerability: '电磁脆弱',
-  iceVulnerability: '寒冷脆弱',
-  natureVulnerability: '自然脆弱',
-  magicVulnerability: '法术脆弱',
-  physicalAmplify: '物理增幅',
-  magicAmplify: '法术增幅',
-  fireAmplify: '灼热增幅',
-  electricAmplify: '电磁增幅',
-  iceAmplify: '寒冷增幅',
-  natureAmplify: '自然增幅',
-  allCorrosion: '全属性降抗',
-  physicalCorrosion: '物理降抗',
-  magicCorrosion: '法术降抗',
-  fireCorrosion: '灼热降抗',
-  electricCorrosion: '电磁降抗',
-  iceCorrosion: '寒冷降抗',
-  natureCorrosion: '自然降抗',
-  allResistanceIgnore: '无视全部抗性',
-  physicalResistanceIgnore: '无视物理抗性',
-  magicResistanceIgnore: '无视法术抗性',
-  fireResistanceIgnore: '无视灼热抗性',
-  electricResistanceIgnore: '无视电磁抗性',
-  iceResistanceIgnore: '无视寒冷抗性',
-  natureResistanceIgnore: '无视自然抗性',
-  comboDamageBonus: '连击伤害加成',
-  multiplierBonus: '倍率加算',
-  sourceSkillBoost: '源石技艺强度',
-  ultimateChargeEfficiency: '终结技充能效率',
-  healingBonus: '治疗效率',
-  receivedHealingBonus: '受治疗效率',
-  chainCooldownReduction: '连携技冷却缩减',
-  imbalanceEfficiency: '失衡效率',
-  damageReduction: '伤害减免',
-};
-const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusinessType, string> = {
-  passive: 'passive 常驻',
-  condition: 'condition 条件',
-  countable: 'countable 计层',
-  multiplier: 'multiplier 乘区乘算',
-  extraHit: 'countable extraHit 计层额外伤害段',
-};
+import {
+  ABILITY_OPTIONS,
+  ASSET_PATH_OPTIONS,
+  ATTRIBUTE_LEVEL_KEYS,
+  ATTRIBUTE_LEVEL_LABELS,
+  ATTRIBUTE_ROWS,
+  AVATAR_ASSET_OPTIONS,
+  ELEMENT_OPTIONS,
+  OPERATOR_BUFF_BUSINESS_TYPE_LABELS,
+  OPERATOR_BUFF_GROUPS,
+  OPERATOR_DRAFT_NAV_LINKS,
+  PROFESSION_OPTIONS,
+  RARITY_OPTIONS,
+  SKILL_LEVEL_KEYS,
+  SKILL_TYPE_FILTERS,
+  WEAPON_OPTIONS,
+  buildOperatorIdFromName,
+  buildOrderedDraft,
+  cloneDraft,
+  createDefaultBuffEffect,
+  createDefaultHit,
+  createDefaultSkill,
+  getNextBuffEffectKey,
+  getNextHitKey,
+  getNextSkillKeyByType,
+  getOperatorBuffTypeDisplayLabel,
+  getSkillFilterKey,
+  isDraftPath,
+  loadDraftFromStorage,
+  moveSkillKey,
+  syncHitCount,
+  syncSkillOrderWithDraft,
+  type AttributeKey,
+  type AttributeLevelKey,
+  type HitElement,
+  type HitMetaDraft,
+  type HitSkillType,
+  type OperatorBuffEffect,
+  type OperatorBuffGroupKey,
+  type OperatorDraft,
+  type SkillButtonType,
+  type SkillDraft,
+  type SkillTypeFilter,
+} from './operatorDraftPageModel';
 
-type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
-type HitSkillType = SkillButtonType;
-type SkillTypeFilter = (typeof SKILL_TYPE_FILTERS)[number]['key'];
-type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
-type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
-type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
-type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
-type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
-type OperatorBuffGroupKey = (typeof OPERATOR_BUFF_GROUPS)[number]['key'];
-type OperatorBuffCategory = (typeof OPERATOR_BUFF_CATEGORIES)[number];
-type OperatorBuffValueMode = 'fixed' | 'derived';
-type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
-type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
-
-interface OperatorBuffDerivedValue {
-  source: OperatorBuffDerivedSource;
-  perPointValue: number;
-}
-
-interface OperatorBuffEffect {
-  schemaVersion?: 2;
-  effectId: string;
-  name: string;
-  type: string;
-  category: OperatorBuffCategory;
-  value?: number;
-  maxStacks?: number;
-  unit?: 'flat' | 'percent' | string;
-  description?: string;
-  raw?: string;
-  valueMode?: OperatorBuffValueMode;
-  derivedValue?: OperatorBuffDerivedValue;
-  effectKind?: BuffEffectKind;
-  extraHitConfig?: BuffExtraHitConfig;
-  multiplier?: BuffMultiplier;
-}
-
-interface HitMetaDraft {
-  multiplier?: number;
-  displayName: string;
-  element: HitElement;
-  skillType: HitSkillType;
-  levels: Record<SkillLevelKey, number>;
-}
-
-interface SkillDraft {
-  displayName: string;
-  buttonType: SkillButtonType;
-  iconUrl: string;
-  hitCount: number;
-  hitMeta: Record<string, HitMetaDraft>;
-}
-
-interface OperatorDraft {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  rarity: number;
-  profession: string;
-  weapon: string;
-  element: string;
-  mainStat: string;
-  subStat: string;
-  level: number;
-  attributes: AttributeLevels;
-  skills: Record<string, SkillDraft>;
-  buffs: OperatorBuffs;
-}
-
-function getSkillIndexFromKey(skillKey: string) {
-  const matched = skillKey.match(/(\d+)$/);
-  return matched ? Number(matched[1]) : 1;
-}
-
-function isSkillButtonType(value: unknown): value is SkillButtonType {
-  return typeof value === 'string' && SKILL_BUTTON_TYPES.includes(value as SkillButtonType);
-}
-
-function buildTypedSkillKey(buttonType: SkillButtonType, index: number) {
-  return `skill-${buttonType}-${index}`;
-}
-
-function getSkillFilterKey(skill: SkillDraft): SkillTypeFilter {
-  return isSkillButtonType(skill.buttonType) ? skill.buttonType : 'other';
-}
-
-function getHitIndexFromKey(hitKey: string) {
-  const matched = hitKey.match(/(\d+)$/);
-  return matched ? Number(matched[1]) : 1;
-}
-
-function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
-  const hitIndex = getHitIndexFromKey(hitKey);
-  return {
-    displayName: `第${hitIndex}击`,
-    element: 'physical',
-    skillType: 'A',
-    levels: Object.fromEntries(SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, 0])) as Record<SkillLevelKey, number>,
-  };
-}
-
-function createDefaultAttributeLevels(value = 0): AttributeLevels {
-  return Object.fromEntries(
-    ATTRIBUTE_ROWS.map(([attributeKey]) => [
-      attributeKey,
-      Object.fromEntries(ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [levelKey, value])),
-    ])
-  ) as AttributeLevels;
-}
-
-function createDefaultBuffs(): OperatorBuffs {
-  return draftBuffModel.createDefaultBuffs();
-}
-
-function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
-  return draftBuffModel.createDefaultBuffEffect(effectKey);
-}
-
-function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-A-1'): SkillDraft {
-  const skillIndex = getSkillIndexFromKey(skillKey);
-  return {
-    displayName: `新技能${skillIndex}`,
-    buttonType,
-    iconUrl: '',
-    hitCount: 1,
-    hitMeta: {
-      hit1: createDefaultHit('hit1'),
-    },
-  };
-}
-
-function createDefaultDraft(): OperatorDraft {
-  return {
-    id: 'custom-operator-001',
-    name: '新干员',
-    avatarUrl: '',
-    rarity: 6,
-    profession: '',
-    weapon: '',
-    element: 'physical',
-    mainStat: '',
-    subStat: '',
-    level: 90,
-    attributes: createDefaultAttributeLevels(),
-    skills: {
-      'skill-A-1': createDefaultSkill('A', 'skill-A-1'),
-    },
-    buffs: createDefaultBuffs(),
-  };
-}
-
-function createEmptyDraft(nextId = 'custom-operator-001'): OperatorDraft {
-  return {
-    ...createDefaultDraft(),
-    id: nextId,
-    name: '新建干员',
-    skills: {},
-  };
-}
-
-function buildOperatorIdFromName(name: string) {
-  const trimmedName = name.trim();
-  if (!trimmedName) {
-    return '';
-  }
-  const rawPinyin = pinyin(trimmedName, { toneType: 'none', type: 'array' })
-    .map((item) => String(item).toLowerCase().replace(/[^a-z0-9]/g, ''))
-    .filter(Boolean)
-    .join('');
-  const normalized = (rawPinyin || trimmedName.toLowerCase())
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return normalized;
-}
-
-function getOperatorBuffTypeLabel(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) return '-';
-  return OPERATOR_BUFF_TYPE_LABELS[trimmed] ?? trimmed;
-}
-
-function getOperatorBuffTypeDisplayLabel(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) return '-';
-  return `${getOperatorBuffTypeLabel(trimmed)} · ${trimmed}`;
-}
-
-function isDraftPath(pathname: string) {
-  return pathname === DRAFT_PAGE_PATH;
-}
-
-function cloneDraft<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function syncHitCount(skill: SkillDraft) {
-  skill.hitCount = Object.keys(skill.hitMeta).length;
-}
-
-function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
-  const source = rawAttributes && typeof rawAttributes === 'object' ? rawAttributes as Record<string, unknown> : {};
-  return Object.fromEntries(
-    ATTRIBUTE_ROWS.map(([attributeKey]) => {
-      const rawValue = source[attributeKey];
-      const legacyValue = typeof rawValue === 'number' ? rawValue : 0;
-      const levelSource = rawValue && typeof rawValue === 'object' ? rawValue as Record<string, unknown> : {};
-      return [
-        attributeKey,
-        Object.fromEntries(
-          ATTRIBUTE_LEVEL_KEYS.map((levelKey) => [
-            levelKey,
-            typeof levelSource[levelKey] === 'number' ? levelSource[levelKey] : legacyValue,
-          ])
-        ),
-      ];
-    })
-  ) as AttributeLevels;
-}
-
-function validateRawDraftBuffMultipliers(rawDraft: Partial<OperatorDraft>) {
-  draftBuffModel.validateRawDraftBuffMultipliers(rawDraft);
-}
-
-function validateDraftBuffEffects(draft: OperatorDraft) {
-  return draftBuffModel.validateDraftBuffEffects(draft);
-}
-
-function normalizeBuffs(rawBuffs: unknown): OperatorBuffs {
-  return draftBuffModel.normalizeBuffs(rawBuffs);
-}
-
-function normalizeDraft(value: OperatorDraft) {
-  value.attributes = normalizeAttributeLevels(value.attributes);
-  value.buffs = normalizeBuffs(value.buffs);
-  Object.entries(value.skills).forEach(([skillKey, skill]) => {
-    if (!skill.displayName?.trim()) {
-      skill.displayName = createDefaultSkill(skill.buttonType, skillKey).displayName;
-    }
-    Object.entries(skill.hitMeta).forEach(([hitKey, hit]) => {
-      if (!hit.displayName?.trim()) {
-        hit.displayName = createDefaultHit(hitKey).displayName;
-      }
-      const fallbackValue = typeof hit.multiplier === 'number' ? hit.multiplier : 0;
-      hit.levels = Object.fromEntries(
-        SKILL_LEVEL_KEYS.map((levelKey) => [levelKey, typeof hit.levels?.[levelKey] === 'number' ? hit.levels[levelKey] : fallbackValue])
-      ) as Record<SkillLevelKey, number>;
-      delete hit.multiplier;
-    });
-    syncHitCount(skill);
-  });
-  return value;
-}
-
-function parseImportedDraft(rawText: string) {
-  const parsed = JSON.parse(rawText) as Partial<OperatorDraft>;
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('JSON 根节点必须是对象');
-  }
-  if (!parsed.id || !parsed.name || !parsed.skills || typeof parsed.skills !== 'object') {
-    throw new Error('JSON 缺少 id / name / skills');
-  }
-  validateRawDraftBuffMultipliers(parsed);
-  return normalizeDraft(parsed as OperatorDraft);
-}
-
-function getNextSkillKeyByType(draft: OperatorDraft, buttonType: SkillButtonType) {
-  let index = 1;
-  while (draft.skills[buildTypedSkillKey(buttonType, index)]) {
-    index += 1;
-  }
-  return buildTypedSkillKey(buttonType, index);
-}
-
-function getNextDraftId(existingIds: string[]) {
-  let index = 1;
-  while (existingIds.includes(`custom-operator-${String(index).padStart(3, '0')}`)) {
-    index += 1;
-  }
-  return `custom-operator-${String(index).padStart(3, '0')}`;
-}
-
-function getNextHitKey(skill: SkillDraft) {
-  let index = 1;
-  while (skill.hitMeta[`hit${index}`]) {
-    index += 1;
-  }
-  return `hit${index}`;
-}
-
-function getNextBuffEffectKey(effects: Record<string, OperatorBuffEffect>) {
-  let index = 1;
-  while (effects[`effect${index}`]) {
-    index += 1;
-  }
-  return `effect${index}`;
-}
-
-function syncSkillOrderWithDraft(skillOrder: string[], draft: OperatorDraft) {
-  const keys = Object.keys(draft.skills);
-  const filtered = skillOrder.filter((key) => keys.includes(key));
-  const missing = keys.filter((key) => !filtered.includes(key));
-  return [...filtered, ...missing];
-}
-
-function moveSkillKey(skillOrder: string[], fromKey: string, toKey: string) {
-  if (fromKey === toKey) {
-    return skillOrder;
-  }
-
-  const nextOrder = [...skillOrder];
-  const fromIndex = nextOrder.indexOf(fromKey);
-  const toIndex = nextOrder.indexOf(toKey);
-  if (fromIndex === -1 || toIndex === -1) {
-    return skillOrder;
-  }
-
-  nextOrder.splice(fromIndex, 1);
-  nextOrder.splice(toIndex, 0, fromKey);
-  return nextOrder;
-}
-
-function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
-  const nextSkills: Record<string, SkillDraft> = {};
-  const nextOrder = syncSkillOrderWithDraft(skillOrder, draft);
-  nextOrder.forEach((skillKey) => {
-    nextSkills[skillKey] = draft.skills[skillKey];
-  });
-  return {
-    ...draft,
-    skills: nextSkills,
-  };
-}
-
-function reorderDraftStructure(draft: OperatorDraft) {
-  const nextSkills: Record<string, SkillDraft> = {};
-  const skillKeyMap: Record<string, string> = {};
-  const nextTypeIndexes: Record<SkillButtonType, number> = {
-    A: 0,
-    B: 0,
-    E: 0,
-    Q: 0,
-    Dot: 0,
-  };
-  const orderedSkillKeys = Object.keys(draft.skills);
-  orderedSkillKeys.forEach((skillKey, skillIndex) => {
-    const skill = cloneDraft(draft.skills[skillKey]);
-    const nextSkillKey = isSkillButtonType(skill.buttonType)
-      ? buildTypedSkillKey(skill.buttonType, nextTypeIndexes[skill.buttonType] += 1)
-      : `skill-other-${skillIndex + 1}`;
-    const nextHitMeta: Record<string, HitMetaDraft> = {};
-    Object.entries(skill.hitMeta).forEach(([, hit], hitIndex) => {
-      const nextHitKey = `hit${hitIndex + 1}`;
-      nextHitMeta[nextHitKey] = {
-        ...hit,
-        displayName: hit.displayName?.trim() ? hit.displayName : createDefaultHit(nextHitKey).displayName,
-      };
-    });
-    skill.hitMeta = nextHitMeta;
-    syncHitCount(skill);
-    skillKeyMap[skillKey] = nextSkillKey;
-    nextSkills[nextSkillKey] = skill;
-  });
-  return {
-    draft: {
-      ...draft,
-      skills: nextSkills,
-    },
-    skillKeyMap,
-  };
-}
-
-function loadDraftFromStorage() {
-  if (typeof window === 'undefined') {
-    return createDefaultDraft();
-  }
-
-  const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
-  if (!raw) {
-    return createDefaultDraft();
-  }
-
-  try {
-    return parseImportedDraft(raw);
-  } catch {
-    return createDefaultDraft();
-  }
-}
-
-async function copyText(text: string) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-  }
-}
-
-function renderInlineMarkdown(text: string, keyPrefix: string): ReactNode[] {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*)/g).filter(Boolean);
-  return parts.map((part, index) => {
-    if (part.startsWith('**') && part.endsWith('**')) {
-      return <strong key={`${keyPrefix}-b-${index}`}>{part.slice(2, -2)}</strong>;
-    }
-    if (part.startsWith('`') && part.endsWith('`')) {
-      return <code key={`${keyPrefix}-c-${index}`}>{part.slice(1, -1)}</code>;
-    }
-    return <span key={`${keyPrefix}-t-${index}`}>{part}</span>;
-  });
-}
-
-function renderMiniMarkdown(markdown: string): ReactNode[] {
-  const lines = markdown.split('\n');
-  const nodes: ReactNode[] = [];
-  let listItems: string[] = [];
-
-  const flushList = () => {
-    if (!listItems.length) return;
-    const items = listItems;
-    listItems = [];
-    nodes.push(
-      <ul key={`list-${nodes.length}`}>
-        {items.map((item, index) => (
-          <li key={`li-${index}`}>{renderInlineMarkdown(item, `list-${nodes.length}-${index}`)}</li>
-        ))}
-      </ul>
-    );
-  };
-
-  lines.forEach((rawLine, index) => {
-    const line = rawLine.trim();
-    if (!line) {
-      flushList();
-      return;
-    }
-
-    if (line.startsWith('- ')) {
-      listItems.push(line.slice(2));
-      return;
-    }
-
-    flushList();
-
-    if (line.startsWith('## ')) {
-      nodes.push(<h4 key={`h4-${index}`}>{renderInlineMarkdown(line.slice(3), `h4-${index}`)}</h4>);
-      return;
-    }
-
-    if (line.startsWith('# ')) {
-      nodes.push(<h3 key={`h3-${index}`}>{renderInlineMarkdown(line.slice(2), `h3-${index}`)}</h3>);
-      return;
-    }
-
-    nodes.push(<p key={`p-${index}`}>{renderInlineMarkdown(line, `p-${index}`)}</p>);
-  });
-
-  flushList();
-  return nodes;
-}
-
-interface SearchablePathSelectProps {
-  value: string;
-  options: string[];
-  placeholder: string;
-  onChange: (value: string) => void;
-}
-
-function SearchablePathSelect({ value, options, placeholder, onChange }: SearchablePathSelectProps) {
-  const [keyword, setKeyword] = useState(value);
-  const [isOpen, setIsOpen] = useState(false);
-  const searchIndex = useMemo(() => buildWeaponSearchIndex(options), [options]);
-  const matchedOptions = useMemo(() => {
-    const trimmed = keyword.trim();
-    if (!trimmed) {
-      return options.slice(0, 40);
-    }
-    const results = searchWeapons(trimmed, searchIndex);
-    return results.slice(0, 40);
-  }, [keyword, options, searchIndex]);
-
-  useEffect(() => {
-    setKeyword(value);
-  }, [value]);
-
-  return (
-    <div className="operator-draft-searchable-select">
-      <input
-        value={keyword}
-        onChange={(event) => {
-          const nextKeyword = event.target.value;
-          setKeyword(nextKeyword);
-          setIsOpen(true);
-          onChange(nextKeyword);
-        }}
-        onFocus={() => setIsOpen(true)}
-        onBlur={() => {
-          window.setTimeout(() => {
-            setIsOpen(false);
-            setKeyword(value);
-          }, 120);
-        }}
-        placeholder={placeholder}
-      />
-      {isOpen ? (
-        <div className="operator-draft-searchable-select-list">
-          {matchedOptions.length ? (
-            matchedOptions.map((option) => (
-              <button
-                type="button"
-                key={option}
-                className={`operator-draft-searchable-option${value === option ? ' is-active' : ''}`}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  setKeyword(option);
-                  onChange(option);
-                  setIsOpen(false);
-                }}
-              >
-                {option}
-              </button>
-            ))
-          ) : (
-            <div className="operator-draft-searchable-empty">无匹配结果</div>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
+import { renderMiniMarkdown, SearchablePathSelect } from './OperatorDraftFields';
+import { useOperatorDraftLibrary } from './useOperatorDraftLibrary';
 
 export { isDraftPath };
 
 export function OperatorDraftPage() {
   const [draft, setDraft] = useState<OperatorDraft>(() => loadDraftFromStorage());
-  const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
-  const [localDraftNames, setLocalDraftNames] = useState<Record<string, string>>({});
-  const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
-  const [selectedDeleteLocalDraftId, setSelectedDeleteLocalDraftId] = useState('');
   const [messages, setMessages] = useState<string[]>([
     '已进入干员模板编辑器',
   ]);
@@ -699,17 +72,7 @@ export function OperatorDraftPage() {
   const [activeSkillTypeFilter, setActiveSkillTypeFilter] = useState<SkillTypeFilter>('all');
   const [draggingSkillKey, setDraggingSkillKey] = useState<string | null>(null);
   const [dragOverSkillKey, setDragOverSkillKey] = useState<string | null>(null);
-  const [isExportJsonModalOpen, setIsExportJsonModalOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [isDeleteLocalDraftModalOpen, setIsDeleteLocalDraftModalOpen] = useState(false);
-  const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
-  const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
-  const [loadedLocalDraftId, setLoadedLocalDraftId] = useState<string | null>(null);
-  const [shareDraftName, setShareDraftName] = useState('');
-  const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [userAssetPathOptions, setUserAssetPathOptions] = useState<string[]>([]);
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const skillKeys = Object.keys(draft.skills);
@@ -770,30 +133,6 @@ export function OperatorDraftPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-    const localDraftIdsFromStorage: string[] = [];
-    const localDraftNamesFromStorage: Record<string, string> = {};
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-        localDraftIdsFromStorage.push(...Object.keys(parsed));
-        Object.entries(parsed).forEach(([draftId, localDraft]) => {
-          localDraftNamesFromStorage[draftId] = typeof localDraft?.name === 'string' ? localDraft.name : '';
-        });
-      } catch {
-        // ignore malformed local library
-      }
-    }
-    setLocalDraftIds(localDraftIdsFromStorage);
-    setLocalDraftNames(localDraftNamesFromStorage);
-    setSelectedLocalDraftId((prev) => (prev && localDraftIdsFromStorage.includes(prev) ? prev : ''));
-    setSelectedDeleteLocalDraftId((prev) => (prev && localDraftIdsFromStorage.includes(prev) ? prev : ''));
-  }, [draft.id]);
-
-  useEffect(() => {
     if (!selectedSkillKey || !draft.skills[selectedSkillKey]) {
       setSelectedHitKey(null);
       return;
@@ -813,6 +152,88 @@ export function OperatorDraftPage() {
     }
   }, [activeBuffGroupKey, draft.buffs, selectedBuffEffectKey]);
 
+  const selectedSkill = selectedSkillKey ? draft.skills[selectedSkillKey] : null;
+  const selectedHit = selectedSkill && selectedHitKey ? selectedSkill.hitMeta[selectedHitKey] : null;
+  const activeBuffGroup = draft.buffs[activeBuffGroupKey];
+  const buffEffectEntries = Object.entries(activeBuffGroup.effects);
+  const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
+  const latestMessage = messages[0] ?? '';
+
+  const assetPathOptions = useMemo(
+    () => Array.from(new Set([...userAssetPathOptions, ...ASSET_PATH_OPTIONS])),
+    [userAssetPathOptions],
+  );
+  const avatarAssetOptions = useMemo(
+    () => Array.from(new Set([...userAssetPathOptions, ...AVATAR_ASSET_OPTIONS])),
+    [userAssetPathOptions],
+  );
+
+  const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
+  const {
+    library: {
+      draftIds: localDraftIds,
+      draftNames: localDraftNames,
+      getDraftLabel: getLocalDraftLabel,
+      selectedDeleteDraftId: selectedDeleteLocalDraftId,
+      selectedDraftId: selectedLocalDraftId,
+      setSelectedDeleteDraftId: setSelectedDeleteLocalDraftId,
+      setSelectedDraftId: setSelectedLocalDraftId,
+    },
+    dialogs: {
+      isDeleteOpen: isDeleteLocalDraftModalOpen,
+      isExportOpen: isExportJsonModalOpen,
+      isOverwriteOpen: isOverwriteDraftModalOpen,
+      isShareOpen: isShareModalOpen,
+      setDeleteOpen: setIsDeleteLocalDraftModalOpen,
+      setExportOpen: setIsExportJsonModalOpen,
+      setOverwriteOpen: setIsOverwriteDraftModalOpen,
+    },
+    share: {
+      currentText: currentShareText,
+      exportScope,
+      importInputRef: shareImportInputRef,
+      name: shareDraftName,
+      pendingImport: pendingImportShare,
+      setExportScope,
+      setName: setShareDraftName,
+    },
+    preferences: {
+      isOverwriteProtectionEnabled,
+      setOverwriteProtectionEnabled: setIsOverwriteProtectionEnabled,
+    },
+    actions: {
+      cancelImportShare: handleCancelImportShare,
+      closeShare: handleCloseShareModal,
+      confirmImportShare: handleConfirmImportShare,
+      confirmOverwrite: handleConfirmOverwriteDraft,
+      copyExportJson: handleCopyExportJson,
+      copyShareJson: handleCopyShareJson,
+      createNewDraft: handleCreateNewDraft,
+      deleteLocalDraft: handleDeleteLocalDraft,
+      exportLocalLibraryShare: handleExportLocalLibraryShare,
+      importLocalDraft: handleImportLocalDraft,
+      openExportJson: handleOpenExportJsonModal,
+      openLocalLibraryManager: handleOpenLocalLibraryManager,
+      openShare: handleOpenShareModal,
+      openShareImportPicker: handleOpenShareImportPicker,
+      reorderDraft: handleReorderDraft,
+      saveAsDraft: handleSaveAsDraft,
+      saveDraft: handleSaveDraft,
+      selectShareFile: handleShareFileSelected,
+    },
+  } = useOperatorDraftLibrary({
+    draft,
+    orderedDraft,
+    selectedHitKey,
+    selectedSkillKey,
+    setDraft,
+    setMessages,
+    setSelectedHitKey,
+    setSelectedSkillKey,
+    setSkillOrder,
+  });
+  const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -827,29 +248,6 @@ export function OperatorDraftPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [draft, skillOrder, isOverwriteProtectionEnabled]);
 
-  const selectedSkill = selectedSkillKey ? draft.skills[selectedSkillKey] : null;
-  const selectedHit = selectedSkill && selectedHitKey ? selectedSkill.hitMeta[selectedHitKey] : null;
-  const activeBuffGroup = draft.buffs[activeBuffGroupKey];
-  const buffEffectEntries = Object.entries(activeBuffGroup.effects);
-  const selectedBuffEffect = selectedBuffEffectKey ? activeBuffGroup.effects[selectedBuffEffectKey] ?? null : null;
-  const latestMessage = messages[0] ?? '';
-
-  const getLocalDraftLabel = (draftId: string) => {
-    const draftName = localDraftNames[draftId]?.trim();
-    return draftName && draftName !== draftId ? `${draftId} · ${draftName}` : draftId;
-  };
-
-  const assetPathOptions = useMemo(
-    () => Array.from(new Set([...userAssetPathOptions, ...ASSET_PATH_OPTIONS])),
-    [userAssetPathOptions],
-  );
-  const avatarAssetOptions = useMemo(
-    () => Array.from(new Set([...userAssetPathOptions, ...AVATAR_ASSET_OPTIONS])),
-    [userAssetPathOptions],
-  );
-
-  const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
-  const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
   const operatorMarkdown = useMemo(() => {
     const skillLines = Object.entries(orderedDraft.skills).map(([skillKey, skill]) => {
       const hitSummary = Object.entries(skill.hitMeta)
@@ -945,18 +343,6 @@ export function OperatorDraftPage() {
     }));
   };
 
-  const loadDraftIntoEditor = (nextDraft: OperatorDraft, message: string) => {
-    const normalizedDraft = normalizeDraft(cloneDraft(nextDraft));
-    const nextSkillOrder = Object.keys(normalizedDraft.skills);
-    const firstSkillKey = nextSkillOrder[0] ?? null;
-    const firstHitKey = firstSkillKey ? Object.keys(normalizedDraft.skills[firstSkillKey].hitMeta)[0] ?? null : null;
-    setDraft(buildOrderedDraft(normalizedDraft, nextSkillOrder));
-    setSkillOrder(nextSkillOrder);
-    setSelectedSkillKey(firstSkillKey);
-    setSelectedHitKey(firstHitKey);
-    setMessages((prev) => [message, ...prev].slice(0, 12));
-  };
-
   const duplicateSelectedSkill = () => {
     if (!selectedSkillKey || !selectedSkill) {
       setMessages((prev) => ['[ERR] 当前没有可复制的 skill', ...prev].slice(0, 12));
@@ -979,342 +365,6 @@ export function OperatorDraftPage() {
     setSelectedSkillKey(nextSkillKey);
     setSelectedHitKey(firstHitKey);
     setMessages((prev) => [`[OK] 已复制 skill：${selectedSkillKey} -> ${nextSkillKey}`, ...prev].slice(0, 12));
-  };
-
-  const persistDraftToLibrary = (allowOverwrite: boolean) => {
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-    const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
-    if (!orderedDraft.id.trim()) {
-      setMessages((prev) => ['[ERR] 干员 ID 不能为空', ...prev].slice(0, 12));
-      return false;
-    }
-    const buffErrors = validateDraftBuffEffects(orderedDraft);
-    if (buffErrors.length > 0) {
-      setMessages((prev) => [`[ERR] Buff 校验失败：${buffErrors[0]}`, ...prev].slice(0, 12));
-      return false;
-    }
-    if (library[orderedDraft.id] && !allowOverwrite) {
-      setIsOverwriteDraftModalOpen(true);
-      return false;
-    }
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
-    library[orderedDraft.id] = orderedDraft;
-    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
-    setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
-    setLocalDraftNames((prev) => ({ ...prev, [orderedDraft.id]: orderedDraft.name }));
-    setSelectedLocalDraftId('');
-    setLoadedLocalDraftId(null);
-    setMessages((prev) => [`[OK] 已保存到本地：${orderedDraft.id}`, ...prev].slice(0, 12));
-    return true;
-  };
-
-  const handleSaveDraft = (options?: { allowOverwriteOnConflict?: boolean }) => {
-    persistDraftToLibrary(Boolean(options?.allowOverwriteOnConflict));
-  };
-
-  const handleConfirmOverwriteDraft = () => {
-    const saved = persistDraftToLibrary(true);
-    if (saved) {
-      setMessages((prev) => [`[OK] 已覆盖本地干员：${orderedDraft.id}`, ...prev].slice(0, 12));
-    }
-    setIsOverwriteDraftModalOpen(false);
-  };
-
-  const handleCreateNewDraft = () => {
-    const nextId = getNextDraftId(localDraftIds);
-    loadDraftIntoEditor(createEmptyDraft(nextId), `[OK] 已新建空草稿：${nextId}`);
-    setSelectedLocalDraftId('');
-    setLoadedLocalDraftId(null);
-  };
-
-  const handleSaveAsDraft = () => {
-    const nextId = getNextDraftId(localDraftIds);
-    const nextDraft = {
-      ...orderedDraft,
-      id: nextId,
-    };
-    loadDraftIntoEditor(nextDraft, `[OK] 已另存为新草稿：${nextId}`);
-    setSelectedLocalDraftId('');
-    setLoadedLocalDraftId(null);
-  };
-
-  const handleReorderDraft = () => {
-    const { draft: nextDraft, skillKeyMap } = reorderDraftStructure(orderedDraft);
-    const nextSkillOrder = Object.keys(nextDraft.skills);
-    const nextSelectedSkillKey = selectedSkillKey
-      ? skillKeyMap[selectedSkillKey] ?? nextSkillOrder[0] ?? null
-      : nextSkillOrder[0] ?? null;
-    const nextSelectedHitKey = nextSelectedSkillKey
-      ? (selectedHitKey && nextDraft.skills[nextSelectedSkillKey].hitMeta[selectedHitKey]
-        ? selectedHitKey
-        : Object.keys(nextDraft.skills[nextSelectedSkillKey].hitMeta)[0] ?? null)
-      : null;
-    setDraft(buildOrderedDraft(nextDraft, nextSkillOrder));
-    setSkillOrder(nextSkillOrder);
-    setSelectedSkillKey(nextSelectedSkillKey);
-    setSelectedHitKey(nextSelectedHitKey);
-    setMessages((prev) => ['[OK] 已整理技能命名与 hit 编号', ...prev].slice(0, 12));
-  };
-
-  const readLocalDraftLibrary = () => {
-    if (typeof window === 'undefined') {
-      return {} as Record<string, OperatorDraft>;
-    }
-
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      return {} as Record<string, OperatorDraft>;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(parsed).flatMap(([draftId, value]) => {
-          try {
-            const normalizedDraft = parseImportedDraft(JSON.stringify(value));
-            return [[draftId, normalizedDraft] as const];
-          } catch {
-            return [];
-          }
-        })
-      );
-    } catch {
-      return {} as Record<string, OperatorDraft>;
-    }
-  };
-
-  const currentShareText = useMemo(() => {
-    const library = readLocalDraftLibrary();
-    let payload: Record<string, OperatorDraft>;
-    if (exportScope === 'current') {
-      payload = draft.id ? { [draft.id]: draft } : {};
-    } else {
-      payload = { ...library };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-    }
-    return JSON.stringify(
-      buildDraftLibraryShareFile(
-        OPERATOR_LIBRARY_SHARE_TYPE,
-        payload,
-        exportScope === 'current' ? draft.name || 'operator' : shareDraftName || draft.name || 'operator-library',
-      ),
-      null,
-      2,
-    );
-  }, [draft, exportScope, shareDraftName]);
-
-  const downloadShareFile = (shareFile: DraftLibraryShareFile<OperatorDraft>) => {
-    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
-  const handleOpenExportJsonModal = () => {
-    setIsExportJsonModalOpen(true);
-  };
-
-  const handleCopyExportJson = async () => {
-    await copyText(JSON.stringify(orderedDraft, null, 2));
-    setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
-  };
-
-  const handleOpenShareModal = () => {
-    setShareDraftName('');
-    setPendingImportShare(null);
-    setIsShareModalOpen(true);
-  };
-
-  const handleCloseShareModal = () => {
-    setIsShareModalOpen(false);
-    setPendingImportShare(null);
-    setShareDraftName('');
-    if (shareImportInputRef.current) {
-      shareImportInputRef.current.value = '';
-    }
-  };
-
-  const handleExportLocalLibraryShare = () => {
-    const library = readLocalDraftLibrary();
-    let payload: Record<string, OperatorDraft>;
-    let label: string;
-
-    if (exportScope === 'current') {
-      payload = draft.id ? { [draft.id]: draft } : {};
-      label = draft.name || 'operator';
-    } else {
-      payload = { ...library };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-      label = shareDraftName || draft.name || 'operator-library';
-    }
-
-    const draftCount = Object.keys(payload).length;
-    if (draftCount === 0) {
-      setMessages((prev) => ['[ERR] 当前无可导出内容', ...prev].slice(0, 12));
-      return;
-    }
-
-    const shareFile = buildDraftLibraryShareFile(OPERATOR_LIBRARY_SHARE_TYPE, payload, label);
-    downloadShareFile(shareFile);
-    setMessages((prev) => [`[OK] 已导出${exportScope === 'current' ? '当前干员' : '干员库'}分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
-  };
-
-  const handleCopyShareJson = async () => {
-    try {
-      await navigator.clipboard.writeText(currentShareText);
-      setMessages((prev) => ['[OK] 已复制导出 JSON', ...prev].slice(0, 12));
-    } catch {
-      setMessages((prev) => ['[ERR] 复制失败', ...prev].slice(0, 12));
-    }
-  };
-
-  const handleOpenShareImportPicker = () => {
-    shareImportInputRef.current?.click();
-  };
-
-  const handleShareFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    const rawText = await file.text();
-    const parsedShare = parseDraftLibraryShareFile(rawText, OPERATOR_LIBRARY_SHARE_TYPE);
-    if (!parsedShare) {
-      setMessages((prev) => ['[ERR] 导入失败：文件不是有效的干员分享 JSON', ...prev].slice(0, 12));
-      event.target.value = '';
-      return;
-    }
-
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
-        try {
-          const normalizedDraft = parseImportedDraft(JSON.stringify(value));
-          return [[draftId, normalizedDraft] as const];
-        } catch {
-          return [];
-        }
-      })
-    ) as Record<string, OperatorDraft>;
-
-    if (Object.keys(normalizedPayload).length === 0) {
-      setMessages((prev) => ['[ERR] 导入失败：分享文件内没有有效的干员草稿', ...prev].slice(0, 12));
-      event.target.value = '';
-      return;
-    }
-
-    setPendingImportShare({
-      ...parsedShare,
-      payload: normalizedPayload,
-    });
-    event.target.value = '';
-  };
-
-  const handleCancelImportShare = () => {
-    setPendingImportShare(null);
-  };
-
-  const handleConfirmImportShare = () => {
-    if (typeof window === 'undefined' || !pendingImportShare) {
-      return;
-    }
-
-    const currentLibrary = readLocalDraftLibrary();
-    const nextLibrary = {
-      ...currentLibrary,
-      ...pendingImportShare.payload,
-    };
-    const nextIds = Object.keys(nextLibrary);
-    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
-    setLocalDraftIds(nextIds);
-    setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, nextLibrary[draftId]?.name || ''])));
-    setSelectedLocalDraftId('');
-    setSelectedDeleteLocalDraftId((prev) => (prev && nextLibrary[prev] ? prev : ''));
-    setIsShareModalOpen(false);
-    setShareDraftName('');
-    setPendingImportShare(null);
-    setMessages((prev) => [
-      `[OK] 已导入干员分享：${pendingImportShare.label}（${Object.keys(pendingImportShare.payload).length} 个）`,
-      ...prev,
-    ].slice(0, 12));
-  };
-
-  const handleImportLocalDraft = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      setMessages((prev) => ['[ERR] 本地没有可导入数据', ...prev].slice(0, 12));
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-      const localDraft = parsed[selectedLocalDraftId];
-      if (!selectedLocalDraftId || !localDraft) {
-      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
-        return;
-      }
-      loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
-      setLoadedLocalDraftId(localDraft.id);
-      setSelectedLocalDraftId('');
-    } catch {
-      setMessages((prev) => ['[ERR] 本地数据损坏，无法导入', ...prev].slice(0, 12));
-    }
-  };
-
-  const handleOpenLocalLibraryManager = () => {
-    setSelectedDeleteLocalDraftId((prev) => (prev && localDraftIds.includes(prev) ? prev : (localDraftIds[0] ?? '')));
-    setIsDeleteLocalDraftModalOpen(true);
-  };
-
-  const handleDeleteLocalDraft = () => {
-    if (typeof window === 'undefined' || !selectedDeleteLocalDraftId) {
-      setMessages((prev) => ['[ERR] 请选择要删除的本地干员', ...prev].slice(0, 12));
-      return;
-    }
-
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      setMessages((prev) => ['[ERR] 本地没有可删除数据', ...prev].slice(0, 12));
-      setIsDeleteLocalDraftModalOpen(false);
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-      const deleteId = selectedDeleteLocalDraftId;
-      if (!parsed[deleteId]) {
-      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
-        setIsDeleteLocalDraftModalOpen(false);
-        return;
-      }
-      delete parsed[deleteId];
-      window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
-      const nextIds = Object.keys(parsed);
-      setLocalDraftIds(nextIds);
-      setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, parsed[draftId]?.name || ''])));
-      setSelectedLocalDraftId((prev) => (prev === deleteId ? '' : prev));
-      setSelectedDeleteLocalDraftId(nextIds[0] ?? '');
-      if (loadedLocalDraftId === deleteId) {
-        setLoadedLocalDraftId(null);
-      }
-      setMessages((prev) => [`[OK] 已删除本地干员：${deleteId}`, ...prev].slice(0, 12));
-    } catch {
-      setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
-    } finally {
-      setIsDeleteLocalDraftModalOpen(false);
-    }
   };
 
   const handleAddSkill = () => {

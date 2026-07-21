@@ -54,6 +54,7 @@
 - 第二轮将公式编辑器、单元格编辑器与资源树 JSX 从 controller 移回 view，再将公式 binding、分享导入导出、资源树拖拽和 Equipment 图片选择器按完整职责抽到独立模块。当前 controller 为 Weapon 964 行、Buff 1,002 行、Equipment 972 行，三者均已进入约 1,000 行的目标区间。
 - 用户确认长期未维护的 Damage Sheet 已不再需要，因此整体删除 `DamageSheetPage`、`/damage-sheet` 路由、画布“表格”按钮及 AI 页面枚举；独立的“计算伤害”/PPT 报表保留。
 - 原 `DamageSheetPage.css` 中被 Weapon、Buff、Equipment 和 Image Manager 复用的工作表外壳已解耦为 `WorkbookSheet.css`，各消费页显式引用；伤害表专用样式随功能删除。
+- `OperatorDraftPage.tsx` 从 2,280 行降到 1,330 行：领域类型、规范化与排序规则进入 534 行的 `operatorDraftPageModel.ts`，本地草稿库及分享流程进入 461 行的 `useOperatorDraftLibrary.ts`，Markdown 与路径选择字段进入 135 行的 `OperatorDraftFields.tsx`。页面仍负责编辑器状态和视图装配；草稿 Hook 仅接收编辑器写入端口，并按 library、dialogs、share、preferences、actions 返回结构化接口，没有建立跨编辑器的万能 Hook。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 
