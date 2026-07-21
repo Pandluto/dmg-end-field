@@ -40,6 +40,12 @@ import { createDefCoreRequestRouter } from './def-core/request-router.mjs';
 import { createDefCoreTransportState } from './def-core/transport-state.mjs';
 import { createDefCoreRuntimeState, createDefRawTransportPolicy } from './def-core/runtime-state.mjs';
 import { createDefCoreToolRegistry } from './def-core/tool-registry.mjs';
+import {
+  deriveOperatorBuildProfile,
+  discoverOperatorBuildGuides,
+  extractGuideBuildStrategy,
+  resolveOperatorCatalogRecord,
+} from './def-core/operator-build-evidence.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -90,7 +96,9 @@ const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
-const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV1';
+const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV2';
+const DEF_EQUIPMENT_THREE_PLUS_ONE_PLAN_CONTRACT = 'DefEquipmentThreePlusOnePlanV1';
+const DEF_EQUIPMENT_THREE_PLUS_ONE_MAX_SEARCH_SPACE = 250_000;
 const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
@@ -106,8 +114,12 @@ const {
   preparedOperatorConfigCapabilities,
   approvedApplyCapabilities,
   guideLoadoutPlanSources,
+  operatorBuildGuideResolutions,
+  operatorBuildProfileCapabilities,
   preparedTeamLoadoutPlans,
   preparedOperatorConfigTtlMs: PREPARED_OPERATOR_CONFIG_TTL_MS,
+  operatorBuildGuideResolutionTtlMs: OPERATOR_BUILD_GUIDE_RESOLUTION_TTL_MS,
+  operatorBuildProfileCapabilityTtlMs: OPERATOR_BUILD_PROFILE_CAPABILITY_TTL_MS,
   preparedTeamLoadoutTtlMs: PREPARED_TEAM_LOADOUT_TTL_MS,
   preparedTeamLoadoutApprovalGraceMs: PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS,
   governanceToken: defInternalGovernanceToken,
@@ -235,6 +247,19 @@ function pruneDefTeamLoadoutPlans() {
   for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
     const approvalReservationActive = Number(prepared.approvalExpiresAt) > now;
     if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult && !prepared.pendingCommand) preparedTeamLoadoutPlans.delete(planHash);
+  }
+}
+
+function pruneOperatorBuildGuideResolutions(now = Date.now()) {
+  for (const [token, resolution] of operatorBuildGuideResolutions) {
+    if (!resolution || resolution.expiresAt <= now || resolution.consumed) {
+      operatorBuildGuideResolutions.delete(token);
+    }
+  }
+  for (const [token, capability] of operatorBuildProfileCapabilities) {
+    if (!capability || capability.expiresAt <= now || capability.consumed) {
+      operatorBuildProfileCapabilities.delete(token);
+    }
   }
 }
 
@@ -3014,21 +3039,6 @@ function resolveDefNativeEquipmentGearSet(snapshot, query) {
   return { ok: true, set: matches[0] };
 }
 
-function projectDefEquipmentThreePlusOnePiece(item, { slot, setPieceCount, selectionReason }) {
-  return {
-    stableId: item.id,
-    name: item.name,
-    part: item.part,
-    slot,
-    availableSlots: item.availableSlots,
-    gearSet: item.gearSet,
-    fixedStat: item.fixedStat || null,
-    effects: item.effects || {},
-    setPieceCount,
-    selectionReason,
-  };
-}
-
 const DEF_EQUIPMENT_SLOT_FACTS = Object.freeze([
   { slot: 'armor', part: '护甲' },
   { slot: 'glove', part: '护手' },
@@ -3036,66 +3046,96 @@ const DEF_EQUIPMENT_SLOT_FACTS = Object.freeze([
   { slot: 'accessory2', part: '配件' },
 ]);
 
+const DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY = Object.freeze({
+  allowedAcrossDistinctCompatibleAccessorySlots: true,
+  neverWithinOneSlot: true,
+  rule: 'One stable accessory id may occupy accessory1 and accessory2 when the catalog marks it compatible with both slots. Every physical slot still contributes one set membership.',
+});
+
 function defEquipmentItemsForSlot(items, slot) {
   return items
     .filter((item) => item.availableSlots.includes(slot))
     .sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function buildDefEquipmentThreePlusOneTopology({ gearSet, entities, offSetSlot }) {
+function compactDefEquipmentThreePlusOneEffect(effect = {}, fallbackId = '') {
+  return {
+    effectId: String(effect.effectId || fallbackId || ''),
+    label: String(effect.label || effect.name || ''),
+    typeKey: String(effect.typeKey || ''),
+    ...(effect.category ? { category: String(effect.category) } : {}),
+    ...(effect.unit ? { unit: String(effect.unit) } : {}),
+    ...(effect.raw ? { raw: String(effect.raw) } : {}),
+  };
+}
+
+function compactDefEquipmentThreePlusOnePiece(item, slot = null) {
+  return {
+    stableId: item.id,
+    name: item.name,
+    part: item.part,
+    ...(slot ? { slot } : {}),
+    availableSlots: item.availableSlots,
+    gearSet: item.gearSet,
+    fixedStat: item.fixedStat || null,
+    effects: Object.entries(item.effects || {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([effectId, effect]) => compactDefEquipmentThreePlusOneEffect(effect, effectId)),
+  };
+}
+
+function compactDefEquipmentThreePlusOneSet(gearSet) {
+  return {
+    id: gearSet.id,
+    name: gearSet.name,
+    ...(gearSet.buffId ? { buffId: gearSet.buffId } : {}),
+  };
+}
+
+function buildDefEquipmentThreePlusOneTopologySummary({ gearSet, entities, offSetSlot = null }) {
   const offSetSlotFact = DEF_EQUIPMENT_SLOT_FACTS.find((entry) => entry.slot === offSetSlot);
   const targetSlots = DEF_EQUIPMENT_SLOT_FACTS.filter((entry) => entry.slot !== offSetSlot);
-  const targetPieceCandidatesBySlot = Object.fromEntries(targetSlots.map(({ slot }) => [slot,
-    defEquipmentItemsForSlot(gearSet.equipments, slot).map((item) => projectDefEquipmentThreePlusOnePiece(item, {
-      slot,
-      setPieceCount: 3,
-      selectionReason: 'Target-set candidate for this physical slot. It is a catalog fact, not an attribute ranking.',
-    })),
+  const targetCounts = Object.fromEntries(targetSlots.map(({ slot }) => [
+    slot,
+    defEquipmentItemsForSlot(gearSet.equipments, slot).length,
   ]));
-  const plusOneCandidates = defEquipmentItemsForSlot(
-    entities.filter((item) => item.gearSet?.id !== gearSet.id),
-    offSetSlot,
-  ).map((item) => projectDefEquipmentThreePlusOnePiece(item, {
-    slot: offSetSlot,
-    setPieceCount: 0,
-    selectionReason: 'Off-set candidate for this physical slot. It is intentionally unranked until verified priorities are supplied.',
-  }));
+  const plusOneCandidates = offSetSlot
+    ? defEquipmentItemsForSlot(entities.filter((item) => item.gearSet?.id !== gearSet.id), offSetSlot)
+    : [];
   const missingTargetSlots = targetSlots
-    .filter(({ slot }) => targetPieceCandidatesBySlot[slot].length === 0)
+    .filter(({ slot }) => targetCounts[slot] === 0)
     .map(({ slot, part }) => ({ slot, part }));
-  const status = missingTargetSlots.length || !plusOneCandidates.length ? 'UNAVAILABLE' : 'AVAILABLE';
-  const targetCombinationCount = targetSlots.reduce((count, { slot }) => count * targetPieceCandidatesBySlot[slot].length, 1);
+  const missingOffSet = Boolean(offSetSlot && plusOneCandidates.length === 0);
+  const status = missingTargetSlots.length || missingOffSet ? 'UNAVAILABLE' : 'AVAILABLE';
+  const targetCombinationCount = targetSlots.reduce((count, { slot }) => count * targetCounts[slot], 1);
   return {
-    id: `off-set-${offSetSlot}`,
+    id: offSetSlot ? `off-set-${offSetSlot}` : 'all-target-set',
     status,
-    setPieceCount: 3,
+    targetSetMembershipCount: targetSlots.length,
     targetSlots: targetSlots.map(({ slot, part }) => ({ slot, part })),
-    offSetSlot: { slot: offSetSlot, part: offSetSlotFact.part, excludedGearSetId: gearSet.id },
-    targetPieceCandidatesBySlot,
-    offSetCandidates: plusOneCandidates,
+    offSetSlot: offSetSlot
+      ? { slot: offSetSlot, part: offSetSlotFact.part, excludedGearSetId: gearSet.id }
+      : null,
     candidateCounts: {
-      target: Object.fromEntries(targetSlots.map(({ slot }) => [slot, targetPieceCandidatesBySlot[slot].length])),
+      target: targetCounts,
       offSet: plusOneCandidates.length,
-      combinations: targetCombinationCount * plusOneCandidates.length,
+      combinations: targetCombinationCount * (offSetSlot ? plusOneCandidates.length : 1),
     },
-    duplicatePolicy: {
-      allowedAcrossDistinctCompatibleSlots: true,
-      neverWithinOneSlot: true,
-      rule: 'A stable equipment id may occupy each distinct compatible physical slot. Therefore the same target-set accessory may appear in accessory1 and accessory2 when both slot facts contain it.',
-    },
-    selectionReason: '3+1 means exactly three target-set memberships across the four physical slots; the off-set part is determined by this topology, not presumed to be an accessory.',
+    selectionReason: offSetSlot
+      ? 'This topology has three target-set memberships and one off-set physical slot. It is an unranked search-space summary.'
+      : 'This topology has four target-set memberships and therefore also satisfies a minimum-three-set constraint.',
     ...(missingTargetSlots.length ? { missingTargetSlots } : {}),
-    ...(!plusOneCandidates.length ? {
+    ...(missingOffSet ? {
       missingOffSetCandidates: [{ slot: offSetSlot, part: offSetSlotFact.part, excludedGearSetId: gearSet.id }],
     } : {}),
   };
 }
 
-function buildDefEquipmentThreePlusOneFacts(input = {}) {
+function buildDefEquipmentThreePlusOneSource(input = {}) {
   const expectedRevision = typeof input.sourceRevision === 'string' ? input.sourceRevision.trim() : '';
   const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
   if (!expectedRevision) {
-    return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 facts request must name the source revision from a native catalog artifact.' };
+    return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 request must name the source revision from a native catalog artifact.' };
   }
   const snapshot = buildDefNativeCatalogSnapshot('equipment');
   if (!snapshot.ok) return snapshot;
@@ -3108,50 +3148,542 @@ function buildDefEquipmentThreePlusOneFacts(input = {}) {
       actualSourceRevision: snapshot.source.revision,
     };
   }
+  const catalogIssues = [];
+  const equipmentIds = new Map();
+  for (const item of snapshot.entities) {
+    if (!item.id || !item.name || !item.availableSlots.length) {
+      catalogIssues.push({
+        code: 'equipment-catalog-identity-invalid',
+        stableId: item.id || null,
+        name: item.name || null,
+        part: item.part || null,
+        message: 'Every plannable equipment item requires a stable id, name, and canonical compatible slot.',
+      });
+      continue;
+    }
+    const prior = equipmentIds.get(item.id);
+    if (prior) {
+      catalogIssues.push({
+        code: 'equipment-catalog-stable-id-duplicate',
+        stableId: item.id,
+        gearSetIds: [prior.gearSet?.id || null, item.gearSet?.id || null],
+        message: 'A stable equipment id may identify only one catalog item.',
+      });
+    } else {
+      equipmentIds.set(item.id, item);
+    }
+  }
+  if (catalogIssues.length) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-catalog-invalid',
+      message: 'The equipment catalog contains invalid or duplicate typed identities; planning failed closed.',
+      source: snapshot.source,
+      catalogIssues: catalogIssues.slice(0, 24),
+    };
+  }
   const resolved = resolveDefNativeEquipmentGearSet(snapshot, setQuery);
   if (!resolved.ok) return { ...resolved, source: snapshot.source, setQuery };
-  const gearSet = resolved.set;
-  const topologies = DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => buildDefEquipmentThreePlusOneTopology({
-    gearSet,
-    entities: snapshot.entities,
-    offSetSlot: slot,
-  }));
+  return { ok: true, snapshot, gearSet: resolved.set, setQuery };
+}
+
+function buildDefEquipmentThreePlusOneFacts(input = {}) {
+  const sourceResult = buildDefEquipmentThreePlusOneSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const { snapshot, gearSet, setQuery } = sourceResult;
+  const topologies = [
+    ...DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => buildDefEquipmentThreePlusOneTopologySummary({
+      gearSet,
+      entities: snapshot.entities,
+      offSetSlot: slot,
+    })),
+    buildDefEquipmentThreePlusOneTopologySummary({ gearSet, entities: snapshot.entities }),
+  ];
+  const targetSetCandidateIdsBySlot = Object.fromEntries(DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => [
+    slot,
+    defEquipmentItemsForSlot(gearSet.equipments, slot).map((item) => item.id),
+  ]));
   const availableTopologies = topologies.filter((topology) => topology.status === 'AVAILABLE');
   if (!availableTopologies.length) {
     return {
       ok: false,
       code: 'equipment-3plus1-slot-structure-unavailable',
-      message: 'The exact set and the remaining catalog cannot form any complete three-target-set-plus-one topology across the four physical slots.',
+      message: 'The exact set and the remaining catalog cannot satisfy a minimum-three target-set constraint across the four physical slots.',
       source: snapshot.source,
-      targetSet: gearSet,
+      targetSet: compactDefEquipmentThreePlusOneSet(gearSet),
       topologies,
     };
   }
   return {
     ok: true,
     contract: DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT,
-    state: 'REQUIRES_ATTRIBUTE_PREFERENCE',
+    state: 'READY_FOR_CHARACTER_PROFILE',
     source: snapshot.source,
     characterId: typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : null,
     setQuery,
-    targetSet: gearSet,
-    targetSetPieceCount: 3,
+    targetSet: compactDefEquipmentThreePlusOneSet(gearSet),
     targetSetThreePieceBuffs: gearSet.threePieceBuffs || {},
-    topologyDefinition: 'Exactly three target-set memberships across armor, glove, accessory1, and accessory2. The remaining physical slot is the off-set slot.',
+    targetSetPieces: gearSet.equipments.map((item) => compactDefEquipmentThreePlusOnePiece(item)),
+    targetSetCandidateIdsBySlot,
+    topologyDefinition: 'At least three target-set memberships across armor, glove, accessory1, and accessory2. An item in each compatible physical slot contributes one membership, including the same compatible accessory id in both accessory slots.',
+    minimumSupportedSetPieces: 3,
+    duplicatePolicy: DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY,
     topologies,
     topologiesExhaustive: true,
-    // Keep the old field as a non-lossy compatibility view. Each entry is a
-    // topology with complete candidate pools, never a truncated enumeration
-    // of completed loadouts.
-    structures: topologies,
-    structuresExhaustive: true,
+    outputShape: {
+      candidatePoolsEmbedded: false,
+      candidateFactsDeduplicated: true,
+      fullCatalogAvailableInSessionArtifact: true,
+    },
     missingReasons: [{
-      code: 'attribute-preference-required',
-      message: 'The catalog proves every viable slot topology and each candidate’s fixedStat/effects, but it does not define this character’s desired primary or secondary attributes.',
-      requiredInput: ['preferredFixedStatTypeKey', 'preferredEffectTypeKeys'],
+      code: 'character-profile-required',
+      message: 'Topology and set facts do not prove which character-effect type keys should be preferred. Supply a sourced character build profile before ranking.',
+      requiredInput: ['characterProfile.evidenceRefs', 'characterProfile.keywords', 'characterProfile.preferenceGroups|preferenceTypeKeys'],
     }],
-    nextAction: 'First present every AVAILABLE topology; do not assume the off-set part is an accessory. State the desired fixed stat and ordered secondary-effect type keys before ranking a candidate. Until then, report only these catalog facts and do not recommend or apply one loadout.',
+    nextAction: 'Build a sourced character profile first, then call def_data_equipment_3plus1_plan. Do not rank from equipment fixedStat: character primary/secondary preferences are effect priorities supplied by the profile.',
   };
+}
+
+const DEF_EQUIPMENT_PROFILE_DERIVATIONS = new Set([
+  'guide',
+  'guide-partial',
+  'skill-analysis',
+  'guide-and-skill-analysis',
+  'user',
+]);
+const DEF_EQUIPMENT_PROFILE_KINDS = new Set([
+  'primary-attribute',
+  'secondary-attribute',
+  'elemental-damage',
+  'skill-damage',
+  'general-damage',
+  'other',
+]);
+
+function normalizeDefEquipmentThreePlusOneProfile(input = {}) {
+  const raw = input?.characterProfile;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, code: 'equipment-3plus1-character-profile-required', message: 'A sourced characterProfile is required before ranking equipment.' };
+  }
+  const characterId = typeof raw.characterId === 'string' ? raw.characterId.trim() : '';
+  const derivation = typeof raw.derivation === 'string' ? raw.derivation.trim() : '';
+  const evidenceRefs = Array.isArray(raw.evidenceRefs)
+    ? [...new Set(raw.evidenceRefs.map((value) => typeof value === 'string' ? value.trim() : '').filter(Boolean))]
+    : [];
+  const keywords = Array.isArray(raw.keywords)
+    ? [...new Set(raw.keywords.map((value) => typeof value === 'string' ? value.trim() : '').filter(Boolean))]
+    : [];
+  if (!characterId || !DEF_EQUIPMENT_PROFILE_DERIVATIONS.has(derivation) || !evidenceRefs.length || !keywords.length) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-character-profile-incomplete',
+      message: 'characterProfile requires characterId, a supported derivation, at least one evidenceRef, and explicit human-readable keywords.',
+    };
+  }
+  const typeKeys = Array.isArray(raw.preferenceTypeKeys)
+    ? [...new Set(raw.preferenceTypeKeys.map((value) => typeof value === 'string' ? value.trim() : '').filter(Boolean))]
+    : [];
+  const rawGroups = Array.isArray(raw.preferenceGroups) ? raw.preferenceGroups : [];
+  if ((typeKeys.length > 0) === (rawGroups.length > 0)) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-preference-shape-invalid',
+      message: 'Provide exactly one ordered preference shape: preferenceTypeKeys or preferenceGroups.',
+    };
+  }
+  const validTypeKey = (value) => /^[A-Za-z][A-Za-z0-9._:-]{1,79}$/.test(value);
+  let preferenceGroups;
+  if (typeKeys.length) {
+    if (typeKeys.length > 12 || typeKeys.some((value) => !validTypeKey(value))) {
+      return { ok: false, code: 'equipment-3plus1-preference-type-key-invalid', message: 'preferenceTypeKeys must contain 1-12 canonical effect type keys.' };
+    }
+    preferenceGroups = typeKeys.map((typeKey) => ({
+      key: typeKey,
+      label: typeKey,
+      kind: 'other',
+      acceptedTypeKeys: [typeKey],
+    }));
+  } else {
+    if (rawGroups.length > 12) {
+      return { ok: false, code: 'equipment-3plus1-preference-group-invalid', message: 'preferenceGroups may contain at most 12 ordered groups.' };
+    }
+    preferenceGroups = rawGroups.map((group) => ({
+      key: typeof group?.key === 'string' ? group.key.trim() : '',
+      label: typeof group?.label === 'string' ? group.label.trim() : '',
+      kind: typeof group?.kind === 'string' ? group.kind.trim() : 'other',
+      acceptedTypeKeys: Array.isArray(group?.acceptedTypeKeys)
+        ? [...new Set(group.acceptedTypeKeys.map((value) => typeof value === 'string' ? value.trim() : '').filter(Boolean))]
+        : [],
+    }));
+    const keys = new Set();
+    const invalid = preferenceGroups.some((group) => {
+      if (!group.key || group.key.length > 80 || !group.label || group.label.length > 80) return true;
+      if (!DEF_EQUIPMENT_PROFILE_KINDS.has(group.kind)) return true;
+      if (!group.acceptedTypeKeys.length || group.acceptedTypeKeys.length > 8 || group.acceptedTypeKeys.some((value) => !validTypeKey(value))) return true;
+      if (keys.has(group.key)) return true;
+      keys.add(group.key);
+      return false;
+    });
+    if (!preferenceGroups.length || invalid) {
+      return {
+        ok: false,
+        code: 'equipment-3plus1-preference-group-invalid',
+        message: 'Each ordered preference group requires a unique key, label, supported kind, and 1-8 accepted canonical effect type keys.',
+      };
+    }
+  }
+  const preferenceOwnerByTypeKey = new Map();
+  for (const group of preferenceGroups) {
+    for (const typeKey of group.acceptedTypeKeys) {
+      const prior = preferenceOwnerByTypeKey.get(typeKey);
+      if (prior && prior !== group.key) {
+        return {
+          ok: false,
+          code: 'equipment-3plus1-preference-type-key-overlap',
+          message: `Canonical effect type key ${typeKey} belongs to both ${prior} and ${group.key}; one fact may not count as two preference matches.`,
+          typeKey,
+          preferenceKeys: [prior, group.key],
+        };
+      }
+      preferenceOwnerByTypeKey.set(typeKey, group.key);
+    }
+  }
+  return {
+    ok: true,
+    profile: { characterId, derivation, evidenceRefs, keywords, preferenceGroups },
+  };
+}
+
+function collectDefEquipmentTypedEffects(value, pathPrefix = '', output = []) {
+  if (!value || typeof value !== 'object') return output;
+  if (!Array.isArray(value) && typeof value.typeKey === 'string' && value.typeKey.trim()) {
+    output.push({
+      path: pathPrefix || 'effect',
+      effectId: String(value.effectId || ''),
+      label: String(value.label || value.name || ''),
+      typeKey: value.typeKey.trim(),
+    });
+    return output;
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => collectDefEquipmentTypedEffects(entry, `${pathPrefix}[${index}]`, output));
+    return output;
+  }
+  Object.keys(value).sort().forEach((key) => collectDefEquipmentTypedEffects(value[key], pathPrefix ? `${pathPrefix}.${key}` : key, output));
+  return output;
+}
+
+function rankDefEquipmentFactsByProfile(facts, profile) {
+  const matches = profile.preferenceGroups.flatMap((preference, priorityIndex) => {
+    const matchedFacts = facts.filter((fact) => preference.acceptedTypeKeys.includes(fact.typeKey));
+    if (!matchedFacts.length) return [];
+    return [{
+      key: preference.key,
+      label: preference.label,
+      kind: preference.kind,
+      priorityIndex,
+      weight: profile.preferenceGroups.length - priorityIndex,
+      matchedFacts,
+    }];
+  });
+  return {
+    matchKeys: matches.map((match) => match.key),
+    matchCount: matches.length,
+    weightedScore: matches.reduce((score, match) => score + match.weight, 0),
+    rankingBasis: matches.map((match) => ({
+      preferenceKey: match.key,
+      preferenceLabel: match.label,
+      preferenceKind: match.kind,
+      priorityIndex: match.priorityIndex,
+      weight: match.weight,
+      facts: match.matchedFacts,
+    })),
+  };
+}
+
+function defEquipmentSelectionAllowsDuplicates(selection, allowDuplicateCompatibleAccessories) {
+  const assignments = new Map();
+  for (const entry of selection) {
+    const prior = assignments.get(entry.item.id) || [];
+    prior.push(entry);
+    assignments.set(entry.item.id, prior);
+  }
+  for (const entries of assignments.values()) {
+    if (entries.length < 2) continue;
+    const slots = entries.map((entry) => entry.slot);
+    const compatibleAccessoryPair = allowDuplicateCompatibleAccessories
+      && entries.length === 2
+      && slots.includes('accessory1')
+      && slots.includes('accessory2')
+      && entries.every((entry) => entry.item.availableSlots.includes('accessory1') && entry.item.availableSlots.includes('accessory2'));
+    if (!compatibleAccessoryPair) return false;
+  }
+  return true;
+}
+
+function enumerateDefEquipmentSelections(pools, visit, index = 0, selection = []) {
+  if (index >= pools.length) {
+    visit(selection);
+    return;
+  }
+  const pool = pools[index];
+  for (const item of pool.items) {
+    selection.push({ slot: pool.slot, item });
+    enumerateDefEquipmentSelections(pools, visit, index + 1, selection);
+    selection.pop();
+  }
+}
+
+function compareDefEquipmentThreePlusOneCandidates(left, right) {
+  return right.qualifiedPieceCount - left.qualifiedPieceCount
+    || right.weightedScore - left.weightedScore
+    || right.coveredPreferenceCount - left.coveredPreferenceCount
+    || right.setMembershipCount - left.setMembershipCount
+    || left.stableSortKey.localeCompare(right.stableSortKey);
+}
+
+function isCloseDefEquipmentThreePlusOneAlternative(best, candidate) {
+  return candidate.qualifiedPieceCount === best.qualifiedPieceCount
+    && candidate.coveredPreferenceCount === best.coveredPreferenceCount
+    && best.weightedScore - candidate.weightedScore <= 1;
+}
+
+function buildDefEquipmentThreePlusOnePlan(input = {}) {
+  const sourceResult = buildDefEquipmentThreePlusOneSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const profileResult = normalizeDefEquipmentThreePlusOneProfile(input);
+  if (!profileResult.ok) return profileResult;
+  const profileCapabilityResult = resolveOperatorBuildProfileCapability(input, profileResult.profile);
+  if (!profileCapabilityResult.ok) return profileCapabilityResult;
+  const { snapshot, gearSet, setQuery } = sourceResult;
+  const profile = profileResult.profile;
+  const minimumSetPieces = Number.isInteger(input.minimumSetPieces) ? input.minimumSetPieces : 3;
+  const minimumMatchesPerPiece = Number.isInteger(input.minimumMatchesPerPiece) ? input.minimumMatchesPerPiece : 2;
+  const shortlistLimit = Number.isInteger(input.shortlistLimit) ? input.shortlistLimit : 3;
+  const allowDuplicateCompatibleAccessories = input.allowDuplicateCompatibleAccessories !== false;
+  if (![3, 4].includes(minimumSetPieces) || minimumMatchesPerPiece < 2 || minimumMatchesPerPiece > profile.preferenceGroups.length || shortlistLimit < 1 || shortlistLimit > 3) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-plan-constraint-invalid',
+      message: 'minimumSetPieces must be 3 or 4, minimumMatchesPerPiece must be at least 2 and fit the supplied profile, and shortlistLimit must be 1-3.',
+    };
+  }
+  const targetBySlot = Object.fromEntries(DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => [
+    slot,
+    defEquipmentItemsForSlot(gearSet.equipments, slot),
+  ]));
+  const offSetBySlot = Object.fromEntries(DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => [
+    slot,
+    defEquipmentItemsForSlot(snapshot.entities.filter((item) => item.gearSet?.id !== gearSet.id), slot),
+  ]));
+  const searchTopologies = [];
+  if (minimumSetPieces <= 3) {
+    for (const { slot: offSetSlot } of DEF_EQUIPMENT_SLOT_FACTS) {
+      searchTopologies.push({
+        id: `off-set-${offSetSlot}`,
+        setMembershipCount: 3,
+        pools: DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => ({
+          slot,
+          items: slot === offSetSlot ? offSetBySlot[slot] : targetBySlot[slot],
+        })),
+      });
+    }
+  }
+  searchTopologies.push({
+    id: 'all-target-set',
+    setMembershipCount: 4,
+    pools: DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => ({ slot, items: targetBySlot[slot] })),
+  });
+  const viableTopologies = searchTopologies.filter((topology) => topology.pools.every((pool) => pool.items.length > 0));
+  const candidateCombinationCount = viableTopologies.reduce((total, topology) => total + topology.pools.reduce((count, pool) => count * pool.items.length, 1), 0);
+  if (candidateCombinationCount > DEF_EQUIPMENT_THREE_PLUS_ONE_MAX_SEARCH_SPACE) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-search-space-too-large',
+      message: 'The catalog search space exceeds the bounded exhaustive planner budget.',
+      candidateCombinationCount,
+      maximumCandidateCombinationCount: DEF_EQUIPMENT_THREE_PLUS_ONE_MAX_SEARCH_SPACE,
+    };
+  }
+  const setBonusFacts = collectDefEquipmentTypedEffects(gearSet.threePieceBuffs || {}, 'targetSet.threePieceBuffs');
+  const setBonusRank = rankDefEquipmentFactsByProfile(setBonusFacts, profile);
+  const inputAmbiguities = [];
+  const rankedItemCache = new Map();
+  const rankedItem = (item) => {
+    const cached = rankedItemCache.get(item);
+    if (cached) return cached;
+    const facts = collectDefEquipmentTypedEffects(item.effects || {}, `equipment.${item.id}.effects`);
+    const rank = rankDefEquipmentFactsByProfile(facts, profile);
+    const next = { compact: compactDefEquipmentThreePlusOnePiece(item), rank };
+    rankedItemCache.set(item, next);
+    return next;
+  };
+  snapshot.entities.forEach((item) => rankedItem(item));
+  const candidates = [];
+  let enumeratedCandidateCount = 0;
+  for (const topology of viableTopologies) {
+    enumerateDefEquipmentSelections(topology.pools, (selection) => {
+      if (!defEquipmentSelectionAllowsDuplicates(selection, allowDuplicateCompatibleAccessories)) return;
+      enumeratedCandidateCount += 1;
+      const rankedSelection = selection.map(({ slot, item }) => ({ slot, item, ranked: rankedItem(item) }));
+      const qualifiedPieceCount = rankedSelection.filter((piece) => piece.ranked.rank.matchCount >= minimumMatchesPerPiece).length;
+      const coveredKeys = new Set([...setBonusRank.matchKeys, ...rankedSelection.flatMap((piece) => piece.ranked.rank.matchKeys)]);
+      const missing = [
+        ...rankedSelection.filter((piece) => piece.ranked.rank.matchCount < minimumMatchesPerPiece).map((piece) => ({
+          code: 'piece-below-minimum-effect-match',
+          slot: piece.slot,
+          stableId: piece.item.id,
+          actualMatchCount: piece.ranked.rank.matchCount,
+          requiredMatchCount: minimumMatchesPerPiece,
+        })),
+        ...profile.preferenceGroups.filter((group) => !coveredKeys.has(group.key)).map((group) => ({
+          code: 'profile-preference-unmatched',
+          preferenceKey: group.key,
+          preferenceLabel: group.label,
+        })),
+      ];
+      const duplicateAssignments = [];
+      for (const piece of rankedSelection) {
+        const slots = rankedSelection.filter((candidate) => candidate.item.id === piece.item.id).map((candidate) => candidate.slot);
+        if (slots.length > 1 && !duplicateAssignments.some((entry) => entry.stableId === piece.item.id)) {
+          duplicateAssignments.push({ stableId: piece.item.id, name: piece.item.name, slots });
+        }
+      }
+      const candidate = {
+        topologyId: topology.id,
+        setMembershipCount: topology.setMembershipCount,
+        selection: rankedSelection,
+        duplicateAssignments,
+        setBonusMatches: setBonusRank.rankingBasis,
+        matchKeys: [...coveredKeys],
+        coveredPreferenceCount: coveredKeys.size,
+        qualifiedPieceCount,
+        weightedScore: rankedSelection.reduce((score, piece) => score + piece.ranked.rank.weightedScore, 0) + setBonusRank.weightedScore,
+        rankingBasis: {
+          pieceEffectMatchesCountedPerPhysicalSlot: true,
+          targetSetBonusMatchesCountedOnce: true,
+          equipmentFixedStatUsedForCharacterPreference: false,
+        },
+        missing,
+        ambiguity: [...inputAmbiguities],
+        stableSortKey: rankedSelection.map((piece) => `${piece.slot}:${piece.item.id}`).join('|'),
+      };
+      const insertionIndex = candidates.findIndex((existing) => compareDefEquipmentThreePlusOneCandidates(candidate, existing) < 0);
+      if (insertionIndex < 0) candidates.push(candidate);
+      else candidates.splice(insertionIndex, 0, candidate);
+      if (candidates.length > shortlistLimit) candidates.pop();
+    });
+  }
+  const leadingCandidate = candidates[0] || null;
+  const closeCandidates = leadingCandidate
+    ? candidates.filter((candidate, index) => index === 0 || isCloseDefEquipmentThreePlusOneAlternative(leadingCandidate, candidate))
+    : [];
+  const shortlist = closeCandidates.map(({ stableSortKey, selection, ...candidate }) => ({
+    ...candidate,
+    pieces: selection.map(({ slot, item, ranked }) => {
+      const pieceMissing = ranked.rank.matchCount < minimumMatchesPerPiece ? [{
+        code: 'piece-below-minimum-effect-match',
+        actualMatchCount: ranked.rank.matchCount,
+        requiredMatchCount: minimumMatchesPerPiece,
+      }] : [];
+      const setMembership = item.gearSet?.id === gearSet.id;
+      return {
+        ...ranked.compact,
+        slot,
+        setMembership,
+        setMembershipContribution: setMembership ? 1 : 0,
+        matchKeys: ranked.rank.matchKeys,
+        matchCount: ranked.rank.matchCount,
+        rankingBasis: ranked.rank.rankingBasis,
+        missing: pieceMissing,
+        ambiguity: [],
+        selectionReason: `${setMembership ? 'Target-set' : 'Off-set'} ${slot} candidate matched ${ranked.rank.matchCount} verified profile groups${pieceMissing.length ? ', below the required two-key acceptable threshold' : ''}.`,
+      };
+    }),
+  }));
+  if (shortlist.length > 1) {
+    const [first, second] = shortlist;
+    if (first.qualifiedPieceCount === second.qualifiedPieceCount
+      && first.weightedScore === second.weightedScore
+      && first.coveredPreferenceCount === second.coveredPreferenceCount
+      && first.setMembershipCount === second.setMembershipCount) {
+      const tie = {
+        code: 'top-ranking-tie',
+        message: 'The leading plans are equal under the declared keyword/type-key scoring; stable ids only make output order deterministic.',
+      };
+      first.ambiguity.push(tie);
+      second.ambiguity.push(tie);
+    }
+  }
+  const best = shortlist[0] || null;
+  const state = !best ? 'NO_PLAN' : best.missing.length ? 'PARTIAL' : best.ambiguity.length ? 'AMBIGUOUS' : 'READY';
+  const response = {
+    ok: true,
+    contract: DEF_EQUIPMENT_THREE_PLUS_ONE_PLAN_CONTRACT,
+    state,
+    source: snapshot.source,
+    setQuery,
+    targetSet: compactDefEquipmentThreePlusOneSet(gearSet),
+    targetSetThreePieceBuffs: gearSet.threePieceBuffs || {},
+    characterProfile: profile,
+    profileEvidence: {
+      profileHash: profileCapabilityResult.capability.profileHash,
+      source: profileCapabilityResult.capability.source,
+      sessionBound: true,
+      turnBound: true,
+    },
+    constraints: {
+      minimumSetPieces,
+      minimumMatchesPerPiece,
+      allowDuplicateCompatibleAccessories,
+      physicalSlots: DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => slot),
+    },
+    duplicatePolicy: DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY,
+    searchSpace: {
+      topologyCount: viableTopologies.length,
+      candidateCombinationCount,
+      enumeratedCandidateCount,
+      exhaustive: true,
+      outputCandidateLimit: shortlistLimit,
+      outputCandidateCount: shortlist.length,
+    },
+    rankingBasis: {
+      effectTypeKeysOnly: true,
+      orderedPreferenceWeights: profile.preferenceGroups.map((group, index) => ({
+        key: group.key,
+        weight: profile.preferenceGroups.length - index,
+      })),
+      equipmentFixedStatExcluded: true,
+      closeAlternativeRule: {
+        sameQualifiedPieceCount: true,
+        sameCoveredPreferenceCount: true,
+        maximumWeightedScoreDeficit: 1,
+      },
+      note: 'This is deterministic profile-keyword coverage, not a damage simulation or an inferred upgrade magnitude.',
+    },
+    shortlist,
+    missing: best?.missing || [{ code: 'no-viable-loadout', message: 'No catalog assignment satisfies the requested set-membership and slot constraints.' }],
+    ambiguity: best?.ambiguity || inputAmbiguities,
+    nextAction: state === 'READY'
+      ? 'Present the bounded shortlist with its exact ids and evidence. A separate operator-config preview is still required before any mutation.'
+      : 'Report the returned missing/ambiguity facts. Do not claim an optimal loadout or apply configuration without resolving them.',
+  };
+  const outputByteLimit = 96 * 1024;
+  const outputBytes = Buffer.byteLength(JSON.stringify(response));
+  if (outputBytes > outputByteLimit) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-output-too-large',
+      message: 'The bounded planner response exceeds its typed output budget.',
+      outputBytes,
+      outputByteLimit,
+    };
+  }
+  profileCapabilityResult.capability.consumed = true;
+  operatorBuildProfileCapabilities.delete(profileCapabilityResult.capability.token);
+  response.searchSpace.outputBytes = outputBytes;
+  response.searchSpace.outputByteLimit = outputByteLimit;
+  return response;
 }
 
 function buildDefNativeCatalogArtifact(input = {}) {
@@ -3403,12 +3935,16 @@ function compactDefOperatorCatalogEntry(raw, fallbackId) {
   const id = String(raw.id || fallbackId || '').trim();
   const name = String(raw.name || '').trim();
   if (!id || !name) return null;
-  const skills = Array.isArray(raw.skills) ? raw.skills : [];
+  const skills = Array.isArray(raw.skills)
+    ? raw.skills
+    : raw.skills && typeof raw.skills === 'object' ? Object.values(raw.skills) : [];
   return {
     id,
     name,
     element: String(raw.element || '').trim(),
     profession: String(raw.profession || '').trim(),
+    mainStat: String(raw.mainStat || '').trim(),
+    subStat: String(raw.subStat || '').trim(),
     rarity: Number.isFinite(Number(raw.rarity)) ? Number(raw.rarity) : null,
     weapon: String(raw.weapon || '').trim(),
     skillTypes: skills.map((skill) => String(skill?.buttonType || skill?.type || '')).filter(Boolean).slice(0, 8),
@@ -4059,6 +4595,442 @@ function readDefGameKnowledgeSection(input = {}) {
     truncated,
     nextSection: truncated ? { referenceId: reference.id, sectionId: section.sectionId, cursor: nextCursor } : null,
     availableSections: reference.index.headings.map(compactGameKnowledgeHeading),
+  };
+}
+
+function readCompleteDefGameKnowledgeSection(input = {}, maximumChars = 24_000) {
+  const chunks = [];
+  let cursor = 0;
+  let latest = null;
+  while (chunks.reduce((total, chunk) => total + chunk.length, 0) < maximumChars) {
+    latest = readDefGameKnowledgeSection({ ...input, cursor });
+    if (!latest.ok) return latest;
+    const remaining = maximumChars - chunks.reduce((total, chunk) => total + chunk.length, 0);
+    chunks.push(latest.content.slice(0, remaining));
+    if (!latest.truncated || !latest.nextSection?.cursor || latest.content.length > remaining) break;
+    cursor = latest.nextSection.cursor;
+  }
+  const content = chunks.join('');
+  const fullyRead = Boolean(latest && !latest.truncated);
+  return {
+    ...latest,
+    content,
+    characterLimit: maximumChars,
+    truncated: !fullyRead,
+    nextSection: fullyRead ? null : latest?.nextSection || null,
+  };
+}
+
+function operatorBuildInvocationIdentity(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  const turnId = typeof input.__defTurnId === 'string' ? input.__defTurnId.trim() : '';
+  if (!sessionId || !turnId) {
+    return {
+      ok: false,
+      code: 'operator-build-turn-identity-required',
+      message: 'Operator build discovery and fallback require one native session id and current user-turn id.',
+    };
+  }
+  return { ok: true, sessionId, turnId };
+}
+
+function loadOperatorBuildGuideReferences() {
+  return safeGameKnowledgeReferenceFiles()
+    .map((entry) => readGameKnowledgeReference(entry.id))
+    .filter((loaded) => loaded?.reference)
+    .map((loaded) => loaded.reference);
+}
+
+function compactNonOverlappingOperatorBuildGroups(groups = []) {
+  const claimedTypeKeys = new Set();
+  return groups.flatMap((group) => {
+    const acceptedTypeKeys = [...new Set((group?.acceptedTypeKeys || [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !claimedTypeKeys.has(value)))];
+    acceptedTypeKeys.forEach((value) => claimedTypeKeys.add(value));
+    if (!acceptedTypeKeys.length) return [];
+    return [{
+      key: String(group?.key || ''),
+      label: String(group?.label || ''),
+      kind: String(group?.kind || 'other'),
+      acceptedTypeKeys,
+    }];
+  }).filter((group) => group.key && group.label);
+}
+
+function compactGuidePlannerProfile(operatorId, strategy, contentHash) {
+  const preferenceGroups = compactNonOverlappingOperatorBuildGroups(strategy?.preferenceGroups || []);
+  return {
+    characterId: operatorId,
+    derivation: 'guide',
+    evidenceRefs: [`guide-sha256:${contentHash}`],
+    keywords: preferenceGroups.map((group) => group.label),
+    preferenceGroups,
+  };
+}
+
+function hashDefOperatorBuildPlannerProfile(plannerProfile) {
+  // The capability binds typed business value, not JavaScript insertion
+  // order. The planner normalizer reconstructs the same profile shape before
+  // verification, so both issuance and consumption must use one stable
+  // key-sorted serializer while preserving ordered preference arrays.
+  return hashDefNativeCatalogValue(plannerProfile);
+}
+
+function mintOperatorBuildProfileCapability({ sessionId, turnId, operatorId, plannerProfile, source }) {
+  pruneOperatorBuildGuideResolutions();
+  const profileHash = hashDefOperatorBuildPlannerProfile(plannerProfile);
+  const reusable = [...operatorBuildProfileCapabilities.values()].find((capability) => (
+    capability.sessionId === sessionId
+    && capability.turnId === turnId
+    && capability.operatorId === operatorId
+    && capability.profileHash === profileHash
+    && !capability.consumed
+  ));
+  if (reusable) return { token: reusable.token, profileHash, expiresAt: reusable.expiresAt, reused: true };
+  const token = crypto.randomUUID();
+  const now = Date.now();
+  const capability = {
+    token,
+    sessionId,
+    turnId,
+    operatorId,
+    profileHash,
+    source,
+    consumed: false,
+    createdAt: now,
+    expiresAt: now + OPERATOR_BUILD_PROFILE_CAPABILITY_TTL_MS,
+  };
+  operatorBuildProfileCapabilities.set(token, capability);
+  while (operatorBuildProfileCapabilities.size > 512) {
+    operatorBuildProfileCapabilities.delete(operatorBuildProfileCapabilities.keys().next().value);
+  }
+  return { token, profileHash, expiresAt: capability.expiresAt, reused: false };
+}
+
+function resolveOperatorBuildProfileCapability(input = {}, plannerProfile = null) {
+  const identity = operatorBuildInvocationIdentity(input);
+  if (!identity.ok) return identity;
+  const token = typeof input.plannerProfileCapability === 'string' ? input.plannerProfileCapability.trim() : '';
+  if (!token || !plannerProfile) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-profile-capability-required',
+      message: 'The exact plannerProfileCapability issued with this guide/profile is required.',
+    };
+  }
+  pruneOperatorBuildGuideResolutions();
+  const capability = operatorBuildProfileCapabilities.get(token);
+  if (!capability) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-profile-capability-invalid',
+      message: 'This planner profile capability is missing, expired, or already consumed.',
+    };
+  }
+  if (capability.sessionId !== identity.sessionId || capability.turnId !== identity.turnId) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-profile-capability-scope-mismatch',
+      message: 'This planner profile capability belongs to a different native session or user turn.',
+    };
+  }
+  if (capability.operatorId !== String(plannerProfile.characterId || '').trim()
+    || capability.profileHash !== hashDefOperatorBuildPlannerProfile(plannerProfile)) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-profile-capability-profile-mismatch',
+      message: 'The supplied planner profile was changed after the evidence capability was issued.',
+    };
+  }
+  return { ok: true, capability };
+}
+
+function discoverDefOperatorBuildGuide(input = {}) {
+  const identity = operatorBuildInvocationIdentity(input);
+  if (!identity.ok) return identity;
+  const operatorQuery = typeof input.operatorQuery === 'string'
+    ? input.operatorQuery.trim()
+    : typeof input.operatorId === 'string' ? input.operatorId.trim() : '';
+  if (!operatorQuery) {
+    return {
+      ok: false,
+      code: 'operator-build-operator-required',
+      message: 'An exact operator name or stable id is required for build-guide discovery.',
+    };
+  }
+  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const resolved = resolveOperatorCatalogRecord(library, operatorQuery);
+  if (!resolved.ok) return { ok: false, ...resolved };
+  const operator = resolved.operator;
+  const operatorId = String(resolved.id || operator.id || '').trim();
+  const operatorName = String(operator.name || '').trim();
+  const goal = typeof input.goal === 'string' && input.goal.trim() ? input.goal.trim() : 'damage';
+  const setQuery = typeof input.setQuery === 'string' && input.setQuery.trim() ? input.setQuery.trim() : null;
+  const discovery = discoverOperatorBuildGuides(loadOperatorBuildGuideReferences(), {
+    id: operatorId,
+    name: operatorName,
+  }, { goal, setQuery: setQuery || '' });
+  let effectiveState = discovery.state;
+  let guide = null;
+  let guideStrategy = null;
+  if (discovery.state === 'GUIDE_FOUND' || discovery.state === 'PARTIAL_GUIDE_FOUND') {
+    const candidate = discovery.candidates[0];
+    const sectionId = candidate?.exactReadPolicy?.requiredSectionId || candidate?.recommendedSection?.sectionId;
+    const section = readCompleteDefGameKnowledgeSection({ referenceId: candidate?.referenceId, sectionId });
+    if (!section.ok) return section;
+    const contentHash = createHash('sha256').update(section.content).digest('hex');
+    guideStrategy = extractGuideBuildStrategy(section.content, {
+      evidenceRef: `guide-sha256:${contentHash}`,
+      setQuery: setQuery || '',
+    });
+    if (section.truncated || !guideStrategy.sufficientForPlanner) effectiveState = 'PARTIAL_GUIDE_FOUND';
+    guide = {
+      referenceId: section.referenceId,
+      title: section.title,
+      section: section.section,
+      content: section.content,
+      contentHash,
+      truncated: section.truncated,
+      source: section.source,
+      strategy: guideStrategy,
+    };
+  }
+  const base = {
+    ok: true,
+    protocolVersion: 1,
+    contract: 'DefOperatorBuildGuideV1',
+    state: effectiveState,
+    operator: { id: operatorId, name: operatorName },
+    query: {
+      operatorQuery,
+      goal,
+      setQuery,
+    },
+    scope: 'allowlisted-game-knowledge-references',
+    exhaustive: discovery.exhaustive,
+    truncated: discovery.truncated,
+    candidates: discovery.candidates,
+  };
+  if (effectiveState === 'GUIDE_FOUND') {
+    const plannerProfile = compactGuidePlannerProfile(operatorId, guideStrategy, guide.contentHash);
+    const profileCapability = mintOperatorBuildProfileCapability({
+      sessionId: identity.sessionId,
+      turnId: identity.turnId,
+      operatorId,
+      plannerProfile,
+      source: {
+        kind: 'guide',
+        referenceId: guide.referenceId,
+        sectionId: guide.section.sectionId,
+        contentHash: guide.contentHash,
+      },
+    });
+    return {
+      ...base,
+      guide,
+      plannerProfile,
+      plannerProfileCapability: profileCapability.token,
+      plannerProfileHash: profileCapability.profileHash,
+      missingFacts: [],
+      fallbackToken: null,
+      nextAction: 'Use this server-compiled guide profile and its exact capability for typed planning, then verify every current equipment fact in the catalog. Do not invoke the skill-derived fallback or edit the profile.',
+    };
+  }
+
+  pruneOperatorBuildGuideResolutions();
+  const reusableResolution = [...operatorBuildGuideResolutions.values()].find((resolution) => (
+    resolution.sessionId === identity.sessionId
+    && resolution.turnId === identity.turnId
+    && resolution.operatorId === operatorId
+    && resolution.goal === base.query.goal
+    && resolution.setQuery === base.query.setQuery
+    && resolution.guideState === effectiveState
+    && !resolution.consumed
+  ));
+  if (reusableResolution) {
+    return {
+      ...base,
+      guide: reusableResolution.guide,
+      guideResolutionId: reusableResolution.guideResolutionId,
+      fallbackToken: reusableResolution.fallbackToken,
+      missingFacts: reusableResolution.missingFacts,
+      reused: true,
+      nextAction: 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+    };
+  }
+  const fallbackToken = crypto.randomUUID();
+  const guideResolutionId = crypto.randomUUID();
+  const now = Date.now();
+  const supportedGuideGroups = guideStrategy?.preferenceGroups || [];
+  const missingFacts = [
+    ...(!supportedGuideGroups.length ? [{ code: 'operator-build-priority-unresolved', field: 'preferenceGroups' }] : []),
+    { code: 'operator-build-skill-focus-unresolved', field: 'focusSkillTypes' },
+    ...(guide?.truncated ? [{ code: 'operator-build-guide-section-truncated', field: 'guide.content' }] : []),
+  ];
+  operatorBuildGuideResolutions.set(fallbackToken, {
+    fallbackToken,
+    guideResolutionId,
+    sessionId: identity.sessionId,
+    turnId: identity.turnId,
+    operatorId,
+    operatorName,
+    operatorSnapshotHash: hashDefLoadoutPlan(operator),
+    guideState: effectiveState,
+    guide,
+    guidePreferenceGroups: supportedGuideGroups,
+    goal: base.query.goal,
+    setQuery: base.query.setQuery,
+    missingFacts,
+    consumed: false,
+    createdAt: now,
+    expiresAt: now + OPERATOR_BUILD_GUIDE_RESOLUTION_TTL_MS,
+  });
+  while (operatorBuildGuideResolutions.size > 512) {
+    operatorBuildGuideResolutions.delete(operatorBuildGuideResolutions.keys().next().value);
+  }
+  return {
+    ...base,
+    guide,
+    guideResolutionId,
+    fallbackToken,
+    missingFacts,
+    nextAction: 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+  };
+}
+
+function mergePartialGuidePlannerProfile(profile, resolution) {
+  if (!profile?.plannerProfile || resolution.guideState !== 'PARTIAL_GUIDE_FOUND') return profile;
+  const guideGroups = compactNonOverlappingOperatorBuildGroups(resolution.guidePreferenceGroups || []);
+  const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
+  const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => (
+    !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
+  ));
+  const preferenceGroups = [...guideGroups, ...derivedGroups];
+  const guideEvidence = resolution.guide?.contentHash
+    ? [`guide-sha256:${resolution.guide.contentHash}`]
+    : [];
+  const plannerProfile = {
+    ...profile.plannerProfile,
+    derivation: 'guide-and-skill-analysis',
+    evidenceRefs: [...new Set([...guideEvidence, ...profile.plannerProfile.evidenceRefs])],
+    keywords: preferenceGroups.map((group) => group.label),
+    preferenceGroups,
+  };
+  return {
+    ...profile,
+    preferenceGroups: preferenceGroups.map((group) => ({
+      ...group,
+      evidenceRefs: guideGroups.includes(group)
+        ? guideEvidence
+        : profile.preferenceGroups.find((entry) => entry.key === group.key)?.evidenceRefs || [],
+    })),
+    keywordLabels: plannerProfile.keywords,
+    plannerProfile,
+    derivation: {
+      ...profile.derivation,
+      source: 'partial-guide-plus-operator-catalog-skill-fallback',
+    },
+  };
+}
+
+function deriveDefOperatorBuildProfile(input = {}) {
+  const identity = operatorBuildInvocationIdentity(input);
+  if (!identity.ok) return identity;
+  const fallbackToken = typeof input.fallbackToken === 'string' ? input.fallbackToken.trim() : '';
+  if (!fallbackToken) {
+    return {
+      ok: false,
+      code: 'operator-build-fallback-token-required',
+      message: 'The exact opaque fallbackToken returned by guide discovery is required.',
+    };
+  }
+  pruneOperatorBuildGuideResolutions();
+  const resolution = operatorBuildGuideResolutions.get(fallbackToken);
+  if (!resolution) {
+    return {
+      ok: false,
+      code: 'operator-build-fallback-token-invalid',
+      message: 'This fallback token is missing, expired, or already consumed. Restart guide discovery in the current user turn.',
+    };
+  }
+  if (resolution.sessionId !== identity.sessionId || resolution.turnId !== identity.turnId) {
+    return {
+      ok: false,
+      code: 'operator-build-fallback-scope-mismatch',
+      message: 'This fallback token belongs to a different native session or user turn.',
+    };
+  }
+  const operatorQuery = typeof input.operatorQuery === 'string' ? input.operatorQuery.trim() : '';
+  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const resolved = resolveOperatorCatalogRecord(library, operatorQuery || resolution.operatorId);
+  if (!resolved.ok) return { ok: false, ...resolved };
+  const operatorId = String(resolved.id || resolved.operator?.id || '').trim();
+  if (operatorId !== resolution.operatorId) {
+    return {
+      ok: false,
+      code: 'operator-build-fallback-operator-mismatch',
+      message: 'This fallback token is bound to a different operator identity.',
+    };
+  }
+  if (hashDefLoadoutPlan(resolved.operator) !== resolution.operatorSnapshotHash) {
+    operatorBuildGuideResolutions.delete(fallbackToken);
+    return {
+      ok: false,
+      code: 'operator-build-profile-source-stale',
+      message: 'The operator catalog changed after guide discovery. Restart discovery before deriving priorities.',
+    };
+  }
+  let profile = deriveOperatorBuildProfile(resolved.operator, {
+    guideState: resolution.guideState,
+    guideResolutionId: resolution.guideResolutionId,
+    goal: resolution.goal,
+  });
+  profile = mergePartialGuidePlannerProfile(profile, resolution);
+  if (profile.state !== 'PROFILE_READY' || !profile.plannerProfile) {
+    return {
+      ok: true,
+      protocolVersion: 1,
+      ...profile,
+      plannerProfile: null,
+      plannerProfileCapability: null,
+      authorization: {
+        guideResolutionId: resolution.guideResolutionId,
+        guideState: resolution.guideState,
+        sessionBound: true,
+        turnBound: true,
+        consumed: false,
+      },
+      nextAction: 'Ask one minimal question for the returned missing operator facts. Do not call the planner with an incomplete profile; restart guide discovery after the user answers.',
+    };
+  }
+  resolution.consumed = true;
+  operatorBuildGuideResolutions.delete(fallbackToken);
+  const profileCapability = mintOperatorBuildProfileCapability({
+    sessionId: identity.sessionId,
+    turnId: identity.turnId,
+    operatorId,
+    plannerProfile: profile.plannerProfile,
+    source: {
+      kind: resolution.guideState === 'PARTIAL_GUIDE_FOUND' ? 'partial-guide-and-skill-fallback' : 'skill-fallback',
+      guideResolutionId: resolution.guideResolutionId,
+      guideContentHash: resolution.guide?.contentHash || null,
+      operatorSnapshotHash: resolution.operatorSnapshotHash,
+    },
+  });
+  return {
+    ok: true,
+    protocolVersion: 1,
+    ...profile,
+    plannerProfileCapability: profileCapability.token,
+    plannerProfileHash: profileCapability.profileHash,
+    authorization: {
+      guideResolutionId: resolution.guideResolutionId,
+      guideState: resolution.guideState,
+      sessionBound: true,
+      turnBound: true,
+      consumed: true,
+    },
   };
 }
 
@@ -8212,13 +9184,22 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   // write them into its own session directory. A generic loopback caller must
   // never receive that transport payload, even though the persisted artifact
   // itself is read-only.
-  if (name === 'def.native_catalog.materialize' || name === 'def.equipment.3plus1.facts') {
+  if (name === 'def.native_catalog.materialize'
+    || name === 'def.equipment.3plus1.facts'
+    || name === 'def.equipment.3plus1.plan'
+    || name === 'def.operator.build.guide'
+    || name === 'def.operator.build.profile') {
+    const operatorBuildEvidenceTool = name === 'def.operator.build.guide' || name === 'def.operator.build.profile';
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
     const registration = restoreRegisteredDefNativeCatalogSession(input, invocation);
     if (!registration || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
       return {
         ok: false,
-        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization and 3+1 facts require an authenticated, registered DEF native session.'),
+        response: failScript(
+          403,
+          operatorBuildEvidenceTool ? 'denied-native-build-evidence-session' : 'denied-native-catalog-session',
+          'Operator build evidence, native catalog materialization, and 3+1 planning require an authenticated, registered DEF native session.',
+        ),
       };
     }
     return { ok: true, input: { ...input, __defNativeCatalogSessionId: sessionId, __defNativeCatalogSession: registration }, policy };
@@ -8611,6 +9592,24 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     result = resolveDefCharacters(input);
   } else if (name === 'def.operator.catalog.search') {
     result = listDefOperatorCatalog(input);
+  } else if (name === 'def.operator.build.guide') {
+    result = discoverDefOperatorBuildGuide(input);
+    if (!result.ok) {
+      return failScript(result.code === 'operator-build-operator-not-found' ? 404 : 409, result.code || 'operator-build-guide-failed', result.message || 'Unable to resolve operator build-guide evidence.', {
+        candidates: result.candidates,
+        nextAction: result.code === 'operator-build-turn-identity-required'
+          ? 'Retry through the native DEF tool in the current user turn.'
+          : 'Use one exact operator name or stable id, then restart guide-first discovery.',
+      });
+    }
+  } else if (name === 'def.operator.build.profile') {
+    result = deriveDefOperatorBuildProfile(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'operator-build-profile-failed', result.message || 'Unable to derive the token-authorized operator build profile.', {
+        candidates: result.candidates,
+        nextAction: 'Restart def_data_operator_build_guide in the current user turn and use only its exact fallbackToken for the same operator.',
+      });
+    }
   } else if (name === 'def.knowledge.game.search') {
     result = searchDefGameKnowledge(input);
   } else if (name === 'def.knowledge.game.section.read') {
@@ -8642,9 +9641,34 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         candidates: result.candidates,
         expectedSourceRevision: result.expectedSourceRevision,
         actualSourceRevision: result.actualSourceRevision,
+        catalogIssues: result.catalogIssues,
         nextAction: result.code === 'equipment-3plus1-source-revision-stale'
           ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request 3+1 facts again.'
           : 'Use one exact set name from the materialized native artifact and report only the returned fixedStat/effects facts.',
+      });
+    }
+  } else if (name === 'def.equipment.3plus1.plan') {
+    result = buildDefEquipmentThreePlusOnePlan(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'equipment-3plus1-plan-failed', result.message || 'Unable to derive a bounded evidence-backed 3+1 equipment plan.', {
+        source: result.source,
+        candidates: result.candidates,
+        expectedSourceRevision: result.expectedSourceRevision,
+        actualSourceRevision: result.actualSourceRevision,
+        candidateCombinationCount: result.candidateCombinationCount,
+        maximumCandidateCombinationCount: result.maximumCandidateCombinationCount,
+        catalogIssues: result.catalogIssues,
+        typeKey: result.typeKey,
+        preferenceKeys: result.preferenceKeys,
+        outputBytes: result.outputBytes,
+        outputByteLimit: result.outputByteLimit,
+        nextAction: result.code === 'equipment-3plus1-source-revision-stale'
+          ? 'Materialize a fresh native equipment catalog artifact, read its manifest, then request the 3+1 plan again.'
+          : result.code?.startsWith('equipment-3plus1-profile-capability-')
+            ? 'Restart guide-first evidence collection in the current native user turn, then pass its exact plannerProfile and plannerProfileCapability unchanged to the planner.'
+            : result.code === 'equipment-3plus1-preference-type-key-overlap'
+              ? 'Use only the unchanged server-issued planner profile. One canonical effect type key may belong to only one ordered preference group.'
+              : 'Supply one exact set and the unchanged server-issued character profile with ordered canonical effect type keys. Do not infer character priorities from equipment fixedStat.',
       });
     }
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {

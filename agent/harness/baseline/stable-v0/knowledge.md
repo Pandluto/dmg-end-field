@@ -1,1 +1,1 @@
-Current Workbench context and trusted typed data remain authoritative. No external game corpus is included.
+Current Workbench context and trusted typed data remain authoritative. Allowlisted game-knowledge references may supply build strategy; current typed catalog facts verify names, stable ids, slots, attributes, effects, and set membership. No guide may overwrite current catalog facts.

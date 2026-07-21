@@ -43,8 +43,11 @@ const SESSION_PRIVATE_TOOLS = new Set([
   'def.approval.request',
   'def.approval.record_decision',
   'def.team.loadout.plan.remember_guide',
+  'def.operator.build.guide',
+  'def.operator.build.profile',
   'def.native_catalog.materialize',
   'def.equipment.3plus1.facts',
+  'def.equipment.3plus1.plan',
 ]);
 
 const PRIVATE_CURRENT_CONTINUATIONS = new Set([
@@ -146,12 +149,15 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.skill.resolve',
   'def.character.resolve',
   'def.operator.catalog.search',
+  'def.operator.build.guide',
+  'def.operator.build.profile',
   'def.knowledge.game.search',
   'def.knowledge.game.section.read',
   'def.equipment.resolve',
   'def.weapon.resolve',
   'def.native_catalog.materialize',
   'def.equipment.3plus1.facts',
+  'def.equipment.3plus1.plan',
   'def.gear.resolve',
   'def.workbench.list_characters',
   'def.team.loadouts.read',
@@ -214,12 +220,15 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.team.loadout.plan.revise', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_team_loadout_plan_revise', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.team.loadout.plan.apply', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_team_loadout_plan_apply', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
   { id: 'def.data.resource.operator_catalog', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator_catalog', status: 'implemented', workspaceScope: 'data-resource' },
+  { id: 'def.data.resource.operator_build_guide', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator_build_guide', status: 'implemented', workspaceScope: 'session-private' },
+  { id: 'def.data.resource.operator_build_profile', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_operator_build_profile', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.game_knowledge', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_game_knowledge', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.game_knowledge_section', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_game_knowledge_section', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.weapon', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_weapon', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.equipment', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.native_catalog_materialize', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_native_catalog_materialize', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.equipment_3plus1_facts', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_facts', status: 'implemented', workspaceScope: 'session-private' },
+  { id: 'def.data.resource.equipment_3plus1_plan', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_plan', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
@@ -235,6 +244,9 @@ function familyFor(id) {
 
 function dataTargetFor(id) {
   if (/native.*catalog|catalog.*native/.test(id)) return 'def.data.resource.native_catalog_materialize';
+  if (/operator.*build.*guide|build.*guide.*operator/.test(id)) return 'def.data.resource.operator_build_guide';
+  if (/operator.*build.*profile|build.*profile.*operator/.test(id)) return 'def.data.resource.operator_build_profile';
+  if (/(?:equipment.*3plus1.*plan|3plus1.*plan.*equipment)/.test(id)) return 'def.data.resource.equipment_3plus1_plan';
   if (/equipment.*3plus1|3plus1.*equipment/.test(id)) return 'def.data.resource.equipment_3plus1_facts';
   if (/loadout.*candidate|candidate.*loadout/.test(id)) return 'def.data.resource.loadout_candidates';
   if (/loadout.*plan|plan.*loadout/.test(id)) return 'def.data.resource.team_loadout_plan';

@@ -1,0 +1,38 @@
+{
+  "baselineVersion": 2,
+  "definitionCount": 71,
+  "registryCount": 71,
+  "registrySha256": "a01bed9182e053daaba4a988f98e50c3406baf14a554400085e825dde5bd3a1a",
+  "toolSchemaSha256": "1b92ee4b181a6a2a0f550dbb1b465277ea8c0b2466d024d0ed6e200039d97e5c",
+  "routeMapSha256": "d5fca41e30c77be1bb08f55a0ca5847a80c64abcd2e225b16252ccc62d5554aa",
+  "diagnostics": {
+    "legacyToolCount": 71,
+    "modelExposedLegacyToolCount": 66,
+    "internalToolCount": 5,
+    "nativeTargetCount": 43,
+    "unclassified": []
+  },
+  "healthRequiredFields": [
+    "ok",
+    "service",
+    "host",
+    "port",
+    "storageDir",
+    "storageMode",
+    "nowStoragePath",
+    "aiTimelineWorkNodesPath",
+    "defToolGovernancePath",
+    "pid",
+    "startedAt",
+    "projectRoot",
+    "viteCacheDir",
+    "diagnostics"
+  ],
+  "routeFamilies": [
+    "/api/def-tools/*",
+    "/api/main-workbench/*",
+    "/api/timeline-*",
+    "/api/ai-timeline-worknodes*",
+    "/api/def-contract-test/*"
+  ]
+}

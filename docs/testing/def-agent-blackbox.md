@@ -219,22 +219,38 @@ isolated capability.
 ## Read-only equipment 3+1 regression
 
 For the natural-language case `为别礼挑选一套装备，3 潮涌+1，需要主副属性都对`, retain the v1
-transcript and verify the tool order is: one `def_data_native_catalog_materialize`, native
-`read` of its returned `manifestPath`, artifact-only native `read` or `grep`, then
-`def_data_equipment_3plus1_facts` for the same artifact. The turn must not call legacy
-equipment/weapon/loadout-candidates, game knowledge, Workbench/node tools, mutation, or
-approval. The 3+1 result must enumerate the physical-slot topologies rather than assume
-“护甲＋护手＋一个配件，再补散件配件”: exactly three of `armor`、`glove`、`accessory1`、
-`accessory2` belong to the target set, so the off-set can be any one of those slots. If the
-typed duplicate policy allows it, the same compatible accessory id may appear in both
-accessory slots. A truncated completed-combination list must never be presented as exhaustive.
+transcript and verify this read-only order:
 
-The answer may report the full slot/fixed-stat/effect facts, but absent an evidence-backed
-fixed-stat and ordered secondary-effect preference it must ask the minimal clarification or
-explicitly state that the fourth item cannot be ranked. It must not invent a drop main stat,
-an elemental trigger, or a damage benefit. Record the terminal state, questions, tool input
-and result summaries, plus before/after state; all state-changing and approval fields must
-remain unchanged.
+1. Call `def_data_operator_build_guide` once. It must resolve exact operator identity and
+   return `GUIDE_FOUND`, `PARTIAL_GUIDE_FOUND`, or `GUIDE_NOT_FOUND`; a generic knowledge
+   candidate is not guide evidence.
+2. Only for `PARTIAL_GUIDE_FOUND` or `GUIDE_NOT_FOUND`, call
+   `def_data_operator_build_profile` once with the exact returned fallback token. A complete
+   guide result must not call the fallback profile.
+3. Call `def_data_native_catalog_materialize` once, native-read its returned `manifestPath`,
+   and use artifact-only native `read` or `grep` for the named set and relevant effect keys.
+4. Call `def_data_equipment_3plus1_facts` with that artifact for unranked set, slot, source,
+   and duplicate-policy facts.
+5. Call `def_data_equipment_3plus1_plan` with the same artifact/source revision and the exact
+   unchanged `plannerProfile` plus `plannerProfileCapability` returned by guide discovery or
+   its authorized fallback. Only this plan result may rank and shortlist pieces.
+
+The turn must not call legacy equipment/weapon/loadout-candidates, the generic
+`def_data_game_knowledge`/section path, generic operator/skill fallback, Workbench/node tools,
+mutation, or approval. `3+1` means at least three target-set memberships across `armor`,
+`glove`, `accessory1`, and `accessory2`; a four-piece target-set plan is legal when it remains
+the best verified profile match. An off-set is selected only when it strictly improves that
+match, and it may occupy any physical slot. If typed duplicate policy allows it, the same
+compatible accessory id may appear in both accessory slots.
+
+The answer must use the bounded planner shortlist—one best combination and at most two close
+alternatives—rather than enumerate physical-slot topologies or a candidate pool. Each selected
+piece must retain its stable id, slot, set membership, matched keys, ranking basis, missing
+facts, and ambiguity from the plan. It must not reinterpret equipment `fixedStat` as the
+operator primary/secondary attribute or invent a drop main stat, elemental trigger, or damage
+benefit. Record guide state, authorized profile fallback when present, artifact/source identity,
+facts and plan inputs/results, terminal state, questions, plus before/after state; all
+state-changing and approval fields must remain unchanged.
 
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm

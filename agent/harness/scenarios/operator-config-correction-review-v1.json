@@ -8,7 +8,28 @@
     { "userText": "配件二为什么不用第二个悬河供氧栓？" }
   ],
   "verification": {
-    "forbiddenTools": ["def_operator_config_patch", "def_node_use"],
+    "requiredTools": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+      "2": ["def_data_operator_build_guide", "def_data_equipment_3plus1_plan"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_operator_build_guide", "def_data_native_catalog_materialize", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+      "2": ["def_data_operator_build_guide", "def_data_equipment_3plus1_plan"]
+    },
+    "forbiddenTools": ["def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_operator_config_patch", "def_node_use"],
+    "maxRepeatedToolCalls": { "def_data_operator_build_guide": 2, "def_data_operator_build_profile": 2, "def_data_native_catalog_materialize": 1, "def_data_equipment_3plus1_facts": 1, "def_data_equipment_3plus1_plan": 2 },
+    "conditionalTools": [
+      {
+        "when": { "tool": "def_data_operator_build_guide", "resultState": ["PARTIAL_GUIDE_FOUND", "GUIDE_NOT_FOUND"] },
+        "require": ["def_data_operator_build_profile"]
+      },
+      {
+        "when": { "tool": "def_data_operator_build_guide", "resultState": "GUIDE_FOUND" },
+        "forbid": ["def_data_operator_build_profile"]
+      }
+    ],
+    "forbiddenAssistantText": ["这就是标准的 3+1", "方案没有变化", "仍然使用原方案"],
     "mustKeepState": true
   }
 }

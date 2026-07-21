@@ -52,8 +52,379 @@ function protocolFacts(messages, prompt) {
     : [];
   const toolEvents = replies.flatMap((message) => (message.parts || [])
     .filter((part) => part?.type === 'tool')
-    .map((part) => ({ source: 'interop', messageId: message.info?.id || null, callId: part.callID || null, tool: part.tool || null, state: part.state || null })));
+    .map((part) => ({
+      source: 'interop',
+      messageId: message.info?.id || null,
+      callId: part.callID || part.callId || null,
+      tool: part.tool || null,
+      state: part.state || (part.status ? {
+        status: part.status,
+        output: part.output,
+        metadata: part.metadata,
+        error: part.error,
+      } : null),
+    })));
   return { nativeUserMessageId, assistantMessageIds: replies.map((message) => message.info?.id).filter(Boolean), toolEvents };
+}
+
+function canonicalScenarioValue(value) {
+  if (Array.isArray(value)) return value.map(canonicalScenarioValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.keys(value).sort().flatMap((key) => (
+    value[key] === undefined ? [] : [[key, canonicalScenarioValue(value[key])]]
+  )));
+}
+
+function scenarioToolEvents(run) {
+  return (Array.isArray(run?.turns) ? run.turns : []).flatMap((turn, turnIndex) => (
+    (Array.isArray(turn?.toolEvents) ? turn.toolEvents : []).map((event, eventIndex) => ({
+      ...event,
+      turnIndex,
+      turnNumber: turnIndex + 1,
+      eventIndex,
+    }))
+  ));
+}
+
+function completedScenarioToolEvent(event) {
+  return event?.state?.status === 'completed';
+}
+
+function parseScenarioToolOutput(value, depth = 0) {
+  if (depth > 5 || value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    const text = value.trim();
+    if (!text || !/^[\[{]/.test(text)) return null;
+    try { return parseScenarioToolOutput(JSON.parse(text), depth + 1); } catch { return null; }
+  }
+  if (typeof value !== 'object') return null;
+  if (typeof value.state === 'string' && value.state.trim()) return value.state.trim();
+  for (const key of ['metadata', 'result', 'output', 'body', 'data']) {
+    const resultState = parseScenarioToolOutput(value[key], depth + 1);
+    if (resultState) return resultState;
+  }
+  return null;
+}
+
+function scenarioToolResultState(event) {
+  for (const value of [event?.state?.metadata, event?.state?.result, event?.state?.output, event?.output]) {
+    const resultState = parseScenarioToolOutput(value);
+    if (resultState) return resultState;
+  }
+  return null;
+}
+
+function scenarioAssistantText(run) {
+  const seen = new Set();
+  return (Array.isArray(run?.turns) ? run.turns : []).flatMap((turn) => {
+    const assistantIds = new Set(Array.isArray(turn?.assistantMessageIds) ? turn.assistantMessageIds : []);
+    return (Array.isArray(turn?.transcript?.messages) ? turn.transcript.messages : [])
+      .filter((message) => message?.info?.role === 'assistant' && assistantIds.has(message?.info?.id))
+      .filter((message) => {
+        const id = message?.info?.id;
+        if (!id || seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      })
+      .map(textOf)
+      .filter(Boolean);
+  }).join('\n');
+}
+
+function addScenarioCheck(checks, check) {
+  checks.push({ ...check, pass: Boolean(check.pass) });
+}
+
+function scenarioToolList(value, field, checks) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((tool) => typeof tool !== 'string' || !tool.trim())) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an array of non-empty tool names.`,
+    });
+    return [];
+  }
+  return [...new Set(value.map((tool) => tool.trim()))];
+}
+
+function normalizeScenarioTurnToolRules(value, field, checks) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object keyed by one-based turn number.`,
+    });
+    return [];
+  }
+  return Object.entries(value).flatMap(([rawTurnNumber, rawTools]) => {
+    const turnNumber = Number(rawTurnNumber);
+    const tools = scenarioToolList(rawTools, `${field}.${rawTurnNumber}`, checks);
+    if (!Number.isInteger(turnNumber) || turnNumber < 1) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} keys must be positive one-based turn numbers.`,
+      });
+      return [];
+    }
+    return [{ turnNumber, tools }];
+  });
+}
+
+function normalizeConditionalScenarioRule(rule, index, checks) {
+  const whenTool = typeof rule?.when?.tool === 'string' ? rule.when.tool.trim() : '';
+  const rawStates = rule?.when?.resultState ?? rule?.when?.resultStates;
+  const resultStates = (Array.isArray(rawStates) ? rawStates : [rawStates])
+    .map((state) => typeof state === 'string' ? state.trim() : '')
+    .filter(Boolean);
+  const require = scenarioToolList(rule?.require ?? rule?.requiredTools, `conditionalTools[${index}].require`, checks);
+  const forbid = scenarioToolList(rule?.forbid ?? rule?.forbiddenTools, `conditionalTools[${index}].forbid`, checks);
+  if (!whenTool || !resultStates.length || (!require.length && !forbid.length)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field: `conditionalTools[${index}]`,
+      message: 'A conditional tool rule requires when.tool, when.resultState, and at least one require/forbid tool.',
+    });
+    return null;
+  }
+  return { index, whenTool, resultStates: [...new Set(resultStates)], require, forbid };
+}
+
+export function evaluateScenarioVerification(run, scenario) {
+  const verification = scenario?.verification && typeof scenario.verification === 'object'
+    ? scenario.verification
+    : {};
+  const checks = [];
+  const events = scenarioToolEvents(run).map((event) => ({ ...event, resultState: scenarioToolResultState(event) }));
+  const attemptedCounts = {};
+  const completedCounts = {};
+  for (const event of events) {
+    if (typeof event.tool !== 'string' || !event.tool) continue;
+    attemptedCounts[event.tool] = (attemptedCounts[event.tool] || 0) + 1;
+    if (completedScenarioToolEvent(event)) completedCounts[event.tool] = (completedCounts[event.tool] || 0) + 1;
+  }
+
+  const requiredTools = scenarioToolList(verification.requiredTools, 'requiredTools', checks);
+  const forbiddenTools = scenarioToolList(verification.forbiddenTools, 'forbiddenTools', checks);
+  for (const tool of requiredTools) {
+    addScenarioCheck(checks, {
+      pass: (completedCounts[tool] || 0) > 0,
+      code: 'required-tool-missing',
+      tool,
+      expected: 'at-least-one-completed-call',
+      actual: completedCounts[tool] || 0,
+    });
+  }
+  for (const tool of forbiddenTools) {
+    addScenarioCheck(checks, {
+      pass: (attemptedCounts[tool] || 0) === 0,
+      code: 'forbidden-tool-called',
+      tool,
+      expected: 0,
+      actual: attemptedCounts[tool] || 0,
+    });
+  }
+
+  const requiredToolsByTurn = normalizeScenarioTurnToolRules(verification.requiredToolsByTurn, 'requiredToolsByTurn', checks);
+  for (const rule of requiredToolsByTurn) {
+    const sameTurn = events.filter((event) => event.turnNumber === rule.turnNumber);
+    for (const tool of rule.tools) {
+      const actual = sameTurn.filter((event) => event.tool === tool && completedScenarioToolEvent(event)).length;
+      addScenarioCheck(checks, {
+        pass: actual > 0,
+        code: 'required-turn-tool-missing',
+        tool,
+        turnNumber: rule.turnNumber,
+        expected: 'at-least-one-completed-call-in-required-turn',
+        actual,
+      });
+    }
+  }
+
+  const orderedToolsByTurn = normalizeScenarioTurnToolRules(verification.orderedToolsByTurn, 'orderedToolsByTurn', checks);
+  for (const rule of orderedToolsByTurn) {
+    const observedToolSequence = events
+      .filter((event) => event.turnNumber === rule.turnNumber && completedScenarioToolEvent(event))
+      .map((event) => event.tool)
+      .filter(Boolean);
+    let cursor = -1;
+    let violatedTool = null;
+    for (const tool of rule.tools) {
+      const nextIndex = observedToolSequence.indexOf(tool, cursor + 1);
+      if (nextIndex < 0) {
+        violatedTool = tool;
+        break;
+      }
+      cursor = nextIndex;
+    }
+    addScenarioCheck(checks, {
+      pass: violatedTool === null,
+      code: 'ordered-tool-sequence-violated',
+      turnNumber: rule.turnNumber,
+      expectedToolSequence: rule.tools,
+      observedToolSequence,
+      violatedTool,
+    });
+  }
+
+  const repeated = verification.maxRepeatedToolCalls;
+  if (repeated !== undefined && (!repeated || typeof repeated !== 'object' || Array.isArray(repeated))) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field: 'maxRepeatedToolCalls',
+      message: 'maxRepeatedToolCalls must be an object of non-negative integer limits.',
+    });
+  } else {
+    for (const [tool, rawLimit] of Object.entries(repeated || {})) {
+      const limit = Number(rawLimit);
+      if (!tool || !Number.isInteger(limit) || limit < 0) {
+        addScenarioCheck(checks, {
+          pass: false,
+          code: 'verification-config-invalid',
+          field: `maxRepeatedToolCalls.${tool || '<empty>'}`,
+          message: 'Each repeated-tool limit must be a non-negative integer.',
+        });
+        continue;
+      }
+      addScenarioCheck(checks, {
+        pass: (attemptedCounts[tool] || 0) <= limit,
+        code: 'max-repeated-tool-calls-exceeded',
+        tool,
+        expectedMaximum: limit,
+        actual: attemptedCounts[tool] || 0,
+      });
+    }
+  }
+
+  const forbiddenText = verification.forbiddenAssistantText;
+  if (forbiddenText !== undefined && (!Array.isArray(forbiddenText) || forbiddenText.some((text) => typeof text !== 'string' || !text))) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field: 'forbiddenAssistantText',
+      message: 'forbiddenAssistantText must be an array of non-empty strings.',
+    });
+  } else {
+    const assistantText = scenarioAssistantText(run);
+    for (const text of [...new Set(forbiddenText || [])]) {
+      addScenarioCheck(checks, {
+        pass: !assistantText.includes(text),
+        code: 'forbidden-assistant-text-present',
+        text,
+      });
+    }
+  }
+
+  if (verification.mustKeepState === true) {
+    const beforeAvailable = Boolean(
+      run?.stateBefore?.value
+      && Object.prototype.hasOwnProperty.call(run.stateBefore.value, 'state')
+      && run.stateBefore.value.state !== null
+      && run.stateBefore.value.state !== undefined,
+    );
+    const afterAvailable = Boolean(
+      run?.stateAfter?.value
+      && Object.prototype.hasOwnProperty.call(run.stateAfter.value, 'state')
+      && run.stateAfter.value.state !== null
+      && run.stateAfter.value.state !== undefined,
+    );
+    const unchanged = beforeAvailable && afterAvailable
+      && JSON.stringify(canonicalScenarioValue(run.stateBefore.value.state)) === JSON.stringify(canonicalScenarioValue(run.stateAfter.value.state));
+    addScenarioCheck(checks, {
+      pass: unchanged,
+      code: beforeAvailable && afterAvailable ? 'product-state-changed' : 'product-state-unavailable',
+      beforeAvailable,
+      afterAvailable,
+    });
+  }
+
+  const rawConditionalRules = verification.conditionalTools;
+  if (rawConditionalRules !== undefined && !Array.isArray(rawConditionalRules)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field: 'conditionalTools',
+      message: 'conditionalTools must be an array.',
+    });
+  }
+  const conditionalRules = (Array.isArray(rawConditionalRules) ? rawConditionalRules : [])
+    .map((rule, index) => normalizeConditionalScenarioRule(rule, index, checks))
+    .filter(Boolean);
+  const conditionalTriggerTools = new Set(conditionalRules.map((rule) => rule.whenTool));
+  for (const event of events.filter((candidate) => completedScenarioToolEvent(candidate) && conditionalTriggerTools.has(candidate.tool))) {
+    addScenarioCheck(checks, {
+      pass: Boolean(event.resultState),
+      code: 'conditional-tool-result-state-unavailable',
+      tool: event.tool,
+      turnNumber: event.turnNumber,
+      callId: event.callId || null,
+    });
+  }
+  for (const rule of conditionalRules) {
+    const triggers = events.filter((event) => (
+      event.tool === rule.whenTool
+      && completedScenarioToolEvent(event)
+      && rule.resultStates.includes(event.resultState)
+    ));
+    for (const trigger of triggers) {
+      const sameTurn = events.filter((event) => event.turnIndex === trigger.turnIndex);
+      for (const tool of rule.require) {
+        const actual = sameTurn.filter((event) => event.tool === tool && completedScenarioToolEvent(event)).length;
+        addScenarioCheck(checks, {
+          pass: actual > 0,
+          code: 'conditional-required-tool-missing',
+          condition: { tool: rule.whenTool, resultState: trigger.resultState },
+          tool,
+          turnNumber: trigger.turnNumber,
+          expected: 'at-least-one-completed-call-in-trigger-turn',
+          actual,
+        });
+      }
+      for (const tool of rule.forbid) {
+        const actual = sameTurn.filter((event) => event.tool === tool).length;
+        addScenarioCheck(checks, {
+          pass: actual === 0,
+          code: 'conditional-forbidden-tool-called',
+          condition: { tool: rule.whenTool, resultState: trigger.resultState },
+          tool,
+          turnNumber: trigger.turnNumber,
+          expected: 0,
+          actual,
+        });
+      }
+    }
+  }
+
+  const failures = checks.filter((check) => !check.pass);
+  return {
+    kind: 'DefHarnessScenarioVerificationV1',
+    scenarioId: scenario?.id || run?.scenarioId || null,
+    scenarioVersion: Number(scenario?.version || run?.scenarioVersion || 1),
+    status: failures.length ? 'FAIL' : 'PASS',
+    ok: failures.length === 0,
+    checks,
+    failures,
+    observed: {
+      attemptedToolCounts: Object.fromEntries(Object.entries(attemptedCounts).sort(([left], [right]) => left.localeCompare(right))),
+      completedToolCounts: Object.fromEntries(Object.entries(completedCounts).sort(([left], [right]) => left.localeCompare(right))),
+    },
+  };
+}
+
+export function applyScenarioVerification(run, scenario) {
+  const verification = evaluateScenarioVerification(run, scenario);
+  return {
+    ...run,
+    verification,
+    status: run?.status === 'EXECUTED' && !verification.ok ? 'FAIL_AGENT' : run?.status,
+  };
 }
 
 export async function runNativeScenario({ scenario, harnessSelector = 'stable', cleanup = true, timeoutMs = 90000 } = {}) {
@@ -109,6 +480,9 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     run.status = missing || failure?.terminal?.status === 'timeout' ? 'INCOMPLETE'
       : failure?.terminal?.status === 'provider-error' || failure?.terminal?.status === 'bridge-error' || failure?.terminal?.status === 'max-step' ? 'ERROR_PROTOCOL'
         : failure ? 'INCOMPLETE' : 'EXECUTED';
+    const verified = applyScenarioVerification(run, scenario);
+    run.verification = verified.verification;
+    run.status = verified.status;
   } catch (caught) {
     run.error = { source: 'harness', code: caught.code || 'ERROR_PROTOCOL', message: caught.message, detail: redactPublic(caught.detail || {}) };
     run.status = caught.code === 'BLOCKED_ENVIRONMENT' ? 'BLOCKED_ENVIRONMENT' : 'ERROR_PROTOCOL';
