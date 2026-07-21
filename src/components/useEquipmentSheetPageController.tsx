@@ -19,8 +19,6 @@ type EquipmentGearSet = equipmentSheetPageModel.EquipmentGearSet;
 type EquipmentLibrary = equipmentSheetPageModel.EquipmentLibrary;
 type EquipmentRow = equipmentSheetPageModel.EquipmentRow;
 type EquipmentSheetColumn = equipmentSheetPageModel.EquipmentSheetColumn;
-type EquipmentWorkbookCell = equipmentSheetPageModel.EquipmentWorkbookCell;
-type EquipmentWorkbookRow = equipmentSheetPageModel.EquipmentWorkbookRow;
 type EquipmentSelection = equipmentSheetPageModel.EquipmentSelection;
 type EquipmentFormulaBinding = equipmentSheetPageModel.EquipmentFormulaBinding;
 type EquipmentImageOption = equipmentSheetPageModel.EquipmentImageOption;
@@ -40,7 +38,6 @@ const {
   EMPTY_LIBRARY,
   writeLocalStorageJson,
   buildEquipmentImageOption,
-  stopEditingKeyPropagation,
   EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
   getEquipmentBuffBusinessType,
   DEFAULT_FIXED_STAT_BY_PART,
@@ -1262,354 +1259,6 @@ export function useEquipmentSheetPageController() {
     closeShareModal();
   }, [closeShareModal, mutateLibrary, pendingImportShare]);
 
-  const renderFormulaEditor = () => {
-    if (!formulaBinding) {
-      return <div className="damage-sheet-formula-value">{message}</div>;
-    }
-    if (formulaBinding.readOnly) {
-      return <input className="buff-sheet-formula-input" value={formulaBinding.value} readOnly />;
-    }
-    if (formulaBinding.control === 'select') {
-      return (
-        <select
-          className="buff-sheet-formula-input is-select"
-          value={formulaBinding.value}
-          onChange={(event) => formulaBinding.commit(event.target.value)}
-        >
-          {(formulaBinding.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      );
-    }
-    if (formulaBinding.control === 'search-select') {
-      const keyword = buffTypeQuery.trim().toLowerCase();
-      const searchOptions = (formulaBinding.options ?? BUFF_TYPE_OPTIONS.map((typeKey) => ({
-        value: typeKey,
-        label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-      }))).filter((option) => !keyword || `${option.label} ${option.value}`.toLowerCase().includes(keyword));
-      return (
-        <div className="buff-sheet-formula-type-editor">
-          <input
-            className="buff-sheet-formula-input buff-sheet-formula-type-search"
-            value={buffTypeQuery}
-            onChange={(event) => setBuffTypeQuery(event.target.value)}
-            placeholder="搜索类型：敏捷 / 物理 / sourceSkillBoost"
-          />
-          <select
-            className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
-            value={formulaBinding.value}
-            onChange={(event) => formulaBinding.commit(event.target.value)}
-          >
-            <option value="">未映射</option>
-            {searchOptions.map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </div>
-      );
-    }
-    if (formulaBinding.control === 'image-search-select') {
-      const clearLabel = selectedWorkbookRow?.sourceRow.kind === 'set' ? '清空套装配图' : '清空装备配图';
-      const clearHint = selectedWorkbookRow?.sourceRow.kind === 'set' ? '移除当前套装 imgUrl' : '移除当前装备 imgUrl';
-      return (
-        <div className="weapon-sheet-image-formula-editor" ref={equipmentImageFormulaRef}>
-          <input
-            className="buff-sheet-formula-input weapon-sheet-image-formula-search"
-            value={equipmentImageQuery}
-            onChange={(event) => setEquipmentImageQuery(event.target.value)}
-            onClick={() => setIsEquipmentImageDrawerOpen(true)}
-            onKeyDown={stopEditingKeyPropagation}
-            placeholder="搜索图片：文件名 / baseName / 路径 / URL"
-          />
-          {isEquipmentImageDrawerOpen ? (
-            <div className="weapon-sheet-image-formula-results">
-              <div className="weapon-sheet-image-formula-toolbar">
-                <button
-                  type="button"
-                  className={`weapon-sheet-image-option weapon-sheet-image-option-clear${!formulaBinding.value ? ' is-active' : ''}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={handleClearEquipmentImage}
-                >
-                  <span className="weapon-sheet-image-option-thumb weapon-sheet-image-option-thumb-empty">无图</span>
-                  <span className="weapon-sheet-image-option-meta">
-                    <strong>{clearLabel}</strong>
-                    <span>{clearHint}</span>
-                  </span>
-                </button>
-              </div>
-              {imageAssetsLoading ? (
-                <div className="weapon-sheet-image-picker-empty">图片资源加载中...</div>
-              ) : imageAssetsError ? (
-                <div className="weapon-sheet-image-picker-empty">图片资源加载失败：{imageAssetsError}</div>
-              ) : filteredEquipmentImageOptions.length === 0 ? (
-                <div className="weapon-sheet-image-picker-empty">没有匹配的图片</div>
-              ) : (
-                <div className="weapon-sheet-image-picker-list">
-                  {filteredEquipmentImageOptions.map((option) => (
-                    <button
-                      key={option.key}
-                      type="button"
-                      className={`weapon-sheet-image-option${formulaBinding.value === option.displayUrl ? ' is-active' : ''}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => handleSelectEquipmentImage(option.displayUrl)}
-                    >
-                      <span className="weapon-sheet-image-option-thumb">
-                        <img src={option.displayUrl} alt={option.fileName} />
-                      </span>
-                      <span className="weapon-sheet-image-option-meta">
-                        <strong>{option.fileName}</strong>
-                        <span>{option.relativePath}</span>
-                        <em>{option.source === 'user' ? 'user' : 'builtin'}</em>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      );
-    }
-    return (
-      <input
-        className="buff-sheet-formula-input"
-        type={formulaBinding.inputMode === 'number' ? 'number' : 'text'}
-        step="any"
-        value={formulaInput}
-        placeholder={formulaBinding.placeholder}
-        onChange={(event) => setFormulaInput(event.target.value)}
-        onBlur={commitFormulaInput}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            commitFormulaInput();
-          }
-          if (event.key === 'Escape') {
-            setFormulaInput(formulaBinding.value);
-          }
-        }}
-      />
-    );
-  };
-
-  const renderEditableCell = (row: EquipmentWorkbookRow, cell: EquipmentWorkbookCell) => {
-    const sourceRow = row.sourceRow;
-    const editable =
-      (sourceRow.kind === 'set' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'threePieceBuffHeader' && false)
-      || (sourceRow.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'equipment' && ['name', 'field', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey', 'description'].includes(cell.columnKey));
-    if (!editable) {
-      return cell.value;
-    }
-    if (sourceRow.kind === 'equipment' && cell.columnKey === 'field') {
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={cell.value}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          {EQUIPMENT_PARTS.map((part) => <option key={part} value={part}>{part}</option>)}
-        </select>
-      );
-    }
-    if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
-      const buff = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId];
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={getEquipmentBuffBusinessType(buff)}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          {EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      );
-    }
-    if (sourceRow.kind === 'effect' && cell.columnKey === 'field') {
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={sourceRow.field === '能力值' ? 'ability' : 'buff'}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          <option value="ability">能力值</option>
-          <option value="buff">Buff类型</option>
-        </select>
-      );
-    }
-    if ((sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff') && cell.columnKey === 'effectKey') {
-      const isExtraHit = sourceRow.kind === 'threePieceBuff'
-        && library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
-      if (isExtraHit) return cell.value;
-      const typeOptions = sourceRow.kind === 'effect'
-        ? (() => {
-            const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
-            const effect = equipment?.effects[sourceRow.effectId];
-            return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category, getEquipmentEffectShape(equipment))
-              : BUFF_TYPE_OPTIONS;
-          })()
-        : BUFF_TYPE_OPTIONS;
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={cell.value}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          <option value="">未映射</option>
-          {typeOptions.map((typeKey) => <option key={typeKey} value={typeKey}>{`${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`}</option>)}
-        </select>
-      );
-    }
-    if (sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={cell.value}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          <option value="defense">防御力 · defense</option>
-          <option value="hp">生命 · hp</option>
-          <option value="flatAtk">固定攻击力 · flatAtk</option>
-        </select>
-      );
-    }
-    return (
-      <input
-        className="weapon-sheet-inline-input"
-        value={cell.value}
-        type={cell.columnKey === 'valueText' ? 'number' : 'text'}
-        step="any"
-        onKeyDown={stopEditingKeyPropagation}
-        onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-      />
-    );
-  };
-
-  const renderExplorer = () => (
-    <div className="buff-sheet-explorer-tree">
-      <button
-        type="button"
-        className={`buff-sheet-explorer-row equipment-sheet-explorer-all${activeGearSetId ? '' : ' is-active'}`}
-        onClick={() => {
-          setActiveGearSetId(null);
-          setActiveEquipmentId(null);
-          setSelectedCell(null);
-          setSelectedRowKey(filteredGearSets[0] ? `set-${filteredGearSets[0].gearSetId}` : '');
-        }}
-      >
-        <span className="buff-sheet-explorer-label">全部套装</span>
-        <span className="buff-sheet-explorer-count">{filteredGearSets.length}</span>
-      </button>
-      {filteredGearSets.length === 0 ? (
-        <div className="damage-sheet-detail-empty">没有匹配的装备。</div>
-      ) : filteredGearSets.map((gearSet) => {
-        const isSetCollapsed = collapsedGearSetIds[gearSet.gearSetId] !== false;
-        return (
-          <div key={gearSet.gearSetId} className="buff-sheet-explorer-node">
-            <button
-              type="button"
-              className={`buff-sheet-explorer-row${activeGearSetId === gearSet.gearSetId && selectedRowKey === `set-${gearSet.gearSetId}` ? ' is-active' : ''}`}
-              onClick={() => {
-                setActiveGearSetId(gearSet.gearSetId);
-                setActiveEquipmentId(null);
-                focusRow(`set-${gearSet.gearSetId}`, { expandAncestors: true, scroll: true });
-              }}
-              onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'set', gearSetId: gearSet.gearSetId })}
-            >
-              <span className="damage-sheet-row-toggle buff-sheet-explorer-toggle" onClick={(event) => {
-                event.stopPropagation();
-                setCollapsedGearSetIds((prev) => ({ ...prev, [gearSet.gearSetId]: prev[gearSet.gearSetId] === false }));
-              }}>{isSetCollapsed ? '[+]' : '[-]'}</span>
-              <span className="buff-sheet-explorer-label">{gearSet.name}</span>
-              <span className="buff-sheet-explorer-count">{getEquipments(gearSet).length}</span>
-            </button>
-            {!isSetCollapsed ? (
-              <div className="buff-sheet-explorer-children">
-                {getSortedEquipments(gearSet).map((equipment) => {
-                  const equipmentCollapseKey = `${gearSet.gearSetId}:${equipment.equipmentId}`;
-                  const isEquipmentCollapsed = collapsedEquipmentIds[equipmentCollapseKey] !== false;
-                  return (
-                    <div key={equipment.equipmentId} className="buff-sheet-explorer-node">
-                      <button
-                        type="button"
-                        className={`buff-sheet-explorer-child${selectedRowKey === `equipment-${gearSet.gearSetId}-${equipment.equipmentId}` ? ' is-active' : ''}`}
-                        onClick={() => {
-                          setActiveGearSetId(gearSet.gearSetId);
-                          setActiveEquipmentId(equipment.equipmentId);
-                          setCollapsedGearSetIds((prev) => ({ ...prev, [gearSet.gearSetId]: false }));
-                          setCollapsedEquipmentIds((prev) => ({ ...prev, [equipmentCollapseKey]: false }));
-                          focusRow(`equipment-${gearSet.gearSetId}-${equipment.equipmentId}`, { expandAncestors: true, scroll: true });
-                        }}
-                        onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'equipment', gearSetId: gearSet.gearSetId, equipmentId: equipment.equipmentId })}
-                      >
-                        <span className="damage-sheet-row-toggle buff-sheet-explorer-toggle" onClick={(event) => {
-                          event.stopPropagation();
-                          setCollapsedEquipmentIds((prev) => ({ ...prev, [equipmentCollapseKey]: prev[equipmentCollapseKey] === false }));
-                        }}>{isEquipmentCollapsed ? '[+]' : '[-]'}</span>
-                        <span className="buff-sheet-explorer-label">{equipment.name}</span>
-                        <span className="buff-sheet-explorer-count">{equipment.part}</span>
-                      </button>
-                      {!isEquipmentCollapsed ? (
-                        <div className="buff-sheet-explorer-children">
-                          {equipment.fixedStat ? (
-                            <button
-                              type="button"
-                              className={`buff-sheet-explorer-effect${selectedRowKey === `fixed-${gearSet.gearSetId}-${equipment.equipmentId}` ? ' is-active' : ''}`}
-                              onClick={() => {
-                                setActiveGearSetId(gearSet.gearSetId);
-                                setActiveEquipmentId(equipment.equipmentId);
-                                setCollapsedGearSetIds((prev) => ({ ...prev, [gearSet.gearSetId]: false }));
-                                setCollapsedEquipmentIds((prev) => ({ ...prev, [equipmentCollapseKey]: false }));
-                                focusRow(`fixed-${gearSet.gearSetId}-${equipment.equipmentId}`, { expandAncestors: true, scroll: true });
-                              }}
-                              onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'fixedStat', gearSetId: gearSet.gearSetId, equipmentId: equipment.equipmentId })}
-                            >
-                              <span className="buff-sheet-explorer-label">{equipment.fixedStat.label}</span>
-                              <span className="buff-sheet-explorer-count">固定</span>
-                            </button>
-                          ) : null}
-                          {getEffectEntries(equipment).map(([effectId, effect]) => (
-                            <button
-                              key={effectId}
-                              type="button"
-                              className={`buff-sheet-explorer-effect${selectedRowKey === `effect-${gearSet.gearSetId}-${equipment.equipmentId}-${effectId}` ? ' is-active' : ''}`}
-                              onClick={() => {
-                                setActiveGearSetId(gearSet.gearSetId);
-                                setActiveEquipmentId(equipment.equipmentId);
-                                setCollapsedGearSetIds((prev) => ({ ...prev, [gearSet.gearSetId]: false }));
-                                setCollapsedEquipmentIds((prev) => ({ ...prev, [equipmentCollapseKey]: false }));
-                                focusRow(`effect-${gearSet.gearSetId}-${equipment.equipmentId}-${effectId}`, { expandAncestors: true, scroll: true });
-                              }}
-                              onContextMenu={(event) => openContextMenu(event, { x: event.clientX, y: event.clientY, target: 'effect', gearSetId: gearSet.gearSetId, equipmentId: equipment.equipmentId, effectId })}
-                            >
-                              <span className="damage-sheet-row-toggle buff-sheet-explorer-toggle" onClick={(event) => {
-                                event.stopPropagation();
-                                const key = `${gearSet.gearSetId}:${equipment.equipmentId}:${effectId}`;
-                                setCollapsedEffectIds((prev) => ({ ...prev, [key]: prev[key] === false }));
-                              }}>{collapsedEffectIds[`${gearSet.gearSetId}:${equipment.equipmentId}:${effectId}`] !== false ? '[+]' : '[-]'}</span>
-                              <span className="buff-sheet-explorer-label">{`${effectId} · ${effect.label}`}</span>
-                              <span className="buff-sheet-explorer-count">Lv0~Lv3</span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-
   return {
     library,
     selectedRowKey,
@@ -1665,9 +1314,34 @@ export function useEquipmentSheetPageController() {
     handleCancelImportShare,
     handleShareFileSelected,
     handleConfirmImportShare,
-    renderFormulaEditor,
-    renderEditableCell,
-    renderExplorer,
+    message,
+    formulaBinding,
+    buffTypeQuery,
+    setBuffTypeQuery,
+    selectedWorkbookRow,
+    equipmentImageFormulaRef,
+    equipmentImageQuery,
+    setEquipmentImageQuery,
+    isEquipmentImageDrawerOpen,
+    setIsEquipmentImageDrawerOpen,
+    imageAssetsLoading,
+    imageAssetsError,
+    filteredEquipmentImageOptions,
+    handleSelectEquipmentImage,
+    handleClearEquipmentImage,
+    formulaInput,
+    setFormulaInput,
+    commitFormulaInput,
+    activeGearSetId,
+    setActiveGearSetId,
+    setActiveEquipmentId,
+    filteredGearSets,
+    collapsedGearSetIds,
+    setCollapsedGearSetIds,
+    collapsedEquipmentIds,
+    setCollapsedEquipmentIds,
+    collapsedEffectIds,
+    setCollapsedEffectIds,
   };
 }
 

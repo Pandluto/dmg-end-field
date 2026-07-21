@@ -8,6 +8,7 @@ import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import * as weaponDraftPageModel from './weaponDraftPageModel';
 type WeaponSheetRow = weaponDraftPageModel.WeaponSheetRow;
 type WeaponExplorerDragNode = weaponDraftPageModel.WeaponExplorerDragNode;
+type WeaponWorkbookRow = weaponDraftPageModel.WeaponWorkbookRow;
 
 
 const {
@@ -16,6 +17,7 @@ const {
   ATTACK_GROWTH_MILESTONE_KEYS,
   normalizeWeaponDraft,
   applyWeaponDrawerEffect,
+  getBuffTypeDisplayLabel,
   stopEditingKeyPropagation,
   buildWeaponSheetRows,
   columnIndexToLabel,
@@ -98,9 +100,226 @@ export function WeaponDraftPageView(props: WeaponDraftPageController) {
     canStartExplorerDrag,
     handleExplorerPointerDown,
     formatWeaponExplorerDragKindLabel,
-    renderFormulaEditor,
-    renderRowNumberContent,
+    formulaBinding,
+    setFormulaInput,
+    buffTypeQuery,
+    setBuffTypeQuery,
+    filteredBuffTypeOptions,
+    weaponImageFormulaRef,
+    weaponImageQuery,
+    setWeaponImageQuery,
+    isWeaponImageDrawerOpen,
+    setIsWeaponImageDrawerOpen,
+    imageAssetsLoading,
+    imageAssetsError,
+    filteredWeaponImageOptions,
+    handleSelectWeaponImage,
+    handleClearWeaponImage,
+    formulaInput,
+    commitFormulaInput,
+    toggleSkillCollapsed,
+    activeDraftId,
+    collapsedSkills,
+    toggleLevelCollapsed,
+    collapsedLevels,
   } = props;
+  const renderFormulaEditor = () => {
+    if (!formulaBinding) {
+      return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Weapon workbook'}</div>;
+    }
+
+    if (formulaBinding.control === 'select') {
+      return (
+        <select
+          data-formula-focus-id={formulaBinding.focusId}
+          className="buff-sheet-formula-input is-select"
+          value={formulaBinding.value}
+          onChange={(event) => {
+            const nextValue = event.target.value;
+            setFormulaInput(nextValue);
+            formulaBinding.onValueChange?.(nextValue);
+            const nextDraft = normalizeWeaponDraft(formulaBinding.apply(draft, nextValue));
+            if (nextDraft !== draft) {
+              setDraft(nextDraft);
+            }
+          }}
+        >
+          {(formulaBinding.options ?? []).map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      );
+    }
+
+    if (formulaBinding.control === 'search-select') {
+      return (
+        <div className="buff-sheet-formula-type-editor">
+          <input
+            data-formula-focus-id={`${formulaBinding.focusId}-search`}
+            className="buff-sheet-formula-input buff-sheet-formula-type-search"
+            value={buffTypeQuery}
+            onChange={(event) => setBuffTypeQuery(event.target.value)}
+            placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
+          />
+          <select
+            data-formula-focus-id={`${formulaBinding.focusId}-select`}
+            className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
+            value={formulaBinding.value}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setFormulaInput(nextValue);
+              const nextDraft = normalizeWeaponDraft(formulaBinding.apply(draft, nextValue));
+              if (nextDraft !== draft) {
+                setDraft(nextDraft);
+              }
+            }}
+          >
+            {(formulaBinding.options ?? []).slice(0, 1).map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+            {filteredBuffTypeOptions.map((option) => (
+              <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
+            ))}
+          </select>
+        </div>
+      );
+    }
+
+    if (formulaBinding.control === 'image-search-select') {
+      return (
+        <div className="weapon-sheet-image-formula-editor" ref={weaponImageFormulaRef}>
+          <input
+            data-formula-focus-id={`${formulaBinding.focusId}-search`}
+            className="buff-sheet-formula-input weapon-sheet-image-formula-search"
+            value={weaponImageQuery}
+            onChange={(event) => setWeaponImageQuery(event.target.value)}
+            onClick={() => setIsWeaponImageDrawerOpen(true)}
+            placeholder="搜索图片：文件名 / baseName / 路径 / URL"
+          />
+          {isWeaponImageDrawerOpen ? (
+            <div className="weapon-sheet-image-formula-results">
+            <div className="weapon-sheet-image-formula-toolbar">
+              <button
+                type="button"
+                className={`weapon-sheet-image-option weapon-sheet-image-option-clear${!draft.imgUrl ? ' is-active' : ''}`}
+                onClick={() => handleClearWeaponImage()}
+              >
+                <span className="weapon-sheet-image-option-thumb weapon-sheet-image-option-thumb-empty">无图</span>
+                <span className="weapon-sheet-image-option-meta">
+                  <strong>清空主图</strong>
+                  <span>移除当前武器顶层 imgUrl</span>
+                </span>
+              </button>
+            </div>
+            {imageAssetsLoading ? (
+              <div className="weapon-sheet-image-picker-empty">图片资源加载中…</div>
+            ) : imageAssetsError ? (
+              <div className="weapon-sheet-image-picker-empty">图片资源加载失败：{imageAssetsError}</div>
+            ) : filteredWeaponImageOptions.length === 0 ? (
+              <div className="weapon-sheet-image-picker-empty">没有匹配的图片</div>
+            ) : (
+              <div className="weapon-sheet-image-picker-list">
+                {filteredWeaponImageOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={`weapon-sheet-image-option${draft.imgUrl === option.displayUrl ? ' is-active' : ''}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => handleSelectWeaponImage(option.displayUrl)}
+                  >
+                    <span className="weapon-sheet-image-option-thumb">
+                      <img src={option.displayUrl} alt={option.fileName} />
+                    </span>
+                    <span className="weapon-sheet-image-option-meta">
+                      <strong>{option.fileName}</strong>
+                      <span>{option.relativePath}</span>
+                      <em>{option.source === 'user' ? 'user' : 'builtin'}</em>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    if (formulaBinding.readOnly) {
+      return (
+        <input
+          data-formula-focus-id={formulaBinding.focusId}
+          className="buff-sheet-formula-input"
+          type="text"
+          value={formulaBinding.value}
+          readOnly
+        />
+      );
+    }
+
+    return (
+      <input
+        data-formula-focus-id={formulaBinding.focusId}
+        className="buff-sheet-formula-input"
+        type={formulaBinding.inputMode === 'number' ? 'number' : 'text'}
+        value={formulaInput}
+        onChange={(event) => setFormulaInput(event.target.value)}
+        onBlur={() => {
+          const nextDraft = commitFormulaInput(draft);
+          if (nextDraft !== draft) {
+            setDraft(nextDraft);
+          }
+        }}
+        onKeyDown={(event) => {
+          // 拦截方向键、Backspace 等，防止冒泡到外层的表格导航逻辑
+          stopEditingKeyPropagation(event, { isNumberInput: formulaBinding.inputMode === 'number' });
+
+          if (event.key === 'Enter') {
+            const nextDraft = commitFormulaInput(draft);
+            if (nextDraft !== draft) {
+              setDraft(nextDraft);
+            }
+            event.currentTarget.blur();
+          }
+          if (event.key === 'Escape') {
+            setFormulaInput(formulaBinding.value);
+            event.currentTarget.blur();
+          }
+        }}
+        placeholder={formulaBinding.placeholder}
+      />
+    );
+  };
+
+  const renderRowNumberContent = (row: WeaponWorkbookRow) => {
+    const sourceRow = row.sourceRow;
+    if (sourceRow.kind === 'skill') {
+      return (
+        <button
+          type="button"
+          className="damage-sheet-row-toggle"
+          onClick={() => toggleSkillCollapsed(activeDraftId, sourceRow.skillKey)}
+        >
+          {collapsedSkills[`${activeDraftId}:${sourceRow.skillKey}`] ? '[+]' : '[-]'}
+        </button>
+      );
+    }
+
+    if (sourceRow.kind === 'effect') {
+      return (
+        <button
+          type="button"
+          className="damage-sheet-row-toggle"
+          onClick={() => toggleLevelCollapsed(activeDraftId, sourceRow.skillKey, sourceRow.bucket, sourceRow.sourceEffectKey)}
+        >
+          {collapsedLevels[`${activeDraftId}:${sourceRow.skillKey}:${sourceRow.bucket}:${sourceRow.sourceEffectKey}`] ? '[+]' : '[-]'}
+        </button>
+      );
+    }
+
+    return row.rowNumber;
+  };
+
   return (
     <main className="damage-sheet-page buff-sheet-page weapon-sheet-page">
       <header className="damage-sheet-topbar">

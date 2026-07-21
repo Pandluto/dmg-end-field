@@ -1,3 +1,6 @@
+import { useMemo } from 'react';
+import type * as React from 'react';
+import type { BuffCategory, BuffEffectKind } from '../core/domain/buff';
 import './OperatorDraftPage.css';
 import './BuffDraftPage.css';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
@@ -5,10 +8,24 @@ import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import * as buffDraftPageModel from './buffDraftPageModel';
 type BuffSheetRow = buffDraftPageModel.BuffSheetRow;
 type BuffExplorerDragNode = buffDraftPageModel.BuffExplorerDragNode;
+type BuffSheetContextMenuAction = buffDraftPageModel.BuffSheetContextMenuAction;
 
 const {
   buffSheetEffectToDrawer,
   applyDrawerEffectToBuffSheet,
+  BUFF_CATEGORY_OPTIONS,
+  BUFF_CATEGORY_LABELS,
+  BUFF_EFFECT_KIND_OPTIONS,
+  getEffectKindLabel,
+  getBuffTypeDisplayLabel,
+  normalizeBuffCategory,
+  getBuffEffectMultiplier,
+  applyBuffType,
+  applyBuffCategory,
+  setBuffMultiplierEnabled,
+  setBuffMultiplierCoefficient,
+  setBuffMaxStacks,
+  formatBuffExplorerDragKindLabel,
   renderBuffSheetMenuIcon,
   formatBuffUndoLabel,
   renderBuffWorkbookCellContent,
@@ -83,14 +100,266 @@ export function BuffDraftPageView(props: BuffDraftPageController) {
     consumeSuppressedExplorerClick,
     canStartExplorerDrag,
     handleExplorerPointerDown,
-    renderFormulaEditor,
-    dragSourceKey,
-    dragTargetKey,
-    dragSourceLabel,
-    dragTargetLabel,
-    dragTargetKindLabel,
-    currentContextMenuActions,
+    selectedWorkbookSummary,
+    formulaTextBinding,
+    formulaTextInput,
+    setFormulaTextInput,
+    selectedItem,
+    selectedEffect,
+    updateSelectedEffectKind,
+    buffTypeQuery,
+    setBuffTypeQuery,
+    updateSelectedEffect,
+    filteredBuffTypeOptions,
+    effectValueInput,
+    handleEffectValueInputChange,
+    finalizeEffectValueInput,
+    getExplorerDragNodeLabel,
+    handleCollapseAllDrafts,
+    handleExpandAllDrafts,
+    handleCollapseAllItemsInDraft,
+    handleExpandAllItemsInDraft,
+    handleCreateDraftItem,
+    handleDeleteDraftGroup,
+    handleCreateDraftEffect,
+    setDraftCollapsed,
+    setItemCollapsed,
+    handleDuplicateDraftItem,
+    handleDeleteDraftItem,
+    handleDuplicateDraftEffect,
+    handleDeleteDraftEffect,
   } = props;
+  const renderFormulaEditor = () => {
+    if (!selectedWorkbookSummary) {
+      return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Buff workbook'}</div>;
+    }
+
+    const commitFormulaTextInput = () => {
+      if (!formulaTextBinding) {
+        return;
+      }
+      if (formulaTextInput === formulaTextBinding.value) {
+        return;
+      }
+      formulaTextBinding.commit(formulaTextInput);
+    };
+
+    const handleFormulaTextInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        commitFormulaTextInput();
+        event.currentTarget.blur();
+        return;
+      }
+      if (event.key === 'Escape') {
+        setFormulaTextInput(formulaTextBinding?.value ?? '');
+        event.currentTarget.blur();
+      }
+    };
+
+    if (selectedWorkbookSummary.kind === 'group') {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return <input data-formula-focus-id="group-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组 ID" />;
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return <input data-formula-focus-id="group-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组描述" />;
+      }
+      return <input data-formula-focus-id="group-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组名称" />;
+    }
+
+    if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
+      if (selectedWorkbookCell?.columnKey === 'idText') {
+        return <input data-formula-focus-id="item-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项 ID" />;
+      }
+      if (selectedWorkbookCell?.columnKey === 'description') {
+        return <input data-formula-focus-id="item-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项描述" />;
+      }
+      return <input data-formula-focus-id="item-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项名称" />;
+    }
+
+    if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
+      switch (selectedWorkbookCell?.columnKey) {
+        case 'idText':
+          return <div className="damage-sheet-formula-value">{selectedEffect.id}</div>;
+        case 'effectKind':
+          return (
+            <select data-formula-focus-id="effect-kind" className="buff-sheet-formula-input is-select" value={selectedEffect.effectKind || 'modifier'} onChange={(event) => updateSelectedEffectKind(event.target.value as BuffEffectKind)}>
+              {BUFF_EFFECT_KIND_OPTIONS.map((option) => (
+                <option key={option} value={option}>{getEffectKindLabel(option)}</option>
+              ))}
+            </select>
+          );
+        case 'typeLabel':
+          return (
+            <div className="buff-sheet-formula-type-editor">
+              <input
+                data-formula-focus-id="effect-type-search"
+                className="buff-sheet-formula-input buff-sheet-formula-type-search"
+                value={buffTypeQuery}
+                onChange={(event) => setBuffTypeQuery(event.target.value)}
+                placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
+                disabled={selectedEffect.effectKind === 'extraHit'}
+              />
+              <select
+                data-formula-focus-id="effect-type-select"
+                className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
+                value={selectedEffect.type || ''}
+                onChange={(event) => updateSelectedEffect((prev) => applyBuffType(prev, event.target.value))}
+                disabled={selectedEffect.effectKind === 'extraHit'}
+              >
+                <option value="">暂无类型</option>
+                {filteredBuffTypeOptions.map((option) => (
+                  <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
+                ))}
+              </select>
+              {selectedEffect.effectKind !== 'extraHit' && (
+                <label className="buff-sheet-formula-inline-toggle">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(getBuffEffectMultiplier(selectedEffect))}
+                    disabled={normalizeBuffCategory(selectedEffect.category) === 'countable'}
+                    onChange={(event) => updateSelectedEffect((prev) => setBuffMultiplierEnabled(prev, event.target.checked))}
+                  />
+                  乘算
+                </label>
+              )}
+            </div>
+          );
+        case 'valueText':
+          return (
+            <input
+              data-formula-focus-id="effect-value"
+              className="buff-sheet-formula-input"
+              type="text"
+              inputMode="decimal"
+              value={selectedEffect.effectKind === 'extraHit' ? 0 : effectValueInput}
+              onChange={(event) => handleEffectValueInputChange(event.target.value)}
+              onBlur={getBuffEffectMultiplier(selectedEffect)
+                ? (event) => updateSelectedEffect((prev) => setBuffMultiplierCoefficient(prev, Number(event.target.value)))
+                : finalizeEffectValueInput}
+              disabled={selectedEffect.effectKind === 'extraHit'}
+              placeholder={getBuffEffectMultiplier(selectedEffect) ? '乘算系数' : '数值'}
+            />
+          );
+        case 'categoryText':
+          return (
+            <div className="buff-sheet-formula-type-editor">
+              <select
+                data-formula-focus-id="effect-category"
+                className="buff-sheet-formula-input is-select"
+                value={normalizeBuffCategory(selectedEffect.category)}
+                onChange={(event) => updateSelectedEffect((prev) => applyBuffCategory(prev, event.target.value as BuffCategory))}
+                disabled={Boolean(getBuffEffectMultiplier(selectedEffect))}
+              >
+                {BUFF_CATEGORY_OPTIONS
+                  .filter((option) => selectedEffect.effectKind !== 'extraHit' || option !== 'condition')
+                  .map((option) => (
+                    <option key={option} value={option}>{BUFF_CATEGORY_LABELS[option]}</option>
+                  ))}
+              </select>
+              {normalizeBuffCategory(selectedEffect.category) === 'countable' && (
+                <input
+                  data-formula-focus-id="effect-max-stacks"
+                  className="buff-sheet-formula-input"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={selectedEffect.maxStacks ?? 1}
+                  onChange={(event) => updateSelectedEffect((prev) => setBuffMaxStacks(prev, Number(event.target.value)))}
+                  placeholder="最大层数"
+                />
+              )}
+            </div>
+          );
+        case 'condition':
+          return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="条件" />;
+        case 'description':
+          return <input data-formula-focus-id="effect-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="描述" />;
+        default:
+          return <input data-formula-focus-id="effect-display-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="效果名称" />;
+      }
+    }
+
+    return <div className="damage-sheet-formula-value">{draft.description || 'Sheet-Buff workbook'}</div>;
+  };
+
+  const dragSourceKey = dragState ? getExplorerDragNodeKey(dragState.source) : '';
+  const dragTargetKey = dragState?.over ? getExplorerDragNodeKey(dragState.over) : '';
+  const dragSourceLabel = dragState ? getExplorerDragNodeLabel(dragState.source) : '';
+  const dragTargetLabel = dragState?.over ? getExplorerDragNodeLabel(dragState.over) : '';
+  const dragTargetKindLabel = dragState?.over ? formatBuffExplorerDragKindLabel(dragState.over.kind) : '';
+  const currentContextMenuActions = useMemo<BuffSheetContextMenuAction[]>(() => {
+    if (!contextMenu) {
+      return [];
+    }
+    if (contextMenu.target === 'blank') {
+      return [
+        { key: 'new-draft', label: '新建组', icon: 'new', onClick: () => handleCreateNewDraft() },
+        { key: 'collapse-all-drafts', label: '折叠全部组', icon: 'collapse', onClick: () => handleCollapseAllDrafts() },
+        { key: 'expand-all-drafts', label: '展开全部组', icon: 'expand', onClick: () => handleExpandAllDrafts() },
+      ];
+    }
+    if (contextMenu.target === 'draft' && contextMenu.draftId) {
+      const isCollapsed = Boolean(collapsedDraftIds[contextMenu.draftId]);
+      return [
+        { key: 'open-draft', label: '打开组', icon: 'open', onClick: () => handleLoadDraftById(contextMenu.draftId!) },
+        {
+          key: 'toggle-draft-collapse',
+          label: isCollapsed ? '展开此组' : '折叠此组',
+          icon: isCollapsed ? 'expand' : 'collapse',
+          onClick: () => setDraftCollapsed(contextMenu.draftId!, !isCollapsed),
+        },
+        { key: 'collapse-draft-items', label: '折叠全部项', icon: 'collapse', onClick: () => handleCollapseAllItemsInDraft(contextMenu.draftId!) },
+        { key: 'expand-draft-items', label: '展开全部项', icon: 'expand', onClick: () => handleExpandAllItemsInDraft(contextMenu.draftId!) },
+        { key: 'create-item', label: '新建项', icon: 'new', onClick: () => handleCreateDraftItem(contextMenu.draftId!) },
+        { key: 'delete-draft', label: '删除组', icon: 'delete', onClick: () => handleDeleteDraftGroup(contextMenu.draftId!) },
+      ];
+    }
+    if (contextMenu.target === 'item' && contextMenu.draftId && contextMenu.itemKey) {
+      const collapseKey = getItemCollapseKey(contextMenu.draftId, contextMenu.itemKey);
+      const isCollapsed = Boolean(collapsedItems[collapseKey]);
+      return [
+        { key: 'create-effect', label: '新建效果', icon: 'new', onClick: () => handleCreateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!) },
+        {
+          key: 'toggle-item-collapse',
+          label: isCollapsed ? '展开此项' : '折叠此项',
+          icon: isCollapsed ? 'expand' : 'collapse',
+          onClick: () => setItemCollapsed(contextMenu.draftId!, contextMenu.itemKey!, !isCollapsed),
+        },
+        { key: 'duplicate-item', label: '复制项', icon: 'copy', onClick: () => handleDuplicateDraftItem(contextMenu.draftId!, contextMenu.itemKey!) },
+        { key: 'delete-item', label: '删除项', icon: 'delete', onClick: () => handleDeleteDraftItem(contextMenu.draftId!, contextMenu.itemKey!) },
+      ];
+    }
+    if (contextMenu.target === 'effect' && contextMenu.draftId && contextMenu.itemKey && contextMenu.effectKey) {
+      return [
+        { key: 'edit-effect', label: '编辑 Buff', icon: 'open', onClick: () => openBuffDrawer(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
+        { key: 'duplicate-effect', label: '复制效果', icon: 'copy', onClick: () => handleDuplicateDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
+        { key: 'delete-effect', label: '删除效果', icon: 'delete', onClick: () => handleDeleteDraftEffect(contextMenu.draftId!, contextMenu.itemKey!, contextMenu.effectKey!) },
+      ];
+    }
+    return [];
+  }, [
+    collapsedDraftIds,
+    collapsedItems,
+    contextMenu,
+    getItemCollapseKey,
+    handleCollapseAllDrafts,
+    handleCollapseAllItemsInDraft,
+    handleCreateDraftEffect,
+    handleCreateDraftItem,
+    handleCreateNewDraft,
+    handleDeleteDraftEffect,
+    handleDeleteDraftGroup,
+    handleDeleteDraftItem,
+    handleDuplicateDraftEffect,
+    handleDuplicateDraftItem,
+    handleExpandAllDrafts,
+    handleExpandAllItemsInDraft,
+    handleLoadDraftById,
+    openBuffDrawer,
+    setDraftCollapsed,
+    setItemCollapsed,
+  ]);
+
   return (
     <main className="damage-sheet-page buff-sheet-page">
       <header className="damage-sheet-topbar">
