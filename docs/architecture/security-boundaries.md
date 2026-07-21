@@ -30,7 +30,6 @@
 ## 仍需治理的风险
 
 - Electron 已从 35 升至 39.8.10 以退出 2026-07-15 审计到的 high advisory 范围；仍需跟随受支持分支持续升级。Dependabot 只覆盖根 npm 与 Actions，上游 vendor 需要单独同步审计。
-- `exceljs@4.4.0` 当前上游链包含已知 moderate `uuid` advisory；现有使用不向 `uuid` 的 buffer API 传入不可信输入，且 npm 给出的自动修复是破坏性降级到 ExcelJS 3，因此暂时接受并跟踪，而不是用 `--force` 制造兼容性倒退。
 - GitHub CI 产出的 macOS DMG 默认不签名、不公证，Windows portable 也未代码签名，因此只能进入 Draft Release；公开发布前必须人工标注分发属性或接入签名密钥。
 - 本地桌面黑盒尚未隔离到一次性 runner，测试数据和 transcript 必须在提交前脱敏。
 

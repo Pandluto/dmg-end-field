@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import type { MouseEvent as ReactMouseEvent } from 'react';
-import ExcelJS from 'exceljs';
 import type { SkillButton as RuntimeSkillButton, SkillButtonData, SkillType } from '../types';
 import type { CharacterInputConfig, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
-import { getCharacterComputed, getCharacterConfig, getCharacterInput, getOperatorConfigPageCache, safeSessionStorage } from '../utils/storage';
+import { getCharacterComputed, getCharacterConfig, getCharacterInput, safeSessionStorage } from '../utils/storage';
 import {
   getUserWorkspaceManagedKeys,
   getUserWorkspaceStorageEntries,
 } from '../utils/userWorkspaceBridge';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
-import { getAllBuffList, getBuffById, getSkillButtonById, getSkillButtonTable, loadTimelineData, upsertSkillButton } from '../core/repositories';
+import { getBuffById, getSkillButtonById, loadTimelineData, upsertSkillButton } from '../core/repositories';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
 import { getAnomalyStateSnapshotsByIds } from '../core/services/anomalyStateSnapshotStorage';
 import { resolveSkillDamageTemplate } from '../core/services/skillDamageTemplateResolver';
@@ -20,7 +19,6 @@ import { calculateSkillButtonDamageV2 } from '../core/calculators/skillButtonDam
 import type { HitCalcResult } from '../core/calculators/skillDamage.types';
 import type { SupportedBuffZone } from '../core/domain/buffTypeRegistry';
 import { addSkillButtonBuff, recomputeSkillButtonPanel } from '../hooks/useSkillButtonBuffs';
-import { buildDamageExcelWorkbook } from '../exporters/damageExcel/buildDamageExcelWorkbook';
 import {
   type LocalBuffSearchResult,
   isModifierBuff,
@@ -81,13 +79,6 @@ interface ButtonWithContext {
   button: SkillButtonData;
   staffIndex: number;
   characterName: string;
-}
-
-interface WorkbookMergeInfo {
-  master: boolean;
-  colSpan: number;
-  rowSpan: number;
-  hidden: boolean;
 }
 
 interface WorkbookCellView {
@@ -173,14 +164,6 @@ function renderDamageSheetMenuIcon(icon: DamageSheetContextMenuAction['icon']) {
     default:
       return null;
   }
-}
-
-interface WorkbookSheetBuildResult {
-  workbook: ExcelJS.Workbook;
-  worksheet: ExcelJS.Worksheet;
-  mergeMap: Record<string, WorkbookMergeInfo>;
-  rowKinds: Record<number, WorkbookCellView['kind']>;
-  sheetRowsByWorksheetRow: Record<number, SheetRow>;
 }
 
 interface HitRowDetail {
@@ -966,180 +949,96 @@ function buildColumnGroups(columns: SheetColumn[]): Array<{ group: string; width
   return groups;
 }
 
-function registerMerge(
-  mergeMap: Record<string, WorkbookMergeInfo>,
-  rowStart: number,
-  colStart: number,
-  rowEnd: number,
-  colEnd: number
-): void {
-  for (let row = rowStart; row <= rowEnd; row += 1) {
-    for (let col = colStart; col <= colEnd; col += 1) {
-      mergeMap[`${row}:${col}`] = {
-        master: row === rowStart && col === colStart,
-        colSpan: colEnd - colStart + 1,
-        rowSpan: rowEnd - rowStart + 1,
-        hidden: !(row === rowStart && col === colStart),
-      };
-    }
+function columnIndexToLabel(index: number): string {
+  let current = index + 1;
+  let label = '';
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    current = Math.floor((current - 1) / 26);
   }
+  return label;
 }
 
-function buildWorkbookSheet(rows: SheetRow[], columns: SheetColumn[]): WorkbookSheetBuildResult {
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = 'Codex';
-  workbook.created = new Date();
-
-  const worksheet = workbook.addWorksheet('伤害过程表');
-  const mergeMap: Record<string, WorkbookMergeInfo> = {};
-  const rowKinds: Record<number, WorkbookCellView['kind']> = {};
-  const sheetRowsByWorksheetRow: Record<number, SheetRow> = {};
+function buildWorkbookSheet(rows: SheetRow[], columns: SheetColumn[]): WorkbookRowView[] {
   const columnGroups = buildColumnGroups(columns);
-
-  let currentColumn = 1;
-  columnGroups.forEach((group) => {
-    const startColumn = currentColumn;
-    const endColumn = startColumn + group.count - 1;
-    if (group.count > 1) {
-      worksheet.mergeCells(1, startColumn, 1, endColumn);
-      registerMerge(mergeMap, 1, startColumn, 1, endColumn);
+  const totalWidth = columns.reduce((sum, column) => sum + column.width, 0);
+  let groupStartColumn = 0;
+  const groupRow: WorkbookRowView = {
+    key: 'row-1',
+    rowNumber: 1,
+    kind: 'group',
+    cells: columnGroups.map((group) => {
+      const startColumn = groupStartColumn;
+      groupStartColumn += group.count;
+      return {
+        key: `1-${startColumn + 1}`,
+        address: `${columnIndexToLabel(startColumn)}1`,
+        value: group.group,
+        width: group.width,
+        colSpan: group.count,
+        rowSpan: 1,
+        align: 'center',
+        kind: 'group',
+      };
+    }),
+  };
+  const headerRow: WorkbookRowView = {
+    key: 'row-2',
+    rowNumber: 2,
+    kind: 'header',
+    cells: columns.map((column, columnIndex) => ({
+      key: `2-${columnIndex + 1}`,
+      address: `${columnIndexToLabel(columnIndex)}2`,
+      value: column.title,
+      width: column.width,
+      colSpan: 1,
+      rowSpan: 1,
+      align: column.align ?? 'left',
+      kind: 'header',
+    })),
+  };
+  const dataRows = rows.map<WorkbookRowView>((row, rowIndex) => {
+    const rowNumber = rowIndex + 3;
+    const rowKind = row.kind === 'character' ? 'character' : row.kind === 'button' ? 'button' : 'data';
+    if (row.kind !== 'hit') {
+      return {
+        key: `row-${rowNumber}`,
+        rowNumber,
+        kind: rowKind,
+        sourceRow: row,
+        cells: [{
+          key: `${rowNumber}-1`,
+          address: `A${rowNumber}`,
+          value: row.title,
+          width: totalWidth,
+          colSpan: columns.length,
+          rowSpan: 1,
+          align: 'left',
+          kind: rowKind,
+        }],
+      };
     }
-    const cell = worksheet.getCell(1, startColumn);
-    cell.value = group.group;
-    cell.alignment = { horizontal: 'center', vertical: 'middle' };
-    cell.font = { bold: true, color: { argb: 'FF185C37' }, size: 10 };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFF3F7F4' },
+    return {
+      key: `row-${rowNumber}`,
+      rowNumber,
+      kind: 'data',
+      sourceRow: row,
+      cells: columns.map((column, columnIndex) => ({
+        key: `${rowNumber}-${columnIndex + 1}`,
+        address: `${columnIndexToLabel(columnIndex)}${rowNumber}`,
+        value: row.values[column.key] ?? '',
+        width: column.width,
+        colSpan: 1,
+        rowSpan: 1,
+        align: column.align ?? 'left',
+        kind: 'data',
+        sourceRowId: row.id,
+        columnKey: column.key,
+      })),
     };
-    currentColumn = endColumn + 1;
   });
-  rowKinds[1] = 'group';
-  worksheet.getRow(1).height = 22;
-
-  columns.forEach((column, index) => {
-    const cell = worksheet.getCell(2, index + 1);
-    cell.value = column.title;
-    cell.font = { bold: true, color: { argb: 'FF202124' }, size: 10 };
-    cell.alignment = {
-      horizontal: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
-      vertical: 'middle',
-    };
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFDFDFD' },
-    };
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FFD7D7D7' } },
-      bottom: { style: 'thin', color: { argb: 'FFD7D7D7' } },
-      left: { style: 'thin', color: { argb: 'FFD7D7D7' } },
-      right: { style: 'thin', color: { argb: 'FFD7D7D7' } },
-    };
-    worksheet.getColumn(index + 1).width = Math.max(3, column.width / 10);
-  });
-  rowKinds[2] = 'header';
-  worksheet.getRow(2).height = 24;
-
-  let excelRowIndex = 3;
-  rows.forEach((row) => {
-    if (row.kind === 'character') {
-      worksheet.mergeCells(excelRowIndex, 1, excelRowIndex, columns.length);
-      registerMerge(mergeMap, excelRowIndex, 1, excelRowIndex, columns.length);
-      const cell = worksheet.getCell(excelRowIndex, 1);
-      cell.value = row.title;
-      cell.font = { bold: true, color: { argb: 'FF202124' }, size: 10 };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFEFF4F1' },
-      };
-      cell.border = {
-        bottom: { style: 'thin', color: { argb: 'FFD7D7D7' } },
-      };
-      worksheet.getRow(excelRowIndex).height = 22;
-      rowKinds[excelRowIndex] = 'character';
-      sheetRowsByWorksheetRow[excelRowIndex] = row;
-      excelRowIndex += 1;
-      return;
-    }
-
-    if (row.kind === 'button') {
-      worksheet.mergeCells(excelRowIndex, 1, excelRowIndex, columns.length);
-      registerMerge(mergeMap, excelRowIndex, 1, excelRowIndex, columns.length);
-      const cell = worksheet.getCell(excelRowIndex, 1);
-      cell.value = row.title;
-      cell.font = { bold: true, color: { argb: 'FF2B2F33' }, size: 10 };
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FFF7F9F8' },
-      };
-      cell.border = {
-        bottom: { style: 'thin', color: { argb: 'FFE1E4E8' } },
-      };
-      worksheet.getRow(excelRowIndex).height = 20;
-      rowKinds[excelRowIndex] = 'button';
-      sheetRowsByWorksheetRow[excelRowIndex] = row;
-      excelRowIndex += 1;
-      return;
-    }
-
-    columns.forEach((column, index) => {
-      const cell = worksheet.getCell(excelRowIndex, index + 1);
-      cell.value = row.values[column.key] ?? '';
-      cell.alignment = {
-        horizontal: column.align === 'right' ? 'right' : column.align === 'center' ? 'center' : 'left',
-        vertical: 'middle',
-      };
-      cell.font = { size: 10, color: { argb: 'FF202124' } };
-      cell.border = {
-        top: { style: 'thin', color: { argb: 'FFE8EAED' } },
-        bottom: { style: 'thin', color: { argb: 'FFE8EAED' } },
-        left: { style: 'thin', color: { argb: 'FFE8EAED' } },
-        right: { style: 'thin', color: { argb: 'FFE8EAED' } },
-      };
-    });
-    worksheet.getRow(excelRowIndex).height = 20;
-    rowKinds[excelRowIndex] = 'data';
-    sheetRowsByWorksheetRow[excelRowIndex] = row;
-    excelRowIndex += 1;
-  });
-
-  return { workbook, worksheet, mergeMap, rowKinds, sheetRowsByWorksheetRow };
-}
-
-function getCellTextValue(cell: ExcelJS.Cell): string {
-  const value = cell.value;
-  if (value == null) {
-    return '';
-  }
-  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-    return String(value);
-  }
-  if (typeof value === 'object' && 'richText' in value && Array.isArray(value.richText)) {
-    return value.richText.map((item) => item.text).join('');
-  }
-  if (typeof value === 'object' && 'text' in value && typeof value.text === 'string') {
-    return value.text;
-  }
-  return String(value);
-}
-
-function mapAlignment(value: ExcelJS.Alignment['horizontal'] | undefined): WorkbookCellView['align'] {
-  if (value === 'right') {
-    return 'right';
-  }
-  if (value === 'center') {
-    return 'center';
-  }
-  return 'left';
-}
-
-function workbookWidthToPixels(width: number | undefined): number {
-  const safeWidth = width ?? 3;
-  return Math.max(24, Math.round(safeWidth * 10));
+  return [groupRow, headerRow, ...dataRows];
 }
 
 function filterRelevantBuffsForColumn(
@@ -1487,92 +1386,7 @@ function restoreUndoSnapshot(snapshotId: string): boolean {
 }
 
 function buildWorkbookView(rows: SheetRow[], columns: SheetColumn[]): WorkbookRowView[] {
-  const { worksheet, mergeMap, rowKinds, sheetRowsByWorksheetRow } = buildWorkbookSheet(rows, columns);
-  const result: WorkbookRowView[] = [];
-
-  for (let rowIndex = 1; rowIndex <= worksheet.rowCount; rowIndex += 1) {
-    const rowKind = rowKinds[rowIndex] ?? 'data';
-    const cells: WorkbookCellView[] = [];
-
-    for (let colIndex = 1; colIndex <= columns.length; colIndex += 1) {
-      const mergeInfo = mergeMap[`${rowIndex}:${colIndex}`];
-      if (mergeInfo?.hidden) {
-        continue;
-      }
-
-      const cell = worksheet.getCell(rowIndex, colIndex);
-      const colSpan = mergeInfo?.colSpan ?? 1;
-      const rowSpan = mergeInfo?.rowSpan ?? 1;
-      let width = 0;
-      for (let offset = 0; offset < colSpan; offset += 1) {
-        width += workbookWidthToPixels(worksheet.getColumn(colIndex + offset).width);
-      }
-
-      cells.push({
-        key: `${rowIndex}-${colIndex}`,
-        address: cell.address,
-        value: getCellTextValue(cell),
-        width,
-        colSpan,
-        rowSpan,
-        align: mapAlignment(cell.alignment?.horizontal),
-        kind: rowKind,
-        sourceRowId: sheetRowsByWorksheetRow[rowIndex]?.kind === 'hit' ? sheetRowsByWorksheetRow[rowIndex].id : undefined,
-        columnKey: sheetRowsByWorksheetRow[rowIndex]?.kind === 'hit' ? columns[colIndex - 1]?.key : undefined,
-      });
-    }
-
-    result.push({
-      key: `row-${rowIndex}`,
-      rowNumber: rowIndex,
-      kind: rowKind,
-      cells,
-      sourceRow: sheetRowsByWorksheetRow[rowIndex],
-    });
-  }
-
-  return result;
-}
-
-function formatLocalFileTimestamp(date = new Date()): string {
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return [
-    date.getFullYear(),
-    pad(date.getMonth() + 1),
-    pad(date.getDate()),
-  ].join('-') + '-' + [
-    pad(date.getHours()),
-    pad(date.getMinutes()),
-    pad(date.getSeconds()),
-  ].join('-');
-}
-
-async function exportRowsToWorkbook(rows: SheetRow[], columns: SheetColumn[]): Promise<void> {
-  const workbook = buildDamageExcelWorkbook({
-    rows,
-    columns,
-    allBuffList: getAllBuffList(),
-    skillButtonTable: getSkillButtonTable(),
-    operatorConfigPageCache: getOperatorConfigPageCache(),
-  });
-  const buffer = await workbook.xlsx.writeBuffer();
-  const bytes = buffer instanceof Uint8Array
-    ? buffer
-    : new Uint8Array(buffer as ArrayBufferLike);
-  const arrayBuffer = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(arrayBuffer).set(bytes);
-  const blob = new Blob(
-    [arrayBuffer],
-    { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
-  );
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `伤害过程表-${formatLocalFileTimestamp()}.xlsx`;
-  document.body.appendChild(anchor);
-  anchor.click();
-  document.body.removeChild(anchor);
-  URL.revokeObjectURL(url);
+  return buildWorkbookSheet(rows, columns);
 }
 
 export function isDamageSheetPath(path: string): boolean {
@@ -1582,7 +1396,6 @@ export function isDamageSheetPath(path: string): boolean {
 export function DamageSheetPage() {
   const { state } = useAppContext();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const [rows, setRows] = useState<SheetRow[]>([]);
   const [totalHitCount, setTotalHitCount] = useState(0);
   const [selectedWorkbookCell, setSelectedWorkbookCell] = useState<SelectedWorkbookCell | null>(null);
@@ -2040,19 +1853,6 @@ export function DamageSheetPage() {
     framedRelevantBuffRowStateByRowId,
   ]);
 
-  const handleExportXlsx = useCallback(async () => {
-    if (visibleRows.length === 0 || visibleColumns.length === 0) {
-      return;
-    }
-
-    setIsExporting(true);
-    try {
-      await exportRowsToWorkbook(visibleRows, visibleColumns);
-    } finally {
-      setIsExporting(false);
-    }
-  }, [visibleColumns, visibleRows]);
-
   const persistManualBuffTweaks = useCallback((nextMap: Record<string, string[]>) => {
     if (!selectedPersistedButton) {
       return;
@@ -2276,7 +2076,7 @@ export function DamageSheetPage() {
           </button>
           <div className="damage-sheet-title-block">
             <h1>伤害过程表</h1>
-            <p>基于 ExcelJS 工作簿单元格模型的伤害过程视图。</p>
+            <p>基于业务数据直接生成的伤害过程视图。</p>
           </div>
         </div>
         <div className="damage-sheet-topbar-right">
@@ -2308,9 +2108,6 @@ export function DamageSheetPage() {
           </div>
           <button type="button" className="damage-sheet-action-button" onClick={handleGenerate} disabled={isGenerating}>
             {isGenerating ? '刷新中...' : '刷新表格'}
-          </button>
-          <button type="button" className="damage-sheet-action-button" onClick={handleExportXlsx} disabled={isExporting || visibleRows.length === 0 || visibleColumns.length === 0}>
-            {isExporting ? '导出中...' : '导出 XLSX'}
           </button>
           <button type="button" className="damage-sheet-action-button" disabled>
             复制
@@ -2345,7 +2142,7 @@ export function DamageSheetPage() {
         <aside className="damage-sheet-sidebar">
           <div className="damage-sheet-sidebar-title">工作表</div>
           <button type="button" className="damage-sheet-sheet-tab is-active">
-            ExcelJS 过程
+            伤害过程
           </button>
           <div className="damage-sheet-sidebar-title">格子明细</div>
           {ENABLE_ADVANCED_SHEET_SIDEBAR ? (
@@ -2512,7 +2309,7 @@ export function DamageSheetPage() {
           >
             {workbookRows.length === 0 ? (
               <div className="damage-sheet-empty-state">
-                <h2>当前没有可展示的 ExcelJS 数据</h2>
+                <h2>当前没有可展示的伤害数据</h2>
             <p>先保证时间轴中有干员和按钮，再刷新这张表。</p>
               </div>
             ) : (

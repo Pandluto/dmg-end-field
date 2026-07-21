@@ -39,11 +39,11 @@
 
 ### P2：依赖与 vendor 治理
 
-建立 OpenCode 上游 revision、patch 列表、同步周期和变更验证；跟踪 Electron 高风险 advisory 与 ExcelJS/uuid 上游状态。避免对 vendored workspace 运行无边界的自动升级。
+建立 OpenCode 上游 revision、patch 列表、同步周期和变更验证；持续跟踪 Electron 与其他桌面运行时依赖的高风险 advisory。避免对 vendored workspace 运行无边界的自动升级。
 
 ### P2：发布包与前端体积
 
-当前 Web 主 chunk 约 2.5 MB（gzip 约 739 KB），并且为保证 sidecar 正确运行，安装包暂时携带 `src/**` 与 Vite runtime。后续应按页面拆分主 chunk，并把 sidecar 所需 TS 预构建为独立 bundle，收窄 electron-builder 输入；优化前以实际可运行优先，不用忽略 warning 或删源码制造假小包。
+2026-07-21 去除 ExcelJS 后，Web 主 chunk 约 1.63 MB（gzip 约 487 KB）。安装包仍为保证 sidecar 正确运行而暂时携带 `src/**` 与 Vite runtime；后续应继续按页面拆分主 chunk，并把 sidecar 所需 TS 预构建为独立 bundle，收窄 electron-builder 输入。
 
 ### P2：对外工程材料
 

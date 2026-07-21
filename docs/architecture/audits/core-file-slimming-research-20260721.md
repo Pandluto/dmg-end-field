@@ -45,6 +45,14 @@
 
 这些计数是职责密度信号，不是质量评分。真正的验收标准是依赖方向和行为边界，而不是单纯达到某个行数。
 
+## 2026-07-21 实施结果
+
+- 删除不可达的旧 Buff 表单编辑器。
+- 删除伤害表 XLSX 导出入口、专用导出器和 `exceljs` 运行时依赖。
+- Buff 与 Damage 工作表改为直接从业务行数据生成 UI 单元格，不再创建临时工作簿。
+- Weapon、Buff、Equipment 三个页面拆为稳定入口、状态控制器、渲染视图和领域模型；原入口文件均缩为 8 行兼容 facade。
+- 本轮最长拆分文件为 Weapon 控制器 1,877 行；后续若继续瘦身，应从控制器中的分享、拖拽和公式编辑状态分别抽 hook，而不是重新合并模型与视图。
+
 ## 1. Buff 编辑器：最适合作为第一刀
 
 `BuffDraftPage.tsx` 实际包含三段：
@@ -62,7 +70,7 @@
 1. 再做一次产品入口确认后删除无调用的 `BuffDraftPage` 及其旧页专用 helper/state/JSX。
 2. 保留 `BuffDraftPage.tsx` 作为兼容 facade，只 re-export `BuffDraftSheetPage` 和 `isBuffSheetPath`，避免修改 `App.tsx` 的导入合同。
 3. 将共享 model/normalize/reorder/share 类型移到 `components/BuffDraft/model.ts`。
-4. 将 ExcelJS → workbook view 的纯 projection 移到 `components/BuffDraft/workbook.ts`。
+4. 将 workbook view 改为不依赖第三方工作簿对象的纯业务数据 projection。
 5. 将当前页面移到 `components/BuffDraft/BuffDraftSheetPage.tsx`，再逐步拆 formula bar、explorer 和 dialogs。
 
 注意：`BuffDraftPage.css` 同时被 Weapon 和 Equipment 页面引用，不能随旧组件整体删除。当前 CSS 中大约有 11 个 `.buff-draft-*`、54 个 `.buff-sheet-*` 和 16 个 `.operator-draft-*` selector，需按实际 DOM 使用情况清理，并把跨编辑器样式改为明确的 workbook/editor 样式模块。

@@ -88,7 +88,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
-    "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
     "react": "^18.2.0",
