@@ -40,6 +40,7 @@ import { createDefCoreRequestRouter } from './def-core/request-router.mjs';
 import { createDefCoreTransportState } from './def-core/transport-state.mjs';
 import { createDefCoreRuntimeState, createDefRawTransportPolicy } from './def-core/runtime-state.mjs';
 import { createDefCoreToolRegistry } from './def-core/tool-registry.mjs';
+import { createDefGuideSourceStore } from './def-core/guide-source-store.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -51,6 +52,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = process.env.AI_CLI_REST_STORAGE_DIR
   || path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const defGuideSourceStorePath = path.join(storageDir, 'guide-loadout-plan-sources.json');
 const agentScriptDir = process.env.DEF_AGENT_SCRIPT_DIR
   || path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
@@ -95,6 +97,7 @@ const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
+const GAME_KNOWLEDGE_SECTION_MAX_CHARS = 12_000;
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 const DEF_GRID_NODE_COUNT = 15;
 // Ephemeral, unforgeable capability for a reviewed operator-config branch.
@@ -177,9 +180,9 @@ function consumeApprovedApplyCapability(input = {}, expected = {}) {
   capability.used = true;
   return true;
 }
-// Guide reads are deliberately session-scoped and in-memory. They are an
-// opaque hand-off between two native turns, never a filesystem capability or
-// a cross-session recommendation cache.
+// Guide reads are deliberately session-scoped. Their exact allowlisted text
+// may survive a sidecar restart for a bounded continuation window, but never
+// becomes a filesystem capability or a cross-session recommendation cache.
 // A native permission card can remain open longer than the short planning
 // TTL.  Once that exact immutable plan has produced its one review card, keep
 // only its server-side capability alive for a bounded grace period so approval
@@ -199,6 +202,17 @@ const denyRawTransport = defRawTransportPolicy.deny;
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
+
+// Exact allowlisted guide text is durable for the same bounded window as a
+// native approval card. Executable plans and approval capabilities remain
+// sidecar-ephemeral and therefore still fail closed after a restart.
+const defGuideSourceStore = createDefGuideSourceStore({
+  filePath: defGuideSourceStorePath,
+  ttlMs: PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS,
+  maxEntries: 100,
+  maxContentChars: GAME_KNOWLEDGE_SECTION_MAX_CHARS,
+  hash: hashDefLoadoutPlan,
+});
 
 function prunePreparedOperatorConfigCapabilities() {
   const now = Date.now();
@@ -229,9 +243,7 @@ function hasDefOperatorConfigApplyIntent(input = {}) {
 
 function pruneDefTeamLoadoutPlans() {
   const now = Date.now();
-  for (const [sessionId, source] of guideLoadoutPlanSources) {
-    if (source.expiresAt <= now) guideLoadoutPlanSources.delete(sessionId);
-  }
+  defGuideSourceStore.prune(guideLoadoutPlanSources);
   for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
     const approvalReservationActive = Number(prepared.approvalExpiresAt) > now;
     if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult && !prepared.pendingCommand) preparedTeamLoadoutPlans.delete(planHash);
@@ -3825,7 +3837,6 @@ function safeGameKnowledgeReferenceFiles() {
     .filter(Boolean);
 }
 
-const GAME_KNOWLEDGE_SECTION_MAX_CHARS = 12_000;
 const GAME_KNOWLEDGE_SEARCH_ALIAS_TERMS = Object.freeze([
   ['yz', '月咒'],
   ['月咒', 'yz'],
@@ -4070,10 +4081,14 @@ function rememberDefGuideLoadoutSource(input = {}) {
   if (!sessionId || !referenceId || !sectionId || !content) {
     return { ok: false, code: 'invalid-guide-plan-source', component: 'team-loadout-plan', message: 'A native session, exact reference, section and content are required.' };
   }
-  const sourceContentHash = hashDefLoadoutPlan(content);
   pruneDefTeamLoadoutPlans();
-  guideLoadoutPlanSources.set(sessionId, { sessionId, referenceId, sectionId, content, sourceContentHash, rememberedAt: Date.now(), expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS });
-  return { ok: true, sessionId, referenceId, sectionId, sourceContentHash };
+  let source;
+  try {
+    source = defGuideSourceStore.remember(guideLoadoutPlanSources, { sessionId, referenceId, sectionId, content });
+  } catch {
+    return { ok: false, code: 'invalid-guide-plan-source', component: 'team-loadout-plan', message: 'The exact guide source could not be persisted safely.' };
+  }
+  return { ok: true, sessionId, referenceId, sectionId, sourceContentHash: source.sourceContentHash };
 }
 
 function safeDefGuideLoadoutManifestFiles() {
