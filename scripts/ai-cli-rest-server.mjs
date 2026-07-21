@@ -46,6 +46,10 @@ import {
   extractGuideBuildStrategy,
   resolveOperatorCatalogRecord,
 } from './def-core/operator-build-evidence.mjs';
+import {
+  loadCombatConventionRules,
+  resolveCombatConventionBundle,
+} from './def-core/combat-conventions.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -98,10 +102,12 @@ const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT = 'DefEquipmentThreePlusOneFactsV2';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_PLAN_CONTRACT = 'DefEquipmentThreePlusOnePlanV1';
+const DEF_WEAPON_FIT_PLAN_CONTRACT = 'DefWeaponFitPlanV1';
 const DEF_EQUIPMENT_THREE_PLUS_ONE_MAX_SEARCH_SPACE = 250_000;
 const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
+const GAME_KNOWLEDGE_CONVENTIONS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'conventions');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 const DEF_GRID_NODE_COUNT = 15;
@@ -3249,6 +3255,7 @@ const DEF_EQUIPMENT_PROFILE_DERIVATIONS = new Set([
   'guide-partial',
   'skill-analysis',
   'guide-and-skill-analysis',
+  'combat-convention-and-skill-analysis',
   'user',
 ]);
 const DEF_EQUIPMENT_PROFILE_KINDS = new Set([
@@ -4049,6 +4056,290 @@ function resolveDefWeapons(input = {}) {
   return resolveDefWeaponQuery(entries, input.query || input.name || input.text || '', input.limit || 12);
 }
 
+function maximumDefWeaponLevelEntry(levels = {}) {
+  return Object.entries(levels && typeof levels === 'object' ? levels : {})
+    .map(([level, value]) => ({ level: Number(level), value }))
+    .filter((entry) => Number.isFinite(entry.level) && entry.value && typeof entry.value === 'object')
+    .sort((left, right) => right.level - left.level)[0] || null;
+}
+
+function defAbilityTypeKey(label) {
+  const value = normalizeDefToolText(label);
+  if (value.includes('力量')) return 'strengthBoost';
+  if (value.includes('敏捷')) return 'agilityBoost';
+  if (value.includes('智识')) return 'intelligenceBoost';
+  if (value.includes('意志')) return 'willBoost';
+  return '';
+}
+
+function normalizeDefWeaponStatType(rawType, operator, skillKey) {
+  const value = normalizeDefToolText(rawType).replace(/大$|中$|小$/g, '');
+  if (/主能力/.test(value) || value === 'mainstatboost') return defAbilityTypeKey(operator?.mainStat) || 'mainStatBoost';
+  if (/副能力/.test(value) || value === 'substatboost') return defAbilityTypeKey(operator?.subStat) || 'subStatBoost';
+  if (/力量/.test(value)) return 'strengthBoost';
+  if (/敏捷/.test(value)) return 'agilityBoost';
+  if (/智识/.test(value)) return 'intelligenceBoost';
+  if (/意志/.test(value)) return 'willBoost';
+  if (/终结技充能效率/.test(value)) return 'ultimateChargeEfficiency';
+  if (/源石技艺/.test(value)) return 'sourceSkillBoost';
+  if (/攻击/.test(value)) return 'atkPercentBoost';
+  if (/生命/.test(value)) return 'hpPercent';
+  if (/治疗效率/.test(value)) return 'healingBonus';
+  if (/寒冷伤害/.test(value)) return 'iceDmgBonus';
+  if (/灼热伤害/.test(value)) return 'fireDmgBonus';
+  if (/电磁伤害/.test(value)) return 'electricDmgBonus';
+  if (/自然伤害/.test(value)) return 'natureDmgBonus';
+  if (/物理伤害/.test(value)) return 'physicalDmgBonus';
+  if (/法术伤害/.test(value)) return 'magicDmgBonus';
+  if (/暴击率/.test(value)) return 'critRateBoost';
+  if (/暴击伤害/.test(value)) return 'critDmgBonusBoost';
+  return String(rawType || `${skillKey}.unknown`).trim();
+}
+
+function compactDefWeaponFitFacts(raw, fallbackId, operator) {
+  const base = compactDefWeaponLibraryEntry(raw, fallbackId);
+  if (!base) return null;
+  const skills = raw?.skills && typeof raw.skills === 'object' ? raw.skills : {};
+  const compactSkill = (skillKey) => {
+    const skill = skills[skillKey];
+    if (!skill || typeof skill !== 'object') return null;
+    const maximum = maximumDefWeaponLevelEntry(skill.levels);
+    return {
+      skillKey,
+      name: String(skill.name || skillKey),
+      statType: String(skill.statType || ''),
+      typeKey: normalizeDefWeaponStatType(skill.statType, operator, skillKey),
+      maximumLevel: maximum?.level || null,
+      value: Number.isFinite(Number(maximum?.value?.value)) ? Number(maximum.value.value) : null,
+      description: String(maximum?.value?.description || ''),
+    };
+  };
+  const skill3 = skills.skill3 && typeof skills.skill3 === 'object' ? skills.skill3 : {};
+  const maximumSkill3 = maximumDefWeaponLevelEntry(skill3.levels);
+  const skill3Effects = Object.entries(skill3.effects && typeof skill3.effects === 'object' ? skill3.effects : {})
+    .map(([effectKey, effect]) => {
+      const levels = effect?.levels && typeof effect.levels === 'object' ? effect.levels : {};
+      const maximumLevel = Object.keys(levels).map(Number).filter(Number.isFinite).sort((left, right) => right - left)[0] || null;
+      const rawType = String(effect?.type || effectKey);
+      return {
+        effectKey,
+        name: String(effect?.name || effectKey),
+        typeKey: rawType === 'mainStatBoost'
+          ? defAbilityTypeKey(operator?.mainStat) || rawType
+          : rawType === 'subStatBoost'
+            ? defAbilityTypeKey(operator?.subStat) || rawType
+            : rawType,
+        catalogTypeKey: rawType,
+        category: String(effect?.category || 'unknown'),
+        condition: String(effect?.condition || ''),
+        maximumLevel,
+        value: maximumLevel === null || !Number.isFinite(Number(levels[String(maximumLevel)])) ? null : Number(levels[String(maximumLevel)]),
+      };
+    })
+    .sort((left, right) => left.effectKey.localeCompare(right.effectKey));
+  return {
+    ...base,
+    description: String(raw.description || ''),
+    skills: {
+      skill1: compactSkill('skill1'),
+      skill2: compactSkill('skill2'),
+      skill3: {
+        name: String(skill3.name || 'skill3'),
+        maximumLevel: maximumSkill3?.level || null,
+        description: String(maximumSkill3?.value?.description || ''),
+        effects: skill3Effects,
+      },
+    },
+  };
+}
+
+function buildDefWeaponFitPlan(input = {}) {
+  const identity = operatorBuildInvocationIdentity(input);
+  if (!identity.ok) return identity;
+  const operatorQuery = typeof input.operatorQuery === 'string' ? input.operatorQuery.trim() : '';
+  const operatorLibrary = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const resolvedOperator = resolveOperatorCatalogRecord(operatorLibrary, operatorQuery);
+  if (!resolvedOperator.ok) return { ok: false, ...resolvedOperator };
+  const operator = resolvedOperator.operator;
+  const operatorId = String(resolvedOperator.id || operator?.id || '');
+  const profileResult = normalizeDefEquipmentThreePlusOneProfile(input);
+  if (!profileResult.ok) return profileResult;
+  if (profileResult.profile.characterId !== operatorId) {
+    return { ok: false, code: 'weapon-fit-profile-operator-mismatch', message: 'The supplied profile belongs to a different operator.' };
+  }
+  const profileCapabilityResult = resolveOperatorBuildProfileCapability(input, profileResult.profile);
+  if (!profileCapabilityResult.ok) return profileCapabilityResult;
+  const conventionBundle = resolveDefCombatConventions({
+    entities: [operatorId, operator?.name, operator?.profession],
+    intents: ['weapon-fit', 'operator-fit'],
+    terms: [typeof input.goal === 'string' ? input.goal : '武器推荐'],
+  });
+  if (!conventionBundle.ok || conventionBundle.state !== 'READY') {
+    return {
+      ok: false,
+      code: conventionBundle.code || 'weapon-fit-combat-convention-incomplete',
+      message: conventionBundle.message || 'Reviewed combat conventions are incomplete for this weapon-fit plan.',
+      missingEdges: conventionBundle.missingEdges || [],
+      conflicts: conventionBundle.conflicts || [],
+    };
+  }
+  const suppliedConventionHash = typeof input.conventionBundleHash === 'string' ? input.conventionBundleHash.trim() : '';
+  if (!suppliedConventionHash || suppliedConventionHash !== conventionBundle.bundleHash) {
+    return {
+      ok: false,
+      code: suppliedConventionHash ? 'weapon-fit-convention-bundle-mismatch' : 'weapon-fit-convention-bundle-required',
+      message: 'Use the exact conventionBundleHash returned for this operator and weapon-fit intent in the current reviewed rule set.',
+    };
+  }
+  const weaponType = String(operator?.weapon || '').trim();
+  if (!weaponType) return { ok: false, code: 'weapon-fit-weapon-type-missing', message: 'The operator catalog has no canonical weapon type.' };
+  const weaponLibrary = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
+  const compatible = Object.entries(weaponLibrary && typeof weaponLibrary === 'object' && !Array.isArray(weaponLibrary) ? weaponLibrary : {})
+    .filter(([, raw]) => raw && typeof raw === 'object' && normalizeDefToolText(raw.type) === normalizeDefToolText(weaponType))
+    .map(([fallbackId, raw]) => compactDefWeaponFitFacts(raw, fallbackId, operator))
+    .filter(Boolean)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!compatible.length) return { ok: false, code: 'weapon-fit-compatible-catalog-empty', message: 'No compatible current-catalog weapon is available for this operator.' };
+  const producedFacts = new Set(conventionBundle.rules.flatMap((rule) => rule.then));
+  if (normalizeDefToolText(operator?.subStat).includes('智识')) producedFacts.add(`operator.${operatorId}.subStat.intelligence`);
+  const matchers = conventionBundle.rules.flatMap((rule) => rule.catalogMatchers.map((matcher) => ({
+    ...matcher,
+    ruleId: rule.ruleId,
+    certainty: rule.certainty,
+  })));
+  const ignoredTypeKeys = new Set(conventionBundle.ignoredTypeKeys || []);
+  const groups = profileResult.profile.preferenceGroups;
+  const groupByKey = new Map(groups.map((group, index) => [group.key, { ...group, weight: groups.length - index }]));
+  const evaluateFact = (weapon, fact, skillKey) => {
+    if (!fact?.typeKey) return null;
+    const ignored = ignoredTypeKeys.has(fact.typeKey);
+    if (ignored) return { ...fact, skillKey, relevant: false, reason: 'excluded-by-reviewed-support-convention' };
+    if (skillKey === 'skill3' && fact.category === 'condition') {
+      const matcher = matchers.find((entry) => (
+        entry.weaponId === weapon.id
+        && entry.skillKey === skillKey
+        && entry.effectType === (fact.catalogTypeKey || fact.typeKey)
+      ));
+      const requiredFactSatisfied = Boolean(matcher && producedFacts.has(matcher.requiredFact));
+      const group = matcher ? groupByKey.get(matcher.utilityKey) : null;
+      return {
+        ...fact,
+        skillKey,
+        relevant: Boolean(group && requiredFactSatisfied),
+        reason: !matcher ? 'condition-not-covered-by-reviewed-convention' : requiredFactSatisfied ? 'reviewed-condition-reachable' : 'reviewed-condition-prerequisite-missing',
+        ...(matcher ? { conventionRuleId: matcher.ruleId, certainty: matcher.certainty, requiredFact: matcher.requiredFact, matchedGroupKey: group?.key || null, weight: group?.weight || 0 } : {}),
+      };
+    }
+    const group = groups.map((candidate, index) => ({ ...candidate, weight: groups.length - index }))
+      .find((candidate) => candidate.key !== 'reachable-team-buff' && candidate.acceptedTypeKeys.includes(fact.typeKey));
+    return {
+      ...fact,
+      skillKey,
+      relevant: Boolean(group),
+      reason: group ? 'profile-type-key-match' : 'no-reviewed-profile-match',
+      matchedGroupKey: group?.key || null,
+      weight: group?.weight || 0,
+    };
+  };
+  const candidates = compatible.map((weapon) => {
+    const evaluatedFacts = [
+      evaluateFact(weapon, weapon.skills.skill1, 'skill1'),
+      evaluateFact(weapon, weapon.skills.skill2, 'skill2'),
+      ...weapon.skills.skill3.effects.map((effect) => evaluateFact(weapon, effect, 'skill3')),
+    ].filter(Boolean);
+    const relevantFacts = evaluatedFacts.filter((fact) => fact.relevant);
+    const matchedGroupKeys = [...new Set(relevantFacts.map((fact) => fact.matchedGroupKey).filter(Boolean))];
+    const weightedScore = matchedGroupKeys.reduce((score, key) => score + Number(groupByKey.get(key)?.weight || 0), 0);
+    const reachableConditionalCount = relevantFacts.filter((fact) => fact.skillKey === 'skill3' && fact.category === 'condition').length;
+    return {
+      id: weapon.id,
+      name: weapon.name,
+      type: weapon.type,
+      rarity: weapon.rarity,
+      weightedScore,
+      reachableConditionalCount,
+      matchedGroupKeys,
+      verifiedReasons: relevantFacts,
+      excludedOrUnverifiedReasons: evaluatedFacts.filter((fact) => !fact.relevant),
+      fullFacts: weapon,
+      ambiguity: evaluatedFacts.filter((fact) => fact.category === 'condition' && !fact.relevant).map((fact) => ({
+        code: 'weapon-condition-unverified',
+        skillKey: fact.skillKey,
+        effectKey: fact.effectKey || null,
+        typeKey: fact.catalogTypeKey || fact.typeKey,
+        reason: fact.reason,
+      })),
+    };
+  }).sort((left, right) => (
+    right.reachableConditionalCount - left.reachableConditionalCount
+    || right.weightedScore - left.weightedScore
+    || right.matchedGroupKeys.length - left.matchedGroupKeys.length
+    || Number(right.rarity || 0) - Number(left.rarity || 0)
+    || left.id.localeCompare(right.id)
+  ));
+  const leader = candidates[0];
+  const shortlistLimit = Number.isInteger(input.shortlistLimit) ? Math.max(1, Math.min(input.shortlistLimit, 3)) : 3;
+  const shortlist = candidates.filter((candidate, index) => (
+    index === 0
+    || (candidate.reachableConditionalCount === leader.reachableConditionalCount
+      && leader.weightedScore - candidate.weightedScore <= 1)
+  )).slice(0, shortlistLimit);
+  const tradeoffShortlist = shortlist.map(({ weightedScore, ...candidate }) => ({
+    ...candidate,
+    evidenceDimensionCount: candidate.matchedGroupKeys.length,
+  }));
+  profileCapabilityResult.capability.consumed = true;
+  operatorBuildProfileCapabilities.delete(profileCapabilityResult.capability.token);
+  return {
+    ok: true,
+    protocolVersion: 1,
+    contract: DEF_WEAPON_FIT_PLAN_CONTRACT,
+    state: 'READY_WITH_TRADEOFFS',
+    operator: {
+      id: operatorId,
+      name: String(operator?.name || ''),
+      profession: String(operator?.profession || ''),
+      weaponType,
+      mainAttribute: String(operator?.mainStat || ''),
+      secondaryAttribute: String(operator?.subStat || ''),
+    },
+    source: {
+      catalog: 'operator-config-weapon-library',
+      revision: hashDefNativeCatalogValue(compatible),
+      conventionBundleHash: conventionBundle.bundleHash,
+      plannerProfileHash: profileCapabilityResult.capability.profileHash,
+    },
+    catalogEvidence: {
+      compatibleCount: compatible.length,
+      evaluatedCount: candidates.length,
+      exhaustive: true,
+      truncated: false,
+      allCandidateEvidence: candidates.map((candidate) => ({
+        id: candidate.id,
+        name: candidate.name,
+        evidenceDimensionCount: candidate.matchedGroupKeys.length,
+        reachableConditionalCount: candidate.reachableConditionalCount,
+        matchedGroupKeys: candidate.matchedGroupKeys,
+      })),
+    },
+    rankingBasis: {
+      reviewedConventionRules: conventionBundle.rules.map((rule) => ({ ruleId: rule.ruleId, certainty: rule.certainty })),
+      profilePreferenceOrder: groups.map((group) => ({ key: group.key, acceptedTypeKeys: group.acceptedTypeKeys })),
+      personalDamageDefaultsExcluded: operatorRequiresCombatConvention(operator),
+      completeSkill3Required: true,
+      uniqueOptimalClaimAllowed: false,
+      crossCandidateTotalOrderAllowed: false,
+    },
+    shortlist: tradeoffShortlist,
+    missing: [],
+    ambiguity: [{
+      code: 'support-weapon-tradeoffs-not-single-optimum',
+      message: 'Reviewed trigger reachability and passive utility support an unordered tradeoff matrix, not a cross-candidate score or unique universal optimum.',
+    }],
+    nextAction: 'Present the returned verified tradeoffs and qualitative trigger certainty without first/second labels, an overall score, or a winner. Do not use excluded/unverified facts or unsourced multiplier-quality claims as benefits.',
+  };
+}
+
 function selectedDefCharacterIds(input = {}) {
   const supplied = Array.isArray(input.characterIds) ? input.characterIds : [];
   return [...new Set(supplied
@@ -4621,6 +4912,23 @@ function readCompleteDefGameKnowledgeSection(input = {}, maximumChars = 24_000) 
   };
 }
 
+function resolveDefCombatConventions(input = {}) {
+  try {
+    const library = loadCombatConventionRules(GAME_KNOWLEDGE_CONVENTIONS_DIR);
+    return resolveCombatConventionBundle(library, input);
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'combat-convention-library-invalid',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function operatorRequiresCombatConvention(operator = {}) {
+  return /辅助|support/.test(normalizeDefToolText(operator?.profession));
+}
+
 function operatorBuildInvocationIdentity(input = {}) {
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   const turnId = typeof input.__defTurnId === 'string' ? input.__defTurnId.trim() : '';
@@ -4765,6 +5073,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
   const operator = resolved.operator;
   const operatorId = String(resolved.id || operator.id || '').trim();
   const operatorName = String(operator.name || '').trim();
+  const conventionRequired = operatorRequiresCombatConvention(operator);
   const goal = typeof input.goal === 'string' && input.goal.trim() ? input.goal.trim() : 'damage';
   const setQuery = typeof input.setQuery === 'string' && input.setQuery.trim() ? input.setQuery.trim() : null;
   const discovery = discoverOperatorBuildGuides(loadOperatorBuildGuideReferences(), {
@@ -4811,6 +5120,9 @@ function discoverDefOperatorBuildGuide(input = {}) {
     exhaustive: discovery.exhaustive,
     truncated: discovery.truncated,
     candidates: discovery.candidates,
+    evidenceRequirements: {
+      combatConvention: conventionRequired ? 'required-before-role-aware-profile-and-weapon-fit' : 'not-required',
+    },
   };
   if (effectiveState === 'GUIDE_FOUND') {
     const plannerProfile = compactGuidePlannerProfile(operatorId, guideStrategy, guide.contentHash);
@@ -4834,7 +5146,9 @@ function discoverDefOperatorBuildGuide(input = {}) {
       plannerProfileHash: profileCapability.profileHash,
       missingFacts: [],
       fallbackToken: null,
-      nextAction: 'Use this server-compiled guide profile and its exact capability for typed planning, then verify every current equipment fact in the catalog. Do not invoke the skill-derived fallback or edit the profile.',
+      nextAction: conventionRequired
+        ? 'Keep this server-compiled guide profile and capability unchanged. For weapon fit, resolve def_data_combat_conventions once and pass its exact bundleHash to def_data_weapon_fit_plan; do not invoke the skill-derived fallback.'
+        : 'Use this server-compiled guide profile and its exact capability for typed planning, then verify every current equipment fact in the catalog. Do not invoke the skill-derived fallback or edit the profile.',
     };
   }
 
@@ -4856,7 +5170,9 @@ function discoverDefOperatorBuildGuide(input = {}) {
       fallbackToken: reusableResolution.fallbackToken,
       missingFacts: reusableResolution.missingFacts,
       reused: true,
-      nextAction: 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+      nextAction: conventionRequired
+        ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
+        : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
     };
   }
   const fallbackToken = crypto.randomUUID();
@@ -4879,6 +5195,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
     guideState: effectiveState,
     guide,
     guidePreferenceGroups: supportedGuideGroups,
+    conventionRequired,
     goal: base.query.goal,
     setQuery: base.query.setQuery,
     missingFacts,
@@ -4895,13 +5212,21 @@ function discoverDefOperatorBuildGuide(input = {}) {
     guideResolutionId,
     fallbackToken,
     missingFacts,
-    nextAction: 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+    nextAction: conventionRequired
+      ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
+      : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
   };
 }
 
 function mergePartialGuidePlannerProfile(profile, resolution) {
   if (!profile?.plannerProfile || resolution.guideState !== 'PARTIAL_GUIDE_FOUND') return profile;
-  const guideGroups = compactNonOverlappingOperatorBuildGroups(resolution.guidePreferenceGroups || []);
+  const ignoredTypeKeys = new Set(profile?.conventionEvidence?.ignoredTypeKeys || []);
+  const guideGroups = compactNonOverlappingOperatorBuildGroups(resolution.guidePreferenceGroups || [])
+    .map((group) => ({
+      ...group,
+      acceptedTypeKeys: group.acceptedTypeKeys.filter((typeKey) => !ignoredTypeKeys.has(typeKey)),
+    }))
+    .filter((group) => group.acceptedTypeKeys.length);
   const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
   const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => (
     !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
@@ -4981,10 +5306,45 @@ function deriveDefOperatorBuildProfile(input = {}) {
       message: 'The operator catalog changed after guide discovery. Restart discovery before deriving priorities.',
     };
   }
+  let conventionBundle = null;
+  if (resolution.conventionRequired) {
+    conventionBundle = resolveDefCombatConventions({
+      entities: [operatorId, resolved.operator?.name, resolved.operator?.profession],
+      intents: ['operator-fit', 'weapon-fit'],
+      terms: [resolution.goal],
+    });
+    if (!conventionBundle.ok || conventionBundle.state !== 'READY') {
+      return {
+        ok: false,
+        code: conventionBundle.code || 'operator-build-combat-convention-incomplete',
+        message: conventionBundle.message || 'Reviewed combat conventions are missing or incomplete for this support-role profile.',
+        conventionState: conventionBundle.state || null,
+        missingEdges: conventionBundle.missingEdges || [],
+        conflicts: conventionBundle.conflicts || [],
+      };
+    }
+    const suppliedConventionHash = typeof input.conventionBundleHash === 'string' ? input.conventionBundleHash.trim() : '';
+    if (!suppliedConventionHash) {
+      return {
+        ok: false,
+        code: 'operator-build-convention-bundle-required',
+        message: 'This support-role fallback requires the exact conventionBundleHash returned in the current turn.',
+        nextAction: 'Call def_data_combat_conventions for this operator and weapon-fit intent, then retry this unused fallbackToken with the exact bundleHash.',
+      };
+    }
+    if (suppliedConventionHash !== conventionBundle.bundleHash) {
+      return {
+        ok: false,
+        code: 'operator-build-convention-bundle-mismatch',
+        message: 'The supplied combat convention bundle does not match the current reviewed rules for this operator.',
+      };
+    }
+  }
   let profile = deriveOperatorBuildProfile(resolved.operator, {
     guideState: resolution.guideState,
     guideResolutionId: resolution.guideResolutionId,
     goal: resolution.goal,
+    conventionBundle,
   });
   profile = mergePartialGuidePlannerProfile(profile, resolution);
   if (profile.state !== 'PROFILE_READY' || !profile.plannerProfile) {
@@ -5016,6 +5376,7 @@ function deriveDefOperatorBuildProfile(input = {}) {
       guideResolutionId: resolution.guideResolutionId,
       guideContentHash: resolution.guide?.contentHash || null,
       operatorSnapshotHash: resolution.operatorSnapshotHash,
+      conventionBundleHash: conventionBundle?.bundleHash || null,
     },
   });
   return {
@@ -9187,9 +9548,14 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   if (name === 'def.native_catalog.materialize'
     || name === 'def.equipment.3plus1.facts'
     || name === 'def.equipment.3plus1.plan'
+    || name === 'def.weapon.fit.plan'
+    || name === 'def.knowledge.combat_conventions.resolve'
     || name === 'def.operator.build.guide'
     || name === 'def.operator.build.profile') {
-    const operatorBuildEvidenceTool = name === 'def.operator.build.guide' || name === 'def.operator.build.profile';
+    const operatorBuildEvidenceTool = name === 'def.operator.build.guide'
+      || name === 'def.operator.build.profile'
+      || name === 'def.knowledge.combat_conventions.resolve'
+      || name === 'def.weapon.fit.plan';
     const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
     const registration = restoreRegisteredDefNativeCatalogSession(input, invocation);
     if (!registration || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
@@ -9198,7 +9564,7 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
         response: failScript(
           403,
           operatorBuildEvidenceTool ? 'denied-native-build-evidence-session' : 'denied-native-catalog-session',
-          'Operator build evidence, native catalog materialization, and 3+1 planning require an authenticated, registered DEF native session.',
+          'Operator build evidence, combat conventions, native catalog materialization, and 3+1 planning require an authenticated, registered DEF native session.',
         ),
       };
     }
@@ -9607,7 +9973,14 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     if (!result.ok) {
       return failScript(409, result.code || 'operator-build-profile-failed', result.message || 'Unable to derive the token-authorized operator build profile.', {
         candidates: result.candidates,
-        nextAction: 'Restart def_data_operator_build_guide in the current user turn and use only its exact fallbackToken for the same operator.',
+        nextAction: result.nextAction || 'Restart def_data_operator_build_guide in the current user turn and use only its exact fallbackToken for the same operator.',
+      });
+    }
+  } else if (name === 'def.knowledge.combat_conventions.resolve') {
+    result = resolveDefCombatConventions(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'combat-convention-resolution-failed', result.message || 'Unable to resolve reviewed combat conventions.', {
+        nextAction: 'Use exact operator/weapon entities and one supported intent; do not substitute generic guide search.',
       });
     }
   } else if (name === 'def.knowledge.game.search') {
@@ -9619,6 +9992,15 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         component: result.component || 'game-knowledge-section',
         ...(Array.isArray(result.availableSections) ? { availableSections: result.availableSections } : {}),
         nextAction: 'Use def.knowledge.game.search and select an exact allowlisted referenceId plus sectionId.',
+      });
+    }
+  } else if (name === 'def.weapon.fit.plan') {
+    result = buildDefWeaponFitPlan(input);
+    if (!result.ok) {
+      return failScript(409, result.code || 'weapon-fit-plan-failed', result.message || 'Unable to build an exhaustive convention-backed weapon fit plan.', {
+        missingEdges: result.missingEdges,
+        conflicts: result.conflicts,
+        nextAction: result.nextAction || 'Restart guide/convention/profile evidence in the current turn; do not rank truncated weapon summaries.',
       });
     }
   } else if (name === 'def.skill.resolve') {

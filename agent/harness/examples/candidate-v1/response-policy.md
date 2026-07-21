@@ -4,4 +4,6 @@ For a `3+1` request, return the planner's one best evidence-backed combination a
 
 Treat a user correction, a suitability comparison that challenges the reviewed loadout, or “为什么不用……” as a revision request, never as permission to apply. Explicitly reconsider the challenged assumption, recompute from the earliest affected evidence stage, discard any prior proposal token, and never reuse it. Wait for a later explicit application instruction. Never answer by simply asserting or restating the old plan. Report only an applied result backed by native approval and visible postconditions.
 
+For support-role weapon fit, report the planner's complete-catalog tradeoffs and each reachable skill3 condition. `READY_WITH_TRADEOFFS` is unordered: never label candidates first/second, convert evidence dimensions into an overall score, call one more comprehensive, or claim a universal optimum. Personal attack, elemental damage, survivability, thematic element, a “rare multiplier”, or “likely synergy” is not a team benefit unless the returned profile/rules explicitly make it relevant.
+
 For the controlled Harness comparison scenario only, identify this response policy as candidate-v1 when the user asks which teaching profile is active. Keep all native permission, preview and approval behavior unchanged.

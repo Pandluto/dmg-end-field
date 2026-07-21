@@ -316,7 +316,12 @@ export function resolveOperatorCatalogRecord(library, rawQuery) {
   };
 }
 
-export function deriveOperatorBuildProfile(rawOperator, { guideState, guideResolutionId, goal = 'damage' } = {}) {
+export function deriveOperatorBuildProfile(rawOperator, {
+  guideState,
+  guideResolutionId,
+  goal = 'damage',
+  conventionBundle = null,
+} = {}) {
   const skills = Object.entries(rawOperator?.skills && typeof rawOperator.skills === 'object' ? rawOperator.skills : {})
     .map(([skillId, skill]) => summarizeSkill(skill, skillId))
     .filter(Boolean);
@@ -331,16 +336,24 @@ export function deriveOperatorBuildProfile(rawOperator, { guideState, guideResol
   const rankedTypes = [...maxByType.values()]
     .filter((skill) => Number.isFinite(skill.peakLevelTotalMultiplier))
     .sort((left, right) => right.peakLevelTotalMultiplier - left.peakLevelTotalMultiplier);
+  const supportRole = /辅助|support/.test(normalized(rawOperator?.profession));
   const linkedDamageTypes = new Set(effects.filter((effect) => effect.damageRelevant).flatMap((effect) => effect.linkedSkillTypes));
+  const linkedUtilityTypes = new Set(effects.filter((effect) => !effect.damageRelevant).flatMap((effect) => effect.linkedSkillTypes));
   const focusSkillTypes = [];
-  if (rankedTypes[0]?.skillType) focusSkillTypes.push(rankedTypes[0].skillType);
-  for (const type of ['Q', 'E', 'B', 'A']) {
-    if (linkedDamageTypes.has(type) && !focusSkillTypes.includes(type)) focusSkillTypes.push(type);
+  if (supportRole) {
+    for (const type of ['Q', 'B', 'E', 'A']) {
+      if (linkedUtilityTypes.has(type) && !focusSkillTypes.includes(type)) focusSkillTypes.push(type);
+    }
+  } else {
+    if (rankedTypes[0]?.skillType) focusSkillTypes.push(rankedTypes[0].skillType);
+    for (const type of ['Q', 'E', 'B', 'A']) {
+      if (linkedDamageTypes.has(type) && !focusSkillTypes.includes(type)) focusSkillTypes.push(type);
+    }
   }
   const elementKey = normalized(rawOperator?.element);
   const elementGroup = ELEMENT_DAMAGE_GROUPS[elementKey] || null;
   const primaryFocus = SKILL_DAMAGE_GROUPS[focusSkillTypes[0]] || null;
-  const preferenceGroups = uniqueGroups([
+  const damagePreferenceGroups = uniqueGroups([
     primaryFocus ? {
       ...primaryFocus,
       kind: 'skill-damage',
@@ -359,14 +372,35 @@ export function deriveOperatorBuildProfile(rawOperator, { guideState, guideResol
     abilityGroup(rawOperator?.mainStat, 'primary'),
     abilityGroup(rawOperator?.subStat, 'secondary'),
   ]);
+  const conventionPreferenceGroups = Array.isArray(conventionBundle?.profilePreferences)
+    ? conventionBundle.profilePreferences.map((group) => ({
+      key: String(group?.key || ''),
+      label: String(group?.label || ''),
+      kind: String(group?.kind || 'other'),
+      acceptedTypeKeys: Array.isArray(group?.acceptedTypeKeys) ? group.acceptedTypeKeys.map(String) : [],
+      evidenceRefs: Array.isArray(group?.evidenceRefs) ? group.evidenceRefs.map(String) : [],
+    })).filter((group) => group.key && group.label && group.acceptedTypeKeys.length)
+    : [];
+  const preferenceGroups = supportRole ? uniqueGroups(conventionPreferenceGroups) : damagePreferenceGroups;
   const missing = [];
   if (!String(rawOperator?.mainStat || '').trim()) missing.push({ code: 'operator-main-attribute-missing', field: 'mainStat' });
   if (!String(rawOperator?.subStat || '').trim()) missing.push({ code: 'operator-secondary-attribute-missing', field: 'subStat' });
   if (!String(rawOperator?.element || '').trim()) missing.push({ code: 'operator-element-missing', field: 'element' });
   if (!skills.length) missing.push({ code: 'operator-skill-evidence-missing', field: 'skills' });
-  const derivationKind = guideState === 'PARTIAL_GUIDE_FOUND'
-    ? 'guide-and-skill-analysis'
-    : 'skill-analysis';
+  if (supportRole && conventionBundle?.state !== 'READY') {
+    missing.push({ code: 'operator-combat-convention-required', field: 'conventionBundle' });
+  }
+  if (supportRole && !conventionPreferenceGroups.length) {
+    missing.push({ code: 'operator-utility-preference-unresolved', field: 'conventionBundle.profilePreferences' });
+  }
+  if (supportRole && effects.some((effect) => !effect.damageRelevant) && !focusSkillTypes.length) {
+    missing.push({ code: 'operator-utility-focus-unresolved', field: 'skillEvidence.focusSkillTypes' });
+  }
+  const derivationKind = supportRole
+    ? 'combat-convention-and-skill-analysis'
+    : guideState === 'PARTIAL_GUIDE_FOUND'
+      ? 'guide-and-skill-analysis'
+      : 'skill-analysis';
   const evidenceRefs = [...new Set(preferenceGroups.flatMap((group) => group.evidenceRefs || []))];
   const plannerProfile = {
     characterId: String(rawOperator?.id || ''),
@@ -393,11 +427,20 @@ export function deriveOperatorBuildProfile(rawOperator, { guideState, guideResol
       source: 'operator-catalog-skill-fallback',
     },
     skillEvidence: {
-      comparisonScope: 'peak-level base hit multipliers plus linked structured operator effects; not a full rotation DPS calculation',
+      comparisonScope: supportRole
+        ? 'reviewed combat conventions plus linked structured utility effects; personal damage multipliers are excluded unless a convention makes them team-relevant'
+        : 'peak-level base hit multipliers plus linked structured operator effects; not a full rotation DPS calculation',
       skills,
       linkedEffects: effects,
       focusSkillTypes,
     },
+    conventionEvidence: supportRole ? {
+      required: true,
+      state: conventionBundle?.state || 'NOT_PROVIDED',
+      bundleHash: conventionBundle?.bundleHash || null,
+      ruleIds: Array.isArray(conventionBundle?.rules) ? conventionBundle.rules.map((rule) => rule.ruleId) : [],
+      ignoredTypeKeys: Array.isArray(conventionBundle?.ignoredTypeKeys) ? conventionBundle.ignoredTypeKeys : [],
+    } : { required: false },
     preferenceGroups,
     keywordLabels: preferenceGroups.map((group) => group.label),
     plannerProfile: missing.length ? null : plannerProfile,

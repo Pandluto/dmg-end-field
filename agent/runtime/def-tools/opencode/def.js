@@ -1366,7 +1366,7 @@ function dataResource(definition) {
 
 export const data_operator = dataResource({
   title: 'DEF operator resource',
-  description: 'Resolve only the currently selected Workbench operators. Empty results are scoped to the current selection, not the full catalog.',
+  description: 'Resolve only the currently selected Workbench operators for a question about the current roster. Do not call this before or during an operator-specific weapon/equipment recommendation: def_data_operator_build_guide is the first evidence tool and already resolves exact identity.',
   tool: 'def.character.resolve',
   input: ({ query }) => ({ query, limit: 12 }),
 })
@@ -1463,10 +1463,11 @@ export const data_operator_build_guide = {
 }
 
 export const data_operator_build_profile = {
-  description: 'Token-gated fallback after def_data_operator_build_guide returns PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND. In the same native user turn, consume the exact opaque fallbackToken for the same operator and return trusted element, main/sub operator attributes, skill-multiplier evidence, ordered effect groups, and the authorized plannerProfile/plannerProfileCapability pair. Pass both unchanged to def_data_equipment_3plus1_plan. If evidence is incomplete, no capability is issued and planning must stop. Never call this after GUIDE_FOUND or invent a token.',
+  description: 'Token-gated fallback after def_data_operator_build_guide returns PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND. For a support-role operator, first call def_data_combat_conventions and pass its exact conventionBundleHash; the profile then excludes unsupported personal-damage assumptions and uses reviewed utility conditions. In the same native user turn, consume the exact opaque fallbackToken for the same operator and return the authorized plannerProfile/plannerProfileCapability pair. If evidence is incomplete, no capability is issued and planning must stop. Never call this after GUIDE_FOUND or invent a token.',
   args: {
     operatorQuery: tool.schema.string().min(1).max(160).describe('The same exact operator name or stable id used for guide discovery.'),
     fallbackToken: tool.schema.string().min(20).max(160).describe('Exact opaque fallbackToken returned by guide discovery in this user turn.'),
+    conventionBundleHash: tool.schema.string().min(64).max(64).optional().describe('Exact bundleHash from def_data_combat_conventions; required when guide discovery marks combat conventions required.'),
   },
   async execute(args, context) {
     context.metadata({ title: 'DEF operator build fallback profile' })
@@ -1474,6 +1475,9 @@ export const data_operator_build_profile = {
     const result = await callDefTool('def.operator.build.profile', {
       operatorQuery: args.operatorQuery.trim(),
       fallbackToken: args.fallbackToken.trim(),
+      ...(typeof args.conventionBundleHash === 'string' && args.conventionBundleHash.trim()
+        ? { conventionBundleHash: args.conventionBundleHash.trim() }
+        : {}),
       __defTurnId: turnID,
     }, context)
     return {
@@ -1489,6 +1493,24 @@ export const data_operator_build_profile = {
     }
   },
 }
+
+export const data_combat_conventions = dataResource({
+  title: 'DEF combat convention rule bundle',
+  contract: 'DefCombatConventionBundleV1',
+  preserveContract: true,
+  description: 'Resolve reviewed teacher-curated condition rules for trigger analysis, rotation, support builds, or operator/weapon fit. This is a separate branch from source-faithful guide search. It returns connected ruleIds, qualitative certainty, profile preferences, missingEdges/conflicts, and one stable bundleHash. Combine it only with current typed catalog facts; never turn high/low probability into an invented percentage.',
+  tool: 'def.knowledge.combat_conventions.resolve',
+  args: {
+    entities: tool.schema.array(tool.schema.string().min(1).max(160)).min(1).max(16).describe('Stable ids and/or exact entity names, for example saixi, 赛希, 骑士精神.'),
+    intent: tool.schema.enum(['operator-fit', 'weapon-fit', 'support-build', 'rotation', 'trigger-analysis']).describe('The current reasoning intent.'),
+    terms: tool.schema.array(tool.schema.string().min(1).max(160)).max(16).optional().describe('Optional user terms that narrow the rule bundle.'),
+  },
+  input: ({ entities, intent, terms }) => ({
+    entities: entities.map((value) => value.trim()),
+    intents: [intent],
+    ...(Array.isArray(terms) && terms.length ? { terms: terms.map((value) => value.trim()) } : {}),
+  }),
+})
 
 export const data_game_knowledge = dataResource({
   title: 'DEF game knowledge reference search',
@@ -1819,6 +1841,49 @@ const equipmentPreferenceGroupSchema = tool.schema.object({
     .describe('Exact canonical equipment-effect type keys accepted for this group, for example iceDmgBonus and iceElectricDmgBonus.'),
 })
 
+export const data_weapon_fit_plan = {
+  description: 'Exhaustively compare every current-catalog weapon compatible with one exact operator. Requires the unchanged same-turn plannerProfile/plannerProfileCapability and exact conventionBundleHash. For support roles it excludes unsupported personal-damage defaults, verifies complete skill1/2/3 facts and reviewed trigger reachability, and returns an unordered READY_WITH_TRADEOFFS matrix: do not label candidates first/second, score them against one another, or claim a universal optimum. Never use truncated def_data_weapon or def_data_loadout_candidates as a substitute.',
+  args: {
+    operatorQuery: tool.schema.string().min(1).max(160).describe('Exact operator name or stable id used by guide/profile discovery.'),
+    conventionBundleHash: tool.schema.string().min(64).max(64).describe('Exact bundleHash returned by def_data_combat_conventions for this operator and weapon-fit intent.'),
+    plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile.'),
+    characterProfile: tool.schema.object({
+      characterId: tool.schema.string().min(1).max(160),
+      derivation: tool.schema.enum(['guide', 'guide-partial', 'skill-analysis', 'guide-and-skill-analysis', 'combat-convention-and-skill-analysis', 'user']),
+      evidenceRefs: tool.schema.array(tool.schema.string().min(1).max(240)).min(1).max(32),
+      keywords: tool.schema.array(tool.schema.string().min(1).max(80)).min(1).max(12),
+      preferenceGroups: tool.schema.array(equipmentPreferenceGroupSchema).min(1).max(12),
+    }),
+    goal: tool.schema.string().min(1).max(160).optional(),
+    shortlistLimit: tool.schema.number().int().min(1).max(3).optional(),
+  },
+  async execute(args, context) {
+    context.metadata({ title: 'DEF exhaustive weapon fit plan' })
+    const { turnID } = getDefOperatorConfigTurnIdentity(context)
+    const result = await callDefTool('def.weapon.fit.plan', {
+      operatorQuery: args.operatorQuery.trim(),
+      conventionBundleHash: args.conventionBundleHash.trim(),
+      plannerProfileCapability: args.plannerProfileCapability.trim(),
+      characterProfile: args.characterProfile,
+      goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : '武器推荐',
+      ...(args.shortlistLimit !== undefined ? { shortlistLimit: args.shortlistLimit } : {}),
+      __defTurnId: turnID,
+    }, context)
+    return {
+      title: 'DEF weapon fit tradeoffs ready',
+      output: JSON.stringify(result, null, 2),
+      metadata: {
+        family: 'def-data-resource',
+        contract: result.contract,
+        state: result.state,
+        operatorId: result.operator?.id,
+        compatibleCount: result.catalogEvidence?.compatibleCount,
+        readOnly: true,
+      },
+    }
+  },
+}
+
 export const data_equipment_3plus1_plan = {
   description: 'Build one bounded read-only 3+1 shortlist from the same session artifact and the unchanged plannerProfile issued by def_data_operator_build_guide or def_data_operator_build_profile. The exact same-turn plannerProfileCapability is mandatory and prevents model-edited evidence. Primary/secondary attributes are character effect priorities and are never matched against equipment fixedStat. The planner exhaustively checks at least three named-set memberships, all four physical slots, and optional duplicate compatible accessories, then returns exact ids plus per-piece matchKeys/count/rankingBasis/missing/ambiguity. It never invents a character profile, simulates damage, previews mutation, or applies equipment.',
   args: {
@@ -1827,7 +1892,7 @@ export const data_equipment_3plus1_plan = {
     plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile by guide discovery or authorized fallback.'),
     characterProfile: tool.schema.object({
       characterId: tool.schema.string().min(1).max(160).describe('Exact operator id whose sourced profile is being used.'),
-      derivation: tool.schema.enum(['guide', 'guide-partial', 'skill-analysis', 'guide-and-skill-analysis', 'user'])
+      derivation: tool.schema.enum(['guide', 'guide-partial', 'skill-analysis', 'guide-and-skill-analysis', 'combat-convention-and-skill-analysis', 'user'])
         .describe('Where the caller obtained this profile. The planner does not create or verify the underlying guide/skill reasoning.'),
       evidenceRefs: tool.schema.array(tool.schema.string().min(1).max(240)).min(1).max(8)
         .describe('Stable tool/reference facts supporting this profile.'),

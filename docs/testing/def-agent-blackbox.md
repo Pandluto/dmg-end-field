@@ -264,3 +264,34 @@ must carry the unchanged proposal token into `def_operator_config_patch`; native
 the visible postcondition remain required. A comparison, correction, or question such as
 “为什么不用两个悬河供氧栓” is a re-planning turn: it must not call the patch tool and requires a
 fresh preview before any later application.
+
+## Support weapon convention regression
+
+For the natural-language case `给赛希挑把武器，重点考虑她给队伍带来的收益`, keep the turn
+read-only and retain the v1 transcript. The expected evidence order is:
+
+1. `def_data_operator_build_guide` resolves whether an exact operator guide exists.
+2. When the guide is partial or absent, `def_data_combat_conventions` resolves one reviewed
+   `weapon-fit` bundle before `def_data_operator_build_profile`; pass the exact fallback token
+   and `bundleHash` unchanged.
+3. `def_data_weapon_fit_plan` receives the unchanged typed profile capability and exact
+   convention hash. It must evaluate every compatible current-catalog weapon with complete
+   skill1/2/3 facts.
+
+This route must not use generic game-knowledge search, generic operator/skill fallback,
+truncated `def_data_weapon`, loadout candidates, mutation, node, or approval tools. Record the
+guide state, convention rule ids and qualitative certainty, profile derivation, compatible and
+evaluated catalog counts, complete shortlisted facts, questions, and before/after state.
+
+The answer must preserve the difference between deterministic, high-probability and
+low-probability edges. For 赛希, it may explain that two controller heavy attacks after her
+combat skill make her combo skill available; that combo skill heals the controller and applies
+ice; the reviewed chain then treats magic burst as high-probability and magic anomaly as
+low-probability. It must not turn either edge into certainty or a percentage. 骑士精神 should
+be discussed through its reachable post-heal team attack effect. 爆破单元 should be discussed
+through the reviewed magic-burst vulnerability condition and its intelligence-linked passive.
+If the planner returns `READY_WITH_TRADEOFFS`, report an unordered tradeoff matrix: do not use
+first/second labels, convert evidence dimensions into an overall score, call one candidate more
+comprehensive, or name a universal winner. Personal attack, elemental damage, survivability,
+weapon element, or will are not team benefits unless the returned profile and reviewed rules
+explicitly authorize them. Claims such as “稀有乘区” also require explicit returned evidence.

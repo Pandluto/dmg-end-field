@@ -63,6 +63,88 @@ const operators = {
     profession: '突击',
     skills: {},
   },
+  saixi: {
+    id: 'saixi',
+    name: '赛希',
+    element: 'ice',
+    profession: '辅助',
+    weapon: '法术单元',
+    mainStat: '意志',
+    subStat: '智识',
+    skills: {
+      'skill-A-1': skill('冷却', 'A', [0.34, 0.36, 0.47, 0.74, 1.24]),
+      'skill-B-1': skill('分布式拒绝服务', 'B', [0]),
+      'skill-E-1': skill('压力测试', 'E', [4.5]),
+      'skill-Q-1': skill('栈溢出', 'Q', [0]),
+      'skill-A-2': skill('处决', 'A', [9]),
+    },
+    buffs: {
+      skill: {
+        effects: {
+          q1: { name: '终结技·每点智识寒冷增幅', typeKey: 'iceAmplify' },
+          b1: { name: '战技·法术增幅', typeKey: 'magicAmplify' },
+          e1: { name: '连携技·治疗主控并施加冰附着', typeKey: 'healingBonus' },
+        },
+      },
+    },
+  },
+};
+
+function weaponSkill(name, statType, description) {
+  return { name, statType, effects: {}, levels: { 9: { value: 1, description } } };
+}
+
+function weaponEffect(name, type, category) {
+  return { name, type, category, levels: { 9: 0.28 } };
+}
+
+const weapons = {
+  knight: {
+    id: 'wpn_funnel_0010', name: '骑士精神', type: '法术单元', rarity: 6,
+    skills: {
+      skill1: weaponSkill('意志提升·大', '意志提升', '意志+156'),
+      skill2: weaponSkill('生命提升·大', '生命提升', '最大生命值+78%'),
+      skill3: {
+        name: '医疗·侵蚀性狂热', statType: 'special',
+        effects: {
+          heal: weaponEffect('治疗效率提升', 'healingBonus', 'passive'),
+          team: weaponEffect('自身技能治疗后·全队攻击力', 'atkPercentBoost', 'condition'),
+        },
+        levels: { 9: { description: '治疗效率+28%。自身技能治疗后，全队攻击力+25.2%。' } },
+      },
+    },
+  },
+  explosive: {
+    id: 'wpn_funnel_0008', name: '爆破单元', type: '法术单元', rarity: 6,
+    skills: {
+      skill1: weaponSkill('主能力提升·大', '主能力提升', '主能力值+132'),
+      skill2: weaponSkill('源石技艺强度提升·大', '源石技艺强度提升', '源石技艺强度+78'),
+      skill3: {
+        name: '迸发·冠军威赫', statType: 'special',
+        effects: {
+          sub: weaponEffect('副能力提升', 'subStatBoost', 'passive'),
+          burst: weaponEffect('法术爆发·目标法术易伤', 'magicVulnerability', 'condition'),
+        },
+        levels: { 9: { description: '副能力+28%。造成法术爆发时，使目标法术易伤+25.2%。' } },
+      },
+    },
+  },
+  mission: {
+    id: 'wpn_funnel_0009', name: '使命必达', type: '法术单元', rarity: 6,
+    skills: {
+      skill1: weaponSkill('意志提升·大', '意志提升', '意志+156'),
+      skill2: weaponSkill('终结技充能效率提升·大', '终结技充能效率提升', '终结技充能效率+46.4%'),
+      skill3: { name: '个人输出', statType: 'special', effects: {}, levels: { 9: { description: '仅个人输出。' } } },
+    },
+  },
+  lone: {
+    id: 'wpn_funnel_0007', name: '孤舟', type: '法术单元', rarity: 6,
+    skills: {
+      skill1: weaponSkill('意志提升·大', '意志提升', '意志+156'),
+      skill2: weaponSkill('攻击力提升·大', '攻击力提升', '攻击力+39%'),
+      skill3: { name: '个人输出', statType: 'special', effects: {}, levels: { 9: { description: '仅个人输出。' } } },
+    },
+  },
 };
 
 const partialReferenceText = '## 别礼装备\n词条优先力量。\n';
@@ -118,7 +200,10 @@ fs.writeFileSync(nowStoragePath, `${JSON.stringify({
   schemaVersion: 1,
   id: 'operator-build-guide-contract',
   storage: {
-    local: { 'def.operator-editor.library.v1': operators },
+    local: {
+      'def.operator-editor.library.v1': operators,
+      'def.weapon-sheet.library.v1': weapons,
+    },
     session: {},
   },
 }, null, 2)}\n`, 'utf8');
@@ -301,6 +386,82 @@ try {
   assert.equal(incompleteProfile.payload.result.plannerProfileCapability, null);
   assert.ok(incompleteProfile.payload.result.missing.length >= 3);
 
+  const saixiGuide = await call('def.operator.build.guide', {
+    operatorQuery: '赛希',
+    goal: '武器推荐',
+    __defTurnId: 'turn-saixi',
+  });
+  assert.equal(saixiGuide.response.status, 200, JSON.stringify(saixiGuide.payload));
+  assert.equal(saixiGuide.payload.result.state, 'GUIDE_NOT_FOUND');
+  assert.equal(saixiGuide.payload.result.evidenceRequirements.combatConvention, 'required-before-role-aware-profile-and-weapon-fit');
+
+  const saixiMissingConvention = await call('def.operator.build.profile', {
+    operatorQuery: '赛希',
+    fallbackToken: saixiGuide.payload.result.fallbackToken,
+    __defTurnId: 'turn-saixi',
+  });
+  assert.equal(saixiMissingConvention.response.status, 409, JSON.stringify(saixiMissingConvention.payload));
+  assert.equal(saixiMissingConvention.payload.error?.code, 'operator-build-convention-bundle-required');
+
+  const saixiConvention = await call('def.knowledge.combat_conventions.resolve', {
+    entities: ['saixi', '赛希'],
+    intents: ['weapon-fit', 'operator-fit'],
+    terms: ['武器推荐'],
+  });
+  assert.equal(saixiConvention.response.status, 200, JSON.stringify(saixiConvention.payload));
+  assert.equal(saixiConvention.payload.result.state, 'READY');
+  assert.match(saixiConvention.payload.result.bundleHash, /^[a-f0-9]{64}$/);
+  assert.ok(saixiConvention.payload.result.rules.some((rule) => rule.ruleId === 'saixi.knights-spirit-heal-trigger'));
+  assert.ok(saixiConvention.payload.result.rules.some((rule) => rule.certainty === 'high-probability'));
+  assert.ok(saixiConvention.payload.result.rules.some((rule) => rule.certainty === 'low-probability'));
+
+  const saixiProfile = await call('def.operator.build.profile', {
+    operatorQuery: '赛希',
+    fallbackToken: saixiGuide.payload.result.fallbackToken,
+    conventionBundleHash: saixiConvention.payload.result.bundleHash,
+    __defTurnId: 'turn-saixi',
+  });
+  assert.equal(saixiProfile.response.status, 200, JSON.stringify(saixiProfile.payload));
+  assert.equal(saixiProfile.payload.result.state, 'PROFILE_READY');
+  assert.equal(saixiProfile.payload.result.plannerProfile.derivation, 'combat-convention-and-skill-analysis');
+  assert.deepEqual(saixiProfile.payload.result.keywordLabels, ['可触发的全队增益', '终结技充能效率', '智识']);
+  assert.deepEqual(saixiProfile.payload.result.skillEvidence.focusSkillTypes, ['Q', 'B', 'E']);
+  assert.equal(saixiProfile.payload.result.preferenceGroups.some((group) => group.key === 'normal-attack-damage'), false);
+  assert.equal(saixiProfile.payload.result.preferenceGroups.some((group) => group.key === 'ice-damage'), false);
+  assert.equal(saixiProfile.payload.result.preferenceGroups.some((group) => group.acceptedTypeKeys.includes('willBoost')), false);
+
+  const saixiWeaponPlan = await call('def.weapon.fit.plan', {
+    operatorQuery: '赛希',
+    conventionBundleHash: saixiConvention.payload.result.bundleHash,
+    characterProfile: saixiProfile.payload.result.plannerProfile,
+    plannerProfileCapability: saixiProfile.payload.result.plannerProfileCapability,
+    goal: '武器推荐',
+    shortlistLimit: 3,
+    __defTurnId: 'turn-saixi',
+  });
+  assert.equal(saixiWeaponPlan.response.status, 200, JSON.stringify(saixiWeaponPlan.payload));
+  const weaponPlan = saixiWeaponPlan.payload.result;
+  assert.equal(weaponPlan.contract, 'DefWeaponFitPlanV1');
+  assert.equal(weaponPlan.state, 'READY_WITH_TRADEOFFS');
+  assert.equal(weaponPlan.catalogEvidence.compatibleCount, 4);
+  assert.equal(weaponPlan.catalogEvidence.evaluatedCount, 4);
+  assert.equal(weaponPlan.catalogEvidence.exhaustive, true);
+  assert.equal(weaponPlan.catalogEvidence.truncated, false);
+  assert.equal(weaponPlan.rankingBasis.uniqueOptimalClaimAllowed, false);
+  assert.equal(weaponPlan.rankingBasis.crossCandidateTotalOrderAllowed, false);
+  assert.deepEqual(weaponPlan.shortlist.map((candidate) => candidate.id), ['wpn_funnel_0008', 'wpn_funnel_0010']);
+  assert.ok(weaponPlan.shortlist.every((candidate) => candidate.weightedScore === undefined));
+  const explosivePlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'wpn_funnel_0008');
+  const knightPlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'wpn_funnel_0010');
+  assert.match(explosivePlan.fullFacts.skills.skill3.description, /法术爆发/);
+  assert.match(knightPlan.fullFacts.skills.skill3.description, /自身技能治疗后/);
+  assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'secondary-intelligence'));
+  assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.certainty === 'high-probability'));
+  assert.ok(knightPlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'reachable-team-buff'));
+  assert.ok(knightPlan.excludedOrUnverifiedReasons.some((reason) => reason.typeKey === 'willBoost'));
+  const loneScore = weaponPlan.catalogEvidence.allCandidateEvidence.find((candidate) => candidate.id === 'wpn_funnel_0007');
+  assert.equal(loneScore.matchedGroupKeys.includes('reachable-team-buff'), false, 'personal attack must not satisfy a team-buff preference');
+
   console.log(JSON.stringify({
     ok: true,
     checks: [
@@ -316,6 +477,10 @@ try {
       'incomplete-profile-fails-closed',
       'guide-profile-capability-bound',
       'bounded-known-guide-section',
+      'support-convention-required',
+      'support-role-aware-profile',
+      'complete-compatible-weapon-plan',
+      'qualitative-trigger-certainty',
     ],
   }));
 } finally {

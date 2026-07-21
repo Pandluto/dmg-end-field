@@ -69,6 +69,8 @@ for (const root of harnessRoots) {
   assert.match(contract, /at least three slots belong to the named target set/);
   assert.match(contract, /Four target-set memberships remain legal/);
   assert.match(response, /at most two genuinely close alternatives/);
+  assert.match(response, /READY_WITH_TRADEOFFS[\s\S]{0,160}unordered/i);
+  assert.match(response, /never label candidates first\/second/i);
   assert.match(response, /discard any prior proposal token, and never reuse it/i);
   assert.match(response, /Never answer by simply asserting or restating the old plan/);
   assert.doesNotMatch(combined, /invalidates? (?:the affected conclusion and )?(?:any prior|the old) proposal token/i);
@@ -117,6 +119,20 @@ assert.deepEqual(correctionScenario.verification.requiredToolsByTurn['2'], [
 ]);
 assert.deepEqual(correctionScenario.verification.orderedToolsByTurn['2'], correctionScenario.verification.requiredToolsByTurn['2']);
 
+const supportWeaponScenario = JSON.parse(read('agent/harness/scenarios/support-weapon-convention-v1.json'));
+assert.deepEqual(supportWeaponScenario.verification.requiredToolsByTurn['1'], [
+  'def_data_operator_build_guide',
+  'def_data_combat_conventions',
+  'def_data_operator_build_profile',
+  'def_data_weapon_fit_plan',
+]);
+assert.deepEqual(supportWeaponScenario.verification.orderedToolsByTurn['1'], supportWeaponScenario.verification.requiredToolsByTurn['1']);
+assert.ok(supportWeaponScenario.verification.forbiddenTools.includes('def_data_game_knowledge'));
+assert.ok(supportWeaponScenario.verification.forbiddenTools.includes('def_data_weapon'));
+assert.ok(supportWeaponScenario.verification.forbiddenTools.includes('def_data_loadout_candidates'));
+assert.equal(supportWeaponScenario.verification.maxRepeatedToolCalls.def_data_combat_conventions, 1);
+assert.equal(supportWeaponScenario.verification.maxRepeatedToolCalls.def_data_weapon_fit_plan, 1);
+
 for (const scenario of [threePlusOneScenario, correctionScenario]) {
   const fallbackRule = scenario.verification.conditionalTools.find((rule) => (
     rule.when?.tool === 'def_data_operator_build_guide'
@@ -162,5 +178,6 @@ console.log(JSON.stringify({
     'turn-scoped-required-tools',
     'turn-scoped-tool-order',
     'read-only-scenarios',
+    'support-weapon-convention-route',
   ],
 }));

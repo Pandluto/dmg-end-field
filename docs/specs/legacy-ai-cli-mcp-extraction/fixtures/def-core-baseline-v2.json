@@ -1,15 +1,15 @@
 {
   "baselineVersion": 2,
-  "definitionCount": 71,
-  "registryCount": 71,
-  "registrySha256": "a01bed9182e053daaba4a988f98e50c3406baf14a554400085e825dde5bd3a1a",
-  "toolSchemaSha256": "1b92ee4b181a6a2a0f550dbb1b465277ea8c0b2466d024d0ed6e200039d97e5c",
-  "routeMapSha256": "d5fca41e30c77be1bb08f55a0ca5847a80c64abcd2e225b16252ccc62d5554aa",
+  "definitionCount": 73,
+  "registryCount": 73,
+  "registrySha256": "9342161912d86a1bc5f57814385a37e4fa05bd1eeac007eb4d5686b1fe4090b0",
+  "toolSchemaSha256": "2928eb6f2ea9a3d79cf4220a6d47c542e0653362a2eaa740f2ff41883e3c1179",
+  "routeMapSha256": "7d424b1e5237c22e34cf11b59cafcb575f4ec19573c4664ddbf0b018a80ed6a2",
   "diagnostics": {
-    "legacyToolCount": 71,
-    "modelExposedLegacyToolCount": 66,
+    "legacyToolCount": 73,
+    "modelExposedLegacyToolCount": 68,
     "internalToolCount": 5,
-    "nativeTargetCount": 43,
+    "nativeTargetCount": 45,
     "unclassified": []
   },
   "healthRequiredFields": [
