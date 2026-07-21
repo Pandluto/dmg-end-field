@@ -4369,7 +4369,16 @@ function resolvePendingTeamLoadoutReconciliation(input = {}) {
   if (session.binding.host !== 'workbench' || session.binding.id !== plan.axisBindingId || session.binding.timelineId !== plan.timelineId) {
     return workbenchBindingFailure('blocked-session-mismatch', 'The pending team plan does not belong to this bound Workbench session.');
   }
-  if (!plan.pendingCommand) return { ok: true, pending: false, plan };
+  if (!plan.pendingCommand) {
+    return {
+      ok: true,
+      pending: false,
+      plan,
+      session,
+      binding: session.binding,
+      document: session.document,
+    };
+  }
   const candidate = plan.preparedCandidate;
   const parent = candidate ? readRepositoryWorkNode(candidate.parentNodeId) : null;
   const node = candidate ? readRepositoryWorkNode(candidate.nodeId) : null;
@@ -8776,7 +8785,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
     const pendingCommandId = typeof body?.pendingCommandId === 'string' ? body.pendingCommandId.trim() : '';
     const parent = parentNodeId ? readRepositoryWorkNode(parentNodeId) : null;
     const candidate = candidateNodeId ? readRepositoryWorkNode(candidateNodeId) : null;
-    if (!planHash || !sessionId || !timelineId || !axisBindingId || !pendingCommandId || !parent || !candidate
+    if (!planHash || !sessionId || !timelineId || !axisBindingId || !parent || !candidate
       || parent.timelineId !== timelineId || candidate.timelineId !== timelineId) {
       return failScript(400, 'invalid-contract-pending-team-plan', 'The isolated contract seed requires one bound P/C pair and exact pending command identity.');
     }
@@ -8795,16 +8804,20 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
       ownerSessionId: sessionId, timelineId, axisBindingId,
       operators: [], confirmedDecisions: [],
       preparedCandidate, usedAt: Date.now(), usedResult: null,
-      pendingCommand: { id: pendingCommandId, parentSnapshot: cloneJson(readMainWorkbenchSnapshotMirror() || {}), observedAt: Date.now() },
+      pendingCommand: pendingCommandId
+        ? { id: pendingCommandId, parentSnapshot: cloneJson(readMainWorkbenchSnapshotMirror() || {}), observedAt: Date.now() }
+        : null,
     });
-    writeMainWorkbenchCommandQueue([
-      ...readMainWorkbenchCommandQueue().filter((entry) => entry.id !== pendingCommandId),
-      normalizeMainWorkbenchCommandEntry({
-        id: pendingCommandId,
-        status: 'done',
-        command: { op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: preparedCandidate.parentRevision, nodeId: candidate.id, nodeRevision: preparedCandidate.nodeRevision },
-      }),
-    ]);
+    if (pendingCommandId) {
+      writeMainWorkbenchCommandQueue([
+        ...readMainWorkbenchCommandQueue().filter((entry) => entry.id !== pendingCommandId),
+        normalizeMainWorkbenchCommandEntry({
+          id: pendingCommandId,
+          status: 'done',
+          command: { op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: preparedCandidate.parentRevision, nodeId: candidate.id, nodeRevision: preparedCandidate.nodeRevision },
+        }),
+      ]);
+    }
     return { status: 200, body: { ok: true, planHash, pendingCommandId } };
   }
   if (method === 'GET' && pathname === '/api/def-tools/route-map') {
