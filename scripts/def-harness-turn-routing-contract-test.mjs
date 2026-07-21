@@ -91,5 +91,9 @@ assert.match(nativeServerSource, /def\.native_catalog\.register_session/);
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
 assert.match(viewSource, /__defHarnessSelector/);
 assert.match(viewSource, /harnessSelector: developmentHarnessSelector/);
+assert.match(viewSource, /SIDECAR_BOOTSTRAP_URL = 'http:\/\/127\.0\.0\.1:31457\/open-def-agent'/,
+  'the DEF host must start its local sidecar before calling the sidecar origin');
+assert.match(viewSource, /await ensureNativeSidecar\(\);\s*const ensureResponse = await fetch\(`\$\{origin\}\/api\/runtime\/ensure`/,
+  'the DEF host must await sidecar readiness before ensuring the OpenCode runtime');
 
 console.log('DEF turn-level Harness routing contract: PASS');

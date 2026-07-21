@@ -30,6 +30,7 @@ interface DefOpenCodeViewProps {
 }
 
 const SIDECAR_PORT = 17322;
+const SIDECAR_BOOTSTRAP_URL = 'http://127.0.0.1:31457/open-def-agent';
 const INTEROP_BASE_URL = 'http://127.0.0.1:31457/def-agent/interop/v1';
 
 export function DefOpenCodeView({
@@ -56,6 +57,18 @@ export function DefOpenCodeView({
   const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
   const storageKey = `def-opencode.native-session.${host}${host === 'workbench' ? `.${encodeURIComponent(normalizedTimelineId)}` : ''}${developmentHarnessSelector ? `.${encodeURIComponent(developmentHarnessSelector)}` : ''}.v2`;
 
+  const ensureNativeSidecar = async () => {
+    const response = await fetch(SIDECAR_BOOTSTRAP_URL, { method: 'POST' });
+    if (!response.ok) throw new Error(`Sidecar bootstrap failed: HTTP ${response.status}`);
+    const payload = await response.json() as {
+      ok?: boolean;
+      defAgent?: { ready?: boolean; running?: boolean; error?: string };
+    };
+    if (!payload.ok || payload.defAgent?.ready === false || payload.defAgent?.running === false) {
+      throw new Error(payload.defAgent?.error || 'DEF OpenCode sidecar failed to start.');
+    }
+  };
+
   const sessionExists = async (candidate: NativeSession) => {
     if (!candidate.directory || (host === 'workbench' && candidate.timelineId !== normalizedTimelineId)) return false;
     const response = await fetch(
@@ -68,6 +81,7 @@ export function DefOpenCodeView({
   };
 
   const createNativeSession = async () => {
+    await ensureNativeSidecar();
     const response = await fetch(`${origin}/api/native/session`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -115,6 +129,7 @@ export function DefOpenCodeView({
         }
         return;
       }
+      await ensureNativeSidecar();
       const ensureResponse = await fetch(`${origin}/api/runtime/ensure`, { method: 'POST' });
       if (!ensureResponse.ok) throw new Error(`HTTP ${ensureResponse.status}`);
       const stored = window.localStorage.getItem(storageKey) || window.sessionStorage.getItem(storageKey);
