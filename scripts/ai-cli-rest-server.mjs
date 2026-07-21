@@ -90,6 +90,8 @@ const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const OPERATOR_CATALOG_STORAGE_KEY = 'def.operator-editor.library.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const DEF_NATIVE_CATALOG_ARTIFACT_CONTRACT = 'DefNativeCatalogArtifactV1';
+const DEF_NATIVE_CATALOG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnowledge.json');
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
@@ -110,6 +112,38 @@ const {
   governanceToken: defInternalGovernanceToken,
   internalRawTransport: INTERNAL_RAW_TRANSPORT,
 } = defCoreState;
+// The model-facing materializer only runs through a session created by the
+// native host.  This map is intentionally sidecar-ephemeral: a restart makes
+// old capabilities fail closed until the host recovery route registers again.
+const registeredDefNativeCatalogSessions = new Map();
+
+function normalizeDefNativeCatalogSessionId(value) {
+  const sessionId = typeof value === 'string' ? value.trim() : '';
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{2,239}$/.test(sessionId) ? sessionId : '';
+}
+
+function pruneRegisteredDefNativeCatalogSessions(now = Date.now()) {
+  for (const [sessionId, registration] of registeredDefNativeCatalogSessions) {
+    if (!registration || registration.expiresAt <= now) registeredDefNativeCatalogSessions.delete(sessionId);
+  }
+}
+
+function registerDefNativeCatalogSession(input = {}) {
+  const sessionId = normalizeDefNativeCatalogSessionId(input.sessionId || input.__defSessionId);
+  if (!sessionId) return null;
+  const host = input.host === 'workbench' ? 'workbench' : input.host === 'ai-cli' ? 'ai-cli' : '';
+  if (!host) return null;
+  const registeredAt = Date.now();
+  const registration = { sessionId, host, registeredAt, expiresAt: registeredAt + DEF_NATIVE_CATALOG_SESSION_TTL_MS };
+  registeredDefNativeCatalogSessions.set(sessionId, registration);
+  return registration;
+}
+
+function resolveRegisteredDefNativeCatalogSession(value) {
+  pruneRegisteredDefNativeCatalogSessions();
+  const sessionId = normalizeDefNativeCatalogSessionId(value);
+  return sessionId ? registeredDefNativeCatalogSessions.get(sessionId) || null : null;
+}
 
 function consumeApprovedApplyCapability(input = {}, expected = {}) {
   const token = typeof input.approvalCapability === 'string' ? input.approvalCapability : '';
@@ -2696,8 +2730,28 @@ function hashDefNativeCatalogValue(value) {
 }
 
 function nativeCatalogText(value) {
-  return normalizeDefToolText(value)
+  return normalizeDefToolText(String(value || '').normalize('NFKC'))
     .replace(/(?:套装|套)$/u, '');
+}
+
+function readDefNativeGearSetAliasIndex() {
+  try {
+    const knowledge = JSON.parse(fs.readFileSync(GAME_KNOWLEDGE_JSON_PATH, 'utf8'));
+    const aliases = Array.isArray(knowledge?.gearSetAliases) ? knowledge.gearSetAliases : [];
+    return new Map(aliases.flatMap((entry) => {
+      const gearSetId = typeof entry?.gearSetId === 'string' ? entry.gearSetId.trim() : '';
+      const terms = Array.isArray(entry?.terms) ? entry.terms : [];
+      if (!gearSetId) return [];
+      return terms
+        .map((term) => nativeCatalogText(term))
+        .filter((term) => term.length >= 2)
+        .map((term) => [term, gearSetId]);
+    }));
+  } catch {
+    // Alias data is a trusted convenience layer, never a reason to broaden
+    // matching or manufacture a catalog when that local file is unavailable.
+    return new Map();
+  }
 }
 
 function nativeCatalogSafeBusinessValue(value, depth = 0) {
@@ -2909,9 +2963,14 @@ function buildDefNativeCatalogArtifact(input = {}) {
     files: [{ path: 'entity.full.json', records: 1, content: `${JSON.stringify(canonicalizeDefNativeCatalogValue(entity), null, 2)}\n` }],
   });
   if (domain === 'equipment') {
+    const gearSetAliases = readDefNativeGearSetAliasIndex();
+    const aliasedGearSetIds = new Set([...gearSetAliases.entries()]
+      .filter(([term]) => normalized === term || normalized.includes(term))
+      .map(([, gearSetId]) => gearSetId));
     const matchingSets = snapshot.gearSets.filter((gearSet) => {
       const identities = [gearSet.id, gearSet.name].map(nativeCatalogText).filter(Boolean);
-      return identities.some((identity) => normalized === identity || normalized.includes(identity));
+      return aliasedGearSetIds.has(gearSet.id)
+        || identities.some((identity) => normalized === identity || normalized.includes(identity));
     });
     if (matchingSets.length === 1) return entityFull(matchingSets[0], 'exact-gear-set');
   }
@@ -7799,6 +7858,21 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
     }
     return { ok: true, input, policy };
   }
+  // The bridge response carries catalog bytes only so the native plugin can
+  // write them into its own session directory. A generic loopback caller must
+  // never receive that transport payload, even though the persisted artifact
+  // itself is read-only.
+  if (name === 'def.native_catalog.materialize') {
+    const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+    const registration = resolveRegisteredDefNativeCatalogSession(sessionId);
+    if (!registration || !defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
+      return {
+        ok: false,
+        response: failScript(403, 'denied-native-catalog-session', 'Native catalog materialization requires an authenticated, registered DEF native session.'),
+      };
+    }
+    return { ok: true, input: { ...input, __defNativeCatalogSessionId: sessionId, __defNativeCatalogSession: registration }, policy };
+  }
   // This private continuation is the sole exception to the normal current
   // projection gate.  It cannot create a plan, mint approval, or choose a
   // command: it can only re-observe the server-stored exact pending command
@@ -7904,6 +7978,21 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     if (!document || document.archivedAt) return failScript(404, 'blocked-binding', 'The requested SQLite workspace is unavailable.');
     if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot open DEF AI mode.');
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, document } } };
+  }
+  if (name === 'def.native_catalog.register_session') {
+    const registration = registerDefNativeCatalogSession(input);
+    if (!registration) {
+      return failScript(400, 'invalid-native-catalog-session', 'Native catalog session registration requires a valid sessionId and host.');
+    }
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        protocolVersion: 1,
+        tool: name,
+        result: { ok: true, sessionId: registration.sessionId, host: registration.host, registeredAt: registration.registeredAt, expiresAt: registration.expiresAt },
+      },
+    };
   }
   if (name === 'def.worknode.create_from_current') {
     const session = input.__defCurrentGate || resolveCanonicalWorkbenchCurrent(input);

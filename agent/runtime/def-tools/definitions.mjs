@@ -9,6 +9,7 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.workbench.assert_timeline_admission', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate that an existing non-temporary SQLite workspace may open a Workbench DEF session.' },
   { name: 'def.workbench.assert_session_axis', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Validate an existing immutable Workbench session-to-SQLite binding.' },
   { name: 'def.workbench.unbind_session_axis', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Remove a persisted Workbench session-to-axis binding without deleting the timeline tree.' },
+  { name: 'def.native_catalog.register_session', scope: 'governance', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Register one authenticated native session for the short-lived native catalog artifact bridge. Internal native host only.' },
   { name: 'def.workbench.evidence', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Read bounded current-checkout evidence for the model.' },
   { name: 'def.workbench.list_buttons', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List skill buttons with stable ids and labels.' },
   { name: 'def.workbench.list_characters', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List selected characters and compact config summary.' },

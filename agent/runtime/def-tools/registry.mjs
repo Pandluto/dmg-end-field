@@ -25,6 +25,7 @@ const INTERNAL_GOVERNANCE_TOOLS = new Set([
   'def.workbench.unbind_session_axis',
   'def.workbench.assert_session_axis',
   'def.workbench.assert_timeline_admission',
+  'def.native_catalog.register_session',
 ]);
 
 const PUBLIC_TOOLS = new Set([

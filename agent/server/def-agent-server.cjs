@@ -81,6 +81,23 @@ async function ensureDefRestService() {
   throw new Error(`DEF tool service did not become ready at ${defRestUrl}`);
 }
 
+async function registerNativeCatalogSession(session) {
+  const sessionId = typeof session?.sessionID === 'string' ? session.sessionID.trim() : '';
+  const host = session?.host === 'workbench' ? 'workbench' : session?.host === 'ai-cli' ? 'ai-cli' : '';
+  if (!sessionId || !host) throw new Error('Native catalog session registration requires a native session id and host.');
+  const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host } }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true || payload?.result?.ok !== true) {
+    throw new Error(payload?.error?.message || `Native catalog session registration failed: HTTP ${response.status}`);
+  }
+  return payload.result;
+}
+
 function ensureParent(filePath) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -1133,6 +1150,7 @@ const server = http.createServer(async (request, response) => {
           timelineId,
           boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
         });
+        await registerNativeCatalogSession(session);
         const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
         const axisContext = await syncNativeWorkbenchAxisBinding(binding);
         writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
@@ -1154,6 +1172,7 @@ const server = http.createServer(async (request, response) => {
         directory: typeof body.directory === 'string' ? body.directory : '',
         sessionID,
       });
+      await registerNativeCatalogSession(session);
       const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
       writeJson(response, 200, { ok: true, session: { ...session, axisContext } });

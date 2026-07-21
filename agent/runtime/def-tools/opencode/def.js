@@ -24,6 +24,7 @@ const nodeInputs = 'node/working/inputs.json'
 const retrievalRoot = 'retrieval'
 const nativeCatalogArtifactContract = 'DefNativeCatalogArtifactV1'
 const nativeCatalogArtifactTtlMs = 15 * 60 * 1000
+const nativeCatalogArtifactsBySession = new Map()
 const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const activeDefToolTurns = new Map()
@@ -390,6 +391,102 @@ function nativeArtifactRoot(context) {
   return inside(context.directory, retrievalRoot)
 }
 
+function nativeArtifactPathIsInside(root, target) {
+  const relative = path.relative(root, target)
+  return !relative.startsWith('..') && !path.isAbsolute(relative)
+}
+
+function nativeArtifactSessionRegistry(sessionID) {
+  const existing = nativeCatalogArtifactsBySession.get(sessionID)
+  if (existing) return existing
+  const created = new Map()
+  nativeCatalogArtifactsBySession.set(sessionID, created)
+  return created
+}
+
+function removeNativeCatalogArtifact(context, artifactId, artifactRoot) {
+  const root = nativeArtifactRoot(context)
+  if (typeof artifactId !== 'string' || !/^catalog-[a-z0-9-]{20,}$/i.test(artifactId)) return
+  if (!nativeArtifactPathIsInside(root, artifactRoot) || path.basename(artifactRoot) !== artifactId) return
+  fs.rmSync(artifactRoot, { recursive: true, force: true })
+  const registry = nativeCatalogArtifactsBySession.get(context.sessionID)
+  const entry = registry?.get(artifactId)
+  if (entry?.timer) clearTimeout(entry.timer)
+  registry?.delete(artifactId)
+  if (registry?.size === 0) nativeCatalogArtifactsBySession.delete(context.sessionID)
+}
+
+function registerNativeCatalogArtifact(context, artifactRoot, manifest) {
+  if (!context?.sessionID || !manifest?.artifactId || !Number.isFinite(Number(manifest.expiresAt))) return
+  const registry = nativeArtifactSessionRegistry(context.sessionID)
+  const previous = registry.get(manifest.artifactId)
+  if (previous?.timer) clearTimeout(previous.timer)
+  const entry = { root: artifactRoot, expiresAt: Number(manifest.expiresAt), timer: null }
+  const delay = entry.expiresAt - Date.now()
+  if (delay > 0 && delay <= 0x7fffffff) {
+    entry.timer = setTimeout(() => {
+      if (Date.now() >= entry.expiresAt) removeNativeCatalogArtifact(context, manifest.artifactId, artifactRoot)
+    }, delay + 1)
+    entry.timer.unref?.()
+  }
+  registry.set(manifest.artifactId, entry)
+}
+
+function pruneNativeCatalogArtifactRegistry(context, now = Date.now()) {
+  const registry = nativeCatalogArtifactsBySession.get(context?.sessionID)
+  if (!registry) return
+  for (const [artifactId, entry] of registry) {
+    if (entry.expiresAt <= now) removeNativeCatalogArtifact(context, artifactId, entry.root)
+  }
+}
+
+function looksLikeRetrievalPath(value) {
+  if (typeof value !== 'string') return false
+  const normalized = value.replaceAll('\\', '/')
+  return normalized === 'retrieval' || normalized.startsWith('retrieval/') || /\/retrieval(?:\/|$)/.test(normalized)
+}
+
+function isNativeArtifactToolPathAllowed(sessionID, rawPath) {
+  const registry = nativeCatalogArtifactsBySession.get(sessionID)
+  if (!registry || typeof rawPath !== 'string' || !rawPath.trim()) return false
+  for (const entry of registry.values()) {
+    const target = path.isAbsolute(rawPath)
+      ? path.resolve(rawPath)
+      : path.resolve(path.dirname(entry.root), '..', rawPath)
+    if (nativeArtifactPathIsInside(entry.root, target)) return true
+  }
+  return false
+}
+
+function isNodeWorkingToolPath(rawPath) {
+  if (typeof rawPath !== 'string' || !rawPath.trim() || path.isAbsolute(rawPath)) return false
+  const normalized = path.posix.normalize(rawPath.replaceAll('\\', '/')).replace(/^\.\//, '')
+  return normalized === 'node/working' || normalized.startsWith('node/working/')
+}
+
+// OpenCode's static permission map cannot name a dynamic artifact id. Its
+// plugin lifecycle hook runs immediately before the native read/grep/glob
+// implementation, which gives DEF the missing exact-root guard without
+// changing vendor code or opening an external directory.
+export function assertDefNativeArtifactToolScope(input = {}, args = {}) {
+  const toolName = input?.tool
+  if (!['read', 'grep', 'glob'].includes(toolName)) return
+  const sessionID = typeof input?.sessionID === 'string' ? input.sessionID : ''
+  const rawPath = toolName === 'read' ? args?.filePath : args?.path
+  const registry = nativeCatalogArtifactsBySession.get(sessionID)
+  if (registry?.size) {
+    const context = { sessionID, directory: path.resolve([...registry.values()][0].root, '..', '..') }
+    pruneNativeCatalogArtifactRegistry(context)
+  }
+  if (toolName === 'read') {
+    if (!looksLikeRetrievalPath(rawPath)) return
+    if (isNativeArtifactToolPathAllowed(sessionID, rawPath)) return
+    throw new Error('denied-native-catalog-artifact-scope: read is limited to an unexpired artifact root returned in this session')
+  }
+  if (isNativeArtifactToolPathAllowed(sessionID, rawPath) || isNodeWorkingToolPath(rawPath)) return
+  throw new Error(`denied-native-file-scope: ${toolName} requires an explicit node/working or unexpired native artifact path`)
+}
+
 function readNativeArtifactManifest(root) {
   const manifestPath = path.join(root, 'manifest.json')
   try {
@@ -415,15 +512,24 @@ function nativeArtifactFilesMatch(root, manifest) {
 
 function cleanupExpiredNativeArtifacts(context, now = Date.now()) {
   const root = nativeArtifactRoot(context)
-  if (!fs.existsSync(root)) return
+  if (!fs.existsSync(root)) {
+    pruneNativeCatalogArtifactRegistry(context, now)
+    return
+  }
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
     // Never recursively clean a caller-supplied path. The only deletable
     // cache entries are artifact ids this bridge itself minted below.
     if (!entry.isDirectory() || !/^catalog-[a-z0-9-]{20,}$/i.test(entry.name)) continue
     const artifactRoot = path.join(root, entry.name)
     const manifest = readNativeArtifactManifest(artifactRoot)
-    if (!manifest || Number(manifest.expiresAt) <= now) fs.rmSync(artifactRoot, { recursive: true, force: true })
+    if (!manifest || Number(manifest.expiresAt) <= now) removeNativeCatalogArtifact(context, entry.name, artifactRoot)
   }
+  pruneNativeCatalogArtifactRegistry(context, now)
+}
+
+export function cleanupNativeCatalogArtifacts(context, now = Date.now()) {
+  if (!context?.directory || !context?.sessionID) throw new Error('native-catalog-artifact-session-directory-required')
+  cleanupExpiredNativeArtifacts(context, now)
 }
 
 function findReusableNativeArtifact(context, snapshot, now = Date.now()) {
@@ -466,12 +572,13 @@ function validateNativeCatalogSnapshot(snapshot) {
 
 export function materializeNativeCatalogArtifact(context, snapshot, now = Date.now()) {
   validateNativeCatalogSnapshot(snapshot)
-  if (!context?.directory || typeof context.directory !== 'string') throw new Error('native-catalog-artifact-session-directory-required')
+  if (!context?.directory || typeof context.directory !== 'string' || !context.sessionID) throw new Error('native-catalog-artifact-session-directory-required')
   const root = nativeArtifactRoot(context)
   fs.mkdirSync(root, { recursive: true })
   cleanupExpiredNativeArtifacts(context, now)
   const reusable = findReusableNativeArtifact(context, snapshot, now)
   if (reusable) {
+    registerNativeCatalogArtifact(context, reusable.root, reusable.manifest)
     return {
       ...reusable.manifest,
       root: path.relative(context.directory, reusable.root),
@@ -525,6 +632,7 @@ export function materializeNativeCatalogArtifact(context, snapshot, now = Date.n
     if (!fs.existsSync(path.join(artifactRoot, 'manifest.json'))) fs.rmSync(artifactRoot, { recursive: true, force: true })
     throw error
   }
+  registerNativeCatalogArtifact(context, artifactRoot, manifest)
   return {
     ...manifest,
     root: `${retrievalRoot}/${artifactId}`,

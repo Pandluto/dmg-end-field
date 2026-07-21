@@ -917,7 +917,27 @@ function createAgentSessionWorkspace(skillId) {
   return fs.realpathSync(directory);
 }
 
+function cleanupNativeRetrievalArtifacts(directory, now = Date.now()) {
+  const retrieval = path.join(directory, 'retrieval');
+  if (!fs.existsSync(retrieval)) return;
+  for (const entry of fs.readdirSync(retrieval, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !/^catalog-[a-z0-9-]{20,}$/i.test(entry.name)) continue;
+    const artifactRoot = path.join(retrieval, entry.name);
+    let manifest = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(artifactRoot, 'manifest.json'), 'utf8'));
+    } catch {
+      manifest = null;
+    }
+    if (!manifest || manifest.contract !== 'DefNativeCatalogArtifactV1'
+      || manifest.artifactId !== entry.name || Number(manifest.expiresAt) <= now) {
+      fs.rmSync(artifactRoot, { recursive: true, force: true });
+    }
+  }
+}
+
 function syncNativeSessionWorkspaceFiles(directory) {
+  cleanupNativeRetrievalArtifacts(directory);
   const toolsDir = path.join(directory, '.opencode', 'tools');
   const codecDir = path.join(directory, 'def-node-workspace');
   fs.mkdirSync(toolsDir, { recursive: true });
@@ -2325,6 +2345,7 @@ module.exports = {
   listPersistedDefSessions,
   getPersistedDefSession,
   hydrateDefSession,
+  cleanupNativeRetrievalArtifacts,
   createAgentSessionWorkspace,
   getChatSessionStream,
   getLiveDefTranscript,

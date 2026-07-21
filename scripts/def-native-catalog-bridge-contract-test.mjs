@@ -98,12 +98,34 @@ async function waitForReady() {
   throw new Error('Timed out waiting for native catalog bridge server.');
 }
 
-async function call(input) {
+async function requestNativeCatalog(input, { authenticated = true, sessionId = 'native-catalog-contract-session' } = {}) {
   const response = await fetch(`${baseUrl}/api/def-tools/call`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ tool: 'def.native_catalog.materialize', input }),
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(authenticated ? { 'x-def-internal-token': 'native-catalog-contract' } : {}),
+    },
+    body: JSON.stringify({ tool: 'def.native_catalog.materialize', input, ...(sessionId ? { sessionId } : {}) }),
   });
   const payload = await response.json();
+  return { response, payload };
+}
+
+async function registerNativeSession(sessionId = 'native-catalog-contract-session', { authenticated = true } = {}) {
+  const response = await fetch(`${baseUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...(authenticated ? { 'x-def-internal-token': 'native-catalog-contract' } : {}),
+    },
+    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host: 'ai-cli' } }),
+  });
+  const payload = await response.json();
+  return { response, payload };
+}
+
+async function call(input) {
+  const { response, payload } = await requestNativeCatalog(input);
   assert.equal(response.status, 200, JSON.stringify(payload));
   assert.equal(payload.ok, true, JSON.stringify(payload));
   return payload.result;
@@ -111,6 +133,22 @@ async function call(input) {
 
 try {
   await waitForReady();
+
+  const noNativeAuthority = await requestNativeCatalog({ domain: 'equipment', query: '潮涌套' }, { authenticated: false });
+  assert.equal(noNativeAuthority.response.status, 403);
+  assert.equal(noNativeAuthority.payload.error?.code, 'denied-native-catalog-session');
+  const noSessionIdentity = await requestNativeCatalog({ domain: 'equipment', query: '潮涌套' }, { sessionId: '' });
+  assert.equal(noSessionIdentity.response.status, 403);
+  assert.equal(noSessionIdentity.payload.error?.code, 'denied-native-catalog-session');
+  const unregisteredSession = await requestNativeCatalog({ domain: 'equipment', query: '潮涌套' }, { sessionId: 'unregistered-native-session' });
+  assert.equal(unregisteredSession.response.status, 403);
+  assert.equal(unregisteredSession.payload.error?.code, 'denied-native-catalog-session');
+  const untrustedRegistration = await registerNativeSession('untrusted-native-session', { authenticated: false });
+  assert.equal(untrustedRegistration.response.status, 403);
+  assert.equal(untrustedRegistration.payload.error?.code, 'denied-internal-governance');
+  const registration = await registerNativeSession();
+  assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
+  assert.equal(registration.payload.result?.host, 'ai-cli');
 
   const set = await call({ domain: 'equipment', query: '潮涌套' });
   assert.equal(set.contract, 'DefNativeCatalogArtifactV1');
@@ -122,6 +160,10 @@ try {
   assert.equal(fullSet.equipments.filter((item) => item.part === '配件').length, 2);
   assert.equal(fullSet.threePieceBuffs.tideThree.name, '潮涌·所有技能伤害+20%');
   assert.equal(JSON.stringify(fullSet).includes('寒流'), false, 'exact set must not leak another set');
+
+  const aliasSet = await call({ domain: 'equipment', query: 'ｔｉｄｅ　ｓｕｒｇｅ套' });
+  assert.equal(aliasSet.selectionMode, 'entity-full');
+  assert.equal(JSON.parse(aliasSet.files[0].content).id, 'gear-set-chao-yong', 'NFKC-normalized safe alias must resolve the exact set');
 
   const strength = await call({ domain: 'equipment', query: '力量' });
   assert.equal(strength.selectionMode, 'substring-minimal');
@@ -157,7 +199,7 @@ try {
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['exact-set-full', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision'],
+    checks: ['native-session-registration-required', 'exact-set-full', 'safe-alias-nfkc', 'two-accessories', 'substring-oracle', 'weapon-full', 'fallback', 'key-order-revision', 'changed-revision'],
   }));
 } finally {
   child.kill('SIGTERM');

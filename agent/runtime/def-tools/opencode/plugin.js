@@ -20,8 +20,9 @@ export default async function DefToolsPlugin() {
       const turnId = output?.message?.id || input?.messageID
       definitions.beginDefToolTurn(input?.sessionID, turnId)
     },
-    'tool.execute.before': async (input) => {
+    'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool)
+      definitions.assertDefNativeArtifactToolScope(input, output?.args)
     },
   }
 }

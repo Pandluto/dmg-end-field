@@ -40,6 +40,7 @@ assert.match(pluginSource, /'chat\.message'/);
 assert.match(pluginSource, /beginDefToolTurn/);
 assert.match(pluginSource, /'tool\.execute\.before'/);
 assert.match(pluginSource, /assertDefToolTurnNotBlocked/);
+assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
 
@@ -81,6 +82,11 @@ assert.equal(nonRetryableMutationProbe.status, 0, nonRetryableMutationProbe.stde
 const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
 assert.match(defToolSource, /mutationTargetFingerprint/);
 assert.match(defToolSource, /def-tool-mutation-not-attempted/);
+assert.match(defToolSource, /denied-native-catalog-artifact-scope/);
+
+const nativeServerSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
+assert.match(nativeServerSource, /registerNativeCatalogSession/);
+assert.match(nativeServerSource, /def\.native_catalog\.register_session/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
 assert.match(viewSource, /__defHarnessSelector/);
