@@ -52,6 +52,7 @@
 - Buff 与 Damage 工作表改为直接从业务行数据生成 UI 单元格，不再创建临时工作簿。
 - Weapon、Buff、Equipment 三个页面拆为稳定入口、状态控制器、渲染视图和领域模型；原入口文件均缩为 8 行兼容 facade。
 - 第二轮将公式编辑器、单元格编辑器与资源树 JSX 从 controller 移回 view，再将公式 binding、分享导入导出、资源树拖拽和 Equipment 图片选择器按完整职责抽到独立模块。当前 controller 为 Weapon 964 行、Buff 1,002 行、Equipment 972 行，三者均已进入约 1,000 行的目标区间。
+- `DamageSheetPage.tsx` 将伤害投影、工作表模型与 Buff 列关联收口到 `damageSheetPageModel.tsx`，将浏览器撤销快照收口到 `damageSheetUndoHistory.ts`；页面入口从 2,443 行降至 1,131 行，两个新边界分别为 1,208 行和 141 行。
 
 ## 1. Buff 编辑器：最适合作为第一刀
 
