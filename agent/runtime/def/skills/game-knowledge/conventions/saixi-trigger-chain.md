@@ -16,7 +16,6 @@
   "versionScope": "current-local-catalog"
 }
 ```
-
 ```def-convention
 {
   "ruleId": "saixi.combo-heal-and-ice-application",
@@ -49,4 +48,3 @@
   "versionScope": "current-local-catalog"
 }
 ```
-

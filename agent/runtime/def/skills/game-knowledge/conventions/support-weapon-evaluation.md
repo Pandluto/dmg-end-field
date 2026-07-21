@@ -17,7 +17,6 @@
   "versionScope": "current-local-catalog"
 }
 ```
-
 ```def-convention
 {
   "ruleId": "support-role.ultimate-charge-conditional-value",
@@ -36,4 +35,3 @@
   "versionScope": "current-local-catalog"
 }
 ```
-
