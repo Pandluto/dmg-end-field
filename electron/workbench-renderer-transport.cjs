@@ -5,15 +5,23 @@ const path = require('path');
 const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
 const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
 
-function createWorkbenchRendererCapability() {
+function createPersistentLocalCapability() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-function isValidWorkbenchRendererCapability(value) {
+function isValidPersistentLocalCapability(value) {
   // 32 random bytes encoded with base64url are 43 characters.  Keep this
   // intentionally strict so a malformed or manually edited runtime file
   // cannot turn into an always-denied-but-hard-to-diagnose browser session.
   return typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+function createWorkbenchRendererCapability() {
+  return createPersistentLocalCapability();
+}
+
+function isValidWorkbenchRendererCapability(value) {
+  return isValidPersistentLocalCapability(value);
 }
 
 /**
@@ -28,18 +36,18 @@ function isValidWorkbenchRendererCapability(value) {
  * app's runtime directory and is rotated automatically if that file is
  * missing or malformed.
  */
-function readOrCreateWorkbenchRendererCapability(filePath) {
-  if (!filePath) return createWorkbenchRendererCapability();
+function readOrCreatePersistentLocalCapability(filePath) {
+  if (!filePath) return createPersistentLocalCapability();
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    if (parsed?.schemaVersion === 1 && isValidWorkbenchRendererCapability(parsed.capability)) {
+    if (parsed?.schemaVersion === 1 && isValidPersistentLocalCapability(parsed.capability)) {
       return parsed.capability;
     }
   } catch {
     // A first launch or a corrupt runtime artifact both get a new capability.
   }
 
-  const capability = createWorkbenchRendererCapability();
+  const capability = createPersistentLocalCapability();
   const directory = path.dirname(filePath);
   fs.mkdirSync(directory, { recursive: true });
   const temporaryPath = `${filePath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`;
@@ -54,6 +62,10 @@ function readOrCreateWorkbenchRendererCapability(filePath) {
     }
   }
   return capability;
+}
+
+function readOrCreateWorkbenchRendererCapability(filePath) {
+  return readOrCreatePersistentLocalCapability(filePath);
 }
 
 function isTrustedWorkbenchRendererOrigin(request, bridgeHost = '127.0.0.1', bridgePort = 31457) {
@@ -150,6 +162,7 @@ module.exports = {
   buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
   buildWorkbenchUpstreamSearch,
+  createPersistentLocalCapability,
   createWorkbenchRendererCapability,
   isValidWorkbenchRendererCapability,
   readOrCreateWorkbenchRendererCapability,
@@ -158,4 +171,5 @@ module.exports = {
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
   isTrustedWorkbenchRendererOrigin,
+  readOrCreatePersistentLocalCapability,
 };

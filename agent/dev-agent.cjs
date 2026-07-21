@@ -1,5 +1,4 @@
 const http = require('http');
-const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -11,6 +10,7 @@ const {
   buildWorkbenchUpstreamSearch,
   isAllowedWorkbenchRendererTransport,
   isAuthorizedWorkbenchRendererRequest,
+  readOrCreatePersistentLocalCapability,
   readOrCreateWorkbenchRendererCapability,
 } = require('../electron/workbench-renderer-transport.cjs');
 
@@ -26,7 +26,10 @@ let aiCliRestStartedAt = null;
 let defAgentProcess = null;
 let defAgentStartedAt = null;
 let webOpenedAt = null;
-const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN || crypto.randomUUID();
+const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
+  || readOrCreatePersistentLocalCapability(
+    path.join(getUserDataRoot(), 'runtime', 'def-internal-governance-capability.json'),
+  );
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: process.env.DEF_CODEX_INTEROP_PROFILE || 'development',
   baseUrl: `http://${HOST}:${PORT}`,

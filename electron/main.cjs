@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const defInternalGovernanceToken = crypto.randomUUID();
 const legacyFillHostToken = crypto.randomUUID();
 const fs = require('fs');
 const http = require('http');
@@ -28,6 +27,7 @@ const {
   isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
+  readOrCreatePersistentLocalCapability,
   readOrCreateWorkbenchRendererCapability,
 } = require('./workbench-renderer-transport.cjs');
 const {
@@ -42,6 +42,14 @@ const {
   session,
   shell,
 } = require('electron');
+
+// The REST and DEF sidecars may survive a main-process restart on Windows.
+// Keep their private authority stable across that restart so the new bridge
+// can still publish the canonical Workbench projection to the existing child.
+const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
+  || readOrCreatePersistentLocalCapability(
+    path.join(app.getPath('userData'), 'runtime', 'def-internal-governance-capability.json'),
+  );
 
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
