@@ -2,10 +2,10 @@
 
 ## 状态
 
-`PREPARED_NOT_DISPATCHABLE`
+`READY_TO_DISPATCH`
 
-这份文件已经完成源码盘点和首轮分包设计。
-它还不是编码分发凭证。
+源码盘点、修复合入、文件锁和基线自动验证已经完成。
+本次 map 更新提交是编码分发凭证。
 
 当前已知提交：
 
@@ -13,25 +13,31 @@
 | --- | --- | --- |
 | 规格预检父提交 | `b1294c0fa0697a00522996386dc80530056cfd08` | 增加 Session cleanup 工作包之前的 Spec 9 预检提交 |
 | 源码盘点基线 | `0a01c19fd67bb27f603d4cc596601bfbe394a4f3` | 本文符号、调用方和旧测试的盘点对象 |
-| Session ownership 修复候选 | `c66875086fdae28ce80f64a065a450d02462015c` | 自动合同 PASS；人工 Windows 验收仍待最终结论 |
-| `SOURCE_BASELINE_COMMIT` | `TBD` | 必须同时包含最新 Spec 9 与已验收修复 |
-| `DISPATCH_COMMIT` | `TBD` | W0 在最终源基线上复核本文后产生 |
+| Session ownership 修复候选 | `c66875086fdae28ce80f64a065a450d02462015c` | 已合入；same-session delete 自动合同 PASS |
+| `SOURCE_BASELINE_COMMIT` | `7c751740f27e1a8af4a2456520677c4e46d6efc5` | 同时包含最新 Spec 9 与 Session ownership 修复 |
+| `DISPATCH_COMMIT` | 本次 `READY_TO_DISPATCH` map 提交 | W0 在每份分发信封中写入提交后的精确 SHA |
 
-只要后两个 SHA 仍为 `TBD`，W1–W4 与 WS 就不得开工。
-当前文档提交也不得被误记为 `DISPATCH_COMMIT`。
+W1–W4 与 WS 必须从同一个精确 `DISPATCH_COMMIT` 建分支。
+不得使用分支名或 `SOURCE_BASELINE_COMMIT` 代替它。
+
+Windows Chrome UI 验收使用了隔离 AppData。
+页面成功进入选人界面，但创建隔离工作台时被
+`Workbench local-data transport is unavailable to this caller` 阻塞。
+该项记为 `ENVIRONMENT_BLOCKED`，不记为产品 PASS 或 FAIL。
+用户已明确授权编码继续；真实 UI 结论仍由 W6 补齐。
 
 ## 一、真正的开工门
 
 W0 必须按顺序完成：
 
-1. 取得 `c668750` 的人工验收结论。
-2. 若未通过，先合入它的后续修复。
+1. 重跑 `c668750` 的自动合同，并按当前 Windows Chrome 路径做隔离 UI 验收。
+2. 产品失败必须先修；环境阻塞只有在如实记录且用户明确授权后才能递延到 W6。
 3. 建立同时包含最新 Spec 9 和已验收修复的干净集成分支。
 4. 把该点写为唯一 `SOURCE_BASELINE_COMMIT`。
 5. 在该提交重新跑本文件第九节的基线命令。
 6. 复核符号位置、文件锁和保护区。
 7. 把本文状态改为 `READY_TO_DISPATCH`。
-8. 提交最后一次 map 更新，并把新提交写为 `DISPATCH_COMMIT`。
+8. 提交最后一次 map 更新；提交后的精确 SHA 就是 `DISPATCH_COMMIT`，写入每份分发信封与 `verification.md`。
 9. W1–W4 与 WS 全部从这个精确 SHA 建分支。
 
 任一步失败都停在 W0。
@@ -293,7 +299,7 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 | `npm run test:def-native-catalog` | ENVIRONMENT_BLOCKED | Node bridge 断言 PASS；Bun artifact 阶段因当前 worktree 缺少 `zod` package 停止，不记为产品 FAIL |
 | `npm run test:def-worknode-session-delete` | BASELINE_MISSING | `0a01c19` 尚无该 script，不能记为产品失败 |
 | 同一命令在 `c668750` | PASS | 自动 same-session delete approval contract 通过 |
-| Windows 真实 UI 手测 | PENDING | 之前测试路径被用户打断并要求纠正；尚不能验收修复 |
+| Windows Chrome 隔离 UI | ENVIRONMENT_BLOCKED | 正确 Chrome Extension 路径；选人可见，创建工作台被 local-data transport caller gate 阻塞，W6 继续 |
 
 W0 在最终 `SOURCE_BASELINE_COMMIT` 至少重跑：
 
