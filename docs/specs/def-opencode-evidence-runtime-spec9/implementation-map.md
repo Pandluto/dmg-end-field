@@ -149,7 +149,7 @@ W2 因此必须：
 | `agent/harness/scenarios/equipment-3plus1-topology-v1.json` | 行为 Scenario v2 | 每轮一次 recommend，且只允许该 Tool |
 | `agent/harness/scenarios/equipment-3plus1-set-selection-v1.json` | 行为 Scenario v2 | 每轮一次 recommend，且只允许该 Tool |
 | `agent/harness/scenarios/operator-config-correction-review-v1.json` | 真实 3+1 correction Scenario v2 | W3 原地迁移；两轮各只允许一次 recommend，不新建同义 Scenario |
-| `agent/harness/scenarios/equipment-3plus1-unresolved-v1.json` | 真实 3+1 unresolved Scenario v4 | 使用 G2 的“寒冷伤害是否触发潮涌第二段”问题；最后可见回答排除 ignored text，并以逗号/顿号为分句边界 |
+| `agent/harness/scenarios/equipment-3plus1-unresolved-v1.json` | 真实 3+1 unresolved Scenario v5 | 使用 G2 的“寒冷伤害是否触发潮涌第二段”问题；最后可见回答排除 ignored text，并按 Unicode 标点类别切分后验证结构化分句规则 |
 | `scripts/def-harness-turn-routing-contract-test.mjs` | 通用失败路由 fixture | 保留旧 facts 名称作为兼容事件，不算生产 owner |
 | `scripts/def-native-catalog-bridge-contract-test.mjs` | 旧 route 合同 | W1 保持原行为并改为复用 Domain |
 | `agent/runtime/def-tools/opencode/def.js` | 模型适配 | W2 增加 recommend；旧 export 保留兼容 |
@@ -388,8 +388,9 @@ Computer Use 已验证 DEF Shell cleanup 按钮、显式保留选择、确认与
 Chrome 与 Interop 已验证真实 Workbench、AI 模式、快照和候选绑定。
 
 四类 W6 语义场景的当前版本为 topology v2、set-selection v2、correction v2、
-unresolved v4。四类都采用每轮精确 Tool allowlist；unresolved 还验证 typed contract/state
-和最后可见回答的完整受限结论。
+unresolved v5。四类都采用每轮精确 Tool allowlist；unresolved 还验证 typed contract/state
+和最后可见回答的完整受限结论。回答按 Unicode `Po` / `Pd` / `Pc` 与换行切成分句，
+再由 `allOf` / `anyOf` / `noneOf` 判断同一分句中的关系，不维护逐个标点正则。
 
 已有 topology v1、set-selection v1、unresolved v1 package-check 均早于当前合同，
 全部标为 superseded。correction 没有独立 package-check artifact。

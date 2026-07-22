@@ -247,6 +247,9 @@ Only the last visible assistant text in that turn counts as the final answer; te
 “寒冷伤害”, “不能证明”, and “触发潮涌第二段” into the same conclusion and must not also assert
 that cold damage will/can trigger the second stage. Intermediate keywords, unrelated negation,
 metadata-only state, or a final answer that reverses an earlier hedge is not a pass.
+The runner splits that final text on Unicode `Po`, `Pd`, `Pc`, and newlines, while retaining brackets
+and paired quotes inside a clause. Scenario `allOf` / `anyOf` / `noneOf` rules then evaluate each
+clause; the contract does not enumerate punctuation in regular expressions.
 
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm

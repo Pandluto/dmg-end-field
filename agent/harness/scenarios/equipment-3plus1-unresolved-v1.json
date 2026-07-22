@@ -1,6 +1,6 @@
 {
   "id": "equipment-3plus1-unresolved-v1",
-  "version": 4,
+  "version": 5,
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -28,11 +28,21 @@
     "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_equipment", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 1 },
     "forbiddenAssistantText": ["已经应用", "已装备", "已写入配置", "唯一可用方案"],
-    "requiredFinalAssistantPatternsByTurn": {
-      "1": ["(?:不能证明[^。！？；;，,、\\n]{0,24}寒冷伤害(?:会|可以|能够|是否会|是否可以|是否能够)?触发潮涌第二段|寒冷伤害(?:会|可以|能够|是否会|是否可以|是否能够)?触发潮涌第二段[^。！？；;，,、\\n]{0,32}不能证明|寒冷伤害[^。！？；;，,、\\n]{0,16}不能证明(?:会|可以|能够|是否会|是否可以|是否能够)?触发潮涌第二段)"]
+    "requiredFinalAssistantClausesByTurn": {
+      "1": [
+        {
+          "allOf": ["不能证明", "寒冷伤害", "触发潮涌第二段"]
+        }
+      ]
     },
-    "forbiddenFinalAssistantPatternsByTurn": {
-      "1": ["(?:^|[。！？；，,、\\n]|但|不过|然而|可是)(?:(?!不能证明|无法证明|未能证明)[^。！？；，,、\\n]){0,64}寒冷伤害[^。！？；，,、\\n]{0,16}(?:会|可以|能够)触发潮涌第二段"]
+    "forbiddenFinalAssistantClausesByTurn": {
+      "1": [
+        {
+          "allOf": ["寒冷伤害", "触发潮涌第二段"],
+          "anyOf": ["会", "可以", "能够"],
+          "noneOf": ["不能证明", "无法证明", "未能证明"]
+        }
+      ]
     },
     "mustKeepState": true
   }

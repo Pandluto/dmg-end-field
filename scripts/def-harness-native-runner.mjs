@@ -179,6 +179,13 @@ function scenarioFinalVisibleAssistantText(turn) {
   return visible.at(-1) || '';
 }
 
+function scenarioFinalVisibleAssistantClauses(turn) {
+  return scenarioFinalVisibleAssistantText(turn)
+    .split(/[\p{Po}\p{Pd}\p{Pc}\r\n]+/u)
+    .map((clause) => clause.trim())
+    .filter(Boolean);
+}
+
 function addScenarioCheck(checks, check) {
   checks.push({ ...check, pass: Boolean(check.pass) });
 }
@@ -277,7 +284,36 @@ function normalizeScenarioTurnTypedToolResultRules(value, field, checks) {
   });
 }
 
-function normalizeScenarioTurnPatternRules(value, field, checks) {
+function normalizeScenarioClauseRule(value, field, checks) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object with allOf and optional anyOf/noneOf text lists.`,
+    });
+    return null;
+  }
+  const unknownFields = Object.keys(value).filter((key) => !['allOf', 'anyOf', 'noneOf'].includes(key));
+  if (unknownFields.length) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} contains unsupported fields: ${unknownFields.join(', ')}.`,
+    });
+    return null;
+  }
+  const allOf = scenarioTextList(value.allOf, `${field}.allOf`, checks);
+  const anyOf = value.anyOf === undefined ? [] : scenarioTextList(value.anyOf, `${field}.anyOf`, checks);
+  const noneOf = value.noneOf === undefined ? [] : scenarioTextList(value.noneOf, `${field}.noneOf`, checks);
+  if (!allOf.length || (value.anyOf !== undefined && !anyOf.length) || (value.noneOf !== undefined && !noneOf.length)) {
+    return null;
+  }
+  return { allOf, anyOf, noneOf };
+}
+
+function normalizeScenarioTurnClauseRules(value, field, checks) {
   if (value === undefined) return [];
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     addScenarioCheck(checks, {
@@ -288,35 +324,37 @@ function normalizeScenarioTurnPatternRules(value, field, checks) {
     });
     return [];
   }
-  return Object.entries(value).flatMap(([rawTurnNumber, rawPatterns]) => {
+  return Object.entries(value).flatMap(([rawTurnNumber, rawRules]) => {
     const turnNumber = Number(rawTurnNumber);
-    const sources = scenarioTextList(rawPatterns, `${field}.${rawTurnNumber}`, checks);
-    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !sources.length) {
-      if (!Number.isInteger(turnNumber) || turnNumber < 1) {
-        addScenarioCheck(checks, {
-          pass: false,
-          code: 'verification-config-invalid',
-          field: `${field}.${rawTurnNumber}`,
-          message: `${field} keys must be positive one-based turn numbers.`,
-        });
-      }
+    if (!Number.isInteger(turnNumber) || turnNumber < 1) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} keys must be positive one-based turn numbers.`,
+      });
       return [];
     }
-    const patterns = sources.flatMap((source, index) => {
-      try {
-        return [{ source, expression: new RegExp(source, 'u') }];
-      } catch (caught) {
-        addScenarioCheck(checks, {
-          pass: false,
-          code: 'verification-config-invalid',
-          field: `${field}.${rawTurnNumber}[${index}]`,
-          message: `Invalid regular expression: ${caught.message}`,
-        });
-        return [];
-      }
-    });
-    return patterns.length === sources.length ? [{ turnNumber, patterns }] : [];
+    if (!Array.isArray(rawRules) || !rawRules.length) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} entries must be non-empty arrays of clause rules.`,
+      });
+      return [];
+    }
+    const rules = rawRules
+      .map((rule, index) => normalizeScenarioClauseRule(rule, `${field}.${rawTurnNumber}[${index}]`, checks))
+      .filter(Boolean);
+    return rules.length === rawRules.length ? [{ turnNumber, rules }] : [];
   });
+}
+
+function scenarioClauseMatches(clause, rule) {
+  return rule.allOf.every((text) => clause.includes(text))
+    && (!rule.anyOf.length || rule.anyOf.some((text) => clause.includes(text)))
+    && rule.noneOf.every((text) => !clause.includes(text));
 }
 
 function normalizeConditionalScenarioRule(rule, index, checks) {
@@ -504,36 +542,39 @@ export function evaluateScenarioVerification(run, scenario) {
     }
   }
 
-  const requiredFinalPatternsByTurn = normalizeScenarioTurnPatternRules(
-    verification.requiredFinalAssistantPatternsByTurn,
-    'requiredFinalAssistantPatternsByTurn',
+  const requiredFinalClausesByTurn = normalizeScenarioTurnClauseRules(
+    verification.requiredFinalAssistantClausesByTurn,
+    'requiredFinalAssistantClausesByTurn',
     checks,
   );
-  for (const rule of requiredFinalPatternsByTurn) {
-    const assistantText = scenarioFinalVisibleAssistantText(run?.turns?.[rule.turnNumber - 1]);
-    for (const pattern of rule.patterns) {
+  for (const turnRule of requiredFinalClausesByTurn) {
+    const clauses = scenarioFinalVisibleAssistantClauses(run?.turns?.[turnRule.turnNumber - 1]);
+    for (const rule of turnRule.rules) {
       addScenarioCheck(checks, {
-        pass: pattern.expression.test(assistantText),
-        code: 'required-final-assistant-pattern-missing',
-        pattern: pattern.source,
-        turnNumber: rule.turnNumber,
+        pass: clauses.some((clause) => scenarioClauseMatches(clause, rule)),
+        code: 'required-final-assistant-clause-missing',
+        rule,
+        observedClauses: clauses,
+        turnNumber: turnRule.turnNumber,
       });
     }
   }
 
-  const forbiddenFinalPatternsByTurn = normalizeScenarioTurnPatternRules(
-    verification.forbiddenFinalAssistantPatternsByTurn,
-    'forbiddenFinalAssistantPatternsByTurn',
+  const forbiddenFinalClausesByTurn = normalizeScenarioTurnClauseRules(
+    verification.forbiddenFinalAssistantClausesByTurn,
+    'forbiddenFinalAssistantClausesByTurn',
     checks,
   );
-  for (const rule of forbiddenFinalPatternsByTurn) {
-    const assistantText = scenarioFinalVisibleAssistantText(run?.turns?.[rule.turnNumber - 1]);
-    for (const pattern of rule.patterns) {
+  for (const turnRule of forbiddenFinalClausesByTurn) {
+    const clauses = scenarioFinalVisibleAssistantClauses(run?.turns?.[turnRule.turnNumber - 1]);
+    for (const rule of turnRule.rules) {
+      const matchedClauses = clauses.filter((clause) => scenarioClauseMatches(clause, rule));
       addScenarioCheck(checks, {
-        pass: !pattern.expression.test(assistantText),
-        code: 'forbidden-final-assistant-pattern-present',
-        pattern: pattern.source,
-        turnNumber: rule.turnNumber,
+        pass: !matchedClauses.length,
+        code: 'forbidden-final-assistant-clause-present',
+        rule,
+        matchedClauses,
+        turnNumber: turnRule.turnNumber,
       });
     }
   }
