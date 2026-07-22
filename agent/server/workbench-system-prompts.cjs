@@ -3,14 +3,15 @@ const {
   isDirectCurrentNodeQuestion,
 } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
 
-function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
+function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts, routedTask = '') {
   const currentNode = Array.isArray(state.axisContext?.nodes)
     ? state.axisContext.nodes.find((node) => node?.id === state.current?.targetId)
     : null;
   const userText = Array.isArray(parts)
     ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
     : '';
-  const executablePolicy = classifyDefExecutableTurnPolicy(userText);
+  const executablePolicy = classifyDefExecutableTurnPolicy(userText)
+    || (routedTask === 'equipment-3plus1-composite' ? { kind: routedTask } : null);
   const directCurrentNodeQuestion = isDirectCurrentNodeQuestion(userText);
   const lines = [
     'DEF WORKBENCH AUTHORITATIVE STATE (system instruction, not user text):',
@@ -27,7 +28,13 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
     'Never report a mutation as successful from queue state or record count alone. Native approval and the exact visible postcondition must both pass.',
     'For 重新发出审核 / 重新提交审批 / 提交审核 / wait for my personal approval, validation alone is not enough: call def_node_use in this turn to create the native pending approval. Never say 待审批 if interop pending is null.',
   ];
-  if (executablePolicy?.kind === 'exact-skill-facts') {
+  if (executablePolicy?.kind === 'equipment-3plus1-composite') {
+    lines.push(
+      '3+1 EQUIPMENT COMPOSITE CONTRACT: this read-only turn is owned by def_data_equipment_3plus1_recommend, not the current canvas.',
+      'Call def_data_equipment_3plus1_recommend once. Do not call workbench context, catalog, knowledge, legacy 3+1, file, question, or mutation tools.',
+      'READY, NEEDS_INPUT, and UNRESOLVED are terminal for this turn. Answer from the typed result without fallback searches.',
+    );
+  } else if (executablePolicy?.kind === 'exact-skill-facts') {
     lines.push(
       'EXACT SKILL FACT CONTRACT: this read-only turn is about one named skill or hit, not the current canvas.',
       'Call def_data_skill as the first and only tool. Pass the user\'s complete named variant in query, including every numeric layer/id; never shorten it to a parent skill or isolated hit term.',

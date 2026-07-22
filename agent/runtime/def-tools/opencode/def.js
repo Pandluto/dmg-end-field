@@ -34,7 +34,14 @@ const defToolTurnEvidenceStops = new Map()
 const defToolTurnPolicies = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
-const { classifyDefExecutableTurnPolicy } = turnRouter
+const defCompositeRecommendationTerminalPrefix = [
+  '[DEF HARNESS TERMINAL CONTRACT — trusted runtime instruction]',
+  'This completed def_data_equipment_3plus1_recommend result is terminal for the current user turn.',
+  'Do not call any more tools for READY, NEEDS_INPUT, or UNRESOLVED.',
+  'Answer only from this typed result. For UNRESOLVED, report its missing or ambiguities exactly; do not search aliases or fallback catalogs.',
+  '',
+].join('\n')
+const { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction } = turnRouter
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
@@ -96,6 +103,80 @@ function hasExplicitOperatorConfigApplyIntent(text) {
   return /(?:确认(?:应用|换上|执行|装备|配置)|同意(?:应用|换上|执行)|(?:请|就|直接|现在)?(?:应用|换上|执行)(?:这套|该方案|此方案|它|吧|。|！|$)|按(?:这套|该方案|此方案).{0,12}(?:应用|换上|执行))/.test(normalized)
 }
 
+function allowedToolsForTurnPolicy(kind) {
+  if (kind === 'exact-skill-facts') return new Set(['def_data_skill'])
+  if (kind === 'equipment-3plus1-composite') return new Set(['def_data_equipment_3plus1_recommend'])
+  return new Set()
+}
+
+function installDefToolTurnPolicy(sessionID, turnID, classified) {
+  const scope = `${sessionID}:${turnID}`
+  if (!classified) {
+    defToolTurnPolicies.delete(scope)
+    return
+  }
+  defToolTurnPolicies.set(scope, {
+    ...classified,
+    allowedTools: allowedToolsForTurnPolicy(classified.kind),
+    attemptedTools: new Map(),
+  })
+}
+
+function parseDefCompositeRecommendationOutput(output) {
+  if (typeof output !== 'string' || !output.trim()) return null
+  try {
+    const source = output.startsWith(defCompositeRecommendationTerminalPrefix)
+      ? output.slice(defCompositeRecommendationTerminalPrefix.length)
+      : output
+    const parsed = JSON.parse(source)
+    if (parsed?.protocolVersion !== 1) return null
+    if (parsed?.contract !== 'DefEquipmentThreePlusOneRecommendationV1') return null
+    if (!['READY', 'NEEDS_INPUT', 'UNRESOLVED'].includes(parsed?.state)) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+function hasVisibleUserText(message) {
+  return message?.info?.role === 'user' && Array.isArray(message.parts) && message.parts.some((part) => (
+    part?.type === 'text'
+    && part.ignored !== true
+    && part.synthetic !== true
+    && String(part.text || '').trim()
+  ))
+}
+
+function messageWithMaxId(messages, role, beforeId = '', predicate = () => true) {
+  let selected = null
+  for (const message of messages) {
+    const id = typeof message?.info?.id === 'string' ? message.info.id : ''
+    if (message?.info?.role !== role || !id || (beforeId && id >= beforeId) || !predicate(message)) continue
+    if (!selected || id > selected.info.id) selected = message
+  }
+  return selected
+}
+
+function previousTurnHasTrustedCompositeRecommendation(messages, latestUser) {
+  const previousUser = messageWithMaxId(messages, 'user', latestUser?.info?.id, hasVisibleUserText)
+  if (!previousUser) return false
+  const completed = []
+  for (const message of messages) {
+    if (message?.info?.role !== 'assistant'
+      || message.info.parentID !== previousUser.info.id
+      || message.info.summary === true
+      || !Array.isArray(message.parts)) continue
+    for (const part of message.parts) {
+      if (part?.type !== 'tool' || part.tool !== 'def_data_equipment_3plus1_recommend') continue
+      if (part.state?.status !== 'completed' || part.state?.time?.compacted === true) continue
+      const parsed = parseDefCompositeRecommendationOutput(part.state.output)
+      if (parsed) completed.push(parsed)
+    }
+  }
+  if (completed.length !== 1 || completed[0].state !== 'READY') return false
+  return /^sha256:[0-9a-f]{64}$/.test(String(completed[0]?.result?.planDigest || ''))
+}
+
 function operatorConfigApplyIntentSignature(sessionID, turnID) {
   const secret = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string'
     ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
@@ -109,19 +190,13 @@ function operatorConfigApplyIntentSignature(sessionID, turnID) {
 export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
   beginDefToolTurn(sessionID, turnID)
   if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
+  const userText = userTextFromChatParts(parts)
   defOperatorConfigTurnIntents.set(sessionID, {
     turnID,
-    explicitApply: hasExplicitOperatorConfigApplyIntent(userTextFromChatParts(parts)),
+    explicitApply: hasExplicitOperatorConfigApplyIntent(userText),
     updatedAt: Date.now(),
   })
-  const scope = `${sessionID}:${turnID}`
-  const classified = classifyDefExecutableTurnPolicy(userTextFromChatParts(parts))
-  if (classified) defToolTurnPolicies.set(scope, {
-    ...classified,
-    allowedTools: new Set(['def_data_skill']),
-    attemptedTools: new Map(),
-  })
-  else defToolTurnPolicies.delete(scope)
+  installDefToolTurnPolicy(sessionID, turnID, classifyDefExecutableTurnPolicy(userText))
   if (defOperatorConfigTurnIntents.size > 256) defOperatorConfigTurnIntents.delete(defOperatorConfigTurnIntents.keys().next().value)
 }
 
@@ -320,6 +395,51 @@ export function recordDefToolEventFailure(event) {
   }
 }
 
+export function applyDefToolModelMessagePolicy(messages, phase = 'generation') {
+  if (phase !== 'generation' || !Array.isArray(messages)) return false
+  const latestUser = messageWithMaxId(messages, 'user', '', hasVisibleUserText)
+  if (!latestUser) return false
+  const sessionID = typeof latestUser?.info?.sessionID === 'string' ? latestUser.info.sessionID : ''
+  const turnID = typeof latestUser?.info?.id === 'string' ? latestUser.info.id : ''
+  const latestUserText = userTextFromChatParts(latestUser?.parts)
+  const scope = sessionID && turnID ? `${sessionID}:${turnID}` : ''
+  if (scope
+    && activeDefToolTurns.get(sessionID) === turnID
+    && !defToolTurnPolicies.has(scope)
+    && isDefEquipment3Plus1Correction(latestUserText)
+    && previousTurnHasTrustedCompositeRecommendation(messages, latestUser)) {
+    installDefToolTurnPolicy(sessionID, turnID, {
+      kind: 'equipment-3plus1-composite',
+      sourceText: latestUserText,
+      continuation: true,
+    })
+  }
+
+  const latestAssistant = messageWithMaxId(messages, 'assistant')
+  if (!latestAssistant
+    || latestAssistant.info.parentID !== latestUser.info.id
+    || latestAssistant.info.summary === true
+    || latestAssistant.info.error
+    || !Array.isArray(latestAssistant.parts)) return false
+  const compositeParts = latestAssistant.parts.filter((part) => part?.type === 'tool'
+    && part.tool === 'def_data_equipment_3plus1_recommend')
+  if (compositeParts.length !== 1) return false
+  const currentComposite = compositeParts[0]
+  if (currentComposite.state?.status !== 'completed' || currentComposite.state?.time?.compacted === true) return false
+  if (!parseDefCompositeRecommendationOutput(currentComposite.state.output)) return false
+  const compositeIndex = latestAssistant.parts.indexOf(currentComposite)
+  const hasVisibleTextAfterComposite = latestAssistant.parts.slice(compositeIndex + 1).some((part) => (
+    part?.type === 'text'
+    && part.ignored !== true
+    && part.synthetic !== true
+    && String(part.text || '').trim()
+  ))
+  if (hasVisibleTextAfterComposite) return false
+  if (currentComposite.state.output.startsWith(defCompositeRecommendationTerminalPrefix)) return false
+  currentComposite.state.output = `${defCompositeRecommendationTerminalPrefix}${currentComposite.state.output}`
+  return true
+}
+
 export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}) {
   const turnId = activeDefToolTurns.get(sessionID)
   if (!turnId) return
@@ -345,6 +465,33 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}) {
       const error = new Error('def-tool-turn-policy-blocked: def_data_skill was not attempted because its query dropped the named skill variant number. Preserve the user\'s complete skill id/name.')
       error.code = 'def-tool-turn-policy-blocked'
       error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, nextAction: 'Retry the single allowed lookup with the complete named skill variant, including its numeric layer/id.' }
+      throw error
+    }
+    turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)
+  }
+  if (turnPolicy?.kind === 'equipment-3plus1-composite') {
+    if (!turnPolicy.allowedTools.has(toolName)) {
+      const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted. This 3+1 equipment turn is owned by def_data_equipment_3plus1_recommend; no context, catalog, alias, or fallback probe is allowed.`)
+      error.code = 'def-tool-turn-policy-blocked'
+      error.details = {
+        attempted: false,
+        attemptedTool: toolName,
+        policy: turnPolicy.kind,
+        nextAction: 'Call def_data_equipment_3plus1_recommend once, or answer from its completed typed result.',
+      }
+      throw error
+    }
+    const priorAttempts = turnPolicy.attemptedTools.get(toolName) || 0
+    if (priorAttempts >= 1) {
+      const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted again. A 3+1 equipment turn allows one composite recommendation call.`)
+      error.code = 'def-tool-turn-policy-blocked'
+      error.details = {
+        attempted: false,
+        attemptedTool: toolName,
+        policy: turnPolicy.kind,
+        attempts: priorAttempts,
+        nextAction: 'Use the first typed result as terminal for this turn.',
+      }
       throw error
     }
     turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)

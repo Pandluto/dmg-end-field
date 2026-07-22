@@ -5,8 +5,22 @@ function isDirectCurrentNodeQuestion(userText = '') {
   return DIRECT_CURRENT_NODE_QUESTION.test(typeof userText === 'string' ? userText.trim() : '');
 }
 
+function isDefEquipment3Plus1Correction(userText = '') {
+  const normalized = String(userText || '').normalize('NFKC').replace(/\s+/g, '');
+  const keepsEquipmentContext = /(?:配件|装备|套装|护甲|护手|词条|主属性|副属性|这套|该方案|上个方案)/.test(normalized);
+  const asksToReconsider = /(?:为什么|为何|怎么|哪(?:件|个)|不用|不选|选择|换成|对比|比较|解释)/.test(normalized);
+  const changesDomain = /(?:攻略|原文|来源|武器|技能|伤害|排轴|按钮)/.test(normalized);
+  return keepsEquipmentContext && asksToReconsider && !changesDomain;
+}
+
 function classifyDefExecutableTurnPolicy(userText = '') {
   const normalized = String(userText || '').normalize('NFKC').replace(/\s+/g, '');
+  const namesThreePlusOne = /(?:3[^+\n]{0,16}\+1|三[^+\n]{0,16}\+一)/i.test(normalized);
+  const asksEquipmentRecommendation = /(?:装备|配装|套装|配件|护甲|护手)/.test(normalized)
+    && /(?:挑|选|推荐|规划|适配|方案|为什么不用|为什么选|对比|比较)/.test(normalized);
+  if (namesThreePlusOne && asksEquipmentRecommendation) {
+    return { kind: 'equipment-3plus1-composite', sourceText: normalized };
+  }
   const asksSkillFacts = /(?:具体数值|倍率|伤害类型|算什么伤害|属于什么伤害|吃(?:什么|哪种|哪类)?(?:战技|终结技|大招|连携技|普攻|重击)?加成)/.test(normalized);
   const namesSkillOrHit = /(?:技能|战技|连携|终结技|大招|普攻|重击|攻击|水龙卷|图腾|层|(?:^|[^a-z])[abeq](?:[^a-z]|$))/i.test(normalized);
   const asksCurrentDamageReport = /(?:当前|这个按钮|伤害报告|总伤害|伤害面板)/.test(normalized);
@@ -23,11 +37,14 @@ function routeNativeTurnHarness(binding, userText = '') {
   const selector = binding?.harnessBinding?.selector || 'stable';
   const harnessId = binding?.harnessBinding?.harness?.harnessId || '';
   const text = typeof userText === 'string' ? userText.trim() : '';
-  const executablePolicy = classifyDefExecutableTurnPolicy(text);
+  const executablePolicy = classifyDefExecutableTurnPolicy(text)
+    || (/^def-equipment-3plus1-composite(?:-|$)/.test(harnessId) && isDefEquipment3Plus1Correction(text)
+      ? { kind: 'equipment-3plus1-composite', sourceText: text, continuation: true }
+      : null);
   if (executablePolicy) {
     return {
       selector,
-      reason: 'exact-skill-facts-turn-policy',
+      reason: `${executablePolicy.kind}-turn-policy`,
       sessionSelector: selector,
       task: executablePolicy.kind,
     };
@@ -49,4 +66,4 @@ function routeNativeTurnHarness(binding, userText = '') {
   };
 }
 
-module.exports = { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion, routeNativeTurnHarness };
+module.exports = { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction, isDirectCurrentNodeQuestion, routeNativeTurnHarness };

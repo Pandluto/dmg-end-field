@@ -20,6 +20,9 @@ export default async function DefToolsPlugin() {
       const turnId = output?.message?.id || input?.messageID
       definitions.beginDefToolTurnFromChatMessage(input?.sessionID, turnId, output?.parts)
     },
+    'experimental.chat.messages.transform': async (input, output) => {
+      definitions.applyDefToolModelMessagePolicy(output?.messages, input?.phase)
+    },
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)
       definitions.assertDefNativeArtifactToolScope(input, output?.args)

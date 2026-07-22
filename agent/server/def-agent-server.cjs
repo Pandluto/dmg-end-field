@@ -562,7 +562,7 @@ async function proxyOpenCodeRequest(request, response) {
         agent: binding.agent,
         ...(binding.host === 'workbench' ? {
           system: checkoutState
-            ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, incoming.parts)
+            ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, incoming.parts, harness.turnRoute?.task)
             : selectedSystem,
         } : {}),
       }), 'utf8');
@@ -739,7 +739,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     agent: binding.agent,
     model: { providerID: 'deepseek', modelID: sanitizeDeepSeekConfig(readConfig().deepseek).model },
     system: checkoutState
-      ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, [{ type: 'text', text: rawUserText }])
+      ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, [{ type: 'text', text: rawUserText }], harness.turnRoute?.task)
       : selectedSystem,
     parts: [{ type: 'text', text: rawUserText }],
   };
