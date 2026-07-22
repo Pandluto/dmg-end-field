@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import Ajv from 'ajv';
 import {
   DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA,
@@ -15,13 +16,21 @@ import {
   DEF_NATIVE_TARGETS,
   DEF_WORKSPACE_SCOPE,
 } from '../agent/runtime/def-tools/registry.mjs';
+import { hashDefStableValue } from './def-core/stable-json.mjs';
+
+const require = createRequire(import.meta.url);
+const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-equipment-3plus1-registration-'));
 const port = 19700 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}`;
 const internalToken = 'equipment-3plus1-registration-contract';
 const nowStoragePath = path.join(root, 'now-storage.json');
+const timelineRepositoryPath = path.join(root, 'timeline.sqlite3');
+const workNodeDatabasePath = path.join(root, 'nodes.sqlite3');
+const governancePath = path.join(root, 'governance.json');
 const sessionId = 'equipment-3plus1-registration-session';
+const readonlyTimelineId = 'equipment-3plus1-readonly-timeline';
 
 const effect = (effectId, label, typeKey) => ({ effectId, label, typeKey, unit: 'percent', value: 0.2 });
 const item = (equipmentId, name, part, effects) => ({
@@ -117,6 +126,26 @@ const archive = {
 fs.writeFileSync(nowStoragePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf8');
 const archiveBefore = fs.readFileSync(nowStoragePath, 'utf8');
 
+const readonlyRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
+readonlyRepository.ensureDocument({ id: readonlyTimelineId, label: '3+1 read-only contract' });
+readonlyRepository.importWorkNode({
+  id: 'equipment-3plus1-readonly-node',
+  timelineId: readonlyTimelineId,
+  branchId: 'main',
+  label: 'Read-only baseline',
+  status: 'ready',
+  approvalPolicy: 'manual',
+  basePayload: { selectedCharacters: [], timelineData: { staffLines: [] } },
+  workingPayload: { selectedCharacters: [], timelineData: { staffLines: [] } },
+});
+readonlyRepository.setCheckoutRef({
+  timelineId: readonlyTimelineId,
+  targetType: 'work-node',
+  targetId: 'equipment-3plus1-readonly-node',
+  updatedAt: 1,
+});
+readonlyRepository.close();
+
 let childStderr = '';
 const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   cwd: process.cwd(),
@@ -126,11 +155,11 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_CLI_REST_STORAGE_DIR: path.join(root, 'runtime'),
     AI_CLI_NOW_STORAGE_PATH: nowStoragePath,
     AI_CLI_REST_VITE_CACHE_DIR: path.join(root, 'vite'),
-    AI_TIMELINE_WORK_NODE_DB_PATH: path.join(root, 'nodes.sqlite3'),
+    AI_TIMELINE_WORK_NODE_DB_PATH: workNodeDatabasePath,
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
-    TIMELINE_REPOSITORY_DB_PATH: path.join(root, 'timeline.sqlite3'),
+    TIMELINE_REPOSITORY_DB_PATH: timelineRepositoryPath,
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
-    DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
+    DEF_TOOL_GOVERNANCE_PATH: governancePath,
     DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
   stdio: ['ignore', 'ignore', 'pipe'],
@@ -186,6 +215,24 @@ async function register(nativeSessionId = sessionId) {
   );
 }
 
+async function readReadOnlyState() {
+  const [checkout, commands, governance] = await Promise.all([
+    request(`/api/timeline-checkout-ref?timelineId=${encodeURIComponent(readonlyTimelineId)}`, { authenticated: true }),
+    request('/api/main-workbench/commands', { authenticated: true }),
+    request('/api/def-tools/governance', { authenticated: true }),
+  ]);
+  assert.equal(checkout.response.status, 200, JSON.stringify(checkout.payload));
+  assert.equal(commands.response.status, 200, JSON.stringify(commands.payload));
+  assert.equal(governance.response.status, 200, JSON.stringify(governance.payload));
+  return {
+    checkout: checkout.payload.checkoutRef,
+    commands: commands.payload.commands,
+    questions: governance.payload.questions,
+    approvals: governance.payload.approvals,
+    sourceArchive: JSON.parse(fs.readFileSync(nowStoragePath, 'utf8')),
+  };
+}
+
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validateInput = ajv.compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA);
 const validateOutput = ajv.compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA);
@@ -229,6 +276,8 @@ try {
   assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
   assert.equal(registration.payload.result?.host, 'ai-cli');
   assert.equal(registration.payload.result?.sessionId, sessionId);
+  const readOnlyStateBefore = await readReadOnlyState();
+  const readOnlyStateHashBefore = hashDefStableValue(readOnlyStateBefore);
 
   const missingTurn = await recommend({ operatorQuery: 'bieli' });
   assert.equal(missingTurn.response.status, 403, JSON.stringify(missingTurn.payload));
@@ -301,9 +350,13 @@ try {
   assert.equal(validateOutput(wrapperReady), true, JSON.stringify(validateOutput.errors));
   assert.equal(wrapperReady.state, 'READY', JSON.stringify(wrapperReady));
 
-  const commands = await request('/api/main-workbench/commands', { authenticated: true });
-  assert.equal(commands.response.status, 200, JSON.stringify(commands.payload));
-  assert.deepEqual(commands.payload.commands, []);
+  const readOnlyStateAfter = await readReadOnlyState();
+  const readOnlyStateHashAfter = hashDefStableValue(readOnlyStateAfter);
+  assert.deepEqual(readOnlyStateAfter, readOnlyStateBefore, 'recommendation must preserve checkout, pending commands, questions, approvals, and trusted source state');
+  assert.equal(readOnlyStateHashAfter, readOnlyStateHashBefore, 'the logical product state hash must be stable across every recommendation terminal path');
+  assert.deepEqual(readOnlyStateAfter.commands, []);
+  assert.deepEqual(readOnlyStateAfter.questions, []);
+  assert.deepEqual(readOnlyStateAfter.approvals, []);
   assert.equal(fs.readFileSync(nowStoragePath, 'utf8'), archiveBefore, 'recommendation wiring must not mutate catalog or operator sources');
 
   console.log(JSON.stringify({
@@ -316,6 +369,7 @@ try {
       'ready-needs-input-unresolved',
       'opencode-wrapper-to-real-dispatcher',
       'read-only-postcondition',
+      'state-hash-checkout-pending-command-question-approval',
     ],
   }));
 } finally {
