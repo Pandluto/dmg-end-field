@@ -325,7 +325,10 @@ export function resolveOperatorCatalogRecord(library, rawQuery) {
   return {
     ok: false,
     code: contained.length ? 'operator-build-operator-ambiguous' : 'operator-build-operator-not-found',
-    candidates: contained.slice(0, 8).map(({ fallbackId, raw }) => ({ id: String(raw.id || fallbackId), name: String(raw.name || '') })),
+    // Return complete resolver facts.  Consumers that expose this result to a
+    // user are responsible for the protocol's bounded display list.
+    candidates: contained.map(({ fallbackId, raw }) => ({ id: String(raw.id || fallbackId), name: String(raw.name || '') })),
+    candidateCount: contained.length,
   };
 }
 

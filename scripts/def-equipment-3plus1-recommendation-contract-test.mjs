@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createDefEquipment3Plus1RecommendationService } from './def-core/equipment-3plus1-recommendation.mjs';
+import { buildDefEquipmentCatalogSnapshot } from './def-core/equipment-3plus1-domain.mjs';
 
 const effect = (effectId, label, typeKey) => ({ effectId, label, typeKey, unit: 'percent', value: 0.2 });
 const item = (equipmentId, name, part, effects) => ({ equipmentId, name, part, effects });
@@ -24,6 +25,8 @@ const frost = {
   },
 };
 const library = { gearSets: { tide, frost } };
+const deterministicSnapshot = buildDefEquipmentCatalogSnapshot({ library, storageKey: 'test-equipment' });
+assert.equal(deterministicSnapshot.source.capturedAt, 0, 'Core snapshot capture time is deterministic unless its host passes one explicitly');
 const operators = {
   bieli: {
     id: 'bieli', name: '别礼', element: 'ice', profession: '突击', mainStat: '力量', subStat: '意志',
@@ -44,6 +47,13 @@ const ports = {
 const service = createDefEquipment3Plus1RecommendationService(ports);
 const invoke = (input) => service.recommend({ sessionId: 'service-contract-session', turnId: 'turn-1', input });
 
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  Object.freeze(value);
+  for (const child of Object.values(value)) deepFreeze(child);
+  return value;
+}
+
 const ready = await invoke({ operatorQuery: '别礼', setQuery: '潮涌套', shortlistLimit: 2 });
 assert.equal(ready.contract, 'DefEquipmentThreePlusOneRecommendationV1');
 assert.equal(ready.state, 'READY', JSON.stringify(ready));
@@ -52,7 +62,21 @@ assert.equal(ready.result.plans[0].items.map((entry) => entry.slot).join(','), '
 assert.match(ready.requestDigest, /^sha256:[0-9a-f]{64}$/);
 assert.match(ready.result.planDigest, /^sha256:[0-9a-f]{64}$/);
 assert.equal(ready.result.catalogEvidence.exhaustive, true);
+assert.ok(Array.isArray(ready.result.profileEvidence.evidenceRefs), 'READY always returns the typed profile evidenceRefs field');
+assert.ok(ready.result.profileEvidence.evidenceRefs.every((ref) => typeof ref === 'string' && ref.length > 0));
 assert.deepEqual(library, frozenSource, 'the service must not mutate a trusted source object');
+
+const immutableLibrary = deepFreeze(structuredClone(library));
+const immutableOperators = deepFreeze(structuredClone(operators));
+const readOnlyService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readOperatorCatalog() { return immutableOperators; },
+  async readEquipmentLibrarySource() { return { library: immutableLibrary, storageKey: 'test-equipment' }; },
+});
+const readOnlyReady = await readOnlyService.recommend({
+  sessionId: 'readonly-session', turnId: 'readonly-turn', input: { operatorQuery: operators.bieli.name, setQuery: tide.name },
+});
+assert.equal(readOnlyReady.state, 'READY', JSON.stringify(readOnlyReady));
 
 const correction = await invoke({ operatorQuery: '别礼', setQuery: '潮涌', priorPlanDigest: ready.result.planDigest, constraints: { duplicateAccessoryPolicy: 'forbid' } });
 assert.equal(correction.state, 'READY', JSON.stringify(correction));
@@ -69,6 +93,66 @@ const operatorAmbiguity = await invoke({ operatorQuery: '雷', setQuery: '潮涌
 assert.equal(operatorAmbiguity.state, 'NEEDS_INPUT');
 assert.equal(operatorAmbiguity.nextQuestion.field, 'operatorQuery');
 
+const manyOperators = Object.fromEntries(Array.from({ length: 9 }, (_, index) => {
+  const id = `operator-${String(index + 1).padStart(2, '0')}`;
+  return [id, { ...operators.bieli, id, name: `operator candidate ${index + 1}` }];
+}));
+const manyOperatorService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readOperatorCatalog() { return structuredClone(manyOperators); },
+});
+const manyOperatorAmbiguity = await manyOperatorService.recommend({
+  sessionId: 'many-operator-session', turnId: 'many-operator-turn', input: { operatorQuery: 'operator candidate' },
+});
+assert.equal(manyOperatorAmbiguity.state, 'NEEDS_INPUT');
+assert.equal(manyOperatorAmbiguity.ambiguities[0].candidateCount, 9);
+assert.equal(manyOperatorAmbiguity.ambiguities[0].truncated, true);
+assert.equal(manyOperatorAmbiguity.ambiguities[0].candidates.length, 8);
+assert.equal(manyOperatorAmbiguity.nextQuestion.options.length, 8);
+
+const manyEquipmentLibrary = structuredClone(library);
+for (let index = 0; index < 9; index += 1) {
+  manyEquipmentLibrary.gearSets.tide.equipments[`sharedEquipment${index}`] = item(
+    `shared-equipment-${index}`,
+    'shared equipment',
+    tide.equipments.armor.part,
+    { strength: effect('strength', 'strengthBoost'), will: effect('will', 'willBoost') },
+  );
+}
+const manyEquipmentService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(manyEquipmentLibrary), storageKey: 'many-equipment' }; },
+});
+const manyEquipmentAmbiguity = await manyEquipmentService.recommend({
+  sessionId: 'many-equipment-session',
+  turnId: 'many-equipment-turn',
+  input: { operatorQuery: operators.bieli.name, setQuery: tide.name, constraints: { requiredEquipmentQueries: ['shared equipment'] } },
+});
+assert.equal(manyEquipmentAmbiguity.state, 'NEEDS_INPUT');
+assert.equal(manyEquipmentAmbiguity.nextQuestion.field, 'constraints.requiredEquipmentQueries');
+assert.equal(manyEquipmentAmbiguity.ambiguities[0].candidateCount, 9);
+assert.equal(manyEquipmentAmbiguity.ambiguities[0].truncated, true);
+assert.equal(manyEquipmentAmbiguity.ambiguities[0].candidates.length, 8);
+
+const simultaneousLibrary = structuredClone(library);
+simultaneousLibrary.gearSets.tide.equipments.sharedRequirement = item('shared-tide', 'shared requirement', tide.equipments.armor.part, {
+  strength: effect('strength', 'strengthBoost'), will: effect('will', 'willBoost'),
+});
+simultaneousLibrary.gearSets.frost.equipments.sharedRequirement = item('shared-frost', 'shared requirement', frost.equipments.armor.part, {
+  strength: effect('strength', 'strengthBoost'), will: effect('will', 'willBoost'),
+});
+const setPriorityService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(simultaneousLibrary), storageKey: 'set-priority-equipment' }; },
+});
+const setBeforeRequired = await setPriorityService.recommend({
+  sessionId: 'set-priority-session',
+  turnId: 'set-priority-turn',
+  input: { operatorQuery: operators.bieli.name, setQuery: 'tide frost', constraints: { requiredEquipmentQueries: ['shared requirement'] } },
+});
+assert.equal(setBeforeRequired.state, 'NEEDS_INPUT', JSON.stringify(setBeforeRequired));
+assert.equal(setBeforeRequired.nextQuestion.field, 'setQuery', 'set ambiguity precedes required-equipment ambiguity');
+
 const unresolved = await invoke({ operatorQuery: '别礼', setQuery: '潮涌', constraints: { requiredEquipmentQueries: ['不存在装备'] } });
 assert.equal(unresolved.state, 'UNRESOLVED');
 assert.equal(unresolved.result, null);
@@ -76,10 +160,10 @@ assert.equal(unresolved.result, null);
 const conflict = await invoke({ operatorQuery: '别礼', setQuery: '潮涌', constraints: { requiredEquipmentQueries: ['潮涌护甲'], excludedEquipmentQueries: ['tide-armor'] } });
 assert.equal(conflict.contract, 'DefEquipmentThreePlusOneRecommendationErrorV1');
 assert.equal(conflict.failureStage, 'resolve-constraints');
-assert.equal(conflict.status, 400);
+assert.equal(conflict.status, 400, 'the typed Service error preserves the HTTP status that REST maps');
 
 const malformed = await invoke({ operatorQuery: '别礼', unknown: true });
 assert.equal(malformed.contract, 'DefEquipmentThreePlusOneRecommendationErrorV1');
 assert.equal(malformed.failureStage, 'validate-input');
 
-console.log(JSON.stringify({ ok: true, checks: ['ready', 'correction', 'comparison', 'needs-input', 'unresolved', 'constraint-error', 'strict-schema', 'readonly-source'] }));
+console.log(JSON.stringify({ ok: true, checks: ['ready', 'profile-evidence-refs', 'correction', 'comparison', 'needs-input', 'bounded-operator-ambiguity', 'bounded-equipment-ambiguity', 'set-priority-over-required', 'unresolved', 'constraint-error', 'strict-schema', 'readonly-source'] }));

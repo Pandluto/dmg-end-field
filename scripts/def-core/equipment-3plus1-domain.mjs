@@ -62,8 +62,14 @@ function projectGearSet(gearSet = {}) {
   };
 }
 
-/** Capture one immutable, safe equipment-catalog snapshot. */
-export function buildDefEquipmentCatalogSnapshot({ library, storageKey, capturedAt = Date.now() } = {}) {
+/**
+ * Capture one immutable, safe equipment-catalog snapshot.
+ *
+ * `capturedAt` is deliberately a value supplied by the composition boundary.
+ * A deterministic zero default keeps direct Core calls pure; REST may pass its
+ * observed capture time without making the Domain itself depend on a clock.
+ */
+export function buildDefEquipmentCatalogSnapshot({ library, storageKey, capturedAt = 0 } = {}) {
   let gearSets = Object.values(library?.gearSets || {})
     .filter((gearSet) => gearSet && typeof gearSet === 'object')
     .map(projectGearSet)
@@ -140,7 +146,10 @@ export function resolveDefEquipmentEntity({ snapshot, query } = {}) {
       ok: false,
       code: matches.length ? 'equipment-query-ambiguous' : 'equipment-query-not-found',
       message: matches.length ? 'The equipment query resolves to multiple catalog entities.' : 'The equipment catalog has no matching entity.',
-      candidates: matches.slice(0, 8).map((item) => candidateSummary(item)),
+      // Keep the resolver's facts complete.  The Recommendation Service owns
+      // the protocol's eight-option presentation bound and must still report
+      // the real candidateCount/truncated pair.
+      candidates: matches.map((item) => candidateSummary(item)),
       candidateCount: matches.length,
     };
   }

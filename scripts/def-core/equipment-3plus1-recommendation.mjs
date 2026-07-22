@@ -146,6 +146,19 @@ function question(field, candidates, prompt) {
   return { field, prompt, options: candidates.slice(0, 8).map((candidate) => ({ id: candidate.id, label: candidate.label || candidate.name || candidate.id })) };
 }
 
+function profileEvidenceRefs(profile, sourceRefs) {
+  const refs = [
+    ...(Array.isArray(profile?.evidenceRefs) ? profile.evidenceRefs.map((ref) => String(ref || '').trim()).filter(Boolean) : []),
+    ...sortSourceRefs([...(sourceRefs || [])]).map((ref) => [
+      ref.kind,
+      ref.id,
+      ref.sectionId,
+      ref.revision,
+    ].filter(Boolean).join(':')),
+  ];
+  return [...new Set(refs)].sort();
+}
+
 function missing(code, field, message) {
   return { code, field, message };
 }
@@ -287,6 +300,20 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
         if (!catalogValidation.ok) return failure({ code: catalogValidation.code, failureStage: 'capture-catalog', message: catalogValidation.message, status: 409, sourceRevision: catalogRevision });
         const aliasIndex = await ports.readGearSetAliasIndex();
         if (!(aliasIndex instanceof Map) && !plainObject(aliasIndex)) return portFailure('capture-catalog', null, catalogRevision);
+        // Explicit set identity precedes required/excluded identity under the
+        // one-question contract: operator, set, required, excluded.
+        let selectedSet = null;
+        if (normalizedInput.setQuery) {
+          const resolved = resolveDefEquipmentGearSet({ snapshot, query: normalizedInput.setQuery, aliasIndex });
+          if (!resolved.ok) {
+            if (resolved.code === 'equipment-3plus1-set-ambiguous') {
+              const item = ambiguity('setQuery', resolved.candidates, 'gear-set');
+              return businessEnvelope({ requestDigest, state: 'NEEDS_INPUT', completeness: 'partial', ambiguities: [item], nextQuestion: question('setQuery', item.candidates, 'Which equipment set did you mean?'), sourceRefs: profileResolution.sourceRefs });
+            }
+            return businessEnvelope({ requestDigest, state: 'UNRESOLVED', completeness: 'partial', missing: [missing(resolved.code, 'setQuery', resolved.message)], sourceRefs: profileResolution.sourceRefs });
+          }
+          selectedSet = resolved.set;
+        }
         const required = [];
         const excluded = [];
         for (const query of normalizedInput.constraints.requiredEquipmentQueries) {
@@ -306,18 +333,7 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
         const conflict = requiredIds.find((id) => excludedIds.includes(id));
         if (conflict) return failure({ code: 'equipment-3plus1-required-excluded-conflict', failureStage: 'resolve-constraints', message: `Equipment ${conflict} is both required and excluded.`, status: 400, sourceRevision: catalogRevision });
         const planConstraints = { requiredStableIds: requiredIds, excludedStableIds: excludedIds, duplicateAccessoryPolicy: normalizedInput.constraints.duplicateAccessoryPolicy };
-        let selectedSet;
-        if (normalizedInput.setQuery) {
-          const resolved = resolveDefEquipmentGearSet({ snapshot, query: normalizedInput.setQuery, aliasIndex });
-          if (!resolved.ok) {
-            if (resolved.code === 'equipment-3plus1-set-ambiguous') {
-              const item = ambiguity('setQuery', resolved.candidates, 'gear-set');
-              return businessEnvelope({ requestDigest, state: 'NEEDS_INPUT', completeness: 'partial', ambiguities: [item], nextQuestion: question('setQuery', item.candidates, 'Which equipment set did you mean?'), sourceRefs: profileResolution.sourceRefs });
-            }
-            return businessEnvelope({ requestDigest, state: 'UNRESOLVED', completeness: 'partial', missing: [missing(resolved.code, 'setQuery', resolved.message)], sourceRefs: profileResolution.sourceRefs });
-          }
-          selectedSet = resolved.set;
-        } else {
+        if (!selectedSet) {
           const setChoice = buildDefEquipmentSetFitShortlist({ snapshot, profile: profileResolution.profile, constraints: planConstraints, minimumSetPieces: normalizedInput.constraints.minimumSetPieces, shortlistLimit: normalizedInput.shortlistLimit });
           if (!setChoice.ok) return failure({ code: setChoice.code, failureStage: 'resolve-set', message: setChoice.message, status: 409, sourceRevision: catalogRevision });
           if (!setChoice.shortlist.length) return businessEnvelope({ requestDigest, state: 'UNRESOLVED', completeness: 'partial', missing: [missing('no-eligible-equipment-set', 'setQuery', 'No catalog set can prove a legal 3+1 topology for the current evidence and constraints.')], sourceRefs: profileResolution.sourceRefs });
@@ -356,7 +372,12 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
         ];
         const result = {
           operator: { id: operator.id, name: operator.name },
-          profileEvidence: { state: profileResolution.guideState, profileHash, preferenceGroups: profileResolution.profile.preferenceGroups },
+          profileEvidence: {
+            state: profileResolution.guideState,
+            profileHash,
+            preferenceGroups: profileResolution.profile.preferenceGroups,
+            evidenceRefs: profileEvidenceRefs(profileResolution.profile, profileResolution.sourceRefs),
+          },
           catalogEvidence: { revision: catalogRevision, exhaustive: true }, selectedSet: selectedSetEvidence, plans, comparisons: comparisons.comparisons,
           planDigest: null,
         };
