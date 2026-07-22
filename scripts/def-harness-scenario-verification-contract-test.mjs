@@ -52,14 +52,15 @@ function completedToolWithStructuredInputOutput(tool, input, output) {
 
 const gameKnowledgeSearchTool = 'def_data_game_knowledge';
 const gameKnowledgeSectionTool = 'def_data_game_knowledge_section';
-const sourceOnlyReferenceId = 'guide-four-person.md';
-const sourceOnlySectionId = 'h2-build';
+const sourceOnlyReferenceId = '【萌新推荐】弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学.md';
+const sourceOnlySectionId = 'h2-三-装备养成推荐';
 
 function completedGameKnowledgeSearch({
+  query = 'four-person guide',
   referenceId = sourceOnlyReferenceId,
   requiredSectionId = sourceOnlySectionId,
 } = {}) {
-  return completedToolWithStructuredInputOutput(gameKnowledgeSearchTool, { query: 'four-person guide', limit: 3 }, {
+  return completedToolWithStructuredInputOutput(gameKnowledgeSearchTool, { query, limit: 3 }, {
     protocolVersion: 1,
     contract: 'DefGameKnowledgeReferenceSearchV1',
     candidates: [{
@@ -188,7 +189,7 @@ const correctionSkippedReplan = evaluateScenarioVerification(syntheticRun([
 assert.ok(failureCodes(correctionSkippedReplan).has('required-turn-tool-missing'));
 
 const sourceOnlyGuide = readScenario('skill-reference-readable-v1.json');
-assert.equal(sourceOnlyGuide.version, 2, 'source-only guide scenario advances when the exact-read contract changes');
+assert.equal(sourceOnlyGuide.version, 3, 'source-only guide scenario advances when the expected-reference contract changes');
 assert.deepEqual(sourceOnlyGuide.turns.map((turn) => turn.userText), [
   '请查《弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学》这篇四人配队攻略；只按原文告诉我依据和明确写到的配装，不要查询当前阵容或改动任何配置。',
 ], 'source-only guide scenario remains a focused four-person guide request');
@@ -204,12 +205,23 @@ assert.deepEqual(sourceOnlyGuide.verification.orderedToolsByTurn, {
   1: [gameKnowledgeSearchTool, gameKnowledgeSectionTool],
 });
 assert.deepEqual(sourceOnlyGuide.verification.requiredExactSectionReadByTurn, {
-  1: { searchTool: gameKnowledgeSearchTool, sectionTool: gameKnowledgeSectionTool },
+  1: {
+    searchTool: gameKnowledgeSearchTool,
+    sectionTool: gameKnowledgeSectionTool,
+    expectedReferenceId: sourceOnlyReferenceId,
+  },
 });
 assert.deepEqual(sourceOnlyGuide.verification.maxRepeatedToolCalls, {
   [gameKnowledgeSearchTool]: 1,
   [gameKnowledgeSectionTool]: 1,
 });
+
+const sourceOnlyGuideWithoutExpectedReference = structuredClone(sourceOnlyGuide);
+delete sourceOnlyGuideWithoutExpectedReference.verification.requiredExactSectionReadByTurn[1].expectedReferenceId;
+const missingExpectedReference = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedGameKnowledgeSearch(), completedGameKnowledgeSection()]),
+]), sourceOnlyGuideWithoutExpectedReference);
+assert.ok(failureCodes(missingExpectedReference).has('verification-config-invalid'), 'exact-section declarations fail closed without expectedReferenceId');
 
 const sourceOnlyGuidePass = evaluateScenarioVerification(syntheticRun([
   syntheticTurn(1, [completedGameKnowledgeSearch(), completedGameKnowledgeSection()]),
@@ -241,6 +253,21 @@ const sourceOnlyGuideWrongOutput = evaluateScenarioVerification(syntheticRun([
   ]),
 ]), sourceOnlyGuide);
 assert.ok(failureCodes(sourceOnlyGuideWrongOutput).has('required-exact-section-read-missing'), 'section output must confirm the exact searched reference and section');
+
+const unrelatedReferenceId = '【YZ配队攻略】弭弗x陈千语x黎风x骏卫 新传统物理队 输出手法教学&装备养成推荐.md';
+const unrelatedSectionId = 'h1-yz配队攻略-弭弗x陈千语x黎风x骏卫-新传统物理队-输出手法教学-装备养成推荐';
+const sourceOnlyGuideUnrelatedExactRead = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedGameKnowledgeSearch({
+      query: '弭弗 陈千语 黎风 骏卫 传统物理队',
+      referenceId: unrelatedReferenceId,
+      requiredSectionId: unrelatedSectionId,
+    }),
+    completedGameKnowledgeSection({ referenceId: unrelatedReferenceId, sectionId: unrelatedSectionId }),
+  ]),
+]), sourceOnlyGuide);
+assert.equal(sourceOnlyGuideUnrelatedExactRead.status, 'FAIL', 'an unrelated query and internally valid exact read cannot satisfy the named source request');
+assert.ok(failureCodes(sourceOnlyGuideUnrelatedExactRead).has('required-exact-section-read-missing'));
 
 const expectations = [
   ['equipment-3plus1-topology-v1.json', 2, 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
@@ -376,8 +403,10 @@ console.log(JSON.stringify({
     'read-only-state-preservation',
     'correction-second-turn-fresh-composite-recommendation',
     'source-only-guide-search-then-exact-section-read',
+    'source-only-guide-expected-reference-required',
     'source-only-guide-repeated-search-and-section-calls-rejected',
     'source-only-guide-section-read-bound-to-search-exact-read-policy',
+    'source-only-guide-unrelated-exact-reference-rejected',
     'topology-and-set-scenarios-migrated',
     'unresolved-composite-scenario-present',
     'unresolved-typed-contract-state-and-final-visible-conclusion-required',

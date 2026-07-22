@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import harness from '../agent/harness/def-harness.cjs';
+import { runNativeG5Suite } from './def-harness-g5-native-suite.mjs';
 import { runNativeScenario } from './def-harness-native-runner.mjs';
 import { runNativeRegression } from './def-harness-regression.mjs';
 
@@ -42,6 +43,10 @@ async function main() {
     const scenario = harness.loadScenario(scenarioPath(args[0]));
     const run = await runNativeScenario({ scenario, harnessSelector: option('--harness') || 'stable' });
     json({ ok: run.status === 'EXECUTED', run });
+  } else if (command === 'g5') {
+    const suite = await runNativeG5Suite({ harnessSelector: option('--harness') || 'stable' });
+    json({ ok: suite.status === 'PASS', suite });
+    if (suite.status !== 'PASS') process.exitCode = 1;
   } else if (command === 'regress') {
     const regression = await runNativeRegression({ baselineSelector: option('--baseline') || 'stable', candidateSelector: option('--candidate') });
     json({ ok: regression.status === 'PASS', regression });
@@ -54,7 +59,7 @@ async function main() {
   } else if (command === 'rollback') {
     json({ ok: true, decision: harness.rollback(root, option('--reviewer'), option('--reason')) });
   } else {
-    throw new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | package-check <scenarioId> --harness stable|candidate/<name> | run <scenarioId> --harness stable|candidate/<name> | regress --baseline stable --candidate candidate/<name> | promote <id@version> --content-hash <hash> --regression <real-regression.json> --reviewer <name> | rollback --reviewer <reason>');
+    throw new Error('Usage: doctor | package build <sourceDir> | package validate <packageDir> | registry add <packageDir> --channel stable|candidate/<name> | registry list | resolve [selector] | package-check <scenarioId> --harness stable|candidate/<name> | run <scenarioId> --harness stable|candidate/<name> | g5 --harness stable|candidate/<name> | regress --baseline stable --candidate candidate/<name> | promote <id@version> --content-hash <hash> --regression <real-regression.json> --reviewer <name> | rollback --reviewer <reason>');
   }
 }
 

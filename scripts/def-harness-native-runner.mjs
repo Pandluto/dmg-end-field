@@ -321,28 +321,29 @@ function normalizeScenarioExactSectionReadRules(value, field, checks) {
     const turnNumber = Number(rawTurnNumber);
     const searchTool = typeof rawRule?.searchTool === 'string' ? rawRule.searchTool.trim() : '';
     const sectionTool = typeof rawRule?.sectionTool === 'string' ? rawRule.sectionTool.trim() : '';
+    const expectedReferenceId = typeof rawRule?.expectedReferenceId === 'string' ? rawRule.expectedReferenceId.trim() : '';
     const unknownFields = rawRule && typeof rawRule === 'object' && !Array.isArray(rawRule)
-      ? Object.keys(rawRule).filter((key) => !['searchTool', 'sectionTool'].includes(key))
+      ? Object.keys(rawRule).filter((key) => !['searchTool', 'sectionTool', 'expectedReferenceId'].includes(key))
       : [];
-    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !searchTool || !sectionTool || unknownFields.length) {
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !searchTool || !sectionTool || !expectedReferenceId || unknownFields.length) {
       addScenarioCheck(checks, {
         pass: false,
         code: 'verification-config-invalid',
         field: `${field}.${rawTurnNumber}`,
-        message: `${field} entries require positive turn numbers plus searchTool and sectionTool only.`,
+        message: `${field} entries require positive turn numbers plus searchTool, sectionTool, and expectedReferenceId only.`,
       });
       return [];
     }
-    return [{ turnNumber, searchTool, sectionTool }];
+    return [{ turnNumber, searchTool, sectionTool, expectedReferenceId }];
   });
 }
 
-function exactSectionReadCandidateMatches(searchEvent, sectionEvent) {
+function exactSectionReadCandidateMatches(searchEvent, sectionEvent, expectedReferenceId) {
   const sectionInput = scenarioStructuredInput(sectionEvent);
   if (!sectionInput || typeof sectionInput.referenceId !== 'string' || typeof sectionInput.sectionId !== 'string') return [];
   const requestedReferenceId = sectionInput.referenceId.trim();
   const requestedSectionId = sectionInput.sectionId.trim();
-  if (!requestedReferenceId || !requestedSectionId) return [];
+  if (requestedReferenceId !== expectedReferenceId || !requestedSectionId) return [];
   const sectionOutputs = scenarioStructuredOutputValues(sectionEvent)
     .filter((output) => output.contract === 'DefGameKnowledgeSectionReadV1');
   const sectionOutputMatches = sectionOutputs.some((output) => (
@@ -580,14 +581,15 @@ export function evaluateScenarioVerification(run, scenario) {
     const sectionReads = sameTurn.filter((event) => event.tool === rule.sectionTool && completedScenarioToolEvent(event));
     const matchedCandidates = sectionReads.flatMap((sectionEvent) => searches
       .filter((searchEvent) => searchEvent.eventIndex < sectionEvent.eventIndex)
-      .flatMap((searchEvent) => exactSectionReadCandidateMatches(searchEvent, sectionEvent)));
+      .flatMap((searchEvent) => exactSectionReadCandidateMatches(searchEvent, sectionEvent, rule.expectedReferenceId)));
     addScenarioCheck(checks, {
       pass: matchedCandidates.length > 0,
       code: 'required-exact-section-read-missing',
       turnNumber: rule.turnNumber,
       searchTool: rule.searchTool,
       sectionTool: rule.sectionTool,
-      expected: 'completed-section-input-and-output-match-one-prior-search-candidate-exactReadPolicy.requiredSectionId',
+      expectedReferenceId: rule.expectedReferenceId,
+      expected: 'completed-section-input-and-output-match-the-expected-reference-from-one-prior-search-candidate-exactReadPolicy.requiredSectionId',
       observedSearchCalls: searches.length,
       observedSectionReadCalls: sectionReads.length,
       matchedCandidates: matchedCandidates.map((candidate) => ({

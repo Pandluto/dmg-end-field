@@ -1,6 +1,6 @@
 {
   "id": "skill-reference-readable-v1",
-  "version": 2,
+  "version": 3,
   "fixtureMode": "clone-current",
   "turns": [
     { "userText": "请查《弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学》这篇四人配队攻略；只按原文告诉我依据和明确写到的配装，不要查询当前阵容或改动任何配置。" }
@@ -19,7 +19,8 @@
     "requiredExactSectionReadByTurn": {
       "1": {
         "searchTool": "def_data_game_knowledge",
-        "sectionTool": "def_data_game_knowledge_section"
+        "sectionTool": "def_data_game_knowledge_section",
+        "expectedReferenceId": "【萌新推荐】弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学.md"
       }
     },
     "maxRepeatedToolCalls": {
