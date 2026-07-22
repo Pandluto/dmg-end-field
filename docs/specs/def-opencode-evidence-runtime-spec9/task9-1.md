@@ -82,8 +82,10 @@ Task 完成必须同时交付：
   - `agent/runtime/def/skills/timeline-workbench/SKILL.md`；
   - `agent/harness/baseline/stable-v0/**`；
   - 现有 candidate/example Harness；
+  - `agent/runtime/def-tools/definitions.mjs`；
   - `agent/runtime/def-tools/opencode/def.js`；
   - `agent/runtime/def-tools/registry.mjs`；
+  - `agent/runtime/def-opencode-adapter/agent-release.cjs`；
   - `scripts/ai-cli-rest-server.mjs`；
   - `scripts/def-core/**`；
   - `agent/harness/scenarios/**`；
@@ -122,6 +124,20 @@ Task 完成必须同时交付：
 - [ ] 记录当前模型可见 3+1 Tool 链长度。
 - [ ] 记录只读前后 checkout、pending approval 与 state hash。
 
+### A5. 写出实施映射
+
+- [ ] 新建本目录下的 `implementation-map.md`。
+- [ ] 为下列现有私有函数记录 `现位置 → 新模块/导出 → 旧调用方`：
+  - catalog canonicalize/hash/project/snapshot；
+  - set 与 equipment stable-id resolution；
+  - topology/facts；
+  - set-fit shortlist；
+  - 3+1 planner；
+  - Guide Profile compile、convention-required 判定与 partial Profile merge。
+- [ ] 明确 `discoverDefOperatorBuildGuide` 与 `deriveDefOperatorBuildProfile` 的旧 token/capability 路径只服务保留的原子 Tool。
+- [ ] 明确复合 Service 直接消费冻结的可信对象，不使用模型中转 token、capability 或 artifact。
+- [ ] 为每个高冲突文件指定一个实施工作包 owner。
+
 ### A 完成口径
 
 - [ ] 任何实施者都能从清单中指出一条规则当前在哪里、迁移到哪里、旧副本怎样退出。
@@ -131,17 +147,28 @@ Task 完成必须同时交付：
 
 ### B1. Tool 注册
 
-- [ ] 在唯一 DEF Tool 目录登记模型可见能力：
+- [ ] 按下面的固定映射登记模型可见能力：
 
   ```text
   modelVisibleName: def_data_equipment_3plus1_recommend
   sidecarRoute: def.equipment.3plus1.recommend
   family: def-data-resource
-  scope: session-private / read-only
-  risk: read-only
-  exposure: workbench
+  canonicalTarget: def.data.resource.equipment_3plus1_recommend
+  scope: session-private
+  riskLevel: read
+  approval: none
+  allowedHosts: workbench, ai-cli
   ```
 
+- [ ] 在 `definitions.mjs` 增加权威 Sidecar definition。
+- [ ] 在 `registry.mjs` 同时更新：
+  - `SESSION_PRIVATE_TOOLS`；
+  - `DATA_RESOURCE_TOOLS`；
+  - `DEF_NATIVE_TARGETS`；
+  - `dataTargetFor()`，且 recommend 匹配必须位于宽泛 3plus1 匹配之前。
+- [ ] 在 `buildDefToolDefinitions()` 增加显式输入 Schema。
+- [ ] 在 `applyDefToolInvocationPolicy()` 加入 authenticated native session 边界。
+- [ ] Sidecar dispatcher 只调用 Recommendation Service 并映射 typed error。
 - [ ] `registry.mjs`、OpenCode export 和 Sidecar route 必须一一对应。
 - [ ] 模型 Schema 与 route Schema 做 identity 或明确 adapter mapping 合同测试。
 - [ ] description 只说明能力、输入、终态和只读边界。
@@ -150,37 +177,65 @@ Task 完成必须同时交付：
 ### B2. 输入 Schema
 
 - [ ] 实现 `DefEquipment3Plus1RecommendationInputV1`：
-  - `operatorQuery` 必填；
-  - `setQuery` 可选；
-  - `requiredEquipmentQueries` 有界；
-  - `excludedEquipmentQueries` 有界；
-  - `compareEquipmentQueries` 有界，只比较、不强制选入；
-  - `duplicateAccessoryPolicy` 为受控枚举；
-  - `minimumSetPieces` 只能为 3 或 4；
-  - `shortlistLimit` 为 1–3；
-  - `priorPlanDigest` 可选。
-- [ ] 限制字符串和数组长度，拒绝空查询和无界输入。
-- [ ] required 与 excluded 冲突时返回输入错误。
+  - `operatorQuery`：NFKC/trim 后 1–160 字符，必填；
+  - `setQuery`：1–160 字符，可选；
+  - `requiredEquipmentQueries`：最多 4 项；
+  - `excludedEquipmentQueries`：最多 8 项；
+  - `compareEquipmentQueries`：最多 8 项；每项为 `{ query, slot? }`，只比较、不强制选入；
+  - compare slot 只能为 armor、glove、accessory1、accessory2；
+  - 每项装备 query 1–160 字符；三个数组规范化去重后合计最多 16 项；
+  - `duplicateAccessoryPolicy`：`catalog-default / allow / forbid`，默认 catalog-default；
+  - `minimumSetPieces`：3 或 4，默认 3；
+  - `shortlistLimit`：1–3，默认 3；
+  - `priorPlanDigest`：可选，格式为 `sha256:<64 lowercase hex>`。
+- [ ] 字符串统一做 NFKC、trim 与连续空白折叠。
+- [ ] required/excluded 按 query 去重；compare 按 query+slot 去重；跨语义数组的相同查询保留。
+- [ ] root、constraints、compare item 均设 `additionalProperties=false`；整数拒绝小数与字符串数字。
+- [ ] required 与 excluded 在解析成同一个 stable id 后返回 `400` 输入错误。
+- [ ] required 必须出现在每个方案中；excluded 必须从全部槽位排除。
+- [ ] compare 不进入候选过滤、评分或排序。
+- [ ] compare 指定 slot 时只比较第一 READY plan 的该槽；未指定时为每个兼容槽生成 comparison。
+- [ ] required/excluded 歧义进入 `NEEDS_INPUT`；无可信实体进入 `UNRESOLVED`。
+- [ ] compare 无可信实体只产生 unresolved comparison，不单独阻塞合法方案。
+- [ ] `allow` 不得扩大 catalog 槽位兼容性；`forbid` 过滤重复 stable id。
 - [ ] 用户约束不得放宽 catalog、槽位或套装合法性。
 - [ ] 不增加任意 JSON、隐藏 prompt 或自由表达式字段。
+- [ ] 不增加自由文本 `goal`；V1 内部 canonical goal 固定为 `damage`，support/utility 仍走结构化角色分支。
 
 ### B3. 输出 Schema
 
 - [ ] 实现 `EvidenceEnvelope<DefEquipment3Plus1RecommendationV1>`。
+- [ ] 成功合同固定为 `DefEquipmentThreePlusOneRecommendationV1`，`protocolVersion=1`。
 - [ ] 只允许 `READY / NEEDS_INPUT / UNRESOLVED` 三个业务状态。
-- [ ] `READY` 包含 operator、profile evidence、catalog revision、selected set、1–3 个 plans 和 `planDigest`。
-- [ ] 每件装备包含 stable id、name、slot、set id、match keys 与 ranking basis。
+- [ ] `READY` 包含 operator、profile evidence/profileHash、catalog revision、selected set、1–3 个 plans 和 `planDigest`。
+- [ ] selected set 包含其 three-piece effect 的 matchKeys 与 rankingBasis。
+- [ ] 每个 plan 包含稳定 `planId`，并恰好包含 armor、glove、accessory1、accessory2 四项。
+- [ ] 每件装备包含 `stableId`、name、slot、set id、match keys 与 ranking basis。
 - [ ] 被用户点名质疑的装备进入 `comparisons`，并返回 selected / not-selected / unresolved 与证据。
-- [ ] `NEEDS_INPUT` 只返回一个最小问题及有界候选。
-- [ ] `UNRESOLVED` 保留 missing、ambiguities 和 source refs，不生成伪方案。
+- [ ] 每条 comparison 包含原 query 与 slot；候选不存在时 candidate/slot 均为 null。
+- [ ] not-selected 包含该槽当前 `selectedStableId`。
+- [ ] comparison reasons 使用稳定 code，不只返回自然语言。
+- [ ] `NEEDS_INPUT` 为 `result=null`，只返回一个最小问题及有界候选。
+- [ ] ambiguity/nextQuestion 最多返回 8 个候选，并保留 candidateCount 与 truncated。
+- [ ] `UNRESOLVED` 为 `result=null`，保留 missing、ambiguities 和 source refs，不生成伪方案。
+- [ ] 多歧义时按 operator、set、required、excluded 的固定优先级提一个问题。
+- [ ] comparison unresolved 时允许 READY，但 `completeness=partial`。
 - [ ] 系统错误使用 Tool error，不伪装为业务终态。
-- [ ] Tool error 包含 `failureStage / retryable / nextAction`。
+- [ ] Tool error 合同固定为 `DefEquipmentThreePlusOneRecommendationErrorV1`。
+- [ ] `failureStage` 与 `nextAction` 只能使用 Spec 9 枚举。
+- [ ] HTTP 映射固定为 input=400、auth/session=403、stale/identity=409、unexpected=500。
+- [ ] catalog 捕获后的错误必须携带 source revision。
 
 ### B4. correction 合同
 
 - [ ] 每次推荐计算稳定 `requestDigest` 和 `planDigest`。
+- [ ] Digest 使用 object key 排序、忽略 undefined、保留 array 顺序的 canonical JSON，再执行 SHA-256。
+- [ ] `requestDigest` 覆盖规范化外部输入与默认值；不包含 priorPlanDigest、session/turn id、Profile 或 catalog。
+- [ ] `planDigest` 只在 READY 时生成，覆盖 requestDigest、resolved ids、Profile evidence hash、catalog revision 与最终稳定 plans。
+- [ ] `planId` 只覆盖 selected set id 与固定槽位顺序的 stable ids。
 - [ ] correction 使用完整替换输入，而不是自然语言 patch。
 - [ ] 有 `priorPlanDigest` 时返回 `supersedesPlanDigest`。
+- [ ] `priorPlanDigest` 只做格式和谱系标记，不参与评分、不读取旧 plan。
 - [ ] Service 总是重新读取当前可信 evidence 和 catalog revision。
 - [ ] 不复用上一轮 planner capability、artifact、候选或排名。
 - [ ] 新 catalog revision 下不能把旧 plan 说成当前结果。
@@ -194,17 +249,26 @@ Task 完成必须同时交付：
 
 ### C1. 建立领域 Service
 
-- [ ] 新建或抽取 `scripts/def-core/equipment-3plus1-recommendation.mjs`。
-- [ ] `scripts/ai-cli-rest-server.mjs` 只保留 route、认证、调用与 HTTP error 映射。
+- [ ] 新建 `scripts/def-core/stable-json.mjs`，承接当前 generic canonicalize/serialize/hash；equipment、weapon、Profile 共同复用。
+- [ ] 新建 `scripts/def-core/equipment-3plus1-domain.mjs`，承接 catalog、解析、拓扑、约束、排名与 Digest 纯函数。
+- [ ] 新建 `scripts/def-core/equipment-3plus1-recommendation.mjs`，承接阶段、状态、Envelope 与 error。
+- [ ] Domain exports 与 ports 的名称、参数完全按 Spec 9 第 6.5.2 节实现。
+- [ ] 公开入口固定为 `createDefEquipment3Plus1RecommendationService(ports).recommend({ sessionId, turnId, input })`。
+- [ ] `ports` 只允许读取 operator catalog、guide references、exact guide section、combat conventions、equipment library source 与 gear-set aliases。
+- [ ] `operator-build-evidence.mjs` 继续拥有 Profile 推导，并按 Spec 导出 Guide compile、convention 判定与 partial merge；推荐模块不得复制。
+- [ ] 对新的 recommend 路径，`scripts/ai-cli-rest-server.mjs` 只保留 port wiring、route、认证、调用与 HTTP error 映射。
+- [ ] 本 Task 不顺带迁移无关旧 Tool；但已迁出的 3+1 领域函数不得在 REST 留副本。
 - [ ] 不把现有函数复制成第二套算法；移动或复用 helper。
 - [ ] Service API 显式接收 session/turn identity 和有界输入。
 - [ ] Service 不接收 provider message、Prompt 或回答风格。
+- [ ] Service 合同测试使用内存 fixture ports，不读取正式产品数据。
 
 ### C2. 内部阶段
 
 - [ ] `resolve-operator`：精确 identity；歧义进入 `NEEDS_INPUT`。
 - [ ] `resolve-profile`：执行 GUIDE_FOUND / PARTIAL / NOT_FOUND 分支。
 - [ ] `capture-catalog`：一次性捕获不可变 equipment snapshot 与 revision。
+- [ ] `resolve-constraints`：将 required/excluded/compare 解析成 stable id。
 - [ ] `resolve-set`：指定套装精确解析；未指定时完整筛选候选。
 - [ ] `validate-facts`：校验槽位、套装数量、重复配件与 catalog identity。
 - [ ] `solve-plan`：生成有界计划、match keys、ranking basis、missing 与 ambiguities。
@@ -221,6 +285,12 @@ Task 完成必须同时交付：
 - [ ] set effect fit 先于 piece coverage；不能从 `fixedStat` 推导干员主副属性。
 - [ ] 不合并不同 effect type key。
 - [ ] 未证明的元素、触发或伤害收益保持 unresolved。
+- [ ] 固定 `minimumMatchesPerPiece=2`，不新增模型输入。
+- [ ] set 与 plan comparator 使用 Spec 9 第 6.5.4 节顺序。
+- [ ] 未指定套装时，只把当前 constraints 下至少有一个合法拓扑的套装标为 eligible。
+- [ ] set 业务分数完全并列时返回 `NEEDS_INPUT`；stable id 只保证候选顺序。
+- [ ] plan 业务分数完全并列时保留并列 plans，标记 `top-ranking-tie`，并使 completeness=partial。
+- [ ] 保留现有 search-space limit 与 output-size limit；如需改变，先改 Spec 并提供基线差异。
 
 ### C4. 只读与状态
 
@@ -232,6 +302,10 @@ Task 完成必须同时交付：
 ### C5. 原子能力收口
 
 - [ ] 复合 Service 直接调用领域函数，不调用模型 Tool export。
+- [ ] 复合 Service 内部不铸造或传递 fallback token、planner profile capability、artifact id。
+- [ ] 冻结 Profile 与 catalog snapshot 只存在于当前调用内。
+- [ ] Session/turn identity 只用于认证、隔离和审计，不进入排名与 Digest。
+- [ ] 保留的旧原子 Tool 继续执行原有 token/capability 防篡改合同。
 - [ ] 根据 A2 结果，将旧 3+1-only exports 改为 internal 或删除 model exposure。
 - [ ] 保留的 primitive 必须有独立消费者、owner 和退出条件。
 - [ ] 不新增 guide/profile/catalog/facts/plan 的第二组模型 Tool。
@@ -263,11 +337,17 @@ Task 完成必须同时交付：
 ### D3. Harness
 
 - [ ] 不修改已注册 package 内容。
-- [ ] 创建新的 immutable Harness package/version，来源可审计。
+- [ ] 从当前同意的 stable 内容构建新目录 `agent/harness/examples/spec9-3plus1-composite-v1/`。
+- [ ] manifest 固定为：
+  - `harnessId=def-equipment-3plus1-composite`；
+  - `version=9.1.0-candidate.1`；
+  - `sourceCommit` 写入 `implementation-map.md` 中冻结的准确 baseline commit。
+- [ ] candidate 的实际构建/注册 commit 另记入 `verification.md`，不让 manifest 自引用。
+- [ ] 新 package 先 build/register 为 immutable candidate，保存完整 `{ harnessId, version, contentHash }` ref。
 - [ ] 一个 package 只表达“使用复合 3+1 能力”这一项变更。
 - [ ] routing/workflow/tool-guidance 不再复制内部阶段。
 - [ ] response policy 只规定如何表达 READY、缺失、歧义和未应用状态。
-- [ ] 建立 candidate ref，供新 Session 显式测试。
+- [ ] 新 Session 只能通过完整 candidate ref 显式绑定，不能依赖目录名猜版本。
 - [ ] 不自动 promotion；记录人工决策门。
 
 ### D4. Tool description 与测试文档
@@ -336,18 +416,34 @@ Task 完成必须同时交付：
 ### F1. Service 合同矩阵
 
 - [ ] `GUIDE_FOUND` 指定套装成功。
-- [ ] `PARTIAL_GUIDE_FOUND` 只补授权缺口。
-- [ ] `GUIDE_NOT_FOUND` 使用可信 fallback。
+- [ ] `GUIDE_FOUND` 不调用 fallback。
+- [ ] `PARTIAL_GUIDE_FOUND` 只补缺口，不覆盖 Guide 已证明 group。
+- [ ] `GUIDE_NOT_FOUND` 只使用结构化 operator evidence 与必要 reviewed conventions。
+- [ ] fallback 为 `INSUFFICIENT_OPERATOR_EVIDENCE` 时返回 `UNRESOLVED`。
+- [ ] Profile 少于两个互不重叠 preference groups 时返回 `UNRESOLVED`，不进入 planner。
 - [ ] 未指定套装由完整 catalog 选择。
+- [ ] set 业务分数完全并列时返回 `NEEDS_INPUT`，stable id 只控制候选顺序。
+- [ ] plan 业务分数完全并列时返回多个 READY plans、`top-ranking-tie` 与 partial completeness。
+- [ ] 并列计划超过 shortlistLimit 时保留 candidateCount/truncated，不伪称唯一最佳。
 - [ ] 套装不存在且无可信候选时返回 `UNRESOLVED`；存在近似候选时返回 `NEEDS_INPUT`；catalog 损坏才返回 Tool error。
 - [ ] 名称歧义返回 `NEEDS_INPUT` 和一个问题。
+- [ ] 多个歧义只按固定优先级返回一个问题。
 - [ ] catalog identity 冲突 fail closed。
+- [ ] required item 每个方案都包含；excluded item 在所有槽位都不存在。
+- [ ] 未指定套装时跳过被 constraints 排空的套装，并继续选择其他合法套装。
+- [ ] required/excluded 解析为同一 stable id 时返回 400。
+- [ ] required/excluded 不存在时 UNRESOLVED；compare 不存在时 comparison unresolved 且不改变排序。
 - [ ] 双配件合法。
+- [ ] duplicate policy=catalog-default 与当前 catalog policy 一致。
+- [ ] duplicate policy=allow 不扩大槽位兼容性。
 - [ ] duplicate policy=forbid 生效。
 - [ ] 四件同套合法。
 - [ ] 散件只有严格改善时入选。
 - [ ] correction 重新计算并返回 supersedes digest。
+- [ ] 相同业务输入下，priorPlanDigest 只改变 supersedesPlanDigest；requestDigest、planId、planDigest、候选与排序均不变。
+- [ ] 相同输入与证据在不同 Session 得到相同 Digest。
 - [ ] “为什么不用某件装备”返回有证据的 comparison，不把质疑当作强制应用。
+- [ ] `{ query: "悬河供氧栓", slot: "accessory2" }` 只比较 accessory2，不丢失“配件二”语义。
 - [ ] 新 revision 不复用旧 plan。
 - [ ] shortlist 最多三个。
 - [ ] 全部路径状态不变。
@@ -371,6 +467,7 @@ Task 完成必须同时交付：
 按实际改动选择，至少运行：
 
 ```text
+npm run test:def-equipment-3plus1-recommendation
 npm run test:def-operator-build-planning
 npm run test:def-harness-guide-first
 npm run test:def-harness-turn-routing
@@ -379,7 +476,11 @@ npm run interop:check
 git diff --check
 ```
 
-- [ ] 新增的 Service contract test 接入合适的 package script。
+- [ ] 新建 `scripts/def-equipment-3plus1-recommendation-contract-test.mjs`，覆盖 Service、状态、约束、Digest 和只读不变量。
+- [ ] 新建 `scripts/def-equipment-3plus1-tool-surface-contract-test.mjs`，覆盖 definitions、registry、native target 与 OpenCode export；P3 可独立通过。
+- [ ] 新建 `scripts/def-equipment-3plus1-registration-contract-test.mjs`，在集成分支覆盖 authenticated policy、Sidecar schema、dispatcher 与 Service wiring。
+- [ ] `package.json` 新增 `test:def-equipment-3plus1-recommendation`，串行运行上述三个 hermetic contract test。
+- [ ] 将新 package script 接入 `test:def-operator-build-planning` 或 `check`，只保留一个权威聚合入口。
 - [ ] 影响 architecture gate 时接入 `test:def-architecture-contracts` 或 `npm run check`。
 - [ ] 不把桌面实时依赖测试强塞进普通 hermetic 单测。
 
@@ -469,7 +570,84 @@ git diff --check
 - [ ] 最终汇报 commits、测试、未覆盖和是否等待 Harness activation。
 - [ ] 不 push。
 
-## 十一、停止条件
+## 十一、并行实施图
+
+本节用于后续分发子 Agent 或独立分支。
+它只拆交付边界，不改变 owner。
+
+Checkpoint A 与 `implementation-map.md` 是并行开工门。
+它完成后，P1–P6 可以按容量并行。
+
+| 包 | 建议分支 | 独占文件范围 | 产物 | 依赖 |
+| --- | --- | --- | --- | --- |
+| P0 Freeze | `codex/spec9-implementation-freeze` | 只读盘点与 `implementation-map.md` | baseline、调用方、迁移表、高冲突 owner | 已同意集成 baseline |
+| P1 Domain extraction | `codex/spec9-equipment-domain` | `scripts/def-core/stable-json.mjs`、`equipment-3plus1-domain.mjs`、`operator-build-evidence.mjs` 的必要导出、REST 中旧领域函数迁移 | 纯函数、共享 hash、旧 primitive 复用、无算法副本 | P0 |
+| P2 Recommendation Service | `codex/spec9-recommendation-service` | `scripts/def-core/equipment-3plus1-recommendation.mjs`、Service contract test | 阶段、状态、Envelope、Digest、fixture ports | P0；按 P1 固定导出编码 |
+| P3 Tool surface | `codex/spec9-recommendation-tool` | `definitions.mjs`、`registry.mjs`、`opencode/def.js`、tool-surface contract test | 模型 Tool、Schema、policy/target 映射 | P0；使用固定 V1 合同 |
+| P4 Runtime teaching cleanup | `codex/spec9-runtime-teaching` | Base Prompt、`timeline-workbench/SKILL.md` | 删除旧链路，只保留识别和解释 | P0；不依赖代码合并 |
+| P5 Harness candidate | `codex/spec9-harness-candidate` | 新 candidate 目录、3+1 Scenario、Harness 合同断言 | immutable candidate 与 trace 断言 | P0；不 promotion |
+| P6 Teacher audit | `codex/spec9-teacher-audit` | `.agents/skills/harness-audit-assistant/**` | owner 路由、量表、handoff 样例 | P0 |
+| P7 Integration | `codex/spec9-integration` | 合并后 REST 最终 wiring、registration contract test、`package.json`、testing doc、`implementation-map.md` 最终状态、`verification.md` | 无冲突集成、聚合命令、全量证据 | P1–P6 |
+| P8 Blackbox | 集成分支上执行 | 不修改生产代码；只补 verification/artifact | Interop、Computer Use、状态证据 | P7 |
+
+### 11.1 固定接口，允许并行
+
+P1 与 P2 可以在 P0 后并行，但不得各自发明接口。
+共同使用 Spec 9 已冻结的：
+
+- domain module 名称；
+- Recommendation Service 入口；
+- port 种类；
+- 输入、输出、状态、error 与 Digest；
+- 现有 comparator 和限制不变。
+
+P2 可先用 fixture domain/ports 完成状态机测试。
+合并时必须替换为 P1 的真实导出，不能保留第二套 fixture 实现到生产路径。
+
+P3 不编辑 `ai-cli-rest-server.mjs`。
+它只完成模型面、definition 和 registry。
+Sidecar dispatcher 的最终 import/call 由 P7 在 P1、P2 合并后接线。
+
+### 11.2 高冲突文件规则
+
+- `scripts/ai-cli-rest-server.mjs`：P1 完成迁移前只归 P1；之后只归 P7；
+- `package.json`：只归 P7；其他包只在交付说明中提出 script 需求；
+- `spec.md`、`task9-1.md`：只归集成负责人；子任务发现合同问题时提交 Finding，不自行改规格；
+- `agent/harness/baseline/stable-v0/**`：任何包都不得修改；
+- 同一个 Scenario 或 contract test 不分给两个包同时编辑。
+
+### 11.3 分支交付合同
+
+每个包必须：
+
+1. 从 P7 指定的同一个 baseline 建分支；
+2. 只改表中授权文件；
+3. 记录依赖的 Spec 小节；
+4. 运行本包可独立运行的检查；
+5. 自动提交，不 push；
+6. 汇报 commit、文件、测试、未覆盖和集成注意事项。
+
+若合同与真实代码冲突，停止扩大修改。
+只提交证据或已证实的安全抽取，并由集成负责人先更新 Spec。
+
+### 11.4 集成顺序
+
+建议集成顺序：
+
+```text
+P0 freeze
+  → P1 domain
+  → P2 service
+  → P3 tool surface
+  → P4 / P5 / P6（次序可互换）
+  → P7 wiring + package scripts + hermetic regression
+  → P8 fresh-session blackbox
+```
+
+P7 不得用冲突解决顺手改写各包算法。
+需要语义变化时回到 primary owner 分支修复并重新提交。
+
+## 十二、停止条件
 
 出现以下任一情况时停止扩大实现：
 
@@ -486,7 +664,7 @@ git diff --check
 触发停止条件后，只提交已证实的安全修复和证据。
 不要继续靠 Prompt 补齐。
 
-## 十二、最终交付格式
+## 十三、最终交付格式
 
 实施者最终必须用人话回答：
 

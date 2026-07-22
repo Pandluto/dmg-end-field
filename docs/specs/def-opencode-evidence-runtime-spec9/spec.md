@@ -246,7 +246,10 @@ type DefEquipment3Plus1RecommendationInputV1 = {
   constraints?: {
     requiredEquipmentQueries?: string[]
     excludedEquipmentQueries?: string[]
-    compareEquipmentQueries?: string[]
+    compareEquipmentQueries?: Array<{
+      query: string
+      slot?: 'armor' | 'glove' | 'accessory1' | 'accessory2'
+    }>
     duplicateAccessoryPolicy?: 'catalog-default' | 'allow' | 'forbid'
     minimumSetPieces?: 3 | 4
   }
@@ -265,6 +268,61 @@ type DefEquipment3Plus1RecommendationInputV1 = {
 - `priorPlanDigest` 只表示新方案替代旧方案；
 - Service 不得复用旧 capability、旧 artifact 或旧排序结果；
 - 不支持的自由约束由 Agent 转成最小澄清，不塞进隐藏文本字段。
+
+#### 6.3.1 输入边界与默认值
+
+V1 不把“有界”留给实现者解释。
+
+| 字段 | 边界 | 默认值 |
+| --- | --- | --- |
+| `operatorQuery` | NFKC、trim 后 1–160 字符 | 无，必填 |
+| `setQuery` | NFKC、trim 后 1–160 字符 | 缺失表示由 Service 选套装 |
+| `requiredEquipmentQueries` | 0–4 项；每项 1–160 字符 | `[]` |
+| `excludedEquipmentQueries` | 0–8 项；每项 1–160 字符 | `[]` |
+| `compareEquipmentQueries` | 0–8 项；每项含 1–160 字符 query 与可选受控 slot | `[]` |
+| 三个装备查询数组合计 | 规范化去重后不超过 16 项 | — |
+| `duplicateAccessoryPolicy` | `catalog-default / allow / forbid` | `catalog-default` |
+| `minimumSetPieces` | `3 / 4` | `3` |
+| `shortlistLimit` | `1 / 2 / 3` | `3` |
+| `priorPlanDigest` | `sha256:` 加 64 位小写十六进制 | 缺失 |
+
+字符串先做 NFKC、trim 和连续空白折叠。
+required/excluded 数组内部按规范化 query 去重。
+compare 按“规范化 query + slot”去重。
+跨 required、excluded、compare 的相同查询继续保留，用于冲突与比较判定。
+
+Root、constraints 和 compare item 都使用 `additionalProperties=false`。
+整数必须是 JSON integer，未知字段直接返回输入错误。
+
+V1 没有自由文本 `goal`。
+Service 固定执行“干员适配的 3+1 装备推荐”。
+调用现有 Guide/Profile 纯函数时，内部 canonical goal 固定为 `damage`；support/utility 角色仍由结构化职业与 reviewed conventions 分支覆盖。
+更自由的优化目标必须先澄清，不能塞入隐藏 Prompt。
+
+#### 6.3.2 装备约束语义
+
+所有装备查询都在同一份 catalog snapshot 中解析为 stable id。
+
+- `required`：最终每个方案必须至少包含一次该 stable id；
+- `excluded`：最终方案不得在任何槽位使用该 stable id；
+- `compare`：只生成比较证据，不改变候选、评分和排序；
+- 同一个 resolved stable id 同时出现在 `required` 和 `excluded` 时，属于 `400` 输入错误；
+- `required` 或 `excluded` 存在多个可信候选时，进入 `NEEDS_INPUT`；
+- `required` 或 `excluded` 找不到可信实体时，进入 `UNRESOLVED`；
+- `compare` 找不到实体时，该 comparison 为 `unresolved`，但不阻止已完整证明的方案进入 `READY`；
+- `required` 无法满足槽位、套装数量或 duplicate policy 时，进入 `UNRESOLVED`，不得静默放宽；
+- 重复提交同一个 required 配件只表示“至少使用一次”，不表示占两个配件槽。
+
+compare 指定 slot 时，只与第一 READY plan 的该槽位比较。
+候选不兼容该槽位时，comparison 为 `unresolved`。
+
+compare 未指定 slot 时，按 armor、glove、accessory1、accessory2 顺序，对候选兼容的每个槽位各生成一条 comparison。
+这不会要求用户再次选择槽位。
+
+`catalog-default` 沿用当前 catalog 规则：同一 stable accessory 可占 `accessory1` 与 `accessory2`，前提是 catalog 声明两个槽位均兼容。
+
+`allow` 不能扩大 catalog 兼容性。
+`forbid` 则过滤所有重复 stable id 的方案。
 
 ### 6.4 V1 输出
 
@@ -289,6 +347,8 @@ type DefMissingFactV1 = {
 
 type DefAmbiguityV1 = {
   field: string
+  candidateCount: number
+  truncated: boolean
   candidates: Array<{ id?: string; label: string; kind: string }>
 }
 
@@ -298,8 +358,23 @@ type DefMinimalQuestionV1 = {
   options?: Array<{ id: string; label: string }>
 }
 
+type DefRankingBasisV1 = {
+  preferenceKey: string
+  preferenceLabel: string
+  preferenceKind: string
+  priorityIndex: number
+  weight: number
+  facts: Array<{
+    path: string
+    effectId: string
+    label: string
+    typeKey: string
+  }>
+}
+
 type EvidenceEnvelope<T> = {
-  contract: string
+  protocolVersion: 1
+  contract: 'DefEquipmentThreePlusOneRecommendationV1'
   state: DefEvidenceState
   requestDigest: string
   sourceRefs: DefSourceRefV1[]
@@ -315,6 +390,7 @@ type DefEquipment3Plus1RecommendationV1 = {
   operator: { id: string; name: string }
   profileEvidence: {
     state: 'GUIDE_FOUND' | 'PARTIAL_GUIDE_FOUND' | 'GUIDE_NOT_FOUND'
+    profileHash: string
     preferenceGroups: Array<{
       key: string
       label: string
@@ -324,23 +400,31 @@ type DefEquipment3Plus1RecommendationV1 = {
     evidenceRefs: string[]
   }
   catalogEvidence: { revision: string; exhaustive: true }
-  selectedSet: { id: string; name: string } | null
+  selectedSet: {
+    id: string
+    name: string
+    matchKeys: string[]
+    rankingBasis: DefRankingBasisV1[]
+  } | null
   plans: Array<{
+    planId: string
     items: Array<{
-      id: string
+      stableId: string
       name: string
       slot: 'armor' | 'glove' | 'accessory1' | 'accessory2'
       setId: string | null
       matchKeys: string[]
-      rankingBasis: string[]
+      rankingBasis: DefRankingBasisV1[]
     }>
     setMembershipCount: number
     missing: DefMissingFactV1[]
     ambiguities: DefAmbiguityV1[]
   }>
   comparisons: Array<{
-    candidate: { id: string; name: string }
-    selectedItemId?: string
+    query: string
+    candidate: { stableId: string; name: string } | null
+    slot: 'armor' | 'glove' | 'accessory1' | 'accessory2' | null
+    selectedStableId?: string
     decision: 'selected' | 'not-selected' | 'unresolved'
     reasons: string[]
     missing: DefMissingFactV1[]
@@ -356,14 +440,111 @@ type DefEquipment3Plus1RecommendationV1 = {
 `UNRESOLVED` 表示现有可信资料无法证明结论。
 Agent 不得把它改写成“应该可以”。
 
-系统故障不伪装成上述业务状态。
-Tool error 必须包含：
+状态字段还有以下不变量：
 
-- `failureStage`；
-- `retryable`；
-- `nextAction`；
-- 已捕获的 source revision；
-- 不得虚构未执行阶段。
+- `READY`：`result` 非空，`selectedSet` 非空，`plans` 为 1–3 项，`planDigest` 非空；
+- `profileHash`、`requestDigest`、`planId` 和 `planDigest` 均使用 `sha256:<64 lowercase hex>`；
+- 每个 READY plan 恰好包含四个槽位，顺序固定为 armor、glove、accessory1、accessory2；
+- `NEEDS_INPUT`：`result=null`，恰好一个 `nextQuestion`，不返回方案；
+- `UNRESOLVED`：`result=null`，至少一个 `missing` 或 `ambiguities`，不返回伪方案；
+- comparison 无法解析时，READY 可以保持成立，但 `completeness=partial`；
+- `sourceRefs` 按 kind、id、revision、sectionId 稳定排序；
+- `missing`、`ambiguities`、`matchKeys` 和 `rankingBasis` 使用稳定 code 或稳定排序，不依赖对象插入顺序。
+
+comparison 以第一 READY plan 为基准：
+
+- 候选正占用目标 slot：`selected`；
+- 候选兼容目标 slot，但在同一 comparator 下落后：`not-selected`，并返回该 slot 的 `selectedStableId`；
+- 候选不存在：`candidate=null`、`slot=null`、`unresolved`；
+- 候选不兼容显式 slot 或证据不足：保留 candidate/slot，decision=`unresolved`；
+- `reasons` 使用稳定 reason code，不能只返回自然语言结论。
+
+#### 6.4.1 状态优先级
+
+一次调用按下面顺序选择唯一出口：
+
+1. Schema、认证、Session 或内部执行失败：Tool error；
+2. 存在用户选择即可消除的歧义：`NEEDS_INPUT`；
+3. 可信来源不足、约束不可满足或无法证明收益：`UNRESOLVED`；
+4. 得到完整合法方案：`READY`。
+
+多个字段同时歧义时，只问一个问题。
+问题优先级固定为：operator、set、required、excluded。
+同类字段按原始输入顺序选择第一项。
+
+`candidates` 与 `nextQuestion.options` 最多 8 项。
+完整数量写入 `candidateCount`；超过 8 项时 `truncated=true`，不得声称候选已经穷尽。
+
+#### 6.4.2 Digest 合同
+
+Digest 复用当前 catalog 的规范化规则：递归按 object key 排序、忽略 `undefined`、保留 array 顺序，再对 UTF-8 JSON 执行 SHA-256。
+输出格式统一为 `sha256:<64 lowercase hex>`。
+
+`requestDigest` 在输入校验后即可生成。
+它的输入固定为：
+
+- contract；
+- 规范化后的 `operatorQuery` 与 `setQuery`；
+- required/excluded 的规范化查询稳定排序；
+- compare 查询保留用户输入顺序，并包含显式 slot 或 `null`；
+- `minimumSetPieces`、`duplicateAccessoryPolicy`、`shortlistLimit`；
+- 不包含 `priorPlanDigest`。
+
+`planDigest` 只在 READY 时生成。
+它覆盖 `requestDigest`、resolved operator id、Profile evidence hash、catalog revision、selected set 的 match/ranking evidence，以及按最终顺序排列的 plans、槽位、stable id、set membership、match keys 与 ranking basis。
+
+每个 `planId` 单独覆盖 selected set id，以及固定槽位顺序下的 stable id。
+它标识装备布局，不包含回答文本。
+
+Session id 与 turn id 不进入 Digest。
+相同输入和相同证据应跨新 Session 得到相同 Digest。
+
+`priorPlanDigest` 只做格式校验和谱系标记。
+它不参与评分，不授权读取旧状态，也不要求 Service 保存旧 plan。
+合法值原样进入 `supersedesPlanDigest`。
+
+#### 6.4.3 Tool error 合同
+
+系统故障不伪装成上述业务状态。
+Tool error 使用 `DefEquipmentThreePlusOneRecommendationErrorV1`：
+
+```ts
+type DefEquipment3Plus1FailureStage =
+  | 'validate-input'
+  | 'authorize-session'
+  | 'resolve-operator'
+  | 'resolve-profile'
+  | 'capture-catalog'
+  | 'resolve-constraints'
+  | 'resolve-set'
+  | 'validate-facts'
+  | 'solve-plan'
+  | 'build-evidence'
+
+type DefEquipment3Plus1NextAction =
+  | 'FIX_INPUT'
+  | 'RETRY_FRESH_TURN'
+  | 'REPORT_AND_STOP'
+
+type DefEquipment3Plus1ErrorV1 = {
+  contract: 'DefEquipmentThreePlusOneRecommendationErrorV1'
+  code: string
+  failureStage: DefEquipment3Plus1FailureStage
+  retryable: boolean
+  nextAction: DefEquipment3Plus1NextAction
+  message: string
+  sourceRevision?: string
+}
+```
+
+输入错误映射 `400`，Session/认证错误映射 `403`，可信来源 stale 或 identity 冲突映射 `409`，未预期异常映射 `500`。
+业务终态始终是成功的 typed result，不借 HTTP error 表达 `NEEDS_INPUT` 或 `UNRESOLVED`。
+
+`retryable=true` 只表示不改变用户输入也可能在新 Turn 成功的瞬时故障。
+确定性 Schema、identity、证据和约束失败必须为 false。
+
+一旦 catalog 已捕获，后续 error 必须携带其 revision。
+未执行的阶段不得出现在错误证据里。
 
 ### 6.5 Service 拥有的阶段
 
@@ -371,7 +552,7 @@ Service 是以下规则的唯一 owner：
 
 1. 干员精确解析；
 2. `GUIDE_FOUND / PARTIAL / NOT_FOUND` 分支；
-3. Profile 生成与证据能力校验；
+3. Profile 生成与证据完整性校验；
 4. 单次不可变 catalog snapshot 与 revision；
 5. 指定套装解析或未指定套装筛选；
 6. 四个物理槽位与至少三件套装归属；
@@ -384,8 +565,183 @@ Service 是以下规则的唯一 owner：
 所有阶段消费同一个 catalog snapshot。
 内部 helper 可以复用现有实现，但不能复制算法。
 
-REST 文件只接收请求、调用 Service、映射 HTTP 错误。
+对新的 3+1 recommend 路径，REST 文件只接收请求、调用 Service、映射 HTTP 错误。
 它不继续保存第二份 3+1 规则。
+本纵切不要求同时抽空 REST 中所有无关旧 Tool，但迁移后的 3+1 函数不得留下副本。
+
+#### 6.5.1 内部信任边界
+
+旧链路的 fallback token、planner profile capability 和 artifact id，解决的是“模型在多个 Tool 之间搬运对象时可能篡改或串线”。
+
+复合 Service 内部没有这条不可信边界。
+因此它采用下面的规则：
+
+- 不调用模型可见 Tool export；
+- 不在内部铸造或传递 fallback token、planner profile capability、artifact id；
+- Guide、Profile 和 catalog snapshot 以单次调用内的冻结对象传给下一阶段；
+- Profile evidence hash 与 catalog revision 进入最终 Digest；
+- Session/turn identity 只用于入口认证、隔离和审计；
+- correction 是一次全新的调用，重新读取 Guide、Profile 和 catalog；
+- `priorPlanDigest` 不恢复旧 capability、artifact、候选或排序。
+
+旧原子 Tool 若因独立消费者暂时保留，仍维持原有 token/capability 防篡改合同。
+不得为了复合 Service 而削弱旧入口。
+
+#### 6.5.2 模块与依赖方向
+
+实现固定为两个领域模块和一个无业务语义的共享工具：
+
+| 模块 | 唯一职责 |
+| --- | --- |
+| `scripts/def-core/stable-json.mjs` | object key 排序、undefined 省略、稳定 JSON 与 SHA-256；供 equipment、weapon 和 Profile 共同复用 |
+| `scripts/def-core/equipment-3plus1-domain.mjs` | catalog 投影、规范化、stable id 解析、套装筛选、拓扑、重复策略、约束、排名与 Digest 纯函数 |
+| `scripts/def-core/equipment-3plus1-recommendation.mjs` | 阶段编排、状态选择、Evidence Envelope 与 error 语义 |
+
+`stable-json.mjs` 固定导出：
+
+```ts
+canonicalizeDefStableValue(value)
+serializeDefStableValue(value)
+hashDefStableValue(value)
+```
+
+`hashDefStableValue()` 返回 64 位小写十六进制，不带 `sha256:`。
+各公开合同在边界处添加前缀，保持现有 catalog revision 兼容。
+
+现有 equipment、weapon、Profile hash 必须迁移为复用该工具。
+不得在 equipment module 复制 serializer。
+
+`operator-build-evidence.mjs` 继续拥有 Guide/Profile 的纯算法，并导出 Guide Profile 编译、convention 判定与 partial merge 所需函数。
+不得在推荐模块复制 Profile 推导。
+
+Domain module 固定导出：
+
+```ts
+buildDefEquipmentCatalogSnapshot({ library, storageKey, capturedAt })
+resolveDefEquipmentGearSet({ snapshot, query, aliasIndex })
+resolveDefEquipmentEntity({ snapshot, query })
+buildDefEquipmentSetFitShortlist({
+  snapshot,
+  profile,
+  constraints,
+  minimumSetPieces,
+  shortlistLimit
+})
+buildDefEquipmentThreePlusOneFacts({ snapshot, targetSetId })
+buildDefEquipmentThreePlusOnePlan({
+  snapshot,
+  targetSetId,
+  profile,
+  constraints,
+  shortlistLimit
+})
+```
+
+`operator-build-evidence.mjs` 新增公开的：
+
+```ts
+compileGuidePlannerProfile(operatorId, guideStrategy, guideContentHash)
+operatorRequiresCombatConvention(rawOperator)
+mergePartialGuidePlannerProfile(profile, {
+  guideState,
+  guidePreferenceGroups,
+  guideContextScope,
+  guideContentHash
+})
+```
+
+Partial merge 参数不得携带 fallback token、Session capability 或 mutable server map entry。
+
+推荐 Service 的公开入口固定为：
+
+```ts
+createDefEquipment3Plus1RecommendationService(ports)
+  .recommend({ sessionId, turnId, input })
+```
+
+`ports` 的键固定为：
+
+```ts
+{
+  readOperatorCatalog(): Promise<Record<string, unknown>>,
+  loadGuideReferences(): Promise<GuideReference[]>,
+  readGuideSection(input: { referenceId: string; sectionId: string }): Promise<GuideSectionResult>,
+  resolveCombatConventions(input: CombatConventionQuery): Promise<DefCombatConventionBundleV1>,
+  readEquipmentLibrarySource(): Promise<{ library: EquipmentLibrary; storageKey: string }>,
+  readGearSetAliasIndex(): Promise<Map<string, string>>
+}
+```
+
+这些 Port 只能提供可信来源读取：
+
+- operator catalog；
+- allowlisted guide references；
+- exact guide section；
+- reviewed combat conventions；
+- equipment library source；
+- gear-set alias index。
+
+Port 不返回最终方案，不决定状态，也不包含 provider message、Prompt、回答风格或模型 Tool。
+Service 合同测试必须使用内存 fixture ports。
+`recommend()` 本身是 async，并对每个 Port 结果做 shape 校验后才进入下一阶段。
+
+`ai-cli-rest-server.mjs` 是这条新路径的 composition root。
+对 recommend route，它只负责接入这些 ports、认证、调用和 HTTP 映射。
+当前文件中的 catalog、set-fit 和 3+1 领域函数必须移动到 core 后再复用，不能保留拷贝。
+
+#### 6.5.3 Profile 分支
+
+| Guide 状态 | Service 行为 |
+| --- | --- |
+| `GUIDE_FOUND` | 读取 exact section，编译 Guide Profile；不得再调用 fallback |
+| `PARTIAL_GUIDE_FOUND` | 保留 Guide 已证明的 preference groups，只用结构化 operator evidence 与必要 conventions 补缺口 |
+| `GUIDE_NOT_FOUND` | 只用结构化 operator evidence；support/utility 角色需要 reviewed combat conventions |
+
+Partial merge 必须复用 `mergePartialGuidePlannerProfile()`。
+它不能用 fallback 覆盖 Guide 已证明的 group。
+
+Fallback 结果只有在 `DefOperatorBuildProfileV1.state=PROFILE_READY` 时才能进入规划。
+`INSUFFICIENT_OPERATOR_EVIDENCE` 映射为 `UNRESOLVED`。
+Profile 少于两个互不重叠的 verified preference groups 时同样映射为 `UNRESOLVED`。
+Guide section、operator catalog 或 convention 读取本身损坏，才是 `resolve-profile` Tool error。
+
+#### 6.5.4 排名与 tie-break
+
+V1 固定 `minimumMatchesPerPiece=2`，不向模型开放。
+
+未指定套装时，set comparator 顺序固定为：
+
+1. eligible；
+2. set bonus match count；
+3. covered preference count；
+4. weighted score；
+5. stable set id 仅用于确定输出顺序。
+
+eligible 必须同时满足 typed three-piece effect、Profile match，以及当前 required/excluded、minimumSetPieces、duplicate policy 下至少一个合法拓扑。
+不得先选一个已经被用户约束排除的套装，再以 `UNRESOLVED` 结束而忽略其他合法套装。
+
+若前四项完全相同，stable id 不能冒充业务优势。
+Service 返回 `NEEDS_INPUT`，候选为并列套装。
+
+方案 comparator 顺序固定为：
+
+1. qualified piece count；
+2. weighted score；
+3. covered preference count；
+4. set membership count；
+5. `slot:stableId` stable key 仅用于确定输出顺序。
+
+若前四项完全相同，并列 `planId` 一起进入 READY shortlist。
+每个并列方案写入 `top-ranking-tie` ambiguity，Envelope 为 `completeness=partial`。
+stable key 只控制展示顺序，Agent 必须说明没有唯一赢家。
+
+返回 plans 仍受 `shortlistLimit` 限制。
+并列数量超过限制时，ambiguity 记录完整 candidateCount 与 `truncated=true`。
+
+非并列的 close alternatives 也可以与第一方案一起进入 READY shortlist。
+
+Search-space limit、output-size limit 和现有 effect type-key 评分在本 Task 中保持不变。
+任何算法变化必须先修改 Spec，并在 `implementation-map.md` 记录基线差异。
 
 ### 6.6 Tool 拥有的合同
 
@@ -400,6 +756,25 @@ Tool 只负责：
 
 Tool description 只说明“做什么、需要什么、返回什么”。
 它不再教授内部阶段顺序。
+
+#### 6.6.1 注册矩阵
+
+新能力必须同时出现在下列位置：
+
+| 层 | 固定值或改动 |
+| --- | --- |
+| Sidecar definition | `def.equipment.3plus1.recommend`；scope=`session-private`；riskLevel=`read`；approval=`none` |
+| Access policy | 加入 `SESSION_PRIVATE_TOOLS` 与 `DATA_RESOURCE_TOOLS` |
+| Native target | `def.data.resource.equipment_3plus1_recommend` → `def_data_equipment_3plus1_recommend` |
+| Canonical mapping | `dataTargetFor()` 必须先匹配 recommend，再匹配宽泛的 3plus1 facts |
+| Sidecar schema | `buildDefToolDefinitions()` 使用本节固定 V1 输入，不得退回空 object schema |
+| Sidecar policy | authenticated registered native session；Workbench 与 AI CLI 可见 |
+| Sidecar handler | 调用 Recommendation Service；只映射 typed result/error |
+| OpenCode export | `def_data_equipment_3plus1_recommend`；输入映射一一对应；原样返回 typed result |
+| AgentRelease | definitions/registry、OpenCode implementation 与 `scripts/def-core` 的现有指纹必须同时变化 |
+
+权威 definition 位于 `agent/runtime/def-tools/definitions.mjs`。
+Registry、native target 与模型 export 都是这份合同的适配，不得各自重新定义含义。
 
 ### 6.7 原子能力怎样处理
 
