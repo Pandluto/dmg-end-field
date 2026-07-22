@@ -35,6 +35,7 @@ const {
   buildWorkbenchContextSystemPrompt,
 } = require('./workbench-system-prompts.cjs');
 const { isAuthorizedNativeSessionCleanupRequest } = require('./native-session-cleanup-auth.cjs');
+const { createNativeSessionAdmissionGate } = require('./native-session-admission.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -46,6 +47,8 @@ const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json'
 const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3');
 const nativeAiCliSessionsRoot = path.resolve(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace', 'sessions', 'ai-cli');
 const OPENCODE_ACTION_TIMEOUT_MS = 5000;
+const NATIVE_SESSION_ADMISSION_POLL_MS = 250;
+const NATIVE_SESSION_ADMISSION_START_TIMEOUT_MS = 15000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
 const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string' && process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
@@ -60,6 +63,10 @@ let questionStore = null;
 // retry joins the original operation instead of issuing another prompt.
 const nativeInteropPromptRequests = new Map();
 const nativeSessionCleanupInFlight = new Map();
+// OpenCode only single-flights its LLM loop. A second prompt can otherwise
+// create another user message before that loop gate is reached, so admission
+// belongs at this sidecar boundary shared by UI and interop ingress.
+const nativeSessionAdmission = createNativeSessionAdmissionGate();
 
 async function defRestReady() {
   try {
@@ -528,6 +535,118 @@ function serveOpenCodeUi(request, response, requestUrl) {
   return true;
 }
 
+function nativeMessageInfo(message) {
+  return message?.info && typeof message.info === 'object' ? message.info : message || {};
+}
+
+function nativeMessageID(message) {
+  const id = nativeMessageInfo(message)?.id;
+  return typeof id === 'string' ? id : '';
+}
+
+async function fetchNativeSessionMessages(runtime, binding, sessionID) {
+  const response = await fetch(
+    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/message?directory=${encodeURIComponent(binding.directory)}`,
+    { signal: AbortSignal.timeout(15000) },
+  );
+  if (!response.ok) {
+    const error = new Error(`native-session-transcript-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const messages = await response.json();
+  return Array.isArray(messages) ? messages : [];
+}
+
+async function fetchNativeSessionStatus(runtime, binding) {
+  const response = await fetch(
+    `${runtime.serverUrl}/session/status?directory=${encodeURIComponent(binding.directory)}`,
+    { signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS) },
+  );
+  if (!response.ok) {
+    const error = new Error(`native-session-status-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const status = await response.json();
+  return status && typeof status === 'object' ? status : {};
+}
+
+async function captureNativeSessionAdmissionBaseline(admission, runtime, binding) {
+  if (!admission) return;
+  try {
+    const messages = await fetchNativeSessionMessages(runtime, binding, admission.sessionID);
+    admission.baselineMessageIds = new Set(messages.map(nativeMessageID).filter(Boolean));
+    admission.baselineKnown = true;
+  } catch {
+    admission.baselineKnown = false;
+  }
+}
+
+function findNativeAdmissionUserMessage(admission, messages) {
+  if (!admission.baselineKnown || !admission.baselineMessageIds) return null;
+  return messages.findLast((message) => {
+    const info = nativeMessageInfo(message);
+    return info?.role === 'user' && !admission.baselineMessageIds.has(nativeMessageID(message));
+  }) || null;
+}
+
+function isNativeAdmissionAssistantTerminal(message, userMessageID) {
+  const info = nativeMessageInfo(message);
+  if (info?.role !== 'assistant' || info?.parentID !== userMessageID) return false;
+  return Boolean(info?.error || info?.time?.completed || info?.completedAt);
+}
+
+async function observeNativeSessionAdmission(admission, runtime, binding) {
+  const [statusResult, transcriptResult] = await Promise.allSettled([
+    fetchNativeSessionStatus(runtime, binding),
+    fetchNativeSessionMessages(runtime, binding, admission.sessionID),
+  ]);
+  const statuses = statusResult.status === 'fulfilled' ? statusResult.value : null;
+  const currentStatus = statuses?.[admission.sessionID] || null;
+  if (currentStatus && currentStatus.type !== 'idle') admission.observedBusy = true;
+
+  const messages = transcriptResult.status === 'fulfilled' ? transcriptResult.value : null;
+  if (Array.isArray(messages)) {
+    const userMessage = admission.nativeUserMessageID
+      ? messages.find((message) => nativeMessageID(message) === admission.nativeUserMessageID) || null
+      : findNativeAdmissionUserMessage(admission, messages);
+    if (userMessage) {
+      admission.nativeUserMessageID = nativeMessageID(userMessage);
+      admission.observedUserMessage = true;
+      if (messages.some((message) => isNativeAdmissionAssistantTerminal(message, admission.nativeUserMessageID))) {
+        return { terminal: true, reason: 'native-message-terminal' };
+      }
+    }
+  }
+
+  if (admission.observedBusy && statuses && (!currentStatus || currentStatus.type === 'idle')) {
+    return { terminal: true, reason: 'native-session-idle' };
+  }
+
+  // prompt_async forks before its user message exists. If the native session
+  // remains idle through the bounded start window, the accepted operation did
+  // not start (or failed before a run), so retaining this reservation would be
+  // a stale lock rather than protection for an active turn.
+  if (!admission.observedBusy
+    && statuses
+    && !currentStatus
+    && Date.now() - admission.acceptedAt >= NATIVE_SESSION_ADMISSION_START_TIMEOUT_MS) {
+    return { terminal: true, reason: admission.observedUserMessage ? 'native-session-idle-before-run' : 'native-prompt-not-started' };
+  }
+  return null;
+}
+
+function scheduleNativeSessionAdmissionWatch(admission, runtime, binding) {
+  if (!admission || admission.watchStarted) return;
+  admission.watchStarted = true;
+  void nativeSessionAdmission.watch(
+    admission,
+    (entry) => observeNativeSessionAdmission(entry, runtime, binding),
+    { intervalMs: NATIVE_SESSION_ADMISSION_POLL_MS },
+  );
+}
+
 async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
@@ -536,14 +655,25 @@ async function proxyOpenCodeRequest(request, response) {
   // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
   // OpenCode route as well, but do not assume the prefix is literally `server`.
   await rejectPendingQuestionsForSessionAbort(runtime, request, target);
-  const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
+  const sessionActionMatch = /^\/session\/([^/]+)\/(message|prompt_async|abort)$/.exec(target.pathname);
   let rewrittenBody = null;
   let binding = null;
-  if (request.method === 'POST' && sessionMessageMatch) {
-    const sessionID = decodeURIComponent(sessionMessageMatch[1]);
-    const directory = target.searchParams.get('directory') || '';
-    binding = readNativeSessionBinding(directory, sessionID);
-    if (binding) {
+  let admission = null;
+  let sessionAction = '';
+  let nativeSessionID = '';
+  try {
+    if (request.method === 'POST' && sessionActionMatch) {
+      nativeSessionID = decodeURIComponent(sessionActionMatch[1]);
+      sessionAction = sessionActionMatch[2];
+      const directory = target.searchParams.get('directory') || '';
+      binding = findNativeSessionBinding(nativeSessionID) || readNativeSessionBinding(directory, nativeSessionID);
+      if (binding && sessionAction !== 'abort') {
+        admission = nativeSessionAdmission.admit({ sessionID: nativeSessionID, source: sessionAction === 'message' ? 'ui' : 'proxy-prompt-async' }).entry;
+        if (sessionAction === 'prompt_async') await captureNativeSessionAdmissionBaseline(admission, runtime, binding);
+      }
+    }
+    if (request.method === 'POST' && sessionAction === 'message' && binding) {
+      const sessionID = nativeSessionID;
       const axisContext = binding.host === 'workbench' ? await syncNativeWorkbenchAxisBinding(binding) : null;
       const incoming = await readJsonBody(request);
       const userText = Array.isArray(incoming.parts)
@@ -567,6 +697,9 @@ async function proxyOpenCodeRequest(request, response) {
         } : {}),
       }), 'utf8');
     }
+  } catch (error) {
+    if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
+    throw error;
   }
   return new Promise((resolve, reject) => {
     const headers = { ...request.headers, host: target.host };
@@ -589,9 +722,25 @@ async function proxyOpenCodeRequest(request, response) {
         'access-control-allow-origin': '*',
       });
       upstreamResponse.pipe(response);
-      upstreamResponse.on('end', () => resolve(true));
+      upstreamResponse.on('end', () => {
+        const succeeded = (upstreamResponse.statusCode || 502) >= 200 && (upstreamResponse.statusCode || 502) < 300;
+        if (sessionAction === 'abort' && succeeded) nativeSessionAdmission.releaseSession(nativeSessionID, 'native-abort');
+        if (admission) {
+          if (!succeeded) nativeSessionAdmission.release(admission, 'submission-failed');
+          else if (sessionAction === 'prompt_async') scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
+          else nativeSessionAdmission.release(admission, 'native-message-terminal');
+        }
+        resolve(true);
+      });
+      upstreamResponse.on('error', (error) => {
+        if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
+        reject(error);
+      });
     });
-    upstream.on('error', reject);
+    upstream.on('error', (error) => {
+      if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
+      reject(error);
+    });
     if (rewrittenBody) {
       upstream.end(rewrittenBody);
       return;
@@ -608,16 +757,7 @@ async function readNativeInteropTranscript(sessionID) {
     throw error;
   }
   const runtime = await ensureRuntime(readConfig().deepseek);
-  const response = await fetch(
-    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/message?directory=${encodeURIComponent(binding.directory)}`,
-    { signal: AbortSignal.timeout(15000) },
-  );
-  if (!response.ok) {
-    const error = new Error(`native-session-transcript-failed-${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  return { binding, messages: await response.json() };
+  return { binding, messages: await fetchNativeSessionMessages(runtime, binding, sessionID) };
 }
 
 async function readNativeInteropQuestions(sessionID) {
@@ -675,26 +815,41 @@ function nativeInteropCorrelationKey(sessionID, correlation) {
 
 async function sendNativeInteropPrompt(sessionID, body) {
   const key = nativeInteropCorrelationKey(sessionID, body?.correlation);
-  if (!key) return sendNativeInteropPromptOnce(sessionID, body);
-  const existing = nativeInteropPromptRequests.get(key);
-  if (existing) return { ...(await existing.promise), idempotent: true };
-  const entry = { createdAt: Date.now(), promise: sendNativeInteropPromptOnce(sessionID, body) };
-  nativeInteropPromptRequests.set(key, entry);
-  if (nativeInteropPromptRequests.size > 512) {
-    const oldest = nativeInteropPromptRequests.keys().next().value;
-    if (oldest && oldest !== key) nativeInteropPromptRequests.delete(oldest);
+  if (key) {
+    const existing = nativeInteropPromptRequests.get(key);
+    if (existing) return { ...(await existing.promise), idempotent: true };
+  }
+
+  const admissionResult = nativeSessionAdmission.admit({ sessionID, idempotencyKey: key, source: 'interop' });
+  if (admissionResult.kind === 'idempotent') {
+    const result = admissionResult.entry.result || await admissionResult.entry.promise;
+    return { ...(result || {}), idempotent: true };
+  }
+  const admission = admissionResult.entry;
+  const entry = { createdAt: Date.now(), admission, promise: null };
+  entry.promise = sendNativeInteropPromptOnce(sessionID, body, admission);
+  admission.promise = entry.promise;
+  if (key) {
+    nativeInteropPromptRequests.set(key, entry);
+    if (nativeInteropPromptRequests.size > 512) {
+      const oldest = nativeInteropPromptRequests.keys().next().value;
+      if (oldest && oldest !== key) nativeInteropPromptRequests.delete(oldest);
+    }
   }
   try {
-    return await entry.promise;
+    const result = await entry.promise;
+    admission.result = result;
+    return result;
   } catch (error) {
     // A rejected request was not accepted by prompt_async, so a later caller
     // may safely start a fresh operation after diagnosing the failure.
-    nativeInteropPromptRequests.delete(key);
+    nativeSessionAdmission.release(admission, 'submission-failed');
+    if (key) nativeInteropPromptRequests.delete(key);
     throw error;
   }
 }
 
-async function sendNativeInteropPromptOnce(sessionID, body) {
+async function sendNativeInteropPromptOnce(sessionID, body, admission) {
   const binding = findNativeSessionBinding(sessionID);
   if (!binding || binding.host !== 'workbench') {
     const error = new Error('native-workbench-session-binding-not-found');
@@ -727,6 +882,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     ? body.diagnostic
     : null;
   const runtime = await ensureRuntime(readConfig().deepseek);
+  await captureNativeSessionAdmissionBaseline(admission, runtime, binding);
   const axisContext = await syncNativeWorkbenchAxisBinding(binding);
   const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
   const workbenchContext = readNativeWorkbenchContext(binding);
@@ -758,7 +914,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     throw error;
   }
   const accepted = await response.json().catch(() => null);
-  return {
+  const result = {
     binding,
     ingressMode,
     acceptedAt: Date.now(),
@@ -773,6 +929,8 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     harnessWarning: harness.warning,
     agentRelease: binding.agentRelease || null,
   };
+  scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
+  return result;
 }
 
 async function stopNativeInteropPrompt(sessionID) {
@@ -792,6 +950,7 @@ async function stopNativeInteropPrompt(sessionID) {
     error.status = response.status;
     throw error;
   }
+  nativeSessionAdmission.releaseSession(sessionID, 'native-abort');
   return { reason: response.status === 404 ? 'already-complete' : 'requested' };
 }
 
@@ -1183,7 +1342,10 @@ async function deleteNativeSessionById(sessionID, options = {}) {
   const removeAxisBinding = options.removeAxisBinding || removeNativeWorkbenchAxisBinding;
   const removeDirectory = options.removeDirectory || ((directory) => fs.rmSync(directory, { recursive: true, force: true }));
   const binding = bindingResolver(sessionID);
-  if (!binding) return { ok: true, status: 'already-deleted', sessionID };
+  if (!binding) {
+    nativeSessionAdmission.releaseSession(sessionID, 'native-session-deleted');
+    return { ok: true, status: 'already-deleted', sessionID };
+  }
   if (options.expectedBinding && (
     binding.sessionID !== options.expectedBinding.sessionID
     || binding.host !== options.expectedBinding.host
@@ -1243,6 +1405,7 @@ async function deleteNativeSessionById(sessionID, options = {}) {
     deleteQuestionRecords(sessionID);
     await removeAxisBinding(binding);
     removeDirectory(binding.directory);
+    nativeSessionAdmission.releaseSession(sessionID, 'native-session-deleted');
     return { ok: true, status: upstreamAlreadyDeleted ? 'already-deleted' : 'deleted', sessionID };
   } catch (error) {
     return {
@@ -1439,11 +1602,12 @@ const server = http.createServer(async (request, response) => {
 
       if (action === 'stop') {
         await rejectPendingQuestions(runtime, binding.directory, sessionID);
-        await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`, {
+        const abortResponse = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`, {
           method: 'POST',
           headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
           signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
-        }).catch(() => undefined);
+        }).catch(() => null);
+        if (abortResponse?.ok || abortResponse?.status === 404) nativeSessionAdmission.releaseSession(sessionID, 'native-abort');
         saveNativeQuestion({ requestID, sessionID, directory: binding.directory, questions: body.questions, status: 'stopped' });
         writeJson(response, 200, { ok: true, status: 'stopped' });
         return;
