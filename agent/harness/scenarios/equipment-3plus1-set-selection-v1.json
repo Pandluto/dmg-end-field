@@ -1,6 +1,6 @@
 {
   "id": "equipment-3plus1-set-selection-v1",
-  "version": 1,
+  "version": 2,
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -9,6 +9,9 @@
   "verification": {
     "requiredTools": ["def_data_equipment_3plus1_recommend"],
     "requiredToolsByTurn": {
+      "1": ["def_data_equipment_3plus1_recommend"]
+    },
+    "onlyToolsByTurn": {
       "1": ["def_data_equipment_3plus1_recommend"]
     },
     "orderedToolsByTurn": {

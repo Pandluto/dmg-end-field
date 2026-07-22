@@ -78,27 +78,30 @@ W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutabl
 
 | 场景 | package-check id | 状态 |
 | --- | --- | --- |
-| `equipment-3plus1-topology-v1` | `package-check-a46c3514-12e4-4475-b754-a337b637e1f2` | `PACKAGE_CHECK_PASS` |
-| `equipment-3plus1-set-selection-v1` | `package-check-61fda0ed-4b06-4286-a9f9-e9be41e7459d` | `PACKAGE_CHECK_PASS` |
-| `equipment-3plus1-unresolved-v1` v1 | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `SUPERSEDED_BY_V2_SCENARIO` |
+| `equipment-3plus1-topology-v1` v1 | `package-check-a46c3514-12e4-4475-b754-a337b637e1f2` | `SUPERSEDED_BY_V2_SCENARIO` |
+| `equipment-3plus1-set-selection-v1` v1 | `package-check-61fda0ed-4b06-4286-a9f9-e9be41e7459d` | `SUPERSEDED_BY_V2_SCENARIO` |
+| `equipment-3plus1-unresolved-v1` v1 | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `SUPERSEDED_BY_V3_SCENARIO` |
 
 `operator-config-correction-review-v1` 是两轮场景；其“第二轮重新 recommend”
 由 `npm run test:def-harness-scenario-verification` 静态合同覆盖，当前没有可核实的
-独立 package-check id。新的 unresolved 场景为 version 2，不再以“未知干员”为问题，而是 G2 原文的
-“寒冷伤害会不会触发潮涌第二段”证据不足问题；它要求本轮恰好一次 composite recommend、
-禁止旧链、typed result 为 `UNRESOLVED`，且最终回答保留“寒冷伤害”“不能证明”。
+独立 package-check id。当前四类场景分别为 topology v2、set-selection v2、correction v2、
+unresolved v3。它们每轮只允许 composite recommend，任何其他 attempted Tool 都失败。
+unresolved v3 使用 G2 原文的“寒冷伤害会不会触发潮涌第二段”问题，要求 actual typed result
+同时为 `DefEquipmentThreePlusOneRecommendationV1` / `UNRESOLVED`，且最后可见回答给出
+关联同一对象的“不能证明”结论，并拒绝相反断言。
 当前 worktree 没有候选 runtime registry，不能诚实地产生新的 package-check id；
-`npm run test:def-harness-scenario-verification` 已对 v2 合同 PASS，但这不替代 W6 真实会话。
+`npm run test:def-harness-scenario-verification` 已对当前静态合同 PASS，但这不替代 W6 真实会话。
 
 ## W6 fresh-session 证据
 
 | 验证面 | 状态 | 说明 |
 | --- | --- | --- |
 | AgentRelease / runtime commit / release hash | PASS | W6 runtime `91ac1a28c8b8be724250f968cfe7daa30d5bdfbc`；release `ae5f8cc3f582f69c53442f49c900a4027444ff3dcfe654f48f882b6d52e8bbde`；候选 hash 与注册值一致 |
-| `equipment-3plus1-topology-v1` | BLOCKED_EXTERNAL_PROVIDER | run `native-harness-run-f89cc4d0-bf43-4d4a-8323-242d93f063ca`；Session `ses_07686b64fffeKpIzvTG9bBgoIX`；provider 401；Tool 调用数为 0；runner cleanup 完成 |
-| `equipment-3plus1-set-selection-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | package-check 已 PASS；不重复触发已知无效 provider |
-| `equipment-3plus1-unresolved-v1` v2 | NOT_RUN_AFTER_PROVIDER_BLOCK | v2 静态 scenario contract 已 PASS；旧 v1 package-check 已被替代，不把它当作 v2 或真实会话 PASS |
-| `operator-config-correction-review-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | 不在 provider 无效时创建无意义的写入审核会话 |
+| 历史 `equipment-3plus1-topology-v1` v1 | BLOCKED_EXTERNAL_PROVIDER | run `native-harness-run-f89cc4d0-bf43-4d4a-8323-242d93f063ca`；Session `ses_07686b64fffeKpIzvTG9bBgoIX`；provider 401；Tool 调用数为 0；runner cleanup 完成；不作为 v2 结论 |
+| `equipment-3plus1-topology-v1` v2 | NOT_RUN_AFTER_PROVIDER_BLOCK | 当前静态合同 PASS；尚无当前版本真实会话 |
+| `equipment-3plus1-set-selection-v1` v2 | NOT_RUN_AFTER_PROVIDER_BLOCK | 当前静态合同 PASS；旧 v1 package-check 已被替代 |
+| `equipment-3plus1-unresolved-v1` v3 | NOT_RUN_AFTER_PROVIDER_BLOCK | 当前静态合同 PASS；旧 v1 package-check 已被替代 |
+| `operator-config-correction-review-v1` v2 | NOT_RUN_AFTER_PROVIDER_BLOCK | 当前静态两轮合同 PASS；没有真实会话或独立 package-check |
 | candidate regression（candidate vs stable） | NOT_RUN_AFTER_PROVIDER_BLOCK | 需要真实 native session 与可调用 provider；没有用 evaluator-only 结果代替候选回归 |
 | G5 相邻只读回归 | NOT_RUN_AFTER_PROVIDER_BLOCK | 精确装备事实、source-only guide、weapon fit 与 operator-config preview 尚未在 fresh session 执行；既有 mutation 审批自动安全合同仍为 PASS，但不替代 G5 黑盒 |
 | Interop state / binding | PASS | `snapshotAvailable=true`、`uiConsumerCount=1`、显式绑定完整候选 ref；真实 AgentRelease 可读 |

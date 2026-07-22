@@ -1082,6 +1082,10 @@ POST /api/native/sessions/cleanup
 def_data_equipment_3plus1_recommend
 ```
 
+每轮 Scenario 都使用封闭工具 allowlist。
+本轮除 `def_data_equipment_3plus1_recommend` 外的任何 attempted Tool 都判定失败；
+不能靠列举已知旧 Tool 的 denylist 推断“没有走其他旁路”。
+
 不得再由 Agent 编排：
 
 - guide/profile；
@@ -1093,9 +1097,14 @@ def_data_equipment_3plus1_recommend
 Tool 内部阶段通过 typed result 和 trace metadata 可观察。
 不暴露模型隐藏思维链。
 
-对要求 `UNRESOLVED` 的场景，验证器必须同时观察到工具的 typed terminal state
-为 `UNRESOLVED`，并在该轮最终回答中保留对应的“不能证明”说明。
-只检查调用次数或只匹配一句自然语言，都不能构成该终态的 PASS。
+对要求 `UNRESOLVED` 的场景，验证器必须在 Tool 的真实 output/result 中同时观察到
+`contract=DefEquipmentThreePlusOneRecommendationV1` 与 `state=UNRESOLVED`。
+metadata 中散落的 state 不能代替 typed result。
+
+回答侧只检查该轮最后一条可见 assistant 文本。
+它必须把“寒冷伤害”“不能证明”“触发潮涌第二段”表达为同一个受限结论，
+并拒绝“寒冷伤害会/可以/能够触发潮涌第二段”等相反断言。
+中间消息出现关键词、最终回答反转，或把“不能证明”用于其他对象，都不能构成 PASS。
 
 最终回答必须保留：
 
