@@ -6,6 +6,7 @@ const args = {
   nodeTitle: '赛希更换长息加固板',
   nodeDescription: '将赛希二号配件替换为长息加固板，保留其他武器与装备配置。',
   characterId: 'saixi',
+  weaponId: 'weapon-knight-spirit',
   weaponName: '骑士精神',
   weaponLevel: 90,
   weaponSkill1Level: 9,
@@ -25,6 +26,7 @@ const input = buildDefOperatorConfigInput(args);
 assert.equal(input.nodeTitle, '赛希更换长息加固板');
 assert.match(input.nodeDescription, /二号配件/);
 assert.equal(input.weapon.name, '骑士精神');
+assert.equal(input.weapon.id, 'weapon-knight-spirit');
 assert.equal(input.weapon.potential, 'PMAX');
 assert.equal(input.proposalToken, args.proposalToken);
 assert.equal(input.equipments.length, 4);
@@ -93,6 +95,7 @@ assert.match(pluginSource, /placement.*horizontal-branch/);
 assert.match(pluginSource, /executeDefOperatorConfigAtomic\(args, context/);
 assert.match(pluginSource, /operator_config_preview/);
 assert.match(pluginSource, /proposalToken/);
+assert.match(pluginSource, /weaponId:\s*tool\.schema\.string\(\)\.optional\(\)/);
 
 const restSource = fs.readFileSync(new URL('./ai-cli-rest-server.mjs', import.meta.url), 'utf8');
 assert.match(restSource, /parentNodeId:\s*structuralParentNodeId \|\| null/);
@@ -110,9 +113,14 @@ assert.match(restSource, /proposal\.turnId === turnId/);
 assert.match(restSource, /operator-config-proposal-mismatch/);
 assert.match(restSource, /operator-config-apply-intent-required/);
 assert.match(restSource, /operator-config-weapon-library-unavailable/);
+assert.match(restSource, /operator-config-weapon-id-required/);
+assert.match(restSource, /operator-config-weapon-identity-mismatch/);
+assert.match(restSource, /operator-config-proposal-product-mismatch/);
 assert.match(restSource, /operator-config-equipment-library-unavailable/);
 assert.match(restSource, /Do not substitute another local product/);
 assert.match(restSource, /validateDefOperatorConfigProductLibrary/);
+assert.match(restSource, /buildDefOperatorConfigProductCheckedCommands/);
+assert.match(restSource, /validateDefOperatorConfigProductLibrary\(capability\.productCommand\)/);
 
 const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');
 assert.match(treeNodeSource, /work-node-tree-hover-card/);

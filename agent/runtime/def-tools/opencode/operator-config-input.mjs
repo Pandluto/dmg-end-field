@@ -1,7 +1,10 @@
 export function buildDefOperatorConfigInput(args = {}) {
-  const weapon = typeof args.weaponName === 'string' && args.weaponName.trim()
+  const weaponId = typeof args.weaponId === 'string' ? args.weaponId.trim() : ''
+  const weaponName = typeof args.weaponName === 'string' ? args.weaponName.trim() : ''
+  const weapon = weaponId || weaponName
     ? {
-        name: args.weaponName.trim(),
+        ...(weaponId ? { id: weaponId } : {}),
+        ...(weaponName ? { name: weaponName } : {}),
         ...(typeof args.weaponPotential === 'string' ? { potential: args.weaponPotential } : {}),
         ...(args.weaponLevel !== undefined ? { level: args.weaponLevel } : {}),
         skillLevels: {

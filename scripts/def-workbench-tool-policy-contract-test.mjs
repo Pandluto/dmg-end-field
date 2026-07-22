@@ -19,9 +19,65 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-workbench-tool-policy-')
 const port = 18700 + Math.floor(Math.random() * 300);
 const databasePath = path.join(root, 'timeline.sqlite');
 const builtinCatalogPath = path.join(root, 'catalog.sqlite');
+const nowStoragePath = path.join(root, 'now-storage.json');
 const internalToken = 'tool-policy-contract-native-host';
 const repository = createTimelineRepository({ databasePath });
-createCatalogDatabase({ databasePath: builtinCatalogPath, dataVersion: 'tool-policy-contract-v2' });
+
+const localWeapon = { id: 'weapon-local', name: 'Weapon Local', type: 'test', skills: {} };
+const activeOnlyWeapon = { id: 'weapon-active-only', name: 'Weapon Active Only', type: 'test', skills: {} };
+const localSameNameWeapon = { id: 'weapon-local-same-name', name: 'Weapon Shared Name', type: 'test', skills: {} };
+const activeSameNameWeapon = { id: 'weapon-active-same-name', name: 'Weapon Shared Name', type: 'test', skills: {} };
+const localDifferentNameWeapon = { id: 'weapon-local-different-name', name: 'Weapon Local Different Name', type: 'test', skills: {} };
+const localEquipment = { equipmentId: 'equipment-local', name: 'Equipment Local', part: 'armor', effects: {} };
+const activeOnlyEquipment = { equipmentId: 'equipment-active-only', name: 'Equipment Active Only', part: 'armor', effects: {} };
+const localEquipmentLibrary = {
+  gearSets: {
+    local: { gearSetId: 'gear-local', name: 'Gear Local', equipments: { [localEquipment.equipmentId]: localEquipment } },
+  },
+};
+const activeEquipmentLibrary = {
+  gearSets: {
+    local: { gearSetId: 'gear-local', name: 'Gear Local', equipments: { [localEquipment.equipmentId]: localEquipment } },
+    activeOnly: { gearSetId: 'gear-active-only', name: 'Gear Active Only', equipments: { [activeOnlyEquipment.equipmentId]: activeOnlyEquipment } },
+  },
+};
+const localWeaponLibrary = {
+  [localWeapon.id]: localWeapon,
+  [localSameNameWeapon.id]: localSameNameWeapon,
+  [localDifferentNameWeapon.id]: localDifferentNameWeapon,
+};
+
+createCatalogDatabase({
+  databasePath: builtinCatalogPath,
+  dataVersion: 'tool-policy-contract-v2',
+  weapons: [localWeapon, activeOnlyWeapon, activeSameNameWeapon, localDifferentNameWeapon]
+    .map((weapon) => ({ id: weapon.id, name: weapon.name, payload: weapon })),
+  equipments: Object.values(activeEquipmentLibrary.gearSets).flatMap((gearSet) => Object.values(gearSet.equipments).map((equipment) => ({
+    id: equipment.equipmentId,
+    name: equipment.name,
+    payload: { ...equipment, gearSetId: gearSet.gearSetId },
+  }))),
+  equipmentSets: Object.values(activeEquipmentLibrary.gearSets)
+    .map((gearSet) => ({ id: gearSet.gearSetId, name: gearSet.name, payload: gearSet })),
+});
+
+function writeProductArchive() {
+  fs.writeFileSync(nowStoragePath, `${JSON.stringify({
+    type: 'def.localdata.archive.v1',
+    schemaVersion: 1,
+    id: 'tool-policy-product-library',
+    exportedAt: new Date().toISOString(),
+    storage: {
+      local: {
+        'def.weapon-sheet.library.v1': localWeaponLibrary,
+        'def.equipment-sheet.library.v1': localEquipmentLibrary,
+      },
+      session: {},
+    },
+  }, null, 2)}\n`, 'utf8');
+}
+
+writeProductArchive();
 
 const emptyPayload = {
   selectedCharacters: [], timelineData: { staffLines: [] }, skillButtonTable: {}, allBuffList: [],
@@ -87,7 +143,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   env: {
     ...process.env,
     AI_CLI_REST_PORT: String(port),
-    AI_CLI_REST_STORAGE_MODE: 'runtime',
+    AI_CLI_NOW_STORAGE_PATH: nowStoragePath,
     AI_CLI_REST_STORAGE_DIR: path.join(root, 'rest'),
     AI_CLI_REST_VITE_CACHE_DIR: path.join(root, 'vite'),
     AI_TIMELINE_WORK_NODE_DB_PATH: path.join(root, 'nodes.sqlite'),
@@ -135,7 +191,7 @@ async function legacy(tool, input = {}, sessionId = '') {
   return request(`/api/def-tools/${encodeURIComponent(tool)}/call`, { method: 'POST', body: { input, ...(sessionId ? { sessionId } : {}) } });
 }
 
-async function mirror(timelineId, sentinel) {
+async function mirror(timelineId, sentinel, operatorConfigOverride = null) {
   const checkout = repository.getCheckoutRef(timelineId);
   const response = await request('/api/main-workbench/snapshot', {
     method: 'POST',
@@ -155,7 +211,7 @@ async function mirror(timelineId, sentinel) {
         source: 'contract-runtime-template',
       }],
       skillButtons: [{ id: `button-${sentinel}`, characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, skillType: 'A', staffIndex: 0, lineIndex: 0, nodeIndex: 0, selectedBuffIds: [`buff-${sentinel}`], selectedBuffs: [{ id: `buff-${sentinel}`, name: `Buff ${sentinel} ONLY` }] }],
-      operatorConfigs: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { id: `weapon-${sentinel}`, name: `Weapon ${sentinel} ONLY`, level: 90, potential: '0潜' }, equipment: [{ slotKey: 'armor', equipmentId: `equipment-${sentinel}`, name: `Equipment ${sentinel} ONLY`, effects: [] }] }],
+      operatorConfigs: [operatorConfigOverride || { characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { id: `weapon-${sentinel}`, name: `Weapon ${sentinel} ONLY`, level: 90, potential: '0潜' }, equipment: [{ slotKey: 'armor', equipmentId: `equipment-${sentinel}`, name: `Equipment ${sentinel} ONLY`, effects: [] }] }],
       selectedTeamLoadouts: [{ characterId: `operator-${sentinel}`, characterName: `Operator ${sentinel} ONLY`, weapon: { name: `Weapon ${sentinel} ONLY` }, equipment: [{ name: `Equipment ${sentinel} ONLY` }] }],
       damageReport: {
         generatedAt: 1,
@@ -169,6 +225,33 @@ async function mirror(timelineId, sentinel) {
   });
   assert.equal(response.status, 200, JSON.stringify(response.body));
   return response.body.snapshot;
+}
+
+async function waitForQueuedCommand(op) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const queue = await request('/api/main-workbench/commands', { internal: true });
+    const command = queue.body.commands?.find((entry) => entry.command?.op === op && entry.status === 'pending');
+    if (command) return command;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for queued ${op} command.`);
+}
+
+function persistLocalWeaponToCheckout() {
+  const node = repository.getWorkNode('node-a-only');
+  const workingPayload = structuredClone(node.workingPayload);
+  workingPayload.operatorConfigPageCache['operator-A'].weapon = {
+    ...workingPayload.operatorConfigPageCache['operator-A'].weapon,
+    id: localWeapon.id,
+    name: localWeapon.name,
+  };
+  repository.importWorkNode({
+    ...node,
+    workingPayload,
+    contentRevision: node.contentRevision,
+    updatedAt: node.updatedAt,
+    migration: true,
+  });
 }
 
 function currentRegistryTools() {
@@ -335,19 +418,109 @@ try {
   await mirror('formal-a', 'A');
 
   const productGateQueueBefore = await request('/api/main-workbench/commands', { internal: true });
+  const productGateTreeBefore = treeState();
+  const productGateSnapshotBefore = await request('/api/main-workbench/snapshot', { internal: true });
   const unavailableWeaponPreview = await generic('def.operator.config.preview', {
     characterId: 'operator-A',
-    weapon: { name: 'active-catalog-only-weapon' },
+    weapon: { id: activeOnlyWeapon.id, name: activeOnlyWeapon.name },
   }, 'session-a');
   assert.equal(unavailableWeaponPreview.status, 409, JSON.stringify(unavailableWeaponPreview.body));
   assert.equal(unavailableWeaponPreview.body.result?.code, 'operator-config-weapon-library-unavailable', JSON.stringify(unavailableWeaponPreview.body));
   const unavailableEquipmentPreview = await generic('def.operator.config.preview', {
     characterId: 'operator-A',
-    equipment: { equipmentId: 'active-catalog-only-equipment', slotKey: 'armor' },
+    equipment: { equipmentId: activeOnlyEquipment.equipmentId, slotKey: 'armor' },
   }, 'session-a');
   assert.equal(unavailableEquipmentPreview.status, 409, JSON.stringify(unavailableEquipmentPreview.body));
   assert.equal(unavailableEquipmentPreview.body.result?.code, 'operator-config-equipment-library-unavailable', JSON.stringify(unavailableEquipmentPreview.body));
-  assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, productGateQueueBefore.body, 'catalog-to-product boundary must block before enqueueing a renderer preview');
+  const unavailableDirectPatch = await generic('def.operator.config.patch', {
+    characterId: 'operator-A',
+    weapon: { id: activeOnlyWeapon.id, name: activeOnlyWeapon.name },
+  }, 'session-a');
+  assert.equal(unavailableDirectPatch.status, 409, JSON.stringify(unavailableDirectPatch.body));
+  assert.equal(unavailableDirectPatch.body.result?.code, 'operator-config-weapon-library-unavailable', JSON.stringify(unavailableDirectPatch.body));
+  const nameOnlyWeaponPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { name: localWeapon.name },
+  }, 'session-a');
+  assert.equal(nameOnlyWeaponPreview.status, 409, JSON.stringify(nameOnlyWeaponPreview.body));
+  assert.equal(nameOnlyWeaponPreview.body.result?.code, 'operator-config-weapon-id-required', JSON.stringify(nameOnlyWeaponPreview.body));
+  const sameNameDifferentIdPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: activeSameNameWeapon.id, name: activeSameNameWeapon.name },
+  }, 'session-a');
+  assert.equal(sameNameDifferentIdPreview.status, 409, JSON.stringify(sameNameDifferentIdPreview.body));
+  assert.equal(sameNameDifferentIdPreview.body.result?.code, 'operator-config-weapon-library-unavailable', JSON.stringify(sameNameDifferentIdPreview.body));
+  const forgedWeaponIdentityPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: localDifferentNameWeapon.id, name: localSameNameWeapon.name },
+  }, 'session-a');
+  assert.equal(forgedWeaponIdentityPreview.status, 409, JSON.stringify(forgedWeaponIdentityPreview.body));
+  assert.equal(forgedWeaponIdentityPreview.body.result?.code, 'operator-config-weapon-identity-mismatch', JSON.stringify(forgedWeaponIdentityPreview.body));
+  assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, productGateQueueBefore.body, 'active-only, name-only, and same-name-different-id products must block before enqueueing');
+  assert.deepEqual(treeState(), productGateTreeBefore, 'blocked products must not create a horizontal branch');
+  assert.deepEqual(await request('/api/main-workbench/snapshot', { internal: true }), productGateSnapshotBefore, 'blocked products must not change the live Workbench mirror');
+
+  const validPreviewPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: localWeapon.id, name: localWeapon.name },
+    __defTurnId: 'valid-local-product-preview',
+  }, 'session-a');
+  const previewCommand = await waitForQueuedCommand('previewOperatorConfig');
+  assert.equal(previewCommand.command.request.weaponId, localWeapon.id, 'preview must preserve the stable weapon id after product gating');
+  assert.equal(previewCommand.command.request.weaponName, localWeapon.name, 'preview must use the matching local canonical product name');
+  const previewParent = repository.getWorkNode('node-a-only');
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: previewCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: previewParent.id,
+        parentRevision: previewParent.contentRevision,
+        preparedPayload: structuredClone(previewParent.workingPayload),
+        finalConfig: {
+          characterId: 'operator-A',
+          characterName: 'Operator A ONLY',
+          weapon: { id: localWeapon.id, name: localWeapon.name, level: 90, potential: '0潜', skillLevels: {} },
+          equipment: [],
+          operatorSkillLevels: {},
+        },
+      },
+    },
+  });
+  const validPreview = await validPreviewPending;
+  assert.equal(validPreview.status, 200, JSON.stringify(validPreview.body));
+  assert.equal(validPreview.body.result.finalConfig.weapon.id, localWeapon.id);
+
+  const validPatchPending = generic('def.operator.config.patch', {
+    characterId: 'operator-A',
+    weapon: { id: localWeapon.id, name: localWeapon.name },
+  }, 'session-a');
+  const patchCommand = await waitForQueuedCommand('setOperatorWeapon');
+  assert.equal(patchCommand.command.weaponId, localWeapon.id, 'direct legacy patch must preserve the stable weapon id after product gating');
+  persistLocalWeaponToCheckout();
+  await mirror('formal-a', 'A', {
+    characterId: 'operator-A',
+    characterName: 'Operator A ONLY',
+    weapon: { id: localWeapon.id, name: localWeapon.name, level: 90, potential: '0潜' },
+    equipment: [{ slotKey: 'armor', equipmentId: 'equipment-A', name: 'Equipment A ONLY', effects: [] }],
+  });
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: patchCommand.id,
+      status: 'done',
+      result: {
+        characterId: 'operator-A',
+        characterName: 'Operator A ONLY',
+        weapon: { id: localWeapon.id, name: localWeapon.name },
+        persistence: { pass: true },
+      },
+    },
+  });
+  const validPatch = await validPatchPending;
+  assert.equal(validPatch.status, 200, JSON.stringify(validPatch.body));
+  assert.equal(validPatch.body.result.postcondition.pass, true);
 
   const publicCalls = [
     ['def.operator.catalog.search', { query: '' }],

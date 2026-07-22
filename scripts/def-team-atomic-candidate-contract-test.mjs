@@ -142,6 +142,20 @@ await assertTeamSize(4);
 
 {
   const serverSource = fs.readFileSync(path.join(projectRoot, 'scripts/ai-cli-rest-server.mjs'), 'utf8');
+  const teamPlanStart = serverSource.indexOf('function buildDefGuideTeamLoadoutPlan');
+  const teamPlanEnd = serverSource.indexOf('function reviseDefTeamLoadoutPlan', teamPlanStart);
+  const teamPlanSource = serverSource.slice(teamPlanStart, teamPlanEnd);
+  assert(teamPlanSource.includes('teamProductCommands'), 'team plan must preflight exact products before it is retained');
+  assert(teamPlanSource.includes('validateDefOperatorConfigProductLibrary(command)'), 'team plan must use the shared product gate');
+  assert(teamPlanSource.includes('no plan, queue entry, or branch was created'), 'team plan product failure must document its no-side-effect boundary');
+
+  const teamPrepareStart = serverSource.indexOf('async function prepareDefTeamLoadoutPlanApply');
+  const teamPrepareEnd = serverSource.indexOf('async function applyDefTeamLoadoutPlan', teamPrepareStart);
+  const teamPrepareSource = serverSource.slice(teamPrepareStart, teamPrepareEnd);
+  assert(teamPrepareSource.includes('buildDefOperatorConfigProductCheckedCommands({ patches })'), 'candidate preparation must recheck products after plan creation');
+  assert(teamPrepareSource.indexOf('buildDefOperatorConfigProductCheckedCommands({ patches })') < teamPrepareSource.indexOf('prepareAtomicTeamCandidate'), 'the product gate must run before any preview queue or child branch path');
+  assert(teamPrepareSource.includes('before any preview command or horizontal branch was created'), 'candidate product failure must promise no queue or branch');
+
   const applyStart = serverSource.indexOf('async function applyDefTeamLoadoutPlan');
   const applyEnd = serverSource.indexOf('function discardPreparedTeamLoadoutPlan', applyStart);
   const applySource = serverSource.slice(applyStart, applyEnd);
@@ -149,6 +163,8 @@ await assertTeamSize(4);
   assert.equal((applySource.match(/checkout-applied/g) || []).length, 1, 'team apply must move checkout once');
   assert.equal((applySource.match(/applyPreparedOperatorConfig/g) || []).length, 1, 'team apply must send one complete payload command');
   assert(applySource.includes('consumeApprovedApplyCapability'), 'team apply must consume a server-verifiable approval capability');
+  assert(applySource.includes('const teamProductGate = buildDefOperatorConfigProductCheckedCommands'), 'team apply must recheck the exact product before enqueueing the renderer command');
+  assert(applySource.includes('no renderer apply command was enqueued'), 'a late team product failure must be queue-free');
   assert(applySource.includes('restoreAtomicTeamParent'), 'team apply must explicitly restore P after a post-apply failure');
   assert(applySource.indexOf("op: 'applyPreparedOperatorConfig'") < applySource.indexOf("/commit`"), 'C must not be committed before the live C apply/verification begins');
   assert(applySource.includes("state: restored ? 'ROLLED_BACK' : 'RECONCILIATION_REQUIRED'"), 'rollback failure must surface reconciliation rather than a false success');

@@ -5,7 +5,7 @@
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
-    { "userText": "我听写到一份配装清单：武器骑士精神，装备长息轻护甲板·壹型、长息蓄电核、拓荒增量供氧栓一型和长息护手一型。先从配置页目录核对名称和 ID，不要应用。" }
+    { "userText": "我听写到一份配装清单：武器骑士精神，装备长息轻护甲板·壹型、长息蓄电核、拓荒增量供氧栓一型和长息护手一型。先从当前生效的游戏目录核对名称和 ID，不要应用。" }
   ],
   "verification": {
     "requiredTools": ["def_data_weapon", "def_data_equipment"],

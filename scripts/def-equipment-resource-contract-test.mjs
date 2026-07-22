@@ -161,6 +161,18 @@ try {
     'chang-xi-3',
   ]);
   assert.equal(batch.results[1].candidates[0].matchMethod, 'phonetic');
+  // The native response above proves provenance at the source boundary. Keep a
+  // separate model-surface contract here so the OpenCode transform cannot drop
+  // it on the way to the model (including one result in a queries batch).
+  const modelToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
+  const transformStart = modelToolSource.indexOf('export function transformEquipmentResolution');
+  const transformEnd = modelToolSource.indexOf('export const data_equipment', transformStart);
+  const transformSource = modelToolSource.slice(transformStart, transformEnd);
+  for (const field of ['sourceRef: resolution.sourceRef', 'dataVersion: resolution.dataVersion', 'catalogSha256: resolution.catalogSha256', 'sourceRef: result.sourceRef', 'dataVersion: result.dataVersion', 'catalogSha256: result.catalogSha256']) {
+    assert(transformSource.includes(field), `model-visible equipment transform must preserve ${field}`);
+  }
+  assert.match(modelToolSource, /Read the immutable active game catalog, not the Operator Configuration local product library/);
+  assert.match(modelToolSource, /Resolve stable ids from the immutable active game catalog, not the Operator Configuration local product library/);
 
   const weapon = await call('def.weapon.resolve', { query: '链结点' });
   assert.equal(weapon.source, 'active-game-catalog');

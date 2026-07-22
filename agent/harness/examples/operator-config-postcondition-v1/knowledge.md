@@ -1,1 +1,1 @@
-Weapon and equipment candidates come from the bounded typed resources that share the corresponding Operator Configuration page libraries. Current selected-operator configuration comes from the live Workbench mirror.
+Weapon and equipment candidates come from the bounded typed resources backed by the active game catalog. Current selected-operator configuration comes from the live Workbench mirror. Before preview or write, the exact stable id must also exist in the separate local Operator Configuration product library; that write gate never changes catalog read results.

@@ -2119,7 +2119,7 @@ export const team_loadout_plan_apply = {
 
 export const data_weapon = dataResource({
   title: 'DEF weapon resource',
-  description: 'Search the same complete read-only weapon library shown by Operator Configuration. Use queries for several names in one call. Ranked phonetic/fuzzy candidates expose matchMethod and confidence; confirm ambiguous fuzzy matches instead of retrying shorter fragments.',
+  description: 'Read the immutable active game catalog, not the Operator Configuration local product library. Use queries for several names in one call. Each result carries stable id plus sourceRef, dataVersion, and catalogSha256. Ranked phonetic/fuzzy candidates expose matchMethod and confidence; confirm ambiguity instead of retrying shorter fragments. A catalog candidate still needs an exact same-id local product check before preview or application.',
   tool: 'def.weapon.resolve',
   args: {
     query: tool.schema.string().max(160).optional().describe('One complete weapon name, id, type, or ASR text.'),
@@ -2171,11 +2171,14 @@ function compactEquipmentResourceCandidate(item) {
   }
 }
 
-function transformEquipmentResolution(result) {
+export function transformEquipmentResolution(result) {
   const transformOne = (resolution) => ({
     contract: resolution.contract,
     scope: resolution.scope,
     source: resolution.source,
+    sourceRef: resolution.sourceRef,
+    dataVersion: resolution.dataVersion,
+    catalogSha256: resolution.catalogSha256,
     query: resolution.query,
     catalogCount: resolution.catalogCount,
     gearSetCount: resolution.gearSetCount,
@@ -2193,6 +2196,9 @@ function transformEquipmentResolution(result) {
       contract: result.contract,
       scope: result.scope,
       source: result.source,
+      sourceRef: result.sourceRef,
+      dataVersion: result.dataVersion,
+      catalogSha256: result.catalogSha256,
       catalogCount: result.catalogCount,
       gearSetCount: result.gearSetCount,
       queryCount: result.queryCount,
@@ -2206,7 +2212,7 @@ function transformEquipmentResolution(result) {
 
 export const data_equipment = dataResource({
   title: 'DEF equipment resource',
-  description: 'Resolve stable ids from the same complete equipment library as Operator Configuration. Use queries for several full names in one call. Results rank exact, phonetic, and fuzzy matches with honest catalogCount/exhaustive/truncated facts; never infer absence from a displayed subset.',
+  description: 'Resolve stable ids from the immutable active game catalog, not the Operator Configuration local product library. Use queries for several full names in one call. Results preserve sourceRef, dataVersion, and catalogSha256, and rank exact, phonetic, and fuzzy matches with honest catalogCount/exhaustive/truncated facts. Never infer absence from a displayed subset. A catalog candidate still needs an exact same-id local product check before preview or application.',
   tool: 'def.equipment.resolve',
   args: {
     query: tool.schema.string().max(160).optional().describe('One complete equipment or gear-set name, stable id, or ASR text.'),
@@ -2630,7 +2636,8 @@ export const operator_config_patch = {
     nodeDescription: tool.schema.string().min(8).max(160).describe('Agent-written one-sentence description of what changes and what remains in scope.'),
     characterId: tool.schema.string().optional().describe('Selected operator id.'),
     characterName: tool.schema.string().optional().describe('Selected operator name when id is unavailable.'),
-    weaponName: tool.schema.string().optional().describe('Exact weapon name from DEF weapon resource. The read-only preview blocks if the current Operator Configuration library cannot resolve this exact product.'),
+    weaponId: tool.schema.string().optional().describe('Stable weapon id returned by DEF weapon resource. Required whenever changing a weapon: preview and apply verify this exact id in the local Operator Configuration product library and reject same-name different-id products.'),
+    weaponName: tool.schema.string().optional().describe('Exact weapon name returned with weaponId by DEF weapon resource. It is checked against that same stable id; name alone is not a write capability.'),
     weaponLevel: tool.schema.number().int().min(1).max(90).optional().describe('Weapon level. Omit to use the product default Lv90 for a newly selected weapon.'),
     weaponSkill1Level: tool.schema.number().int().min(1).max(9).optional().describe('Weapon skill 1 level. Omit to use product default 9.'),
     weaponSkill2Level: tool.schema.number().int().min(1).max(9).optional().describe('Weapon skill 2 level. Omit to use product default 9.'),

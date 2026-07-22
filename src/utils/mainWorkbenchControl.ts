@@ -199,6 +199,9 @@ export type MainWorkbenchCommand =
       characterId?: string;
       characterName?: string;
       weaponName: string;
+      // Server-side product gating verifies this opaque stable identity before
+      // the renderer receives the canonical local weaponName.
+      weaponId?: string;
       level?: number | string;
       potential?: string;
       skillLevels?: {
@@ -239,6 +242,8 @@ export type MainWorkbenchCommand =
       characterId?: string;
       characterName?: string;
       weaponName?: string;
+      // Preserved from the typed read result for exact same-id product gating.
+      weaponId?: string;
       weaponLevel?: number | string;
       weaponSkillLevels?: {
         skill1?: number;
