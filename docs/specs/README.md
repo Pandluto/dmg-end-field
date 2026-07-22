@@ -33,6 +33,9 @@
    - [Spec 8-3：进化产品化](./def-opencode-cognitive-runtime-spec8/spec8-3.md)
    - [预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
    - [预研究：Harness 自进化](./def-opencode-cognitive-runtime-spec8/harness-self-evolution-research.md)
+8. [Spec 9：DEF OpenCode 职责收口与训练返修](./def-opencode-evidence-runtime-spec9/spec.md)
+   - [预研究：DEF OpenCode 证据运行时与任务编排](./def-opencode-evidence-runtime-spec9/research.md)
+   - [Task 9-1：收口 3+1 职责并接通训练返修](./def-opencode-evidence-runtime-spec9/task9-1.md)
 
 关联演进线：
 
