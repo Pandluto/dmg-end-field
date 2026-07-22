@@ -88,5 +88,6 @@ try {
 } finally {
   child.kill('SIGTERM');
   await new Promise((resolve) => child.once('exit', resolve));
+  repository.close();
   fs.rmSync(root, { recursive: true, force: true });
 }
