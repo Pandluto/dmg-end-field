@@ -1,6 +1,42 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildDefOperatorConfigInput, executeDefOperatorConfigAtomic } from '../agent/runtime/def-tools/opencode/operator-config-input.mjs';
+import { validateMainWorkbenchCommand } from '../src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs';
+import {
+  applyOperatorConfigWeaponIdentityToSnapshot,
+  indexOperatorConfigWeaponProductsById,
+  resolveOperatorConfigWeaponIdentity,
+} from '../src/core/services/operatorConfigWeaponIdentity.ts';
+
+const sameNameWeaponLibrary = {
+  alpha: { id: 'weapon-alpha', name: 'Shared Weapon', attackGrowth: { 90: 100 } },
+  beta: { id: 'weapon-beta', name: 'Shared Weapon', attackGrowth: { 90: 200 } },
+};
+assert.deepEqual(Object.keys(indexOperatorConfigWeaponProductsById(sameNameWeaponLibrary)).sort(), [
+  'weapon-alpha', 'weapon-beta',
+], 'normalization must retain two same-name products under their exact stable ids');
+assert.equal(resolveOperatorConfigWeaponIdentity(sameNameWeaponLibrary, {
+  id: 'weapon-beta', name: 'Shared Weapon',
+}).raw.attackGrowth[90], 200, 'renderer identity helper must select the exact id when names collide');
+const rendererSnapshot = applyOperatorConfigWeaponIdentityToSnapshot(
+  { weapon: { id: 'old', name: 'Old Weapon', config: {} } },
+  sameNameWeaponLibrary,
+  { id: 'weapon-beta', name: 'Shared Weapon' },
+).snapshot;
+assert.deepEqual(
+  { id: rendererSnapshot.weapon.id, name: rendererSnapshot.weapon.name },
+  { id: 'weapon-beta', name: 'Shared Weapon' },
+  'the executable helper used by CanvasBoard must preserve the selected stable id',
+);
+assert.throws(() => resolveOperatorConfigWeaponIdentity(sameNameWeaponLibrary, {
+  id: 'weapon-missing', name: 'Shared Weapon',
+}), /not available/);
+assert.equal(validateMainWorkbenchCommand({
+  op: 'setOperatorWeapon', characterId: 'operator', weaponName: 'Shared Weapon',
+}).code, 'invalid-main-workbench-operator-weapon');
+assert.equal(validateMainWorkbenchCommand({
+  op: 'setOperatorWeapon', characterId: 'operator', weaponId: 'weapon-beta', weaponName: 'Shared Weapon',
+}).ok, true);
 
 const args = {
   nodeTitle: '赛希更换长息加固板',
@@ -131,8 +167,10 @@ assert.match(workbenchSource, /description: command\.description\?\.trim\(\) \|\
 assert.doesNotMatch(workbenchSource, /`\[ai\] \$\{command\.label\.trim\(\)\}`/);
 assert.match(workbenchSource, /operator-config-timeline-invalid/);
 assert.match(workbenchSource, /validateTimelinePayload\(child\.node\.workingPayload\)/);
+assert.equal((workbenchSource.match(/applyOperatorConfigWeaponSelectionToSnapshot\(/g) || []).length, 3,
+  'preview, setOperatorWeapon, and setOperatorConfig must all execute the stable-id renderer helper');
 
 console.log(JSON.stringify({
   ok: true,
-  checks: ['agent-node-metadata', 'horizontal-configuration-branch', 'hover-description-card', 'four-piece-schema', 'review-token-preflight', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation'],
+  checks: ['agent-node-metadata', 'horizontal-configuration-branch', 'hover-description-card', 'four-piece-schema', 'review-token-preflight', 'single-approval-apply', 'approval-capability-scope', 'reject-discard', 'no-partial-mutation', 'renderer-stable-weapon-id'],
 }));

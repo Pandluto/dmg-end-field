@@ -141,11 +141,12 @@ export function validateMainWorkbenchCommand(command) {
       message: 'setTargetResistance requires buttonId and targetResistance.',
     };
   }
-  if (command.op === 'setOperatorWeapon' && !hasAnyString(command, ['weaponName'])) {
+  if (command.op === 'setOperatorWeapon'
+    && (!hasAnyString(command, ['weaponId']) || !hasAnyString(command, ['weaponName']))) {
     return {
       ok: false,
       code: 'invalid-main-workbench-operator-weapon',
-      message: 'setOperatorWeapon requires weaponName.',
+      message: 'setOperatorWeapon requires one exact weaponId/weaponName pair.',
     };
   }
   if ((command.op === 'setOperatorWeapon' || command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig')
@@ -159,12 +160,35 @@ export function validateMainWorkbenchCommand(command) {
   if (command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig') {
     const hasDirectEquipment = hasAnyString(command, ['equipmentId', 'equipmentName', 'gearSetId', 'gearSetName']);
     const hasEquipmentList = Array.isArray(command.equipments) && command.equipments.length > 0;
-    const hasWeapon = hasAnyString(command, ['weaponName']);
+    const hasWeapon = hasAnyString(command, ['weaponId', 'weaponName']);
     if (!hasDirectEquipment && !hasEquipmentList && !hasWeapon) {
       return {
         ok: false,
         code: 'invalid-main-workbench-operator-equipment',
         message: `${command.op} requires a weapon, equipment, gear set, or equipments.`,
+      };
+    }
+    if (hasWeapon && (!hasAnyString(command, ['weaponId']) || !hasAnyString(command, ['weaponName']))) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-operator-weapon',
+        message: `${command.op} requires one exact weaponId/weaponName pair.`,
+      };
+    }
+    if (hasDirectEquipment && !hasAnyString(command, ['equipmentId'])) {
+      if (!hasAnyString(command, ['gearSetId']) || command.fillSlots !== true) {
+        return {
+          ok: false,
+          code: 'invalid-main-workbench-operator-equipment-identity',
+          message: `${command.op} requires equipmentId for one piece, or gearSetId with fillSlots:true for a set fill.`,
+        };
+      }
+    }
+    if (hasEquipmentList && command.equipments.some((selection) => !hasAnyString(selection, ['equipmentId']))) {
+      return {
+        ok: false,
+        code: 'invalid-main-workbench-operator-equipment-identity',
+        message: `${command.op} requires a stable equipmentId for every equipment selection.`,
       };
     }
     if (command.op === 'setOperatorConfig') {

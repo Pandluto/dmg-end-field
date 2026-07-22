@@ -26,6 +26,7 @@ import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from
 import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
 import { observeAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
 import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
+import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/def-tools/team-product-recheck.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -5222,8 +5223,10 @@ function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
     return patch ? buildDefOperatorConfigPatchCommands(patch) : [];
   });
   if (teamProductCommands.length) {
+    const productGateContext = buildDefOperatorConfigProductGateContext();
+    if (!productGateContext.ok) return { ...productGateContext, component: 'team-loadout-plan', state: 'BLOCKED' };
     for (const command of teamProductCommands) {
-      const productLibrary = validateDefOperatorConfigProductLibrary(command);
+      const productLibrary = validateDefOperatorConfigProductLibrary(command, productGateContext);
       if (!productLibrary.ok) {
         return {
           ...productLibrary,
@@ -5396,6 +5399,30 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
   if (plan.timelineId !== gate.binding.timelineId || plan.axisBindingId !== gate.binding.id
     || !defPlanCheckoutMatches(plan.checkoutBinding, gate)) return { ok: false, code: 'team-loadout-checkout-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'Checkout target, revision, or workspace changed after planning; no apply was started.' };
   if (plan.state !== 'READY') return { ...plan, ok: true, approvalPatterns: [], nextAction: plan.nextAction };
+  const patches = plan.operators.map((operator) => operator.exactProduct?.patch).filter(Boolean);
+  if (patches.length !== plan.operators.length) {
+    return { ok: false, state: 'BLOCKED', code: 'team-loadout-patch-incomplete', planId: plan.planId, planHash: plan.planHash, nextAction: 'The reviewed plan does not contain one exact patch per operator; no candidate was created.' };
+  }
+  // Recheck before returning an existing approval candidate too. A catalog can
+  // drift while the candidate is waiting for approval; stale products must not
+  // be presented as approvable after that point.
+  const productRecheck = recheckDefTeamProductsBeforePreparedCandidate(
+    { patches, preparedCandidate: plan.preparedCandidate },
+    buildDefOperatorConfigProductCheckedCommands,
+  );
+  if (!productRecheck.ok) {
+    const { checkedPatches } = productRecheck;
+    return {
+      ...checkedPatches,
+      state: 'BLOCKED',
+      component: 'team-loadout-plan',
+      planId: plan.planId,
+      planHash: plan.planHash,
+      currentCheckoutTouched: false,
+      message: 'The team product gate blocked candidate preparation before any approval or renderer command was offered.',
+    };
+  }
+  const { checkedPatches } = productRecheck;
   if (plan.preparedCandidate) {
     const existing = readRepositoryWorkNode(plan.preparedCandidate.nodeId);
     if (!existing || existing.timelineId !== plan.timelineId
@@ -5405,25 +5432,6 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
       return { ok: false, code: 'team-loadout-candidate-changed', state: 'BLOCKED', component: 'team-loadout-plan', message: 'The prepared team candidate changed; create a new plan.' };
     }
     return teamCandidatePresentation(plan);
-  }
-  const patches = plan.operators.map((operator) => operator.exactProduct?.patch).filter(Boolean);
-  if (patches.length !== plan.operators.length) {
-    return { ok: false, state: 'BLOCKED', code: 'team-loadout-patch-incomplete', planId: plan.planId, planHash: plan.planHash, nextAction: 'The reviewed plan does not contain one exact patch per operator; no candidate was created.' };
-  }
-  // Recheck at candidate generation too: plans may outlive a local product
-  // library update, and this must stop before the first preview queue entry or
-  // horizontal branch creation.
-  const checkedPatches = buildDefOperatorConfigProductCheckedCommands({ patches });
-  if (!checkedPatches.ok) {
-    return {
-      ...checkedPatches,
-      state: 'BLOCKED',
-      component: 'team-loadout-plan',
-      planId: plan.planId,
-      planHash: plan.planHash,
-      currentCheckoutTouched: false,
-      message: 'The team product gate blocked candidate preparation before any preview command or horizontal branch was created.',
-    };
   }
   const parent = gate.checkoutNodeId ? readRepositoryWorkNode(gate.checkoutNodeId) : null;
   const parentRevision = Number(parent?.contentRevision || parent?.updatedAt);
@@ -8087,6 +8095,43 @@ function normalizeDefOperatorConfigTarget(value = {}) {
   };
 }
 
+function defOperatorConfigCommandEquipmentSelections(command) {
+  if (Array.isArray(command?.equipments) && command.equipments.length) return command.equipments;
+  return command?.equipmentId
+    ? [{
+        slotKey: command.slotKey,
+        equipmentId: command.equipmentId,
+        equipmentName: command.equipmentName,
+      }]
+    : [];
+}
+
+function verifyDefOperatorConfigRendererProducts(command, renderedConfig) {
+  const mismatches = [];
+  const weaponId = typeof command?.weaponId === 'string' ? command.weaponId.trim() : '';
+  const weaponName = typeof command?.weaponName === 'string' ? command.weaponName.trim() : '';
+  if (weaponId || weaponName) {
+    if (!isObject(renderedConfig?.weapon)
+      || renderedConfig.weapon.id !== weaponId
+      || renderedConfig.weapon.name !== weaponName) {
+      mismatches.push('weapon-stable-identity-mismatch');
+    }
+  }
+  const renderedEquipment = Array.isArray(renderedConfig?.equipment) ? renderedConfig.equipment : [];
+  for (const selection of defOperatorConfigCommandEquipmentSelections(command)) {
+    const equipmentId = typeof selection?.equipmentId === 'string' ? selection.equipmentId.trim() : '';
+    const equipmentName = typeof selection?.equipmentName === 'string' ? selection.equipmentName.trim() : '';
+    const slotKey = typeof selection?.slotKey === 'string' ? selection.slotKey.trim() : '';
+    const found = equipmentId && renderedEquipment.some((piece) => (
+      piece?.equipmentId === equipmentId
+      && (!equipmentName || piece?.name === equipmentName)
+      && (!slotKey || piece?.slotKey === slotKey)
+    ));
+    if (!found) mismatches.push(`equipment-stable-identity-mismatch:${slotKey || equipmentId || 'unknown'}`);
+  }
+  return { pass: mismatches.length === 0, mismatches };
+}
+
 function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
   const targets = new Map();
   for (let index = 0; index < commands.length; index += 1) {
@@ -8095,23 +8140,24 @@ function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
     const result = isObject(verification?.result?.result) ? verification.result.result : null;
     if (!verification?.pass || !result) continue;
     const target = normalizeDefOperatorConfigTarget({
-      characterId: result.characterId || command.characterId,
-      characterName: result.characterName || command.characterName,
+      characterId: command.characterId || result.characterId,
+      characterName: command.characterName || result.characterName,
     });
     const key = target.characterId || normalizeDefToolText(target.characterName);
     if (!key) continue;
     const current = targets.get(key) || { ...target };
-    if ((command.op === 'setOperatorWeapon' || command.op === 'setOperatorConfig') && isObject(result.weapon)) {
+    if ((command.op === 'setOperatorWeapon' || command.op === 'setOperatorConfig') && (command.weaponId || command.weaponName)) {
       current.weapon = {
-        id: typeof result.weapon.id === 'string' ? result.weapon.id : '',
-        name: typeof result.weapon.name === 'string' ? result.weapon.name : command.weaponName || '',
+        id: typeof command.weaponId === 'string' ? command.weaponId : '',
+        name: typeof command.weaponName === 'string' ? command.weaponName : '',
       };
     }
-    if ((command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig') && Array.isArray(result.equipment)) {
-      current.equipment = result.equipment.map((piece) => ({
+    const equipmentSelections = defOperatorConfigCommandEquipmentSelections(command);
+    if ((command.op === 'setOperatorEquipment' || command.op === 'setOperatorConfig') && equipmentSelections.length) {
+      current.equipment = equipmentSelections.map((piece) => ({
         slotKey: typeof piece?.slotKey === 'string' ? piece.slotKey : '',
         equipmentId: typeof piece?.equipmentId === 'string' ? piece.equipmentId : '',
-        name: typeof piece?.name === 'string' ? piece.name : '',
+        name: typeof piece?.equipmentName === 'string' ? piece.equipmentName : '',
       }));
     }
     targets.set(key, current);
@@ -8131,17 +8177,17 @@ function verifyDefOperatorConfigTargets(configs, expectedTargets) {
     } else {
       if (expected.weapon) {
         const actualWeapon = config.weapon || {};
-        const matchesWeapon = (expected.weapon.id && actualWeapon.id === expected.weapon.id)
-          || (expected.weapon.name && actualWeapon.name === expected.weapon.name);
+        const matchesWeapon = (!expected.weapon.id || actualWeapon.id === expected.weapon.id)
+          && (!expected.weapon.name || actualWeapon.name === expected.weapon.name);
         if (!matchesWeapon) mismatches.push('weapon-mismatch');
       }
       if (Array.isArray(expected.equipment)) {
         const actualEquipment = Array.isArray(config.equipment) ? config.equipment : [];
         for (const expectedPiece of expected.equipment) {
           const found = actualEquipment.some((actualPiece) => (
-            (expectedPiece.slotKey && actualPiece?.slotKey === expectedPiece.slotKey)
-            && ((expectedPiece.equipmentId && actualPiece?.equipmentId === expectedPiece.equipmentId)
-              || (expectedPiece.name && actualPiece?.name === expectedPiece.name))
+            (!expectedPiece.slotKey || actualPiece?.slotKey === expectedPiece.slotKey)
+            && (!expectedPiece.equipmentId || actualPiece?.equipmentId === expectedPiece.equipmentId)
+            && (!expectedPiece.name || actualPiece?.name === expectedPiece.name)
           ));
           if (!found) mismatches.push(`equipment-mismatch:${expectedPiece.slotKey || expectedPiece.equipmentId || expectedPiece.name || 'unknown'}`);
         }
@@ -8341,79 +8387,277 @@ function defOperatorConfigProductGateFailure(code, product, storageKey, options 
   };
 }
 
-function resolveDefOperatorConfigLocalWeapon(library, requested = {}) {
+function listDefOperatorConfigWeapons(library) {
+  return Object.entries(library && typeof library === 'object' && !Array.isArray(library) ? library : {})
+    .flatMap(([fallbackId, weapon]) => {
+      if (!weapon || typeof weapon !== 'object' || Array.isArray(weapon)) return [];
+      const weaponId = String(weapon.id || fallbackId || '').trim();
+      const weaponName = String(weapon.name || '').trim();
+      return weaponId && weaponName ? [{ weaponId, weaponName, weapon }] : [];
+    });
+}
+
+function listDefOperatorConfigGearSets(library) {
+  return Object.entries(library?.gearSets && typeof library.gearSets === 'object' && !Array.isArray(library.gearSets)
+    ? library.gearSets
+    : {}).flatMap(([fallbackGearSetId, gearSet]) => {
+    if (!gearSet || typeof gearSet !== 'object' || Array.isArray(gearSet)) return [];
+    const gearSetId = String(gearSet.gearSetId || fallbackGearSetId || '').trim();
+    const gearSetName = String(gearSet.name || '').trim();
+    if (!gearSetId || !gearSetName) return [];
+    const equipments = Object.entries(gearSet.equipments && typeof gearSet.equipments === 'object' && !Array.isArray(gearSet.equipments)
+      ? gearSet.equipments
+      : {}).flatMap(([fallbackEquipmentId, equipment]) => {
+      if (!equipment || typeof equipment !== 'object' || Array.isArray(equipment)) return [];
+      const equipmentId = String(equipment.equipmentId || fallbackEquipmentId || '').trim();
+      const equipmentName = String(equipment.name || '').trim();
+      const part = String(equipment.part || '').trim();
+      return equipmentId && equipmentName
+        ? [{ equipmentId, equipmentName, part, gearSetId, gearSetName, equipment }]
+        : [];
+    });
+    return [{ gearSetId, gearSetName, gearSet, equipments }];
+  });
+}
+
+function buildDefOperatorConfigProductGateContext() {
+  const active = readDefActiveGameCatalog('operator-config-product-library');
+  if (!active.ok) {
+    return {
+      ...active,
+      component: 'operator-config-product-library',
+      currentCheckoutTouched: false,
+      nextAction: 'Restore a valid active catalog pointer and immutable catalog hash before preparing any product mutation.',
+    };
+  }
+  const localWeaponSource = readDefNativeWeaponLibrarySource();
+  const localEquipmentSource = readDefEquipmentLibrarySource();
+  return {
+    ok: true,
+    dataVersion: active.catalog.dataVersion,
+    catalogSha256: active.catalog.catalogSha256,
+    activeWeapons: listDefOperatorConfigWeapons(active.catalog.weapons),
+    localWeapons: listDefOperatorConfigWeapons(localWeaponSource.library),
+    activeGearSets: listDefOperatorConfigGearSets(active.catalog.equipmentLibrary),
+    localGearSets: listDefOperatorConfigGearSets(localEquipmentSource.library),
+    weaponStorageKey: localWeaponSource.storageKey,
+    equipmentStorageKey: localEquipmentSource.storageKey,
+  };
+}
+
+function resolveDefOperatorConfigWeapon(context, requested = {}) {
   const weaponId = typeof requested.weaponId === 'string' ? requested.weaponId.trim() : '';
   const weaponName = typeof requested.weaponName === 'string' ? requested.weaponName.trim() : '';
   if (!weaponId) {
     return defOperatorConfigProductGateFailure(
       'operator-config-weapon-id-required',
       { kind: 'weapon', weaponId, weaponName },
-      WEAPON_LIBRARY_STORAGE_KEY,
+      context.weaponStorageKey || WEAPON_LIBRARY_STORAGE_KEY,
       {
         message: 'A weapon mutation requires the stable weaponId returned by the active game catalog.',
         nextAction: 'Resolve the weapon from def_data_weapon again and pass both its stable id and exact name. Do not use a name-only local match.',
       },
     );
   }
-  const matches = Object.entries(library && typeof library === 'object' && !Array.isArray(library) ? library : {})
-    .map(([fallbackId, weapon]) => ({
-      weapon,
-      weaponId: String(weapon?.id || fallbackId || '').trim(),
-      weaponName: String(weapon?.name || '').trim(),
-    }))
-    .filter((candidate) => candidate.weapon && typeof candidate.weapon === 'object' && candidate.weaponId === weaponId);
-  if (matches.length !== 1) {
+  const activeMatches = context.activeWeapons.filter((candidate) => candidate.weaponId === weaponId);
+  if (activeMatches.length !== 1) {
     return defOperatorConfigProductGateFailure(
-      matches.length > 1 ? 'operator-config-weapon-library-ambiguous' : 'operator-config-weapon-library-unavailable',
+      activeMatches.length > 1 ? 'operator-config-weapon-active-ambiguous' : 'operator-config-weapon-active-unavailable',
       { kind: 'weapon', weaponId, weaponName },
-      WEAPON_LIBRARY_STORAGE_KEY,
+      `catalog:${context.dataVersion}`,
+      { message: 'The stable weaponId is not uniquely present in the active game catalog.' },
     );
   }
-  const local = matches[0];
-  if (weaponName && local.weaponName !== weaponName) {
+  const localMatches = context.localWeapons.filter((candidate) => candidate.weaponId === weaponId);
+  if (localMatches.length !== 1) {
+    return defOperatorConfigProductGateFailure(
+      localMatches.length > 1 ? 'operator-config-weapon-library-ambiguous' : 'operator-config-weapon-library-unavailable',
+      { kind: 'weapon', weaponId, weaponName },
+      context.weaponStorageKey,
+    );
+  }
+  const activeWeapon = activeMatches[0];
+  const localWeapon = localMatches[0];
+  if (activeWeapon.weaponName !== localWeapon.weaponName
+    || (weaponName && activeWeapon.weaponName !== weaponName)) {
     return defOperatorConfigProductGateFailure(
       'operator-config-weapon-identity-mismatch',
-      { kind: 'weapon', weaponId, weaponName, localWeaponId: local.weaponId, localWeaponName: local.weaponName },
-      WEAPON_LIBRARY_STORAGE_KEY,
+      {
+        kind: 'weapon', weaponId, weaponName,
+        activeWeaponName: activeWeapon.weaponName,
+        localWeaponName: localWeapon.weaponName,
+      },
+      context.weaponStorageKey,
       {
         message: 'The requested weapon name and stable weaponId do not identify the same local Operator Configuration product.',
         nextAction: 'Do not accept a same-name different-id product. Resolve the active catalog again and use one matching id/name pair.',
       },
     );
   }
-  return { ok: true, weaponId: local.weaponId, weaponName: local.weaponName };
+  return { ok: true, weaponId, weaponName: activeWeapon.weaponName };
 }
 
-function defOperatorConfigEquipmentIsAvailable(library, selection) {
-  const gearSets = Object.entries(library?.gearSets && typeof library.gearSets === 'object' ? library.gearSets : {});
-  return gearSets.some(([fallbackGearSetId, gearSet]) => {
-    if (!gearSet || typeof gearSet !== 'object') return false;
-    const gearSetId = String(gearSet.gearSetId || fallbackGearSetId || '').trim();
-    const gearSetName = String(gearSet.name || '').trim();
-    if (selection.gearSetId && gearSetId !== selection.gearSetId) return false;
-    if (selection.gearSetName && gearSetName !== selection.gearSetName) return false;
-    return Object.entries(gearSet.equipments && typeof gearSet.equipments === 'object' ? gearSet.equipments : {}).some(([fallbackEquipmentId, equipment]) => {
-      if (!equipment || typeof equipment !== 'object') return false;
-      const equipmentId = String(equipment.equipmentId || fallbackEquipmentId || '').trim();
-      const equipmentName = String(equipment.name || '').trim();
-      return (!selection.equipmentId || equipmentId === selection.equipmentId)
-        && (!selection.equipmentName || equipmentName === selection.equipmentName)
-        && (!selection.part || String(equipment.part || '').trim() === selection.part);
+function resolveDefOperatorConfigGearSet(context, selection) {
+  if (!selection.gearSetId) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-gear-set-id-required',
+      { kind: 'gear-set', ...selection },
+      context.equipmentStorageKey,
+      { message: 'A set fill requires the stable gearSetId returned by the active equipment catalog.' },
+    );
+  }
+  if (selection.fillSlots !== true) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-gear-set-fill-required',
+      { kind: 'gear-set', ...selection },
+      context.equipmentStorageKey,
+      { message: 'A gearSetId mutation must explicitly use fillSlots:true. Single-piece writes require equipmentId instead.' },
+    );
+  }
+  const activeMatches = context.activeGearSets.filter((candidate) => candidate.gearSetId === selection.gearSetId);
+  const localMatches = context.localGearSets.filter((candidate) => candidate.gearSetId === selection.gearSetId);
+  if (activeMatches.length !== 1) {
+    return defOperatorConfigProductGateFailure(
+      activeMatches.length > 1 ? 'operator-config-gear-set-active-ambiguous' : 'operator-config-gear-set-active-unavailable',
+      { kind: 'gear-set', ...selection },
+      `catalog:${context.dataVersion}`,
+    );
+  }
+  if (localMatches.length !== 1) {
+    return defOperatorConfigProductGateFailure(
+      localMatches.length > 1 ? 'operator-config-gear-set-library-ambiguous' : 'operator-config-gear-set-library-unavailable',
+      { kind: 'gear-set', ...selection },
+      context.equipmentStorageKey,
+    );
+  }
+  const activeSet = activeMatches[0];
+  const localSet = localMatches[0];
+  if (activeSet.gearSetName !== localSet.gearSetName
+    || (selection.gearSetName && selection.gearSetName !== activeSet.gearSetName)) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-gear-set-identity-mismatch',
+      { kind: 'gear-set', ...selection, activeGearSetName: activeSet.gearSetName, localGearSetName: localSet.gearSetName },
+      context.equipmentStorageKey,
+    );
+  }
+  return { ok: true, activeSet, localSet, gearSetId: activeSet.gearSetId, gearSetName: activeSet.gearSetName };
+}
+
+function resolveDefOperatorConfigEquipment(context, selection) {
+  if (!selection.equipmentId) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-equipment-id-required',
+      { kind: 'equipment', ...selection },
+      context.equipmentStorageKey,
+      { message: 'A single equipment mutation requires the stable equipmentId returned by the active equipment catalog.' },
+    );
+  }
+  const activeMatches = context.activeGearSets.flatMap((gearSet) => gearSet.equipments)
+    .filter((candidate) => candidate.equipmentId === selection.equipmentId);
+  const localMatches = context.localGearSets.flatMap((gearSet) => gearSet.equipments)
+    .filter((candidate) => candidate.equipmentId === selection.equipmentId);
+  if (activeMatches.length !== 1) {
+    return defOperatorConfigProductGateFailure(
+      activeMatches.length > 1 ? 'operator-config-equipment-active-ambiguous' : 'operator-config-equipment-active-unavailable',
+      { kind: 'equipment', ...selection },
+      `catalog:${context.dataVersion}`,
+    );
+  }
+  if (localMatches.length !== 1) {
+    return defOperatorConfigProductGateFailure(
+      localMatches.length > 1 ? 'operator-config-equipment-library-ambiguous' : 'operator-config-equipment-library-unavailable',
+      { kind: 'equipment', ...selection },
+      context.equipmentStorageKey,
+    );
+  }
+  const activeEquipment = activeMatches[0];
+  const localEquipment = localMatches[0];
+  const identityFields = ['equipmentName', 'gearSetId', 'gearSetName', 'part'];
+  const catalogsMatch = identityFields.every((field) => activeEquipment[field] === localEquipment[field]);
+  const requestMatches = identityFields.every((field) => !selection[field] || selection[field] === activeEquipment[field]);
+  if (!catalogsMatch || !requestMatches) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-equipment-identity-mismatch',
+      { kind: 'equipment', ...selection, active: activeEquipment, local: localEquipment },
+      context.equipmentStorageKey,
+      { message: 'The requested equipment id/name/set/part do not identify the same product in the active and local catalogs.' },
+    );
+  }
+  return { ok: true, product: activeEquipment };
+}
+
+function defOperatorConfigEquipmentPartKind(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'armor' || normalized.includes('\u62a4\u7532') || normalized.includes('鎶ょ敳')) return 'armor';
+  if (normalized === 'glove' || normalized.includes('\u62a4\u624b') || normalized.includes('鎶ゆ墜')) return 'glove';
+  if (normalized === 'accessory' || normalized.includes('\u914d\u4ef6') || normalized.includes('閰嶄欢')) return 'accessory';
+  return '';
+}
+
+function expandDefOperatorConfigGearSet(context, resolvedSet, selection) {
+  const byKind = (kind) => resolvedSet.localSet.equipments
+    .filter((equipment) => defOperatorConfigEquipmentPartKind(equipment.part) === kind)
+    .sort((left, right) => left.equipmentName.localeCompare(right.equipmentName, 'zh-CN'));
+  const armor = byKind('armor');
+  const glove = byKind('glove');
+  const accessories = byKind('accessory');
+  const chosen = [
+    ['armor', armor[0]],
+    ['glove', glove[0]],
+    ['accessory1', accessories[0]],
+    ['accessory2', accessories[1]],
+  ];
+  if (chosen.some(([, equipment]) => !equipment)) {
+    return defOperatorConfigProductGateFailure(
+      'operator-config-gear-set-incomplete',
+      { kind: 'gear-set', gearSetId: resolvedSet.gearSetId, gearSetName: resolvedSet.gearSetName },
+      context.equipmentStorageKey,
+      { message: 'The selected local gear set cannot fill armor, glove, and two accessory slots exactly.' },
+    );
+  }
+  const equipments = [];
+  for (const [slotKey, localEquipment] of chosen) {
+    const product = resolveDefOperatorConfigEquipment(context, {
+      equipmentId: localEquipment.equipmentId,
+      equipmentName: localEquipment.equipmentName,
+      gearSetId: resolvedSet.gearSetId,
+      gearSetName: resolvedSet.gearSetName,
+      part: localEquipment.part,
     });
-  });
+    if (!product.ok) return product;
+    equipments.push({
+      ...selection,
+      slotKey,
+      equipmentId: product.product.equipmentId,
+      equipmentName: product.product.equipmentName,
+      gearSetId: product.product.gearSetId,
+      gearSetName: product.product.gearSetName,
+      part: product.product.part,
+      fillSlots: false,
+    });
+  }
+  return { ok: true, equipments };
 }
 
-function validateDefOperatorConfigProductLibrary(command) {
+function defOperatorConfigSelectionOptions(rawSelection = {}) {
+  return {
+    ...(typeof rawSelection.slotKey === 'string' && rawSelection.slotKey.trim() ? { slotKey: rawSelection.slotKey.trim() } : {}),
+    ...(rawSelection.entryLevel !== undefined ? { entryLevel: rawSelection.entryLevel } : {}),
+    ...(rawSelection.entryLevels !== undefined ? { entryLevels: rawSelection.entryLevels } : {}),
+    ...(rawSelection.equipmentEntryLevel !== undefined ? { equipmentEntryLevel: rawSelection.equipmentEntryLevel } : {}),
+    ...(rawSelection.equipmentEntryLevels !== undefined ? { equipmentEntryLevels: rawSelection.equipmentEntryLevels } : {}),
+  };
+}
+
+function validateDefOperatorConfigProductLibrary(command, providedContext = null) {
+  const context = providedContext || buildDefOperatorConfigProductGateContext();
+  if (!context.ok) return context;
   let checkedCommand = { ...command };
   const weaponId = typeof command?.weaponId === 'string' ? command.weaponId.trim() : '';
   const weaponName = typeof command?.weaponName === 'string' ? command.weaponName.trim() : '';
   if (weaponId || weaponName) {
-    const source = readDefNativeWeaponLibrarySource();
-    const weapon = resolveDefOperatorConfigLocalWeapon(source.library, { weaponId, weaponName });
-    if (!weapon.ok) return { ...weapon, storageKey: source.storageKey };
-    // The renderer still consumes weaponName. Retain weaponId on the command as
-    // provenance, but use the verified local canonical name only after exact
-    // stable-id matching succeeded.
+    const weapon = resolveDefOperatorConfigWeapon(context, { weaponId, weaponName });
+    if (!weapon.ok) return weapon;
     checkedCommand = { ...checkedCommand, weaponId: weapon.weaponId, weaponName: weapon.weaponName };
   }
 
@@ -8424,7 +8668,8 @@ function validateDefOperatorConfigProductLibrary(command) {
       : [];
   if (!rawSelections.length) return { ok: true, command: checkedCommand };
 
-  const source = readDefEquipmentLibrarySource();
+  const canonicalSelections = [];
+  let directSet = null;
   for (const rawSelection of rawSelections) {
     const selection = {
       equipmentId: typeof rawSelection?.equipmentId === 'string' ? rawSelection.equipmentId.trim() : '',
@@ -8432,9 +8677,43 @@ function validateDefOperatorConfigProductLibrary(command) {
       gearSetId: typeof rawSelection?.gearSetId === 'string' ? rawSelection.gearSetId.trim() : '',
       gearSetName: typeof rawSelection?.gearSetName === 'string' ? rawSelection.gearSetName.trim() : '',
       part: typeof rawSelection?.part === 'string' ? rawSelection.part.trim() : '',
+      fillSlots: rawSelection?.fillSlots === true,
     };
-    if (defOperatorConfigEquipmentIsAvailable(source.library, selection)) continue;
-    return defOperatorConfigProductGateFailure('operator-config-equipment-library-unavailable', { kind: 'equipment', ...selection }, source.storageKey);
+    const selectionOptions = defOperatorConfigSelectionOptions(rawSelection);
+    const isSetFill = selection.fillSlots || (!selection.equipmentId && (selection.gearSetId || selection.gearSetName));
+    if (isSetFill) {
+      const gearSet = resolveDefOperatorConfigGearSet(context, selection);
+      if (!gearSet.ok) return gearSet;
+      const expanded = expandDefOperatorConfigGearSet(context, gearSet, selectionOptions);
+      if (!expanded.ok) return expanded;
+      canonicalSelections.push(...expanded.equipments);
+      directSet = gearSet;
+      continue;
+    }
+    const equipment = resolveDefOperatorConfigEquipment(context, selection);
+    if (!equipment.ok) return equipment;
+    canonicalSelections.push({
+      ...selectionOptions,
+      equipmentId: equipment.product.equipmentId,
+      equipmentName: equipment.product.equipmentName,
+      gearSetId: equipment.product.gearSetId,
+      gearSetName: equipment.product.gearSetName,
+      part: equipment.product.part,
+    });
+  }
+  checkedCommand = { ...checkedCommand, equipments: canonicalSelections };
+  if (rawSelections.length === 1 && !Array.isArray(command?.equipments)) {
+    if (directSet) {
+      delete checkedCommand.equipmentId;
+      delete checkedCommand.equipmentName;
+      delete checkedCommand.part;
+      delete checkedCommand.slotKey;
+      checkedCommand.gearSetId = directSet.gearSetId;
+      checkedCommand.gearSetName = directSet.gearSetName;
+      checkedCommand.fillSlots = true;
+    } else {
+      Object.assign(checkedCommand, canonicalSelections[0]);
+    }
   }
   return { ok: true, command: checkedCommand };
 }
@@ -8449,9 +8728,11 @@ function buildDefOperatorConfigProductCheckedCommands(input = {}) {
       nextAction: 'Provide one exact weapon or equipment product before requesting a preview or patch.',
     };
   }
+  const context = buildDefOperatorConfigProductGateContext();
+  if (!context.ok) return context;
   const checked = [];
   for (const command of commands) {
-    const productLibrary = validateDefOperatorConfigProductLibrary(command);
+    const productLibrary = validateDefOperatorConfigProductLibrary(command, context);
     if (!productLibrary.ok) return productLibrary;
     checked.push(productLibrary.command || command);
   }
@@ -8648,6 +8929,19 @@ async function verifyDefOperatorConfigPreview(input = {}, gate = resolveCanonica
   if (!commandVerification.pass || !isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
     return { ok: false, code: 'operator-config-preview-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result; no approval or branch should be requested.', commandVerification };
   }
+  const productVerification = verifyDefOperatorConfigRendererProducts(planned.command, preview.finalConfig);
+  if (!productVerification.pass) {
+    return {
+      ok: false,
+      code: 'operator-config-preview-product-mismatch',
+      component: 'operator-config',
+      retryable: false,
+      currentCheckoutTouched: false,
+      nextAction: 'The renderer did not return the exact stable product identities in the checked command. Do not issue a proposal or approval.',
+      productVerification,
+      commandVerification,
+    };
+  }
   const parentNodeId = typeof preview.parentNodeId === 'string' ? preview.parentNodeId : '';
   const parentRevision = Number(preview.parentRevision);
   const parent = readRepositoryWorkNode(parentNodeId);
@@ -8676,6 +8970,7 @@ async function verifyDefOperatorConfigPreview(input = {}, gate = resolveCanonica
     command: planned.command,
     preview,
     commandVerification,
+    productVerification,
     timelinePreservation,
   };
 }

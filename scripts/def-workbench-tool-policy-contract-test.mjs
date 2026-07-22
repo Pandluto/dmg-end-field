@@ -11,6 +11,7 @@ import {
   DEF_WORKSPACE_SCOPE,
   resolveDefToolAccessPolicy,
 } from '../agent/runtime/def-tools/registry.mjs';
+import { applyOperatorConfigWeaponIdentityToSnapshot } from '../src/core/services/operatorConfigWeaponIdentity.ts';
 
 const require = createRequire(import.meta.url);
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
@@ -28,29 +29,57 @@ const activeOnlyWeapon = { id: 'weapon-active-only', name: 'Weapon Active Only',
 const localSameNameWeapon = { id: 'weapon-local-same-name', name: 'Weapon Shared Name', type: 'test', skills: {} };
 const activeSameNameWeapon = { id: 'weapon-active-same-name', name: 'Weapon Shared Name', type: 'test', skills: {} };
 const localDifferentNameWeapon = { id: 'weapon-local-different-name', name: 'Weapon Local Different Name', type: 'test', skills: {} };
+const localOnlyWeapon = { id: 'weapon-local-only', name: 'Weapon Local Only', type: 'test', skills: {} };
+const collisionWeaponA = { id: 'weapon-collision-a', name: 'Weapon Collision', type: 'test', attackGrowth: { 90: 111 }, skills: {} };
+const collisionWeaponB = { id: 'weapon-collision-b', name: 'Weapon Collision', type: 'test', attackGrowth: { 90: 222 }, skills: {} };
+const duplicateIdWeapon = { id: 'weapon-duplicate-id', name: 'Weapon Duplicate Id', type: 'test', skills: {} };
 const localEquipment = { equipmentId: 'equipment-local', name: 'Equipment Local', part: 'armor', effects: {} };
 const activeOnlyEquipment = { equipmentId: 'equipment-active-only', name: 'Equipment Active Only', part: 'armor', effects: {} };
+const localOnlyEquipment = { equipmentId: 'equipment-local-only', name: 'Equipment Local Only', part: 'armor', effects: {} };
+const localSameNameEquipment = { equipmentId: 'equipment-local-same-name', name: 'Equipment Shared Name', part: 'armor', effects: {} };
+const activeSameNameEquipment = { equipmentId: 'equipment-active-same-name', name: 'Equipment Shared Name', part: 'armor', effects: {} };
+const completeSetPieces = {
+  armor: { equipmentId: 'equipment-complete-armor', name: 'Complete Armor', part: '护甲', effects: {} },
+  glove: { equipmentId: 'equipment-complete-glove', name: 'Complete Glove', part: '护手', effects: {} },
+  accessoryA: { equipmentId: 'equipment-complete-accessory-a', name: 'Complete Accessory A', part: '配件', effects: {} },
+  accessoryB: { equipmentId: 'equipment-complete-accessory-b', name: 'Complete Accessory B', part: '配件', effects: {} },
+};
+const completeGearSet = { gearSetId: 'gear-complete', name: 'Gear Complete', equipments: completeSetPieces };
+const duplicateIdEquipment = { equipmentId: 'equipment-duplicate-id', name: 'Equipment Duplicate Id', part: 'armor', effects: {} };
 const localEquipmentLibrary = {
   gearSets: {
     local: { gearSetId: 'gear-local', name: 'Gear Local', equipments: { [localEquipment.equipmentId]: localEquipment } },
+    localOnly: { gearSetId: 'gear-local-only', name: 'Gear Local Only', equipments: { [localOnlyEquipment.equipmentId]: localOnlyEquipment } },
+    localSameName: { gearSetId: 'gear-local-same-name', name: 'Gear Shared Local', equipments: { [localSameNameEquipment.equipmentId]: localSameNameEquipment } },
+    complete: completeGearSet,
+    duplicateA: { gearSetId: 'gear-duplicate-a', name: 'Gear Duplicate A', equipments: { first: duplicateIdEquipment } },
+    duplicateB: { gearSetId: 'gear-duplicate-b', name: 'Gear Duplicate B', equipments: { second: duplicateIdEquipment } },
   },
 };
 const activeEquipmentLibrary = {
   gearSets: {
     local: { gearSetId: 'gear-local', name: 'Gear Local', equipments: { [localEquipment.equipmentId]: localEquipment } },
     activeOnly: { gearSetId: 'gear-active-only', name: 'Gear Active Only', equipments: { [activeOnlyEquipment.equipmentId]: activeOnlyEquipment } },
+    activeSameName: { gearSetId: 'gear-active-same-name', name: 'Gear Shared Active', equipments: { [activeSameNameEquipment.equipmentId]: activeSameNameEquipment } },
+    complete: completeGearSet,
+    duplicate: { gearSetId: 'gear-duplicate-active', name: 'Gear Duplicate Active', equipments: { [duplicateIdEquipment.equipmentId]: duplicateIdEquipment } },
   },
 };
 const localWeaponLibrary = {
   [localWeapon.id]: localWeapon,
   [localSameNameWeapon.id]: localSameNameWeapon,
   [localDifferentNameWeapon.id]: localDifferentNameWeapon,
+  [localOnlyWeapon.id]: localOnlyWeapon,
+  [collisionWeaponA.id]: collisionWeaponA,
+  [collisionWeaponB.id]: collisionWeaponB,
+  duplicateA: duplicateIdWeapon,
+  duplicateB: duplicateIdWeapon,
 };
 
 createCatalogDatabase({
   databasePath: builtinCatalogPath,
   dataVersion: 'tool-policy-contract-v2',
-  weapons: [localWeapon, activeOnlyWeapon, activeSameNameWeapon, localDifferentNameWeapon]
+  weapons: [localWeapon, activeOnlyWeapon, activeSameNameWeapon, localDifferentNameWeapon, collisionWeaponA, collisionWeaponB, duplicateIdWeapon]
     .map((weapon) => ({ id: weapon.id, name: weapon.name, payload: weapon })),
   equipments: Object.values(activeEquipmentLibrary.gearSets).flatMap((gearSet) => Object.values(gearSet.equipments).map((equipment) => ({
     id: equipment.equipmentId,
@@ -456,9 +485,84 @@ try {
   }, 'session-a');
   assert.equal(forgedWeaponIdentityPreview.status, 409, JSON.stringify(forgedWeaponIdentityPreview.body));
   assert.equal(forgedWeaponIdentityPreview.body.result?.code, 'operator-config-weapon-identity-mismatch', JSON.stringify(forgedWeaponIdentityPreview.body));
+  const localOnlyWeaponPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: localOnlyWeapon.id, name: localOnlyWeapon.name },
+  }, 'session-a');
+  assert.equal(localOnlyWeaponPreview.status, 409, JSON.stringify(localOnlyWeaponPreview.body));
+  assert.equal(localOnlyWeaponPreview.body.result?.code, 'operator-config-weapon-active-unavailable');
+  const duplicateIdWeaponPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', weapon: { id: duplicateIdWeapon.id, name: duplicateIdWeapon.name },
+  }, 'session-a');
+  assert.equal(duplicateIdWeaponPreview.status, 409, JSON.stringify(duplicateIdWeaponPreview.body));
+  assert.equal(duplicateIdWeaponPreview.body.result?.code, 'operator-config-weapon-library-ambiguous');
+  const nameOnlyEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', equipment: { equipmentName: localEquipment.name, slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(nameOnlyEquipmentPreview.status, 409, JSON.stringify(nameOnlyEquipmentPreview.body));
+  assert.equal(nameOnlyEquipmentPreview.body.result?.code, 'operator-config-equipment-id-required');
+  const nameOnlyGearSetPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', gearSetName: 'Gear Local', fillSlots: true,
+  }, 'session-a');
+  assert.equal(nameOnlyGearSetPreview.status, 409, JSON.stringify(nameOnlyGearSetPreview.body));
+  assert.equal(nameOnlyGearSetPreview.body.result?.code, 'operator-config-gear-set-id-required');
+  const implicitGearSetFillPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', gearSetId: completeGearSet.gearSetId, gearSetName: completeGearSet.name,
+  }, 'session-a');
+  assert.equal(implicitGearSetFillPreview.status, 409, JSON.stringify(implicitGearSetFillPreview.body));
+  assert.equal(implicitGearSetFillPreview.body.result?.code, 'operator-config-gear-set-fill-required');
+  const localOnlyEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', equipment: { equipmentId: localOnlyEquipment.equipmentId, equipmentName: localOnlyEquipment.name, slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(localOnlyEquipmentPreview.status, 409, JSON.stringify(localOnlyEquipmentPreview.body));
+  assert.equal(localOnlyEquipmentPreview.body.result?.code, 'operator-config-equipment-active-unavailable');
+  const duplicateIdEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', equipment: { equipmentId: duplicateIdEquipment.equipmentId, equipmentName: duplicateIdEquipment.name, slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(duplicateIdEquipmentPreview.status, 409, JSON.stringify(duplicateIdEquipmentPreview.body));
+  assert.equal(duplicateIdEquipmentPreview.body.result?.code, 'operator-config-equipment-library-ambiguous');
+  const activeSameNameEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', equipment: { equipmentId: activeSameNameEquipment.equipmentId, equipmentName: activeSameNameEquipment.name, slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(activeSameNameEquipmentPreview.status, 409, JSON.stringify(activeSameNameEquipmentPreview.body));
+  assert.equal(activeSameNameEquipmentPreview.body.result?.code, 'operator-config-equipment-library-unavailable');
+  const localSameNameEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', equipment: { equipmentId: localSameNameEquipment.equipmentId, equipmentName: localSameNameEquipment.name, slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(localSameNameEquipmentPreview.status, 409, JSON.stringify(localSameNameEquipmentPreview.body));
+  assert.equal(localSameNameEquipmentPreview.body.result?.code, 'operator-config-equipment-active-unavailable');
   assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, productGateQueueBefore.body, 'active-only, name-only, and same-name-different-id products must block before enqueueing');
   assert.deepEqual(treeState(), productGateTreeBefore, 'blocked products must not create a horizontal branch');
   assert.deepEqual(await request('/api/main-workbench/snapshot', { internal: true }), productGateSnapshotBefore, 'blocked products must not change the live Workbench mirror');
+
+  const mismatchedRendererPreviewPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: collisionWeaponA.id, name: collisionWeaponA.name },
+    __defTurnId: 'mismatched-renderer-product-preview',
+  }, 'session-a');
+  const mismatchedPreviewCommand = await waitForQueuedCommand('previewOperatorConfig');
+  const mismatchedPreviewParent = repository.getWorkNode('node-a-only');
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: mismatchedPreviewCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: mismatchedPreviewParent.id,
+        parentRevision: mismatchedPreviewParent.contentRevision,
+        preparedPayload: structuredClone(mismatchedPreviewParent.workingPayload),
+        finalConfig: {
+          characterId: 'operator-A', characterName: 'Operator A ONLY',
+          weapon: { id: collisionWeaponB.id, name: collisionWeaponB.name, level: 90, potential: '0潜', skillLevels: {} },
+          equipment: [], operatorSkillLevels: {},
+        },
+      },
+    },
+  });
+  const mismatchedRendererPreview = await mismatchedRendererPreviewPending;
+  assert.equal(mismatchedRendererPreview.status, 409, JSON.stringify(mismatchedRendererPreview.body));
+  assert.equal(mismatchedRendererPreview.body.result?.code, 'operator-config-preview-product-mismatch');
+  assert.equal(Boolean(mismatchedRendererPreview.body.result?.proposalToken), false, 'a wrong renderer id must not mint a proposal');
 
   const validPreviewPending = generic('def.operator.config.preview', {
     characterId: 'operator-A',
@@ -469,6 +573,11 @@ try {
   assert.equal(previewCommand.command.request.weaponId, localWeapon.id, 'preview must preserve the stable weapon id after product gating');
   assert.equal(previewCommand.command.request.weaponName, localWeapon.name, 'preview must use the matching local canonical product name');
   const previewParent = repository.getWorkNode('node-a-only');
+  const renderedWeapon = applyOperatorConfigWeaponIdentityToSnapshot(
+    { weapon: { id: 'previous', name: 'Previous' } },
+    localWeaponLibrary,
+    { id: previewCommand.command.request.weaponId, name: previewCommand.command.request.weaponName },
+  ).snapshot.weapon;
   await request('/api/main-workbench/commands/result', {
     method: 'POST', internal: true,
     body: {
@@ -481,7 +590,7 @@ try {
         finalConfig: {
           characterId: 'operator-A',
           characterName: 'Operator A ONLY',
-          weapon: { id: localWeapon.id, name: localWeapon.name, level: 90, potential: '0潜', skillLevels: {} },
+          weapon: { id: renderedWeapon.id, name: renderedWeapon.name, level: 90, potential: '0潜', skillLevels: {} },
           equipment: [],
           operatorSkillLevels: {},
         },
@@ -491,6 +600,78 @@ try {
   const validPreview = await validPreviewPending;
   assert.equal(validPreview.status, 200, JSON.stringify(validPreview.body));
   assert.equal(validPreview.body.result.finalConfig.weapon.id, localWeapon.id);
+
+  const validEquipmentPreviewPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    equipment: { equipmentId: localEquipment.equipmentId, equipmentName: localEquipment.name, slotKey: 'armor' },
+    __defTurnId: 'valid-active-local-equipment-preview',
+  }, 'session-a');
+  const equipmentPreviewCommand = await waitForQueuedCommand('previewOperatorConfig');
+  assert.equal(equipmentPreviewCommand.command.request.equipments[0].equipmentId, localEquipment.equipmentId);
+  assert.equal(equipmentPreviewCommand.command.request.equipments[0].equipmentName, localEquipment.name);
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: equipmentPreviewCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: previewParent.id,
+        parentRevision: previewParent.contentRevision,
+        preparedPayload: structuredClone(previewParent.workingPayload),
+        finalConfig: {
+          characterId: 'operator-A', characterName: 'Operator A ONLY',
+          weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
+          equipment: [{ slotKey: 'armor', equipmentId: localEquipment.equipmentId, name: localEquipment.name, effects: [] }],
+          operatorSkillLevels: {},
+        },
+      },
+    },
+  });
+  const validEquipmentPreview = await validEquipmentPreviewPending;
+  assert.equal(validEquipmentPreview.status, 200, JSON.stringify(validEquipmentPreview.body));
+  assert.equal(validEquipmentPreview.body.result.finalConfig.equipment[0].equipmentId, localEquipment.equipmentId);
+
+  const validGearSetPreviewPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A', gearSetId: completeGearSet.gearSetId, gearSetName: completeGearSet.name, fillSlots: true,
+    __defTurnId: 'valid-active-local-gear-set-preview',
+  }, 'session-a');
+  const gearSetPreviewCommand = await waitForQueuedCommand('previewOperatorConfig');
+  assert.equal(gearSetPreviewCommand.command.request.gearSetId, completeGearSet.gearSetId);
+  assert.equal(gearSetPreviewCommand.command.request.gearSetName, completeGearSet.name);
+  assert.equal(gearSetPreviewCommand.command.request.fillSlots, true);
+  assert.deepEqual(
+    gearSetPreviewCommand.command.request.equipments.map((piece) => [piece.slotKey, piece.equipmentId]),
+    [
+      ['armor', completeSetPieces.armor.equipmentId],
+      ['glove', completeSetPieces.glove.equipmentId],
+      ['accessory1', completeSetPieces.accessoryA.equipmentId],
+      ['accessory2', completeSetPieces.accessoryB.equipmentId],
+    ],
+    'set fill must be rewritten to four canonical active/local stable ids before enqueue',
+  );
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: gearSetPreviewCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: previewParent.id,
+        parentRevision: previewParent.contentRevision,
+        preparedPayload: structuredClone(previewParent.workingPayload),
+        finalConfig: {
+          characterId: 'operator-A', characterName: 'Operator A ONLY',
+          weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
+          equipment: gearSetPreviewCommand.command.request.equipments.map((piece) => ({
+            slotKey: piece.slotKey, equipmentId: piece.equipmentId, name: piece.equipmentName, effects: [],
+          })),
+          operatorSkillLevels: {},
+        },
+      },
+    },
+  });
+  const validGearSetPreview = await validGearSetPreviewPending;
+  assert.equal(validGearSetPreview.status, 200, JSON.stringify(validGearSetPreview.body));
+  assert.equal(validGearSetPreview.body.result.finalConfig.equipment.length, 4);
 
   const validPatchPending = generic('def.operator.config.patch', {
     characterId: 'operator-A',
@@ -521,6 +702,56 @@ try {
   const validPatch = await validPatchPending;
   assert.equal(validPatch.status, 200, JSON.stringify(validPatch.body));
   assert.equal(validPatch.body.result.postcondition.pass, true);
+
+  const wrongIdPatchPending = generic('def.operator.config.patch', {
+    characterId: 'operator-A',
+    weapon: { id: collisionWeaponA.id, name: collisionWeaponA.name },
+    snapshotWaitMs: 0,
+  }, 'session-a');
+  const wrongIdPatchCommand = await waitForQueuedCommand('setOperatorWeapon');
+  assert.equal(wrongIdPatchCommand.command.weaponId, collisionWeaponA.id);
+  await mirror('formal-a', 'A', {
+    characterId: 'operator-A', characterName: 'Operator A ONLY',
+    weapon: { id: collisionWeaponB.id, name: collisionWeaponB.name, level: 90, potential: '0潜' },
+    equipment: [{ slotKey: 'armor', equipmentId: 'equipment-A', name: 'Equipment A ONLY', effects: [] }],
+  });
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: wrongIdPatchCommand.id,
+      status: 'done',
+      result: {
+        characterId: 'operator-A', characterName: 'Operator A ONLY',
+        weapon: { id: collisionWeaponB.id, name: collisionWeaponB.name },
+        persistence: { pass: true },
+      },
+    },
+  });
+  const wrongIdPatch = await wrongIdPatchPending;
+  assert.equal(wrongIdPatch.status, 409, JSON.stringify(wrongIdPatch.body));
+  assert.equal(wrongIdPatch.body.result?.code, 'postcondition-failed');
+  assert.equal(wrongIdPatch.body.result?.postcondition?.pass, false, 'direct verification must expect command.weaponId, not renderer result.weapon.id');
+  await mirror('formal-a', 'A', {
+    characterId: 'operator-A', characterName: 'Operator A ONLY',
+    weapon: { id: localWeapon.id, name: localWeapon.name, level: 90, potential: '0潜' },
+    equipment: [{ slotKey: 'armor', equipmentId: 'equipment-A', name: 'Equipment A ONLY', effects: [] }],
+  });
+
+  const invalidPointerQueueBefore = await request('/api/main-workbench/commands', { internal: true });
+  const invalidPointerTreeBefore = treeState();
+  const invalidPointerSnapshotBefore = await request('/api/main-workbench/snapshot', { internal: true });
+  const activePointerPath = path.join(root, 'data', 'catalog', 'active.json');
+  fs.mkdirSync(path.dirname(activePointerPath), { recursive: true });
+  fs.writeFileSync(activePointerPath, '{}\n', 'utf8');
+  const invalidPointerPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A', weapon: { id: localWeapon.id, name: localWeapon.name },
+  }, 'session-a');
+  assert.equal(invalidPointerPreview.status, 409, JSON.stringify(invalidPointerPreview.body));
+  assert.equal(invalidPointerPreview.body.result?.code, 'active-game-catalog-active-pointer-invalid');
+  assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, invalidPointerQueueBefore.body);
+  assert.deepEqual(treeState(), invalidPointerTreeBefore);
+  assert.deepEqual(await request('/api/main-workbench/snapshot', { internal: true }), invalidPointerSnapshotBefore);
+  fs.rmSync(activePointerPath, { force: true });
 
   const publicCalls = [
     ['def.operator.catalog.search', { query: '' }],

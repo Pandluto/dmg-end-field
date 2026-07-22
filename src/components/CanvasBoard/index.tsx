@@ -58,6 +58,7 @@ import {
 import { refreshAvailableCandidateBuffsForCharacters } from '../../core/services/operatorConfigCandidateBuffService';
 import {
   applyOperatorEquipmentSelectionsToSnapshot,
+  applyOperatorConfigWeaponSelectionToSnapshot,
   DEFAULT_OPERATOR_SKILL_CONFIG,
   DEFAULT_WEAPON_LEVEL,
   DEFAULT_WEAPON_SKILL_LEVELS,
@@ -1111,7 +1112,9 @@ export function CanvasBoard({
         `当前 checkout 排轴镜像不一致：${originalTimelineValidation.issues.map((issue) => issue.message).join('；')}`,
       );
     }
+    const weaponId = command.weaponId?.trim() || '';
     const weaponName = command.weaponName?.trim() || '';
+    const hasWeapon = Boolean(weaponId || weaponName);
     const hasEquipment = Boolean(command.equipments?.length || command.equipmentId || command.equipmentName || command.gearSetId || command.gearSetName);
     const selections = hasEquipment
       ? (command.equipments?.length
@@ -1144,16 +1147,15 @@ export function CanvasBoard({
       if (!snapshot) throw makeOperatorConfigCommandError('operator-config-snapshot-unavailable', `未找到干员配置快照: ${character.name}`);
 
       let nextSnapshot = snapshot;
-      if (weaponName) {
+      if (hasWeapon) {
         const potential = normalizeWorkbenchWeaponPotential(command.potential, '0潜');
         const requestedSkills = command.weaponSkillLevels ?? command.skillLevels ?? {};
         const skill3Base = requestedSkills.skill3 ?? DEFAULT_WEAPON_SKILL_LEVELS.skill3;
+        nextSnapshot = applyOperatorConfigWeaponSelectionToSnapshot(nextSnapshot, { weaponId, weaponName });
         nextSnapshot = {
           ...nextSnapshot,
           weapon: {
             ...nextSnapshot.weapon,
-            id: weaponName,
-            name: weaponName,
             config: {
               ...nextSnapshot.weapon.config,
               level: command.weaponLevel ?? command.level ?? DEFAULT_WEAPON_LEVEL,
@@ -1343,9 +1345,10 @@ export function CanvasBoard({
   };
 
   const setOperatorWeaponFromWorkbenchCommand = async (command: Extract<MainWorkbenchCommand, { op: 'setOperatorWeapon' }>) => {
+    const weaponId = command.weaponId?.trim();
     const weaponName = command.weaponName?.trim();
-    if (!weaponName) {
-      throw new Error('setOperatorWeapon requires weaponName');
+    if (!weaponId || !weaponName) {
+      throw new Error('setOperatorWeapon requires weaponId and weaponName');
     }
     const cache = getOperatorConfigPageCache();
     const checkout = await prepareOperatorConfigCheckout();
@@ -1357,18 +1360,17 @@ export function CanvasBoard({
         throw new Error(`未找到干员配置快照: ${character.name}`);
       }
 
+      const weaponSnapshot = applyOperatorConfigWeaponSelectionToSnapshot(snapshot, { weaponId, weaponName });
       const nextSnapshot = {
-        ...snapshot,
+        ...weaponSnapshot,
         weapon: {
-          ...snapshot.weapon,
-          id: weaponName,
-          name: weaponName,
+          ...weaponSnapshot.weapon,
           config: {
-            ...snapshot.weapon.config,
-            level: command.level ?? snapshot.weapon.config.level,
-            potential: normalizeWorkbenchWeaponPotential(command.potential, snapshot.weapon.config.potential),
+            ...weaponSnapshot.weapon.config,
+            level: command.level ?? weaponSnapshot.weapon.config.level,
+            potential: normalizeWorkbenchWeaponPotential(command.potential, weaponSnapshot.weapon.config.potential),
             skillLevels: {
-              ...snapshot.weapon.config.skillLevels,
+              ...weaponSnapshot.weapon.config.skillLevels,
               ...(command.skillLevels ?? {}),
             },
           },
@@ -1488,7 +1490,9 @@ export function CanvasBoard({
     const cache = getOperatorConfigPageCache();
     const checkout = await prepareOperatorConfigCheckout();
     const character = resolveOperatorCharacterForWorkbenchCommand(command);
+    const weaponId = command.weaponId?.trim() || '';
     const weaponName = command.weaponName?.trim() || '';
+    const hasWeapon = Boolean(weaponId || weaponName);
     const hasEquipment = Boolean(
       command.equipments?.length
       || command.equipmentId
@@ -1526,13 +1530,12 @@ export function CanvasBoard({
       }
 
       let nextSnapshot = snapshot;
-      if (weaponName) {
+      if (hasWeapon) {
+        nextSnapshot = applyOperatorConfigWeaponSelectionToSnapshot(nextSnapshot, { weaponId, weaponName });
         nextSnapshot = {
           ...nextSnapshot,
           weapon: {
             ...nextSnapshot.weapon,
-            id: weaponName,
-            name: weaponName,
             config: {
               ...nextSnapshot.weapon.config,
               level: command.level ?? nextSnapshot.weapon.config.level,
@@ -1565,7 +1568,7 @@ export function CanvasBoard({
       return {
         characterId: character.id,
         characterName: character.name,
-        ...(weaponName ? {
+        ...(hasWeapon ? {
           weapon: {
             id: refreshedSnapshot.weapon.id,
             name: refreshedSnapshot.weapon.name,

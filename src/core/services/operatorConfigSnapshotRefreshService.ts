@@ -19,6 +19,10 @@ import { normalizeGameKnowledgeText, resolveGameGearSetAlias } from '../../utils
 import { getOperatorConfigPageCache, setOperatorConfigPageCache } from '../repositories';
 import { normalizeExtraHitConfig } from './buffExtraHit';
 import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
+import {
+  applyOperatorConfigWeaponIdentityToSnapshot,
+  indexOperatorConfigWeaponProductsById,
+} from './operatorConfigWeaponIdentity';
 
 type EquipmentPart = '护甲' | '护手' | '配件';
 type EquipmentEffectId = 'effect1' | 'effect2' | 'effect3';
@@ -302,14 +306,14 @@ function readEquipmentLibraryFromStorage(): EquipmentLibrary {
 }
 
 function normalizeWeaponLibrary(raw: unknown): WeaponLibrary {
-  const source = raw && typeof raw === 'object' ? (raw as RawWeaponLibrary) : {};
   const next: WeaponLibrary = {};
-  Object.entries(source).forEach(([draftId, rawWeapon]) => {
-    const weaponName = String(rawWeapon?.name || draftId).trim();
-    if (!weaponName) return;
-    next[weaponName] = {
-      id: String(rawWeapon?.id || draftId || weaponName),
-      name: weaponName,
+  Object.values(indexOperatorConfigWeaponProductsById(raw)).forEach((product) => {
+    // Duplicate stable ids are unavailable, rather than whichever object key
+    // happened to be visited last. Different ids may intentionally share a name.
+    const rawWeapon = product.raw as RawWeaponLibrary[string];
+    next[product.id] = {
+      id: product.id,
+      name: product.name,
       rarity: typeof rawWeapon?.rarity === 'number' ? rawWeapon.rarity : 6,
       type: String(rawWeapon?.type || ''),
       description: String(rawWeapon?.description || ''),
@@ -346,12 +350,29 @@ export function getWeaponSkill3PotentialBonus(weaponPotential: string): number {
   return Math.max(0, Math.min(5, parsePotentialToCount(weaponPotential) - 1));
 }
 
-function resolveWeaponData(weaponName: string, weaponLibrary: WeaponLibrary): WeaponData | null {
-  if (!weaponName) return null;
-  const localWeapon =
-    weaponLibrary[weaponName] ??
-    Object.values(weaponLibrary).find((weapon) => weapon.id === weaponName || weapon.name === weaponName);
-  return localWeapon ?? null;
+function resolveWeaponData(weaponId: string, weaponName: string, weaponLibrary: WeaponLibrary): WeaponData | null {
+  if (weaponId && weaponLibrary[weaponId]) {
+    const exact = weaponLibrary[weaponId];
+    return !weaponName || exact.name === weaponName ? exact : null;
+  }
+  // Read-only compatibility for old snapshots that stored name in the id field.
+  // It is safe only when the name resolves to one product, and the rebuilt
+  // snapshot immediately records that product's real stable id.
+  if (weaponId && weaponId !== weaponName) return null;
+  const legacyName = weaponName || weaponId;
+  if (!legacyName) return null;
+  const matches = Object.values(weaponLibrary).filter((weapon) => weapon.name === legacyName);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export function applyOperatorConfigWeaponSelectionToSnapshot<T extends {
+  weapon: Record<string, unknown>;
+}>(snapshot: T, requested: { weaponId?: string; weaponName?: string }): T {
+  return applyOperatorConfigWeaponIdentityToSnapshot(
+    snapshot,
+    readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}),
+    { id: requested.weaponId, name: requested.weaponName },
+  ).snapshot;
 }
 
 function buildWeaponDataFromSnapshot(snapshot: ConfigSnapshot | undefined): WeaponData | null {
@@ -866,11 +887,12 @@ async function buildOperatorBuffs(character: Character, snapshot: ConfigSnapshot
   return mergeOperatorBuffs(sourceBuffs, publicBuffs);
 }
 
-function resolveWeaponName(snapshot: ConfigSnapshot | undefined, legacyConfig: CharacterConfigJson | undefined): string {
-  const snapshotWeaponName = snapshot?.weapon.name || snapshot?.weapon.id || '';
-  if (snapshotWeaponName) return snapshotWeaponName;
+function resolveWeaponIdentity(snapshot: ConfigSnapshot | undefined, legacyConfig: CharacterConfigJson | undefined) {
+  const snapshotWeaponId = snapshot?.weapon.id || '';
+  const snapshotWeaponName = snapshot?.weapon.name || '';
+  if (snapshotWeaponId || snapshotWeaponName) return { id: snapshotWeaponId, name: snapshotWeaponName };
   const legacyWeaponName = legacyConfig?.weaponName || '';
-  return legacyWeaponName === '无' ? '' : legacyWeaponName;
+  return { id: '', name: legacyWeaponName === '无' ? '' : legacyWeaponName };
 }
 
 function buildSkillConfig(snapshot: ConfigSnapshot | undefined, legacyConfig: CharacterConfigJson | undefined): Record<OperatorSkillKey, string> {
@@ -905,10 +927,12 @@ async function buildSnapshotForCharacter(
   weaponLibrary: WeaponLibrary,
   equipmentLibrary: EquipmentLibrary | null,
 ): Promise<ConfigSnapshot | null> {
-  const weaponName = resolveWeaponName(snapshot, legacyConfig);
-  const loadedWeaponData = weaponName ? resolveWeaponData(weaponName, weaponLibrary) : null;
+  const requestedWeapon = resolveWeaponIdentity(snapshot, legacyConfig);
+  const loadedWeaponData = resolveWeaponData(requestedWeapon.id, requestedWeapon.name, weaponLibrary);
   const fallbackWeaponData = buildWeaponDataFromSnapshot(snapshot);
   const weaponData = loadedWeaponData ?? fallbackWeaponData;
+  const weaponId = String(weaponData?.id || requestedWeapon.id || '').trim();
+  const weaponName = String(weaponData?.name || requestedWeapon.name || weaponId).trim();
   const characterPotential = normalizePotentialForCalculator(
     snapshot?.operator.potential ?? legacyConfig?.characterPotential ?? defaultCharacterPotential(character),
   );
@@ -931,8 +955,8 @@ async function buildSnapshotForCharacter(
       buffs: await buildOperatorBuffs(character, snapshot),
     },
     weapon: {
-      id: weaponName,
-      name: weaponData?.name || weaponName,
+      id: weaponId,
+      name: weaponName,
       config: buildWeaponConfig(snapshot, legacyConfig),
       data: {
         attackGrowth: weaponData?.attackGrowth ?? {},

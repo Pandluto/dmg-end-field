@@ -199,9 +199,8 @@ export type MainWorkbenchCommand =
       characterId?: string;
       characterName?: string;
       weaponName: string;
-      // Server-side product gating verifies this opaque stable identity before
-      // the renderer receives the canonical local weaponName.
-      weaponId?: string;
+      // Stable identity is carried through renderer selection and persistence.
+      weaponId: string;
       level?: number | string;
       potential?: string;
       skillLevels?: {

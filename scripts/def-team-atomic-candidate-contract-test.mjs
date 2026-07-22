@@ -7,6 +7,7 @@ import {
   prepareAtomicTeamCandidate,
 } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
+import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/def-tools/team-product-recheck.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -68,6 +69,22 @@ async function assertTeamSize(count) {
 
 await assertTeamSize(2);
 await assertTeamSize(4);
+
+{
+  let productChecks = 0;
+  const drifted = recheckDefTeamProductsBeforePreparedCandidate({
+    patches: [{ weapon: { id: 'stale-weapon' } }],
+    preparedCandidate: { nodeId: 'existing-candidate' },
+  }, () => {
+    productChecks += 1;
+    return { ok: false, code: 'operator-config-weapon-active-unavailable' };
+  });
+  assert.equal(productChecks, 1);
+  assert.equal(drifted.ok, false);
+  assert.equal(drifted.checkedPatches.code, 'operator-config-weapon-active-unavailable');
+  assert.equal(Object.hasOwn(drifted, 'preparedCandidate'), false,
+    'catalog drift must block before an existing candidate is returned for approval');
+}
 
 {
   const base = {
@@ -146,15 +163,16 @@ await assertTeamSize(4);
   const teamPlanEnd = serverSource.indexOf('function reviseDefTeamLoadoutPlan', teamPlanStart);
   const teamPlanSource = serverSource.slice(teamPlanStart, teamPlanEnd);
   assert(teamPlanSource.includes('teamProductCommands'), 'team plan must preflight exact products before it is retained');
-  assert(teamPlanSource.includes('validateDefOperatorConfigProductLibrary(command)'), 'team plan must use the shared product gate');
+  assert(teamPlanSource.includes('validateDefOperatorConfigProductLibrary(command, productGateContext)'), 'team plan must use one shared active/local product gate context');
   assert(teamPlanSource.includes('no plan, queue entry, or branch was created'), 'team plan product failure must document its no-side-effect boundary');
 
   const teamPrepareStart = serverSource.indexOf('async function prepareDefTeamLoadoutPlanApply');
   const teamPrepareEnd = serverSource.indexOf('async function applyDefTeamLoadoutPlan', teamPrepareStart);
   const teamPrepareSource = serverSource.slice(teamPrepareStart, teamPrepareEnd);
-  assert(teamPrepareSource.includes('buildDefOperatorConfigProductCheckedCommands({ patches })'), 'candidate preparation must recheck products after plan creation');
-  assert(teamPrepareSource.indexOf('buildDefOperatorConfigProductCheckedCommands({ patches })') < teamPrepareSource.indexOf('prepareAtomicTeamCandidate'), 'the product gate must run before any preview queue or child branch path');
-  assert(teamPrepareSource.includes('before any preview command or horizontal branch was created'), 'candidate product failure must promise no queue or branch');
+  assert(teamPrepareSource.includes('recheckDefTeamProductsBeforePreparedCandidate'), 'candidate preparation must recheck products after plan creation');
+  assert(teamPrepareSource.indexOf('recheckDefTeamProductsBeforePreparedCandidate') < teamPrepareSource.indexOf('if (plan.preparedCandidate)'), 'catalog drift must block before an existing approval candidate is returned');
+  assert(teamPrepareSource.indexOf('recheckDefTeamProductsBeforePreparedCandidate') < teamPrepareSource.indexOf('prepareAtomicTeamCandidate'), 'the product gate must run before any preview queue or child branch path');
+  assert(teamPrepareSource.includes('before any approval or renderer command was offered'), 'candidate product failure must promise no approval or queue');
 
   const applyStart = serverSource.indexOf('async function applyDefTeamLoadoutPlan');
   const applyEnd = serverSource.indexOf('function discardPreparedTeamLoadoutPlan', applyStart);

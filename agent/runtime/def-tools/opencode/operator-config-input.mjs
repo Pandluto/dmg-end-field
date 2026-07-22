@@ -1,4 +1,7 @@
 export function buildDefOperatorConfigInput(args = {}) {
+  // Preserve names even when an old caller omitted the stable id. The server
+  // must return the explicit 409 identity error; silently dropping the field
+  // would turn a rejected mutation into an unrelated "no selection" failure.
   const weaponId = typeof args.weaponId === 'string' ? args.weaponId.trim() : ''
   const weaponName = typeof args.weaponName === 'string' ? args.weaponName.trim() : ''
   const weapon = weaponId || weaponName
