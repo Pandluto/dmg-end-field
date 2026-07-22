@@ -8,6 +8,7 @@ import {
 } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/def-tools/team-product-recheck.mjs';
+import { verifyDefOperatorConfigPreparedPayload } from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -69,6 +70,40 @@ async function assertTeamSize(count) {
 
 await assertTeamSize(2);
 await assertTeamSize(4);
+
+{
+  const parent = parentPayload(2);
+  const wrongPreview = {
+    parentNodeId: 'parent-P',
+    parentRevision: 41,
+    preparedPayload: structuredClone(parent),
+    finalConfig: {
+      characterId: 'char-1', characterName: 'After 1',
+      weapon: { id: 'weapon-exact', name: 'Exact Weapon', level: 90, potential: '0潜', skillLevels: {} },
+      equipment: [], operatorSkillLevels: {},
+    },
+  };
+  let createCount = 0;
+  const prepared = await prepareAtomicTeamCandidate({
+    parentPayload: parent,
+    parentNodeId: 'parent-P',
+    parentRevision: 41,
+    patches: [{ characterId: 'char-1' }, { characterId: 'char-2' }],
+    previewPatch: async () => {
+      const payloadVerification = verifyDefOperatorConfigPreparedPayload(wrongPreview);
+      return payloadVerification.pass
+        ? { ok: true, ...wrongPreview }
+        : { ok: false, code: 'operator-config-preview-payload-mismatch', payloadVerification };
+    },
+    createCandidate: () => {
+      createCount += 1;
+      return { ok: true, value: { id: 'must-not-exist' } };
+    },
+  });
+  assert.equal(prepared.ok, false);
+  assert.equal(prepared.code, 'operator-config-preview-payload-mismatch');
+  assert.equal(createCount, 0, 'team payload mismatch must block before candidate branch creation');
+}
 
 {
   let productChecks = 0;
@@ -170,6 +205,7 @@ await assertTeamSize(4);
   const teamPrepareEnd = serverSource.indexOf('async function applyDefTeamLoadoutPlan', teamPrepareStart);
   const teamPrepareSource = serverSource.slice(teamPrepareStart, teamPrepareEnd);
   assert(teamPrepareSource.includes('recheckDefTeamProductsBeforePreparedCandidate'), 'candidate preparation must recheck products after plan creation');
+  assert(teamPrepareSource.includes('verifyDefOperatorConfigRendererPreview(planned.command, preview)'), 'team previews must reuse the same product/payload proof as single previews');
   assert(teamPrepareSource.indexOf('recheckDefTeamProductsBeforePreparedCandidate') < teamPrepareSource.indexOf('if (plan.preparedCandidate)'), 'catalog drift must block before an existing approval candidate is returned');
   assert(teamPrepareSource.indexOf('recheckDefTeamProductsBeforePreparedCandidate') < teamPrepareSource.indexOf('prepareAtomicTeamCandidate'), 'the product gate must run before any preview queue or child branch path');
   assert(teamPrepareSource.includes('before any approval or renderer command was offered'), 'candidate product failure must promise no approval or queue');

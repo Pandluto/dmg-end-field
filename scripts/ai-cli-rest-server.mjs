@@ -28,6 +28,11 @@ import { observeAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic
 import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/def-tools/team-product-recheck.mjs';
 import {
+  exactDefOperatorConfigMatches,
+  extractDefOperatorConfig,
+  verifyDefOperatorConfigPreparedPayload,
+} from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
+import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
   rebuildDefNodePayload,
@@ -5457,14 +5462,24 @@ async function prepareDefTeamLoadoutPlanApply(input = {}) {
       }
       const verification = await buildDefToolCommandVerification(enqueued.body.commands[0], input.waitMs);
       const preview = verification?.result?.result;
+      const rendererPreviewVerification = verification.pass
+        ? verifyDefOperatorConfigRendererPreview(planned.command, preview)
+        : { ok: false, code: 'team-loadout-preview-failed' };
       return {
-        ok: Boolean(verification.pass),
-        code: verification.pass ? 'previewed' : 'team-loadout-preview-failed',
+        ok: Boolean(verification.pass && rendererPreviewVerification.ok),
+        code: verification.pass && rendererPreviewVerification.ok
+          ? 'previewed'
+          : rendererPreviewVerification.code,
         parentNodeId: preview?.parentNodeId,
         parentRevision: preview?.parentRevision,
         preparedPayload: preview?.preparedPayload,
         finalConfig: preview?.finalConfig,
-        evidence: { characterId: preview?.finalConfig?.characterId, commandId: enqueued.body.commands[0].id, verification },
+        evidence: {
+          characterId: preview?.finalConfig?.characterId,
+          commandId: enqueued.body.commands[0].id,
+          verification,
+          rendererPreviewVerification,
+        },
       };
     },
     createCandidate: ({ candidatePayload }) => {
@@ -8755,29 +8770,19 @@ function buildDefOperatorConfigPreviewCommand(input = {}) {
   };
 }
 
-function extractDefOperatorConfig(payload, characterId) {
-  const snapshot = payload?.operatorConfigPageCache?.[characterId];
-  if (!snapshot) return null;
-  return {
-    characterId,
-    characterName: snapshot?.operator?.name || '',
-    weapon: {
-      id: snapshot?.weapon?.id || '',
-      name: snapshot?.weapon?.name || '',
-      level: snapshot?.weapon?.config?.level,
-      potential: snapshot?.weapon?.config?.potential || '',
-      skillLevels: snapshot?.weapon?.config?.skillLevels || {},
-    },
-    equipment: (Array.isArray(snapshot?.equipment?.pieces) ? snapshot.equipment.pieces : []).map((piece) => ({
-      slotKey: piece?.slotKey || '', equipmentId: piece?.equipmentId || '', name: piece?.name || '',
-      effects: (Array.isArray(piece?.effects) ? piece.effects : []).map((effect) => ({ effectId: effect?.effectId || '', label: effect?.label || '', level: effect?.level, value: effect?.value })),
-    })),
-    operatorSkillLevels: snapshot?.operator?.skillConfig || {},
-  };
-}
-
-function exactDefOperatorConfigMatches(actual, expected) {
-  return JSON.stringify(actual) === JSON.stringify(expected);
+function verifyDefOperatorConfigRendererPreview(command, preview) {
+  if (!isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
+    return { ok: false, code: 'operator-config-preview-invalid-result' };
+  }
+  const productVerification = verifyDefOperatorConfigRendererProducts(command, preview.finalConfig);
+  if (!productVerification.pass) {
+    return { ok: false, code: 'operator-config-preview-product-mismatch', productVerification };
+  }
+  const payloadVerification = verifyDefOperatorConfigPreparedPayload(preview);
+  if (!payloadVerification.pass) {
+    return { ok: false, code: 'operator-config-preview-payload-mismatch', productVerification, payloadVerification };
+  }
+  return { ok: true, productVerification, payloadVerification };
 }
 
 function verifyDefTimelinePreserved(before, after) {
@@ -8929,19 +8934,19 @@ async function verifyDefOperatorConfigPreview(input = {}, gate = resolveCanonica
   if (!commandVerification.pass || !isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
     return { ok: false, code: 'operator-config-preview-failed', component: 'operator-config', retryable: true, nextAction: 'Read the renderer command result; no approval or branch should be requested.', commandVerification };
   }
-  const productVerification = verifyDefOperatorConfigRendererProducts(planned.command, preview.finalConfig);
-  if (!productVerification.pass) {
+  const rendererPreviewVerification = verifyDefOperatorConfigRendererPreview(planned.command, preview);
+  if (!rendererPreviewVerification.ok) {
     return {
+      ...rendererPreviewVerification,
       ok: false,
-      code: 'operator-config-preview-product-mismatch',
       component: 'operator-config',
       retryable: false,
       currentCheckoutTouched: false,
-      nextAction: 'The renderer did not return the exact stable product identities in the checked command. Do not issue a proposal or approval.',
-      productVerification,
+      nextAction: 'The renderer preview payload and final configuration did not prove the same checked product mutation. Do not issue a proposal or approval.',
       commandVerification,
     };
   }
+  const { productVerification, payloadVerification } = rendererPreviewVerification;
   const parentNodeId = typeof preview.parentNodeId === 'string' ? preview.parentNodeId : '';
   const parentRevision = Number(preview.parentRevision);
   const parent = readRepositoryWorkNode(parentNodeId);
@@ -8971,6 +8976,7 @@ async function verifyDefOperatorConfigPreview(input = {}, gate = resolveCanonica
     preview,
     commandVerification,
     productVerification,
+    payloadVerification,
     timelinePreservation,
   };
 }

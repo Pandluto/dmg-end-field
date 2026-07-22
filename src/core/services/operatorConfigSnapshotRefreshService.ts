@@ -365,9 +365,13 @@ function resolveWeaponData(weaponId: string, weaponName: string, weaponLibrary: 
   return matches.length === 1 ? matches[0] : null;
 }
 
-export function applyOperatorConfigWeaponSelectionToSnapshot<T extends {
-  weapon: Record<string, unknown>;
-}>(snapshot: T, requested: { weaponId?: string; weaponName?: string }): T {
+export function applyOperatorConfigWeaponSelectionToSnapshot<
+  TWeapon extends object,
+  TSnapshot extends { weapon: TWeapon },
+>(
+  snapshot: TSnapshot,
+  requested: { weaponId?: string; weaponName?: string },
+): Omit<TSnapshot, 'weapon'> & { weapon: TWeapon & { id: string; name: string } } {
   return applyOperatorConfigWeaponIdentityToSnapshot(
     snapshot,
     readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}),

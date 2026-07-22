@@ -75,13 +75,17 @@ export function resolveOperatorConfigWeaponIdentity(
   return matches[0];
 }
 
-export function applyOperatorConfigWeaponIdentityToSnapshot<T extends {
-  weapon: Record<string, unknown>;
-}>(
-  snapshot: T,
+export function applyOperatorConfigWeaponIdentityToSnapshot<
+  TWeapon extends object,
+  TSnapshot extends { weapon: TWeapon },
+>(
+  snapshot: TSnapshot,
   rawLibrary: unknown,
   requested: Partial<OperatorConfigWeaponIdentity>,
-): { snapshot: T; product: OperatorConfigWeaponProduct } {
+): {
+  snapshot: Omit<TSnapshot, 'weapon'> & { weapon: TWeapon & OperatorConfigWeaponIdentity };
+  product: OperatorConfigWeaponProduct;
+} {
   const product = resolveOperatorConfigWeaponIdentity(rawLibrary, requested);
   return {
     product,

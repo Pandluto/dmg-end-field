@@ -283,6 +283,41 @@ function persistLocalWeaponToCheckout() {
   });
 }
 
+function preparePayloadForFinalConfig(parentPayload, finalConfig) {
+  const preparedPayload = structuredClone(parentPayload);
+  const current = preparedPayload.operatorConfigPageCache?.[finalConfig.characterId] || {};
+  preparedPayload.operatorConfigPageCache = {
+    ...(preparedPayload.operatorConfigPageCache || {}),
+    [finalConfig.characterId]: {
+      ...current,
+      operator: {
+        ...(current.operator || {}),
+        name: finalConfig.characterName,
+        skillConfig: finalConfig.operatorSkillLevels || {},
+      },
+      weapon: {
+        ...(current.weapon || {}),
+        id: finalConfig.weapon.id,
+        name: finalConfig.weapon.name,
+        config: {
+          ...(current.weapon?.config || {}),
+          level: finalConfig.weapon.level,
+          potential: finalConfig.weapon.potential,
+          skillLevels: finalConfig.weapon.skillLevels || {},
+        },
+      },
+      equipment: {
+        ...(current.equipment || {}),
+        pieces: finalConfig.equipment.map((piece) => ({
+          ...piece,
+          effects: (piece.effects || []).map((effect) => ({ ...effect })),
+        })),
+      },
+    },
+  };
+  return preparedPayload;
+}
+
 function currentRegistryTools() {
   return createDefToolRegistry(DEF_TOOL_DEFINITION_BASE).filter((tool) =>
     tool.workspaceScope === DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT
@@ -564,6 +599,37 @@ try {
   assert.equal(mismatchedRendererPreview.body.result?.code, 'operator-config-preview-product-mismatch');
   assert.equal(Boolean(mismatchedRendererPreview.body.result?.proposalToken), false, 'a wrong renderer id must not mint a proposal');
 
+  const payloadMismatchTreeBefore = treeState();
+  const payloadMismatchPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { id: collisionWeaponA.id, name: collisionWeaponA.name },
+    __defTurnId: 'mismatched-renderer-payload-preview',
+  }, 'session-a');
+  const payloadMismatchCommand = await waitForQueuedCommand('previewOperatorConfig');
+  const payloadMismatchFinalConfig = {
+    characterId: 'operator-A', characterName: 'Operator A ONLY',
+    weapon: { id: collisionWeaponA.id, name: collisionWeaponA.name, level: 90, potential: '0潜', skillLevels: {} },
+    equipment: [], operatorSkillLevels: {},
+  };
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: payloadMismatchCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: mismatchedPreviewParent.id,
+        parentRevision: mismatchedPreviewParent.contentRevision,
+        preparedPayload: structuredClone(mismatchedPreviewParent.workingPayload),
+        finalConfig: payloadMismatchFinalConfig,
+      },
+    },
+  });
+  const payloadMismatch = await payloadMismatchPending;
+  assert.equal(payloadMismatch.status, 409, JSON.stringify(payloadMismatch.body));
+  assert.equal(payloadMismatch.body.result?.code, 'operator-config-preview-payload-mismatch');
+  assert.equal(Boolean(payloadMismatch.body.result?.proposalToken), false, 'a divergent prepared payload must not mint a proposal');
+  assert.deepEqual(treeState(), payloadMismatchTreeBefore, 'a divergent prepared payload must block before branch creation');
+
   const validPreviewPending = generic('def.operator.config.preview', {
     characterId: 'operator-A',
     weapon: { id: localWeapon.id, name: localWeapon.name },
@@ -578,6 +644,13 @@ try {
     localWeaponLibrary,
     { id: previewCommand.command.request.weaponId, name: previewCommand.command.request.weaponName },
   ).snapshot.weapon;
+  const validPreviewFinalConfig = {
+    characterId: 'operator-A',
+    characterName: 'Operator A ONLY',
+    weapon: { id: renderedWeapon.id, name: renderedWeapon.name, level: 90, potential: '0潜', skillLevels: {} },
+    equipment: [],
+    operatorSkillLevels: {},
+  };
   await request('/api/main-workbench/commands/result', {
     method: 'POST', internal: true,
     body: {
@@ -586,14 +659,8 @@ try {
       result: {
         parentNodeId: previewParent.id,
         parentRevision: previewParent.contentRevision,
-        preparedPayload: structuredClone(previewParent.workingPayload),
-        finalConfig: {
-          characterId: 'operator-A',
-          characterName: 'Operator A ONLY',
-          weapon: { id: renderedWeapon.id, name: renderedWeapon.name, level: 90, potential: '0潜', skillLevels: {} },
-          equipment: [],
-          operatorSkillLevels: {},
-        },
+        preparedPayload: preparePayloadForFinalConfig(previewParent.workingPayload, validPreviewFinalConfig),
+        finalConfig: validPreviewFinalConfig,
       },
     },
   });
@@ -609,6 +676,12 @@ try {
   const equipmentPreviewCommand = await waitForQueuedCommand('previewOperatorConfig');
   assert.equal(equipmentPreviewCommand.command.request.equipments[0].equipmentId, localEquipment.equipmentId);
   assert.equal(equipmentPreviewCommand.command.request.equipments[0].equipmentName, localEquipment.name);
+  const validEquipmentFinalConfig = {
+    characterId: 'operator-A', characterName: 'Operator A ONLY',
+    weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
+    equipment: [{ slotKey: 'armor', equipmentId: localEquipment.equipmentId, name: localEquipment.name, effects: [] }],
+    operatorSkillLevels: {},
+  };
   await request('/api/main-workbench/commands/result', {
     method: 'POST', internal: true,
     body: {
@@ -617,13 +690,8 @@ try {
       result: {
         parentNodeId: previewParent.id,
         parentRevision: previewParent.contentRevision,
-        preparedPayload: structuredClone(previewParent.workingPayload),
-        finalConfig: {
-          characterId: 'operator-A', characterName: 'Operator A ONLY',
-          weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
-          equipment: [{ slotKey: 'armor', equipmentId: localEquipment.equipmentId, name: localEquipment.name, effects: [] }],
-          operatorSkillLevels: {},
-        },
+        preparedPayload: preparePayloadForFinalConfig(previewParent.workingPayload, validEquipmentFinalConfig),
+        finalConfig: validEquipmentFinalConfig,
       },
     },
   });
@@ -649,6 +717,14 @@ try {
     ],
     'set fill must be rewritten to four canonical active/local stable ids before enqueue',
   );
+  const validGearSetFinalConfig = {
+    characterId: 'operator-A', characterName: 'Operator A ONLY',
+    weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
+    equipment: gearSetPreviewCommand.command.request.equipments.map((piece) => ({
+      slotKey: piece.slotKey, equipmentId: piece.equipmentId, name: piece.equipmentName, effects: [],
+    })),
+    operatorSkillLevels: {},
+  };
   await request('/api/main-workbench/commands/result', {
     method: 'POST', internal: true,
     body: {
@@ -657,15 +733,8 @@ try {
       result: {
         parentNodeId: previewParent.id,
         parentRevision: previewParent.contentRevision,
-        preparedPayload: structuredClone(previewParent.workingPayload),
-        finalConfig: {
-          characterId: 'operator-A', characterName: 'Operator A ONLY',
-          weapon: { id: 'weapon-A', name: 'Weapon A ONLY', level: 90, potential: '0潜', skillLevels: {} },
-          equipment: gearSetPreviewCommand.command.request.equipments.map((piece) => ({
-            slotKey: piece.slotKey, equipmentId: piece.equipmentId, name: piece.equipmentName, effects: [],
-          })),
-          operatorSkillLevels: {},
-        },
+        preparedPayload: preparePayloadForFinalConfig(previewParent.workingPayload, validGearSetFinalConfig),
+        finalConfig: validGearSetFinalConfig,
       },
     },
   });
