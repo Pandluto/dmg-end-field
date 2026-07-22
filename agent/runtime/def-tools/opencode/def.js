@@ -153,7 +153,7 @@ function isDefMutationTool(toolName) {
 }
 
 function isDefTerminalEvidenceTool(toolName) {
-  return /^(?:def\.weapon\.fit\.plan|def\.equipment\.(?:set_fit\.shortlist|3plus1\.(?:facts|plan))|def_data_weapon_fit_plan|def_data_equipment_(?:set_fit_shortlist|3plus1_(?:facts|plan)))$/.test(String(toolName || ''))
+  return /^(?:def\.weapon\.fit\.plan|def\.equipment\.(?:set_fit\.shortlist|3plus1\.(?:facts|plan|recommend))|def_data_weapon_fit_plan|def_data_equipment_(?:set_fit_shortlist|3plus1_(?:facts|plan|recommend)))$/.test(String(toolName || ''))
 }
 
 function normalizeToolFailureCode(error) {
@@ -2057,8 +2057,35 @@ function readNativeCatalogArtifactForFacts(context, artifactId) {
   return { root: entry.root, manifest }
 }
 
+export const data_equipment_3plus1_recommend = {
+  description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
+  args: tool.schema.object({
+    operatorQuery: tool.schema.string().min(1).max(60).describe('Operator name or stable id.'),
+    setQuery: tool.schema.string().min(1).max(60).optional().describe('Optional target equipment set name or stable id.'),
+    constraints: tool.schema.object({
+      requiredEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(60)).max(4).optional().describe('Optional equipment that every returned plan must include.'),
+      excludedEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(60)).max(8).optional().describe('Optional equipment excluded from every returned plan.'),
+      compareEquipmentQueries: tool.schema.array(tool.schema.object({
+        query: tool.schema.string().min(1).max(60).describe('Equipment to compare against the recommendation.'),
+        slot: tool.schema.enum(['armor', 'glove', 'accessory1', 'accessory2']).optional().describe('Optional slot for the comparison.'),
+      }).strict()).max(8).optional().describe('Optional read-only equipment comparisons.'),
+      duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),
+      minimumSetPieces: tool.schema.union([tool.schema.literal(3), tool.schema.literal(4)]).optional().describe('Optional minimum target-set piece count.'),
+    }).strict().optional(),
+    shortlistLimit: tool.schema.union([tool.schema.literal(1), tool.schema.literal(2), tool.schema.literal(3)]).optional().describe('Optional maximum number of returned plans.'),
+    priorPlanDigest: tool.schema.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe('Optional prior plan digest that this request supersedes.'),
+  }).strict(),
+  async execute(args, context) {
+    const { turnID } = getDefOperatorConfigTurnIdentity(context)
+    return callDefTool('def.equipment.3plus1.recommend', {
+      ...args,
+      ...(turnID ? { __defTurnId: turnID } : {}),
+    }, context)
+  },
+}
+
 export const data_equipment_3plus1_facts = {
-  description: 'After reading an exact native equipment artifact manifest, return a compact complete summary of every physical-slot topology satisfying at least three named-set memberships. Target-set facts are emitted once, large off-set pools are not embedded, and a compatible accessory may legally occupy both accessory slots. This facts tool never ranks or applies equipment.',
+  description: 'Legacy compatibility: read-only 3+1 equipment facts retained for supported legacy sessions and Harness packages.',
   args: {
     artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
     setQuery: tool.schema.string().min(1).max(160).describe('One exact equipment set name from that artifact.'),
@@ -2107,7 +2134,7 @@ const equipmentPreferenceGroupSchema = tool.schema.object({
 })
 
 export const data_equipment_set_fit_shortlist = {
-  description: 'When the user asks which equipment set should anchor a 3+1 build and has not already fixed one exact set, review every set in the current native artifact before choosing. Requires the unchanged same-turn plannerProfile/capability. It requires a typed three-piece effect and a legal minimum-three-slot topology, ranks set-effect fit before piece coverage, returns the evidence for every reviewed set, and never mutates configuration. A typed failure is terminal for this recommendation turn.',
+  description: 'Legacy compatibility: read-only equipment set-fit shortlist retained for supported legacy sessions and Harness packages.',
   args: {
     artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
     plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile.'),
@@ -2201,7 +2228,7 @@ export const data_weapon_fit_plan = {
 }
 
 export const data_equipment_3plus1_plan = {
-  description: 'Build one bounded read-only 3+1 shortlist from the same session artifact and the unchanged plannerProfile issued by def_data_operator_build_guide or def_data_operator_build_profile. The exact same-turn plannerProfileCapability is mandatory and prevents model-edited evidence. Primary/secondary attributes are character effect priorities and are never matched against equipment fixedStat. The planner exhaustively checks at least three named-set memberships, all four physical slots, and optional duplicate compatible accessories, then returns exact ids plus per-piece matchKeys/count/rankingBasis/missing/ambiguity. It never invents a character profile, simulates damage, previews mutation, or applies equipment.',
+  description: 'Legacy compatibility: read-only 3+1 equipment plan retained for supported legacy sessions and Harness packages.',
   args: {
     artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
     setQuery: tool.schema.string().min(1).max(160).describe('One exact named equipment set from that artifact.'),

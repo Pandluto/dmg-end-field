@@ -51,6 +51,7 @@ const SESSION_PRIVATE_TOOLS = new Set([
   'def.equipment.set_fit.shortlist',
   'def.equipment.3plus1.facts',
   'def.equipment.3plus1.plan',
+  'def.equipment.3plus1.recommend',
 ]);
 
 const PRIVATE_CURRENT_CONTINUATIONS = new Set([
@@ -162,6 +163,7 @@ const DATA_RESOURCE_TOOLS = new Set([
   'def.equipment.set_fit.shortlist',
   'def.equipment.3plus1.facts',
   'def.equipment.3plus1.plan',
+  'def.equipment.3plus1.recommend',
   'def.gear.resolve',
   'def.workbench.list_characters',
   'def.team.loadouts.read',
@@ -237,6 +239,7 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.data.resource.equipment_set_fit_shortlist', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_set_fit_shortlist', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.equipment_3plus1_facts', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_facts', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.equipment_3plus1_plan', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_plan', status: 'implemented', workspaceScope: 'session-private' },
+  { id: 'def.data.resource.equipment_3plus1_recommend', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_equipment_3plus1_recommend', status: 'implemented', workspaceScope: 'session-private' },
   { id: 'def.data.resource.skill', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_skill', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.buff', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_buff', status: 'implemented', workspaceScope: 'data-resource' },
   { id: 'def.data.resource.damage', family: DEF_TOOL_FAMILY.DATA_RESOURCE, source: 'def-native', nativeBinding: 'def_data_damage', status: 'implemented', workspaceScope: 'data-resource' },
@@ -256,6 +259,7 @@ function dataTargetFor(id) {
   if (/operator.*build.*profile|build.*profile.*operator/.test(id)) return 'def.data.resource.operator_build_profile';
   if (/combat.*convention|convention.*combat/.test(id)) return 'def.data.resource.combat_conventions';
   if (/equipment.*set.*fit.*shortlist|set.*fit.*shortlist.*equipment/.test(id)) return 'def.data.resource.equipment_set_fit_shortlist';
+  if (/(?:equipment.*3plus1.*recommend|3plus1.*recommend.*equipment)/.test(id)) return 'def.data.resource.equipment_3plus1_recommend';
   if (/(?:equipment.*3plus1.*plan|3plus1.*plan.*equipment)/.test(id)) return 'def.data.resource.equipment_3plus1_plan';
   if (/equipment.*3plus1|3plus1.*equipment/.test(id)) return 'def.data.resource.equipment_3plus1_facts';
   if (/loadout.*candidate|candidate.*loadout/.test(id)) return 'def.data.resource.loadout_candidates';

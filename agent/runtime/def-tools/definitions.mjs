@@ -1,6 +1,367 @@
 const executeCommand = 'Wraps current main workbench command queue; enqueue success still requires verification.';
 const workNode = 'Uses appdata/localdata AI work node; current checkout changes only on checkout/restore.';
 
+const DEF_EQUIPMENT_3PLUS1_SLOT_SCHEMA = Object.freeze({
+  type: 'string',
+  enum: ['armor', 'glove', 'accessory1', 'accessory2'],
+});
+
+const DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA = Object.freeze({
+  type: 'string',
+  pattern: '^sha256:[0-9a-f]{64}$',
+});
+
+const DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA = Object.freeze({
+  type: 'string',
+  minLength: 1,
+  maxLength: 60,
+});
+
+const DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'field', 'message'],
+  properties: {
+    code: { type: 'string' },
+    field: { type: 'string' },
+    message: { type: 'string' },
+  },
+});
+
+const DEF_EQUIPMENT_3PLUS1_AMBIGUITY_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['field', 'candidateCount', 'truncated', 'candidates'],
+  properties: {
+    field: { type: 'string' },
+    candidateCount: { type: 'integer', minimum: 0 },
+    truncated: { type: 'boolean' },
+    candidates: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['label', 'kind'],
+        properties: {
+          id: { type: 'string' },
+          label: { type: 'string' },
+          kind: { type: 'string' },
+        },
+      },
+    },
+  },
+});
+
+const DEF_EQUIPMENT_3PLUS1_RANKING_BASIS_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['preferenceKey', 'preferenceLabel', 'preferenceKind', 'priorityIndex', 'weight', 'facts'],
+  properties: {
+    preferenceKey: { type: 'string' },
+    preferenceLabel: { type: 'string' },
+    preferenceKind: { type: 'string' },
+    priorityIndex: { type: 'integer', minimum: 0 },
+    weight: { type: 'number' },
+    facts: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['path', 'effectId', 'label', 'typeKey'],
+        properties: {
+          path: { type: 'string' },
+          effectId: { type: 'string' },
+          label: { type: 'string' },
+          typeKey: { type: 'string' },
+        },
+      },
+    },
+  },
+});
+
+export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['operatorQuery'],
+  properties: {
+    operatorQuery: DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA,
+    setQuery: DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA,
+    constraints: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        requiredEquipmentQueries: {
+          type: 'array',
+          maxItems: 4,
+          default: [],
+          items: DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA,
+        },
+        excludedEquipmentQueries: {
+          type: 'array',
+          maxItems: 8,
+          default: [],
+          items: DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA,
+        },
+        compareEquipmentQueries: {
+          type: 'array',
+          maxItems: 8,
+          default: [],
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['query'],
+            properties: {
+              query: DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA,
+              slot: DEF_EQUIPMENT_3PLUS1_SLOT_SCHEMA,
+            },
+          },
+        },
+        duplicateAccessoryPolicy: {
+          type: 'string',
+          enum: ['catalog-default', 'allow', 'forbid'],
+          default: 'catalog-default',
+        },
+        minimumSetPieces: {
+          type: 'integer',
+          enum: [3, 4],
+          default: 3,
+        },
+      },
+    },
+    shortlistLimit: {
+      type: 'integer',
+      enum: [1, 2, 3],
+      default: 3,
+    },
+    priorPlanDigest: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+  },
+});
+
+export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['protocolVersion', 'contract', 'state', 'requestDigest', 'sourceRefs', 'completeness', 'missing', 'ambiguities', 'result'],
+  properties: {
+    protocolVersion: { const: 1 },
+    contract: { const: 'DefEquipmentThreePlusOneRecommendationV1' },
+    state: { type: 'string', enum: ['READY', 'NEEDS_INPUT', 'UNRESOLVED'] },
+    requestDigest: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+    sourceRefs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'id'],
+        properties: {
+          kind: { type: 'string', enum: ['guide', 'catalog', 'convention', 'user-constraint'] },
+          id: { type: 'string' },
+          revision: { type: 'string' },
+          sectionId: { type: 'string' },
+        },
+      },
+    },
+    completeness: { type: 'string', enum: ['complete', 'partial'] },
+    missing: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA },
+    ambiguities: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_AMBIGUITY_SCHEMA },
+    result: {
+      anyOf: [
+        { type: 'null' },
+        {
+          type: 'object',
+          additionalProperties: false,
+          required: ['operator', 'profileEvidence', 'catalogEvidence', 'selectedSet', 'plans', 'comparisons', 'planDigest'],
+          properties: {
+            operator: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['id', 'name'],
+              properties: { id: { type: 'string' }, name: { type: 'string' } },
+            },
+            profileEvidence: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['state', 'profileHash', 'preferenceGroups', 'evidenceRefs'],
+              properties: {
+                state: { type: 'string', enum: ['GUIDE_FOUND', 'PARTIAL_GUIDE_FOUND', 'GUIDE_NOT_FOUND'] },
+                profileHash: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+                preferenceGroups: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['key', 'label', 'kind', 'acceptedTypeKeys'],
+                    properties: {
+                      key: { type: 'string' },
+                      label: { type: 'string' },
+                      kind: { type: 'string', enum: ['primary-attribute', 'secondary-attribute', 'elemental-damage', 'skill-damage', 'general-damage', 'other'] },
+                      acceptedTypeKeys: { type: 'array', items: { type: 'string' } },
+                    },
+                  },
+                },
+                evidenceRefs: { type: 'array', items: { type: 'string' } },
+              },
+            },
+            catalogEvidence: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['revision', 'exhaustive'],
+              properties: { revision: { type: 'string' }, exhaustive: { const: true } },
+            },
+            selectedSet: {
+              anyOf: [
+                { type: 'null' },
+                {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['id', 'name', 'matchKeys', 'rankingBasis'],
+                  properties: {
+                    id: { type: 'string' },
+                    name: { type: 'string' },
+                    matchKeys: { type: 'array', items: { type: 'string' } },
+                    rankingBasis: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_RANKING_BASIS_SCHEMA },
+                  },
+                },
+              ],
+            },
+            plans: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['planId', 'items', 'setMembershipCount', 'missing', 'ambiguities'],
+                properties: {
+                  planId: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+                  items: {
+                    type: 'array',
+                    minItems: 4,
+                    maxItems: 4,
+                    items: {
+                      type: 'object',
+                      additionalProperties: false,
+                      required: ['stableId', 'name', 'slot', 'setId', 'matchKeys', 'rankingBasis'],
+                      properties: {
+                        stableId: { type: 'string' },
+                        name: { type: 'string' },
+                        slot: DEF_EQUIPMENT_3PLUS1_SLOT_SCHEMA,
+                        setId: { anyOf: [{ type: 'string' }, { type: 'null' }] },
+                        matchKeys: { type: 'array', items: { type: 'string' } },
+                        rankingBasis: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_RANKING_BASIS_SCHEMA },
+                      },
+                    },
+                  },
+                  setMembershipCount: { type: 'integer', minimum: 0, maximum: 4 },
+                  missing: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA },
+                  ambiguities: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_AMBIGUITY_SCHEMA },
+                },
+              },
+            },
+            comparisons: {
+              type: 'array',
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['query', 'candidate', 'slot', 'decision', 'reasons', 'missing'],
+                properties: {
+                  query: { type: 'string' },
+                  candidate: {
+                    anyOf: [
+                      { type: 'null' },
+                      {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['stableId', 'name'],
+                        properties: { stableId: { type: 'string' }, name: { type: 'string' } },
+                      },
+                    ],
+                  },
+                  slot: { anyOf: [DEF_EQUIPMENT_3PLUS1_SLOT_SCHEMA, { type: 'null' }] },
+                  selectedStableId: { type: 'string' },
+                  decision: { type: 'string', enum: ['selected', 'not-selected', 'unresolved'] },
+                  reasons: { type: 'array', items: { type: 'string' } },
+                  missing: { type: 'array', items: DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA },
+                },
+              },
+            },
+            planDigest: { anyOf: [DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA, { type: 'null' }] },
+          },
+        },
+      ],
+    },
+    nextQuestion: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['field', 'prompt'],
+      properties: {
+        field: { type: 'string' },
+        prompt: { type: 'string' },
+        options: {
+          type: 'array',
+          maxItems: 8,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['id', 'label'],
+            properties: { id: { type: 'string' }, label: { type: 'string' } },
+          },
+        },
+      },
+    },
+    supersedesPlanDigest: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+  },
+  allOf: [
+    {
+      if: { properties: { state: { const: 'READY' } }, required: ['state'] },
+      then: {
+        required: ['result'],
+        properties: {
+          result: {
+            type: 'object',
+            required: ['selectedSet', 'plans', 'planDigest'],
+            properties: {
+              selectedSet: { type: 'object' },
+              plans: { type: 'array', minItems: 1, maxItems: 3 },
+              planDigest: DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA,
+            },
+          },
+        },
+      },
+    },
+    {
+      if: { properties: { state: { const: 'NEEDS_INPUT' } }, required: ['state'] },
+      then: { required: ['nextQuestion'], properties: { result: { type: 'null' } } },
+    },
+    {
+      if: { properties: { state: { const: 'UNRESOLVED' } }, required: ['state'] },
+      then: {
+        properties: { result: { type: 'null' } },
+        anyOf: [
+          { properties: { missing: { minItems: 1 } } },
+          { properties: { ambiguities: { minItems: 1 } } },
+        ],
+      },
+    },
+  ],
+});
+
+export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA = Object.freeze({
+  type: 'object',
+  additionalProperties: false,
+  required: ['contract', 'code', 'failureStage', 'retryable', 'nextAction', 'message'],
+  properties: {
+    contract: { const: 'DefEquipmentThreePlusOneRecommendationErrorV1' },
+    code: { type: 'string' },
+    failureStage: {
+      type: 'string',
+      enum: ['validate-input', 'authorize-session', 'resolve-operator', 'resolve-profile', 'capture-catalog', 'resolve-constraints', 'resolve-set', 'validate-facts', 'solve-plan', 'build-evidence'],
+    },
+    retryable: { type: 'boolean' },
+    nextAction: { type: 'string', enum: ['FIX_INPUT', 'RETRY_FRESH_TURN', 'REPORT_AND_STOP'] },
+    message: { type: 'string' },
+    sourceRevision: { type: 'string' },
+  },
+});
+
 export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.tool.list', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'List DEF typed tools.' },
   { name: 'def.tool.describe', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Describe one DEF typed tool.' },
@@ -36,9 +397,20 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
   { name: 'def.weapon.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Search the read-only local weapon library used by the Operator Configuration page; results are never limited to currently equipped weapons.' },
   { name: 'def.weapon.fit.plan', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Exhaustively compare all compatible current-catalog weapons using one authorized operator profile and reviewed combat-convention bundle.' },
   { name: 'def.native_catalog.materialize', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Capture one deterministic, read-only equipment or weapon catalog projection for a native session-local retrieval artifact.' },
-  { name: 'def.equipment.set_fit.shortlist', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Review every current equipment set against one authorized operator profile and return only sets with a typed three-piece effect plus a legal minimum-three-slot topology.' },
-  { name: 'def.equipment.3plus1.facts', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Return a bounded, evidence-backed summary of every minimum-three-set physical-slot topology plus deduplicated target-set facts from a materialized native equipment catalog.' },
-  { name: 'def.equipment.3plus1.plan', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Exhaustively score a bounded minimum-three-set search space from a sourced character effect-priority profile and return only a finite evidence-backed shortlist; it never mutates configuration.' },
+  { name: 'def.equipment.set_fit.shortlist', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Legacy compatibility: read-only equipment set-fit shortlist retained for supported legacy sessions and Harness packages.' },
+  { name: 'def.equipment.3plus1.facts', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Legacy compatibility: read-only 3+1 equipment facts retained for supported legacy sessions and Harness packages.' },
+  { name: 'def.equipment.3plus1.plan', scope: 'session-private', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Legacy compatibility: read-only 3+1 equipment plan retained for supported legacy sessions and Harness packages.' },
+  {
+    name: 'def.equipment.3plus1.recommend',
+    scope: 'session-private',
+    riskLevel: 'read',
+    approval: 'none',
+    status: 'implemented',
+    description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
+    inputSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA,
+    outputSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA,
+    errorSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA,
+  },
   { name: 'def.gear.resolve', scope: 'read', riskLevel: 'read', approval: 'none', status: 'implemented', description: 'Resolve gear/equipment candidates and gear-set three-piece buff summaries; preferred for equipment-set explanation.' },
   { name: 'def.workbench.add_skill_button', commandOp: 'addSkillButton', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: executeCommand },
   { name: 'def.workbench.add_skill_button_and_verify', scope: 'current-checkout', riskLevel: 'low', approval: 'auto', status: 'implemented', description: 'Add one skill button, wait for browser command execution, then return command result and snapshot verification.' },
