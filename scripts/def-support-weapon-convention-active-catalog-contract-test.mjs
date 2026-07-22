@@ -322,7 +322,14 @@ try {
   assert.equal(stalePlanner.payload.error.details.expectedSource.dataVersion, 'public-support-v2');
   assert.equal(stalePlanner.payload.error.details.actualSource.dataVersion, 'public-support-v3');
 } finally {
-  child.kill('SIGTERM');
+  if (child.exitCode === null) {
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await Promise.race([
+      exited,
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  }
 }
 
 // The OpenCode adapter must forward missing-argument requests to the typed
@@ -350,7 +357,14 @@ try {
   assert.match(adapterSource, /plannerProfileCapability:\s*normalizeRequiredDefToolString\(args\.plannerProfileCapability\)/);
   assert.match(adapterSource, /failureDetails\?\.retryable === false/);
 } finally {
-  fs.rmSync(temporaryRoot, { recursive: true, force: true });
+  // Windows may release SQLite file handles slightly after child exit. This
+  // temporary cleanup cannot turn a passing catalog contract into a product
+  // failure.
+  try {
+    fs.rmSync(temporaryRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    if (error?.code !== 'EBUSY') throw error;
+  }
 }
 
 console.log(JSON.stringify({
