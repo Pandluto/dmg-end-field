@@ -80,6 +80,12 @@ import {
 import { createDefEquipment3Plus1RecommendationService } from './def-core/equipment-3plus1-recommendation.mjs';
 import { createDefEquipment3Plus1ActiveCatalogReaders } from './def-core/equipment-3plus1-active-catalog-reader.mjs';
 import {
+  createDefActiveGameCatalogSnapshot,
+  normalizeDefWeaponCompatibilityMap,
+  resolveDefCanonicalWeaponId,
+  sameDefActiveCatalogRevision,
+} from './def-core/active-game-catalog-boundary.mjs';
+import {
   loadCombatConventionRules,
   resolveCombatConventionBundle,
 } from './def-core/combat-conventions.mjs';
@@ -111,6 +117,8 @@ const dataManagementRuntimeRoot = process.env.DATA_MANAGEMENT_RUNTIME_ROOT
   || path.join(projectRoot, 'data');
 const dataManagementBuiltinCatalogPath = process.env.DATA_MANAGEMENT_BUILTIN_CATALOG_PATH
   || path.join(projectRoot, 'public', 'data', 'catalog.sqlite');
+const defWeaponCatalogCompatibilityPath = process.env.DEF_WEAPON_CATALOG_COMPATIBILITY_PATH
+  || path.join(projectRoot, 'public', 'data', 'catalog-weapon-compatibility.v1.json');
 const defToolGovernancePath = process.env.DEF_TOOL_GOVERNANCE_PATH
   || path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
@@ -2990,6 +2998,9 @@ function activeGameCatalogFailure(error, domain) {
       ? error.code.trim()
       : 'active-game-catalog-read-failed',
     message: error instanceof Error ? error.message : 'The selected game catalog could not be read.',
+    retryable: error?.retryable === true,
+    nextAction: typeof error?.nextAction === 'string' ? error.nextAction : undefined,
+    details: error?.details,
   };
 }
 
@@ -3012,6 +3023,39 @@ function readDefActiveGameCatalog(domain) {
       };
     }
     return { ok: true, catalog: { ...catalog, dataVersion, catalogSha256 } };
+  } catch (error) {
+    return activeGameCatalogFailure(error, domain);
+  }
+}
+
+function readDefWeaponCompatibilityMap() {
+  try {
+    return normalizeDefWeaponCompatibilityMap(JSON.parse(fs.readFileSync(defWeaponCatalogCompatibilityPath, 'utf8')));
+  } catch (error) {
+    if (error?.code === 'BLOCKED_DATA_CONTRACT') throw error;
+    const wrapped = new Error(`Unable to read the reviewed weapon compatibility map: ${error instanceof Error ? error.message : String(error)}`);
+    wrapped.code = 'BLOCKED_DATA_CONTRACT';
+    wrapped.status = 409;
+    wrapped.retryable = false;
+    wrapped.nextAction = 'Restore and review public/data/catalog-weapon-compatibility.v1.json, then restart guide discovery. Do not use local weapon data as fallback.';
+    wrapped.details = { retryable: false, nextAction: wrapped.nextAction, path: defWeaponCatalogCompatibilityPath };
+    throw wrapped;
+  }
+}
+
+function readDefOperatorBuildCatalogSnapshot(domain = 'operator-build', { requireWeapons = false } = {}) {
+  const active = readDefActiveGameCatalog(domain);
+  if (!active.ok) return active;
+  try {
+    const weaponCompatibilityMap = requireWeapons ? readDefWeaponCompatibilityMap() : null;
+    return {
+      ok: true,
+      snapshot: createDefActiveGameCatalogSnapshot(active.catalog, {
+        weaponCompatibilityMap,
+        requireWeapons,
+      }),
+      weaponCompatibilityMap,
+    };
   } catch (error) {
     return activeGameCatalogFailure(error, domain);
   }
@@ -3489,7 +3533,7 @@ function boundedDefLimit(value, fallback = 12, maximum = 24) {
   return Math.max(1, Math.min(Math.floor(numeric), maximum));
 }
 
-function compactDefOperatorCatalogEntry(raw, fallbackId) {
+function compactDefOperatorCatalogEntry(raw, fallbackId, provenance = 'active-game-catalog') {
   if (!raw || typeof raw !== 'object') return null;
   const id = String(raw.id || fallbackId || '').trim();
   const name = String(raw.name || '').trim();
@@ -3507,14 +3551,31 @@ function compactDefOperatorCatalogEntry(raw, fallbackId) {
     rarity: Number.isFinite(Number(raw.rarity)) ? Number(raw.rarity) : null,
     weapon: String(raw.weapon || '').trim(),
     skillTypes: skills.map((skill) => String(skill?.buttonType || skill?.type || '')).filter(Boolean).slice(0, 8),
+    provenance,
   };
 }
 
 function listDefOperatorCatalog(input = {}) {
-  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-  const entries = library && typeof library === 'object' && !Array.isArray(library)
-    ? Object.entries(library).map(([fallbackId, raw]) => compactDefOperatorCatalogEntry(raw, fallbackId)).filter(Boolean)
+  const active = readDefActiveGameCatalog('operator');
+  if (!active.ok) return active;
+  let snapshot;
+  try {
+    snapshot = createDefActiveGameCatalogSnapshot(active.catalog);
+  } catch (error) {
+    return activeGameCatalogFailure(error, 'operator');
+  }
+  const officialEntries = Object.entries(snapshot.operators)
+    .map(([fallbackId, raw]) => compactDefOperatorCatalogEntry(raw, fallbackId, 'active-game-catalog'))
+    .filter(Boolean);
+  const officialIds = new Set(officialEntries.map((entry) => entry.id));
+  const officialNames = new Set(officialEntries.map((entry) => normalizeDefToolText(entry.name)));
+  const localLibrary = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+  const localOverlay = localLibrary && typeof localLibrary === 'object' && !Array.isArray(localLibrary)
+    ? Object.entries(localLibrary)
+      .map(([fallbackId, raw]) => compactDefOperatorCatalogEntry(raw, fallbackId, 'local-operator-overlay'))
+      .filter((entry) => entry && !officialIds.has(entry.id) && !officialNames.has(normalizeDefToolText(entry.name)))
     : [];
+  const entries = [...officialEntries, ...localOverlay];
   const rawQuery = input.query || input.name || input.text || '';
   const query = normalizeDefToolText(rawQuery);
   const limit = boundedDefLimit(input.limit, 12);
@@ -3524,7 +3585,13 @@ function listDefOperatorCatalog(input = {}) {
   const candidates = matched.slice(0, limit);
   return {
     scope: 'catalog',
-    source: 'selection-screen-local-library',
+    source: 'active-game-catalog-with-local-overlay',
+    sourceRef: snapshot.source.sourceRef,
+    dataVersion: snapshot.source.dataVersion,
+    catalogSha256: snapshot.source.catalogSha256,
+    sourceScope: 'official-active-catalog-first; non-colliding local drafts are an explicit overlay',
+    officialCount: officialEntries.length,
+    localOverlayCount: localOverlay.length,
     catalogCount: entries.length,
     count: candidates.length,
     query,
@@ -3685,11 +3752,17 @@ function compactDefWeaponFitFacts(raw, fallbackId, operator) {
   };
   const skill3 = skills.skill3 && typeof skills.skill3 === 'object' ? skills.skill3 : {};
   const maximumSkill3 = maximumDefWeaponLevelEntry(skill3.levels);
-  const skill3Effects = Object.entries(skill3.effects && typeof skill3.effects === 'object' ? skill3.effects : {})
+  const reviewedSkill3Effects = Array.isArray(raw?.reviewedSkill3EffectAdapters)
+    ? raw.reviewedSkill3EffectAdapters.map((effect) => [effect.effectKey, effect])
+    : [];
+  const skill3Effects = [
+    ...Object.entries(skill3.effects && typeof skill3.effects === 'object' ? skill3.effects : {}),
+    ...reviewedSkill3Effects,
+  ]
     .map(([effectKey, effect]) => {
       const levels = effect?.levels && typeof effect.levels === 'object' ? effect.levels : {};
       const maximumLevel = Object.keys(levels).map(Number).filter(Number.isFinite).sort((left, right) => right - left)[0] || null;
-      const rawType = String(effect?.type || effectKey);
+      const rawType = String(effect?.type || effect?.typeKey || effectKey);
       return {
         effectKey,
         name: String(effect?.name || effectKey),
@@ -3726,8 +3799,10 @@ function buildDefWeaponFitPlan(input = {}) {
   const identity = operatorBuildInvocationIdentity(input);
   if (!identity.ok) return identity;
   const operatorQuery = typeof input.operatorQuery === 'string' ? input.operatorQuery.trim() : '';
-  const operatorLibrary = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-  const resolvedOperator = resolveOperatorCatalogRecord(operatorLibrary, operatorQuery);
+  const activeCatalog = readDefOperatorBuildCatalogSnapshot('weapon-fit', { requireWeapons: true });
+  if (!activeCatalog.ok) return activeCatalog;
+  const { snapshot, weaponCompatibilityMap } = activeCatalog;
+  const resolvedOperator = resolveOperatorCatalogRecord(snapshot.operators, operatorQuery);
   if (!resolvedOperator.ok) return { ok: false, ...resolvedOperator };
   const operator = resolvedOperator.operator;
   const operatorId = String(resolvedOperator.id || operator?.id || '');
@@ -3738,6 +3813,17 @@ function buildDefWeaponFitPlan(input = {}) {
   }
   const profileCapabilityResult = resolveOperatorBuildProfileCapability(input, profileResult.profile);
   if (!profileCapabilityResult.ok) return profileCapabilityResult;
+  if (!sameDefActiveCatalogRevision(profileCapabilityResult.capability.catalogSource, snapshot.source)) {
+    return {
+      ok: false,
+      code: 'weapon-fit-catalog-revision-stale',
+      message: 'The active game catalog changed after the planner profile capability was issued.',
+      expectedSource: profileCapabilityResult.capability.catalogSource,
+      actualSource: snapshot.source,
+      retryable: false,
+      nextAction: 'Stop this recommendation turn and restart guide/profile discovery against the current active catalog. Do not use local operator or weapon libraries as fallback.',
+    };
+  }
   const conventionRequired = profileCapabilityResult.capability.conventionRequired === true;
   const suppliedConventionHash = typeof input.conventionBundleHash === 'string' ? input.conventionBundleHash.trim() : '';
   let conventionBundle = {
@@ -3788,9 +3874,8 @@ function buildDefWeaponFitPlan(input = {}) {
   }
   const weaponType = String(operator?.weapon || '').trim();
   if (!weaponType) return { ok: false, code: 'weapon-fit-weapon-type-missing', message: 'The operator catalog has no canonical weapon type.' };
-  const weaponLibrary = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
-  const compatible = Object.entries(weaponLibrary && typeof weaponLibrary === 'object' && !Array.isArray(weaponLibrary) ? weaponLibrary : {})
-    .filter(([, raw]) => raw && typeof raw === 'object' && normalizeDefToolText(raw.type) === normalizeDefToolText(weaponType))
+  const compatible = Object.entries(snapshot.weapons)
+    .filter(([, raw]) => raw && typeof raw === 'object' && normalizeDefToolText(raw.compatibilityType) === normalizeDefToolText(weaponType))
     .map(([fallbackId, raw]) => compactDefWeaponFitFacts(raw, fallbackId, operator))
     .filter(Boolean)
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -3811,7 +3896,7 @@ function buildDefWeaponFitPlan(input = {}) {
     if (ignored) return { ...fact, skillKey, relevant: false, reason: 'excluded-by-reviewed-support-convention' };
     if (skillKey === 'skill3' && fact.category === 'condition') {
       const matcher = matchers.find((entry) => (
-        entry.weaponId === weapon.id
+        resolveDefCanonicalWeaponId(weaponCompatibilityMap, entry.weaponId) === weapon.id
         && entry.skillKey === skillKey
         && entry.effectType === (fact.catalogTypeKey || fact.typeKey)
       ));
@@ -3900,8 +3985,11 @@ function buildDefWeaponFitPlan(input = {}) {
       secondaryAttribute: String(operator?.subStat || ''),
     },
     source: {
-      catalog: 'operator-config-weapon-library',
-      revision: hashDefNativeCatalogValue(compatible),
+      catalog: snapshot.source.name,
+      sourceRef: snapshot.source.sourceRef,
+      dataVersion: snapshot.source.dataVersion,
+      catalogSha256: snapshot.source.catalogSha256,
+      revision: snapshot.source.revision,
       conventionBundleHash: conventionBundle.bundleHash,
       plannerProfileHash: profileCapabilityResult.capability.profileHash,
     },
@@ -4616,6 +4704,7 @@ function mintOperatorBuildProfileCapability({
   source,
   conventionRequired = false,
   conventionBundleHash = null,
+  catalogSource,
 }) {
   pruneOperatorBuildGuideResolutions();
   const profileHash = hashDefOperatorBuildPlannerProfile(plannerProfile);
@@ -4624,6 +4713,7 @@ function mintOperatorBuildProfileCapability({
     && capability.turnId === turnId
     && capability.operatorId === operatorId
     && capability.profileHash === profileHash
+    && sameDefActiveCatalogRevision(capability.catalogSource, catalogSource)
     && !capability.consumed
   ));
   if (reusable) return { token: reusable.token, profileHash, expiresAt: reusable.expiresAt, reused: true };
@@ -4640,6 +4730,7 @@ function mintOperatorBuildProfileCapability({
     conventionBundleHash: typeof conventionBundleHash === 'string' && conventionBundleHash.trim()
       ? conventionBundleHash.trim()
       : null,
+    catalogSource: { ...catalogSource },
     consumed: false,
     createdAt: now,
     expiresAt: now + OPERATOR_BUILD_PROFILE_CAPABILITY_TTL_MS,
@@ -4660,6 +4751,8 @@ function resolveOperatorBuildProfileCapability(input = {}, plannerProfile = null
       ok: false,
       code: 'equipment-3plus1-profile-capability-required',
       message: 'The exact plannerProfileCapability issued with this guide/profile is required.',
+      retryable: false,
+      nextAction: 'Restart guide/profile discovery in a new user turn and pass its exact unchanged plannerProfileCapability. Do not use generic weapon or local-library fallbacks.',
     };
   }
   pruneOperatorBuildGuideResolutions();
@@ -4669,6 +4762,8 @@ function resolveOperatorBuildProfileCapability(input = {}, plannerProfile = null
       ok: false,
       code: 'equipment-3plus1-profile-capability-invalid',
       message: 'This planner profile capability is missing, expired, or already consumed.',
+      retryable: false,
+      nextAction: 'Restart guide/profile discovery in a new user turn. Do not reconstruct or reuse the capability.',
     };
   }
   if (capability.sessionId !== identity.sessionId || capability.turnId !== identity.turnId) {
@@ -4676,6 +4771,8 @@ function resolveOperatorBuildProfileCapability(input = {}, plannerProfile = null
       ok: false,
       code: 'equipment-3plus1-profile-capability-scope-mismatch',
       message: 'This planner profile capability belongs to a different native session or user turn.',
+      retryable: false,
+      nextAction: 'Restart guide/profile discovery in the current native session and new user turn.',
     };
   }
   if (capability.operatorId !== String(plannerProfile.characterId || '').trim()
@@ -4684,6 +4781,8 @@ function resolveOperatorBuildProfileCapability(input = {}, plannerProfile = null
       ok: false,
       code: 'equipment-3plus1-profile-capability-profile-mismatch',
       message: 'The supplied planner profile was changed after the evidence capability was issued.',
+      retryable: false,
+      nextAction: 'Restart guide/profile discovery and pass the returned plannerProfile and capability unchanged.',
     };
   }
   return { ok: true, capability };
@@ -4702,8 +4801,10 @@ function discoverDefOperatorBuildGuide(input = {}) {
       message: 'An exact operator name or stable id is required for build-guide discovery.',
     };
   }
-  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-  const resolved = resolveOperatorCatalogRecord(library, operatorQuery);
+  const activeCatalog = readDefOperatorBuildCatalogSnapshot('operator-build-guide');
+  if (!activeCatalog.ok) return activeCatalog;
+  const { snapshot } = activeCatalog;
+  const resolved = resolveOperatorCatalogRecord(snapshot.operators, operatorQuery);
   if (!resolved.ok) return { ok: false, ...resolved };
   const operator = resolved.operator;
   const operatorId = String(resolved.id || operator.id || '').trim();
@@ -4761,6 +4862,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
     evidenceRequirements: {
       combatConvention: conventionRequired ? 'required-before-role-aware-profile-and-weapon-fit' : 'not-required',
     },
+    catalogSource: snapshot.source,
   };
   if (effectiveState === 'GUIDE_FOUND') {
     const plannerProfile = compactGuidePlannerProfile(operatorId, guideStrategy, guide.contentHash);
@@ -4776,6 +4878,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
         contentHash: guide.contentHash,
       },
       conventionRequired,
+      catalogSource: snapshot.source,
     });
     return {
       ...base,
@@ -4799,6 +4902,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
     && resolution.goal === base.query.goal
     && resolution.setQuery === base.query.setQuery
     && resolution.guideState === effectiveState
+    && sameDefActiveCatalogRevision(resolution.catalogSource, snapshot.source)
     && !resolution.consumed
   ));
   if (reusableResolution) {
@@ -4831,6 +4935,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
     operatorId,
     operatorName,
     operatorSnapshotHash: hashDefLoadoutPlan(operator),
+    catalogSource: { ...snapshot.source },
     guideState: effectiveState,
     guide,
     guidePreferenceGroups: supportedGuideGroups,
@@ -4876,6 +4981,8 @@ function deriveDefOperatorBuildProfile(input = {}) {
       ok: false,
       code: 'operator-build-fallback-token-required',
       message: 'The exact opaque fallbackToken returned by guide discovery is required.',
+      retryable: false,
+      nextAction: 'Restart def_data_operator_build_guide in a new user turn and pass its exact fallbackToken. Do not invent a token or use generic operator/skill fallbacks.',
     };
   }
   pruneOperatorBuildGuideResolutions();
@@ -4894,9 +5001,23 @@ function deriveDefOperatorBuildProfile(input = {}) {
       message: 'This fallback token belongs to a different native session or user turn.',
     };
   }
+  const activeCatalog = readDefOperatorBuildCatalogSnapshot('operator-build-profile');
+  if (!activeCatalog.ok) return activeCatalog;
+  const { snapshot } = activeCatalog;
+  if (!sameDefActiveCatalogRevision(resolution.catalogSource, snapshot.source)) {
+    operatorBuildGuideResolutions.delete(fallbackToken);
+    return {
+      ok: false,
+      code: 'operator-build-catalog-revision-stale',
+      message: 'The active game catalog changed after guide discovery.',
+      expectedSource: resolution.catalogSource,
+      actualSource: snapshot.source,
+      retryable: false,
+      nextAction: 'Stop this recommendation turn and restart guide discovery against the current active catalog. Do not use local operator or weapon libraries as fallback.',
+    };
+  }
   const operatorQuery = typeof input.operatorQuery === 'string' ? input.operatorQuery.trim() : '';
-  const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-  const resolved = resolveOperatorCatalogRecord(library, operatorQuery || resolution.operatorId);
+  const resolved = resolveOperatorCatalogRecord(snapshot.operators, operatorQuery || resolution.operatorId);
   if (!resolved.ok) return { ok: false, ...resolved };
   const operatorId = String(resolved.id || resolved.operator?.id || '').trim();
   if (operatorId !== resolution.operatorId) {
@@ -4969,6 +5090,7 @@ function deriveDefOperatorBuildProfile(input = {}) {
         turnBound: true,
         consumed: false,
       },
+      catalogSource: snapshot.source,
       nextAction: 'Ask one minimal question for the returned missing operator facts. Do not call the planner with an incomplete profile; restart guide discovery after the user answers.',
     };
   }
@@ -4988,6 +5110,7 @@ function deriveDefOperatorBuildProfile(input = {}) {
     },
     conventionRequired: resolution.conventionRequired,
     conventionBundleHash: conventionBundle?.bundleHash || null,
+    catalogSource: snapshot.source,
   });
   return {
     ok: true,
@@ -5002,6 +5125,7 @@ function deriveDefOperatorBuildProfile(input = {}) {
       turnBound: true,
       consumed: true,
     },
+    catalogSource: snapshot.source,
   };
 }
 
@@ -10434,14 +10558,21 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     result = resolveDefCharacters(input);
   } else if (name === 'def.operator.catalog.search') {
     result = listDefOperatorCatalog(input);
+    if (!result.ok && result.code) {
+      return failScript(result.status || 409, result.code, result.message || 'Unable to read the active operator selection catalog.', {
+        retryable: result.retryable === true,
+        nextAction: result.nextAction || 'Repair or reactivate the immutable game catalog before searching operators.',
+      });
+    }
   } else if (name === 'def.operator.build.guide') {
     result = discoverDefOperatorBuildGuide(input);
     if (!result.ok) {
       return failScript(result.code === 'operator-build-operator-not-found' ? 404 : 409, result.code || 'operator-build-guide-failed', result.message || 'Unable to resolve operator build-guide evidence.', {
         candidates: result.candidates,
-        nextAction: result.code === 'operator-build-turn-identity-required'
+        retryable: result.retryable === true,
+        nextAction: result.nextAction || (result.code === 'operator-build-turn-identity-required'
           ? 'Retry through the native DEF tool in the current user turn.'
-          : 'Use one exact operator name or stable id, then restart guide-first discovery.',
+          : 'Use one exact operator name or stable id, then restart guide-first discovery.'),
       });
     }
   } else if (name === 'def.operator.build.profile') {
@@ -10449,6 +10580,9 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     if (!result.ok) {
       return failScript(409, result.code || 'operator-build-profile-failed', result.message || 'Unable to derive the token-authorized operator build profile.', {
         candidates: result.candidates,
+        expectedSource: result.expectedSource,
+        actualSource: result.actualSource,
+        retryable: result.retryable === true,
         nextAction: result.nextAction || 'Restart def_data_operator_build_guide in the current user turn and use only its exact fallbackToken for the same operator.',
       });
     }
@@ -10476,6 +10610,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(409, result.code || 'weapon-fit-plan-failed', result.message || 'Unable to build an exhaustive convention-backed weapon fit plan.', {
         missingEdges: result.missingEdges,
         conflicts: result.conflicts,
+        expectedSource: result.expectedSource,
+        actualSource: result.actualSource,
         retryable: result.retryable === true,
         nextAction: result.nextAction || 'Restart guide/convention/profile evidence in the current turn; do not rank truncated weapon summaries.',
       });

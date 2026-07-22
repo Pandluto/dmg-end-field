@@ -43,13 +43,13 @@ function sortSourceRefs(refs) {
     .localeCompare([right.kind, right.id, right.revision || '', right.sectionId || ''].join('\u0000')));
 }
 
-function failure({ code, failureStage, message, status = 500, retryable = false, sourceRevision } = {}) {
+function failure({ code, failureStage, message, status = 500, retryable = false, sourceRevision, nextAction } = {}) {
   return {
     contract: ERROR_CONTRACT,
     code: code || 'equipment-3plus1-internal-error',
     failureStage: failureStage || 'build-evidence',
     retryable: retryable === true,
-    nextAction: status === 400 ? 'FIX_INPUT' : retryable ? 'RETRY_FRESH_TURN' : 'REPORT_AND_STOP',
+    nextAction: nextAction || (status === 400 ? 'FIX_INPUT' : retryable ? 'RETRY_FRESH_TURN' : 'REPORT_AND_STOP'),
     message: message || 'The evidence-backed equipment recommendation could not be completed.',
     ...(sourceRevision ? { sourceRevision } : {}),
     status,
@@ -191,12 +191,14 @@ function portFailure(stage, value, sourceRevision) {
 
 function activeCatalogReaderFailure(error) {
   const code = typeof error?.code === 'string' ? error.code.trim() : '';
-  if (!/^(?:active-game-catalog-|catalog-)/.test(code)) return null;
+  if (code !== 'BLOCKED_DATA_CONTRACT' && !/^(?:active-game-catalog-|catalog-)/.test(code)) return null;
   return failure({
     code,
     failureStage: 'capture-catalog',
     message: error instanceof Error ? error.message : 'The selected game catalog could not be read.',
     status: 409,
+    retryable: error?.retryable === true,
+    nextAction: error?.nextAction,
   });
 }
 

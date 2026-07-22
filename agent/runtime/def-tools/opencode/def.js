@@ -3,6 +3,8 @@ import path from 'node:path'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
 import { tool } from './tool-api.js'
+import { compactTypedFailureDetails, expandDefTypedFailureDetails, normalizeRequiredDefToolString } from './typed-failure-details.mjs'
+export { compactTypedFailureDetails, expandDefTypedFailureDetails, normalizeRequiredDefToolString } from './typed-failure-details.mjs'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 import {
@@ -370,31 +372,6 @@ function notAttemptedEvidenceError(stop, attemptedTool) {
   return error
 }
 
-function compactTypedFailureDetails(failure) {
-  if (!failure || typeof failure !== 'object') return null
-  const diagnostics = failure.diagnostics
-  const compactIssues = (issues) => (Array.isArray(issues) ? issues.slice(0, 8).map((issue) => ({ code: issue?.code, path: issue?.path, stableId: issue?.stableId, message: issue?.message })) : [])
-  if (!diagnostics || typeof diagnostics !== 'object') {
-    return failure.nextAction || failure.retryable !== undefined || Array.isArray(failure.catalogIssues)
-      ? { retryable: failure.retryable, failureStage: failure.failureStage, nextAction: failure.nextAction, catalogIssues: compactIssues(failure.catalogIssues) }
-      : null
-  }
-  return {
-    retryable: failure.retryable,
-    failureStage: failure.failureStage,
-    nextAction: failure.nextAction,
-    stage: diagnostics.stage,
-    beforeCanonicalHash: diagnostics.beforeCanonicalHash,
-    afterCanonicalHash: diagnostics.afterCanonicalHash,
-    changedPaths: Array.isArray(diagnostics.changedPaths) ? diagnostics.changedPaths.slice(0, 24) : [],
-    validatorIssues: {
-      before: compactIssues(diagnostics.validatorIssues?.before),
-      after: compactIssues(diagnostics.validatorIssues?.after),
-    },
-    catalogIssues: compactIssues(diagnostics.catalogIssues || failure.catalogIssues),
-  }
-}
-
 export function recordDefToolEventFailure(event) {
   if (event?.type !== 'message.part.updated') return
   const part = event?.properties?.part
@@ -605,6 +582,7 @@ async function callDefTool(tool, input = {}, context = null) {
     // executions use `result`. Preserve structured diagnostics so a
     // canonical-gate 409 is never misreported as a missing Work Node or team.
     const failure = payload?.result || payload?.error || payload
+    const failureDetails = expandDefTypedFailureDetails(failure)
     const code = failure?.code || payload?.code || 'def-tool-failed'
     const message = failure?.message || failure?.note || payload?.message || `${tool} failed with HTTP ${response.status}`
     const recorded = recordTurnFailure({
@@ -614,21 +592,21 @@ async function callDefTool(tool, input = {}, context = null) {
       code,
       callID: context?.callID,
     })
-    if (failure?.retryable === false) stopFurtherTurnMutations({
+    if (failureDetails?.retryable === false) stopFurtherTurnMutations({
       sessionID: context?.sessionID,
       toolName: tool,
       code,
-      failure,
+      failure: failureDetails,
     })
-    if (failure?.retryable === false) stopFurtherTurnEvidence({
+    if (failureDetails?.retryable === false) stopFurtherTurnEvidence({
       sessionID: context?.sessionID,
       toolName: tool,
       code,
-      failure,
+      failure: failureDetails,
     })
     const count = recorded?.count || 1
     const blocked = recorded?.blocked === true
-    const structuredDetails = compactTypedFailureDetails(failure)
+    const structuredDetails = compactTypedFailureDetails(failureDetails)
     const detailSuffix = structuredDetails ? ` Structured details: ${JSON.stringify(structuredDetails)}` : ''
     const error = new Error(blocked
       ? `def-tool-retry-limit-reached: ${tool} failed twice with ${code}. Stop tool use and report that the requested change was not applied at this stage. Last error: ${message}`
@@ -637,7 +615,7 @@ async function callDefTool(tool, input = {}, context = null) {
     error.status = response.status
     error.details = blocked
       ? { tool, originalCode: code, attempts: count, lastFailure: failure }
-      : failure
+      : failureDetails
     throw error
   }
   if (budget && budget.tool === tool && !budget.blocked) {
@@ -1924,7 +1902,7 @@ export const data_operator_build_guide = {
     context.metadata({ title: 'DEF operator build guide discovery' })
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
     const result = await callDefTool('def.operator.build.guide', {
-      operatorQuery: args.operatorQuery.trim(),
+      operatorQuery: typeof args.operatorQuery === 'string' ? args.operatorQuery.trim() : '',
       goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : 'damage',
       ...(typeof args.setQuery === 'string' && args.setQuery.trim() ? { setQuery: args.setQuery.trim() } : {}),
       __defTurnId: turnID,
@@ -1955,8 +1933,8 @@ export const data_operator_build_profile = {
     context.metadata({ title: 'DEF operator build fallback profile' })
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
     const result = await callDefTool('def.operator.build.profile', {
-      operatorQuery: args.operatorQuery.trim(),
-      fallbackToken: args.fallbackToken.trim(),
+      operatorQuery: typeof args.operatorQuery === 'string' ? args.operatorQuery.trim() : '',
+      fallbackToken: normalizeRequiredDefToolString(args.fallbackToken),
       ...(typeof args.conventionBundleHash === 'string' && args.conventionBundleHash.trim()
         ? { conventionBundleHash: args.conventionBundleHash.trim() }
         : {}),
@@ -2486,11 +2464,11 @@ export const data_weapon_fit_plan = {
     context.metadata({ title: 'DEF exhaustive weapon fit plan' })
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
     const result = await callDefTool('def.weapon.fit.plan', {
-      operatorQuery: args.operatorQuery.trim(),
+      operatorQuery: typeof args.operatorQuery === 'string' ? args.operatorQuery.trim() : '',
       ...(typeof args.conventionBundleHash === 'string' && args.conventionBundleHash.trim()
         ? { conventionBundleHash: args.conventionBundleHash.trim() }
         : {}),
-      plannerProfileCapability: args.plannerProfileCapability.trim(),
+      plannerProfileCapability: normalizeRequiredDefToolString(args.plannerProfileCapability),
       characterProfile: args.characterProfile,
       goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : '武器推荐',
       ...(args.shortlistLimit !== undefined ? { shortlistLimit: args.shortlistLimit } : {}),

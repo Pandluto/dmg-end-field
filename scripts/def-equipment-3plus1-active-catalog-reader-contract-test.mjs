@@ -50,7 +50,7 @@ const readers = createDefEquipment3Plus1ActiveCatalogReaders({
         return {
           source: 'active',
           dataVersion: 'catalog-test-v1',
-          catalogSha256: `sha256:${'0'.repeat(64)}`,
+          catalogSha256: '0'.repeat(64),
           databasePath: '/private/catalog.sqlite',
           operators: { bieli },
           weapons: {},
@@ -65,9 +65,13 @@ const operators = readers.readOperatorCatalog();
 const equipmentSource = readers.readEquipmentLibrarySource();
 assert.equal(reads, 1, 'operator and equipment readers must capture one active catalog per recommendation composition');
 assert.equal(operators.bieli.name, '别礼');
+assert.equal(operators.bieli.id, 'bieli');
+assert.equal(operators.bieli.catalogProvenance, 'active-game-catalog');
 assert.equal(equipmentSource.library.gearSets.tide.name, '潮涌');
 assert.equal(equipmentSource.storageKey, 'catalog:catalog-test-v1');
 assert.equal(equipmentSource.capturedAt, 0);
+assert.equal(equipmentSource.source.dataVersion, 'catalog-test-v1');
+assert.equal(equipmentSource.source.catalogSha256, '0'.repeat(64));
 assert.equal('databasePath' in equipmentSource, false, 'database locations are never exposed through recommendation ports');
 
 const service = createDefEquipment3Plus1RecommendationService({

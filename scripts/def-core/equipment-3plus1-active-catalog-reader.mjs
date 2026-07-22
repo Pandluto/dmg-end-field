@@ -1,6 +1,4 @@
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
+import { createDefActiveGameCatalogSnapshot } from './active-game-catalog-boundary.mjs';
 
 /**
  * Bind the one-turn 3+1 recommendation ports to the selected immutable game
@@ -22,14 +20,7 @@ export function createDefEquipment3Plus1ActiveCatalogReaders({ getDataManagement
       throw new TypeError('Data Management service must provide readActiveGameCatalog().');
     }
     const catalog = dataManagementService.readActiveGameCatalog();
-    if (!isPlainObject(catalog)
-      || typeof catalog.dataVersion !== 'string'
-      || !catalog.dataVersion.trim()
-      || !isPlainObject(catalog.operators)
-      || !isPlainObject(catalog.equipmentLibrary)) {
-      throw new TypeError('readActiveGameCatalog() returned an invalid active game catalog.');
-    }
-    capturedCatalog = catalog;
+    capturedCatalog = createDefActiveGameCatalogSnapshot(catalog);
     return capturedCatalog;
   }
 
@@ -38,11 +29,12 @@ export function createDefEquipment3Plus1ActiveCatalogReaders({ getDataManagement
       return readCatalog().operators;
     },
     readEquipmentLibrarySource() {
-      const catalog = readCatalog();
+      const snapshot = readCatalog();
       return {
-        library: catalog.equipmentLibrary,
-        storageKey: `catalog:${catalog.dataVersion}`,
+        library: snapshot.equipmentLibrary,
+        storageKey: snapshot.source.sourceRef,
         capturedAt,
+        source: snapshot.source,
       };
     },
   });

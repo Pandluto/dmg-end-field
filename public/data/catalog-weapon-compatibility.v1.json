@@ -1,0 +1,55 @@
+{
+  "kind": "def.weapon-catalog-compatibility.v1",
+  "schemaVersion": 1,
+  "reviewedSource": {
+    "path": "data/sharedata/share-20260718-003031-7-18.json",
+    "sha256": "8276c055b94a666bcfc36231dc0654aa195e9e7a61a4bd431e7a6cb2313dd18d",
+    "storageKey": "def.weapon-sheet.library.v1",
+    "reviewedAt": "2026-07-23"
+  },
+  "weapons": {
+    "weapon.d30028624b64fb4ede99c8db": { "name": "黯色火炬", "legacyIds": ["wpn_sword_0010"], "compatibilityType": "单手剑" },
+    "weapon.fd6e6f97af102e7b6bc00148": { "name": "白夜新星", "legacyIds": ["wpn_sword_0014"], "compatibilityType": "单手剑" },
+    "weapon.08bd963603d2022258864354": {
+      "name": "爆破单元",
+      "legacyIds": ["wpn_funnel_0008"],
+      "compatibilityType": "法术单元",
+      "skill3EffectAdapters": [
+        { "effectKey": "sub-stat", "name": "副能力提升", "typeKey": "subStatBoost", "category": "passive" },
+        { "effectKey": "magic-vulnerability", "name": "法术爆发后目标法术易伤", "typeKey": "magicVulnerability", "category": "condition", "condition": "装备者造成法术爆发" }
+      ]
+    },
+    "weapon.46c0b78c00485aaeb237d3bb": { "name": "大雷斑", "legacyIds": ["wpn_claym_0007"], "compatibilityType": "双手剑" },
+    "weapon.87924a18ef82f9f2290699a3": { "name": "扶摇", "legacyIds": ["wpn_sword_0011"], "compatibilityType": "单手剑" },
+    "weapon.8941d864791e13dd37f22916": { "name": "负山", "legacyIds": ["wpn_lance_0012"], "compatibilityType": "长柄武器" },
+    "weapon.4246ee4d7899730837860426": { "name": "孤舟", "legacyIds": ["wpn_funnel_0015"], "compatibilityType": "法术单元" },
+    "weapon.2fd8fc4a743964007115f3ba": { "name": "古渠", "legacyIds": ["wpn_claym_0014"], "compatibilityType": "双手剑" },
+    "weapon.8b6a9adb1f5d890e1a4b006d": { "name": "光荣记忆", "legacyIds": ["wpn_sword_0017"], "compatibilityType": "单手剑" },
+    "weapon.cad512b1af2c81c1917d6ed3": { "name": "赫拉芬格", "legacyIds": ["wpn_claym_0013"], "compatibilityType": "双手剑" },
+    "weapon.53c750f041734f035c6bc224": { "name": "宏愿", "legacyIds": ["wpn_sword_0021"], "compatibilityType": "单手剑" },
+    "weapon.e371b8f6b56d151dfb227898": { "name": "狼之绯", "legacyIds": ["wpn_sword_0022"], "compatibilityType": "单手剑" },
+    "weapon.a357f6b2a56aecd92cb4eea6": { "name": "理性告别", "legacyIds": ["wpn_pistol_0004"], "compatibilityType": "手铳" },
+    "weapon.7f1a7024f15983475190b4a4": { "name": "落草", "legacyIds": ["luocao"], "compatibilityType": "手铳" },
+    "weapon.9b04139533635b8123fef4dc": { "name": "破碎君王", "legacyIds": ["wpn_claym_0008"], "compatibilityType": "双手剑" },
+    "weapon.6beca86909e7732dc7d83b56": {
+      "name": "骑士精神",
+      "legacyIds": ["wpn_funnel_0010"],
+      "compatibilityType": "法术单元",
+      "skill3EffectAdapters": [
+        { "effectKey": "healing-efficiency", "name": "治疗效率提升", "typeKey": "healingBonus", "category": "passive" },
+        { "effectKey": "team-attack", "name": "自身技能治疗后全队攻击力提升", "typeKey": "atkPercentBoost", "category": "condition", "condition": "装备者通过自身技能治疗" }
+      ]
+    },
+    "weapon.7cfda78e0c8bb635165b45d5": { "name": "嵌合正义", "legacyIds": ["wpn_lance_0004"], "compatibilityType": "长柄武器" },
+    "weapon.fa421da3b5113328d45200e9": { "name": "热熔切割器", "legacyIds": ["wpn_sword_0012"], "compatibilityType": "单手剑" },
+    "weapon.011b44c09c90cdfaa8bbbabc": { "name": "熔铸火焰", "legacyIds": ["wpn_sword_0006"], "compatibilityType": "单手剑" },
+    "weapon.b6992d1f8f041f23ac961782": { "name": "十二问", "legacyIds": ["wpn_sword_0018"], "compatibilityType": "单手剑" },
+    "weapon.dd26617bf66c854da63df14b": { "name": "同类相食", "legacyIds": ["wpn_pistol_0009"], "compatibilityType": "手铳" },
+    "weapon.a2ed625d7342108981d9556a": { "name": "昔日精品", "legacyIds": ["wpn_claym_0006"], "compatibilityType": "双手剑" },
+    "weapon.f0f7a985220c09fb1e44eebf": { "name": "显赫声名", "legacyIds": ["wpn_sword_0013"], "compatibilityType": "单手剑" },
+    "weapon.9cedf8d4ab85918cb65c5eb8": { "name": "楔子", "legacyIds": ["wpn_pistol_0008"], "compatibilityType": "手铳" },
+    "weapon.e67024e284ae717872e4337c": { "name": "遗忘", "legacyIds": ["wpn_funnel_0009"], "compatibilityType": "法术单元" },
+    "weapon.b18fae12d3e3faf9d9b4b5c6": { "name": "艺术暴君", "legacyIds": ["wpn_pistol_0010"], "compatibilityType": "手铳" },
+    "weapon.5c063cecbad53d76445b621c": { "name": "J.E.T.", "legacyIds": ["wpn_lance_0011"], "compatibilityType": "长柄武器" }
+  }
+}

@@ -145,6 +145,22 @@ function uniqueGroups(groups) {
   });
 }
 
+function conventionSkillTypes(conventionBundle) {
+  const facts = [];
+  const collect = (value) => {
+    if (typeof value === 'string') facts.push(value);
+    else if (Array.isArray(value)) value.forEach(collect);
+    else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+  };
+  for (const rule of Array.isArray(conventionBundle?.rules) ? conventionBundle.rules : []) {
+    collect(rule?.when);
+    collect(rule?.then);
+  }
+  const mentioned = new Set(facts.flatMap((fact) => [...String(fact).matchAll(/\.skill\.([ABEQ])(?:\.|$)/g)]
+    .map((match) => match[1])));
+  return ['Q', 'B', 'E', 'A'].filter((skillType) => mentioned.has(skillType));
+}
+
 function referenceSectionText(reference, section) {
   if (!reference || !section) return '';
   const start = reference.lineOffsets?.[section.lineStart] || 0;
@@ -359,6 +375,9 @@ export function deriveOperatorBuildProfile(rawOperator, {
   const linkedUtilityTypes = new Set(effects.filter((effect) => !effect.damageRelevant).flatMap((effect) => effect.linkedSkillTypes));
   const focusSkillTypes = [];
   if (supportRole) {
+    for (const type of conventionSkillTypes(conventionBundle)) {
+      if (!focusSkillTypes.includes(type)) focusSkillTypes.push(type);
+    }
     for (const type of ['Q', 'B', 'E', 'A']) {
       if (linkedUtilityTypes.has(type) && !focusSkillTypes.includes(type)) focusSkillTypes.push(type);
     }
@@ -442,7 +461,7 @@ export function deriveOperatorBuildProfile(rawOperator, {
       guideState: String(guideState || 'GUIDE_NOT_FOUND'),
       guideResolutionId: String(guideResolutionId || ''),
       goal: String(goal || ''),
-      source: 'operator-catalog-skill-fallback',
+      source: 'active-game-catalog-skill-fallback',
     },
     skillEvidence: {
       comparisonScope: supportRole
@@ -546,7 +565,7 @@ export function mergePartialGuidePlannerProfile(profile, {
     })),
     keywordLabels: plannerProfile.keywords,
     plannerProfile,
-    derivation: { ...profile.derivation, source: 'partial-guide-plus-operator-catalog-skill-fallback' },
+    derivation: { ...profile.derivation, source: 'partial-guide-plus-active-game-catalog-skill-fallback' },
   };
 }
 

@@ -3,16 +3,22 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import {
   deriveOperatorBuildProfile,
   discoverOperatorBuildGuides,
   extractGuideBuildStrategy,
 } from './def-core/operator-build-evidence.mjs';
 
+const require = createRequire(import.meta.url);
+const { createCatalogDatabase } = require('../electron/data-management-service.cjs');
+
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-operator-build-guide-'));
 const port = 19700 + Math.floor(Math.random() * 200);
 const baseUrl = `http://127.0.0.1:${port}`;
 const nowStoragePath = path.join(root, 'now-storage.json');
+const builtinCatalogPath = path.join(root, 'catalog.sqlite');
+const compatibilityMapPath = path.join(root, 'catalog-weapon-compatibility.v1.json');
 
 function skill(displayName, buttonType, peakMultipliers) {
   return {
@@ -232,14 +238,40 @@ const negativeOnlyStrategy = extractGuideBuildStrategy(
 assert.deepEqual(negativeOnlyStrategy.preferenceGroups, []);
 assert.equal(negativeOnlyStrategy.sufficientForPlanner, false);
 
+createCatalogDatabase({
+  databasePath: builtinCatalogPath,
+  dataVersion: 'operator-build-guide-contract-v2',
+  operators: Object.entries(operators).map(([id, payload]) => ({ id, name: payload.name, payload })),
+  weapons: [
+    { id: 'weapon.6beca86909e7732dc7d83b56', payload: weapons.knight },
+    { id: 'weapon.08bd963603d2022258864354', payload: weapons.explosive },
+    { id: 'weapon.contract.mission', payload: weapons.mission },
+    { id: 'weapon.4246ee4d7899730837860426', payload: weapons.lone },
+  ].map((entry) => ({ ...entry, name: entry.payload.name })),
+  equipments: [],
+  equipmentSets: [],
+  buffs: [],
+  templates: [],
+});
+fs.writeFileSync(compatibilityMapPath, `${JSON.stringify({
+  kind: 'def.weapon-catalog-compatibility.v1',
+  schemaVersion: 1,
+  reviewedSource: { path: 'contract-fixture', sha256: '0'.repeat(64), storageKey: 'def.weapon-sheet.library.v1' },
+  weapons: {
+    'weapon.6beca86909e7732dc7d83b56': { name: '骑士精神', legacyIds: ['wpn_funnel_0010'], compatibilityType: '法术单元' },
+    'weapon.08bd963603d2022258864354': { name: '爆破单元', legacyIds: ['wpn_funnel_0008'], compatibilityType: '法术单元' },
+    'weapon.contract.mission': { name: '使命必达', legacyIds: ['wpn_funnel_0009'], compatibilityType: '法术单元' },
+    'weapon.4246ee4d7899730837860426': { name: '孤舟', legacyIds: ['wpn_funnel_0007'], compatibilityType: '法术单元' },
+  },
+}, null, 2)}\n`, 'utf8');
 fs.writeFileSync(nowStoragePath, `${JSON.stringify({
   type: 'def.localdata.archive.v1',
   schemaVersion: 1,
   id: 'operator-build-guide-contract',
   storage: {
     local: {
-      'def.operator-editor.library.v1': operators,
-      'def.weapon-sheet.library.v1': weapons,
+      'def.operator-editor.library.v1': {},
+      'def.weapon-sheet.library.v1': {},
     },
     session: {},
   },
@@ -257,6 +289,8 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: path.join(root, 'timeline.sqlite3'),
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
+    DEF_WEAPON_CATALOG_COMPATIBILITY_PATH: compatibilityMapPath,
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
     DEF_INTERNAL_GOVERNANCE_TOKEN: 'operator-build-guide-contract',
   },
@@ -495,17 +529,17 @@ try {
   assert.equal(weaponPlan.responseConstraints.presentation, 'unordered-tradeoff-matrix');
   assert.equal(weaponPlan.responseConstraints.presentOnly, 'shortlist');
   assert.ok(weaponPlan.responseConstraints.forbiddenUnsourcedClaims.includes('稀有乘区'));
-  assert.deepEqual(weaponPlan.shortlist.map((candidate) => candidate.id), ['wpn_funnel_0008', 'wpn_funnel_0010']);
+  assert.deepEqual(weaponPlan.shortlist.map((candidate) => candidate.id), ['weapon.08bd963603d2022258864354', 'weapon.6beca86909e7732dc7d83b56']);
   assert.ok(weaponPlan.shortlist.every((candidate) => candidate.weightedScore === undefined));
-  const explosivePlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'wpn_funnel_0008');
-  const knightPlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'wpn_funnel_0010');
+  const explosivePlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'weapon.08bd963603d2022258864354');
+  const knightPlan = weaponPlan.shortlist.find((candidate) => candidate.id === 'weapon.6beca86909e7732dc7d83b56');
   assert.match(explosivePlan.fullFacts.skills.skill3.description, /法术爆发/);
   assert.match(knightPlan.fullFacts.skills.skill3.description, /自身技能治疗后/);
   assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'secondary-intelligence'));
   assert.ok(explosivePlan.verifiedReasons.some((reason) => reason.certainty === 'high-probability' && reason.triggerActor === 'equipped-operator' && reason.externalActorsMaySatisfy === false));
   assert.ok(knightPlan.verifiedReasons.some((reason) => reason.matchedGroupKey === 'reachable-team-buff'));
   assert.ok(knightPlan.excludedOrUnverifiedReasons.some((reason) => reason.typeKey === 'willBoost'));
-  const loneScore = weaponPlan.catalogEvidence.allCandidateEvidence.find((candidate) => candidate.id === 'wpn_funnel_0007');
+  const loneScore = weaponPlan.catalogEvidence.allCandidateEvidence.find((candidate) => candidate.id === 'weapon.4246ee4d7899730837860426');
   assert.equal(loneScore.matchedGroupKeys.includes('reachable-team-buff'), false, 'personal attack must not satisfy a team-buff preference');
 
   console.log(JSON.stringify({
