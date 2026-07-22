@@ -6,7 +6,7 @@
 
 五个实现包、W5 跨包接线和 W6 Host 返修已经完成。
 Workbench、Interop、候选绑定和 DEF Shell 清理入口均已通过真实界面验证。
-DeepSeek Key 尚未配置；真实模型调用返回 401，三条语义场景不能给出通过结论。
+DeepSeek Key 尚未配置；真实模型调用返回 401，四类语义场景不能给出通过结论。
 候选没有上线，stable pointer 也没有修改。
 
 ## 提交基线
@@ -74,13 +74,21 @@ DeepSeek Key 尚未配置；真实模型调用返回 401，三条语义场景不
 候选已从干净 W5 提交构建并注册。
 W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutable ref。
 
-三条场景的 package-check 均为 PASS：
+四类 W6 语义场景的静态合同已冻结。以下是已保存的 package-check 记录：
 
 | 场景 | package-check id | 状态 |
 | --- | --- | --- |
 | `equipment-3plus1-topology-v1` | `package-check-a46c3514-12e4-4475-b754-a337b637e1f2` | `PACKAGE_CHECK_PASS` |
 | `equipment-3plus1-set-selection-v1` | `package-check-61fda0ed-4b06-4286-a9f9-e9be41e7459d` | `PACKAGE_CHECK_PASS` |
-| `equipment-3plus1-unresolved-v1` | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `PACKAGE_CHECK_PASS` |
+| `equipment-3plus1-unresolved-v1` v1 | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `SUPERSEDED_BY_V2_SCENARIO` |
+
+`operator-config-correction-review-v1` 是两轮场景；其“第二轮重新 recommend”
+由 `npm run test:def-harness-scenario-verification` 静态合同覆盖，当前没有可核实的
+独立 package-check id。新的 unresolved 场景为 version 2，不再以“未知干员”为问题，而是 G2 原文的
+“寒冷伤害会不会触发潮涌第二段”证据不足问题；它要求本轮恰好一次 composite recommend、
+禁止旧链、typed result 为 `UNRESOLVED`，且最终回答保留“寒冷伤害”“不能证明”。
+当前 worktree 没有候选 runtime registry，不能诚实地产生新的 package-check id；
+`npm run test:def-harness-scenario-verification` 已对 v2 合同 PASS，但这不替代 W6 真实会话。
 
 ## W6 fresh-session 证据
 
@@ -89,11 +97,14 @@ W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutabl
 | AgentRelease / runtime commit / release hash | PASS | W6 runtime `91ac1a28c8b8be724250f968cfe7daa30d5bdfbc`；release `ae5f8cc3f582f69c53442f49c900a4027444ff3dcfe654f48f882b6d52e8bbde`；候选 hash 与注册值一致 |
 | `equipment-3plus1-topology-v1` | BLOCKED_EXTERNAL_PROVIDER | run `native-harness-run-f89cc4d0-bf43-4d4a-8323-242d93f063ca`；Session `ses_07686b64fffeKpIzvTG9bBgoIX`；provider 401；Tool 调用数为 0；runner cleanup 完成 |
 | `equipment-3plus1-set-selection-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | package-check 已 PASS；不重复触发已知无效 provider |
-| `equipment-3plus1-unresolved-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | package-check 已 PASS；不重复触发已知无效 provider |
+| `equipment-3plus1-unresolved-v1` v2 | NOT_RUN_AFTER_PROVIDER_BLOCK | v2 静态 scenario contract 已 PASS；旧 v1 package-check 已被替代，不把它当作 v2 或真实会话 PASS |
 | `operator-config-correction-review-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | 不在 provider 无效时创建无意义的写入审核会话 |
+| candidate regression（candidate vs stable） | NOT_RUN_AFTER_PROVIDER_BLOCK | 需要真实 native session 与可调用 provider；没有用 evaluator-only 结果代替候选回归 |
+| G5 相邻只读回归 | NOT_RUN_AFTER_PROVIDER_BLOCK | 精确装备事实、source-only guide、weapon fit 与 operator-config preview 尚未在 fresh session 执行；既有 mutation 审批自动安全合同仍为 PASS，但不替代 G5 黑盒 |
 | Interop state / binding | PASS | `snapshotAvailable=true`、`uiConsumerCount=1`、显式绑定完整候选 ref；真实 AgentRelease 可读 |
 | Workbench Chrome UI | PASS | 从产品入口进入真实 Workbench 与 AI 模式；旧 caller gate 已消失；renderer snapshot 与 Interop snapshot 均可用 |
 | DEF Shell cleanup button | PASS_CANCEL_PATH | Agent 页可见；只列出 1 个合法 `ai-cli` Session；显式选择后才可清理；确认框取消后 1 个 `ai-cli` 与 8 个 Workbench Session 均保留 |
+| DEF Shell confirmed delete | USER_CONFIRM_REQUIRED | 真实删除会话是破坏性操作；本轮只验证取消路径，未接受确认框，也没有把取消路径写成确认删除成功 |
 | Provider 配置 | BLOCKED | `/api/config/deepseek` 返回 `apiKeyConfigured=false`；首个真实 turn 收到非重试型 401 `Authentication Fails` |
 
 首个真实 run 发生在 loopback 返修之前，因此当时还记录了 `snapshotAvailable=false`。
@@ -106,4 +117,4 @@ W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutabl
 - 默认 Harness 尚未切换。
 - 旧 primitive 尚未退休。
 - 用户尚未作 activation 决定。
-- 配置有效 provider 后，先跑一次最小探针，再顺序执行三条 fresh-session 场景；全部通过后才能改为 `READY_FOR_ACTIVATION_DECISION`。
+- 配置有效 provider 后，先跑一次最小探针，再顺序执行四类 fresh-session 场景、candidate regression 与 G5 相邻只读回归；全部通过后才能改为 `READY_FOR_ACTIVATION_DECISION`。

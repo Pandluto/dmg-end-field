@@ -2,7 +2,11 @@
 
 ## 状态
 
-规格完成，待实施 [Task 9-1](./task9-1.md)。
+实施到 W6；外部 provider 阻塞，不可 activation。
+
+W1–W5、DEF Shell 清理入口和 W6 Host/Interop 返修均已提交。
+候选仍未 promotion，stable pointer 保持不变；真实 provider 场景恢复前，
+不得把当前状态写成 activation-ready。
 
 文档分支为 `codex/def-opencode-spec9`。
 它从 `codex/merge-main-code-bloat-20260722@0a01c19` 开始迭代。
@@ -1088,6 +1092,10 @@ def_data_equipment_3plus1_recommend
 
 Tool 内部阶段通过 typed result 和 trace metadata 可观察。
 不暴露模型隐藏思维链。
+
+对要求 `UNRESOLVED` 的场景，验证器必须同时观察到工具的 typed terminal state
+为 `UNRESOLVED`，并在该轮最终回答中保留对应的“不能证明”说明。
+只检查调用次数或只匹配一句自然语言，都不能构成该终态的 PASS。
 
 最终回答必须保留：
 

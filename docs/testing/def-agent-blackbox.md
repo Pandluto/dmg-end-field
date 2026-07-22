@@ -239,6 +239,11 @@ drop main stat, elemental trigger, or damage benefit.
 For a request without a named target set, the same single composite call remains required. Do
 not assemble an alternate route from catalog or legacy equipment tools.
 
+For the Spec 9 unresolved case, use `为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。`.
+The turn passes only when the one composite Tool returns typed `UNRESOLVED` and the final answer
+keeps both the cold-damage subject and an explicit “不能证明” statement. A tool trace alone, or a
+natural-language hedge that disagrees with the typed result, is not a pass.
+
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
 that the Electron-owned REST child and any sidecar-recovered REST child use the same local

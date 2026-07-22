@@ -2,7 +2,12 @@
 
 ## 状态
 
-待实施。首轮并行分发方案已冻结，仍需执行 W0 基线门后开工。
+实施到 W6；外部 provider 阻塞，不可 activation。
+
+W0–W5、DEF Shell 清理入口和 W6 Host/Interop 返修均已有提交与证据。
+候选仍未 promotion，stable pointer 保持不变。四类 fresh-session 语义场景、
+candidate regression 与 G5 相邻回归须待有效 provider 后恢复；本 Task 的未勾选
+检查项继续作为完成门，不因已实施到 W6 而批量改写。
 
 本 Task 是 [Spec 9](./spec.md) 的唯一实施任务。
 允许按检查点分批编码、验证和提交。

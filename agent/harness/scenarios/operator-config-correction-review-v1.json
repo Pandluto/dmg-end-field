@@ -17,7 +17,7 @@
       "1": ["def_data_equipment_3plus1_recommend"],
       "2": ["def_data_equipment_3plus1_recommend"]
     },
-    "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_equipment", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 2 },
     "forbiddenAssistantText": ["这就是标准的 3+1", "方案没有变化", "仍然使用原方案"],
     "mustKeepState": true

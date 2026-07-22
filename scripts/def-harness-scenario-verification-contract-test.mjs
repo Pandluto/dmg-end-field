@@ -17,6 +17,18 @@ const legacyThreePlusOneTools = [
   'def_data_equipment_3plus1_facts',
   'def_data_equipment_3plus1_plan',
 ];
+const forbiddenCompositeFallbackTools = [
+  ...legacyThreePlusOneTools,
+  'def_data_game_knowledge',
+  'def_data_game_knowledge_section',
+  'def_data_operator',
+  'def_data_skill',
+  'def_data_equipment',
+  'def_data_loadout_candidates',
+  'def_operator_config_preview',
+  'def_operator_config_patch',
+  'def_node_use',
+];
 let callSequence = 0;
 
 function completedTool(tool = recommendTool, resultState = 'READY') {
@@ -109,13 +121,14 @@ const correctionSkippedReplan = evaluateScenarioVerification(syntheticRun([
 assert.ok(failureCodes(correctionSkippedReplan).has('required-turn-tool-missing'));
 
 const expectations = [
-  ['equipment-3plus1-topology-v1.json', 1],
-  ['equipment-3plus1-set-selection-v1.json', 1],
-  ['operator-config-correction-review-v1.json', 2],
-  ['equipment-3plus1-unresolved-v1.json', 1],
+  ['equipment-3plus1-topology-v1.json', 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
+  ['equipment-3plus1-set-selection-v1.json', 1, ['为汤汤挑一套 3+1 装备，优先适配她的输出机制，不指定套装。']],
+  ['operator-config-correction-review-v1.json', 2, ['给别礼规划一套 3 潮涌+1，先给我确认方案，不要应用。', '配件二为什么不用第二个悬河供氧栓？']],
+  ['equipment-3plus1-unresolved-v1.json', 1, ['为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。']],
 ];
-for (const [file, turnCount] of expectations) {
+for (const [file, turnCount, prompts] of expectations) {
   const scenario = readScenario(file);
+  assert.deepEqual(scenario.turns.map((turn) => turn.userText), prompts, `${file} preserves the W6 natural-language case`);
   assert.deepEqual(scenario.verification.requiredTools, [recommendTool], `${file} has only the composite requirement`);
   assert.equal(scenario.verification.maxRepeatedToolCalls[recommendTool], turnCount, `${file} permits exactly one composite call per turn`);
   assert.equal(scenario.verification.conditionalTools, undefined, `${file} has no guide/profile branch`);
@@ -123,15 +136,33 @@ for (const [file, turnCount] of expectations) {
     assert.deepEqual(scenario.verification.requiredToolsByTurn[String(turn)], [recommendTool], `${file} requires composite recommendation in turn ${turn}`);
     assert.deepEqual(scenario.verification.orderedToolsByTurn[String(turn)], [recommendTool], `${file} has no multi-tool order in turn ${turn}`);
   }
-  for (const tool of legacyThreePlusOneTools) {
+  for (const tool of forbiddenCompositeFallbackTools) {
     assert.ok(scenario.verification.forbiddenTools.includes(tool), `${file} forbids legacy ${tool}`);
   }
   assert.equal(scenario.verification.mustKeepState, true, `${file} stays read-only`);
 }
 
 const unresolved = readScenario('equipment-3plus1-unresolved-v1.json');
-assert.match(unresolved.turns[0].userText, /未收录/);
+assert.equal(unresolved.version, 2, 'unresolved scenario version advances with the G2 behavior contract');
 assert.ok(unresolved.verification.forbiddenAssistantText.includes('已经应用'));
+assert.deepEqual(unresolved.verification.requiredToolResultStatesByTurn, {
+  1: { [recommendTool]: ['UNRESOLVED'] },
+});
+assert.deepEqual(unresolved.verification.requiredAssistantTextByTurn, {
+  1: ['寒冷伤害', '不能证明'],
+});
+const unresolvedPass = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], '现有资料不能证明寒冷伤害会触发潮涌第二段。'),
+]), unresolved);
+assert.equal(unresolvedPass.status, 'PASS');
+const unresolvedTypedReady = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTool(recommendTool, 'READY')], '现有资料不能证明寒冷伤害会触发潮涌第二段。'),
+]), unresolved);
+assert.ok(failureCodes(unresolvedTypedReady).has('required-turn-tool-result-state-missing'));
+const unresolvedFinalMissing = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], '这个结论缺少足够资料。'),
+]), unresolved);
+assert.ok(failureCodes(unresolvedFinalMissing).has('required-turn-assistant-text-missing'));
 
 const userCorrection = readScenario('user-correction-replan-v1.json');
 assert.equal(userCorrection.id, 'user-correction-replan-v1');
@@ -146,6 +177,7 @@ console.log(JSON.stringify({
     'correction-second-turn-fresh-composite-recommendation',
     'topology-and-set-scenarios-migrated',
     'unresolved-composite-scenario-present',
+    'unresolved-typed-state-and-final-answer-required',
     'user-correction-replan-unchanged-scope',
   ],
 }));

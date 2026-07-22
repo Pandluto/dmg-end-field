@@ -1,10 +1,10 @@
 {
   "id": "equipment-3plus1-unresolved-v1",
-  "version": 1,
+  "version": 2,
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
-    { "userText": "给未收录的干员规划一套 3+1 装备。" }
+    { "userText": "为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。" }
   ],
   "verification": {
     "requiredTools": ["def_data_equipment_3plus1_recommend"],
@@ -14,9 +14,17 @@
     "orderedToolsByTurn": {
       "1": ["def_data_equipment_3plus1_recommend"]
     },
-    "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
+    "requiredToolResultStatesByTurn": {
+      "1": {
+        "def_data_equipment_3plus1_recommend": ["UNRESOLVED"]
+      }
+    },
+    "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_equipment", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 1 },
     "forbiddenAssistantText": ["已经应用", "已装备", "已写入配置", "唯一可用方案"],
+    "requiredAssistantTextByTurn": {
+      "1": ["寒冷伤害", "不能证明"]
+    },
     "mustKeepState": true
   }
 }

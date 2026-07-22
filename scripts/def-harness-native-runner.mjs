@@ -149,6 +149,32 @@ function scenarioToolList(value, field, checks) {
   return [...new Set(value.map((tool) => tool.trim()))];
 }
 
+function scenarioResultStateList(value, field, checks) {
+  if (!Array.isArray(value) || !value.length || value.some((state) => typeof state !== 'string' || !state.trim())) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be a non-empty array of result-state strings.`,
+    });
+    return [];
+  }
+  return [...new Set(value.map((state) => state.trim()))];
+}
+
+function scenarioTextList(value, field, checks) {
+  if (!Array.isArray(value) || !value.length || value.some((text) => typeof text !== 'string' || !text.trim())) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be a non-empty array of text fragments.`,
+    });
+    return [];
+  }
+  return [...new Set(value.map((text) => text.trim()))];
+}
+
 function normalizeScenarioTurnToolRules(value, field, checks) {
   if (value === undefined) return [];
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -173,6 +199,76 @@ function normalizeScenarioTurnToolRules(value, field, checks) {
       return [];
     }
     return [{ turnNumber, tools }];
+  });
+}
+
+function normalizeScenarioTurnToolResultStateRules(value, field, checks) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object keyed by one-based turn number.`,
+    });
+    return [];
+  }
+  return Object.entries(value).flatMap(([rawTurnNumber, rawToolStates]) => {
+    const turnNumber = Number(rawTurnNumber);
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !rawToolStates || typeof rawToolStates !== 'object' || Array.isArray(rawToolStates)) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} entries must map a positive one-based turn number to tool result states.`,
+      });
+      return [];
+    }
+    return Object.entries(rawToolStates).flatMap(([rawTool, rawStates]) => {
+      const tool = typeof rawTool === 'string' ? rawTool.trim() : '';
+      const resultStates = scenarioResultStateList(rawStates, `${field}.${rawTurnNumber}.${rawTool || '<empty>'}`, checks);
+      if (!tool || !resultStates.length) {
+        if (!tool) {
+          addScenarioCheck(checks, {
+            pass: false,
+            code: 'verification-config-invalid',
+            field: `${field}.${rawTurnNumber}`,
+            message: `${field} tool names must be non-empty strings.`,
+          });
+        }
+        return [];
+      }
+      return [{ turnNumber, tool, resultStates }];
+    });
+  });
+}
+
+function normalizeScenarioTurnTextRules(value, field, checks) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object keyed by one-based turn number.`,
+    });
+    return [];
+  }
+  return Object.entries(value).flatMap(([rawTurnNumber, rawText]) => {
+    const turnNumber = Number(rawTurnNumber);
+    const text = scenarioTextList(rawText, `${field}.${rawTurnNumber}`, checks);
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !text.length) {
+      if (!Number.isInteger(turnNumber) || turnNumber < 1) {
+        addScenarioCheck(checks, {
+          pass: false,
+          code: 'verification-config-invalid',
+          field: `${field}.${rawTurnNumber}`,
+          message: `${field} keys must be positive one-based turn numbers.`,
+        });
+      }
+      return [];
+    }
+    return [{ turnNumber, text }];
   });
 }
 
@@ -273,6 +369,26 @@ export function evaluateScenarioVerification(run, scenario) {
     });
   }
 
+  const requiredToolResultStatesByTurn = normalizeScenarioTurnToolResultStateRules(
+    verification.requiredToolResultStatesByTurn,
+    'requiredToolResultStatesByTurn',
+    checks,
+  );
+  for (const rule of requiredToolResultStatesByTurn) {
+    const observedResultStates = events
+      .filter((event) => event.turnNumber === rule.turnNumber && event.tool === rule.tool && completedScenarioToolEvent(event))
+      .map((event) => event.resultState)
+      .filter(Boolean);
+    addScenarioCheck(checks, {
+      pass: observedResultStates.some((state) => rule.resultStates.includes(state)),
+      code: 'required-turn-tool-result-state-missing',
+      tool: rule.tool,
+      turnNumber: rule.turnNumber,
+      expectedResultStates: rule.resultStates,
+      observedResultStates,
+    });
+  }
+
   const repeated = verification.maxRepeatedToolCalls;
   if (repeated !== undefined && (!repeated || typeof repeated !== 'object' || Array.isArray(repeated))) {
     addScenarioCheck(checks, {
@@ -318,6 +434,23 @@ export function evaluateScenarioVerification(run, scenario) {
         pass: !assistantText.includes(text),
         code: 'forbidden-assistant-text-present',
         text,
+      });
+    }
+  }
+
+  const requiredTextByTurn = normalizeScenarioTurnTextRules(
+    verification.requiredAssistantTextByTurn,
+    'requiredAssistantTextByTurn',
+    checks,
+  );
+  for (const rule of requiredTextByTurn) {
+    const assistantText = scenarioAssistantText({ turns: [run?.turns?.[rule.turnNumber - 1]] });
+    for (const text of rule.text) {
+      addScenarioCheck(checks, {
+        pass: assistantText.includes(text),
+        code: 'required-turn-assistant-text-missing',
+        text,
+        turnNumber: rule.turnNumber,
       });
     }
   }
