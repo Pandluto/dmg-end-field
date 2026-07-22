@@ -32,6 +32,20 @@ const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
   || readOrCreatePersistentLocalCapability(
     path.join(getUserDataRoot(), 'runtime', 'def-internal-governance-capability.json'),
   );
+const harnessProjectionEnabled = !['release', 'production'].includes(String(process.env.DEF_CODEX_INTEROP_PROFILE || 'development').toLowerCase());
+function postInteropJson(url, payload, options = {}) {
+  let headers = { ...(options.headers || {}) };
+  try {
+    const target = new URL(url);
+    if (harnessProjectionEnabled && (
+      (target.origin === 'http://127.0.0.1:17322' && target.pathname === '/api/native/session')
+      || (target.origin === 'http://127.0.0.1:17321' && target.pathname.startsWith('/api/main-workbench/harness-projection/'))
+    )) {
+      headers = { ...headers, 'x-def-internal-token': defInternalGovernanceToken };
+    }
+  } catch {}
+  return postJsonUrl(url, payload, { ...options, headers });
+}
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: process.env.DEF_CODEX_INTEROP_PROFILE || 'development',
   baseUrl: `http://${HOST}:${PORT}`,
@@ -44,7 +58,7 @@ const defCodexInterop = createDefCodexInteropProtocol({
   writeSse,
   writeSseHeaders,
   fetchJson: fetchJsonUrl,
-  postJson: postJsonUrl,
+  postJson: postInteropJson,
 });
 
 function buildJsonHeaders(response) {
@@ -667,6 +681,7 @@ async function startAiCliRest() {
       ...process.env,
       AI_CLI_REST_PORT: '17321',
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
+      DEF_HARNESS_PROJECTION_ENABLED: harnessProjectionEnabled ? '1' : '0',
     },
     stdio: 'ignore',
     detached: false,
@@ -750,6 +765,7 @@ async function startDefAgent() {
       DEF_AGENT_PORT: '17322',
       DEF_OPENCODE_HOME: path.join(projectRoot, '.runtime', 'def-opencode'),
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
+      DEF_HARNESS_PROJECTION_ENABLED: harnessProjectionEnabled ? '1' : '0',
     },
     stdio: 'ignore',
     detached: false,

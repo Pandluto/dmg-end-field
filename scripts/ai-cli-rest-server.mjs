@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createServer as createViteServer } from 'vite';
 import Fuse from 'fuse.js';
@@ -17,6 +17,7 @@ import { buildAiTimelineCheckoutDecision } from '../src/agentKernel/timelineWork
 import {
   buildDefToolRouteMap,
   createDefToolRegistry,
+  DEF_NATIVE_TARGETS,
   DEF_PROJECTION_ACCESS,
   DEF_WORKSPACE_SCOPE,
   resolveDefToolAccessPolicy,
@@ -90,6 +91,11 @@ import {
   resolveCombatConventionBundle,
 } from './def-core/combat-conventions.mjs';
 import { createDefGuideSourceStore } from './def-core/guide-source-store.mjs';
+import {
+  createHarnessProjectionLeaseStore,
+  HARNESS_READ_PROJECTION_LEASE_CONTRACT,
+  HARNESS_READ_SESSION_POLICY_CONTRACT,
+} from './def-core/harness-projection-lease.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -260,6 +266,11 @@ const defRawTransportPolicy = createDefRawTransportPolicy({
 });
 const rawTransportAuthorized = defRawTransportPolicy.authorized;
 const denyRawTransport = defRawTransportPolicy.deny;
+// The harness projection authority is intentionally opt-in even in a
+// development binary. Production/release launches never inherit this flag.
+const harnessProjectionEnabled = process.env.DEF_HARNESS_PROJECTION_ENABLED === '1';
+const harnessProjectionLeases = createHarnessProjectionLeaseStore();
+const harnessProjectionNativeIdentities = new Map();
 
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -1550,7 +1561,7 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     : null;
   const checkoutPayload = checkoutNode?.workingPayload || checkoutSnapshot?.payload || null;
   const checkoutTargetTimelineId = checkoutNode?.timelineId || checkoutSnapshot?.timelineId || '';
-  if (checkoutNode?.ownerSessionId && checkoutNode.ownerSessionId !== sessionID) {
+  if (checkoutNode?.ownerSessionId && checkoutNode.ownerSessionId !== session.binding.opencodeSessionId) {
     return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout belongs to another DEF session.', 409);
   }
   if (!checkoutPayload || checkoutTargetTimelineId !== session.binding.timelineId
@@ -1586,6 +1597,95 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
       ? Number(checkoutNode?.contentRevision || 0) || null
       : null,
   };
+}
+
+function harnessLeaseIdentity(session) {
+  return {
+    sessionId: session.binding.opencodeSessionId,
+    axisBindingId: session.binding.id,
+    timelineId: session.binding.timelineId,
+    boundNodeId: session.binding.boundNodeId || '',
+  };
+}
+
+function resolveHarnessFixtureCurrent(input = {}, { nodeId = '' } = {}) {
+  const session = resolveBoundWorkbenchSession(input, { nodeId });
+  if (!session.ok) return session;
+  const authority = harnessProjectionLeases.resolve(harnessLeaseIdentity(session), { mode: 'hidden-fixture' });
+  if (!authority.ok) return workbenchBindingFailure('blocked-harness-read-lease', 'This Harness fixture no longer has an active read projection lease.', 409);
+  const { commitments, projection } = authority.record;
+  const repository = getTimelineRepository();
+  const axisContext = repository.getSessionAxisContext(session.binding.id);
+  const checkout = axisContext?.checkout || null;
+  const node = checkout?.targetType === 'work-node' ? repository.getWorkNode(checkout.targetId) : null;
+  if (!axisContext?.binding || axisContext.binding.timelineId !== commitments.fixtureTimelineId
+    || !axisContext.document || axisContext.document.archivedAt || axisContext.document.isTemporary
+    || !checkout || checkout.timelineId !== commitments.fixtureTimelineId
+    || checkout.targetType !== 'work-node' || checkout.targetId !== commitments.fixtureNodeId
+    || Number(checkout.updatedAt) !== Number(commitments.fixtureCheckoutUpdatedAt)
+    || !node || node.timelineId !== commitments.fixtureTimelineId
+    || (node.ownerSessionId && node.ownerSessionId !== session.binding.opencodeSessionId)
+    || Number(node.contentRevision || 0) !== Number(commitments.fixtureRevision)
+    || hashDefNodeValue(node.workingPayload) !== commitments.fixturePayloadHash) {
+    return workbenchBindingFailure('blocked-harness-fixture-stale', 'The isolated Harness fixture no longer matches its activated checkout evidence.', 409);
+  }
+  if (!projection || projection.source !== 'harness-fixture'
+    || projection.timelineId !== commitments.fixtureTimelineId
+    || projection.activeTimelineId !== commitments.fixtureTimelineId
+    || !workbenchProjectionMatchesCheckout(projection, node.workingPayload)
+    || !workbenchProjectionMatchesCheckoutIdentity(projection, checkout)) {
+    return workbenchBindingFailure('blocked-harness-fixture-stale', 'The isolated Harness projection evidence is incomplete.', 409);
+  }
+  return {
+    ok: true,
+    ...session,
+    snapshot: cloneJson(projection),
+    activeTimelineId: commitments.fixtureTimelineId,
+    projectionTimelineId: commitments.fixtureTimelineId,
+    axisContext,
+    checkout,
+    checkoutPayload: node.workingPayload,
+    checkoutPayloadHash: commitments.fixturePayloadHash,
+    checkoutTargetRevision: Number(node.contentRevision || 0),
+    checkoutNodeId: node.id,
+    checkoutRevision: Number(node.contentRevision || 0),
+    projectionSource: 'harness-fixture-lease',
+    harnessLeaseContract: HARNESS_READ_PROJECTION_LEASE_CONTRACT,
+  };
+}
+
+function resolveHarnessCurrent(input = {}, options = {}) {
+  const normal = resolveCanonicalWorkbenchCurrent(input, options);
+  if (normal.ok) return normal;
+  // A fixture can never repair a stale/cross-session binding: its own path
+  // repeats bound-session validation and only accepts a server-owned lease.
+  const fixture = resolveHarnessFixtureCurrent(input, options);
+  return fixture.ok ? fixture : normal;
+}
+
+function resolveActiveHarnessReadSession(input = {}) {
+  const normal = resolveCanonicalWorkbenchCurrent(input);
+  if (!normal.ok) return normal;
+  const authority = harnessProjectionLeases.resolve(harnessLeaseIdentity(normal), { mode: 'active-current-readonly' });
+  if (!authority.ok) return workbenchBindingFailure('blocked-harness-read-policy', 'This Harness session has no active current-readonly policy.', 409);
+  // resolveCanonicalWorkbenchCurrent already proves the formal checkout and
+  // current app projection. The policy only adds restrictions; it never
+  // substitutes fixture evidence or changes node ownership.
+  return { ...normal, harnessReadSessionPolicy: authority.record };
+}
+
+function resolveActiveHarnessPolicyForInvocation(input = {}) {
+  const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
+  if (!sessionId) return null;
+  const binding = getTimelineRepository().getSessionAxisBindingBySession('workbench', sessionId);
+  if (!binding) return null;
+  const authority = harnessProjectionLeases.resolve({
+    sessionId,
+    axisBindingId: binding.id,
+    timelineId: binding.timelineId,
+    boundNodeId: binding.boundNodeId || '',
+  }, { mode: 'active-current-readonly' });
+  return authority.ok ? authority.record : null;
 }
 
 function sortedStrings(values = []) {
@@ -3399,7 +3499,7 @@ function compactDefGearSet(gearSet = {}) {
 }
 
 function listDefWorkbenchButtons(input = {}) {
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   let buttons = Array.isArray(snapshot?.skillButtons) ? snapshot.skillButtons.map(compactDefButton) : [];
   const rawQuery = input.query || input.text || '';
   const parsedQuery = parseDefButtonNaturalQuery(rawQuery);
@@ -3464,8 +3564,8 @@ function listDefWorkbenchButtons(input = {}) {
   };
 }
 
-function listDefWorkbenchCharacters() {
-  const snapshot = readMainWorkbenchSnapshotMirror();
+function listDefWorkbenchCharacters(input = {}) {
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   const operatorConfigs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
   return {
@@ -3504,7 +3604,7 @@ function resolveDefCharacters(input = {}) {
     /干员|角色|operator|character/i.test(String(rawQuery || ''))
   ));
   const query = ordinalCharacterQuery ? '' : normalizedQuery;
-  const data = listDefWorkbenchCharacters();
+  const data = listDefWorkbenchCharacters(input);
   let candidates = data.characters
     .filter((character) => !query || normalizeDefToolText(`${character.name} ${character.id}`).includes(query))
     .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === normalizedQuery ? 1 : 0.75 }));
@@ -6031,8 +6131,8 @@ function resolveDefSkills(input = {}) {
   const requestedSkillType = normalizeDefToolText(input.skillType || inferDefSkillTypeFromText(rawQuery));
   const explicitCharacter = normalizeDefToolText(input.characterQuery || input.characterName || input.character || '');
   const requestedActionVariant = inferDefSkillActionVariant(rawQuery);
-  const snapshot = readMainWorkbenchSnapshotMirror();
-  const buttons = listDefWorkbenchButtons({ limit: 200 }).buttons;
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
+  const buttons = listDefWorkbenchButtons({ ...input, limit: 200 }).buttons;
   const operatorCatalog = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
   const selectedCharacters = Array.isArray(snapshot?.selectedCharacters) ? snapshot.selectedCharacters : [];
   const bySkill = new Map();
@@ -7174,6 +7274,7 @@ function applyDefWorkNodePatchAndValidate(input = {}) {
 
 function rankDefWorkbenchButtonsByBuff(input = {}) {
   const listed = listDefWorkbenchButtons({
+    ...input,
     characterName: input.characterName || input.character || '',
     skillName: input.skillName || input.skillDisplayName || '',
     limit: 200,
@@ -7961,6 +8062,31 @@ const defCoreToolRegistry = createDefCoreToolRegistry({
 });
 const DEF_TOOL_REGISTRY = defCoreToolRegistry.definitions;
 const DEF_TOOL_DEFINITIONS = defCoreToolRegistry.definitions;
+
+function resolveHarnessScenarioToolIds(nativeBindings) {
+  const values = Array.isArray(nativeBindings) ? nativeBindings : [];
+  if (!values.length) return { ok: false, code: 'ERROR_SCENARIO', message: 'Harness active-current-readonly requires a non-empty complete onlyToolsByTurn union.' };
+  const resolved = [];
+  for (const value of values) {
+    const nativeBinding = typeof value === 'string' ? value.trim() : '';
+    const targets = DEF_NATIVE_TARGETS.filter((target) => target.nativeBinding === nativeBinding);
+    if (targets.length !== 1) return { ok: false, code: 'ERROR_SCENARIO', message: `Scenario onlyTools entry is not a unique native binding: ${nativeBinding || '(empty)'}.` };
+    const records = DEF_TOOL_DEFINITIONS.filter((tool) => tool.id === targets[0].id || tool.canonicalTarget === targets[0].id);
+    if (records.length !== 1) return { ok: false, code: 'ERROR_SCENARIO', message: `Scenario native binding does not resolve to one canonical DEF tool: ${nativeBinding}.` };
+    const policy = resolveDefToolAccessPolicy(records[0].name, records[0]);
+    if (policy.harnessActiveCurrentAccess !== 'read'
+      || records[0].riskLevel !== 'read'
+      || records[0].approval !== 'none'
+      || records[0].commandOp) {
+      return { ok: false, code: 'ERROR_SCENARIO', message: `Scenario onlyTools entry is not an approved active-current-readonly tool: ${nativeBinding}.` };
+    }
+    if (resolved.some((entry) => entry.nativeBinding === nativeBinding || entry.toolId === records[0].name)) {
+      return { ok: false, code: 'ERROR_SCENARIO', message: `Scenario onlyTools contains an ambiguous duplicate: ${nativeBinding}.` };
+    }
+    resolved.push({ nativeBinding, toolId: records[0].name });
+  }
+  return { ok: true, toolIds: resolved.map((entry) => entry.toolId).sort(), mappings: resolved };
+}
 
 function getDefToolDefinition(name) {
   return defCoreToolRegistry.get(name);
@@ -9959,7 +10085,7 @@ function buildDefOperatorConfigPatchCommands(input = {}) {
 }
 
 function findDefOperatorConfig(input = {}) {
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   const configs = Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : [];
   const characterId = typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : '';
   const characterName = normalizeDefToolText(input.characterName || input.character || '');
@@ -10100,11 +10226,52 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
     ok: false,
     response: failScript(403, 'denied-tool-host', `DEF tool ${name} is not available to host ${host}.`),
   });
+  const denyHarness = (code, message) => ({
+    ok: false,
+    response: failScript(403, code, message),
+  });
+  const restrictHarnessRead = (gate) => {
+    if (gate?.projectionSource === 'harness-fixture-lease') {
+      if (policy.projectionAccess !== DEF_PROJECTION_ACCESS.CURRENT_READ
+        || policy.harnessFixtureAccess !== 'read'
+        || definition?.riskLevel !== 'read'
+        || definition?.approval !== 'none'
+        || definition?.commandOp) {
+        return denyHarness('denied-harness-fixture-mutation', 'Hidden Harness fixtures permit only explicitly audited, server-only current reads.');
+      }
+      return { ok: true, gate };
+    }
+    const active = harnessProjectionLeases.resolve(harnessLeaseIdentity(gate || { binding: {} }), { mode: 'active-current-readonly' });
+    if (!active.ok) return { ok: true, gate };
+    if (policy.projectionAccess !== DEF_PROJECTION_ACCESS.CURRENT_READ
+      || policy.harnessActiveCurrentAccess !== 'read'
+      || definition?.riskLevel !== 'read'
+      || definition?.approval !== 'none'
+      || definition?.commandOp
+      || !active.record.allowedTools.includes(name)) {
+      return denyHarness('denied-harness-current-readonly', 'This real-Canvas Harness session permits only its Scenario-declared read-only tools.');
+    }
+    return { ok: true, gate: { ...gate, harnessReadSessionPolicy: active.record } };
+  };
   if (policy.workspaceScope === DEF_WORKSPACE_SCOPE.INTERNAL_GOVERNANCE) {
     if (!defInternalGovernanceToken || invocation.internalToken !== defInternalGovernanceToken) {
       return { ok: false, response: failScript(403, 'denied-internal-governance', 'This DEF governance capability is available only to the native host.') };
     }
     return { ok: true, input, policy };
+  }
+  // This applies before every public/session-private/current shortcut. A
+  // real-Canvas Harness session is an allowlisted test principal, not merely
+  // a different current-projection implementation, so it must not escape via
+  // a public catalog or a session-private permission route.
+  const activeHarnessPolicy = resolveActiveHarnessPolicyForInvocation(input);
+  if (activeHarnessPolicy) {
+    if (!activeHarnessPolicy.allowedTools.includes(name)
+      || policy.harnessActiveCurrentAccess !== 'read'
+      || definition?.riskLevel !== 'read'
+      || definition?.approval !== 'none'
+      || definition?.commandOp) {
+      return denyHarness('denied-harness-current-readonly', 'This real-Canvas Harness session permits only its Scenario-declared read-only tools.');
+    }
   }
   // The bridge response carries catalog bytes only so the native plugin can
   // write them into its own session directory. A generic loopback caller must
@@ -10168,20 +10335,24 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
       if (!policy.allowedHosts.includes('ai-cli')) return deniedHost('ai-cli');
       return { ok: true, input: { ...input, __defPublicOnly: true }, policy };
     }
-    const gate = resolveCanonicalWorkbenchCurrent(input);
+    const gate = resolveHarnessCurrent(input);
     if (!gate.ok) return { ok: false, response: failScript(gate.status, gate.code, gate.message, { state: gate.state }) };
     if (!policy.allowedHosts.includes(gate.binding.host)) return deniedHost(gate.binding.host);
-    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: gate, __defPublicOnly: false }, policy };
+    const harness = restrictHarnessRead(gate);
+    if (!harness.ok) return harness;
+    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: harness.gate, __defPublicOnly: false }, policy };
   }
   if (policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKBENCH_CURRENT
     || policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE) {
     const nodeId = policy.workspaceScope === DEF_WORKSPACE_SCOPE.WORKNODE_TREE && typeof input.nodeId === 'string'
       ? input.nodeId.trim()
       : '';
-    const gate = resolveCanonicalWorkbenchCurrent(input, { nodeId });
+    const gate = resolveHarnessCurrent(input, { nodeId });
     if (!gate.ok) return { ok: false, response: failScript(gate.status, gate.code, gate.message, { state: gate.state }) };
     if (!policy.allowedHosts.includes(gate.binding.host)) return deniedHost(gate.binding.host);
-    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: gate }, policy };
+    const harness = restrictHarnessRead(gate);
+    if (!harness.ok) return harness;
+    return { ok: true, input: { ...input, timelineId: gate.binding.timelineId, __defCurrentGate: harness.gate }, policy };
   }
   if (!policy.allowedHosts.includes('ai-cli')) return deniedHost('ai-cli');
   return { ok: true, input, policy };
@@ -10482,7 +10653,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       },
     };
   }
-  const snapshot = readMainWorkbenchSnapshotMirror();
+  const snapshot = input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror();
   let result = null;
   if (name === 'def.tool.list') {
     result = { tools: DEF_TOOL_DEFINITIONS.filter((tool) => tool.exposure.length > 0) };
@@ -10499,7 +10670,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     }
     result = { snapshot: session.snapshot, axisContext: session.axisContext };
   } else if (name === 'def.workbench.evidence') {
-    result = buildMainWorkbenchEvidence(snapshot, {
+    result = buildMainWorkbenchEvidence(input.__defCurrentGate?.snapshot || snapshot, {
       prompt: input.prompt || input.query || '',
       previousButtonId: input.previousButtonId || '',
     });
@@ -10508,7 +10679,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
   } else if (name === 'def.workbench.rank_buttons_by_buff') {
     result = rankDefWorkbenchButtonsByBuff(input);
   } else if (name === 'def.workbench.list_characters') {
-    result = listDefWorkbenchCharacters();
+    result = listDefWorkbenchCharacters(input);
   } else if (name === 'def.team.loadouts.read') {
     result = readDefSelectedTeamLoadouts(input);
     if (!result) return failScript(409, 'snapshot-unavailable', 'Current Workbench snapshot is unavailable.', {
@@ -10553,7 +10724,8 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     result = await applyDefTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code || 'team-loadout-plan-apply-failed', result.message || 'Team loadout plan was not applied.', { component: 'team-loadout-plan', state: result.state, nextAction: result.nextAction, results: result.results });
   } else if (name === 'def.workbench.damage_report') {
-    result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
+    const currentSnapshot = input.__defCurrentGate?.snapshot || snapshot;
+    result = { snapshotUpdatedAt: currentSnapshot?.updatedAt || null, damageReport: currentSnapshot?.damageReport || null };
   } else if (name === 'def.character.resolve') {
     result = resolveDefCharacters(input);
   } else if (name === 'def.operator.catalog.search') {
@@ -10932,6 +11104,213 @@ async function handleMainWorkbenchRequest(method, pathname, query, body, invocat
   // replay a projection nor inspect it as a side door into another timeline.
   if (!pathname.startsWith('/api/main-workbench')) return null;
   if (!rawTransportAuthorized(invocation)) return denyRawTransport(pathname);
+  const harnessProjectionPath = '/api/main-workbench/harness-projection';
+  if (pathname.startsWith(harnessProjectionPath)) {
+    if (!harnessProjectionEnabled) {
+      return failScript(403, 'harness-projection-disabled', 'Harness projection authority is disabled outside an explicitly enabled development runtime.');
+    }
+    if (method === 'POST' && pathname === `${harnessProjectionPath}/register-native`) {
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+      const harnessCommitment = typeof body?.harnessCommitment === 'string' ? body.harnessCommitment.trim() : '';
+      const agentReleaseCommitment = typeof body?.agentReleaseCommitment === 'string' ? body.agentReleaseCommitment.trim() : '';
+      const bound = resolveBoundWorkbenchSession({ __defSessionId: sessionId });
+      if (!bound.ok) return failScript(bound.status, bound.code, bound.message, { state: bound.state });
+      if (!harnessCommitment || !agentReleaseCommitment) {
+        return failScript(400, 'invalid-harness-native-identity', 'Native Harness registration requires sealed Harness and AgentRelease commitments.');
+      }
+      harnessProjectionNativeIdentities.set(sessionId, {
+        sessionId,
+        axisBindingId: bound.binding.id,
+        timelineId: bound.binding.timelineId,
+        boundNodeId: bound.binding.boundNodeId || '',
+        harnessCommitment,
+        agentReleaseCommitment,
+        expiresAt: Date.now() + 60_000,
+      });
+      return { status: 201, body: { ok: true, protocolVersion: 1, status: 'registered' } };
+    }
+    if (method === 'POST' && pathname === `${harnessProjectionPath}/provision`) {
+      const mode = typeof body?.mode === 'string' ? body.mode : '';
+      if (!['hidden-fixture', 'active-current-readonly'].includes(mode)) {
+        return failScript(400, 'invalid-harness-projection-mode', 'Harness projection mode must be hidden-fixture or active-current-readonly.');
+      }
+      const sourceSessionId = typeof body?.sourceSessionId === 'string' ? body.sourceSessionId.trim() : '';
+      const sourceGate = resolveCanonicalWorkbenchCurrent({ __defSessionId: sourceSessionId });
+      if (!sourceGate.ok) return failScript(sourceGate.status, sourceGate.code, sourceGate.message, { state: sourceGate.state });
+      const sourceCheckout = sourceGate.checkout;
+      const sourceCommitments = {
+        sourceTimelineId: sourceGate.binding.timelineId,
+        sourceCheckoutTargetType: sourceCheckout.targetType,
+        sourceCheckoutTargetId: sourceCheckout.targetId,
+        sourceCheckoutUpdatedAt: sourceCheckout.updatedAt,
+        sourcePayloadHash: sourceGate.checkoutPayloadHash,
+        sourceRevision: sourceGate.checkoutTargetRevision,
+        sourceProjectionHash: hashDefStableValue(sourceGate.snapshot),
+      };
+      let fixture = null;
+      let projection = null;
+      if (mode === 'hidden-fixture') {
+        const fixtureId = `fixture-${randomUUID()}`;
+        const timelineId = `harness-${fixtureId}`;
+        const nodeId = `${fixtureId}-node`;
+        const snapshotId = `${fixtureId}-snapshot`;
+        const createdAt = Date.now();
+        try {
+          getTimelineRepository().importDocumentBundle({
+            document: { id: timelineId, label: `Harness fixture ${fixtureId}`, createdAt },
+            snapshots: [{ id: snapshotId, label: 'Harness isolated baseline', payload: cloneJson(sourceGate.checkoutPayload), createdAt }],
+            workNodes: [{
+              id: nodeId,
+              branchId: `${fixtureId}-branch`,
+              label: 'Harness isolated work node',
+              status: 'open',
+              approvalPolicy: 'manual',
+              basePayload: cloneJson(sourceGate.checkoutPayload),
+              workingPayload: cloneJson(sourceGate.checkoutPayload),
+              createdAt,
+              updatedAt: createdAt,
+              contentRevision: createdAt,
+            }],
+            checkoutRef: { targetType: 'work-node', targetId: nodeId, updatedAt: createdAt },
+          });
+        } catch (error) {
+          return failScript(error?.status || 502, error?.code || 'harness-fixture-create-failed', error instanceof Error ? error.message : 'Could not create isolated Harness fixture.');
+        }
+        const importedNode = getTimelineRepository().getWorkNode(nodeId);
+        const checkout = getTimelineRepository().exportDocumentBundle(timelineId).checkoutRef;
+        if (!importedNode || !checkout || hashDefNodeValue(importedNode.workingPayload) !== sourceGate.checkoutPayloadHash) {
+          try { getTimelineRepository().deleteDocument(timelineId); } catch {}
+          return failScript(409, 'harness-fixture-evidence-failed', 'The imported Harness fixture did not preserve the exact current checkout payload.');
+        }
+        fixture = {
+          fixtureId,
+          timelineId,
+          nodeId,
+          checkoutUpdatedAt: checkout.updatedAt,
+          payloadHash: hashDefNodeValue(importedNode.workingPayload),
+          revision: Number(importedNode.contentRevision || 0),
+        };
+        projection = {
+          ...cloneJson(sourceGate.snapshot),
+          source: 'harness-fixture',
+          timelineId,
+          activeTimelineId: timelineId,
+          checkout: { targetType: 'work-node', targetId: nodeId, timelineId, updatedAt: checkout.updatedAt },
+        };
+      }
+      const resolvedTools = mode === 'active-current-readonly'
+        ? resolveHarnessScenarioToolIds(body?.allowedTools)
+        : { ok: true, toolIds: [] };
+      if (!resolvedTools.ok) return failScript(400, resolvedTools.code, resolvedTools.message);
+      const provision = harnessProjectionLeases.provision({
+        mode,
+        commitments: {
+          ...sourceCommitments,
+          fixtureTimelineId: fixture?.timelineId || '',
+          fixtureNodeId: fixture?.nodeId || '',
+          fixtureCheckoutUpdatedAt: fixture?.checkoutUpdatedAt || 0,
+          fixturePayloadHash: fixture?.payloadHash || '',
+          fixtureRevision: fixture?.revision || 0,
+        },
+        projection,
+        allowedTools: resolvedTools.toolIds,
+      });
+      if (!provision.ok) {
+        if (fixture?.timelineId) { try { getTimelineRepository().deleteDocument(fixture.timelineId); } catch {} }
+        return failScript(409, provision.code, 'Harness projection provision was rejected.');
+      }
+      return {
+        status: 201,
+        body: {
+          ok: true,
+          protocolVersion: 1,
+          // This token is returned only over native-token transport to the
+          // Interop/sidecar hand-off; never include it in runner/model output.
+          provisionToken: provision.token,
+          expiresAt: provision.expiresAt,
+          mode,
+          fixture: fixture ? { fixtureId: fixture.fixtureId, timelineId: fixture.timelineId, boundNodeId: fixture.nodeId } : null,
+          source: { timelineId: sourceGate.binding.timelineId, boundNodeId: sourceGate.checkout.targetType === 'work-node' ? sourceGate.checkout.targetId : '' },
+        },
+      };
+    }
+    if (method === 'POST' && pathname === `${harnessProjectionPath}/activate`) {
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+      const binding = resolveBoundWorkbenchSession({ __defSessionId: sessionId });
+      if (!binding.ok) return failScript(binding.status, binding.code, binding.message, { state: binding.state });
+      const candidate = harnessProjectionLeases.resolve({
+        sessionId,
+        axisBindingId: binding.binding.id,
+        timelineId: binding.binding.timelineId,
+        boundNodeId: binding.binding.boundNodeId || '',
+      });
+      // resolve() intentionally cannot expose provisions. Activation below
+      // performs the one-shot token CAS; candidate is kept only to document
+      // that callers cannot activate a pre-existing active session.
+      if (candidate.ok) return failScript(409, 'harness-session-already-active', 'Harness session is already activated.');
+      const current = resolveCanonicalWorkbenchCurrent({ __defSessionId: sessionId });
+      const sourceBinding = binding.binding;
+      const sourceMode = typeof body?.mode === 'string' ? body.mode : '';
+      if (!['hidden-fixture', 'active-current-readonly'].includes(sourceMode)) {
+        return failScript(400, 'invalid-harness-projection-mode', 'Harness projection mode must be hidden-fixture or active-current-readonly.');
+      }
+      if (sourceMode === 'active-current-readonly' && !current.ok) {
+        return failScript(current.status, 'BLOCKED_ENVIRONMENT', 'The real visible Canvas no longer proves this fresh candidate session before provider ingress.', { state: current.state });
+      }
+      const nativeIdentity = harnessProjectionNativeIdentities.get(sessionId);
+      if (!nativeIdentity || nativeIdentity.expiresAt <= Date.now()
+        || nativeIdentity.axisBindingId !== sourceBinding.id
+        || nativeIdentity.timelineId !== sourceBinding.timelineId
+        || nativeIdentity.boundNodeId !== (sourceBinding.boundNodeId || '')) {
+        return failScript(409, 'harness-native-identity-unavailable', 'The sealed native Harness identity was not registered for this activation.');
+      }
+      const activation = harnessProjectionLeases.activate({
+        token: typeof body?.provisionToken === 'string' ? body.provisionToken : '',
+        session: {
+          sessionId,
+          axisBindingId: sourceBinding.id,
+          timelineId: sourceBinding.timelineId,
+          boundNodeId: sourceBinding.boundNodeId || '',
+          harnessCommitment: nativeIdentity.harnessCommitment,
+          agentReleaseCommitment: nativeIdentity.agentReleaseCommitment,
+        },
+      });
+      if (!activation.ok) return failScript(409, activation.code, 'Harness projection activation was rejected.');
+      harnessProjectionNativeIdentities.delete(sessionId);
+      const record = activation.record;
+      if (record.mode !== sourceMode) {
+        harnessProjectionLeases.revoke(sessionId, 'mode-mismatch');
+        return failScript(409, 'harness-activation-mode-mismatch', 'Harness projection activation mode does not match its provision.');
+      }
+      if (record.mode === 'hidden-fixture') {
+        const fixtureNode = getTimelineRepository().getWorkNode(record.commitments.fixtureNodeId);
+        const fixtureCheckout = getTimelineRepository().exportDocumentBundle(record.commitments.fixtureTimelineId).checkoutRef;
+        if (!fixtureNode || !fixtureCheckout || fixtureNode.timelineId !== record.commitments.fixtureTimelineId
+          || fixtureCheckout.targetId !== record.commitments.fixtureNodeId
+          || hashDefNodeValue(fixtureNode.workingPayload) !== record.commitments.fixturePayloadHash
+          || Number(fixtureNode.contentRevision || 0) !== Number(record.commitments.fixtureRevision)) {
+          harnessProjectionLeases.revoke(sessionId, 'fixture-activation-evidence-failed');
+          return failScript(409, 'harness-fixture-activation-evidence-failed', 'Fixture checkout evidence changed before activation.');
+        }
+      } else if (current.checkout.targetType !== record.commitments.sourceCheckoutTargetType
+        || current.checkout.targetId !== record.commitments.sourceCheckoutTargetId
+        || Number(current.checkout.updatedAt) !== Number(record.commitments.sourceCheckoutUpdatedAt)
+        || current.checkoutPayloadHash !== record.commitments.sourcePayloadHash
+        || Number(current.checkoutTargetRevision || 0) !== Number(record.commitments.sourceRevision)
+        || hashDefStableValue(current.snapshot) !== record.commitments.sourceProjectionHash) {
+        harnessProjectionLeases.revoke(sessionId, 'current-projection-drift');
+        return failScript(409, 'BLOCKED_ENVIRONMENT', 'The visible Canvas drifted while the fresh read-only session was being activated.');
+      }
+      return { status: 200, body: { ok: true, protocolVersion: 1, contract: record.contract, mode: record.mode, expiresAt: record.expiresAt } };
+    }
+    if (method === 'POST' && pathname === `${harnessProjectionPath}/revoke`) {
+      const sessionId = typeof body?.sessionId === 'string' ? body.sessionId.trim() : '';
+      if (!sessionId) return failScript(400, 'missing-session-id', 'Harness projection revoke requires sessionId.');
+      const result = harnessProjectionLeases.revoke(sessionId, typeof body?.reason === 'string' ? body.reason : 'cleanup');
+      return { status: 200, body: { ok: true, protocolVersion: 1, ...result } };
+    }
+    return failScript(404, 'harness-projection-route-not-found', 'Unknown internal Harness projection route.');
+  }
   if (method === 'POST' && pathname === '/api/main-workbench/checkout-projection') {
     const sessionBindingId = typeof body?.sessionBindingId === 'string' ? body.sessionBindingId.trim() : '';
     const sessionID = typeof body?.sessionID === 'string' ? body.sessionID.trim() : '';

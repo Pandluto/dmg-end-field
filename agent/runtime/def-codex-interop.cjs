@@ -817,54 +817,66 @@ function createDefCodexInteropProtocol(options) {
         reject(response, 400, createError('invalid-harness-selector', 'Harness runner needs stable, candidate/<name>, or id@version.', 'protocol')); return true;
       }
       const fixtureId = `fixture-${crypto.randomUUID()}`;
-      const timelineId = `harness-${fixtureId}`;
-      const fixtureMode = body?.fixtureMode === 'clone-current' ? 'clone-current' : 'empty';
+      let timelineId = `harness-${fixtureId}`;
+      const requestedFixtureMode = typeof body?.fixtureMode === 'string' ? body.fixtureMode : 'empty';
+      const fixtureMode = requestedFixtureMode === 'clone-current' ? 'hidden-fixture'
+        : requestedFixtureMode === 'active-current-readonly' ? 'active-current-readonly'
+          : requestedFixtureMode === 'empty' ? 'empty' : '';
+      if (!fixtureMode) {
+        reject(response, 400, createError('ERROR_SCENARIO', 'Harness fixtureMode must be empty, clone-current, or active-current-readonly.', 'scenario'));
+        return true;
+      }
       let boundNodeId = '';
       let fixture;
-      if (fixtureMode === 'clone-current') {
-        const state = await snapshot();
+      let projectionProvision = null;
+      if (fixtureMode === 'hidden-fixture' || fixtureMode === 'active-current-readonly') {
         const consumer = currentConsumer();
-        let native = null;
-        if (consumer?.directory) {
-          try {
-            const query = new URLSearchParams({ sessionID: consumer.sessionId, directory: consumer.directory });
-            const bootstrap = await options.fetchJson(`${options.sidecarUrl}/api/native/bootstrap?${query}`);
-            native = bootstrap.body?.ok ? bootstrap.body : null;
-          } catch {}
+        if (!consumer?.sessionId) {
+          reject(response, 409, createError('BLOCKED_ENVIRONMENT', 'A current-reading Harness mode requires an active visible Workbench UI session.', 'fixture', { retryable: true })); return true;
         }
-        const sourceTimelineId = state.available
-          ? resolveCanonicalWorkbenchTimelineId(state.value, native)
-          : '';
-        const exported = sourceTimelineId
-          ? await options.fetchJson(`${baseUrl}/local-data/timeline-bundles/export?timelineId=${encodeURIComponent(sourceTimelineId)}`)
-          : { status: 409, body: null };
-        const payload = readExactCheckoutPayload(exported.body);
-        if (exported.status < 200 || exported.status >= 300 || !payload) {
-          reject(response, 409, createError('BLOCKED_ENVIRONMENT', 'A populated Harness fixture needs an available current Workbench payload.', 'fixture', { retryable: true })); return true;
-        }
-        boundNodeId = `${fixtureId}-node`;
-        fixture = await options.postJson(`${baseUrl}/local-data/timeline-bundles/import`, {
-          document: { id: timelineId, label: `Harness fixture ${fixtureId}` },
-          snapshots: [{ id: `${fixtureId}-snapshot`, label: 'Harness isolated baseline', payload }],
-          workNodes: [{ id: boundNodeId, branchId: `${fixtureId}-branch`, label: 'Harness isolated work node', status: 'open', approvalPolicy: 'manual', basePayload: payload, workingPayload: payload }],
-          checkoutRef: { targetType: 'work-node', targetId: boundNodeId },
+        const restBaseUrl = new URL(options.snapshotUrl).origin;
+        projectionProvision = await options.postJson(`${restBaseUrl}/api/main-workbench/harness-projection/provision`, {
+          mode: fixtureMode,
+          sourceSessionId: consumer.sessionId,
+          // Native binding names, not model/registry ids. REST resolves them
+          // uniquely before storing its private scenario policy.
+          allowedTools: Array.isArray(body?.scenarioToolAllowlist) ? body.scenarioToolAllowlist : [],
         });
+        if (projectionProvision.status < 200 || projectionProvision.status >= 300 || projectionProvision.body?.ok !== true) {
+          const provisionCode = projectionProvision.body?.error?.code || projectionProvision.body?.code || '';
+          if (provisionCode === 'ERROR_SCENARIO') {
+            reject(response, 400, createError('ERROR_SCENARIO', projectionProvision.body?.error?.message || 'The active-current-readonly Scenario allowlist is invalid.', 'scenario'));
+            return true;
+          }
+          reject(response, 409, createError('BLOCKED_ENVIRONMENT', projectionProvision.body?.error?.message || 'Could not provision an authenticated Harness current projection.', 'fixture', { retryable: true })); return true;
+        }
+        const provision = projectionProvision.body;
+        const target = fixtureMode === 'hidden-fixture' ? provision.fixture : provision.source;
+        timelineId = typeof target?.timelineId === 'string' ? target.timelineId : '';
+        boundNodeId = typeof target?.boundNodeId === 'string' ? target.boundNodeId : '';
+        if (!timelineId || (fixtureMode === 'hidden-fixture' && !boundNodeId) || !provision.provisionToken) {
+          reject(response, 502, createError('harness-projection-provision-invalid', 'The Harness projection provision omitted an exact bound checkout.', 'fixture')); return true;
+        }
+        fixture = { status: 201, body: { ok: true } };
       } else {
         fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents`, { id: timelineId, label: `Harness fixture ${fixtureId}` });
       }
       if (fixture.status < 200 || fixture.status >= 300 || fixture.body?.ok === false) {
         reject(response, 502, createError('harness-fixture-create-failed', 'Could not create isolated Harness timeline fixture.', 'fixture', { retryable: true })); return true;
       }
-      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, { host: 'workbench', harnessSelector: selector, timelineId, boundNodeId });
+      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, {
+        host: 'workbench', harnessSelector: selector, timelineId, boundNodeId,
+        ...(projectionProvision ? { harnessProjection: { provisionToken: projectionProvision.body.provisionToken, mode: fixtureMode } } : {}),
+      });
       if (created.status < 200 || created.status >= 300 || created.body?.ok !== true || !created.body?.session?.id) {
-        await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
+        if (fixtureMode !== 'active-current-readonly') await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
         reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
       }
       const session = created.body.session;
-      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, agentRelease: session.agentRelease || null, createdAt: Date.now(), updatedAt: Date.now() };
+      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId: fixtureMode === 'hidden-fixture' ? projectionProvision.body.fixture.fixtureId : fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, agentRelease: session.agentRelease || null, projection: session.harnessProjection || null, ownedFixture: fixtureMode !== 'active-current-readonly', createdAt: Date.now(), updatedAt: Date.now() };
       harnessRunners.set(runner.sessionId, runner);
       emit('harness-session-created', { sessionId: runner.sessionId }, { fixtureId, timelineId, harness: runner.harnessBinding, agentRelease: runner.agentRelease });
-      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: runner.harnessBinding, agentRelease: runner.agentRelease } }); return true;
+      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId: runner.fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: runner.harnessBinding, agentRelease: runner.agentRelease, projection: runner.projection } }); return true;
     }
     const harnessCloseMatch = /^\/def-agent\/interop\/v1\/harness\/sessions\/([^/]+)$/.exec(path);
     if (method === 'DELETE' && harnessCloseMatch) {
@@ -874,8 +886,10 @@ function createDefCodexInteropProtocol(options) {
       if (!runner) { json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: 'already-closed' }); return true; }
       const deleted = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/runner-cleanup`, {});
       if (deleted.status < 200 || deleted.status >= 300) { reject(response, 502, createError('harness-session-cleanup-failed', 'Native Harness runner session could not be cleaned up.', 'sidecar', { retryable: true, ids: { sessionId } })); return true; }
-      const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(runner.timelineId)}/delete`, {});
-      if (fixture.status < 200 || fixture.status >= 300) { reject(response, 502, createError('harness-fixture-cleanup-failed', 'Harness timeline fixture could not be cleaned up.', 'fixture', { retryable: true, ids: { sessionId } })); return true; }
+      if (runner.ownedFixture) {
+        const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(runner.timelineId)}/delete`, {});
+        if (fixture.status < 200 || fixture.status >= 300) { reject(response, 502, createError('harness-fixture-cleanup-failed', 'Harness timeline fixture could not be cleaned up.', 'fixture', { retryable: true, ids: { sessionId } })); return true; }
+      }
       harnessRunners.delete(sessionId);
       emit('harness-session-cleaned', { sessionId }, { fixtureId: runner.fixtureId, timelineId: runner.timelineId });
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: 'cleaned' }); return true;

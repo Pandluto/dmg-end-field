@@ -1191,6 +1191,26 @@ export function applyScenarioVerification(run, scenario) {
   };
 }
 
+function activeCurrentReadonlyScenarioAllowlist(scenario) {
+  if (scenario?.fixtureMode !== 'active-current-readonly') return [];
+  const rules = scenario?.verification?.onlyToolsByTurn;
+  if (!rules || typeof rules !== 'object' || Array.isArray(rules)) {
+    throw error('ERROR_SCENARIO', 'active-current-readonly requires verification.onlyToolsByTurn for every Scenario turn.');
+  }
+  const union = new Set();
+  for (let index = 0; index < scenario.turns.length; index += 1) {
+    const tools = rules[String(index + 1)];
+    if (!Array.isArray(tools) || !tools.length || tools.some((tool) => typeof tool !== 'string' || !tool.trim())) {
+      throw error('ERROR_SCENARIO', `active-current-readonly requires a non-empty onlyToolsByTurn.${index + 1} allowlist.`);
+    }
+    for (const tool of tools) union.add(tool.trim());
+  }
+  if (Object.keys(rules).some((key) => !/^[1-9]\d*$/.test(key) || Number(key) > scenario.turns.length)) {
+    throw error('ERROR_SCENARIO', 'active-current-readonly onlyToolsByTurn contains a turn outside the Scenario.');
+  }
+  return [...union].sort();
+}
+
 export async function runNativeScenario({ scenario, harnessSelector = 'stable', cleanup = true, timeoutMs = 90000 } = {}) {
   if (!scenario?.id || !Array.isArray(scenario.turns) || !scenario.turns.length) throw error('HARNESS_SCENARIO_INVALID', 'Native Scenario requires a scenario id and user turns.');
   const runId = `native-harness-run-${crypto.randomUUID()}`;
@@ -1212,8 +1232,9 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     token = await authorize();
     const before = await request('GET', '/def-agent/interop/v1/state', undefined, token);
     run.stateBefore = { source: 'snapshot', value: before };
-    runner = (await request('POST', '/def-agent/interop/v1/harness/sessions', { harnessSelector, fixtureMode: scenario.fixtureMode || 'empty' }, token)).runner;
-    run.fixture = { source: 'harness', fixtureId: runner.fixtureId, timelineId: runner.timelineId, mode: runner.fixtureMode, boundNodeId: runner.boundNodeId };
+    const scenarioToolAllowlist = activeCurrentReadonlyScenarioAllowlist(scenario);
+    runner = (await request('POST', '/def-agent/interop/v1/harness/sessions', { harnessSelector, fixtureMode: scenario.fixtureMode || 'empty', scenarioToolAllowlist }, token)).runner;
+    run.fixture = { source: 'harness', fixtureId: runner.fixtureId, timelineId: runner.timelineId, mode: runner.fixtureMode, boundNodeId: runner.boundNodeId, projection: runner.projection || null };
     run.session = { source: 'sidecar', sessionId: runner.sessionId, harnessBinding: runner.harnessBinding, agentRelease: runner.agentRelease || null };
     let cursor = '0'; let first = true;
     for (const userTurn of scenario.turns) {
@@ -1257,7 +1278,11 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     run.error = { source: 'harness', code: caught.code || 'ERROR_PROTOCOL', message: caught.message, detail: redactPublic(caught.detail || {}) };
     run.status = caught.code === 'BLOCKED_ENVIRONMENT'
       ? 'BLOCKED_ENVIRONMENT'
-      : caught.code === 'ERROR_VERIFIER' ? 'ERROR_VERIFIER' : 'ERROR_PROTOCOL';
+      // Run status stays within the established Harness outcome vocabulary;
+      // retain ERROR_SCENARIO as the precise error code for diagnostics.
+      : caught.code === 'ERROR_VERIFIER' || caught.code === 'ERROR_SCENARIO'
+        ? 'ERROR_VERIFIER'
+        : 'ERROR_PROTOCOL';
   } finally {
     if (runner && cleanup && token) {
       try { run.cleanup.response = await request('DELETE', `/def-agent/interop/v1/harness/sessions/${encodeURIComponent(runner.sessionId)}`, undefined, token); run.cleanup.completed = true; } catch (caught) { run.cleanup.error = { code: caught.code || 'cleanup-failed', message: caught.message }; }

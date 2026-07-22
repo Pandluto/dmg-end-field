@@ -69,6 +69,39 @@ const MIXED_CURRENT_PUBLIC_TOOLS = new Set([
   'def.gear.resolve',
 ]);
 
+// Harness fixture reads must be opt-in per tool.  RiskLevel=read is not
+// enough: some apparent reads enqueue a real Canvas command (notably preview)
+// and would otherwise operate on the user's visible workbench.
+const HARNESS_FIXTURE_READ_TOOLS = new Set([
+  'def.workbench.snapshot',
+  'def.workbench.evidence',
+  'def.workbench.list_buttons',
+  'def.workbench.find_buttons',
+  'def.workbench.rank_buttons_by_buff',
+  'def.workbench.list_characters',
+  'def.team.loadouts.read',
+  'def.loadout.candidates.read',
+  'def.workbench.damage_report',
+  'def.character.resolve',
+  'def.skill.resolve',
+  'def.operator.config.read',
+]);
+
+const HARNESS_ACTIVE_CURRENT_READ_TOOLS = new Set([
+  ...HARNESS_FIXTURE_READ_TOOLS,
+  // This one remains deliberately absent from the fixture list. It is only
+  // honest when the canonical visible Canvas itself is still the projection.
+  'def.operator.config.preview',
+]);
+
+function harnessFixtureAccessFor(name) {
+  return HARNESS_FIXTURE_READ_TOOLS.has(name) ? 'read' : 'none';
+}
+
+function harnessActiveCurrentAccessFor(name) {
+  return HARNESS_ACTIVE_CURRENT_READ_TOOLS.has(name) ? 'read' : 'none';
+}
+
 export function resolveDefToolAccessPolicy(name, tool = {}) {
   if (INTERNAL_GOVERNANCE_TOOLS.has(name)) {
     return Object.freeze({
@@ -78,6 +111,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
       exposure: [],
       requiresCheckout: false,
       internalOnly: true,
+      harnessFixtureAccess: 'none',
+      harnessActiveCurrentAccess: 'none',
     });
   }
   if (PUBLIC_TOOLS.has(name)) {
@@ -88,6 +123,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
       exposure: ['workbench', 'ai-cli'],
       requiresCheckout: false,
       internalOnly: false,
+      harnessFixtureAccess: 'none',
+      harnessActiveCurrentAccess: 'none',
     });
   }
   if (SESSION_PRIVATE_TOOLS.has(name)) {
@@ -98,6 +135,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
       exposure: ['workbench', 'ai-cli'],
       requiresCheckout: false,
       internalOnly: false,
+      harnessFixtureAccess: 'none',
+      harnessActiveCurrentAccess: 'none',
     });
   }
   if (MIXED_CURRENT_PUBLIC_TOOLS.has(name)) {
@@ -108,6 +147,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
       exposure: ['workbench', 'ai-cli'],
       requiresCheckout: false,
       internalOnly: false,
+      harnessFixtureAccess: 'none',
+      harnessActiveCurrentAccess: 'none',
     });
   }
   const workNodeTree = tool.scope === 'appdata-work-node'
@@ -121,6 +162,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
       exposure: ['workbench'],
       requiresCheckout: true,
       internalOnly: false,
+      harnessFixtureAccess: harnessFixtureAccessFor(name),
+      harnessActiveCurrentAccess: harnessActiveCurrentAccessFor(name),
     });
   }
   const privateCurrentWrite = PRIVATE_CURRENT_CONTINUATIONS.has(name);
@@ -136,6 +179,8 @@ export function resolveDefToolAccessPolicy(name, tool = {}) {
     exposure: ['workbench'],
     requiresCheckout: currentWrite,
     internalOnly: false,
+    harnessFixtureAccess: harnessFixtureAccessFor(name),
+    harnessActiveCurrentAccess: harnessActiveCurrentAccessFor(name),
   });
 }
 

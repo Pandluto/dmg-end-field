@@ -119,10 +119,23 @@ function isProtectedInteropLoopbackRequest(url, headers = {}) {
     return false;
   }
 }
+function buildInteropHarnessProjectionHeaders(url) {
+  try {
+    const target = new URL(url);
+    const isNativeSessionCreate = target.origin === 'http://127.0.0.1:17322' && target.pathname === '/api/native/session';
+    const isProjectionRest = target.origin === 'http://127.0.0.1:17321'
+      && target.pathname.startsWith('/api/main-workbench/harness-projection/');
+    return (isNativeSessionCreate || isProjectionRest) && isDev && defInternalGovernanceToken
+      ? { 'x-def-internal-token': defInternalGovernanceToken }
+      : {};
+  } catch {
+    return {};
+  }
+}
 function buildInteropRequestOptions(url, options = {}) {
   return {
     ...options,
-    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
+    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url), ...buildInteropHarnessProjectionHeaders(url) },
   };
 }
 async function fetchInteropJson(url, options = {}) {
@@ -4011,6 +4024,7 @@ async function startAiCliRest() {
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
+      DEF_HARNESS_PROJECTION_ENABLED: isDev ? '1' : '0',
       LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
       LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
     }),
@@ -4190,6 +4204,7 @@ async function startDefAgent() {
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
+      DEF_HARNESS_PROJECTION_ENABLED: isDev ? '1' : '0',
       LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
       LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
     }),

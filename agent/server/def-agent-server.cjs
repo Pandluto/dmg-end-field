@@ -58,6 +58,7 @@ const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
 const defInternalGovernanceToken = typeof process.env.DEF_INTERNAL_GOVERNANCE_TOKEN === 'string' && process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
   ? process.env.DEF_INTERNAL_GOVERNANCE_TOKEN.trim()
   : crypto.randomUUID();
+const harnessProjectionEnabled = process.env.DEF_HARNESS_PROJECTION_ENABLED === '1';
 const DEF_WORKBENCH_MARK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="4" y="4" width="24" height="24" fill="none" stroke="#111" stroke-width="1.5"/><path d="M10 10h12M10 16h8M10 22h12M20 13v6l3-3z" fill="none" stroke="#111" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"/></svg>';
 const DEF_WORKBENCH_MARK_DATA_URL = `data:image/svg+xml,${encodeURIComponent(DEF_WORKBENCH_MARK_SVG)}`;
 let defRestProcess = null;
@@ -1218,6 +1219,92 @@ async function removeNativeWorkbenchAxisBinding(binding) {
   }).catch(() => undefined);
 }
 
+function harnessProjectionCommitment(value) {
+  // This is evidence, not a bearer capability. It is never surfaced to the
+  // model and binds activation to the sealed native Session material.
+  return crypto.createHash('sha256').update(JSON.stringify(value || {})).digest('base64url');
+}
+
+async function activateHarnessProjection(projection, session, binding) {
+  if (!harnessProjectionEnabled || !projection || typeof projection !== 'object') {
+    const error = new Error('Harness projection activation is disabled.');
+    error.code = 'HARNESS_PROJECTION_DISABLED';
+    throw error;
+  }
+  const provisionToken = typeof projection.provisionToken === 'string' ? projection.provisionToken : '';
+  const mode = typeof projection.mode === 'string' ? projection.mode : '';
+  if (!['hidden-fixture', 'active-current-readonly'].includes(mode)) {
+    const error = new Error('Harness projection mode is invalid.');
+    error.code = 'HARNESS_PROJECTION_MODE_INVALID';
+    throw error;
+  }
+  if (!provisionToken || !binding?.axisBindingId || !session?.sessionID) {
+    const error = new Error('Harness projection activation requires a one-shot provision and sealed native binding.');
+    error.code = 'HARNESS_PROJECTION_INVALID';
+    throw error;
+  }
+  await ensureDefRestService();
+  const sealed = readNativeSessionBinding(session.directory, session.sessionID, { includeNodeRelation: false });
+  if (!sealed?.harnessBinding || !sealed?.agentRelease || sealed.axisBindingId !== binding.axisBindingId) {
+    const error = new Error('The native Harness Session seal is unavailable for projection activation.');
+    error.code = 'HARNESS_PROJECTION_SEAL_INVALID';
+    throw error;
+  }
+  const sealedHarnessCommitment = harnessProjectionCommitment(sealed.harnessBinding);
+  const sealedAgentReleaseCommitment = harnessProjectionCommitment(sealed.agentRelease);
+  const registered = await fetch(`${defRestUrl}/api/main-workbench/harness-projection/register-native`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({
+      sessionId: session.sessionID,
+      harnessCommitment: sealedHarnessCommitment,
+      agentReleaseCommitment: sealedAgentReleaseCommitment,
+    }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const registeredPayload = await registered.json().catch(() => null);
+  if (!registered.ok || registeredPayload?.ok !== true) {
+    const error = new Error(registeredPayload?.error?.message || registeredPayload?.message || 'harness-projection-native-register-failed');
+    error.code = registeredPayload?.error?.code || registeredPayload?.code || 'HARNESS_PROJECTION_NATIVE_REGISTER_FAILED';
+    throw error;
+  }
+  const response = await fetch(`${defRestUrl}/api/main-workbench/harness-projection/activate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({
+      provisionToken,
+      mode,
+      sessionId: session.sessionID,
+    }),
+    signal: AbortSignal.timeout(7000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true) {
+    const error = new Error(payload?.error?.message || payload?.message || 'harness-projection-activation-failed');
+    error.code = payload?.error?.code || payload?.code || 'HARNESS_PROJECTION_ACTIVATION_FAILED';
+    throw error;
+  }
+  return payload;
+}
+
+async function revokeHarnessProjection(sessionID, reason = 'cleanup') {
+  if (!harnessProjectionEnabled || !sessionID) return { ok: true, status: 'disabled' };
+  await ensureDefRestService();
+  const response = await fetch(`${defRestUrl}/api/main-workbench/harness-projection/revoke`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+    body: JSON.stringify({ sessionId: sessionID, reason }),
+    signal: AbortSignal.timeout(5000),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok !== true) {
+    const error = new Error(payload?.error?.message || payload?.message || 'harness-projection-revoke-failed');
+    error.code = payload?.error?.code || payload?.code || 'HARNESS_PROJECTION_REVOKE_FAILED';
+    throw error;
+  }
+  return payload;
+}
+
 // A create request owns its directory until the binding and initial context
 // have both succeeded.  If either step fails, make the just-created session
 // unrecoverable rather than leaving an orphan that could later be recovered
@@ -1565,6 +1652,15 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && requestUrl.pathname === '/api/native/session') {
       await ensureDefRestService();
       const body = await readJsonBody(request);
+      const harnessProjection = body?.harnessProjection && typeof body.harnessProjection === 'object'
+        ? body.harnessProjection
+        : null;
+      if (harnessProjection && (!harnessProjectionEnabled || !isAuthorizedNativeSessionCleanupRequest(request, defInternalGovernanceToken))) {
+        const error = new Error('Harness projection session creation requires explicit development authority.');
+        error.status = 403;
+        error.code = 'HARNESS_PROJECTION_FORBIDDEN';
+        throw error;
+      }
       const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
       const timelineId = typeof body.timelineId === 'string' ? body.timelineId.trim() : '';
       if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId);
@@ -1582,8 +1678,19 @@ const server = http.createServer(async (request, response) => {
         await registerNativeCatalogSession(session);
         const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
         const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-        writeJson(response, 200, { ok: true, session: { ...session, axisContext } });
+        const projection = harnessProjection
+          ? await activateHarnessProjection(harnessProjection, session, binding)
+          : null;
+        writeJson(response, 200, {
+          ok: true,
+          session: {
+            ...session,
+            axisContext,
+            ...(projection ? { harnessProjection: { contract: projection.contract, mode: projection.mode, expiresAt: projection.expiresAt } } : {}),
+          },
+        });
       } catch (error) {
+        if (session?.sessionID) await revokeHarnessProjection(session.sessionID, 'native-create-failed').catch(() => undefined);
         await cleanupFailedNativeSessionCreate(session);
         throw error;
       }
@@ -1673,6 +1780,7 @@ const server = http.createServer(async (request, response) => {
     const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
     if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
       const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
+      if (nativeRunnerCleanup) await revokeHarnessProjection(sessionID, 'runner-cleanup');
       const result = await deleteNativeSessionById(sessionID);
       if (!result.ok) {
         writeJson(response, result.httpStatus || 500, { ok: false, error: 'native-session-delete-failed', code: result.code });
