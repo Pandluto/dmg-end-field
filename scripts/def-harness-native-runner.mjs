@@ -1280,9 +1280,8 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
       ? 'BLOCKED_ENVIRONMENT'
       // Run status stays within the established Harness outcome vocabulary;
       // retain ERROR_SCENARIO as the precise error code for diagnostics.
-      : caught.code === 'ERROR_VERIFIER' || caught.code === 'ERROR_SCENARIO'
-        ? 'ERROR_VERIFIER'
-        : 'ERROR_PROTOCOL';
+      : caught.code === 'ERROR_SCENARIO' ? 'ERROR_VERIFIER'
+        : caught.code === 'ERROR_VERIFIER' ? 'ERROR_VERIFIER' : 'ERROR_PROTOCOL';
   } finally {
     if (runner && cleanup && token) {
       try { run.cleanup.response = await request('DELETE', `/def-agent/interop/v1/harness/sessions/${encodeURIComponent(runner.sessionId)}`, undefined, token); run.cleanup.completed = true; } catch (caught) { run.cleanup.error = { code: caught.code || 'cleanup-failed', message: caught.message }; }
