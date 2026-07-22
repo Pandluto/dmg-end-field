@@ -21,6 +21,8 @@
     defAgentRunning: false,
     agentEventSource: null,
     agentPollTimer: 0,
+    nativeAiCliSessions: [],
+    nativeAiCliSessionsLoading: false,
     applyingArchive: false,
     imageItems: [],
     archiveFilter: 'all',
@@ -500,6 +502,122 @@
     setText('agent-records-status', `operation logs=${logs.length}；sessions=${sessions.length}`);
     setText('metric-agent', String(logs.length + sessions.length));
     setText('metric-agent-foot', `logs ${logs.length} / sessions ${sessions.length}`);
+  };
+
+  const nativeAiCliSessionId = (session) => {
+    const value = session?.sessionID || session?.id;
+    return typeof value === 'string' ? value.trim() : '';
+  };
+
+  const updateNativeAiCliCleanupControls = () => {
+    const select = $('native-ai-cli-keep-session');
+    const cleanupButton = $('cleanup-native-ai-cli-sessions');
+    const selectedSessionID = select?.value?.trim() || '';
+    const selected = state.nativeAiCliSessions.some((session) => nativeAiCliSessionId(session) === selectedSessionID);
+    if (select) select.disabled = state.nativeAiCliSessionsLoading || state.nativeAiCliSessions.length === 0;
+    if (cleanupButton) cleanupButton.disabled = state.nativeAiCliSessionsLoading || !selected;
+    return selectedSessionID && selected ? selectedSessionID : '';
+  };
+
+  const renderNativeAiCliSessions = (sessions) => {
+    const select = $('native-ai-cli-keep-session');
+    const previousSessionID = select?.value?.trim() || '';
+    state.nativeAiCliSessions = (Array.isArray(sessions) ? sessions : [])
+      .filter((session) => session?.host === 'ai-cli' && nativeAiCliSessionId(session));
+
+    if (select) {
+      select.replaceChildren();
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = state.nativeAiCliSessions.length
+        ? '请选择要保留的当前 ai-cli 会话'
+        : '没有可验证的 ai-cli 会话';
+      select.appendChild(placeholder);
+      for (const session of state.nativeAiCliSessions) {
+        const option = document.createElement('option');
+        const sessionID = nativeAiCliSessionId(session);
+        option.value = sessionID;
+        const timestamp = formatTime(session.updatedAt || session.createdAt);
+        const title = typeof session.title === 'string' && session.title.trim() ? session.title.trim() : '未命名 DEF 会话';
+        option.textContent = `${timestamp} | ${title} | ${sessionID}`;
+        select.appendChild(option);
+      }
+      if (state.nativeAiCliSessions.some((session) => nativeAiCliSessionId(session) === previousSessionID)) {
+        select.value = previousSessionID;
+      }
+    }
+    updateNativeAiCliCleanupControls();
+  };
+
+  const refreshNativeAiCliSessions = async (button, { announce = true } = {}) => {
+    if (state.nativeAiCliSessionsLoading) return state.nativeAiCliSessions;
+    state.nativeAiCliSessionsLoading = true;
+    updateNativeAiCliCleanupControls();
+    if (button) setButtonBusy(button, true, '正在读取');
+    try {
+      const payload = await fetchLocalBridgeJson('/def-agent/chat/persisted-sessions?limit=100');
+      renderNativeAiCliSessions(payload.sessions);
+      if (announce) {
+        setText('native-ai-cli-session-cleanup-status', state.nativeAiCliSessions.length
+          ? `已读取 ${state.nativeAiCliSessions.length} 条可验证的 ai-cli 会话。请选择要保留的当前会话。`
+          : '没有可验证的 ai-cli 会话，无需清理。');
+      }
+      return state.nativeAiCliSessions;
+    } catch (error) {
+      renderNativeAiCliSessions([]);
+      setText('native-ai-cli-session-cleanup-status', `读取 ai-cli 会话失败：${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    } finally {
+      state.nativeAiCliSessionsLoading = false;
+      if (button) setButtonBusy(button, false);
+      updateNativeAiCliCleanupControls();
+    }
+  };
+
+  const cleanupNativeAiCliSessions = async (button) => {
+    const keepSessionID = updateNativeAiCliCleanupControls();
+    if (!keepSessionID) {
+      setText('native-ai-cli-session-cleanup-status', '请先从已验证的 ai-cli 会话中选择要保留的当前会话。');
+      return;
+    }
+    const confirmed = window.confirm('旧的 DEF Shell ai-cli 会话将被永久删除，无法恢复。已选择的当前会话会保留，Workbench 会话不会被处理。是否继续？');
+    if (!confirmed) {
+      setText('native-ai-cli-session-cleanup-status', '已取消清理；没有删除任何会话。');
+      return;
+    }
+
+    state.nativeAiCliSessionsLoading = true;
+    updateNativeAiCliCleanupControls();
+    setButtonBusy(button, true, '正在清理');
+    setText('native-ai-cli-session-cleanup-status', '正在清理旧 ai-cli 会话记录…');
+    try {
+      const payload = await fetchLocalBridgeJson('/def-agent/native-sessions/cleanup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: 'ai-cli', keepSessionID }),
+      });
+      if (
+        payload.host !== 'ai-cli'
+        || payload.keptSessionID !== keepSessionID
+        || !Number.isInteger(payload.targetCount)
+        || !Number.isInteger(payload.deletedCount)
+        || !Number.isInteger(payload.alreadyDeletedCount)
+        || !Array.isArray(payload.failed)
+      ) throw new Error('会话清理服务返回了无效结果。');
+
+      const failedCount = payload.failed.length;
+      state.nativeAiCliSessionsLoading = false;
+      await refreshNativeAiCliSessions(undefined, { announce: false });
+      setText('native-ai-cli-session-cleanup-status', `${payload.ok && failedCount === 0 ? '清理完成' : '清理未完全完成'}：已删除 ${payload.deletedCount}，已不存在 ${payload.alreadyDeletedCount}，失败 ${failedCount}。当前会话已保留。`);
+      appendLog(`DEF Shell 会话清理 | keep=${keepSessionID} | deleted=${payload.deletedCount} | alreadyDeleted=${payload.alreadyDeletedCount} | failed=${failedCount}`);
+    } catch (error) {
+      setText('native-ai-cli-session-cleanup-status', `清理 ai-cli 会话失败：${error instanceof Error ? error.message : String(error)}`);
+      appendLog(`DEF Shell 会话清理失败 | ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      state.nativeAiCliSessionsLoading = false;
+      setButtonBusy(button, false);
+      updateNativeAiCliCleanupControls();
+    }
   };
 
   const refreshAgentRecords = async () => {
@@ -1476,6 +1594,20 @@
     });
     $('refresh-agent-records')?.addEventListener('click', () => {
       refreshAgentRecords().catch((error) => appendLog(`Agent 记录刷新失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('refresh-native-ai-cli-sessions')?.addEventListener('click', (event) => {
+      refreshNativeAiCliSessions(event.currentTarget).catch(() => {});
+    });
+    $('native-ai-cli-keep-session')?.addEventListener('change', () => {
+      const keepSessionID = updateNativeAiCliCleanupControls();
+      setText('native-ai-cli-session-cleanup-status', keepSessionID
+        ? `已选择保留当前 ai-cli 会话：${keepSessionID}`
+        : '请先从已验证的 ai-cli 会话中选择要保留的当前会话。');
+    });
+    $('cleanup-native-ai-cli-sessions')?.addEventListener('click', (event) => {
+      cleanupNativeAiCliSessions(event.currentTarget).catch((error) => {
+        setText('native-ai-cli-session-cleanup-status', `清理 ai-cli 会话失败：${error instanceof Error ? error.message : String(error)}`);
+      });
     });
     $('refresh-def-agent')?.addEventListener('click', () => {
       refreshDefAgentStatus().catch((error) => appendLog(`DEF Agent 刷新失败 | ${error instanceof Error ? error.message : String(error)}`));

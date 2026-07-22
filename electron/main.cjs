@@ -1870,6 +1870,18 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/native-sessions/cleanup') {
+        const defAgent = await startDefAgent();
+        const body = await readJsonRequest(request);
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/native/sessions/cleanup', body);
+        writeJson(response, upstream.status || 500, {
+          ok: upstream.status >= 200 && upstream.status < 300,
+          defAgent,
+          ...upstream.body,
+        });
+        return;
+      }
+
       const defAgentEventsMatch = /^\/def-agent\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
       if (method === 'GET' && defAgentEventsMatch) {
         await startDefAgent();

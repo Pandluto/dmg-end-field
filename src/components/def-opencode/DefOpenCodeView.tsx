@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import './DefOpenCodeView.css';
 
 export type DefOpenCodeHost = 'workbench' | 'ai-cli';
@@ -18,16 +18,6 @@ type NativeSession = {
     lockedModel: boolean;
     theme: string;
   };
-};
-
-type NativeSessionCleanupResult = {
-  ok: boolean;
-  host: 'ai-cli';
-  keptSessionID: string;
-  targetCount: number;
-  deletedCount: number;
-  alreadyDeletedCount: number;
-  failed: Array<{ sessionID: string; code: string; httpStatus?: number }>;
 };
 
 interface DefOpenCodeViewProps {
@@ -54,11 +44,6 @@ export function DefOpenCodeView({
   const [status, setStatus] = useState<'checking' | 'ready' | 'blocked' | 'error'>('checking');
   const [statusError, setStatusError] = useState('');
   const [session, setSession] = useState<NativeSession | null>(null);
-  const [frameRevision, setFrameRevision] = useState(0);
-  const [cleanupInProgress, setCleanupInProgress] = useState(false);
-  const [cleanupResult, setCleanupResult] = useState<{ kind: 'success' | 'partial' | 'error'; message: string } | null>(null);
-  const mountedRef = useRef(true);
-  const cleanupAbortRef = useRef<AbortController | null>(null);
   const origin = useMemo(() => (
     host === 'workbench'
       ? `http://127.0.0.1:${SIDECAR_PORT}`
@@ -71,15 +56,6 @@ export function DefOpenCodeView({
 
   const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
   const storageKey = `def-opencode.native-session.${host}${host === 'workbench' ? `.${encodeURIComponent(normalizedTimelineId)}` : ''}${developmentHarnessSelector ? `.${encodeURIComponent(developmentHarnessSelector)}` : ''}.v2`;
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      cleanupAbortRef.current?.abort();
-      cleanupAbortRef.current = null;
-    };
-  }, []);
 
   const ensureNativeSidecar = async () => {
     const response = await fetch(SIDECAR_BOOTSTRAP_URL, { method: 'POST' });
@@ -141,54 +117,8 @@ export function DefOpenCodeView({
       }
     }
     setSession(payload.session);
-    setCleanupResult(null);
     setStatusError('');
     setStatus('ready');
-  };
-
-  const cleanupSessionHistory = async () => {
-    if (host !== 'ai-cli' || !session || cleanupInProgress || cleanupAbortRef.current) return;
-    const confirmed = window.confirm('旧的 DEF Shell 会话将被永久删除，无法恢复。当前会话会保留。是否继续？');
-    if (!confirmed) return;
-    const controller = new AbortController();
-    cleanupAbortRef.current = controller;
-    setCleanupInProgress(true);
-    setCleanupResult(null);
-    try {
-      const response = await fetch(`${origin}/api/native/sessions/cleanup`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ host: 'ai-cli', keepSessionID: session.id }),
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => null) as (NativeSessionCleanupResult & { error?: string }) | null;
-      if (!mountedRef.current || controller.signal.aborted) return;
-      if (!response.ok) throw new Error(payload?.error || `HTTP ${response.status}`);
-      if (
-        !payload
-        || payload.host !== 'ai-cli'
-        || payload.keptSessionID !== session.id
-        || !Number.isInteger(payload.targetCount)
-        || !Number.isInteger(payload.deletedCount)
-        || !Number.isInteger(payload.alreadyDeletedCount)
-        || !Array.isArray(payload.failed)
-      ) throw new Error('Invalid native session cleanup response');
-      const failedCount = payload.failed.length;
-      setCleanupResult({
-        kind: payload.ok && failedCount === 0 ? 'success' : 'partial',
-        message: `${payload.ok && failedCount === 0 ? '清理完成' : '清理未完全完成'}：已删除 ${payload.deletedCount}，已不存在 ${payload.alreadyDeletedCount}，失败 ${failedCount}。`,
-      });
-      setFrameRevision((revision) => revision + 1);
-    } catch (error) {
-      if (!mountedRef.current || controller.signal.aborted) return;
-      setCleanupResult({
-        kind: 'error',
-        message: `清理失败：${error instanceof Error ? error.message : String(error)}`,
-      });
-    } finally {
-      if (cleanupAbortRef.current === controller) cleanupAbortRef.current = null;
-      if (mountedRef.current && !controller.signal.aborted) setCleanupInProgress(false);
-    }
   };
 
   const frameSrc = useMemo(() => {
@@ -291,10 +221,9 @@ export function DefOpenCodeView({
     >
       {onClose ? (
         <nav className="def-opencode-view__nav" aria-label="DEF OpenCode navigation">
-          <button type="button" disabled={cleanupInProgress} onClick={onClose}>返回</button>
+          <button type="button" onClick={onClose}>返回</button>
           <button
             type="button"
-            disabled={cleanupInProgress}
             onClick={() => {
               if (host === 'workbench' && (workbenchIsTemporary || !normalizedTimelineId)) {
                 setStatus('blocked');
@@ -310,25 +239,7 @@ export function DefOpenCodeView({
           >
             新建 DEF 会话
           </button>
-          {host === 'ai-cli' ? (
-            <button
-              type="button"
-              disabled={cleanupInProgress || !session}
-              onClick={() => { void cleanupSessionHistory(); }}
-            >
-              {cleanupInProgress ? '正在清理…' : '清理会话记录'}
-            </button>
-          ) : null}
         </nav>
-      ) : null}
-      {cleanupResult ? (
-        <div
-          className="def-opencode-view__cleanup-result"
-          data-kind={cleanupResult.kind}
-          role={cleanupResult.kind === 'error' ? 'alert' : 'status'}
-        >
-          {cleanupResult.message}
-        </div>
       ) : null}
       <div className="def-opencode-view__body">
         {status === 'error' ? (
@@ -341,7 +252,7 @@ export function DefOpenCodeView({
           </div>
         ) : session ? (
           <iframe
-            key={`${origin}:${session.id}:${frameRevision}`}
+            key={`${origin}:${session.id}`}
             className="def-opencode-view__frame"
             src={frameSrc}
             title={`${title} OpenCode`}

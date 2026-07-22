@@ -943,9 +943,10 @@ W6 只测试显式绑定新 candidate 的 fresh Session。
 
 ### 9.1 已确认的现状
 
-DEF Shell 的 Agent 页使用 `DefOpenCodeView host="ai-cli"`。
-工具栏中的“返回”只调用 `onClose`。
-它会关闭当前页面，但不会删除 native Session。
+DEF Shell 的 Agent 页由 `public/shell/index.html` 与 `public/shell/shell.js` 提供。
+它不是 Web 主界面的 `DefOpenCodeView host="ai-cli"`。
+Shell 通过本地 bridge 读取可验证的 native Session binding。
+Web 主界面的返回和新建会话入口不承担 Shell 的会话运维职责。
 
 当前 adapter 和 server 没有 native Session 的 TTL 或定时清扫。
 因此，旧会话会继续保留在 DEF Session 目录和 OpenCode 会话列表中。
@@ -961,7 +962,7 @@ DELETE /api/native/session/:sessionID
 
 ### 9.2 用户操作
 
-只在 `host === "ai-cli"` 的工具栏显示：
+只在 DEF Shell 的 Agent 页显示：
 
 ```text
 清理会话记录
@@ -969,12 +970,14 @@ DELETE /api/native/session/:sessionID
 
 点击后必须：
 
-1. 明确提示这是不可恢复的删除；
-2. 保留当前正在使用的 Session；
-3. 删除其余 DEF Shell Agent Session；
-4. 不删除 Workbench Session；
-5. 完成后刷新 iframe 中的会话列表；
-6. 显示删除、已不存在和失败的数量。
+1. 先刷新可验证的 `ai-cli` Session；
+2. 用户明确选择要保留的当前 Session；
+3. 未选择时，清理按钮不可用，Shell 不得猜测“最新会话”；
+4. 明确提示这是不可恢复的删除；
+5. 删除其余 DEF Shell `ai-cli` Session；
+6. 不删除 Workbench Session；
+7. 完成后刷新 Shell 中的可保留会话列表；
+8. 显示删除、已不存在和失败的数量。
 
 清理期间按钮禁用。
 用户取消确认时不得发出请求。

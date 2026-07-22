@@ -241,7 +241,7 @@ W1 不得把整个函数搬进 3+1 Domain。
 | W2 Tool Surface | `definitions.mjs`、`registry.mjs`、`opencode/def.js` 的 evidence 区、W2 合同测试 | REST、Domain、Prompt、Harness、node/approval/materialize mutation export |
 | W3 Runtime + Harness | Base Prompt 的 3+1 段、timeline-workbench Skill、全新 Spec 9 candidate、三个现有 3+1 Scenario、一个新 unresolved Scenario、两份结构测试、黑盒文档 | stable package、Tool、Service、Registry、AgentRelease、Session/Harness binding |
 | W4 Teacher Audit | 开发侧 audit Skill、rubric、handoff、owner 样例 | 产品 Runtime Skill、Harness、Tool、Service、Prompt |
-| WS Session Cleanup | `def-agent-server.cjs` 的 native delete/bulk cleanup 区、`DefOpenCodeView.tsx`、对应 CSS、新 cleanup contract test | adapter、vendored OpenCode、Workbench UI、Prompt、Skill、Harness、Tool、package |
+| WS Session Cleanup | `def-agent-server.cjs` 的 native delete/bulk cleanup 区、`public/shell/index.html`、`public/shell/shell.js`、Shell bridge 与 cleanup contract test | adapter、vendored OpenCode、Workbench UI、Prompt、Skill、Harness、Tool、package |
 
 W1–W4 与 WS 没有共享写文件。
 W5 才能写 `package.json`、registration contract、本文最终状态与 `verification.md`。
@@ -250,10 +250,10 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 
 已核对当前实现：
 
-- `DefOpenCodeView` 的“返回”只调用 `onClose`，不会删除 native Session；
+- `DefOpenCodeView` 的“返回”只调用 `onClose`，不会承担 DEF Shell 的会话清理；
 - `createNativeSession()` 把当前恢复句柄写入浏览器存储；
 - adapter 与 server 中没有 native Session TTL 或定时清扫；
-- `GET /api/chat/persisted-sessions` 已能列出仍存在的 DEF binding；
+- `GET /api/chat/persisted-sessions` 已能列出仍存在的 DEF binding；Shell 必须让用户明确选择保留的 `ai-cli` Session，不能按时间猜测；
 - `DELETE /api/native/session/:sessionID` 已执行上游删除、问题记录清理、轴解绑和目录删除。
 
 因此 WS 不建设第二套 Session 仓库。

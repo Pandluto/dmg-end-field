@@ -310,20 +310,38 @@ try {
   }
 
   const viewSource = fs.readFileSync(path.join(projectRoot, 'src/components/def-opencode/DefOpenCodeView.tsx'), 'utf8');
-  const cleanupStart = viewSource.indexOf('const cleanupSessionHistory = async () =>');
-  const cleanupEnd = viewSource.indexOf('const frameSrc = useMemo', cleanupStart);
-  assert(cleanupStart >= 0 && cleanupEnd > cleanupStart);
-  const cleanupSource = viewSource.slice(cleanupStart, cleanupEnd);
-  assert.match(cleanupSource, /window\.confirm\([^)]*无法恢复[^)]*当前会话会保留/);
-  assert.match(cleanupSource, /\/api\/native\/sessions\/cleanup/);
-  assert.match(cleanupSource, /keepSessionID: session\.id/);
-  assert.doesNotMatch(cleanupSource, /createNativeSession\(/, 'cleanup must retain, not replace, the active session');
-  assert.match(viewSource, /host === 'ai-cli'[\s\S]*清理会话记录/);
-  assert.match(viewSource, /disabled=\{cleanupInProgress \|\| !session\}/);
-  assert.match(viewSource, /key=\{`\$\{origin\}:\$\{session\.id\}:\$\{frameRevision\}`\}/);
-  assert.match(cleanupSource, /signal: controller\.signal/);
-  assert.match(viewSource, /cleanupAbortRef\.current\?\.abort\(\)/);
-  assert.match(viewSource, /role=\{cleanupResult\.kind === 'error' \? 'alert' : 'status'\}/);
+  const shellHtml = fs.readFileSync(path.join(projectRoot, 'public/shell/index.html'), 'utf8');
+  const shellSource = fs.readFileSync(path.join(projectRoot, 'public/shell/shell.js'), 'utf8');
+  const mainSource = fs.readFileSync(path.join(projectRoot, 'electron/main.cjs'), 'utf8');
+  assert.doesNotMatch(viewSource, /cleanupSessionHistory|native\/sessions\/cleanup/, 'the Web ai-cli view must not expose the Shell-only cleanup entry');
+  assert.match(shellHtml, /id="native-ai-cli-keep-session"/);
+  assert.match(shellHtml, /id="refresh-native-ai-cli-sessions"/);
+  assert.match(shellHtml, /id="cleanup-native-ai-cli-sessions"/);
+
+  const refreshStart = shellSource.indexOf('const refreshNativeAiCliSessions = async');
+  const cleanupStart = shellSource.indexOf('const cleanupNativeAiCliSessions = async');
+  const refreshEnd = shellSource.indexOf('const cleanupNativeAiCliSessions = async', refreshStart);
+  const cleanupEnd = shellSource.indexOf('const refreshAgentRecords = async', cleanupStart);
+  assert(refreshStart >= 0 && refreshEnd > refreshStart && cleanupEnd > cleanupStart);
+  const refreshSource = shellSource.slice(refreshStart, refreshEnd);
+  const cleanupSource = shellSource.slice(cleanupStart, cleanupEnd);
+  assert.match(refreshSource, /\/def-agent\/chat\/persisted-sessions\?limit=100/);
+  assert.match(shellSource, /session\?\.host === 'ai-cli'/);
+  assert.match(shellSource, /state\.nativeAiCliSessions\.some/);
+  assert.match(cleanupSource, /window\.confirm\(/);
+  assert.match(cleanupSource, /无法恢复/);
+  assert.match(cleanupSource, /Workbench 会话不会被处理/);
+  assert.match(cleanupSource, /\/def-agent\/native-sessions\/cleanup/);
+  assert.match(cleanupSource, /body: JSON\.stringify\(\{ host: 'ai-cli', keepSessionID \}\)/);
+  assert.doesNotMatch(cleanupSource, /createNativeSession\(/, 'Shell cleanup must retain an explicitly selected session, never replace it');
+
+  const bridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'");
+  const bridgeEnd = mainSource.indexOf('const defAgentEventsMatch', bridgeStart);
+  assert(bridgeStart >= 0 && bridgeEnd > bridgeStart);
+  const bridgeSource = mainSource.slice(bridgeStart, bridgeEnd);
+  assert.match(bridgeSource, /await startDefAgent\(\)/);
+  assert.match(bridgeSource, /http:\/\/127\.0\.0\.1:17322\/api\/native\/sessions\/cleanup/);
+  assert.match(bridgeSource, /postJsonUrl\(/);
 
   console.log(JSON.stringify({
     ok: true,
@@ -340,7 +358,7 @@ try {
       'concurrent-cleanup-joined',
       'different-keep-concurrency-rejected',
       'repeat-safe',
-      'ui-confirm-host-scope-and-iframe-refresh',
+      'shell-ui-confirm-explicit-keep-and-bridge-scope',
     ],
   }));
 } finally {

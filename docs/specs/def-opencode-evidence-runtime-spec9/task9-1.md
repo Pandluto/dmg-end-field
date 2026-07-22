@@ -618,12 +618,14 @@ git diff --check
 
 ### I3. DEF Shell 按钮
 
-- [ ] 只在 `DefOpenCodeView` 的 `host === "ai-cli"` 工具栏显示“清理会话记录”。
+- [ ] 只在 `public/shell/index.html` 的 DEF Shell Agent 页显示“清理旧会话记录”。
+- [ ] 先通过本地 bridge 列出可验证的 `ai-cli` Session，用户必须明确选择要保留的当前 Session；不得按最新时间猜测。
+- [ ] 未选择有效的 `keepSessionID` 时按钮不可用。
 - [ ] 点击后使用现有确认机制或 `window.confirm`；不新建对话框系统。
 - [ ] 确认文字说明删除不可恢复，当前会话会保留。
 - [ ] 取消确认时不发请求。
 - [ ] 请求期间禁用按钮，避免并发清理。
-- [ ] 成功后刷新 iframe 的会话列表，但不新建或切换当前 Session。
+- [ ] 成功后刷新 Shell 的可验证会话列表，但不新建或切换当前 Session。
 - [ ] UI 分别报告删除数、已不存在数和失败数；部分失败不得显示全部成功。
 - [ ] Workbench 工具栏不出现该按钮。
 
@@ -929,12 +931,13 @@ W4 不修改产品 Runtime Skill、Harness、Tool、Service、Prompt、`package.
 #### 独占写入范围
 
 - `agent/server/def-agent-server.cjs`，只编辑 native Session delete 与新 bulk cleanup 区；
-- `src/components/def-opencode/DefOpenCodeView.tsx`；
-- `src/components/def-opencode/DefOpenCodeView.css`；
+- `public/shell/index.html`；
+- `public/shell/shell.js`；
+- `electron/main.cjs` 中 Shell bridge 的 cleanup 转发；
 - 新建 `scripts/def-native-session-cleanup-contract-test.mjs`。
 
 未列出的文件只读。
-WS 不修改 adapter、vendored OpenCode、`package.json`、Prompt、Skill、Harness、Tool 或 Spec 文档。
+WS 不修改 adapter、vendored OpenCode、`package.json`、Prompt、Skill、Harness 或 Tool；本轮只允许修正与 Shell 入口归属直接矛盾的 Spec 9 文档。
 
 #### 固定合同
 
@@ -945,7 +948,7 @@ WS 不修改 adapter、vendored OpenCode、`package.json`、Prompt、Skill、Har
 | Scope | DEF 自有、可验证 binding 的旧 `ai-cli` Session |
 | Preserve | 当前 Session；全部 `workbench` Session |
 | Result | `targetCount / deletedCount / alreadyDeletedCount / failed[]` |
-| UI label | `清理会话记录` |
+| UI label | `清理旧会话记录` |
 
 `keepSessionID` 无效必须 fail closed。
 WS 不得自行改成“删除全部”、自动 TTL、归档或后台清扫。
@@ -955,9 +958,9 @@ WS 不得自行改成“删除全部”、自动 TTL、归档或后台清扫。
 - [ ] 抽出单会话删除 helper，让现有 DELETE 和新批量入口共享实现。
 - [ ] 服务端自己枚举目标，不接受 renderer 给出的目录或 id 列表。
 - [ ] 每个目标独立收集结果，部分失败不阻断后续目标。
-- [ ] 按钮只出现在 `ai-cli` Host，确认后才调用 endpoint。
-- [ ] 保持当前 Session 和 recovery handle，不调用 `createNativeSession()`。
-- [ ] 清理后用 iframe revision 刷新会话列表；Session id 不变。
+- [ ] 按钮只出现在 DEF Shell Agent 页；确认后才调用 endpoint。
+- [ ] 只接受用户在 Shell 中明确选择的有效 `keepSessionID`，不调用 `createNativeSession()`，不猜测当前会话。
+- [ ] 清理后刷新 Shell 中的可验证会话列表；被保留的 Session id 不变。
 - [ ] 提示信息不把部分成功冒充为全部成功。
 
 #### 独立验收

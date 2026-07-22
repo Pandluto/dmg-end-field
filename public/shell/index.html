@@ -1593,6 +1593,29 @@
             <div class="empty-state" id="agent-records-status">等待刷新</div>
           </section>
 
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">DEF Shell 会话清理</div>
+                <div class="panel-help">仅在人工确认后清理旧 ai-cli 会话。先明确选择要保留的当前会话；Workbench 会话不会被处理。</div>
+              </div>
+            </div>
+            <div class="form-grid agent-api-form">
+              <div>
+                <div class="field-label">保留的当前 ai-cli 会话</div>
+                <div class="field-help">Shell 不猜测“最新会话”。请选择仍在使用的会话后，才允许清理其余可验证的 ai-cli 记录。</div>
+              </div>
+              <select id="native-ai-cli-keep-session" disabled>
+                <option value="">请先刷新可保留会话</option>
+              </select>
+            </div>
+            <div class="toolbar">
+              <button id="refresh-native-ai-cli-sessions" type="button" class="subtle-button">刷新可保留会话</button>
+              <button id="cleanup-native-ai-cli-sessions" type="button" class="danger-button" disabled>清理旧会话记录</button>
+            </div>
+            <div class="empty-state" id="native-ai-cli-session-cleanup-status" role="status">需要先选择要保留的当前 ai-cli 会话。</div>
+          </section>
+
           <section class="grid-2">
             <article class="panel">
               <div class="panel-header"><div><div class="panel-title">操作日志</div><div class="panel-help">client、command、成功状态和写入范围。</div></div></div>
