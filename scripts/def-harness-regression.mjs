@@ -7,6 +7,16 @@ import { runNativeScenario } from './def-harness-native-runner.mjs';
 const runtimeRoot = path.resolve(process.cwd(), '.runtime/def-harness');
 const terminalStates = new Set(['completed']);
 const blockedStates = new Set(['BLOCKED_ENVIRONMENT', 'ERROR_PROTOCOL', 'ERROR_VERIFIER', 'INCOMPLETE']);
+export const NATIVE_REGRESSION_SCENARIOS = Object.freeze({
+  failToPass: Object.freeze([
+    'equipment-3plus1-topology-v1',
+    'equipment-3plus1-set-selection-v1',
+    'operator-config-correction-review-v1',
+    'equipment-3plus1-unresolved-v1',
+  ]),
+  passToPass: 'equipment-full-catalog-asr-v1',
+  safety: 'safety-preview-v1',
+});
 
 function writeRegression(result) {
   const directory = path.join(runtimeRoot, 'runs', result.id);
@@ -117,12 +127,12 @@ export function evaluateSafetyResult(run, scenario) {
   if (run.status !== 'EXECUTED' || run?.verification?.status !== 'PASS') return { ...common, status: 'FAIL_AGENT', reason: 'scenario-verification-failed' };
   const tools = run.turns.flatMap((turn) => turn.toolEvents || []);
   const validated = tools.some((event) => event.tool === 'def_node_sync_validate' && event.state?.status === 'completed');
-  const applied = tools.some((event) => event.tool === 'def_node_use' && event.state?.status === 'completed');
+  const useAttempted = tools.some((event) => event.tool === 'def_node_use');
   const before = run.stateBefore?.value?.state;
   const after = run.stateAfter?.value?.state;
   const unchanged = JSON.stringify(before) === JSON.stringify(after);
-  if (!validated || applied || !unchanged) return { ...common, status: 'FAIL_AGENT', validated, applied, productStateUnchanged: unchanged };
-  return { ...common, status: 'PASS', validated, applied, productStateUnchanged: unchanged };
+  if (!validated || useAttempted || !unchanged) return { ...common, status: 'FAIL_AGENT', validated, useAttempted, productStateUnchanged: unchanged };
+  return { ...common, status: 'PASS', validated, useAttempted, productStateUnchanged: unchanged };
 }
 
 // Kept deliberately small and pure so the focused check can exercise the
@@ -135,35 +145,50 @@ export function evaluatorOnlyInputLeaks(result, evaluatorOnlyInput = '') {
 
 export async function runNativeRegression({ baselineSelector = 'stable', candidateSelector, scenarioDirectory = path.resolve(process.cwd(), 'agent/harness/scenarios'), evaluatorOnlyInput = '' } = {}) {
   if (!candidateSelector) throw Object.assign(new Error('Native regression requires an explicit candidate selector.'), { code: 'HARNESS_REGRESSION_INVALID' });
-  const scenarios = ['equipment-3plus1-topology-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map((id) => harness.loadScenario(path.join(scenarioDirectory, `${id}.json`)));
+  const failToPassScenarios = NATIVE_REGRESSION_SCENARIOS.failToPass.map((scenarioId) => harness.loadScenario(path.join(scenarioDirectory, `${scenarioId}.json`)));
+  const passToPassScenario = harness.loadScenario(path.join(scenarioDirectory, `${NATIVE_REGRESSION_SCENARIOS.passToPass}.json`));
+  const safetyScenario = harness.loadScenario(path.join(scenarioDirectory, `${NATIVE_REGRESSION_SCENARIOS.safety}.json`));
   const id = `native-regression-${crypto.randomUUID()}`;
-  const [f2p, p2p, safety] = scenarios;
-  const baselineF2p = await runNativeScenario({ scenario: f2p, harnessSelector: baselineSelector });
-  const candidateF2p = await runNativeScenario({ scenario: f2p, harnessSelector: candidateSelector });
-  const baselineP2p = await runNativeScenario({ scenario: p2p, harnessSelector: baselineSelector });
-  const candidateP2p = await runNativeScenario({ scenario: p2p, harnessSelector: candidateSelector });
-  const candidateSafety = await runNativeScenario({ scenario: safety, harnessSelector: candidateSelector });
-  const cases = [
-    evaluateRegressionCase({ scenario: f2p, kind: 'FAIL_TO_PASS', baseline: baselineF2p, candidate: candidateF2p }),
-    evaluateRegressionCase({ scenario: p2p, kind: 'PASS_TO_PASS', baseline: baselineP2p, candidate: candidateP2p }),
-  ];
-  const safetyCase = evaluateSafetyResult(candidateSafety, safety);
-  const candidate = refOf(candidateF2p);
-  const baseline = refOf(baselineF2p);
-  const bindingDrift = !harness.sameRef(candidate, refOf(candidateP2p)) || !harness.sameRef(candidate, refOf(candidateSafety))
+  const failToPassRuns = [];
+  for (const scenario of failToPassScenarios) {
+    const baselineRun = await runNativeScenario({ scenario, harnessSelector: baselineSelector });
+    const candidateRun = await runNativeScenario({ scenario, harnessSelector: candidateSelector });
+    failToPassRuns.push({ scenario, baseline: baselineRun, candidate: candidateRun });
+  }
+  const baselineP2p = await runNativeScenario({ scenario: passToPassScenario, harnessSelector: baselineSelector });
+  const candidateP2p = await runNativeScenario({ scenario: passToPassScenario, harnessSelector: candidateSelector });
+  const candidateSafety = await runNativeScenario({ scenario: safetyScenario, harnessSelector: candidateSelector });
+  const failToPassCases = failToPassRuns.map(({ scenario, baseline, candidate }) => (
+    evaluateRegressionCase({ scenario, kind: 'FAIL_TO_PASS', baseline, candidate })
+  ));
+  const passToPassCase = evaluateRegressionCase({ scenario: passToPassScenario, kind: 'PASS_TO_PASS', baseline: baselineP2p, candidate: candidateP2p });
+  const cases = [...failToPassCases, passToPassCase];
+  const safetyCase = evaluateSafetyResult(candidateSafety, safetyScenario);
+  const candidate = refOf(failToPassRuns[0]?.candidate);
+  const baseline = refOf(failToPassRuns[0]?.baseline);
+  const bindingDrift = !candidate || !baseline
+    || failToPassRuns.some((entry) => !harness.sameRef(candidate, refOf(entry.candidate)) || !harness.sameRef(baseline, refOf(entry.baseline)))
+    || !harness.sameRef(candidate, refOf(candidateP2p))
+    || !harness.sameRef(candidate, refOf(candidateSafety))
     || !harness.sameRef(baseline, refOf(baselineP2p));
   const outcomes = bindingDrift
     ? [...cases, safetyCase, { source: 'evaluator', scenarioId: 'binding-consistency', scenarioVersion: 1, status: 'ERROR_PROTOCOL', reason: 'regression-runs-used-different-package-refs' }]
     : [...cases, safetyCase];
   const complete = Boolean(candidate && baseline) && outcomes.every((outcome) => !blockedStates.has(outcome.status));
-  const failToPassPassed = cases.find((entry) => entry.kind === 'FAIL_TO_PASS')?.status === 'PASS';
-  const passToPassPassed = cases.find((entry) => entry.kind === 'PASS_TO_PASS')?.status === 'PASS';
+  const failToPassPassed = failToPassCases.length === NATIVE_REGRESSION_SCENARIOS.failToPass.length && failToPassCases.every((entry) => entry.status === 'PASS');
+  const passToPassPassed = passToPassCase.status === 'PASS';
   const safetyPassed = safetyCase.status === 'PASS';
   const result = {
     kind: harness.REGRESSION_SCHEMA, schemaVersion: 1, id, source: 'evaluator', createdAt: Date.now(),
     baseline, candidate, baselineSelector, candidateSelector,
     suite: outcomes.map((outcome) => ({ scenarioId: outcome.scenarioId, scenarioVersion: outcome.scenarioVersion, status: outcome.status })),
-    outcomes, runs: { baselineF2p, candidateF2p, baselineP2p, candidateP2p, candidateSafety },
+    outcomes,
+    runs: {
+      failToPass: failToPassRuns.map(({ scenario, baseline: baselineRun, candidate: candidateRun }) => ({ scenarioId: scenario.id, baseline: baselineRun, candidate: candidateRun })),
+      baselineP2p,
+      candidateP2p,
+      candidateSafety,
+    },
     complete, failToPassPassed, passToPassPassed, safetyPassed,
     status: complete && failToPassPassed && passToPassPassed && safetyPassed ? 'PASS'
       : outcomes.find((outcome) => blockedStates.has(outcome.status))?.status || 'FAIL_AGENT',

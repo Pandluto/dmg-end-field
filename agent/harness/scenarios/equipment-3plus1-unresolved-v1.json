@@ -1,6 +1,7 @@
 {
   "id": "equipment-3plus1-unresolved-v1",
   "version": 6,
+  "regressionKind": "FAIL_TO_PASS",
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -44,5 +45,25 @@
       ]
     },
     "mustKeepState": true
+  },
+  "regression": {
+    "failToPass": {
+      "baseline": {
+        "status": "FAIL_AGENT",
+        "verificationStatus": "FAIL",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "requiredFailureCodes": ["required-tool-missing", "required-turn-tool-missing", "required-turn-typed-tool-result-missing"],
+        "allowedFailureCodes": ["required-tool-missing", "required-turn-tool-missing", "required-turn-typed-tool-result-missing", "required-final-assistant-clause-missing", "forbidden-final-assistant-clause-present", "forbidden-tool-called", "turn-tool-not-allowed", "ordered-tool-sequence-violated"],
+        "allowedAttemptedTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+        "allowedAttemptedToolsMustBeCompleted": true
+      },
+      "candidate": {
+        "status": "EXECUTED",
+        "verificationStatus": "PASS",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 1 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 1 }
+      }
+    }
   }
 }

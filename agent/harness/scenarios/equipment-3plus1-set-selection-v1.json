@@ -1,6 +1,7 @@
 {
   "id": "equipment-3plus1-set-selection-v1",
   "version": 2,
+  "regressionKind": "FAIL_TO_PASS",
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -21,5 +22,25 @@
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 1 },
     "forbiddenAssistantText": ["随便选一套", "没有攻略所以无法推荐", "术师只能输出", "敏捷够用", "专武一定最优", "唯一可用方案"],
     "mustKeepState": true
+  },
+  "regression": {
+    "failToPass": {
+      "baseline": {
+        "status": "FAIL_AGENT",
+        "verificationStatus": "FAIL",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "requiredFailureCodes": ["required-tool-missing", "required-turn-tool-missing"],
+        "allowedFailureCodes": ["required-tool-missing", "required-turn-tool-missing", "forbidden-tool-called", "turn-tool-not-allowed", "ordered-tool-sequence-violated"],
+        "allowedAttemptedTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+        "allowedAttemptedToolsMustBeCompleted": true
+      },
+      "candidate": {
+        "status": "EXECUTED",
+        "verificationStatus": "PASS",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 1 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 1 }
+      }
+    }
   }
 }
