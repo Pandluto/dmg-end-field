@@ -13,7 +13,7 @@ const CATALOG_PACKAGE_MANIFEST_TYPE = 'dmg.catalog-package.v1';
 const TIMELINE_ARCHIVE_TYPE = 'dmg.timeline-archive.v1';
 const REFERENCE_ARCHIVE_RELEASE_MANIFEST_TYPE = 'dmg.reference-archive-release-manifest.v1';
 const REFERENCE_ARCHIVE_PACKAGE_MANIFEST_TYPE = 'dmg.reference-archive-package.v1';
-const CATALOG_SCHEMA_VERSION = 1;
+const CATALOG_SCHEMA_VERSION = 2;
 const USER_SCHEMA_VERSION = 2;
 const WORKSPACE_STATE_ID = 'current-workspace';
 const LEGACY_TIMELINE_SNAPSHOT_ARCHIVE_KEY = 'def.timeline.snapshot-archive.v1';
@@ -30,7 +30,7 @@ const WORKSPACE_STORAGE_KEYS = {
   activeCharacter: 'def.operator-config.active-character.v1',
   selectedSkillButton: 'def.selected-skill-button',
 };
-const REQUIRED_CATALOG_TABLES = [
+const REQUIRED_CATALOG_V1_TABLES = [
   'catalog_meta',
   'operators',
   'weapons',
@@ -38,6 +38,10 @@ const REQUIRED_CATALOG_TABLES = [
   'buff_definitions',
   'preloaded_timeline_payloads',
   'preloaded_timeline_templates',
+];
+const REQUIRED_CATALOG_V2_TABLES = [
+  ...REQUIRED_CATALOG_V1_TABLES,
+  'equipment_sets',
 ];
 const DEFAULT_MAX_PACKAGE_BYTES = 256 * 1024 * 1024;
 const WORK_NODE_STATUS_VALUES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
@@ -297,7 +301,7 @@ function normalizeCatalogItems(items, type) {
   });
 }
 
-function createCatalogDatabase({ databasePath, dataVersion, generatedAt = new Date().toISOString(), operators = [], weapons = [], equipments = [], buffs = [], templates = [] }) {
+function createCatalogDatabase({ databasePath, dataVersion, generatedAt = new Date().toISOString(), operators = [], weapons = [], equipments = [], equipmentSets = [], buffs = [], templates = [] }) {
   if (!databasePath) throw dataManagementError('missing-catalog-path', 'catalog.sqlite 路径缺失。');
   const safeVersion = sanitizeVersion(dataVersion);
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
@@ -314,6 +318,7 @@ function createCatalogDatabase({ databasePath, dataVersion, generatedAt = new Da
       CREATE TABLE operators (id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL) STRICT;
       CREATE TABLE weapons (id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL) STRICT;
       CREATE TABLE equipments (id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL) STRICT;
+      CREATE TABLE equipment_sets (id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL) STRICT;
       CREATE TABLE buff_definitions (id TEXT PRIMARY KEY, name TEXT NOT NULL, payload TEXT NOT NULL, payload_hash TEXT NOT NULL) STRICT;
       CREATE TABLE preloaded_timeline_payloads (content_hash TEXT PRIMARY KEY, payload TEXT NOT NULL) STRICT;
       CREATE TABLE preloaded_timeline_templates (
@@ -335,6 +340,7 @@ function createCatalogDatabase({ databasePath, dataVersion, generatedAt = new Da
       writeItems('operators', operators, 'operators');
       writeItems('weapons', weapons, 'weapons');
       writeItems('equipments', equipments, 'equipments');
+      writeItems('equipment_sets', equipmentSets, 'equipment sets');
       writeItems('buff_definitions', buffs, 'buffs');
       const templateIds = new Set();
       for (const template of templates) {
@@ -382,11 +388,20 @@ function validateCatalogDatabase({ databasePath, expectedSha256, expectedDataVer
     const integrity = db.prepare('PRAGMA integrity_check').get()?.integrity_check;
     if (integrity !== 'ok') throw dataManagementError('catalog-integrity-check-failed', 'catalog.sqlite 完整性校验失败。', { integrity });
     const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name));
-    const missingTables = REQUIRED_CATALOG_TABLES.filter((table) => !tables.has(table));
-    if (missingTables.length) throw dataManagementError('catalog-schema-missing-table', 'catalog.sqlite 缺少必要表。', { missingTables });
+    if (!tables.has('catalog_meta')) throw dataManagementError('catalog-schema-missing-table', 'catalog.sqlite 缺少必要表。', { missingTables: ['catalog_meta'] });
     const readMeta = (key) => db.prepare('SELECT value FROM catalog_meta WHERE key = ?').get(key)?.value || null;
     const schemaVersion = Number(readMeta('schema_version'));
     const dataVersion = readMeta('data_version');
+    const requiredTables = schemaVersion === 1
+      ? REQUIRED_CATALOG_V1_TABLES
+      : schemaVersion === 2
+        ? REQUIRED_CATALOG_V2_TABLES
+        : [];
+    if (!requiredTables.length) {
+      throw dataManagementError('catalog-schema-version-mismatch', 'catalog schema 版本不兼容。', { expected: expectedSchemaVersion, actual: schemaVersion });
+    }
+    const missingTables = requiredTables.filter((table) => !tables.has(table));
+    if (missingTables.length) throw dataManagementError('catalog-schema-missing-table', 'catalog.sqlite 缺少必要表。', { missingTables });
     if (schemaVersion !== expectedSchemaVersion) {
       throw dataManagementError('catalog-schema-version-mismatch', 'catalog schema 版本不兼容。', { expected: expectedSchemaVersion, actual: schemaVersion });
     }
@@ -403,6 +418,7 @@ function validateCatalogDatabase({ databasePath, expectedSha256, expectedDataVer
         operators: Number(db.prepare('SELECT COUNT(*) AS count FROM operators').get().count),
         weapons: Number(db.prepare('SELECT COUNT(*) AS count FROM weapons').get().count),
         equipments: Number(db.prepare('SELECT COUNT(*) AS count FROM equipments').get().count),
+        ...(schemaVersion >= 2 ? { equipmentSets: Number(db.prepare('SELECT COUNT(*) AS count FROM equipment_sets').get().count) } : {}),
         buffs: Number(db.prepare('SELECT COUNT(*) AS count FROM buff_definitions').get().count),
         preloadedTimelineTemplates: Number(db.prepare('SELECT COUNT(*) AS count FROM preloaded_timeline_templates').get().count),
       },
@@ -467,7 +483,15 @@ function validateDataReleaseManifest(manifest, { shellVersion, publicKey, requir
   const catalog = manifest.catalog;
   if (!catalog || typeof catalog !== 'object') throw dataManagementError('invalid-data-release-manifest', '数据发布清单缺少 catalog。');
   assertSha256(catalog.sha256, 'catalog.sha256');
-  for (const field of ['operators', 'weapons', 'equipments', 'buffs', 'preloadedTimelineTemplates']) {
+  const catalogCountFields = [
+    'operators',
+    'weapons',
+    'equipments',
+    ...(manifest.catalogSchemaVersion >= 2 ? ['equipmentSets'] : []),
+    'buffs',
+    'preloadedTimelineTemplates',
+  ];
+  for (const field of catalogCountFields) {
     if (!Number.isSafeInteger(catalog[field]) || catalog[field] < 0) {
       throw dataManagementError('invalid-data-release-manifest', `catalog.${field} 无效。`);
     }
@@ -2047,6 +2071,127 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, loca
     return { source: 'builtin', dataVersion: builtin.dataVersion, databasePath: paths.builtinCatalogPath, manifest: null, activatedAt: null };
   }
 
+  function readActiveGameCatalogRows(db, table) {
+    const rows = db.prepare(`SELECT id, name, payload, payload_hash FROM ${table} ORDER BY id ASC`).all();
+    return rows.map((row) => {
+      if (!row || typeof row.id !== 'string' || !row.id.trim() || typeof row.name !== 'string' || !row.name.trim()
+        || typeof row.payload !== 'string' || typeof row.payload_hash !== 'string') {
+        throw dataManagementError('active-game-catalog-row-invalid', `活动游戏目录的 ${table} 条目无效。`, { table });
+      }
+      let payload;
+      try {
+        payload = JSON.parse(row.payload);
+      } catch {
+        throw dataManagementError('active-game-catalog-payload-invalid', `活动游戏目录的 ${table} payload 无法解析。`, { table, id: row.id });
+      }
+      if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+        throw dataManagementError('active-game-catalog-payload-invalid', `活动游戏目录的 ${table} payload 必须是对象。`, { table, id: row.id });
+      }
+      const expectedHash = catalogPayloadHash(payload);
+      if (row.payload_hash !== expectedHash) {
+        throw dataManagementError('active-game-catalog-payload-hash-mismatch', `活动游戏目录的 ${table} payload 哈希不匹配。`, {
+          table,
+          id: row.id,
+          expectedHash,
+          actualHash: row.payload_hash,
+        });
+      }
+      return {
+        id: row.id,
+        name: row.name,
+        payload,
+        payloadHash: row.payload_hash,
+      };
+    });
+  }
+
+  function indexActiveGameCatalogRows(rows) {
+    return Object.fromEntries(rows.map((row) => [row.id, row.payload]));
+  }
+
+  /**
+   * Read the immutable game-data source consumed by typed read paths.
+   *
+   * This deliberately does not reuse readActiveCatalog(): that compatibility
+   * helper can fall back after an invalid active pointer so the Shell can
+   * still list old timeline templates. A typed game-data request must never
+   * silently answer from the bundled catalog when the selected release lacks
+   * the schema-v2 equipment-set capability.
+   */
+  function readActiveGameCatalog() {
+    ensureLayout();
+    const hasActivePointer = fs.existsSync(paths.activePath);
+    const active = readJsonIfExists(paths.activePath);
+    let resolved;
+    let validation;
+
+    if (hasActivePointer) {
+      if (!active || typeof active.dataVersion !== 'string' || !active.dataVersion.trim()) {
+        throw dataManagementError('active-game-catalog-active-pointer-invalid', '活动游戏目录指针无效，拒绝回退到内建目录。');
+      }
+      const installed = resolveCatalog(active.dataVersion);
+      const manifest = readJsonIfExists(installed.manifestPath);
+      if (!manifest) {
+        throw dataManagementError('active-game-catalog-active-manifest-missing', '活动游戏目录缺少数据发布清单，拒绝回退到内建目录。', { dataVersion: installed.version });
+      }
+      if (Number.isInteger(manifest.catalogSchemaVersion) && manifest.catalogSchemaVersion !== CATALOG_SCHEMA_VERSION) {
+        throw dataManagementError('active-game-catalog-capability-unavailable', '活动游戏目录不具备完整装备套装能力；请更新数据发布包。', {
+          dataVersion: installed.version,
+          expectedSchemaVersion: CATALOG_SCHEMA_VERSION,
+          actualSchemaVersion: manifest.catalogSchemaVersion,
+        });
+      }
+      const checkedManifest = validateDataReleaseManifest(manifest, { shellVersion, publicKey, requireSignature });
+      if (checkedManifest.catalogSchemaVersion !== CATALOG_SCHEMA_VERSION) {
+        throw dataManagementError('active-game-catalog-capability-unavailable', '活动游戏目录不具备完整装备套装能力；请更新数据发布包。', {
+          dataVersion: installed.version,
+          expectedSchemaVersion: CATALOG_SCHEMA_VERSION,
+          actualSchemaVersion: checkedManifest.catalogSchemaVersion,
+        });
+      }
+      validation = validateCatalogDatabase({
+        databasePath: installed.databasePath,
+        expectedDataVersion: installed.version,
+        expectedSha256: checkedManifest.catalog.sha256,
+        expectedSchemaVersion: CATALOG_SCHEMA_VERSION,
+      });
+      resolved = {
+        origin: 'active',
+        dataVersion: installed.version,
+        databasePath: installed.databasePath,
+        activatedAt: active.activatedAt || null,
+      };
+    } else {
+      validation = validateCatalogDatabase({
+        databasePath: paths.builtinCatalogPath,
+        expectedSchemaVersion: CATALOG_SCHEMA_VERSION,
+      });
+      resolved = {
+        origin: 'builtin',
+        dataVersion: validation.dataVersion,
+        databasePath: paths.builtinCatalogPath,
+        activatedAt: null,
+      };
+    }
+
+    const db = new DatabaseSync(resolved.databasePath, { readOnly: true });
+    try {
+      return {
+        source: resolved.origin,
+        dataVersion: resolved.dataVersion,
+        catalogSha256: validation.sha256,
+        databasePath: resolved.databasePath,
+        operators: indexActiveGameCatalogRows(readActiveGameCatalogRows(db, 'operators')),
+        weapons: indexActiveGameCatalogRows(readActiveGameCatalogRows(db, 'weapons')),
+        equipmentLibrary: {
+          gearSets: indexActiveGameCatalogRows(readActiveGameCatalogRows(db, 'equipment_sets')),
+        },
+      };
+    } finally {
+      db.close();
+    }
+  }
+
   function activateVersion(dataVersion, manifestUrl = '') {
     ensureLayout();
     const installed = resolveCatalog(dataVersion);
@@ -2673,6 +2818,7 @@ function createDataManagementService({ runtimeDataRoot, builtinCatalogPath, loca
     convertTimelineArchiveToWorkspace,
     installReferenceArchiveRelease,
     readActiveCatalog,
+    readActiveGameCatalog,
     activateVersion,
     installRelease,
     rollbackTo,

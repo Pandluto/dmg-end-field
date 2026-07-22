@@ -22,6 +22,58 @@ function parseArguments(argv) {
   return values;
 }
 
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function buildEquipmentCatalogInput(equipmentLibrary) {
+  const rawGearSets = equipmentLibrary?.gearSets;
+  if (!isRecord(rawGearSets)) throw new Error('Equipment catalog is missing a gearSets object.');
+
+  const gearSetIds = new Set();
+  const equipmentIds = new Set();
+  const equipmentSets = [];
+  const equipments = [];
+
+  for (const [entryKey, gearSet] of Object.entries(rawGearSets)) {
+    if (!isRecord(gearSet)) throw new Error(`Invalid equipment set entry: ${entryKey}.`);
+    const gearSetId = typeof gearSet.gearSetId === 'string' ? gearSet.gearSetId.trim() : '';
+    const name = typeof gearSet.name === 'string' ? gearSet.name.trim() : '';
+    if (!gearSetId || !name) throw new Error(`Equipment set is missing a stable id or name: ${entryKey}.`);
+    if (gearSetIds.has(gearSetId)) throw new Error(`Duplicate equipment set id: ${gearSetId}.`);
+    gearSetIds.add(gearSetId);
+
+    if (gearSet.threePieceBuff !== undefined && !isRecord(gearSet.threePieceBuff)) {
+      throw new Error(`Invalid threePieceBuff for equipment set: ${gearSetId}.`);
+    }
+    if (gearSet.threePieceBuffs !== undefined && !isRecord(gearSet.threePieceBuffs)) {
+      throw new Error(`Invalid threePieceBuffs for equipment set: ${gearSetId}.`);
+    }
+    if (!isRecord(gearSet.equipments)) throw new Error(`Equipment set is missing an equipments object: ${gearSetId}.`);
+
+    // Keep the complete source payload: a flattened equipment row cannot
+    // reconstruct the set's three-piece effects or original membership.
+    equipmentSets.push({ id: gearSetId, name, payload: gearSet });
+
+    for (const [equipmentKey, equipment] of Object.entries(gearSet.equipments)) {
+      if (!isRecord(equipment)) throw new Error(`Invalid equipment entry: ${gearSetId}/${equipmentKey}.`);
+      const equipmentId = typeof equipment.equipmentId === 'string' ? equipment.equipmentId.trim() : '';
+      if (!equipmentId) throw new Error(`Equipment is missing a stable id: ${gearSetId}/${equipmentKey}.`);
+      if (equipmentIds.has(equipmentId)) throw new Error(`Duplicate equipment id: ${equipmentId}.`);
+      equipmentIds.add(equipmentId);
+      const equipmentName = typeof equipment.name === 'string' && equipment.name.trim() ? equipment.name.trim() : equipmentId;
+      equipments.push({
+        id: equipmentId,
+        name: equipmentName,
+        payload: { ...equipment, gearSetId },
+      });
+    }
+  }
+
+  if (!equipmentSets.length) throw new Error('Equipment catalog does not contain any gear sets.');
+  return { equipmentSets, equipments };
+}
+
 function buildCatalogInput({ sourceRoot, outputPath, dataVersion }) {
   const identities = readJson(path.join(sourceRoot, 'catalog-identities.v1.json'));
   if (identities?.schemaVersion !== 1) throw new Error('catalog identity map schemaVersion 无效。');
@@ -44,21 +96,12 @@ function buildCatalogInput({ sourceRoot, outputPath, dataVersion }) {
     })
     .sort((left, right) => left.id.localeCompare(right.id));
   const equipmentLibrary = readJson(path.join(sourceRoot, 'equipments', 'equipments.json'));
-  const equipments = Object.values(equipmentLibrary.gearSets || {}).flatMap((gearSet) => Object.values(gearSet.equipments || {}).map((equipment) => {
-    if (typeof equipment.equipmentId !== 'string' || !equipment.equipmentId) {
-      throw new Error(`装备缺少固定 ID：${equipment.name || '-'}`);
-    }
-    return {
-      id: equipment.equipmentId,
-      name: equipment.name || equipment.equipmentId,
-      payload: { ...equipment, gearSetId: gearSet.gearSetId || '' },
-    };
-  }));
+  const { equipmentSets, equipments } = buildEquipmentCatalogInput(equipmentLibrary);
   const buffs = readJson(path.join(sourceRoot, 'akedb-raw-index', 'buffs.json')).map((buff) => {
     if (typeof buff.id !== 'string' || !buff.id) throw new Error('系统 Buff 缺少固定 ID。');
     return { id: buff.id, name: buff.id, payload: buff };
   });
-  return { databasePath: outputPath, dataVersion, operators, weapons, equipments, buffs, templates: [] };
+  return { databasePath: outputPath, dataVersion, operators, weapons, equipments, equipmentSets, buffs, templates: [] };
 }
 
 export function buildBuiltinDataCatalog({ sourceRoot = path.join(repositoryRoot, 'public', 'data'), outputPath = path.join(repositoryRoot, 'public', 'data', 'catalog.sqlite'), dataVersion = `builtin-${require('../package.json').version}` } = {}) {

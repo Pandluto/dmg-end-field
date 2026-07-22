@@ -20,6 +20,16 @@ const builtinCatalogPath = path.join(runtimeRoot, 'catalog', 'builtin', 'catalog
 const payload = { selectedCharacters: [], timelineData: { staffLines: [] }, skillButtonTable: {}, allBuffList: [] };
 
 function catalogInput(version, attack) {
+  const gearSet = {
+    gearSetId: 'gear-set.demo',
+    name: `Demo gear set ${version}`,
+    threePieceBuffs: {
+      bonus: { effectId: 'demo-three-piece', name: 'Demo three-piece bonus', typeKey: 'strengthBoost', value: attack },
+    },
+    equipments: {
+      demo: { equipmentId: 'equipment.demo', name: 'Demo equipment', part: '护甲', effects: {} },
+    },
+  };
   return {
     databasePath: version === 'builtin-v1'
       ? builtinCatalogPath
@@ -27,7 +37,8 @@ function catalogInput(version, attack) {
     dataVersion: version,
     operators: [{ id: 'operator.last-rite', name: '别礼', payload: { id: 'operator.last-rite', attack } }],
     weapons: [{ id: 'weapon.glory-memory', name: '光荣记忆', payload: { id: 'weapon.glory-memory', attack } }],
-    equipments: [{ id: 'equipment.demo', name: '演示装备', payload: { id: 'equipment.demo' } }],
+    equipments: [{ id: 'equipment.demo', name: '演示装备', payload: { ...gearSet.equipments.demo, gearSetId: gearSet.gearSetId } }],
+    equipmentSets: [{ id: gearSet.gearSetId, name: gearSet.name, payload: gearSet }],
     buffs: [{ id: 'buff.demo', name: '演示 Buff', payload: { id: 'buff.demo' } }],
     templates: [{ id: 'template.demo', label: '演示预载排轴', payload, createdAt: 1 }],
   };
@@ -44,6 +55,14 @@ service.putUserBuff('user-buff.demo', { name: '用户 Buff' }, 11);
 
 assert.equal(service.readActiveCatalog().source, 'builtin');
 assert.equal(service.readActiveCatalog().dataVersion, 'builtin-v1');
+const builtinGameCatalog = service.readActiveGameCatalog();
+assert.equal(builtinGameCatalog.source, 'builtin');
+assert.equal(builtinGameCatalog.dataVersion, 'builtin-v1');
+assert.match(builtinGameCatalog.catalogSha256, /^[a-f0-9]{64}$/);
+assert.equal(builtinGameCatalog.databasePath, builtinCatalogPath);
+assert.deepEqual(builtinGameCatalog.operators['operator.last-rite'], { id: 'operator.last-rite', attack: 318 });
+assert.deepEqual(builtinGameCatalog.weapons['weapon.glory-memory'], { id: 'weapon.glory-memory', attack: 318 });
+assert.equal(builtinGameCatalog.equipmentLibrary.gearSets['gear-set.demo']?.threePieceBuffs?.bonus?.value, 318);
 assert.deepEqual(service.getUserOperatorConfig('operator.last-rite')?.payload, { level: 90 });
 assert.deepEqual(service.getUserBuff('user-buff.demo')?.payload, { name: '用户 Buff' });
 const initialWorkspace = service.putWorkspaceState({
@@ -153,6 +172,13 @@ const releaseV2 = buildRelease('data-v2', 342, { includeReferenceArchive: true }
 const installedV2 = service.installRelease({ manifest: releaseV2.manifest, archivePath: releaseV2.packagePath, manifestUrl: 'file://smoke/v2' });
 assert.equal(installedV2.installed, true);
 assert.equal(installedV2.active.dataVersion, 'data-v2');
+const activeGameCatalog = service.readActiveGameCatalog();
+assert.equal(activeGameCatalog.source, 'active');
+assert.equal(activeGameCatalog.dataVersion, 'data-v2');
+assert.notEqual(activeGameCatalog.catalogSha256, builtinGameCatalog.catalogSha256);
+assert.deepEqual(activeGameCatalog.operators['operator.last-rite'], { id: 'operator.last-rite', attack: 342 });
+assert.equal(activeGameCatalog.equipmentLibrary.gearSets['gear-set.demo']?.name, 'Demo gear set data-v2');
+assert.equal(activeGameCatalog.equipmentLibrary.gearSets['gear-set.demo']?.threePieceBuffs?.bonus?.value, 342);
 assert.equal(service.listTimelineArchives({ source: 'reference' })[0]?.archiveId, 'release-reference-data-v2');
 assert.equal(service.listPreloadedTemplates()[0]?.id, 'template.demo');
 assert.equal(service.getPreloadedTemplate('template.demo').catalogVersion, 'data-v2');
@@ -214,6 +240,46 @@ assert.throws(() => service.installRelease({ manifest: incompatibleManifest, arc
   code: 'data-release-shell-version-incompatible',
 });
 assert.equal(service.readActiveCatalog().dataVersion, 'data-v3');
+
+// Existing schema-v1 releases remain valid for the general data-management
+// path, but a typed game-data consumer must not quietly replace the selected
+// release with bundled v2 facts when complete gear-set payloads are absent.
+const legacyDataVersion = 'legacy-v1';
+const legacyDirectory = path.join(runtimeRoot, 'catalog', 'versions', legacyDataVersion);
+const legacyCatalogDatabasePath = path.join(legacyDirectory, 'catalog.sqlite');
+fs.mkdirSync(legacyDirectory, { recursive: true });
+fs.copyFileSync(builtinCatalogPath, legacyCatalogDatabasePath);
+const { DatabaseSync } = require('node:sqlite');
+const legacyDatabase = new DatabaseSync(legacyCatalogDatabasePath);
+legacyDatabase.exec("DROP TABLE equipment_sets; UPDATE catalog_meta SET value = '1' WHERE key = 'schema_version'; UPDATE catalog_meta SET value = 'legacy-v1' WHERE key = 'data_version';");
+legacyDatabase.close();
+const legacyCatalogSha256 = crypto.createHash('sha256').update(fs.readFileSync(legacyCatalogDatabasePath)).digest('hex');
+const legacyManifest = signDataReleaseManifest({
+  type: 'dmg.data-release-manifest.v1',
+  manifestVersion: 1,
+  releaseTag: legacyDataVersion,
+  dataVersion: legacyDataVersion,
+  generatedAt: '2026-07-23T00:00:00.000Z',
+  minShellVersion: '',
+  catalogSchemaVersion: 1,
+  package: { fileName: 'data-legacy-v1.zip', packagePath: 'data-legacy-v1.zip', sizeBytes: 1, sha256: '0'.repeat(64) },
+  catalog: {
+    sha256: legacyCatalogSha256,
+    operators: 1,
+    weapons: 1,
+    equipments: 1,
+    buffs: 1,
+    preloadedTimelineTemplates: 1,
+  },
+  referenceArchives: [],
+}, privateKey, 'smoke-key');
+fs.writeFileSync(path.join(legacyDirectory, 'data-release-manifest.json'), `${JSON.stringify(legacyManifest, null, 2)}\n`, 'utf8');
+fs.writeFileSync(path.join(runtimeRoot, 'catalog', 'active.json'), JSON.stringify({ dataVersion: legacyDataVersion, activatedAt: '2026-07-23T00:00:00.000Z' }), 'utf8');
+assert.equal(service.readActiveCatalog().source, 'active', 'schema-v1 active releases remain valid for general data management');
+assert.equal(service.readActiveCatalog().dataVersion, legacyDataVersion);
+assert.throws(() => service.readActiveGameCatalog(), {
+  code: 'active-game-catalog-capability-unavailable',
+});
 
 const userHashAfter = crypto.createHash('sha256').update(fs.readFileSync(service.paths.userDatabasePath)).digest('hex');
 assert.equal(userHashAfter, userHashBefore);
