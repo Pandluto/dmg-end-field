@@ -44,6 +44,58 @@ function fetchNativeLoopbackUrl(targetUrl, options = {}) {
   });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * JSON-compatible companion for the bridge's fetchJson/postJson callbacks.
+ * It preserves their { status, body } result shape while keeping the request
+ * on the fixed native loopback transport.
+ */
+async function requestNativeLoopbackJson(targetUrl, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const hasJson = Object.prototype.hasOwnProperty.call(options, 'json');
+  const body = hasJson ? JSON.stringify(options.json) : undefined;
+  const headers = {
+    ...(options.headers || {}),
+    ...(body === undefined ? {} : {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Length': Buffer.byteLength(body),
+    }),
+  };
+  const retries = Number.isFinite(Number(options.retries)) ? Number(options.retries) : 1;
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const response = await fetchNativeLoopbackUrl(targetUrl, {
+        method,
+        headers,
+        body,
+        timeoutMs: options.timeoutMs,
+      });
+      if (response.statusCode >= 500 && attempt < retries) {
+        lastError = new Error(`HTTP ${response.statusCode}`);
+        await delay(500 * (attempt + 1));
+        continue;
+      }
+      return {
+        status: response.statusCode,
+        body: JSON.parse(response.body.toString('utf8') || '{}'),
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < retries) {
+        await delay(500 * (attempt + 1));
+        continue;
+      }
+    }
+  }
+  throw lastError || new Error(`request failed: ${targetUrl}`);
+}
+
 module.exports = {
   fetchNativeLoopbackUrl,
+  requestNativeLoopbackJson,
 };

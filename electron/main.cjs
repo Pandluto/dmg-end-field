@@ -17,7 +17,7 @@ const {
   validateReferenceArchiveReleaseManifest,
 } = require('./data-management-service.cjs');
 const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
-const { fetchNativeLoopbackUrl } = require('./native-loopback-transport.cjs');
+const { fetchNativeLoopbackUrl, requestNativeLoopbackJson } = require('./native-loopback-transport.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
@@ -96,6 +96,55 @@ function buildInteropNativeHeaders(url) {
     defInternalGovernanceToken,
   );
 }
+function hasExpectedDefInternalGovernanceToken(headers = {}) {
+  const actual = headers['x-def-internal-token'];
+  if (typeof actual !== 'string' || !actual || !defInternalGovernanceToken) return false;
+  const actualBuffer = Buffer.from(actual);
+  const expectedBuffer = Buffer.from(defInternalGovernanceToken);
+  return actualBuffer.length === expectedBuffer.length
+    && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+}
+function isProtectedInteropLoopbackRequest(url, headers = {}) {
+  try {
+    const target = new URL(url);
+    return target.protocol === 'http:'
+      && target.hostname === '127.0.0.1'
+      && target.port === '17321'
+      && hasExpectedDefInternalGovernanceToken(headers);
+  } catch {
+    return false;
+  }
+}
+function buildInteropRequestOptions(url, options = {}) {
+  return {
+    ...options,
+    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
+  };
+}
+async function fetchInteropJson(url, options = {}) {
+  const requestOptions = buildInteropRequestOptions(url, options);
+  if (isProtectedInteropLoopbackRequest(url, requestOptions.headers)) {
+    return requestNativeLoopbackJson(url, {
+      headers: requestOptions.headers,
+      timeoutMs: requestOptions.timeoutMs ?? 1000,
+      retries: requestOptions.retries ?? 1,
+    });
+  }
+  return fetchJsonUrl(url, requestOptions);
+}
+async function postInteropJson(url, payload, options = {}) {
+  const requestOptions = buildInteropRequestOptions(url, options);
+  if (isProtectedInteropLoopbackRequest(url, requestOptions.headers)) {
+    return requestNativeLoopbackJson(url, {
+      method: 'POST',
+      json: payload || {},
+      headers: requestOptions.headers,
+      timeoutMs: requestOptions.timeoutMs ?? 30000,
+      retries: requestOptions.retries ?? 0,
+    });
+  }
+  return postJsonUrl(url, payload, requestOptions);
+}
 const defCodexInterop = createDefCodexInteropProtocol({
   profile: isDev ? 'development' : 'release',
   baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
@@ -107,14 +156,8 @@ const defCodexInterop = createDefCodexInteropProtocol({
   writeJson,
   writeSse,
   writeSseHeaders,
-  fetchJson: (url, options = {}) => fetchJsonUrl(url, {
-    ...options,
-    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
-  }),
-  postJson: (url, payload, options = {}) => postJsonUrl(url, payload, {
-    ...options,
-    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
-  }),
+  fetchJson: fetchInteropJson,
+  postJson: postInteropJson,
 });
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
