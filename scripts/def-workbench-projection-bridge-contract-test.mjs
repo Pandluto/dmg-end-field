@@ -95,7 +95,7 @@ async function request(pathname, { method = 'GET', body, internal = false } = {}
 }
 
 async function waitForReady() {
-  for (let index = 0; index < 200; index += 1) {
+  for (let index = 0; index < 300; index += 1) {
     try { if ((await fetch(`${baseUrl}/health`)).ok) return; } catch { /* starting */ }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }

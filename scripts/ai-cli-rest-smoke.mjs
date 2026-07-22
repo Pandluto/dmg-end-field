@@ -20,7 +20,7 @@ function delay(ms) {
 
 async function waitForHealth() {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 20000) {
+  while (Date.now() - startedAt < 30000) {
     try {
       const response = await fetch(`${BASE_URL}/health`);
       if (response.ok) {

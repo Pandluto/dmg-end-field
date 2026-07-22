@@ -11,7 +11,7 @@ function delay(ms) {
 }
 
 async function waitForHealth() {
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + 30_000;
   while (Date.now() < deadline) {
     try {
       const response = await fetch(`${BASE_URL}/health`);

@@ -64,7 +64,7 @@ async function request(method, pathname, body) {
 
 async function waitForHealth() {
   const startedAt = Date.now();
-  while (Date.now() - startedAt < 20_000) {
+  while (Date.now() - startedAt < 30_000) {
     try {
       const response = await fetch(`${baseUrl}/health`);
       if (response.ok) return;

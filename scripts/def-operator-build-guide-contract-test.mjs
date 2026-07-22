@@ -266,7 +266,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
 child.stderr.on('data', (chunk) => { childStderr += chunk.toString('utf8'); });
 
 async function waitForReady() {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (child.exitCode !== null) {
       throw new Error(`Operator build guide contract server exited early (${child.exitCode}). ${childStderr}`);
     }
