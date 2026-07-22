@@ -41,6 +41,49 @@ function completedTool(tool = recommendTool, resultState = 'READY', contract = r
   };
 }
 
+function completedToolWithStructuredInputOutput(tool, input, output) {
+  callSequence += 1;
+  return {
+    tool,
+    callId: `${tool}-${callSequence}`,
+    state: { status: 'completed', input, output: JSON.stringify(output) },
+  };
+}
+
+const gameKnowledgeSearchTool = 'def_data_game_knowledge';
+const gameKnowledgeSectionTool = 'def_data_game_knowledge_section';
+const sourceOnlyReferenceId = 'guide-four-person.md';
+const sourceOnlySectionId = 'h2-build';
+
+function completedGameKnowledgeSearch({
+  referenceId = sourceOnlyReferenceId,
+  requiredSectionId = sourceOnlySectionId,
+} = {}) {
+  return completedToolWithStructuredInputOutput(gameKnowledgeSearchTool, { query: 'four-person guide', limit: 3 }, {
+    protocolVersion: 1,
+    contract: 'DefGameKnowledgeReferenceSearchV1',
+    candidates: [{
+      referenceId,
+      recommendedSection: { sectionId: 'h1-overview' },
+      exactReadPolicy: { requiredSectionId },
+    }],
+  });
+}
+
+function completedGameKnowledgeSection({
+  referenceId = sourceOnlyReferenceId,
+  sectionId = sourceOnlySectionId,
+  outputReferenceId = referenceId,
+  outputSectionId = sectionId,
+} = {}) {
+  return completedToolWithStructuredInputOutput(gameKnowledgeSectionTool, { referenceId, sectionId }, {
+    protocolVersion: 1,
+    contract: 'DefGameKnowledgeSectionReadV1',
+    referenceId: outputReferenceId,
+    section: { sectionId: outputSectionId },
+  });
+}
+
 function syntheticTurnWithAssistantTexts(index, toolEvents, assistantTexts) {
   const messages = assistantTexts.map((assistantText, messageIndex) => {
     const assistantId = `assistant-${index}-${messageIndex + 1}`;
@@ -143,6 +186,61 @@ const correctionSkippedReplan = evaluateScenarioVerification(syntheticRun([
   syntheticTurn(2, []),
 ]), correctionScenario);
 assert.ok(failureCodes(correctionSkippedReplan).has('required-turn-tool-missing'));
+
+const sourceOnlyGuide = readScenario('skill-reference-readable-v1.json');
+assert.equal(sourceOnlyGuide.version, 2, 'source-only guide scenario advances when the exact-read contract changes');
+assert.deepEqual(sourceOnlyGuide.turns.map((turn) => turn.userText), [
+  '请查《弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学》这篇四人配队攻略；只按原文告诉我依据和明确写到的配装，不要查询当前阵容或改动任何配置。',
+], 'source-only guide scenario remains a focused four-person guide request');
+assert.ok(!sourceOnlyGuide.turns[0].userText.includes('glossary'), 'source-only guide scenario has no mixed glossary intent');
+assert.deepEqual(sourceOnlyGuide.verification.requiredTools, [gameKnowledgeSearchTool, gameKnowledgeSectionTool]);
+assert.deepEqual(sourceOnlyGuide.verification.requiredToolsByTurn, {
+  1: [gameKnowledgeSearchTool, gameKnowledgeSectionTool],
+});
+assert.deepEqual(sourceOnlyGuide.verification.onlyToolsByTurn, {
+  1: [gameKnowledgeSearchTool, gameKnowledgeSectionTool],
+});
+assert.deepEqual(sourceOnlyGuide.verification.orderedToolsByTurn, {
+  1: [gameKnowledgeSearchTool, gameKnowledgeSectionTool],
+});
+assert.deepEqual(sourceOnlyGuide.verification.requiredExactSectionReadByTurn, {
+  1: { searchTool: gameKnowledgeSearchTool, sectionTool: gameKnowledgeSectionTool },
+});
+assert.deepEqual(sourceOnlyGuide.verification.maxRepeatedToolCalls, {
+  [gameKnowledgeSearchTool]: 1,
+  [gameKnowledgeSectionTool]: 1,
+});
+
+const sourceOnlyGuidePass = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedGameKnowledgeSearch(), completedGameKnowledgeSection()]),
+]), sourceOnlyGuide);
+assert.equal(sourceOnlyGuidePass.status, 'PASS', 'one search followed by its exact section read passes');
+
+const sourceOnlyGuideRepeated = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    ...Array.from({ length: 5 }, () => completedGameKnowledgeSearch()),
+    completedGameKnowledgeSection(),
+    completedGameKnowledgeSection(),
+  ]),
+]), sourceOnlyGuide);
+assert.equal(sourceOnlyGuideRepeated.status, 'FAIL', 'five searches plus two section reads must fail');
+assert.ok(failureCodes(sourceOnlyGuideRepeated).has('max-repeated-tool-calls-exceeded'));
+
+const sourceOnlyGuideWrongInput = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedGameKnowledgeSearch(),
+    completedGameKnowledgeSection({ sectionId: 'h1-overview' }),
+  ]),
+]), sourceOnlyGuide);
+assert.ok(failureCodes(sourceOnlyGuideWrongInput).has('required-exact-section-read-missing'), 'section input must use the search candidate exactReadPolicy.requiredSectionId');
+
+const sourceOnlyGuideWrongOutput = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedGameKnowledgeSearch(),
+    completedGameKnowledgeSection({ outputSectionId: 'h1-overview' }),
+  ]),
+]), sourceOnlyGuide);
+assert.ok(failureCodes(sourceOnlyGuideWrongOutput).has('required-exact-section-read-missing'), 'section output must confirm the exact searched reference and section');
 
 const expectations = [
   ['equipment-3plus1-topology-v1.json', 2, 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
@@ -277,6 +375,9 @@ console.log(JSON.stringify({
     'legacy-3plus1-route-forbidden',
     'read-only-state-preservation',
     'correction-second-turn-fresh-composite-recommendation',
+    'source-only-guide-search-then-exact-section-read',
+    'source-only-guide-repeated-search-and-section-calls-rejected',
+    'source-only-guide-section-read-bound-to-search-exact-read-policy',
     'topology-and-set-scenarios-migrated',
     'unresolved-composite-scenario-present',
     'unresolved-typed-contract-state-and-final-visible-conclusion-required',

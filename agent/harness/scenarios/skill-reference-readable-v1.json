@@ -1,12 +1,31 @@
 {
   "id": "skill-reference-readable-v1",
-  "version": 1,
+  "version": 2,
   "fixtureMode": "clone-current",
   "turns": [
-    { "userText": "查一下 glossary 和弭弗、陈千语、埃特拉、阿列什的配队攻略；只告诉我依据，先不要改阵容。" }
+    { "userText": "请查《弭弗x陈千语x埃特拉x阿列什 低配高伤&无脑循环打法教学》这篇四人配队攻略；只按原文告诉我依据和明确写到的配装，不要查询当前阵容或改动任何配置。" }
   ],
   "verification": {
-    "requiredTools": ["def_data_game_knowledge"],
+    "requiredTools": ["def_data_game_knowledge", "def_data_game_knowledge_section"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_game_knowledge", "def_data_game_knowledge_section"]
+    },
+    "onlyToolsByTurn": {
+      "1": ["def_data_game_knowledge", "def_data_game_knowledge_section"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_game_knowledge", "def_data_game_knowledge_section"]
+    },
+    "requiredExactSectionReadByTurn": {
+      "1": {
+        "searchTool": "def_data_game_knowledge",
+        "sectionTool": "def_data_game_knowledge_section"
+      }
+    },
+    "maxRepeatedToolCalls": {
+      "def_data_game_knowledge": 1,
+      "def_data_game_knowledge_section": 1
+    },
     "forbiddenAssistantText": ["根据文件名", "无法读取攻略"],
     "mustKeepState": true
   }

@@ -57,6 +57,7 @@ function protocolFacts(messages, prompt) {
       messageId: message.info?.id || null,
       callId: part.callID || part.callId || null,
       tool: part.tool || null,
+      input: part.state?.input ?? part.input ?? null,
       state: part.state || (part.status ? {
         status: part.status,
         output: part.output,
@@ -143,6 +144,27 @@ function scenarioTypedToolResult(event) {
     if (typedResult) return typedResult;
   }
   return null;
+}
+
+function parseScenarioStructuredValue(value, depth = 0) {
+  if (depth > 5 || value === null || value === undefined) return null;
+  if (typeof value === 'string') {
+    try { return parseScenarioStructuredValue(JSON.parse(value), depth + 1); } catch { return null; }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+}
+
+function scenarioStructuredOutputValues(event, depth = 0) {
+  if (depth > 5) return [];
+  const value = parseScenarioStructuredValue(
+    depth === 0 ? event?.state?.output ?? event?.state?.result ?? event?.output : event,
+  );
+  if (!value) return [];
+  return [value, ...['result', 'output', 'body', 'data'].flatMap((key) => scenarioStructuredOutputValues(value[key], depth + 1))];
+}
+
+function scenarioStructuredInput(event) {
+  return parseScenarioStructuredValue(event?.input ?? event?.state?.input);
 }
 
 function scenarioAssistantText(run) {
@@ -282,6 +304,60 @@ function normalizeScenarioTurnTypedToolResultRules(value, field, checks) {
       return [{ turnNumber, tool, expected: { contract, state } }];
     });
   });
+}
+
+function normalizeScenarioExactSectionReadRules(value, field, checks) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object keyed by one-based turn number.`,
+    });
+    return [];
+  }
+  return Object.entries(value).flatMap(([rawTurnNumber, rawRule]) => {
+    const turnNumber = Number(rawTurnNumber);
+    const searchTool = typeof rawRule?.searchTool === 'string' ? rawRule.searchTool.trim() : '';
+    const sectionTool = typeof rawRule?.sectionTool === 'string' ? rawRule.sectionTool.trim() : '';
+    const unknownFields = rawRule && typeof rawRule === 'object' && !Array.isArray(rawRule)
+      ? Object.keys(rawRule).filter((key) => !['searchTool', 'sectionTool'].includes(key))
+      : [];
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !searchTool || !sectionTool || unknownFields.length) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} entries require positive turn numbers plus searchTool and sectionTool only.`,
+      });
+      return [];
+    }
+    return [{ turnNumber, searchTool, sectionTool }];
+  });
+}
+
+function exactSectionReadCandidateMatches(searchEvent, sectionEvent) {
+  const sectionInput = scenarioStructuredInput(sectionEvent);
+  if (!sectionInput || typeof sectionInput.referenceId !== 'string' || typeof sectionInput.sectionId !== 'string') return [];
+  const requestedReferenceId = sectionInput.referenceId.trim();
+  const requestedSectionId = sectionInput.sectionId.trim();
+  if (!requestedReferenceId || !requestedSectionId) return [];
+  const sectionOutputs = scenarioStructuredOutputValues(sectionEvent)
+    .filter((output) => output.contract === 'DefGameKnowledgeSectionReadV1');
+  const sectionOutputMatches = sectionOutputs.some((output) => (
+    output.referenceId === requestedReferenceId
+    && output.section?.sectionId === requestedSectionId
+  ));
+  if (!sectionOutputMatches) return [];
+  return scenarioStructuredOutputValues(searchEvent)
+    .filter((output) => output.contract === 'DefGameKnowledgeReferenceSearchV1' && Array.isArray(output.candidates))
+    .flatMap((output) => output.candidates)
+    .filter((candidate) => (
+      candidate
+      && candidate.referenceId === requestedReferenceId
+      && candidate.exactReadPolicy?.requiredSectionId === requestedSectionId
+    ));
 }
 
 function normalizeScenarioClauseRule(value, field, checks) {
@@ -490,6 +566,34 @@ export function evaluateScenarioVerification(run, scenario) {
       turnNumber: rule.turnNumber,
       expected: rule.expected,
       observedResults,
+    });
+  }
+
+  const requiredExactSectionReadsByTurn = normalizeScenarioExactSectionReadRules(
+    verification.requiredExactSectionReadByTurn,
+    'requiredExactSectionReadByTurn',
+    checks,
+  );
+  for (const rule of requiredExactSectionReadsByTurn) {
+    const sameTurn = events.filter((event) => event.turnNumber === rule.turnNumber);
+    const searches = sameTurn.filter((event) => event.tool === rule.searchTool && completedScenarioToolEvent(event));
+    const sectionReads = sameTurn.filter((event) => event.tool === rule.sectionTool && completedScenarioToolEvent(event));
+    const matchedCandidates = sectionReads.flatMap((sectionEvent) => searches
+      .filter((searchEvent) => searchEvent.eventIndex < sectionEvent.eventIndex)
+      .flatMap((searchEvent) => exactSectionReadCandidateMatches(searchEvent, sectionEvent)));
+    addScenarioCheck(checks, {
+      pass: matchedCandidates.length > 0,
+      code: 'required-exact-section-read-missing',
+      turnNumber: rule.turnNumber,
+      searchTool: rule.searchTool,
+      sectionTool: rule.sectionTool,
+      expected: 'completed-section-input-and-output-match-one-prior-search-candidate-exactReadPolicy.requiredSectionId',
+      observedSearchCalls: searches.length,
+      observedSectionReadCalls: sectionReads.length,
+      matchedCandidates: matchedCandidates.map((candidate) => ({
+        referenceId: candidate.referenceId,
+        requiredSectionId: candidate.exactReadPolicy.requiredSectionId,
+      })),
     });
   }
 
