@@ -1,6 +1,6 @@
 {
   "id": "equipment-3plus1-unresolved-v1",
-  "version": 5,
+  "version": 6,
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -39,7 +39,6 @@
       "1": [
         {
           "allOf": ["寒冷伤害", "触发潮涌第二段"],
-          "anyOf": ["会", "可以", "能够"],
           "noneOf": ["不能证明", "无法证明", "未能证明"]
         }
       ]

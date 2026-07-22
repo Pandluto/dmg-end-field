@@ -148,7 +148,7 @@ const expectations = [
   ['equipment-3plus1-topology-v1.json', 2, 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
   ['equipment-3plus1-set-selection-v1.json', 2, 1, ['为汤汤挑一套 3+1 装备，优先适配她的输出机制，不指定套装。']],
   ['operator-config-correction-review-v1.json', 2, 2, ['给别礼规划一套 3 潮涌+1，先给我确认方案，不要应用。', '配件二为什么不用第二个悬河供氧栓？']],
-  ['equipment-3plus1-unresolved-v1.json', 5, 1, ['为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。']],
+  ['equipment-3plus1-unresolved-v1.json', 6, 1, ['为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。']],
 ];
 for (const [file, version, turnCount, prompts] of expectations) {
   const scenario = readScenario(file);
@@ -179,7 +179,6 @@ assert.deepEqual(unresolved.verification.requiredFinalAssistantClausesByTurn, {
 assert.deepEqual(unresolved.verification.forbiddenFinalAssistantClausesByTurn, {
   1: [{
     allOf: ['寒冷伤害', '触发潮涌第二段'],
-    anyOf: ['会', '可以', '能够'],
     noneOf: ['不能证明', '无法证明', '未能证明'],
   }],
 });
@@ -221,6 +220,10 @@ const unresolvedContradiction = evaluateScenarioVerification(syntheticRun([
   syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], '现有资料不能证明寒冷伤害会触发潮涌第二段；但寒冷伤害能够触发潮涌第二段。'),
 ]), unresolved);
 assert.ok(failureCodes(unresolvedContradiction).has('forbidden-final-assistant-clause-present'));
+const unresolvedModalFreeContradiction = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], '现有资料不能证明寒冷伤害会触发潮涌第二段。寒冷伤害触发潮涌第二段。'),
+]), unresolved);
+assert.ok(failureCodes(unresolvedModalFreeContradiction).has('forbidden-final-assistant-clause-present'));
 for (const punctuationSeparatedContradiction of [
   '虽然不能证明这一点：寒冷伤害会触发潮涌第二段。',
   '虽然不能证明这一点: 寒冷伤害可以触发潮涌第二段。',

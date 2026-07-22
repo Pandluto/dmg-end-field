@@ -80,13 +80,13 @@ W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutabl
 | --- | --- | --- |
 | `equipment-3plus1-topology-v1` v1 | `package-check-a46c3514-12e4-4475-b754-a337b637e1f2` | `SUPERSEDED_BY_V2_SCENARIO` |
 | `equipment-3plus1-set-selection-v1` v1 | `package-check-61fda0ed-4b06-4286-a9f9-e9be41e7459d` | `SUPERSEDED_BY_V2_SCENARIO` |
-| `equipment-3plus1-unresolved-v1` v1 | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `SUPERSEDED_BY_V5_SCENARIO` |
+| `equipment-3plus1-unresolved-v1` v1 | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `SUPERSEDED_BY_V6_SCENARIO` |
 
 `operator-config-correction-review-v1` 是两轮场景；其“第二轮重新 recommend”
 由 `npm run test:def-harness-scenario-verification` 静态合同覆盖，当前没有可核实的
 独立 package-check id。当前四类场景分别为 topology v2、set-selection v2、correction v2、
-unresolved v5。它们每轮只允许 composite recommend，任何其他 attempted Tool 都失败。
-unresolved v5 使用 G2 原文的“寒冷伤害会不会触发潮涌第二段”问题，要求 actual typed result
+unresolved v6。它们每轮只允许 composite recommend，任何其他 attempted Tool 都失败。
+unresolved v6 使用 G2 原文的“寒冷伤害会不会触发潮涌第二段”问题，要求 actual typed result
 同时为 `DefEquipmentThreePlusOneRecommendationV1` / `UNRESOLVED`。最后可见回答按 Unicode
 `Po` / `Pd` / `Pc` 与换行切分；结构化 `allOf` / `anyOf` / `noneOf` 规则要求同一分句给出
 关联同一对象的“不能证明”结论，并拒绝相反断言。
