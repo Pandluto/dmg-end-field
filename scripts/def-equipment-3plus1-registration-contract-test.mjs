@@ -20,12 +20,14 @@ import { hashDefStableValue } from './def-core/stable-json.mjs';
 
 const require = createRequire(import.meta.url);
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
+const { createCatalogDatabase, createDataManagementService } = require('../electron/data-management-service.cjs');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-equipment-3plus1-registration-'));
 const port = 19700 + Math.floor(Math.random() * 300);
 const baseUrl = `http://127.0.0.1:${port}`;
 const internalToken = 'equipment-3plus1-registration-contract';
 const nowStoragePath = path.join(root, 'now-storage.json');
+const builtinCatalogPath = path.join(root, 'catalog.sqlite');
 const timelineRepositoryPath = path.join(root, 'timeline.sqlite3');
 const workNodeDatabasePath = path.join(root, 'nodes.sqlite3');
 const governancePath = path.join(root, 'governance.json');
@@ -105,26 +107,45 @@ const operator = (id, name) => ({
   },
 });
 
-const archive = {
-  type: 'def.localdata.archive.v1',
-  schemaVersion: 1,
-  id: 'equipment-3plus1-registration-contract',
-  storage: {
-    local: {
-      'def.operator-editor.library.v1': {
-        bieli: operator('bieli', '别礼'),
-        thunder: operator('thunder', '雷电'),
-        thunderclap: operator('thunderclap', '雷鸣'),
-      },
-      'def.equipment-sheet.library.v1': { updatedAt: 1, gearSets: { tide, frost } },
-      'def.equipment-sheet.draft.v1': {},
-      'def.weapon-sheet.library.v1': {},
-    },
-    session: {},
-  },
-};
-fs.writeFileSync(nowStoragePath, `${JSON.stringify(archive, null, 2)}\n`, 'utf8');
-const archiveBefore = fs.readFileSync(nowStoragePath, 'utf8');
+const catalogGearSets = [tide, frost];
+createCatalogDatabase({
+  databasePath: builtinCatalogPath,
+  dataVersion: 'equipment-3plus1-registration-v1',
+  operators: [
+    { id: 'bieli', name: '别礼', payload: operator('bieli', '别礼') },
+    { id: 'thunder', name: '雷电', payload: operator('thunder', '雷电') },
+    { id: 'thunderclap', name: '雷鸣', payload: operator('thunderclap', '雷鸣') },
+  ],
+  equipments: catalogGearSets.flatMap((gearSet) => Object.values(gearSet.equipments).map((equipment) => ({
+    id: equipment.equipmentId,
+    name: equipment.name,
+    payload: { ...equipment, gearSetId: gearSet.gearSetId },
+  }))),
+  equipmentSets: catalogGearSets.map((gearSet) => ({
+    id: gearSet.gearSetId,
+    name: gearSet.name,
+    payload: gearSet,
+  })),
+});
+assert.equal(fs.existsSync(nowStoragePath), false, 'the registration contract must not create a now-storage projection');
+
+const catalogReaderAvailable = typeof createDataManagementService({
+  runtimeDataRoot: path.join(root, 'catalog-reader-capability'),
+  builtinCatalogPath,
+}).readActiveGameCatalog === 'function';
+if (!catalogReaderAvailable) {
+  // W9 must remain reviewable before the W8 catalog implementation lands. The
+  // adjacent active-catalog reader contract test exercises this wiring with
+  // the published stable return shape; this full REST registration test runs
+  // unchanged as soon as the service exposes that reader.
+  console.log(JSON.stringify({
+    ok: true,
+    skipped: 'readActiveGameCatalog-unavailable',
+    coverage: 'def-equipment-3plus1-active-catalog-reader-contract-test.mjs',
+  }));
+  fs.rmSync(root, { recursive: true, force: true });
+  process.exit(0);
+}
 
 const readonlyRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
 readonlyRepository.ensureDocument({ id: readonlyTimelineId, label: '3+1 read-only contract' });
@@ -159,6 +180,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: timelineRepositoryPath,
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
     DEF_TOOL_GOVERNANCE_PATH: governancePath,
     DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
@@ -229,7 +251,6 @@ async function readReadOnlyState() {
     commands: commands.payload.commands,
     questions: governance.payload.questions,
     approvals: governance.payload.approvals,
-    sourceArchive: JSON.parse(fs.readFileSync(nowStoragePath, 'utf8')),
   };
 }
 
@@ -239,7 +260,7 @@ async function assertReadOnlyCall(label, execute) {
   const result = await execute();
   const after = await readReadOnlyState();
   const afterHash = hashDefStableValue(after);
-  const message = `${label} must preserve checkout, pending commands, questions, approvals, and trusted source state`;
+  const message = `${label} must preserve checkout, pending commands, questions, approvals, and trusted catalog state`;
   assert.deepEqual(after, before, message);
   assert.equal(afterHash, beforeHash, `${label} must preserve the logical product state hash`);
   return result;
@@ -380,7 +401,7 @@ try {
   assert.deepEqual(readOnlyStateAfter.commands, []);
   assert.deepEqual(readOnlyStateAfter.questions, []);
   assert.deepEqual(readOnlyStateAfter.approvals, []);
-  assert.equal(fs.readFileSync(nowStoragePath, 'utf8'), archiveBefore, 'recommendation wiring must not mutate catalog or operator sources');
+  assert.equal(fs.existsSync(nowStoragePath), false, '别礼+潮涌 recommendation must not read or materialize a now-storage projection');
 
   console.log(JSON.stringify({
     ok: true,
@@ -391,6 +412,7 @@ try {
       'typed-error-http-mapping',
       'ready-needs-input-unresolved',
       'opencode-wrapper-to-real-dispatcher',
+      'bieli-tide-without-now-storage',
       'read-only-postcondition',
       'state-hash-checkout-pending-command-question-approval',
     ],

@@ -93,8 +93,9 @@ const esbuildBinary = path.join(
 );
 const sidecarScript = path.join(appAsar, 'scripts', 'ai-cli-rest-server.mjs');
 const opencodeBinary = findRuntimeBinary(path.join(layout.resources, 'app.asar.unpacked', 'agent', 'runtime', 'opencode-core', 'bin'));
+const builtinCatalogPath = path.join(layout.resources, 'app.asar.unpacked', 'dist', 'data', 'catalog.sqlite');
 
-for (const required of [layout.executable, appAsar, esbuildBinary, opencodeBinary]) {
+for (const required of [layout.executable, appAsar, esbuildBinary, opencodeBinary, builtinCatalogPath]) {
   if (!fs.existsSync(required)) throw new Error(`Packaged sidecar input is missing: ${required}`);
 }
 
@@ -120,6 +121,8 @@ const sidecarEnv = buildNodeSidecarEnv({
     AI_TIMELINE_WORK_NODE_DB_PATH: path.join(localData, 'ai-timeline-worknodes.sqlite3'),
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(localData, 'ai-timeline-worknodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: path.join(localData, 'timeline-repository.sqlite3'),
+    DATA_MANAGEMENT_RUNTIME_ROOT: path.join(tempRoot, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
     DEF_TOOL_GOVERNANCE_PATH: path.join(localData, 'def-tool-governance.json'),
     DEF_AGENT_SCRIPT_DIR: scripts,
   },
@@ -158,6 +161,9 @@ try {
     }
   }
   if (sidecarEnv.ESBUILD_BINARY_PATH !== esbuildBinary) throw new Error('Electron sidecar environment resolved the wrong esbuild binary.');
+  if (sidecarEnv.DATA_MANAGEMENT_BUILTIN_CATALOG_PATH !== builtinCatalogPath) {
+    throw new Error('Electron sidecar environment resolved the wrong unpacked builtin catalog.');
+  }
   const opencode = spawnSync(opencodeBinary, ['--version'], {
     encoding: 'utf8',
     timeout: 30000,

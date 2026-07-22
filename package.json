@@ -40,7 +40,7 @@
     "test:def-equipment-resource": "node scripts/def-equipment-resource-contract-test.mjs",
     "test:def-operator-build-guide": "node scripts/def-operator-build-guide-contract-test.mjs",
     "test:def-operator-build-planning": "node scripts/def-combat-conventions-contract-test.mjs && node scripts/def-operator-build-guide-contract-test.mjs && node scripts/def-native-catalog-bridge-contract-test.mjs && npm run test:def-equipment-3plus1-recommendation",
-    "test:def-equipment-3plus1-recommendation": "node scripts/def-equipment-3plus1-recommendation-contract-test.mjs && node scripts/def-equipment-3plus1-service-matrix-contract-test.mjs && node scripts/def-equipment-3plus1-tool-surface-contract-test.mjs && node scripts/def-equipment-3plus1-registration-contract-test.mjs",
+    "test:def-equipment-3plus1-recommendation": "node scripts/def-equipment-3plus1-recommendation-contract-test.mjs && node scripts/def-equipment-3plus1-service-matrix-contract-test.mjs && node scripts/def-equipment-3plus1-tool-surface-contract-test.mjs && node scripts/def-equipment-3plus1-active-catalog-reader-contract-test.mjs && node scripts/def-equipment-3plus1-registration-contract-test.mjs",
     "test:def-native-catalog": "node scripts/def-native-catalog-bridge-contract-test.mjs && bun scripts/def-native-catalog-artifact-contract-test.mjs",
     "test:def-operator-config-atomic": "node scripts/def-operator-config-atomic-contract-test.mjs",
     "test:def-harness-turn-routing": "node scripts/def-harness-turn-routing-contract-test.mjs",

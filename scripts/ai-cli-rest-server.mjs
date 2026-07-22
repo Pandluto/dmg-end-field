@@ -70,6 +70,7 @@ import {
   validateDefEquipmentCatalogSnapshot,
 } from './def-core/equipment-3plus1-domain.mjs';
 import { createDefEquipment3Plus1RecommendationService } from './def-core/equipment-3plus1-recommendation.mjs';
+import { createDefEquipment3Plus1ActiveCatalogReaders } from './def-core/equipment-3plus1-active-catalog-reader.mjs';
 import {
   loadCombatConventionRules,
   resolveCombatConventionBundle,
@@ -100,6 +101,8 @@ const timelineRepositoryPath = process.env.TIMELINE_REPOSITORY_DB_PATH
   || path.join(projectRoot, 'data', 'localdata', 'timeline-repository.sqlite3');
 const dataManagementRuntimeRoot = process.env.DATA_MANAGEMENT_RUNTIME_ROOT
   || path.join(projectRoot, 'data');
+const dataManagementBuiltinCatalogPath = process.env.DATA_MANAGEMENT_BUILTIN_CATALOG_PATH
+  || path.join(projectRoot, 'public', 'data', 'catalog.sqlite');
 const defToolGovernancePath = process.env.DEF_TOOL_GOVERNANCE_PATH
   || path.join(projectRoot, 'data', 'localdata', 'def-tool-governance.json');
 const storageMode = process.env.AI_CLI_REST_STORAGE_MODE || 'now-storage';
@@ -803,7 +806,7 @@ const defCoreRuntime = createDefCoreRuntimeComposition({
   legacyAiTimelineWorkNodesPath,
   timelineRepositoryPath,
   dataManagementRuntimeRoot,
-  builtinCatalogPath: path.join(projectRoot, 'public', 'data', 'catalog.sqlite'),
+  builtinCatalogPath: dataManagementBuiltinCatalogPath,
 });
 const {
   getAiTimelineWorkNodeStore,
@@ -4482,10 +4485,12 @@ function loadOperatorBuildGuideReferences() {
 }
 
 function createDefEquipment3Plus1RecommendationComposition() {
+  const activeCatalogReaders = createDefEquipment3Plus1ActiveCatalogReaders({
+    getDataManagementService,
+    capturedAt: 0,
+  });
   return createDefEquipment3Plus1RecommendationService({
-    async readOperatorCatalog() {
-      return readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-    },
+    ...activeCatalogReaders,
     async loadGuideReferences() {
       return loadOperatorBuildGuideReferences();
     },
@@ -4494,9 +4499,6 @@ function createDefEquipment3Plus1RecommendationComposition() {
     },
     async resolveCombatConventions(input) {
       return resolveDefCombatConventions(input);
-    },
-    async readEquipmentLibrarySource() {
-      return readDefEquipmentLibrarySource();
     },
     async readGearSetAliasIndex() {
       return readDefNativeGearSetAliasIndex();
