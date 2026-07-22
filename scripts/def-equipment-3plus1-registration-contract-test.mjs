@@ -233,6 +233,18 @@ async function readReadOnlyState() {
   };
 }
 
+async function assertReadOnlyCall(label, execute) {
+  const before = await readReadOnlyState();
+  const beforeHash = hashDefStableValue(before);
+  const result = await execute();
+  const after = await readReadOnlyState();
+  const afterHash = hashDefStableValue(after);
+  const message = `${label} must preserve checkout, pending commands, questions, approvals, and trusted source state`;
+  assert.deepEqual(after, before, message);
+  assert.equal(afterHash, beforeHash, `${label} must preserve the logical product state hash`);
+  return result;
+}
+
 const ajv = new Ajv({ allErrors: true, strict: false });
 const validateInput = ajv.compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA);
 const validateOutput = ajv.compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA);
@@ -261,14 +273,16 @@ try {
   assert.equal(liveTool?.workspaceScope, DEF_WORKSPACE_SCOPE.SESSION_PRIVATE);
   assert.equal(liveTargets.find((entry) => entry.id === registeredTool.canonicalTarget)?.nativeBinding, nativeTarget.nativeBinding);
 
-  const unauthenticated = await recommend({ operatorQuery: 'bieli', __defTurnId: 'turn-unauthenticated' }, { authenticated: false });
+  const unauthenticated = await assertReadOnlyCall('unauthenticated recommendation', () => (
+    recommend({ operatorQuery: 'bieli', __defTurnId: 'turn-unauthenticated' }, { authenticated: false })
+  ));
   assert.equal(unauthenticated.response.status, 403);
   assert.equal(unauthenticated.payload.error?.code, 'denied-native-catalog-session');
 
-  const unregistered = await recommend(
+  const unregistered = await assertReadOnlyCall('unregistered recommendation', () => recommend(
     { operatorQuery: 'bieli', __defTurnId: 'turn-unregistered' },
     { nativeSessionId: 'unregistered-recommendation-session' },
-  );
+  ));
   assert.equal(unregistered.response.status, 403);
   assert.equal(unregistered.payload.error?.code, 'denied-native-catalog-session');
 
@@ -276,10 +290,9 @@ try {
   assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
   assert.equal(registration.payload.result?.host, 'ai-cli');
   assert.equal(registration.payload.result?.sessionId, sessionId);
-  const readOnlyStateBefore = await readReadOnlyState();
-  const readOnlyStateHashBefore = hashDefStableValue(readOnlyStateBefore);
+  const registeredBaselineState = await readReadOnlyState();
 
-  const missingTurn = await recommend({ operatorQuery: 'bieli' });
+  const missingTurn = await assertReadOnlyCall('missing-turn recommendation', () => recommend({ operatorQuery: 'bieli' }));
   assert.equal(missingTurn.response.status, 403, JSON.stringify(missingTurn.payload));
   assert.equal(validateError(missingTurn.payload.error), true, JSON.stringify(validateError.errors));
   assert.equal(missingTurn.payload.error.failureStage, 'authorize-session');
@@ -298,36 +311,42 @@ try {
       },
     },
   ]) {
-    const invalid = await recommend(invalidInput);
+    const invalid = await assertReadOnlyCall(`invalid recommendation ${invalidInput.__defTurnId}`, () => recommend(invalidInput));
     assert.equal(invalid.response.status, 400, JSON.stringify(invalid.payload));
     assert.equal(validateError(invalid.payload.error), true, JSON.stringify(validateError.errors));
     assert.equal(invalid.payload.error.failureStage, 'validate-input');
     assert.equal(invalid.payload.error.nextAction, 'FIX_INPUT');
   }
 
-  const needsInput = await recommend({ operatorQuery: '雷', setQuery: 'tide', __defTurnId: 'turn-needs-input' });
+  const needsInput = await assertReadOnlyCall('NEEDS_INPUT recommendation', () => (
+    recommend({ operatorQuery: '雷', setQuery: 'tide', __defTurnId: 'turn-needs-input' })
+  ));
   assert.equal(needsInput.response.status, 200, JSON.stringify(needsInput.payload));
   assert.equal(validateOutput(needsInput.payload.result), true, JSON.stringify(validateOutput.errors));
   assert.equal(needsInput.payload.result.state, 'NEEDS_INPUT', JSON.stringify(needsInput.payload.result));
   assert.equal(needsInput.payload.result.nextQuestion.field, 'operatorQuery');
 
-  const unresolved = await recommend({ operatorQuery: 'missing-operator', setQuery: 'tide', __defTurnId: 'turn-unresolved' });
+  const unresolved = await assertReadOnlyCall('UNRESOLVED recommendation', () => (
+    recommend({ operatorQuery: 'missing-operator', setQuery: 'tide', __defTurnId: 'turn-unresolved' })
+  ));
   assert.equal(unresolved.response.status, 200, JSON.stringify(unresolved.payload));
   assert.equal(validateOutput(unresolved.payload.result), true, JSON.stringify(validateOutput.errors));
   assert.equal(unresolved.payload.result.state, 'UNRESOLVED');
 
-  const conflict = await recommend({
+  const conflict = await assertReadOnlyCall('constraint-conflict recommendation', () => recommend({
     operatorQuery: 'bieli',
     setQuery: 'tide',
     __defTurnId: 'turn-conflict',
     constraints: { requiredEquipmentQueries: ['潮涌护甲'], excludedEquipmentQueries: ['tide-armor'] },
-  });
+  }));
   assert.equal(conflict.response.status, 400, JSON.stringify(conflict.payload));
   assert.equal(validateError(conflict.payload.error), true, JSON.stringify(validateError.errors));
   assert.equal(conflict.payload.error.failureStage, 'resolve-constraints');
   assert.equal(conflict.payload.error.nextAction, 'FIX_INPUT');
 
-  const ready = await recommend({ operatorQuery: 'bieli', setQuery: 'tide', shortlistLimit: 2, __defTurnId: 'turn-ready' });
+  const ready = await assertReadOnlyCall('READY recommendation', () => (
+    recommend({ operatorQuery: 'bieli', setQuery: 'tide', shortlistLimit: 2, __defTurnId: 'turn-ready' })
+  ));
   assert.equal(ready.response.status, 200, JSON.stringify(ready.payload));
   assert.equal(validateOutput(ready.payload.result), true, JSON.stringify(validateOutput.errors));
   assert.equal(ready.payload.result.state, 'READY', JSON.stringify(ready.payload.result));
@@ -343,17 +362,17 @@ try {
   });
   assert.deepEqual(normalizedWrapperInput, { operatorQuery: 'bieli', setQuery: 'tide', shortlistLimit: 1 });
   assert.equal(validateInput(normalizedWrapperInput), true, JSON.stringify(validateInput.errors));
-  const wrapperReady = await data_equipment_3plus1_recommend.execute(
-    { operatorQuery: '  ｂｉｅｌｉ  ', setQuery: '  ｔｉｄｅ  ', shortlistLimit: 1 },
-    { sessionID: sessionId, messageID: 'turn-wrapper-ready' },
-  );
+  const wrapperReady = await assertReadOnlyCall('OpenCode wrapper READY recommendation', () => (
+    data_equipment_3plus1_recommend.execute(
+      { operatorQuery: '  ｂｉｅｌｉ  ', setQuery: '  ｔｉｄｅ  ', shortlistLimit: 1 },
+      { sessionID: sessionId, messageID: 'turn-wrapper-ready' },
+    )
+  ));
   assert.equal(validateOutput(wrapperReady), true, JSON.stringify(validateOutput.errors));
   assert.equal(wrapperReady.state, 'READY', JSON.stringify(wrapperReady));
 
   const readOnlyStateAfter = await readReadOnlyState();
-  const readOnlyStateHashAfter = hashDefStableValue(readOnlyStateAfter);
-  assert.deepEqual(readOnlyStateAfter, readOnlyStateBefore, 'recommendation must preserve checkout, pending commands, questions, approvals, and trusted source state');
-  assert.equal(readOnlyStateHashAfter, readOnlyStateHashBefore, 'the logical product state hash must be stable across every recommendation terminal path');
+  assert.deepEqual(readOnlyStateAfter, registeredBaselineState, 'the recommendation batch must preserve the registered-session product baseline');
   assert.deepEqual(readOnlyStateAfter.commands, []);
   assert.deepEqual(readOnlyStateAfter.questions, []);
   assert.deepEqual(readOnlyStateAfter.approvals, []);
