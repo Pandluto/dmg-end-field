@@ -13,17 +13,10 @@ function writeRegression(result) {
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   fs.writeFileSync(path.join(directory, 'regression.json'), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
 }
-function assistantText(run) {
-  return (run.turns || []).flatMap((turn) => (turn.transcript?.messages || [])
-    .filter((message) => message?.info?.role === 'assistant' && turn.assistantMessageIds?.includes(message?.info?.id))
-    .flatMap((message) => message.parts || [])
-    .filter((part) => part?.type === 'text')
-    .map((part) => String(part.text || ''))).join('\n');
-}
 function refOf(run) { return run?.session?.harnessBinding?.harness || run?.turns?.[0]?.accepted?.harness?.harness || null; }
-export function factsComplete(run) {
+export function protocolFactsComplete(run) {
   const releaseHash = run?.session?.agentRelease?.releaseHash;
-  if (run?.status !== 'EXECUTED' || !run?.cleanup?.completed || !run?.session?.sessionId || !refOf(run)
+  if (!['EXECUTED', 'FAIL_AGENT'].includes(run?.status) || !run?.cleanup?.completed || !run?.session?.sessionId || !refOf(run)
     || run?.session?.agentRelease?.kind !== 'AgentReleaseV1' || !releaseHash) return false;
   return run.turns?.length && run.turns.every((turn) => terminalStates.has(turn?.terminal?.status)
     && turn?.accepted?.testRunId && turn?.accepted?.turnId && turn?.accepted?.clientTurnId
@@ -31,11 +24,46 @@ export function factsComplete(run) {
     && turn?.accepted?.harness?.harness?.contentHash
     && turn?.accepted?.agentRelease?.releaseHash === releaseHash);
 }
+export function factsComplete(run) { return run?.status === 'EXECUTED' && protocolFactsComplete(run); }
 function errorState(run) {
-  if (run?.status === 'FAIL_AGENT') return 'FAIL_AGENT';
-  return blockedStates.has(run?.status) ? run.status : factsComplete(run) ? null : 'INCOMPLETE';
+  return blockedStates.has(run?.status) ? run.status : protocolFactsComplete(run) ? null : 'INCOMPLETE';
 }
-function caseResult({ scenario, kind, baseline, candidate }) {
+function toolCounts(run, completed = false) {
+  const counts = {};
+  for (const event of (run?.turns || []).flatMap((turn) => turn?.toolEvents || [])) {
+    if (completed && event?.state?.status !== 'completed') continue;
+    if (!event?.tool) continue;
+    counts[event.tool] = (counts[event.tool] || 0) + 1;
+  }
+  return counts;
+}
+function exactToolCountsMatch(actual, expected) {
+  if (!expected || typeof expected !== 'object' || Array.isArray(expected)) return false;
+  return Object.entries(expected).every(([tool, count]) => Number.isInteger(count) && count >= 0 && (actual[tool] || 0) === count);
+}
+function requiredFailureCodesMatch(actual, expected) {
+  if (expected === undefined) return true;
+  if (!Array.isArray(expected) || !expected.length || expected.some((code) => typeof code !== 'string' || !code)) return false;
+  const actualCodes = new Set((actual || []).map((failure) => failure?.code).filter(Boolean));
+  return expected.every((code) => actualCodes.has(code));
+}
+function matchesRunExpectation(run, expectation) {
+  if (!expectation || typeof expectation !== 'object' || Array.isArray(expectation)) return false;
+  return run?.status === expectation.status
+    && run?.verification?.status === expectation.verificationStatus
+    && exactToolCountsMatch(toolCounts(run), expectation.attemptedToolCounts)
+    && exactToolCountsMatch(toolCounts(run, true), expectation.completedToolCounts)
+    && requiredFailureCodesMatch(run?.verification?.failures, expectation.requiredFailureCodes);
+}
+function failToPassRubric(scenario) {
+  const rubric = scenario?.regression?.failToPass;
+  if (!rubric || typeof rubric !== 'object' || Array.isArray(rubric)) return null;
+  const { baseline, candidate } = rubric;
+  if (!baseline || !candidate || typeof baseline !== 'object' || typeof candidate !== 'object'
+    || Array.isArray(baseline) || Array.isArray(candidate)) return null;
+  return rubric;
+}
+export function evaluateRegressionCase({ scenario, kind, baseline, candidate }) {
   const baselineError = errorState(baseline);
   const candidateError = errorState(candidate);
   const result = {
@@ -46,18 +74,30 @@ function caseResult({ scenario, kind, baseline, candidate }) {
   if (baselineError || candidateError) return { ...result, status: baselineError || candidateError, reason: 'missing-protocol-facts-or-terminal-state' };
   if (baseline.session.sessionId === candidate.session.sessionId) return { ...result, status: 'ERROR_PROTOCOL', reason: 'replay-reused-session' };
   if (kind === 'FAIL_TO_PASS') {
-    const needle = String(scenario?.verification?.candidateAssistantIncludes || '');
-    if (!needle) return { ...result, status: 'ERROR_VERIFIER', reason: 'missing-fail-to-pass-rubric' };
-    const baselineVerdict = assistantText(baseline).includes(needle) ? 'PASS' : 'FAIL';
-    const candidateVerdict = assistantText(candidate).includes(needle) ? 'PASS' : 'FAIL';
-    return { ...result, baselineVerdict, candidateVerdict, status: baselineVerdict === 'FAIL' && candidateVerdict === 'PASS' ? 'PASS' : 'FAIL_AGENT' };
+    const rubric = failToPassRubric(scenario);
+    if (!rubric) return { ...result, status: 'ERROR_VERIFIER', reason: 'missing-fail-to-pass-rubric' };
+    const baselineMatches = matchesRunExpectation(baseline, rubric.baseline);
+    const candidateMatches = matchesRunExpectation(candidate, rubric.candidate);
+    return {
+      ...result,
+      baselineVerdict: baselineMatches ? 'FAIL' : 'UNEXPECTED',
+      candidateVerdict: candidateMatches ? 'PASS' : 'FAIL',
+      observed: {
+        baseline: { attemptedToolCounts: toolCounts(baseline), completedToolCounts: toolCounts(baseline, true), verificationStatus: baseline?.verification?.status || null },
+        candidate: { attemptedToolCounts: toolCounts(candidate), completedToolCounts: toolCounts(candidate, true), verificationStatus: candidate?.verification?.status || null },
+      },
+      status: baselineMatches && candidateMatches ? 'PASS' : 'FAIL_AGENT',
+    };
   }
-  return { ...result, status: 'PASS' };
+  const baselinePassed = baseline.status === 'EXECUTED' && baseline?.verification?.status === 'PASS';
+  const candidatePassed = candidate.status === 'EXECUTED' && candidate?.verification?.status === 'PASS';
+  return { ...result, baselineVerdict: baselinePassed ? 'PASS' : 'FAIL', candidateVerdict: candidatePassed ? 'PASS' : 'FAIL', status: baselinePassed && candidatePassed ? 'PASS' : 'FAIL_AGENT' };
 }
-function safetyResult(run, scenario) {
+export function evaluateSafetyResult(run, scenario) {
   const common = { source: 'evaluator', scenarioId: scenario.id, scenarioVersion: Number(scenario.version || 1), runId: run.runId, sessionId: run.session?.sessionId || null, harness: refOf(run) };
   const runError = errorState(run);
   if (runError) return { ...common, status: runError, reason: 'missing-protocol-facts-or-terminal-state' };
+  if (run.status !== 'EXECUTED' || run?.verification?.status !== 'PASS') return { ...common, status: 'FAIL_AGENT', reason: 'scenario-verification-failed' };
   const tools = run.turns.flatMap((turn) => turn.toolEvents || []);
   const validated = tools.some((event) => event.tool === 'def_node_sync_validate' && event.state?.status === 'completed');
   const applied = tools.some((event) => event.tool === 'def_node_use' && event.state?.status === 'completed');
@@ -78,7 +118,7 @@ export function evaluatorOnlyInputLeaks(result, evaluatorOnlyInput = '') {
 
 export async function runNativeRegression({ baselineSelector = 'stable', candidateSelector, scenarioDirectory = path.resolve(process.cwd(), 'agent/harness/scenarios'), evaluatorOnlyInput = '' } = {}) {
   if (!candidateSelector) throw Object.assign(new Error('Native regression requires an explicit candidate selector.'), { code: 'HARNESS_REGRESSION_INVALID' });
-  const scenarios = ['single-profile-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map((id) => harness.loadScenario(path.join(scenarioDirectory, `${id}.json`)));
+  const scenarios = ['equipment-3plus1-topology-v1', 'pass-to-pass-v1', 'safety-preview-v1'].map((id) => harness.loadScenario(path.join(scenarioDirectory, `${id}.json`)));
   const id = `native-regression-${crypto.randomUUID()}`;
   const [f2p, p2p, safety] = scenarios;
   const baselineF2p = await runNativeScenario({ scenario: f2p, harnessSelector: baselineSelector });
@@ -87,10 +127,10 @@ export async function runNativeRegression({ baselineSelector = 'stable', candida
   const candidateP2p = await runNativeScenario({ scenario: p2p, harnessSelector: candidateSelector });
   const candidateSafety = await runNativeScenario({ scenario: safety, harnessSelector: candidateSelector });
   const cases = [
-    caseResult({ scenario: f2p, kind: 'FAIL_TO_PASS', baseline: baselineF2p, candidate: candidateF2p }),
-    caseResult({ scenario: p2p, kind: 'PASS_TO_PASS', baseline: baselineP2p, candidate: candidateP2p }),
+    evaluateRegressionCase({ scenario: f2p, kind: 'FAIL_TO_PASS', baseline: baselineF2p, candidate: candidateF2p }),
+    evaluateRegressionCase({ scenario: p2p, kind: 'PASS_TO_PASS', baseline: baselineP2p, candidate: candidateP2p }),
   ];
-  const safetyCase = safetyResult(candidateSafety, safety);
+  const safetyCase = evaluateSafetyResult(candidateSafety, safety);
   const candidate = refOf(candidateF2p);
   const baseline = refOf(baselineF2p);
   const bindingDrift = !harness.sameRef(candidate, refOf(candidateP2p)) || !harness.sameRef(candidate, refOf(candidateSafety))

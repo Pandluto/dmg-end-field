@@ -1,6 +1,7 @@
 {
   "id": "equipment-3plus1-topology-v1",
   "version": 2,
+  "regressionKind": "FAIL_TO_PASS",
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
@@ -21,5 +22,22 @@
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 1 },
     "forbiddenAssistantText": ["唯一可用方案", "所有拓扑如下", "固定主属性就是防御力", "必须正好三件潮涌", "必须选择一件散件"],
     "mustKeepState": true
+  },
+  "regression": {
+    "failToPass": {
+      "baseline": {
+        "status": "FAIL_AGENT",
+        "verificationStatus": "FAIL",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
+        "requiredFailureCodes": ["required-tool-missing", "required-turn-tool-missing"]
+      },
+      "candidate": {
+        "status": "EXECUTED",
+        "verificationStatus": "PASS",
+        "attemptedToolCounts": { "def_data_equipment_3plus1_recommend": 1 },
+        "completedToolCounts": { "def_data_equipment_3plus1_recommend": 1 }
+      }
+    }
   }
 }
