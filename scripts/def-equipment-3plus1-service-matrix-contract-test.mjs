@@ -84,6 +84,7 @@ function guideReference(content, { id = 'matrix-guide', sectionId = 'matrix-buil
 
 const completeGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u548c\u610f\u5fd7\u3002';
 const partialGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u3002';
+const partialDistinctGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u6e90\u77f3\u6280\u827a\u3002';
 const threeGroupGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u3001\u610f\u5fd7\u548c\u5bd2\u51b7\u4f24\u5bb3\u3002';
 const matrixOperator = Object.freeze({
   id: 'matrix',
@@ -194,6 +195,29 @@ assert.equal(noGuide.state, 'READY', JSON.stringify(noGuide));
 assert.equal(noGuide.result.profileEvidence.state, 'GUIDE_NOT_FOUND');
 assert.equal(noGuideFixture.counters.guide, 0);
 assert.equal(noGuideFixture.counters.conventions, 0, 'non-support fallback must not invent a convention dependency');
+
+// This guide proves a preference that the structured fallback cannot derive.
+// The partial merge must retain its key, canonical type key, first priority,
+// guide evidence and then append — rather than replace it with — fallback groups.
+const partialDistinctFixture = createFixture({
+  library: libraryFrom(gearSet('partial-distinct-full', { pieceEffects: [...DEFAULT_EFFECTS, 'sourceSkillBoost'] })),
+  references: [guideReference(partialDistinctGuideContent)],
+  guideContent: partialDistinctGuideContent,
+});
+const partialDistinct = await partialDistinctFixture.invoke({ operatorQuery: 'Nova', setQuery: 'partial-distinct-full' });
+assert.equal(partialDistinct.state, 'READY', JSON.stringify(partialDistinct));
+assert.equal(partialDistinct.result.profileEvidence.state, 'PARTIAL_GUIDE_FOUND');
+const partialDistinctGroups = partialDistinct.result.profileEvidence.preferenceGroups;
+assert.deepEqual(partialDistinctGroups[0], {
+  key: 'source-skill',
+  label: '\u6e90\u77f3\u6280\u827a\u5f3a\u5ea6',
+  kind: 'general-damage',
+  acceptedTypeKeys: ['sourceSkillBoost'],
+});
+assert.equal(partialDistinctGroups.filter((group) => group.key === 'source-skill').length, 1);
+assert.deepEqual(partialDistinctGroups.slice(1), noGuide.result.profileEvidence.preferenceGroups, 'fallback may only fill groups that the partial guide did not prove');
+assert.ok(partialDistinct.result.profileEvidence.evidenceRefs.some((ref) => ref.startsWith('guide-sha256:')));
+assert.deepEqual(partialDistinct.sourceRefs.filter((ref) => ref.kind === 'guide').map((ref) => ref.sectionId), ['matrix-build']);
 
 const supportFixture = createFixture({
   library: libraryFrom(gearSet('support-full')),
@@ -602,6 +626,7 @@ console.log(JSON.stringify({
   checks: [
     'guide-found-no-fallback',
     'partial-guide-preserves-proven-group',
+    'partial-guide-preserves-distinct-proven-group-and-evidence',
     'guide-not-found-structured-evidence-and-conventions',
     'insufficient-profile-fails-before-planning',
     'automatic-set-skips-incomplete-plan',
