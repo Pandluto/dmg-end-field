@@ -219,6 +219,7 @@ function buildCapabilityPermission(_webfetchAllow = [], options = {}) {
     // This is a user-visible renderer mutation.  It must not inherit the
     // broad native-tool allow rule, otherwise context.ask() is auto-approved.
     def_operator_config_patch: 'ask',
+    def_team_selection_apply: 'ask',
     def_team_loadout_plan_apply: 'ask',
     def_node_use: 'ask',
     def_node_delete: 'ask',
@@ -2379,6 +2380,7 @@ module.exports = {
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_DEEPSEEK_MODEL,
   OPENCODE_PORT_BASE,
+  buildCapabilityPermission,
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,

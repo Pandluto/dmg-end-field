@@ -1,11 +1,30 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const { buildCapabilityPermission } = require('../agent/runtime/def-opencode-adapter/index.cjs');
 const server = fs.readFileSync(path.join(root, 'scripts/ai-cli-rest-server.mjs'), 'utf8');
 const native = fs.readFileSync(path.join(root, 'agent/runtime/def-tools/opencode/def.js'), 'utf8');
+const operatorConfig = fs.readFileSync(path.join(root, 'agent/runtime/def-tools/opencode/operator-config-input.mjs'), 'utf8');
+
+const nativePermission = buildCapabilityPermission();
+const approvalPermissions = new Set(
+  [native, operatorConfig]
+    .flatMap((source) => [...source.matchAll(/permission:\s*'(def_[a-z0-9_]+)'/g)].map((match) => match[1])),
+);
+assert(approvalPermissions.has('def_team_selection_apply'), 'team selection must keep a native approval request');
+for (const permission of approvalPermissions) {
+  assert.equal(
+    nativePermission[permission],
+    'ask',
+    `${permission} must override the broad def_* allow rule so context.ask() cannot auto-approve it`,
+  );
+}
+
 const consumeStart = server.indexOf('function consumeApprovedApplyCapability');
 const consumeEnd = server.indexOf('// Guide reads', consumeStart);
 const consume = server.slice(consumeStart, consumeEnd);
