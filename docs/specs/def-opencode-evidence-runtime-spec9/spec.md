@@ -109,6 +109,7 @@ Spec 9 的目标不是再增加一层。
 | Knowledge | 可版本化事实、攻略、约定、别名和来源 | `agent/runtime/def/skills/game-knowledge/**`、可信数据源 | Tool 顺序、权限、Session 状态 |
 | Permission / Mutation | 授权、审批、CAS、幂等、提交、回滚与写后验证 | 现有 native permission、Sidecar、repository | 依靠 Agent 承诺安全 |
 | Host | Session、timeline、workspace、checkout、UI consumer、进程与恢复 | adapter、Electron、Workbench、repository | 配装推荐、游戏推理、回答排名 |
+| Session housekeeping | DEF 自有会话的列举、人工清理与清理结果 | DEF Host、Sidecar | 归档策略、自动过期、模型自行删除会话 |
 | Agent Release | 记录真实组件版本与 hash | `agent-release.cjs`、Interop state | 替代组件职责或承诺完全复现 |
 | Teacher Audit | 读证据、定 owner、限定返修范围、形成交接 | `.agents/skills/harness-audit-assistant/**` | 默认修改代码、替 Agent 作产品决策 |
 | Scenario / Verifier | 验证 outcome、trace、quality 与安全不变量 | `agent/harness/scenarios/**`、`scripts/*contract-test*`、桌面黑盒 | 通过修改评分规则制造 PASS |
@@ -938,9 +939,108 @@ W6 只测试显式绑定新 candidate 的 fresh Session。
 返修提示词必须写清主要 owner。
 “Harness、Tool、Service 都检查一下”不是可执行返修范围。
 
-## 九、验证模型
+## 九、DEF Shell 手动清理会话记录
 
-### 9.1 三类证据
+### 9.1 已确认的现状
+
+DEF Shell 的 Agent 页使用 `DefOpenCodeView host="ai-cli"`。
+工具栏中的“返回”只调用 `onClose`。
+它会关闭当前页面，但不会删除 native Session。
+
+当前 adapter 和 server 没有 native Session 的 TTL 或定时清扫。
+因此，旧会话会继续保留在 DEF Session 目录和 OpenCode 会话列表中。
+
+服务端已经提供单会话真删除：
+
+```text
+DELETE /api/native/session/:sessionID
+```
+
+它会处理 pending question、上游 OpenCode Session、问题记录、Workbench 轴绑定和 Session 目录。
+新功能必须复用这条删除语义，不能只隐藏 UI 条目。
+
+### 9.2 用户操作
+
+只在 `host === "ai-cli"` 的工具栏显示：
+
+```text
+清理会话记录
+```
+
+点击后必须：
+
+1. 明确提示这是不可恢复的删除；
+2. 保留当前正在使用的 Session；
+3. 删除其余 DEF Shell Agent Session；
+4. 不删除 Workbench Session；
+5. 完成后刷新 iframe 中的会话列表；
+6. 显示删除、已不存在和失败的数量。
+
+清理期间按钮禁用。
+用户取消确认时不得发出请求。
+部分失败时不得显示“全部清理成功”。
+
+### 9.3 Host API
+
+Sidecar 增加一个批量清理入口：
+
+```text
+POST /api/native/sessions/cleanup
+```
+
+请求固定为：
+
+```json
+{
+  "host": "ai-cli",
+  "keepSessionID": "当前 native session id"
+}
+```
+
+成功或部分成功都返回逐项可核对的摘要：
+
+```json
+{
+  "ok": true,
+  "host": "ai-cli",
+  "keptSessionID": "ses_current",
+  "targetCount": 3,
+  "deletedCount": 3,
+  "alreadyDeletedCount": 0,
+  "failed": []
+}
+```
+
+`targetCount` 不包含保留的当前 Session。
+`ok` 必须等于 `failed.length === 0`。
+部分失败仍返回完整摘要，但不得返回 `ok: true`。
+
+服务端不得信任 renderer 传入的目录列表。
+它只枚举带有效 `.def-session.json` 的 DEF 自有 binding。
+删除目标还必须同时满足：
+
+- `binding.host === "ai-cli"`；
+- `binding.sessionID !== keepSessionID`；
+- binding 目录位于 DEF 管理的 `sessions/ai-cli` 根目录内。
+
+每个目标复用单会话删除流程。
+重复请求必须安全，已不存在的记录计入 `alreadyDeletedCount`。
+
+### 9.4 明确边界
+
+本功能属于 Host housekeeping，不属于 MCP、Harness 或游戏领域 Service。
+
+本阶段不做：
+
+- 会话归档；
+- 自动过期、TTL 或后台定时清扫；
+- Workbench 会话批量删除；
+- 修改 vendored OpenCode UI；
+- 让 Agent 或模型调用清理能力。
+
+## 十、验证模型
+
+### 10.1 三类证据
 
 | 证据 | 证明什么 |
 | --- | --- |
@@ -950,7 +1050,7 @@ W6 只测试显式绑定新 candidate 的 fresh Session。
 
 测试不能修改生产行为来制造 PASS。
 
-### 9.2 3+1 必测矩阵
+### 10.2 3+1 必测矩阵
 
 - 指定套装，`GUIDE_FOUND`；
 - 指定套装，`PARTIAL_GUIDE_FOUND`；
@@ -967,7 +1067,7 @@ W6 只测试显式绑定新 candidate 的 fresh Session。
 - `READY / NEEDS_INPUT / UNRESOLVED` 均可观察；
 - 任何路径前后产品 state hash、checkout、pending approval 不变。
 
-### 9.3 黑盒判据
+### 10.3 黑盒判据
 
 自然语言 3+1 请求只调用一次：
 
@@ -995,7 +1095,7 @@ Tool 内部阶段通过 typed result 和 trace metadata 可观察。
 - 缺失与歧义；
 - 未被证据证明的关系保持 unresolved。
 
-### 9.4 相邻能力
+### 10.4 相邻能力
 
 下列路径必须保持：
 
@@ -1006,7 +1106,24 @@ Tool 内部阶段通过 typed result 和 trace metadata 可观察。
 - 后续应用仍走 preview、审批和 postcondition；
 - AgentRelease 能说明本次运行的真实组件组合。
 
-## 十、实施完成定义
+### 10.5 会话清理
+
+Contract test 必须证明：
+
+- 当前 `ai-cli` Session 被保留；
+- 其他 `ai-cli` Session 调用真实删除流程；
+- `workbench` Session 不受影响；
+- 越界目录和无效 binding 不会成为删除目标；
+- 单项失败被汇总，不会中断其余合法目标；
+- 重复清理不会报假失败。
+
+Computer Use 只验证三个 UI 事实：
+
+- 按钮只出现在 DEF Shell 的 Agent 页；
+- 取消确认不会改变会话；
+- 确认后当前会话仍可用，旧记录从列表消失。
+
+## 十一、实施完成定义
 
 Task 9-1 的“候选实现完成”必须同时满足：
 
@@ -1022,13 +1139,15 @@ Task 9-1 的“候选实现完成”必须同时满足：
 - 全程只读，产品状态不变；
 - AgentRelease 记录本次真实运行组合；
 - Harness candidate 未经人工批准不得 promotion；
+- DEF Shell Agent 页可以人工清理旧会话，并保留当前会话；
+- 清理只命中 DEF 自有 `ai-cli` binding，不触碰 Workbench；
 - 完成后按仓库规则自动提交，不 push。
 
 “正式切换完成”是后续状态。
 它还要求用户批准 activation、默认 Harness 指向已验证版本，
 并用 activation 后的 fresh Session 再跑一次最小冒烟。
 
-## 十一、非目标
+## 十二、非目标
 
 - 不建设通用 Task Runtime；
 - 不引入 LangGraph 或工作流 DSL；
@@ -1041,9 +1160,10 @@ Task 9-1 的“候选实现完成”必须同时满足：
 - 不在本规格中迁移武器适配、攻略团队计划或 timeline authoring；
 - 不处理独立 MCP Fill；
 - 不自动 promotion Harness；
+- 不建设 Session 归档、自动过期或后台清扫机制；
 - 不以一次回答正确代替链路、证据和状态验证。
 
-## 十二、后续判断
+## 十三、后续判断
 
 只有再完成武器适配和攻略团队计划两个同类纵切后，才讨论是否存在可复用的通用任务合同。
 

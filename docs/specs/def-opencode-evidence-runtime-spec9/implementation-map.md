@@ -11,13 +11,13 @@
 
 | 名称 | SHA | 结论 |
 | --- | --- | --- |
-| 规格预检父提交 | `70cdcd185da9b633c4ca3e4409d03b923cd80c0e` | Spec 9 分包方案的上一版文档提交 |
+| 规格预检父提交 | `b1294c0fa0697a00522996386dc80530056cfd08` | 增加 Session cleanup 工作包之前的 Spec 9 预检提交 |
 | 源码盘点基线 | `0a01c19fd67bb27f603d4cc596601bfbe394a4f3` | 本文符号、调用方和旧测试的盘点对象 |
 | Session ownership 修复候选 | `c66875086fdae28ce80f64a065a450d02462015c` | 自动合同 PASS；人工 Windows 验收仍待最终结论 |
 | `SOURCE_BASELINE_COMMIT` | `TBD` | 必须同时包含最新 Spec 9 与已验收修复 |
 | `DISPATCH_COMMIT` | `TBD` | W0 在最终源基线上复核本文后产生 |
 
-只要后两个 SHA 仍为 `TBD`，W1–W4 就不得开工。
+只要后两个 SHA 仍为 `TBD`，W1–W4 与 WS 就不得开工。
 当前文档提交也不得被误记为 `DISPATCH_COMMIT`。
 
 ## 一、真正的开工门
@@ -32,7 +32,7 @@ W0 必须按顺序完成：
 6. 复核符号位置、文件锁和保护区。
 7. 把本文状态改为 `READY_TO_DISPATCH`。
 8. 提交最后一次 map 更新，并把新提交写为 `DISPATCH_COMMIT`。
-9. W1–W4 全部从这个精确 SHA 建分支。
+9. W1–W4 与 WS 全部从这个精确 SHA 建分支。
 
 任一步失败都停在 W0。
 不能先派一个智能体“试着写”。
@@ -215,9 +215,31 @@ W1 不得把整个函数搬进 3+1 Domain。
 | W2 Tool Surface | `definitions.mjs`、`registry.mjs`、`opencode/def.js` 的 evidence 区、W2 合同测试 | REST、Domain、Prompt、Harness、node/approval/materialize mutation export |
 | W3 Runtime + Harness | Base Prompt 的 3+1 段、timeline-workbench Skill、全新 Spec 9 candidate、三个现有 3+1 Scenario、一个新 unresolved Scenario、两份结构测试、黑盒文档 | stable package、Tool、Service、Registry、AgentRelease、Session/Harness binding |
 | W4 Teacher Audit | 开发侧 audit Skill、rubric、handoff、owner 样例 | 产品 Runtime Skill、Harness、Tool、Service、Prompt |
+| WS Session Cleanup | `def-agent-server.cjs` 的 native delete/bulk cleanup 区、`DefOpenCodeView.tsx`、对应 CSS、新 cleanup contract test | adapter、vendored OpenCode、Workbench UI、Prompt、Skill、Harness、Tool、package |
 
-W1–W4 没有共享写文件。
+W1–W4 与 WS 没有共享写文件。
 W5 才能写 `package.json`、registration contract、本文最终状态与 `verification.md`。
+
+### 6.1 Session cleanup 源码结论
+
+已核对当前实现：
+
+- `DefOpenCodeView` 的“返回”只调用 `onClose`，不会删除 native Session；
+- `createNativeSession()` 把当前恢复句柄写入浏览器存储；
+- adapter 与 server 中没有 native Session TTL 或定时清扫；
+- `GET /api/chat/persisted-sessions` 已能列出仍存在的 DEF binding；
+- `DELETE /api/native/session/:sessionID` 已执行上游删除、问题记录清理、轴解绑和目录删除。
+
+因此 WS 不建设第二套 Session 仓库。
+它新增一个 Host 批量入口，并复用现有单会话删除语义。
+
+固定边界：
+
+- 只处理 `host=ai-cli`；
+- 当前 `keepSessionID` 必须保留且先验证；
+- Workbench 永不进入目标集；
+- renderer 不提供目录或待删 id 列表；
+- 不做归档、TTL、自动过期或后台清扫。
 
 ## 七、Session ownership 修复保护区
 
@@ -247,6 +269,9 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 | Error contract | `DefEquipmentThreePlusOneRecommendationErrorV1` |
 | Business states | `READY / NEEDS_INPUT / UNRESOLVED` |
 | Candidate | `def-equipment-3plus1-composite@9.1.0-candidate.1` |
+| Session cleanup endpoint | `POST /api/native/sessions/cleanup` |
+| Session cleanup request | `{ host: "ai-cli", keepSessionID }` |
+| Session cleanup preserve rule | 当前 Session 与全部 Workbench Session 永不命中 |
 
 任何包发现这些连接点不可实现时，停止扩面并返回 `contractFindings`。
 不能临时创造第二个 route、Schema 或 adapter。
@@ -314,14 +339,23 @@ git diff --check
 - 输出只改开发侧 Skill。
 - 不依赖 W1–W3 的代码。
 
+### WS
+
+- 只修改 Host/Sidecar 会话清理白名单文件。
+- 单会话 DELETE 与批量 cleanup 共用一个内部删除 helper。
+- contract test 使用临时目录和伪上游，不接触用户正式 Session。
+- 独立运行 `node scripts/def-native-session-cleanup-contract-test.mjs`。
+- 不依赖 W1–W4 的代码，也不修改 `package.json`。
+
 ## 十一、集成与 activation 边界
 
 W5 只做合并、registration contract、聚合命令和证据记录。
-它不重写 W1–W4 的语义。
+它不重写 W1–W4 或 WS 的语义。
 
 W6 从 W5 精确提交建立隔离测试 worktree，
 只测试显式绑定新 candidate 的 fresh Session。
 它不修改代码，也不 promotion。
+它另外用 Computer Use 验证 DEF Shell cleanup 按钮、取消路径和当前 Session 保留。
 
 W6 完成后，结果只能是：
 
@@ -335,7 +369,7 @@ Promotion、正式默认运行时切换和 legacy primitive 退休
 
 ## 十二、分发信封
 
-W1–W4 的提示词必须逐项写入：
+W1–W4 与 WS 的提示词必须逐项写入：
 
 ```text
 packageId:
