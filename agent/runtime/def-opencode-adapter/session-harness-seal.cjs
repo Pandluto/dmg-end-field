@@ -121,6 +121,22 @@ function sessionHarnessIdentity(binding) {
       : undefined;
   const harnessBinding = binding?.harnessBinding;
   const releaseHarness = binding?.agentRelease?.harness;
+  const managedDirectoryIdentity = binding?.managedDirectoryIdentity;
+  const normalizedManagedDirectoryIdentity = managedDirectoryIdentity === undefined
+    ? null
+    : managedDirectoryIdentity?.kind === 'DefManagedSessionDirectoryIdentityV1'
+      && Number(managedDirectoryIdentity.schemaVersion) === 1
+      && /^\d+$/.test(String(managedDirectoryIdentity.dev || ''))
+      && /^\d+$/.test(String(managedDirectoryIdentity.ino || ''))
+      && /^-?\d+$/.test(String(managedDirectoryIdentity.birthtimeNs || ''))
+      ? {
+          kind: managedDirectoryIdentity.kind,
+          schemaVersion: 1,
+          dev: String(managedDirectoryIdentity.dev),
+          ino: String(managedDirectoryIdentity.ino),
+          birthtimeNs: String(managedDirectoryIdentity.birthtimeNs),
+        }
+      : undefined;
   if (!Number.isInteger(sessionSchemaVersion)
     || !sessionID
     || !directory
@@ -133,6 +149,7 @@ function sessionHarnessIdentity(binding) {
     || axisBindingId !== axisBindingId.trim()
     || timelineId === undefined
     || typeof timelineId === 'string' && (!timelineId || timelineId !== timelineId.trim())
+    || normalizedManagedDirectoryIdentity === undefined
     || !harnessBinding
     || !releaseHarness) return null;
   if (typeof releaseHarness.selector !== 'string' || !releaseHarness.ref) return null;
@@ -148,6 +165,9 @@ function sessionHarnessIdentity(binding) {
       agent,
       axisBindingId,
       timelineId,
+      ...(normalizedManagedDirectoryIdentity
+        ? { managedDirectoryIdentity: normalizedManagedDirectoryIdentity }
+        : {}),
     },
     harnessBinding,
     agentReleaseHarness: {

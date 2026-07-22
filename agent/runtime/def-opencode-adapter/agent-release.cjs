@@ -103,6 +103,7 @@ function createAgentRelease({
       'agent/runtime/def-tools/opencode',
       'agent/runtime/def-node-workspace/codec.mjs',
       'agent/runtime/def-opencode-adapter/harness-turn-router.cjs',
+      'agent/runtime/def-opencode-adapter/managed-session-directory.cjs',
       'agent/runtime/def-opencode-adapter/session-harness-activation.cjs',
       'agent/runtime/def-opencode-adapter/session-harness-seal.cjs',
     ]),

@@ -11,6 +11,16 @@ const defHarness = require('../../harness/def-harness.cjs');
 const { routeNativeTurnHarness } = require('./harness-turn-router.cjs');
 const { createAgentRelease } = require('./agent-release.cjs');
 const {
+  createManagedSessionDirectoryBinding,
+  matchesManagedSessionDirectoryBinding,
+  readManagedSessionBindingTargetIdentity,
+  readManagedSessionDirectoryIdentity,
+  sameManagedPath,
+  sameManagedSessionBindingFileStat,
+  sameManagedSessionBindingTargetIdentity,
+  sameManagedSessionDirectoryIdentity,
+} = require('./managed-session-directory.cjs');
+const {
   SESSION_HARNESS_SEAL_KEY_ENV,
   createSessionHarnessSeal,
   ensurePersistentSessionHarnessSealKeyRecord,
@@ -486,7 +496,7 @@ function sameSessionBindingFile(left, right) {
     && left.ctimeMs === right.ctimeMs);
 }
 
-function readSafeSessionBindingFile(target, fileSystem = fs) {
+function readSafeSessionBindingFile(target, fileSystem = fs, expectedTargetIdentity = null) {
   let descriptor;
   try {
     const linkStat = fileSystem.lstatSync(target);
@@ -497,7 +507,9 @@ function readSafeSessionBindingFile(target, fileSystem = fs) {
     const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
     descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
     const openedStat = fileSystem.fstatSync(descriptor);
-    if (!sameSessionBindingFile(linkStat, openedStat)) return null;
+    if (!sameSessionBindingFile(linkStat, openedStat)
+      || expectedTargetIdentity
+        && !sameManagedSessionBindingFileStat(expectedTargetIdentity, openedStat)) return null;
     const binding = JSON.parse(fileSystem.readFileSync(descriptor, 'utf8'));
     if (!sameSessionBindingFile(openedStat, fileSystem.fstatSync(descriptor))) return null;
     return binding && typeof binding === 'object' && !Array.isArray(binding) ? binding : null;
@@ -508,18 +520,33 @@ function readSafeSessionBindingFile(target, fileSystem = fs) {
   }
 }
 
-function openExistingSessionBindingForWrite(target) {
-  let linkStat;
-  try {
-    linkStat = fs.lstatSync(target);
-  } catch (error) {
-    if (error?.code === 'ENOENT') return { exists: false, descriptor: undefined, binding: undefined };
+function readCurrentManagedSessionDirectory(expected) {
+  const current = readManagedSessionDirectoryIdentity(expected?.directory, {
+    workspaceDirectory: expected?.workspaceRoot,
+  });
+  return sameManagedSessionDirectoryIdentity(expected, current) ? current : null;
+}
+
+function openExistingSessionBindingForWrite(target, directoryIdentity) {
+  if (!readCurrentManagedSessionDirectory(directoryIdentity)) {
+    throw invalidExistingSessionBinding('DEF Session directory identity changed before its binding could be inspected.');
+  }
+  const targetIdentity = readManagedSessionBindingTargetIdentity(directoryIdentity, { allowMissing: true });
+  if (!targetIdentity) {
     throw invalidExistingSessionBinding('Existing DEF Session binding cannot be inspected safely.');
   }
+  if (!targetIdentity.exists) {
+    if (!readCurrentManagedSessionDirectory(directoryIdentity)) {
+      throw invalidExistingSessionBinding('DEF Session directory identity changed while its binding absence was checked.');
+    }
+    return { exists: false, descriptor: undefined, binding: undefined, targetIdentity };
+  }
+  const linkStat = fs.lstatSync(target);
   if (!linkStat.isFile()
     || linkStat.isSymbolicLink()
     || linkStat.size <= 0
-    || linkStat.size > MAX_SESSION_BINDING_BYTES) {
+    || linkStat.size > MAX_SESSION_BINDING_BYTES
+    || !sameManagedSessionBindingFileStat(targetIdentity, linkStat)) {
     throw invalidExistingSessionBinding('Existing DEF Session binding is not a safe regular file.');
   }
 
@@ -528,7 +555,8 @@ function openExistingSessionBindingForWrite(target) {
     const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
     descriptor = fs.openSync(target, fs.constants.O_RDWR | noFollow);
     const openedStat = fs.fstatSync(descriptor);
-    if (!sameSessionBindingFile(linkStat, openedStat)) {
+    if (!sameSessionBindingFile(linkStat, openedStat)
+      || !sameManagedSessionBindingFileStat(targetIdentity, openedStat)) {
       throw invalidExistingSessionBinding('Existing DEF Session binding changed while being opened.');
     }
     const binding = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
@@ -539,9 +567,17 @@ function openExistingSessionBindingForWrite(target) {
     if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
       throw invalidExistingSessionBinding('Existing DEF Session binding is not a JSON object.');
     }
+    const directoryAfter = readCurrentManagedSessionDirectory(directoryIdentity);
+    const targetAfter = directoryAfter
+      ? readManagedSessionBindingTargetIdentity(directoryAfter)
+      : null;
+    if (!directoryAfter
+      || !sameManagedSessionBindingTargetIdentity(targetIdentity, targetAfter)) {
+      throw invalidExistingSessionBinding('Existing DEF Session directory or binding target changed while being read.');
+    }
     fs.closeSync(descriptor);
     descriptor = undefined;
-    return { exists: true, descriptor: undefined, binding, stat: finalStat };
+    return { exists: true, descriptor: undefined, binding, stat: finalStat, targetIdentity };
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
     if (error?.code === 'HARNESS_BINDING_INVALID') throw error;
@@ -569,14 +605,26 @@ function serializeSessionBinding(binding) {
   return serialized;
 }
 
-function writeSessionBindingFile(target, existingState, serialized) {
+function writeSessionBindingFile(target, existingState, serialized, directoryIdentity) {
   let descriptor;
   try {
+    const directoryBefore = readCurrentManagedSessionDirectory(directoryIdentity);
+    const targetBefore = directoryBefore
+      ? readManagedSessionBindingTargetIdentity(directoryBefore, { allowMissing: true })
+      : null;
+    if (!directoryBefore || !targetBefore
+      || existingState.exists !== targetBefore.exists
+      || existingState.exists
+        && !sameManagedSessionBindingTargetIdentity(existingState.targetIdentity, targetBefore)) {
+      throw invalidExistingSessionBinding('DEF Session directory or binding target changed before it could be written.');
+    }
     if (existingState.exists) {
       try {
         const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
         descriptor = fs.openSync(target, fs.constants.O_RDWR | noFollow);
-        if (!sameSessionBindingFile(existingState.stat, fs.fstatSync(descriptor))) {
+        const openedStat = fs.fstatSync(descriptor);
+        if (!sameSessionBindingFile(existingState.stat, openedStat)
+          || !sameManagedSessionBindingFileStat(targetBefore, openedStat)) {
           throw invalidExistingSessionBinding('Existing DEF Session binding changed before it could be updated.');
         }
       } catch (error) {
@@ -590,7 +638,31 @@ function writeSessionBindingFile(target, existingState, serialized) {
         throw invalidExistingSessionBinding('DEF Session binding appeared while the new identity was being created.');
       }
     }
+    const openedStat = fs.fstatSync(descriptor);
+    const directoryAfterOpen = readCurrentManagedSessionDirectory(directoryIdentity);
+    const targetAfterOpen = directoryAfterOpen
+      ? readManagedSessionBindingTargetIdentity(directoryAfterOpen)
+      : null;
+    if (!directoryAfterOpen
+      || !targetAfterOpen?.exists
+      || !sameManagedSessionBindingFileStat(targetAfterOpen, openedStat)
+      || existingState.exists
+        && !sameManagedSessionBindingTargetIdentity(targetBefore, targetAfterOpen)) {
+      throw invalidExistingSessionBinding('DEF Session directory or binding target changed while it was opened for writing.');
+    }
     writeSessionBindingDescriptor(descriptor, serialized);
+    const finalStat = fs.fstatSync(descriptor);
+    const directoryAfterWrite = readCurrentManagedSessionDirectory(directoryIdentity);
+    const targetAfterWrite = directoryAfterWrite
+      ? readManagedSessionBindingTargetIdentity(directoryAfterWrite)
+      : null;
+    if (!directoryAfterWrite
+      || !targetAfterWrite?.exists
+      || !sameManagedSessionBindingFileStat(targetAfterOpen, finalStat, { objectOnly: true })
+      || !sameManagedSessionBindingTargetIdentity(targetAfterOpen, targetAfterWrite, { objectOnly: true })
+      || !sameManagedSessionBindingFileStat(targetAfterWrite, finalStat)) {
+      throw invalidExistingSessionBinding('DEF Session directory or binding target changed while it was written.');
+    }
   } finally {
     if (descriptor !== undefined) fs.closeSync(descriptor);
   }
@@ -1207,16 +1279,48 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
 function createAgentSessionWorkspace(skillId) {
   const root = getAgentWorkspaceDir();
   const host = skillId === 'workbench' ? 'workbench' : 'ai-cli';
-  const directory = path.join(root, 'sessions', host, crypto.randomUUID());
+  const sessionsRoot = path.join(root, 'sessions');
+  const hostRoot = path.join(sessionsRoot, host);
+  for (const managedRoot of [sessionsRoot, hostRoot]) {
+    try {
+      fs.mkdirSync(managedRoot);
+    } catch (error) {
+      if (error?.code !== 'EEXIST') throw error;
+    }
+    const stat = fs.lstatSync(managedRoot, { bigint: true });
+    const realPath = fs.realpathSync.native
+      ? fs.realpathSync.native(managedRoot)
+      : fs.realpathSync(managedRoot);
+    if (!stat.isDirectory() || stat.isSymbolicLink() || !sameManagedPath(realPath, managedRoot)) {
+      throw invalidExistingSessionBinding('DEF managed Session parent is not a real local directory.');
+    }
+  }
+  const directory = path.join(hostRoot, crypto.randomUUID());
+  fs.mkdirSync(directory);
+  const directoryIdentity = readManagedSessionDirectoryIdentity(directory, { workspaceDirectory: root });
+  if (!directoryIdentity) {
+    throw invalidExistingSessionBinding('DEF managed Session directory could not be established safely.');
+  }
+  const requireCurrentDirectory = () => {
+    if (!readCurrentManagedSessionDirectory(directoryIdentity)) {
+      throw invalidExistingSessionBinding('DEF managed Session directory identity changed during workspace creation.');
+    }
+  };
   const toolsDir = path.join(directory, '.opencode', 'tools');
-  fs.mkdirSync(toolsDir, { recursive: true });
+  fs.mkdirSync(path.dirname(toolsDir));
+  requireCurrentDirectory();
+  fs.mkdirSync(toolsDir);
+  requireCurrentDirectory();
   if (!fs.existsSync(defOpenCodeToolSource)) {
     throw new Error(`Missing DEF OpenCode native tool module: ${defOpenCodeToolSource}`);
   }
   fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
+  requireCurrentDirectory();
   const workspaceCodecDir = path.join(directory, 'def-node-workspace');
-  fs.mkdirSync(workspaceCodecDir, { recursive: true });
+  fs.mkdirSync(workspaceCodecDir);
+  requireCurrentDirectory();
   fs.copyFileSync(defNodeWorkspaceCodecSource, path.join(workspaceCodecDir, 'codec.mjs'));
+  requireCurrentDirectory();
   fs.writeFileSync(path.join(directory, 'AGENTS.md'), [
     '# DEF isolated session workspace',
     '',
@@ -1226,7 +1330,8 @@ function createAgentSessionWorkspace(skillId) {
     'Run def_node_sync_validate to rebuild and validate before def_node_use.',
     '',
   ].join('\n'), 'utf8');
-  return fs.realpathSync(directory);
+  requireCurrentDirectory();
+  return directoryIdentity.directory;
 }
 
 function cleanupNativeRetrievalArtifacts(directory, now = Date.now()) {
@@ -1255,8 +1360,14 @@ function maintainNativeSessionWorkspace(directory) {
 }
 
 function writeSessionBinding(directory, session, options = {}) {
-  const target = path.join(directory, '.def-session.json');
-  const existingState = openExistingSessionBindingForWrite(target);
+  const directoryIdentity = readManagedSessionDirectoryIdentity(directory, {
+    workspaceDirectory: getAgentWorkspaceDir(),
+  });
+  if (!directoryIdentity) {
+    throw invalidExistingSessionBinding('DEF Session directory is not a safe managed directory.');
+  }
+  const target = path.join(directoryIdentity.directory, '.def-session.json');
+  const existingState = openExistingSessionBindingForWrite(target, directoryIdentity);
   const existing = existingState.binding;
   const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
     ? existing.axisBindingId.trim()
@@ -1265,7 +1376,8 @@ function writeSessionBinding(directory, session, options = {}) {
     schemaVersion: 5,
     sessionID: session.id,
     axisBindingId,
-    directory: path.resolve(directory),
+    directory: directoryIdentity.directory,
+    managedDirectoryIdentity: createManagedSessionDirectoryBinding(directoryIdentity),
     agent: session.agent,
     skillId: session.skillId,
     host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
@@ -1289,6 +1401,10 @@ function writeSessionBinding(directory, session, options = {}) {
     if (existingState.exists) {
       const existingSealValid = verifySessionHarnessSeal(existing, sealKey);
       const legacyStableIdentity = isStrictLegacyStableHarnessBinding(existing);
+      if (existing.harnessIdentitySeal
+        && !matchesManagedSessionDirectoryBinding(existing.managedDirectoryIdentity, directoryIdentity)) {
+        throw invalidExistingSessionBinding('Existing sealed DEF Session directory identity does not match the managed directory.');
+      }
       const legacyStable = legacyStableIdentity
         && existing.sessionID === binding.sessionID
         && path.resolve(existing.directory || directory) === binding.directory
@@ -1302,6 +1418,7 @@ function writeSessionBinding(directory, session, options = {}) {
         && existing.skillId === binding.skillId
         && existing.agent === binding.agent
         && existing.axisBindingId === binding.axisBindingId
+        && JSON.stringify(existing.managedDirectoryIdentity) === JSON.stringify(binding.managedDirectoryIdentity)
         && (existing.timelineId ?? null) === (binding.timelineId ?? null));
       const recoveryReleaseMatches = existing.agentRelease?.harness
         ? existing.agentRelease.harness.selector === binding.agentRelease?.harness?.selector
@@ -1309,12 +1426,15 @@ function writeSessionBinding(directory, session, options = {}) {
         : legacyStableIdentity
           && binding.agentRelease?.harness?.selector === existing.harnessBinding.selector
           && defHarness.sameRef(binding.agentRelease?.harness?.ref, existing.harnessBinding.harness);
+      const recoveryDirectoryIdentityMatches = legacyStableIdentity
+        || JSON.stringify(existing.managedDirectoryIdentity) === JSON.stringify(binding.managedDirectoryIdentity);
       const sameRecoveryHarness = options.allowSessionRecoveryRebind === true
         && typeof binding.sessionID === 'string'
         && binding.sessionID
         && existing.harnessBinding?.sessionId === existing.sessionID
         && binding.harnessBinding?.sessionId === binding.sessionID
         && path.resolve(existing.directory || directory) === binding.directory
+        && recoveryDirectoryIdentityMatches
         && existing.harnessBinding?.selector === binding.harnessBinding?.selector
         && defHarness.sameRef(existing.harnessBinding?.harness, binding.harnessBinding?.harness)
         && JSON.stringify(existing.harnessBinding?.slotHashes || {}) === JSON.stringify(binding.harnessBinding?.slotHashes || {})
@@ -1328,7 +1448,7 @@ function writeSessionBinding(directory, session, options = {}) {
     }
     binding.harnessIdentitySeal = createSessionHarnessSeal(binding, sealKey);
   }
-  writeSessionBindingFile(target, existingState, serializeSessionBinding(binding));
+  writeSessionBindingFile(target, existingState, serializeSessionBinding(binding), directoryIdentity);
   return axisBindingId;
 }
 
@@ -1362,18 +1482,32 @@ function readNativeNodeRelation(directory) {
 
 function readNativeSessionBinding(directory, sessionID, options = {}) {
   if (typeof directory !== 'string' || !directory.trim()) return null;
-  const sessionsRoot = path.resolve(getAgentWorkspaceDir(), 'sessions');
-  const resolved = path.resolve(directory);
-  const relative = path.relative(sessionsRoot, resolved);
-  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  const directoryBefore = readManagedSessionDirectoryIdentity(directory, {
+    workspaceDirectory: getAgentWorkspaceDir(),
+  });
+  if (!directoryBefore) return null;
+  const targetBefore = readManagedSessionBindingTargetIdentity(directoryBefore);
+  if (!targetBefore?.exists) return null;
+  const resolved = directoryBefore.directory;
   const binding = readSafeSessionBindingFile(
-    path.join(resolved, '.def-session.json'),
+    targetBefore.target,
     options.fileSystem || fs,
+    targetBefore,
   );
-  if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
-  if (path.resolve(binding.directory || resolved) !== resolved) return null;
+  const directoryAfter = readManagedSessionDirectoryIdentity(directory, {
+    workspaceDirectory: getAgentWorkspaceDir(),
+  });
+  const targetAfter = directoryAfter
+    ? readManagedSessionBindingTargetIdentity(directoryAfter)
+    : null;
+  if (!binding
+    || !sameManagedSessionDirectoryIdentity(directoryBefore, directoryAfter)
+    || !sameManagedSessionBindingTargetIdentity(targetBefore, targetAfter)) return null;
+  if (!binding.sessionID || sessionID && binding.sessionID !== sessionID) return null;
+  if (!sameManagedPath(String(binding.directory || ''), resolved)) return null;
   if (binding.harnessIdentitySeal) {
     if (binding.schemaVersion !== 5) return null;
+    if (!matchesManagedSessionDirectoryBinding(binding.managedDirectoryIdentity, directoryAfter)) return null;
     try {
       const sealKey = options.harnessSealKey === undefined
         ? getSessionHarnessSealKey()
@@ -1385,7 +1519,9 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   } else if (!isStrictLegacyStableHarnessBinding(binding)) {
     return null;
   }
+  if (!readCurrentManagedSessionDirectory(directoryAfter)) return null;
   maintainNativeSessionWorkspace(resolved);
+  if (!readCurrentManagedSessionDirectory(directoryAfter)) return null;
   const host = binding.host === 'workbench' ? 'workbench' : 'ai-cli';
   const expected = buildNativeHostProfile(host);
   return {
@@ -1409,8 +1545,14 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
 function ensureNativeSessionAxisBinding(directory, sessionID) {
   const binding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
   if (!binding || binding.axisBindingId) return binding;
+  const directoryIdentity = readManagedSessionDirectoryIdentity(binding.directory, {
+    workspaceDirectory: getAgentWorkspaceDir(),
+  });
+  if (!directoryIdentity) {
+    throw invalidExistingSessionBinding('Legacy DEF Session directory identity changed before axis backfill.');
+  }
   const target = path.join(binding.directory, '.def-session.json');
-  const existingState = openExistingSessionBindingForWrite(target);
+  const existingState = openExistingSessionBindingForWrite(target, directoryIdentity);
   const stored = existingState.binding;
   if (!existingState.exists
     || !isStrictLegacyStableHarnessBinding(stored)
@@ -1421,16 +1563,13 @@ function ensureNativeSessionAxisBinding(directory, sessionID) {
   }
   if (!stored.axisBindingId) {
     stored.axisBindingId = `axis-${crypto.randomUUID()}`;
-    writeSessionBindingFile(target, existingState, serializeSessionBinding(stored));
+    writeSessionBindingFile(target, existingState, serializeSessionBinding(stored), directoryIdentity);
   }
   return readNativeSessionBinding(binding.directory, sessionID, { includeNodeRelation: false });
 }
 
 function readDiscoveredNativeSessionBinding(directory, expectedSessionID, options = {}) {
-  const candidate = readSafeSessionBindingFile(path.join(directory, '.def-session.json'));
-  const candidateSessionID = typeof candidate?.sessionID === 'string' ? candidate.sessionID : '';
-  if (!candidateSessionID || (expectedSessionID && candidateSessionID !== expectedSessionID)) return null;
-  return readNativeSessionBinding(directory, candidateSessionID, options);
+  return readNativeSessionBinding(directory, expectedSessionID, options);
 }
 
 function findNativeSessionBinding(sessionID) {
@@ -1469,6 +1608,14 @@ function findNativeSessionBinding(sessionID) {
 function writeNativeWorkbenchContext(directory, sessionID, context) {
   const binding = ensureNativeSessionAxisBinding(directory, sessionID);
   if (!binding || binding.host !== 'workbench') return null;
+  const directoryIdentity = readManagedSessionDirectoryIdentity(binding.directory, {
+    workspaceDirectory: getAgentWorkspaceDir(),
+  });
+  if (!directoryIdentity
+    || binding.harnessIdentitySeal
+      && !matchesManagedSessionDirectoryBinding(binding.managedDirectoryIdentity, directoryIdentity)) {
+    throw invalidExistingSessionBinding('Workbench context Session directory identity is no longer trusted.');
+  }
   const contextTimelineId = typeof context?.timeline?.id === 'string' ? context.timeline.id.trim() : '';
   if (!binding.timelineId || !contextTimelineId || contextTimelineId !== binding.timelineId) {
     const error = new Error('Workbench context timeline does not match the immutable session binding.');
@@ -1485,8 +1632,30 @@ function writeNativeWorkbenchContext(directory, sessionID, context) {
     updatedAt: Date.now(),
     context: context && typeof context === 'object' ? context : {},
   };
-  fs.writeFileSync(temporary, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-  fs.renameSync(temporary, target);
+  let descriptor;
+  try {
+    descriptor = fs.openSync(temporary, 'wx', 0o600);
+    fs.writeFileSync(descriptor, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    if (!readCurrentManagedSessionDirectory(directoryIdentity)) {
+      throw invalidExistingSessionBinding('Workbench context Session directory changed before commit.');
+    }
+    fs.renameSync(temporary, target);
+    if (!readCurrentManagedSessionDirectory(directoryIdentity)) {
+      throw invalidExistingSessionBinding('Workbench context Session directory changed during commit.');
+    }
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (readCurrentManagedSessionDirectory(directoryIdentity)) {
+      try {
+        fs.unlinkSync(temporary);
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+      }
+    }
+  }
   return payload;
 }
 
@@ -2289,6 +2458,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
   emitStreamEvent(state, 'message.start', { turnId, text: userMessage });
 
   try {
+    if (!readCurrentStreamSessionBinding(state)) throw persistedDefSessionNotFound();
     const eventPromise = subscribeEvents(state.baseUrl, state.directory, (event) => {
       normalizeOpenCodeEventForStream(state, event);
     }, eventController.signal).catch((error) => {
@@ -2299,6 +2469,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
     });
     state.eventPromise = eventPromise;
     await new Promise((resolve) => setTimeout(resolve, 80));
+    if (!readCurrentStreamSessionBinding(state)) throw persistedDefSessionNotFound();
 
     const query = `directory=${encodeURIComponent(state.directory)}`;
     const payload = {
@@ -2317,6 +2488,7 @@ async function sendMessageOnStreamSession(state, message, clientTurnId) {
       runController.signal,
       120000,
     );
+    if (!readCurrentStreamSessionBinding(state)) throw persistedDefSessionNotFound();
     const replyError = extractReplyError(reply);
     if (replyError) {
       throw new Error(replyError);

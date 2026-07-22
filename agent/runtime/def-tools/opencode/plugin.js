@@ -10,11 +10,12 @@ export async function createDefToolsPlugin(input = {}, options = {}) {
   const harnessSealKey = options.harnessSealKey === undefined
     ? process.env.DEF_SESSION_HARNESS_SEAL_KEY
     : options.harnessSealKey
+  const agentWorkspaceDirectory = options.agentWorkspaceDirectory
   const equipment3Plus1Enabled = (sessionID) => activation.readDefEquipment3Plus1HarnessActivation(
     directory,
     sessionID,
     undefined,
-    { runtimeRoot: harnessRuntimeRoot, sealKey: harnessSealKey },
+    { runtimeRoot: harnessRuntimeRoot, sealKey: harnessSealKey, agentWorkspaceDirectory },
   )
   const tool = {}
   for (const target of DEF_NATIVE_TARGETS) {

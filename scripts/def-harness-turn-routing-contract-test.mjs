@@ -370,16 +370,18 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     assert.equal(symlinkContentReads, 0, 'neither reader may follow the Session binding symlink');
 
     const makeInPlaceReadRaceFileSystem = () => {
+      const targetStat = fs.lstatSync(recoveryBindingPath);
       const initialStat = {
-        dev: 1,
-        ino: 101,
-        size: Buffer.byteLength(JSON.stringify(sealedOuterBinding)),
-        mtimeMs: 10,
-        ctimeMs: 10,
+        dev: targetStat.dev,
+        ino: targetStat.ino,
+        birthtimeMs: targetStat.birthtimeMs,
+        size: targetStat.size,
+        mtimeMs: targetStat.mtimeMs,
+        ctimeMs: targetStat.ctimeMs,
         isFile: () => true,
         isSymbolicLink: () => false,
       };
-      const changedStat = { ...initialStat, ctimeMs: 11 };
+      const changedStat = { ...initialStat, ctimeMs: initialStat.ctimeMs + 1 };
       let fstatCalls = 0;
       let closeCalls = 0;
       return {
@@ -396,6 +398,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
           },
         },
         closeCalls: () => closeCalls,
+        fstatCalls: () => fstatCalls,
       };
     };
     const sidecarReadRace = makeInPlaceReadRaceFileSystem();
@@ -404,6 +407,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       oldSessionID,
       { includeNodeRelation: false, harnessSealKey, fileSystem: sidecarReadRace.fileSystem },
     ), null, 'the sidecar must reject an in-place Session binding change during descriptor read');
+    assert.equal(sidecarReadRace.fstatCalls(), 2, 'sidecar read-race probe must reach the post-read fstat');
     assert.equal(sidecarReadRace.closeCalls(), 1, 'sidecar read-race rejection must close its descriptor');
     const activationReadRace = makeInPlaceReadRaceFileSystem();
     assert.equal(readDefEquipment3Plus1HarnessActivation(
@@ -412,6 +416,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       activationReadRace.fileSystem,
       harnessActivationOptions,
     ), false, 'plugin activation must reject the same in-place Session binding read race');
+    assert.equal(activationReadRace.fstatCalls(), 2, 'plugin read-race probe must reach the post-read fstat');
     assert.equal(activationReadRace.closeCalls(), 1, 'plugin read-race rejection must close its descriptor');
 
     const newSessionID = 'sealed-recovery-new';
@@ -490,6 +495,67 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         timelineId: `timeline-${sessionID}`,
       };
     };
+
+    const replacedDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(replacedDirectory);
+    const replacedSession = makeCandidateSession('managed-directory-replacement');
+    writeSessionBinding(replacedDirectory, replacedSession, { harnessSealKey });
+    const replacedBindingBytes = fs.readFileSync(path.join(replacedDirectory, '.def-session.json'));
+    const replacedDirectoryBackup = `${replacedDirectory}.original`;
+    fs.renameSync(replacedDirectory, replacedDirectoryBackup);
+    try {
+      fs.mkdirSync(replacedDirectory);
+      fs.writeFileSync(path.join(replacedDirectory, '.def-session.json'), replacedBindingBytes);
+      assert.equal(readNativeSessionBinding(
+        replacedDirectory,
+        replacedSession.id,
+        { includeNodeRelation: false, harnessSealKey },
+      ), null, 'a byte-identical seal copied into a replacement directory object must fail closed');
+      assert.equal(readDefEquipment3Plus1HarnessActivation(
+        replacedDirectory,
+        replacedSession.id,
+        undefined,
+        harnessActivationOptions,
+      ), false, 'plugin activation must reject the same ordinary-directory replacement');
+      assert.throws(() => writeSessionBinding(replacedDirectory, replacedSession, { harnessSealKey }),
+        (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+        'the writer must not re-seal a binding copied into a replacement directory object');
+    } finally {
+      fs.rmSync(replacedDirectory, { recursive: true, force: true });
+      fs.renameSync(replacedDirectoryBackup, replacedDirectory);
+    }
+    assert(readNativeSessionBinding(
+      replacedDirectory,
+      replacedSession.id,
+      { includeNodeRelation: false, harnessSealKey },
+    ), 'restoring the original managed directory object restores the valid sealed Session');
+    assert.equal(readDefEquipment3Plus1HarnessActivation(
+      replacedDirectory,
+      replacedSession.id,
+      undefined,
+      harnessActivationOptions,
+    ), true, 'plugin activation accepts the restored original directory object');
+
+    const junctionDirectoryBackup = `${replacedDirectory}.junction-original`;
+    fs.renameSync(replacedDirectory, junctionDirectoryBackup);
+    try {
+      fs.symlinkSync(junctionDirectoryBackup, replacedDirectory, 'junction');
+      assert.equal(readNativeSessionBinding(
+        replacedDirectory,
+        replacedSession.id,
+        { includeNodeRelation: false, harnessSealKey },
+      ), null, 'a managed Session path replaced by a junction must fail closed');
+      assert.equal(readDefEquipment3Plus1HarnessActivation(
+        replacedDirectory,
+        replacedSession.id,
+        undefined,
+        harnessActivationOptions,
+      ), false, 'plugin activation must reject the same parent-directory junction');
+    } finally {
+      if (fs.existsSync(replacedDirectory)) fs.unlinkSync(replacedDirectory);
+      fs.renameSync(junctionDirectoryBackup, replacedDirectory);
+    }
+
     const bareWriteDirectory = createAgentSessionWorkspace('operator');
     sidecarDirectories.push(bareWriteDirectory);
     assert.throws(() => writeSessionBinding(bareWriteDirectory, {
@@ -574,6 +640,54 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     const legacyAxisBinding = ensureNativeSessionAxisBinding(legacyStableDirectory, legacyStableSessionID);
     assert.match(legacyAxisBinding?.axisBindingId || '', /^axis-/,
       'a strict legacy stable binding may receive an axis id through the safe descriptor writer');
+
+    const legacyRecoveryDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(legacyRecoveryDirectory);
+    const legacyRecoveryOldID = 'legacy-stable-recovery-old';
+    const legacyRecoveryNewID = 'legacy-stable-recovery-new';
+    const legacyRecoveryOldHarness = makeHarnessBinding(legacyRecoveryOldID, 'stable', stableHarnessRef);
+    fs.writeFileSync(path.join(legacyRecoveryDirectory, '.def-session.json'), `${JSON.stringify({
+      schemaVersion: 5,
+      sessionID: legacyRecoveryOldID,
+      axisBindingId: 'axis-legacy-recovery',
+      directory: legacyRecoveryDirectory,
+      host: 'workbench',
+      skillId: 'workbench',
+      agent: 'def-workbench',
+      timelineId: 'timeline-legacy-recovery',
+      harnessBinding: legacyRecoveryOldHarness,
+    }, null, 2)}\n`, 'utf8');
+    const legacyRecoveryNewHarness = makeHarnessBinding(legacyRecoveryNewID, 'stable', stableHarnessRef, 2);
+    const legacyRecoveryNewSession = {
+      id: legacyRecoveryNewID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: legacyRecoveryNewHarness,
+      agentRelease: agentReleaseFor(legacyRecoveryNewHarness),
+      timelineId: 'timeline-legacy-recovery',
+    };
+    assert.throws(() => writeSessionBinding(
+      legacyRecoveryDirectory,
+      legacyRecoveryNewSession,
+      { harnessSealKey },
+    ), (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'an ordinary write cannot rebind even a strict legacy stable Session');
+    writeSessionBinding(
+      legacyRecoveryDirectory,
+      legacyRecoveryNewSession,
+      { harnessSealKey, allowSessionRecoveryRebind: true },
+    );
+    const legacyRecovered = readNativeSessionBinding(
+      legacyRecoveryDirectory,
+      legacyRecoveryNewID,
+      { includeNodeRelation: false, harnessSealKey },
+    );
+    assert(legacyRecovered, 'explicit recovery may migrate and rebind a strict legacy stable Session');
+    assert.equal(legacyRecovered.axisBindingId, 'axis-legacy-recovery');
+    assert.equal(legacyRecovered.timelineId, 'timeline-legacy-recovery');
+    assert.equal(verifySessionHarnessSeal(legacyRecovered, harnessSealKey), true);
+    assert.equal(typeof legacyRecovered.managedDirectoryIdentity?.ino, 'string',
+      'legacy recovery records and seals the original managed directory object identity');
 
     const axisRaceDirectory = createAgentSessionWorkspace('workbench');
     sidecarDirectories.push(axisRaceDirectory);
@@ -800,9 +914,11 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     };
 
     let persistedSidecar;
+    let liveReplacementBackup = '';
     try {
       const legalSealed = createPersistedFixture('legal-sealed');
       const liveThenTampered = createPersistedFixture('live-then-tampered');
+      const liveThenReplaced = createPersistedFixture('live-then-directory-replaced');
       const invalidSeal = createPersistedFixture('invalid-seal');
       const invalidSealBinding = JSON.parse(fs.readFileSync(invalidSeal.target, 'utf8'));
       invalidSealBinding.harnessIdentitySeal.value = '0'.repeat(64);
@@ -991,6 +1107,12 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: 'legal continuation', clientTurnId: 'legal-persisted-turn', skillId: 'operator' }),
       })).status, 200, 'a legal sealed persisted Session must remain continuable through the production HTTP route');
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(liveThenReplaced.sessionID)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'directory replacement setup', clientTurnId: 'directory-replacement-turn', skillId: 'operator' }),
+      })).status, 200, 'a second legal Session can establish cached state before directory replacement');
+      await new Promise((resolve) => setTimeout(resolve, 150));
 
       const liveTamperedBinding = JSON.parse(fs.readFileSync(liveThenTampered.target, 'utf8'));
       liveTamperedBinding.agent = 'def-tampered';
@@ -1012,7 +1134,52 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       assert.equal(fakeRequests.filter((request) => request.pathname.endsWith('/abort')).length, abortRequestsBeforeInvalidStop,
         'an untrusted cached Session directory must never be used for an upstream abort');
       await new Promise((resolve) => setTimeout(resolve, 25));
-      const httpInvalidFixtures = [...invalidFixtures, liveThenTampered];
+      assert.equal(readNativeSessionBinding(
+        liveThenTampered.directory,
+        liveThenTampered.sessionID,
+        { includeNodeRelation: false },
+      ), null, 'stopping an untrusted cached Session must not restore or re-sign its invalid binding');
+
+      const replacementPromptRequestsBefore = fakeRequests.filter((request) => (
+        request.method === 'POST'
+        && request.pathname === `/session/${encodeURIComponent(liveThenReplaced.sessionID)}/message`
+      )).length;
+      await continueChat(liveThenReplaced.sessionID, 'must be blocked after directory replacement', 'directory-race-turn', {
+        config: { apiKey: 'contract-only' },
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      const liveReplacementBytes = fs.readFileSync(liveThenReplaced.target);
+      liveReplacementBackup = `${liveThenReplaced.directory}.cached-original`;
+      fs.renameSync(liveThenReplaced.directory, liveReplacementBackup);
+      fs.mkdirSync(liveThenReplaced.directory);
+      fs.writeFileSync(liveThenReplaced.target, liveReplacementBytes);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.equal(fakeRequests.filter((request) => (
+        request.method === 'POST'
+        && request.pathname === `/session/${encodeURIComponent(liveThenReplaced.sessionID)}/message`
+      )).length, replacementPromptRequestsBefore,
+      'the asynchronous send path must revalidate the managed directory before posting the prompt');
+      assert.equal(readNativeSessionBinding(
+        liveThenReplaced.directory,
+        liveThenReplaced.sessionID,
+        { includeNodeRelation: false },
+      ), null, 'cached state must reject a byte-identical binding in a replacement directory object');
+      const liveSessionsAfterReplacement = await readHttpJson('/api/chat/sessions');
+      assert.equal(liveSessionsAfterReplacement.body.sessions.some(
+        (session) => session.sessionID === liveThenReplaced.sessionID,
+      ), false, 'cached listing must hide a Session whose managed directory object was replaced');
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(liveThenReplaced.sessionID)}/events`)).status, 404,
+        'a new SSE subscription must be refused after managed directory replacement');
+      const abortRequestsBeforeReplacementStop = fakeRequests.filter((request) => request.pathname.endsWith('/abort')).length;
+      const replacementStop = await readHttpJson(`/api/chat/${encodeURIComponent(liveThenReplaced.sessionID)}/stop`, {
+        method: 'POST',
+      });
+      assert.equal(replacementStop.body.result.stopped, true);
+      assert.equal(replacementStop.body.result.reason, 'session-binding-invalid-local-stop-only');
+      assert.equal(fakeRequests.filter((request) => request.pathname.endsWith('/abort')).length, abortRequestsBeforeReplacementStop,
+        'directory replacement stop must remain local and never address the upstream with an untrusted path');
+
+      const httpInvalidFixtures = [...invalidFixtures, liveThenTampered, liveThenReplaced];
       for (const fixture of httpInvalidFixtures) {
         assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(fixture.sessionID)}/persisted`)).status, 404,
           `${fixture.label} must be absent from production persisted get`);
@@ -1026,6 +1193,11 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       }
     } finally {
       for (const response of eventResponses) response.end();
+      if (liveReplacementBackup && fs.existsSync(liveReplacementBackup)) {
+        const replacementPath = liveReplacementBackup.slice(0, -'.cached-original'.length);
+        fs.rmSync(replacementPath, { recursive: true, force: true });
+        fs.renameSync(liveReplacementBackup, replacementPath);
+      }
       if (persistedSidecar?.listening) {
         await new Promise((resolve) => persistedSidecar.close(resolve));
       }
@@ -1278,10 +1450,15 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
   process.env.DEF_SESSION_HARNESS_SEAL_KEY = harnessSealKey;
   const activation = (await import(${JSON.stringify(new URL('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs', import.meta.url).href)})).default;
   const seal = (await import(${JSON.stringify(new URL('../agent/runtime/def-opencode-adapter/session-harness-seal.cjs', import.meta.url).href)})).default;
-  const pluginFactory = (await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)})).default;
+  const managed = (await import(${JSON.stringify(new URL('../agent/runtime/def-opencode-adapter/managed-session-directory.cjs', import.meta.url).href)})).default;
+  const pluginFactory = (await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)})).createDefToolsPlugin;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-3plus1-activation-'));
+  const agentWorkspaceDirectory = path.join(root, 'workspace');
+  fs.mkdirSync(path.join(agentWorkspaceDirectory, 'sessions', 'workbench'), { recursive: true });
   const writeBinding = (directory, sessionID, selector, harnessRef) => {
     fs.mkdirSync(directory, { recursive: true });
+    const directoryIdentity = managed.readManagedSessionDirectoryIdentity(directory, { workspaceDirectory: agentWorkspaceDirectory });
+    if (!directoryIdentity) process.exit(30);
     const binding = {
       schemaVersion: 5,
       sessionID,
@@ -1291,6 +1468,7 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       skillId: 'workbench',
       agent: 'def-workbench',
       timelineId: 'timeline-' + sessionID,
+      managedDirectoryIdentity: managed.createManagedSessionDirectoryBinding(directoryIdentity),
       harnessBinding: {
         kind: 'DefHarnessSessionBindingV1',
         schemaVersion: 1,
@@ -1332,11 +1510,11 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     }],
   });
   try {
-    const candidateDirectory = path.join(root, 'candidate');
+    const candidateDirectory = path.join(agentWorkspaceDirectory, 'sessions', 'workbench', 'candidate');
     const candidateSession = 'candidate-session';
     const candidateBinding = writeBinding(candidateDirectory, candidateSession, 'candidate/spec9-3plus1-composite-v1', candidateHarnessRef);
     activation.clearRegisteredHarnessVerificationCache();
-    const candidate = await pluginFactory({ directory: candidateDirectory });
+    const candidate = await pluginFactory({ directory: candidateDirectory }, { agentWorkspaceDirectory });
     await candidate['experimental.chat.messages.transform'](
       { phase: 'compaction', sessionID: candidateSession },
       { messages: [] },
@@ -1349,7 +1527,10 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       { message: { id: 'msg_001' }, parts: [{ type: 'text', text: firstText }] },
     );
     stats = activation.getSessionHarnessActivationStats();
-    if (stats.bindingReads !== 1 || stats.registryValidations !== 1 || stats.registryCacheEntries !== 1) process.exit(19);
+    if (stats.bindingReads !== 1 || stats.registryValidations !== 1 || stats.registryCacheEntries !== 1) {
+      console.error(JSON.stringify({ activationStats: stats }));
+      process.exit(19);
+    }
     try {
       await candidate['tool.execute.before'](
         { sessionID: candidateSession, tool: 'def_data_game_knowledge', callID: 'wrong-1' },
@@ -1432,10 +1613,10 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.policy !== 'equipment-3plus1-composite') process.exit(6);
     }
 
-    const stableDirectory = path.join(root, 'stable');
+    const stableDirectory = path.join(agentWorkspaceDirectory, 'sessions', 'workbench', 'stable');
     const stableSession = 'stable-session';
     writeBinding(stableDirectory, stableSession, 'stable', stableHarnessRef);
-    const stable = await pluginFactory({ directory: stableDirectory });
+    const stable = await pluginFactory({ directory: stableDirectory }, { agentWorkspaceDirectory });
     await stable['chat.message'](
       { sessionID: stableSession },
       { message: { id: 'msg_101' }, parts: [{ type: 'text', text: firstText }] },
