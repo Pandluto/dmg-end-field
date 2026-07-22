@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Ajv from 'ajv';
+import { z } from 'zod';
 import {
   countDefEquipment3Plus1DistinctConstraintQueries,
   DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA,
@@ -65,6 +66,18 @@ assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.shortlis
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.priorPlanDigest.pattern, '^sha256:[0-9a-f]{64}$');
 assert.match(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.operatorQuery.description, /NFKC/i);
 assert.match(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.description, /at most 16 distinct normalized queries/i);
+
+const modelVisibleRecommendSchema = z.toJSONSchema(
+  z.object(data_equipment_3plus1_recommend.args),
+  { io: 'input' },
+);
+assert.deepEqual(
+  Object.keys(modelVisibleRecommendSchema.properties || {}),
+  ['operatorQuery', 'setQuery', 'constraints', 'shortlistLimit', 'priorPlanDigest'],
+  'the OpenCode plugin boundary must advertise the flat recommendation input',
+);
+assert.deepEqual(modelVisibleRecommendSchema.required, ['operatorQuery']);
+assert.equal(Object.hasOwn(modelVisibleRecommendSchema.properties || {}, 'def'), false, 'Zod internals must never become a model-visible argument');
 
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.contract.const, 'DefEquipmentThreePlusOneRecommendationV1');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.state.enum, ['READY', 'NEEDS_INPUT', 'UNRESOLVED']);
@@ -143,7 +156,7 @@ const createInputWithQuery = (query) => ({
 const validInput = createInputWithQuery(queryAtContractLimit);
 const validateRecommendInput = new Ajv({ allErrors: true }).compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA);
 assert.equal(validateRecommendInput(validInput), true, 'the shared input schema must accept every 160-character query field');
-const parsedInput = data_equipment_3plus1_recommend.args.parse(validInput);
+const parsedInput = data_equipment_3plus1_recommend.inputSchema.parse(validInput);
 assert.deepEqual(parsedInput, validInput, 'OpenCode mapping must not rewrite V1 input');
 const tooLongQueryInputs = [
   ['operatorQuery', { ...validInput, operatorQuery: queryAboveContractLimit }],
@@ -154,21 +167,21 @@ const tooLongQueryInputs = [
 ];
 for (const [field, input] of tooLongQueryInputs) {
   assert.equal(validateRecommendInput(input), false, `the shared input schema must reject a 161-character ${field}`);
-  assert.equal(data_equipment_3plus1_recommend.args.safeParse(input).success, false, `the OpenCode wrapper must reject a 161-character ${field}`);
+  assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse(input).success, false, `the OpenCode wrapper must reject a 161-character ${field}`);
 }
 
 const normalizedQueryInput = (query) => createInputWithQuery(normalizeDefEquipment3Plus1Query(query));
 const trailingWhitespaceInput = createInputWithQuery(`  ${queryAtContractLimit}   `);
 const fullWidthInput = createInputWithQuery('\uff22\uff49\uff45\uff4c\uff49\u3000\u3000\u51b0\u3000\u3000\u5957');
-const normalizedTrailingWhitespace = data_equipment_3plus1_recommend.args.parse(trailingWhitespaceInput);
-const normalizedFullWidth = data_equipment_3plus1_recommend.args.parse(fullWidthInput);
+const normalizedTrailingWhitespace = data_equipment_3plus1_recommend.inputSchema.parse(trailingWhitespaceInput);
+const normalizedFullWidth = data_equipment_3plus1_recommend.inputSchema.parse(fullWidthInput);
 assert.equal(normalizedTrailingWhitespace.operatorQuery, queryAtContractLimit, 'the wrapper trims query values before dispatch');
 assert.equal(normalizedTrailingWhitespace.constraints.compareEquipmentQueries[0].query, queryAtContractLimit);
 assert.equal(normalizedFullWidth.operatorQuery, 'Bieli \u51b0 \u5957', 'the wrapper performs NFKC plus whitespace folding');
 assert.equal(normalizedFullWidth.constraints.requiredEquipmentQueries[0], 'Bieli \u51b0 \u5957');
 assert.equal(validateRecommendInput(normalizedTrailingWhitespace), true, 'the actual JSON Schema accepts the normalized 160-character transport value');
 assert.equal(validateRecommendInput(normalizedQueryInput(` ${queryAboveContractLimit} `)), false, 'the actual JSON Schema rejects a normalized 161-character transport value');
-assert.equal(data_equipment_3plus1_recommend.args.safeParse(normalizedQueryInput(` ${queryAboveContractLimit} `)).success, false, 'the wrapper rejects a normalized 161-character query');
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse(normalizedQueryInput(` ${queryAboveContractLimit} `)).success, false, 'the wrapper rejects a normalized 161-character query');
 for (const field of [
   ['operatorQuery', { operatorQuery: '   \u3000  ' }],
   ['setQuery', { operatorQuery: 'Bieli', setQuery: '   \u3000  ' }],
@@ -176,7 +189,7 @@ for (const field of [
   ['excludedEquipmentQueries', { operatorQuery: 'Bieli', constraints: { excludedEquipmentQueries: ['   \u3000  '] } }],
   ['compareEquipmentQueries.query', { operatorQuery: 'Bieli', constraints: { compareEquipmentQueries: [{ query: '   \u3000  ' }] } }],
 ]) {
-  assert.equal(data_equipment_3plus1_recommend.args.safeParse(field[1]).success, false, `the wrapper rejects a normalized-empty ${field[0]}`);
+  assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse(field[1]).success, false, `the wrapper rejects a normalized-empty ${field[0]}`);
 }
 
 const crossGroupDuplicateInput = {
@@ -187,11 +200,11 @@ const crossGroupDuplicateInput = {
     compareEquipmentQueries: [{ query: ' \uff22 ' }, { query: 'C' }, { query: ' D ' }],
   },
 };
-const crossGroupDuplicateParsed = data_equipment_3plus1_recommend.args.parse(crossGroupDuplicateInput);
+const crossGroupDuplicateParsed = data_equipment_3plus1_recommend.inputSchema.parse(crossGroupDuplicateInput);
 assert.equal(countDefEquipment3Plus1DistinctConstraintQueries(crossGroupDuplicateParsed.constraints), 4, 'cross-group duplicates are counted by normalized query identity');
 assert.equal(crossGroupDuplicateParsed.constraints.requiredEquipmentQueries[0], 'A');
 assert.equal(crossGroupDuplicateParsed.constraints.compareEquipmentQueries[0].query, 'B');
-assert.equal(data_equipment_3plus1_recommend.args.safeParse(crossGroupDuplicateInput).success, true, 'cross-group duplicates below the distinct limit remain Service-legal');
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse(crossGroupDuplicateInput).success, true, 'cross-group duplicates below the distinct limit remain Service-legal');
 
 const distinctQueries = Array.from({ length: DEF_EQUIPMENT_3PLUS1_MAX_DISTINCT_CONSTRAINT_QUERIES + 4 }, (_, index) => `piece-${index + 1}`);
 const overLimitInput = {
@@ -203,19 +216,19 @@ const overLimitInput = {
   },
 };
 assert.equal(countDefEquipment3Plus1DistinctConstraintQueries(overLimitInput.constraints), 20);
-assert.equal(data_equipment_3plus1_recommend.args.safeParse(overLimitInput).success, false, 'the wrapper rejects 20 distinct cross-group queries');
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse(overLimitInput).success, false, 'the wrapper rejects 20 distinct cross-group queries');
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({
   ...overLimitInput,
   constraints: {
     ...overLimitInput.constraints,
     compareEquipmentQueries: distinctQueries.slice(0, 8).map((query) => ({ query: `  ${query}  ` })),
   },
 }).success, true, 'cross-group duplicates that normalize to at most 16 are accepted');
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', unknown: true }).success, false);
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', constraints: { unknown: true } }).success, false);
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', constraints: { compareEquipmentQueries: [{ query: 'piece', unknown: true }] } }).success, false);
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', shortlistLimit: 1.5 }).success, false);
-assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', priorPlanDigest: 'sha256:ABC' }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', unknown: true }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', constraints: { unknown: true } }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', constraints: { compareEquipmentQueries: [{ query: 'piece', unknown: true }] } }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', shortlistLimit: 1.5 }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', priorPlanDigest: 'sha256:ABC' }).success, false);
 
 const originalFetch = globalThis.fetch;
 const requests = [];
@@ -292,6 +305,7 @@ console.log(JSON.stringify({
     'legacy-compatibility-retention',
     'query-boundary-contract',
     'query-normalization-and-distinct-limit',
+    'model-visible-flat-required-schema',
     'opencode-input-identity',
     'typed-result-and-error-preservation',
     'static-no-rest-service',

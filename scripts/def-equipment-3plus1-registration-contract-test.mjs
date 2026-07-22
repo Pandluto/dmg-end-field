@@ -355,7 +355,7 @@ try {
   process.env.DEF_REST_BASE_URL = baseUrl;
   process.env.DEF_INTERNAL_GOVERNANCE_TOKEN = internalToken;
   const { data_equipment_3plus1_recommend } = await import('../agent/runtime/def-tools/opencode/def.js');
-  const normalizedWrapperInput = data_equipment_3plus1_recommend.args.parse({
+  const normalizedWrapperInput = data_equipment_3plus1_recommend.inputSchema.parse({
     operatorQuery: '  ｂｉｅｌｉ  ',
     setQuery: '  ｔｉｄｅ  ',
     shortlistLimit: 1,

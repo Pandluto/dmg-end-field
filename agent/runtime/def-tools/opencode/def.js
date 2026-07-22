@@ -2068,22 +2068,33 @@ const defEquipment3plus1NormalizedQuery = tool.schema.preprocess(
   tool.schema.string().min(1).max(DEF_EQUIPMENT_3PLUS1_QUERY_MAX_LENGTH),
 )
 
-const defEquipment3plus1RecommendArgs = tool.schema.object({
-  operatorQuery: defEquipment3plus1NormalizedQuery.describe('Operator name or stable id.'),
-  setQuery: defEquipment3plus1NormalizedQuery.optional().describe('Optional target equipment set name or stable id.'),
-  constraints: tool.schema.object({
-    requiredEquipmentQueries: tool.schema.array(defEquipment3plus1NormalizedQuery).max(4).optional().describe('Optional equipment that every returned plan must include.'),
-    excludedEquipmentQueries: tool.schema.array(defEquipment3plus1NormalizedQuery).max(8).optional().describe('Optional equipment excluded from every returned plan.'),
-    compareEquipmentQueries: tool.schema.array(tool.schema.object({
-      query: defEquipment3plus1NormalizedQuery.describe('Equipment to compare against the recommendation.'),
-      slot: tool.schema.enum(['armor', 'glove', 'accessory1', 'accessory2']).optional().describe('Optional slot for the comparison.'),
-    }).strict()).max(8).optional().describe('Optional read-only equipment comparisons.'),
-    duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),
-    minimumSetPieces: tool.schema.union([tool.schema.literal(3), tool.schema.literal(4)]).optional().describe('Optional minimum target-set piece count.'),
-  }).strict().optional(),
-  shortlistLimit: tool.schema.union([tool.schema.literal(1), tool.schema.literal(2), tool.schema.literal(3)]).optional().describe('Optional maximum number of returned plans.'),
-  priorPlanDigest: tool.schema.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe('Optional prior plan digest that this request supersedes.'),
-}).strict().superRefine((value, context) => {
+const defEquipment3plus1ModelQuery = tool.schema.string()
+  .min(1)
+  .max(DEF_EQUIPMENT_3PLUS1_QUERY_MAX_LENGTH)
+
+function createDefEquipment3plus1RecommendArgShape(querySchema) {
+  return {
+    operatorQuery: querySchema.describe('Operator name or stable id.'),
+    setQuery: querySchema.optional().describe('Optional target equipment set name or stable id.'),
+    constraints: tool.schema.object({
+      requiredEquipmentQueries: tool.schema.array(querySchema).max(4).optional().describe('Optional equipment that every returned plan must include.'),
+      excludedEquipmentQueries: tool.schema.array(querySchema).max(8).optional().describe('Optional equipment excluded from every returned plan.'),
+      compareEquipmentQueries: tool.schema.array(tool.schema.object({
+        query: querySchema.describe('Equipment to compare against the recommendation.'),
+        slot: tool.schema.enum(['armor', 'glove', 'accessory1', 'accessory2']).optional().describe('Optional slot for the comparison.'),
+      }).strict()).max(8).optional().describe('Optional read-only equipment comparisons.'),
+      duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),
+      minimumSetPieces: tool.schema.union([tool.schema.literal(3), tool.schema.literal(4)]).optional().describe('Optional minimum target-set piece count.'),
+    }).strict().optional(),
+    shortlistLimit: tool.schema.union([tool.schema.literal(1), tool.schema.literal(2), tool.schema.literal(3)]).optional().describe('Optional maximum number of returned plans.'),
+    priorPlanDigest: tool.schema.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe('Optional prior plan digest that this request supersedes.'),
+  }
+}
+
+const defEquipment3plus1RecommendArgShape = createDefEquipment3plus1RecommendArgShape(defEquipment3plus1ModelQuery)
+const defEquipment3plus1RecommendArgs = tool.schema.object(
+  createDefEquipment3plus1RecommendArgShape(defEquipment3plus1NormalizedQuery),
+).strict().superRefine((value, context) => {
   const count = countDefEquipment3Plus1DistinctConstraintQueries(value.constraints)
   if (count > DEF_EQUIPMENT_3PLUS1_MAX_DISTINCT_CONSTRAINT_QUERIES) {
     context.addIssue({
@@ -2096,7 +2107,11 @@ const defEquipment3plus1RecommendArgs = tool.schema.object({
 
 export const data_equipment_3plus1_recommend = {
   description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
-  args: defEquipment3plus1RecommendArgs,
+  // OpenCode's plugin boundary expects a field-to-Zod-schema map here. Passing
+  // the composed ZodObject makes its model-visible JSON Schema expose Zod's
+  // internal `def` member even though execute() validates a flat input.
+  args: defEquipment3plus1RecommendArgShape,
+  inputSchema: defEquipment3plus1RecommendArgs,
   async execute(args, context) {
     // Framework callers parse `args`, but parse again for direct execution
     // paths so the sidecar always receives the normalized Service V1 shape.
