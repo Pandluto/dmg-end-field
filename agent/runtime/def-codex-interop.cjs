@@ -869,7 +869,12 @@ function createDefCodexInteropProtocol(options) {
         ...(projectionProvision ? { harnessProjection: { provisionToken: projectionProvision.body.provisionToken, mode: fixtureMode } } : {}),
       });
       if (created.status < 200 || created.status >= 300 || created.body?.ok !== true || !created.body?.session?.id) {
+        const nativeCreateCode = created.body?.error?.code || created.body?.code || '';
+        const nativeCreateMessage = created.body?.error?.message || created.body?.message || '';
         if (fixtureMode !== 'active-current-readonly') await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
+        if (nativeCreateCode === 'BLOCKED_ENVIRONMENT') {
+          reject(response, 409, createError('BLOCKED_ENVIRONMENT', nativeCreateMessage || 'The visible Workbench current projection no longer admits this fresh Harness session.', 'sidecar', { retryable: true })); return true;
+        }
         reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
       }
       const session = created.body.session;

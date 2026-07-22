@@ -10,6 +10,7 @@ import { createHarnessProjectionLeaseStore } from './def-core/harness-projection
 const require = createRequire(import.meta.url);
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
+const { deleteNativeSessionById } = require('../agent/server/def-agent-server.cjs');
 
 let clock = 1_000;
 const store = createHarnessProjectionLeaseStore({ now: () => clock, randomBytes: () => Buffer.alloc(32, 7), activeLimit: 2 });
@@ -39,6 +40,42 @@ clock += 5 * 60_000 + 1;
 assert.equal(ttlStore.resolve(ttlIdentity).ok, false, 'expired leases must fail closed without a renewal path');
 const restartStore = createHarnessProjectionLeaseStore();
 assert.equal(restartStore.resolve(identity).ok, false, 'a sidecar restart must forget active Harness leases');
+const nativeDeleteStore = createHarnessProjectionLeaseStore({ now: () => clock, activeLimit: 4 });
+function activateNativeDeleteLease(index) {
+  const provisioned = nativeDeleteStore.provision({ mode: 'hidden-fixture', commitments });
+  const session = { ...identity, sessionId: `native-delete-${index}`, axisBindingId: `native-delete-axis-${index}` };
+  assert.equal(nativeDeleteStore.activate({ token: provisioned.token, session }).ok, true);
+  return session;
+}
+const nativeDeleteSessions = [1, 2, 3, 4].map(activateNativeDeleteLease);
+const fifthBeforeDelete = nativeDeleteStore.provision({ mode: 'hidden-fixture', commitments });
+const fifthNativeDeleteSession = { ...identity, sessionId: 'native-delete-5', axisBindingId: 'native-delete-axis-5' };
+assert.equal(nativeDeleteStore.activate({ token: fifthBeforeDelete.token, session: fifthNativeDeleteSession }).code, 'harness-active-limit');
+const ordinaryDeleteOrder = [];
+const ordinaryDelete = await deleteNativeSessionById(nativeDeleteSessions[0].sessionId, {
+  bindingResolver: (sessionID) => (sessionID === nativeDeleteSessions[0].sessionId
+    ? { sessionID, host: 'workbench', directory: 'C:\\def-contract\\native-delete-1' }
+    : null),
+  revokeHarnessProjection: async (sessionID, reason) => {
+    ordinaryDeleteOrder.push('revoke');
+    return nativeDeleteStore.revoke(sessionID, reason);
+  },
+  runtime: { serverUrl: 'http://fake-opencode.invalid' },
+  fetchImpl: async () => ({ ok: true, status: 200 }),
+  rejectQuestions: async () => undefined,
+  deleteQuestionRecords: () => undefined,
+  removeAxisBinding: async () => { ordinaryDeleteOrder.push('axis-binding-delete'); },
+  removeDirectory: () => { ordinaryDeleteOrder.push('directory-delete'); },
+  admissionGate: { releaseSession: () => { ordinaryDeleteOrder.push('admission-release'); } },
+});
+assert.equal(ordinaryDelete.status, 'deleted');
+assert.deepEqual(ordinaryDeleteOrder, ['revoke', 'axis-binding-delete', 'directory-delete', 'admission-release'],
+  'ordinary deletion must revoke the Harness lease before native binding cleanup');
+assert.equal(nativeDeleteStore.resolve(nativeDeleteSessions[0]).ok, false, 'ordinary native session deletion must make its Harness lease immediately unavailable');
+assert.equal(nativeDeleteStore.revoke(nativeDeleteSessions[0].sessionId, 'repeat-native-session-delete').status, 'already-revoked',
+  'a repeated delete cleanup remains idempotent without reactivating the lease');
+assert.equal(nativeDeleteStore.activate({ token: fifthBeforeDelete.token, session: fifthNativeDeleteSession }).ok, true,
+  'revoking before normal native deletion must release a concurrency slot for the next Harness lease');
 
 // Exercise the wire boundary separately from REST: a scenario-policy error is
 // not an environmental block, and must preserve its established Harness run
@@ -52,25 +89,70 @@ const interop = createDefCodexInteropProtocol({
     : { status: 500, body: { ok: false } },
   writeJson(response, status, body) { response.status = status; response.body = body; }, writeSse() {}, writeSseHeaders() {},
 });
-async function interopCall(method, pathname, body = {}, token = '') {
+async function interopCall(protocol, method, pathname, body = {}, token = '') {
   const request = new EventEmitter();
   request.method = method; request.url = pathname; request.socket = { remoteAddress: '127.0.0.1' };
   request.headers = { host: '127.0.0.1:31457', ...(token ? { authorization: `Bearer ${token}` } : {}) };
   const response = {};
-  await interop.handle(request, response, new URL(`http://127.0.0.1:31457${pathname}`), async () => body);
+  await protocol.handle(request, response, new URL(`http://127.0.0.1:31457${pathname}`), async () => body);
   return response;
 }
-const authorized = await interopCall('POST', '/def-agent/interop/v1/authorize');
-const ui = await interopCall('POST', '/def-agent/interop/v1/ui/consumer', { host: 'workbench', sessionId: 'visible-source' });
+const authorized = await interopCall(interop, 'POST', '/def-agent/interop/v1/authorize');
+const ui = await interopCall(interop, 'POST', '/def-agent/interop/v1/ui/consumer', { host: 'workbench', sessionId: 'visible-source' });
 assert.equal(ui.status, 200);
-const badScenario = await interopCall('POST', '/def-agent/interop/v1/harness/sessions', {
+const badScenario = await interopCall(interop, 'POST', '/def-agent/interop/v1/harness/sessions', {
   harnessSelector: 'stable', fixtureMode: 'active-current-readonly', scenarioToolAllowlist: ['def_team_loadout_plan_apply'],
 }, authorized.body.token);
 assert.equal(badScenario.status, 400);
 assert.equal(badScenario.body.error.code, 'ERROR_SCENARIO', 'Interop must preserve Scenario policy failures instead of reporting BLOCKED_ENVIRONMENT');
+function createNativeCreateFailureInterop(nativeCreate) {
+  return createDefCodexInteropProtocol({
+    profile: 'development', baseUrl: 'http://127.0.0.1:31457', sidecarUrl: 'http://127.0.0.1:17322',
+    snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot', snapshotHeaders: { 'x-def-internal-token': 'test' }, auditFile: '',
+    fetchJson: async () => ({ status: 200, body: { ok: true } }),
+    postJson: async (url) => {
+      if (url.includes('/harness-projection/provision')) {
+        return { status: 201, body: { ok: true, provisionToken: 'one-shot', source: { timelineId: 'source', boundNodeId: 'source-node' } } };
+      }
+      if (url === 'http://127.0.0.1:17322/api/native/session') return nativeCreate;
+      return { status: 200, body: { ok: true } };
+    },
+    writeJson(response, status, body) { response.status = status; response.body = body; }, writeSse() {}, writeSseHeaders() {},
+  });
+}
+async function createActiveHarnessThroughInterop(nativeCreate) {
+  const protocol = createNativeCreateFailureInterop(nativeCreate);
+  const auth = await interopCall(protocol, 'POST', '/def-agent/interop/v1/authorize');
+  await interopCall(protocol, 'POST', '/def-agent/interop/v1/ui/consumer', { host: 'workbench', sessionId: 'visible-source' });
+  return interopCall(protocol, 'POST', '/def-agent/interop/v1/harness/sessions', {
+    harnessSelector: 'stable', fixtureMode: 'active-current-readonly', scenarioToolAllowlist: ['def_operator_config_preview'],
+  }, auth.body.token);
+}
+const ownerMismatch = await createActiveHarnessThroughInterop({
+  status: 409,
+  body: { ok: false, error: { code: 'BLOCKED_ENVIRONMENT', message: 'owner mismatch before provider', status: 409 } },
+});
+assert.equal(ownerMismatch.status, 409);
+assert.equal(ownerMismatch.body.error.code, 'BLOCKED_ENVIRONMENT', 'active owner/checkout mismatch must preserve the pre-provider environment block');
+const sealLoadMismatch = await createActiveHarnessThroughInterop({
+  status: 500,
+  body: { ok: false, error: { code: 'HARNESS_PROJECTION_SEAL_INVALID', message: 'sealed session mismatch', status: 500 } },
+});
+assert.equal(sealLoadMismatch.status, 502);
+assert.equal(sealLoadMismatch.body.error.code, 'BLOCKED_HARNESS_LOAD', 'candidate seal/load failures remain Harness load failures');
 const runnerSource = fs.readFileSync(new URL('./def-harness-native-runner.mjs', import.meta.url), 'utf8');
 assert(runnerSource.includes("caught.code === 'ERROR_SCENARIO' ? 'ERROR_VERIFIER'"),
   'runner must map Scenario configuration errors to the established ERROR_VERIFIER status while retaining error.code');
+const nativeSessionServerSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
+const nativeDeleteFunction = nativeSessionServerSource.slice(
+  nativeSessionServerSource.indexOf('async function deleteNativeSessionById(sessionID, options = {})'),
+  nativeSessionServerSource.indexOf('async function cleanupNativeAiCliSessions(input, options = {})'),
+);
+assert(
+  nativeDeleteFunction.indexOf("await revokeProjection(sessionID, options.harnessProjectionRevokeReason || 'native-session-delete');")
+    < nativeDeleteFunction.indexOf('await removeAxisBinding(binding);'),
+  'the shared ordinary DELETE and bulk-cleanup primitive must revoke before deleting native bindings',
+);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-projection-'));
 const port = 18700 + Math.floor(Math.random() * 300);

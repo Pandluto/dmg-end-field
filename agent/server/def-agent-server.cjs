@@ -1282,6 +1282,11 @@ async function activateHarnessProjection(projection, session, binding) {
   if (!response.ok || payload?.ok !== true) {
     const error = new Error(payload?.error?.message || payload?.message || 'harness-projection-activation-failed');
     error.code = payload?.error?.code || payload?.code || 'HARNESS_PROJECTION_ACTIVATION_FAILED';
+    // Current owner/checkout drift is an expected pre-provider admission
+    // result. Preserve both status and code through native-session creation
+    // so Interop can classify it as BLOCKED_ENVIRONMENT rather than a load
+    // failure.
+    if (error.code === 'BLOCKED_ENVIRONMENT' && response.status === 409) error.status = 409;
     throw error;
   }
   return payload;
@@ -1438,10 +1443,24 @@ async function deleteNativeSessionById(sessionID, options = {}) {
   const bindingResolver = options.bindingResolver || findNativeSessionBinding;
   const fetchImpl = options.fetchImpl || fetch;
   const admissionGate = options.admissionGate || nativeSessionAdmission;
+  const revokeProjection = options.revokeHarnessProjection || revokeHarnessProjection;
   const rejectQuestions = options.rejectQuestions || rejectPendingQuestions;
   const deleteQuestionRecords = options.deleteQuestionRecords || deleteNativeQuestionRecords;
   const removeAxisBinding = options.removeAxisBinding || removeNativeWorkbenchAxisBinding;
   const removeDirectory = options.removeDirectory || ((directory) => fs.rmSync(directory, { recursive: true, force: true }));
+  // This is the shared native deletion primitive, including bulk ai-cli
+  // cleanup. Revoke first so a failed upstream/native deletion retains the
+  // tombstone and cannot leave a live Harness read authority behind.
+  try {
+    await revokeProjection(sessionID, options.harnessProjectionRevokeReason || 'native-session-delete');
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'failed',
+      sessionID,
+      code: typeof error?.code === 'string' ? error.code : 'HARNESS_PROJECTION_REVOKE_FAILED',
+    };
+  }
   const binding = bindingResolver(sessionID);
   if (!binding) {
     admissionGate.releaseSession(sessionID, 'native-session-deleted');
@@ -1692,6 +1711,19 @@ const server = http.createServer(async (request, response) => {
       } catch (error) {
         if (session?.sessionID) await revokeHarnessProjection(session.sessionID, 'native-create-failed').catch(() => undefined);
         await cleanupFailedNativeSessionCreate(session);
+        if (harnessProjection) {
+          const code = typeof error?.code === 'string' ? error.code : 'BLOCKED_HARNESS_LOAD';
+          const status = Number.isInteger(error?.status) ? error.status : 500;
+          writeJson(response, status, {
+            ok: false,
+            error: {
+              code,
+              message: error instanceof Error ? error.message : String(error),
+              status,
+            },
+          });
+          return;
+        }
         throw error;
       }
       return;
@@ -1780,8 +1812,9 @@ const server = http.createServer(async (request, response) => {
     const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
     if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
       const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
-      if (nativeRunnerCleanup) await revokeHarnessProjection(sessionID, 'runner-cleanup');
-      const result = await deleteNativeSessionById(sessionID);
+      const result = await deleteNativeSessionById(sessionID, {
+        harnessProjectionRevokeReason: nativeRunnerCleanup ? 'runner-cleanup' : 'native-session-delete',
+      });
       if (!result.ok) {
         writeJson(response, result.httpStatus || 500, { ok: false, error: 'native-session-delete-failed', code: result.code });
         return;
