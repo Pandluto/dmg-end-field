@@ -133,7 +133,9 @@ For the local workbench:
 3. If `3030` is not listening and the test requires the main UI, it is acceptable to start `npm run electron:dev`.
 4. Select local operators in the selection page until `开始排轴` is enabled.
 5. Enter the main workbench and click the right-side `AI 模式` button.
-6. Treat the UI route as ready only after the `输入排轴操作` textbox is visible and the panel shows `DEF OpenCode` in a waiting/ready state.
+6. Treat the UI route as ready only after the panel shows `排轴助手`, the textbox exposes `描述你想查看、调整或应用的排轴…`, and Interop reports `uiConnected=true` with `uiConsumerCount=1`.
+
+`DEF OpenCode` and `输入排轴操作` are older product copy. Do not use those two strings as the current Windows readiness gate.
 
 When the browser tab is the handoff artifact, finalize the Chrome session with that tab kept as `deliverable`.
 
