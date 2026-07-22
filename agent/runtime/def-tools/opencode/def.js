@@ -2060,13 +2060,13 @@ function readNativeCatalogArtifactForFacts(context, artifactId) {
 export const data_equipment_3plus1_recommend = {
   description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
   args: tool.schema.object({
-    operatorQuery: tool.schema.string().min(1).max(60).describe('Operator name or stable id.'),
-    setQuery: tool.schema.string().min(1).max(60).optional().describe('Optional target equipment set name or stable id.'),
+    operatorQuery: tool.schema.string().min(1).max(160).describe('Operator name or stable id.'),
+    setQuery: tool.schema.string().min(1).max(160).optional().describe('Optional target equipment set name or stable id.'),
     constraints: tool.schema.object({
-      requiredEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(60)).max(4).optional().describe('Optional equipment that every returned plan must include.'),
-      excludedEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(60)).max(8).optional().describe('Optional equipment excluded from every returned plan.'),
+      requiredEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(160)).max(4).optional().describe('Optional equipment that every returned plan must include.'),
+      excludedEquipmentQueries: tool.schema.array(tool.schema.string().min(1).max(160)).max(8).optional().describe('Optional equipment excluded from every returned plan.'),
       compareEquipmentQueries: tool.schema.array(tool.schema.object({
-        query: tool.schema.string().min(1).max(60).describe('Equipment to compare against the recommendation.'),
+        query: tool.schema.string().min(1).max(160).describe('Equipment to compare against the recommendation.'),
         slot: tool.schema.enum(['armor', 'glove', 'accessory1', 'accessory2']).optional().describe('Optional slot for the comparison.'),
       }).strict()).max(8).optional().describe('Optional read-only equipment comparisons.'),
       duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),

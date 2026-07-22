@@ -14,7 +14,7 @@ const DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA = Object.freeze({
 const DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA = Object.freeze({
   type: 'string',
   minLength: 1,
-  maxLength: 60,
+  maxLength: 160,
 });
 
 const DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA = Object.freeze({

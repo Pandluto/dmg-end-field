@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import Ajv from 'ajv';
 import {
   DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA,
   DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA,
@@ -50,7 +51,6 @@ assert.doesNotMatch(recommendDefinition.description, /\b(?:first|then|after|befo
 
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.additionalProperties, false);
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.required, ['operatorQuery']);
-assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.operatorQuery.maxLength, 60);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.additionalProperties, false);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.properties.requiredEquipmentQueries.maxItems, 4);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.properties.excludedEquipmentQueries.maxItems, 8);
@@ -120,21 +120,37 @@ for (const [name, targetId, nativeBinding, implementation] of legacyTools) {
   assert.equal(typeof implementation.execute, 'function');
 }
 
-const validInput = {
-  operatorQuery: ' Bieli ',
-  setQuery: 'Tide',
+const queryAtContractLimit = 'q'.repeat(160);
+const queryAboveContractLimit = `${queryAtContractLimit}q`;
+const createInputWithQuery = (query) => ({
+  operatorQuery: query,
+  setQuery: query,
   constraints: {
-    requiredEquipmentQueries: ['anchor'],
-    excludedEquipmentQueries: ['broken-piece'],
-    compareEquipmentQueries: [{ query: 'old-piece', slot: 'glove' }],
+    requiredEquipmentQueries: [query],
+    excludedEquipmentQueries: [query],
+    compareEquipmentQueries: [{ query, slot: 'glove' }],
     duplicateAccessoryPolicy: 'forbid',
     minimumSetPieces: 4,
   },
   shortlistLimit: 2,
   priorPlanDigest: `sha256:${'a'.repeat(64)}`,
-};
+});
+const validInput = createInputWithQuery(queryAtContractLimit);
+const validateRecommendInput = new Ajv({ allErrors: true }).compile(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA);
+assert.equal(validateRecommendInput(validInput), true, 'the shared input schema must accept every 160-character query field');
 const parsedInput = data_equipment_3plus1_recommend.args.parse(validInput);
 assert.deepEqual(parsedInput, validInput, 'OpenCode mapping must not rewrite V1 input');
+const tooLongQueryInputs = [
+  ['operatorQuery', { ...validInput, operatorQuery: queryAboveContractLimit }],
+  ['setQuery', { ...validInput, setQuery: queryAboveContractLimit }],
+  ['requiredEquipmentQueries', { ...validInput, constraints: { ...validInput.constraints, requiredEquipmentQueries: [queryAboveContractLimit] } }],
+  ['excludedEquipmentQueries', { ...validInput, constraints: { ...validInput.constraints, excludedEquipmentQueries: [queryAboveContractLimit] } }],
+  ['compareEquipmentQueries.query', { ...validInput, constraints: { ...validInput.constraints, compareEquipmentQueries: [{ query: queryAboveContractLimit, slot: 'glove' }] } }],
+];
+for (const [field, input] of tooLongQueryInputs) {
+  assert.equal(validateRecommendInput(input), false, `the shared input schema must reject a 161-character ${field}`);
+  assert.equal(data_equipment_3plus1_recommend.args.safeParse(input).success, false, `the OpenCode wrapper must reject a 161-character ${field}`);
+}
 assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', unknown: true }).success, false);
 assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', constraints: { unknown: true } }).success, false);
 assert.equal(data_equipment_3plus1_recommend.args.safeParse({ operatorQuery: 'Bieli', constraints: { compareEquipmentQueries: [{ query: 'piece', unknown: true }] } }).success, false);
@@ -206,6 +222,7 @@ console.log(JSON.stringify({
     'session-private-policy',
     'recommend-target-precedence',
     'legacy-compatibility-retention',
+    'query-boundary-contract',
     'opencode-input-identity',
     'typed-result-and-error-preservation',
     'static-no-rest-service',
