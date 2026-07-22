@@ -245,6 +245,7 @@ fs.writeFileSync(nowStoragePath, `${JSON.stringify({
   },
 }, null, 2)}\n`, 'utf8');
 
+let childStderr = '';
 const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   cwd: process.cwd(),
   env: {
@@ -259,11 +260,16 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
     DEF_INTERNAL_GOVERNANCE_TOKEN: 'operator-build-guide-contract',
   },
-  stdio: 'ignore',
+  stdio: ['ignore', 'ignore', 'pipe'],
+  windowsHide: true,
 });
+child.stderr.on('data', (chunk) => { childStderr += chunk.toString('utf8'); });
 
 async function waitForReady() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (child.exitCode !== null) {
+      throw new Error(`Operator build guide contract server exited early (${child.exitCode}). ${childStderr}`);
+    }
     try {
       if ((await fetch(`${baseUrl}/health`)).ok) return;
     } catch {
@@ -271,7 +277,7 @@ async function waitForReady() {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error('Timed out waiting for operator build guide contract server.');
+  throw new Error(`Timed out waiting for operator build guide contract server. ${childStderr}`);
 }
 
 async function call(tool, input, { sessionId = 'operator-build-session', authenticated = true } = {}) {
