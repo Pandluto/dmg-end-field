@@ -2085,7 +2085,7 @@ function createDefEquipment3plus1RecommendArgShape(querySchema) {
       }).strict()).max(8).optional().describe('Optional read-only equipment comparisons.'),
       duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),
       minimumSetPieces: tool.schema.union([tool.schema.literal(3), tool.schema.literal(4)]).optional().describe('Optional minimum target-set piece count.'),
-    }).strict().optional(),
+    }).strict().optional().describe('Optional nested constraints. The 3+1 default already requires three target-set pieces; minimumSetPieces belongs here, never at the top level.'),
     shortlistLimit: tool.schema.union([tool.schema.literal(1), tool.schema.literal(2), tool.schema.literal(3)]).optional().describe('Optional maximum number of returned plans.'),
     priorPlanDigest: tool.schema.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe('Optional prior plan digest that this request supersedes.'),
   }
@@ -2106,7 +2106,7 @@ const defEquipment3plus1RecommendArgs = tool.schema.object(
 })
 
 export const data_equipment_3plus1_recommend = {
-  description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
+  description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. The default already means three target-set pieces plus one off-set piece; do not add top-level minimumSetPieces. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
   // OpenCode's plugin boundary expects a field-to-Zod-schema map here. Passing
   // the composed ZodObject makes its model-visible JSON Schema expose Zod's
   // internal `def` member even though execute() validates a flat input.
@@ -2117,10 +2117,24 @@ export const data_equipment_3plus1_recommend = {
     // paths so the sidecar always receives the normalized Service V1 shape.
     const normalizedArgs = defEquipment3plus1RecommendArgs.parse(args)
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
-    return callDefTool('def.equipment.3plus1.recommend', {
+    const result = await callDefTool('def.equipment.3plus1.recommend', {
       ...normalizedArgs,
       ...(turnID ? { __defTurnId: turnID } : {}),
     }, context)
+    // OpenCode plugin tools must return a display envelope. A bare business
+    // object leaves `output` undefined and crashes the host truncation step.
+    return {
+      title: result?.state === 'READY'
+        ? 'DEF 3+1 equipment recommendation ready'
+        : 'DEF 3+1 equipment recommendation requires attention',
+      output: JSON.stringify(result, null, 2),
+      metadata: {
+        family: 'def-data-resource',
+        legacyTool: 'def.equipment.3plus1.recommend',
+        contract: result?.contract || 'DefEquipmentThreePlusOneRecommendationV1',
+        state: result?.state || 'UNKNOWN',
+      },
+    }
   },
 }
 

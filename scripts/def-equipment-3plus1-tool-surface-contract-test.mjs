@@ -78,6 +78,8 @@ assert.deepEqual(
 );
 assert.deepEqual(modelVisibleRecommendSchema.required, ['operatorQuery']);
 assert.equal(Object.hasOwn(modelVisibleRecommendSchema.properties || {}, 'def'), false, 'Zod internals must never become a model-visible argument');
+assert.match(modelVisibleRecommendSchema.properties.constraints.description, /minimumSetPieces belongs here/i);
+assert.match(data_equipment_3plus1_recommend.description, /do not add top-level minimumSetPieces/i);
 
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.contract.const, 'DefEquipmentThreePlusOneRecommendationV1');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.state.enum, ['READY', 'NEEDS_INPUT', 'UNRESOLVED']);
@@ -262,7 +264,11 @@ try {
     sessionID: 'surface-session',
     messageID: 'surface-turn',
   });
-  assert.deepEqual(result, typedResult, 'typed success result must be returned without an adapter envelope');
+  assert.equal(typeof result.output, 'string', 'OpenCode plugin success must provide truncatable text output');
+  assert.deepEqual(JSON.parse(result.output), typedResult, 'the OpenCode envelope must preserve the typed business result');
+  assert.equal(result.metadata.contract, typedResult.contract);
+  assert.equal(result.metadata.state, typedResult.state);
+  assert.equal(result.metadata.family, 'def-data-resource');
   assert.deepEqual(requests[0].body, {
     tool: recommendName,
     input: { ...validInput, __defTurnId: 'surface-turn' },
@@ -307,7 +313,7 @@ console.log(JSON.stringify({
     'query-normalization-and-distinct-limit',
     'model-visible-flat-required-schema',
     'opencode-input-identity',
-    'typed-result-and-error-preservation',
+    'opencode-display-envelope-and-error-preservation',
     'static-no-rest-service',
   ],
 }));

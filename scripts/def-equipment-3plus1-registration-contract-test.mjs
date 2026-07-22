@@ -368,8 +368,12 @@ try {
       { sessionID: sessionId, messageID: 'turn-wrapper-ready' },
     )
   ));
-  assert.equal(validateOutput(wrapperReady), true, JSON.stringify(validateOutput.errors));
-  assert.equal(wrapperReady.state, 'READY', JSON.stringify(wrapperReady));
+  assert.equal(typeof wrapperReady.output, 'string', 'OpenCode wrapper must return the host display envelope');
+  const wrapperReadyResult = JSON.parse(wrapperReady.output);
+  assert.equal(validateOutput(wrapperReadyResult), true, JSON.stringify(validateOutput.errors));
+  assert.equal(wrapperReadyResult.state, 'READY', JSON.stringify(wrapperReadyResult));
+  assert.equal(wrapperReady.metadata.contract, wrapperReadyResult.contract);
+  assert.equal(wrapperReady.metadata.state, 'READY');
 
   const readOnlyStateAfter = await readReadOnlyState();
   assert.deepEqual(readOnlyStateAfter, registeredBaselineState, 'the recommendation batch must preserve the registered-session product baseline');
