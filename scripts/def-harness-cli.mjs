@@ -3,18 +3,18 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import harness from '../agent/harness/def-harness.cjs';
+import { parseDefHarnessCliArguments } from './def-harness-cli-options.mjs';
 import { runNativeG5Suite } from './def-harness-g5-native-suite.mjs';
 import { runNativeScenario } from './def-harness-native-runner.mjs';
 import { runNativeRegression } from './def-harness-regression.mjs';
 
 const root = path.resolve(process.cwd(), '.runtime', 'def-harness');
-const [command = 'doctor', ...args] = process.argv.slice(2);
+const { command, args, option } = parseDefHarnessCliArguments(process.argv.slice(2), process.env);
 const json = (value) => process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 const fail = (error) => {
   json({ ok: false, error: { code: error.code || 'HARNESS_CLI_ERROR', component: error.component || 'cli', message: error.message } });
   process.exitCode = 1;
 };
-const option = (name) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : ''; };
 const sourceDirectory = (input) => path.resolve(input || '');
 const scenarioPath = (id) => path.resolve(process.cwd(), 'agent/harness/scenarios', `${id}.json`);
 

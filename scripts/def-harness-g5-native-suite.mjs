@@ -20,26 +20,76 @@ function writeG5NativeSuite(result) {
   fs.writeFileSync(path.join(directory, 'g5-native-suite.json'), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
 }
 
+function packageCheckEvidence(scenario, harnessSelector, result, caught = null) {
+  return {
+    scenarioId: scenario.id,
+    scenarioVersion: Number(scenario.version || 1),
+    packageCheckId: result?.packageCheckId || null,
+    status: result?.status || 'PACKAGE_CHECK_ERROR',
+    selector: result?.selector || harnessSelector,
+    harness: result?.harness || null,
+    slot: result?.slot || scenario?.expect?.slot || null,
+    ...(caught ? {
+      error: {
+        code: caught.code || 'PACKAGE_CHECK_ERROR',
+        message: caught.message || String(caught),
+      },
+    } : {}),
+  };
+}
+
 export async function runNativeG5Suite({
   harnessSelector = 'stable',
   scenarioDirectory = path.resolve(process.cwd(), 'agent/harness/scenarios'),
   runScenario = runNativeScenario,
+  packageSelfCheck = harness.runPackageSelfCheck,
+  runtimeDirectory = runtimeRoot,
   persist = true,
 } = {}) {
-  const scenarios = G5_NATIVE_SCENARIO_IDS.map((scenarioId) => (
-    harness.loadScenario(path.join(scenarioDirectory, `${scenarioId}.json`))
-  ));
-  const runs = [];
-  for (const scenario of scenarios) {
-    runs.push(await runScenario({ scenario, harnessSelector }));
+  const scenarioRecords = G5_NATIVE_SCENARIO_IDS.map((scenarioId) => {
+    const scenarioFile = path.join(scenarioDirectory, `${scenarioId}.json`);
+    return { scenarioFile, scenario: harness.loadScenario(scenarioFile) };
+  });
+  const scenarios = scenarioRecords.map((record) => record.scenario);
+  const packageChecks = [];
+  for (const { scenarioFile, scenario } of scenarioRecords) {
+    try {
+      const result = await packageSelfCheck({
+        runtimeRoot: runtimeDirectory,
+        scenarioFile,
+        selector: harnessSelector,
+      });
+      packageChecks.push(packageCheckEvidence(scenario, harnessSelector, result));
+    } catch (caught) {
+      packageChecks.push(packageCheckEvidence(scenario, harnessSelector, null, caught));
+    }
   }
-  const outcomes = runs.map((run, index) => ({
-    scenarioId: scenarios[index].id,
-    scenarioVersion: Number(scenarios[index].version || 1),
-    runId: run?.runId || null,
-    status: run?.status || 'INCOMPLETE',
-    verificationStatus: run?.verification?.status || null,
-  }));
+  const packagePreflightPassed = packageChecks.every((check) => check.status === 'PACKAGE_CHECK_PASS');
+  const runs = [];
+  if (packagePreflightPassed) {
+    for (const scenario of scenarios) {
+      runs.push(await runScenario({ scenario, harnessSelector }));
+    }
+  }
+  const outcomes = packagePreflightPassed
+    ? runs.map((run, index) => ({
+      scenarioId: scenarios[index].id,
+      scenarioVersion: Number(scenarios[index].version || 1),
+      packageCheckId: packageChecks[index].packageCheckId,
+      packageCheckStatus: packageChecks[index].status,
+      runId: run?.runId || null,
+      status: run?.status || 'INCOMPLETE',
+      verificationStatus: run?.verification?.status || null,
+    }))
+    : scenarios.map((scenario, index) => ({
+      scenarioId: scenario.id,
+      scenarioVersion: Number(scenario.version || 1),
+      packageCheckId: packageChecks[index].packageCheckId,
+      packageCheckStatus: packageChecks[index].status,
+      runId: null,
+      status: packageChecks[index].status === 'PACKAGE_CHECK_PASS' ? 'INCOMPLETE' : 'ERROR_VERIFIER',
+      verificationStatus: null,
+    }));
   const complete = outcomes.length === G5_NATIVE_SCENARIO_IDS.length
     && outcomes.every((outcome) => !blockedStates.has(outcome.status));
   const passed = complete && outcomes.every((outcome) => (
@@ -53,6 +103,7 @@ export async function runNativeG5Suite({
     createdAt: Date.now(),
     harnessSelector,
     scenarioIds: [...G5_NATIVE_SCENARIO_IDS],
+    packageChecks,
     outcomes,
     runs: outcomes.map(({ scenarioId, runId }) => ({ scenarioId, runId })),
     complete,
@@ -60,7 +111,9 @@ export async function runNativeG5Suite({
       eligible: false,
       reason: 'diagnostic-native-suite-only',
     },
-    status: passed
+    status: !packagePreflightPassed
+      ? 'ERROR_VERIFIER'
+      : passed
       ? 'PASS'
       : outcomes.find((outcome) => blockedStates.has(outcome.status))?.status || 'FAIL_AGENT',
   };

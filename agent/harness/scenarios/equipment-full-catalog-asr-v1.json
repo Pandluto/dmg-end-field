@@ -1,21 +1,94 @@
 {
   "id": "equipment-full-catalog-asr-v1",
-  "version": 1,
+  "version": 2,
   "regressionKind": "PASS_TO_PASS",
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
-    { "userText": "我听写到一份配装清单：武器骑士精神，装备长息轻护甲板·壹型、长息蓄电核、拓荒增量供氧栓一型和长息护手一型。先从当前生效的游戏目录核对名称和 ID，不要应用。" }
+    { "userText": "我听写到一份配装清单：武器骑士精神，装备拓荒护甲·壹型、长息蓄电核、拓荒增量供氧栓一型和长息护手一型。先从当前生效的游戏目录核对名称和 ID，不要应用。" }
   ],
   "verification": {
     "requiredTools": ["def_data_weapon", "def_data_equipment"],
-    "forbiddenTools": ["def_node_use", "def_operator_config_patch"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_weapon", "def_data_equipment"]
+    },
+    "onlyToolsByTurn": {
+      "1": ["def_data_weapon", "def_data_equipment"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_weapon", "def_data_equipment"]
+    },
+    "forbiddenTools": [
+      "def_data_native_catalog_materialize",
+      "read",
+      "grep",
+      "glob",
+      "def_node_fork",
+      "def_node_bind",
+      "def_node_code_materialize",
+      "def_node_use",
+      "def_operator_config_preview",
+      "def_operator_config_patch",
+      "def_team_selection_apply",
+      "question",
+      "edit",
+      "write"
+    ],
     "maxRepeatedToolCalls": { "def_data_equipment": 1, "def_data_weapon": 1 },
+    "requiredToolInputAssertionsByTurn": {
+      "1": {
+        "def_data_weapon": [
+          { "path": "query", "equals": "骑士精神" }
+        ],
+        "def_data_equipment": [
+          {
+            "path": "queries",
+            "equals": ["拓荒护甲·壹型", "长息蓄电核", "拓荒增量供氧栓一型", "长息护手一型"]
+          }
+        ]
+      }
+    },
+    "requiredToolResultAssertionsByTurn": {
+      "1": {
+        "def_data_weapon": [
+          { "path": "contract", "equals": "DefWeaponResolutionV2" },
+          { "path": "query", "equals": "骑士精神" },
+          { "path": "candidates.0.id", "equals": "weapon.6beca86909e7732dc7d83b56" },
+          { "path": "candidates.0.name", "equals": "骑士精神" },
+          { "path": "candidates.0.matchMethod", "equals": "exact" },
+          { "path": "ambiguity", "equals": false }
+        ],
+        "def_data_equipment": [
+          { "path": "contract", "equals": "DefEquipmentBatchResolutionV2" },
+          { "path": "queryCount", "equals": 4 },
+          { "path": "results.0.query", "equals": "拓荒护甲壹型" },
+          { "path": "results.0.candidates.0.equipmentId", "equals": "equipment-g-5-3" },
+          { "path": "results.0.candidates.0.name", "equals": "拓荒护甲·壹型" },
+          { "path": "results.0.candidates.0.matchMethod", "equals": "exact" },
+          { "path": "results.0.ambiguity", "equals": false },
+          { "path": "results.1.query", "equals": "长息蓄电核" },
+          { "path": "results.1.candidates.0.equipmentId", "equals": "equipment-g-1-0-7" },
+          { "path": "results.1.candidates.0.name", "equals": "长息蓄电核" },
+          { "path": "results.1.candidates.0.matchMethod", "equals": "exact" },
+          { "path": "results.1.ambiguity", "equals": false },
+          { "path": "results.2.query", "equals": "拓荒增量供氧栓一型" },
+          { "path": "results.2.candidates.0.equipmentId", "equals": "equipment-g-6-1" },
+          { "path": "results.2.candidates.0.name", "equals": "拓荒增量供氧栓·壹型" },
+          { "path": "results.2.candidates.0.matchMethod", "equals": "phonetic" },
+          { "path": "results.2.ambiguity", "equals": false },
+          { "path": "results.3.query", "equals": "长息护手一型" },
+          { "path": "results.3.candidates.0.equipmentId", "equals": "equipment-g-1-0-6" },
+          { "path": "results.3.candidates.0.name", "equals": "长息护手·壹型" },
+          { "path": "results.3.candidates.0.matchMethod", "equals": "phonetic" },
+          { "path": "results.3.ambiguity", "equals": false }
+        ]
+      }
+    },
     "forbiddenAssistantText": ["只有4件", "拓荒只有护甲", "翻遍全库", "未收录", "属于同一件无误", "就是对的"],
     "mustKeepState": true
   },
   "expect": {
     "slot": "toolGuidance",
-    "candidateContains": "call def_data_equipment once with queries"
+    "candidateContains": "call `def_data_equipment` once with one `queries` batch"
   }
 }

@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "harnessId": "def-equipment-3plus1-composite",
-  "version": "9.1.0-candidate.1",
-  "sourceCommit": "7c751740f27e1a8af4a2456520677c4e46d6efc5",
-  "description": "Stable DEF Harness content with one teaching change: operator-specific 3+1 requests use the composite read-only recommendation capability.",
+  "version": "9.1.0-candidate.2",
+  "sourceCommit": "e6d08bb2b344b357dcc972859e271875d350884f",
+  "description": "Stable DEF Harness content with the composite read-only 3+1 route and catalog-only multi-equipment batch discipline.",
   "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
   "slots": {
     "agentContract": { "path": "agent-contract.md", "mediaType": "text/markdown", "capability": "hotSwappable" },

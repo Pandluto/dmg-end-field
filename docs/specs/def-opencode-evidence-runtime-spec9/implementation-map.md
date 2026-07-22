@@ -9,6 +9,10 @@ W5 已接通跨包注册合同与标准测试入口。
 W6 已补齐 DEF Shell 入口、renderer loopback、Interop loopback、最终安全/领域/Scenario 加固与运行态证据。
 后续源码已推进到 integration `3102aaa`，包含 candidate/session 边界加固、Catalog v2 active reader 和受控 trigger requirement。当前除 provider 认证外，还缺当前 HEAD 的 runtime rebuild、AgentRelease、fresh candidate binding 与真实场景证据；候选尚未 promotion，正式激活仍需用户决定。
 
+W8 Harness source closure 另在 `codex/spec9-w8-harness`：它不改 resolver/catalog/interop/server，
+只收紧 G5 Scenario/verifier/package preflight/CLI，并把源码候选升为 immutable `.2`。该分支尚待集成，
+没有 provider run、Registry 写入或 pointer 变更。
+
 当前已知提交：
 
 | 名称 | SHA | 结论 |
@@ -37,6 +41,7 @@ W6 已补齐 DEF Shell 入口、renderer loopback、Interop loopback、最终安
 | Catalog v2 + active reader | `c9f6d24`、`9c3094e`、`e35e45a`、`04fee9a`、`97d60f5` | v2 `equipment_sets` 保留完整套装 payload；3+1 从 Data Management 当前 active/builtin Catalog 读取，合同覆盖只读字节与冷启动 |
 | Controlled trigger requirement | `99ae8fb`、`3102aaa` | 增加不可携带 proof/prose 的受控输入、typed-only Service 验证与 registration E2E |
 | 当前 integration | `3102aaabd0cfad307be62fa2dfa948f1268911ee` | 当前源码/静态合同基线；不等于已构建或已实跑的 candidate runtime |
+| W8 Harness source closure | `codex/spec9-w8-harness`（交付 SHA 见 handoff） | equipment/preview v2、通用结构断言、G5 全量 package preflight、CLI Windows fallback、`.2` immutable source；待集成重封 |
 
 W3 候选的真实 `contentHash` 只能由干净 W5 提交重新构建取得。
 该值记录在 `verification.md`，不得沿用工作包构建时的临时值。
@@ -321,6 +326,7 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 | Optional controlled requirement | `[{ kind: "operator-element-damage-triggers-set-effect", setEffect: "secondary" }]` |
 | Product catalog source | Data Management `readActiveGameCatalog()` → one-call active reader capture → `catalog:<dataVersion>` |
 | Candidate | `def-equipment-3plus1-composite@9.1.0-candidate.1` |
+| Next immutable Harness source | `def-equipment-3plus1-composite@9.1.0-candidate.2`（未注册；最终集成提交必须重建并重封） |
 | Session cleanup endpoint | `POST /api/native/sessions/cleanup` |
 | Session cleanup request | `{ host: "ai-cli", keepSessionID }` |
 | Session cleanup preserve rule | 显式选择的合法 `ai-cli` Session 与全部 Workbench Session 永不命中 |
@@ -363,6 +369,26 @@ git diff --check
 缺少 script、环境阻塞、断言失败必须分别记录。
 
 当前 `test:def-equipment-3plus1-recommendation` 的结构已扩展为 recommendation、service matrix、Tool surface、active catalog reader 和 registration 五段 contract。其结果应由 `verification.md` 按精确提交记录；本 mapping 不把源码存在或旧 W6 runtime 改写为当前运行 PASS。
+
+### W8 G5 Harness closure
+
+- `equipment-full-catalog-asr-v1` v2 只接受一次 `def_data_weapon` 和一次
+  `def_data_equipment(queries)`；逐项声明输入、稳定 identity、match method 与 ambiguity，拒绝
+  fragment retry、materialize、read/grep/glob 和 mutation。
+- `operator-config-preview-v1` v2 声明 W9 提供的 `active-current-readonly` fixture，只接受
+  `def_data_team_loadouts → def_operator_config_preview`；输入和 renderer `finalConfig` 都必须与
+  第一名当前干员的 weapon/equipment/等级/潜能/武器技能/干员技能一致，并禁止 approval question。
+- verifier 使用通用 declarative path assertions、prior-tool `equalsFrom`（含封闭 `valueMap`）与
+  `itemsEqualFrom.fieldMap`；`itemsEqualFrom` 允许同一字段两侧同时缺失，但拒绝单侧缺失，因而可同时
+  锁定两词条/三词条装备。实现没有 scenario-id 分支；无效 assertion schema 在任何 Interop/provider
+  请求前标为 `ERROR_VERIFIER`，不能降级成 `FAIL_AGENT`。
+- G5 在任何 provider-backed Scenario 前完成全部四个 package self-check；任一
+  `candidateContains` 失败即 `ERROR_VERIFIER`，provider 调用数为 0，并在 suite 保存
+  package-check evidence。
+- CLI parser 同时接受空格分隔式、等号式和大小写不敏感的 Windows `npm_config_harness` /
+  `npm_config_baseline` / `npm_config_candidate` fallback；parser contract 不启动 provider。
+- `.2` 不覆盖已注册 `.1`。最终集成必须从干净提交 build/register 新版本并记录新的完整 ref；
+  W8 不注册、不 promotion、不改 stable/previousStable pointer。
 
 ## 十、每包独立开工判据
 

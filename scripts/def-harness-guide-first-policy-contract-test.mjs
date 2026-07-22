@@ -60,9 +60,9 @@ for (const file of ['knowledge.md', 'role-card.md', 'skills.md']) {
 
 const candidateManifest = JSON.parse(read(`${candidateRoot}/manifest.json`));
 assert.equal(candidateManifest.harnessId, 'def-equipment-3plus1-composite');
-assert.equal(candidateManifest.version, '9.1.0-candidate.1');
-assert.equal(candidateManifest.sourceCommit, '7c751740f27e1a8af4a2456520677c4e46d6efc5');
-assert.match(candidateManifest.description, /one teaching change/i);
+assert.equal(candidateManifest.version, '9.1.0-candidate.2');
+assert.equal(candidateManifest.sourceCommit, 'e6d08bb2b344b357dcc972859e271875d350884f');
+assert.match(candidateManifest.description, /catalog-only multi-equipment batch discipline/i);
 assert.deepEqual(Object.keys(candidateManifest.slots).sort(), [
   'agentContract', 'knowledgePacks', 'responsePolicy', 'roleCards',
   'routingPolicy', 'skills', 'toolGuidance', 'workflows',
@@ -81,6 +81,10 @@ assert.match(candidateTeaching, /NEEDS_INPUT/);
 assert.match(candidateTeaching, /UNRESOLVED/);
 assert.match(candidateTeaching, /read-only/);
 assert.match(candidateTeaching, /not an application|does not apply/i);
+assert.match(candidateTeaching, /call `def_data_equipment` once with one `queries` batch/);
+assert.match(candidateTeaching, /ambiguous or low-confidence/);
+assert.match(candidateTeaching, /do not retry shorter fragments/);
+assert.match(candidateTeaching, /native catalog materialize, read, grep, or glob/);
 for (const tool of legacyThreePlusOneTools) {
   const threePlusOneLines = candidateTeaching
     .split(/\r?\n/)
@@ -106,8 +110,8 @@ console.log(JSON.stringify({
     'base-prompt-removes-legacy-3plus1-chain',
     'native-catalog-remains-available-for-other-legal-uses',
     'shared-runtime-skill-does-not-teach-candidate-only-composite-flow',
-    'candidate-stable-copy-and-fixed-ref',
-    'candidate-single-composite-teaching-change',
+    'candidate-stable-copy-and-new-immutable-ref',
+    'candidate-composite-and-catalog-batch-teaching',
     'blackbox-composite-route-and-interop-ui-evidence',
   ],
 }));

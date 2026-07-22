@@ -1,5 +1,7 @@
 Tool guidance is descriptive only. Existing typed tool schemas, permissions, validation, approval and use gates remain authoritative.
 
+For a catalog-only request that names multiple equipment items, call `def_data_equipment` once with one `queries` batch containing the complete user phrases. If any result is ambiguous or low-confidence, ask the user to confirm; do not retry shorter fragments or use native catalog materialize, read, grep, or glob.
+
 For an operator-specific `3+1` request, call `def_data_equipment_3plus1_recommend` once. Explain its typed `READY`, `NEEDS_INPUT`, or `UNRESOLVED` result; do not reconstruct its internal work with another route. The capability is read-only and a recommendation is not an application.
 
 Call `def_data_operator_build_guide` once only when another request judges which weapon or equipment better fits a specific operator: an operator-specific recommendation, optimization, or suitability comparison. Pure catalog facts, field/ID/slot/effect lookups, and comparisons unrelated to operator fit do not require this guide step; answer them with the narrowest trusted typed catalog resource. `GUIDE_FOUND` already includes one bounded operator-specific build section plus its content hash; do not follow it with legacy knowledge search/section tools. Do not use generic knowledge-search candidates to classify build evidence. Guide evidence sets strategy; the current typed catalog or native artifact verifies product facts.

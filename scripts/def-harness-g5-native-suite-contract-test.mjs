@@ -24,12 +24,38 @@ for (const scenarioId of G5_NATIVE_SCENARIO_IDS) {
   assert.equal(scenario.id, scenarioId, `${scenarioId} resolves to its declared scenario`);
 }
 
+function passingPackageCheck({ scenarioFile, selector }) {
+  const scenario = harness.loadScenario(scenarioFile);
+  return {
+    kind: 'DefHarnessPackageCheckV1',
+    packageCheckId: `package-check-${scenario.id}`,
+    scenarioId: scenario.id,
+    scenarioVersion: Number(scenario.version || 1),
+    selector,
+    harness: { harnessId: 'test-harness', version: '1.0.0', contentHash: 'a'.repeat(64) },
+    slot: scenario.expect?.slot || 'responsePolicy',
+    status: 'PACKAGE_CHECK_PASS',
+  };
+}
+
 const observedScenarioIds = [];
+const passingInvocationOrder = [];
 const passingSuite = await runNativeG5Suite({
   harnessSelector: 'stable',
   scenarioDirectory,
   persist: false,
+  packageSelfCheck: (input) => {
+    const result = passingPackageCheck(input);
+    passingInvocationOrder.push(`check:${result.scenarioId}`);
+    return result;
+  },
   runScenario: async ({ scenario, harnessSelector }) => {
+    assert.equal(
+      passingInvocationOrder.filter((entry) => entry.startsWith('check:')).length,
+      expectedScenarioIds.length,
+      'all package checks finish before every provider-backed scenario',
+    );
+    passingInvocationOrder.push(`run:${scenario.id}`);
     observedScenarioIds.push(scenario.id);
     assert.equal(harnessSelector, 'stable');
     return {
@@ -40,11 +66,16 @@ const passingSuite = await runNativeG5Suite({
   },
 });
 assert.deepEqual(observedScenarioIds, expectedScenarioIds, 'one G5 invocation executes every required scenario exactly once');
+assert.deepEqual(passingInvocationOrder.slice(0, expectedScenarioIds.length), expectedScenarioIds.map((id) => `check:${id}`));
 assert.equal(passingSuite.status, 'PASS');
 assert.equal(passingSuite.complete, true);
 assert.equal(passingSuite.kind, 'DefHarnessG5NativeSuiteV1');
 assert.notEqual(passingSuite.kind, harness.REGRESSION_SCHEMA, 'G5 output cannot be consumed as a promotion regression');
 assert.deepEqual(passingSuite.promotion, { eligible: false, reason: 'diagnostic-native-suite-only' });
+assert.deepEqual(passingSuite.packageChecks.map(({ scenarioId, status }) => ({ scenarioId, status })), expectedScenarioIds.map((scenarioId) => ({
+  scenarioId,
+  status: 'PACKAGE_CHECK_PASS',
+})), 'the suite records one successful package-check evidence item per scenario');
 assert.deepEqual(passingSuite.runs, expectedScenarioIds.map((scenarioId) => ({
   scenarioId,
   runId: `run-${scenarioId}`,
@@ -58,6 +89,7 @@ const failingSuite = await runNativeG5Suite({
   harnessSelector: 'stable',
   scenarioDirectory,
   persist: false,
+  packageSelfCheck: passingPackageCheck,
   runScenario: async ({ scenario }) => {
     failedScenarioIds.push(scenario.id);
     const failed = scenario.id === 'support-weapon-convention-v1';
@@ -71,6 +103,39 @@ const failingSuite = await runNativeG5Suite({
 assert.deepEqual(failedScenarioIds, expectedScenarioIds, 'one failed case cannot silently skip another G5 scenario');
 assert.equal(failingSuite.status, 'FAIL_AGENT');
 assert.equal(failingSuite.promotion.eligible, false);
+
+let providerCallCount = 0;
+const packageCheckedScenarioIds = [];
+const packageFailureSuite = await runNativeG5Suite({
+  harnessSelector: 'candidate/spec9-3plus1-composite-v1',
+  scenarioDirectory,
+  persist: false,
+  packageSelfCheck: (input) => {
+    const result = passingPackageCheck(input);
+    packageCheckedScenarioIds.push(result.scenarioId);
+    return result.scenarioId === 'equipment-full-catalog-asr-v1'
+      ? { ...result, status: 'PACKAGE_CHECK_FAIL', slot: 'toolGuidance' }
+      : result;
+  },
+  runScenario: async () => {
+    providerCallCount += 1;
+    throw new Error('provider must not run after package preflight failure');
+  },
+});
+assert.deepEqual(packageCheckedScenarioIds, expectedScenarioIds, 'G5 checks every scenario package before deciding whether to call the provider');
+assert.equal(providerCallCount, 0, 'candidateContains/package-check failure makes zero provider calls');
+assert.equal(packageFailureSuite.status, 'ERROR_VERIFIER');
+assert.equal(packageFailureSuite.complete, false);
+assert.equal(packageFailureSuite.packageChecks.length, expectedScenarioIds.length);
+assert.equal(
+  packageFailureSuite.packageChecks.find((check) => check.scenarioId === 'equipment-full-catalog-asr-v1')?.status,
+  'PACKAGE_CHECK_FAIL',
+  'suite evidence preserves the failing candidateContains package check',
+);
+assert.equal(
+  packageFailureSuite.outcomes.find((outcome) => outcome.scenarioId === 'equipment-full-catalog-asr-v1')?.status,
+  'ERROR_VERIFIER',
+);
 
 assert.deepEqual(NATIVE_REGRESSION_SCENARIOS, {
   failToPass: [
@@ -95,6 +160,9 @@ console.log(JSON.stringify({
   checks: [
     'g5-four-scenarios-explicit-and-complete',
     'g5-one-invocation-runs-every-scenario',
+    'g5-all-package-checks-precede-provider',
+    'g5-package-check-failure-is-error-verifier-with-zero-provider-calls',
+    'g5-suite-records-package-check-evidence',
     'g5-failure-does-not-skip-later-scenarios',
     'g5-result-never-promotion-eligible',
     'promotion-regression-semantics-unchanged',

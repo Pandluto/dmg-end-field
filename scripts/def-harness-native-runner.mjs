@@ -306,6 +306,320 @@ function normalizeScenarioTurnTypedToolResultRules(value, field, checks) {
   });
 }
 
+const scenarioStructuredAssertionTypes = new Set(['string', 'number', 'boolean', 'object', 'array', 'null']);
+const scenarioStructuredAssertionPathPattern = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
+
+function scenarioOwn(value, key) {
+  return Boolean(value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function normalizeScenarioAssertionPath(value, field, checks) {
+  const pathValue = typeof value === 'string' ? value.trim() : '';
+  if (!pathValue || !scenarioStructuredAssertionPathPattern.test(pathValue)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be a dot-separated structured value path.`,
+    });
+    return '';
+  }
+  return pathValue;
+}
+
+function normalizeScenarioAssertionReference(value, field, checks, { items = false } = {}) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must reference a prior completed tool result.`,
+    });
+    return null;
+  }
+  const allowedFields = items
+    ? ['tool', 'path', 'turnNumber', 'callIndex', 'fieldMap', 'order']
+    : ['tool', 'path', 'turnNumber', 'callIndex', 'valueMap'];
+  const unknownFields = Object.keys(value).filter((key) => !allowedFields.includes(key));
+  const tool = typeof value.tool === 'string' ? value.tool.trim() : '';
+  const pathValue = normalizeScenarioAssertionPath(value.path, `${field}.path`, checks);
+  const turnNumber = value.turnNumber === undefined ? null : Number(value.turnNumber);
+  const callIndex = value.callIndex === undefined ? 1 : Number(value.callIndex);
+  if (
+    unknownFields.length
+    || !tool
+    || (turnNumber !== null && (!Number.isInteger(turnNumber) || turnNumber < 1))
+    || !Number.isInteger(callIndex)
+    || callIndex < 1
+  ) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} requires tool/path, optional positive turnNumber/callIndex, and no unsupported fields.`,
+    });
+    return null;
+  }
+  if (!items) {
+    const rawValueMap = value.valueMap;
+    let valueMap = null;
+    if (rawValueMap !== undefined) {
+      const validEntries = Array.isArray(rawValueMap)
+        && rawValueMap.length > 0
+        && rawValueMap.every((entry) => (
+          entry
+          && typeof entry === 'object'
+          && !Array.isArray(entry)
+          && scenarioOwn(entry, 'from')
+          && scenarioOwn(entry, 'to')
+          && Object.keys(entry).every((key) => ['from', 'to'].includes(key))
+        ));
+      const distinctSources = validEntries
+        ? new Set(rawValueMap.map((entry) => JSON.stringify(canonicalScenarioValue(entry.from)))).size === rawValueMap.length
+        : false;
+      if (!validEntries || !distinctSources) {
+        addScenarioCheck(checks, {
+          pass: false,
+          code: 'verification-config-invalid',
+          field: `${field}.valueMap`,
+          message: `${field}.valueMap must contain unique { from, to } entries only.`,
+        });
+        return null;
+      }
+      valueMap = rawValueMap.map((entry) => ({ from: entry.from, to: entry.to }));
+    }
+    return pathValue ? {
+      tool,
+      path: pathValue,
+      turnNumber,
+      callIndex,
+      ...(valueMap ? { valueMap } : {}),
+    } : null;
+  }
+  const fieldMap = value.fieldMap;
+  const order = value.order === undefined ? 'exact' : value.order;
+  if (
+    !fieldMap
+    || typeof fieldMap !== 'object'
+    || Array.isArray(fieldMap)
+    || !Object.keys(fieldMap).length
+    || !['exact', 'any'].includes(order)
+  ) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} requires a non-empty fieldMap and order exact|any.`,
+    });
+    return null;
+  }
+  const normalizedFieldMap = {};
+  for (const [targetPath, sourcePath] of Object.entries(fieldMap)) {
+    const normalizedTarget = normalizeScenarioAssertionPath(targetPath, `${field}.fieldMap.${targetPath || '<empty>'}`, checks);
+    const normalizedSource = normalizeScenarioAssertionPath(sourcePath, `${field}.fieldMap.${targetPath || '<empty>'}`, checks);
+    if (normalizedTarget && normalizedSource) normalizedFieldMap[normalizedTarget] = normalizedSource;
+  }
+  return pathValue && Object.keys(normalizedFieldMap).length === Object.keys(fieldMap).length
+    ? { tool, path: pathValue, turnNumber, callIndex, fieldMap: normalizedFieldMap, order }
+    : null;
+}
+
+function normalizeScenarioStructuredAssertion(value, field, checks) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be a structured assertion object.`,
+    });
+    return null;
+  }
+  const allowedFields = ['path', 'equals', 'exists', 'type', 'minLength', 'minItems', 'equalsFrom', 'itemsEqualFrom'];
+  const unknownFields = Object.keys(value).filter((key) => !allowedFields.includes(key));
+  const pathValue = normalizeScenarioAssertionPath(value.path, `${field}.path`, checks);
+  const hasEquals = scenarioOwn(value, 'equals');
+  const hasExists = scenarioOwn(value, 'exists');
+  const hasEqualsFrom = scenarioOwn(value, 'equalsFrom');
+  const hasItemsEqualFrom = scenarioOwn(value, 'itemsEqualFrom');
+  const type = value.type === undefined ? null : String(value.type);
+  const minLength = value.minLength === undefined ? null : Number(value.minLength);
+  const minItems = value.minItems === undefined ? null : Number(value.minItems);
+  const predicateCount = [hasEquals, hasEqualsFrom, hasItemsEqualFrom].filter(Boolean).length;
+  const exists = hasExists ? value.exists : null;
+  const invalid = unknownFields.length
+    || !pathValue
+    || predicateCount > 1
+    || (hasExists && typeof exists !== 'boolean')
+    || (exists === false && (predicateCount || type !== null || minLength !== null || minItems !== null))
+    || (type !== null && !scenarioStructuredAssertionTypes.has(type))
+    || (minLength !== null && (!Number.isInteger(minLength) || minLength < 0))
+    || (minItems !== null && (!Number.isInteger(minItems) || minItems < 0))
+    || (!predicateCount && !hasExists && type === null && minLength === null && minItems === null);
+  if (invalid) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} needs one supported equality/reference/existence/type/length assertion.`,
+    });
+    return null;
+  }
+  const equalsFrom = hasEqualsFrom
+    ? normalizeScenarioAssertionReference(value.equalsFrom, `${field}.equalsFrom`, checks)
+    : null;
+  const itemsEqualFrom = hasItemsEqualFrom
+    ? normalizeScenarioAssertionReference(value.itemsEqualFrom, `${field}.itemsEqualFrom`, checks, { items: true })
+    : null;
+  if ((hasEqualsFrom && !equalsFrom) || (hasItemsEqualFrom && !itemsEqualFrom)) return null;
+  return {
+    path: pathValue,
+    ...(hasEquals ? { equals: value.equals } : {}),
+    ...(hasExists ? { exists } : {}),
+    ...(type !== null ? { type } : {}),
+    ...(minLength !== null ? { minLength } : {}),
+    ...(minItems !== null ? { minItems } : {}),
+    ...(equalsFrom ? { equalsFrom } : {}),
+    ...(itemsEqualFrom ? { itemsEqualFrom } : {}),
+  };
+}
+
+function normalizeScenarioTurnStructuredAssertionRules(value, field, checks) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field,
+      message: `${field} must be an object keyed by one-based turn number.`,
+    });
+    return [];
+  }
+  return Object.entries(value).flatMap(([rawTurnNumber, rawToolAssertions]) => {
+    const turnNumber = Number(rawTurnNumber);
+    if (!Number.isInteger(turnNumber) || turnNumber < 1 || !rawToolAssertions || typeof rawToolAssertions !== 'object' || Array.isArray(rawToolAssertions)) {
+      addScenarioCheck(checks, {
+        pass: false,
+        code: 'verification-config-invalid',
+        field: `${field}.${rawTurnNumber}`,
+        message: `${field} entries must map a positive one-based turn number to tool assertions.`,
+      });
+      return [];
+    }
+    return Object.entries(rawToolAssertions).flatMap(([rawTool, rawAssertions]) => {
+      const tool = typeof rawTool === 'string' ? rawTool.trim() : '';
+      if (!tool || !Array.isArray(rawAssertions) || !rawAssertions.length) {
+        addScenarioCheck(checks, {
+          pass: false,
+          code: 'verification-config-invalid',
+          field: `${field}.${rawTurnNumber}.${rawTool || '<empty>'}`,
+          message: `${field} tool entries must be non-empty assertion arrays.`,
+        });
+        return [];
+      }
+      const assertions = rawAssertions
+        .map((assertion, index) => normalizeScenarioStructuredAssertion(
+          assertion,
+          `${field}.${rawTurnNumber}.${tool}[${index}]`,
+          checks,
+        ))
+        .filter(Boolean);
+      return assertions.length === rawAssertions.length ? [{ turnNumber, tool, assertions }] : [];
+    });
+  });
+}
+
+function scenarioValueAtPath(value, pathValue) {
+  let current = value;
+  for (const segment of pathValue.split('.')) {
+    if (current === null || current === undefined || typeof current !== 'object' || !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return { found: false, value: undefined };
+    }
+    current = current[segment];
+  }
+  return { found: true, value: current };
+}
+
+function scenarioStructuredType(value) {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  return typeof value;
+}
+
+function scenarioStructuredValuesEqual(left, right) {
+  return JSON.stringify(canonicalScenarioValue(left)) === JSON.stringify(canonicalScenarioValue(right));
+}
+
+function scenarioReferenceValue(events, targetEvent, reference) {
+  const turnNumber = reference.turnNumber || targetEvent.turnNumber;
+  const candidates = events.filter((event) => (
+    event.turnNumber === turnNumber
+    && event.tool === reference.tool
+    && completedScenarioToolEvent(event)
+    && (event.turnNumber < targetEvent.turnNumber || (
+      event.turnNumber === targetEvent.turnNumber && event.eventIndex < targetEvent.eventIndex
+    ))
+  ));
+  const sourceEvent = candidates[reference.callIndex - 1];
+  if (!sourceEvent) return { found: false, value: undefined };
+  for (const output of scenarioStructuredOutputValues(sourceEvent)) {
+    const resolved = scenarioValueAtPath(output, reference.path);
+    if (resolved.found) {
+      if (!reference.valueMap) return resolved;
+      const mapping = reference.valueMap.find((entry) => scenarioStructuredValuesEqual(entry.from, resolved.value));
+      return mapping ? { found: true, value: mapping.to } : { found: false, value: undefined };
+    }
+  }
+  return { found: false, value: undefined };
+}
+
+function scenarioProjectedItemsEqual(targetItems, sourceItems, reference) {
+  if (!Array.isArray(targetItems) || !Array.isArray(sourceItems) || targetItems.length !== sourceItems.length) return false;
+  const mappings = Object.entries(reference.fieldMap);
+  const project = (item, source) => mappings.map(([targetPath, sourcePath]) => {
+    const resolved = scenarioValueAtPath(item, source ? sourcePath : targetPath);
+    return resolved.found ? { found: true, value: resolved.value } : { found: false };
+  });
+  const targetProjected = targetItems.map((item) => project(item, false));
+  const sourceProjected = sourceItems.map((item) => project(item, true));
+  if (reference.order === 'any') {
+    const canonicalize = (entry) => JSON.stringify(canonicalScenarioValue(entry));
+    return scenarioStructuredValuesEqual(
+      targetProjected.map(canonicalize).sort(),
+      sourceProjected.map(canonicalize).sort(),
+    );
+  }
+  return scenarioStructuredValuesEqual(targetProjected, sourceProjected);
+}
+
+function scenarioStructuredAssertionMatches(rootValue, assertion, targetEvent, events) {
+  const actual = scenarioValueAtPath(rootValue, assertion.path);
+  if (scenarioOwn(assertion, 'exists') && actual.found !== assertion.exists) return false;
+  if (!actual.found) return assertion.exists === false;
+  if (scenarioOwn(assertion, 'equals') && !scenarioStructuredValuesEqual(actual.value, assertion.equals)) return false;
+  if (assertion.type && scenarioStructuredType(actual.value) !== assertion.type) return false;
+  if (assertion.minLength !== undefined && (typeof actual.value !== 'string' || actual.value.length < assertion.minLength)) return false;
+  if (assertion.minItems !== undefined && (!Array.isArray(actual.value) || actual.value.length < assertion.minItems)) return false;
+  if (assertion.equalsFrom) {
+    const expected = scenarioReferenceValue(events, targetEvent, assertion.equalsFrom);
+    if (!expected.found || !scenarioStructuredValuesEqual(actual.value, expected.value)) return false;
+  }
+  if (assertion.itemsEqualFrom) {
+    const expected = scenarioReferenceValue(events, targetEvent, assertion.itemsEqualFrom);
+    if (!expected.found || !scenarioProjectedItemsEqual(actual.value, expected.value, assertion.itemsEqualFrom)) return false;
+  }
+  return true;
+}
+
+function scenarioStructuredAssertionsMatch(rootValue, assertions, targetEvent, events) {
+  return assertions.every((assertion) => scenarioStructuredAssertionMatches(rootValue, assertion, targetEvent, events));
+}
+
+function scenarioQuestionRequestCount(run) {
+  const value = run?.questions?.value ?? run?.questions;
+  if (Array.isArray(value)) return value.length;
+  return Array.isArray(value?.questions) ? value.questions.length : 0;
+}
+
 function normalizeScenarioExactSectionReadRules(value, field, checks) {
   if (value === undefined) return [];
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -570,6 +884,58 @@ export function evaluateScenarioVerification(run, scenario) {
     });
   }
 
+  const requiredToolInputAssertionsByTurn = normalizeScenarioTurnStructuredAssertionRules(
+    verification.requiredToolInputAssertionsByTurn,
+    'requiredToolInputAssertionsByTurn',
+    checks,
+  );
+  for (const rule of requiredToolInputAssertionsByTurn) {
+    const observedEvents = events.filter((event) => (
+      event.turnNumber === rule.turnNumber
+      && event.tool === rule.tool
+      && completedScenarioToolEvent(event)
+    ));
+    const matchingCalls = observedEvents.filter((event) => {
+      const input = scenarioStructuredInput(event);
+      return input && scenarioStructuredAssertionsMatch(input, rule.assertions, event, events);
+    });
+    addScenarioCheck(checks, {
+      pass: matchingCalls.length > 0,
+      code: 'required-turn-tool-input-assertions-missing',
+      tool: rule.tool,
+      turnNumber: rule.turnNumber,
+      assertions: rule.assertions,
+      observedCompletedCalls: observedEvents.length,
+      matchingCalls: matchingCalls.length,
+    });
+  }
+
+  const requiredToolResultAssertionsByTurn = normalizeScenarioTurnStructuredAssertionRules(
+    verification.requiredToolResultAssertionsByTurn,
+    'requiredToolResultAssertionsByTurn',
+    checks,
+  );
+  for (const rule of requiredToolResultAssertionsByTurn) {
+    const observedEvents = events.filter((event) => (
+      event.turnNumber === rule.turnNumber
+      && event.tool === rule.tool
+      && completedScenarioToolEvent(event)
+    ));
+    const matchingCalls = observedEvents.filter((event) => (
+      scenarioStructuredOutputValues(event)
+        .some((output) => scenarioStructuredAssertionsMatch(output, rule.assertions, event, events))
+    ));
+    addScenarioCheck(checks, {
+      pass: matchingCalls.length > 0,
+      code: 'required-turn-tool-result-assertions-missing',
+      tool: rule.tool,
+      turnNumber: rule.turnNumber,
+      assertions: rule.assertions,
+      observedCompletedCalls: observedEvents.length,
+      matchingCalls: matchingCalls.length,
+    });
+  }
+
   const requiredExactSectionReadsByTurn = normalizeScenarioExactSectionReadRules(
     verification.requiredExactSectionReadByTurn,
     'requiredExactSectionReadByTurn',
@@ -708,6 +1074,24 @@ export function evaluateScenarioVerification(run, scenario) {
     });
   }
 
+  const maxQuestionRequests = verification.maxQuestionRequests;
+  if (maxQuestionRequests !== undefined && (!Number.isInteger(maxQuestionRequests) || maxQuestionRequests < 0)) {
+    addScenarioCheck(checks, {
+      pass: false,
+      code: 'verification-config-invalid',
+      field: 'maxQuestionRequests',
+      message: 'maxQuestionRequests must be a non-negative integer.',
+    });
+  } else if (maxQuestionRequests !== undefined) {
+    const actual = scenarioQuestionRequestCount(run);
+    addScenarioCheck(checks, {
+      pass: actual <= maxQuestionRequests,
+      code: 'max-question-requests-exceeded',
+      expectedMaximum: maxQuestionRequests,
+      actual,
+    });
+  }
+
   const rawConditionalRules = verification.conditionalTools;
   if (rawConditionalRules !== undefined && !Array.isArray(rawConditionalRules)) {
     addScenarioCheck(checks, {
@@ -766,18 +1150,33 @@ export function evaluateScenarioVerification(run, scenario) {
   }
 
   const failures = checks.filter((check) => !check.pass);
+  const configurationInvalid = failures.some((failure) => failure.code === 'verification-config-invalid');
   return {
     kind: 'DefHarnessScenarioVerificationV1',
     scenarioId: scenario?.id || run?.scenarioId || null,
     scenarioVersion: Number(scenario?.version || run?.scenarioVersion || 1),
-    status: failures.length ? 'FAIL' : 'PASS',
+    status: configurationInvalid ? 'ERROR_VERIFIER' : failures.length ? 'FAIL' : 'PASS',
     ok: failures.length === 0,
     checks,
     failures,
     observed: {
       attemptedToolCounts: Object.fromEntries(Object.entries(attemptedCounts).sort(([left], [right]) => left.localeCompare(right))),
       completedToolCounts: Object.fromEntries(Object.entries(completedCounts).sort(([left], [right]) => left.localeCompare(right))),
+      questionRequestCount: scenarioQuestionRequestCount(run),
     },
+  };
+}
+
+export function validateScenarioVerificationConfiguration(scenario) {
+  const evaluated = evaluateScenarioVerification({ turns: [] }, scenario);
+  const failures = evaluated.failures.filter((failure) => failure.code === 'verification-config-invalid');
+  return {
+    kind: 'DefHarnessScenarioVerificationConfigurationV1',
+    scenarioId: scenario?.id || null,
+    scenarioVersion: Number(scenario?.version || 1),
+    status: failures.length ? 'ERROR_VERIFIER' : 'PASS',
+    ok: failures.length === 0,
+    failures,
   };
 }
 
@@ -786,7 +1185,9 @@ export function applyScenarioVerification(run, scenario) {
   return {
     ...run,
     verification,
-    status: run?.status === 'EXECUTED' && !verification.ok ? 'FAIL_AGENT' : run?.status,
+    status: verification.status === 'ERROR_VERIFIER'
+      ? 'ERROR_VERIFIER'
+      : run?.status === 'EXECUTED' && !verification.ok ? 'FAIL_AGENT' : run?.status,
   };
 }
 
@@ -796,6 +1197,12 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
   const startedAt = Date.now(); let token = ''; let runner = null;
   const run = { kind: 'DefHarnessNativeScenarioRunV1', runId, scenarioId: scenario.id, scenarioVersion: Number(scenario.version || 1), selector: harnessSelector, createdAt: startedAt, sources: ['harness'], status: 'INCOMPLETE', turns: [], events: [], questions: [], cleanup: { requested: cleanup, completed: false } };
   try {
+    run.verifierConfiguration = validateScenarioVerificationConfiguration(scenario);
+    if (!run.verifierConfiguration.ok) {
+      throw error('ERROR_VERIFIER', 'Scenario verification configuration is invalid.', {
+        failures: run.verifierConfiguration.failures,
+      });
+    }
     const status = await request('GET', '/def-agent/interop/v1/status');
     run.readiness = { source: 'interop', status };
     if (!status.agent?.ready) throw error('BLOCKED_ENVIRONMENT', 'DEF sidecar is not ready.');
@@ -848,7 +1255,9 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     run.status = verified.status;
   } catch (caught) {
     run.error = { source: 'harness', code: caught.code || 'ERROR_PROTOCOL', message: caught.message, detail: redactPublic(caught.detail || {}) };
-    run.status = caught.code === 'BLOCKED_ENVIRONMENT' ? 'BLOCKED_ENVIRONMENT' : 'ERROR_PROTOCOL';
+    run.status = caught.code === 'BLOCKED_ENVIRONMENT'
+      ? 'BLOCKED_ENVIRONMENT'
+      : caught.code === 'ERROR_VERIFIER' ? 'ERROR_VERIFIER' : 'ERROR_PROTOCOL';
   } finally {
     if (runner && cleanup && token) {
       try { run.cleanup.response = await request('DELETE', `/def-agent/interop/v1/harness/sessions/${encodeURIComponent(runner.sessionId)}`, undefined, token); run.cleanup.completed = true; } catch (caught) { run.cleanup.error = { code: caught.code || 'cleanup-failed', message: caught.message }; }

@@ -19,6 +19,64 @@ assert.equal(stableBuild.package.dirty, Boolean(execFileSync('git', ['status', '
 const stableRef = harness.registerPackage(runtime, stableBuild.directory, 'stable');
 const candidateBuild = harness.buildPackage(candidateSource, builds);
 const candidateRef = harness.registerPackage(runtime, candidateBuild.directory, 'candidate/v1');
+const spec9CandidateSource = path.join(project, 'agent/harness/examples/spec9-3plus1-composite-v1');
+const spec9CandidateBuild = harness.buildPackage(spec9CandidateSource, builds);
+assert.equal(spec9CandidateBuild.package.version, '9.1.0-candidate.2', 'catalog guidance uses a new immutable candidate version');
+
+function rewriteBuiltPackage(directory, mutate) {
+  const packageFile = path.join(directory, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(packageFile, 'utf8'));
+  mutate(pkg);
+  const normalized = { ...pkg };
+  delete normalized.contentHash;
+  delete normalized.packageHash;
+  pkg.contentHash = harness.sha256(harness.stableJson(normalized));
+  fs.writeFileSync(packageFile, `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
+  return pkg;
+}
+
+const oldSpec9Fixture = path.join(runtime, 'fixtures', 'spec9-candidate-1');
+fs.cpSync(spec9CandidateBuild.directory, oldSpec9Fixture, { recursive: true });
+rewriteBuiltPackage(oldSpec9Fixture, (pkg) => { pkg.version = '9.1.0-candidate.1'; });
+const oldSpec9Ref = harness.registerPackage(runtime, oldSpec9Fixture, 'candidate/spec9-old');
+const oldSpec9PackageFile = path.join(
+  harness.registryPaths(runtime).packages,
+  oldSpec9Ref.harnessId,
+  oldSpec9Ref.version,
+  'package.json',
+);
+const oldSpec9Bytes = fs.readFileSync(oldSpec9PackageFile, 'utf8');
+const newSpec9Ref = harness.registerPackage(runtime, spec9CandidateBuild.directory, 'candidate/spec9-new');
+assert.notEqual(newSpec9Ref.version, oldSpec9Ref.version, 'candidate.2 never reuses candidate.1 identity');
+assert.notEqual(newSpec9Ref.contentHash, oldSpec9Ref.contentHash, 'candidate.2 has a distinct immutable content hash');
+assert.equal(harness.runPackageSelfCheck({
+  runtimeRoot: runtime,
+  scenarioFile: path.join(project, 'agent/harness/scenarios/equipment-full-catalog-asr-v1.json'),
+  selector: 'candidate/spec9-new',
+}).status, 'PACKAGE_CHECK_PASS', 'candidate.2 satisfies the catalog batch candidateContains contract');
+assert.equal(fs.readFileSync(oldSpec9PackageFile, 'utf8'), oldSpec9Bytes, 'registering candidate.2 does not overwrite the old package hash');
+assert.equal(
+  harness.createLoader(runtime).resolve(`${oldSpec9Ref.harnessId}@${oldSpec9Ref.version}`).ref.contentHash,
+  oldSpec9Ref.contentHash,
+  'the old immutable candidate remains explicitly resolvable',
+);
+
+const conflictingOldSpec9Fixture = path.join(runtime, 'fixtures', 'spec9-candidate-1-conflict');
+fs.cpSync(oldSpec9Fixture, conflictingOldSpec9Fixture, { recursive: true });
+rewriteBuiltPackage(conflictingOldSpec9Fixture, (pkg) => {
+  const artifact = pkg.slots.toolGuidance[0];
+  const artifactFile = path.join(conflictingOldSpec9Fixture, artifact.path);
+  const changed = `${fs.readFileSync(artifactFile, 'utf8')}\nConflicting immutable content.\n`;
+  fs.writeFileSync(artifactFile, changed, 'utf8');
+  artifact.bytes = Buffer.byteLength(changed);
+  artifact.hash = harness.sha256(changed);
+});
+assert.throws(
+  () => harness.registerPackage(runtime, conflictingOldSpec9Fixture),
+  (caught) => caught.code === 'HARNESS_IMMUTABLE_CONFLICT',
+  'a different hash cannot overwrite the old id/version',
+);
+assert.equal(fs.readFileSync(oldSpec9PackageFile, 'utf8'), oldSpec9Bytes, 'a rejected conflict leaves the old package untouched');
 const loader = harness.createLoader(runtime);
 const stable = loader.resolve('stable');
 const candidate = loader.resolve('candidate/v1');
@@ -65,4 +123,4 @@ assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', outcome: 'PASS' }, e
 assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', accidental: evaluatorOnlySentinel }, evaluatorOnlySentinel), true, 'the evaluator leak guard detects public-result disclosure');
 fs.rmSync(runtime, { recursive: true, force: true });
 fs.rmSync(unsafe, { recursive: true, force: true });
-console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'pinned-bindings', 'recovery-selector-preservation', 'unsupported-condition-rejected', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema', 'evaluator-only-leak-guard'] }));
+console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'spec9-candidate-version-and-old-hash-preservation', 'pinned-bindings', 'recovery-selector-preservation', 'unsupported-condition-rejected', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema', 'evaluator-only-leak-guard'] }));

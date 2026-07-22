@@ -4,6 +4,7 @@ import path from 'node:path';
 import {
   applyScenarioVerification,
   evaluateScenarioVerification,
+  validateScenarioVerificationConfiguration,
 } from './def-harness-native-runner.mjs';
 
 const project = path.resolve(import.meta.dirname, '..');
@@ -269,6 +270,425 @@ const sourceOnlyGuideUnrelatedExactRead = evaluateScenarioVerification(synthetic
 assert.equal(sourceOnlyGuideUnrelatedExactRead.status, 'FAIL', 'an unrelated query and internally valid exact read cannot satisfy the named source request');
 assert.ok(failureCodes(sourceOnlyGuideUnrelatedExactRead).has('required-exact-section-read-missing'));
 
+const equipmentCatalogScenario = readScenario('equipment-full-catalog-asr-v1.json');
+const equipmentQueries = ['拓荒护甲·壹型', '长息蓄电核', '拓荒增量供氧栓一型', '长息护手一型'];
+const weaponCatalogResult = {
+  contract: 'DefWeaponResolutionV2',
+  query: '骑士精神',
+  ambiguity: false,
+  candidates: [{
+    id: 'weapon.6beca86909e7732dc7d83b56',
+    name: '骑士精神',
+    matchMethod: 'exact',
+    confidence: 1,
+  }],
+};
+const equipmentBatchResult = {
+  contract: 'DefEquipmentBatchResolutionV2',
+  queryCount: 4,
+  results: [
+    {
+      query: '拓荒护甲壹型', ambiguity: false,
+      candidates: [{ equipmentId: 'equipment-g-5-3', name: '拓荒护甲·壹型', matchMethod: 'exact', confidence: 1 }],
+    },
+    {
+      query: '长息蓄电核', ambiguity: false,
+      candidates: [{ equipmentId: 'equipment-g-1-0-7', name: '长息蓄电核', matchMethod: 'exact', confidence: 1 }],
+    },
+    {
+      query: '拓荒增量供氧栓一型', ambiguity: false,
+      candidates: [{ equipmentId: 'equipment-g-6-1', name: '拓荒增量供氧栓·壹型', matchMethod: 'phonetic', confidence: 0.96 }],
+    },
+    {
+      query: '长息护手一型', ambiguity: false,
+      candidates: [{ equipmentId: 'equipment-g-1-0-6', name: '长息护手·壹型', matchMethod: 'phonetic', confidence: 0.96 }],
+    },
+  ],
+};
+const completedWeaponCatalog = (query = '骑士精神', output = weaponCatalogResult) => (
+  completedToolWithStructuredInputOutput('def_data_weapon', { query }, output)
+);
+const completedEquipmentBatch = (queries = equipmentQueries, output = equipmentBatchResult) => (
+  completedToolWithStructuredInputOutput('def_data_equipment', { queries }, output)
+);
+
+assert.equal(equipmentCatalogScenario.version, 2, 'catalog ASR scenario advances with exact structured verification');
+assert.ok(equipmentCatalogScenario.turns[0].userText.includes('拓荒护甲·壹型'), 'catalog ASR scenario uses a real builtin canonical item');
+assert.ok(!equipmentCatalogScenario.turns[0].userText.includes('长息轻护甲板'), 'catalog ASR scenario removes the non-authoritative missing item');
+assert.deepEqual(equipmentCatalogScenario.verification.onlyToolsByTurn, {
+  1: ['def_data_weapon', 'def_data_equipment'],
+});
+for (const tool of ['def_data_native_catalog_materialize', 'read', 'grep', 'glob', 'def_operator_config_patch', 'def_node_use']) {
+  assert.ok(equipmentCatalogScenario.verification.forbiddenTools.includes(tool), `catalog ASR scenario forbids ${tool}`);
+}
+
+const equipmentBatchOnlyPass = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedWeaponCatalog(), completedEquipmentBatch()]),
+]), equipmentCatalogScenario);
+assert.equal(equipmentBatchOnlyPass.status, 'PASS', 'one weapon lookup plus one exact equipment batch passes');
+
+const equipmentBatchWithNativeReads = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedWeaponCatalog(),
+    completedEquipmentBatch(),
+    completedTool('def_data_native_catalog_materialize'),
+    completedTool('read'),
+  ]),
+]), equipmentCatalogScenario);
+assert.equal(equipmentBatchWithNativeReads.status, 'FAIL', 'batch plus native materialize/read fails');
+assert.ok(failureCodes(equipmentBatchWithNativeReads).has('turn-tool-not-allowed'));
+assert.ok(failureCodes(equipmentBatchWithNativeReads).has('forbidden-tool-called'));
+
+const equipmentFragmentRetry = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedWeaponCatalog(),
+    completedEquipmentBatch(),
+    completedToolWithStructuredInputOutput('def_data_equipment', { query: '拓荒' }, {
+      contract: 'DefEquipmentResolutionV2', query: '拓荒', ambiguity: true, candidates: [],
+    }),
+  ]),
+]), equipmentCatalogScenario);
+assert.equal(equipmentFragmentRetry.status, 'FAIL', 'a shorter-fragment retry fails even after a valid batch');
+assert.ok(failureCodes(equipmentFragmentRetry).has('max-repeated-tool-calls-exceeded'));
+
+const equipmentWrongInput = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [
+    completedWeaponCatalog(),
+    completedEquipmentBatch(['拓荒护甲', '长息蓄电核', '拓荒增量供氧栓一型', '长息护手一型']),
+  ]),
+]), equipmentCatalogScenario);
+assert.equal(equipmentWrongInput.status, 'FAIL', 'a different batch query cannot pass using otherwise matching output');
+assert.ok(failureCodes(equipmentWrongInput).has('required-turn-tool-input-assertions-missing'));
+
+const invalidStructuredAssertionScenario = structuredClone(equipmentCatalogScenario);
+invalidStructuredAssertionScenario.verification.requiredToolInputAssertionsByTurn[1].def_data_weapon = [{
+  path: 'query',
+  unsupportedPredicate: '骑士精神',
+}];
+const invalidStructuredAssertionConfiguration = validateScenarioVerificationConfiguration(invalidStructuredAssertionScenario);
+assert.equal(invalidStructuredAssertionConfiguration.status, 'ERROR_VERIFIER', 'invalid assertion schema is a verifier error');
+assert.ok(failureCodes(invalidStructuredAssertionConfiguration).has('verification-config-invalid'));
+const invalidStructuredAssertionEvaluation = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedWeaponCatalog(), completedEquipmentBatch()]),
+]), invalidStructuredAssertionScenario);
+assert.equal(invalidStructuredAssertionEvaluation.status, 'ERROR_VERIFIER');
+const invalidStructuredAssertionApplied = applyScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedWeaponCatalog(), completedEquipmentBatch()]),
+]), invalidStructuredAssertionScenario);
+assert.equal(invalidStructuredAssertionApplied.status, 'ERROR_VERIFIER', 'invalid verifier config cannot be mislabeled as an Agent failure');
+
+const nativeRunnerSource = fs.readFileSync(path.join(project, 'scripts/def-harness-native-runner.mjs'), 'utf8');
+for (const scenarioId of ['equipment-full-catalog-asr-v1', 'operator-config-preview-v1']) {
+  assert.ok(!nativeRunnerSource.includes(scenarioId), `generic structured assertions cannot special-case ${scenarioId}`);
+}
+const verifierConfigurationGate = nativeRunnerSource.indexOf('run.verifierConfiguration = validateScenarioVerificationConfiguration(scenario)');
+const firstInteropReadinessRequest = nativeRunnerSource.indexOf("const status = await request('GET', '/def-agent/interop/v1/status')", verifierConfigurationGate);
+assert.ok(
+  verifierConfigurationGate >= 0 && firstInteropReadinessRequest > verifierConfigurationGate,
+  'invalid verifier configuration is rejected before the first Interop/provider-side request',
+);
+
+const previewScenario = readScenario('operator-config-preview-v1.json');
+const currentTeamResult = {
+  contract: 'DefSelectedTeamLoadoutsV1',
+  selectedCount: 1,
+  complete: true,
+  operators: [{
+    characterId: 'operator.current-first',
+    characterName: '当前首位',
+    operatorSkillLevels: { A: 'M3', B: 'L9', E: 'M3', Q: 'L9' },
+    weapon: {
+      id: 'weapon.current',
+      name: '当前武器',
+      level: 80,
+      potential: '满潜',
+      skillLevels: { skill1: 8, skill2: 7, skill3: 8 },
+    },
+    equipment: [
+      {
+        slotKey: 'armor', equipmentId: 'equipment.current.armor', name: '当前护甲',
+        effects: [{ effectId: 'armor.effect1', level: 1 }, { effectId: 'armor.effect2', level: 2 }],
+      },
+      {
+        slotKey: 'glove', equipmentId: 'equipment.current.glove', name: '当前护手',
+        effects: [
+          { effectId: 'glove.effect1', level: 3 },
+          { effectId: 'glove.effect2', level: 2 },
+          { effectId: 'glove.effect3', level: 1 },
+        ],
+      },
+    ],
+  }],
+};
+const matchingPreviewInput = {
+  nodeTitle: '现有配装预览',
+  nodeDescription: '只读验证当前首位干员的现有武器和装备。',
+  characterId: 'operator.current-first',
+  characterName: '当前首位',
+  weaponId: 'weapon.current',
+  weaponName: '当前武器',
+  weaponLevel: 80,
+  weaponPotential: 'PMAX',
+  weaponSkill1Level: 8,
+  weaponSkill2Level: 7,
+  weaponSkill3Level: 3,
+  operatorSkillA: 'M3',
+  operatorSkillB: 'L9',
+  operatorSkillE: 'M3',
+  operatorSkillQ: 'L9',
+  equipments: [
+    {
+      slotKey: 'glove', equipmentId: 'equipment.current.glove', equipmentName: '当前护手',
+      equipmentEntry1Level: 3, equipmentEntry2Level: 2, equipmentEntry3Level: 1,
+    },
+    {
+      slotKey: 'armor', equipmentId: 'equipment.current.armor', equipmentName: '当前护甲',
+      equipmentEntry1Level: 1, equipmentEntry2Level: 2,
+    },
+  ],
+};
+const previewResult = {
+  ok: true,
+  state: 'REVIEW_REQUIRED',
+  proposalToken: 'proposal-token-1234567890',
+  currentCheckoutTouched: false,
+  finalConfig: {
+    characterId: 'operator.current-first',
+    characterName: '当前首位',
+    operatorSkillLevels: { A: 'M3', B: 'L9', E: 'M3', Q: 'L9' },
+    weapon: {
+      id: 'weapon.current',
+      name: '当前武器',
+      level: 80,
+      potential: '满潜',
+      skillLevels: { skill1: 8, skill2: 7, skill3: 8 },
+    },
+    equipment: [
+      {
+        slotKey: 'armor', equipmentId: 'equipment.current.armor', name: '当前护甲',
+        effects: [{ effectId: 'armor.effect1', level: 1 }, { effectId: 'armor.effect2', level: 2 }],
+      },
+      {
+        slotKey: 'glove', equipmentId: 'equipment.current.glove', name: '当前护手',
+        effects: [
+          { effectId: 'glove.effect1', level: 3 },
+          { effectId: 'glove.effect2', level: 2 },
+          { effectId: 'glove.effect3', level: 1 },
+        ],
+      },
+    ],
+  },
+};
+const completedTeamLoadouts = (output = currentTeamResult) => completedToolWithStructuredInputOutput('def_data_team_loadouts', {}, output);
+const completedPreview = (input = matchingPreviewInput, output = previewResult) => (
+  completedToolWithStructuredInputOutput('def_operator_config_preview', input, output)
+);
+
+function singleEquipmentPreviewCase(equipmentId) {
+  const teamEquipment = currentTeamResult.operators[0].equipment.find((equipment) => equipment.equipmentId === equipmentId);
+  const inputEquipment = matchingPreviewInput.equipments.find((equipment) => equipment.equipmentId === equipmentId);
+  const finalEquipment = previewResult.finalConfig.equipment.find((equipment) => equipment.equipmentId === equipmentId);
+  return {
+    team: {
+      ...currentTeamResult,
+      operators: [{ ...currentTeamResult.operators[0], equipment: [teamEquipment] }],
+    },
+    input: { ...matchingPreviewInput, equipments: [inputEquipment] },
+    output: {
+      ...previewResult,
+      finalConfig: { ...previewResult.finalConfig, equipment: [finalEquipment] },
+    },
+  };
+}
+
+assert.equal(previewScenario.version, 2, 'operator preview scenario advances with structured preview verification');
+assert.equal(previewScenario.fixtureMode, 'active-current-readonly', 'operator preview binds the W9 active current read-only fixture');
+assert.deepEqual(previewScenario.verification.onlyToolsByTurn, {
+  1: ['def_data_team_loadouts', 'def_operator_config_preview'],
+});
+assert.equal(previewScenario.verification.maxQuestionRequests, 0, 'operator preview forbids native approval/question requests');
+
+const previewPass = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview()]),
+]), previewScenario);
+assert.equal(previewPass.status, 'PASS', 'mixed two-effect and three-effect pieces preserve every existing level');
+
+const twoEffectPreview = singleEquipmentPreviewCase('equipment.current.armor');
+assert.equal(evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(twoEffectPreview.team), completedPreview(twoEffectPreview.input, twoEffectPreview.output)]),
+]), previewScenario).status, 'PASS', 'a two-effect piece may omit the nonexistent third effect on both sides');
+
+const threeEffectPreview = singleEquipmentPreviewCase('equipment.current.glove');
+assert.equal(evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(threeEffectPreview.team), completedPreview(threeEffectPreview.input, threeEffectPreview.output)]),
+]), previewScenario).status, 'PASS', 'a three-effect piece locks all three existing levels');
+
+const unsupportedPotentialResult = structuredClone(currentTeamResult);
+unsupportedPotentialResult.operators[0].weapon.potential = '3潜';
+const previewUnsupportedPotential = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(unsupportedPotentialResult), completedPreview({
+    ...matchingPreviewInput,
+    weaponPotential: '3潜',
+  }, {
+    ...previewResult,
+    finalConfig: {
+      ...previewResult.finalConfig,
+      weapon: { ...previewResult.finalConfig.weapon, potential: '3潜' },
+    },
+  })]),
+]), previewScenario);
+assert.equal(previewUnsupportedPotential.status, 'FAIL', 'an unmapped source potential fails instead of passing through');
+assert.ok(failureCodes(previewUnsupportedPotential).has('required-turn-tool-input-assertions-missing'));
+
+const previewWrongPotentialMapping = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    weaponPotential: 'P0',
+  })]),
+]), previewScenario);
+assert.equal(previewWrongPotentialMapping.status, 'FAIL', 'preview input maps the current renderer potential to the exact tool enum');
+assert.ok(failureCodes(previewWrongPotentialMapping).has('required-turn-tool-input-assertions-missing'));
+
+const previewWrongSkill3Base = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    weaponSkill3Level: 4,
+  })]),
+]), previewScenario);
+assert.equal(previewWrongSkill3Base.status, 'FAIL', 'preview input maps the current effective skill 3 level back to its exact pre-potential base');
+assert.ok(failureCodes(previewWrongSkill3Base).has('required-turn-tool-input-assertions-missing'));
+
+const zeroPotentialTeamResult = structuredClone(currentTeamResult);
+zeroPotentialTeamResult.operators[0].weapon.potential = '0潜';
+zeroPotentialTeamResult.operators[0].weapon.skillLevels.skill3 = 4;
+const zeroPotentialPreviewInput = { ...matchingPreviewInput, weaponPotential: 'P0', weaponSkill3Level: 4 };
+const zeroPotentialPreviewResult = {
+  ...previewResult,
+  finalConfig: {
+    ...previewResult.finalConfig,
+    weapon: {
+      ...previewResult.finalConfig.weapon,
+      potential: '0潜',
+      skillLevels: { ...previewResult.finalConfig.weapon.skillLevels, skill3: 4 },
+    },
+  },
+};
+assert.equal(evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(zeroPotentialTeamResult), completedPreview(zeroPotentialPreviewInput, zeroPotentialPreviewResult)]),
+]), previewScenario).status, 'PASS', 'zero-potential input and effective skill 3 values use the declared closed mappings');
+
+const previewWrongIdentity = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    weaponId: 'weapon.other',
+  })]),
+]), previewScenario);
+assert.equal(previewWrongIdentity.status, 'FAIL', 'preview input must preserve the prior current weapon identity');
+assert.ok(failureCodes(previewWrongIdentity).has('required-turn-tool-input-assertions-missing'));
+
+const previewOmittedLevels = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    weaponLevel: undefined,
+    weaponSkill1Level: undefined,
+    operatorSkillA: undefined,
+  })]),
+]), previewScenario);
+assert.equal(previewOmittedLevels.status, 'FAIL', 'preview input cannot silently default current weapon/operator levels');
+assert.ok(failureCodes(previewOmittedLevels).has('required-turn-tool-input-assertions-missing'));
+
+const previewOmittedEquipmentLevel = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    equipments: matchingPreviewInput.equipments.map((equipment, index) => (
+      index === 0 ? { ...equipment, equipmentEntry2Level: undefined } : equipment
+    )),
+  })]),
+]), previewScenario);
+assert.equal(previewOmittedEquipmentLevel.status, 'FAIL', 'preview input cannot silently default an existing equipment effect level');
+assert.ok(failureCodes(previewOmittedEquipmentLevel).has('required-turn-tool-input-assertions-missing'));
+
+const previewInventedEquipmentLevel = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview({
+    ...matchingPreviewInput,
+    equipments: matchingPreviewInput.equipments.map((equipment, index) => (
+      index === 1 ? { ...equipment, equipmentEntry3Level: 3 } : equipment
+    )),
+  })]),
+]), previewScenario);
+assert.equal(previewInventedEquipmentLevel.status, 'FAIL', 'preview input cannot invent a level for a nonexistent equipment effect');
+assert.ok(failureCodes(previewInventedEquipmentLevel).has('required-turn-tool-input-assertions-missing'));
+
+const previewFinalConfigDrift = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview(matchingPreviewInput, {
+    ...previewResult,
+    finalConfig: {
+      ...previewResult.finalConfig,
+      weapon: { ...previewResult.finalConfig.weapon, level: 90 },
+    },
+  })]),
+]), previewScenario);
+assert.equal(previewFinalConfigDrift.status, 'FAIL', 'renderer finalConfig must preserve the prior current loadout');
+assert.ok(failureCodes(previewFinalConfigDrift).has('required-turn-tool-result-assertions-missing'));
+
+const previewFinalSkill3Drift = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview(matchingPreviewInput, {
+    ...previewResult,
+    finalConfig: {
+      ...previewResult.finalConfig,
+      weapon: {
+        ...previewResult.finalConfig.weapon,
+        skillLevels: { ...previewResult.finalConfig.weapon.skillLevels, skill3: matchingPreviewInput.weaponSkill3Level },
+      },
+    },
+  })]),
+]), previewScenario);
+assert.equal(previewFinalSkill3Drift.status, 'FAIL', 'renderer finalConfig must retain the effective skill 3 level, not the preview input base');
+assert.ok(failureCodes(previewFinalSkill3Drift).has('required-turn-tool-result-assertions-missing'));
+
+const previewFinalEffectIdentityDrift = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview(matchingPreviewInput, {
+    ...previewResult,
+    finalConfig: {
+      ...previewResult.finalConfig,
+      equipment: previewResult.finalConfig.equipment.map((equipment, index) => (
+        index === 0 ? {
+          ...equipment,
+          effects: equipment.effects.map((effect, effectIndex) => (
+            effectIndex === 0 ? { ...effect, effectId: 'effect.other' } : effect
+          )),
+        } : equipment
+      )),
+    },
+  })]),
+]), previewScenario);
+assert.equal(previewFinalEffectIdentityDrift.status, 'FAIL', 'renderer finalConfig must preserve equipment effect identity with its level');
+assert.ok(failureCodes(previewFinalEffectIdentityDrift).has('required-turn-tool-result-assertions-missing'));
+
+const previewMissingToken = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview(matchingPreviewInput, {
+    ...previewResult, proposalToken: undefined,
+  })]),
+]), previewScenario);
+assert.equal(previewMissingToken.status, 'FAIL', 'preview without a proposal token fails');
+assert.ok(failureCodes(previewMissingToken).has('required-turn-tool-result-assertions-missing'));
+
+const previewWrongStatus = evaluateScenarioVerification(syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview(matchingPreviewInput, {
+    ...previewResult, state: 'READY',
+  })]),
+]), previewScenario);
+assert.equal(previewWrongStatus.status, 'FAIL', 'preview without REVIEW_REQUIRED status fails');
+assert.ok(failureCodes(previewWrongStatus).has('required-turn-tool-result-assertions-missing'));
+
+const previewWithApprovalQuestionRun = syntheticRun([
+  syntheticTurn(1, [completedTeamLoadouts(), completedPreview()]),
+]);
+previewWithApprovalQuestionRun.questions = { value: { questions: [{ requestId: 'approval-1', status: 'open' }] } };
+const previewWithApprovalQuestion = evaluateScenarioVerification(previewWithApprovalQuestionRun, previewScenario);
+assert.equal(previewWithApprovalQuestion.status, 'FAIL', 'preview cannot request approval through a native question');
+assert.ok(failureCodes(previewWithApprovalQuestion).has('max-question-requests-exceeded'));
+
 const expectations = [
   ['equipment-3plus1-topology-v1.json', 2, 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
   ['equipment-3plus1-set-selection-v1.json', 2, 1, ['为汤汤挑一套 3+1 装备，优先适配她的输出机制，不指定套装。']],
@@ -407,6 +827,14 @@ console.log(JSON.stringify({
     'source-only-guide-repeated-search-and-section-calls-rejected',
     'source-only-guide-section-read-bound-to-search-exact-read-policy',
     'source-only-guide-unrelated-exact-reference-rejected',
+    'catalog-one-weapon-plus-one-equipment-batch-only',
+    'catalog-materialize-read-and-fragment-retries-rejected',
+    'catalog-exact-input-and-structured-result-identity-enforced',
+    'invalid-structured-assertion-schema-is-error-verifier',
+    'invalid-verifier-schema-is-pre-provider',
+    'structured-assertion-engine-has-no-scenario-id-special-cases',
+    'operator-current-loadout-preview-cross-call-full-config-enforced',
+    'operator-preview-review-token-status-and-no-approval-enforced',
     'topology-and-set-scenarios-migrated',
     'unresolved-composite-scenario-present',
     'unresolved-typed-contract-state-and-final-visible-conclusion-required',

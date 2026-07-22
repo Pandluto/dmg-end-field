@@ -1,14 +1,226 @@
 {
   "id": "operator-config-preview-v1",
-  "version": 1,
-  "fixtureMode": "clone-current",
+  "version": 2,
+  "fixtureMode": "active-current-readonly",
   "requiresSnapshot": true,
   "turns": [
-    { "userText": "给当前四名干员各配一把合适的武器和一套完整装备，先给我方案，不要应用。" }
+    { "userText": "请先读取当前第一名干员的完整现有配装，再用完全相同的武器和每件装备生成一次只读配置预览；只给我预览方案，不要应用、创建节点或请求批准。" }
   ],
   "verification": {
-    "requiredTools": ["def_data_weapon", "def_data_equipment"],
-    "forbiddenTools": ["def_node_use", "def_operator_config_patch"],
+    "requiredTools": ["def_data_team_loadouts", "def_operator_config_preview"],
+    "requiredToolsByTurn": {
+      "1": ["def_data_team_loadouts", "def_operator_config_preview"]
+    },
+    "onlyToolsByTurn": {
+      "1": ["def_data_team_loadouts", "def_operator_config_preview"]
+    },
+    "orderedToolsByTurn": {
+      "1": ["def_data_team_loadouts", "def_operator_config_preview"]
+    },
+    "forbiddenTools": [
+      "def_operator_config_patch",
+      "def_node_fork",
+      "def_node_bind",
+      "def_node_code_materialize",
+      "def_node_use",
+      "def_team_selection_apply",
+      "def_team_loadout_plan_apply",
+      "question",
+      "edit",
+      "write"
+    ],
+    "maxRepeatedToolCalls": {
+      "def_data_team_loadouts": 1,
+      "def_operator_config_preview": 1
+    },
+    "maxQuestionRequests": 0,
+    "requiredToolInputAssertionsByTurn": {
+      "1": {
+        "def_data_team_loadouts": [
+          { "path": "characterIds", "exists": false }
+        ],
+        "def_operator_config_preview": [
+          { "path": "proposalToken", "exists": false },
+          {
+            "path": "characterId",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.characterId" }
+          },
+          {
+            "path": "characterName",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.characterName" }
+          },
+          {
+            "path": "weaponId",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.id" }
+          },
+          {
+            "path": "weaponName",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.name" }
+          },
+          {
+            "path": "weaponLevel",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.level" }
+          },
+          {
+            "path": "weaponPotential",
+            "equalsFrom": {
+              "tool": "def_data_team_loadouts",
+              "path": "operators.0.weapon.potential",
+              "valueMap": [
+                { "from": "0潜", "to": "P0" },
+                { "from": "满潜", "to": "PMAX" }
+              ]
+            }
+          },
+          {
+            "path": "weaponSkill1Level",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.skillLevels.skill1" }
+          },
+          {
+            "path": "weaponSkill2Level",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.skillLevels.skill2" }
+          },
+          {
+            "path": "weaponSkill3Level",
+            "equalsFrom": {
+              "tool": "def_data_team_loadouts",
+              "path": "operators.0.weapon.skillLevels.skill3",
+              "valueMap": [
+                { "from": 1, "to": 1 },
+                { "from": 2, "to": 2 },
+                { "from": 3, "to": 3 },
+                { "from": 4, "to": 4 },
+                { "from": 6, "to": 1 },
+                { "from": 7, "to": 2 },
+                { "from": 8, "to": 3 },
+                { "from": 9, "to": 4 }
+              ]
+            }
+          },
+          {
+            "path": "operatorSkillA",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.A" }
+          },
+          {
+            "path": "operatorSkillB",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.B" }
+          },
+          {
+            "path": "operatorSkillE",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.E" }
+          },
+          {
+            "path": "operatorSkillQ",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.Q" }
+          },
+          {
+            "path": "equipments",
+            "itemsEqualFrom": {
+              "tool": "def_data_team_loadouts",
+              "path": "operators.0.equipment",
+              "fieldMap": {
+                "equipmentId": "equipmentId",
+                "equipmentName": "name",
+                "slotKey": "slotKey",
+                "equipmentEntry1Level": "effects.0.level",
+                "equipmentEntry2Level": "effects.1.level",
+                "equipmentEntry3Level": "effects.2.level"
+              },
+              "order": "any"
+            }
+          }
+        ]
+      }
+    },
+    "requiredToolResultAssertionsByTurn": {
+      "1": {
+        "def_data_team_loadouts": [
+          { "path": "contract", "equals": "DefSelectedTeamLoadoutsV1" },
+          { "path": "operators", "type": "array", "minItems": 1 },
+          { "path": "operators.0.characterId", "type": "string", "minLength": 1 },
+          { "path": "operators.0.characterName", "type": "string", "minLength": 1 },
+          { "path": "operators.0.weapon.id", "type": "string", "minLength": 1 },
+          { "path": "operators.0.weapon.name", "type": "string", "minLength": 1 },
+          { "path": "operators.0.equipment", "type": "array", "minItems": 1 }
+        ],
+        "def_operator_config_preview": [
+          { "path": "state", "equals": "REVIEW_REQUIRED" },
+          { "path": "proposalToken", "type": "string", "minLength": 20 },
+          { "path": "currentCheckoutTouched", "equals": false },
+          {
+            "path": "finalConfig.characterId",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.characterId" }
+          },
+          {
+            "path": "finalConfig.characterName",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.characterName" }
+          },
+          {
+            "path": "finalConfig.weapon.id",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.id" }
+          },
+          {
+            "path": "finalConfig.weapon.name",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.name" }
+          },
+          {
+            "path": "finalConfig.weapon.level",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.level" }
+          },
+          {
+            "path": "finalConfig.weapon.potential",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.potential" }
+          },
+          {
+            "path": "finalConfig.weapon.skillLevels.skill1",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.skillLevels.skill1" }
+          },
+          {
+            "path": "finalConfig.weapon.skillLevels.skill2",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.skillLevels.skill2" }
+          },
+          {
+            "path": "finalConfig.weapon.skillLevels.skill3",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.weapon.skillLevels.skill3" }
+          },
+          {
+            "path": "finalConfig.operatorSkillLevels.A",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.A" }
+          },
+          {
+            "path": "finalConfig.operatorSkillLevels.B",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.B" }
+          },
+          {
+            "path": "finalConfig.operatorSkillLevels.E",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.E" }
+          },
+          {
+            "path": "finalConfig.operatorSkillLevels.Q",
+            "equalsFrom": { "tool": "def_data_team_loadouts", "path": "operators.0.operatorSkillLevels.Q" }
+          },
+          {
+            "path": "finalConfig.equipment",
+            "itemsEqualFrom": {
+              "tool": "def_data_team_loadouts",
+              "path": "operators.0.equipment",
+              "fieldMap": {
+                "equipmentId": "equipmentId",
+                "name": "name",
+                "slotKey": "slotKey",
+                "effects.0.effectId": "effects.0.effectId",
+                "effects.0.level": "effects.0.level",
+                "effects.1.effectId": "effects.1.effectId",
+                "effects.1.level": "effects.1.level",
+                "effects.2.effectId": "effects.2.effectId",
+                "effects.2.level": "effects.2.level"
+              },
+              "order": "any"
+            }
+          }
+        ]
+      }
+    },
     "mustKeepState": true
   }
 }
