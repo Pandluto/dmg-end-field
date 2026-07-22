@@ -2,12 +2,12 @@
 
 ## 状态
 
-`INTEGRATED_AWAITING_W6`
+`BLOCKED_EXTERNAL_PROVIDER_AUTH`
 
 W1–W4 与 WS 已完成并合入同一集成分支。
 W5 已接通跨包注册合同与标准测试入口。
-当前只等待 W6 fresh-session、Interop 与真实界面证据。
-候选尚未 promotion，正式激活仍需用户决定。
+W6 已补齐 DEF Shell 入口、renderer loopback、Interop loopback 与真实界面证据。
+当前只剩 provider 认证阻塞；候选尚未 promotion，正式激活仍需用户决定。
 
 当前已知提交：
 
@@ -28,7 +28,9 @@ W5 已接通跨包注册合同与标准测试入口。
 | W2 Tool Surface | `585e18a9b554a70401f0732842c469d77ceb45b9`、`942ed9dbba6c7c3a6fba189c8028da99833dcbb3`、`1ddee1ceb6d1858f85295d06c45d2b3c1adcd602` | 新增 V1 Tool、Schema 与 typed mapping；三个旧 primitive 继续兼容 |
 | W3 Runtime + Harness | `ef50ed51644fc4e3e763ac2832b508e4e41e7ae1`、`3e5971edadce7d2edcd07e3b8653ec2581e51cf4` | 候选为 `def-equipment-3plus1-composite@9.1.0-candidate.1`；不修改 stable pointer |
 | W4 Teacher Audit | `2f8ade5d0a68d60a7a1a2216cff298d555482bbb` | Finding 按 Tool、Domain、Runtime 的唯一 owner 返修 |
-| WS Session Cleanup | `e218f41ef0aade29ea2486df7a99e88ab9da3fdd` | Host 手动清理入口；保留当前 Session 与全部 Workbench Session |
+| WS Session Cleanup | `e218f41ef0aade29ea2486df7a99e88ab9da3fdd`、`ed9457e135d758ecc1552f377285eb91ac1665af` | 清理入口位于 DEF Shell Agent 页；用户显式选择保留的合法 `ai-cli` Session；全部 Workbench Session 永不命中 |
+| W5 Integration | `9b9b3db8ab30a7a39044c5102420f1737af60999` | 跨包注册、聚合命令、候选构建与 W6 基线 |
+| W6 native loopback | `1ce571845878ee435f35cf8d58d939b6772401b5`、`6613d24c97975d3c2a8e5af85c0091aeb800bacd` | renderer 与 Interop 的受保护 `127.0.0.1:17321` 请求不再经过 Chromium 默认网络栈；普通网络路径不变 |
 
 W3 候选的真实 `contentHash` 只能由干净 W5 提交重新构建取得。
 该值记录在 `verification.md`，不得沿用工作包构建时的临时值。
@@ -40,11 +42,11 @@ Session cleanup 固定为 `POST /api/native/sessions/cleanup`。
 它只接受 `{ host: "ai-cli", keepSessionID }`，且只由用户点击触发。
 本轮不做归档、TTL、自动过期或后台清扫。
 
-Windows Chrome UI 验收使用了隔离 AppData。
-页面成功进入选人界面，但创建隔离工作台时被
+W0 的 Windows Chrome 隔离验收曾被
 `Workbench local-data transport is unavailable to this caller` 阻塞。
-该项记为 `ENVIRONMENT_BLOCKED`，不记为产品 PASS 或 FAIL。
-用户已明确授权编码继续；真实 UI 结论仍由 W6 补齐。
+W6 已从产品入口重新进入 Workbench 和 AI 模式；旧 caller gate 已消失。
+真实 Interop 状态为 `snapshotAvailable=true`、`uiConsumerCount=1`，并显式绑定 Spec 9 候选。
+当前阻塞来自未配置的 DeepSeek Key，不是 UI、Host、Interop 或 Harness 注册。
 
 ## 一、已经完成的开工门
 
@@ -262,7 +264,7 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 固定边界：
 
 - 只处理 `host=ai-cli`；
-- 当前 `keepSessionID` 必须保留且先验证；
+- 用户显式选择的 `keepSessionID` 必须保留且先验证；
 - Workbench 永不进入目标集；
 - renderer 不提供目录或待删 id 列表；
 - 不做归档、TTL、自动过期或后台清扫。
@@ -297,7 +299,7 @@ W5 才能写 `package.json`、registration contract、本文最终状态与 `ver
 | Candidate | `def-equipment-3plus1-composite@9.1.0-candidate.1` |
 | Session cleanup endpoint | `POST /api/native/sessions/cleanup` |
 | Session cleanup request | `{ host: "ai-cli", keepSessionID }` |
-| Session cleanup preserve rule | 当前 Session 与全部 Workbench Session 永不命中 |
+| Session cleanup preserve rule | 显式选择的合法 `ai-cli` Session 与全部 Workbench Session 永不命中 |
 
 任何包发现这些连接点不可实现时，停止扩面并返回 `contractFindings`。
 不能临时创造第二个 route、Schema 或 adapter。
@@ -380,8 +382,13 @@ W5 只做合并、registration contract、聚合命令和证据记录。
 
 W6 从 W5 精确提交建立隔离测试 worktree，
 只测试显式绑定新 candidate 的 fresh Session。
-它不修改代码，也不 promotion。
-它另外用 Computer Use 验证 DEF Shell cleanup 按钮、取消路径和当前 Session 保留。
+W6 发现的 Host 缺陷先在集成分支修复，再带回隔离 worktree 重建运行时；没有 promotion。
+Computer Use 已验证 DEF Shell cleanup 按钮、显式保留选择、确认与取消路径。
+Chrome 与 Interop 已验证真实 Workbench、AI 模式、快照和候选绑定。
+
+三条场景的 package-check 均通过。
+首个真实 topology run 在调用任何 Tool 前被 provider 401 阻断，并已完成 runner cleanup。
+在有效 provider 配置出现前，不重复运行其余语义场景，也不把该结果归因于候选行为。
 
 W6 完成后，结果只能是：
 

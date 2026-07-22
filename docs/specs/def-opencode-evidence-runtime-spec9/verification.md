@@ -2,11 +2,12 @@
 
 ## 当前结论
 
-`INTEGRATED_AWAITING_W6`
+`BLOCKED_EXTERNAL_PROVIDER_AUTH`
 
-五个实现包已经合入，W5 跨包接线已经完成。
-当前不代表候选已上线，也没有修改 stable pointer。
-最终 activation 结论等待 W6 fresh-session 与真实界面验证。
+五个实现包、W5 跨包接线和 W6 Host 返修已经完成。
+Workbench、Interop、候选绑定和 DEF Shell 清理入口均已通过真实界面验证。
+DeepSeek Key 尚未配置；真实模型调用返回 401，三条语义场景不能给出通过结论。
+候选没有上线，stable pointer 也没有修改。
 
 ## 提交基线
 
@@ -19,7 +20,10 @@
 | W3 Runtime + Harness | `ef50ed51644fc4e3e763ac2832b508e4e41e7ae1`、`3e5971edadce7d2edcd07e3b8653ec2581e51cf4` |
 | W4 Teacher Audit | `2f8ade5d0a68d60a7a1a2216cff298d555482bbb` |
 | WS Session Cleanup | `e218f41ef0aade29ea2486df7a99e88ab9da3fdd` |
-| W5 Integration | 待本轮验证后提交 |
+| W5 Integration | `9b9b3db8ab30a7a39044c5102420f1737af60999` |
+| W6 Shell 入口返修 | `ed9457e135d758ecc1552f377285eb91ac1665af` |
+| W6 renderer loopback 返修 | `1ce571845878ee435f35cf8d58d939b6772401b5` |
+| W6 Interop loopback 返修 | `6613d24c97975d3c2a8e5af85c0091aeb800bacd` |
 
 ## 实现边界
 
@@ -37,6 +41,7 @@
 | Service + Tool Surface + Registration aggregate | PASS | `npm run test:def-equipment-3plus1-recommendation` |
 | Cross-package registration wiring | PASS | 真实隔离 sidecar；覆盖 definition、route-map、session policy、dispatcher 与 W1 Service |
 | Host session cleanup contract | PASS | `npm run test:def-native-session-cleanup`；使用临时目录与伪上游 |
+| Native loopback authority contract | PASS | `npm run test:def-native-loopback-proxy`；覆盖 renderer proxy、Interop GET/POST、401、超时与非回环拒绝 |
 | Operator build planning aggregate | PASS | `npm run test:def-operator-build-planning` |
 | Harness guide-first policy | PASS | `npm run test:def-harness-guide-first` |
 | Harness turn routing | PASS | `npm run test:def-harness-turn-routing` |
@@ -60,29 +65,40 @@
 | 字段 | 当前值 |
 | --- | --- |
 | Harness selector | `def-equipment-3plus1-composite@9.1.0-candidate.1` |
-| Immutable ref | NOT RUN |
-| `contentHash` | NOT RUN |
-| W5 source commit | NOT RUN |
-| stable pointer | 未修改；注册后再次核对 |
+| Immutable ref | `{ harnessId: "def-equipment-3plus1-composite", version: "9.1.0-candidate.1", contentHash: "34c3e4d6…c15a6" }` |
+| `contentHash` | `34c3e4d63ed51df716fcb80c78f7d027eff24d1f4117ae162227a098847c15a6` |
+| W5 source commit | `9b9b3db8ab30a7a39044c5102420f1737af60999` |
+| W5 source tree | `7c7a3f77ad6c25666b83b2bee5689a943d080536671b545e3070ad9b52e357cd` |
+| stable pointer | `def-stable@0.0.0` / `9a9926502c2bb2296f106512a45684cbcc7bad6de2119f32dc70b9aa662c5261`；`previousStable=null` |
 
-候选必须从干净 W5 提交重新构建。
-工作包阶段产生的临时 hash 不是正式证据。
+候选已从干净 W5 提交构建并注册。
+W6 的 Host 返修不修改 Harness package 内容，因此不重写该 immutable ref。
+
+三条场景的 package-check 均为 PASS：
+
+| 场景 | package-check id | 状态 |
+| --- | --- | --- |
+| `equipment-3plus1-topology-v1` | `package-check-a46c3514-12e4-4475-b754-a337b637e1f2` | `PACKAGE_CHECK_PASS` |
+| `equipment-3plus1-set-selection-v1` | `package-check-61fda0ed-4b06-4286-a9f9-e9be41e7459d` | `PACKAGE_CHECK_PASS` |
+| `equipment-3plus1-unresolved-v1` | `package-check-cc591b27-45ef-45eb-9d5f-afdcebfc53ef` | `PACKAGE_CHECK_PASS` |
 
 ## W6 fresh-session 证据
 
 | 验证面 | 状态 | 说明 |
 | --- | --- | --- |
-| AgentRelease / runtime commit / release hash | NOT RUN | 只记录真实运行返回值 |
-| `equipment-3plus1-topology-v1` | NOT RUN | 必须显式绑定完整 Harness ref |
-| `equipment-3plus1-set-selection-v1` | NOT RUN | 必须显式绑定完整 Harness ref |
-| `equipment-3plus1-unresolved-v1` | NOT RUN | 必须显式绑定完整 Harness ref |
-| `operator-config-correction-review-v1` | NOT RUN | 需要隔离 snapshot；不能触碰正式数据 |
-| Interop events / transcript / questions | NOT RUN | 协议证据是工具与终态的权威来源 |
-| Workbench Chrome UI | BLOCKED | W0 遇到 `Workbench local-data transport is unavailable to this caller`；W6 按产品入口重试 |
-| DEF Shell cleanup button | NOT RUN | 验证确认、取消、当前 Session 保留和刷新 |
+| AgentRelease / runtime commit / release hash | PASS | W6 runtime `91ac1a28c8b8be724250f968cfe7daa30d5bdfbc`；release `ae5f8cc3f582f69c53442f49c900a4027444ff3dcfe654f48f882b6d52e8bbde`；候选 hash 与注册值一致 |
+| `equipment-3plus1-topology-v1` | BLOCKED_EXTERNAL_PROVIDER | run `native-harness-run-f89cc4d0-bf43-4d4a-8323-242d93f063ca`；Session `ses_07686b64fffeKpIzvTG9bBgoIX`；provider 401；Tool 调用数为 0；runner cleanup 完成 |
+| `equipment-3plus1-set-selection-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | package-check 已 PASS；不重复触发已知无效 provider |
+| `equipment-3plus1-unresolved-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | package-check 已 PASS；不重复触发已知无效 provider |
+| `operator-config-correction-review-v1` | NOT_RUN_AFTER_PROVIDER_BLOCK | 不在 provider 无效时创建无意义的写入审核会话 |
+| Interop state / binding | PASS | `snapshotAvailable=true`、`uiConsumerCount=1`、显式绑定完整候选 ref；真实 AgentRelease 可读 |
+| Workbench Chrome UI | PASS | 从产品入口进入真实 Workbench 与 AI 模式；旧 caller gate 已消失；renderer snapshot 与 Interop snapshot 均可用 |
+| DEF Shell cleanup button | PASS_CANCEL_PATH | Agent 页可见；只列出 1 个合法 `ai-cli` Session；显式选择后才可清理；确认框取消后 1 个 `ai-cli` 与 8 个 Workbench Session 均保留 |
+| Provider 配置 | BLOCKED | `/api/config/deepseek` 返回 `apiKeyConfigured=false`；首个真实 turn 收到非重试型 401 `Authentication Fails` |
 
-W0 的 UI 阻塞属于环境证据，不等于候选 PASS 或 FAIL。
-W6 不得通过伪造 capability、直接 REST 或旧会话绕过它。
+首个真实 run 发生在 loopback 返修之前，因此当时还记录了 `snapshotAvailable=false`。
+返修后重新从产品入口验证，Interop 已稳定返回快照与候选绑定。
+由于 provider 仍不可用，没有把旧 run 的场景校验失败误记为候选行为失败。
 
 ## Activation 边界
 
@@ -90,3 +106,4 @@ W6 不得通过伪造 capability、直接 REST 或旧会话绕过它。
 - 默认 Harness 尚未切换。
 - 旧 primitive 尚未退休。
 - 用户尚未作 activation 决定。
+- 配置有效 provider 后，先跑一次最小探针，再顺序执行三条 fresh-session 场景；全部通过后才能改为 `READY_FOR_ACTIVATION_DECISION`。
