@@ -1941,8 +1941,14 @@ const server = http.createServer(async (request, response) => {
 
     const messageMatch = /^\/api\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
     if (method === 'POST' && messageMatch) {
-      await ensureDefRestService();
       const sessionID = decodeURIComponent(messageMatch[1]);
+      if (!findNativeSessionBinding(sessionID)) {
+        const error = new Error('persisted DEF session not found');
+        error.code = 'DEF_SESSION_NOT_FOUND';
+        error.status = 404;
+        throw error;
+      }
+      await ensureDefRestService();
       const body = await readJsonBody(request);
       const result = await continueChat(sessionID, body.message, body.clientTurnId, {
         config: readConfig().deepseek,
@@ -2109,4 +2115,5 @@ module.exports = {
   cleanupNativeAiCliSessions,
   deleteNativeSessionById,
   enumerateNativeAiCliCleanupTargets,
+  server,
 };

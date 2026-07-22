@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const adapter = require('../agent/runtime/def-opencode-adapter/index.cjs');
 const {
   clearRegisteredHarnessVerificationCache,
   isDefEquipment3Plus1HarnessBinding,
@@ -16,15 +18,21 @@ const {
 const {
   createSessionHarnessSeal,
   ensurePersistentSessionHarnessSealKey,
+  readPersistentSessionHarnessSealKeyRecord,
   verifySessionHarnessSeal,
 } = require('../agent/runtime/def-opencode-adapter/session-harness-seal.cjs');
 const {
   buildOpenCodeRuntimeEnv,
+  continueChat,
   createAgentSessionWorkspace,
+  ensureNativeSessionAxisBinding,
+  getPersistedDefSession,
   getNativeHarnessSystem,
+  hydrateDefSession,
+  listPersistedDefSessions,
   readNativeSessionBinding,
   writeSessionBinding,
-} = require('../agent/runtime/def-opencode-adapter/index.cjs');
+} = adapter;
 const defHarness = require('../agent/harness/def-harness.cjs');
 
 const harnessFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-turn-routing-registry-'));
@@ -191,6 +199,58 @@ assert.match(persistentSealKey, /^[a-f0-9]{64}$/);
 assert.equal(ensurePersistentSessionHarnessSealKey(persistentSealKeyFile), persistentSealKey,
   'the sidecar seal key must persist across reads');
 assert.equal(verifySessionHarnessSeal(compositeBinding, harnessSealKey), true);
+
+{
+  let contentReads = 0;
+  assert.throws(() => readPersistentSessionHarnessSealKeyRecord(persistentSealKeyFile, {
+    lstatSync: () => ({
+      isFile: () => true,
+      isSymbolicLink: () => true,
+      size: 65,
+    }),
+    readFileSync: () => {
+      contentReads += 1;
+      return persistentSealKey;
+    },
+  }), /not a safe regular file/,
+  'the persistent seal key reader must reject a symlink before reading its target');
+  assert.equal(contentReads, 0, 'a rejected seal key symlink must never be followed');
+
+  let closedDescriptors = 0;
+  const inspectedStat = {
+    dev: 1,
+    ino: 10,
+    size: 65,
+    mtimeMs: 1,
+    isFile: () => true,
+    isSymbolicLink: () => false,
+  };
+  const replacedStat = {
+    ...inspectedStat,
+    ino: 11,
+  };
+  assert.throws(() => readPersistentSessionHarnessSealKeyRecord(persistentSealKeyFile, {
+    lstatSync: () => inspectedStat,
+    openSync: () => 41,
+    fstatSync: () => replacedStat,
+    readFileSync: () => persistentSealKey,
+    closeSync: () => {
+      closedDescriptors += 1;
+    },
+  }), /changed while being opened/,
+  'the persistent seal key reader must reject replacement between lstat and open');
+  assert.equal(closedDescriptors, 1, 'seal key replacement rejection must close its descriptor');
+
+  const firstRecord = readPersistentSessionHarnessSealKeyRecord(persistentSealKeyFile);
+  const bindingForPersistentKey = structuredClone(compositeBinding);
+  bindingForPersistentKey.harnessIdentitySeal = createSessionHarnessSeal(bindingForPersistentKey, firstRecord.key);
+  fs.writeFileSync(persistentSealKeyFile, `${'8'.repeat(64)}\n`, { encoding: 'utf8', mode: 0o600 });
+  const replacementRecord = readPersistentSessionHarnessSealKeyRecord(persistentSealKeyFile);
+  assert.notEqual(replacementRecord.signature, firstRecord.signature,
+    'a same-size in-place key replacement must change the validated cache signature');
+  assert.equal(verifySessionHarnessSeal(bindingForPersistentKey, replacementRecord.key), false,
+    'a replaced persistent key must fail closed for identities sealed by the prior key');
+}
 
 const runtimeEnv = buildOpenCodeRuntimeEnv({}, {
   openCodeHome: path.join(harnessFixtureRoot, 'opencode-home'),
@@ -456,6 +516,102 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     }, null, 2)}\n`, 'utf8');
     assert(readNativeSessionBinding(legacyStableDirectory, legacyStableSessionID, { includeNodeRelation: false, harnessSealKey }),
       'a legacy stable binding without a seal remains readable');
+    const legacyAxisBinding = ensureNativeSessionAxisBinding(legacyStableDirectory, legacyStableSessionID);
+    assert.match(legacyAxisBinding?.axisBindingId || '', /^axis-/,
+      'a strict legacy stable binding may receive an axis id through the safe descriptor writer');
+
+    const axisRaceDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(axisRaceDirectory);
+    const axisRaceSessionID = 'legacy-axis-race-session';
+    const axisRaceHarnessBinding = makeHarnessBinding(axisRaceSessionID, 'stable', stableHarnessRef);
+    const axisRaceTarget = path.join(axisRaceDirectory, '.def-session.json');
+    const axisRaceContents = `${JSON.stringify({
+      schemaVersion: 5,
+      sessionID: axisRaceSessionID,
+      directory: axisRaceDirectory,
+      host: 'workbench',
+      harnessBinding: axisRaceHarnessBinding,
+    }, null, 2)}\n`;
+    fs.writeFileSync(axisRaceTarget, axisRaceContents, 'utf8');
+    const originalOpenSync = fs.openSync;
+    let axisReadWriteOpens = 0;
+    const racingOpenSync = function racingOpenSync(target, flags, ...rest) {
+      const isAxisTarget = path.resolve(String(target)) === path.resolve(axisRaceTarget);
+      const isReadWrite = typeof flags === 'number' && (flags & fs.constants.O_RDWR) === fs.constants.O_RDWR;
+      if (isAxisTarget && isReadWrite) {
+        axisReadWriteOpens += 1;
+        if (axisReadWriteOpens === 2) {
+          fs.openSync = originalOpenSync;
+          try {
+            fs.appendFileSync(axisRaceTarget, ' ', 'utf8');
+          } finally {
+            fs.openSync = racingOpenSync;
+          }
+        }
+      }
+      return originalOpenSync.call(fs, target, flags, ...rest);
+    };
+    fs.openSync = racingOpenSync;
+    try {
+      assert.throws(() => ensureNativeSessionAxisBinding(axisRaceDirectory, axisRaceSessionID),
+        (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+        'axis backfill must reject a Session binding changed between safe read and descriptor rewrite');
+    } finally {
+      fs.openSync = originalOpenSync;
+    }
+    fs.unlinkSync(axisRaceTarget);
+    fs.writeFileSync(axisRaceTarget, axisRaceContents, 'utf8');
+    assert(ensureNativeSessionAxisBinding(axisRaceDirectory, axisRaceSessionID)?.axisBindingId,
+      'axis race rejection must not leak a Windows descriptor lock');
+
+    const noProgressDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(noProgressDirectory);
+    const noProgressSession = makeCandidateSession('binding-write-no-progress');
+    const noProgressTarget = path.join(noProgressDirectory, '.def-session.json');
+    const originalWriteSync = fs.writeSync;
+    fs.writeSync = () => 0;
+    try {
+      assert.throws(() => writeSessionBinding(noProgressDirectory, noProgressSession, { harnessSealKey }),
+        /write made no progress/,
+        'a zero-progress Session binding write must fail instead of looping or reporting success');
+    } finally {
+      fs.writeSync = originalWriteSync;
+    }
+    fs.unlinkSync(noProgressTarget);
+    writeSessionBinding(noProgressDirectory, noProgressSession, { harnessSealKey });
+    assert(readNativeSessionBinding(noProgressDirectory, noProgressSession.id, { includeNodeRelation: false, harnessSealKey }),
+      'zero-progress failure must close the descriptor and permit a later legal creation');
+
+    const partialWriteDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(partialWriteDirectory);
+    const partialWriteSession = makeCandidateSession('binding-write-partial-failure');
+    const partialWriteTarget = path.join(partialWriteDirectory, '.def-session.json');
+    let partialWriteCalls = 0;
+    fs.writeSync = (descriptor, buffer, offset, length, position) => {
+      partialWriteCalls += 1;
+      if (partialWriteCalls === 1) {
+        return originalWriteSync.call(fs, descriptor, buffer, offset, Math.min(length, 16), position);
+      }
+      throw new Error('injected partial Session binding write failure');
+    };
+    try {
+      assert.throws(() => writeSessionBinding(partialWriteDirectory, partialWriteSession, { harnessSealKey }),
+        /injected partial Session binding write failure/);
+    } finally {
+      fs.writeSync = originalWriteSync;
+    }
+    assert.equal(readNativeSessionBinding(
+      partialWriteDirectory,
+      partialWriteSession.id,
+      { includeNodeRelation: false, harnessSealKey },
+    ), null, 'a partially written Session binding must fail closed');
+    assert.throws(() => writeSessionBinding(partialWriteDirectory, partialWriteSession, { harnessSealKey }),
+      (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+      'a partial file must not be treated as a fresh identity on retry');
+    fs.unlinkSync(partialWriteTarget);
+    writeSessionBinding(partialWriteDirectory, partialWriteSession, { harnessSealKey });
+    assert(readNativeSessionBinding(partialWriteDirectory, partialWriteSession.id, { includeNodeRelation: false, harnessSealKey }),
+      'partial-write failure must close the descriptor and permit explicit recovery after removal');
 
     const unsealedCandidateDirectory = createAgentSessionWorkspace('workbench');
     sidecarDirectories.push(unsealedCandidateDirectory);
@@ -489,6 +645,293 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     const migratedStable = JSON.parse(fs.readFileSync(path.join(legacyStableDirectory, '.def-session.json'), 'utf8'));
     assert.equal(verifySessionHarnessSeal(migratedStable, harnessSealKey), true,
       'the sidecar may explicitly migrate an unchanged legacy stable identity to a seal');
+
+    const persistedFixtures = [];
+    const fakeSessions = new Map();
+    const fakeRequests = [];
+    const eventResponses = new Set();
+    const jsonResponse = (response, status, body) => {
+      response.writeHead(status, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(body));
+    };
+    const fakeOpenCode = http.createServer((request, response) => {
+      const requestUrl = new URL(request.url || '/', 'http://127.0.0.1');
+      fakeRequests.push({ method: request.method, pathname: requestUrl.pathname });
+      if (requestUrl.pathname === '/health') {
+        jsonResponse(response, 200, { ok: true });
+        return;
+      }
+      if (request.method === 'GET' && requestUrl.pathname === '/event') {
+        eventResponses.add(response);
+        response.on('close', () => eventResponses.delete(response));
+        response.writeHead(200, { 'content-type': 'text/event-stream' });
+        response.write(': ready\n\n');
+        return;
+      }
+      if (request.method === 'GET' && requestUrl.pathname === '/session') {
+        jsonResponse(response, 200, Array.from(fakeSessions.values()));
+        return;
+      }
+      const messageMatch = /^\/session\/([^/]+)\/message$/.exec(requestUrl.pathname);
+      if (messageMatch) {
+        const sessionID = decodeURIComponent(messageMatch[1]);
+        if (!fakeSessions.has(sessionID)) {
+          jsonResponse(response, 404, { message: 'session not found' });
+          return;
+        }
+        if (request.method === 'GET') {
+          jsonResponse(response, 200, []);
+          return;
+        }
+        if (request.method === 'POST') {
+          jsonResponse(response, 200, {
+            info: { id: `assistant-${sessionID}`, sessionID, role: 'assistant', time: { created: Date.now(), completed: Date.now() } },
+            parts: [{ id: `text-${sessionID}`, type: 'text', text: 'persisted continuation accepted' }],
+          });
+          return;
+        }
+      }
+      const sessionMatch = /^\/session\/([^/]+)$/.exec(requestUrl.pathname);
+      if (request.method === 'GET' && sessionMatch) {
+        const sessionID = decodeURIComponent(sessionMatch[1]);
+        const session = fakeSessions.get(sessionID);
+        jsonResponse(response, session ? 200 : 404, session || { message: 'session not found' });
+        return;
+      }
+      jsonResponse(response, 404, { message: 'not found' });
+    });
+    await new Promise((resolve, reject) => {
+      fakeOpenCode.once('error', reject);
+      fakeOpenCode.listen(0, '127.0.0.1', resolve);
+    });
+    const fakeAddress = fakeOpenCode.address();
+    assert(fakeAddress && typeof fakeAddress === 'object');
+    const fakeOpenCodeBaseUrl = `http://127.0.0.1:${fakeAddress.port}`;
+
+    const registerFakeSession = (sessionID, directory) => {
+      fakeSessions.set(sessionID, {
+        id: sessionID,
+        title: sessionID,
+        directory,
+        agent: 'def-operator',
+        model: { providerID: 'deepseek', modelID: 'deepseek-v4-pro' },
+        metadata: {
+          defOpencode: true,
+          app: 'dmg-end-field',
+          schemaVersion: 1,
+          skillId: 'operator',
+          host: 'ai-cli',
+          thinkingEffort: 'medium',
+        },
+        time: { created: Date.now(), updated: Date.now() },
+      });
+    };
+    const createPersistedFixture = (label) => {
+      const directory = createAgentSessionWorkspace('operator');
+      sidecarDirectories.push(directory);
+      const sessionID = `persisted-${label}`;
+      const harnessBinding = makeHarnessBinding(sessionID, 'stable', stableHarnessRef);
+      writeSessionBinding(directory, {
+        id: sessionID,
+        agent: 'def-operator',
+        skillId: 'operator',
+        harnessBinding,
+        agentRelease: agentReleaseFor(harnessBinding),
+      });
+      registerFakeSession(sessionID, directory);
+      const fixture = { label, sessionID, directory, target: path.join(directory, '.def-session.json') };
+      persistedFixtures.push(fixture);
+      return fixture;
+    };
+
+    let persistedSidecar;
+    try {
+      const legalSealed = createPersistedFixture('legal-sealed');
+      const liveThenTampered = createPersistedFixture('live-then-tampered');
+      const invalidSeal = createPersistedFixture('invalid-seal');
+      const invalidSealBinding = JSON.parse(fs.readFileSync(invalidSeal.target, 'utf8'));
+      invalidSealBinding.harnessIdentitySeal.value = '0'.repeat(64);
+      fs.writeFileSync(invalidSeal.target, `${JSON.stringify(invalidSealBinding, null, 2)}\n`, 'utf8');
+
+      const outerTamper = createPersistedFixture('outer-tamper');
+      const outerTamperBinding = JSON.parse(fs.readFileSync(outerTamper.target, 'utf8'));
+      outerTamperBinding.skillId = 'workbench';
+      fs.writeFileSync(outerTamper.target, `${JSON.stringify(outerTamperBinding, null, 2)}\n`, 'utf8');
+
+      const badJson = createPersistedFixture('bad-json');
+      fs.writeFileSync(badJson.target, '{not-json', 'utf8');
+
+      const junctionBinding = createPersistedFixture('junction-binding');
+      const junctionTarget = path.join(harnessFixtureRoot, 'persisted-junction-binding-target');
+      fs.mkdirSync(junctionTarget, { recursive: true });
+      fs.writeFileSync(path.join(junctionTarget, 'sentinel.txt'), 'junction target', 'utf8');
+      fs.unlinkSync(junctionBinding.target);
+      fs.symlinkSync(junctionTarget, junctionBinding.target, 'junction');
+
+      let symlinkBinding = null;
+      const attemptedSymlinkBinding = createPersistedFixture('symlink-binding');
+      const symlinkTarget = `${attemptedSymlinkBinding.target}.target`;
+      fs.renameSync(attemptedSymlinkBinding.target, symlinkTarget);
+      try {
+        fs.symlinkSync(symlinkTarget, attemptedSymlinkBinding.target, 'file');
+        symlinkBinding = attemptedSymlinkBinding;
+      } catch (error) {
+        if (error?.code !== 'EPERM' && error?.code !== 'EACCES' && error?.code !== 'UNKNOWN') throw error;
+        if (fs.existsSync(attemptedSymlinkBinding.target)) fs.unlinkSync(attemptedSymlinkBinding.target);
+        fs.renameSync(symlinkTarget, attemptedSymlinkBinding.target);
+        fakeSessions.delete(attemptedSymlinkBinding.sessionID);
+      }
+
+      const legacyDirectory = createAgentSessionWorkspace('operator');
+      sidecarDirectories.push(legacyDirectory);
+      const legacySessionID = 'persisted-legacy-stable';
+      const persistedLegacyHarnessBinding = makeHarnessBinding(legacySessionID, 'stable', stableHarnessRef);
+      fs.writeFileSync(path.join(legacyDirectory, '.def-session.json'), `${JSON.stringify({
+        schemaVersion: 5,
+        sessionID: legacySessionID,
+        directory: legacyDirectory,
+        host: 'ai-cli',
+        harnessBinding: persistedLegacyHarnessBinding,
+      }, null, 2)}\n`, 'utf8');
+      registerFakeSession(legacySessionID, legacyDirectory);
+
+      const invalidFixtures = [invalidSeal, outerTamper, badJson, junctionBinding, ...(symlinkBinding ? [symlinkBinding] : [])];
+      const persisted = await listPersistedDefSessions({
+        config: { apiKey: 'contract-only' },
+        limit: 1000,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      const persistedIDs = new Set(persisted.map((session) => session.sessionID));
+      assert(persistedIDs.has(legalSealed.sessionID), 'a legal sealed stable Session must remain listable');
+      assert(persistedIDs.has(legacySessionID), 'a strict legacy stable Session must remain listable');
+      for (const fixture of invalidFixtures) {
+        assert.equal(persistedIDs.has(fixture.sessionID), false,
+          `${fixture.label} must be absent from persisted Session discovery`);
+        await assert.rejects(
+          getPersistedDefSession(fixture.sessionID, { openCodeBaseUrl: fakeOpenCodeBaseUrl }),
+          (caught) => caught.code === 'DEF_SESSION_NOT_FOUND',
+          `${fixture.label} must not be readable through persisted get`,
+        );
+        await assert.rejects(
+          hydrateDefSession(fixture.sessionID, { openCodeBaseUrl: fakeOpenCodeBaseUrl }),
+          (caught) => caught.code === 'DEF_SESSION_NOT_FOUND',
+          `${fixture.label} must not be readable through transcript hydration`,
+        );
+        await assert.rejects(
+          continueChat(fixture.sessionID, 'must not continue', 'invalid-turn', {
+            config: { apiKey: 'contract-only' },
+            openCodeBaseUrl: fakeOpenCodeBaseUrl,
+          }),
+          (caught) => caught.code === 'DEF_SESSION_NOT_FOUND',
+          `${fixture.label} must not be continuable`,
+        );
+      }
+      assert.equal(fakeRequests.some((request) => request.pathname === '/session'), false,
+        'persisted get must never fall back to unbound OpenCode roots discovery');
+      for (const fixture of invalidFixtures) {
+        assert.equal(fakeRequests.some((request) => request.pathname.includes(encodeURIComponent(fixture.sessionID))), false,
+          `${fixture.label} must be rejected before any upstream Session request`);
+      }
+
+      assert.equal((await getPersistedDefSession(legalSealed.sessionID, {
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      })).summary.sessionID, legalSealed.sessionID);
+      assert.equal((await getPersistedDefSession(legacySessionID, {
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      })).summary.sessionID, legacySessionID);
+      assert.deepEqual((await hydrateDefSession(legalSealed.sessionID, {
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      })).messages, []);
+
+      const originalAdapterOperations = {
+        listPersistedDefSessions: adapter.listPersistedDefSessions,
+        getPersistedDefSession: adapter.getPersistedDefSession,
+        hydrateDefSession: adapter.hydrateDefSession,
+        continueChat: adapter.continueChat,
+      };
+      adapter.listPersistedDefSessions = (options = {}) => listPersistedDefSessions({
+        ...options,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      adapter.getPersistedDefSession = (sessionID, options = {}) => getPersistedDefSession(sessionID, {
+        ...options,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      adapter.hydrateDefSession = (sessionID, options = {}) => hydrateDefSession(sessionID, {
+        ...options,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      adapter.continueChat = (sessionID, message, clientTurnId, options = {}) => continueChat(
+        sessionID,
+        message,
+        clientTurnId,
+        {
+          ...options,
+          config: { ...options.config, apiKey: 'contract-only' },
+          openCodeBaseUrl: fakeOpenCodeBaseUrl,
+        },
+      );
+      const previousDefRestBaseUrl = process.env.DEF_REST_BASE_URL;
+      process.env.DEF_REST_BASE_URL = fakeOpenCodeBaseUrl;
+      const serverModulePath = require.resolve('../agent/server/def-agent-server.cjs');
+      delete require.cache[serverModulePath];
+      try {
+        ({ server: persistedSidecar } = require(serverModulePath));
+      } finally {
+        Object.assign(adapter, originalAdapterOperations);
+        if (previousDefRestBaseUrl === undefined) delete process.env.DEF_REST_BASE_URL;
+        else process.env.DEF_REST_BASE_URL = previousDefRestBaseUrl;
+      }
+      await new Promise((resolve, reject) => {
+        persistedSidecar.once('error', reject);
+        persistedSidecar.listen(0, '127.0.0.1', resolve);
+      });
+      const persistedAddress = persistedSidecar.address();
+      assert(persistedAddress && typeof persistedAddress === 'object');
+      const persistedBaseUrl = `http://127.0.0.1:${persistedAddress.port}`;
+      const readHttpJson = async (pathname, init) => {
+        const response = await fetch(`${persistedBaseUrl}${pathname}`, init);
+        return { status: response.status, body: await response.json() };
+      };
+
+      const listedOverHttp = await readHttpJson('/api/chat/persisted-sessions?limit=1000');
+      assert.equal(listedOverHttp.status, 200);
+      assert(listedOverHttp.body.sessions.some((session) => session.sessionID === legalSealed.sessionID));
+      assert(listedOverHttp.body.sessions.some((session) => session.sessionID === legacySessionID));
+      for (const fixture of invalidFixtures) {
+        assert.equal(listedOverHttp.body.sessions.some((session) => session.sessionID === fixture.sessionID), false);
+      }
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(legalSealed.sessionID)}/persisted`)).status, 200);
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(legacySessionID)}/transcript`)).status, 200);
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(liveThenTampered.sessionID)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'legal continuation', clientTurnId: 'legal-persisted-turn', skillId: 'operator' }),
+      })).status, 200, 'a legal sealed persisted Session must remain continuable through the production HTTP route');
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
+      const liveTamperedBinding = JSON.parse(fs.readFileSync(liveThenTampered.target, 'utf8'));
+      liveTamperedBinding.agent = 'def-tampered';
+      fs.writeFileSync(liveThenTampered.target, `${JSON.stringify(liveTamperedBinding, null, 2)}\n`, 'utf8');
+      const httpInvalidFixtures = [...invalidFixtures, liveThenTampered];
+      for (const fixture of httpInvalidFixtures) {
+        assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(fixture.sessionID)}/persisted`)).status, 404,
+          `${fixture.label} must be absent from production persisted get`);
+        assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(fixture.sessionID)}/transcript`)).status, 404,
+          `${fixture.label} must be absent from production transcript hydration`);
+        assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(fixture.sessionID)}/message`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: 'blocked continuation', clientTurnId: `blocked-${fixture.label}`, skillId: 'operator' }),
+        })).status, 404, `${fixture.label} must be absent from production continuation`);
+      }
+    } finally {
+      for (const response of eventResponses) response.end();
+      if (persistedSidecar?.listening) {
+        await new Promise((resolve) => persistedSidecar.close(resolve));
+      }
+      await new Promise((resolve) => fakeOpenCode.close(resolve));
+    }
   } finally {
     for (const directory of sidecarDirectories) fs.rmSync(directory, { recursive: true, force: true });
   }

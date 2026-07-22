@@ -6,6 +6,7 @@ const SESSION_HARNESS_SEAL_KIND = 'DefSessionHarnessIdentitySealV1';
 const SESSION_HARNESS_SEAL_SCHEMA_VERSION = 1;
 const SESSION_HARNESS_SEAL_KEY_ENV = 'DEF_SESSION_HARNESS_SEAL_KEY';
 const SESSION_HARNESS_SEAL_KEY_BYTES = 32;
+const SESSION_HARNESS_SEAL_KEY_FILE_MAX_BYTES = 256;
 const SESSION_HARNESS_SEAL_KEY = /^[a-f0-9]{64}$/;
 const SESSION_HARNESS_SEAL_VALUE = /^[a-f0-9]{64}$/;
 
@@ -22,21 +23,63 @@ function normalizeSealKey(value) {
   return SESSION_HARNESS_SEAL_KEY.test(key) ? key : '';
 }
 
-function readPersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
-  const target = path.resolve(keyFile);
-  const stat = fileSystem.lstatSync(target);
-  if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > 256) {
-    throw new Error('DEF Session Harness seal key is not a safe regular file.');
-  }
-  const key = normalizeSealKey(fileSystem.readFileSync(target, 'utf8'));
-  if (!key) throw new Error('DEF Session Harness seal key is invalid.');
-  return key;
+function samePersistentSessionHarnessSealKeyFile(left, right) {
+  return Boolean(left && right
+    && right.isFile()
+    // Windows reports lstat().dev as 0 while fstat().dev carries the volume id.
+    && (process.platform === 'win32' || left.dev === right.dev)
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs);
 }
 
-function ensurePersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
+function persistentSessionHarnessSealKeySignature(stat, rawKeyFile) {
+  const contentHash = crypto.createHash('sha256').update(rawKeyFile).digest('hex');
+  return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs, stat.mode, contentHash].join(':');
+}
+
+function readPersistentSessionHarnessSealKeyRecord(keyFile, fileSystem = fs) {
+  const target = path.resolve(keyFile);
+  const linkStat = fileSystem.lstatSync(target);
+  if (!linkStat.isFile()
+    || linkStat.isSymbolicLink()
+    || linkStat.size <= 0
+    || linkStat.size > SESSION_HARNESS_SEAL_KEY_FILE_MAX_BYTES) {
+    throw new Error('DEF Session Harness seal key is not a safe regular file.');
+  }
+
+  let descriptor;
+  try {
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
+    const openedStat = fileSystem.fstatSync(descriptor);
+    if (!samePersistentSessionHarnessSealKeyFile(linkStat, openedStat)) {
+      throw new Error('DEF Session Harness seal key changed while being opened.');
+    }
+    const rawKeyFile = fileSystem.readFileSync(descriptor, 'utf8');
+    const finalStat = fileSystem.fstatSync(descriptor);
+    if (!samePersistentSessionHarnessSealKeyFile(openedStat, finalStat)) {
+      throw new Error('DEF Session Harness seal key changed while being read.');
+    }
+    const key = normalizeSealKey(rawKeyFile);
+    if (!key) throw new Error('DEF Session Harness seal key is invalid.');
+    return Object.freeze({
+      key,
+      signature: persistentSessionHarnessSealKeySignature(finalStat, rawKeyFile),
+    });
+  } finally {
+    if (descriptor !== undefined) fileSystem.closeSync(descriptor);
+  }
+}
+
+function readPersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
+  return readPersistentSessionHarnessSealKeyRecord(keyFile, fileSystem).key;
+}
+
+function ensurePersistentSessionHarnessSealKeyRecord(keyFile, fileSystem = fs) {
   const target = path.resolve(keyFile);
   try {
-    return readPersistentSessionHarnessSealKey(target, fileSystem);
+    return readPersistentSessionHarnessSealKeyRecord(target, fileSystem);
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
@@ -47,12 +90,17 @@ function ensurePersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
   try {
     descriptor = fileSystem.openSync(target, 'wx', 0o600);
     fileSystem.writeFileSync(descriptor, `${generated}\n`, 'utf8');
+    fileSystem.fsyncSync(descriptor);
   } catch (error) {
     if (error?.code !== 'EEXIST') throw error;
   } finally {
     if (descriptor !== undefined) fileSystem.closeSync(descriptor);
   }
-  return readPersistentSessionHarnessSealKey(target, fileSystem);
+  return readPersistentSessionHarnessSealKeyRecord(target, fileSystem);
+}
+
+function ensurePersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
+  return ensurePersistentSessionHarnessSealKeyRecord(keyFile, fileSystem).key;
 }
 
 function sessionHarnessIdentity(binding) {
@@ -154,8 +202,10 @@ module.exports = {
   SESSION_HARNESS_SEAL_SCHEMA_VERSION,
   createSessionHarnessSeal,
   ensurePersistentSessionHarnessSealKey,
+  ensurePersistentSessionHarnessSealKeyRecord,
   normalizeSealKey,
   readPersistentSessionHarnessSealKey,
+  readPersistentSessionHarnessSealKeyRecord,
   sameSessionHarnessIdentity,
   sessionHarnessIdentity,
   verifySessionHarnessSeal,
