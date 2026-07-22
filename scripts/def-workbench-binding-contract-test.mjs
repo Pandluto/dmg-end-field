@@ -20,9 +20,10 @@ assert.match(nodeBindSource, /checkoutPhase === 'checkout-changed'/,
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-workbench-binding-'));
 const databasePath = path.join(root, 'timeline.sqlite');
+let repository;
 
 try {
-  const repository = createTimelineRepository({ databasePath });
+  repository = createTimelineRepository({ databasePath });
   repository.ensureDocument({ id: 'formal-a', label: 'Formal A' });
   repository.ensureDocument({ id: 'formal-b', label: 'Formal B' });
   repository.ensureDocument({ id: 'temporary-a', label: 'Temporary A', isTemporary: true });
@@ -59,5 +60,6 @@ try {
   assert.equal(repository.getSessionAxisBindingBySession('workbench', 'session-a'), undefined);
   console.log('DEF Workbench binding contract: PASS');
 } finally {
-  fs.rmSync(root, { recursive: true, force: true });
+  repository?.close();
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

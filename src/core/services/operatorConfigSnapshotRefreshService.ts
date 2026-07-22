@@ -563,7 +563,13 @@ function resolveEquipmentSlotKey(
   usedSlotKeys: Set<OperatorConfigEquipmentSlotKey>,
   currentPieces: EquipmentPieceInput[],
 ): OperatorConfigEquipmentSlotKey {
-  if (selection.slotKey) return selection.slotKey;
+  if (selection.slotKey) {
+    const slot = EQUIPMENT_SLOT_METAS.find((meta) => meta.slotKey === selection.slotKey);
+    if (!slot || slot.part !== equipment.part) {
+      throw new Error(`equipment-slot-part-mismatch:${equipment.name}:${equipment.part}:${selection.slotKey}`);
+    }
+    return selection.slotKey;
+  }
   const matchingSlots = EQUIPMENT_SLOT_METAS
     .filter((meta) => meta.part === (selection.part ?? equipment.part))
     .map((meta) => meta.slotKey);

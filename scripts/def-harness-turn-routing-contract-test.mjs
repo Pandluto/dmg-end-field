@@ -6,6 +6,16 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
 
+function spawnBunEval(source, options = {}) {
+  if (process.platform === 'win32') {
+    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'bun.cmd', '-e', source], {
+      encoding: 'utf8',
+      ...options,
+    });
+  }
+  return spawnSync('bun', ['-e', source], { encoding: 'utf8', ...options });
+}
+
 const binding = {
   harnessBinding: {
     selector: 'candidate/operator-config-horizontal-metadata',
@@ -51,7 +61,7 @@ assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
 
-const retryFuseProbe = spawnSync('bun', ['-e', `
+const retryFuseProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('contract-session', 'contract-turn');
   const failure = (callID, tool) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'contract-session', callID, tool, state: { status: 'error', error: 'The user has specified a rule which prevents you from using this specific tool call. external_directory' } } } });
@@ -60,10 +70,10 @@ const retryFuseProbe = spawnSync('bun', ['-e', `
   mod.recordDefToolEventFailure(failure('call-2', 'read'));
   try { mod.assertDefToolTurnNotBlocked('contract-session', 'def_node_sync_validate'); process.exit(2); }
   catch (error) { if (error?.code !== 'def-tool-retry-limit-reached') process.exit(3); }
-`], { encoding: 'utf8' });
+`);
 assert.equal(retryFuseProbe.status, 0, retryFuseProbe.stderr || retryFuseProbe.stdout);
 
-const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
+const mutationTargetBudgetProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   const failure = (callID, input) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'target-session', callID, tool: 'operator_config_patch', input, state: { status: 'error', error: 'operator-config-preview-failed: temporary renderer response' } } } });
   mod.beginDefToolTurn('target-session', 'target-turn');
@@ -73,20 +83,20 @@ const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
   mod.recordDefToolEventFailure(failure('bieli-2', { characterId: 'bieli', weaponName: '赫拉芬格' }));
   try { mod.assertDefToolTurnNotBlocked('target-session', 'operator_config_patch'); process.exit(2); }
   catch (error) { if (error?.code !== 'def-tool-retry-limit-reached') process.exit(3); }
-`], { encoding: 'utf8' });
+`);
 assert.equal(mutationTargetBudgetProbe.status, 0, mutationTargetBudgetProbe.stderr || mutationTargetBudgetProbe.stdout);
 
-const explicitApplyIntentProbe = spawnSync('bun', ['-e', `
+const explicitApplyIntentProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurnFromChatMessage('intent-session', 'comparison-turn', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }]);
   if (mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' }).applyIntent) process.exit(2);
   mod.beginDefToolTurnFromChatMessage('intent-session', 'apply-turn', [{ type: 'text', text: '确认。' }]);
   const intent = mod.getDefOperatorConfigTurnIdentity({ sessionID: 'intent-session' });
   if (intent.turnID !== 'apply-turn' || !intent.applyIntent) process.exit(3);
-`], { encoding: 'utf8', env: { ...process.env, DEF_INTERNAL_GOVERNANCE_TOKEN: 'turn-intent-contract' } });
+`, { env: { ...process.env, DEF_INTERNAL_GOVERNANCE_TOKEN: 'turn-intent-contract' } });
 assert.equal(explicitApplyIntentProbe.status, 0, explicitApplyIntentProbe.stderr || explicitApplyIntentProbe.stdout);
 
-const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
+const nonRetryableMutationProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('mutation-session', 'mutation-turn');
   mod.recordDefToolEventFailure({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'mutation-session', callID: 'call-1', tool: 'operator_config_patch', state: { status: 'error', error: 'operator-config-timeline-invariant-failed: typed canonical invariant rejected the preview' } } } });
@@ -94,10 +104,10 @@ const nonRetryableMutationProbe = spawnSync('bun', ['-e', `
   catch (error) {
     if (error?.code !== 'def-tool-mutation-not-attempted' || error?.details?.attempted !== false) process.exit(3);
   }
-`], { encoding: 'utf8' });
+`);
 assert.equal(nonRetryableMutationProbe.status, 0, nonRetryableMutationProbe.stderr || nonRetryableMutationProbe.stdout);
 
-const terminalEvidenceProbe = spawnSync('bun', ['-e', `
+const terminalEvidenceProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('evidence-session', 'evidence-turn');
   mod.recordDefToolEventFailure({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'evidence-session', callID: 'planner-1', tool: 'def_data_weapon_fit_plan', state: { status: 'error', error: 'weapon-fit-combat-convention-incomplete: reviewed evidence is incomplete' } } } });
@@ -105,10 +115,10 @@ const terminalEvidenceProbe = spawnSync('bun', ['-e', `
   catch (error) {
     if (error?.code !== 'def-tool-evidence-not-attempted' || error?.details?.attempted !== false || error?.details?.originalTool !== 'def_data_weapon_fit_plan') process.exit(3);
   }
-`], { encoding: 'utf8' });
+`);
 assert.equal(terminalEvidenceProbe.status, 0, terminalEvidenceProbe.stderr || terminalEvidenceProbe.stdout);
 
-const terminalEquipmentFactsProbe = spawnSync('bun', ['-e', `
+const terminalEquipmentFactsProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurn('equipment-evidence-session', 'equipment-evidence-turn');
   mod.recordDefToolEventFailure({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'equipment-evidence-session', callID: 'facts-1', tool: 'def_data_equipment_3plus1_facts', state: { status: 'error', error: 'equipment-3plus1-catalog-invalid: duplicate typed identities' } } } });
@@ -116,10 +126,10 @@ const terminalEquipmentFactsProbe = spawnSync('bun', ['-e', `
   catch (error) {
     if (error?.code !== 'def-tool-evidence-not-attempted' || error?.details?.attempted !== false || error?.details?.originalTool !== 'def_data_equipment_3plus1_facts') process.exit(3);
   }
-`], { encoding: 'utf8' });
+`);
 assert.equal(terminalEquipmentFactsProbe.status, 0, terminalEquipmentFactsProbe.stderr || terminalEquipmentFactsProbe.stdout);
 
-const exactSkillFactsPolicyProbe = spawnSync('bun', ['-e', `
+const exactSkillFactsPolicyProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   mod.beginDefToolTurnFromChatMessage('skill-session', 'skill-turn', [{ type: 'text', text: '图腾下落-2层里的水龙卷算什么伤害' }]);
   try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_workbench_context', {}); process.exit(2); }
@@ -129,7 +139,7 @@ const exactSkillFactsPolicyProbe = spawnSync('bun', ['-e', `
   mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: '图腾下落-2层' });
   try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: 'skill-Q-4' }); process.exit(6); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(7); }
-`], { encoding: 'utf8' });
+`);
 assert.equal(exactSkillFactsPolicyProbe.status, 0, exactSkillFactsPolicyProbe.stderr || exactSkillFactsPolicyProbe.stdout);
 const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
 assert.match(defToolSource, /mutationTargetFingerprint/);

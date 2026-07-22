@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "harnessId": "def-candidate",
-  "version": "1.0.0",
-  "description": "Controlled one-slot candidate used only for Harness replay and promotion demonstrations.",
+  "version": "1.0.4",
+  "description": "Candidate layering sticky named-guide team planning and bounded timeline authoring onto the current stable evidence routes.",
   "compatibility": { "interopProtocol": "^1", "agentContract": 1, "toolRegistry": 1, "stateSchema": 1 },
   "slots": {
     "agentContract": { "path": "agent-contract.md", "mediaType": "text/markdown", "capability": "hotSwappable" },

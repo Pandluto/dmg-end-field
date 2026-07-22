@@ -114,6 +114,7 @@ import {
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
 import { planTimelineWorkNodeCheckoutLifecycle } from '../../agentKernel/timelineWorktree/checkoutLifecycle';
+import { buildPersistedCharacterInput } from '../../agentKernel/timelineWorktree/operatorConfigCharacterInput';
 import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import { createTimelineRepositoryClient, formatTimelineOperationError } from '../../agentKernel/timelineRepository/localTimelineClient';
@@ -608,6 +609,8 @@ export function CanvasBoard({
     isTemporary: activeTimelineIsTemporary,
   };
   const temporaryPromotionRef = useRef(activeTimelineIsTemporary);
+  const visibleSelectedCharacterIdsRef = useRef<string[]>([]);
+  visibleSelectedCharacterIdsRef.current = selectedCharacters.map((character) => character.id);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -951,21 +954,29 @@ export function CanvasBoard({
     setWorkNodeRefreshKey((revision) => revision + 1);
   }, []);
 
-  const waitForVisibleCanvasButtons = useCallback(async (expectedIds: string[], waitMs = 3000) => {
+  const waitForVisibleCanvasButtons = useCallback(async (
+    expectedIds: string[],
+    expectedCharacterIds: string[] = [],
+    waitMs = 3000,
+  ) => {
     const expected = [...expectedIds].sort();
+    const expectedCharacters = [...expectedCharacterIds].sort();
     const deadline = Date.now() + waitMs;
     let actual: string[] = [];
+    let actualCharacters: string[] = [];
     do {
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       actual = [...(canvasRef.current?.querySelectorAll<HTMLElement>('[data-skill-button-id]') ?? [])]
         .map((element) => element.dataset.skillButtonId || '')
         .filter(Boolean)
         .sort();
-      if (JSON.stringify(actual) === JSON.stringify(expected)) {
-        return { pass: true, expected, actual };
+      actualCharacters = [...visibleSelectedCharacterIdsRef.current].sort();
+      if (JSON.stringify(actual) === JSON.stringify(expected)
+        && JSON.stringify(actualCharacters) === JSON.stringify(expectedCharacters)) {
+        return { pass: true, expected, actual, expectedCharacters, actualCharacters };
       }
     } while (Date.now() < deadline && document.visibilityState === 'visible');
-    return { pass: false, expected, actual };
+    return { pass: false, expected, actual, expectedCharacters, actualCharacters };
   }, []);
 
   useEffect(() => {
@@ -1182,14 +1193,10 @@ export function CanvasBoard({
       };
       preparedPayload.characterInputMap = {
         ...preparedPayload.characterInputMap,
-        [character.id]: {
-          ...(preparedPayload.characterInputMap[character.id] ?? {}),
-          skillLevels: {
-            ...DEFAULT_OPERATOR_SKILL_CONFIG,
-            ...(preparedPayload.characterInputMap[character.id]?.skillLevels ?? {}),
-            ...operatorSkillLevels,
-          } as typeof preparedPayload.characterInputMap[string]['skillLevels'],
-        },
+        [character.id]: buildPersistedCharacterInput(
+          resolvedSnapshot,
+          preparedPayload.characterInputMap[character.id],
+        ),
       };
       const preparedTimelineValidation = validateTimelinePayload(preparedPayload);
       if (!preparedTimelineValidation.ok) {
@@ -2002,10 +2009,17 @@ export function CanvasBoard({
     const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
     const previousCheckoutNode = checkoutWorkbenchNode;
     const expectedVisibleIds = Object.keys(node.workingPayload.skillButtonTable || {}).sort();
+    const expectedVisibleCharacterIds = [...node.workingPayload.selectedCharacters].sort();
     let checkoutRefUpdated = false;
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
-    let visiblePostcondition = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
+    let visiblePostcondition = {
+      pass: false,
+      expected: expectedVisibleIds,
+      actual: [] as string[],
+      expectedCharacters: expectedVisibleCharacterIds,
+      actualCharacters: [] as string[],
+    };
     let checkoutApplied = false;
     isCheckoutMutationPendingRef.current = true;
     try {
@@ -2014,7 +2028,7 @@ export function CanvasBoard({
       // visible postcondition succeeds.
       hydrateCheckoutRuntime(node.workingPayload, { flushRender: true });
       refreshWorkbenchAfterCheckout();
-      visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds);
+      visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds, expectedVisibleCharacterIds);
       if (!visiblePostcondition.pass || document.visibilityState !== 'visible') {
         throw new Error(`checkout-visible-postcondition-failed: expected=${visiblePostcondition.expected.join(',')} actual=${visiblePostcondition.actual.join(',')}`);
       }
@@ -2059,7 +2073,10 @@ export function CanvasBoard({
       setCheckoutWorkbenchNode(previousCheckoutNode);
       hydrateCheckoutRuntime(currentPayload, { flushRender: true });
       refreshWorkbenchAfterCheckout();
-      await waitForVisibleCanvasButtons(Object.keys(currentPayload.skillButtonTable || {}));
+      await waitForVisibleCanvasButtons(
+        Object.keys(currentPayload.skillButtonTable || {}),
+        currentPayload.selectedCharacters,
+      );
       throw error;
     } finally {
       isCheckoutMutationPendingRef.current = false;
@@ -2321,6 +2338,13 @@ export function CanvasBoard({
     isProcessingWorkbenchCommandRef.current = true;
     try {
       await pullRemoteMainWorkbenchCommands();
+      // A freshly reconnected renderer can receive a remote command before
+      // refreshActiveDocument has finished hydrating its persisted checkout.
+      // Leave the command pending until bootstrap completes so it is not
+      // claimed against a transiently empty activeCheckoutRef.
+      if (isCheckoutBootstrapPendingRef.current) {
+        return;
+      }
       const commandEntry = getPendingMainWorkbenchCommands([
         'addSkillButton',
         'removeSkillButton',

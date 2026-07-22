@@ -73,9 +73,13 @@ function canonicalStaffLines(payload = {}) {
     .map((line) => ({
       staffIndex: line?.staffIndex,
       characterName: String(line?.characterName || ''),
-      occupiedNodes: [...new Set(Array.isArray(line?.occupiedNodes) ? line.occupiedNodes : [])].sort((left, right) => Number(left) - Number(right)),
       buttonIds: (Array.isArray(line?.buttons) ? line.buttons : []).map((button) => String(button?.id || '')).sort(),
     }))
+    // Empty lines are renderer hydration derived from selectedCharacters.
+    // Adding the remaining selected operators' empty tracks must not make a
+    // read-only equipment preview look like a timeline mutation. Populated
+    // lines stay protected by both this structure and canonical buttons.
+    .filter((line) => line.buttonIds.length > 0)
     .sort((left, right) => Number(left.staffIndex) - Number(right.staffIndex))
 }
 

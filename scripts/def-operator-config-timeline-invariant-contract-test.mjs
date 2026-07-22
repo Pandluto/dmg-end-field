@@ -66,6 +66,20 @@ hydrationOnly.skillButtonTable['bieli-b-1'].runtimeSnapshot = { hydration: 'new'
 hydrationOnly.allBuffList[0] = { updatedAt: 999, name: '测试 Buff', id: 'buff-a', createdAt: 999 };
 assert.equal(compareDefTimelineInvariants(before, hydrationOnly).pass, true, 'hydration, layout, timestamps and object key order are not timeline mutations');
 
+const sparseSelectedRoster = payload();
+sparseSelectedRoster.selectedCharacters = ['bieli', 'operator-2', 'operator-3', 'operator-4'];
+const hydratedSelectedRoster = structuredClone(sparseSelectedRoster);
+hydratedSelectedRoster.timelineData.staffLines.push(
+  { staffIndex: 1, characterName: 'Operator 2', occupiedNodes: [], buttons: [] },
+  { staffIndex: 2, characterName: 'Operator 3', occupiedNodes: [], buttons: [] },
+  { staffIndex: 3, characterName: 'Operator 4', occupiedNodes: [], buttons: [] },
+);
+assert.equal(
+  compareDefTimelineInvariants(sparseSelectedRoster, hydratedSelectedRoster).pass,
+  true,
+  'renderer-created empty tracks for already-selected operators are hydration, not a timeline mutation',
+);
+
 const changedRuntimeSkill = structuredClone(before);
 changedRuntimeSkill.skillButtonTable['bieli-b-1'].runtimeSkillId = 'bieli-heavy-v2';
 const runtimeResult = compareDefTimelineInvariants(before, changedRuntimeSkill);

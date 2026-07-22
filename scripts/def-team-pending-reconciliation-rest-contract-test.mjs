@@ -71,6 +71,15 @@ async function tool(name, input = {}) {
 try {
   await waitForReady();
   assert.equal((await request('/api/main-workbench/snapshot', { body: snapshotFor(parentPayload) })).status, 200);
+
+  const seededIdle = await request('/api/def-contract-test/pending-team-reconciliation', {
+    body: { planHash: 'a'.repeat(64), sessionId: 'session-a', timelineId: 'formal-a', axisBindingId: 'axis-a', parentNodeId: 'parent-p', candidateNodeId: 'candidate-c' },
+  });
+  assert.equal(seededIdle.status, 200, JSON.stringify(seededIdle.body));
+  const idle = await tool('def.team.loadout.plan.apply.reconcile', { planHash: 'a'.repeat(64) });
+  assert.equal(idle.status, 200, JSON.stringify(idle.body));
+  assert.equal(idle.body.result.state, 'NOT_PENDING', JSON.stringify(idle.body));
+
   const seeded = await request('/api/def-contract-test/pending-team-reconciliation', {
     body: { planHash: 'a'.repeat(64), sessionId: 'session-a', timelineId: 'formal-a', axisBindingId: 'axis-a', parentNodeId: 'parent-p', candidateNodeId: 'candidate-c', pendingCommandId: 'late-command-c' },
   });
@@ -108,5 +117,6 @@ try {
 } finally {
   child.kill('SIGTERM');
   await new Promise((resolve) => child.once('exit', resolve));
+  repository.close();
   fs.rmSync(root, { recursive: true, force: true });
 }

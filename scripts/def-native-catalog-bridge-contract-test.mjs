@@ -161,6 +161,10 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
   },
   stdio: 'ignore',
 });
+const childExited = new Promise((resolve) => {
+  if (child.exitCode !== null) resolve(child.exitCode);
+  else child.once('exit', resolve);
+});
 
 async function waitForReady() {
   for (let attempt = 0; attempt < 80; attempt += 1) {
@@ -609,5 +613,6 @@ try {
   }));
 } finally {
   child.kill('SIGTERM');
-  fs.rmSync(root, { recursive: true, force: true });
+  await childExited;
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }

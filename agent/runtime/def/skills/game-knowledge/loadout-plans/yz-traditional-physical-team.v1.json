@@ -1,0 +1,62 @@
+{
+  "contract": "DefGuideTeamLoadoutManifestV1",
+  "version": 1,
+  "referenceId": "【YZ配队攻略】弭弗x陈千语x黎风x骏卫 新传统物理队 输出手法教学&装备养成推荐.md",
+  "sectionId": "h1-yz配队攻略-弭弗x陈千语x黎风x骏卫-新传统物理队-输出手法教学-装备养成推荐",
+  "sourceContentHash": "48b4fcee9d80123ccfa65215d40eef7c23e98cda07f40873d89711144853d3d3",
+  "operators": [
+    {
+      "characterName": "弭弗",
+      "weapon": { "mode": "exact-name", "name": "典范", "level": 90 },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-5", "name": "旧锋装甲", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-1", "name": "旧锋手甲", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-6", "name": "点剑定位信标", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-jiu-feng", "equipmentId": "equipment-jf-3", "name": "旧锋刺刃", "entryLevel": 3 }
+      ],
+      "decisions": [
+        {
+          "decisionId": "yz-default-exact-products",
+          "message": "攻略给出套装、散件类型与武器优先级，但没有逐槽指定全部产品；本方案采用面板主副属性更贴合当前四人的默认精三产品，并在弭弗专武未具名时选用攻略明确列出的典范。",
+          "options": [
+            { "optionId": "accept-default-exact-products", "label": "采用默认精确产品", "description": "接受下列四人逐槽产品作为本次可执行复刻方案。" }
+          ]
+        }
+      ]
+    },
+    {
+      "characterName": "陈千语",
+      "weapon": { "mode": "preserve-current" },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-tian-zai-fang-hu", "equipmentId": "equipment-g-2", "name": "天灾防护重甲·壹型", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-1", "name": "点剑战术手甲", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-6", "name": "点剑定位信标", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-dian-jian", "equipmentId": "equipment-g-1-4", "name": "点剑短刃", "entryLevel": 3 }
+      ]
+    },
+    {
+      "characterName": "黎风",
+      "weapon": { "mode": "exact-name", "name": "嵌合正义", "level": 90 },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-tian-zai-fang-hu", "equipmentId": "equipment-g-2", "name": "天灾防护重甲·壹型", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-5", "name": "长息护手", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-7", "name": "长息蓄电核", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-chang-xi", "equipmentId": "equipment-g-1-0-9", "name": "长息辅助臂", "entryLevel": 3 }
+      ]
+    },
+    {
+      "characterName": "骏卫",
+      "weapon": { "mode": "exact-name", "name": "热熔切割器", "level": 90 },
+      "requireThreePlusOne": true,
+      "equipment": [
+        { "slotKey": "armor", "gearSetId": "gear-set-tian-zai-fang-hu", "equipmentId": "equipment-g-2", "name": "天灾防护重甲·壹型", "entryLevel": 3 },
+        { "slotKey": "glove", "gearSetId": "gear-set-dong-huo-yong", "equipmentId": "equipment-g-7-0", "name": "动火用手套", "entryLevel": 3 },
+        { "slotKey": "accessory1", "gearSetId": "gear-set-dong-huo-yong", "equipmentId": "equipment-g-7-1", "name": "动火用储能匣", "entryLevel": 3 },
+        { "slotKey": "accessory2", "gearSetId": "gear-set-dong-huo-yong", "equipmentId": "equipment-g-7-2", "name": "动火用电力匣", "entryLevel": 3 }
+      ]
+    }
+  ]
+}

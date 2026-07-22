@@ -25,6 +25,7 @@ import { DEF_TOOL_DEFINITION_BASE } from '../agent/runtime/def-tools/definitions
 import { matchesAtomicTeamCandidateCapability, prepareAtomicTeamCandidate } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { assessAtomicRollbackConvergence, assessAtomicRollbackPrecondition } from '../agent/runtime/def-tools/atomic-team-rollback.mjs';
 import { observeAtomicTeamApplyCommand } from '../agent/runtime/def-tools/atomic-team-command-state.mjs';
+import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 import {
   computeDefNodeSourceRisk,
   hashDefNodeValue,
@@ -50,6 +51,7 @@ import {
   loadCombatConventionRules,
   resolveCombatConventionBundle,
 } from './def-core/combat-conventions.mjs';
+import { createDefGuideSourceStore } from './def-core/guide-source-store.mjs';
 
 const { createAiTimelineWorkNodeStore } = workNodeStoreModule;
 const { createTimelineRepository } = timelineRepositoryModule;
@@ -61,6 +63,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 const storageDir = process.env.AI_CLI_REST_STORAGE_DIR
   || path.join(projectRoot, '.runtime', 'ai-cli-rest');
+const defGuideSourceStorePath = path.join(storageDir, 'guide-loadout-plan-sources.json');
 const agentScriptDir = process.env.DEF_AGENT_SCRIPT_DIR
   || path.join(projectRoot, '.runtime', 'def-agent', 'scripts');
 const viteCacheDir = process.env.AI_CLI_REST_VITE_CACHE_DIR || path.join(projectRoot, '.runtime', 'vite-ai-cli-rest', String(process.pid));
@@ -110,6 +113,7 @@ const GAME_KNOWLEDGE_JSON_PATH = path.join(projectRoot, 'src', 'data', 'gameKnow
 const GAME_KNOWLEDGE_REFERENCES_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'references');
 const GAME_KNOWLEDGE_CONVENTIONS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'conventions');
 const GAME_KNOWLEDGE_LOADOUT_MANIFESTS_DIR = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills', 'game-knowledge', 'loadout-plans');
+const GAME_KNOWLEDGE_SECTION_MAX_CHARS = 12_000;
 const MAIN_WORKBENCH_SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
 const DEF_GRID_NODE_COUNT = 15;
 // Ephemeral, unforgeable capability for a reviewed operator-config branch.
@@ -196,9 +200,9 @@ function consumeApprovedApplyCapability(input = {}, expected = {}) {
   capability.used = true;
   return true;
 }
-// Guide reads are deliberately session-scoped and in-memory. They are an
-// opaque hand-off between two native turns, never a filesystem capability or
-// a cross-session recommendation cache.
+// Guide reads are deliberately session-scoped. Their exact allowlisted text
+// may survive a sidecar restart for a bounded continuation window, but never
+// becomes a filesystem capability or a cross-session recommendation cache.
 // A native permission card can remain open longer than the short planning
 // TTL.  Once that exact immutable plan has produced its one review card, keep
 // only its server-side capability alive for a bounded grace period so approval
@@ -218,6 +222,17 @@ const denyRawTransport = defRawTransportPolicy.deny;
 function hashDefLoadoutPlan(value) {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
+
+// Exact allowlisted guide text is durable for the same bounded window as a
+// native approval card. Executable plans and approval capabilities remain
+// sidecar-ephemeral and therefore still fail closed after a restart.
+const defGuideSourceStore = createDefGuideSourceStore({
+  filePath: defGuideSourceStorePath,
+  ttlMs: PREPARED_TEAM_LOADOUT_APPROVAL_GRACE_MS,
+  maxEntries: 100,
+  maxContentChars: GAME_KNOWLEDGE_SECTION_MAX_CHARS,
+  hash: hashDefLoadoutPlan,
+});
 
 function prunePreparedOperatorConfigCapabilities() {
   const now = Date.now();
@@ -248,9 +263,7 @@ function hasDefOperatorConfigApplyIntent(input = {}) {
 
 function pruneDefTeamLoadoutPlans() {
   const now = Date.now();
-  for (const [sessionId, source] of guideLoadoutPlanSources) {
-    if (source.expiresAt <= now) guideLoadoutPlanSources.delete(sessionId);
-  }
+  defGuideSourceStore.prune(guideLoadoutPlanSources);
   for (const [planHash, prepared] of preparedTeamLoadoutPlans) {
     const approvalReservationActive = Number(prepared.approvalExpiresAt) > now;
     if (prepared.expiresAt <= now && !approvalReservationActive && !prepared.usedResult && !prepared.pendingCommand) preparedTeamLoadoutPlans.delete(planHash);
@@ -4852,7 +4865,6 @@ function safeGameKnowledgeReferenceFiles() {
     .filter(Boolean);
 }
 
-const GAME_KNOWLEDGE_SECTION_MAX_CHARS = 12_000;
 const GAME_KNOWLEDGE_SEARCH_ALIAS_TERMS = Object.freeze([
   ['yz', '月咒'],
   ['月咒', 'yz'],
@@ -5629,10 +5641,14 @@ function rememberDefGuideLoadoutSource(input = {}) {
   if (!sessionId || !referenceId || !sectionId || !content) {
     return { ok: false, code: 'invalid-guide-plan-source', component: 'team-loadout-plan', message: 'A native session, exact reference, section and content are required.' };
   }
-  const sourceContentHash = hashDefLoadoutPlan(content);
   pruneDefTeamLoadoutPlans();
-  guideLoadoutPlanSources.set(sessionId, { sessionId, referenceId, sectionId, content, sourceContentHash, rememberedAt: Date.now(), expiresAt: Date.now() + PREPARED_TEAM_LOADOUT_TTL_MS });
-  return { ok: true, sessionId, referenceId, sectionId, sourceContentHash };
+  let source;
+  try {
+    source = defGuideSourceStore.remember(guideLoadoutPlanSources, { sessionId, referenceId, sectionId, content });
+  } catch {
+    return { ok: false, code: 'invalid-guide-plan-source', component: 'team-loadout-plan', message: 'The exact guide source could not be persisted safely.' };
+  }
+  return { ok: true, sessionId, referenceId, sectionId, sourceContentHash: source.sourceContentHash };
 }
 
 function safeDefGuideLoadoutManifestFiles() {
@@ -5678,6 +5694,13 @@ function defPlanEffectValue(effect = {}, level = 3) {
   return defPlanPercent(value, String(effect?.unit || ''));
 }
 
+function defPlanEquipmentPartForSlot(slotKey) {
+  if (slotKey === 'armor') return '护甲';
+  if (slotKey === 'glove') return '护手';
+  if (slotKey === 'accessory1' || slotKey === 'accessory2') return '配件';
+  return '';
+}
+
 function findDefPlanEquipment(library, selection, usedEquipmentIds) {
   const all = Object.values(library?.gearSets || {}).flatMap((gearSet) => Object.values(gearSet?.equipments || {}).map((equipment) => ({ gearSet, equipment })));
   const exact = selection?.equipmentId
@@ -5692,6 +5715,8 @@ function findDefPlanEquipment(library, selection, usedEquipmentIds) {
   if (candidates.length !== 1) return { error: candidates.length ? 'product-selector-ambiguous' : 'product-selector-empty' };
   const { gearSet, equipment } = candidates[0];
   if (selection?.name && selection.name !== equipment.name) return { error: 'product-name-mismatch' };
+  const expectedPart = defPlanEquipmentPartForSlot(selection?.slotKey);
+  if (expectedPart && equipment?.part !== expectedPart) return { error: 'product-slot-part-mismatch' };
   const entryLevel = Number.isInteger(selection?.entryLevel) ? selection.entryLevel : 3;
   const effects = Object.values(equipment?.effects || {}).map((effect) => ({
     effectId: String(effect?.effectId || ''), label: String(effect?.label || effect?.effectId || ''), typeKey: String(effect?.typeKey || ''),
@@ -5811,7 +5836,15 @@ function buildDefGuideTeamLoadoutPlan(input = {}, options = {}) {
       equipment: products,
       threePlusOne: { required: Boolean(target.requireThreePlusOne), composition: counts, resolved: threePlusOne },
       derived: { ultimateChargeEfficiency: charge },
-      exactProduct: { complete: products.length === 4, patch: { characterId: selected.characterId, characterName: selected.characterName, equipments: products.map((product) => ({ slotKey: product.slotKey, equipmentId: product.equipmentId, equipmentName: product.name, gearSetId: product.gearSetId, entryLevels: Object.fromEntries(product.effects.map((effect) => [effect.effectId, effect.level])) })) } },
+      exactProduct: {
+        complete: products.length === 4,
+        patch: buildGuideTeamLoadoutExactPatch({
+          selected,
+          products,
+          manifestWeapon,
+          resolvedWeapon: weapon,
+        }),
+      },
     };
   });
   const decisions = companion.manifest.operators.flatMap((target) => (target.decisions || []).map((decision) => ({ ...decision, characterName: target.characterName, status: confirmed.has(decision.decisionId) ? 'confirmed' : 'open', confirmedOptionId: confirmedChoices.get(decision.decisionId) || null })));
@@ -5904,7 +5937,16 @@ function resolvePendingTeamLoadoutReconciliation(input = {}) {
   if (session.binding.host !== 'workbench' || session.binding.id !== plan.axisBindingId || session.binding.timelineId !== plan.timelineId) {
     return workbenchBindingFailure('blocked-session-mismatch', 'The pending team plan does not belong to this bound Workbench session.');
   }
-  if (!plan.pendingCommand) return { ok: true, pending: false, plan };
+  if (!plan.pendingCommand) {
+    return {
+      ok: true,
+      pending: false,
+      plan,
+      session,
+      binding: session.binding,
+      document: session.document,
+    };
+  }
   const candidate = plan.preparedCandidate;
   const parent = candidate ? readRepositoryWorkNode(candidate.parentNodeId) : null;
   const node = candidate ? readRepositoryWorkNode(candidate.nodeId) : null;
@@ -6509,7 +6551,7 @@ function resolveDefSkills(input = {}) {
         : [];
       return Boolean(query && (
         (skillId && query.includes(skillId))
-        || (displayName && (query.includes(displayName) || displayName.includes(query)))
+        || (displayName.length > 1 && (query.includes(displayName) || displayName.includes(query)))
         || hitDisplayNames.some((hitName) => query.includes(hitName) || hitName.includes(query))
       ));
     })
@@ -10679,7 +10721,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
     const pendingCommandId = typeof body?.pendingCommandId === 'string' ? body.pendingCommandId.trim() : '';
     const parent = parentNodeId ? readRepositoryWorkNode(parentNodeId) : null;
     const candidate = candidateNodeId ? readRepositoryWorkNode(candidateNodeId) : null;
-    if (!planHash || !sessionId || !timelineId || !axisBindingId || !pendingCommandId || !parent || !candidate
+    if (!planHash || !sessionId || !timelineId || !axisBindingId || !parent || !candidate
       || parent.timelineId !== timelineId || candidate.timelineId !== timelineId) {
       return failScript(400, 'invalid-contract-pending-team-plan', 'The isolated contract seed requires one bound P/C pair and exact pending command identity.');
     }
@@ -10688,6 +10730,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
       nodeRevision: Number(candidate.contentRevision || candidate.updatedAt),
       workingHash: hashDefNodeValue(candidate.workingPayload),
       parentNodeId: parent.id,
+      structuralParentNodeId: candidate.parentNodeId || null,
       parentRevision: Number(parent.contentRevision || parent.updatedAt),
       parentWorkingHash: hashDefNodeValue(parent.workingPayload),
       finalConfigs: [],
@@ -10698,16 +10741,20 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
       ownerSessionId: sessionId, timelineId, axisBindingId,
       operators: [], confirmedDecisions: [],
       preparedCandidate, usedAt: Date.now(), usedResult: null,
-      pendingCommand: { id: pendingCommandId, parentSnapshot: cloneJson(readMainWorkbenchSnapshotMirror() || {}), observedAt: Date.now() },
+      pendingCommand: pendingCommandId
+        ? { id: pendingCommandId, parentSnapshot: cloneJson(readMainWorkbenchSnapshotMirror() || {}), observedAt: Date.now() }
+        : null,
     });
-    writeMainWorkbenchCommandQueue([
-      ...readMainWorkbenchCommandQueue().filter((entry) => entry.id !== pendingCommandId),
-      normalizeMainWorkbenchCommandEntry({
-        id: pendingCommandId,
-        status: 'done',
-        command: { op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: preparedCandidate.parentRevision, nodeId: candidate.id, nodeRevision: preparedCandidate.nodeRevision },
-      }),
-    ]);
+    if (pendingCommandId) {
+      writeMainWorkbenchCommandQueue([
+        ...readMainWorkbenchCommandQueue().filter((entry) => entry.id !== pendingCommandId),
+        normalizeMainWorkbenchCommandEntry({
+          id: pendingCommandId,
+          status: 'done',
+          command: { op: 'applyPreparedOperatorConfig', parentNodeId: parent.id, parentRevision: preparedCandidate.parentRevision, nodeId: candidate.id, nodeRevision: preparedCandidate.nodeRevision },
+        }),
+      ]);
+    }
     return { status: 200, body: { ok: true, planHash, pendingCommandId } };
   }
   if (method === 'GET' && pathname === '/api/def-tools/route-map') {

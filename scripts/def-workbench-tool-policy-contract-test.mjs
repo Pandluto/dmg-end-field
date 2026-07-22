@@ -202,6 +202,8 @@ try {
   assert.equal(hydratedProjection.body.snapshot.skillButtons[0].selectedBuffs[0].name, 'Buff A ONLY');
   assert.equal(hydratedProjection.body.snapshot.operatorConfigs[0].weapon.name, 'Weapon A ONLY');
   assert.equal(hydratedProjection.body.snapshot.damageReport.totalExpected, 111111);
+  assert.equal(hydratedProjection.body.snapshot.skillCatalog?.[0]?.skillId, 'skill-A',
+    `native context attachment must retain the trusted selected-operator skill catalog: ${JSON.stringify(hydratedProjection.body.snapshot)}`);
   const afterAttach = await request('/api/main-workbench/snapshot', { internal: true });
   const { axisContext: _axisContext, ...persistedAfterAttach } = afterAttach.body.snapshot;
   assert.deepEqual(persistedAfterAttach, fullCanvasProjection,
@@ -215,7 +217,7 @@ try {
   const trustedSkills = await generic('def.skill.resolve', { query: 'Operator A ONLY' }, 'session-a');
   assert.equal(trustedSkills.status, 200, JSON.stringify(trustedSkills.body));
   assert.equal(trustedSkills.body.result.candidates.some((candidate) => candidate.skillId === 'skill-A'), true,
-    'selected operator skills must be resolvable even when they have not been placed on the timeline');
+    `selected operator skills must be resolvable even when they have not been placed on the timeline: ${JSON.stringify(trustedSkills.body)}`);
 
   const rejectedInvalidCheckout = await generic('def.worknode.checkout_and_verify', {
     nodeId: 'node-invalid-timeline', expectedRevision: 303, expectedWorkingHash: 'not-needed-for-invalid-shape',
@@ -394,5 +396,6 @@ try {
 } finally {
   child.kill('SIGTERM');
   await new Promise((resolve) => child.once('exit', resolve));
-  fs.rmSync(root, { recursive: true, force: true });
+  repository.close();
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
