@@ -35,6 +35,9 @@ const OPENCODE_HOST = '127.0.0.1';
 const OPENCODE_PORT_BASE = Number(process.env.DEF_OPENCODE_PORT || 17445);
 const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 const MAX_SESSION_BINDING_BYTES = 64 * 1024;
+const PERSISTED_SESSION_SCAN_MAX_ENTRIES = 1024;
+const PERSISTED_SESSION_LOOKUP_CONCURRENCY = 8;
+const PERSISTED_SESSION_LIST_TIMEOUT_MS = 25000;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
@@ -1670,29 +1673,82 @@ function normalizePersistedSessionLimit(value) {
   return Math.max(1, Math.floor(limit));
 }
 
+function persistedSessionListError(message, code, status, details) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  error.details = details;
+  return error;
+}
+
+function persistedSessionScanLimit(options = {}) {
+  const requested = Number(options.resourceLimits?.maxScanEntries);
+  if (!Number.isFinite(requested) || requested < 1) return PERSISTED_SESSION_SCAN_MAX_ENTRIES;
+  return Math.min(PERSISTED_SESSION_SCAN_MAX_ENTRIES, Math.floor(requested));
+}
+
+function readBoundedSessionEntries(hostRoot, scanState) {
+  let directory;
+  try {
+    directory = fs.opendirSync(hostRoot);
+  } catch {
+    return [];
+  }
+  const entries = [];
+  try {
+    while (true) {
+      const entry = directory.readSync();
+      if (!entry) break;
+      scanState.count += 1;
+      if (scanState.count > scanState.limit) {
+        throw persistedSessionListError(
+          `Persisted DEF Session scan exceeds the safe limit of ${scanState.limit} entries.`,
+          'DEF_PERSISTED_SESSION_SCAN_LIMIT_EXCEEDED',
+          409,
+          {
+            host: scanState.host || 'all',
+            maxScanEntries: scanState.limit,
+            observedEntries: scanState.count,
+          },
+        );
+      }
+      entries.push(entry);
+    }
+  } finally {
+    directory.closeSync();
+  }
+  return entries;
+}
+
 function listSessionBindings(options = {}) {
   const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
   const bindings = [];
   if (!fs.existsSync(sessionsRoot)) return bindings;
   const requestedHost = normalizePersistedSessionHost(options.host);
-  let hostEntries;
-  try {
-    hostEntries = fs.readdirSync(sessionsRoot, { withFileTypes: true });
-  } catch {
-    return bindings;
-  }
-  const selectedHostEntries = requestedHost
-    ? hostEntries.filter((entry) => entry.name === requestedHost)
-    : hostEntries;
-  for (const hostEntry of selectedHostEntries) {
-    if (!hostEntry.isDirectory() || hostEntry.isSymbolicLink()) continue;
-    const hostRoot = path.join(sessionsRoot, hostEntry.name);
-    let sessionEntries;
+  const scanState = {
+    count: 0,
+    host: requestedHost,
+    limit: persistedSessionScanLimit(options),
+  };
+  let selectedHosts;
+  if (requestedHost) {
+    const hostRoot = path.join(sessionsRoot, requestedHost);
     try {
-      sessionEntries = fs.readdirSync(hostRoot, { withFileTypes: true });
+      const stat = fs.lstatSync(hostRoot);
+      selectedHosts = stat.isDirectory() && !stat.isSymbolicLink()
+        ? [{ name: requestedHost, root: hostRoot }]
+        : [];
     } catch {
-      continue;
+      return bindings;
     }
+  } else {
+    selectedHosts = readBoundedSessionEntries(sessionsRoot, scanState)
+      .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+      .map((entry) => ({ name: entry.name, root: path.join(sessionsRoot, entry.name) }));
+  }
+  for (const hostEntry of selectedHosts) {
+    const hostRoot = hostEntry.root;
+    const sessionEntries = readBoundedSessionEntries(hostRoot, scanState);
     for (const sessionEntry of sessionEntries) {
       if (!sessionEntry.isDirectory() || sessionEntry.isSymbolicLink()) continue;
       const directory = path.join(hostRoot, sessionEntry.name);
@@ -2235,19 +2291,85 @@ function persistedDefSessionNotFound() {
   return error;
 }
 
-async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100, host = '', openCodeBaseUrl = '' } = {}) {
-  const bindings = listSessionBindings({ host });
+function persistedSessionListTimeoutError(bindingCount) {
+  return persistedSessionListError(
+    `Persisted DEF Session validation exceeded ${PERSISTED_SESSION_LIST_TIMEOUT_MS}ms.`,
+    'DEF_PERSISTED_SESSION_LIST_TIMEOUT',
+    504,
+    {
+      timeoutMs: PERSISTED_SESSION_LIST_TIMEOUT_MS,
+      bindingCount,
+      maxConcurrency: PERSISTED_SESSION_LOOKUP_CONCURRENCY,
+    },
+  );
+}
+
+async function awaitPersistedSessionDeadline(promise, deadlineAt, timeoutError) {
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) throw timeoutError;
+  let timer;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(timeoutError), remainingMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readPersistedSessionSummaries(bindings, baseUrl, deadlineAt) {
+  const results = new Array(bindings.length);
+  const workerCount = Math.min(PERSISTED_SESSION_LOOKUP_CONCURRENCY, bindings.length);
+  const controller = new AbortController();
+  const timeoutError = persistedSessionListTimeoutError(bindings.length);
+  const remainingMs = deadlineAt - Date.now();
+  if (remainingMs <= 0) throw timeoutError;
+  const timer = setTimeout(() => controller.abort(timeoutError), remainingMs);
+  let nextIndex = 0;
+  try {
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (!controller.signal.aborted) {
+        const index = nextIndex;
+        nextIndex += 1;
+        if (index >= bindings.length) return;
+        const binding = bindings[index];
+        try {
+          const session = await requestJson(
+            'GET',
+            `${baseUrl}/session/${encodeURIComponent(binding.sessionID)}?directory=${encodeURIComponent(binding.directory)}`,
+            undefined,
+            controller.signal,
+            15000,
+          );
+          results[index] = { session, binding };
+        } catch {
+          if (controller.signal.aborted) return;
+          results[index] = null;
+        }
+      }
+    }));
+    if (controller.signal.aborted) throw controller.signal.reason || timeoutError;
+    return results;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100, host = '', openCodeBaseUrl = '', resourceLimits = undefined } = {}) {
+  const deadlineAt = Date.now() + PERSISTED_SESSION_LIST_TIMEOUT_MS;
+  const bindings = listSessionBindings({ host, resourceLimits });
   if (!bindings.length) return [];
   const deepseek = sanitizeDeepSeekConfig(config);
-  const baseUrl = openCodeBaseUrl || await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
-  const sessions = await Promise.all(bindings.map(async (binding) => {
-    try {
-      const session = await requestJson('GET', `${baseUrl}/session/${encodeURIComponent(binding.sessionID)}?directory=${encodeURIComponent(binding.directory)}`, undefined, undefined, 15000);
-      return { session, binding };
-    } catch {
-      return null;
-    }
-  }));
+  const timeoutError = persistedSessionListTimeoutError(bindings.length);
+  const baseUrl = openCodeBaseUrl || await awaitPersistedSessionDeadline(
+    getOpenCodeServerForRead(deepseek, skillId, thinkingEffort),
+    deadlineAt,
+    timeoutError,
+  );
+  const sessions = await readPersistedSessionSummaries(bindings, baseUrl, deadlineAt);
   return sessions.filter((item) => item?.session?.id === item?.binding?.sessionID && isDefOpenCodeSession(item?.session))
     .map(({ session, binding }) => ({ ...mapOpenCodeSessionSummary(session), host: binding.host, skillId: binding.skillId, directory: binding.directory }))
     .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0))

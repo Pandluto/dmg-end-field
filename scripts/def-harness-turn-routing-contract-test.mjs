@@ -818,7 +818,9 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     const persistedFixtures = [];
     const fakeSessions = new Map();
     const fakeRequests = [];
-    let delayNextPersistedHistoryRead = false;
+    let persistedHistoryReadDelayMs = 0;
+    let activePersistedHistoryReads = 0;
+    let maxActivePersistedHistoryReads = 0;
     const eventResponses = new Set();
     const jsonResponse = (response, status, body) => {
       response.writeHead(status, { 'content-type': 'application/json', connection: 'close' });
@@ -866,9 +868,13 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         const sessionID = decodeURIComponent(sessionMatch[1]);
         const session = fakeSessions.get(sessionID);
         const reply = () => jsonResponse(response, session ? 200 : 404, session || { message: 'session not found' });
-        if (delayNextPersistedHistoryRead && sessionID.startsWith('persisted-history-')) {
-          delayNextPersistedHistoryRead = false;
-          setTimeout(reply, 1100);
+        if (persistedHistoryReadDelayMs > 0 && sessionID.startsWith('persisted-history-')) {
+          activePersistedHistoryReads += 1;
+          maxActivePersistedHistoryReads = Math.max(maxActivePersistedHistoryReads, activePersistedHistoryReads);
+          setTimeout(() => {
+            activePersistedHistoryReads -= 1;
+            reply();
+          }, persistedHistoryReadDelayMs);
           return;
         }
         reply();
@@ -1065,22 +1071,42 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         historySessionIDs.add(sessionID);
       }
       fakeRequests.length = 0;
-      delayNextPersistedHistoryRead = true;
+      persistedHistoryReadDelayMs = 25;
       const retainedAiCli = await listPersistedDefSessions({
         config: { apiKey: 'contract-only' },
         host: 'ai-cli',
         limit: 1000,
         openCodeBaseUrl: fakeOpenCodeBaseUrl,
       });
+      persistedHistoryReadDelayMs = 0;
       const retainedAiCliIDs = new Set(retainedAiCli.map((session) => session.sessionID));
       assert.equal(retainedAiCli.every((session) => session.host === 'ai-cli'), true,
         'a Shell-targeted persisted Session read must never include Workbench Sessions');
       assert.equal(retainedAiCliIDs.has(workbenchSessionID), false,
         'host filtering happens before OpenCode validation requests');
       assert.equal(Array.from(historySessionIDs).every((sessionID) => retainedAiCliIDs.has(sessionID)), true,
-        'a large historical ai-cli directory remains listable when a cold OpenCode read exceeds the old one-second bridge window');
+        'a large historical ai-cli directory remains listable under bounded OpenCode validation');
+      assert.equal(maxActivePersistedHistoryReads, 8,
+        'persisted Session validation uses the fixed eight-request concurrency ceiling');
       assert.equal(fakeRequests.some((request) => request.pathname.endsWith(`/${encodeURIComponent(workbenchSessionID)}`)), false,
         'the ai-cli scan does not spend an upstream request on Workbench history');
+      const requestsBeforeScanLimit = fakeRequests.length;
+      await assert.rejects(
+        listPersistedDefSessions({
+          config: { apiKey: 'contract-only' },
+          host: 'ai-cli',
+          limit: 100,
+          openCodeBaseUrl: fakeOpenCodeBaseUrl,
+          resourceLimits: { maxScanEntries: 10 },
+        }),
+        (caught) => caught?.code === 'DEF_PERSISTED_SESSION_SCAN_LIMIT_EXCEEDED'
+          && caught?.status === 409
+          && caught?.details?.maxScanEntries === 10
+          && caught?.details?.observedEntries === 11,
+        'scan overflow must fail closed with a structured error instead of returning a truncated history',
+      );
+      assert.equal(fakeRequests.length, requestsBeforeScanLimit,
+        'scan overflow is rejected before any partial OpenCode validation begins');
       const newestHistoryID = 'persisted-history-000';
       fakeSessions.get(newestHistoryID).time.updated = Date.now() + 60_000;
       const newestAiCli = await listPersistedDefSessions({

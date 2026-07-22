@@ -2082,6 +2082,10 @@ const server = http.createServer(async (request, response) => {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
       ...(errorCode ? { code: errorCode } : {}),
+      ...(errorCode === 'DEF_PERSISTED_SESSION_SCAN_LIMIT_EXCEEDED'
+        || errorCode === 'DEF_PERSISTED_SESSION_LIST_TIMEOUT'
+        ? { details: error.details || null }
+        : {}),
     };
     if (requestUrl.pathname === '/api/native/sessions/cleanup') {
       writeNativeSessionCleanupJson(response, statusCode, payload);
