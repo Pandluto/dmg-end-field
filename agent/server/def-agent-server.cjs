@@ -1861,11 +1861,23 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     const errorCode = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
-    writeJson(response, Number.isInteger(error?.status) ? error.status : errorCode === 'DEF_SESSION_SKILL_MISMATCH' || errorCode === 'BLOCKED_HARNESS_LOAD' ? 409 : 500, {
+    const statusCode = Number.isInteger(error?.status)
+      ? error.status
+      : errorCode === 'DEF_SESSION_SKILL_MISMATCH' || errorCode === 'BLOCKED_HARNESS_LOAD'
+        ? 409
+        : requestUrl.pathname === '/api/native/sessions/cleanup' && error instanceof SyntaxError
+          ? 400
+          : 500;
+    const payload = {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
       ...(errorCode ? { code: errorCode } : {}),
-    });
+    };
+    if (requestUrl.pathname === '/api/native/sessions/cleanup') {
+      writeNativeSessionCleanupJson(response, statusCode, payload);
+    } else {
+      writeJson(response, statusCode, payload);
+    }
   }
 });
 

@@ -1,5 +1,6 @@
 (function () {
   const runtime = window.desktopRuntime;
+  const nativeSessionCleanupResult = window.defNativeSessionCleanupResult;
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
   const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
   const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
@@ -222,12 +223,13 @@
   };
 
   const fetchJson = async (origin, path, options = {}) => {
+    const { acceptOkFalse = false, ...fetchOptions } = options;
     const response = await fetch(`${origin}${path}`, {
       cache: 'no-store',
-      ...options,
+      ...fetchOptions,
     });
     const payload = await response.json().catch(() => null);
-    if (!response.ok || !payload?.ok) {
+    if (!response.ok || (!acceptOkFalse && !payload?.ok)) {
       throw new Error(payload?.error?.message || payload?.error || `请求失败：${path}`);
     }
     return payload;
@@ -616,6 +618,7 @@
     setText('native-ai-cli-session-cleanup-status', '正在清理旧 ai-cli 会话记录…');
     try {
       const payload = await fetchLocalBridgeJson('/def-agent/native-sessions/cleanup', {
+        acceptOkFalse: true,
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -623,25 +626,14 @@
         },
         body: JSON.stringify({ host: 'ai-cli', keepSessionID }),
       });
-      if (
-        payload.host !== 'ai-cli'
-        || payload.keptSessionID !== keepSessionID
-        || !Number.isInteger(payload.targetCount)
-        || !Number.isInteger(payload.deletedCount)
-        || !Number.isInteger(payload.alreadyDeletedCount)
-        || !Array.isArray(payload.failed)
-      ) throw new Error('会话清理服务返回了无效结果。');
-
-      const failedCount = payload.failed.length;
-      const summary = `${payload.ok && failedCount === 0 ? '清理完成' : '清理未完全完成'}：已删除 ${payload.deletedCount}，已不存在 ${payload.alreadyDeletedCount}，失败 ${failedCount}。当前会话已保留。`;
+      const { failedCount, summary } = nativeSessionCleanupResult.summarize(payload, keepSessionID);
       state.nativeAiCliSessionsLoading = false;
       setText('native-ai-cli-session-cleanup-status', summary);
       appendLog(`DEF Shell 会话清理 | keep=${keepSessionID} | deleted=${payload.deletedCount} | alreadyDeleted=${payload.alreadyDeletedCount} | failed=${failedCount}`);
       try {
         await refreshNativeAiCliSessions(undefined, { announce: false });
       } catch (refreshError) {
-        const warning = ` 清理结果已确认；刷新会话列表失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`;
-        setText('native-ai-cli-session-cleanup-status', `${summary}${warning}`);
+        setText('native-ai-cli-session-cleanup-status', nativeSessionCleanupResult.appendRefreshWarning(summary, refreshError));
         appendLog(`DEF Shell 会话清理后刷新失败 | ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
       }
     } catch (error) {

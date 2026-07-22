@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import vm from 'node:vm';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -17,6 +21,49 @@ const {
 } = require('../electron/workbench-renderer-transport.cjs');
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const temporaryRoots = [];
+const cleanupResultModule = { exports: {} };
+vm.runInNewContext(
+  fs.readFileSync(path.join(projectRoot, 'public/shell/native-session-cleanup-result.js'), 'utf8'),
+  { module: cleanupResultModule, Error, String, Number, Array },
+);
+const nativeSessionCleanupResult = cleanupResultModule.exports;
+
+async function reserveLoopbackPort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : 0;
+  await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  return port;
+}
+
+async function waitForSidecar(port, child, readError) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (child.exitCode !== null) throw new Error(`cleanup contract sidecar exited early: ${readError()}`);
+    try {
+      const response = await fetch(`http://127.0.0.1:${port}/health`);
+      if (response.ok) return;
+    } catch {
+      // The child has not bound the reserved port yet.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`cleanup contract sidecar did not become ready: ${readError()}`);
+}
+
+async function stopSidecar(child) {
+  if (!child || child.exitCode !== null) return;
+  const exited = once(child, 'exit');
+  child.kill('SIGTERM');
+  await Promise.race([
+    exited,
+    new Promise((resolve) => setTimeout(resolve, 2000)),
+  ]);
+  if (child.exitCode === null) child.kill();
+}
 
 function createFixture(label) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `def-native-cleanup-${label}-`));
@@ -90,6 +137,71 @@ try {
     assert.equal(isAuthorizedNativeSessionCleanupRequest({
       headers: { 'x-def-internal-token': 'wrong-native-session-cleanup-contract-token' },
     }, internalToken), false, 'a wrong native loopback token is rejected');
+  }
+
+  {
+    const partial = nativeSessionCleanupResult.summarize({
+      ok: false,
+      host: 'ai-cli',
+      keptSessionID: 'ses-current',
+      targetCount: 3,
+      deletedCount: 1,
+      alreadyDeletedCount: 1,
+      failed: [{ sessionID: 'ses-failed', code: 'NATIVE_SESSION_DELETE_UPSTREAM_FAILED' }],
+    }, 'ses-current');
+    assert.equal(partial.failedCount, 1);
+    assert.equal(partial.summary, '清理未完全完成：已删除 1，已不存在 1，失败 1。当前会话已保留。',
+      'a structured partial result remains a user-visible deletion summary');
+    const refreshFailure = nativeSessionCleanupResult.appendRefreshWarning(partial.summary, new Error('refresh unavailable'));
+    assert.equal(refreshFailure, `${partial.summary} 清理结果已确认；刷新会话列表失败：refresh unavailable`,
+      'a refresh failure appends a warning without replacing the partial deletion summary');
+  }
+
+  {
+    const port = await reserveLoopbackPort();
+    const internalToken = 'native-session-cleanup-http-contract-token';
+    let stderr = '';
+    const sidecar = spawn(process.execPath, [path.join(projectRoot, 'agent/server/def-agent-server.cjs')], {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        DEF_AGENT_PORT: String(port),
+        DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true,
+    });
+    sidecar.stderr.on('data', (chunk) => { stderr += chunk.toString('utf8'); });
+    try {
+      await waitForSidecar(port, sidecar, () => stderr);
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-def-internal-token': internalToken,
+      };
+      const malformed = await fetch(`http://127.0.0.1:${port}/api/native/sessions/cleanup`, {
+        method: 'POST',
+        headers,
+        body: '{"host":',
+      });
+      assert.equal(malformed.status, 400);
+      assert.equal(malformed.headers.has('access-control-allow-origin'), false,
+        'invalid cleanup JSON is handled by the private non-CORS error writer');
+      assert.equal((await malformed.json()).ok, false);
+
+      const invalidKeep = await fetch(`http://127.0.0.1:${port}/api/native/sessions/cleanup`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ host: 'ai-cli', keepSessionID: 'ses-does-not-exist' }),
+      });
+      assert.equal(invalidKeep.status, 400);
+      assert.equal(invalidKeep.headers.has('access-control-allow-origin'), false,
+        'cleanup business errors are handled by the private non-CORS error writer');
+      const invalidKeepPayload = await invalidKeep.json();
+      assert.equal(invalidKeepPayload.ok, false);
+      assert.equal(invalidKeepPayload.code, 'NATIVE_SESSION_CLEANUP_INVALID_KEEP');
+    } finally {
+      await stopSidecar(sidecar);
+    }
   }
 
   {
@@ -361,6 +473,7 @@ try {
   assert.match(shellHtml, /id="native-ai-cli-keep-session"/);
   assert.match(shellHtml, /id="refresh-native-ai-cli-sessions"/);
   assert.match(shellHtml, /id="cleanup-native-ai-cli-sessions"/);
+  assert.match(shellHtml, /native-session-cleanup-result\.js/);
 
   const refreshStart = shellSource.indexOf('const refreshNativeAiCliSessions = async');
   const cleanupStart = shellSource.indexOf('const cleanupNativeAiCliSessions = async');
@@ -382,16 +495,20 @@ try {
   assert.match(cleanupSource, /无法恢复/);
   assert.match(cleanupSource, /Workbench 会话不会被处理/);
   assert.match(cleanupSource, /\/def-agent\/native-sessions\/cleanup/);
+  assert.match(cleanupSource, /acceptOkFalse: true/,
+    'cleanup explicitly accepts a structured HTTP 200 payload whose operation-level ok is false');
+  assert.equal((shellSource.match(/acceptOkFalse: true/g) || []).length, 1,
+    'the relaxed operation-level result handling is scoped only to destructive cleanup');
   assert.match(cleanupSource, /\[WORKBENCH_RENDERER_CAPABILITY_HEADER\]: shellRendererCapability/,
     'Shell supplies the renderer capability only for the destructive cleanup request');
   assert.match(cleanupSource, /body: JSON\.stringify\(\{ host: 'ai-cli', keepSessionID \}\)/);
   assert.doesNotMatch(cleanupSource, /createNativeSession\(/, 'Shell cleanup must retain an explicitly selected session, never replace it');
-  const summaryIndex = cleanupSource.indexOf('const summary =');
+  const summaryIndex = cleanupSource.indexOf('nativeSessionCleanupResult.summarize');
   const refreshIndex = cleanupSource.indexOf('await refreshNativeAiCliSessions', summaryIndex);
   const refreshCatchIndex = cleanupSource.indexOf('catch (refreshError)', refreshIndex);
   assert(summaryIndex >= 0 && refreshIndex > summaryIndex && refreshCatchIndex > refreshIndex,
     'the backend deletion summary is established before the follow-up refresh');
-  assert.match(cleanupSource, /setText\('native-ai-cli-session-cleanup-status', `\$\{summary\}\$\{warning\}`\)/,
+  assert.match(cleanupSource, /nativeSessionCleanupResult\.appendRefreshWarning\(summary, refreshError\)/,
     'a failed refresh preserves the confirmed deletion summary and adds only a warning');
 
   const bridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'");
@@ -433,6 +550,13 @@ try {
     'successful cleanup uses the non-CORS private response writer');
   assert.doesNotMatch(privateWriterSource, /Access-Control-Allow-Origin/,
     'the cleanup endpoint never advertises a browser CORS grant');
+  const globalCatchStart = sidecarSource.lastIndexOf('} catch (error) {');
+  const globalCatchEnd = sidecarSource.indexOf('\n  }\n});', globalCatchStart);
+  assert(globalCatchStart >= 0 && globalCatchEnd > globalCatchStart);
+  const globalCatchSource = sidecarSource.slice(globalCatchStart, globalCatchEnd);
+  assert.match(globalCatchSource, /requestUrl\.pathname === '\/api\/native\/sessions\/cleanup'/);
+  assert.match(globalCatchSource, /writeNativeSessionCleanupJson\(response, statusCode, payload\)/,
+    'all cleanup parsing and business exceptions stay on the private response writer');
 
   console.log(JSON.stringify({
     ok: true,
@@ -452,6 +576,8 @@ try {
       'shell-capability-persisted-and-url-scrubbed',
       'bridge-cleanup-capability-gate-and-native-loopback',
       'sidecar-cleanup-internal-token-gate',
+      'sidecar-cleanup-errors-remain-private-http',
+      'partial-cleanup-summary-visible',
       'summary-survives-refresh-failure',
       'shell-ui-confirm-explicit-keep-and-bridge-scope',
     ],
