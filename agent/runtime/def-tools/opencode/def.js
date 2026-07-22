@@ -2,11 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
-// Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
-// a nonexistent repo-root @opencode-ai/plugin installation. This is a local
-// workspace package, so the file URL must include the exported TypeScript
-// entrypoint; bare package subpaths are not resolved from this repository.
-import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
+import { tool } from './tool-api.js'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 import turnRouter from '../../def-opencode-adapter/harness-turn-router.cjs'
