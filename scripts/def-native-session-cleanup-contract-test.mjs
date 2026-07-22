@@ -385,18 +385,21 @@ try {
     const first = fixture.addBinding('ai-cli', 'ses-good-first', '1-good');
     const failed = fixture.addBinding('ai-cli', 'ses-network-failed', '2-failed');
     const last = fixture.addBinding('ai-cli', 'ses-good-last', '3-good');
-    const { options, upstreamDeletes } = cleanupOptions(fixture);
+    const { options, upstreamDeletes, upstreamAborts } = cleanupOptions(fixture);
     options.fetchImpl = async (url, init) => {
-      const match = /\/session\/([^?]+)/.exec(String(url));
-      const sessionID = decodeURIComponent(match?.[1] || '').replace(/\/abort$/, '');
-      if (init?.method === 'POST') return { ok: true, status: 200 };
+      const match = /\/session\/([^/?]+)/.exec(String(url));
+      const sessionID = decodeURIComponent(match?.[1] || '');
+      if (init?.method === 'POST') {
+        upstreamAborts.push(sessionID);
+        return { ok: true, status: 200 };
+      }
       upstreamDeletes.push(sessionID);
-      if (sessionID === failed.sessionID) throw new Error('simulated network failure');
+      if (sessionID === failed.sessionID) throw new Error('simulated delete network failure');
       return { ok: true, status: 200 };
     };
 
     const result = await cleanupNativeAiCliSessions({ host: 'ai-cli', keepSessionID: current.sessionID }, options);
-    assert.equal(result.ok, false, 'an upstream network failure cannot report full success');
+    assert.equal(result.ok, false, 'a delete network failure cannot report full success');
     assert.equal(result.targetCount, 3);
     assert.equal(result.deletedCount, 2);
     assert.equal(result.alreadyDeletedCount, 0);
@@ -404,11 +407,12 @@ try {
       sessionID: failed.sessionID,
       code: 'NATIVE_SESSION_DELETE_UPSTREAM_FAILED',
     }]);
+    assert.deepEqual(upstreamAborts, [first.sessionID, failed.sessionID, last.sessionID]);
     assert.deepEqual(upstreamDeletes, [first.sessionID, failed.sessionID, last.sessionID],
-      'a rejected upstream delete must not stop later cleanup targets');
+      'a rejected delete must not stop later cleanup targets');
     assert.equal(fs.existsSync(first.directory), false);
     assert.equal(fs.existsSync(failed.directory), true,
-      'a rejected upstream delete must preserve the local binding for retry');
+      'a delete network failure preserves the local binding and gate state for retry');
     assert.equal(fs.existsSync(last.directory), false);
   }
 

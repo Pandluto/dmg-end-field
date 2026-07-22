@@ -739,7 +739,25 @@ function createDefCodexInteropProtocol(options) {
       if (['completed', 'stopped', 'timeout', 'max-step', 'provider-error', 'bridge-error'].includes(record.status)) {
         json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: `already-${record.status}`, ids: idsFor(record) }); return true;
       }
-      const upstream = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-stop`, {});
+      let upstream;
+      try {
+        upstream = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-stop`, {});
+      } catch {
+        reject(response, 502, createError('native-turn-stop-unavailable', 'Could not confirm the native turn abort because the sidecar transport failed.', 'sidecar', {
+          retryable: true,
+          ids: idsFor(record),
+          nextAction: 'Retry stop after the sidecar is reachable; the native turn remains active until abort is confirmed.',
+        }));
+        return true;
+      }
+      if (upstream.status < 200 || upstream.status >= 300 || upstream.body?.ok === false) {
+        reject(response, 502, createError('native-turn-stop-failed', `Native turn abort was not confirmed (HTTP ${upstream.status || 0}).`, 'sidecar', {
+          retryable: true,
+          ids: idsFor(record),
+          nextAction: 'Retry stop after resolving the sidecar abort failure; the native turn remains active until abort is confirmed.',
+        }));
+        return true;
+      }
       record.status = 'stopped'; appendAudit('turn.stop', record, 'stopped'); emit('stopped', record, { reason: upstream.body?.reason || 'requested' });
       json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: 'stopped', ids: idsFor(record) }); return true;
     }

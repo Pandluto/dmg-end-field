@@ -32,6 +32,7 @@ function readBody(request) {
 let promptCalls = 0;
 let losePromptResponse = false;
 let rejectNativeAdmissionOnce = false;
+let stopFailureMode = '';
 let abortedMessages = [];
 let questionRecords = [];
 const protocol = createDefCodexInteropProtocol({
@@ -87,6 +88,8 @@ const protocol = createDefCodexInteropProtocol({
       return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
     }
     if (url.endsWith('/interop-stop')) {
+      if (stopFailureMode === 'transport') throw new Error('simulated sidecar abort transport loss');
+      if (stopFailureMode === 'rejected') return { status: 503, body: { ok: false, error: 'native abort unavailable' } };
       abortedMessages = [{ info: { time: { completed: Date.now() }, error: 'MessageAbortedError: Aborted' }, parts: [] }];
       return { status: 200, body: { ok: true, reason: 'requested' } };
     }
@@ -205,6 +208,35 @@ try {
     method: 'POST', headers,
   })).json();
   assert.equal(failedStop.status, 'already-provider-error');
+
+  stopFailureMode = 'rejected';
+  const rejectedStopStart = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: 'stop must fail closed', clientTurnId: 'turn-stop-rejected', ingressMode: 'pure-blackbox' }),
+  })).json();
+  const rejectedStop = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns/${encodeURIComponent(rejectedStopStart.turn.turnId)}/stop`, {
+    method: 'POST', headers,
+  });
+  assert.equal(rejectedStop.status, 502, 'a sidecar 5xx cannot fabricate protocol stopped');
+  assert.equal((await rejectedStop.json()).error.code, 'native-turn-stop-failed');
+  const rejectedStopTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
+  assert.equal(rejectedStopTranscript.turns.find((turn) => turn.turnId === rejectedStopStart.turn.turnId)?.status, 'accepted',
+    'a rejected abort leaves the protocol turn active for a diagnosable retry');
+
+  stopFailureMode = 'transport';
+  const transportStopStart = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ rawUserText: 'stop transport must fail closed', clientTurnId: 'turn-stop-transport', ingressMode: 'pure-blackbox' }),
+  })).json();
+  const transportStop = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns/${encodeURIComponent(transportStopStart.turn.turnId)}/stop`, {
+    method: 'POST', headers,
+  });
+  assert.equal(transportStop.status, 502, 'a sidecar transport failure cannot fabricate protocol stopped');
+  assert.equal((await transportStop.json()).error.code, 'native-turn-stop-unavailable');
+  const transportStopTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
+  assert.equal(transportStopTranscript.turns.find((turn) => turn.turnId === transportStopStart.turn.turnId)?.status, 'accepted',
+    'a transport-lost abort leaves the protocol turn active for a later retry');
+  stopFailureMode = '';
 
   const stoppedStart = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
     method: 'POST', headers,

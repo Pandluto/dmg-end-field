@@ -1396,6 +1396,9 @@ async function deleteNativeSessionById(sessionID, options = {}) {
         },
       );
     } catch {
+      // Abort succeeded, but deleting the Session did not. Preserve both the
+      // binding and any admission reservation so a retry can finish cleanup
+      // without admitting a new native turn.
       return {
         ok: false,
         status: 'failed',
