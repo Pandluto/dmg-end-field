@@ -24,6 +24,7 @@ const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
 const OPENCODE_HOST = '127.0.0.1';
 const OPENCODE_PORT_BASE = Number(process.env.DEF_OPENCODE_PORT || 17445);
 const OPENCODE_PORT_MAX_ATTEMPTS = 20;
+const MAX_SESSION_BINDING_BYTES = 64 * 1024;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
@@ -471,6 +472,91 @@ function readJsonFile(filePath) {
   } catch {
     return null;
   }
+}
+
+function invalidExistingSessionBinding(message) {
+  const error = new Error(message);
+  error.code = 'HARNESS_BINDING_INVALID';
+  return error;
+}
+
+function sameSessionBindingFile(left, right) {
+  return Boolean(left && right
+    && right.isFile()
+    // Windows reports lstat().dev as 0 while fstat().dev carries the volume id.
+    && (process.platform === 'win32' || left.dev === right.dev)
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs);
+}
+
+function readSafeSessionBindingFile(target, fileSystem = fs) {
+  let descriptor;
+  try {
+    const linkStat = fileSystem.lstatSync(target);
+    if (!linkStat.isFile()
+      || linkStat.isSymbolicLink()
+      || linkStat.size <= 0
+      || linkStat.size > MAX_SESSION_BINDING_BYTES) return null;
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
+    if (!sameSessionBindingFile(linkStat, fileSystem.fstatSync(descriptor))) return null;
+    const binding = JSON.parse(fileSystem.readFileSync(descriptor, 'utf8'));
+    return binding && typeof binding === 'object' && !Array.isArray(binding) ? binding : null;
+  } catch {
+    return null;
+  } finally {
+    if (descriptor !== undefined) fileSystem.closeSync(descriptor);
+  }
+}
+
+function openExistingSessionBindingForWrite(target) {
+  let linkStat;
+  try {
+    linkStat = fs.lstatSync(target);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { exists: false, descriptor: undefined, binding: undefined };
+    throw invalidExistingSessionBinding('Existing DEF Session binding cannot be inspected safely.');
+  }
+  if (!linkStat.isFile()
+    || linkStat.isSymbolicLink()
+    || linkStat.size <= 0
+    || linkStat.size > MAX_SESSION_BINDING_BYTES) {
+    throw invalidExistingSessionBinding('Existing DEF Session binding is not a safe regular file.');
+  }
+
+  let descriptor;
+  try {
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    descriptor = fs.openSync(target, fs.constants.O_RDWR | noFollow);
+    const openedStat = fs.fstatSync(descriptor);
+    if (!sameSessionBindingFile(linkStat, openedStat)) {
+      throw invalidExistingSessionBinding('Existing DEF Session binding changed while being opened.');
+    }
+    const binding = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+      throw invalidExistingSessionBinding('Existing DEF Session binding is not a JSON object.');
+    }
+    fs.closeSync(descriptor);
+    descriptor = undefined;
+    return { exists: true, descriptor: undefined, binding, stat: linkStat };
+  } catch (error) {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+    if (error?.code === 'HARNESS_BINDING_INVALID') throw error;
+    throw invalidExistingSessionBinding('Existing DEF Session binding is invalid.');
+  }
+}
+
+function writeSessionBindingDescriptor(descriptor, serialized) {
+  const content = Buffer.from(serialized, 'utf8');
+  fs.ftruncateSync(descriptor, 0);
+  let offset = 0;
+  while (offset < content.length) {
+    const written = fs.writeSync(descriptor, content, offset, content.length - offset, offset);
+    if (written <= 0) throw new Error('DEF Session binding write made no progress.');
+    offset += written;
+  }
+  fs.fsyncSync(descriptor);
 }
 
 function platformRuntimeTarget() {
@@ -1113,7 +1199,9 @@ function maintainNativeSessionWorkspace(directory) {
 }
 
 function writeSessionBinding(directory, session, options = {}) {
-  const existing = readJsonFile(path.join(directory, '.def-session.json'));
+  const target = path.join(directory, '.def-session.json');
+  const existingState = openExistingSessionBindingForWrite(target);
+  const existing = existingState.binding;
   const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
     ? existing.axisBindingId.trim()
     : `axis-${crypto.randomUUID()}`;
@@ -1139,7 +1227,7 @@ function writeSessionBinding(directory, session, options = {}) {
       ? getSessionHarnessSealKey()
       : normalizeSealKey(options.harnessSealKey);
     if (!sealKey) throw new Error('DEF Session Harness seal key is unavailable.');
-    if (existing) {
+    if (existingState.exists) {
       const existingSealValid = verifySessionHarnessSeal(existing, sealKey);
       const legacyStableIdentity = isStrictLegacyStableHarnessBinding(existing);
       const legacyStable = legacyStableIdentity
@@ -1149,6 +1237,13 @@ function writeSessionBinding(directory, session, options = {}) {
         && binding.agentRelease?.harness?.selector === existing.harnessBinding.selector
         && defHarness.sameRef(binding.agentRelease?.harness?.ref, existing.harnessBinding.harness);
       const sameSealedIdentity = existingSealValid && sameSessionHarnessIdentity(existing, binding);
+      const recoveryOuterIdentityMatches = legacyStableIdentity || (existingSealValid
+        && existing.schemaVersion === binding.schemaVersion
+        && existing.host === binding.host
+        && existing.skillId === binding.skillId
+        && existing.agent === binding.agent
+        && existing.axisBindingId === binding.axisBindingId
+        && (existing.timelineId ?? null) === (binding.timelineId ?? null));
       const recoveryReleaseMatches = existing.agentRelease?.harness
         ? existing.agentRelease.harness.selector === binding.agentRelease?.harness?.selector
           && defHarness.sameRef(existing.agentRelease.harness.ref, binding.agentRelease?.harness?.ref)
@@ -1165,7 +1260,7 @@ function writeSessionBinding(directory, session, options = {}) {
         && defHarness.sameRef(existing.harnessBinding?.harness, binding.harnessBinding?.harness)
         && JSON.stringify(existing.harnessBinding?.slotHashes || {}) === JSON.stringify(binding.harnessBinding?.slotHashes || {})
         && recoveryReleaseMatches
-        && (existingSealValid || legacyStableIdentity);
+        && recoveryOuterIdentityMatches;
       if (!sameSealedIdentity && !legacyStable && !sameRecoveryHarness) {
         const error = new Error('Existing DEF Session Harness identity cannot be replaced or re-sealed.');
         error.code = 'HARNESS_BINDING_INVALID';
@@ -1174,8 +1269,35 @@ function writeSessionBinding(directory, session, options = {}) {
     }
     binding.harnessIdentitySeal = createSessionHarnessSeal(binding, sealKey);
   }
-  fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify(binding, null, 2)}\n`, 'utf8');
-  return axisBindingId;
+  const serialized = `${JSON.stringify(binding, null, 2)}\n`;
+  if (Buffer.byteLength(serialized, 'utf8') > MAX_SESSION_BINDING_BYTES) {
+    throw invalidExistingSessionBinding('DEF Session binding exceeds the safe size limit.');
+  }
+  let descriptor;
+  try {
+    if (existingState.exists) {
+      try {
+        const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+        descriptor = fs.openSync(target, fs.constants.O_RDWR | noFollow);
+        if (!sameSessionBindingFile(existingState.stat, fs.fstatSync(descriptor))) {
+          throw invalidExistingSessionBinding('Existing DEF Session binding changed before it could be updated.');
+        }
+      } catch (error) {
+        if (error?.code === 'HARNESS_BINDING_INVALID') throw error;
+        throw invalidExistingSessionBinding('Existing DEF Session binding cannot be reopened safely.');
+      }
+    } else {
+      try {
+        descriptor = fs.openSync(target, 'wx', 0o600);
+      } catch {
+        throw invalidExistingSessionBinding('DEF Session binding appeared while the new identity was being created.');
+      }
+    }
+    writeSessionBindingDescriptor(descriptor, serialized);
+    return axisBindingId;
+  } finally {
+    if (descriptor !== undefined) fs.closeSync(descriptor);
+  }
 }
 
 function readNativeNodeRelation(directory) {
@@ -1212,10 +1334,14 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   const resolved = path.resolve(directory);
   const relative = path.relative(sessionsRoot, resolved);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
-  const binding = readJsonFile(path.join(resolved, '.def-session.json'));
+  const binding = readSafeSessionBindingFile(
+    path.join(resolved, '.def-session.json'),
+    options.fileSystem || fs,
+  );
   if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
   if (path.resolve(binding.directory || resolved) !== resolved) return null;
   if (binding.harnessIdentitySeal) {
+    if (binding.schemaVersion !== 5) return null;
     try {
       const sealKey = options.harnessSealKey === undefined
         ? getSessionHarnessSealKey()

@@ -21,6 +21,15 @@ const activationStats = {
   registryValidations: 0,
 };
 
+function sameSessionBindingFile(left, right) {
+  return Boolean(left && right
+    && right.isFile()
+    && (process.platform === 'win32' || left.dev === right.dev)
+    && left.ino === right.ino
+    && left.size === right.size
+    && left.mtimeMs === right.mtimeMs);
+}
+
 function isRegisteredHarnessBinding(harnessBinding, runtimeRoot) {
   const harness = harnessBinding.harness;
   const resolvedRuntimeRoot = path.resolve(runtimeRoot);
@@ -113,12 +122,16 @@ function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSyste
   if (typeof directory !== 'string' || !directory.trim()) return false;
   if (typeof sessionID !== 'string' || !sessionID.trim()) return false;
   activationStats.bindingReads += 1;
+  let descriptor;
   try {
     const resolvedDirectory = path.resolve(directory);
     const target = path.join(resolvedDirectory, '.def-session.json');
     const stat = fileSystem.lstatSync(target);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_SESSION_BINDING_BYTES) return false;
-    const binding = JSON.parse(fileSystem.readFileSync(target, 'utf8'));
+    const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
+    descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
+    if (!sameSessionBindingFile(stat, fileSystem.fstatSync(descriptor))) return false;
+    const binding = JSON.parse(fileSystem.readFileSync(descriptor, 'utf8'));
     return isDefEquipment3Plus1HarnessBinding(binding, {
       directory: resolvedDirectory,
       sessionID,
@@ -127,6 +140,8 @@ function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSyste
     });
   } catch {
     return false;
+  } finally {
+    if (descriptor !== undefined) fileSystem.closeSync(descriptor);
   }
 }
 

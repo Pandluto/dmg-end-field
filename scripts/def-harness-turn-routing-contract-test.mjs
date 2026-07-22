@@ -11,6 +11,7 @@ const { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction, isDirec
 const {
   clearRegisteredHarnessVerificationCache,
   isDefEquipment3Plus1HarnessBinding,
+  readDefEquipment3Plus1HarnessActivation,
 } = require('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs');
 const {
   createSessionHarnessSeal,
@@ -83,7 +84,12 @@ function spawnBunEval(source, options = {}) {
 const binding = {
   schemaVersion: 5,
   sessionID: 'session-pinned',
+  axisBindingId: 'axis-session-pinned',
   directory: path.join(harnessFixtureRoot, 'sessions', 'operator'),
+  host: 'workbench',
+  skillId: 'workbench',
+  agent: 'def-workbench',
+  timelineId: 'timeline-session-pinned',
   harnessBinding: {
     kind: 'DefHarnessSessionBindingV1',
     schemaVersion: 1,
@@ -218,9 +224,89 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       skillId: 'workbench',
       harnessBinding: oldHarnessBinding,
       agentRelease: agentReleaseFor(oldHarnessBinding),
+      timelineId: 'timeline-recovery',
     }, { harnessSealKey });
-    assert(readNativeSessionBinding(recoveryDirectory, oldSessionID, { includeNodeRelation: false, harnessSealKey }),
+    const initialRecoveryBinding = readNativeSessionBinding(
+      recoveryDirectory,
+      oldSessionID,
+      { includeNodeRelation: false, harnessSealKey },
+    );
+    assert(initialRecoveryBinding,
       'the sidecar must read its own valid sealed candidate binding');
+
+    const refreshedAgentRelease = {
+      ...agentReleaseFor(oldHarnessBinding),
+      releaseHash: 'c'.repeat(64),
+      components: { toolImplementationHash: 'd'.repeat(64) },
+    };
+    writeSessionBinding(recoveryDirectory, {
+      id: oldSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: oldHarnessBinding,
+      agentRelease: refreshedAgentRelease,
+      timelineId: 'timeline-recovery',
+    }, { harnessSealKey });
+    const refreshedBinding = readNativeSessionBinding(
+      recoveryDirectory,
+      oldSessionID,
+      { includeNodeRelation: false, harnessSealKey },
+    );
+    assert.equal(refreshedBinding?.agentRelease?.releaseHash, refreshedAgentRelease.releaseHash,
+      'runtime AgentRelease metadata may refresh when its sealed Harness selector/ref is unchanged');
+
+    const recoveryBindingPath = path.join(recoveryDirectory, '.def-session.json');
+    const sealedOuterBinding = JSON.parse(fs.readFileSync(recoveryBindingPath, 'utf8'));
+    const outerTamperCases = [
+      ['schemaVersion', 4],
+      ['host', 'ai-cli'],
+      ['skillId', 'operator'],
+      ['agent', 'def-operator'],
+      ['axisBindingId', 'axis-tampered'],
+      ['timelineId', 'timeline-tampered'],
+    ];
+    for (const [field, value] of outerTamperCases) {
+      const tamperedOuter = structuredClone(sealedOuterBinding);
+      tamperedOuter[field] = value;
+      fs.writeFileSync(recoveryBindingPath, `${JSON.stringify(tamperedOuter, null, 2)}\n`, 'utf8');
+      assert.equal(readNativeSessionBinding(
+        recoveryDirectory,
+        oldSessionID,
+        { includeNodeRelation: false, harnessSealKey },
+      ), null, `the sidecar must reject a sealed candidate with tampered outer ${field}`);
+      assert.equal(readDefEquipment3Plus1HarnessActivation(
+        recoveryDirectory,
+        oldSessionID,
+        undefined,
+        harnessActivationOptions,
+      ), false, `plugin activation must reject the same tampered outer ${field}`);
+    }
+    fs.writeFileSync(recoveryBindingPath, `${JSON.stringify(sealedOuterBinding, null, 2)}\n`, 'utf8');
+
+    let symlinkContentReads = 0;
+    const sealedSymlinkFileSystem = {
+      lstatSync: () => ({
+        isFile: () => true,
+        isSymbolicLink: () => true,
+        size: Buffer.byteLength(JSON.stringify(sealedOuterBinding)),
+      }),
+      readFileSync: () => {
+        symlinkContentReads += 1;
+        return JSON.stringify(sealedOuterBinding);
+      },
+    };
+    assert.equal(readNativeSessionBinding(
+      recoveryDirectory,
+      oldSessionID,
+      { includeNodeRelation: false, harnessSealKey, fileSystem: sealedSymlinkFileSystem },
+    ), null, 'the sidecar must reject a symlinked sealed Session binding');
+    assert.equal(readDefEquipment3Plus1HarnessActivation(
+      recoveryDirectory,
+      oldSessionID,
+      sealedSymlinkFileSystem,
+      harnessActivationOptions,
+    ), false, 'plugin activation and the sidecar must agree on symlink rejection');
+    assert.equal(symlinkContentReads, 0, 'neither reader may follow the Session binding symlink');
 
     const newSessionID = 'sealed-recovery-new';
     const reboundHarnessBinding = makeHarnessBinding(newSessionID, 'explicit', compositeHarnessRef, 2);
@@ -230,13 +316,23 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       skillId: 'workbench',
       harnessBinding: reboundHarnessBinding,
       agentRelease: agentReleaseFor(reboundHarnessBinding),
+      timelineId: 'timeline-recovery',
     };
     assert.throws(() => writeSessionBinding(recoveryDirectory, reboundSession, { harnessSealKey }),
       (caught) => caught.code === 'HARNESS_BINDING_INVALID',
       'ordinary writes cannot change the Session identity of a sealed binding');
     writeSessionBinding(recoveryDirectory, reboundSession, { harnessSealKey, allowSessionRecoveryRebind: true });
-    assert(readNativeSessionBinding(recoveryDirectory, newSessionID, { includeNodeRelation: false, harnessSealKey }),
+    const recoveredBinding = readNativeSessionBinding(
+      recoveryDirectory,
+      newSessionID,
+      { includeNodeRelation: false, harnessSealKey },
+    );
+    assert(recoveredBinding,
       'an explicit recovery rebind may re-seal the same immutable Harness ref for the new upstream Session id');
+    assert.equal(recoveredBinding.axisBindingId, initialRecoveryBinding.axisBindingId,
+      'recovery-only rebind preserves the immutable axis binding id');
+    assert.equal(recoveredBinding.timelineId, 'timeline-recovery',
+      'recovery-only rebind preserves the immutable timeline id');
 
     const tampered = JSON.parse(fs.readFileSync(path.join(recoveryDirectory, '.def-session.json'), 'utf8'));
     tampered.harnessBinding.harness.contentHash = 'f'.repeat(64);
@@ -276,6 +372,76 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     }, { harnessSealKey, allowSessionRecoveryRebind: true }),
     (caught) => caught.code === 'HARNESS_BINDING_INVALID',
     'a stable binding cannot be replaced by a candidate even through the recovery-only write path');
+
+    const makeCandidateSession = (sessionID) => {
+      const harnessBinding = makeHarnessBinding(sessionID, 'explicit', compositeHarnessRef);
+      return {
+        id: sessionID,
+        agent: 'def-workbench',
+        skillId: 'workbench',
+        harnessBinding,
+        agentRelease: agentReleaseFor(harnessBinding),
+        timelineId: `timeline-${sessionID}`,
+      };
+    };
+    const invalidExistingCases = [
+      ['malformed', '{not-json'],
+      ['null', 'null\n'],
+      ['array', '[]\n'],
+      ['primitive', '"not-an-object"\n'],
+    ];
+    for (const [label, contents] of invalidExistingCases) {
+      const invalidDirectory = createAgentSessionWorkspace('workbench');
+      sidecarDirectories.push(invalidDirectory);
+      const invalidTarget = path.join(invalidDirectory, '.def-session.json');
+      const invalidSession = makeCandidateSession(`invalid-existing-${label}`);
+      fs.writeFileSync(invalidTarget, contents, 'utf8');
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        assert.throws(() => writeSessionBinding(invalidDirectory, invalidSession, { harnessSealKey }),
+          (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+          `an existing ${label} Session file must never be treated as a new signing target`);
+        assert.equal(fs.readFileSync(invalidTarget, 'utf8'), contents,
+          `rejected ${label} Session content must remain untouched`);
+      }
+      if (label === 'malformed') {
+        fs.unlinkSync(invalidTarget);
+        writeSessionBinding(invalidDirectory, invalidSession, { harnessSealKey });
+        assert(readNativeSessionBinding(
+          invalidDirectory,
+          invalidSession.id,
+          { includeNodeRelation: false, harnessSealKey },
+        ), 'repeated invalid-file rejection must not leak a Windows lock or block a later legal creation');
+      }
+    }
+
+    const directoryTargetRoot = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(directoryTargetRoot);
+    const directoryTarget = path.join(directoryTargetRoot, '.def-session.json');
+    fs.mkdirSync(directoryTarget);
+    assert.throws(() => writeSessionBinding(
+      directoryTargetRoot,
+      makeCandidateSession('invalid-existing-directory'),
+      { harnessSealKey },
+    ), (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'an existing Session directory must never be followed or overwritten');
+    assert.equal(fs.lstatSync(directoryTarget).isDirectory(), true);
+
+    const symlinkTargetRoot = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(symlinkTargetRoot);
+    const symlinkBindingTarget = path.join(symlinkTargetRoot, '.def-session-target');
+    const symlinkBindingPath = path.join(symlinkTargetRoot, '.def-session.json');
+    fs.mkdirSync(symlinkBindingTarget);
+    const symlinkSentinel = path.join(symlinkBindingTarget, 'sentinel.txt');
+    fs.writeFileSync(symlinkSentinel, 'junction-target-untouched\n', 'utf8');
+    fs.symlinkSync(symlinkBindingTarget, symlinkBindingPath, 'junction');
+    assert.throws(() => writeSessionBinding(
+      symlinkTargetRoot,
+      makeCandidateSession('invalid-existing-symlink'),
+      { harnessSealKey },
+    ), (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'an existing Session symlink must never be followed or overwritten');
+    assert.equal(fs.lstatSync(symlinkBindingPath).isSymbolicLink(), true);
+    assert.equal(fs.readFileSync(symlinkSentinel, 'utf8'), 'junction-target-untouched\n');
 
     const legacyStableDirectory = createAgentSessionWorkspace('workbench');
     sidecarDirectories.push(legacyStableDirectory);
@@ -577,8 +743,12 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     const binding = {
       schemaVersion: 5,
       sessionID,
+      axisBindingId: 'axis-' + sessionID,
       directory: path.resolve(directory),
       host: 'workbench',
+      skillId: 'workbench',
+      agent: 'def-workbench',
+      timelineId: 'timeline-' + sessionID,
       harnessBinding: {
         kind: 'DefHarnessSessionBindingV1',
         schemaVersion: 1,
@@ -665,6 +835,36 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     if (!candidateMessages[1].parts[0].state.output.startsWith('[DEF HARNESS TERMINAL CONTRACT')) process.exit(4);
     stats = activation.getSessionHarnessActivationStats();
     if (stats.registryValidations !== 1 || stats.registryCacheHits < 3) process.exit(21);
+
+    const candidateBindingPath = path.join(candidateDirectory, '.def-session.json');
+    const productionOuterTamperCases = [
+      ['schemaVersion', 4],
+      ['host', 'ai-cli'],
+      ['skillId', 'operator'],
+      ['agent', 'def-operator'],
+      ['axisBindingId', 'axis-tampered'],
+      ['timelineId', 'timeline-tampered'],
+    ];
+    for (let index = 0; index < productionOuterTamperCases.length; index += 1) {
+      const [field, value] = productionOuterTamperCases[index];
+      const tamperedOuter = structuredClone(candidateBinding);
+      tamperedOuter[field] = value;
+      fs.writeFileSync(candidateBindingPath, JSON.stringify(tamperedOuter));
+      await candidate['chat.message'](
+        { sessionID: candidateSession },
+        { message: { id: 'msg_outer_' + index }, parts: [{ type: 'text', text: firstText }] },
+      );
+      try {
+        await candidate['tool.execute.before'](
+          { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'outer-' + index },
+          { args: {} },
+        );
+        process.exit(24);
+      } catch (error) {
+        if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(25);
+      }
+      fs.writeFileSync(candidateBindingPath, JSON.stringify(candidateBinding));
+    }
 
     const correctionText = '配件二为什么不用第二个悬河供氧栓？';
     await candidate['chat.message'](
@@ -827,6 +1027,7 @@ assert.match(restServerSource, /restoreRegisteredDefNativeCatalogSession/);
 assert.match(restServerSource, /getSessionAxisBindingBySession\('workbench', sessionId\)/);
 
 const adapterSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-adapter/index.cjs', import.meta.url), 'utf8');
+const activationSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs', import.meta.url), 'utf8');
 assert.match(adapterSource, /EQUIPMENT EVIDENCE/);
 assert.match(adapterSource, /DEF_EMPTY_ASSISTANT_RESPONSE/);
 assert.match(adapterSource, /if \(!visibleContent\) throw new Error\(DEF_EMPTY_ASSISTANT_RESPONSE\)/);
@@ -835,6 +1036,12 @@ assert.doesNotMatch(adapterSource, /COMPOSITE 3\+1 RECOMMENDATION/);
 assert.doesNotMatch(adapterSource, /nativeHarnessLoader\.resolve\(turnRoute\.selector\)/);
 assert.match(adapterSource, /harnessSealKeyHash:\s*crypto\.createHash\('sha256'\)\.update\(harnessSealKey\)/,
   'OpenCode process reuse must depend on a non-secret fingerprint of the persistent seal key');
+for (const [label, source] of [['sidecar', adapterSource], ['plugin activation', activationSource]]) {
+  assert.match(source, /lstatSync\(/, `${label} must inspect the Session binding without following links`);
+  assert.match(source, /isSymbolicLink\(\)/, `${label} must reject a Session binding symlink`);
+  assert.match(source, /O_NOFOLLOW/, `${label} must also open the Session binding with no-follow semantics`);
+  assert.match(source, /fstatSync\(/, `${label} must verify the opened file is the one that was inspected`);
+}
 assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');

@@ -56,19 +56,50 @@ function ensurePersistentSessionHarnessSealKey(keyFile, fileSystem = fs) {
 }
 
 function sessionHarnessIdentity(binding) {
+  const sessionSchemaVersion = binding?.schemaVersion;
   const sessionID = typeof binding?.sessionID === 'string' ? binding.sessionID.trim() : '';
   const directory = typeof binding?.directory === 'string' && binding.directory.trim()
     ? path.resolve(binding.directory)
     : '';
+  const host = typeof binding?.host === 'string' ? binding.host : '';
+  const skillId = typeof binding?.skillId === 'string' ? binding.skillId : '';
+  const agent = typeof binding?.agent === 'string' ? binding.agent : '';
+  const axisBindingId = typeof binding?.axisBindingId === 'string' ? binding.axisBindingId : '';
+  const timelineId = binding?.timelineId === undefined
+    ? null
+    : typeof binding.timelineId === 'string'
+      ? binding.timelineId
+      : undefined;
   const harnessBinding = binding?.harnessBinding;
   const releaseHarness = binding?.agentRelease?.harness;
-  if (!sessionID || !directory || !harnessBinding || !releaseHarness) return null;
+  if (!Number.isInteger(sessionSchemaVersion)
+    || !sessionID
+    || !directory
+    || !['workbench', 'ai-cli'].includes(host)
+    || !skillId
+    || skillId !== skillId.trim()
+    || !agent
+    || agent !== agent.trim()
+    || !axisBindingId
+    || axisBindingId !== axisBindingId.trim()
+    || timelineId === undefined
+    || typeof timelineId === 'string' && (!timelineId || timelineId !== timelineId.trim())
+    || !harnessBinding
+    || !releaseHarness) return null;
   if (typeof releaseHarness.selector !== 'string' || !releaseHarness.ref) return null;
   return {
     kind: 'DefSessionHarnessIdentityV1',
     schemaVersion: 1,
-    sessionID,
-    directory,
+    session: {
+      schemaVersion: sessionSchemaVersion,
+      sessionID,
+      directory,
+      host,
+      skillId,
+      agent,
+      axisBindingId,
+      timelineId,
+    },
     harnessBinding,
     agentReleaseHarness: {
       selector: releaseHarness.selector,
