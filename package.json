@@ -51,6 +51,7 @@
     "test:def-workbench-raw-route-policy": "node scripts/def-workbench-raw-route-policy-contract-test.mjs",
     "test:def-interop-snapshot-auth": "node scripts/def-interop-snapshot-auth-contract-test.mjs",
     "test:def-workbench-approval-capability": "node scripts/def-workbench-approval-capability-contract-test.mjs",
+    "test:def-worknode-session-delete": "node scripts/def-worknode-session-delete-contract-test.mjs",
     "test:def-team-atomic-candidate": "node scripts/def-team-atomic-candidate-contract-test.mjs",
     "test:def-team-rollback": "node scripts/def-team-rollback-contract-test.mjs",
     "test:def-team-late-command": "node scripts/def-team-late-command-contract-test.mjs",

@@ -789,7 +789,15 @@ const {
 } = defCoreRuntime;
 
 function mirrorWorkNodeToTimelineRepository(node) {
-  if (!node || node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')) return;
+  // The legacy projection contains snapshot-shaped records which are not
+  // valid repository Work Nodes.  A native session-created draft is different:
+  // its owner/session identity is the evidence that the typed fork route has
+  // already authenticated it, so it must reach SQLite even when the bound
+  // workspace still has a legacy snapshot-shaped id.  Otherwise fork returns
+  // a node id that list/read/delete cannot resolve and delete is blocked before
+  // native approval.
+  const sessionOwned = typeof node?.ownerSessionId === 'string' && node.ownerSessionId.trim();
+  if (!node || (!sessionOwned && (node.saveId?.startsWith('timeline-snapshot-') || /^\[snapshot\]/i.test(node.label || '')))) return;
   const timelineId = node.timelineId || node.saveId || 'current-main-workbench';
   const repository = getTimelineRepository();
   repository.ensureDocument({ id: timelineId, label: '主排轴', preserveExistingLabel: true });
@@ -1374,6 +1382,9 @@ function createDefWorkNodeFromPayload(payloadSource, input = {}) {
     ...(parentNodeId ? { parentNodeId } : {}),
     saveId,
     timelineId,
+    ...(typeof input.__defSessionId === 'string' && input.__defSessionId.trim()
+      ? { ownerSessionId: input.__defSessionId.trim() }
+      : {}),
     branchId: sanitizeWorkNodeId(input.branchId, `main-workbench-${now}`),
     createdAt: now,
     updatedAt: now,
@@ -1444,10 +1455,15 @@ function resolveBoundWorkbenchSession(input = {}, { nodeId = '', allowMissingNod
   if (suppliedTimelineId && suppliedTimelineId !== binding.timelineId) {
     return workbenchBindingFailure('blocked-session-mismatch', 'A DEF OpenCode session cannot access another SQLite workspace.', 409);
   }
+  const suppliedWorkspaceId = typeof input.workspaceId === 'string' ? input.workspaceId.trim() : '';
+  if (suppliedWorkspaceId && suppliedWorkspaceId !== binding.timelineId) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The requested Work Node workspace does not match this session binding.', 409);
+  }
   const resolvedNodeId = nodeId || (typeof input.nodeId === 'string' ? input.nodeId.trim() : '');
   if (resolvedNodeId) {
     const node = repository.getWorkNode(resolvedNodeId);
-    if (!node || node.timelineId !== binding.timelineId) {
+    if (!node || node.timelineId !== binding.timelineId
+      || (node.ownerSessionId && node.ownerSessionId !== sessionID)) {
       return workbenchBindingFailure('blocked-session-mismatch', 'The requested Work Node is outside this session binding.', 409);
     }
   } else if (!allowMissingNode) {
@@ -1492,6 +1508,9 @@ function resolveCanonicalWorkbenchCurrent(input = {}, { nodeId = '' } = {}) {
     : null;
   const checkoutPayload = checkoutNode?.workingPayload || checkoutSnapshot?.payload || null;
   const checkoutTargetTimelineId = checkoutNode?.timelineId || checkoutSnapshot?.timelineId || '';
+  if (checkoutNode?.ownerSessionId && checkoutNode.ownerSessionId !== sessionID) {
+    return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout belongs to another DEF session.', 409);
+  }
   if (!checkoutPayload || checkoutTargetTimelineId !== session.binding.timelineId
     || checkoutSnapshot?.archivedAt) {
     return workbenchBindingFailure('blocked-session-mismatch', 'The current checkout is outside this DEF session workspace or no longer available.');
@@ -6965,6 +6984,7 @@ function readDefWorkNode(input = {}) {
     node: {
       id: node.id,
       timelineId: node.timelineId || node.saveId,
+      workspaceId: node.timelineId || node.saveId,
       saveId: node.saveId,
       branchId: node.branchId,
       label: node.label,
@@ -7899,6 +7919,7 @@ function createDefApprovalRequest(input = {}) {
     candidateRevision: Number.isFinite(Number(input.candidateRevision)) ? Number(input.candidateRevision) : null,
     planId: typeof input.planId === 'string' ? input.planId : '',
     planHash: typeof input.planHash === 'string' ? input.planHash : '',
+    workspaceId: typeof input.workspaceId === 'string' ? input.workspaceId : '',
   };
   writeDefToolGovernanceArchive({
     ...archive,
@@ -7972,6 +7993,7 @@ function recordDefApprovalDecision(input = {}) {
   if (approvalCapability) {
     approvedApplyCapabilities.set(approvalCapability, {
       sessionId: updated.sessionId,
+      workspaceId: updated.workspaceId,
       timelineId: updated.timelineId,
       axisBindingId: updated.axisBindingId,
       sessionBindingId: updated.sessionBindingId,
@@ -10275,6 +10297,7 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     const limit = Math.max(1, Math.min(Number(input.limit || 50) || 50, 100));
     const nodes = listRepositoryWorkNodes()
       .filter((node) => (node.timelineId || node.saveId) === session.binding.timelineId)
+      .filter((node) => !node.ownerSessionId || node.ownerSessionId === session.binding.opencodeSessionId)
       .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
       .slice(0, limit)
       .map(toAiTimelineWorkNodeListItem);
@@ -10290,9 +10313,34 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       const legacyStore = getAiTimelineWorkNodeStore();
       if (!repository.getWorkNode(nodeId)) return failScript(404, 'ai-worknode-not-found', `AI timeline work node not found: ${nodeId}`);
       repository.assertWorkNodeSubtreeDeletable(nodeId);
+      const workspaceId = session.binding.timelineId;
       repository.deleteWorkNodeSubtree(nodeId);
       if (legacyStore.getNode(nodeId)) legacyStore.deleteSubtreeProjection(nodeId);
-      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, nodeId, deleted: true } } };
+      const checkout = repository.getCheckoutRef(workspaceId);
+      const deleted = !repository.getWorkNode(nodeId);
+      const checkoutPreserved = checkout?.targetId !== nodeId;
+      return {
+        status: 200,
+        body: {
+          ok: deleted && checkoutPreserved,
+          protocolVersion: 1,
+          tool: name,
+          result: {
+            ok: deleted && checkoutPreserved,
+            nodeId,
+            workspaceId,
+            deleted,
+            finalState: deleted ? 'deleted' : 'present',
+            postcondition: {
+              contract: 'DefWorkNodeDeletePostconditionV1',
+              pass: deleted && checkoutPreserved,
+              nodeAbsent: deleted,
+              checkoutPreserved,
+              checkout: checkout || null,
+            },
+          },
+        },
+      };
     } catch (error) {
       if (error?.code === 'ai-worknode-current-checkout-protected') return failScript(409, error.code, error.message, { nodeId });
       throw error;

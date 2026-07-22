@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
 const WORK_NODE_STATUS_TRANSITIONS = new Map([
   ['draft', new Set(['draft', 'validated', 'blocked', 'archived', 'abandoned'])],
@@ -115,6 +115,14 @@ function createTimelineRepository({ databasePath }) {
       content_revision INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS timeline_work_node_session_owners (
+      node_id TEXT PRIMARY KEY REFERENCES timeline_work_nodes(id) ON DELETE CASCADE,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      opencode_session_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(timeline_id, node_id)
+    ) STRICT;
+
     CREATE TABLE IF NOT EXISTS timeline_work_node_patches (
       id TEXT PRIMARY KEY,
       timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE RESTRICT,
@@ -171,6 +179,7 @@ function createTimelineRepository({ databasePath }) {
 
     CREATE INDEX IF NOT EXISTS timeline_snapshots_timeline_created_idx ON timeline_snapshots(timeline_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_nodes_timeline_updated_idx ON timeline_work_nodes(timeline_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS timeline_work_node_session_owners_session_idx ON timeline_work_node_session_owners(opencode_session_id, timeline_id);
     CREATE INDEX IF NOT EXISTS timeline_work_node_patches_node_created_idx ON timeline_work_node_patches(node_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_node_commits_timeline_created_idx ON timeline_work_node_commits(timeline_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS timeline_work_node_commits_node_created_idx ON timeline_work_node_commits(node_id, created_at DESC);
@@ -280,8 +289,9 @@ function createTimelineRepository({ databasePath }) {
     return { ...snapshot, payload: parse(payload?.payload, {}) };
   }
 
-  function readWorkNode(row, includePayload = false) {
+  function readWorkNode(row, includePayload = false, includeOwner = false) {
     if (!row) return null;
+    const owner = includeOwner ? readWorkNodeSessionOwner(row.id) : null;
     const basePayload = includePayload
       ? parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {})
       : null;
@@ -308,6 +318,20 @@ function createTimelineRepository({ databasePath }) {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       contentRevision: row.content_revision,
+      ...(owner ? { ownerSessionId: owner.opencodeSessionId } : {}),
+    };
+  }
+
+  function readWorkNodeSessionOwner(nodeId) {
+    const row = db.prepare(`
+      SELECT node_id, timeline_id, opencode_session_id, created_at
+      FROM timeline_work_node_session_owners WHERE node_id = ?
+    `).get(nodeId);
+    return row && {
+      nodeId: row.node_id,
+      timelineId: row.timeline_id,
+      opencodeSessionId: row.opencode_session_id,
+      createdAt: row.created_at,
     };
   }
 
@@ -1005,6 +1029,21 @@ function createTimelineRepository({ databasePath }) {
       `).run(input.id, input.timelineId, input.parentNodeId || null, basePayloadHash, workingPayloadHash,
         input.branchId || input.id, input.label || input.id, input.description || '', nextStatus, input.approvalPolicy || 'auto-low-risk',
         serialize(input.riskFlags), serialize(input.logs), createdAt, input.updatedAt || createdAt, contentRevision);
+      const ownerSessionId = typeof input.ownerSessionId === 'string' ? input.ownerSessionId.trim() : '';
+      if (ownerSessionId) {
+        const existingOwner = db.prepare(`
+          SELECT timeline_id, opencode_session_id
+          FROM timeline_work_node_session_owners WHERE node_id = ?
+        `).get(input.id);
+        if (existingOwner && (existingOwner.timeline_id !== input.timelineId || existingOwner.opencode_session_id !== ownerSessionId)) {
+          throw repositoryError('timeline-work-node-session-owner-conflict', 409, 'Timeline Work Node already belongs to another DEF session.');
+        }
+        db.prepare(`
+          INSERT INTO timeline_work_node_session_owners (node_id, timeline_id, opencode_session_id, created_at)
+          VALUES (?, ?, ?, ?)
+          ON CONFLICT(node_id) DO NOTHING
+        `).run(input.id, input.timelineId, ownerSessionId, createdAt);
+      }
       return { id: input.id, imported: db.prepare('SELECT 1 FROM timeline_work_nodes WHERE id = ?').get(input.id) != null };
     });
   }
@@ -1240,7 +1279,7 @@ function createTimelineRepository({ databasePath }) {
       riskFlags: parse(row.risk_flags, []),
       createdAt: row.created_at,
     })),
-    getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true),
+    getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true, true),
     getWorkNodeCommit: (id) => readWorkNodeCommit(db.prepare('SELECT * FROM timeline_work_node_commits WHERE id = ?').get(id), true),
     getLatestWorkNodeCommit: (nodeId) => readWorkNodeCommit(db.prepare(`
       SELECT * FROM timeline_work_node_commits WHERE node_id = ? ORDER BY created_at DESC LIMIT 1

@@ -430,6 +430,7 @@ async function askWithApproval(context, input) {
     mode: 'blocking',
     workNodeId: input.nodeId,
     sessionId: context.sessionID,
+    workspaceId: input.workspaceId,
     timelineId: input.timelineId,
     axisBindingId: input.axisBindingId,
     sessionBindingId: input.sessionBindingId,
@@ -461,6 +462,7 @@ async function askWithApproval(context, input) {
       metadata: {
         action: input.action,
         nodeId: input.nodeId || null,
+        workspaceId: input.workspaceId || null,
         revision: input.revision,
         timelineId: input.timelineId || null,
         axisBindingId: input.axisBindingId || null,
@@ -829,6 +831,7 @@ function materialize(context, node, options = {}) {
   const manifest = {
     schemaVersion: 1,
     nodeId: node.id,
+    workspaceId: node.timelineId || node.saveId,
     parentNodeId: node.parentNodeId || null,
     saveId: node.saveId,
     branchId: node.branchId,
@@ -875,6 +878,8 @@ function materialize(context, node, options = {}) {
   ].join('\n'), 'utf8')
   return {
     nodeId: node.id,
+    workspaceId: manifest.workspaceId,
+    timelineId: manifest.workspaceId,
     directory: context.directory,
     revision: manifest.revision,
     editableFiles: [nodeSelection, nodeTimeline, nodeBuffs, nodeInputs],
@@ -886,6 +891,24 @@ function readBinding(context) {
   const target = inside(context.directory, bindingFile)
   if (!fs.existsSync(target)) throw new Error('No child node is bound to this OpenCode session. Call def_node_fork or def_node_bind first.')
   return JSON.parse(fs.readFileSync(target, 'utf8'))
+}
+
+function readBoundWorkspaceId(context, nodeId) {
+  const target = inside(context.directory, bindingFile)
+  if (!fs.existsSync(target)) return ''
+  try {
+    const binding = JSON.parse(fs.readFileSync(target, 'utf8'))
+    if (binding?.nodeId !== nodeId) return ''
+    return typeof binding.workspaceId === 'string' && binding.workspaceId.trim()
+      ? binding.workspaceId.trim()
+      : typeof binding.saveId === 'string' && binding.saveId.trim()
+        ? binding.saveId.trim()
+        : typeof binding.timelineId === 'string' && binding.timelineId.trim()
+          ? binding.timelineId.trim()
+          : ''
+  } catch {
+    return ''
+  }
 }
 
 function writeBinding(context, binding) {
@@ -1291,6 +1314,7 @@ export const node_bind = {
   description: 'Bind an existing DEF Work Node to this isolated workspace. Pass an empty nodeId to bind the current Workbench checkout after a manual node switch.',
   args: {
     nodeId: { type: 'string', description: 'Existing DEF Work Node id. Pass an empty string to bind the active Workbench checkout.' },
+    workspaceId: { type: 'string', description: 'Exact SQLite workspace id returned by def_node_fork. Optional when the active session already owns the workspace binding.' },
   },
   async execute(args, context) {
     context.metadata({ title: 'Bind DEF child node' })
@@ -1307,7 +1331,12 @@ export const node_bind = {
     if (current?.nodeId !== nodeId && workspaceIsDirty(context, current)) {
       throw new Error(`Cannot replace ${current.nodeId} because node/working has unsynchronized edits. Sync, discard, or explicitly preserve that draft first.`)
     }
-    const read = await callDefTool('def.worknode.read', { nodeId, includePayload: true }, context)
+    const workspaceId = typeof args.workspaceId === 'string' && args.workspaceId.trim() ? args.workspaceId.trim() : ''
+    const read = await callDefTool('def.worknode.read', {
+      nodeId,
+      includePayload: true,
+      ...(workspaceId ? { workspaceId } : {}),
+    }, context)
     const materialized = materialize(context, read.node, { checkoutAnchorNodeId: workbench?.checkoutNodeId })
     if (workbench?.checkoutNodeId) markWorkbenchCheckoutReady(context, workbench.checkoutNodeId)
     return {
@@ -1362,19 +1391,37 @@ export const node_list = {
 
 export const node_delete = {
   description: 'Delete one non-checked-out DEF Work Node subtree after native user approval and repository protection checks.',
-  args: { nodeId: { type: 'string', description: 'Work Node id to delete.' } },
+  args: {
+    nodeId: { type: 'string', description: 'Work Node id to delete.' },
+    workspaceId: { type: 'string', description: 'Exact SQLite workspace id returned by def_node_fork. Optional when deleting the draft bound in this session workspace.' },
+  },
   async execute(args, context) {
     context.metadata({ title: 'Delete DEF child node' })
-    const read = await callDefTool('def.worknode.read', { nodeId: args.nodeId, includePayload: false }, context)
+    const explicitWorkspaceId = typeof args.workspaceId === 'string' && args.workspaceId.trim() ? args.workspaceId.trim() : ''
+    const workspaceId = explicitWorkspaceId || readBoundWorkspaceId(context, args.nodeId)
+    const read = await callDefTool('def.worknode.read', {
+      nodeId: args.nodeId,
+      includePayload: false,
+      ...(workspaceId ? { workspaceId } : {}),
+    }, context)
+    const resolvedWorkspaceId = workspaceId || read.node?.workspaceId || read.node?.timelineId || ''
+    const approvalIdentity = readWorkbenchApprovalIdentity(context, { saveId: resolvedWorkspaceId })
     await askWithApproval(context, {
       action: 'Delete Work Node',
       summary: `Delete DEF Work Node ${args.nodeId}`,
       permission: 'def_node_delete',
       nodeId: args.nodeId,
+      workspaceId: resolvedWorkspaceId,
+      timelineId: approvalIdentity.timelineId || resolvedWorkspaceId,
+      axisBindingId: approvalIdentity.axisBindingId,
+      sessionBindingId: approvalIdentity.sessionBindingId,
       revision: read.node?.contentRevision || read.node?.updatedAt,
       consequence: 'The Work Node subtree will be permanently deleted; the current checkout remains protected.',
     })
-    const result = await callDefTool('def.worknode.delete', { nodeId: args.nodeId }, context)
+    const result = await callDefTool('def.worknode.delete', {
+      nodeId: args.nodeId,
+      ...(resolvedWorkspaceId ? { workspaceId: resolvedWorkspaceId } : {}),
+    }, context)
     return {
       title: 'DEF child node deleted',
       output: JSON.stringify(result, null, 2),
