@@ -14,4 +14,4 @@ After a guide team has been applied, a requested rotation is a native timeline t
 
 For a multi-wave timeline or any large button set, do not send the entire `timeline.json` as one monolithic `write` call. Read the small base file once, then use bounded `edit` calls per staff line (or another comparably small structural unit), and finish with one read plus `def_node_sync_validate`. This avoids truncating a long JSON tool argument while preserving a single isolated candidate.
 
-For the sticky named-guide team route, the exact typed-tool sequence is `def_data_team_loadout_plan` → `def_team_loadout_plan_revise` → `def_team_loadout_plan_apply`. These names are literal. Never invent or call `def_team_loadout_plan`, and never replace the team plan with per-operator preview or patch tools.
+For the sticky named-guide team route, the exact typed-tool sequence is `def_data_team_loadout_plan` → `def_team_loadout_plan_revise` → `def_team_loadout_plan_apply`. These names are literal. Never replace the team plan with per-operator preview or patch tools.

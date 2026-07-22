@@ -905,7 +905,7 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts) {
     'If the same typed-tool failure code occurs twice in this turn, stop calling tools and report that the requested change was not applied, including the failing stage and one recovery action.',
     'If a typed mutation reports retryable=false, stop all later mutations in this turn. A def-tool-mutation-not-attempted result means that later request was never sent to the backend: report it as 未尝试, not as a second backend failure. Report only actual tool execution and the structured nextAction returned by the tool.',
     'The same retry fuse applies to generic tool failures such as outside-session file permission denials. After one such denial, do not try another path or generic file tool for that resource.',
-    'A loaded Skill is complete. Never scan, glob, grep, or read its runtime directory; use the Skill content and trusted def_data resources.',
+    'A loaded Skill is complete. Never scan, glob, grep, or read its runtime directory; use the Skill content and trusted DEF data resources.',
     'Never report a mutation as successful from queue state or record count alone. Native approval and the exact visible postcondition must both pass.',
     'For 重新发出审核 / 重新提交审批 / 提交审核 / wait for my personal approval, validation alone is not enough: call def_node_use in this turn to create the native pending approval. Never say 待审批 if interop pending is null.',
   ];
