@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const { getNativeHarnessSystem } = require('../agent/runtime/def-opencode-adapter/index.cjs');
 
 function spawnBunEval(source, options = {}) {
   if (process.platform === 'win32') {
@@ -17,21 +18,29 @@ function spawnBunEval(source, options = {}) {
 }
 
 const binding = {
+  sessionID: 'session-pinned',
   harnessBinding: {
+    sessionId: 'session-pinned',
     selector: 'candidate/operator-config-horizontal-metadata',
     harness: { harnessId: 'def-operator-config-atomic-failfast', version: '1.1.0', contentHash: 'hash' },
   },
 };
 
+assert.throws(() => getNativeHarnessSystem({
+  ...binding,
+  sessionID: 'different-session',
+}), (caught) => caught.code === 'HARNESS_BINDING_INVALID', 'a Harness binding cannot be replayed under another native session id');
+
 assert.equal(routeNativeTurnHarness(binding, '把赛希配件换成长息加固板').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').selector, 'candidate/operator-config-horizontal-metadata');
+assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').reason, 'session-harness-pinned-timeline-turn');
+assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
+assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '图腾下落-2层里的水龙卷算什么伤害').task, 'exact-skill-facts');
 assert.equal(classifyDefExecutableTurnPolicy('图腾下落-2层里的水龙卷算什么伤害')?.kind, 'exact-skill-facts');
 assert.equal(classifyDefExecutableTurnPolicy('这把武器的伤害倍率是多少'), null);
@@ -164,6 +173,8 @@ const adapterSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-ada
 assert.match(adapterSource, /EQUIPMENT EVIDENCE/);
 assert.match(adapterSource, /DEF_EMPTY_ASSISTANT_RESPONSE/);
 assert.match(adapterSource, /if \(!visibleContent\) throw new Error\(DEF_EMPTY_ASSISTANT_RESPONSE\)/);
+assert.match(adapterSource, /defHarness\.sameRef\(resolved\.ref, pinned\.harness\)/);
+assert.doesNotMatch(adapterSource, /nativeHarnessLoader\.resolve\(turnRoute\.selector\)/);
 assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');

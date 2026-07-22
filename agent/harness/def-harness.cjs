@@ -78,11 +78,13 @@ function normalizeArtifact(slot, artifact) {
   if (!isObject(artifact) || typeof artifact.path !== 'string') fail('HARNESS_INVALID_ARTIFACT', `Slot ${slot} needs an artifact path.`, { component: 'contract' });
   const capability = artifact.capability || 'hotSwappable';
   if (!CAPABILITIES.has(capability)) fail('HARNESS_UNKNOWN_CAPABILITY', `Unknown Harness capability: ${capability}.`, { component: 'contract' });
+  if (Object.prototype.hasOwnProperty.call(artifact, 'when')) {
+    fail('HARNESS_UNSUPPORTED_CONDITION', 'Conditional Harness artifacts are not executable in schemaVersion 1.', { component: 'contract', slot, path: artifact.path });
+  }
   return {
     path: artifact.path.replace(/\\/g, '/'),
     mediaType: typeof artifact.mediaType === 'string' ? artifact.mediaType : 'text/markdown',
     capability,
-    ...(typeof artifact.when === 'string' && artifact.when.trim() ? { when: artifact.when.trim() } : {}),
   };
 }
 function validateSourceManifest(manifest) {
@@ -309,10 +311,12 @@ function loadArtifactView(directory, pkg) {
   for (const [slot, artifacts] of Object.entries(pkg.slots)) view[slot] = artifacts.map((artifact) => Object.freeze({ ...artifact, text: fs.readFileSync(assertSafeArtifact(directory, artifact.path).absolutePath, 'utf8') }));
   return Object.freeze(view);
 }
-function createSessionBinding({ sessionId, resolved, createdAt = Date.now() }) {
+function createSessionBinding({ sessionId, resolved, selector, createdAt = Date.now() }) {
   if (!sessionId || !resolved?.ref) fail('HARNESS_BINDING_INVALID', 'Session binding requires a native session and resolved Harness.', { component: 'loader' });
   const slotHashes = Object.fromEntries(Object.entries(resolved.package.slots).map(([slot, artifacts]) => [slot, artifacts.map((artifact) => artifact.hash)]));
-  return Object.freeze({ kind: BINDING_SCHEMA, schemaVersion: SCHEMA_VERSION, sessionId, selector: resolved.selector, harness: resolved.ref, slotHashes, createdAt });
+  const bindingSelector = typeof selector === 'string' && selector.trim() ? selector.trim() : resolved.selector;
+  if (!bindingSelector) fail('HARNESS_BINDING_INVALID', 'Session binding requires its creation-time selector.', { component: 'loader' });
+  return Object.freeze({ kind: BINDING_SCHEMA, schemaVersion: SCHEMA_VERSION, sessionId, selector: bindingSelector, harness: resolved.ref, slotHashes, createdAt });
 }
 function composeHarnessSystem(binding, artifactView) {
   if (!binding || !artifactView) return '';

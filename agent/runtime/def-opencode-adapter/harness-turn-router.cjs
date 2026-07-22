@@ -17,9 +17,8 @@ function classifyDefExecutableTurnPolicy(userText = '') {
   return null;
 }
 
-// Harness selection only handles the independent timeline/operator-config
-// transition. Catalog evidence is a tool choice inside the current Harness;
-// it never rewrites the selected candidate for a read-only turn.
+// Turn classification is trace metadata only. Harness selection is immutable
+// after native-session creation and must never change here.
 function routeNativeTurnHarness(binding, userText = '') {
   const selector = binding?.harnessBinding?.selector || 'stable';
   const harnessId = binding?.harnessBinding?.harness?.harnessId || '';
@@ -36,8 +35,8 @@ function routeNativeTurnHarness(binding, userText = '') {
   const specializedOperatorConfig = /^def-operator-config(?:-|$)/.test(harnessId);
   if (specializedOperatorConfig && TIMELINE_INTENT.test(text)) {
     return {
-      selector: 'stable',
-      reason: 'timeline-intent-overrides-operator-config-candidate',
+      selector,
+      reason: 'session-harness-pinned-timeline-turn',
       sessionSelector: selector,
       task: 'timeline',
     };

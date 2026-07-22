@@ -795,29 +795,32 @@ function resolveNativeHarness(selector = 'stable') {
 function getNativeHarnessSystem(binding, userText = '') {
   const pinned = binding?.harnessBinding;
   if (!pinned?.harness?.harnessId || !pinned?.harness?.version || !pinned?.harness?.contentHash) return { system: '', binding: null, warning: null };
+  if (pinned.sessionId !== binding.sessionID) {
+    const error = new Error('native-harness-session-binding-mismatch');
+    error.code = 'HARNESS_BINDING_INVALID';
+    throw error;
+  }
   const turnRoute = routeNativeTurnHarness(binding, userText);
-  const cacheKey = `${binding.sessionID}:${turnRoute.selector}`;
+  const cacheKey = `${binding.sessionID}:${pinned.harness.contentHash}`;
   let loaded = nativeHarnessBySession.get(cacheKey);
   if (!loaded) {
-    const resolved = turnRoute.selector === pinned.selector
-      ? nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`)
-      : nativeHarnessLoader.resolve(turnRoute.selector);
-    if (turnRoute.selector === pinned.selector && resolved.ref.contentHash !== pinned.harness.contentHash) {
+    const resolved = nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`);
+    if (!defHarness.sameRef(resolved.ref, pinned.harness)) {
       const error = new Error('native-harness-binding-hash-mismatch');
       error.code = 'HARNESS_HASH_MISMATCH';
       throw error;
     }
-    loaded = {
-      resolved,
-      binding: turnRoute.selector === pinned.selector
-        ? pinned
-        : defHarness.createSessionBinding({ sessionId: binding.sessionID, resolved }),
-    };
+    loaded = { resolved, binding: pinned };
     nativeHarnessBySession.set(cacheKey, loaded);
   }
+  if (!defHarness.sameRef(loaded.resolved.ref, pinned.harness)) {
+    const error = new Error('native-harness-cached-binding-mismatch');
+    error.code = 'HARNESS_HASH_MISMATCH';
+    throw error;
+  }
   return {
-    system: defHarness.composeHarnessSystem(loaded.binding, loaded.resolved.artifactView),
-    binding: loaded.binding,
+    system: defHarness.composeHarnessSystem(pinned, loaded.resolved.artifactView),
+    binding: pinned,
     sessionBinding: pinned,
     turnRoute,
     warning: binding.harnessWarning || null,
@@ -845,7 +848,7 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(host);
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
+  nativeHarnessBySession.set(`${session.id}:${harnessBinding.harness.contentHash}`, { resolved: resolvedHarness, binding: harnessBinding });
   writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: normalizedTimelineId, boundNodeId });
   return {
     id: session.id,
@@ -907,8 +910,12 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
     error.code = 'HARNESS_HASH_MISMATCH';
     throw error;
   }
-  const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
+  const harnessBinding = defHarness.createSessionBinding({
+    sessionId: session.id,
+    resolved: resolvedHarness,
+    selector: binding.harnessBinding?.selector,
+  });
+  nativeHarnessBySession.set(`${session.id}:${harnessBinding.harness.contentHash}`, { resolved: resolvedHarness, binding: harnessBinding });
   writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
   return {
     id: session.id,

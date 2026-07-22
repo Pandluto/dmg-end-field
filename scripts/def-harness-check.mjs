@@ -34,6 +34,8 @@ assert.match(fs.readFileSync(path.join(candidateSource, 'skills.md'), 'utf8'), /
 assert.match(fs.readFileSync(path.join(candidateSource, 'tool-guidance.md'), 'utf8'), /Never use `lineIndex` as an action sequence number/);
 assert.match(fs.readFileSync(path.join(candidateSource, 'tool-guidance.md'), 'utf8'), /do not send the entire `timeline\.json` as one monolithic `write` call/);
 const stableBinding = harness.createSessionBinding({ sessionId: 'ses_existing_stable', resolved: stable });
+const recoveredBinding = harness.createSessionBinding({ sessionId: 'ses_recovered', resolved: stable, selector: 'candidate/original' });
+assert.equal(recoveredBinding.selector, 'candidate/original', 'recovery preserves the creation-time selector while rebinding the native session id');
 harness.setChannel(runtime, 'stable', candidateRef);
 assert.equal(stableBinding.harness.contentHash, stableRef.contentHash, 'existing bindings cannot drift after a channel change');
 assert.equal(loader.resolve('stable').ref.contentHash, candidateRef.contentHash, 'a new resolution sees the new pointer');
@@ -55,10 +57,12 @@ assert.throws(() => harness.buildPackage(unsafe, builds), (caught) => caught.cod
 fs.writeFileSync(path.join(unsafe, 'artifact.md'), 'safe');
 fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVersion: 2, harnessId: 'unsafe-test', version: '1.0.0', slots: { agentContract: { path: 'artifact.md', capability: 'hotSwappable' } } }));
 assert.throws(() => harness.buildPackage(unsafe, builds), (caught) => caught.code === 'HARNESS_UNKNOWN_SCHEMA');
+fs.writeFileSync(path.join(unsafe, 'manifest.json'), JSON.stringify({ schemaVersion: 1, harnessId: 'unsafe-test', version: '1.0.0', slots: { agentContract: { path: 'artifact.md', capability: 'hotSwappable', when: 'task=timeline' } } }));
+assert.throws(() => harness.buildPackage(unsafe, builds), (caught) => caught.code === 'HARNESS_UNSUPPORTED_CONDITION', 'schemaVersion 1 must reject conditions instead of silently composing them');
 assert.equal(typeof runNativeRegression, 'function', 'native regression keeps evaluator-only input outside package checks');
 const evaluatorOnlySentinel = 'evaluator-only-sentinel-9ce6dd5a';
 assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', outcome: 'PASS' }, evaluatorOnlySentinel), false, 'evaluator-only input is absent from an ordinary public result');
 assert.equal(evaluatorOnlyInputLeaks({ source: 'evaluator', accidental: evaluatorOnlySentinel }, evaluatorOnlySentinel), true, 'the evaluator leak guard detects public-result disclosure');
 fs.rmSync(runtime, { recursive: true, force: true });
 fs.rmSync(unsafe, { recursive: true, force: true });
-console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'pinned-bindings', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema', 'evaluator-only-leak-guard'] }));
+console.log(JSON.stringify({ ok: true, checks: ['git-provenance', 'immutable-registry', 'pinned-bindings', 'recovery-selector-preservation', 'unsupported-condition-rejected', 'materialized-candidate', 'package-self-check-only', 'cross-candidate-promotion-rejected', 'fail-closed-selector', 'traversal', 'executable', 'schema', 'evaluator-only-leak-guard'] }));
