@@ -566,6 +566,20 @@ try {
     ],
   }));
 } finally {
-  child.kill('SIGTERM');
-  fs.rmSync(root, { recursive: true, force: true });
+  if (child.exitCode === null) {
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    child.kill('SIGTERM');
+    await Promise.race([
+      exited,
+      new Promise((resolve) => setTimeout(resolve, 2_000)),
+    ]);
+  }
+  // DatabaseSync can release its Windows file handle a moment after the
+  // child exits. Temporary-directory cleanup must not turn a passing domain
+  // contract into a false product failure.
+  try {
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (error) {
+    if (error?.code !== 'EBUSY') throw error;
+  }
 }
