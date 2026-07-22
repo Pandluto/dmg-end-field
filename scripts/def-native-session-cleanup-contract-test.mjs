@@ -303,6 +303,38 @@ try {
   }
 
   {
+    const fixture = createFixture('upstream-network-failure');
+    const current = fixture.addBinding('ai-cli', 'ses-current', '0-current');
+    const first = fixture.addBinding('ai-cli', 'ses-good-first', '1-good');
+    const failed = fixture.addBinding('ai-cli', 'ses-network-failed', '2-failed');
+    const last = fixture.addBinding('ai-cli', 'ses-good-last', '3-good');
+    const { options, upstreamDeletes } = cleanupOptions(fixture);
+    options.fetchImpl = async (url) => {
+      const match = /\/session\/([^?]+)/.exec(String(url));
+      const sessionID = decodeURIComponent(match?.[1] || '');
+      upstreamDeletes.push(sessionID);
+      if (sessionID === failed.sessionID) throw new Error('simulated network failure');
+      return { ok: true, status: 200 };
+    };
+
+    const result = await cleanupNativeAiCliSessions({ host: 'ai-cli', keepSessionID: current.sessionID }, options);
+    assert.equal(result.ok, false, 'an upstream network failure cannot report full success');
+    assert.equal(result.targetCount, 3);
+    assert.equal(result.deletedCount, 2);
+    assert.equal(result.alreadyDeletedCount, 0);
+    assert.deepEqual(result.failed, [{
+      sessionID: failed.sessionID,
+      code: 'NATIVE_SESSION_DELETE_UPSTREAM_FAILED',
+    }]);
+    assert.deepEqual(upstreamDeletes, [first.sessionID, failed.sessionID, last.sessionID],
+      'a rejected upstream delete must not stop later cleanup targets');
+    assert.equal(fs.existsSync(first.directory), false);
+    assert.equal(fs.existsSync(failed.directory), true,
+      'a rejected upstream delete must preserve the local binding for retry');
+    assert.equal(fs.existsSync(last.directory), false);
+  }
+
+  {
     const fixture = createFixture('race');
     const current = fixture.addBinding('ai-cli', 'ses-current');
     const raced = fixture.addBinding('ai-cli', 'ses-raced');
@@ -567,6 +599,7 @@ try {
       'workbench-isolated',
       'invalid-keep-fails-closed',
       'partial-failure-continues',
+      'upstream-network-failure-preserves-binding-and-continues',
       'already-deleted-race-counted',
       'upstream-404-counted-as-already-deleted',
       'binding-identity-race-blocked',

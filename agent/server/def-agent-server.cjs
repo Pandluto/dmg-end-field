@@ -1212,14 +1212,24 @@ async function deleteNativeSessionById(sessionID, options = {}) {
   try {
     const runtime = options.runtime || runtimeSummary(readConfig().deepseek);
     await rejectQuestions(runtime, binding.directory, sessionID);
-    const upstream = await fetchImpl(
-      `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`,
-      {
-        method: 'DELETE',
-        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
-        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
-      },
-    ).catch(() => undefined);
+    let upstream;
+    try {
+      upstream = await fetchImpl(
+        `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`,
+        {
+          method: 'DELETE',
+          headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+          signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+        },
+      );
+    } catch {
+      return {
+        ok: false,
+        status: 'failed',
+        sessionID,
+        code: 'NATIVE_SESSION_DELETE_UPSTREAM_FAILED',
+      };
+    }
     const upstreamAlreadyDeleted = upstream?.status === 404;
     if (upstream && !upstream.ok && !upstreamAlreadyDeleted) {
       return {
