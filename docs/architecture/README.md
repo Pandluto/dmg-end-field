@@ -20,6 +20,9 @@
 ## 审计归档
 
 - [项目架构总览](./overview.md)
+- [DEF Agent 架构冲突总账与收口顺序](./audits/def-agent-architecture-conflict-map-20260722.md)
+- [DEF Agent “训练”架构根因审计](./audits/def-agent-training-root-cause-20260721.md)
+- [代码膨胀评估](./audits/code-bloat-assessment-20260721.md)
 - [复用边界与上下游缺口分析](./audits/reuse-boundary-gap-analysis-20260627.md)
 - [Spec / Task 与代码复用审计](./audits/spec-task-code-audit-20260627.md)
 - [OpenCode 打包范围与体积审计](./audits/opencode-package-scope-size-audit-20260713.md)
