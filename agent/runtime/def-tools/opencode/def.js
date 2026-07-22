@@ -119,7 +119,36 @@ function installDefToolTurnPolicy(sessionID, turnID, classified) {
     ...classified,
     allowedTools: allowedToolsForTurnPolicy(classified.kind),
     attemptedTools: new Map(),
+    attemptedCallIds: new Map(),
   })
+}
+
+function registerDefToolTurnAttempt(turnPolicy, toolName, callIDValue, args, commit = true) {
+  const priorAttempts = turnPolicy.attemptedTools.get(toolName) || 0
+  const callID = typeof callIDValue === 'string' ? callIDValue.trim() : ''
+  const callFingerprint = JSON.stringify(stableToolInput(args))
+  const priorCallIds = turnPolicy.attemptedCallIds?.get(toolName) || new Map()
+  if (callID && priorCallIds.has(callID)) {
+    const duplicateHook = priorCallIds.get(callID) === callFingerprint
+    return {
+      attempts: priorAttempts,
+      duplicateHook,
+      blocked: !duplicateHook,
+      callIdReused: !duplicateHook,
+    }
+  }
+  if (priorAttempts >= 1) {
+    return { attempts: priorAttempts, duplicateHook: false, blocked: true }
+  }
+  if (!commit) {
+    return { attempts: priorAttempts + 1, duplicateHook: false, blocked: false }
+  }
+  turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)
+  if (callID) {
+    priorCallIds.set(callID, callFingerprint)
+    turnPolicy.attemptedCallIds.set(toolName, priorCallIds)
+  }
+  return { attempts: priorAttempts + 1, duplicateHook: false, blocked: false }
 }
 
 function parseDefCompositeRecommendationOutput(output) {
@@ -493,11 +522,11 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}, opti
       error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, nextAction: 'Call def_data_skill once with the complete named skill variant from the user message.' }
       throw error
     }
-    const priorAttempts = turnPolicy.attemptedTools.get(toolName) || 0
-    if (priorAttempts >= 1) {
+    const attempt = registerDefToolTurnAttempt(turnPolicy, toolName, options.callID, args, false)
+    if (attempt.blocked) {
       const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted again. Exact skill facts allow one typed lookup per turn.`)
       error.code = 'def-tool-turn-policy-blocked'
-      error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, attempts: priorAttempts, nextAction: 'Use the first typed result or report its exact missing fact without another tool call.' }
+      error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, attempts: attempt.attempts, callIdReused: attempt.callIdReused === true, nextAction: 'Use the first typed result or report its exact missing fact without another tool call.' }
       throw error
     }
     const sourceDigits = turnPolicy.sourceText.match(/\d+/g) || []
@@ -508,7 +537,7 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}, opti
       error.details = { attempted: false, attemptedTool: toolName, policy: turnPolicy.kind, nextAction: 'Retry the single allowed lookup with the complete named skill variant, including its numeric layer/id.' }
       throw error
     }
-    turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)
+    registerDefToolTurnAttempt(turnPolicy, toolName, options.callID, args)
   }
   if (turnPolicy?.kind === 'equipment-3plus1-composite') {
     if (!turnPolicy.allowedTools.has(toolName)) {
@@ -522,20 +551,20 @@ export function assertDefToolTurnNotBlocked(sessionID, toolName, args = {}, opti
       }
       throw error
     }
-    const priorAttempts = turnPolicy.attemptedTools.get(toolName) || 0
-    if (priorAttempts >= 1) {
+    const attempt = registerDefToolTurnAttempt(turnPolicy, toolName, options.callID, args)
+    if (attempt.blocked) {
       const error = new Error(`def-tool-turn-policy-blocked: ${toolName} was not attempted again. A 3+1 equipment turn allows one composite recommendation call.`)
       error.code = 'def-tool-turn-policy-blocked'
       error.details = {
         attempted: false,
         attemptedTool: toolName,
         policy: turnPolicy.kind,
-        attempts: priorAttempts,
+        attempts: attempt.attempts,
+        callIdReused: attempt.callIdReused === true,
         nextAction: 'Use the first typed result as terminal for this turn.',
       }
       throw error
     }
-    turnPolicy.attemptedTools.set(toolName, priorAttempts + 1)
   }
   const mutationStop = defToolTurnMutationStops.get(scope)
   if (mutationStop && isDefMutationTool(toolName)) throw notAttemptedMutationError(mutationStop, toolName)

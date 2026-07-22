@@ -48,6 +48,7 @@ export async function createDefToolsPlugin(input = {}, options = {}) {
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args, {
         equipment3Plus1Enabled: equipment3Plus1Enabled(input?.sessionID),
+        callID: input?.callID,
       })
       definitions.assertDefNativeArtifactToolScope(input, output?.args)
     },

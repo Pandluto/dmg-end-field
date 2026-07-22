@@ -820,7 +820,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     const fakeRequests = [];
     const eventResponses = new Set();
     const jsonResponse = (response, status, body) => {
-      response.writeHead(status, { 'content-type': 'application/json' });
+      response.writeHead(status, { 'content-type': 'application/json', connection: 'close' });
       response.end(JSON.stringify(body));
     };
     const fakeOpenCode = http.createServer((request, response) => {
@@ -1363,8 +1363,9 @@ const exactSkillFactsPolicyProbe = spawnBunEval(`
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempted !== false) process.exit(3); }
   try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { query: '图腾下落' }); process.exit(4); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked') process.exit(5); }
-  mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: '图腾下落-2层' });
-  try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: 'skill-Q-4' }); process.exit(6); }
+  mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: '图腾下落-2层' }, { callID: 'skill-call-1' });
+  mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: '图腾下落-2层' }, { callID: 'skill-call-1' });
+  try { mod.assertDefToolTurnNotBlocked('skill-session', 'def_data_skill', { characterQuery: '汤汤', query: 'skill-Q-4' }, { callID: 'skill-call-2' }); process.exit(6); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(7); }
 `);
 assert.equal(exactSkillFactsPolicyProbe.status, 0, exactSkillFactsPolicyProbe.stderr || exactSkillFactsPolicyProbe.stdout);
@@ -1375,8 +1376,11 @@ const equipmentCompositePolicyProbe = spawnBunEval(`
   mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_001', [{ type: 'text', text: '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。' }], enabled);
   try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_operator_catalog', {}); process.exit(2); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempted !== false) process.exit(3); }
-  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, enabled);
-  try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, enabled); process.exit(4); }
+  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, { ...enabled, callID: 'recommend-call-1' });
+  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, { ...enabled, callID: 'recommend-call-1' });
+  try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', { setQuery: '伪造改参' }, { ...enabled, callID: 'recommend-call-1' }); process.exit(8); }
+  catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.callIdReused !== true) process.exit(9); }
+  try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, { ...enabled, callID: 'recommend-call-2' }); process.exit(4); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(5); }
   mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_003', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }], enabled);
   const priorTypedOutput = JSON.stringify({ protocolVersion: 1, contract: 'DefEquipmentThreePlusOneRecommendationV1', state: 'READY', result: { planDigest: 'sha256:' + 'a'.repeat(64) } });
@@ -1546,6 +1550,19 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'recommend-1' },
       { args: {} },
     );
+    await candidate['tool.execute.before'](
+      { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'recommend-1' },
+      { args: {} },
+    );
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'recommend-2' },
+        { args: {} },
+      );
+      process.exit(31);
+    } catch (error) {
+      if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(32);
+    }
 
     const candidateMessages = [
       user(candidateSession, 'msg_001', firstText),
