@@ -5570,22 +5570,26 @@ async function applyDefTeamLoadoutPlan(input = {}) {
     stored.usedResult = outcome;
     return outcome;
   }
-  // Revalidate right before the renderer apply command as well. A prepared
-  // candidate cannot turn an active-only item into a write capability after
-  // the local product library changed.
-  const teamProductGate = buildDefOperatorConfigProductCheckedCommands({
-    patches: stored.operators.map((operator) => operator?.exactProduct?.patch).filter(Boolean),
-  });
-  if (!teamProductGate.ok) {
-    return {
-      ...teamProductGate,
-      state: 'BLOCKED',
-      component: 'team-loadout-plan',
-      planId: stored.planId,
-      planHash: stored.planHash,
-      currentCheckoutTouched: false,
-      message: 'The exact team product is no longer available locally; no renderer apply command was enqueued.',
-    };
+  // Revalidate only before a new renderer apply. A pending command is an
+  // already-authorized, exact P/C recovery operation: its only possible
+  // mutation is the guarded restoration of P. Requiring a current product
+  // library there would leave a late C unrecoverable after local catalog
+  // drift, without granting any new write capability.
+  if (!stored.pendingCommand) {
+    const teamProductGate = buildDefOperatorConfigProductCheckedCommands({
+      patches: stored.operators.map((operator) => operator?.exactProduct?.patch).filter(Boolean),
+    });
+    if (!teamProductGate.ok) {
+      return {
+        ...teamProductGate,
+        state: 'BLOCKED',
+        component: 'team-loadout-plan',
+        planId: stored.planId,
+        planHash: stored.planHash,
+        currentCheckoutTouched: false,
+        message: 'The exact team product is no longer available locally; no renderer apply command was enqueued.',
+      };
+    }
   }
   const sessionId = typeof input.__defSessionId === 'string' ? input.__defSessionId.trim() : '';
   if (!stored.pendingCommand && !consumeApprovedApplyCapability(input, {
@@ -10706,6 +10710,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
     preparedTeamLoadoutPlans.set(planHash, {
       ok: true, state: 'READY', planId: `contract-${planHash}`, planHash,
       ownerSessionId: sessionId, timelineId, axisBindingId,
+      checkoutBinding: { targetType: 'work-node', targetId: parent.id, revision: Number(parent.contentRevision || parent.updatedAt) },
       operators: [], confirmedDecisions: [],
       preparedCandidate, usedAt: Date.now(), usedResult: null,
       pendingCommand: pendingCommandId

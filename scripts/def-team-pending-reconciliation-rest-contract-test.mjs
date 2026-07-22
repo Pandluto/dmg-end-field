@@ -80,6 +80,13 @@ try {
   assert.equal(idle.status, 200, JSON.stringify(idle.body));
   assert.equal(idle.body.result.state, 'NOT_PENDING', JSON.stringify(idle.body));
 
+  // No local product library is seeded. A new apply must remain closed: the
+  // recovery exception below must not turn missing products into a generic
+  // write capability.
+  const newApply = await tool('def.team.loadout.plan.apply', { planHash: 'a'.repeat(64) });
+  assert.equal(newApply.status, 409, JSON.stringify(newApply.body));
+  assert.equal(newApply.body.error.code, 'operator-config-product-required', JSON.stringify(newApply.body));
+
   const seeded = await request('/api/def-contract-test/pending-team-reconciliation', {
     body: { planHash: 'a'.repeat(64), sessionId: 'session-a', timelineId: 'formal-a', axisBindingId: 'axis-a', parentNodeId: 'parent-p', candidateNodeId: 'candidate-c', pendingCommandId: 'late-command-c' },
   });
@@ -113,7 +120,7 @@ try {
   assert.equal(reconciled.body.result.state, 'ROLLED_BACK', JSON.stringify(reconciled.body));
   assert.equal(reconciled.body.result.reconciliation.rollback.restored, true);
   assert.equal(repository.getCheckoutRef('formal-a').targetId, 'parent-p');
-  console.log('DEF pending team reconciliation REST contract: PASS (public gate blocks P/C; exact pending continuation restores P)');
+  console.log('DEF pending team reconciliation REST contract: PASS (new writes remain product-gated; exact pending continuation restores P)');
 } finally {
   child.kill('SIGTERM');
   await new Promise((resolve) => child.once('exit', resolve));
