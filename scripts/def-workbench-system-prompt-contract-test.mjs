@@ -49,7 +49,15 @@ assert.match(exactSkillPrompt, /EXACT SKILL FACT CONTRACT/);
 assert.match(exactSkillPrompt, /Call def_data_skill as the first and only tool/);
 assert.doesNotMatch(exactSkillPrompt, /DIRECT CURRENT-NODE CONTRACT/);
 
-const equipmentCompositePrompt = promptFor('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。', 'checkout-changed');
+const stableEquipmentPrompt = promptFor('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。', 'checkout-changed');
+assert.doesNotMatch(stableEquipmentPrompt, /3\+1 EQUIPMENT COMPOSITE CONTRACT/);
+assert.match(stableEquipmentPrompt, /HARD GATE:/);
+
+const equipmentCompositePrompt = promptFor(
+  '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。',
+  'checkout-changed',
+  'equipment-3plus1-composite',
+);
 assert.match(equipmentCompositePrompt, /3\+1 EQUIPMENT COMPOSITE CONTRACT/);
 assert.match(equipmentCompositePrompt, /Call def_data_equipment_3plus1_recommend once/);
 assert.doesNotMatch(equipmentCompositePrompt, /HARD GATE:/);

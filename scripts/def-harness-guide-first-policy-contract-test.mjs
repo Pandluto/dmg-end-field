@@ -36,36 +36,16 @@ assert.doesNotMatch(adapterPrompt, /ATTRIBUTE-FIRST 3\+1/);
 assert.doesNotMatch(adapterPrompt, /3\+1 fact plan/);
 for (const tool of legacyThreePlusOneTools.slice(3)) assert.doesNotMatch(adapterPrompt, new RegExp(tool));
 
-const compositePromptStart = adapterPrompt.indexOf("'- COMPOSITE 3+1 RECOMMENDATION:");
-const compositePromptEnd = adapterPrompt.indexOf("',", compositePromptStart);
-const guideFirstPromptStart = adapterPrompt.indexOf("'- GUIDE-FIRST OPERATOR FIT:");
-assert.ok(compositePromptStart >= 0 && compositePromptEnd > compositePromptStart, 'Base Prompt must define a bounded composite 3+1 exception');
-assert.ok(compositePromptStart < guideFirstPromptStart, 'composite 3+1 exception must precede the generic guide-first rule');
-const compositePrompt = adapterPrompt.slice(compositePromptStart, compositePromptEnd);
-assert.match(compositePrompt, /def\.equipment\.3plus1\.recommend/);
-assert.match(compositePrompt, /def_data_equipment_3plus1_recommend/);
-assert.match(compositePrompt, /exception to the later GUIDE-FIRST OPERATOR FIT and generic correction routes/);
-assert.match(compositePrompt, /operator-specific recommendation/);
-assert.match(compositePrompt, /suitability comparison/);
-assert.match(compositePrompt, /correction/);
-assert.match(compositePrompt, /为什么不用……/);
-assert.match(compositePrompt, /exactly once/);
-assert.match(compositePrompt, /never enter guide\/profile\/filter discovery/);
-assert.match(compositePrompt, /one fresh composite recommend call/);
-assert.match(compositePrompt, /rather than restarting the old guide\/profile\/filter flow/);
-assert.match(compositePrompt, /read-only and never applies a configuration/);
+assert.doesNotMatch(adapterPrompt, /COMPOSITE 3\+1 RECOMMENDATION/,
+  'the shared Workbench Base Prompt must not activate candidate-only 3+1 behavior');
+assert.doesNotMatch(adapterPrompt, /def_data_equipment_3plus1_recommend/,
+  'the candidate-only composite tool must be taught by the bound Harness, not the shared Base Prompt');
 
 const skill = read('agent/runtime/def/skills/timeline-workbench/SKILL.md');
-const compositeStart = skill.indexOf('## Composite 3+1 recommendation');
-const compositeEnd = skill.indexOf('\n`@N-L`', compositeStart);
-assert.ok(compositeStart >= 0 && compositeEnd > compositeStart, 'the runtime Skill must own one bounded composite 3+1 section');
-const compositeSkill = skill.slice(compositeStart, compositeEnd);
-assert.match(compositeSkill, /def_data_equipment_3plus1_recommend/);
-assert.match(compositeSkill, /exactly once/);
-for (const state of ['READY', 'NEEDS_INPUT', 'UNRESOLVED']) assert.match(compositeSkill, new RegExp('`' + state + '`'));
-assert.match(compositeSkill, /read-only recommendation, not a configuration application/);
-for (const tool of legacyThreePlusOneTools) assert.doesNotMatch(compositeSkill, new RegExp(tool));
-assert.doesNotMatch(compositeSkill, /artifact|revision|topolog|solver|plannerProfile|capability/i);
+assert.doesNotMatch(skill, /Composite 3\+1 recommendation/,
+  'the shared runtime Skill must not activate candidate-only 3+1 behavior');
+assert.doesNotMatch(skill, /def_data_equipment_3plus1_recommend/,
+  'the candidate-only composite tool must be taught by the bound Harness, not the shared runtime Skill');
 
 for (const file of candidateFiles) {
   assert.ok(fs.existsSync(path.join(project, candidateRoot, file)), `candidate must include stable artifact ${file}`);
@@ -125,7 +105,7 @@ console.log(JSON.stringify({
   checks: [
     'base-prompt-removes-legacy-3plus1-chain',
     'native-catalog-remains-available-for-other-legal-uses',
-    'runtime-skill-composite-recognition-and-typed-explanation',
+    'shared-runtime-skill-does-not-teach-candidate-only-composite-flow',
     'candidate-stable-copy-and-fixed-ref',
     'candidate-single-composite-teaching-change',
     'blackbox-composite-route-and-interop-ui-evidence',

@@ -280,7 +280,7 @@ export interface Hooks {
     },
   ) => Promise<void>
   "experimental.chat.messages.transform"?: (
-    input: { phase: "generation" | "compaction" },
+    input: { phase: "generation" | "compaction"; sessionID: string },
     output: {
       messages: {
         info: Message

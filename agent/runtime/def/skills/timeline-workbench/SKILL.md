@@ -27,16 +27,6 @@ Follow guide discovery's `evidenceRequirements` literally. If a `GUIDE_FOUND` re
 
 The authorized `def_data_operator_build_profile` result is the complete fallback evidence boundary: element, trusted primary/secondary operator attributes, skill categories actually emphasized by trusted multipliers or mechanics, and the only authorized `plannerProfile`/`plannerProfileCapability` pair. Pass that pair unchanged; do not convert, add, remove, or reorder its effect groups, and do not bypass its fallback token with generic operator or skill resources. Do not infer an attribute from profession, element, equipment `fixedStat`, or common player lore. If it returns no profile capability because evidence is incomplete, do not call the planner; ask one minimal question or mark the missing fact unverified.
 
-## Composite 3+1 recommendation
-
-Recognize a request for an operator-specific `3+1` equipment recommendation, including a named set, an unspecified set, or a correction such as “为什么不用……”. Call `def_data_equipment_3plus1_recommend` exactly once for that user turn. It is a read-only recommendation, not a configuration application.
-
-- `READY`: explain the returned evidence-backed recommendation, close alternatives, comparisons, and any marked missing evidence without claiming it has been equipped.
-- `NEEDS_INPUT`: ask the one returned bounded follow-up question; do not guess the missing choice.
-- `UNRESOLVED`: state which returned evidence or identity could not be resolved and do not fabricate a plan.
-
-For a correction, make a fresh composite recommendation in the new turn and address the challenged choice. Do not treat the correction as approval or reuse a prior recommendation as the current result.
-
 `@N-L` always means `nodeIndex=N-1` and `lineIndex=L-1`. Before editing a coordinate or claiming it is empty, call `def_workbench_buttons` with both exact indices. If no candidate is returned, report the coordinate as empty; never reinterpret it as an ordinal or select another button.
 
 For questions about which skill has the most Buffs, call `def_workbench_buff_ranking` for the named character and report its first result. Do not count Buffs manually or restrict the answer to an inferred visible range.

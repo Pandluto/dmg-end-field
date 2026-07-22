@@ -10,7 +10,9 @@ function buildWorkbenchCheckoutSystemPrompt(state, existingSystem, parts, routed
   const userText = Array.isArray(parts)
     ? parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n')
     : '';
-  const executablePolicy = classifyDefExecutableTurnPolicy(userText)
+  const executablePolicy = classifyDefExecutableTurnPolicy(userText, {
+    equipment3Plus1Enabled: routedTask === 'equipment-3plus1-composite',
+  })
     || (routedTask === 'equipment-3plus1-composite' ? { kind: routedTask } : null);
   const directCurrentNodeQuestion = isDirectCurrentNodeQuestion(userText);
   const lines = [

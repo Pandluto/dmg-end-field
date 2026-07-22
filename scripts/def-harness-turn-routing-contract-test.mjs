@@ -18,18 +18,28 @@ function spawnBunEval(source, options = {}) {
 }
 
 const binding = {
+  schemaVersion: 5,
   sessionID: 'session-pinned',
   harnessBinding: {
+    kind: 'DefHarnessSessionBindingV1',
+    schemaVersion: 1,
     sessionId: 'session-pinned',
     selector: 'candidate/operator-config-horizontal-metadata',
-    harness: { harnessId: 'def-operator-config-atomic-failfast', version: '1.1.0', contentHash: 'hash' },
+    harness: { harnessId: 'def-operator-config-atomic-failfast', version: '1.1.0', contentHash: 'a'.repeat(64), schemaVersion: 1 },
   },
 };
 const compositeBinding = {
   ...binding,
   harnessBinding: {
     ...binding.harnessBinding,
-    harness: { harnessId: 'def-equipment-3plus1-composite', version: '9.1.0-candidate.1', contentHash: 'composite-hash' },
+    harness: { harnessId: 'def-equipment-3plus1-composite', version: '9.1.0-candidate.1', contentHash: 'b'.repeat(64), schemaVersion: 1 },
+  },
+};
+const mismatchedCompositeBinding = {
+  ...compositeBinding,
+  harnessBinding: {
+    ...compositeBinding.harnessBinding,
+    sessionId: 'another-session',
   },
 };
 
@@ -45,12 +55,22 @@ assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新�
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'equipment-3plus1-composite');
+assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'operator-config');
 assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'candidate/operator-config-horizontal-metadata');
 assert.equal(routeNativeTurnHarness(binding, '图腾下落-2层里的水龙卷算什么伤害').task, 'exact-skill-facts');
 assert.equal(classifyDefExecutableTurnPolicy('图腾下落-2层里的水龙卷算什么伤害')?.kind, 'exact-skill-facts');
-assert.equal(classifyDefExecutableTurnPolicy('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。')?.kind, 'equipment-3plus1-composite');
+assert.equal(classifyDefExecutableTurnPolicy('为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。'), null);
+assert.equal(classifyDefExecutableTurnPolicy(
+  '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。',
+  { equipment3Plus1Enabled: true },
+)?.kind, 'equipment-3plus1-composite');
+assert.equal(routeNativeTurnHarness(compositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'equipment-3plus1-composite');
+assert.notEqual(
+  routeNativeTurnHarness(mismatchedCompositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task,
+  'equipment-3plus1-composite',
+  'an internally inconsistent Session binding must fail closed',
+);
 assert.equal(classifyDefExecutableTurnPolicy('潮涌套装的二件效果是什么？'), null);
 assert.equal(classifyDefExecutableTurnPolicy('这把武器的伤害倍率是多少'), null);
 assert.equal(isDefEquipment3Plus1Correction('配件二为什么不用第二个悬河供氧栓？'), true);
@@ -171,29 +191,31 @@ assert.equal(exactSkillFactsPolicyProbe.status, 0, exactSkillFactsPolicyProbe.st
 
 const equipmentCompositePolicyProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
-  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_001', [{ type: 'text', text: '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。' }]);
+  const enabled = { equipment3Plus1Enabled: true };
+  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_001', [{ type: 'text', text: '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。' }], enabled);
   try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_operator_catalog', {}); process.exit(2); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempted !== false) process.exit(3); }
-  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {});
-  try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}); process.exit(4); }
+  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, enabled);
+  try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, enabled); process.exit(4); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.attempts !== 1) process.exit(5); }
-  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_003', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }]);
+  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_003', [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }], enabled);
   const priorTypedOutput = JSON.stringify({ protocolVersion: 1, contract: 'DefEquipmentThreePlusOneRecommendationV1', state: 'READY', result: { planDigest: 'sha256:' + 'a'.repeat(64) } });
   mod.applyDefToolModelMessagePolicy([
     { info: { role: 'user', id: 'msg_001', sessionID: 'equipment-session' }, parts: [{ type: 'text', text: '为别礼挑选一套装备，3 潮涌+1。' }] },
     { info: { role: 'assistant', id: 'msg_002', parentID: 'msg_001', sessionID: 'equipment-session' }, parts: [{ type: 'tool', tool: 'def_data_equipment_3plus1_recommend', state: { status: 'completed', output: priorTypedOutput } }, { type: 'text', text: '上一轮结论' }] },
     { info: { role: 'user', id: 'msg_003', sessionID: 'equipment-session' }, parts: [{ type: 'text', text: '配件二为什么不用第二个悬河供氧栓？' }] },
-  ]);
+  ], 'generation', enabled);
   try { mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_game_knowledge', {}); process.exit(6); }
   catch (error) { if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.policy !== 'equipment-3plus1-composite') process.exit(7); }
-  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {});
-  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_005', [{ type: 'text', text: '确认。' }]);
+  mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_equipment_3plus1_recommend', {}, enabled);
+  mod.beginDefToolTurnFromChatMessage('equipment-session', 'msg_005', [{ type: 'text', text: '确认。' }], enabled);
   mod.assertDefToolTurnNotBlocked('equipment-session', 'def_data_game_knowledge', {});
 `);
 assert.equal(equipmentCompositePolicyProbe.status, 0, equipmentCompositePolicyProbe.stderr || equipmentCompositePolicyProbe.stdout);
 
 const equipmentCompositeModelMessageProbe = spawnBunEval(`
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  const enabled = { equipment3Plus1Enabled: true };
   const typedOutput = JSON.stringify({ protocolVersion: 1, contract: 'DefEquipmentThreePlusOneRecommendationV1', state: 'UNRESOLVED', missing: ['operator-build-operator-not-found'] });
   const oldOutput = typedOutput;
   const persistedMessages = [
@@ -204,42 +226,242 @@ const equipmentCompositeModelMessageProbe = spawnBunEval(`
   ];
   const persistedBefore = JSON.stringify(persistedMessages);
   const providerMessages = structuredClone(persistedMessages);
-  if (!mod.applyDefToolModelMessagePolicy(providerMessages)) process.exit(2);
+  if (!mod.applyDefToolModelMessagePolicy(providerMessages, 'generation', enabled)) process.exit(2);
   const projected = providerMessages[3].parts[0].state.output;
   if (!projected.startsWith('[DEF HARNESS TERMINAL CONTRACT')) process.exit(3);
   if (!projected.endsWith(typedOutput)) process.exit(4);
   if (providerMessages[1].parts[0].state.output !== oldOutput) process.exit(5);
   if (JSON.stringify(persistedMessages) !== persistedBefore) process.exit(6);
-  if (mod.applyDefToolModelMessagePolicy(providerMessages)) process.exit(7);
+  if (mod.applyDefToolModelMessagePolicy(providerMessages, 'generation', enabled)) process.exit(7);
   const completedTurn = structuredClone(persistedMessages);
   completedTurn.push({ info: { role: 'assistant', id: 'msg_005', parentID: 'msg_003' }, parts: [{ type: 'text', text: '最终可见结论' }] });
-  if (mod.applyDefToolModelMessagePolicy(completedTurn)) process.exit(8);
+  if (mod.applyDefToolModelMessagePolicy(completedTurn, 'generation', enabled)) process.exit(8);
   if (completedTurn[3].parts[0].state.output !== typedOutput) process.exit(9);
   const compactedTurn = structuredClone(persistedMessages);
   compactedTurn[3].parts[0].state.time = { compacted: true };
-  if (mod.applyDefToolModelMessagePolicy(compactedTurn)) process.exit(10);
-  if (mod.applyDefToolModelMessagePolicy(structuredClone(persistedMessages), 'compaction')) process.exit(11);
+  if (mod.applyDefToolModelMessagePolicy(compactedTurn, 'generation', enabled)) process.exit(10);
+  if (mod.applyDefToolModelMessagePolicy(structuredClone(persistedMessages), 'compaction', enabled)) process.exit(11);
   const textAfterTool = structuredClone(persistedMessages);
   textAfterTool[3].parts.push({ type: 'text', text: '工具后的最终结论' });
-  if (mod.applyDefToolModelMessagePolicy(textAfterTool)) process.exit(12);
+  if (mod.applyDefToolModelMessagePolicy(textAfterTool, 'generation', enabled)) process.exit(12);
   const wrongParent = structuredClone(persistedMessages);
   wrongParent[3].info.parentID = 'msg_wrong';
-  if (mod.applyDefToolModelMessagePolicy(wrongParent)) process.exit(13);
+  if (mod.applyDefToolModelMessagePolicy(wrongParent, 'generation', enabled)) process.exit(13);
   const duplicateComposite = structuredClone(persistedMessages);
   duplicateComposite[3].parts.push(structuredClone(duplicateComposite[3].parts[0]));
-  if (mod.applyDefToolModelMessagePolicy(duplicateComposite)) process.exit(14);
+  if (mod.applyDefToolModelMessagePolicy(duplicateComposite, 'generation', enabled)) process.exit(14);
   const malformedOutput = structuredClone(persistedMessages);
   malformedOutput[3].parts[0].state.output = '{}';
-  if (mod.applyDefToolModelMessagePolicy(malformedOutput)) process.exit(15);
+  if (mod.applyDefToolModelMessagePolicy(malformedOutput, 'generation', enabled)) process.exit(15);
   const reordered = [persistedMessages[2], persistedMessages[3], persistedMessages[0], persistedMessages[1]].map((message) => structuredClone(message));
-  if (!mod.applyDefToolModelMessagePolicy(reordered)) process.exit(16);
+  if (!mod.applyDefToolModelMessagePolicy(reordered, 'generation', enabled)) process.exit(16);
 `);
 assert.equal(equipmentCompositeModelMessageProbe.status, 0, equipmentCompositeModelMessageProbe.stderr || equipmentCompositeModelMessageProbe.stdout);
+
+const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
+  import fs from 'node:fs';
+  import os from 'node:os';
+  import path from 'node:path';
+  const pluginFactory = (await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)})).default;
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-3plus1-activation-'));
+  const hash = (character) => character.repeat(64);
+  const writeBinding = (directory, sessionID, harnessId, character) => {
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, '.def-session.json'), JSON.stringify({
+      schemaVersion: 5,
+      sessionID,
+      directory,
+      host: 'workbench',
+      harnessBinding: {
+        kind: 'DefHarnessSessionBindingV1',
+        schemaVersion: 1,
+        sessionId: sessionID,
+        selector: harnessId === 'def-equipment-3plus1-composite' ? 'candidate/spec9-3plus1-composite-v1' : 'stable',
+        harness: { harnessId, version: '1.0.0', contentHash: hash(character), schemaVersion: 1 },
+      },
+    }));
+  };
+  const user = (sessionID, id, text) => ({
+    info: { role: 'user', id, sessionID },
+    parts: [{ type: 'text', text }],
+  });
+  const composite = (sessionID, id, parentID) => ({
+    info: { role: 'assistant', id, parentID, sessionID },
+    parts: [{
+      type: 'tool',
+      tool: 'def_data_equipment_3plus1_recommend',
+      state: {
+        status: 'completed',
+        output: JSON.stringify({
+          protocolVersion: 1,
+          contract: 'DefEquipmentThreePlusOneRecommendationV1',
+          state: 'READY',
+          result: { planDigest: 'sha256:' + 'c'.repeat(64) },
+        }),
+      },
+    }],
+  });
+  try {
+    const candidateDirectory = path.join(root, 'candidate');
+    const candidateSession = 'candidate-session';
+    writeBinding(candidateDirectory, candidateSession, 'def-equipment-3plus1-composite', 'a');
+    const candidate = await pluginFactory({ directory: candidateDirectory });
+    const firstText = '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。';
+    await candidate['chat.message'](
+      { sessionID: candidateSession },
+      { message: { id: 'msg_001' }, parts: [{ type: 'text', text: firstText }] },
+    );
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: candidateSession, tool: 'def_data_game_knowledge', callID: 'wrong-1' },
+        { args: {} },
+      );
+      process.exit(2);
+    } catch (error) {
+      if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.policy !== 'equipment-3plus1-composite') process.exit(3);
+    }
+    await candidate['tool.execute.before'](
+      { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'recommend-1' },
+      { args: {} },
+    );
+
+    const candidateMessages = [
+      user(candidateSession, 'msg_001', firstText),
+      composite(candidateSession, 'msg_002', 'msg_001'),
+    ];
+    await candidate['experimental.chat.messages.transform'](
+      { phase: 'generation', sessionID: candidateSession },
+      { messages: candidateMessages },
+    );
+    if (!candidateMessages[1].parts[0].state.output.startsWith('[DEF HARNESS TERMINAL CONTRACT')) process.exit(4);
+
+    const correctionText = '配件二为什么不用第二个悬河供氧栓？';
+    await candidate['chat.message'](
+      { sessionID: candidateSession },
+      { message: { id: 'msg_003' }, parts: [{ type: 'text', text: correctionText }] },
+    );
+    const correctionHistory = [
+      user(candidateSession, 'msg_001', firstText),
+      composite(candidateSession, 'msg_002', 'msg_001'),
+      user(candidateSession, 'msg_003', correctionText),
+    ];
+    await candidate['experimental.chat.messages.transform'](
+      { phase: 'generation', sessionID: candidateSession },
+      { messages: correctionHistory },
+    );
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: candidateSession, tool: 'def_data_game_knowledge', callID: 'wrong-2' },
+        { args: {} },
+      );
+      process.exit(5);
+    } catch (error) {
+      if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.policy !== 'equipment-3plus1-composite') process.exit(6);
+    }
+
+    const stableDirectory = path.join(root, 'stable');
+    const stableSession = 'stable-session';
+    writeBinding(stableDirectory, stableSession, 'stable-v0', 'b');
+    const stable = await pluginFactory({ directory: stableDirectory });
+    await stable['chat.message'](
+      { sessionID: stableSession },
+      { message: { id: 'msg_101' }, parts: [{ type: 'text', text: firstText }] },
+    );
+    await stable['tool.execute.before'](
+      { sessionID: stableSession, tool: 'def_data_game_knowledge', callID: 'stable-narrow' },
+      { args: {} },
+    );
+    try {
+      await stable['tool.execute.before'](
+        { sessionID: stableSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'stable-composite' },
+        { args: {} },
+      );
+      process.exit(7);
+    } catch (error) {
+      if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(8);
+    }
+    const stableMessages = [
+      user(stableSession, 'msg_101', firstText),
+      composite(stableSession, 'msg_102', 'msg_101'),
+    ];
+    const stableOutput = stableMessages[1].parts[0].state.output;
+    await stable['experimental.chat.messages.transform'](
+      { phase: 'generation', sessionID: stableSession },
+      { messages: stableMessages },
+    );
+    if (stableMessages[1].parts[0].state.output !== stableOutput) process.exit(9);
+
+    await stable['chat.message'](
+      { sessionID: stableSession },
+      { message: { id: 'msg_103' }, parts: [{ type: 'text', text: '图腾下落-2层里的水龙卷算什么伤害' }] },
+    );
+    try {
+      await stable['tool.execute.before'](
+        { sessionID: stableSession, tool: 'def_workbench_context', callID: 'stable-skill-wrong' },
+        { args: {} },
+      );
+      process.exit(10);
+    } catch (error) {
+      if (error?.details?.policy !== 'exact-skill-facts') process.exit(11);
+    }
+    await stable['tool.execute.before'](
+      { sessionID: stableSession, tool: 'def_data_skill', callID: 'stable-skill' },
+      { args: { characterQuery: '汤汤', query: '图腾下落-2层' } },
+    );
+
+    await candidate['chat.message'](
+      { sessionID: 'forged-session' },
+      { message: { id: 'msg_201' }, parts: [{ type: 'text', text: firstText }] },
+    );
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: 'forged-session', tool: 'def_data_equipment_3plus1_recommend', callID: 'wrong-session' },
+        { args: {} },
+      );
+      process.exit(12);
+    } catch (error) {
+      if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(13);
+    }
+
+    const forgedDirectoryBinding = JSON.parse(fs.readFileSync(path.join(candidateDirectory, '.def-session.json'), 'utf8'));
+    forgedDirectoryBinding.directory = path.join(root, 'different-directory');
+    fs.writeFileSync(path.join(candidateDirectory, '.def-session.json'), JSON.stringify(forgedDirectoryBinding));
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'wrong-directory' },
+        { args: {} },
+      );
+      process.exit(14);
+    } catch (error) {
+      if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(15);
+    }
+
+    writeBinding(candidateDirectory, candidateSession, 'stable-v0', 'd');
+    try {
+      await candidate['tool.execute.before'](
+        { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'downgraded' },
+        { args: {} },
+      );
+      process.exit(16);
+    } catch (error) {
+      if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(17);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+`);
+assert.equal(
+  equipmentCompositeHarnessActivationProbe.status,
+  0,
+  equipmentCompositeHarnessActivationProbe.stderr || equipmentCompositeHarnessActivationProbe.stdout,
+);
 
 const vendorPromptSource = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/session/prompt.ts', import.meta.url), 'utf8');
 const vendorCompactionSource = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/session/compaction.ts', import.meta.url), 'utf8');
 assert.match(vendorPromptSource, /phase: "generation"/);
+assert.match(vendorPromptSource, /sessionID/);
 assert.match(vendorCompactionSource, /phase: "compaction"/);
+assert.match(vendorCompactionSource, /sessionID: input\.sessionID/);
 
 const defToolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
 assert.match(defToolSource, /mutationTargetFingerprint/);
@@ -263,6 +485,7 @@ assert.match(adapterSource, /EQUIPMENT EVIDENCE/);
 assert.match(adapterSource, /DEF_EMPTY_ASSISTANT_RESPONSE/);
 assert.match(adapterSource, /if \(!visibleContent\) throw new Error\(DEF_EMPTY_ASSISTANT_RESPONSE\)/);
 assert.match(adapterSource, /defHarness\.sameRef\(resolved\.ref, pinned\.harness\)/);
+assert.doesNotMatch(adapterSource, /COMPOSITE 3\+1 RECOMMENDATION/);
 assert.doesNotMatch(adapterSource, /nativeHarnessLoader\.resolve\(turnRoute\.selector\)/);
 assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 

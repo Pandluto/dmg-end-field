@@ -1251,7 +1251,11 @@ export const layer = Layer.effect(
             if (step === 1)
               yield* summary.summarize({ sessionID, messageID: lastUser.id }).pipe(Effect.ignore, Effect.forkIn(scope))
 
-            yield* plugin.trigger("experimental.chat.messages.transform", { phase: "generation" }, { messages: msgs })
+            yield* plugin.trigger(
+              "experimental.chat.messages.transform",
+              { phase: "generation", sessionID },
+              { messages: msgs },
+            )
 
             const [skills, env, instructions, mcpInstructions, modelMsgs] = yield* Effect.all([
               sys.skills(agent),
