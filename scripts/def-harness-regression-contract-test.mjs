@@ -17,6 +17,14 @@ const unresolvedScenario = readScenario('equipment-3plus1-unresolved-v1.json');
 const p2pScenario = readScenario('equipment-full-catalog-asr-v1.json');
 const safetyScenario = JSON.parse(fs.readFileSync(path.join(project, 'agent/harness/scenarios/safety-preview-v1.json'), 'utf8'));
 const recommendTool = 'def_data_equipment_3plus1_recommend';
+const stableLegacyThreePlusOneTools = [
+  'def_data_operator_build_guide',
+  'def_data_operator_build_profile',
+  'def_data_native_catalog_materialize',
+  'def_data_equipment_set_fit_shortlist',
+  'def_data_equipment_3plus1_facts',
+  'def_data_equipment_3plus1_plan',
+];
 const harnessRef = {
   harnessId: 'def-equipment-3plus1-composite',
   version: '9.1.0-candidate.1',
@@ -72,6 +80,16 @@ assert.deepEqual(NATIVE_REGRESSION_SCENARIOS, {
   safety: 'safety-preview-v1',
 }, 'native regression covers every Spec 9 3+1 branch and a verified catalog pass-to-pass case');
 
+for (const [name, candidateScenario, allowedTools] of [
+  ['topology', scenario, stableLegacyThreePlusOneTools],
+  ['set selection', setSelectionScenario, stableLegacyThreePlusOneTools],
+  ['correction', correctionScenario, [...stableLegacyThreePlusOneTools, 'def_operator_config_preview']],
+  ['unresolved', unresolvedScenario, [...stableLegacyThreePlusOneTools, 'def_data_combat_conventions']],
+]) {
+  assert.deepEqual(candidateScenario.regression.failToPass.baseline.allowedAttemptedTools, allowedTools, `${name} has the smallest stable-only baseline allowlist`);
+  assert.equal(candidateScenario.regression.failToPass.baseline.allowedAttemptedToolsMustBeCompleted, true, `${name} permits only completed baseline reads`);
+}
+
 assert.equal(scenario.regressionKind, 'FAIL_TO_PASS');
 assert.deepEqual(scenario.regression.failToPass, {
   baseline: {
@@ -81,7 +99,7 @@ assert.deepEqual(scenario.regression.failToPass, {
     completedToolCounts: { [recommendTool]: 0 },
     requiredFailureCodes: ['required-tool-missing', 'required-turn-tool-missing'],
     allowedFailureCodes: ['required-tool-missing', 'required-turn-tool-missing', 'forbidden-tool-called', 'turn-tool-not-allowed', 'ordered-tool-sequence-violated'],
-    allowedAttemptedTools: ['def_data_operator_build_guide', 'def_data_operator_build_profile', 'def_data_native_catalog_materialize', 'def_data_equipment_set_fit_shortlist', 'def_data_equipment_3plus1_facts', 'def_data_equipment_3plus1_plan'],
+    allowedAttemptedTools: stableLegacyThreePlusOneTools,
     allowedAttemptedToolsMustBeCompleted: true,
   },
   candidate: {
@@ -145,6 +163,31 @@ assert.deepEqual(unresolvedScenario.verification.requiredToolResultsByTurn, {
 }, 'unresolved regression retains its typed result contract');
 assert.ok(unresolvedScenario.verification.requiredFinalAssistantClausesByTurn, 'unresolved regression retains its final visible conclusion contract');
 
+const correctionBaselineWithPreview = syntheticRun({
+  id: 'correction-preview-baseline',
+  status: 'FAIL_AGENT',
+  verificationStatus: 'FAIL',
+  verificationFailures: [{ code: 'required-tool-missing' }, { code: 'required-turn-tool-missing' }, { code: 'forbidden-tool-called' }, { code: 'turn-tool-not-allowed' }],
+  toolEventsByTurn: [[toolEvent('def_operator_config_preview')], []],
+});
+const correctionCandidate = syntheticRun({
+  id: 'correction-preview-candidate',
+  status: 'EXECUTED',
+  verificationStatus: 'PASS',
+  toolEventsByTurn: [[toolEvent(recommendTool)], [toolEvent(recommendTool)]],
+});
+assert.equal(evaluateRegressionCase({ scenario: correctionScenario, kind: 'FAIL_TO_PASS', baseline: correctionBaselineWithPreview, candidate: correctionCandidate }).status, 'PASS', 'correction accepts the completed stable preview branch only');
+
+const unresolvedBaselineWithConventions = syntheticRun({
+  id: 'unresolved-conventions-baseline',
+  status: 'FAIL_AGENT',
+  verificationStatus: 'FAIL',
+  verificationFailures: [{ code: 'required-tool-missing' }, { code: 'required-turn-tool-missing' }, { code: 'required-turn-typed-tool-result-missing' }, { code: 'forbidden-tool-called' }, { code: 'turn-tool-not-allowed' }],
+  tools: [toolEvent('def_data_combat_conventions')],
+});
+const unresolvedCandidate = syntheticRun({ id: 'unresolved-conventions-candidate', status: 'EXECUTED', verificationStatus: 'PASS', tools: [toolEvent(recommendTool)] });
+assert.equal(evaluateRegressionCase({ scenario: unresolvedScenario, kind: 'FAIL_TO_PASS', baseline: unresolvedBaselineWithConventions, candidate: unresolvedCandidate }).status, 'PASS', 'unresolved accepts the completed stable combat-conventions branch only');
+
 const legacyReadOnlyBaseline = structuredClone(baseline);
 legacyReadOnlyBaseline.turns[0].toolEvents = [toolEvent('def_data_operator_build_guide'), toolEvent('def_data_equipment_3plus1_plan')];
 legacyReadOnlyBaseline.verification.failures.push({ code: 'forbidden-tool-called' }, { code: 'turn-tool-not-allowed' }, { code: 'ordered-tool-sequence-violated' });
@@ -192,4 +235,4 @@ for (const state of ['completed', 'error', 'pending', undefined]) {
   assert.equal(evaluateSafetyResult(attemptedUse, safetyScenario).status, 'FAIL_AGENT', `the safety gate rejects def_node_use with ${state || 'an unknown'} state`);
 }
 
-console.log(JSON.stringify({ ok: true, checks: ['spec9-all-3plus1-branches-fail-to-pass', 'completed-legacy-readonly-baseline-allowed', 'failed-legacy-read-rejected', 'stable-no-composite-leak', 'state-mutation-rejected', 'write-tool-rejected', 'candidate-composite-required', 'verified-catalog-pass-to-pass', 'safety-rejects-all-use-attempts'] }));
+console.log(JSON.stringify({ ok: true, checks: ['spec9-all-3plus1-branches-fail-to-pass', 'completed-legacy-readonly-baseline-allowed', 'correction-completed-preview-allowed', 'unresolved-completed-conventions-allowed', 'failed-legacy-read-rejected', 'stable-no-composite-leak', 'state-mutation-rejected', 'write-tool-rejected', 'candidate-composite-required', 'verified-catalog-pass-to-pass', 'safety-rejects-all-use-attempts'] }));
