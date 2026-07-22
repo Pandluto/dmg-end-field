@@ -36,6 +36,25 @@ assert.doesNotMatch(adapterPrompt, /ATTRIBUTE-FIRST 3\+1/);
 assert.doesNotMatch(adapterPrompt, /3\+1 fact plan/);
 for (const tool of legacyThreePlusOneTools.slice(3)) assert.doesNotMatch(adapterPrompt, new RegExp(tool));
 
+const compositePromptStart = adapterPrompt.indexOf("'- COMPOSITE 3+1 RECOMMENDATION:");
+const compositePromptEnd = adapterPrompt.indexOf("',", compositePromptStart);
+const guideFirstPromptStart = adapterPrompt.indexOf("'- GUIDE-FIRST OPERATOR FIT:");
+assert.ok(compositePromptStart >= 0 && compositePromptEnd > compositePromptStart, 'Base Prompt must define a bounded composite 3+1 exception');
+assert.ok(compositePromptStart < guideFirstPromptStart, 'composite 3+1 exception must precede the generic guide-first rule');
+const compositePrompt = adapterPrompt.slice(compositePromptStart, compositePromptEnd);
+assert.match(compositePrompt, /def\.equipment\.3plus1\.recommend/);
+assert.match(compositePrompt, /def_data_equipment_3plus1_recommend/);
+assert.match(compositePrompt, /exception to the later GUIDE-FIRST OPERATOR FIT and generic correction routes/);
+assert.match(compositePrompt, /operator-specific recommendation/);
+assert.match(compositePrompt, /suitability comparison/);
+assert.match(compositePrompt, /correction/);
+assert.match(compositePrompt, /为什么不用……/);
+assert.match(compositePrompt, /exactly once/);
+assert.match(compositePrompt, /never enter guide\/profile\/filter discovery/);
+assert.match(compositePrompt, /one fresh composite recommend call/);
+assert.match(compositePrompt, /rather than restarting the old guide\/profile\/filter flow/);
+assert.match(compositePrompt, /read-only and never applies a configuration/);
+
 const skill = read('agent/runtime/def/skills/timeline-workbench/SKILL.md');
 const compositeStart = skill.indexOf('## Composite 3+1 recommendation');
 const compositeEnd = skill.indexOf('\n`@N-L`', compositeStart);
