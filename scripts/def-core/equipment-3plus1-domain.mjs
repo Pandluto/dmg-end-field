@@ -402,14 +402,14 @@ export function buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId, profi
     candidates.push(candidate);
   });
   candidates.sort(compareCandidates);
-  const leadingCandidate = candidates[0] || null;
-  // A ranked candidate can still be incomplete: ranking is useful evidence for
-  // an explicit set request, but automatic set selection is only allowed to
-  // consider a target set when exhaustive enumeration proved at least one
-  // complete legal plan under the current constraints.
-  const leadingCompleteLegalCandidate = candidates.find((candidate) => candidate.missing.length === 0) || null;
-  const tieCandidates = leadingCandidate ? candidates.filter((candidate) => businessTie(leadingCandidate, candidate)) : [];
-  const chosen = leadingCandidate ? candidates.filter((candidate, index) => index === 0 || businessTie(leadingCandidate, candidate) || closeAlternative(leadingCandidate, candidate)).slice(0, shortlistLimit) : [];
+  // An incomplete candidate is useful only as missing-evidence when no
+  // complete legal candidate exists.  Otherwise it must not outrank a
+  // complete 3+1 plan, whether the set was explicit or automatically chosen.
+  const completeLegalCandidates = candidates.filter((candidate) => candidate.missing.length === 0);
+  const rankedCandidates = completeLegalCandidates.length ? completeLegalCandidates : candidates;
+  const leadingCandidate = rankedCandidates[0] || null;
+  const tieCandidates = leadingCandidate ? rankedCandidates.filter((candidate) => businessTie(leadingCandidate, candidate)) : [];
+  const chosen = leadingCandidate ? rankedCandidates.filter((candidate, index) => index === 0 || businessTie(leadingCandidate, candidate) || closeAlternative(leadingCandidate, candidate)).slice(0, shortlistLimit) : [];
   const tie = tieCandidates.length > 1 ? { code: 'top-ranking-tie', message: 'The leading plans are equal under the declared keyword/type-key scoring; stable ids only make output order deterministic.', candidateCount: tieCandidates.length, truncated: tieCandidates.length > shortlistLimit } : null;
   const shortlist = chosen.map(({ stableSortKey, selection, ...candidate }) => ({
     ...candidate,
@@ -427,12 +427,12 @@ export function buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId, profi
     duplicatePolicy: DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY,
     searchSpace: { topologyCount: viableTopologies.length, candidateCombinationCount, enumeratedCandidateCount, exhaustive: true, outputCandidateLimit: shortlistLimit, outputCandidateCount: shortlist.length },
     rankingBasis: { effectTypeKeysOnly: true, orderedPreferenceWeights: preferences.map((group, index) => ({ key: group.key, weight: preferences.length - index })), equipmentFixedStatExcluded: true, closeAlternativeRule: { sameQualifiedPieceCount: true, sameCoveredPreferenceCount: true, maximumWeightedScoreDeficit: 1 }, note: 'This is deterministic profile-keyword coverage, not a damage simulation or an inferred upgrade magnitude.' },
-    completeLegalPlan: leadingCompleteLegalCandidate ? {
-      topologyId: leadingCompleteLegalCandidate.topologyId,
-      matchKeys: leadingCompleteLegalCandidate.matchKeys,
-      coveredPreferenceCount: leadingCompleteLegalCandidate.coveredPreferenceCount,
-      weightedScore: leadingCompleteLegalCandidate.weightedScore,
-      pieceMatchCount: leadingCompleteLegalCandidate.selection.reduce((total, piece) => total + piece.ranked.rank.matchCount, 0),
+    completeLegalPlan: completeLegalCandidates[0] ? {
+      topologyId: completeLegalCandidates[0].topologyId,
+      matchKeys: completeLegalCandidates[0].matchKeys,
+      coveredPreferenceCount: completeLegalCandidates[0].coveredPreferenceCount,
+      weightedScore: completeLegalCandidates[0].weightedScore,
+      pieceMatchCount: completeLegalCandidates[0].selection.reduce((total, piece) => total + piece.ranked.rank.matchCount, 0),
     } : null,
     shortlist, missing: shortlist[0]?.missing || [{ code: 'no-viable-loadout', message: 'No catalog assignment satisfies the requested set-membership and slot constraints.' }], ambiguity: shortlist[0]?.ambiguity || [], tieCandidateCount: tieCandidates.length,
   };

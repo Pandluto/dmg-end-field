@@ -360,7 +360,12 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
           })),
           setMembershipCount: candidate.setMembershipCount,
           missing: candidate.missing.map((entry) => missing(entry.code, entry.slot || entry.preferenceKey || 'plan', entry.message || 'A ranking fact is missing.')),
-          ambiguities: candidate.ambiguity.map((entry) => ambiguity('plan', Array.from({ length: entry.candidateCount || 0 }, (_, index) => ({ id: String(index + 1), label: 'Tied plan', kind: 'plan' })), 'plan')),
+          ambiguities: candidate.ambiguity.map((entry) => ({
+            field: 'plan',
+            candidateCount: Number.isInteger(entry.candidateCount) && entry.candidateCount >= 0 ? entry.candidateCount : 0,
+            truncated: entry.truncated === true,
+            candidates: Array.from({ length: Math.min(Number.isInteger(entry.candidateCount) && entry.candidateCount >= 0 ? entry.candidateCount : 0, 8) }, (_, index) => ({ id: String(index + 1), label: 'Tied plan', kind: 'plan' })),
+          })),
         }));
         const comparisons = comparisonsFor(normalizedInput.constraints.compareEquipmentQueries, snapshot, plans[0]);
         const planAmbiguities = plans.flatMap((plan) => plan.ambiguities);

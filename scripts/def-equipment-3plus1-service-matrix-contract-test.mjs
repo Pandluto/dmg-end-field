@@ -47,6 +47,18 @@ function gearSet(id, {
   };
 }
 
+function armorOnlySet(id, effectTypes, armorVariants = 1) {
+  return {
+    gearSetId: id,
+    name: id,
+    threePieceBuffs: {},
+    equipments: Object.fromEntries(Array.from({ length: armorVariants }, (_, index) => [
+      `armor-${index + 1}`,
+      equipment(`${id}-armor-${String.fromCharCode(97 + index)}`, PART.armor, effectTypes),
+    ])),
+  };
+}
+
 function libraryFrom(...sets) {
   return { gearSets: Object.fromEntries(sets.map((set) => [set.gearSetId, set])) };
 }
@@ -72,6 +84,7 @@ function guideReference(content, { id = 'matrix-guide', sectionId = 'matrix-buil
 
 const completeGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u548c\u610f\u5fd7\u3002';
 const partialGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u3002';
+const threeGroupGuideContent = '## Nova \u88c5\u5907\n\u4f18\u5148\u529b\u91cf\u3001\u610f\u5fd7\u548c\u5bd2\u51b7\u4f24\u5bb3\u3002';
 const matrixOperator = Object.freeze({
   id: 'matrix',
   name: 'Nova',
@@ -82,6 +95,15 @@ const matrixOperator = Object.freeze({
   skills: { q: { displayName: 'Matrix Q', buttonType: 'Q', hitMeta: { hit: { levels: { M3: 8 } } } } },
 });
 const supportOperator = Object.freeze({ ...matrixOperator, id: 'support-matrix', name: 'Support Nova', profession: 'support' });
+const insufficientOperator = Object.freeze({
+  id: 'insufficient',
+  name: 'Insufficient',
+  profession: 'striker',
+  mainStat: '\u529b\u91cf',
+  subStat: '',
+  element: '',
+  skills: {},
+});
 
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -193,6 +215,18 @@ assert.equal(support.result.profileEvidence.state, 'GUIDE_NOT_FOUND');
 assert.equal(supportFixture.counters.conventions, 1, 'support fallback must request the reviewed convention bundle exactly once');
 assert.deepEqual(support.result.profileEvidence.preferenceGroups.map((group) => group.key), ['reviewed-strength', 'reviewed-will']);
 
+// INSUFFICIENT_OPERATOR_EVIDENCE is a business UNRESOLVED, and a profile with
+// fewer than two independent groups never reaches catalog capture or planning.
+const insufficientFixture = createFixture({
+  library: libraryFrom(gearSet('unused-insufficient-catalog')),
+  operators: { insufficient: insufficientOperator },
+});
+const insufficient = await insufficientFixture.invoke({ operatorQuery: 'Insufficient', setQuery: 'unused-insufficient-catalog' });
+assert.equal(insufficient.state, 'UNRESOLVED', JSON.stringify(insufficient));
+assert.equal(insufficient.result, null);
+assert.ok(insufficient.missing.some((entry) => entry.code === 'operator-secondary-attribute-missing'));
+assert.equal(insufficientFixture.counters.catalog, 0, 'incomplete profiles must not enter catalog planning');
+
 // The higher set-bonus candidate is incomplete.  The lower set-bonus candidate is complete;
 // automatic selection must skip the former instead of terminating UNRESOLVED.
 const incompleteLeadingSet = gearSet('incomplete-leading', {
@@ -260,6 +294,81 @@ assert.deepEqual(planItemIds(constraintsSkipped), [
   'constraints-valid-accessory-b',
 ]);
 
+// An incomplete all-target plan can outrank a complete 3+1 plan on high-priority
+// weights.  Once a complete plan exists, both explicit and automatic selection
+// must rank only complete candidates; tie facts are therefore complete-plan facts.
+const sameSetCoverageFixture = createFixture({
+  library: libraryFrom(
+    gearSet('coverage-target', {
+      setEffects: ['strengthBoost'],
+      pieceEffects: ['strengthBoost', 'willBoost'],
+      accessoryVariants: 1,
+    }),
+    armorOnlySet('coverage-off-set', ['willBoost', 'iceDmgBonus'], 2),
+  ),
+  references: [guideReference(threeGroupGuideContent)],
+  guideContent: threeGroupGuideContent,
+});
+const threeGroupProfile = {
+  characterId: 'matrix',
+  derivation: 'guide',
+  evidenceRefs: ['guide-matrix-three-groups'],
+  keywords: ['strength', 'will', 'ice'],
+  preferenceGroups: [
+    { key: 'strength', label: 'strength', kind: 'primary-attribute', acceptedTypeKeys: ['strengthBoost'] },
+    { key: 'will', label: 'will', kind: 'secondary-attribute', acceptedTypeKeys: ['willBoost'] },
+    { key: 'ice', label: 'ice', kind: 'elemental-damage', acceptedTypeKeys: ['iceDmgBonus'] },
+  ],
+};
+const sameSetCoveragePlan = buildDefEquipmentThreePlusOnePlan({
+  snapshot: sameSetCoverageFixture.snapshot(),
+  targetSetId: 'coverage-target',
+  profile: threeGroupProfile,
+  shortlistLimit: 2,
+});
+assert.ok(sameSetCoveragePlan.completeLegalPlan, 'fixture must contain a lower-scoring complete 3+1 candidate');
+assert.equal(sameSetCoveragePlan.shortlist[0].missing.length, 0, 'a complete candidate must outrank an incomplete all-target candidate');
+assert.equal(sameSetCoveragePlan.tieCandidateCount, 2, 'tie count must describe complete legal candidates only');
+assert.ok(sameSetCoveragePlan.shortlist.every((plan) => plan.missing.length === 0 && plan.ambiguity.some((entry) => entry.code === 'top-ranking-tie' && entry.candidateCount === 2)));
+const sameSetExplicit = await sameSetCoverageFixture.invoke({ operatorQuery: 'Nova', setQuery: 'coverage-target', shortlistLimit: 2 });
+const sameSetAutomatic = await sameSetCoverageFixture.invoke({ operatorQuery: 'Nova', shortlistLimit: 2 });
+for (const response of [sameSetExplicit, sameSetAutomatic]) {
+  assert.equal(response.state, 'READY', JSON.stringify(response));
+  assert.equal(response.result.selectedSet.id, 'coverage-target');
+  assert.equal(response.result.plans.length, 2);
+  assert.ok(response.result.plans.every((plan) => plan.items[0].stableId.startsWith('coverage-off-set-armor-')));
+  assert.ok(response.result.plans.every((plan) => plan.ambiguities.some((entry) => entry.field === 'plan' && entry.candidateCount === 2 && entry.truncated === false)));
+}
+
+// Off-set placement is permitted only when it strictly improves the complete
+// plan comparator.  Equal business evidence retains the four-piece topology.
+const strictProfile = {
+  characterId: 'matrix',
+  derivation: 'guide',
+  evidenceRefs: ['strict-off-set'],
+  keywords: ['strength', 'will', 'ice'],
+  preferenceGroups: threeGroupProfile.preferenceGroups,
+};
+const strictTarget = gearSet('strict-target', {
+  setEffects: ['iceDmgBonus'],
+  pieceEffects: ['strengthBoost', 'willBoost'],
+  accessoryVariants: 1,
+});
+const neutralOffSetSnapshot = buildDefEquipmentCatalogSnapshot({
+  library: libraryFrom(strictTarget, armorOnlySet('strict-off-neutral', ['strengthBoost', 'willBoost'])),
+  storageKey: 'strict-off-neutral',
+  capturedAt: 0,
+});
+const neutralOffSetPlan = buildDefEquipmentThreePlusOnePlan({ snapshot: neutralOffSetSnapshot, targetSetId: 'strict-target', profile: strictProfile });
+assert.equal(neutralOffSetPlan.shortlist[0].topologyId, 'all-target-set', 'an equal off-set candidate must not displace the four-piece plan');
+const improvedOffSetSnapshot = buildDefEquipmentCatalogSnapshot({
+  library: libraryFrom(strictTarget, armorOnlySet('strict-off-improved', ['strengthBoost', 'willBoost', 'iceDmgBonus'])),
+  storageKey: 'strict-off-improved',
+  capturedAt: 0,
+});
+const improvedOffSetPlan = buildDefEquipmentThreePlusOnePlan({ snapshot: improvedOffSetSnapshot, targetSetId: 'strict-target', profile: strictProfile });
+assert.equal(improvedOffSetPlan.shortlist[0].topologyId, 'off-set-armor', 'an off-set candidate may displace four-piece only after a strict comparator improvement');
+
 // Equal business scores leave a set decision to the caller.  Stable ids only order the choices.
 const setTieFixture = createFixture({
   library: libraryFrom(gearSet('set-tie-a', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }), gearSet('set-tie-b', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] })),
@@ -270,6 +379,67 @@ const setTie = await setTieFixture.invoke({ operatorQuery: 'Nova' });
 assert.equal(setTie.state, 'NEEDS_INPUT', JSON.stringify(setTie));
 assert.equal(setTie.nextQuestion.field, 'setQuery');
 assert.deepEqual(setTie.nextQuestion.options.map((option) => option.id), ['set-tie-a', 'set-tie-b']);
+
+// Explicit set lookup distinguishes no trusted candidate from an actionable
+// ambiguity, while catalog identity conflicts fail closed as Tool errors.
+const setResolutionFixture = createFixture({
+  library: libraryFrom(
+    gearSet('near-alpha', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }),
+    gearSet('near-beta', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }),
+  ),
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+});
+const noSetCandidate = await setResolutionFixture.invoke({ operatorQuery: 'Nova', setQuery: 'does-not-exist' });
+assert.equal(noSetCandidate.state, 'UNRESOLVED', JSON.stringify(noSetCandidate));
+assert.equal(noSetCandidate.result, null);
+assert.ok(noSetCandidate.missing.some((entry) => entry.code === 'equipment-3plus1-set-not-found' && entry.field === 'setQuery'));
+const nearSetCandidates = await setResolutionFixture.invoke({ operatorQuery: 'Nova', setQuery: 'near-alpha near-beta' });
+assert.equal(nearSetCandidates.state, 'NEEDS_INPUT', JSON.stringify(nearSetCandidates));
+assert.equal(nearSetCandidates.nextQuestion.field, 'setQuery');
+assert.deepEqual(nearSetCandidates.nextQuestion.options.map((option) => option.id), ['near-alpha', 'near-beta']);
+
+const duplicateIdentityFirst = gearSet('identity-first', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] });
+duplicateIdentityFirst.equipments.glove.equipmentId = duplicateIdentityFirst.equipments.armor.equipmentId;
+const duplicateIdentityLibrary = libraryFrom(duplicateIdentityFirst);
+const duplicateIdentityBefore = structuredClone(duplicateIdentityLibrary);
+const identityConflictFixture = createFixture({
+  library: duplicateIdentityLibrary,
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+  frozen: true,
+});
+const identityConflict = await identityConflictFixture.invoke({ operatorQuery: 'Nova', setQuery: 'identity-first' });
+assert.equal(identityConflict.contract, 'DefEquipmentThreePlusOneRecommendationErrorV1');
+assert.equal(identityConflict.failureStage, 'capture-catalog');
+assert.equal(identityConflict.status, 409);
+assert.deepEqual(duplicateIdentityLibrary, duplicateIdentityBefore, 'catalog errors must not mutate caller-owned trusted inputs');
+
+// Required and excluded misses retain their distinct fields.  A resolved
+// excluded item is absent from every physical slot of the returned plan.
+const constraintsFixtureFull = createFixture({
+  library: libraryFrom(gearSet('constraint-full', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'], accessoryVariants: 2 })),
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+});
+const requiredMissing = await constraintsFixtureFull.invoke({
+  operatorQuery: 'Nova', setQuery: 'constraint-full', constraints: { requiredEquipmentQueries: ['missing-required'] },
+});
+const excludedMissing = await constraintsFixtureFull.invoke({
+  operatorQuery: 'Nova', setQuery: 'constraint-full', constraints: { excludedEquipmentQueries: ['missing-excluded'] },
+});
+for (const [response, field] of [[requiredMissing, 'constraints.requiredEquipmentQueries'], [excludedMissing, 'constraints.excludedEquipmentQueries']]) {
+  assert.equal(response.state, 'UNRESOLVED', JSON.stringify(response));
+  assert.equal(response.result, null);
+  assert.ok(response.missing.some((entry) => entry.code === 'equipment-query-unresolved' && entry.field === field));
+}
+const excludedEverywhere = await constraintsFixtureFull.invoke({
+  operatorQuery: 'Nova',
+  setQuery: 'constraint-full',
+  constraints: { excludedEquipmentQueries: ['constraint-full-accessory-a'] },
+});
+assert.equal(excludedEverywhere.state, 'READY', JSON.stringify(excludedEverywhere));
+assert.ok(excludedEverywhere.result.plans.every((plan) => plan.items.every((item) => item.stableId !== 'constraint-full-accessory-a')));
 
 // Four target-set memberships are valid.  Duplicate policy changes only compatible accessory reuse.
 const duplicateFixture = createFixture({
@@ -297,7 +467,18 @@ const planTie = await planTieFixture.invoke({ operatorQuery: 'Nova', setQuery: '
 assert.equal(planTie.state, 'READY', JSON.stringify(planTie));
 assert.equal(planTie.completeness, 'partial');
 assert.equal(planTie.result.plans.length, 2);
-assert.ok(planTie.result.plans.every((plan) => plan.ambiguities.some((entry) => entry.field === 'plan' && entry.candidateCount === 8 && entry.truncated === false)), 'each tied READY plan must carry the complete typed plan ambiguity');
+assert.ok(planTie.result.plans.every((plan) => plan.ambiguities.some((entry) => entry.field === 'plan' && entry.candidateCount === 8 && entry.truncated === true && entry.candidates.length === 8)), 'each tied READY plan must preserve the complete candidate count and the truncation fact');
+assert.ok(planTie.ambiguities.every((entry) => entry.field === 'plan' && entry.candidateCount === 8 && entry.truncated === true));
+
+const shortlistBoundFixture = createFixture({
+  library: libraryFrom(gearSet('shortlist-bound', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'], armorVariants: 4, accessoryVariants: 1 })),
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+});
+const shortlistBound = await shortlistBoundFixture.invoke({ operatorQuery: 'Nova', setQuery: 'shortlist-bound', shortlistLimit: 3 });
+assert.equal(shortlistBound.state, 'READY', JSON.stringify(shortlistBound));
+assert.equal(shortlistBound.result.plans.length, 3, 'READY shortlist must obey the maximum output bound');
+assert.ok(shortlistBound.result.plans.every((plan) => plan.ambiguities.some((entry) => entry.field === 'plan' && entry.candidateCount === 4 && entry.truncated === true)));
 
 // priorPlanDigest never reads or reuses a prior plan: only provenance changes on the same evidence,
 // while a fresh catalog revision changes the freshly recomputed plan digest.
@@ -358,6 +539,28 @@ assert.equal(explicitCompare.result.comparisons.length, 1);
 assert.equal(explicitCompare.result.comparisons[0].slot, 'accessory2');
 assert.deepEqual(implicitCompare.result.comparisons.map((comparison) => comparison.slot), ['accessory1', 'accessory2']);
 
+const comparisonRankedFixture = createFixture({
+  library: libraryFrom(gearSet('comparison-ranked', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'], accessoryVariants: 2 })),
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+});
+const whyNot = await comparisonRankedFixture.invoke({
+  operatorQuery: 'Nova',
+  setQuery: 'comparison-ranked',
+  shortlistLimit: 1,
+  constraints: { compareEquipmentQueries: [{ query: 'comparison-ranked-accessory-b', slot: 'accessory1' }] },
+});
+assert.equal(whyNot.state, 'READY', JSON.stringify(whyNot));
+assert.deepEqual(whyNot.result.comparisons, [{
+  query: 'comparison-ranked-accessory-b',
+  candidate: { stableId: 'comparison-ranked-accessory-b', name: 'comparison-ranked-accessory-b' },
+  slot: 'accessory1',
+  decision: 'not-selected',
+  selectedStableId: 'comparison-ranked-accessory-a',
+  reasons: ['comparison-candidate-ranked-below-selected'],
+  missing: [],
+}]);
+
 // Every branch remains read-only even when its trusted inputs reject mutation.
 const readonlyLibrary = libraryFrom(gearSet('readonly-full', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }));
 const readonlyBefore = structuredClone(readonlyLibrary);
@@ -371,20 +574,48 @@ const readonly = await readonlyFixture.invoke({ operatorQuery: 'Nova', setQuery:
 assert.equal(readonly.state, 'READY', JSON.stringify(readonly));
 assert.deepEqual(readonlyLibrary, readonlyBefore, 'service paths must not mutate the caller-owned source value');
 
+const readonlyPathsLibrary = libraryFrom(
+  gearSet('readonly-path-a', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }),
+  gearSet('readonly-path-b', { setEffects: ['strengthBoost', 'willBoost'], pieceEffects: ['strengthBoost', 'willBoost'] }),
+);
+const readonlyPathsBefore = structuredClone(readonlyPathsLibrary);
+const readonlyPathsFixture = createFixture({
+  library: readonlyPathsLibrary,
+  references: [guideReference(completeGuideContent)],
+  guideContent: completeGuideContent,
+  frozen: true,
+});
+const readonlyPathsReady = await readonlyPathsFixture.invoke({ operatorQuery: 'Nova', setQuery: 'readonly-path-a' });
+const readonlyPathsNeedsInput = await readonlyPathsFixture.invoke({ operatorQuery: 'Nova' });
+const readonlyPathsUnresolved = await readonlyPathsFixture.invoke({
+  operatorQuery: 'Nova',
+  setQuery: 'readonly-path-a',
+  constraints: { requiredEquipmentQueries: ['readonly-path-required-missing'] },
+});
+assert.equal(readonlyPathsReady.state, 'READY');
+assert.equal(readonlyPathsNeedsInput.state, 'NEEDS_INPUT');
+assert.equal(readonlyPathsUnresolved.state, 'UNRESOLVED');
+assert.deepEqual(readonlyPathsLibrary, readonlyPathsBefore, 'READY, NEEDS_INPUT, and UNRESOLVED must all preserve trusted source inputs');
+
 console.log(JSON.stringify({
   ok: true,
   checks: [
     'guide-found-no-fallback',
     'partial-guide-preserves-proven-group',
     'guide-not-found-structured-evidence-and-conventions',
+    'insufficient-profile-fails-before-planning',
     'automatic-set-skips-incomplete-plan',
     'automatic-set-skips-constraints-emptied-set',
+    'complete-plan-filtering-and-tie-semantics',
+    'strict-off-set-improvement-only',
     'set-tie-needs-input',
+    'set-resolution-and-catalog-conflict-terminals',
+    'required-excluded-missing-and-global-exclusion',
     'four-piece-and-duplicate-policies',
-    'plan-tie-ready-shortlist',
+    'plan-tie-and-shortlist-bound',
     'prior-digest-fresh-read-and-catalog-revision',
     'cross-session-digest-stability',
-    'compare-explicit-and-implicit-slots',
-    'read-only-inputs',
+    'compare-explicit-implicit-and-why-not-evidence',
+    'read-only-inputs-across-terminals',
   ],
 }));
