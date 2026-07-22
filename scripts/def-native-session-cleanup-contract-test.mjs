@@ -679,6 +679,8 @@ try {
     'the sidecar limits Shell cleanup discovery to a recognized managed host');
   assert.match(sidecarSource, /errorCode === 'DEF_PERSISTED_SESSION_SCAN_LIMIT_EXCEEDED'[\s\S]*details: error\.details \|\| null/,
     'persisted Session scan overflow reaches Shell as a structured fail-closed response');
+  assert.match(sidecarSource, /errorCode === 'DEF_PERSISTED_SESSION_VALIDATION_FAILED'/,
+    'persisted Session infrastructure failures reach Shell as structured fail-closed responses');
 
   const bridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'");
   const bridgeEnd = mainSource.indexOf('const defAgentEventsMatch', bridgeStart);

@@ -2084,6 +2084,7 @@ const server = http.createServer(async (request, response) => {
       ...(errorCode ? { code: errorCode } : {}),
       ...(errorCode === 'DEF_PERSISTED_SESSION_SCAN_LIMIT_EXCEEDED'
         || errorCode === 'DEF_PERSISTED_SESSION_LIST_TIMEOUT'
+        || errorCode === 'DEF_PERSISTED_SESSION_VALIDATION_FAILED'
         ? { details: error.details || null }
         : {}),
     };

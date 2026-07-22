@@ -925,6 +925,30 @@ function requestJson(method, url, body, signal, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
     const payload = body === undefined ? '' : JSON.stringify(body);
     const target = new URL(url);
+    let settled = false;
+    let timer;
+    let abortHandler;
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (signal && abortHandler) signal.removeEventListener('abort', abortHandler);
+    };
+    const resolveOnce = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+    const rejectOnce = (error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    };
+    const transportError = (message, code) => {
+      const error = new Error(message);
+      error.code = code;
+      return error;
+    };
     const request = http.request({
       hostname: target.hostname,
       port: target.port,
@@ -940,6 +964,11 @@ function requestJson(method, url, body, signal, timeoutMs = 60000) {
     }, (response) => {
       const chunks = [];
       response.on('data', (chunk) => chunks.push(chunk));
+      response.on('aborted', () => rejectOnce(transportError(
+        'OpenCode response aborted before completion',
+        'OPENCODE_RESPONSE_ABORTED',
+      )));
+      response.on('error', rejectOnce);
       response.on('end', () => {
         const raw = Buffer.concat(chunks).toString('utf-8');
         let parsed = null;
@@ -954,18 +983,35 @@ function requestJson(method, url, body, signal, timeoutMs = 60000) {
             : typeof parsed?.name === 'string'
               ? parsed.name
               : `OpenCode HTTP ${response.statusCode}`;
-          reject(new Error(`${message}${typeof parsed === 'string' ? `: ${parsed.slice(0, 300)}` : ''}`));
+          const error = new Error(`${message}${typeof parsed === 'string' ? `: ${parsed.slice(0, 300)}` : ''}`);
+          error.status = response.statusCode;
+          error.statusCode = response.statusCode;
+          error.code = typeof parsed?.code === 'string' && parsed.code
+            ? parsed.code
+            : `OPENCODE_HTTP_${response.statusCode}`;
+          rejectOnce(error);
           return;
         }
-        resolve(parsed);
+        resolveOnce(parsed);
       });
     });
-    const timer = setTimeout(() => request.destroy(new Error('OpenCode request timeout')), timeoutMs);
-    request.on('close', () => clearTimeout(timer));
-    request.on('error', reject);
+    timer = setTimeout(() => {
+      const error = new Error('OpenCode request timeout');
+      error.code = 'OPENCODE_REQUEST_TIMEOUT';
+      request.destroy(error);
+    }, timeoutMs);
+    request.on('close', () => {
+      if (!settled) rejectOnce(transportError(
+        'OpenCode connection closed before the response completed',
+        'OPENCODE_CONNECTION_CLOSED',
+      ));
+      else cleanup();
+    });
+    request.on('error', rejectOnce);
     if (signal) {
-      if (signal.aborted) request.destroy(signal.reason || new Error('aborted'));
-      signal.addEventListener('abort', () => request.destroy(signal.reason || new Error('aborted')), { once: true });
+      abortHandler = () => request.destroy(signal.reason || new Error('aborted'));
+      if (signal.aborted) abortHandler();
+      else signal.addEventListener('abort', abortHandler, { once: true });
     }
     if (payload) request.write(payload);
     request.end();
@@ -2320,6 +2366,29 @@ async function awaitPersistedSessionDeadline(promise, deadlineAt, timeoutError) 
   }
 }
 
+function isPersistedSessionNotFoundError(error) {
+  return Number(error?.statusCode || error?.status) === 404;
+}
+
+function persistedSessionValidationError(error, binding) {
+  const upstreamStatus = Number(error?.statusCode || error?.status) || null;
+  const upstreamCode = typeof error?.code === 'string' && error.code
+    ? error.code.slice(0, 120)
+    : null;
+  const validationError = persistedSessionListError(
+    'Persisted DEF Session validation failed; no partial Session list was returned.',
+    'DEF_PERSISTED_SESSION_VALIDATION_FAILED',
+    502,
+    {
+      sessionID: binding.sessionID,
+      upstreamStatus,
+      upstreamCode,
+    },
+  );
+  validationError.cause = error;
+  return validationError;
+}
+
 async function readPersistedSessionSummaries(bindings, baseUrl, deadlineAt) {
   const results = new Array(bindings.length);
   const workerCount = Math.min(PERSISTED_SESSION_LOOKUP_CONCURRENCY, bindings.length);
@@ -2344,10 +2413,23 @@ async function readPersistedSessionSummaries(bindings, baseUrl, deadlineAt) {
             controller.signal,
             15000,
           );
+          if (!session || typeof session !== 'object'
+            || session.id !== binding.sessionID
+            || !isDefOpenCodeSession(session)) {
+            const error = new Error('OpenCode returned an invalid persisted Session response.');
+            error.code = 'OPENCODE_SESSION_RESPONSE_INVALID';
+            controller.abort(persistedSessionValidationError(error, binding));
+            return;
+          }
           results[index] = { session, binding };
-        } catch {
+        } catch (error) {
           if (controller.signal.aborted) return;
-          results[index] = null;
+          if (isPersistedSessionNotFoundError(error)) {
+            results[index] = null;
+            continue;
+          }
+          controller.abort(persistedSessionValidationError(error, binding));
+          return;
         }
       }
     }));
@@ -2370,7 +2452,7 @@ async function listPersistedDefSessions({ config = {}, skillId = 'operator', thi
     timeoutError,
   );
   const sessions = await readPersistedSessionSummaries(bindings, baseUrl, deadlineAt);
-  return sessions.filter((item) => item?.session?.id === item?.binding?.sessionID && isDefOpenCodeSession(item?.session))
+  return sessions.filter(Boolean)
     .map(({ session, binding }) => ({ ...mapOpenCodeSessionSummary(session), host: binding.host, skillId: binding.skillId, directory: binding.directory }))
     .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0))
     .slice(0, normalizePersistedSessionLimit(limit));

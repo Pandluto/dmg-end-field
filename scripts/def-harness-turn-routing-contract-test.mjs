@@ -821,6 +821,10 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     let persistedHistoryReadDelayMs = 0;
     let activePersistedHistoryReads = 0;
     let maxActivePersistedHistoryReads = 0;
+    let failNextPersistedHistoryReadStatus = 0;
+    let resetNextPersistedHistoryRead = false;
+    let forcedMissingPersistedHistoryID = '';
+    let canceledPersistedHistoryReads = 0;
     const eventResponses = new Set();
     const jsonResponse = (response, status, body) => {
       response.writeHead(status, { 'content-type': 'application/json', connection: 'close' });
@@ -868,13 +872,40 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         const sessionID = decodeURIComponent(sessionMatch[1]);
         const session = fakeSessions.get(sessionID);
         const reply = () => jsonResponse(response, session ? 200 : 404, session || { message: 'session not found' });
+        if (resetNextPersistedHistoryRead && sessionID.startsWith('persisted-history-')) {
+          resetNextPersistedHistoryRead = false;
+          response.writeHead(200, { 'content-type': 'application/json', connection: 'close' });
+          response.write('{"id":');
+          setTimeout(() => response.socket?.destroy(), 5);
+          return;
+        }
+        if (sessionID === forcedMissingPersistedHistoryID) {
+          jsonResponse(response, 404, { code: 'SESSION_NOT_FOUND', message: 'session not found' });
+          return;
+        }
         if (persistedHistoryReadDelayMs > 0 && sessionID.startsWith('persisted-history-')) {
+          const failureStatus = failNextPersistedHistoryReadStatus;
+          failNextPersistedHistoryReadStatus = 0;
           activePersistedHistoryReads += 1;
           maxActivePersistedHistoryReads = Math.max(maxActivePersistedHistoryReads, activePersistedHistoryReads);
-          setTimeout(() => {
+          let completed = false;
+          const timer = setTimeout(() => {
+            if (completed) return;
+            completed = true;
             activePersistedHistoryReads -= 1;
-            reply();
-          }, persistedHistoryReadDelayMs);
+            if (failureStatus) {
+              jsonResponse(response, failureStatus, { code: 'INJECTED_UPSTREAM_FAILURE', message: 'injected upstream failure' });
+            } else {
+              reply();
+            }
+          }, failureStatus ? 10 : persistedHistoryReadDelayMs);
+          response.once('close', () => {
+            if (completed) return;
+            completed = true;
+            clearTimeout(timer);
+            activePersistedHistoryReads -= 1;
+            canceledPersistedHistoryReads += 1;
+          });
           return;
         }
         reply();
@@ -1090,6 +1121,64 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         'persisted Session validation uses the fixed eight-request concurrency ceiling');
       assert.equal(fakeRequests.some((request) => request.pathname.endsWith(`/${encodeURIComponent(workbenchSessionID)}`)), false,
         'the ai-cli scan does not spend an upstream request on Workbench history');
+
+      fakeRequests.length = 0;
+      canceledPersistedHistoryReads = 0;
+      persistedHistoryReadDelayMs = 250;
+      failNextPersistedHistoryReadStatus = 500;
+      await assert.rejects(
+        listPersistedDefSessions({
+          config: { apiKey: 'contract-only' },
+          host: 'ai-cli',
+          limit: 1000,
+          openCodeBaseUrl: fakeOpenCodeBaseUrl,
+        }),
+        (caught) => caught?.code === 'DEF_PERSISTED_SESSION_VALIDATION_FAILED'
+          && caught?.status === 502
+          && caught?.details?.upstreamStatus === 500
+          && caught?.details?.upstreamCode === 'INJECTED_UPSTREAM_FAILURE',
+        'one upstream 500 must fail the whole retain-candidate list instead of returning partial Sessions',
+      );
+      persistedHistoryReadDelayMs = 0;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      const failedHistoryRequests = fakeRequests.filter((request) => request.pathname.includes('/session/persisted-history-'));
+      assert(failedHistoryRequests.length > 1 && failedHistoryRequests.length <= 8,
+        'an infrastructure failure stops the fixed worker pool before it starts another batch');
+      assert(canceledPersistedHistoryReads > 0,
+        'an infrastructure failure aborts other in-flight Session validations');
+      assert.equal(activePersistedHistoryReads, 0,
+        'no delayed Session validation remains active after fail-closed cancellation');
+
+      resetNextPersistedHistoryRead = true;
+      await assert.rejects(
+        listPersistedDefSessions({
+          config: { apiKey: 'contract-only' },
+          host: 'ai-cli',
+          limit: 1000,
+          openCodeBaseUrl: fakeOpenCodeBaseUrl,
+        }),
+        (caught) => caught?.code === 'DEF_PERSISTED_SESSION_VALIDATION_FAILED'
+          && ['ECONNRESET', 'OPENCODE_RESPONSE_ABORTED', 'OPENCODE_CONNECTION_CLOSED']
+            .includes(caught?.details?.upstreamCode),
+        'a socket reset after response headers must reject the whole list instead of hanging or returning partial Sessions',
+      );
+
+      forcedMissingPersistedHistoryID = 'persisted-history-001';
+      const listWithMissingSession = await listPersistedDefSessions({
+        config: { apiKey: 'contract-only' },
+        host: 'ai-cli',
+        limit: 1000,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      forcedMissingPersistedHistoryID = '';
+      const listWithMissingIDs = new Set(listWithMissingSession.map((session) => session.sessionID));
+      assert.equal(listWithMissingIDs.has('persisted-history-001'), false,
+        'an explicit upstream 404 is the only validation failure that may be filtered');
+      assert.equal(Array.from(historySessionIDs)
+        .filter((sessionID) => sessionID !== 'persisted-history-001')
+        .every((sessionID) => listWithMissingIDs.has(sessionID)), true,
+        'a 404 filters only the missing Session and preserves every other validated candidate');
+
       const requestsBeforeScanLimit = fakeRequests.length;
       await assert.rejects(
         listPersistedDefSessions({
