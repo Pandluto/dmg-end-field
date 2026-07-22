@@ -1,5 +1,6 @@
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
@@ -42,6 +43,7 @@ const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
 const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3');
+const nativeAiCliSessionsRoot = path.resolve(os.tmpdir(), 'dmg-end-field', 'def-agent-workspace', 'sessions', 'ai-cli');
 const OPENCODE_ACTION_TIMEOUT_MS = 5000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
@@ -56,6 +58,7 @@ let questionStore = null;
 // turn. Keep the sidecar's acceptance keyed by the caller correlation so a
 // retry joins the original operation instead of issuing another prompt.
 const nativeInteropPromptRequests = new Map();
+const nativeSessionCleanupInFlight = new Map();
 
 async function defRestReady() {
   try {
@@ -1051,6 +1054,263 @@ async function cleanupFailedNativeSessionCreate(session) {
   fs.rmSync(session.directory, { recursive: true, force: true });
 }
 
+function nativeSessionCleanupError(message, code, status = 400) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function normalizeNativeSessionPath(value) {
+  const resolved = path.resolve(value || '');
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+}
+
+function sameNativeSessionPath(left, right) {
+  return normalizeNativeSessionPath(left) === normalizeNativeSessionPath(right);
+}
+
+function isRealManagedDirectory(directory, parentDirectory, fileSystem = fs) {
+  const resolvedDirectory = path.resolve(directory || '');
+  const resolvedParent = path.resolve(parentDirectory || '');
+  if (!sameNativeSessionPath(path.dirname(resolvedDirectory), resolvedParent)) return false;
+  try {
+    const stat = fileSystem.lstatSync(resolvedDirectory);
+    return stat.isDirectory()
+      && !stat.isSymbolicLink()
+      && sameNativeSessionPath(fileSystem.realpathSync(resolvedDirectory), resolvedDirectory);
+  } catch {
+    return false;
+  }
+}
+
+function validateNativeAiCliSessionsRoot(rootDirectory, fileSystem = fs) {
+  const resolvedRoot = path.resolve(rootDirectory || '');
+  const sessionsRoot = path.dirname(resolvedRoot);
+  if (path.basename(resolvedRoot).toLowerCase() !== 'ai-cli' || path.basename(sessionsRoot).toLowerCase() !== 'sessions') {
+    throw nativeSessionCleanupError('Native ai-cli session root is invalid.', 'NATIVE_SESSION_CLEANUP_INVALID_ROOT');
+  }
+  try {
+    const stat = fileSystem.lstatSync(resolvedRoot);
+    if (
+      !stat.isDirectory()
+      || stat.isSymbolicLink()
+      || !sameNativeSessionPath(fileSystem.realpathSync(resolvedRoot), resolvedRoot)
+    ) throw new Error('unsafe-root');
+  } catch {
+    throw nativeSessionCleanupError('Native ai-cli session root is unavailable or redirected.', 'NATIVE_SESSION_CLEANUP_INVALID_ROOT');
+  }
+  return resolvedRoot;
+}
+
+function readValidatedAiCliBinding(directory, sessionID, options = {}) {
+  const fileSystem = options.fileSystem || fs;
+  const bindingResolver = options.bindingResolver || findNativeSessionBinding;
+  const rootDirectory = options.aiCliSessionsRoot ? path.resolve(options.aiCliSessionsRoot) : null;
+  const resolvedDirectory = path.resolve(directory || '');
+  if (!resolvedDirectory || !sessionID || (rootDirectory && !isRealManagedDirectory(resolvedDirectory, rootDirectory, fileSystem))) return null;
+  let stored = null;
+  try {
+    const bindingPath = path.join(resolvedDirectory, '.def-session.json');
+    if (fileSystem.lstatSync(bindingPath).isSymbolicLink()) return null;
+    stored = JSON.parse(fileSystem.readFileSync(bindingPath, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (
+    stored?.host !== 'ai-cli'
+    || stored.sessionID !== sessionID
+    || !sameNativeSessionPath(stored.directory || resolvedDirectory, resolvedDirectory)
+  ) return null;
+  const binding = bindingResolver(sessionID);
+  if (
+    !binding
+    || binding.host !== 'ai-cli'
+    || !sameNativeSessionPath(binding.directory, resolvedDirectory)
+  ) return null;
+  return binding;
+}
+
+function enumerateNativeAiCliCleanupTargets(keepBinding, options = {}) {
+  const fileSystem = options.fileSystem || fs;
+  const bindingResolver = options.bindingResolver || findNativeSessionBinding;
+  const keepSessionID = typeof keepBinding?.sessionID === 'string' ? keepBinding.sessionID.trim() : '';
+  const keepDirectory = path.resolve(keepBinding?.directory || '');
+  const aiCliRoot = validateNativeAiCliSessionsRoot(options.aiCliSessionsRoot || nativeAiCliSessionsRoot, fileSystem);
+  if (
+    !keepSessionID
+    || keepBinding?.host !== 'ai-cli'
+    || !readValidatedAiCliBinding(keepDirectory, keepSessionID, { ...options, aiCliSessionsRoot: aiCliRoot, bindingResolver, fileSystem })
+  ) {
+    throw nativeSessionCleanupError('keepSessionID is not a valid DEF ai-cli session binding.', 'NATIVE_SESSION_CLEANUP_INVALID_KEEP');
+  }
+
+  const targets = [];
+  for (const entry of fileSystem.readdirSync(aiCliRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+    const directory = path.resolve(aiCliRoot, entry.name);
+    if (!isRealManagedDirectory(directory, aiCliRoot, fileSystem) || sameNativeSessionPath(directory, keepDirectory)) continue;
+    let stored = null;
+    try {
+      stored = JSON.parse(fileSystem.readFileSync(path.join(directory, '.def-session.json'), 'utf8'));
+    } catch {
+      continue;
+    }
+    const sessionID = typeof stored?.sessionID === 'string' ? stored.sessionID.trim() : '';
+    if (!sessionID || sessionID === keepSessionID) continue;
+    const binding = readValidatedAiCliBinding(directory, sessionID, { ...options, aiCliSessionsRoot: aiCliRoot, bindingResolver, fileSystem });
+    if (binding) targets.push(binding);
+  }
+  return targets;
+}
+
+async function deleteNativeSessionById(sessionID, options = {}) {
+  const bindingResolver = options.bindingResolver || findNativeSessionBinding;
+  const fetchImpl = options.fetchImpl || fetch;
+  const rejectQuestions = options.rejectQuestions || rejectPendingQuestions;
+  const deleteQuestionRecords = options.deleteQuestionRecords || deleteNativeQuestionRecords;
+  const removeAxisBinding = options.removeAxisBinding || removeNativeWorkbenchAxisBinding;
+  const removeDirectory = options.removeDirectory || ((directory) => fs.rmSync(directory, { recursive: true, force: true }));
+  const binding = bindingResolver(sessionID);
+  if (!binding) return { ok: true, status: 'already-deleted', sessionID };
+  if (options.expectedBinding && (
+    binding.sessionID !== options.expectedBinding.sessionID
+    || binding.host !== options.expectedBinding.host
+    || !sameNativeSessionPath(binding.directory, options.expectedBinding.directory)
+  )) {
+    return {
+      ok: false,
+      status: 'failed',
+      sessionID,
+      code: 'NATIVE_SESSION_DELETE_BINDING_CHANGED',
+    };
+  }
+  if (options.expectedBinding?.host === 'ai-cli' && !readValidatedAiCliBinding(
+    options.expectedBinding.directory,
+    sessionID,
+    options,
+  )) {
+    return {
+      ok: false,
+      status: 'failed',
+      sessionID,
+      code: 'NATIVE_SESSION_DELETE_BINDING_CHANGED',
+    };
+  }
+
+  try {
+    const runtime = options.runtime || runtimeSummary(readConfig().deepseek);
+    await rejectQuestions(runtime, binding.directory, sessionID);
+    const upstream = await fetchImpl(
+      `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+      },
+    ).catch(() => undefined);
+    const upstreamAlreadyDeleted = upstream?.status === 404;
+    if (upstream && !upstream.ok && !upstreamAlreadyDeleted) {
+      return {
+        ok: false,
+        status: 'failed',
+        sessionID,
+        code: 'NATIVE_SESSION_DELETE_UPSTREAM_FAILED',
+        httpStatus: upstream.status,
+      };
+    }
+    deleteQuestionRecords(sessionID);
+    await removeAxisBinding(binding);
+    removeDirectory(binding.directory);
+    return { ok: true, status: upstreamAlreadyDeleted ? 'already-deleted' : 'deleted', sessionID };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'failed',
+      sessionID,
+      code: typeof error?.code === 'string' ? error.code : 'NATIVE_SESSION_DELETE_FAILED',
+    };
+  }
+}
+
+async function cleanupNativeAiCliSessions(input, options = {}) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw nativeSessionCleanupError('Session cleanup request must be an object.', 'NATIVE_SESSION_CLEANUP_INVALID_REQUEST');
+  }
+  const unexpectedKeys = Object.keys(input).filter((key) => key !== 'host' && key !== 'keepSessionID');
+  if (input.host !== 'ai-cli' || unexpectedKeys.length > 0) {
+    throw nativeSessionCleanupError('Session cleanup only accepts host and keepSessionID for ai-cli.', 'NATIVE_SESSION_CLEANUP_INVALID_REQUEST');
+  }
+  const keepSessionID = typeof input.keepSessionID === 'string' ? input.keepSessionID.trim() : '';
+  const fileSystem = options.fileSystem || fs;
+  const bindingResolver = options.bindingResolver || findNativeSessionBinding;
+  const keepBinding = keepSessionID ? bindingResolver(keepSessionID) : null;
+  if (!keepBinding || keepBinding.host !== 'ai-cli') {
+    throw nativeSessionCleanupError('keepSessionID is not a valid DEF ai-cli session binding.', 'NATIVE_SESSION_CLEANUP_INVALID_KEEP');
+  }
+  const aiCliRoot = validateNativeAiCliSessionsRoot(options.aiCliSessionsRoot || nativeAiCliSessionsRoot, fileSystem);
+  if (!readValidatedAiCliBinding(keepBinding.directory, keepSessionID, {
+    ...options,
+    aiCliSessionsRoot: aiCliRoot,
+    bindingResolver,
+    fileSystem,
+  })) {
+    throw nativeSessionCleanupError('keepSessionID is not a valid DEF ai-cli session binding.', 'NATIVE_SESSION_CLEANUP_INVALID_KEEP');
+  }
+
+  const cleanupKey = normalizeNativeSessionPath(aiCliRoot);
+  const existingCleanup = nativeSessionCleanupInFlight.get(cleanupKey);
+  if (existingCleanup) {
+    if (existingCleanup.keepSessionID === keepSessionID) return existingCleanup.promise;
+    throw nativeSessionCleanupError(
+      'Another ai-cli session cleanup is already in progress.',
+      'NATIVE_SESSION_CLEANUP_BUSY',
+      409,
+    );
+  }
+
+  const cleanupPromise = (async () => {
+    const targets = enumerateNativeAiCliCleanupTargets(keepBinding, {
+      ...options,
+      aiCliSessionsRoot: aiCliRoot,
+      bindingResolver,
+      fileSystem,
+    });
+    const summary = {
+      ok: true,
+      host: 'ai-cli',
+      keptSessionID: keepSessionID,
+      targetCount: targets.length,
+      deletedCount: 0,
+      alreadyDeletedCount: 0,
+      failed: [],
+    };
+    for (const target of targets) {
+      const result = await deleteNativeSessionById(target.sessionID, {
+        ...options,
+        bindingResolver,
+        expectedBinding: target,
+      });
+      if (result.status === 'deleted') summary.deletedCount += 1;
+      else if (result.status === 'already-deleted') summary.alreadyDeletedCount += 1;
+      else summary.failed.push({
+        sessionID: target.sessionID,
+        code: result.code || 'NATIVE_SESSION_DELETE_FAILED',
+        ...(Number.isInteger(result.httpStatus) ? { httpStatus: result.httpStatus } : {}),
+      });
+    }
+    summary.ok = summary.failed.length === 0;
+    return summary;
+  })();
+  nativeSessionCleanupInFlight.set(cleanupKey, { keepSessionID, promise: cleanupPromise });
+  try {
+    return await cleanupPromise;
+  } finally {
+    const active = nativeSessionCleanupInFlight.get(cleanupKey);
+    if (active?.promise === cleanupPromise) nativeSessionCleanupInFlight.delete(cleanupKey);
+  }
+}
+
 const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
@@ -1179,30 +1439,23 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (method === 'POST' && requestUrl.pathname === '/api/native/sessions/cleanup') {
+      const body = await readJsonBody(request);
+      const result = await cleanupNativeAiCliSessions(body);
+      writeJson(response, 200, result);
+      return;
+    }
+
     const nativeSessionDelete = /^\/api\/native\/session\/([^/]+)$/.exec(requestUrl.pathname);
     const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
     if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
       const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
-      const binding = findNativeSessionBinding(sessionID);
-      if (!binding) {
-        writeJson(response, 200, { ok: true, status: 'already-deleted' });
+      const result = await deleteNativeSessionById(sessionID);
+      if (!result.ok) {
+        writeJson(response, result.httpStatus || 500, { ok: false, error: 'native-session-delete-failed', code: result.code });
         return;
       }
-      const runtime = runtimeSummary(readConfig().deepseek);
-      await rejectPendingQuestions(runtime, binding.directory, sessionID);
-      const upstream = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`, {
-        method: 'DELETE',
-        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
-        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
-      }).catch(() => undefined);
-      if (upstream && !upstream.ok && upstream.status !== 404) {
-        writeJson(response, upstream.status, { ok: false, error: 'native-session-delete-failed' });
-        return;
-      }
-      deleteNativeQuestionRecords(sessionID);
-      await removeNativeWorkbenchAxisBinding(binding);
-      fs.rmSync(binding.directory, { recursive: true, force: true });
-      writeJson(response, 200, { ok: true, status: 'deleted' });
+      writeJson(response, 200, { ok: true, status: result.status });
       return;
     }
 
@@ -1595,10 +1848,6 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`[def-agent-sidecar] listening on http://${HOST}:${PORT}`);
-});
-
 function shutdownAndExit(signal) {
   try {
     shutdownRuntime();
@@ -1609,8 +1858,19 @@ function shutdownAndExit(signal) {
   }
 }
 
-process.once('SIGTERM', () => shutdownAndExit('SIGTERM'));
-process.once('SIGINT', () => shutdownAndExit('SIGINT'));
-process.once('exit', () => {
-  shutdownRuntime();
-});
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`[def-agent-sidecar] listening on http://${HOST}:${PORT}`);
+  });
+  process.once('SIGTERM', () => shutdownAndExit('SIGTERM'));
+  process.once('SIGINT', () => shutdownAndExit('SIGINT'));
+  process.once('exit', () => {
+    shutdownRuntime();
+  });
+}
+
+module.exports = {
+  cleanupNativeAiCliSessions,
+  deleteNativeSessionById,
+  enumerateNativeAiCliCleanupTargets,
+};
