@@ -47,13 +47,25 @@ function requiredFailureCodesMatch(actual, expected) {
   const actualCodes = new Set((actual || []).map((failure) => failure?.code).filter(Boolean));
   return expected.every((code) => actualCodes.has(code));
 }
+function allowedFailureCodesMatch(actual, expected) {
+  if (expected === undefined) return true;
+  if (!Array.isArray(expected) || expected.some((code) => typeof code !== 'string' || !code) || !Array.isArray(actual)) return false;
+  return actual.every((failure) => typeof failure?.code === 'string' && expected.includes(failure.code));
+}
+function allowedAttemptedToolsMatch(actual, expected) {
+  if (expected === undefined) return true;
+  if (!Array.isArray(expected) || expected.some((tool) => typeof tool !== 'string' || !tool)) return false;
+  return Object.keys(actual).every((tool) => expected.includes(tool));
+}
 function matchesRunExpectation(run, expectation) {
   if (!expectation || typeof expectation !== 'object' || Array.isArray(expectation)) return false;
   return run?.status === expectation.status
     && run?.verification?.status === expectation.verificationStatus
     && exactToolCountsMatch(toolCounts(run), expectation.attemptedToolCounts)
     && exactToolCountsMatch(toolCounts(run, true), expectation.completedToolCounts)
-    && requiredFailureCodesMatch(run?.verification?.failures, expectation.requiredFailureCodes);
+    && requiredFailureCodesMatch(run?.verification?.failures, expectation.requiredFailureCodes)
+    && allowedFailureCodesMatch(run?.verification?.failures, expectation.allowedFailureCodes)
+    && allowedAttemptedToolsMatch(toolCounts(run), expectation.allowedAttemptedTools);
 }
 function failToPassRubric(scenario) {
   const rubric = scenario?.regression?.failToPass;
