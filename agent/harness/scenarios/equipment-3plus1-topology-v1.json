@@ -32,7 +32,8 @@
         "completedToolCounts": { "def_data_equipment_3plus1_recommend": 0 },
         "requiredFailureCodes": ["required-tool-missing", "required-turn-tool-missing"],
         "allowedFailureCodes": ["required-tool-missing", "required-turn-tool-missing", "forbidden-tool-called", "turn-tool-not-allowed", "ordered-tool-sequence-violated"],
-        "allowedAttemptedTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"]
+        "allowedAttemptedTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan"],
+        "allowedAttemptedToolsMustBeCompleted": true
       },
       "candidate": {
         "status": "EXECUTED",

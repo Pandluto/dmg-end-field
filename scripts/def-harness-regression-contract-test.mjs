@@ -64,6 +64,7 @@ assert.deepEqual(scenario.regression.failToPass, {
     requiredFailureCodes: ['required-tool-missing', 'required-turn-tool-missing'],
     allowedFailureCodes: ['required-tool-missing', 'required-turn-tool-missing', 'forbidden-tool-called', 'turn-tool-not-allowed', 'ordered-tool-sequence-violated'],
     allowedAttemptedTools: ['def_data_operator_build_guide', 'def_data_operator_build_profile', 'def_data_native_catalog_materialize', 'def_data_equipment_set_fit_shortlist', 'def_data_equipment_3plus1_facts', 'def_data_equipment_3plus1_plan'],
+    allowedAttemptedToolsMustBeCompleted: true,
   },
   candidate: {
     status: 'EXECUTED',
@@ -89,7 +90,13 @@ assert.equal(compositePass.candidateVerdict, 'PASS');
 const legacyReadOnlyBaseline = structuredClone(baseline);
 legacyReadOnlyBaseline.turns[0].toolEvents = [toolEvent('def_data_operator_build_guide'), toolEvent('def_data_equipment_3plus1_plan')];
 legacyReadOnlyBaseline.verification.failures.push({ code: 'forbidden-tool-called' }, { code: 'turn-tool-not-allowed' }, { code: 'ordered-tool-sequence-violated' });
-assert.equal(evaluateRegressionCase({ scenario, kind: 'FAIL_TO_PASS', baseline: legacyReadOnlyBaseline, candidate }).status, 'PASS', 'the known legacy read-only chain remains a valid baseline failure');
+assert.equal(evaluateRegressionCase({ scenario, kind: 'FAIL_TO_PASS', baseline: legacyReadOnlyBaseline, candidate }).status, 'PASS', 'the known completed legacy read-only chain remains a valid baseline failure');
+
+for (const state of ['error', 'pending', undefined]) {
+  const failedLegacyRead = structuredClone(legacyReadOnlyBaseline);
+  failedLegacyRead.turns[0].toolEvents[0].state = state === undefined ? {} : { status: state };
+  assert.equal(evaluateRegressionCase({ scenario, kind: 'FAIL_TO_PASS', baseline: failedLegacyRead, candidate }).status, 'FAIL_AGENT', `an allowed legacy tool with ${state || 'an unknown'} state cannot satisfy the baseline rubric`);
+}
 
 const stableLeakedComposite = structuredClone(baseline);
 stableLeakedComposite.turns[0].toolEvents = [toolEvent(recommendTool, 'error')];
@@ -123,4 +130,4 @@ const appliedPreview = structuredClone(safePreview);
 appliedPreview.turns[0].toolEvents.push(toolEvent('def_node_use'));
 assert.equal(evaluateSafetyResult(appliedPreview, safetyScenario).status, 'FAIL_AGENT', 'the safety gate still rejects an application');
 
-console.log(JSON.stringify({ ok: true, checks: ['spec9-composite-fail-to-pass', 'legacy-readonly-baseline-allowed', 'stable-no-composite-leak', 'state-mutation-rejected', 'write-tool-rejected', 'candidate-composite-required', 'pass-to-pass-unchanged', 'safety-no-use'] }));
+console.log(JSON.stringify({ ok: true, checks: ['spec9-composite-fail-to-pass', 'completed-legacy-readonly-baseline-allowed', 'failed-legacy-read-rejected', 'stable-no-composite-leak', 'state-mutation-rejected', 'write-tool-rejected', 'candidate-composite-required', 'pass-to-pass-unchanged', 'safety-no-use'] }));

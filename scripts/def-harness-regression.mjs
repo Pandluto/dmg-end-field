@@ -52,10 +52,15 @@ function allowedFailureCodesMatch(actual, expected) {
   if (!Array.isArray(expected) || expected.some((code) => typeof code !== 'string' || !code) || !Array.isArray(actual)) return false;
   return actual.every((failure) => typeof failure?.code === 'string' && expected.includes(failure.code));
 }
-function allowedAttemptedToolsMatch(actual, expected) {
-  if (expected === undefined) return true;
-  if (!Array.isArray(expected) || expected.some((tool) => typeof tool !== 'string' || !tool)) return false;
-  return Object.keys(actual).every((tool) => expected.includes(tool));
+function allowedAttemptedToolsMatch(run, expected, mustBeCompleted) {
+  if (expected === undefined) return mustBeCompleted === undefined;
+  if (!Array.isArray(expected) || expected.some((tool) => typeof tool !== 'string' || !tool)
+    || (mustBeCompleted !== undefined && mustBeCompleted !== true && mustBeCompleted !== false)) return false;
+  return (run?.turns || []).flatMap((turn) => turn?.toolEvents || []).every((event) => (
+    typeof event?.tool === 'string'
+    && expected.includes(event.tool)
+    && (!mustBeCompleted || event?.state?.status === 'completed')
+  ));
 }
 function matchesRunExpectation(run, expectation) {
   if (!expectation || typeof expectation !== 'object' || Array.isArray(expectation)) return false;
@@ -65,7 +70,7 @@ function matchesRunExpectation(run, expectation) {
     && exactToolCountsMatch(toolCounts(run, true), expectation.completedToolCounts)
     && requiredFailureCodesMatch(run?.verification?.failures, expectation.requiredFailureCodes)
     && allowedFailureCodesMatch(run?.verification?.failures, expectation.allowedFailureCodes)
-    && allowedAttemptedToolsMatch(toolCounts(run), expectation.allowedAttemptedTools);
+    && allowedAttemptedToolsMatch(run, expectation.allowedAttemptedTools, expectation.allowedAttemptedToolsMustBeCompleted);
 }
 function failToPassRubric(scenario) {
   const rubric = scenario?.regression?.failToPass;
