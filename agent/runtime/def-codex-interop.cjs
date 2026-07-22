@@ -350,9 +350,15 @@ function createDefCodexInteropProtocol(options) {
   async function observeTurn(record) {
     let firstToken = false;
     const seenTools = new Set();
-    for (let attempt = 0; attempt < 180 && record.status === 'accepted'; attempt += 1) {
+    const maxAttempts = Number.isInteger(options.observerMaxAttempts) && options.observerMaxAttempts > 0
+      ? options.observerMaxAttempts
+      : 180;
+    const pollMs = Number.isFinite(options.observerPollMs) && options.observerPollMs >= 0
+      ? options.observerPollMs
+      : 1000;
+    for (let attempt = 0; attempt < maxAttempts && record.status === 'accepted'; attempt += 1) {
       await new Promise((resolve) => {
-        const timer = setTimeout(resolve, 1000);
+        const timer = setTimeout(resolve, pollMs);
         timer.unref?.();
       });
       // A stop can arrive while this observer is asleep. Do not poll, emit, or
@@ -736,7 +742,7 @@ function createDefCodexInteropProtocol(options) {
       const turnId = decodeURIComponent(stopMatch[2]);
       const record = [...turnsByClient.values()].find((turn) => turn.sessionId === sessionId && turn.turnId === turnId);
       if (!record) { reject(response, 404, createError('turn-not-found', 'Turn was not found.', 'session', { ids: { sessionId, turnId } })); return true; }
-      if (['completed', 'stopped', 'timeout', 'max-step', 'provider-error', 'bridge-error'].includes(record.status)) {
+      if (['completed', 'stopped', 'max-step', 'provider-error', 'bridge-error'].includes(record.status)) {
         json(response, 200, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, status: `already-${record.status}`, ids: idsFor(record) }); return true;
       }
       let upstream;

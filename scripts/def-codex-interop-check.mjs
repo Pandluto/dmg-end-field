@@ -250,6 +250,83 @@ try {
   const stoppedTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
   assert.equal(stoppedTranscript.turns.find((turn) => turn.turnId === stoppedStart.turn.turnId)?.status, 'stopped');
 
+  {
+    let timeoutStopMode = 'success';
+    let timeoutStopCalls = 0;
+    const timeoutProtocol = createDefCodexInteropProtocol({
+      profile: 'development',
+      baseUrl: 'http://127.0.0.1:0',
+      sidecarUrl: 'http://sidecar.invalid',
+      snapshotUrl: 'http://snapshot.invalid',
+      observerMaxAttempts: 1,
+      observerPollMs: 0,
+      writeJson,
+      writeSse,
+      writeSseHeaders,
+      async fetchJson(url) {
+        if (url.endsWith('/health')) return { status: 200, body: { ok: true } };
+        if (url.includes('interop-transcript')) return { status: 200, body: { ok: true, messages: [] } };
+        if (url.includes('interop-questions')) return { status: 200, body: { ok: true, questions: [] } };
+        return { status: 200, body: { ok: true, snapshot: { checkout: { id: 'node-timeout' }, revision: 1 } } };
+      },
+      async postJson(url, body) {
+        if (url.endsWith('/interop-prompt')) return { status: 202, body: { ok: true, providerVisibleMessages: [{ role: 'user', text: body.rawUserText }] } };
+        if (url.endsWith('/interop-stop')) {
+          timeoutStopCalls += 1;
+          if (timeoutStopMode === 'transport') throw new Error('timeout stop transport loss');
+          if (timeoutStopMode === 'rejected') return { status: 503, body: { ok: false, error: 'timeout abort rejected' } };
+          return { status: 200, body: { ok: true, reason: 'requested' } };
+        }
+        return { status: 200, body: { ok: true } };
+      },
+    });
+    const timeoutServer = http.createServer(async (request, response) => {
+      const url = new URL(request.url || '/', 'http://127.0.0.1');
+      if (!(await timeoutProtocol.handle(request, response, url, readBody))) writeJson(response, 404, { ok: false });
+    });
+    await new Promise((resolve) => timeoutServer.listen(0, '127.0.0.1', resolve));
+    const timeoutBase = `http://127.0.0.1:${timeoutServer.address().port}`;
+    try {
+      const timeoutAuthorization = await (await fetch(`${timeoutBase}/def-agent/interop/v1/authorize`, { method: 'POST' })).json();
+      const timeoutHeaders = { authorization: `Bearer ${timeoutAuthorization.token}`, 'content-type': 'application/json' };
+      await fetch(`${timeoutBase}/def-agent/interop/v1/ui/consumer`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ host: 'workbench', sessionId: 'native-timeout', consumerId: 'ui-timeout', renderSecret: 'timeout-secret' }),
+      });
+      const startTimeoutTurn = async (clientTurnId) => (await (await fetch(`${timeoutBase}/def-agent/interop/v1/turns`, {
+        method: 'POST', headers: timeoutHeaders,
+        body: JSON.stringify({ rawUserText: `timeout ${clientTurnId}`, clientTurnId, ingressMode: 'pure-blackbox' }),
+      })).json()).turn;
+      const readTimeoutTurns = async () => (await (await fetch(`${timeoutBase}/def-agent/interop/v1/sessions/native-timeout/transcript`, { headers: timeoutHeaders })).json()).turns;
+      const stopTimeoutTurn = async (turnId) => fetch(`${timeoutBase}/def-agent/interop/v1/sessions/native-timeout/turns/${encodeURIComponent(turnId)}/stop`, {
+        method: 'POST', headers: timeoutHeaders,
+      });
+
+      const timeoutThenStop = await startTimeoutTurn('turn-timeout-stop-success');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal((await readTimeoutTurns()).find((turn) => turn.turnId === timeoutThenStop.turnId)?.status, 'timeout');
+      const confirmedStop = await stopTimeoutTurn(timeoutThenStop.turnId);
+      assert.equal(confirmedStop.status, 200, 'a timeout remains stoppable until native abort confirms');
+      assert.equal((await confirmedStop.json()).status, 'stopped');
+
+      const timeoutThenFailedStop = await startTimeoutTurn('turn-timeout-stop-retry');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      timeoutStopMode = 'rejected';
+      const rejectedTimeoutStop = await stopTimeoutTurn(timeoutThenFailedStop.turnId);
+      assert.equal(rejectedTimeoutStop.status, 502);
+      assert.equal((await rejectedTimeoutStop.json()).error.code, 'native-turn-stop-failed');
+      assert.equal((await readTimeoutTurns()).find((turn) => turn.turnId === timeoutThenFailedStop.turnId)?.status, 'timeout',
+        'failed timeout stop keeps the observer timeout state for retry rather than fabricating stopped');
+      timeoutStopMode = 'success';
+      const retriedTimeoutStop = await stopTimeoutTurn(timeoutThenFailedStop.turnId);
+      assert.equal(retriedTimeoutStop.status, 200);
+      assert.equal((await retriedTimeoutStop.json()).status, 'stopped');
+      assert.equal(timeoutStopCalls, 3, 'timeout stop calls sidecar again after a rejected abort');
+    } finally {
+      await new Promise((resolve) => timeoutServer.close(resolve));
+    }
+  }
+
   await fetch(`${base}/def-agent/interop/v1/ui/consumer`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ host: 'workbench', sessionId: 'native-b', consumerId: 'ui-b', renderSecret: 'render-secret-b' }) });
   const activeConsumerTurn = await (await fetch(`${base}/def-agent/interop/v1/turns`, {
     method: 'POST', headers,
