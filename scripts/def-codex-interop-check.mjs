@@ -162,6 +162,8 @@ try {
   const sidecarUnknownTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
   assert.equal(sidecarUnknownTranscript.turns.find((turn) => turn.turnId === sidecarUnknown.turn.turnId)?.submissionState, 'unknown',
     'the stored protocol record keeps sidecar acceptance uncertainty for reconciliation/audit');
+  assert.equal(protocol.audit.some((entry) => entry.clientTurnId === sidecarUnknownRequest.clientTurnId && entry.result === 'acceptance-unknown'), true,
+    'the audit record preserves a sidecar-reported acceptance-unknown outcome');
 
   const evilClose = await fetch(`${base}/def-agent/interop/v1/ui/consumer/close`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
