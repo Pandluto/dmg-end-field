@@ -28,6 +28,22 @@ assert.throws(
   'the UI route and interop route must share one native-session admission',
 );
 
+const nativeIngressGate = createNativeSessionAdmissionGate({ now: () => 1500 });
+const commandIngress = nativeIngressGate.admit({ sessionID: 'native-ingress', source: 'proxy-command' });
+assert.equal(commandIngress.kind, 'accepted');
+for (const source of ['ui', 'proxy-shell', 'interop']) {
+  assert.throws(
+    () => nativeIngressGate.admit({ sessionID: 'native-ingress', source }),
+    /native-session-turn-in-progress/,
+    `a ${source} turn cannot overlap an admitted /command turn`,
+  );
+}
+assert.equal(nativeIngressGate.release(commandIngress.entry, 'native-command-terminal'), true);
+const shellIngress = nativeIngressGate.admit({ sessionID: 'native-ingress', source: 'proxy-shell' });
+assert.equal(shellIngress.kind, 'accepted', 'a shell turn is admitted only after the command terminal releases');
+assert.equal(nativeIngressGate.release(shellIngress.entry, 'submission-failed'), true,
+  'an explicitly rejected shell submission releases rather than poisoning the session');
+
 let observations = 0;
 const terminal = await gate.watch(first.entry, async () => {
   observations += 1;
@@ -159,6 +175,14 @@ assert.match(serverSource, /createNativeSessionAdmissionGate/,
   'the sidecar must instantiate the shared native-session gate');
 assert.match(proxySource, /nativeSessionAdmission\.admit\(/,
   'UI session messages must acquire the shared admission before proxying');
+assert.match(proxySource, /\(message\|prompt_async\|command\|shell\|abort\)/,
+  'the proxy must recognize command and shell as native-turn ingress, not only message and prompt_async');
+assert.match(proxySource, /command: 'proxy-command'/,
+  'the command route must have an auditable admission source');
+assert.match(proxySource, /shell: 'proxy-shell'/,
+  'the shell route must have an auditable admission source');
+assert.match(proxySource, /if \(binding && sessionAction !== 'abort'\)/,
+  'every bound command and shell request must capture admission before forwarding; abort remains unchanged');
 assert.match(proxySource, /scheduleNativeSessionAdmissionWatch\(/,
   'direct message and async prompt ingress must retain admission until native completion after a transport loss');
 assert.match(proxySource, /await captureNativeSessionAdmissionBaseline\(admission, runtime, binding\)/,
@@ -173,5 +197,32 @@ assert.match(serverSource, /sendNativeInteropPrompt[\s\S]*nativeSessionAdmission
   'interop prompts must acquire that same admission before prompt_async');
 assert.match(serverSource, /releaseSession\(sessionID, 'native-abort'\)/,
   'a confirmed native abort must release the admission');
+assert.match(proxySource, /if \(!succeeded\) nativeSessionAdmission\.release\(admission, 'submission-failed'\)/,
+  'a known non-2xx command or shell failure releases its reservation');
+assert.match(proxySource, /if \(admission && !explicitRejection\) retainNativePromptAdmissionForReconciliation\(admission, runtime, binding\)/,
+  'a response that becomes indeterminate after acceptance keeps the command or shell reservation for reconciliation');
+assert.match(proxySource, /upstream\.on\('error',[\s\S]*retainNativePromptAdmissionForReconciliation\(admission, runtime, binding\)/,
+  'a transport failure before a response remains acceptance-unknown and cannot release command or shell admission');
+assert.match(proxySource, /sessionAction === 'prompt_async'[\s\S]*else nativeSessionAdmission\.release\(admission, `native-\$\{sessionAction\}-terminal`\)/,
+  'only the asynchronous vendor route waits for watcher evidence; completed command and shell responses are terminal');
 
-console.log('DEF native session admission contract: PASS (shared single-flight rejects cross-turn overlap and releases only on terminal evidence)');
+const vendorRoutes = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/server/routes/instance/httpapi/groups/session.ts', import.meta.url), 'utf8');
+const vendorHandlers = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts', import.meta.url), 'utf8');
+const vendorPrompt = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/session/prompt.ts', import.meta.url), 'utf8');
+const vendorRunner = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/effect/runner.ts', import.meta.url), 'utf8');
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("command", SessionPaths\.command,[\s\S]*?payload: CommandPayload,[\s\S]*?success: described\(SessionV1\.WithParts, "Created message"\)/,
+  'vendor /command declares CommandPayload and a completed WithParts response');
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("shell", SessionPaths\.shell,[\s\S]*?payload: ShellPayload,[\s\S]*?success: described\(SessionV1\.WithParts, "Created message"\)/,
+  'vendor /shell declares ShellPayload and a completed WithParts response');
+assert.match(vendorHandlers, /const command[\s\S]*?return yield\* promptSvc\s*\.command\(\{ \.\.\.ctx\.payload, sessionID: ctx\.params\.sessionID \}\)/,
+  'vendor /command awaits promptSvc.command rather than acknowledging early');
+assert.match(vendorHandlers, /const shell[\s\S]*?return yield\* SessionError\.mapBusy\(promptSvc\.shell\(\{ \.\.\.ctx\.payload, sessionID: ctx\.params\.sessionID \}\)\)/,
+  'vendor /shell awaits promptSvc.shell rather than acknowledging early');
+assert.match(vendorPrompt, /const command[\s\S]*?const result = yield\* prompt\([\s\S]*?return result/,
+  'vendor command resolves through the normal prompt loop before it returns');
+assert.match(vendorPrompt, /const shell[\s\S]*?return yield\* state\.startShell\(/,
+  'vendor shell resolves through SessionRunState.startShell');
+assert.match(vendorRunner, /const exit = yield\* Fiber\.await\(fiber\)/,
+  'vendor startShell waits for the shell fiber to finish before returning its result');
+
+console.log('DEF native session admission contract: PASS (message, command, shell, and interop share single-flight; unknown transport states remain reserved)');

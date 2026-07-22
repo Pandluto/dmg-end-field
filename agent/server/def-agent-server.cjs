@@ -617,7 +617,10 @@ async function proxyOpenCodeRequest(request, response) {
   // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
   // OpenCode route as well, but do not assume the prefix is literally `server`.
   await rejectPendingQuestionsForSessionAbort(runtime, request, target);
-  const sessionActionMatch = /^\/session\/([^/]+)\/(message|prompt_async|abort)$/.exec(target.pathname);
+  // These four endpoints all create a user-visible native turn.  Do not let
+  // `/command` or `/shell` bypass the same session-level admission used by a
+  // UI message and the interop prompt surface.
+  const sessionActionMatch = /^\/session\/([^/]+)\/(message|prompt_async|command|shell|abort)$/.exec(target.pathname);
   let rewrittenBody = null;
   let binding = null;
   let admission = null;
@@ -630,7 +633,13 @@ async function proxyOpenCodeRequest(request, response) {
       const directory = target.searchParams.get('directory') || '';
       binding = findNativeSessionBinding(nativeSessionID) || readNativeSessionBinding(directory, nativeSessionID);
       if (binding && sessionAction !== 'abort') {
-        admission = nativeSessionAdmission.admit({ sessionID: nativeSessionID, source: sessionAction === 'message' ? 'ui' : 'proxy-prompt-async' }).entry;
+        const admissionSource = {
+          message: 'ui',
+          prompt_async: 'proxy-prompt-async',
+          command: 'proxy-command',
+          shell: 'proxy-shell',
+        }[sessionAction] || 'proxy-native-turn';
+        admission = nativeSessionAdmission.admit({ sessionID: nativeSessionID, source: admissionSource }).entry;
         await captureNativeSessionAdmissionBaseline(admission, runtime, binding);
       }
     }
@@ -690,8 +699,13 @@ async function proxyOpenCodeRequest(request, response) {
         if (abortConfirmed) nativeSessionAdmission.releaseSession(nativeSessionID, 'native-abort');
         if (admission) {
           if (!succeeded) nativeSessionAdmission.release(admission, 'submission-failed');
+          // Vendor semantics differ here: `prompt_async` acknowledges before
+          // the runner completes, so preserve the reservation for the
+          // status/transcript watcher. `message`, `command`, and `shell`
+          // return only after their native work has completed; their finished
+          // 2xx response is terminal evidence for that ingress.
           else if (sessionAction === 'prompt_async') scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
-          else nativeSessionAdmission.release(admission, 'native-message-terminal');
+          else nativeSessionAdmission.release(admission, `native-${sessionAction}-terminal`);
         }
         resolve(true);
       });
