@@ -2,11 +2,13 @@ import * as definitions from './def.js'
 import { DEF_NATIVE_TARGETS } from '../registry.mjs'
 import activation from '../../def-opencode-adapter/session-harness-activation.cjs'
 
-export default async function DefToolsPlugin(input = {}) {
+export async function createDefToolsPlugin(input = {}, options = {}) {
   const directory = typeof input?.directory === 'string' ? input.directory : ''
   const equipment3Plus1Enabled = (sessionID) => activation.readDefEquipment3Plus1HarnessActivation(
     directory,
     sessionID,
+    undefined,
+    { runtimeRoot: options.harnessRuntimeRoot },
   )
   const tool = {}
   for (const target of DEF_NATIVE_TARGETS) {
@@ -40,4 +42,8 @@ export default async function DefToolsPlugin(input = {}) {
       definitions.assertDefNativeArtifactToolScope(input, output?.args)
     },
   }
+}
+
+export default async function DefToolsPlugin(input = {}) {
+  return createDefToolsPlugin(input)
 }

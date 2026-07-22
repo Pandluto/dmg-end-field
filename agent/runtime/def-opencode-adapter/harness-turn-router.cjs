@@ -34,11 +34,11 @@ function classifyDefExecutableTurnPolicy(userText = '', options = {}) {
 
 // Turn classification is trace metadata only. Harness selection is immutable
 // after native-session creation and must never change here.
-function routeNativeTurnHarness(binding, userText = '') {
+function routeNativeTurnHarness(binding, userText = '', options = {}) {
   const selector = binding?.harnessBinding?.selector || 'stable';
   const harnessId = binding?.harnessBinding?.harness?.harnessId || '';
   const text = typeof userText === 'string' ? userText.trim() : '';
-  const equipment3Plus1Enabled = isDefEquipment3Plus1HarnessBinding(binding);
+  const equipment3Plus1Enabled = isDefEquipment3Plus1HarnessBinding(binding, options);
   const executablePolicy = classifyDefExecutableTurnPolicy(text, { equipment3Plus1Enabled })
     || (equipment3Plus1Enabled && isDefEquipment3Plus1Correction(text)
       ? { kind: 'equipment-3plus1-composite', sourceText: text, continuation: true }

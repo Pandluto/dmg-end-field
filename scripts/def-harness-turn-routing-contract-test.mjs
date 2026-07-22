@@ -2,19 +2,62 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const { isDefEquipment3Plus1HarnessBinding } = require('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs');
 const { getNativeHarnessSystem } = require('../agent/runtime/def-opencode-adapter/index.cjs');
+const defHarness = require('../agent/harness/def-harness.cjs');
+
+const harnessFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-turn-routing-registry-'));
+const harnessRuntimeRoot = path.join(harnessFixtureRoot, 'runtime');
+const harnessBuildRoot = path.join(harnessFixtureRoot, 'builds');
+process.once('exit', () => fs.rmSync(harnessFixtureRoot, { recursive: true, force: true }));
+
+function buildAndRegisterHarness(relativeSource, channel) {
+  const source = fileURLToPath(new URL(relativeSource, import.meta.url));
+  const built = defHarness.buildPackage(source, harnessBuildRoot);
+  return defHarness.registerPackage(harnessRuntimeRoot, built.directory, channel);
+}
+
+const stableHarnessRef = buildAndRegisterHarness('../agent/harness/baseline/stable-v0/', 'stable');
+const compositeHarnessRef = buildAndRegisterHarness(
+  '../agent/harness/examples/spec9-3plus1-composite-v1/',
+  'candidate/spec9-3plus1-composite-v1',
+);
+
+function agentReleaseFor(harnessBinding) {
+  return {
+    kind: 'AgentReleaseV1',
+    schemaVersion: 1,
+    harness: {
+      selector: harnessBinding.selector,
+      ref: { ...harnessBinding.harness },
+    },
+  };
+}
 
 function spawnBunEval(source, options = {}) {
-  if (process.platform === 'win32') {
-    return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'bun.cmd', '-e', source], {
-      encoding: 'utf8',
-      ...options,
-    });
+  // Keep the temporary module under the repository so Bun resolves the same
+  // workspace dependencies as `bun -e`, without putting the source on the
+  // Windows command line.
+  const probeRoot = fs.mkdtempSync(path.join(process.cwd(), '.def-turn-routing-probe-'));
+  const probeFile = path.join(probeRoot, 'probe.mjs');
+  fs.writeFileSync(probeFile, source, 'utf8');
+  try {
+    if (process.platform === 'win32') {
+      return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', 'bun.cmd', probeFile], {
+        encoding: 'utf8',
+        ...options,
+      });
+    }
+    return spawnSync('bun', [probeFile], { encoding: 'utf8', ...options });
+  } finally {
+    fs.rmSync(probeRoot, { recursive: true, force: true });
   }
-  return spawnSync('bun', ['-e', source], { encoding: 'utf8', ...options });
 }
 
 const binding = {
@@ -32,9 +75,11 @@ const compositeBinding = {
   ...binding,
   harnessBinding: {
     ...binding.harnessBinding,
-    harness: { harnessId: 'def-equipment-3plus1-composite', version: '9.1.0-candidate.1', contentHash: 'b'.repeat(64), schemaVersion: 1 },
+    selector: 'candidate/spec9-3plus1-composite-v1',
+    harness: compositeHarnessRef,
   },
 };
+compositeBinding.agentRelease = agentReleaseFor(compositeBinding.harnessBinding);
 const mismatchedCompositeBinding = {
   ...compositeBinding,
   harnessBinding: {
@@ -42,6 +87,43 @@ const mismatchedCompositeBinding = {
     sessionId: 'another-session',
   },
 };
+
+const harnessActivationOptions = { runtimeRoot: harnessRuntimeRoot };
+assert.equal(isDefEquipment3Plus1HarnessBinding(compositeBinding, harnessActivationOptions), true);
+
+const explicitCompositeBinding = structuredClone(compositeBinding);
+explicitCompositeBinding.harnessBinding.selector = 'explicit';
+explicitCompositeBinding.agentRelease.harness.selector = 'explicit';
+assert.equal(isDefEquipment3Plus1HarnessBinding(explicitCompositeBinding, harnessActivationOptions), true,
+  'an explicit selector resolves through its immutable id@version');
+
+const fakeVersionBinding = structuredClone(compositeBinding);
+fakeVersionBinding.harnessBinding.harness.version = '9.1.0-candidate.999';
+fakeVersionBinding.agentRelease.harness.ref.version = '9.1.0-candidate.999';
+assert.equal(isDefEquipment3Plus1HarnessBinding(fakeVersionBinding, harnessActivationOptions), false,
+  'a synchronized fake version must not pass without an immutable Registry package');
+
+const fakeHashBinding = structuredClone(compositeBinding);
+fakeHashBinding.harnessBinding.harness.contentHash = 'f'.repeat(64);
+fakeHashBinding.agentRelease.harness.ref.contentHash = 'f'.repeat(64);
+assert.equal(isDefEquipment3Plus1HarnessBinding(fakeHashBinding, harnessActivationOptions), false,
+  'a synchronized fake content hash must not pass Registry verification');
+
+const spoofedStableBinding = structuredClone(compositeBinding);
+spoofedStableBinding.harnessBinding.selector = 'stable';
+spoofedStableBinding.agentRelease.harness.selector = 'stable';
+assert.equal(isDefEquipment3Plus1HarnessBinding(spoofedStableBinding, harnessActivationOptions), false,
+  'a stable selector cannot impersonate a candidate ref');
+
+const mismatchedReleaseRefBinding = structuredClone(compositeBinding);
+mismatchedReleaseRefBinding.agentRelease.harness.ref = stableHarnessRef;
+assert.equal(isDefEquipment3Plus1HarnessBinding(mismatchedReleaseRefBinding, harnessActivationOptions), false,
+  'AgentRelease and Session Harness refs must identify the same immutable package');
+
+const mismatchedReleaseSelectorBinding = structuredClone(compositeBinding);
+mismatchedReleaseSelectorBinding.agentRelease.harness.selector = 'stable';
+assert.equal(isDefEquipment3Plus1HarnessBinding(mismatchedReleaseSelectorBinding, harnessActivationOptions), false,
+  'AgentRelease and Session Harness selectors must agree');
 
 assert.throws(() => getNativeHarnessSystem({
   ...binding,
@@ -65,9 +147,9 @@ assert.equal(classifyDefExecutableTurnPolicy(
   '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。',
   { equipment3Plus1Enabled: true },
 )?.kind, 'equipment-3plus1-composite');
-assert.equal(routeNativeTurnHarness(compositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'equipment-3plus1-composite');
+assert.equal(routeNativeTurnHarness(compositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对', harnessActivationOptions).task, 'equipment-3plus1-composite');
 assert.notEqual(
-  routeNativeTurnHarness(mismatchedCompositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task,
+  routeNativeTurnHarness(mismatchedCompositeBinding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对', harnessActivationOptions).task,
   'equipment-3plus1-composite',
   'an internally inconsistent Session binding must fail closed',
 );
@@ -75,7 +157,7 @@ assert.equal(classifyDefExecutableTurnPolicy('潮涌套装的二件效果是什�
 assert.equal(classifyDefExecutableTurnPolicy('这把武器的伤害倍率是多少'), null);
 assert.equal(isDefEquipment3Plus1Correction('配件二为什么不用第二个悬河供氧栓？'), true);
 assert.equal(isDefEquipment3Plus1Correction('这把武器为什么不用第二个方案？'), false);
-assert.equal(routeNativeTurnHarness(compositeBinding, '配件二为什么不用第二个悬河供氧栓？').task, 'equipment-3plus1-composite');
+assert.equal(routeNativeTurnHarness(compositeBinding, '配件二为什么不用第二个悬河供氧栓？', harnessActivationOptions).task, 'equipment-3plus1-composite');
 assert.equal(routeNativeTurnHarness(binding, '配件二为什么不用第二个悬河供氧栓？').task, 'operator-config');
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
 assert.equal(isDirectCurrentNodeQuestion('请基于当前空排轴创建新节点'), false);
@@ -95,6 +177,12 @@ assert.match(skillSource, /approvalPolicy=manual/);
 assert.match(skillSource, /skillKey.*never a substitute/);
 assert.match(skillSource, /same failure code occurs twice/);
 assert.match(skillSource, /call `def_node_use` in the same turn/);
+assert.doesNotMatch(skillSource, /3\+1 correction|composite recommendation/i,
+  'shared Runtime Skill must stay Harness-neutral');
+
+const candidateResponsePolicySource = fs.readFileSync(new URL('../agent/harness/examples/spec9-3plus1-composite-v1/response-policy.md', import.meta.url), 'utf8');
+assert.match(candidateResponsePolicySource, /For `3\+1`, obtain a fresh composite recommendation/,
+  'candidate-only teaching remains in the immutable candidate package');
 
 const pluginSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url), 'utf8');
 assert.match(pluginSource, /'chat\.message'/);
@@ -105,6 +193,8 @@ assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /'experimental\.chat\.messages\.transform'/);
 assert.match(pluginSource, /applyDefToolModelMessagePolicy/);
 assert.match(pluginSource, /input\?\.phase/);
+assert.match(pluginSource, /'experimental\.chat\.messages\.transform'[\s\S]{0,300}input\?\.sessionID/,
+  'the transform hook must forward its Session identity to activation');
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
 
@@ -262,10 +352,13 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
   import fs from 'node:fs';
   import os from 'node:os';
   import path from 'node:path';
-  const pluginFactory = (await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)})).default;
+  const pluginModule = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)});
+  const pluginFactory = pluginModule.createDefToolsPlugin;
+  const harnessRuntimeRoot = ${JSON.stringify(harnessRuntimeRoot)};
+  const candidateHarnessRef = ${JSON.stringify(compositeHarnessRef)};
+  const stableHarnessRef = ${JSON.stringify(stableHarnessRef)};
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-3plus1-activation-'));
-  const hash = (character) => character.repeat(64);
-  const writeBinding = (directory, sessionID, harnessId, character) => {
+  const writeBinding = (directory, sessionID, selector, harnessRef) => {
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, '.def-session.json'), JSON.stringify({
       schemaVersion: 5,
@@ -276,8 +369,16 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
         kind: 'DefHarnessSessionBindingV1',
         schemaVersion: 1,
         sessionId: sessionID,
-        selector: harnessId === 'def-equipment-3plus1-composite' ? 'candidate/spec9-3plus1-composite-v1' : 'stable',
-        harness: { harnessId, version: '1.0.0', contentHash: hash(character), schemaVersion: 1 },
+        selector,
+        harness: harnessRef,
+      },
+      agentRelease: {
+        kind: 'AgentReleaseV1',
+        schemaVersion: 1,
+        harness: {
+          selector,
+          ref: harnessRef,
+        },
       },
     }));
   };
@@ -304,8 +405,8 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
   try {
     const candidateDirectory = path.join(root, 'candidate');
     const candidateSession = 'candidate-session';
-    writeBinding(candidateDirectory, candidateSession, 'def-equipment-3plus1-composite', 'a');
-    const candidate = await pluginFactory({ directory: candidateDirectory });
+    writeBinding(candidateDirectory, candidateSession, 'candidate/spec9-3plus1-composite-v1', candidateHarnessRef);
+    const candidate = await pluginFactory({ directory: candidateDirectory }, { harnessRuntimeRoot });
     const firstText = '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。';
     await candidate['chat.message'](
       { sessionID: candidateSession },
@@ -361,8 +462,8 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
 
     const stableDirectory = path.join(root, 'stable');
     const stableSession = 'stable-session';
-    writeBinding(stableDirectory, stableSession, 'stable-v0', 'b');
-    const stable = await pluginFactory({ directory: stableDirectory });
+    writeBinding(stableDirectory, stableSession, 'stable', stableHarnessRef);
+    const stable = await pluginFactory({ directory: stableDirectory }, { harnessRuntimeRoot });
     await stable['chat.message'](
       { sessionID: stableSession },
       { message: { id: 'msg_101' }, parts: [{ type: 'text', text: firstText }] },
@@ -436,7 +537,7 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(15);
     }
 
-    writeBinding(candidateDirectory, candidateSession, 'stable-v0', 'd');
+    writeBinding(candidateDirectory, candidateSession, 'stable', stableHarnessRef);
     try {
       await candidate['tool.execute.before'](
         { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'downgraded' },
