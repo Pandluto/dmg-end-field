@@ -1659,17 +1659,32 @@ function writeNativeWorkbenchContext(directory, sessionID, context) {
   return payload;
 }
 
-function listSessionBindings() {
+function normalizePersistedSessionHost(value) {
+  const host = typeof value === 'string' ? value.trim() : '';
+  return host === 'ai-cli' || host === 'workbench' ? host : null;
+}
+
+function normalizePersistedSessionLimit(value) {
+  const limit = Number(value);
+  if (!Number.isFinite(limit)) return 100;
+  return Math.max(1, Math.floor(limit));
+}
+
+function listSessionBindings(options = {}) {
   const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
   const bindings = [];
   if (!fs.existsSync(sessionsRoot)) return bindings;
+  const requestedHost = normalizePersistedSessionHost(options.host);
   let hostEntries;
   try {
     hostEntries = fs.readdirSync(sessionsRoot, { withFileTypes: true });
   } catch {
     return bindings;
   }
-  for (const hostEntry of hostEntries) {
+  const selectedHostEntries = requestedHost
+    ? hostEntries.filter((entry) => entry.name === requestedHost)
+    : hostEntries;
+  for (const hostEntry of selectedHostEntries) {
     if (!hostEntry.isDirectory() || hostEntry.isSymbolicLink()) continue;
     const hostRoot = path.join(sessionsRoot, hostEntry.name);
     let sessionEntries;
@@ -1681,8 +1696,12 @@ function listSessionBindings() {
     for (const sessionEntry of sessionEntries) {
       if (!sessionEntry.isDirectory() || sessionEntry.isSymbolicLink()) continue;
       const directory = path.join(hostRoot, sessionEntry.name);
-      const binding = readDiscoveredNativeSessionBinding(directory, undefined);
-      if (binding) bindings.push(binding);
+      const binding = readDiscoveredNativeSessionBinding(directory, undefined, { includeNodeRelation: false });
+      if (!binding) continue;
+      // A host-filtered caller is allowed to inspect only that host's managed
+      // root.  This keeps a forged cross-root binding out of Shell cleanup.
+      if (requestedHost && (hostEntry.name !== requestedHost || binding.host !== requestedHost)) continue;
+      bindings.push(binding);
     }
   }
   return bindings;
@@ -2216,8 +2235,8 @@ function persistedDefSessionNotFound() {
   return error;
 }
 
-async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100, openCodeBaseUrl = '' } = {}) {
-  const bindings = listSessionBindings().slice(-Math.max(limit, 1));
+async function listPersistedDefSessions({ config = {}, skillId = 'operator', thinkingEffort = 'medium', limit = 100, host = '', openCodeBaseUrl = '' } = {}) {
+  const bindings = listSessionBindings({ host });
   if (!bindings.length) return [];
   const deepseek = sanitizeDeepSeekConfig(config);
   const baseUrl = openCodeBaseUrl || await getOpenCodeServerForRead(deepseek, skillId, thinkingEffort);
@@ -2231,7 +2250,8 @@ async function listPersistedDefSessions({ config = {}, skillId = 'operator', thi
   }));
   return sessions.filter((item) => item?.session?.id === item?.binding?.sessionID && isDefOpenCodeSession(item?.session))
     .map(({ session, binding }) => ({ ...mapOpenCodeSessionSummary(session), host: binding.host, skillId: binding.skillId, directory: binding.directory }))
-    .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0));
+    .sort((left, right) => (right.updatedAt || right.createdAt || 0) - (left.updatedAt || left.createdAt || 0))
+    .slice(0, normalizePersistedSessionLimit(limit));
 }
 
 async function getPersistedDefSession(sessionID, { config = {}, skillId = 'operator', thinkingEffort = 'medium', openCodeBaseUrl = '' } = {}) {

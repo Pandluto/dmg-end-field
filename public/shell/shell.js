@@ -577,7 +577,7 @@
     updateNativeAiCliCleanupControls();
     if (button) setButtonBusy(button, true, '正在读取');
     try {
-      const payload = await fetchLocalBridgeJson('/def-agent/chat/persisted-sessions?limit=100');
+      const payload = await fetchLocalBridgeJson('/def-agent/chat/persisted-sessions?host=ai-cli&limit=100');
       renderNativeAiCliSessions(payload.sessions);
       if (announce) {
         setText('native-ai-cli-session-cleanup-status', state.nativeAiCliSessions.length

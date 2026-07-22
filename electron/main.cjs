@@ -55,6 +55,10 @@ const defInternalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN
 const DEV_SHELL_URL = 'http://127.0.0.1:3030/shell/index.html';
 const BRIDGE_HOST = '127.0.0.1';
 const BRIDGE_PORT = 31457;
+// A persisted-session refresh may cold-start OpenCode and validate retained
+// history.  Keep that allowance local to this read-only Shell route; ordinary
+// bridge JSON requests retain their one-second failure boundary.
+const PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS = 30000;
 let workbenchRendererCapability = '';
 const PROD_SHELL_URL = `http://${BRIDGE_HOST}:${BRIDGE_PORT}/shell/index.html`;
 const SHELL_WIDTH = 1120;
@@ -1910,9 +1914,16 @@ function startBridgeServer() {
 
       if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/persisted-sessions') {
         await startDefAgent();
+        const query = new URLSearchParams();
         const limit = requestUrl.searchParams.get('limit');
-        const suffix = limit ? `?limit=${encodeURIComponent(limit)}` : '';
-        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`);
+        const host = requestUrl.searchParams.get('host');
+        if (limit) query.set('limit', limit);
+        if (host === 'ai-cli' || host === 'workbench') query.set('host', host);
+        const suffix = query.size ? `?${query.toString()}` : '';
+        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`, {
+          timeoutMs: PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS,
+          retries: 0,
+        });
         writeJson(response, upstream.status || 500, upstream.body);
         return;
       }

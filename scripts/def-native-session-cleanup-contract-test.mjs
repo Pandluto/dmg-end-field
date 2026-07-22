@@ -594,6 +594,7 @@ try {
   const shellHtml = fs.readFileSync(path.join(projectRoot, 'public/shell/index.html'), 'utf8');
   const shellSource = fs.readFileSync(path.join(projectRoot, 'public/shell/shell.js'), 'utf8');
   const mainSource = fs.readFileSync(path.join(projectRoot, 'electron/main.cjs'), 'utf8');
+  const devAgentSource = fs.readFileSync(path.join(projectRoot, 'agent/dev-agent.cjs'), 'utf8');
   const sidecarSource = fs.readFileSync(path.join(projectRoot, 'agent/server/def-agent-server.cjs'), 'utf8')
     .replace(/\r\n?/g, '\n');
   const sidecarAuthSource = fs.readFileSync(path.join(projectRoot, 'agent/server/native-session-cleanup-auth.cjs'), 'utf8');
@@ -622,7 +623,7 @@ try {
   assert(refreshStart >= 0 && refreshEnd > refreshStart && cleanupEnd > cleanupStart);
   const refreshSource = shellSource.slice(refreshStart, refreshEnd);
   const cleanupSource = shellSource.slice(cleanupStart, cleanupEnd);
-  assert.match(refreshSource, /\/def-agent\/chat\/persisted-sessions\?limit=100/);
+  assert.match(refreshSource, /\/def-agent\/chat\/persisted-sessions\?host=ai-cli&limit=100/);
   assert.match(shellSource, /session\?\.host === 'ai-cli'/);
   assert.match(shellSource, /state\.nativeAiCliSessions\.some/);
   assert.match(shellSource, /sessionStorage\.setItem\(SHELL_RENDERER_CAPABILITY_STORAGE_KEY, injectedCapability\)/,
@@ -650,6 +651,32 @@ try {
     'the backend deletion summary is established before the follow-up refresh');
   assert.match(cleanupSource, /nativeSessionCleanupResult\.appendRefreshWarning\(summary, refreshError\)/,
     'a failed refresh preserves the confirmed deletion summary and adds only a warning');
+
+  const persistedListBridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/chat/persisted-sessions'");
+  const persistedListBridgeEnd = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'", persistedListBridgeStart);
+  assert(persistedListBridgeStart >= 0 && persistedListBridgeEnd > persistedListBridgeStart,
+    'the persisted Session bridge route must remain separate from destructive cleanup');
+  const persistedListBridgeSource = mainSource.slice(persistedListBridgeStart, persistedListBridgeEnd);
+  assert.match(mainSource, /const PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS = 30000/,
+    'cold persisted Session discovery receives one explicit local timeout budget');
+  assert.match(persistedListBridgeSource, /host === 'ai-cli' \|\| host === 'workbench'/,
+    'the bridge forwards only recognized Session-host filters');
+  assert.match(persistedListBridgeSource, /timeoutMs: PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS/,
+    'the longer timeout is scoped to persisted Session discovery');
+  assert.match(persistedListBridgeSource, /retries: 0/,
+    'the read-only refresh avoids multiplying a cold Session scan with bridge retries');
+  assert.match(devAgentSource, /const PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS = 30000/,
+    'development bridge mirrors the production persisted Session timeout');
+  assert.match(devAgentSource, /const timeoutMs = options\.timeoutMs \?\? 1000/,
+    'development bridge keeps the short default for all other GET routes');
+  assert.match(devAgentSource, /timeoutMs: PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS/,
+    'development bridge scopes the longer timeout to persisted Session discovery');
+  const sidecarPersistedListStart = sidecarSource.indexOf("requestUrl.pathname === '/api/chat/persisted-sessions'");
+  const sidecarPersistedListEnd = sidecarSource.indexOf("if (method === 'POST' && requestUrl.pathname === '/api/chat')", sidecarPersistedListStart);
+  assert(sidecarPersistedListStart >= 0 && sidecarPersistedListEnd > sidecarPersistedListStart);
+  const sidecarPersistedListSource = sidecarSource.slice(sidecarPersistedListStart, sidecarPersistedListEnd);
+  assert.match(sidecarPersistedListSource, /host: requestedHost === 'ai-cli' \|\| requestedHost === 'workbench' \? requestedHost : ''/,
+    'the sidecar limits Shell cleanup discovery to a recognized managed host');
 
   const bridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'");
   const bridgeEnd = mainSource.indexOf('const defAgentEventsMatch', bridgeStart);

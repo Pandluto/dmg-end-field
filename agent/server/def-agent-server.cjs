@@ -1821,9 +1821,11 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'GET' && requestUrl.pathname === '/api/chat/persisted-sessions') {
+      const requestedHost = requestUrl.searchParams.get('host');
       const sessions = await listPersistedDefSessions({
         config: readConfig().deepseek,
         limit: Number(requestUrl.searchParams.get('limit') || 100) || 100,
+        host: requestedHost === 'ai-cli' || requestedHost === 'workbench' ? requestedHost : '',
       });
       writeJson(response, 200, {
         ok: true,

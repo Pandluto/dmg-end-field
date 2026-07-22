@@ -17,6 +17,8 @@ const {
 const HOST = '127.0.0.1';
 const PORT = 31457;
 const DEFAULT_WEB_URL = 'http://127.0.0.1:3030';
+// Keep the cold-start allowance scoped to the persisted Session list route.
+const PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS = 30000;
 const shouldOpenWebOnBoot = process.argv.includes('--open-web');
 
 let shellProcess = null;
@@ -395,7 +397,8 @@ function fetchJsonUrl(url, options = {}) {
       });
     });
     request.on('error', reject);
-    request.setTimeout(1000, () => {
+    const timeoutMs = options.timeoutMs ?? 1000;
+    request.setTimeout(timeoutMs, () => {
       request.destroy(new Error('request timeout'));
     });
   });
@@ -940,9 +943,15 @@ const server = http.createServer(async (request, response) => {
 
   if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/persisted-sessions') {
     await startDefAgent();
+    const query = new URLSearchParams();
     const limit = requestUrl.searchParams.get('limit');
-    const suffix = limit ? `?limit=${encodeURIComponent(limit)}` : '';
-    const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`);
+    const host = requestUrl.searchParams.get('host');
+    if (limit) query.set('limit', limit);
+    if (host === 'ai-cli' || host === 'workbench') query.set('host', host);
+    const suffix = query.size ? `?${query.toString()}` : '';
+    const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`, {
+      timeoutMs: PERSISTED_DEF_SESSION_LIST_TIMEOUT_MS,
+    });
     writeJson(response, upstream.status || 500, upstream.body);
     return;
   }

@@ -818,6 +818,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     const persistedFixtures = [];
     const fakeSessions = new Map();
     const fakeRequests = [];
+    let delayNextPersistedHistoryRead = false;
     const eventResponses = new Set();
     const jsonResponse = (response, status, body) => {
       response.writeHead(status, { 'content-type': 'application/json', connection: 'close' });
@@ -864,7 +865,13 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       if (request.method === 'GET' && sessionMatch) {
         const sessionID = decodeURIComponent(sessionMatch[1]);
         const session = fakeSessions.get(sessionID);
-        jsonResponse(response, session ? 200 : 404, session || { message: 'session not found' });
+        const reply = () => jsonResponse(response, session ? 200 : 404, session || { message: 'session not found' });
+        if (delayNextPersistedHistoryRead && sessionID.startsWith('persisted-history-')) {
+          delayNextPersistedHistoryRead = false;
+          setTimeout(reply, 1100);
+          return;
+        }
+        reply();
         return;
       }
       jsonResponse(response, 404, { message: 'not found' });
@@ -877,19 +884,20 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     assert(fakeAddress && typeof fakeAddress === 'object');
     const fakeOpenCodeBaseUrl = `http://127.0.0.1:${fakeAddress.port}`;
 
-    const registerFakeSession = (sessionID, directory) => {
+    const registerFakeSession = (sessionID, directory, host = 'ai-cli') => {
+      const isWorkbench = host === 'workbench';
       fakeSessions.set(sessionID, {
         id: sessionID,
         title: sessionID,
         directory,
-        agent: 'def-operator',
+        agent: isWorkbench ? 'def-workbench' : 'def-operator',
         model: { providerID: 'deepseek', modelID: 'deepseek-v4-pro' },
         metadata: {
           defOpencode: true,
           app: 'dmg-end-field',
           schemaVersion: 1,
-          skillId: 'operator',
-          host: 'ai-cli',
+          skillId: isWorkbench ? 'workbench' : 'operator',
+          host,
           thinkingEffort: 'medium',
         },
         time: { created: Date.now(), updated: Date.now() },
@@ -917,6 +925,18 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     let liveReplacementBackup = '';
     try {
       const legalSealed = createPersistedFixture('legal-sealed');
+      const workbenchDirectory = createAgentSessionWorkspace('workbench');
+      sidecarDirectories.push(workbenchDirectory);
+      const workbenchSessionID = 'persisted-workbench';
+      const workbenchHarnessBinding = makeHarnessBinding(workbenchSessionID, 'stable', stableHarnessRef);
+      writeSessionBinding(workbenchDirectory, {
+        id: workbenchSessionID,
+        agent: 'def-workbench',
+        skillId: 'workbench',
+        harnessBinding: workbenchHarnessBinding,
+        agentRelease: agentReleaseFor(workbenchHarnessBinding),
+      });
+      registerFakeSession(workbenchSessionID, workbenchDirectory, 'workbench');
       const liveThenTampered = createPersistedFixture('live-then-tampered');
       const liveThenReplaced = createPersistedFixture('live-then-directory-replaced');
       const invalidSeal = createPersistedFixture('invalid-seal');
@@ -996,6 +1016,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       const persistedIDs = new Set(persisted.map((session) => session.sessionID));
       assert(persistedIDs.has(legalSealed.sessionID), 'a legal sealed stable Session must remain listable');
       assert(persistedIDs.has(legacySessionID), 'a strict legacy stable Session must remain listable');
+      assert(persistedIDs.has(workbenchSessionID), 'the unfiltered API must retain valid Workbench Sessions');
       for (const fixture of invalidFixtures) {
         assert.equal(findNativeSessionBinding(fixture.sessionID), null,
           `${fixture.label} must be absent from safe Session binding lookup`);
@@ -1020,6 +1041,57 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
           `${fixture.label} must not be continuable`,
         );
       }
+
+      // Shell cleanup needs only ai-cli sessions. A substantial retained
+      // history must still be discoverable without validating a Workbench
+      // Session through OpenCode.
+      const historyRoot = path.dirname(legalSealed.directory);
+      const historyCount = 120;
+      const historySessionIDs = new Set();
+      for (let index = 0; index < historyCount; index += 1) {
+        const sessionID = `persisted-history-${String(index).padStart(3, '0')}`;
+        const directory = path.join(historyRoot, `history-${String(index).padStart(3, '0')}`);
+        fs.mkdirSync(directory);
+        sidecarDirectories.push(directory);
+        const harnessBinding = makeHarnessBinding(sessionID, 'stable', stableHarnessRef);
+        writeSessionBinding(directory, {
+          id: sessionID,
+          agent: 'def-operator',
+          skillId: 'operator',
+          harnessBinding,
+          agentRelease: agentReleaseFor(harnessBinding),
+        });
+        registerFakeSession(sessionID, directory);
+        historySessionIDs.add(sessionID);
+      }
+      fakeRequests.length = 0;
+      delayNextPersistedHistoryRead = true;
+      const retainedAiCli = await listPersistedDefSessions({
+        config: { apiKey: 'contract-only' },
+        host: 'ai-cli',
+        limit: 1000,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      const retainedAiCliIDs = new Set(retainedAiCli.map((session) => session.sessionID));
+      assert.equal(retainedAiCli.every((session) => session.host === 'ai-cli'), true,
+        'a Shell-targeted persisted Session read must never include Workbench Sessions');
+      assert.equal(retainedAiCliIDs.has(workbenchSessionID), false,
+        'host filtering happens before OpenCode validation requests');
+      assert.equal(Array.from(historySessionIDs).every((sessionID) => retainedAiCliIDs.has(sessionID)), true,
+        'a large historical ai-cli directory remains listable when a cold OpenCode read exceeds the old one-second bridge window');
+      assert.equal(fakeRequests.some((request) => request.pathname.endsWith(`/${encodeURIComponent(workbenchSessionID)}`)), false,
+        'the ai-cli scan does not spend an upstream request on Workbench history');
+      const newestHistoryID = 'persisted-history-000';
+      fakeSessions.get(newestHistoryID).time.updated = Date.now() + 60_000;
+      const newestAiCli = await listPersistedDefSessions({
+        config: { apiKey: 'contract-only' },
+        host: 'ai-cli',
+        limit: 1,
+        openCodeBaseUrl: fakeOpenCodeBaseUrl,
+      });
+      assert.deepEqual(newestAiCli.map((session) => session.sessionID), [newestHistoryID],
+        'the retained-session limit is applied after real OpenCode updatedAt ordering, never directory enumeration order');
+
       assert.equal(fakeRequests.some((request) => request.pathname === '/session'), false,
         'persisted get must never fall back to unbound OpenCode roots discovery');
       for (const fixture of invalidFixtures) {
