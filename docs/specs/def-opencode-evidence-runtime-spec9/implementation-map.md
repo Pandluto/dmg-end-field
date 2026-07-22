@@ -2,10 +2,12 @@
 
 ## 状态
 
-`READY_TO_DISPATCH`
+`INTEGRATED_AWAITING_W6`
 
-源码盘点、修复合入、文件锁和基线自动验证已经完成。
-本次 map 更新提交是编码分发凭证。
+W1–W4 与 WS 已完成并合入同一集成分支。
+W5 已接通跨包注册合同与标准测试入口。
+当前只等待 W6 fresh-session、Interop 与真实界面证据。
+候选尚未 promotion，正式激活仍需用户决定。
 
 当前已知提交：
 
@@ -15,10 +17,28 @@
 | 源码盘点基线 | `0a01c19fd67bb27f603d4cc596601bfbe394a4f3` | 本文符号、调用方和旧测试的盘点对象 |
 | Session ownership 修复候选 | `c66875086fdae28ce80f64a065a450d02462015c` | 已合入；same-session delete 自动合同 PASS |
 | `SOURCE_BASELINE_COMMIT` | `7c751740f27e1a8af4a2456520677c4e46d6efc5` | 同时包含最新 Spec 9 与 Session ownership 修复 |
-| `DISPATCH_COMMIT` | 本次 `READY_TO_DISPATCH` map 提交 | W0 在每份分发信封中写入提交后的精确 SHA |
+| `DISPATCH_COMMIT` | `772a4dc912b7d4361c108f968a28c0ae5bc4c134` | W1–W4 与 WS 的共同分发点 |
 
-W1–W4 与 WS 必须从同一个精确 `DISPATCH_COMMIT` 建分支。
-不得使用分支名或 `SOURCE_BASELINE_COMMIT` 代替它。
+全部工作包均从同一个精确 `DISPATCH_COMMIT` 开始。
+集成后的实际提交如下：
+
+| 工作包 | 集成提交 | 归属结论 |
+| --- | --- | --- |
+| W1 Core + Service | `57fa1e5ff136e4e0411a7f7490358adaf1a8e460`、`3ab9598e276349f06b566c94770ce35888979f10` | Domain 与 Service 是 recommendation 算法的唯一 owner；REST 只保留 composition 与 legacy adapter |
+| W2 Tool Surface | `585e18a9b554a70401f0732842c469d77ceb45b9`、`942ed9dbba6c7c3a6fba189c8028da99833dcbb3`、`1ddee1ceb6d1858f85295d06c45d2b3c1adcd602` | 新增 V1 Tool、Schema 与 typed mapping；三个旧 primitive 继续兼容 |
+| W3 Runtime + Harness | `ef50ed51644fc4e3e763ac2832b508e4e41e7ae1`、`3e5971edadce7d2edcd07e3b8653ec2581e51cf4` | 候选为 `def-equipment-3plus1-composite@9.1.0-candidate.1`；不修改 stable pointer |
+| W4 Teacher Audit | `2f8ade5d0a68d60a7a1a2216cff298d555482bbb` | Finding 按 Tool、Domain、Runtime 的唯一 owner 返修 |
+| WS Session Cleanup | `e218f41ef0aade29ea2486df7a99e88ab9da3fdd` | Host 手动清理入口；保留当前 Session 与全部 Workbench Session |
+
+W3 候选的真实 `contentHash` 只能由干净 W5 提交重新构建取得。
+该值记录在 `verification.md`，不得沿用工作包构建时的临时值。
+
+旧的 shortlist、facts、plan 三个 primitive 当前均为
+`COMPATIBILITY_RETAINED`，不是 `internalized` 或 `retired`。
+
+Session cleanup 固定为 `POST /api/native/sessions/cleanup`。
+它只接受 `{ host: "ai-cli", keepSessionID }`，且只由用户点击触发。
+本轮不做归档、TTL、自动过期或后台清扫。
 
 Windows Chrome UI 验收使用了隔离 AppData。
 页面成功进入选人界面，但创建隔离工作台时被
@@ -26,9 +46,9 @@ Windows Chrome UI 验收使用了隔离 AppData。
 该项记为 `ENVIRONMENT_BLOCKED`，不记为产品 PASS 或 FAIL。
 用户已明确授权编码继续；真实 UI 结论仍由 W6 补齐。
 
-## 一、真正的开工门
+## 一、已经完成的开工门
 
-W0 必须按顺序完成：
+以下是 W0 已执行的分发基线流程：
 
 1. 重跑 `c668750` 的自动合同，并按当前 Windows Chrome 路径做隔离 UI 验收。
 2. 产品失败必须先修；环境阻塞只有在如实记录且用户明确授权后才能递延到 W6。
