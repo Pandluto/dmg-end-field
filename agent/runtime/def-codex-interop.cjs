@@ -8,6 +8,11 @@ const CAPABILITIES = Object.freeze([
   'transcript.read', 'state.read', 'questions.read', 'ui-events.subscribe',
 ]);
 const CLIENT_TURN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+// Native transcript reads may wait for OpenCode to resolve a session message.
+// Keep that allowance local to Interop observation: the bridge's normal GET
+// budget remains deliberately short, and no observation may retry forever.
+const NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS = 30000;
+const NATIVE_INTEROP_OBSERVATION_RETRIES = 0;
 
 function createError(code, message, component, options = {}) {
   return {
@@ -73,6 +78,31 @@ function createDefCodexInteropProtocol(options) {
 
   const developmentOnly = isDevelopmentProfile(options.profile);
   const baseUrl = options.baseUrl.replace(/\/$/, '');
+  const nativeInteropObservationTimeoutMs = Number.isFinite(Number(options.nativeInteropObservationTimeoutMs))
+    && Number(options.nativeInteropObservationTimeoutMs) > 0
+    ? Math.min(Math.floor(Number(options.nativeInteropObservationTimeoutMs)), NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS)
+    : NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS;
+
+  function nativeInteropObservationOptions() {
+    return {
+      timeoutMs: nativeInteropObservationTimeoutMs,
+      retries: NATIVE_INTEROP_OBSERVATION_RETRIES,
+    };
+  }
+
+  function readNativeInteropTranscript(sessionId) {
+    return options.fetchJson(
+      `${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`,
+      nativeInteropObservationOptions(),
+    );
+  }
+
+  function readNativeInteropQuestions(sessionId) {
+    return options.fetchJson(
+      `${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-questions`,
+      nativeInteropObservationOptions(),
+    );
+  }
 
   function idsFor(record = {}) {
     return {
@@ -367,8 +397,8 @@ function createDefCodexInteropProtocol(options) {
       if (record.status !== 'accepted') return;
       try {
         const [upstream, questions] = await Promise.all([
-          options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`),
-          options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-questions`).catch(() => ({ status: 0, body: null })),
+          readNativeInteropTranscript(record.sessionId),
+          readNativeInteropQuestions(record.sessionId).catch(() => ({ status: 0, body: null })),
         ]);
         if (record.status !== 'accepted') return;
         const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
@@ -534,7 +564,7 @@ function createDefCodexInteropProtocol(options) {
     run.turns.push(record);
     turnsByClient.set(idempotencyKey, record);
     try {
-      const baseline = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(record.sessionId)}/interop-transcript`);
+      const baseline = await readNativeInteropTranscript(record.sessionId);
       const messages = Array.isArray(baseline.body?.messages) ? baseline.body.messages : [];
       record.transcriptBaselineKnown = baseline.status >= 200 && baseline.status < 300;
       record.transcriptBaselineIds = new Set(messages.map(messageId).filter(Boolean));
@@ -773,7 +803,17 @@ function createDefCodexInteropProtocol(options) {
       const sessionId = decodeURIComponent(transcriptMatch[1]);
       const run = runs.get(sessionId);
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
-      const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`);
+      let upstream;
+      try {
+        upstream = await readNativeInteropTranscript(sessionId);
+      } catch {
+        reject(response, 502, createError('native-transcript-observation-unavailable', 'OpenCode native transcript could not be read within the bounded observation window.', 'sidecar', {
+          retryable: true,
+          ids: { testRunId: run.testRunId, sessionId },
+          nextAction: 'Check sidecar status, then retry transcript observation.',
+        }));
+        return true;
+      }
       reconcileTranscriptCompletion(run, upstream.body?.messages);
       json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), submissionState: turn.submissionState || 'accepted', status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
@@ -783,7 +823,17 @@ function createDefCodexInteropProtocol(options) {
       const sessionId = decodeURIComponent(questionsMatch[1]);
       const run = runs.get(sessionId);
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
-      const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-questions`);
+      let upstream;
+      try {
+        upstream = await readNativeInteropQuestions(sessionId);
+      } catch {
+        reject(response, 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read within the bounded observation window.', 'sidecar', {
+          retryable: true,
+          ids: { testRunId: run.testRunId, sessionId },
+          nextAction: 'Check sidecar status, then retry question observation.',
+        }));
+        return true;
+      }
       if (upstream.status < 200 || upstream.status >= 300) {
         reject(response, upstream.status === 404 ? 404 : 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read.', 'sidecar', { retryable: upstream.status >= 500 || upstream.status === 0, ids: { testRunId: run.testRunId, sessionId }, nextAction: 'Check sidecar status, then retry question observation.' })); return true;
       }
