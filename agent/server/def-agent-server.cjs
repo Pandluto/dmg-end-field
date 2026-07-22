@@ -35,7 +35,11 @@ const {
   buildWorkbenchContextSystemPrompt,
 } = require('./workbench-system-prompts.cjs');
 const { isAuthorizedNativeSessionCleanupRequest } = require('./native-session-cleanup-auth.cjs');
-const { createNativeSessionAdmissionGate } = require('./native-session-admission.cjs');
+const {
+  createNativeSessionAdmissionGate,
+  evaluateNativeSessionAdmissionObservation,
+  nativeMessageID,
+} = require('./native-session-admission.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -535,15 +539,6 @@ function serveOpenCodeUi(request, response, requestUrl) {
   return true;
 }
 
-function nativeMessageInfo(message) {
-  return message?.info && typeof message.info === 'object' ? message.info : message || {};
-}
-
-function nativeMessageID(message) {
-  const id = nativeMessageInfo(message)?.id;
-  return typeof id === 'string' ? id : '';
-}
-
 async function fetchNativeSessionMessages(runtime, binding, sessionID) {
   const response = await fetch(
     `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/message?directory=${encodeURIComponent(binding.directory)}`,
@@ -583,58 +578,19 @@ async function captureNativeSessionAdmissionBaseline(admission, runtime, binding
   }
 }
 
-function findNativeAdmissionUserMessage(admission, messages) {
-  if (!admission.baselineKnown || !admission.baselineMessageIds) return null;
-  return messages.findLast((message) => {
-    const info = nativeMessageInfo(message);
-    return info?.role === 'user' && !admission.baselineMessageIds.has(nativeMessageID(message));
-  }) || null;
-}
-
-function isNativeAdmissionAssistantTerminal(message, userMessageID) {
-  const info = nativeMessageInfo(message);
-  if (info?.role !== 'assistant' || info?.parentID !== userMessageID) return false;
-  return Boolean(info?.error || info?.time?.completed || info?.completedAt);
-}
-
 async function observeNativeSessionAdmission(admission, runtime, binding) {
   const [statusResult, transcriptResult] = await Promise.allSettled([
     fetchNativeSessionStatus(runtime, binding),
     fetchNativeSessionMessages(runtime, binding, admission.sessionID),
   ]);
   const statuses = statusResult.status === 'fulfilled' ? statusResult.value : null;
-  const currentStatus = statuses?.[admission.sessionID] || null;
-  if (currentStatus && currentStatus.type !== 'idle') admission.observedBusy = true;
-
   const messages = transcriptResult.status === 'fulfilled' ? transcriptResult.value : null;
-  if (Array.isArray(messages)) {
-    const userMessage = admission.nativeUserMessageID
-      ? messages.find((message) => nativeMessageID(message) === admission.nativeUserMessageID) || null
-      : findNativeAdmissionUserMessage(admission, messages);
-    if (userMessage) {
-      admission.nativeUserMessageID = nativeMessageID(userMessage);
-      admission.observedUserMessage = true;
-      if (messages.some((message) => isNativeAdmissionAssistantTerminal(message, admission.nativeUserMessageID))) {
-        return { terminal: true, reason: 'native-message-terminal' };
-      }
-    }
-  }
-
-  if (admission.observedBusy && statuses && (!currentStatus || currentStatus.type === 'idle')) {
-    return { terminal: true, reason: 'native-session-idle' };
-  }
-
-  // prompt_async forks before its user message exists. If the native session
-  // remains idle through the bounded start window, the accepted operation did
-  // not start (or failed before a run), so retaining this reservation would be
-  // a stale lock rather than protection for an active turn.
-  if (!admission.observedBusy
-    && statuses
-    && !currentStatus
-    && Date.now() - admission.acceptedAt >= NATIVE_SESSION_ADMISSION_START_TIMEOUT_MS) {
-    return { terminal: true, reason: admission.observedUserMessage ? 'native-session-idle-before-run' : 'native-prompt-not-started' };
-  }
-  return null;
+  return evaluateNativeSessionAdmissionObservation(admission, {
+    statuses,
+    messages,
+    now: Date.now(),
+    startTimeoutMs: NATIVE_SESSION_ADMISSION_START_TIMEOUT_MS,
+  });
 }
 
 function scheduleNativeSessionAdmissionWatch(admission, runtime, binding) {

@@ -16,6 +16,61 @@ function turnInProgressError(sessionID, active) {
   return error;
 }
 
+function nativeMessageInfo(message) {
+  return message?.info && typeof message.info === 'object' ? message.info : message || {};
+}
+
+function nativeMessageID(message) {
+  const id = nativeMessageInfo(message)?.id;
+  return typeof id === 'string' ? id : '';
+}
+
+function findAdmissionUserMessage(entry, messages) {
+  if (!entry.baselineKnown || !entry.baselineMessageIds) return null;
+  return messages.findLast((message) => {
+    const info = nativeMessageInfo(message);
+    return info?.role === 'user' && !entry.baselineMessageIds.has(nativeMessageID(message));
+  }) || null;
+}
+
+function evaluateNativeSessionAdmissionObservation(entry, input = {}) {
+  const statuses = input.statuses && typeof input.statuses === 'object' ? input.statuses : null;
+  const currentStatus = statuses?.[entry.sessionID] || null;
+  if (currentStatus && currentStatus.type !== 'idle') entry.observedBusy = true;
+
+  const messages = Array.isArray(input.messages) ? input.messages : null;
+  if (messages) {
+    const userMessage = entry.nativeUserMessageID
+      ? messages.find((message) => nativeMessageID(message) === entry.nativeUserMessageID) || null
+      : findAdmissionUserMessage(entry, messages);
+    if (userMessage) {
+      entry.nativeUserMessageID = nativeMessageID(userMessage);
+      entry.observedUserMessage = true;
+      for (const message of messages) {
+        const info = nativeMessageInfo(message);
+        if (info?.role !== 'assistant' || info?.parentID !== entry.nativeUserMessageID) continue;
+        if (info?.time?.completed || info?.completedAt || info?.error) entry.observedAssistantStep = true;
+        if (info?.error) entry.observedAssistantError = true;
+      }
+    }
+  }
+
+  if (statuses && (!currentStatus || currentStatus.type === 'idle')) {
+    // A tool turn can contain several completed assistant messages. Their
+    // completion only proves that a step ran; OpenCode's session status is the
+    // authority for whether the entire user turn has finished.
+    if (entry.observedBusy) return { terminal: true, reason: 'native-session-idle' };
+    if (entry.observedAssistantError) return { terminal: true, reason: 'native-assistant-error-idle' };
+    if (entry.observedAssistantStep) return { terminal: true, reason: 'native-session-idle-after-step' };
+
+    const now = Number.isFinite(input.now) ? input.now : Date.now();
+    if (!entry.observedUserMessage && !entry.observedBusy && now - entry.acceptedAt >= input.startTimeoutMs) {
+      return { terminal: true, reason: 'native-prompt-not-started' };
+    }
+  }
+  return null;
+}
+
 function createNativeSessionAdmissionGate(options = {}) {
   const activeBySession = new Map();
   const now = typeof options.now === 'function' ? options.now : Date.now;
@@ -92,5 +147,7 @@ function createNativeSessionAdmissionGate(options = {}) {
 
 module.exports = {
   createNativeSessionAdmissionGate,
+  evaluateNativeSessionAdmissionObservation,
+  nativeMessageID,
   turnInProgressError,
 };
