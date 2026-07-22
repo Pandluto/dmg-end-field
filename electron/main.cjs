@@ -17,6 +17,7 @@ const {
   validateReferenceArchiveReleaseManifest,
 } = require('./data-management-service.cjs');
 const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
+const { fetchNativeLoopbackUrl } = require('./native-loopback-transport.cjs');
 const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
@@ -647,7 +648,11 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
     return true;
   }
   const body = method === 'POST' ? JSON.stringify(await readJsonRequest(request)) : undefined;
-  const upstream = await fetchUrlRawWithRetry(upstreamUrl, {
+  // This is a private native-host hop after renderer capability verification.
+  // Do not route its internal authority through Chromium's default session:
+  // that session may apply proxy/request-interception policy intended for
+  // user-facing web traffic, which can strip or replace the capability.
+  const upstream = await fetchNativeLoopbackUrl(upstreamUrl, {
     method,
     headers: {
       'x-def-internal-token': defInternalGovernanceToken,
@@ -658,7 +663,6 @@ async function proxyMainWorkbenchRendererTransport(request, response, requestUrl
     },
     body,
     timeoutMs: 10000,
-    retries: 0,
   });
   response.writeHead(upstream.statusCode || 502, {
     ...buildJsonHeaders(response),
