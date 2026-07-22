@@ -8,7 +8,10 @@ import {
 } from '../agent/runtime/def-tools/atomic-team-candidate.mjs';
 import { buildGuideTeamLoadoutExactPatch } from '../agent/runtime/def-tools/guide-team-loadout-patch.mjs';
 import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/def-tools/team-product-recheck.mjs';
-import { verifyDefOperatorConfigPreparedPayload } from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
+import {
+  verifyDefOperatorConfigPreparedPayload,
+  verifyDefOperatorConfigPreviewTarget,
+} from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -103,6 +106,39 @@ await assertTeamSize(4);
   assert.equal(prepared.ok, false);
   assert.equal(prepared.code, 'operator-config-preview-payload-mismatch');
   assert.equal(createCount, 0, 'team payload mismatch must block before candidate branch creation');
+}
+
+{
+  const parent = parentPayload(2);
+  const wrongTargetPreview = {
+    parentNodeId: 'parent-P',
+    parentRevision: 41,
+    preparedPayload: structuredClone(parent),
+    finalConfig: { characterId: 'char-2', characterName: 'After 2' },
+  };
+  wrongTargetPreview.preparedPayload.operatorConfigPageCache['char-2'] = {
+    operator: { id: 'char-2', name: 'After 2' },
+  };
+  let createCount = 0;
+  const prepared = await prepareAtomicTeamCandidate({
+    parentPayload: parent,
+    parentNodeId: 'parent-P',
+    parentRevision: 41,
+    patches: [{ characterId: 'char-1', characterName: 'After 1' }],
+    previewPatch: async (patch) => {
+      const targetVerification = verifyDefOperatorConfigPreviewTarget(patch, wrongTargetPreview);
+      return targetVerification.pass
+        ? { ok: true, ...wrongTargetPreview }
+        : { ok: false, code: 'operator-config-preview-target-mismatch', targetVerification };
+    },
+    createCandidate: () => {
+      createCount += 1;
+      return { ok: true, value: { id: 'must-not-exist' } };
+    },
+  });
+  assert.equal(prepared.ok, false);
+  assert.equal(prepared.code, 'operator-config-preview-target-mismatch');
+  assert.equal(createCount, 0, 'a team renderer target swap must block before candidate creation');
 }
 
 {

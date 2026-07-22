@@ -8,6 +8,12 @@ export interface OperatorConfigWeaponProduct extends OperatorConfigWeaponIdentit
   raw: Record<string, unknown>;
 }
 
+export type OperatorConfigSnapshotWithWeaponIdentity<
+  TSnapshot extends { weapon: OperatorConfigWeaponIdentity },
+> = Omit<TSnapshot, 'weapon'> & {
+  weapon: Omit<TSnapshot['weapon'], 'id' | 'name'> & OperatorConfigWeaponIdentity;
+};
+
 export class OperatorConfigWeaponIdentityError extends Error {
   readonly code: string;
 
@@ -76,14 +82,13 @@ export function resolveOperatorConfigWeaponIdentity(
 }
 
 export function applyOperatorConfigWeaponIdentityToSnapshot<
-  TWeapon extends object,
-  TSnapshot extends { weapon: TWeapon },
+  TSnapshot extends { weapon: OperatorConfigWeaponIdentity },
 >(
   snapshot: TSnapshot,
   rawLibrary: unknown,
   requested: Partial<OperatorConfigWeaponIdentity>,
 ): {
-  snapshot: Omit<TSnapshot, 'weapon'> & { weapon: TWeapon & OperatorConfigWeaponIdentity };
+  snapshot: OperatorConfigSnapshotWithWeaponIdentity<TSnapshot>;
   product: OperatorConfigWeaponProduct;
 } {
   const product = resolveOperatorConfigWeaponIdentity(rawLibrary, requested);
@@ -96,6 +101,6 @@ export function applyOperatorConfigWeaponIdentityToSnapshot<
         id: product.id,
         name: product.name,
       },
-    },
+    } as OperatorConfigSnapshotWithWeaponIdentity<TSnapshot>,
   };
 }

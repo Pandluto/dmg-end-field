@@ -22,6 +22,7 @@ import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
 import {
   applyOperatorConfigWeaponIdentityToSnapshot,
   indexOperatorConfigWeaponProductsById,
+  type OperatorConfigSnapshotWithWeaponIdentity,
 } from './operatorConfigWeaponIdentity';
 
 type EquipmentPart = '护甲' | '护手' | '配件';
@@ -366,12 +367,11 @@ function resolveWeaponData(weaponId: string, weaponName: string, weaponLibrary: 
 }
 
 export function applyOperatorConfigWeaponSelectionToSnapshot<
-  TWeapon extends object,
-  TSnapshot extends { weapon: TWeapon },
+  TSnapshot extends { weapon: { id: string; name: string } },
 >(
   snapshot: TSnapshot,
   requested: { weaponId?: string; weaponName?: string },
-): Omit<TSnapshot, 'weapon'> & { weapon: TWeapon & { id: string; name: string } } {
+): OperatorConfigSnapshotWithWeaponIdentity<TSnapshot> {
   return applyOperatorConfigWeaponIdentityToSnapshot(
     snapshot,
     readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}),

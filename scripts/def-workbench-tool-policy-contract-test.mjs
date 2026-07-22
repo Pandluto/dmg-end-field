@@ -131,6 +131,7 @@ function fixturePayload(sentinel) {
     allBuffList: [{ id: `buff-${sentinel}`, name: `Buff ${sentinel} ONLY` }],
     operatorConfigPageCache: {
       [`operator-${sentinel}`]: {
+        operator: { id: `operator-${sentinel}`, name: `Operator ${sentinel} ONLY`, skillConfig: {} },
         weapon: { id: `weapon-${sentinel}`, name: `Weapon ${sentinel} ONLY`, config: { level: 90, potential: '0潜' } },
         equipment: { pieces: [{ slotKey: 'armor', equipmentId: `equipment-${sentinel}`, name: `Equipment ${sentinel} ONLY` }] },
       },
@@ -292,6 +293,7 @@ function preparePayloadForFinalConfig(parentPayload, finalConfig) {
       ...current,
       operator: {
         ...(current.operator || {}),
+        id: finalConfig.characterId,
         name: finalConfig.characterName,
         skillConfig: finalConfig.operatorSkillLevels || {},
       },
@@ -629,6 +631,41 @@ try {
   assert.equal(payloadMismatch.body.result?.code, 'operator-config-preview-payload-mismatch');
   assert.equal(Boolean(payloadMismatch.body.result?.proposalToken), false, 'a divergent prepared payload must not mint a proposal');
   assert.deepEqual(treeState(), payloadMismatchTreeBefore, 'a divergent prepared payload must block before branch creation');
+
+  const targetMismatchTreeBefore = treeState();
+  const targetMismatchPending = generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    characterName: 'Operator A ONLY',
+    weapon: { id: collisionWeaponA.id, name: collisionWeaponA.name },
+    __defTurnId: 'mismatched-renderer-target-preview',
+  }, 'session-a');
+  const targetMismatchCommand = await waitForQueuedCommand('previewOperatorConfig');
+  const targetMismatchFinalConfig = {
+    characterId: 'operator-B', characterName: 'Operator B ONLY',
+    weapon: {
+      id: collisionWeaponA.id, name: collisionWeaponA.name,
+      level: 90, potential: '0潜', skillLevels: {},
+    },
+    equipment: [], operatorSkillLevels: {},
+  };
+  await request('/api/main-workbench/commands/result', {
+    method: 'POST', internal: true,
+    body: {
+      id: targetMismatchCommand.id,
+      status: 'done',
+      result: {
+        parentNodeId: mismatchedPreviewParent.id,
+        parentRevision: mismatchedPreviewParent.contentRevision,
+        preparedPayload: preparePayloadForFinalConfig(mismatchedPreviewParent.workingPayload, targetMismatchFinalConfig),
+        finalConfig: targetMismatchFinalConfig,
+      },
+    },
+  });
+  const targetMismatch = await targetMismatchPending;
+  assert.equal(targetMismatch.status, 409, JSON.stringify(targetMismatch.body));
+  assert.equal(targetMismatch.body.result?.code, 'operator-config-preview-target-mismatch');
+  assert.equal(Boolean(targetMismatch.body.result?.proposalToken), false, 'a renderer target swap must not mint a proposal');
+  assert.deepEqual(treeState(), targetMismatchTreeBefore, 'a renderer target swap must block before branch creation');
 
   const validPreviewPending = generic('def.operator.config.preview', {
     characterId: 'operator-A',

@@ -30,7 +30,9 @@ import { recheckDefTeamProductsBeforePreparedCandidate } from '../agent/runtime/
 import {
   exactDefOperatorConfigMatches,
   extractDefOperatorConfig,
+  matchesDefOperatorConfigTarget,
   verifyDefOperatorConfigPreparedPayload,
+  verifyDefOperatorConfigPreviewTarget,
 } from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
 import {
   computeDefNodeSourceRisk,
@@ -8183,8 +8185,7 @@ function buildDefOperatorConfigPostconditions(commands, commandVerifications) {
 function verifyDefOperatorConfigTargets(configs, expectedTargets) {
   const results = expectedTargets.map((expected) => {
     const config = configs.find((candidate) => (
-      (expected.characterId && candidate?.characterId === expected.characterId)
-      || (expected.characterName && normalizeDefToolText(candidate?.characterName) === normalizeDefToolText(expected.characterName))
+      matchesDefOperatorConfigTarget(candidate, expected, normalizeDefToolText)
     ));
     const mismatches = [];
     if (!config) {
@@ -8774,15 +8775,19 @@ function verifyDefOperatorConfigRendererPreview(command, preview) {
   if (!isObject(preview?.preparedPayload) || !isObject(preview?.finalConfig)) {
     return { ok: false, code: 'operator-config-preview-invalid-result' };
   }
+  const targetVerification = verifyDefOperatorConfigPreviewTarget(command, preview, normalizeDefToolText);
+  if (!targetVerification.pass) {
+    return { ok: false, code: 'operator-config-preview-target-mismatch', targetVerification };
+  }
   const productVerification = verifyDefOperatorConfigRendererProducts(command, preview.finalConfig);
   if (!productVerification.pass) {
     return { ok: false, code: 'operator-config-preview-product-mismatch', productVerification };
   }
   const payloadVerification = verifyDefOperatorConfigPreparedPayload(preview);
   if (!payloadVerification.pass) {
-    return { ok: false, code: 'operator-config-preview-payload-mismatch', productVerification, payloadVerification };
+    return { ok: false, code: 'operator-config-preview-payload-mismatch', targetVerification, productVerification, payloadVerification };
   }
-  return { ok: true, productVerification, payloadVerification };
+  return { ok: true, targetVerification, productVerification, payloadVerification };
 }
 
 function verifyDefTimelinePreserved(before, after) {

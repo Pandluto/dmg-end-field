@@ -3,6 +3,10 @@ import fs from 'node:fs';
 import { buildDefOperatorConfigInput, executeDefOperatorConfigAtomic } from '../agent/runtime/def-tools/opencode/operator-config-input.mjs';
 import { validateMainWorkbenchCommand } from '../src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs';
 import {
+  matchesDefOperatorConfigTarget,
+  verifyDefOperatorConfigPreviewTarget,
+} from '../agent/runtime/def-tools/operator-config-preview-verification.mjs';
+import {
   applyOperatorConfigWeaponIdentityToSnapshot,
   indexOperatorConfigWeaponProductsById,
   resolveOperatorConfigWeaponIdentity,
@@ -37,6 +41,38 @@ assert.equal(validateMainWorkbenchCommand({
 assert.equal(validateMainWorkbenchCommand({
   op: 'setOperatorWeapon', characterId: 'operator', weaponId: 'weapon-beta', weaponName: 'Shared Weapon',
 }).ok, true);
+assert.equal(matchesDefOperatorConfigTarget(
+  { characterId: 'operator-B', characterName: 'Shared Operator' },
+  { characterId: 'operator-A', characterName: 'Shared Operator' },
+), false, 'direct postconditions must not accept a same-name operator with a different stable id');
+assert.equal(matchesDefOperatorConfigTarget(
+  { characterId: 'operator-A', characterName: 'Shared Operator' },
+  { characterId: 'operator-A', characterName: 'Shared Operator' },
+), true);
+const rendererTargetPreview = {
+  finalConfig: { characterId: 'operator-A', characterName: 'Shared Operator' },
+  preparedPayload: {
+    operatorConfigPageCache: {
+      'operator-A': { operator: { id: 'operator-A', name: 'Shared Operator' } },
+    },
+  },
+};
+assert.equal(verifyDefOperatorConfigPreviewTarget(
+  { characterId: 'operator-A', characterName: 'Shared Operator' }, rendererTargetPreview,
+).pass, true);
+assert.equal(verifyDefOperatorConfigPreviewTarget(
+  { characterId: 'operator-B', characterName: 'Shared Operator' }, rendererTargetPreview,
+).pass, false, 'single and team previews must reject a renderer target swap');
+assert.equal(verifyDefOperatorConfigPreviewTarget(
+  { characterId: 'operator-A' }, {
+    ...rendererTargetPreview,
+    preparedPayload: {
+      operatorConfigPageCache: {
+        'operator-A': { operator: { id: 'operator-B', name: 'Shared Operator' } },
+      },
+    },
+  },
+).pass, false, 'the prepared payload cache key must match its snapshot operator id');
 
 const args = {
   nodeTitle: '赛希更换长息加固板',
