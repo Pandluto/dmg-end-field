@@ -8,7 +8,8 @@
 | 全依赖审计 | `npm run audit:dependencies` | 是 | 是 | 可选 | 包括 Electron 构建运行时在内，无已知 high/critical advisory；moderate 单独登记与评估 |
 | 生产类型 | `npm run typecheck` | 是 | 是 | 可选 | 非测试 TypeScript 严格检查 |
 | 单元/合同 | `npm test` | 是 | 是 | 可选 | 计算、AI CLI、timeline/worktree codec 行为 |
-| Harness 基建 | `npm run harness:check` | 是 | 是 | 可选 | 不可变包、Registry、选择与安全边界 |
+| DEF 架构合同 | `npm run test:def-architecture-contracts` | 是 | 是 | 可选 | 审批、Artifact 产消、binding、current gate、bootstrap、projection、原子写入、rollback 与 reconciliation |
+| Harness 基建 | `npm run harness:check` | 是 | 是 | 可选 | 不可变包、session pinning、Agent release 一致性、模型指令 Tool 引用和 Scenario verifier |
 | 知识合同 | `npm run check:knowledge` | 是 | 是 | 可选 | allowlist search → exact section read |
 | Web 构建 | `npm run build:web` | 是 | 是 | 可选 | 前端可生产构建 |
 | 数据管理服务 | `npm run smoke:data-management` | 否 | 否 | 开发时 | SQLite 用户库、迁移、数据包与存档服务的基础行为 |
@@ -24,6 +25,10 @@
 ## 合并门
 
 所有 push/PR 必须通过 `npm run check`。对运行时、typed tool、Harness 或 persistence 的行为改动，还必须按 `docs/testing/def-agent-blackbox.md` 留下对应 Spec 的人工证据；CI 绿灯不代表这类变更已经完成。
+
+`test:def-architecture-contracts` 串行运行关键 DEF 合同。任何子命令失败都会停止整组，不能用后续成功覆盖前面的退出码。
+
+Harness regression 若缺少 `AgentReleaseV1`，或同一 run 的 turn release hash 不一致，会被判为 `INCOMPLETE`。这只能证明版本证据一致，不能替代真实任务结果。
 
 ## 发布门
 

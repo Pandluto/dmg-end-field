@@ -11,6 +11,25 @@
 
 本轮只分析架构，不修改 Agent 行为。
 
+## 收口进度（2026-07-22）
+
+本报告之后已完成第一轮确定性收口：
+
+| 原问题 | 当前状态 | 实现提交 |
+| --- | --- | --- |
+| 团队选择审批被通配放行 | 已补精确 `ask`，并扫描所有 native approval permission | `7c4195a` |
+| Artifact 多文件产消相反 | consumer 支持 1–4 个文件并逐个校验 hash | `9dc45e4` |
+| Prompt 引用幽灵 Tool | 已修正，并扫描全部模型可见指令 | `ac26fec` |
+| 当前节点相反指令 | 已改为互斥分支和唯一权威 Tool | `9eefc6e` |
+| session 按 turn 偷换 Harness | 已禁止；turn router 只保留任务分类 | `54840a8` |
+| Harness `when` 静默失效 | V1 构建时明确拒绝 | `54840a8` |
+| 完整 Agent 版本不可见 | 已增加 `AgentReleaseV1` 并接入 regression | `b2dda2d` |
+| session 读取覆盖代码副本 | 已停止刷新；实际 process plugin 纳入 release 指纹 | `b2dda2d` |
+
+另有一项事实修正：项目设置了 `OPENCODE_DISABLE_PROJECT_CONFIG=1`。session 的 `.opencode/tools/def.js` 副本并非当前 native Tool 的权威加载源；真正来源是进程级 plugin。副本覆盖仍是不合理写入，但完整运行时漂移的主要来源是进程 plugin、Skill、知识和 Host 没有整体 pin。
+
+`AgentReleaseV1` 目前选择诚实记录，而不是虚假冻结：Harness 为 `immutable`，其他 Runtime 为 `observed-not-pinned`。
+
 这里说的“训练”，不是训练模型权重。
 
 它是 Codex 观察 DEF Agent 的失败，再修改仓库，让下一轮 Agent 表现更好。

@@ -11,5 +11,6 @@ ADR 记录已经落地、对后续实现有约束力的决策。状态使用 `Pr
 | [0005](./0005-immutable-harness-session-pinning.md) | Harness 不可变并在 session 创建时 pin | Accepted |
 | [0006](./0006-bounded-knowledge-reading.md) | 知识采用 allowlist 两阶段读取 | Accepted |
 | [0007](./0007-deterministic-ci-draft-release.md) | 确定性 CI 与人工闸门 Draft Release | Accepted |
+| [0008](./0008-observed-agent-release.md) | 记录完整 Agent 组合，但只承诺 Harness pinning | Accepted |
 
 新增 ADR 使用四位编号，包含 Context、Decision、Consequences 和 Evidence。历史决策不得被静默改写。
