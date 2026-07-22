@@ -29,6 +29,35 @@ const ROOT_KEYS = new Set(['operatorQuery', 'setQuery', 'constraints', 'requirem
 const CONSTRAINT_KEYS = new Set(['requiredEquipmentQueries', 'excludedEquipmentQueries', 'compareEquipmentQueries', 'duplicateAccessoryPolicy', 'minimumSetPieces']);
 const COMPARE_KEYS = new Set(['query', 'slot']);
 const REQUIREMENT_KEYS = new Set(['kind', 'setEffect']);
+const DATA_CONTRACT_CATALOG_REJECTION_CODES = new Set(['BLOCKED_DATA_CONTRACT']);
+const ACTIVE_GAME_CATALOG_REJECTION_CODES = new Set([
+  'active-game-catalog-active-pointer-invalid',
+  'active-game-catalog-active-manifest-missing',
+  'active-game-catalog-capability-unavailable',
+  'active-game-catalog-row-invalid',
+  'active-game-catalog-payload-invalid',
+  'active-game-catalog-payload-hash-mismatch',
+]);
+const DATA_RELEASE_CATALOG_REJECTION_CODES = new Set([
+  'invalid-catalog-version',
+  'invalid-data-release-manifest',
+  'invalid-data-release-package-name',
+  'invalid-data-release-package-size',
+  'invalid-data-release-reference-archive',
+  'duplicate-data-release-reference-archive',
+  'invalid-data-release-sha256',
+  'missing-data-release-signature',
+  'invalid-data-release-signature',
+  'data-release-shell-version-incompatible',
+]);
+const CATALOG_DATABASE_REJECTION_CODES = new Set([
+  'catalog-database-not-found',
+  'catalog-data-version-mismatch',
+  'catalog-integrity-check-failed',
+  'catalog-schema-missing-table',
+  'catalog-schema-version-mismatch',
+  'catalog-sha256-mismatch',
+]);
 
 function normalizeText(value) {
   return String(value || '').normalize('NFKC').trim().replace(/\s+/gu, ' ');
@@ -43,15 +72,20 @@ function sortSourceRefs(refs) {
     .localeCompare([right.kind, right.id, right.revision || '', right.sectionId || ''].join('\u0000')));
 }
 
-function failure({ code, failureStage, message, status = 500, retryable = false, sourceRevision, nextAction } = {}) {
+function failure({ code, failureStage, message, status = 500, retryable = false, sourceRevision, details, nextAction } = {}) {
+  const defaultNextAction = status === 400 ? 'FIX_INPUT' : retryable ? 'RETRY_FRESH_TURN' : 'REPORT_AND_STOP';
+  const resolvedNextAction = ['FIX_INPUT', 'RETRY_FRESH_TURN', 'REPORT_AND_STOP'].includes(nextAction)
+    ? nextAction
+    : defaultNextAction;
   return {
     contract: ERROR_CONTRACT,
     code: code || 'equipment-3plus1-internal-error',
     failureStage: failureStage || 'build-evidence',
     retryable: retryable === true,
-    nextAction: nextAction || (status === 400 ? 'FIX_INPUT' : retryable ? 'RETRY_FRESH_TURN' : 'REPORT_AND_STOP'),
+    nextAction: resolvedNextAction,
     message: message || 'The evidence-backed equipment recommendation could not be completed.',
     ...(sourceRevision ? { sourceRevision } : {}),
+    ...(details && typeof details === 'object' && !Array.isArray(details) ? { details } : {}),
     status,
   };
 }
@@ -189,16 +223,26 @@ function portFailure(stage, value, sourceRevision) {
   });
 }
 
-function activeCatalogReaderFailure(error) {
+function classifyDataManagementCatalogRejection(error) {
   const code = typeof error?.code === 'string' ? error.code.trim() : '';
-  if (code !== 'BLOCKED_DATA_CONTRACT' && !/^(?:active-game-catalog-|catalog-)/.test(code)) return null;
+  if (DATA_CONTRACT_CATALOG_REJECTION_CODES.has(code)) return 'data-contract';
+  if (ACTIVE_GAME_CATALOG_REJECTION_CODES.has(code)) return 'active-game-catalog';
+  if (DATA_RELEASE_CATALOG_REJECTION_CODES.has(code)) return 'data-release';
+  if (CATALOG_DATABASE_REJECTION_CODES.has(code)) return 'catalog-database';
+  return null;
+}
+
+function activeCatalogReaderFailure(error) {
+  const rejectionClass = classifyDataManagementCatalogRejection(error);
+  if (!rejectionClass) return null;
   return failure({
-    code,
+    code: error.code.trim(),
     failureStage: 'capture-catalog',
     message: error instanceof Error ? error.message : 'The selected game catalog could not be read.',
     status: 409,
-    retryable: error?.retryable === true,
-    nextAction: error?.nextAction,
+    retryable: false,
+    details: error?.details,
+    nextAction: 'REPORT_AND_STOP',
   });
 }
 

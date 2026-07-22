@@ -429,6 +429,7 @@ export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA = Object.freeze({
     nextAction: { type: 'string', enum: ['FIX_INPUT', 'RETRY_FRESH_TURN', 'REPORT_AND_STOP'] },
     message: { type: 'string' },
     sourceRevision: { type: 'string' },
+    details: { type: 'object', additionalProperties: true },
   },
 });
 

@@ -93,6 +93,7 @@ assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.state.e
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.result.anyOf[1].properties.catalogEvidence.properties.exhaustive.const, true);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.result.anyOf[1].properties.requirementEvidence.items.properties.state.const, 'PROVEN');
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA.properties.contract.const, 'DefEquipmentThreePlusOneRecommendationErrorV1');
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA.properties.details.type, 'object');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA.properties.failureStage.enum, [
   'validate-input',
   'authorize-session',
