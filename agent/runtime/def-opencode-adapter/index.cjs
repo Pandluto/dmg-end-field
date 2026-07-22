@@ -10,6 +10,14 @@ const { spawn, spawnSync } = require('child_process');
 const defHarness = require('../../harness/def-harness.cjs');
 const { routeNativeTurnHarness } = require('./harness-turn-router.cjs');
 const { createAgentRelease } = require('./agent-release.cjs');
+const {
+  SESSION_HARNESS_SEAL_KEY_ENV,
+  createSessionHarnessSeal,
+  ensurePersistentSessionHarnessSealKey,
+  normalizeSealKey,
+  sameSessionHarnessIdentity,
+  verifySessionHarnessSeal,
+} = require('./session-harness-seal.cjs');
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
@@ -30,8 +38,11 @@ const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode'
 const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
 const harnessRuntimeRoot = path.join(projectRoot, '.runtime', 'def-harness');
 const harnessBaselineSource = path.join(projectRoot, 'agent', 'harness', 'baseline', 'stable-v0');
+const sessionHarnessSealKeyFile = path.join(runtimeLogDir, 'session-harness-seal.key');
 const nativeHarnessLoader = defHarness.createLoader(harnessRuntimeRoot);
 const nativeHarnessBySession = new Map();
+let sessionHarnessSealKey = '';
+let sessionHarnessSealKeySignature = '';
 
 const capabilityPolicy = {
   name: 'def-runtime-native-tools-v2',
@@ -410,8 +421,23 @@ function getDefOpenCodeHome() {
   return path.resolve(configured || defaultDefOpenCodeHome);
 }
 
-function buildOpenCodeRuntimeEnv(openCodeConfig) {
-  const home = getDefOpenCodeHome();
+function getSessionHarnessSealKey() {
+  let signature = '';
+  try {
+    const stat = fs.statSync(sessionHarnessSealKeyFile);
+    signature = `${stat.size}:${stat.mtimeMs}`;
+  } catch {
+    signature = 'missing';
+  }
+  if (sessionHarnessSealKey && signature === sessionHarnessSealKeySignature) return sessionHarnessSealKey;
+  sessionHarnessSealKey = ensurePersistentSessionHarnessSealKey(sessionHarnessSealKeyFile);
+  const stat = fs.statSync(sessionHarnessSealKeyFile);
+  sessionHarnessSealKeySignature = `${stat.size}:${stat.mtimeMs}`;
+  return sessionHarnessSealKey;
+}
+
+function buildOpenCodeRuntimeEnv(openCodeConfig, options = {}) {
+  const home = path.resolve(options.openCodeHome || getDefOpenCodeHome());
   const dataHome = path.join(home, 'data');
   const stateHome = path.join(home, 'state');
   const cacheHome = path.join(home, 'cache');
@@ -420,6 +446,10 @@ function buildOpenCodeRuntimeEnv(openCodeConfig) {
   for (const dir of [dataHome, stateHome, cacheHome, configHome, path.dirname(dbPath)]) {
     fs.mkdirSync(dir, { recursive: true });
   }
+  const configuredSealKey = options.harnessSealKey === undefined
+    ? getSessionHarnessSealKey()
+    : normalizeSealKey(options.harnessSealKey);
+  if (!configuredSealKey) throw new Error('DEF Session Harness seal key is unavailable.');
   return {
     ...process.env,
     XDG_DATA_HOME: dataHome,
@@ -430,6 +460,8 @@ function buildOpenCodeRuntimeEnv(openCodeConfig) {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_SHARE: '1',
     OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
+    DEF_HARNESS_RUNTIME_ROOT: path.resolve(options.harnessRuntimeRoot || harnessRuntimeRoot),
+    [SESSION_HARNESS_SEAL_KEY_ENV]: configuredSealKey,
   };
 }
 
@@ -616,7 +648,13 @@ function waitForOpenCodeReady(child, timeoutMs = 30000) {
 
 async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
   const openCodeConfig = buildOpenCodeConfig(config);
-  const nextHash = hashConfig({ config: openCodeConfig, opencodeHome: getDefOpenCodeHome() });
+  const harnessSealKey = getSessionHarnessSealKey();
+  const nextHash = hashConfig({
+    config: openCodeConfig,
+    opencodeHome: getDefOpenCodeHome(),
+    harnessRuntimeRoot,
+    harnessSealKeyHash: crypto.createHash('sha256').update(harnessSealKey).digest('hex'),
+  });
   if (processRunning(opencodeProcess) && opencodeConfigHash === nextHash && opencodeReadyUrl) {
     return opencodeReadyUrl;
   }
@@ -646,7 +684,7 @@ async function ensureOpenCodeServer(config, skillId, thinkingEffort) {
       `--port=${opencodeReadyPort}`,
     ], {
       cwd: directory,
-      env: buildOpenCodeRuntimeEnv(openCodeConfig),
+      env: buildOpenCodeRuntimeEnv(openCodeConfig, { harnessSealKey, harnessRuntimeRoot }),
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
@@ -792,6 +830,30 @@ function resolveNativeHarness(selector = 'stable') {
   return nativeHarnessLoader.resolve(selector || 'stable');
 }
 
+function isStrictLegacyStableHarnessBinding(binding) {
+  const pinned = binding?.harnessBinding;
+  const releaseHarness = binding?.agentRelease?.harness;
+  return Boolean(
+    !binding?.harnessIdentitySeal
+    && Number(binding?.schemaVersion) === 5
+    && typeof binding?.sessionID === 'string'
+    && binding.sessionID
+    && typeof binding?.directory === 'string'
+    && path.isAbsolute(binding.directory)
+    && pinned?.kind === defHarness.BINDING_SCHEMA
+    && Number(pinned.schemaVersion) === defHarness.SCHEMA_VERSION
+    && pinned.sessionId === binding.sessionID
+    && pinned.selector === 'stable'
+    && pinned.harness?.harnessId === 'def-stable'
+    && typeof pinned.harness.version === 'string'
+    && pinned.harness.version
+    && /^[a-f0-9]{64}$/.test(String(pinned.harness.contentHash || ''))
+    && Number(pinned.harness.schemaVersion) === defHarness.SCHEMA_VERSION
+    && (!releaseHarness
+      || (releaseHarness.selector === 'stable' && defHarness.sameRef(releaseHarness.ref, pinned.harness)))
+  );
+}
+
 function getNativeHarnessSystem(binding, userText = '') {
   const pinned = binding?.harnessBinding;
   if (!pinned?.harness?.harnessId || !pinned?.harness?.version || !pinned?.harness?.contentHash) return { system: '', binding: null, warning: null };
@@ -800,7 +862,17 @@ function getNativeHarnessSystem(binding, userText = '') {
     error.code = 'HARNESS_BINDING_INVALID';
     throw error;
   }
-  const turnRoute = routeNativeTurnHarness(binding, userText);
+  const harnessSealKey = getSessionHarnessSealKey();
+  if (!isStrictLegacyStableHarnessBinding(binding)
+    && !verifySessionHarnessSeal(binding, harnessSealKey)) {
+    const error = new Error('native-harness-session-seal-invalid');
+    error.code = 'HARNESS_BINDING_INVALID';
+    throw error;
+  }
+  const turnRoute = routeNativeTurnHarness(binding, userText, {
+    runtimeRoot: harnessRuntimeRoot,
+    sealKey: harnessSealKey,
+  });
   const cacheKey = `${binding.sessionID}:${pinned.harness.contentHash}`;
   let loaded = nativeHarnessBySession.get(cacheKey);
   if (!loaded) {
@@ -969,7 +1041,7 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
   const previousAgentReleaseHash = binding.agentRelease?.releaseHash || null;
   const releaseChanged = Boolean(previousAgentReleaseHash && agentRelease.releaseHash !== previousAgentReleaseHash);
   nativeHarnessBySession.set(`${session.id}:${harnessBinding.harness.contentHash}`, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, agentRelease, previousAgentReleaseHash: releaseChanged ? previousAgentReleaseHash : undefined, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
+  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, agentRelease, previousAgentReleaseHash: releaseChanged ? previousAgentReleaseHash : undefined, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId }, { allowSessionRecoveryRebind: true });
   return {
     id: session.id,
     sessionID: session.id,
@@ -1040,16 +1112,16 @@ function maintainNativeSessionWorkspace(directory) {
   cleanupNativeRetrievalArtifacts(directory);
 }
 
-function writeSessionBinding(directory, session) {
+function writeSessionBinding(directory, session, options = {}) {
   const existing = readJsonFile(path.join(directory, '.def-session.json'));
   const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
     ? existing.axisBindingId.trim()
     : `axis-${crypto.randomUUID()}`;
-  fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
+  const binding = {
     schemaVersion: 5,
     sessionID: session.id,
     axisBindingId,
-    directory,
+    directory: path.resolve(directory),
     agent: session.agent,
     skillId: session.skillId,
     host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
@@ -1061,7 +1133,48 @@ function writeSessionBinding(directory, session) {
     ...(typeof session.timelineId === 'string' && session.timelineId.trim() ? { timelineId: session.timelineId.trim() } : existing?.timelineId ? { timelineId: existing.timelineId } : {}),
     ...(typeof session.boundNodeId === 'string' && session.boundNodeId.trim() ? { boundNodeId: session.boundNodeId.trim() } : existing?.boundNodeId ? { boundNodeId: existing.boundNodeId } : {}),
     createdAt: Date.now(),
-  }, null, 2)}\n`, 'utf8');
+  };
+  if (binding.harnessBinding && binding.agentRelease?.harness) {
+    const sealKey = options.harnessSealKey === undefined
+      ? getSessionHarnessSealKey()
+      : normalizeSealKey(options.harnessSealKey);
+    if (!sealKey) throw new Error('DEF Session Harness seal key is unavailable.');
+    if (existing) {
+      const existingSealValid = verifySessionHarnessSeal(existing, sealKey);
+      const legacyStableIdentity = isStrictLegacyStableHarnessBinding(existing);
+      const legacyStable = legacyStableIdentity
+        && existing.sessionID === binding.sessionID
+        && path.resolve(existing.directory || directory) === binding.directory
+        && JSON.stringify(existing.harnessBinding) === JSON.stringify(binding.harnessBinding)
+        && binding.agentRelease?.harness?.selector === existing.harnessBinding.selector
+        && defHarness.sameRef(binding.agentRelease?.harness?.ref, existing.harnessBinding.harness);
+      const sameSealedIdentity = existingSealValid && sameSessionHarnessIdentity(existing, binding);
+      const recoveryReleaseMatches = existing.agentRelease?.harness
+        ? existing.agentRelease.harness.selector === binding.agentRelease?.harness?.selector
+          && defHarness.sameRef(existing.agentRelease.harness.ref, binding.agentRelease?.harness?.ref)
+        : legacyStableIdentity
+          && binding.agentRelease?.harness?.selector === existing.harnessBinding.selector
+          && defHarness.sameRef(binding.agentRelease?.harness?.ref, existing.harnessBinding.harness);
+      const sameRecoveryHarness = options.allowSessionRecoveryRebind === true
+        && typeof binding.sessionID === 'string'
+        && binding.sessionID
+        && existing.harnessBinding?.sessionId === existing.sessionID
+        && binding.harnessBinding?.sessionId === binding.sessionID
+        && path.resolve(existing.directory || directory) === binding.directory
+        && existing.harnessBinding?.selector === binding.harnessBinding?.selector
+        && defHarness.sameRef(existing.harnessBinding?.harness, binding.harnessBinding?.harness)
+        && JSON.stringify(existing.harnessBinding?.slotHashes || {}) === JSON.stringify(binding.harnessBinding?.slotHashes || {})
+        && recoveryReleaseMatches
+        && (existingSealValid || legacyStableIdentity);
+      if (!sameSealedIdentity && !legacyStable && !sameRecoveryHarness) {
+        const error = new Error('Existing DEF Session Harness identity cannot be replaced or re-sealed.');
+        error.code = 'HARNESS_BINDING_INVALID';
+        throw error;
+      }
+    }
+    binding.harnessIdentitySeal = createSessionHarnessSeal(binding, sealKey);
+  }
+  fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify(binding, null, 2)}\n`, 'utf8');
   return axisBindingId;
 }
 
@@ -1102,6 +1215,18 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   const binding = readJsonFile(path.join(resolved, '.def-session.json'));
   if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
   if (path.resolve(binding.directory || resolved) !== resolved) return null;
+  if (binding.harnessIdentitySeal) {
+    try {
+      const sealKey = options.harnessSealKey === undefined
+        ? getSessionHarnessSealKey()
+        : normalizeSealKey(options.harnessSealKey);
+      if (!verifySessionHarnessSeal(binding, sealKey)) return null;
+    } catch {
+      return null;
+    }
+  } else if (binding.harnessBinding && !isStrictLegacyStableHarnessBinding(binding)) {
+    return null;
+  }
   maintainNativeSessionWorkspace(resolved);
   const host = binding.host === 'workbench' ? 'workbench' : 'ai-cli';
   const expected = buildNativeHostProfile(host);
@@ -2445,6 +2570,7 @@ module.exports = {
   OPENCODE_PORT_BASE,
   buildAgentPrompt,
   buildCapabilityPermission,
+  buildOpenCodeRuntimeEnv,
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
@@ -2454,6 +2580,7 @@ module.exports = {
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  writeSessionBinding,
   ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
   writeNativeWorkbenchContext,

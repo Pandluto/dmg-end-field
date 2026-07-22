@@ -2,28 +2,60 @@ const fs = require('fs');
 const path = require('path');
 const defHarness = require('../../harness/def-harness.cjs');
 const { AGENT_RELEASE_KIND, AGENT_RELEASE_SCHEMA_VERSION } = require('./agent-release.cjs');
+const {
+  SESSION_HARNESS_SEAL_KEY_ENV,
+  verifySessionHarnessSeal,
+} = require('./session-harness-seal.cjs');
 
 const DEF_EQUIPMENT_3PLUS1_HARNESS_ID = 'def-equipment-3plus1-composite';
 const MAX_SESSION_BINDING_BYTES = 64 * 1024;
 const CONTENT_HASH = /^[a-f0-9]{64}$/;
+const HARNESS_VERSION = /^[0-9]+(?:\.[0-9]+){0,2}(?:-[a-z0-9.-]+)?$/;
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..', '..');
 const DEFAULT_HARNESS_RUNTIME_ROOT = path.join(PROJECT_ROOT, '.runtime', 'def-harness');
 const CHANNEL_SELECTOR = /^(?:stable|previousStable|candidate\/[a-z][a-z0-9-]{0,63})$/;
+const registeredHarnessVerificationCache = new Map();
+const activationStats = {
+  bindingReads: 0,
+  registryCacheHits: 0,
+  registryValidations: 0,
+};
 
 function isRegisteredHarnessBinding(harnessBinding, runtimeRoot) {
   const harness = harnessBinding.harness;
-  const selector = harnessBinding.selector;
-  const explicitSelector = `${harness.harnessId}@${harness.version}`;
+  const resolvedRuntimeRoot = path.resolve(runtimeRoot);
+  const cacheKey = `${resolvedRuntimeRoot}\0${harness.harnessId}@${harness.version}\0${harness.contentHash}`;
+  if (registeredHarnessVerificationCache.has(cacheKey)) {
+    activationStats.registryCacheHits += 1;
+    return true;
+  }
 
-  // Resolve without a last-known-stable fallback or loading every slot into an
-  // artifact view. Activation needs the verified ref, not the Harness text.
-  const explicit = defHarness.resolveSelector(runtimeRoot, explicitSelector);
-  if (!defHarness.sameRef(explicit.ref, harness)) return false;
+  // A selector is creation-time provenance. Promotion and rollback must not
+  // change an existing Session, so only its sealed immutable ref is resolved.
+  activationStats.registryValidations += 1;
+  const packageDirectory = path.join(
+    defHarness.registryPaths(resolvedRuntimeRoot).packages,
+    harness.harnessId,
+    harness.version,
+  );
+  const registered = defHarness.validatePackageDirectory(packageDirectory);
+  if (!defHarness.sameRef(defHarness.packageRef(registered), harness)) return false;
+  registeredHarnessVerificationCache.set(cacheKey, true);
+  return true;
+}
 
-  if (selector === 'explicit') return true;
-  if (!CHANNEL_SELECTOR.test(selector)) return false;
-  const selected = defHarness.resolveSelector(runtimeRoot, selector);
-  return defHarness.sameRef(selected.ref, harness);
+function clearRegisteredHarnessVerificationCache() {
+  registeredHarnessVerificationCache.clear();
+  activationStats.bindingReads = 0;
+  activationStats.registryCacheHits = 0;
+  activationStats.registryValidations = 0;
+}
+
+function getSessionHarnessActivationStats() {
+  return Object.freeze({
+    ...activationStats,
+    registryCacheEntries: registeredHarnessVerificationCache.size,
+  });
 }
 
 function isDefEquipment3Plus1HarnessBinding(binding, options = {}) {
@@ -51,10 +83,10 @@ function isDefEquipment3Plus1HarnessBinding(binding, options = {}) {
     && harnessBinding.sessionId === sessionID
     && typeof selector === 'string'
     && selector === selector.trim()
-    && selector
+    && (selector === 'explicit' || CHANNEL_SELECTOR.test(selector))
     && harness?.harnessId === DEF_EQUIPMENT_3PLUS1_HARNESS_ID
     && typeof harness.version === 'string'
-    && harness.version.trim()
+    && HARNESS_VERSION.test(harness.version)
     && CONTENT_HASH.test(String(harness.contentHash || ''))
     && Number(harness.schemaVersion) === defHarness.SCHEMA_VERSION
     && agentRelease?.kind === AGENT_RELEASE_KIND
@@ -64,6 +96,10 @@ function isDefEquipment3Plus1HarnessBinding(binding, options = {}) {
     && defHarness.sameRef(releaseHarness?.ref, harness)
   );
   if (!structurallyValid) return false;
+  const sealKey = options.sealKey === undefined
+    ? process.env[SESSION_HARNESS_SEAL_KEY_ENV]
+    : options.sealKey;
+  if (!verifySessionHarnessSeal(binding, sealKey)) return false;
 
   try {
     const runtimeRoot = path.resolve(options.runtimeRoot || DEFAULT_HARNESS_RUNTIME_ROOT);
@@ -76,6 +112,7 @@ function isDefEquipment3Plus1HarnessBinding(binding, options = {}) {
 function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSystem = fs, options = {}) {
   if (typeof directory !== 'string' || !directory.trim()) return false;
   if (typeof sessionID !== 'string' || !sessionID.trim()) return false;
+  activationStats.bindingReads += 1;
   try {
     const resolvedDirectory = path.resolve(directory);
     const target = path.join(resolvedDirectory, '.def-session.json');
@@ -86,6 +123,7 @@ function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSyste
       directory: resolvedDirectory,
       sessionID,
       runtimeRoot: options.runtimeRoot,
+      sealKey: options.sealKey,
     });
   } catch {
     return false;
@@ -95,6 +133,8 @@ function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSyste
 module.exports = {
   DEFAULT_HARNESS_RUNTIME_ROOT,
   DEF_EQUIPMENT_3PLUS1_HARNESS_ID,
+  clearRegisteredHarnessVerificationCache,
+  getSessionHarnessActivationStats,
   isDefEquipment3Plus1HarnessBinding,
   readDefEquipment3Plus1HarnessActivation,
 };

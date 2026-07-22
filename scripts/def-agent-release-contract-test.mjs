@@ -7,8 +7,9 @@ import { factsComplete } from './def-harness-regression.mjs';
 
 const require = createRequire(import.meta.url);
 const { createAgentRelease } = require('../agent/runtime/def-opencode-adapter/agent-release.cjs');
-const { createAgentSessionWorkspace, readNativeSessionBinding } = require('../agent/runtime/def-opencode-adapter/index.cjs');
+const { createAgentSessionWorkspace, readNativeSessionBinding, writeSessionBinding } = require('../agent/runtime/def-opencode-adapter/index.cjs');
 const projectRoot = path.resolve(import.meta.dirname, '..');
+const harnessSealKey = '8'.repeat(64);
 
 const harnessBinding = {
   kind: 'DefHarnessSessionBindingV1',
@@ -100,18 +101,15 @@ try {
   const copiedTool = path.join(directory, '.opencode', 'tools', 'def.js');
   const sentinel = 'session-copy-must-not-be-overwritten';
   fs.writeFileSync(copiedTool, sentinel, 'utf8');
-  fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
-    schemaVersion: 5,
-    sessionID: harnessBinding.sessionId,
-    directory,
+  writeSessionBinding(directory, {
+    id: harnessBinding.sessionId,
     agent: 'def-workbench',
     skillId: 'workbench',
-    host: 'workbench',
     harnessBinding,
     agentRelease: release,
-  }, null, 2)}\n`, 'utf8');
+  }, { harnessSealKey });
 
-  const read = readNativeSessionBinding(directory, harnessBinding.sessionId, { includeNodeRelation: false });
+  const read = readNativeSessionBinding(directory, harnessBinding.sessionId, { includeNodeRelation: false, harnessSealKey });
   assert.equal(read?.agentRelease?.releaseHash, release.releaseHash);
   assert.equal(fs.readFileSync(copiedTool, 'utf8'), sentinel, 'reading a session binding must never refresh its workspace files');
 } finally {
@@ -121,11 +119,14 @@ try {
 const serverSource = fs.readFileSync(path.join(projectRoot, 'agent/server/def-agent-server.cjs'), 'utf8');
 const interopSource = fs.readFileSync(path.join(projectRoot, 'agent/runtime/def-codex-interop.cjs'), 'utf8');
 const runnerSource = fs.readFileSync(path.join(projectRoot, 'scripts/def-harness-native-runner.mjs'), 'utf8');
+const agentReleaseSource = fs.readFileSync(path.join(projectRoot, 'agent/runtime/def-opencode-adapter/agent-release.cjs'), 'utf8');
 assert.match(serverSource, /agentRelease: binding\.agentRelease \|\| null/);
 assert.match(interopSource, /agentRelease/);
 assert.match(runnerSource, /agentRelease: runner\.agentRelease \|\| null/);
+assert.match(agentReleaseSource, /session-harness-seal\.cjs/,
+  'AgentRelease toolImplementationHash must include the Session Harness seal implementation');
 
 console.log(JSON.stringify({
   ok: true,
-  checks: ['deterministic-release-identity', 'complete-component-hashes', 'honest-harness-only-pinning', 'session-code-not-refreshed', 'interop-release-evidence', 'regression-release-consistency'],
+  checks: ['deterministic-release-identity', 'complete-component-hashes', 'harness-seal-component-hash', 'honest-harness-only-pinning', 'session-code-not-refreshed', 'interop-release-evidence', 'regression-release-consistency'],
 }));

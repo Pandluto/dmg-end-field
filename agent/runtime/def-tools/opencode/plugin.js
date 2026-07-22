@@ -4,11 +4,17 @@ import activation from '../../def-opencode-adapter/session-harness-activation.cj
 
 export async function createDefToolsPlugin(input = {}, options = {}) {
   const directory = typeof input?.directory === 'string' ? input.directory : ''
+  const harnessRuntimeRoot = options.harnessRuntimeRoot === undefined
+    ? process.env.DEF_HARNESS_RUNTIME_ROOT
+    : options.harnessRuntimeRoot
+  const harnessSealKey = options.harnessSealKey === undefined
+    ? process.env.DEF_SESSION_HARNESS_SEAL_KEY
+    : options.harnessSealKey
   const equipment3Plus1Enabled = (sessionID) => activation.readDefEquipment3Plus1HarnessActivation(
     directory,
     sessionID,
     undefined,
-    { runtimeRoot: options.harnessRuntimeRoot },
+    { runtimeRoot: harnessRuntimeRoot, sealKey: harnessSealKey },
   )
   const tool = {}
   for (const target of DEF_NATIVE_TARGETS) {
@@ -31,6 +37,9 @@ export async function createDefToolsPlugin(input = {}, options = {}) {
       })
     },
     'experimental.chat.messages.transform': async (input, output) => {
+      if (input?.phase !== 'generation') {
+        return definitions.applyDefToolModelMessagePolicy(output?.messages, input?.phase)
+      }
       definitions.applyDefToolModelMessagePolicy(output?.messages, input?.phase, {
         equipment3Plus1Enabled: equipment3Plus1Enabled(input?.sessionID),
       })

@@ -104,6 +104,7 @@ function createAgentRelease({
       'agent/runtime/def-node-workspace/codec.mjs',
       'agent/runtime/def-opencode-adapter/harness-turn-router.cjs',
       'agent/runtime/def-opencode-adapter/session-harness-activation.cjs',
+      'agent/runtime/def-opencode-adapter/session-harness-seal.cjs',
     ]),
     permissionPolicyHash: hashComponents(root, ['agent/runtime/def-opencode-adapter/index.cjs']),
     knowledgeRevision: hashComponents(root, [

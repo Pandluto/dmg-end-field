@@ -8,13 +8,28 @@ import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const { classifyDefExecutableTurnPolicy, isDefEquipment3Plus1Correction, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
-const { isDefEquipment3Plus1HarnessBinding } = require('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs');
-const { getNativeHarnessSystem } = require('../agent/runtime/def-opencode-adapter/index.cjs');
+const {
+  clearRegisteredHarnessVerificationCache,
+  isDefEquipment3Plus1HarnessBinding,
+} = require('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs');
+const {
+  createSessionHarnessSeal,
+  ensurePersistentSessionHarnessSealKey,
+  verifySessionHarnessSeal,
+} = require('../agent/runtime/def-opencode-adapter/session-harness-seal.cjs');
+const {
+  buildOpenCodeRuntimeEnv,
+  createAgentSessionWorkspace,
+  getNativeHarnessSystem,
+  readNativeSessionBinding,
+  writeSessionBinding,
+} = require('../agent/runtime/def-opencode-adapter/index.cjs');
 const defHarness = require('../agent/harness/def-harness.cjs');
 
 const harnessFixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-turn-routing-registry-'));
 const harnessRuntimeRoot = path.join(harnessFixtureRoot, 'runtime');
 const harnessBuildRoot = path.join(harnessFixtureRoot, 'builds');
+const harnessSealKey = '7'.repeat(64);
 process.once('exit', () => fs.rmSync(harnessFixtureRoot, { recursive: true, force: true }));
 
 function buildAndRegisterHarness(relativeSource, channel) {
@@ -40,6 +55,11 @@ function agentReleaseFor(harnessBinding) {
   };
 }
 
+function sealBinding(binding) {
+  binding.harnessIdentitySeal = createSessionHarnessSeal(binding, harnessSealKey);
+  return binding;
+}
+
 function spawnBunEval(source, options = {}) {
   // Keep the temporary module under the repository so Bun resolves the same
   // workspace dependencies as `bun -e`, without putting the source on the
@@ -63,6 +83,7 @@ function spawnBunEval(source, options = {}) {
 const binding = {
   schemaVersion: 5,
   sessionID: 'session-pinned',
+  directory: path.join(harnessFixtureRoot, 'sessions', 'operator'),
   harnessBinding: {
     kind: 'DefHarnessSessionBindingV1',
     schemaVersion: 1,
@@ -73,6 +94,7 @@ const binding = {
 };
 const compositeBinding = {
   ...binding,
+  directory: path.join(harnessFixtureRoot, 'sessions', 'composite'),
   harnessBinding: {
     ...binding.harnessBinding,
     selector: 'candidate/spec9-3plus1-composite-v1',
@@ -80,6 +102,7 @@ const compositeBinding = {
   },
 };
 compositeBinding.agentRelease = agentReleaseFor(compositeBinding.harnessBinding);
+sealBinding(compositeBinding);
 const mismatchedCompositeBinding = {
   ...compositeBinding,
   harnessBinding: {
@@ -88,24 +111,27 @@ const mismatchedCompositeBinding = {
   },
 };
 
-const harnessActivationOptions = { runtimeRoot: harnessRuntimeRoot };
+const harnessActivationOptions = { runtimeRoot: harnessRuntimeRoot, sealKey: harnessSealKey };
 assert.equal(isDefEquipment3Plus1HarnessBinding(compositeBinding, harnessActivationOptions), true);
 
 const explicitCompositeBinding = structuredClone(compositeBinding);
 explicitCompositeBinding.harnessBinding.selector = 'explicit';
 explicitCompositeBinding.agentRelease.harness.selector = 'explicit';
+sealBinding(explicitCompositeBinding);
 assert.equal(isDefEquipment3Plus1HarnessBinding(explicitCompositeBinding, harnessActivationOptions), true,
   'an explicit selector resolves through its immutable id@version');
 
 const fakeVersionBinding = structuredClone(compositeBinding);
 fakeVersionBinding.harnessBinding.harness.version = '9.1.0-candidate.999';
 fakeVersionBinding.agentRelease.harness.ref.version = '9.1.0-candidate.999';
+sealBinding(fakeVersionBinding);
 assert.equal(isDefEquipment3Plus1HarnessBinding(fakeVersionBinding, harnessActivationOptions), false,
   'a synchronized fake version must not pass without an immutable Registry package');
 
 const fakeHashBinding = structuredClone(compositeBinding);
 fakeHashBinding.harnessBinding.harness.contentHash = 'f'.repeat(64);
 fakeHashBinding.agentRelease.harness.ref.contentHash = 'f'.repeat(64);
+sealBinding(fakeHashBinding);
 assert.equal(isDefEquipment3Plus1HarnessBinding(fakeHashBinding, harnessActivationOptions), false,
   'a synchronized fake content hash must not pass Registry verification');
 
@@ -113,17 +139,201 @@ const spoofedStableBinding = structuredClone(compositeBinding);
 spoofedStableBinding.harnessBinding.selector = 'stable';
 spoofedStableBinding.agentRelease.harness.selector = 'stable';
 assert.equal(isDefEquipment3Plus1HarnessBinding(spoofedStableBinding, harnessActivationOptions), false,
-  'a stable selector cannot impersonate a candidate ref');
+  'changing the creation-time selector invalidates the identity seal');
 
 const mismatchedReleaseRefBinding = structuredClone(compositeBinding);
 mismatchedReleaseRefBinding.agentRelease.harness.ref = stableHarnessRef;
+sealBinding(mismatchedReleaseRefBinding);
 assert.equal(isDefEquipment3Plus1HarnessBinding(mismatchedReleaseRefBinding, harnessActivationOptions), false,
   'AgentRelease and Session Harness refs must identify the same immutable package');
 
 const mismatchedReleaseSelectorBinding = structuredClone(compositeBinding);
 mismatchedReleaseSelectorBinding.agentRelease.harness.selector = 'stable';
+sealBinding(mismatchedReleaseSelectorBinding);
 assert.equal(isDefEquipment3Plus1HarnessBinding(mismatchedReleaseSelectorBinding, harnessActivationOptions), false,
   'AgentRelease and Session Harness selectors must agree');
+
+const missingSealBinding = structuredClone(compositeBinding);
+delete missingSealBinding.harnessIdentitySeal;
+assert.equal(isDefEquipment3Plus1HarnessBinding(missingSealBinding, harnessActivationOptions), false,
+  'a candidate binding without its creation-time seal must fail closed');
+const badSealBinding = structuredClone(compositeBinding);
+badSealBinding.harnessIdentitySeal.value = '0'.repeat(64);
+assert.equal(isDefEquipment3Plus1HarnessBinding(badSealBinding, harnessActivationOptions), false,
+  'a candidate binding with a bad seal must fail closed');
+
+const copiedCandidateBinding = structuredClone(compositeBinding);
+copiedCandidateBinding.sessionID = 'stable-session';
+copiedCandidateBinding.directory = path.join(harnessFixtureRoot, 'sessions', 'stable');
+copiedCandidateBinding.harnessBinding.sessionId = 'stable-session';
+assert.equal(isDefEquipment3Plus1HarnessBinding(copiedCandidateBinding, {
+  ...harnessActivationOptions,
+  sessionID: copiedCandidateBinding.sessionID,
+  directory: copiedCandidateBinding.directory,
+}), false, 'a candidate binding and seal copied into another stable Session must not activate');
+
+defHarness.setChannel(harnessRuntimeRoot, 'candidate/spec9-3plus1-composite-v1', stableHarnessRef);
+clearRegisteredHarnessVerificationCache();
+assert.equal(isDefEquipment3Plus1HarnessBinding(compositeBinding, harnessActivationOptions), true,
+  'moving a channel pointer must not change an existing sealed immutable Session pin');
+defHarness.setChannel(harnessRuntimeRoot, 'candidate/spec9-3plus1-composite-v1', compositeHarnessRef);
+clearRegisteredHarnessVerificationCache();
+
+const persistentSealKeyFile = path.join(harnessFixtureRoot, 'def-agent', 'session-harness-seal.key');
+const persistentSealKey = ensurePersistentSessionHarnessSealKey(persistentSealKeyFile);
+assert.match(persistentSealKey, /^[a-f0-9]{64}$/);
+assert.equal(ensurePersistentSessionHarnessSealKey(persistentSealKeyFile), persistentSealKey,
+  'the sidecar seal key must persist across reads');
+assert.equal(verifySessionHarnessSeal(compositeBinding, harnessSealKey), true);
+
+const runtimeEnv = buildOpenCodeRuntimeEnv({}, {
+  openCodeHome: path.join(harnessFixtureRoot, 'opencode-home'),
+  harnessRuntimeRoot,
+  harnessSealKey,
+});
+assert.equal(runtimeEnv.DEF_SESSION_HARNESS_SEAL_KEY, harnessSealKey,
+  'the production OpenCode child environment receives the sidecar seal key');
+assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoot),
+  'the production OpenCode child environment receives the sidecar Registry root');
+
+{
+  const sidecarDirectories = [];
+  const makeHarnessBinding = (sessionID, selector, harness, createdAt = 1) => ({
+    kind: 'DefHarnessSessionBindingV1',
+    schemaVersion: 1,
+    sessionId: sessionID,
+    selector,
+    harness,
+    slotHashes: {},
+    createdAt,
+  });
+  try {
+    const recoveryDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(recoveryDirectory);
+    const oldSessionID = 'sealed-recovery-old';
+    const oldHarnessBinding = makeHarnessBinding(oldSessionID, 'explicit', compositeHarnessRef);
+    writeSessionBinding(recoveryDirectory, {
+      id: oldSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: oldHarnessBinding,
+      agentRelease: agentReleaseFor(oldHarnessBinding),
+    }, { harnessSealKey });
+    assert(readNativeSessionBinding(recoveryDirectory, oldSessionID, { includeNodeRelation: false, harnessSealKey }),
+      'the sidecar must read its own valid sealed candidate binding');
+
+    const newSessionID = 'sealed-recovery-new';
+    const reboundHarnessBinding = makeHarnessBinding(newSessionID, 'explicit', compositeHarnessRef, 2);
+    const reboundSession = {
+      id: newSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: reboundHarnessBinding,
+      agentRelease: agentReleaseFor(reboundHarnessBinding),
+    };
+    assert.throws(() => writeSessionBinding(recoveryDirectory, reboundSession, { harnessSealKey }),
+      (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+      'ordinary writes cannot change the Session identity of a sealed binding');
+    writeSessionBinding(recoveryDirectory, reboundSession, { harnessSealKey, allowSessionRecoveryRebind: true });
+    assert(readNativeSessionBinding(recoveryDirectory, newSessionID, { includeNodeRelation: false, harnessSealKey }),
+      'an explicit recovery rebind may re-seal the same immutable Harness ref for the new upstream Session id');
+
+    const tampered = JSON.parse(fs.readFileSync(path.join(recoveryDirectory, '.def-session.json'), 'utf8'));
+    tampered.harnessBinding.harness.contentHash = 'f'.repeat(64);
+    tampered.agentRelease.harness.ref.contentHash = 'f'.repeat(64);
+    fs.writeFileSync(path.join(recoveryDirectory, '.def-session.json'), `${JSON.stringify(tampered, null, 2)}\n`, 'utf8');
+    assert.equal(readNativeSessionBinding(recoveryDirectory, newSessionID, { includeNodeRelation: false, harnessSealKey }), null,
+      'the sidecar reader must reject a tampered candidate binding');
+    assert.throws(() => writeSessionBinding(recoveryDirectory, {
+      ...reboundSession,
+      harnessBinding: tampered.harnessBinding,
+      agentRelease: tampered.agentRelease,
+    }, { harnessSealKey, allowSessionRecoveryRebind: true }),
+    (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'recovery must not turn a bad candidate seal into a signing oracle');
+    assert.throws(() => getNativeHarnessSystem(tampered, '3+1 recommendation'),
+      (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+      'the sidecar must reject a bad candidate seal before composing candidate teaching');
+
+    const stableDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(stableDirectory);
+    const stableSessionID = 'sealed-stable-session';
+    const stableBinding = makeHarnessBinding(stableSessionID, 'stable', stableHarnessRef);
+    writeSessionBinding(stableDirectory, {
+      id: stableSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: stableBinding,
+      agentRelease: agentReleaseFor(stableBinding),
+    }, { harnessSealKey });
+    const replacementBinding = makeHarnessBinding(stableSessionID, 'explicit', compositeHarnessRef);
+    assert.throws(() => writeSessionBinding(stableDirectory, {
+      id: stableSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: replacementBinding,
+      agentRelease: agentReleaseFor(replacementBinding),
+    }, { harnessSealKey, allowSessionRecoveryRebind: true }),
+    (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'a stable binding cannot be replaced by a candidate even through the recovery-only write path');
+
+    const legacyStableDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(legacyStableDirectory);
+    const legacyStableSessionID = 'legacy-stable-session';
+    const legacyStableBinding = makeHarnessBinding(legacyStableSessionID, 'stable', stableHarnessRef);
+    fs.writeFileSync(path.join(legacyStableDirectory, '.def-session.json'), `${JSON.stringify({
+      schemaVersion: 5,
+      sessionID: legacyStableSessionID,
+      directory: legacyStableDirectory,
+      host: 'workbench',
+      harnessBinding: legacyStableBinding,
+    }, null, 2)}\n`, 'utf8');
+    assert(readNativeSessionBinding(legacyStableDirectory, legacyStableSessionID, { includeNodeRelation: false, harnessSealKey }),
+      'a legacy stable binding without a seal remains readable');
+
+    const unsealedCandidateDirectory = createAgentSessionWorkspace('workbench');
+    sidecarDirectories.push(unsealedCandidateDirectory);
+    const unsealedCandidateSessionID = 'legacy-candidate-session';
+    const unsealedCandidateBinding = makeHarnessBinding(
+      unsealedCandidateSessionID,
+      'candidate/legacy-copy',
+      stableHarnessRef,
+    );
+    fs.writeFileSync(path.join(unsealedCandidateDirectory, '.def-session.json'), `${JSON.stringify({
+      schemaVersion: 5,
+      sessionID: unsealedCandidateSessionID,
+      directory: unsealedCandidateDirectory,
+      host: 'workbench',
+      harnessBinding: unsealedCandidateBinding,
+      agentRelease: agentReleaseFor(unsealedCandidateBinding),
+    }, null, 2)}\n`, 'utf8');
+    assert.equal(readNativeSessionBinding(
+      unsealedCandidateDirectory,
+      unsealedCandidateSessionID,
+      { includeNodeRelation: false, harnessSealKey },
+    ), null, 'only a strict legacy stable binding may remain readable without a seal');
+
+    writeSessionBinding(legacyStableDirectory, {
+      id: legacyStableSessionID,
+      agent: 'def-workbench',
+      skillId: 'workbench',
+      harnessBinding: legacyStableBinding,
+      agentRelease: agentReleaseFor(legacyStableBinding),
+    }, { harnessSealKey });
+    const migratedStable = JSON.parse(fs.readFileSync(path.join(legacyStableDirectory, '.def-session.json'), 'utf8'));
+    assert.equal(verifySessionHarnessSeal(migratedStable, harnessSealKey), true,
+      'the sidecar may explicitly migrate an unchanged legacy stable identity to a seal');
+  } finally {
+    for (const directory of sidecarDirectories) fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
+
+assert.throws(() => getNativeHarnessSystem(missingSealBinding, '3+1 recommendation'),
+  (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+  'the sidecar must reject candidate teaching before compose when its seal is missing');
+assert.throws(() => getNativeHarnessSystem(binding, 'candidate teaching'),
+  (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+  'the sidecar must reject any unsealed candidate before composing its teaching');
 
 assert.throws(() => getNativeHarnessSystem({
   ...binding,
@@ -193,7 +403,7 @@ assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /'experimental\.chat\.messages\.transform'/);
 assert.match(pluginSource, /applyDefToolModelMessagePolicy/);
 assert.match(pluginSource, /input\?\.phase/);
-assert.match(pluginSource, /'experimental\.chat\.messages\.transform'[\s\S]{0,300}input\?\.sessionID/,
+assert.match(pluginSource, /'experimental\.chat\.messages\.transform'[\s\S]{0,500}input\?\.sessionID/,
   'the transform hook must forward its Session identity to activation');
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
@@ -352,18 +562,22 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
   import fs from 'node:fs';
   import os from 'node:os';
   import path from 'node:path';
-  const pluginModule = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)});
-  const pluginFactory = pluginModule.createDefToolsPlugin;
   const harnessRuntimeRoot = ${JSON.stringify(harnessRuntimeRoot)};
+  const harnessSealKey = ${JSON.stringify(harnessSealKey)};
   const candidateHarnessRef = ${JSON.stringify(compositeHarnessRef)};
   const stableHarnessRef = ${JSON.stringify(stableHarnessRef)};
+  process.env.DEF_HARNESS_RUNTIME_ROOT = harnessRuntimeRoot;
+  process.env.DEF_SESSION_HARNESS_SEAL_KEY = harnessSealKey;
+  const activation = (await import(${JSON.stringify(new URL('../agent/runtime/def-opencode-adapter/session-harness-activation.cjs', import.meta.url).href)})).default;
+  const seal = (await import(${JSON.stringify(new URL('../agent/runtime/def-opencode-adapter/session-harness-seal.cjs', import.meta.url).href)})).default;
+  const pluginFactory = (await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url).href)})).default;
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-3plus1-activation-'));
   const writeBinding = (directory, sessionID, selector, harnessRef) => {
     fs.mkdirSync(directory, { recursive: true });
-    fs.writeFileSync(path.join(directory, '.def-session.json'), JSON.stringify({
+    const binding = {
       schemaVersion: 5,
       sessionID,
-      directory,
+      directory: path.resolve(directory),
       host: 'workbench',
       harnessBinding: {
         kind: 'DefHarnessSessionBindingV1',
@@ -380,7 +594,10 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
           ref: harnessRef,
         },
       },
-    }));
+    };
+    binding.harnessIdentitySeal = seal.createSessionHarnessSeal(binding, harnessSealKey);
+    fs.writeFileSync(path.join(directory, '.def-session.json'), JSON.stringify(binding));
+    return binding;
   };
   const user = (sessionID, id, text) => ({
     info: { role: 'user', id, sessionID },
@@ -405,13 +622,22 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
   try {
     const candidateDirectory = path.join(root, 'candidate');
     const candidateSession = 'candidate-session';
-    writeBinding(candidateDirectory, candidateSession, 'candidate/spec9-3plus1-composite-v1', candidateHarnessRef);
-    const candidate = await pluginFactory({ directory: candidateDirectory }, { harnessRuntimeRoot });
+    const candidateBinding = writeBinding(candidateDirectory, candidateSession, 'candidate/spec9-3plus1-composite-v1', candidateHarnessRef);
+    activation.clearRegisteredHarnessVerificationCache();
+    const candidate = await pluginFactory({ directory: candidateDirectory });
+    await candidate['experimental.chat.messages.transform'](
+      { phase: 'compaction', sessionID: candidateSession },
+      { messages: [] },
+    );
+    let stats = activation.getSessionHarnessActivationStats();
+    if (stats.bindingReads !== 0 || stats.registryValidations !== 0) process.exit(18);
     const firstText = '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。';
     await candidate['chat.message'](
       { sessionID: candidateSession },
       { message: { id: 'msg_001' }, parts: [{ type: 'text', text: firstText }] },
     );
+    stats = activation.getSessionHarnessActivationStats();
+    if (stats.bindingReads !== 1 || stats.registryValidations !== 1 || stats.registryCacheEntries !== 1) process.exit(19);
     try {
       await candidate['tool.execute.before'](
         { sessionID: candidateSession, tool: 'def_data_game_knowledge', callID: 'wrong-1' },
@@ -421,6 +647,8 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     } catch (error) {
       if (error?.code !== 'def-tool-turn-policy-blocked' || error?.details?.policy !== 'equipment-3plus1-composite') process.exit(3);
     }
+    stats = activation.getSessionHarnessActivationStats();
+    if (stats.bindingReads !== 2 || stats.registryValidations !== 1 || stats.registryCacheHits < 1) process.exit(20);
     await candidate['tool.execute.before'](
       { sessionID: candidateSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'recommend-1' },
       { args: {} },
@@ -435,6 +663,8 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
       { messages: candidateMessages },
     );
     if (!candidateMessages[1].parts[0].state.output.startsWith('[DEF HARNESS TERMINAL CONTRACT')) process.exit(4);
+    stats = activation.getSessionHarnessActivationStats();
+    if (stats.registryValidations !== 1 || stats.registryCacheHits < 3) process.exit(21);
 
     const correctionText = '配件二为什么不用第二个悬河供氧栓？';
     await candidate['chat.message'](
@@ -463,7 +693,7 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     const stableDirectory = path.join(root, 'stable');
     const stableSession = 'stable-session';
     writeBinding(stableDirectory, stableSession, 'stable', stableHarnessRef);
-    const stable = await pluginFactory({ directory: stableDirectory }, { harnessRuntimeRoot });
+    const stable = await pluginFactory({ directory: stableDirectory });
     await stable['chat.message'](
       { sessionID: stableSession },
       { message: { id: 'msg_101' }, parts: [{ type: 'text', text: firstText }] },
@@ -547,6 +777,21 @@ const equipmentCompositeHarnessActivationProbe = spawnBunEval(`
     } catch (error) {
       if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(17);
     }
+
+    const copiedCandidate = structuredClone(candidateBinding);
+    copiedCandidate.sessionID = stableSession;
+    copiedCandidate.directory = path.resolve(stableDirectory);
+    copiedCandidate.harnessBinding.sessionId = stableSession;
+    fs.writeFileSync(path.join(stableDirectory, '.def-session.json'), JSON.stringify(copiedCandidate));
+    try {
+      await stable['tool.execute.before'](
+        { sessionID: stableSession, tool: 'def_data_equipment_3plus1_recommend', callID: 'stable-upgrade-copy' },
+        { args: {} },
+      );
+      process.exit(22);
+    } catch (error) {
+      if (error?.details?.policy !== 'equipment-3plus1-harness-activation') process.exit(23);
+    }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -588,6 +833,8 @@ assert.match(adapterSource, /if \(!visibleContent\) throw new Error\(DEF_EMPTY_A
 assert.match(adapterSource, /defHarness\.sameRef\(resolved\.ref, pinned\.harness\)/);
 assert.doesNotMatch(adapterSource, /COMPOSITE 3\+1 RECOMMENDATION/);
 assert.doesNotMatch(adapterSource, /nativeHarnessLoader\.resolve\(turnRoute\.selector\)/);
+assert.match(adapterSource, /harnessSealKeyHash:\s*crypto\.createHash\('sha256'\)\.update\(harnessSealKey\)/,
+  'OpenCode process reuse must depend on a non-secret fingerprint of the persistent seal key');
 assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
