@@ -45,8 +45,31 @@ import {
   deriveOperatorBuildProfile,
   discoverOperatorBuildGuides,
   extractGuideBuildStrategy,
+  compileGuidePlannerProfile,
+  hashDefOperatorBuildPlannerProfile as hashCoreOperatorBuildPlannerProfile,
+  mergePartialGuidePlannerProfile as mergeCorePartialGuidePlannerProfile,
+  operatorRequiresCombatConvention as coreOperatorRequiresCombatConvention,
   resolveOperatorCatalogRecord,
 } from './def-core/operator-build-evidence.mjs';
+import {
+  canonicalizeDefStableValue,
+  hashDefStableValue,
+  serializeDefStableValue,
+} from './def-core/stable-json.mjs';
+import {
+  normalizeDefCatalogIdentity,
+  projectDefCatalogSafeValue,
+} from './def-core/native-catalog-value.mjs';
+import {
+  buildDefEquipmentCatalogSnapshot as buildCoreEquipmentCatalogSnapshot,
+  buildDefEquipmentSetFitShortlist as buildCoreEquipmentSetFitShortlist,
+  buildDefEquipmentThreePlusOneFacts as buildCoreEquipmentThreePlusOneFacts,
+  buildDefEquipmentThreePlusOnePlan as buildCoreEquipmentThreePlusOnePlan,
+  normalizeDefEquipmentThreePlusOneProfile as normalizeCoreEquipmentThreePlusOneProfile,
+  resolveDefEquipmentGearSet as resolveCoreEquipmentGearSet,
+  validateDefEquipmentCatalogSnapshot,
+} from './def-core/equipment-3plus1-domain.mjs';
+import { createDefEquipment3Plus1RecommendationService } from './def-core/equipment-3plus1-recommendation.mjs';
 import {
   loadCombatConventionRules,
   resolveCombatConventionBundle,
@@ -2821,25 +2844,19 @@ function normalizeDefToolPercent(value, unit = '') {
 // renderer save; that must not make an unchanged catalog look like a new
 // source revision.
 function canonicalizeDefNativeCatalogValue(value) {
-  if (Array.isArray(value)) return value.map(canonicalizeDefNativeCatalogValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.keys(value).sort().flatMap((key) => {
-    const entry = value[key];
-    return entry === undefined ? [] : [[key, canonicalizeDefNativeCatalogValue(entry)]];
-  }));
+  return canonicalizeDefStableValue(value);
 }
 
 function serializeDefNativeCatalogValue(value) {
-  return JSON.stringify(canonicalizeDefNativeCatalogValue(value));
+  return serializeDefStableValue(value);
 }
 
 function hashDefNativeCatalogValue(value) {
-  return createHash('sha256').update(serializeDefNativeCatalogValue(value)).digest('hex');
+  return hashDefStableValue(value);
 }
 
 function nativeCatalogText(value) {
-  return normalizeDefToolText(String(value || '').normalize('NFKC'))
-    .replace(/(?:套装|套)$/u, '');
+  return normalizeDefCatalogIdentity(value);
 }
 
 function readDefNativeGearSetAliasIndex() {
@@ -2863,21 +2880,10 @@ function readDefNativeGearSetAliasIndex() {
 }
 
 function nativeCatalogSafeBusinessValue(value, depth = 0) {
-  if (value === null || typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value;
-  if (depth >= 10 || !value || typeof value !== 'object') return undefined;
-  if (Array.isArray(value)) return value
-    .map((item) => nativeCatalogSafeBusinessValue(item, depth + 1))
-    .filter((item) => item !== undefined);
-  const blocked = new Set([
-    'selected', 'selection', 'selectedIndex', 'draft', 'ui', 'session',
-    'chat', 'commandQueue', 'command', 'approval', 'checkout', 'timeline',
-    'workNode', 'workspace', 'storage', 'localStorage', 'sessionStorage',
-  ]);
-  return Object.fromEntries(Object.keys(value).sort().flatMap((key) => {
-    if (blocked.has(key)) return [];
-    const entry = nativeCatalogSafeBusinessValue(value[key], depth + 1);
-    return entry === undefined ? [] : [[key, entry]];
-  }));
+  // Legacy callers retain this argument for source compatibility; the shared
+  // projection fixes depth and its blocked-key set at the core boundary.
+  void depth;
+  return projectDefCatalogSafeValue(value);
 }
 
 function nativeEquipmentSlots(part) {
@@ -3868,6 +3874,187 @@ function buildDefEquipmentThreePlusOnePlan(input = {}) {
   response.searchSpace.outputByteLimit = outputByteLimit;
   return response;
 }
+
+// Legacy primitive routes retain their authorization/capability adapters, but
+// delegate all equipment catalog and 3+1 business computation to the shared
+// core.  The original declarations above remain only until the compatibility
+// surface can be deleted in a later activation task.
+const legacyBuildDefNativeCatalogSnapshot = buildDefNativeCatalogSnapshot;
+buildDefNativeCatalogSnapshot = function buildDefNativeCatalogSnapshotFromCore(domain) {
+  if (domain !== 'equipment') return legacyBuildDefNativeCatalogSnapshot(domain);
+  const source = readDefEquipmentLibrarySource();
+  return buildCoreEquipmentCatalogSnapshot({
+    library: source.library,
+    storageKey: source.storageKey,
+    capturedAt: Date.now(),
+  });
+};
+
+resolveDefNativeEquipmentGearSet = function resolveDefNativeEquipmentGearSetFromCore(snapshot, query) {
+  return resolveCoreEquipmentGearSet({ snapshot, query, aliasIndex: readDefNativeGearSetAliasIndex() });
+};
+
+buildDefEquipmentCatalogSource = function buildDefEquipmentCatalogSourceFromCore(input = {}) {
+  const expectedRevision = typeof input.sourceRevision === 'string' ? input.sourceRevision.trim() : '';
+  if (!expectedRevision) {
+    return { ok: false, code: 'equipment-3plus1-source-revision-required', message: 'This 3+1 request must name the source revision from a native catalog artifact.' };
+  }
+  const snapshot = buildDefNativeCatalogSnapshot('equipment');
+  if (!snapshot.ok) return snapshot;
+  if (snapshot.source.revision !== expectedRevision) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-source-revision-stale',
+      message: 'The equipment catalog changed after the native artifact was materialized. Capture a fresh artifact before planning.',
+      expectedSourceRevision: expectedRevision,
+      actualSourceRevision: snapshot.source.revision,
+    };
+  }
+  const validation = validateDefEquipmentCatalogSnapshot(snapshot);
+  return validation.ok ? { ok: true, snapshot } : validation;
+};
+
+buildDefEquipmentThreePlusOneSource = function buildDefEquipmentThreePlusOneSourceFromCore(input = {}) {
+  const setQuery = typeof input.setQuery === 'string' ? input.setQuery.trim() : '';
+  const catalogResult = buildDefEquipmentCatalogSource(input);
+  if (!catalogResult.ok) return catalogResult;
+  const resolved = resolveDefNativeEquipmentGearSet(catalogResult.snapshot, setQuery);
+  return resolved.ok
+    ? { ok: true, snapshot: catalogResult.snapshot, gearSet: resolved.set, setQuery }
+    : { ...resolved, source: catalogResult.snapshot.source, setQuery };
+};
+
+normalizeDefEquipmentThreePlusOneProfile = function normalizeDefEquipmentThreePlusOneProfileFromCore(input = {}) {
+  return normalizeCoreEquipmentThreePlusOneProfile(input);
+};
+
+buildDefEquipmentThreePlusOneFacts = function buildDefEquipmentThreePlusOneFactsFromCore(input = {}) {
+  const sourceResult = buildDefEquipmentThreePlusOneSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const facts = buildCoreEquipmentThreePlusOneFacts({ snapshot: sourceResult.snapshot, targetSetId: sourceResult.gearSet.id });
+  if (!facts.ok) return facts;
+  return {
+    ...facts,
+    contract: DEF_EQUIPMENT_THREE_PLUS_ONE_FACTS_CONTRACT,
+    state: 'READY_FOR_CHARACTER_PROFILE',
+    characterId: typeof input.characterId === 'string' && input.characterId.trim() ? input.characterId.trim() : null,
+    setQuery: sourceResult.setQuery,
+    outputShape: { candidatePoolsEmbedded: false, candidateFactsDeduplicated: true, fullCatalogAvailableInSessionArtifact: true },
+    missingReasons: [{
+      code: 'character-profile-required',
+      message: 'Topology and set facts do not prove which character-effect type keys should be preferred. Supply a sourced character build profile before ranking.',
+      requiredInput: ['characterProfile.evidenceRefs', 'characterProfile.keywords', 'characterProfile.preferenceGroups|preferenceTypeKeys'],
+    }],
+    nextAction: 'Build a sourced character profile first, then call def_data_equipment_3plus1_plan. Do not rank from equipment fixedStat: character primary/secondary preferences are effect priorities supplied by the profile.',
+  };
+};
+
+buildDefEquipmentSetFitShortlist = function buildDefEquipmentSetFitShortlistFromCore(input = {}) {
+  const sourceResult = buildDefEquipmentCatalogSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const profileResult = normalizeDefEquipmentThreePlusOneProfile(input);
+  if (!profileResult.ok) return profileResult;
+  const capability = resolveOperatorBuildProfileCapability(input, profileResult.profile);
+  if (!capability.ok) return capability;
+  const shortlistLimit = Number.isInteger(input.shortlistLimit) ? input.shortlistLimit : 3;
+  const setFit = buildCoreEquipmentSetFitShortlist({
+    snapshot: sourceResult.snapshot,
+    profile: profileResult.profile,
+    shortlistLimit,
+  });
+  if (!setFit.ok) return setFit;
+  const response = {
+    ok: true,
+    contract: DEF_EQUIPMENT_SET_FIT_SHORTLIST_CONTRACT,
+    state: setFit.shortlist.length ? 'READY' : 'NO_ELIGIBLE_SET',
+    source: setFit.source,
+    characterProfile: profileResult.profile,
+    profileEvidence: {
+      profileHash: capability.capability.profileHash,
+      source: capability.capability.source,
+      sessionBound: true,
+      turnBound: true,
+      consumed: false,
+    },
+    rankingBasis: {
+      reviewedCompleteCatalog: true,
+      typedThreePieceBuffRequired: true,
+      setBonusProfileMatchRequired: true,
+      minimumThreeMembershipTopologyRequired: true,
+      setBonusPriorityBeforePieceCoverage: true,
+      damageSimulation: false,
+    },
+    reviewedSets: setFit.rankedSets,
+    shortlist: setFit.shortlist,
+    nextAction: setFit.shortlist.length
+      ? 'Choose only from this shortlist, then call exact-set facts and the exhaustive 3+1 planner with the unchanged profile capability.'
+      : 'Report that no catalog set has both a typed three-piece effect and a valid minimum-three-slot topology for this profile; do not invent a target set.',
+  };
+  const outputByteLimit = 64 * 1024;
+  const outputBytes = Buffer.byteLength(JSON.stringify(response));
+  if (outputBytes > outputByteLimit) return { ok: false, code: 'equipment-set-fit-output-too-large', message: 'The complete set review exceeds its typed output budget.', outputBytes, outputByteLimit };
+  response.outputBytes = outputBytes;
+  response.outputByteLimit = outputByteLimit;
+  return response;
+};
+
+buildDefEquipmentThreePlusOnePlan = function buildDefEquipmentThreePlusOnePlanFromCore(input = {}) {
+  const sourceResult = buildDefEquipmentThreePlusOneSource(input);
+  if (!sourceResult.ok) return sourceResult;
+  const profileResult = normalizeDefEquipmentThreePlusOneProfile(input);
+  if (!profileResult.ok) return profileResult;
+  const capability = resolveOperatorBuildProfileCapability(input, profileResult.profile);
+  if (!capability.ok) return capability;
+  const minimumSetPieces = Number.isInteger(input.minimumSetPieces) ? input.minimumSetPieces : 3;
+  const minimumMatchesPerPiece = Number.isInteger(input.minimumMatchesPerPiece) ? input.minimumMatchesPerPiece : 2;
+  const shortlistLimit = Number.isInteger(input.shortlistLimit) ? input.shortlistLimit : 3;
+  if (![3, 4].includes(minimumSetPieces)
+    || minimumMatchesPerPiece < 2
+    || minimumMatchesPerPiece > profileResult.profile.preferenceGroups.length
+    || shortlistLimit < 1
+    || shortlistLimit > 3) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-plan-constraint-invalid',
+      message: 'minimumSetPieces must be 3 or 4, minimumMatchesPerPiece must be at least 2 and fit the supplied profile, and shortlistLimit must be 1-3.',
+    };
+  }
+  const plan = buildCoreEquipmentThreePlusOnePlan({
+    snapshot: sourceResult.snapshot,
+    targetSetId: sourceResult.gearSet.id,
+    profile: profileResult.profile,
+    constraints: { duplicateAccessoryPolicy: input.allowDuplicateCompatibleAccessories === false ? 'forbid' : 'catalog-default' },
+    minimumSetPieces,
+    shortlistLimit,
+  });
+  if (!plan.ok) return plan;
+  const best = plan.shortlist[0] || null;
+  const state = !best ? 'NO_PLAN' : best.missing.length ? 'PARTIAL' : best.ambiguity.length ? 'AMBIGUOUS' : 'READY';
+  const response = {
+    ...plan,
+    contract: DEF_EQUIPMENT_THREE_PLUS_ONE_PLAN_CONTRACT,
+    state,
+    setQuery: sourceResult.setQuery,
+    characterProfile: profileResult.profile,
+    profileEvidence: {
+      profileHash: capability.capability.profileHash,
+      source: capability.capability.source,
+      sessionBound: true,
+      turnBound: true,
+    },
+    nextAction: state === 'READY'
+      ? 'Present the bounded shortlist with its exact ids and evidence. A separate operator-config preview is still required before any mutation.'
+      : 'Report the returned missing/ambiguity facts. Do not claim an optimal loadout or apply configuration without resolving them.',
+  };
+  const outputByteLimit = 64 * 1024;
+  const outputBytes = Buffer.byteLength(JSON.stringify(response));
+  if (outputBytes > outputByteLimit) return { ok: false, code: 'equipment-3plus1-output-too-large', message: 'The bounded planner response exceeds its typed output budget.', outputBytes, outputByteLimit };
+  capability.capability.consumed = true;
+  operatorBuildProfileCapabilities.delete(capability.capability.token);
+  response.searchSpace.outputBytes = outputBytes;
+  response.searchSpace.outputByteLimit = outputByteLimit;
+  return response;
+};
 
 function buildDefNativeCatalogArtifact(input = {}) {
   const domain = typeof input.domain === 'string' ? input.domain.trim() : '';
@@ -5157,7 +5344,7 @@ function resolveDefCombatConventions(input = {}) {
 }
 
 function operatorRequiresCombatConvention(operator = {}) {
-  return /辅助|support/.test(normalizeDefToolText(operator?.profession));
+  return coreOperatorRequiresCombatConvention(operator);
 }
 
 function operatorBuildInvocationIdentity(input = {}) {
@@ -5180,6 +5367,29 @@ function loadOperatorBuildGuideReferences() {
     .map((loaded) => loaded.reference);
 }
 
+function createDefEquipment3Plus1RecommendationComposition() {
+  return createDefEquipment3Plus1RecommendationService({
+    async readOperatorCatalog() {
+      return readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
+    },
+    async loadGuideReferences() {
+      return loadOperatorBuildGuideReferences();
+    },
+    async readGuideSection({ referenceId, sectionId }) {
+      return readCompleteDefGameKnowledgeSection({ referenceId, sectionId });
+    },
+    async resolveCombatConventions(input) {
+      return resolveDefCombatConventions(input);
+    },
+    async readEquipmentLibrarySource() {
+      return readDefEquipmentLibrarySource();
+    },
+    async readGearSetAliasIndex() {
+      return readDefNativeGearSetAliasIndex();
+    },
+  });
+}
+
 function compactNonOverlappingOperatorBuildGroups(groups = []) {
   const claimedTypeKeys = new Set();
   return groups.flatMap((group) => {
@@ -5198,14 +5408,7 @@ function compactNonOverlappingOperatorBuildGroups(groups = []) {
 }
 
 function compactGuidePlannerProfile(operatorId, strategy, contentHash) {
-  const preferenceGroups = compactNonOverlappingOperatorBuildGroups(strategy?.preferenceGroups || []);
-  return {
-    characterId: operatorId,
-    derivation: 'guide',
-    evidenceRefs: [`guide-sha256:${contentHash}`],
-    keywords: preferenceGroups.map((group) => group.label),
-    preferenceGroups,
-  };
+  return compileGuidePlannerProfile(operatorId, strategy, contentHash);
 }
 
 function hashDefOperatorBuildPlannerProfile(plannerProfile) {
@@ -5213,7 +5416,7 @@ function hashDefOperatorBuildPlannerProfile(plannerProfile) {
   // order. The planner normalizer reconstructs the same profile shape before
   // verification, so both issuance and consumption must use one stable
   // key-sorted serializer while preserving ordered preference arrays.
-  return hashDefNativeCatalogValue(plannerProfile);
+  return hashCoreOperatorBuildPlannerProfile(plannerProfile);
 }
 
 function mintOperatorBuildProfileCapability({
@@ -5467,51 +5670,12 @@ function discoverDefOperatorBuildGuide(input = {}) {
 }
 
 function mergePartialGuidePlannerProfile(profile, resolution) {
-  if (!profile?.plannerProfile || resolution.guideState !== 'PARTIAL_GUIDE_FOUND') return profile;
-  const ignoredTypeKeys = new Set(profile?.conventionEvidence?.ignoredTypeKeys || []);
-  const guideGroups = compactNonOverlappingOperatorBuildGroups(resolution.guidePreferenceGroups || [])
-    .map((group) => ({
-      ...group,
-      acceptedTypeKeys: group.acceptedTypeKeys.filter((typeKey) => !ignoredTypeKeys.has(typeKey)),
-    }))
-    .filter((group) => group.acceptedTypeKeys.length);
-  const teamScopedGuide = resolution.guideContextScope === 'team-composition';
-  const derivedTypeKeys = new Set(profile.plannerProfile.preferenceGroups.flatMap((group) => group.acceptedTypeKeys));
-  const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
-  const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => (
-    teamScopedGuide || !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
-  ));
-  const scopedGuideGroups = teamScopedGuide
-    ? guideGroups.filter((group) => !group.acceptedTypeKeys.some((typeKey) => derivedTypeKeys.has(typeKey)))
-    : guideGroups;
-  const preferenceGroups = teamScopedGuide
-    ? [...derivedGroups, ...scopedGuideGroups]
-    : [...scopedGuideGroups, ...derivedGroups];
-  const guideEvidence = resolution.guide?.contentHash
-    ? [`guide-sha256:${resolution.guide.contentHash}`]
-    : [];
-  const plannerProfile = {
-    ...profile.plannerProfile,
-    derivation: 'guide-and-skill-analysis',
-    evidenceRefs: [...new Set([...guideEvidence, ...profile.plannerProfile.evidenceRefs])],
-    keywords: preferenceGroups.map((group) => group.label),
-    preferenceGroups,
-  };
-  return {
-    ...profile,
-    preferenceGroups: preferenceGroups.map((group) => ({
-      ...group,
-      evidenceRefs: scopedGuideGroups.includes(group)
-        ? guideEvidence
-        : profile.preferenceGroups.find((entry) => entry.key === group.key)?.evidenceRefs || [],
-    })),
-    keywordLabels: plannerProfile.keywords,
-    plannerProfile,
-    derivation: {
-      ...profile.derivation,
-      source: 'partial-guide-plus-operator-catalog-skill-fallback',
-    },
-  };
+  return mergeCorePartialGuidePlannerProfile(profile, {
+    guideState: resolution?.guideState,
+    guidePreferenceGroups: resolution?.guidePreferenceGroups,
+    guideContextScope: resolution?.guideContextScope,
+    guideContentHash: resolution?.guide?.contentHash,
+  });
 }
 
 function deriveDefOperatorBuildProfile(input = {}) {
@@ -10097,6 +10261,7 @@ function applyDefToolInvocationPolicy(name, definition, input, invocation = {}) 
   // never receive that transport payload, even though the persisted artifact
   // itself is read-only.
   if (name === 'def.native_catalog.materialize'
+    || name === 'def.equipment.3plus1.recommend'
     || name === 'def.equipment.set_fit.shortlist'
     || name === 'def.equipment.3plus1.facts'
     || name === 'def.equipment.3plus1.plan'
@@ -10600,6 +10765,26 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
         domain: result.domain || input.domain || null,
         nextAction: 'Keep this read-only request unmodified and provide a non-empty equipment or weapon query after the local catalog is available.',
       });
+    }
+  } else if (name === 'def.equipment.3plus1.recommend') {
+    const {
+      __defSessionId: _sessionId,
+      __defTurnId: _turnId,
+      __defNativeCatalogSessionId: _nativeCatalogSessionId,
+      __defNativeCatalogSession: _nativeCatalogSession,
+      ...recommendationInput
+    } = input;
+    result = await createDefEquipment3Plus1RecommendationComposition().recommend({
+      sessionId: input.__defNativeCatalogSessionId || input.__defSessionId,
+      turnId: input.__defTurnId,
+      input: recommendationInput,
+    });
+    if (result.contract === 'DefEquipmentThreePlusOneRecommendationErrorV1') {
+      const { status, ...error } = result;
+      return {
+        status,
+        body: { ok: false, protocolVersion: 1, tool: name, error },
+      };
     }
   } else if (name === 'def.equipment.set_fit.shortlist') {
     result = buildDefEquipmentSetFitShortlist(input);

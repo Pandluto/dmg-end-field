@@ -1,3 +1,5 @@
+import { hashDefStableValue } from './stable-json.mjs';
+
 const ABILITY_TYPE_KEYS = Object.freeze({
   力量: 'strengthBoost',
   strength: 'strengthBoost',
@@ -464,4 +466,87 @@ export function deriveOperatorBuildProfile(rawOperator, {
         ? 'Call def_data_weapon_fit_plan directly with this unchanged plannerProfile/capability and convention bundle hash. Do not call generic skill/operator, native catalog materialization, weapon summaries, or loadout candidates.'
         : 'Use these evidence-backed effect groups as character preferences. Do not reinterpret equipment fixedStat as the operator main or secondary attribute.',
   };
+}
+
+/** True when a structured operator profile needs reviewed combat conventions. */
+export function operatorRequiresCombatConvention(operator = {}) {
+  return /辅助|support/.test(normalized(operator?.profession));
+}
+
+/** Compile guide evidence into the planner's pure profile shape. */
+export function compileGuidePlannerProfile(operatorId, guideStrategy, guideContentHash) {
+  const claimedTypeKeys = new Set();
+  const preferenceGroups = (guideStrategy?.preferenceGroups || []).flatMap((group) => {
+    const acceptedTypeKeys = [...new Set((group?.acceptedTypeKeys || [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !claimedTypeKeys.has(value)))];
+    acceptedTypeKeys.forEach((value) => claimedTypeKeys.add(value));
+    return acceptedTypeKeys.length && String(group?.key || '').trim() && String(group?.label || '').trim()
+      ? [{ key: String(group.key).trim(), label: String(group.label).trim(), kind: String(group.kind || 'other'), acceptedTypeKeys }]
+      : [];
+  });
+  return {
+    characterId: String(operatorId || '').trim(),
+    derivation: 'guide',
+    evidenceRefs: [`guide-sha256:${String(guideContentHash || '').trim()}`],
+    keywords: preferenceGroups.map((group) => group.label),
+    preferenceGroups,
+  };
+}
+
+/**
+ * Keep guide-proven groups while supplementing only missing profile evidence.
+ * Inputs are plain evidence values; no capability, token, or server state is
+ * accepted by this core helper.
+ */
+export function mergePartialGuidePlannerProfile(profile, {
+  guideState,
+  guidePreferenceGroups = [],
+  guideContextScope = null,
+  guideContentHash = null,
+} = {}) {
+  if (!profile?.plannerProfile || guideState !== 'PARTIAL_GUIDE_FOUND') return profile;
+  const ignoredTypeKeys = new Set(profile?.conventionEvidence?.ignoredTypeKeys || []);
+  const claimedTypeKeys = new Set();
+  const guideGroups = guidePreferenceGroups.flatMap((group) => {
+    const acceptedTypeKeys = [...new Set((group?.acceptedTypeKeys || [])
+      .map((value) => String(value || '').trim())
+      .filter((value) => value && !ignoredTypeKeys.has(value) && !claimedTypeKeys.has(value)))];
+    acceptedTypeKeys.forEach((value) => claimedTypeKeys.add(value));
+    return acceptedTypeKeys.length && String(group?.key || '').trim() && String(group?.label || '').trim()
+      ? [{ key: String(group.key).trim(), label: String(group.label).trim(), kind: String(group.kind || 'other'), acceptedTypeKeys }]
+      : [];
+  });
+  const teamScopedGuide = guideContextScope === 'team-composition';
+  const derivedTypeKeys = new Set(profile.plannerProfile.preferenceGroups.flatMap((group) => group.acceptedTypeKeys));
+  const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
+  const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => teamScopedGuide || !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey)));
+  const scopedGuideGroups = teamScopedGuide
+    ? guideGroups.filter((group) => !group.acceptedTypeKeys.some((typeKey) => derivedTypeKeys.has(typeKey)))
+    : guideGroups;
+  const preferenceGroups = teamScopedGuide ? [...derivedGroups, ...scopedGuideGroups] : [...scopedGuideGroups, ...derivedGroups];
+  const guideEvidence = guideContentHash ? [`guide-sha256:${guideContentHash}`] : [];
+  const plannerProfile = {
+    ...profile.plannerProfile,
+    derivation: 'guide-and-skill-analysis',
+    evidenceRefs: [...new Set([...guideEvidence, ...profile.plannerProfile.evidenceRefs])],
+    keywords: preferenceGroups.map((group) => group.label),
+    preferenceGroups,
+  };
+  return {
+    ...profile,
+    preferenceGroups: preferenceGroups.map((group) => ({
+      ...group,
+      evidenceRefs: scopedGuideGroups.includes(group)
+        ? guideEvidence
+        : profile.preferenceGroups.find((entry) => entry.key === group.key)?.evidenceRefs || [],
+    })),
+    keywordLabels: plannerProfile.keywords,
+    plannerProfile,
+    derivation: { ...profile.derivation, source: 'partial-guide-plus-operator-catalog-skill-fallback' },
+  };
+}
+
+export function hashDefOperatorBuildPlannerProfile(plannerProfile) {
+  return hashDefStableValue(plannerProfile);
 }
