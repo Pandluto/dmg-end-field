@@ -403,6 +403,11 @@ export function buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId, profi
   });
   candidates.sort(compareCandidates);
   const leadingCandidate = candidates[0] || null;
+  // A ranked candidate can still be incomplete: ranking is useful evidence for
+  // an explicit set request, but automatic set selection is only allowed to
+  // consider a target set when exhaustive enumeration proved at least one
+  // complete legal plan under the current constraints.
+  const leadingCompleteLegalCandidate = candidates.find((candidate) => candidate.missing.length === 0) || null;
   const tieCandidates = leadingCandidate ? candidates.filter((candidate) => businessTie(leadingCandidate, candidate)) : [];
   const chosen = leadingCandidate ? candidates.filter((candidate, index) => index === 0 || businessTie(leadingCandidate, candidate) || closeAlternative(leadingCandidate, candidate)).slice(0, shortlistLimit) : [];
   const tie = tieCandidates.length > 1 ? { code: 'top-ranking-tie', message: 'The leading plans are equal under the declared keyword/type-key scoring; stable ids only make output order deterministic.', candidateCount: tieCandidates.length, truncated: tieCandidates.length > shortlistLimit } : null;
@@ -422,6 +427,13 @@ export function buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId, profi
     duplicatePolicy: DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY,
     searchSpace: { topologyCount: viableTopologies.length, candidateCombinationCount, enumeratedCandidateCount, exhaustive: true, outputCandidateLimit: shortlistLimit, outputCandidateCount: shortlist.length },
     rankingBasis: { effectTypeKeysOnly: true, orderedPreferenceWeights: preferences.map((group, index) => ({ key: group.key, weight: preferences.length - index })), equipmentFixedStatExcluded: true, closeAlternativeRule: { sameQualifiedPieceCount: true, sameCoveredPreferenceCount: true, maximumWeightedScoreDeficit: 1 }, note: 'This is deterministic profile-keyword coverage, not a damage simulation or an inferred upgrade magnitude.' },
+    completeLegalPlan: leadingCompleteLegalCandidate ? {
+      topologyId: leadingCompleteLegalCandidate.topologyId,
+      matchKeys: leadingCompleteLegalCandidate.matchKeys,
+      coveredPreferenceCount: leadingCompleteLegalCandidate.coveredPreferenceCount,
+      weightedScore: leadingCompleteLegalCandidate.weightedScore,
+      pieceMatchCount: leadingCompleteLegalCandidate.selection.reduce((total, piece) => total + piece.ranked.rank.matchCount, 0),
+    } : null,
     shortlist, missing: shortlist[0]?.missing || [{ code: 'no-viable-loadout', message: 'No catalog assignment satisfies the requested set-membership and slot constraints.' }], ambiguity: shortlist[0]?.ambiguity || [], tieCandidateCount: tieCandidates.length,
   };
 }
@@ -434,15 +446,15 @@ export function buildDefEquipmentSetFitShortlist({ snapshot, profile, constraint
     const setBonusFacts = collectTypedEffects(gearSet.threePieceBuffs || {}, `gearSet.${gearSet.id}.threePieceBuffs`);
     const setBonusRank = rankFacts(setBonusFacts, profile);
     const plan = buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId: gearSet.id, profile, constraints, minimumSetPieces, shortlistLimit });
-    const best = plan.ok ? plan.shortlist[0] : null;
+    const best = plan.ok ? plan.completeLegalPlan : null;
     const eligible = Boolean(best && setBonusFacts.length && setBonusRank.matchCount);
     const covered = new Set([...setBonusRank.matchKeys, ...(best?.matchKeys || [])]);
     return {
       id: gearSet.id, name: gearSet.name, eligible,
-      reasons: [...(!best ? [{ code: plan.code || 'minimum-three-slot-topology-unavailable' }] : []), ...(!setBonusFacts.length ? [{ code: 'typed-three-piece-buff-unavailable' }] : []), ...(setBonusFacts.length && !setBonusRank.matchCount ? [{ code: 'three-piece-buff-profile-unmatched' }] : [])],
+      reasons: [...(!plan.ok ? [{ code: plan.code || 'minimum-three-slot-topology-unavailable' }] : []), ...(plan.ok && !best ? [{ code: 'no-complete-legal-plan' }] : []), ...(!setBonusFacts.length ? [{ code: 'typed-three-piece-buff-unavailable' }] : []), ...(setBonusFacts.length && !setBonusRank.matchCount ? [{ code: 'three-piece-buff-profile-unmatched' }] : [])],
       availableTopologyIds: best ? [best.topologyId] : [], threePieceBuffFacts: setBonusFacts, threePieceBuffMatchKeys: setBonusRank.matchKeys,
       coveredPreferenceKeys: [...covered].sort(), setBonusMatchCount: setBonusRank.matchCount,
-      pieceMatchCount: best?.pieces.reduce((total, piece) => total + piece.matchCount, 0) || 0,
+      pieceMatchCount: best?.pieceMatchCount || 0,
       _weightedScore: setBonusRank.weightedScore * 100 + (best?.weightedScore || 0),
     };
   }).sort((left, right) => Number(right.eligible) - Number(left.eligible) || right.setBonusMatchCount - left.setBonusMatchCount || right.coveredPreferenceKeys.length - left.coveredPreferenceKeys.length || right._weightedScore - left._weightedScore || left.id.localeCompare(right.id));
