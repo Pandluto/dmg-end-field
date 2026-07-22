@@ -189,6 +189,17 @@ function portFailure(stage, value, sourceRevision) {
   });
 }
 
+function activeCatalogReaderFailure(error) {
+  const code = typeof error?.code === 'string' ? error.code.trim() : '';
+  if (!/^(?:active-game-catalog-|catalog-)/.test(code)) return null;
+  return failure({
+    code,
+    failureStage: 'capture-catalog',
+    message: error instanceof Error ? error.message : 'The selected game catalog could not be read.',
+    status: 409,
+  });
+}
+
 async function resolveProfile(ports, operator, setQuery) {
   const references = await ports.loadGuideReferences();
   if (!Array.isArray(references)) return { error: portFailure('resolve-profile') };
@@ -424,6 +435,8 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
         result.planDigest = buildDefEquipmentPlanDigest({ requestDigest, operatorId: operator.id, profileHash, catalogRevision, selectedSet: selectedSetEvidence, plans });
         return businessEnvelope({ requestDigest, state: 'READY', completeness: comparisons.partial || planAmbiguities.length ? 'partial' : 'complete', sourceRefs, ambiguities: planAmbiguities, result, supersedesPlanDigest: normalizedInput.priorPlanDigest || undefined });
       } catch (error) {
+        const catalogFailure = activeCatalogReaderFailure(error);
+        if (catalogFailure) return catalogFailure;
         return failure({ code: 'equipment-3plus1-internal-error', failureStage: catalogRevision ? 'build-evidence' : 'resolve-profile', message: error instanceof Error ? error.message : String(error), sourceRevision: catalogRevision });
       }
     },

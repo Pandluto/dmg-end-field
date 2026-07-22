@@ -2973,36 +2973,84 @@ function readDefNativeWeaponLibrarySource() {
   return { library: {}, storageKey: WEAPON_LIBRARY_STORAGE_KEY };
 }
 
+function activeGameCatalogFailure(error, domain) {
+  return {
+    ok: false,
+    domain,
+    status: 409,
+    code: typeof error?.code === 'string' && error.code.trim()
+      ? error.code.trim()
+      : 'active-game-catalog-read-failed',
+    message: error instanceof Error ? error.message : 'The selected game catalog could not be read.',
+  };
+}
+
+function readDefActiveGameCatalog(domain) {
+  try {
+    const catalog = getDataManagementService().readActiveGameCatalog();
+    const dataVersion = typeof catalog?.dataVersion === 'string' ? catalog.dataVersion.trim() : '';
+    const catalogSha256 = typeof catalog?.catalogSha256 === 'string' ? catalog.catalogSha256.trim().toLowerCase() : '';
+    if (!catalog || typeof catalog !== 'object' || !dataVersion || !/^[a-f0-9]{64}$/.test(catalogSha256)
+      || !catalog.operators || typeof catalog.operators !== 'object' || Array.isArray(catalog.operators)
+      || !catalog.weapons || typeof catalog.weapons !== 'object' || Array.isArray(catalog.weapons)
+      || !catalog.equipmentLibrary || typeof catalog.equipmentLibrary !== 'object' || Array.isArray(catalog.equipmentLibrary)
+      || !catalog.equipmentLibrary.gearSets || typeof catalog.equipmentLibrary.gearSets !== 'object' || Array.isArray(catalog.equipmentLibrary.gearSets)) {
+      return {
+        ok: false,
+        domain,
+        status: 409,
+        code: 'active-game-catalog-invalid-response',
+        message: 'Data Management returned an invalid active game catalog response.',
+      };
+    }
+    return { ok: true, catalog: { ...catalog, dataVersion, catalogSha256 } };
+  } catch (error) {
+    return activeGameCatalogFailure(error, domain);
+  }
+}
+
+function bindDefNativeCatalogSnapshotToActiveCatalog(snapshot, catalog) {
+  if (!snapshot?.ok) return snapshot;
+  const storageKey = `catalog:${catalog.dataVersion}`;
+  return {
+    ...snapshot,
+    source: {
+      ...snapshot.source,
+      storageKey,
+      capturedAt: 0,
+    },
+  };
+}
+
 function buildDefNativeCatalogSnapshot(domain) {
+  if (domain !== 'equipment' && domain !== 'weapon') {
+    return { ok: false, code: 'native-catalog-domain-invalid', message: 'domain must be equipment or weapon.', domain };
+  }
+  const active = readDefActiveGameCatalog(domain);
+  if (!active.ok) return active;
+  const { catalog } = active;
   if (domain === 'equipment') {
-    const source = readDefEquipmentLibrarySource();
-    // The host owns observation time; the Core receives it as explicit data.
-    return buildCoreEquipmentCatalogSnapshot({
-      library: source.library,
-      storageKey: source.storageKey,
-      capturedAt: Date.now(),
-    });
+    return bindDefNativeCatalogSnapshotToActiveCatalog(buildCoreEquipmentCatalogSnapshot({
+      library: catalog.equipmentLibrary,
+      storageKey: `catalog:${catalog.dataVersion}`,
+      capturedAt: 0,
+    }), catalog);
   }
-  if (domain === 'weapon') {
-    const source = readDefNativeWeaponLibrarySource();
-    const entities = Object.entries(source.library || {})
-      .map(([fallbackId, raw]) => projectDefNativeWeapon(raw, fallbackId))
-      .filter(Boolean)
-      .sort((left, right) => left.id.localeCompare(right.id));
-    if (!entities.length) return { ok: false, code: 'native-catalog-source-unavailable', message: 'The current weapon local library is unavailable or empty.', domain };
-    const sourceValue = { domain, weapons: entities };
-    return {
-      ok: true,
-      domain,
-      source: {
-        storageKey: source.storageKey,
-        revision: `sha256:${hashDefNativeCatalogValue(sourceValue)}`,
-        capturedAt: Date.now(),
-      },
-      entities,
-    };
-  }
-  return { ok: false, code: 'native-catalog-domain-invalid', message: 'domain must be equipment or weapon.', domain };
+  const entities = Object.entries(catalog.weapons)
+    .map(([fallbackId, raw]) => projectDefNativeWeapon(raw, fallbackId))
+    .filter(Boolean)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (!entities.length) return { ok: false, code: 'native-catalog-source-unavailable', message: 'The active weapon catalog is unavailable or empty.', domain };
+  return bindDefNativeCatalogSnapshotToActiveCatalog({
+    ok: true,
+    domain,
+    source: {
+      storageKey: `catalog:${catalog.dataVersion}`,
+      revision: `sha256:${hashDefNativeCatalogValue({ domain, weapons: entities })}`,
+      capturedAt: 0,
+    },
+    entities,
+  }, catalog);
 }
 
 // Legacy primitive routes retain only their request/response compatibility

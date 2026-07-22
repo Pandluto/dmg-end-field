@@ -310,6 +310,62 @@ try {
   assert.equal(registration.payload.result?.sessionId, sessionId);
   const registeredBaselineState = await readReadOnlyState();
 
+  // Legacy native artifact and 3+1 compatibility routes remain registered,
+  // but they must now traverse the same Data Management catalog as composite
+  // recommendation. This fixture intentionally has no now-storage file.
+  const legacyArtifact = await assertReadOnlyCall('legacy active-catalog materialize', () => call(
+    'def.native_catalog.materialize',
+    { domain: 'equipment', query: 'tide', __defTurnId: 'turn-legacy-materialize' },
+  ));
+  assert.equal(legacyArtifact.response.status, 200, JSON.stringify(legacyArtifact.payload));
+  assert.equal(legacyArtifact.payload.result?.domain, 'equipment');
+  assert.equal(legacyArtifact.payload.result?.source?.storageKey, 'catalog:equipment-3plus1-registration-v1');
+  const legacySourceRevision = legacyArtifact.payload.result?.source?.revision;
+  assert.match(legacySourceRevision, /^sha256:[a-f0-9]{64}$/);
+
+  const legacyFacts = await assertReadOnlyCall('legacy active-catalog facts', () => call(
+    'def.equipment.3plus1.facts',
+    { sourceRevision: legacySourceRevision, setQuery: 'tide', __defTurnId: 'turn-legacy-facts' },
+  ));
+  assert.equal(legacyFacts.response.status, 200, JSON.stringify(legacyFacts.payload));
+  assert.equal(legacyFacts.payload.result?.contract, 'DefEquipmentThreePlusOneFactsV2');
+  assert.equal(legacyFacts.payload.result?.source?.revision, legacySourceRevision);
+
+  const legacyProfile = {
+    characterId: 'bieli',
+    derivation: 'user',
+    evidenceRefs: ['manual:legacy-catalog-contract'],
+    keywords: ['strength', 'will'],
+    preferenceGroups: [
+      { key: 'strength', label: 'Strength', kind: 'primary-attribute', acceptedTypeKeys: ['strengthBoost'] },
+      { key: 'will', label: 'Will', kind: 'secondary-attribute', acceptedTypeKeys: ['willBoost'] },
+    ],
+  };
+  const legacyShortlist = await assertReadOnlyCall('legacy active-catalog shortlist', () => call(
+    'def.equipment.set_fit.shortlist',
+    {
+      sourceRevision: legacySourceRevision,
+      characterProfile: legacyProfile,
+      plannerProfileCapability: 'missing-legacy-capability',
+      __defTurnId: 'turn-legacy-shortlist',
+    },
+  ));
+  assert.equal(legacyShortlist.response.status, 409, JSON.stringify(legacyShortlist.payload));
+  assert.equal(legacyShortlist.payload.error?.code, 'equipment-3plus1-profile-capability-invalid');
+
+  const legacyPlan = await assertReadOnlyCall('legacy active-catalog plan', () => call(
+    'def.equipment.3plus1.plan',
+    {
+      sourceRevision: legacySourceRevision,
+      setQuery: 'tide',
+      characterProfile: legacyProfile,
+      plannerProfileCapability: 'missing-legacy-capability',
+      __defTurnId: 'turn-legacy-plan',
+    },
+  ));
+  assert.equal(legacyPlan.response.status, 409, JSON.stringify(legacyPlan.payload));
+  assert.equal(legacyPlan.payload.error?.code, 'equipment-3plus1-profile-capability-invalid');
+
   const missingTurn = await assertReadOnlyCall('missing-turn recommendation', () => recommend({ operatorQuery: 'bieli' }));
   assert.equal(missingTurn.response.status, 403, JSON.stringify(missingTurn.payload));
   assert.equal(validateError(missingTurn.payload.error), true, JSON.stringify(validateError.errors));
@@ -427,6 +483,7 @@ try {
       'live-route-map',
       'authenticated-registered-session-policy',
       'typed-error-http-mapping',
+      'legacy-artifact-facts-shortlist-plan-active-catalog-without-now-storage',
       'ready-needs-input-unresolved',
       'controlled-trigger-requirement-unresolved',
       'opencode-wrapper-to-real-dispatcher',

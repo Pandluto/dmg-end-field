@@ -3,10 +3,15 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
+
+const require = createRequire(import.meta.url);
+const { createCatalogDatabase } = require('../electron/data-management-service.cjs');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-native-catalog-'));
 const port = 19380 + Math.floor(Math.random() * 300);
 const nowStoragePath = path.join(root, 'now-storage.json');
+const builtinCatalogPath = path.join(root, 'catalog.sqlite');
 const baseUrl = `http://127.0.0.1:${port}`;
 
 function effect(label, typeKey, levels = { 0: 1, 3: 4 }) {
@@ -129,6 +134,33 @@ const weaponLibrary = {
   wind: { id: 'weapon-wind', name: '长风', type: '手铳', rarity: 5, skills: {} },
 };
 
+function writeDataManagementCatalog({ equipment = equipmentLibrary, weapon = weaponLibrary, operator = operatorLibrary } = {}) {
+  fs.rmSync(builtinCatalogPath, { force: true });
+  createCatalogDatabase({
+    databasePath: builtinCatalogPath,
+    dataVersion: 'native-catalog-contract-v1',
+    generatedAt: '2026-07-23T00:00:00.000Z',
+    operators: Object.entries(operator).map(([fallbackId, payload]) => ({
+      id: String(payload?.id || fallbackId),
+      name: String(payload?.name || fallbackId),
+      payload,
+    })),
+    weapons: Object.entries(weapon).map(([fallbackId, payload]) => ({
+      id: String(payload?.id || fallbackId),
+      name: String(payload?.name || fallbackId),
+      payload,
+    })),
+    // Legacy catalog consumers project the full equipment-set payload. The
+    // independent equipment table is not their source and may not encode
+    // duplicate raw IDs across sets, which this fixture deliberately tests.
+    equipmentSets: Object.entries(equipment?.gearSets || {}).map(([fallbackId, payload]) => ({
+      id: String(payload?.gearSetId || fallbackId),
+      name: String(payload?.name || fallbackId),
+      payload,
+    })),
+  });
+}
+
 function writeArchive({ equipment = equipmentLibrary, weapon = weaponLibrary, operator = operatorLibrary } = {}) {
   fs.writeFileSync(nowStoragePath, `${JSON.stringify({
     type: 'def.localdata.archive.v1', schemaVersion: 1, id: 'native-catalog-contract',
@@ -142,6 +174,7 @@ function writeArchive({ equipment = equipmentLibrary, weapon = weaponLibrary, op
       session: {},
     },
   }, null, 2)}\n`, 'utf8');
+  writeDataManagementCatalog({ equipment, weapon, operator });
 }
 
 writeArchive();
@@ -156,6 +189,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: path.join(root, 'timeline.sqlite3'),
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
     DEF_INTERNAL_GOVERNANCE_TOKEN: 'native-catalog-contract',
   },
