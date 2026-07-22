@@ -21,12 +21,15 @@ function assistantText(run) {
     .map((part) => String(part.text || ''))).join('\n');
 }
 function refOf(run) { return run?.session?.harnessBinding?.harness || run?.turns?.[0]?.accepted?.harness?.harness || null; }
-function factsComplete(run) {
-  if (run?.status !== 'EXECUTED' || !run?.cleanup?.completed || !run?.session?.sessionId || !refOf(run)) return false;
+export function factsComplete(run) {
+  const releaseHash = run?.session?.agentRelease?.releaseHash;
+  if (run?.status !== 'EXECUTED' || !run?.cleanup?.completed || !run?.session?.sessionId || !refOf(run)
+    || run?.session?.agentRelease?.kind !== 'AgentReleaseV1' || !releaseHash) return false;
   return run.turns?.length && run.turns.every((turn) => terminalStates.has(turn?.terminal?.status)
     && turn?.accepted?.testRunId && turn?.accepted?.turnId && turn?.accepted?.clientTurnId
     && turn?.nativeUserMessageId && Array.isArray(turn?.assistantMessageIds) && turn.assistantMessageIds.length
-    && turn?.accepted?.harness?.harness?.contentHash);
+    && turn?.accepted?.harness?.harness?.contentHash
+    && turn?.accepted?.agentRelease?.releaseHash === releaseHash);
 }
 function errorState(run) {
   if (run?.status === 'FAIL_AGENT') return 'FAIL_AGENT';

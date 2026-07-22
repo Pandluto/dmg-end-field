@@ -444,7 +444,7 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     run.stateBefore = { source: 'snapshot', value: before };
     runner = (await request('POST', '/def-agent/interop/v1/harness/sessions', { harnessSelector, fixtureMode: scenario.fixtureMode || 'empty' }, token)).runner;
     run.fixture = { source: 'harness', fixtureId: runner.fixtureId, timelineId: runner.timelineId, mode: runner.fixtureMode, boundNodeId: runner.boundNodeId };
-    run.session = { source: 'sidecar', sessionId: runner.sessionId, harnessBinding: runner.harnessBinding };
+    run.session = { source: 'sidecar', sessionId: runner.sessionId, harnessBinding: runner.harnessBinding, agentRelease: runner.agentRelease || null };
     let cursor = '0'; let first = true;
     for (const userTurn of scenario.turns) {
       const clientTurnId = `harness-${crypto.randomUUID()}`;

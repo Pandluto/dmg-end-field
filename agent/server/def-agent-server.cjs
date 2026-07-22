@@ -757,6 +757,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     sessionHarnessBinding: harness.sessionBinding || harness.binding,
     harnessRoute: harness.turnRoute || null,
     harnessWarning: harness.warning,
+    agentRelease: binding.agentRelease || null,
   };
 }
 
@@ -1276,7 +1277,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, idempotent: result.idempotent === true });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, agentRelease: result.agentRelease || null, idempotent: result.idempotent === true });
       return;
     }
 

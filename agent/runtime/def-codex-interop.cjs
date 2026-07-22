@@ -206,6 +206,7 @@ function createDefCodexInteropProtocol(options) {
       selectedOperators: operators,
       pending: snapshot.pendingApproval || snapshot.pendingNode || snapshot.pendingCommand || null,
       harness: native?.binding?.harnessBinding || null,
+      agentRelease: native?.binding?.agentRelease || null,
     };
   }
 
@@ -544,10 +545,11 @@ function createDefCodexInteropProtocol(options) {
     record.nativeUserMessageId = String(sidecar.body?.nativeUserMessageId || '');
     record.harnessBinding = sidecar.body?.harnessBinding || null;
     record.harnessWarning = sidecar.body?.harnessWarning || null;
-    record.response = { ...record.response, harness: record.harnessBinding, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) };
+    record.agentRelease = sidecar.body?.agentRelease || null;
+    record.response = { ...record.response, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) };
     if (record.ingressMode === 'diagnostic') record.response.providerVisibleMessages = record.providerVisibleMessages;
     appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'accepted');
-    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, harness: record.harnessBinding, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) });
+    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) });
     if (!continuation) emit('session-created', record, { host: 'workbench', nativeSession: true });
     if (!state.available) emit('snapshot-unavailable', record, { source: 'workbench-snapshot' });
     emit('ui-prompt-consumed', record, { uiConsumerId: consumer.id, nativeSession: true });
@@ -567,11 +569,13 @@ function createDefCodexInteropProtocol(options) {
     const state = await snapshot();
     const consumer = currentConsumer();
     let harness = null;
+    let agentRelease = null;
     if (consumer?.directory) {
       try {
         const query = new URLSearchParams({ sessionID: consumer.sessionId, directory: consumer.directory });
         const bootstrap = await options.fetchJson(`${options.sidecarUrl}/api/native/bootstrap?${query}`);
         harness = bootstrap.body?.binding?.harnessBinding || null;
+        agentRelease = bootstrap.body?.binding?.agentRelease || null;
       } catch {}
     }
     json(response, 200, {
@@ -579,6 +583,7 @@ function createDefCodexInteropProtocol(options) {
       bridge: { ready: true, version: options.bridgeVersion || 'local' }, agent: sidecar,
       workbench: { snapshotAvailable: state.available, uiConnected: currentConsumer() !== null, uiConsumerCount: consumers.size },
       harness: { enabled: true, activeSessionBinding: harness },
+      agentRelease,
       capabilities: CAPABILITIES,
       authorization: { required: true, authorizeUrl: `${baseUrl}/def-agent/interop/v1/authorize`, expiresInSeconds: 900 },
     });
@@ -649,10 +654,10 @@ function createDefCodexInteropProtocol(options) {
         reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
       }
       const session = created.body.session;
-      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, createdAt: Date.now(), updatedAt: Date.now() };
+      const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, agentRelease: session.agentRelease || null, createdAt: Date.now(), updatedAt: Date.now() };
       harnessRunners.set(runner.sessionId, runner);
-      emit('harness-session-created', { sessionId: runner.sessionId }, { fixtureId, timelineId, harness: runner.harnessBinding });
-      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: runner.harnessBinding } }); return true;
+      emit('harness-session-created', { sessionId: runner.sessionId }, { fixtureId, timelineId, harness: runner.harnessBinding, agentRelease: runner.agentRelease });
+      json(response, 201, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, runner: { id: runner.id, sessionId: runner.sessionId, timelineId, fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: runner.harnessBinding, agentRelease: runner.agentRelease } }); return true;
     }
     const harnessCloseMatch = /^\/def-agent\/interop\/v1\/harness\/sessions\/([^/]+)$/.exec(path);
     if (method === 'DELETE' && harnessCloseMatch) {
