@@ -2,11 +2,12 @@
 
 ## 状态
 
-实施到 W6；外部 provider 阻塞，不可 activation。
+实施代码已推进到 integration `3102aaa`；外部 provider 阻塞，不可 activation。
 
-W0–W5、DEF Shell 清理入口和 W6 Host/Interop 返修均已有提交与证据。
+W0–W6 之后的 candidate/session 运行边界加固、Catalog v2 active reader 和受控 trigger requirement 已有源码与自动合同证据。本目标树内最后可追溯的真实 candidate runtime 仍是 `9e0b6240e1284a7ed574c89ac379ac42e2d99a26` / AgentRelease `eaf599b5b6324da74515308d3c5fa080d5a693d0b27b046085429d60eb944bc7`，不能用它宣称当前 HEAD runtime PASS。
+
 候选仍未 promotion，stable pointer 保持不变。四类 fresh-session 语义场景、
-candidate regression 与 G5 相邻回归须待有效 provider 后恢复；本 Task 的未勾选
+candidate regression 与 G5 相邻回归须先用当前 HEAD 重建 runtime、记录 AgentRelease 并绑定 fresh Session，再待有效 provider 恢复；本 Task 的未勾选
 检查项继续作为完成门，不因已实施到 W6 而批量改写。
 
 本 Task 是 [Spec 9](./spec.md) 的唯一实施任务。
@@ -209,11 +210,12 @@ Task 完成必须同时交付：
   - 每项装备 query 1–160 字符；三个数组规范化去重后合计最多 16 项；
   - `duplicateAccessoryPolicy`：`catalog-default / allow / forbid`，默认 catalog-default；
   - `minimumSetPieces`：3 或 4，默认 3；
+  - `requirements`：0–1 项，只允许 `{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary' }`；
   - `shortlistLimit`：1–3，默认 3；
   - `priorPlanDigest`：可选，格式为 `sha256:<64 lowercase hex>`。
 - [ ] 字符串统一做 NFKC、trim 与连续空白折叠。
 - [ ] required/excluded 按 query 去重；compare 按 query+slot 去重；跨语义数组的相同查询保留。
-- [ ] root、constraints、compare item 均设 `additionalProperties=false`；整数拒绝小数与字符串数字。
+- [ ] root、constraints、compare item 与 requirement item 均设 `additionalProperties=false`；整数拒绝小数与字符串数字。
 - [ ] required 与 excluded 在解析成同一个 stable id 后返回 `400` 输入错误。
 - [ ] required 必须出现在每个方案中；excluded 必须从全部槽位排除。
 - [ ] compare 不进入候选过滤、评分或排序。
@@ -222,6 +224,7 @@ Task 完成必须同时交付：
 - [ ] compare 无可信实体只产生 unresolved comparison，不单独阻塞合法方案。
 - [ ] `allow` 不得扩大 catalog 槽位兼容性；`forbid` 过滤重复 stable id。
 - [ ] 用户约束不得放宽 catalog、槽位或套装合法性。
+- [ ] 用户问干员元素伤害是否触发所选套装第二段时，Agent 提交精确受控 requirement；该项不允许 `proof`、`damageType` 或自由文本。
 - [ ] 不增加任意 JSON、隐藏 prompt 或自由表达式字段。
 - [ ] 不增加自由文本 `goal`；V1 内部 canonical goal 固定为 `damage`，support/utility 仍走结构化角色分支。
 
@@ -231,6 +234,7 @@ Task 完成必须同时交付：
 - [ ] 成功合同固定为 `DefEquipmentThreePlusOneRecommendationV1`，`protocolVersion=1`。
 - [ ] 只允许 `READY / NEEDS_INPUT / UNRESOLVED` 三个业务状态。
 - [ ] `READY` 包含 operator、profile evidence/profileHash、catalog revision、selected set、1–3 个 plans 和 `planDigest`。
+- [ ] 受控 requirement 被 typed facts 完整证明时，READY 返回可选 `requirementEvidence` 且 `state=PROVEN`；省略 requirement 时不返回该字段。
 - [ ] selected set 包含其 three-piece effect 的 matchKeys 与 rankingBasis。
 - [ ] 每个 plan 包含稳定 `planId`，并恰好包含 armor、glove、accessory1、accessory2 四项。
 - [ ] 每件装备包含 `stableId`、name、slot、set id、match keys 与 ranking basis。
@@ -254,6 +258,7 @@ Task 完成必须同时交付：
 - [ ] 每次推荐计算稳定 `requestDigest` 和 `planDigest`。
 - [ ] Digest 使用 object key 排序、忽略 undefined、保留 array 顺序的 canonical JSON，再执行 SHA-256。
 - [ ] `requestDigest` 覆盖规范化外部输入与默认值；不包含 priorPlanDigest、session/turn id、Profile 或 catalog。
+- [ ] 非空 requirements 进入 request identity；省略或空 requirements 不增加新 key，必须保持扩展前 V1 `requestDigest` 字节一致。
 - [ ] `planDigest` 只在 READY 时生成，覆盖 requestDigest、resolved ids、Profile evidence hash、catalog revision 与最终稳定 plans。
 - [ ] `planId` 只覆盖 selected set id 与固定槽位顺序的 stable ids。
 - [ ] correction 使用完整替换输入，而不是自然语言 patch。
@@ -276,6 +281,8 @@ Task 完成必须同时交付：
 - [ ] 新建 `scripts/def-core/native-catalog-value.mjs`，承接 equipment/weapon 共用的 catalog identity 规范化与安全业务值投影。
 - [ ] 新建 `scripts/def-core/equipment-3plus1-domain.mjs`，承接 catalog、解析、拓扑、约束、排名与 Digest 纯函数。
 - [ ] 新建 `scripts/def-core/equipment-3plus1-recommendation.mjs`，承接阶段、状态、Envelope 与 error。
+- [ ] 使用 `scripts/def-core/equipment-3plus1-active-catalog-reader.mjs` 将 Recommendation ports 绑定到 Data Management `readActiveGameCatalog()`，一次调用只捕获一个 data version。
+- [ ] Catalog schema v2 的 `equipment_sets` 保留完整 gear-set payload；新 recommend 不从扁平 equipment rows 重建套装事实。
 - [ ] Domain exports 与 ports 的名称、参数完全按 Spec 9 第 6.5.2 节实现。
 - [ ] 公开入口固定为 `createDefEquipment3Plus1RecommendationService(ports).recommend({ sessionId, turnId, input })`。
 - [ ] `ports` 只允许读取 operator catalog、guide references、exact guide section、combat conventions、equipment library source 与 gear-set aliases。
@@ -294,6 +301,7 @@ Task 完成必须同时交付：
 - [ ] `capture-catalog`：一次性捕获不可变 equipment snapshot 与 revision。
 - [ ] `resolve-constraints`：将 required/excluded/compare 解析成 stable id。
 - [ ] `resolve-set`：指定套装精确解析；未指定时完整筛选候选。
+- [ ] `validate-requirements`：在所选套装上验证可选受控 typed trigger 关系；无法证明时返回 `UNRESOLVED`。
 - [ ] `validate-facts`：校验槽位、套装数量、重复配件与 catalog identity。
 - [ ] `solve-plan`：生成有界计划、match keys、ranking basis、missing 与 ambiguities。
 - [ ] `build-evidence`：生成 Evidence Envelope 与 digest。
@@ -309,6 +317,9 @@ Task 完成必须同时交付：
 - [ ] set effect fit 先于 piece coverage；不能从 `fixedStat` 推导干员主副属性。
 - [ ] 不合并不同 effect type key。
 - [ ] 未证明的元素、触发或伤害收益保持 unresolved。
+- [ ] trigger requirement 只读 trusted operator `element` 与套装 effect 的 `stage/trigger`；不读 `name/label/condition/description/raw` 做证明。
+- [ ] secondary effect 缺失或重复、trigger 不完整、producer/kind 不受支持或 damage type 不匹配均 fail closed 为 `UNRESOLVED`。
+- [ ] 存在 active pointer 时，无效指针、manifest、schema v2、catalog hash 或 payload hash 不得静默回退 builtin；仅无 active pointer 时使用 builtin v2。
 - [ ] 固定 `minimumMatchesPerPiece=2`，不新增模型输入。
 - [ ] set 与 plan comparator 使用 Spec 9 第 6.5.4 节顺序。
 - [ ] 未指定套装时，只把当前 constraints 下至少有一个合法拓扑的套装标为 eligible。
@@ -458,6 +469,12 @@ Task 完成必须同时交付：
 - [ ] 名称歧义返回 `NEEDS_INPUT` 和一个问题。
 - [ ] 多个歧义只按固定优先级返回一个问题。
 - [ ] catalog identity 冲突 fail closed。
+- [ ] active reader 一次捕获同版 operator/equipment，返回 `catalog:<dataVersion>` source identity 且不暴露 database path。
+- [ ] 普通别礼+潮涌不传 requirements 时保持 READY、旧结果形状和旧 request digest。
+- [ ] 缺失 structured secondary/trigger 时 requirement 返回 UNRESOLVED；只有 prose 仍不能证明。
+- [ ] structured trigger 与 operator damage type 匹配时返回 READY + PROVEN evidence；不匹配时 UNRESOLVED。
+- [ ] 多个 secondary effect 不按对象顺序猜目标，而是 UNRESOLVED。
+- [ ] caller 在 requirement 中伪造 proof、damageType 或未知字段时返回 400。
 - [ ] required item 每个方案都包含；excluded item 在所有槽位都不存在。
 - [ ] 未指定套装时跳过被 constraints 排空的套装，并继续选择其他合法套装。
 - [ ] required/excluded 解析为同一 stable id 时返回 400。
@@ -482,6 +499,7 @@ Task 完成必须同时交付：
 - [ ] model export、registry、route、handler 一致。
 - [ ] 未认证或未注册 native session fail closed。
 - [ ] input size、枚举、required/excluded 冲突被拒绝。
+- [ ] Sidecar JSON Schema 与模型可见 Zod Schema 都暴露同一 strict requirement，Tool description 要求在用户询问该关系时填入，并明确禁止 proof/prose。
 - [ ] error stage 和 nextAction 不丢失。
 - [ ] 新 recommend 与三个 legacy primitive 均在 Tool reference contract 中可解释；candidate 只调用 recommend。
 - [ ] legacy primitive 继续要求 authenticated registered native session，且没有新增教学调用方。
@@ -508,8 +526,9 @@ git diff --check
 
 - [ ] 新建 `scripts/def-equipment-3plus1-recommendation-contract-test.mjs`，覆盖 Service、状态、约束、Digest 和只读不变量。
 - [ ] 新建 `scripts/def-equipment-3plus1-tool-surface-contract-test.mjs`，覆盖 definitions、registry、native target 与 OpenCode export；W2 可独立通过。
+- [ ] 增加 `scripts/def-equipment-3plus1-service-matrix-contract-test.mjs` 和 `scripts/def-equipment-3plus1-active-catalog-reader-contract-test.mjs`，分别覆盖完整 Service 分支与产品 active Catalog 读取边界。
 - [ ] 新建 `scripts/def-equipment-3plus1-registration-contract-test.mjs`，在集成分支覆盖 authenticated policy、Sidecar schema、dispatcher 与 Service wiring。
-- [ ] `package.json` 新增 `test:def-equipment-3plus1-recommendation`，串行运行上述三个 hermetic contract test。
+- [ ] `package.json` 的 `test:def-equipment-3plus1-recommendation` 串行运行 recommendation、service matrix、Tool surface、active reader 与 registration 五个 contract test。
 - [ ] 将新 package script 接入 `test:def-operator-build-planning` 或 `check`，只保留一个权威聚合入口。
 - [ ] 影响 architecture gate 时接入 `test:def-architecture-contracts` 或 `npm run check`。
 - [ ] 不把桌面实时依赖测试强塞进普通 hermetic 单测。
@@ -539,6 +558,7 @@ git diff --check
 ### G3. Trace 判据
 
 - [ ] 每轮只出现一次 `def_data_equipment_3plus1_recommend`。
+- [ ] unresolved 轮的真实 Tool input 必须包含 `requirements: [{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary' }]`；仅看到 UNRESOLVED 输出或最终文案不构成该合同 PASS。
 - [ ] 每轮使用封闭工具 allowlist；任何其他 attempted Tool 都失败，不能只依赖不完整 denylist。
 - [ ] 不出现旧 guide/profile/materialize/shortlist/facts/plan 模型编排。
 - [ ] 不出现 generic knowledge、legacy equipment、Work Node 或 mutation fallback。
@@ -574,6 +594,7 @@ git diff --check
 
 - [ ] 新建 `verification.md`。
 - [ ] 记录 baseline commit、实现 commits、AgentRelease、Harness ref 与 Scenario version。
+- [ ] 分开记录当前 integration HEAD 的静态/自动合同证据与最后真实 candidate runtime/session 证据；旧 AgentRelease 不得证明后续 Tool、Service、Catalog 或 Host 代码。
 - [ ] 分别记录合同测试、Interop、Computer Use 和状态证据。
 - [ ] 每项标记 PASS / FAIL / BLOCKED / NOT RUN。
 - [ ] 记录旧 primitive 的保留/退出结果。
@@ -1086,12 +1107,12 @@ W5 只做接线、聚合和证据记录。
 - [ ] 按 W1→W2→W3→W4→WS 顺序合并提交；预期不出现同文件冲突。
 - [ ] 新增 registration contract，覆盖 authenticated policy、Sidecar dispatcher 与真实 Service wiring。
 - [ ] 在 `package.json` 建立唯一聚合入口 `test:def-equipment-3plus1-recommendation`。
-- [ ] 聚合入口串行运行 Service、Tool surface 与 registration 三个 hermetic test。
+- [ ] 聚合入口串行运行 recommendation、service matrix、Tool surface、active catalog reader 与 registration 五个 contract test。
 - [ ] 接入 `test:def-operator-build-planning` 或 `check`，不得形成两个权威入口。
 - [ ] 保留 `DISPATCH_COMMIT` 中已有的全部测试脚本，尤其不得删除 `test:def-worknode-session-delete`。
 - [ ] 运行 `node scripts/def-native-session-cleanup-contract-test.mjs`，并记录为独立 Host 合同。
 - [ ] 运行 Task F4 的完整命令矩阵和 `git diff --check`。
-- [ ] 更新 `implementation-map.md` 的迁移结果与 primitive 退出结论。
+- [ ] 更新 `implementation-map.md` 的迁移结果、Catalog v2/active reader、controlled requirement 与 primitive 退出结论。
 - [ ] 明确记录三个 legacy primitive 仍处于 compatibility-retained；本 Task 不把它们伪记为 internalized。
 - [ ] 新建 `verification.md`，区分 PASS、FAIL、BLOCKED 与 NOT RUN。
 - [ ] 自动提交，不 push。
@@ -1100,6 +1121,8 @@ W5 只做接线、聚合和证据记录。
 
 W6 从 W5 的精确集成提交建立隔离测试 worktree。
 它不修改生产代码，也不直接修改 W5 分支。
+
+对 W6 后继续变更的 integration HEAD，旧 W6 runtime/AgentRelease 只是历史证据。恢复真实黑盒前必须重建当前 HEAD runtime、记录新 AgentRelease 并绑定 fresh Session；不得把旧 candidate binding 改写为当前代码 PASS。
 
 - 按 `docs/testing/def-agent-blackbox.md` 执行；
 - 使用全新 native session 与正确的 `AgentReleaseV1`、Harness candidate ref；

@@ -4,6 +4,8 @@
 
 预研究完成，形成于 2026-07-21 的五轮 DEF 主界面 AI 模式黑盒回归与代码审计。本目录作为下一轮 DEF OpenCode 工作的入口；本轮只固化事实、根因、架构约束与待决策问题，**不提前编写 Spec、Task、验收拆分或 Harness promotion 方案**。
 
+> 2026-07-23 后续实施注记：本文保留当时的五轮会话和根因作为历史基线。Spec 9 后续已选择单个 composite Recommendation Service，并实现 Catalog v2 active reader 与受控 trigger requirement；这些后续事实不改写本文对原始会话的记录。
+
 输入会话：
 
 - `ses_07ab85874ffeFojcecgjSMGTDM`：汤汤无指定套装 3+1；
@@ -95,6 +97,8 @@ flowchart LR
 - 尚未验证的推测。
 
 条件触发问题尤其需要 `triggerReachability`：必须明确“谁产生什么事件/状态、谁消费、作用对象、前置条件、是否实际可达”，不能仅凭两个名称相似就宣称联动成立。
+
+后续 Catalog v2 已把完整套装 payload 保存到 `equipment_sets`，消除了仅靠扁平装备行无法还原套装效果的载体缺口。但当前潮涌 `buff2` 仍只有名称、`typeKey` 等业务字段，没有可以唯一证明第二段触发的结构化 `stage` 与 `trigger`。因此“寒冷伤害会触发潮涌第二段”仍必须保持 unresolved；当前根因是可信事实缺失，不再是 Catalog 投影丢失完整套装 payload。
 
 ### 5. Planner 的 capability 粒度与真实任务不匹配
 
@@ -248,6 +252,8 @@ turnId + stageKind + targetEntityId + canonicalInputHash + errorCode
 4. combat conventions 如何返回实体 id，使触发规则能直接批量拉取精确角色、武器和装备事实？
 5. `triggerReachability` 由服务端确定性计算到什么程度，哪些关系允许由 Agent 基于已审阅 convention 派生？
 6. 别礼寒冷伤害是否属于法术伤害、是否能触发潮涌第二段，当前资料仍未证明；在取得权威数据前必须保持 unresolved。
+
+后续 Spec 9 已对第 1 和第 5 项做出本纵切的有界决定：3+1 由一个 typed composite Service 在单次调用内完成；“干员元素伤害是否触发所选套装第二段”使用受控 requirement，并且只由 Service 依据 typed operator/set facts 确定性验证。Agent 只能声明要验证的受控关系，不能携带 proof、damage type 或自由文本。
 
 ## 八、下一轮成功的最低判据
 
