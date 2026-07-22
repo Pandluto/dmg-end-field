@@ -1,6 +1,30 @@
 const executeCommand = 'Wraps current main workbench command queue; enqueue success still requires verification.';
 const workNode = 'Uses appdata/localdata AI work node; current checkout changes only on checkout/restore.';
 
+export const DEF_EQUIPMENT_3PLUS1_QUERY_MAX_LENGTH = 160;
+export const DEF_EQUIPMENT_3PLUS1_MAX_DISTINCT_CONSTRAINT_QUERIES = 16;
+
+/**
+ * Normalize the five user-supplied 3+1 query shapes exactly as Service V1
+ * does.  The public JSON Schema describes the value after this preprocessing;
+ * JSON Schema itself cannot express NFKC or whitespace collapsing.
+ */
+export function normalizeDefEquipment3Plus1Query(value) {
+  return typeof value === 'string'
+    ? value.normalize('NFKC').trim().replace(/\s+/gu, ' ')
+    : value;
+}
+
+/** Count normalized constraint identities across all three query groups. */
+export function countDefEquipment3Plus1DistinctConstraintQueries(constraints = {}) {
+  const queries = [
+    ...(Array.isArray(constraints.requiredEquipmentQueries) ? constraints.requiredEquipmentQueries : []),
+    ...(Array.isArray(constraints.excludedEquipmentQueries) ? constraints.excludedEquipmentQueries : []),
+    ...(Array.isArray(constraints.compareEquipmentQueries) ? constraints.compareEquipmentQueries.map((entry) => entry?.query) : []),
+  ];
+  return new Set(queries.map(normalizeDefEquipment3Plus1Query)).size;
+}
+
 const DEF_EQUIPMENT_3PLUS1_SLOT_SCHEMA = Object.freeze({
   type: 'string',
   enum: ['armor', 'glove', 'accessory1', 'accessory2'],
@@ -14,7 +38,9 @@ const DEF_EQUIPMENT_3PLUS1_DIGEST_SCHEMA = Object.freeze({
 const DEF_EQUIPMENT_3PLUS1_QUERY_SCHEMA = Object.freeze({
   type: 'string',
   minLength: 1,
-  maxLength: 160,
+  maxLength: DEF_EQUIPMENT_3PLUS1_QUERY_MAX_LENGTH,
+  pattern: '\\S',
+  description: 'After NFKC normalization, trimming, and collapsing consecutive whitespace to one space: 1-160 characters. The tool surface performs this preprocessing before dispatch.',
 });
 
 const DEF_EQUIPMENT_3PLUS1_MISSING_FACT_SCHEMA = Object.freeze({
@@ -90,6 +116,7 @@ export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA = Object.freeze({
     constraints: {
       type: 'object',
       additionalProperties: false,
+      description: 'After normalized query identities are deduplicated across required, excluded, and compare groups, at most 16 distinct normalized queries remain. The tool surface enforces this cross-field limit before dispatch.',
       properties: {
         requiredEquipmentQueries: {
           type: 'array',
