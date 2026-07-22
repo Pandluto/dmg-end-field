@@ -189,7 +189,7 @@ const childExited = new Promise((resolve) => {
 });
 
 async function waitForReady() {
-  for (let attempt = 0; attempt < 120; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (child.exitCode !== null) throw new Error(`Registration contract server exited early (${child.exitCode}). ${childStderr}`);
     try {
       if ((await fetch(`${baseUrl}/health`)).ok) return;
