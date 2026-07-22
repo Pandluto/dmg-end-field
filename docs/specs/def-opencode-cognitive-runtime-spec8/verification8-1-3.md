@@ -53,6 +53,8 @@ The later real Workbench session correctly showed that the Operator Configuratio
 
 This major runtime/tool-contract bug is fixed. `def.weapon.resolve` now searches the same local library as the Operator Configuration picker and returns bounded `scope=catalog`, `source=operator-config-weapon-library`, `catalogCount`, `exhaustive`, and `truncated` facts. `def_data_weapon` and the typed-tool definition now explicitly describe that source. The repair is read-only: it neither writes the library nor equips a weapon. No Harness candidate was changed or promoted for this runtime correction.
 
+> Superseded by Spec 9 catalog closure: `def.weapon.resolve` and `def.equipment.resolve` now read Data Management's immutable active Catalog v2 and return `sourceRef` / `dataVersion` / catalog hash. The Operator Configuration local library remains a separate preview-and-write boundary; an absent exact product is blocked before preview rather than replaced with a local approximation. This historical section remains as the record of the earlier local-library repair.
+
 ## Addendum — second real Harness failure: Work Node loadout was not a configuration mutation
 
 ### Classification and root cause

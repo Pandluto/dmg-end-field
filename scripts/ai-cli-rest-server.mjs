@@ -3549,18 +3549,21 @@ function compactDefWeaponLibraryEntry(raw, fallbackId) {
   };
 }
 
-function resolveDefWeaponQuery(entries, rawQuery, limit = 12) {
+function resolveDefWeaponQuery(entries, rawQuery, limit = 12, source = {}) {
   const query = normalizeDefToolText(rawQuery);
   const ranked = rankDefResourceCandidates(entries.map((weapon) => buildDefRankedSearchRecord({
     ...weapon,
     kind: 'weapon',
     scope: 'catalog',
-    source: 'operator-config-weapon-library',
+    source: source.name,
   }, [weapon.name, weapon.id, weapon.type])), rawQuery, boundedDefLimit(limit, 12));
   return {
     contract: 'DefWeaponResolutionV2',
     scope: 'catalog',
-    source: 'operator-config-weapon-library',
+    source: source.name,
+    sourceRef: source.ref,
+    dataVersion: source.dataVersion,
+    catalogSha256: source.catalogSha256,
     catalogCount: entries.length,
     count: ranked.candidates.length,
     query,
@@ -3577,19 +3580,33 @@ function resolveDefWeaponQuery(entries, rawQuery, limit = 12) {
 }
 
 function resolveDefWeapons(input = {}) {
-  const library = readMainWorkbenchJson(WEAPON_LIBRARY_STORAGE_KEY, {});
-  const entries = library && typeof library === 'object' && !Array.isArray(library)
-    ? Object.entries(library).map(([fallbackId, raw]) => compactDefWeaponLibraryEntry(raw, fallbackId)).filter(Boolean)
+  // Generic typed resource reads use the same immutable catalog boundary as
+  // native catalog artifacts. The Operator Configuration local library is a
+  // separate preview/write gate, never a fallback data source here.
+  const active = readDefActiveGameCatalog('weapon');
+  if (!active.ok) return active;
+  const { catalog } = active;
+  const source = {
+    name: 'active-game-catalog',
+    ref: `catalog:${catalog.dataVersion}`,
+    dataVersion: catalog.dataVersion,
+    catalogSha256: catalog.catalogSha256,
+  };
+  const entries = catalog.weapons && typeof catalog.weapons === 'object' && !Array.isArray(catalog.weapons)
+    ? Object.entries(catalog.weapons).map(([fallbackId, raw]) => compactDefWeaponLibraryEntry(raw, fallbackId)).filter(Boolean)
     : [];
   const queries = Array.isArray(input.queries)
     ? [...new Set(input.queries.map((query) => String(query || '').trim()).filter(Boolean))].slice(0, 8)
     : [];
   if (queries.length) {
-    const results = queries.map((query) => resolveDefWeaponQuery(entries, query, input.limitPerQuery || 5));
+    const results = queries.map((query) => resolveDefWeaponQuery(entries, query, input.limitPerQuery || 5, source));
     return {
       contract: 'DefWeaponBatchResolutionV2',
       scope: 'catalog',
-      source: 'operator-config-weapon-library',
+      source: source.name,
+      sourceRef: source.ref,
+      dataVersion: source.dataVersion,
+      catalogSha256: source.catalogSha256,
       catalogCount: entries.length,
       queryCount: results.length,
       exhaustive: results.every((result) => result.exhaustive),
@@ -3597,7 +3614,7 @@ function resolveDefWeapons(input = {}) {
       results,
     };
   }
-  return resolveDefWeaponQuery(entries, input.query || input.name || input.text || '', input.limit || 12);
+  return resolveDefWeaponQuery(entries, input.query || input.name || input.text || '', input.limit || 12, source);
 }
 
 function maximumDefWeaponLevelEntry(levels = {}) {
@@ -6147,7 +6164,7 @@ function resolveDefBuffs(input = {}) {
   };
 }
 
-function buildDefEquipmentSearchIndex(snapshot, library) {
+function buildDefEquipmentSearchIndex(snapshot, library, catalogSource) {
   const publicEquipmentIds = new Set();
   const currentSelections = new Map();
   for (const config of Array.isArray(snapshot?.operatorConfigs) ? snapshot.operatorConfigs : []) {
@@ -6172,7 +6189,7 @@ function buildDefEquipmentSearchIndex(snapshot, library) {
     const compactSet = compactDefGearSet(gearSet);
     records.push(buildDefRankedSearchRecord({
       kind: 'gearSet',
-      source: 'equipment-library',
+      source: catalogSource.name,
       scope: 'public-catalog',
       ...compactSet,
       recommendation: compactSet.threePieceBuffs.length
@@ -6191,7 +6208,7 @@ function buildDefEquipmentSearchIndex(snapshot, library) {
       publicEquipmentIds.add(compact.id);
       records.push(buildDefRankedSearchRecord({
         kind: 'equipment',
-        source: 'equipment-library',
+        source: catalogSource.name,
         scope: 'public-catalog',
         equipmentId: compact.id,
         name: compact.name,
@@ -6236,7 +6253,10 @@ function resolveDefEquipmentQuery(index, rawQuery, options = {}) {
     contract: 'DefEquipmentResolutionV2',
     query,
     scope: publicOnly ? 'public-catalog' : 'current-and-public',
-    source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
+    source: publicOnly ? [options.catalogSource.name] : ['current-workbench-projection', options.catalogSource.name],
+    sourceRef: options.catalogSource.ref,
+    dataVersion: options.catalogSource.dataVersion,
+    catalogSha256: options.catalogSource.catalogSha256,
     catalogCount: index.catalogCount,
     gearSetCount: index.gearSetCount,
     count: ranked.candidates.length,
@@ -6253,21 +6273,37 @@ function resolveDefEquipmentQuery(index, rawQuery, options = {}) {
 }
 
 function resolveDefEquipment(input = {}) {
+  // Keep current selection annotations, but make catalog facts come only from
+  // the active immutable game catalog. A selected local-only item remains
+  // visible as current state and never overwrites a catalog result.
+  const active = readDefActiveGameCatalog('equipment');
+  if (!active.ok) return active;
+  const { catalog } = active;
+  const catalogSource = {
+    name: 'active-game-catalog',
+    ref: `catalog:${catalog.dataVersion}`,
+    dataVersion: catalog.dataVersion,
+    catalogSha256: catalog.catalogSha256,
+  };
   const publicOnly = input.__defPublicOnly === true;
   const snapshot = publicOnly ? null : (input.__defCurrentGate?.snapshot || readMainWorkbenchSnapshotMirror());
-  const index = buildDefEquipmentSearchIndex(snapshot, readDefEquipmentLibrary());
+  const index = buildDefEquipmentSearchIndex(snapshot, catalog.equipmentLibrary, catalogSource);
   const queries = Array.isArray(input.queries)
     ? [...new Set(input.queries.map((query) => String(query || '').trim()).filter(Boolean))].slice(0, 8)
     : [];
   if (queries.length) {
     const results = queries.map((query) => resolveDefEquipmentQuery(index, query, {
       publicOnly,
+      catalogSource,
       limit: Math.max(1, Math.min(Number(input.limitPerQuery || 5) || 5, 12)),
     }));
     return {
       contract: 'DefEquipmentBatchResolutionV2',
       scope: publicOnly ? 'public-catalog' : 'current-and-public',
-      source: publicOnly ? ['equipment-library'] : ['current-workbench-projection', 'equipment-library'],
+      source: publicOnly ? [catalogSource.name] : ['current-workbench-projection', catalogSource.name],
+      sourceRef: catalogSource.ref,
+      dataVersion: catalogSource.dataVersion,
+      catalogSha256: catalogSource.catalogSha256,
       catalogCount: index.catalogCount,
       gearSetCount: index.gearSetCount,
       queryCount: results.length,
@@ -6278,6 +6314,7 @@ function resolveDefEquipment(input = {}) {
   }
   return resolveDefEquipmentQuery(index, input.query || input.name || input.text || '', {
     publicOnly,
+    catalogSource,
     limit: input.limit || 12,
   });
 }
@@ -8233,11 +8270,82 @@ async function executeDefOperatorConfigPatchAndVerify(definition, input = {}) {
   };
 }
 
+function defOperatorConfigProductGateFailure(code, product, storageKey) {
+  return {
+    ok: false,
+    code,
+    component: 'operator-config-product-library',
+    product,
+    storageKey,
+    message: 'The exact active-catalog product is not available in the Operator Configuration product library.',
+    nextAction: 'Do not substitute another local product. Sync or update the Operator Configuration product library, then create a fresh read-only preview.',
+  };
+}
+
+function defOperatorConfigWeaponIsAvailable(library, weaponName) {
+  return Object.entries(library && typeof library === 'object' ? library : {}).some(([fallbackId, weapon]) => (
+    weapon && typeof weapon === 'object'
+    && [fallbackId, weapon.id, weapon.name].some((value) => String(value || '').trim() === weaponName)
+  ));
+}
+
+function defOperatorConfigEquipmentIsAvailable(library, selection) {
+  const gearSets = Object.entries(library?.gearSets && typeof library.gearSets === 'object' ? library.gearSets : {});
+  return gearSets.some(([fallbackGearSetId, gearSet]) => {
+    if (!gearSet || typeof gearSet !== 'object') return false;
+    const gearSetId = String(gearSet.gearSetId || fallbackGearSetId || '').trim();
+    const gearSetName = String(gearSet.name || '').trim();
+    if (selection.gearSetId && gearSetId !== selection.gearSetId) return false;
+    if (selection.gearSetName && gearSetName !== selection.gearSetName) return false;
+    return Object.entries(gearSet.equipments && typeof gearSet.equipments === 'object' ? gearSet.equipments : {}).some(([fallbackEquipmentId, equipment]) => {
+      if (!equipment || typeof equipment !== 'object') return false;
+      const equipmentId = String(equipment.equipmentId || fallbackEquipmentId || '').trim();
+      const equipmentName = String(equipment.name || '').trim();
+      return (!selection.equipmentId || equipmentId === selection.equipmentId)
+        && (!selection.equipmentName || equipmentName === selection.equipmentName)
+        && (!selection.part || String(equipment.part || '').trim() === selection.part);
+    });
+  });
+}
+
+function validateDefOperatorConfigProductLibrary(command) {
+  const weaponName = typeof command?.weaponName === 'string' ? command.weaponName.trim() : '';
+  if (weaponName) {
+    const source = readDefNativeWeaponLibrarySource();
+    if (!defOperatorConfigWeaponIsAvailable(source.library, weaponName)) {
+      return defOperatorConfigProductGateFailure('operator-config-weapon-library-unavailable', { kind: 'weapon', weaponName }, source.storageKey);
+    }
+  }
+
+  const rawSelections = Array.isArray(command?.equipments)
+    ? command.equipments
+    : command?.equipmentId || command?.equipmentName || command?.gearSetId || command?.gearSetName
+      ? [command]
+      : [];
+  if (!rawSelections.length) return { ok: true };
+
+  const source = readDefEquipmentLibrarySource();
+  for (const rawSelection of rawSelections) {
+    const selection = {
+      equipmentId: typeof rawSelection?.equipmentId === 'string' ? rawSelection.equipmentId.trim() : '',
+      equipmentName: typeof rawSelection?.equipmentName === 'string' ? rawSelection.equipmentName.trim() : '',
+      gearSetId: typeof rawSelection?.gearSetId === 'string' ? rawSelection.gearSetId.trim() : '',
+      gearSetName: typeof rawSelection?.gearSetName === 'string' ? rawSelection.gearSetName.trim() : '',
+      part: typeof rawSelection?.part === 'string' ? rawSelection.part.trim() : '',
+    };
+    if (defOperatorConfigEquipmentIsAvailable(source.library, selection)) continue;
+    return defOperatorConfigProductGateFailure('operator-config-equipment-library-unavailable', { kind: 'equipment', ...selection }, source.storageKey);
+  }
+  return { ok: true };
+}
+
 function buildDefOperatorConfigPreviewCommand(input = {}) {
   const commands = buildDefOperatorConfigPatchCommands(input);
   if (commands.length !== 1) {
     return { ok: false, code: 'operator-config-preview-requires-one-command', message: 'One native approval must resolve exactly one operator configuration mutation.' };
   }
+  const productLibrary = validateDefOperatorConfigProductLibrary(commands[0]);
+  if (!productLibrary.ok) return productLibrary;
   return {
     ok: true,
     command: {
@@ -10015,8 +10123,20 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     }
   } else if (name === 'def.equipment.resolve' || name === 'def.gear.resolve') {
     result = resolveDefEquipment(input);
+    if (result?.ok === false) {
+      return failScript(result.status || 409, result.code || 'active-game-catalog-read-failed', result.message || 'The active game catalog could not be read.', {
+        domain: result.domain || 'equipment',
+        nextAction: 'Report that the active game catalog is unavailable; do not retry against local storage or materialize a fallback catalog.',
+      });
+    }
   } else if (name === 'def.weapon.resolve') {
     result = resolveDefWeapons(input);
+    if (result?.ok === false) {
+      return failScript(result.status || 409, result.code || 'active-game-catalog-read-failed', result.message || 'The active game catalog could not be read.', {
+        domain: result.domain || 'weapon',
+        nextAction: 'Report that the active game catalog is unavailable; do not retry against local storage or materialize a fallback catalog.',
+      });
+    }
   } else if (name === 'def.operator.config.read') {
     result = { snapshotUpdatedAt: snapshot?.updatedAt || null, operatorConfigs: snapshot?.operatorConfigs || [] };
   } else if (name === 'def.user.ask') {

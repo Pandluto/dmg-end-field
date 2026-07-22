@@ -14,11 +14,14 @@ import {
 
 const require = createRequire(import.meta.url);
 const { createTimelineRepository } = require('../electron/timeline-repository.cjs');
+const { createCatalogDatabase } = require('../electron/data-management-service.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-workbench-tool-policy-'));
 const port = 18700 + Math.floor(Math.random() * 300);
 const databasePath = path.join(root, 'timeline.sqlite');
+const builtinCatalogPath = path.join(root, 'catalog.sqlite');
 const internalToken = 'tool-policy-contract-native-host';
 const repository = createTimelineRepository({ databasePath });
+createCatalogDatabase({ databasePath: builtinCatalogPath, dataVersion: 'tool-policy-contract-v2' });
 
 const emptyPayload = {
   selectedCharacters: [], timelineData: { staffLines: [] }, skillButtonTable: {}, allBuffList: [],
@@ -91,6 +94,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: databasePath,
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
     DEF_INTERNAL_GOVERNANCE_TOKEN: internalToken,
   },
@@ -329,6 +333,21 @@ try {
   assert.deepEqual(treeState(), forgedTreeBefore);
   assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, forgedQueueBefore.body);
   await mirror('formal-a', 'A');
+
+  const productGateQueueBefore = await request('/api/main-workbench/commands', { internal: true });
+  const unavailableWeaponPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    weapon: { name: 'active-catalog-only-weapon' },
+  }, 'session-a');
+  assert.equal(unavailableWeaponPreview.status, 409, JSON.stringify(unavailableWeaponPreview.body));
+  assert.equal(unavailableWeaponPreview.body.result?.code, 'operator-config-weapon-library-unavailable', JSON.stringify(unavailableWeaponPreview.body));
+  const unavailableEquipmentPreview = await generic('def.operator.config.preview', {
+    characterId: 'operator-A',
+    equipment: { equipmentId: 'active-catalog-only-equipment', slotKey: 'armor' },
+  }, 'session-a');
+  assert.equal(unavailableEquipmentPreview.status, 409, JSON.stringify(unavailableEquipmentPreview.body));
+  assert.equal(unavailableEquipmentPreview.body.result?.code, 'operator-config-equipment-library-unavailable', JSON.stringify(unavailableEquipmentPreview.body));
+  assert.deepEqual((await request('/api/main-workbench/commands', { internal: true })).body, productGateQueueBefore.body, 'catalog-to-product boundary must block before enqueueing a renderer preview');
 
   const publicCalls = [
     ['def.operator.catalog.search', { query: '' }],

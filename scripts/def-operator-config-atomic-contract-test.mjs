@@ -109,6 +109,10 @@ assert.match(restSource, /operator-config-explicit-review-required/);
 assert.match(restSource, /proposal\.turnId === turnId/);
 assert.match(restSource, /operator-config-proposal-mismatch/);
 assert.match(restSource, /operator-config-apply-intent-required/);
+assert.match(restSource, /operator-config-weapon-library-unavailable/);
+assert.match(restSource, /operator-config-equipment-library-unavailable/);
+assert.match(restSource, /Do not substitute another local product/);
+assert.match(restSource, /validateDefOperatorConfigProductLibrary/);
 
 const treeNodeSource = fs.readFileSync(new URL('../src/components/CanvasBoard/WorkNodeTreeNode.tsx', import.meta.url), 'utf8');
 assert.match(treeNodeSource, /work-node-tree-hover-card/);

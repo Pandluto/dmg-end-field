@@ -3,10 +3,14 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
+const { createCatalogDatabase } = require('../electron/data-management-service.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-equipment-resource-'));
 const port = 19050 + Math.floor(Math.random() * 300);
 const nowStoragePath = path.join(root, 'now-storage.json');
+const builtinCatalogPath = path.join(root, 'catalog.sqlite');
 
 function equipment(equipmentId, name, part = '配件') {
   return { equipmentId, name, part, effects: {} };
@@ -40,6 +44,19 @@ const weaponLibrary = {
   lianjiedian: { id: 'lianjiedian', name: '联结点', type: '法术单元', rarity: 6, skills: {} },
 };
 
+const equipmentRows = Object.values(equipmentLibrary.gearSets).flatMap((gearSet) => Object.values(gearSet.equipments).map((item) => ({
+  id: item.equipmentId,
+  name: item.name,
+  payload: { ...item, gearSetId: gearSet.gearSetId },
+})));
+createCatalogDatabase({
+  databasePath: builtinCatalogPath,
+  dataVersion: 'equipment-resource-contract-v2',
+  weapons: Object.values(weaponLibrary).map((weapon) => ({ id: weapon.id, name: weapon.name, payload: weapon })),
+  equipments: equipmentRows,
+  equipmentSets: Object.values(equipmentLibrary.gearSets).map((gearSet) => ({ id: gearSet.gearSetId, name: gearSet.name, payload: gearSet })),
+});
+
 function writeArchive({ saved = equipmentLibrary, draft = equipmentLibrary } = {}) {
   fs.writeFileSync(nowStoragePath, `${JSON.stringify({
     type: 'def.localdata.archive.v1',
@@ -69,6 +86,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
     TIMELINE_REPOSITORY_DB_PATH: path.join(root, 'timeline.sqlite3'),
     DATA_MANAGEMENT_RUNTIME_ROOT: path.join(root, 'data'),
+    DATA_MANAGEMENT_BUILTIN_CATALOG_PATH: builtinCatalogPath,
     DEF_TOOL_GOVERNANCE_PATH: path.join(root, 'governance.json'),
     DEF_INTERNAL_GOVERNANCE_TOKEN: 'equipment-resource-contract',
   },
@@ -100,11 +118,27 @@ async function call(tool, input) {
   return payload.result;
 }
 
+async function expectCatalogFailure(tool, input, code) {
+  const response = await fetch(`${baseUrl}/api/def-tools/call`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool, input }),
+  });
+  const payload = await response.json();
+  assert.equal(response.status, 409, JSON.stringify(payload));
+  assert.equal(payload.ok, false, JSON.stringify(payload));
+  assert.equal(payload.error?.code, code, JSON.stringify(payload));
+}
+
 try {
   await waitForReady();
 
   const lateExact = await call('def.equipment.resolve', { query: '拓荒增量供氧栓·壹型' });
   assert.equal(lateExact.contract, 'DefEquipmentResolutionV2');
+  assert.deepEqual(lateExact.source, ['active-game-catalog']);
+  assert.equal(lateExact.sourceRef, 'catalog:equipment-resource-contract-v2');
+  assert.equal(lateExact.dataVersion, 'equipment-resource-contract-v2');
+  assert.match(lateExact.catalogSha256, /^[a-f0-9]{64}$/);
   assert.equal(lateExact.catalogCount, 19);
   assert.equal(lateExact.candidates[0]?.equipmentId, 'equipment-g-6-1');
   assert.equal(lateExact.candidates[0]?.matchMethod, 'exact');
@@ -129,6 +163,8 @@ try {
   assert.equal(batch.results[1].candidates[0].matchMethod, 'phonetic');
 
   const weapon = await call('def.weapon.resolve', { query: '链结点' });
+  assert.equal(weapon.source, 'active-game-catalog');
+  assert.equal(weapon.sourceRef, 'catalog:equipment-resource-contract-v2');
   assert.equal(weapon.candidates[0]?.id, 'lianjiedian');
   assert.equal(weapon.candidates[0]?.matchMethod, 'phonetic');
 
@@ -137,13 +173,39 @@ try {
   assert.equal(catalog.exhaustive, false);
   assert.equal(catalog.truncated, true);
 
-  writeArchive({ saved: { gearSets: {} }, draft: equipmentLibrary });
-  const draftFallback = await call('def.equipment.resolve', { query: '拓荒增量供氧栓·壹型' });
-  assert.equal(draftFallback.candidates[0]?.equipmentId, 'equipment-g-6-1');
+  writeArchive({ saved: { gearSets: {} }, draft: { gearSets: {} } });
+  const activeCatalogStillWins = await call('def.equipment.resolve', { query: '拓荒增量供氧栓·壹型' });
+  assert.equal(activeCatalogStillWins.candidates[0]?.equipmentId, 'equipment-g-6-1');
+  assert.equal(activeCatalogStillWins.sourceRef, 'catalog:equipment-resource-contract-v2');
+
+  const activePointerPath = path.join(root, 'data', 'catalog', 'active.json');
+  fs.mkdirSync(path.dirname(activePointerPath), { recursive: true });
+  fs.writeFileSync(activePointerPath, '{not-json', 'utf8');
+  await expectCatalogFailure('def.equipment.resolve', { query: '拓荒增量供氧栓·壹型' }, 'active-game-catalog-active-pointer-invalid');
+
+  fs.writeFileSync(activePointerPath, JSON.stringify({ dataVersion: 'missing-manifest' }), 'utf8');
+  await expectCatalogFailure('def.weapon.resolve', { query: '链结点' }, 'active-game-catalog-active-manifest-missing');
+
+  const corruptVersion = 'catalog-hash-mismatch';
+  const corruptVersionDirectory = path.join(root, 'data', 'catalog', 'versions', corruptVersion);
+  fs.mkdirSync(corruptVersionDirectory, { recursive: true });
+  fs.copyFileSync(builtinCatalogPath, path.join(corruptVersionDirectory, 'catalog.sqlite'));
+  fs.writeFileSync(path.join(corruptVersionDirectory, 'data-release-manifest.json'), `${JSON.stringify({
+    type: 'dmg.data-release-manifest.v1',
+    manifestVersion: 1,
+    releaseTag: corruptVersion,
+    dataVersion: corruptVersion,
+    catalogSchemaVersion: 2,
+    package: { fileName: 'data-catalog-hash-mismatch.zip', packagePath: 'data-catalog-hash-mismatch.zip', sizeBytes: 1, sha256: '0'.repeat(64) },
+    catalog: { sha256: '1'.repeat(64), operators: 0, weapons: 1, equipments: 19, equipmentSets: 2, buffs: 0, preloadedTimelineTemplates: 0 },
+    referenceArchives: [],
+  }, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(activePointerPath, JSON.stringify({ dataVersion: corruptVersion }), 'utf8');
+  await expectCatalogFailure('def.equipment.resolve', { query: '拓荒增量供氧栓·壹型' }, 'catalog-sha256-mismatch');
 
   console.log(JSON.stringify({
     ok: true,
-    checks: ['full-index', 'stable-id', 'fuzzy-review', 'batch', 'phonetic-weapon', 'truthful-truncation', 'draft-fallback'],
+    checks: ['active-catalog-only', 'full-index', 'stable-id', 'fuzzy-review', 'batch', 'phonetic-weapon', 'truthful-truncation', 'no-localstorage-fallback', 'active-pointer-fail-closed', 'active-manifest-fail-closed', 'active-hash-fail-closed'],
   }));
 } finally {
   child.kill('SIGTERM');
