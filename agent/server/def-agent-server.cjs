@@ -603,6 +603,12 @@ function scheduleNativeSessionAdmissionWatch(admission, runtime, binding) {
   );
 }
 
+function retainNativePromptAdmissionForReconciliation(admission, runtime, binding) {
+  if (!admission) return;
+  admission.submissionState = 'unknown';
+  scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
+}
+
 async function proxyOpenCodeRequest(request, response) {
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
@@ -625,7 +631,7 @@ async function proxyOpenCodeRequest(request, response) {
       binding = findNativeSessionBinding(nativeSessionID) || readNativeSessionBinding(directory, nativeSessionID);
       if (binding && sessionAction !== 'abort') {
         admission = nativeSessionAdmission.admit({ sessionID: nativeSessionID, source: sessionAction === 'message' ? 'ui' : 'proxy-prompt-async' }).entry;
-        if (sessionAction === 'prompt_async') await captureNativeSessionAdmissionBaseline(admission, runtime, binding);
+        await captureNativeSessionAdmissionBaseline(admission, runtime, binding);
       }
     }
     if (request.method === 'POST' && sessionAction === 'message' && binding) {
@@ -680,7 +686,8 @@ async function proxyOpenCodeRequest(request, response) {
       upstreamResponse.pipe(response);
       upstreamResponse.on('end', () => {
         const succeeded = (upstreamResponse.statusCode || 502) >= 200 && (upstreamResponse.statusCode || 502) < 300;
-        if (sessionAction === 'abort' && succeeded) nativeSessionAdmission.releaseSession(nativeSessionID, 'native-abort');
+        const abortConfirmed = sessionAction === 'abort' && (succeeded || upstreamResponse.statusCode === 404);
+        if (abortConfirmed) nativeSessionAdmission.releaseSession(nativeSessionID, 'native-abort');
         if (admission) {
           if (!succeeded) nativeSessionAdmission.release(admission, 'submission-failed');
           else if (sessionAction === 'prompt_async') scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
@@ -689,12 +696,14 @@ async function proxyOpenCodeRequest(request, response) {
         resolve(true);
       });
       upstreamResponse.on('error', (error) => {
-        if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
+        const explicitRejection = (upstreamResponse.statusCode || 0) < 200 || (upstreamResponse.statusCode || 0) >= 300;
+        if (admission && !explicitRejection) retainNativePromptAdmissionForReconciliation(admission, runtime, binding);
+        else if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
         reject(error);
       });
     });
     upstream.on('error', (error) => {
-      if (admission) nativeSessionAdmission.release(admission, 'submission-failed');
+      if (admission) retainNativePromptAdmissionForReconciliation(admission, runtime, binding);
       reject(error);
     });
     if (rewrittenBody) {
@@ -855,24 +864,10 @@ async function sendNativeInteropPromptOnce(sessionID, body, admission) {
       : selectedSystem,
     parts: [{ type: 'text', text: rawUserText }],
   };
-  const response = await fetch(
-    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/prompt_async?directory=${encodeURIComponent(binding.directory)}`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-def-interop': 'v1' },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(15000),
-    },
-  );
-  if (!response.ok) {
-    const error = new Error(`native-session-prompt-failed-${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
-  const accepted = await response.json().catch(() => null);
-  const result = {
+  const result = (submissionState = 'accepted', accepted = null) => ({
     binding,
     ingressMode,
+    submissionState,
     acceptedAt: Date.now(),
     nativeUserMessageId: String(accepted?.info?.id || accepted?.message?.id || accepted?.id || ''),
     providerVisibleMessages: [
@@ -884,9 +879,61 @@ async function sendNativeInteropPromptOnce(sessionID, body, admission) {
     harnessRoute: harness.turnRoute || null,
     harnessWarning: harness.warning,
     agentRelease: binding.agentRelease || null,
-  };
+  });
+  let response;
+  try {
+    response = await fetch(
+      `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/prompt_async?directory=${encodeURIComponent(binding.directory)}`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-def-interop': 'v1' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+  } catch {
+    // The request may have reached OpenCode even though its response did not.
+    // Keep the single-flight reservation and reconcile transcript/status rather
+    // than allowing the bridge to resend this client turn.
+    retainNativePromptAdmissionForReconciliation(admission, runtime, binding);
+    return result('unknown');
+  }
+  if (!response.ok) {
+    const error = new Error(`native-session-prompt-failed-${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  const accepted = await response.json().catch(() => null);
   scheduleNativeSessionAdmissionWatch(admission, runtime, binding);
-  return result;
+  return result('accepted', accepted);
+}
+
+async function abortNativeSession(runtime, binding, sessionID, options = {}) {
+  const fetchImpl = options.fetchImpl || fetch;
+  let response;
+  try {
+    response = await fetchImpl(
+      `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`,
+      {
+        method: 'POST',
+        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+      },
+    );
+  } catch {
+    return { ok: false, code: 'NATIVE_SESSION_ABORT_FAILED', httpStatus: 502 };
+  }
+  if (!response?.ok && response?.status !== 404) {
+    return { ok: false, code: 'NATIVE_SESSION_ABORT_FAILED', httpStatus: response?.status || 502 };
+  }
+  return { ok: true, status: response?.status || 200, reason: response?.status === 404 ? 'already-complete' : 'requested' };
+}
+
+function throwNativeAbortFailure(result, action) {
+  const error = new Error(`${action}-failed-${result?.httpStatus || 502}`);
+  error.code = result?.code || 'NATIVE_SESSION_ABORT_FAILED';
+  error.status = result?.httpStatus || 502;
+  throw error;
 }
 
 async function stopNativeInteropPrompt(sessionID) {
@@ -897,17 +944,10 @@ async function stopNativeInteropPrompt(sessionID) {
     throw error;
   }
   const runtime = await ensureRuntime(readConfig().deepseek);
-  const response = await fetch(
-    `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`,
-    { method: 'POST', signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS) },
-  );
-  if (!response.ok && response.status !== 404) {
-    const error = new Error(`native-session-stop-failed-${response.status}`);
-    error.status = response.status;
-    throw error;
-  }
+  const aborted = await abortNativeSession(runtime, binding, sessionID);
+  if (!aborted.ok) throwNativeAbortFailure(aborted, 'native-session-stop');
   nativeSessionAdmission.releaseSession(sessionID, 'native-abort');
-  return { reason: response.status === 404 ? 'already-complete' : 'requested' };
+  return { reason: aborted.reason };
 }
 
 function readRequestDirectory(request, requestUrl) {
@@ -1293,13 +1333,14 @@ function enumerateNativeAiCliCleanupTargets(keepBinding, options = {}) {
 async function deleteNativeSessionById(sessionID, options = {}) {
   const bindingResolver = options.bindingResolver || findNativeSessionBinding;
   const fetchImpl = options.fetchImpl || fetch;
+  const admissionGate = options.admissionGate || nativeSessionAdmission;
   const rejectQuestions = options.rejectQuestions || rejectPendingQuestions;
   const deleteQuestionRecords = options.deleteQuestionRecords || deleteNativeQuestionRecords;
   const removeAxisBinding = options.removeAxisBinding || removeNativeWorkbenchAxisBinding;
   const removeDirectory = options.removeDirectory || ((directory) => fs.rmSync(directory, { recursive: true, force: true }));
   const binding = bindingResolver(sessionID);
   if (!binding) {
-    nativeSessionAdmission.releaseSession(sessionID, 'native-session-deleted');
+    admissionGate.releaseSession(sessionID, 'native-session-deleted');
     return { ok: true, status: 'already-deleted', sessionID };
   }
   if (options.expectedBinding && (
@@ -1329,6 +1370,20 @@ async function deleteNativeSessionById(sessionID, options = {}) {
 
   try {
     const runtime = options.runtime || runtimeSummary(readConfig().deepseek);
+    // The local gate is not durable across a sidecar restart and callers can
+    // reach native Sessions through paths it did not observe. Abort every
+    // extant binding before DELETE; only confirmation (including 404) permits
+    // local removal and admission release.
+    const aborted = await abortNativeSession(runtime, binding, sessionID, { fetchImpl });
+    if (!aborted.ok) {
+      return {
+        ok: false,
+        status: 'failed',
+        sessionID,
+        code: aborted.code,
+        httpStatus: aborted.httpStatus,
+      };
+    }
     await rejectQuestions(runtime, binding.directory, sessionID);
     let upstream;
     try {
@@ -1361,7 +1416,7 @@ async function deleteNativeSessionById(sessionID, options = {}) {
     deleteQuestionRecords(sessionID);
     await removeAxisBinding(binding);
     removeDirectory(binding.directory);
-    nativeSessionAdmission.releaseSession(sessionID, 'native-session-deleted');
+    admissionGate.releaseSession(sessionID, 'native-session-deleted');
     return { ok: true, status: upstreamAlreadyDeleted ? 'already-deleted' : 'deleted', sessionID };
   } catch (error) {
     return {
@@ -1558,12 +1613,9 @@ const server = http.createServer(async (request, response) => {
 
       if (action === 'stop') {
         await rejectPendingQuestions(runtime, binding.directory, sessionID);
-        const abortResponse = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`, {
-          method: 'POST',
-          headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
-          signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
-        }).catch(() => null);
-        if (abortResponse?.ok || abortResponse?.status === 404) nativeSessionAdmission.releaseSession(sessionID, 'native-abort');
+        const aborted = await abortNativeSession(runtime, binding, sessionID);
+        if (!aborted.ok) throwNativeAbortFailure(aborted, 'native-question-stop');
+        nativeSessionAdmission.releaseSession(sessionID, 'native-abort');
         saveNativeQuestion({ requestID, sessionID, directory: binding.directory, questions: body.questions, status: 'stopped' });
         writeJson(response, 200, { ok: true, status: 'stopped' });
         return;
@@ -1681,7 +1733,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, agentRelease: result.agentRelease || null, idempotent: result.idempotent === true });
+      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, submissionState: result.submissionState || 'accepted', acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, agentRelease: result.agentRelease || null, idempotent: result.idempotent === true });
       return;
     }
 
@@ -2033,6 +2085,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  abortNativeSession,
   cleanupNativeAiCliSessions,
   deleteNativeSessionById,
   enumerateNativeAiCliCleanupTargets,

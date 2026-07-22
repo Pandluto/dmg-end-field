@@ -47,37 +47,83 @@ toolTurn.entry.baselineMessageIds = new Set();
 const toolStepMessages = [
   { info: { id: 'user-tools', role: 'user' } },
   {
-    info: { id: 'assistant-tool-step', role: 'assistant', parentID: 'user-tools', time: { completed: 2001 } },
-    parts: [{ type: 'tool', state: { status: 'completed' } }],
+    info: { id: 'assistant-tool-step', role: 'assistant', parentID: 'user-tools', finish: 'tool-calls', time: { completed: 2001 } },
+    parts: [{ type: 'tool', state: { status: 'completed' } }, { type: 'text', text: 'intermediate tool summary' }],
   },
 ];
-let releaseNextObservation;
-let firstObservationDone;
-const firstObservation = new Promise((resolve) => { firstObservationDone = resolve; });
-let toolObservationCount = 0;
-const toolWatch = toolStepGate.watch(toolTurn.entry, async () => {
-  toolObservationCount += 1;
-  const observation = evaluateNativeSessionAdmissionObservation(toolTurn.entry, {
-    statuses: toolObservationCount === 1 ? { 'native-tools': { type: 'busy' } } : {},
-    messages: toolStepMessages,
-    now: 2001 + toolObservationCount,
-    startTimeoutMs: 15000,
-  });
-  if (toolObservationCount === 1) firstObservationDone();
-  return observation;
-}, { wait: () => new Promise((resolve) => { releaseNextObservation = resolve; }) });
-await firstObservation;
+assert.equal(evaluateNativeSessionAdmissionObservation(toolTurn.entry, {
+  statuses: { 'native-tools': { type: 'busy' } },
+  messages: toolStepMessages,
+  now: 2001,
+  startTimeoutMs: 15000,
+}), null);
 assert.equal(toolStepGate.active('native-tools'), toolTurn.entry);
 assert.throws(
   () => toolStepGate.admit({ sessionID: 'native-tools', idempotencyKey: 'native-tools:turn-b', source: 'interop' }),
   /native-session-turn-in-progress/,
   'the second turn remains rejected during a multi-step tool run',
 );
-releaseNextObservation();
-const toolTerminal = await toolWatch;
-assert.equal(toolTerminal?.terminal, true, 'idle session status is the authority that ends the multi-step user turn');
-assert.equal(toolStepGate.active('native-tools'), null, 'the watcher releases only after the authoritative idle observation');
+assert.equal(evaluateNativeSessionAdmissionObservation(toolTurn.entry, {
+  statuses: {},
+  messages: toolStepMessages,
+  now: 2002,
+  startTimeoutMs: 15000,
+}), null, 'a fast idle status plus a completed tool step is not terminal evidence');
+assert.equal(toolStepGate.active('native-tools'), toolTurn.entry, 'the fast-failure observation must keep the gate');
+
+const finalMessages = [...toolStepMessages, {
+  info: { id: 'assistant-final', role: 'assistant', parentID: 'user-tools', finish: 'stop', time: { completed: 2003 } },
+  parts: [{ type: 'text', text: 'done' }],
+}];
+assert.deepEqual(evaluateNativeSessionAdmissionObservation(toolTurn.entry, {
+  statuses: {},
+  messages: finalMessages,
+  now: 2003,
+  startTimeoutMs: 15000,
+}), { terminal: true, reason: 'native-session-idle-after-final' });
+assert.equal(toolStepGate.release(toolTurn.entry, 'native-session-idle-after-final'), true);
 assert.equal(toolStepGate.admit({ sessionID: 'native-tools', idempotencyKey: 'native-tools:turn-b', source: 'interop' }).kind, 'accepted');
+
+const transcriptOnlyGate = createNativeSessionAdmissionGate({ now: () => 4000 });
+const transcriptOnly = transcriptOnlyGate.admit({ sessionID: 'native-transcript-only', source: 'interop' });
+transcriptOnly.entry.baselineKnown = true;
+transcriptOnly.entry.baselineMessageIds = new Set();
+const transcriptToolStep = [
+  { info: { id: 'user-transcript', role: 'user' } },
+  { info: { id: 'assistant-transcript-tool', role: 'assistant', parentID: 'user-transcript', finish: 'tool-calls', time: { completed: 4001 } }, parts: [{ type: 'tool', state: { status: 'completed' } }, { type: 'text', text: 'intermediate tool summary' }] },
+];
+assert.equal(evaluateNativeSessionAdmissionObservation(transcriptOnly.entry, {
+  statuses: null,
+  messages: transcriptToolStep,
+  now: 4001,
+}), null, 'a status outage cannot release on a completed tool step alone');
+assert.deepEqual(evaluateNativeSessionAdmissionObservation(transcriptOnly.entry, {
+  statuses: null,
+  messages: [...transcriptToolStep, { info: { id: 'assistant-transcript-final', role: 'assistant', parentID: 'user-transcript', finish: 'stop', time: { completed: 4002 } }, parts: [{ type: 'text', text: 'final' }] }],
+  now: 4002,
+}), { terminal: true, reason: 'native-assistant-final-transcript' }, 'a correlated final transcript can recover a missing status endpoint');
+
+const errorOnlyGate = createNativeSessionAdmissionGate({ now: () => 5000 });
+const errorOnly = errorOnlyGate.admit({ sessionID: 'native-error-only', source: 'interop' });
+errorOnly.entry.baselineKnown = true;
+errorOnly.entry.baselineMessageIds = new Set();
+assert.deepEqual(evaluateNativeSessionAdmissionObservation(errorOnly.entry, {
+  statuses: null,
+  messages: [
+    { info: { id: 'user-error', role: 'user' } },
+    { info: { id: 'assistant-error', role: 'assistant', parentID: 'user-error', error: 'provider failed' }, parts: [] },
+  ],
+  now: 5001,
+}), { terminal: true, reason: 'native-assistant-error-transcript' });
+
+const lostObserverGate = createNativeSessionAdmissionGate({ now: () => 6000 });
+const lostObserver = lostObserverGate.admit({ sessionID: 'native-lost-observer', source: 'interop' });
+assert.equal(evaluateNativeSessionAdmissionObservation(lostObserver.entry, {
+  statuses: null, messages: null, now: 6000,
+}), null, 'a single lost observation is not completion evidence');
+assert.equal(evaluateNativeSessionAdmissionObservation(lostObserver.entry, {
+  statuses: null, messages: null, now: 999999,
+}), null, 'a prolonged status/transcript outage remains acceptance-unknown until explicit abort/delete or evidence recovers');
 
 const unstartedGate = createNativeSessionAdmissionGate({ now: () => 3000 });
 const unstarted = unstartedGate.admit({ sessionID: 'native-unstarted', source: 'interop' });
@@ -91,7 +137,17 @@ assert.equal(
     startTimeoutMs: 15000,
   }),
   null,
-  'a visible user message without observed busy state must not be released by the start timeout',
+  'a single idle observation is not enough to release a visible user turn',
+);
+assert.deepEqual(
+  evaluateNativeSessionAdmissionObservation(unstarted.entry, {
+    statuses: {},
+    messages: [{ info: { id: 'user-visible', role: 'user' } }],
+    now: 3000 + 30000,
+    startTimeoutMs: 15000,
+  }),
+  { terminal: true, reason: 'native-prompt-not-started' },
+  'a visible user with no busy state or assistant step releases only after status remains idle for the start timeout',
 );
 
 const serverSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
@@ -104,9 +160,15 @@ assert.match(serverSource, /createNativeSessionAdmissionGate/,
 assert.match(proxySource, /nativeSessionAdmission\.admit\(/,
   'UI session messages must acquire the shared admission before proxying');
 assert.match(proxySource, /scheduleNativeSessionAdmissionWatch\(/,
-  'direct async prompt ingress must retain admission until native completion');
+  'direct message and async prompt ingress must retain admission until native completion after a transport loss');
+assert.match(proxySource, /await captureNativeSessionAdmissionBaseline\(admission, runtime, binding\)/,
+  'both direct message and async prompt ingress capture a transcript baseline before transport');
 assert.match(serverSource, /evaluateNativeSessionAdmissionObservation\(/,
   'the sidecar watcher must use the status-aware turn-terminal evaluator');
+assert.match(serverSource, /retainNativePromptAdmissionForReconciliation/,
+  'a prompt_async response loss must retain its admission for reconciliation');
+assert.match(serverSource, /return result\('unknown'\)/,
+  'the interop prompt surface must report acceptance-unknown instead of releasing on transport loss');
 assert.match(serverSource, /sendNativeInteropPrompt[\s\S]*nativeSessionAdmission\.admit\(/,
   'interop prompts must acquire that same admission before prompt_async');
 assert.match(serverSource, /releaseSession\(sessionID, 'native-abort'\)/,

@@ -10,8 +10,11 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const {
+  abortNativeSession,
   cleanupNativeAiCliSessions,
+  deleteNativeSessionById,
 } = require('../agent/server/def-agent-server.cjs');
+const { createNativeSessionAdmissionGate } = require('../agent/server/native-session-admission.cjs');
 const {
   isAuthorizedNativeSessionCleanupRequest,
 } = require('../agent/server/native-session-cleanup-auth.cjs');
@@ -104,8 +107,10 @@ function createFixture(label) {
 
 function cleanupOptions(fixture, failSessionIDs = new Set()) {
   const upstreamDeletes = [];
+  const upstreamAborts = [];
   return {
     upstreamDeletes,
+    upstreamAborts,
     options: {
       bindingResolver: fixture.findBinding,
       aiCliSessionsRoot: fixture.aiCliRoot,
@@ -114,9 +119,13 @@ function cleanupOptions(fixture, failSessionIDs = new Set()) {
       deleteQuestionRecords: () => undefined,
       removeAxisBinding: async () => undefined,
       fetchImpl: async (url, init) => {
-        assert.equal(init?.method, 'DELETE');
-        const match = /\/session\/([^?]+)/.exec(String(url));
+        const match = /\/session\/([^/?]+)/.exec(String(url));
         const sessionID = decodeURIComponent(match?.[1] || '');
+        if (init?.method === 'POST') {
+          upstreamAborts.push(sessionID);
+          return { ok: true, status: 200 };
+        }
+        assert.equal(init?.method, 'DELETE');
         upstreamDeletes.push(sessionID);
         return failSessionIDs.has(sessionID)
           ? { ok: false, status: 503 }
@@ -232,7 +241,7 @@ try {
     const current = fixture.addBinding('ai-cli', 'ses-current');
     const old = fixture.addBinding('ai-cli', 'ses-old');
     const workbench = fixture.addBinding('workbench', 'ses-workbench');
-    const { options, upstreamDeletes } = cleanupOptions(fixture);
+    const { options, upstreamDeletes, upstreamAborts } = cleanupOptions(fixture);
 
     const result = await cleanupNativeAiCliSessions({ host: 'ai-cli', keepSessionID: current.sessionID }, options);
     assert.deepEqual(result, {
@@ -248,10 +257,78 @@ try {
     assert.equal(fs.existsSync(old.directory), false, 'an old ai-cli session must be removed');
     assert.equal(fs.existsSync(workbench.directory), true, 'Workbench sessions must stay outside cleanup scope');
     assert.deepEqual(upstreamDeletes, [old.sessionID], 'the current and Workbench sessions must never reach delete');
+    assert.deepEqual(upstreamAborts, [old.sessionID], 'every extant cleanup target is aborted before DELETE, even without an in-memory gate');
 
     const repeated = await cleanupNativeAiCliSessions({ host: 'ai-cli', keepSessionID: current.sessionID }, options);
     assert.equal(repeated.ok, true);
     assert.equal(repeated.targetCount, 0, 'repeating cleanup after success is safe');
+  }
+
+  {
+    const fixture = createFixture('active-delete');
+    const binding = fixture.addBinding('workbench', 'ses-active-delete');
+    const gate = createNativeSessionAdmissionGate();
+    const active = gate.admit({ sessionID: binding.sessionID, source: 'interop' }).entry;
+    const requests = [];
+    const result = await deleteNativeSessionById(binding.sessionID, {
+      bindingResolver: fixture.findBinding,
+      runtime: { serverUrl: 'http://fake-opencode.invalid' },
+      admissionGate: gate,
+      rejectQuestions: async () => [],
+      deleteQuestionRecords: () => undefined,
+      removeAxisBinding: async () => undefined,
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), method: init?.method });
+        return { ok: true, status: 200 };
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.deepEqual(requests.map((request) => request.method), ['POST', 'DELETE'],
+      'an active native session is aborted before its upstream delete');
+    assert.match(requests[0].url, /\/abort\?/);
+    assert.match(requests[1].url, /\/session\/ses-active-delete\?/);
+    assert.equal(gate.active(binding.sessionID), null, 'the gate releases only after confirmed delete');
+    assert.equal(fs.existsSync(binding.directory), false);
+    assert.equal(active.releaseReason, 'native-session-deleted');
+  }
+
+  {
+    const fixture = createFixture('active-delete-abort-failed');
+    const binding = fixture.addBinding('workbench', 'ses-active-delete-abort-failed');
+    const gate = createNativeSessionAdmissionGate();
+    const active = gate.admit({ sessionID: binding.sessionID, source: 'interop' }).entry;
+    const requests = [];
+    const result = await deleteNativeSessionById(binding.sessionID, {
+      bindingResolver: fixture.findBinding,
+      runtime: { serverUrl: 'http://fake-opencode.invalid' },
+      admissionGate: gate,
+      rejectQuestions: async () => [],
+      deleteQuestionRecords: () => undefined,
+      removeAxisBinding: async () => undefined,
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), method: init?.method });
+        throw new Error('simulated abort network loss');
+      },
+    });
+    assert.deepEqual(result, {
+      ok: false,
+      status: 'failed',
+      sessionID: binding.sessionID,
+      code: 'NATIVE_SESSION_ABORT_FAILED',
+      httpStatus: 502,
+    });
+    assert.deepEqual(requests.map((request) => request.method), ['POST'], 'an abort failure cannot fall through to DELETE');
+    assert.equal(gate.active(binding.sessionID), active, 'abort transport loss retains the active admission');
+    assert.equal(fs.existsSync(binding.directory), true, 'abort transport loss retains the binding for retry');
+
+    const directAbort = await abortNativeSession(
+      { serverUrl: 'http://fake-opencode.invalid' },
+      binding,
+      binding.sessionID,
+      { fetchImpl: async () => { throw new Error('simulated stop network loss'); } },
+    );
+    assert.deepEqual(directAbort, { ok: false, code: 'NATIVE_SESSION_ABORT_FAILED', httpStatus: 502 },
+      'stop callers receive a failed abort result instead of a fabricated stopped state');
   }
 
   {
@@ -361,10 +438,15 @@ try {
     const fixture = createFixture('upstream-404');
     const current = fixture.addBinding('ai-cli', 'ses-current');
     const stale = fixture.addBinding('ai-cli', 'ses-stale');
-    const { options, upstreamDeletes } = cleanupOptions(fixture);
-    options.fetchImpl = async (url) => {
-      const match = /\/session\/([^?]+)/.exec(String(url));
-      upstreamDeletes.push(decodeURIComponent(match?.[1] || ''));
+    const { options, upstreamDeletes, upstreamAborts } = cleanupOptions(fixture);
+    options.fetchImpl = async (url, init) => {
+      const match = /\/session\/([^/?]+)/.exec(String(url));
+      const sessionID = decodeURIComponent(match?.[1] || '');
+      if (init?.method === 'POST') {
+        upstreamAborts.push(sessionID);
+        return { ok: false, status: 404 };
+      }
+      upstreamDeletes.push(sessionID);
       return { ok: false, status: 404 };
     };
 
@@ -373,6 +455,7 @@ try {
     assert.equal(result.alreadyDeletedCount, 1, 'an upstream 404 means the Session was already absent');
     assert.equal(fs.existsSync(stale.directory), false, 'a stale local binding is still removed after upstream 404');
     assert.deepEqual(upstreamDeletes, [stale.sessionID]);
+    assert.deepEqual(upstreamAborts, [stale.sessionID], 'an idle cleanup still confirms abort/404 before delete');
   }
 
   {
@@ -453,9 +536,9 @@ try {
     let markStarted;
     const started = new Promise((resolve) => { markStarted = resolve; });
     const upstreamGate = new Promise((resolve) => { releaseUpstream = resolve; });
-    options.fetchImpl = async (url) => {
-      const match = /\/session\/([^?]+)/.exec(String(url));
-      upstreamDeletes.push(decodeURIComponent(match?.[1] || ''));
+    options.fetchImpl = async (url, init) => {
+      const match = /\/session\/([^/?]+)/.exec(String(url));
+      if (init?.method === 'DELETE') upstreamDeletes.push(decodeURIComponent(match?.[1] || ''));
       markStarted();
       await upstreamGate;
       return { ok: true, status: 200 };
@@ -502,6 +585,18 @@ try {
   const sidecarSource = fs.readFileSync(path.join(projectRoot, 'agent/server/def-agent-server.cjs'), 'utf8')
     .replace(/\r\n?/g, '\n');
   const sidecarAuthSource = fs.readFileSync(path.join(projectRoot, 'agent/server/native-session-cleanup-auth.cjs'), 'utf8');
+  const questionStopStart = sidecarSource.indexOf("if (action === 'stop')");
+  const questionStopEnd = sidecarSource.indexOf('const decision = await submitNativeQuestionDecision', questionStopStart);
+  assert(questionStopStart >= 0 && questionStopEnd > questionStopStart);
+  const questionStopSource = sidecarSource.slice(questionStopStart, questionStopEnd);
+  assert.match(questionStopSource, /await abortNativeSession\(runtime, binding, sessionID\)/,
+    'question stop must issue and await a native abort');
+  assert.match(questionStopSource, /if \(!aborted\.ok\) throwNativeAbortFailure/,
+    'question stop cannot fabricate a stopped response after abort failure');
+  assert(questionStopSource.indexOf('throwNativeAbortFailure') < questionStopSource.indexOf("status: 'stopped'"),
+    'the stopped record is persisted only after a confirmed abort');
+  assert.doesNotMatch(questionStopSource, /\.catch\(\(\) => null\)/,
+    'question stop must not swallow abort transport failures');
   assert.doesNotMatch(viewSource, /cleanupSessionHistory|native\/sessions\/cleanup/, 'the Web ai-cli view must not expose the Shell-only cleanup entry');
   assert.match(shellHtml, /id="native-ai-cli-keep-session"/);
   assert.match(shellHtml, /id="refresh-native-ai-cli-sessions"/);

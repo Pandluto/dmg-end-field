@@ -321,6 +321,32 @@ function createDefCodexInteropProtocol(options) {
     };
   }
 
+  function assistantTerminalEvidence(message) {
+    const info = message?.info && typeof message.info === 'object' ? message.info : message || {};
+    const parts = Array.isArray(message?.parts) ? message.parts : [];
+    const hasToolPart = parts.some((part) => String(part?.type || '').includes('tool'));
+    const hasRunningTool = parts.some((part) => {
+      if (!String(part?.type || '').includes('tool')) return false;
+      const status = String(part?.state?.status || part?.status || '').toLowerCase();
+      return !['completed', 'error', 'failed', 'cancelled', 'canceled'].includes(status);
+    });
+    const finish = String(info.finish || message?.finish || '').toLowerCase();
+    const terminalFinish = Boolean(finish) && !['tool-calls', 'tool_calls', 'unknown'].includes(finish);
+    const hasFinalText = !hasToolPart && parts.some((part) => part?.type === 'text' && String(part.text || '').trim())
+      && Boolean(info?.time?.completed || info?.completedAt);
+    return {
+      error: Boolean(info?.error),
+      terminal: !hasRunningTool && (terminalFinish || hasFinalText),
+    };
+  }
+
+  function discardUnacceptedTurn(idempotencyKey, run, record) {
+    if (turnsByClient.get(idempotencyKey) === record) turnsByClient.delete(idempotencyKey);
+    const index = run.turns.indexOf(record);
+    if (index >= 0) run.turns.splice(index, 1);
+    record.idempotencyReleasedAt = Date.now();
+  }
+
   async function observeTurn(record) {
     let firstToken = false;
     const seenTools = new Set();
@@ -363,14 +389,15 @@ function createDefCodexInteropProtocol(options) {
           }
         }
         if (record.status !== 'accepted') return;
-        if (latest?.info?.error) {
+        const terminal = assistantTerminalEvidence(latest);
+        if (terminal.error) {
           const provider = providerErrorPayload(latest.info.error);
           record.status = provider.aborted ? 'stopped' : 'provider-error';
           appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
           emit(record.status, record, provider.error);
           return;
         }
-        if (latest?.info?.time?.completed || latest?.info?.completedAt) {
+        if (terminal.terminal) {
           record.status = 'completed'; appendAudit('turn.completed', record, 'completed'); emit('completed', record, {}); return;
         }
       } catch {
@@ -386,11 +413,12 @@ function createDefCodexInteropProtocol(options) {
       const correlated = correlatedMessages(turn, messages);
       turn.nativeUserMessageId ||= correlated.userMessageId;
       turn.reconciledAssistant = correlated.assistants.at(-1);
-      return Boolean(turn.reconciledAssistant?.info?.time?.completed || turn.reconciledAssistant?.info?.completedAt);
+      turn.reconciledTerminal = assistantTerminalEvidence(turn.reconciledAssistant);
+      return Boolean(turn.reconciledTerminal?.error || turn.reconciledTerminal?.terminal);
     });
     const latest = record?.reconciledAssistant;
     if (!record || !latest) return;
-    if (latest?.info?.error) {
+    if (record.reconciledTerminal?.error) {
       const provider = providerErrorPayload(latest.info.error);
       record.status = provider.aborted ? 'stopped' : 'provider-error';
       appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
@@ -461,6 +489,7 @@ function createDefCodexInteropProtocol(options) {
       // response can be lost after OpenCode accepted the prompt; treating a
       // retry as a new prompt would be unsafe for mutation previews.
       status: 'accepted',
+      submissionState: 'accepted',
       acceptedAt: Date.now(),
     };
     // Pure Blackbox deliberately has no per-message system/tutorial injection.
@@ -483,6 +512,7 @@ function createDefCodexInteropProtocol(options) {
       turnId: record.turnId,
       clientTurnId: record.clientTurnId,
       ingressMode: record.ingressMode,
+      submissionState: record.submissionState,
       rawUserText: record.rawUserText,
       providerVisibleUserText: record.providerVisibleUserText,
       ...(record.ingressMode === 'diagnostic' ? { diagnostic, providerVisibleMessages: record.providerVisibleMessages } : {}),
@@ -530,15 +560,21 @@ function createDefCodexInteropProtocol(options) {
       return true;
     }
     if (sidecar.status < 200 || sidecar.status >= 300 || sidecar.body?.ok === false) {
-      const error = createError('sidecar-turn-rejected', sidecar.body?.error || 'The DEF OpenCode sidecar rejected the turn.', 'sidecar', {
-        retryable: false, ids: idsFor(record), nextAction: 'Inspect sidecar status and this reserved turn before creating a new clientTurnId.',
+      const nativeTurnInProgress = sidecar.status === 409 && sidecar.body?.code === 'NATIVE_SESSION_TURN_IN_PROGRESS';
+      const error = createError(nativeTurnInProgress ? 'native-session-turn-in-progress' : 'sidecar-turn-rejected', sidecar.body?.error || 'The DEF OpenCode sidecar rejected the turn.', 'sidecar', {
+        retryable: nativeTurnInProgress,
+        ids: idsFor(record),
+        nextAction: nativeTurnInProgress
+          ? 'Wait for the active native turn to finish, then retry this same clientTurnId.'
+          : 'Inspect sidecar status before retrying with this clientTurnId.',
       });
       record.status = 'bridge-error';
       record.error = error;
       record.response = { ...record.response, accepted: false, status: record.status, error };
       appendAudit(continuation ? 'turn.continue' : 'turn.start', record, error.code);
       emit('bridge-error', record, error);
-      reject(response, sidecar.status === 404 ? 404 : 502, error);
+      discardUnacceptedTurn(idempotencyKey, run, record);
+      reject(response, nativeTurnInProgress ? 409 : (sidecar.status === 404 ? 404 : 502), error);
       return true;
     }
     record.providerVisibleMessages = sidecar.body?.providerVisibleMessages || [{ role: 'user', text: record.providerVisibleUserText }];
@@ -546,10 +582,11 @@ function createDefCodexInteropProtocol(options) {
     record.harnessBinding = sidecar.body?.harnessBinding || null;
     record.harnessWarning = sidecar.body?.harnessWarning || null;
     record.agentRelease = sidecar.body?.agentRelease || null;
-    record.response = { ...record.response, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) };
+    record.submissionState = sidecar.body?.submissionState === 'unknown' ? 'unknown' : 'accepted';
+    record.response = { ...record.response, submissionState: record.submissionState, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) };
     if (record.ingressMode === 'diagnostic') record.response.providerVisibleMessages = record.providerVisibleMessages;
-    appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'accepted');
-    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) });
+    appendAudit(continuation ? 'turn.continue' : 'turn.start', record, record.submissionState === 'unknown' ? 'acceptance-unknown' : 'accepted');
+    emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, submissionState: record.submissionState, harness: record.harnessBinding, agentRelease: record.agentRelease, ...(record.harnessWarning ? { harnessWarning: record.harnessWarning } : {}) });
     if (!continuation) emit('session-created', record, { host: 'workbench', nativeSession: true });
     if (!state.available) emit('snapshot-unavailable', record, { source: 'workbench-snapshot' });
     emit('ui-prompt-consumed', record, { uiConsumerId: consumer.id, nativeSession: true });
@@ -714,7 +751,7 @@ function createDefCodexInteropProtocol(options) {
       if (!run) { reject(response, 404, createError('interop-session-not-found', 'No protocol run exists for this session.', 'session', { ids: { sessionId } })); return true; }
       const upstream = await options.fetchJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`);
       reconcileTranscriptCompletion(run, upstream.body?.messages);
-      json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
+      json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), submissionState: turn.submissionState || 'accepted', status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
     const questionsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/questions$/.exec(path);
     if (method === 'GET' && questionsMatch) {

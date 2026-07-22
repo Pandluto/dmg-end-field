@@ -31,6 +31,7 @@ function readBody(request) {
 
 let promptCalls = 0;
 let losePromptResponse = false;
+let rejectNativeAdmissionOnce = false;
 let abortedMessages = [];
 let questionRecords = [];
 const protocol = createDefCodexInteropProtocol({
@@ -51,6 +52,27 @@ const protocol = createDefCodexInteropProtocol({
     if (url.endsWith('/interop-prompt')) {
       promptCalls += 1;
       if (losePromptResponse) throw new Error('simulated bridge-to-sidecar response loss');
+      if (body.rawUserText === 'native-admission-conflict' && rejectNativeAdmissionOnce) {
+        rejectNativeAdmissionOnce = false;
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: 'native-session-turn-in-progress',
+            code: 'NATIVE_SESSION_TURN_IN_PROGRESS',
+          },
+        };
+      }
+      if (body.rawUserText === 'sidecar-acceptance-unknown') {
+        return {
+          status: 202,
+          body: {
+            ok: true,
+            submissionState: 'unknown',
+            providerVisibleMessages: [{ role: 'user', text: body.rawUserText }],
+          },
+        };
+      }
       if (body.rawUserText === '这个怎么样') {
         abortedMessages = [{ info: { id: 'user-a', role: 'user' }, parts: [{ type: 'text', text: body.rawUserText }] }, {
           info: { id: 'assistant-a', role: 'assistant', parentID: 'user-a', time: { completed: Date.now() } },
@@ -108,6 +130,38 @@ try {
   assert.equal(retry.idempotent, true);
   assert.equal(retry.turn.turnId, firstPayload.turn.turnId);
   assert.equal(promptCalls, 1);
+
+  rejectNativeAdmissionOnce = true;
+  const conflictRequest = { rawUserText: 'native-admission-conflict', clientTurnId: 'turn-native-conflict', ingressMode: 'pure-blackbox' };
+  const conflict = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers, body: JSON.stringify(conflictRequest),
+  });
+  assert.equal(conflict.status, 409, 'native single-flight rejection remains a protocol conflict');
+  const conflictPayload = await conflict.json();
+  assert.equal(conflictPayload.error.code, 'native-session-turn-in-progress');
+  const callsBeforeConflictRetry = promptCalls;
+  const conflictRetry = await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers, body: JSON.stringify(conflictRequest),
+  });
+  assert.equal(conflictRetry.status, 202, 'an explicitly unaccepted turn releases its clientTurnId for retry');
+  assert.equal(promptCalls, callsBeforeConflictRetry + 1);
+  const conflictTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
+  assert.equal(conflictTranscript.turns.filter((turn) => turn.clientTurnId === conflictRequest.clientTurnId).length, 1,
+    'the rejected reservation is removed from the run before the same clientTurnId retries');
+
+  const sidecarUnknownRequest = { rawUserText: 'sidecar-acceptance-unknown', clientTurnId: 'turn-sidecar-unknown', ingressMode: 'pure-blackbox' };
+  const sidecarUnknown = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers, body: JSON.stringify(sidecarUnknownRequest),
+  })).json();
+  assert.equal(sidecarUnknown.turn.submissionState, 'unknown', 'sidecar acceptance uncertainty is propagated to the protocol response');
+  const sidecarUnknownRetry = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/turns`, {
+    method: 'POST', headers, body: JSON.stringify(sidecarUnknownRequest),
+  })).json();
+  assert.equal(sidecarUnknownRetry.idempotent, true);
+  assert.equal(sidecarUnknownRetry.turn.submissionState, 'unknown');
+  const sidecarUnknownTranscript = await (await fetch(`${base}/def-agent/interop/v1/sessions/native-a/transcript`, { headers })).json();
+  assert.equal(sidecarUnknownTranscript.turns.find((turn) => turn.turnId === sidecarUnknown.turn.turnId)?.submissionState, 'unknown',
+    'the stored protocol record keeps sidecar acceptance uncertainty for reconciliation/audit');
 
   const evilClose = await fetch(`${base}/def-agent/interop/v1/ui/consumer/close`, {
     method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example' },

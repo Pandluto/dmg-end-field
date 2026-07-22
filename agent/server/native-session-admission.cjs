@@ -33,12 +33,49 @@ function findAdmissionUserMessage(entry, messages) {
   }) || null;
 }
 
+function assistantTerminalEvidence(message) {
+  const info = nativeMessageInfo(message);
+  const parts = Array.isArray(message?.parts) ? message.parts : [];
+  const hasToolPart = parts.some((part) => String(part?.type || '').includes('tool'));
+  const hasRunningTool = parts.some((part) => {
+    if (!String(part?.type || '').includes('tool')) return false;
+    const status = String(part?.state?.status || part?.status || '').toLowerCase();
+    // A tool part without a settled state is still capable of producing the
+    // next assistant step. Do not mistake a preceding completed step for the
+    // end of the user turn.
+    return !['completed', 'error', 'failed', 'cancelled', 'canceled'].includes(status);
+  });
+  const finish = String(info?.finish || message?.finish || '').toLowerCase();
+  const terminalFinish = Boolean(finish) && !['tool-calls', 'tool_calls', 'unknown'].includes(finish);
+  const hasFinalText = !hasToolPart && parts.some((part) => part?.type === 'text' && String(part.text || '').trim())
+    && Boolean(info?.time?.completed || info?.completedAt);
+  return {
+    error: Boolean(info?.error),
+    terminal: !hasRunningTool && (terminalFinish || hasFinalText),
+  };
+}
+
 function evaluateNativeSessionAdmissionObservation(entry, input = {}) {
   const statuses = input.statuses && typeof input.statuses === 'object' ? input.statuses : null;
   const currentStatus = statuses?.[entry.sessionID] || null;
   if (currentStatus && currentStatus.type !== 'idle') entry.observedBusy = true;
 
   const messages = Array.isArray(input.messages) ? input.messages : null;
+  const now = Number.isFinite(input.now) ? input.now : Date.now();
+  if (!statuses && !messages) {
+    // Loss of both observations is an acceptance-unknown state, not proof
+    // that the native runner ended. Keep the gate until either endpoint
+    // recovers with terminal evidence, or an explicit abort/delete resolves it.
+    return null;
+  }
+
+  if (statuses) {
+    const idle = !currentStatus || currentStatus.type === 'idle';
+    entry.idleSince = idle ? (entry.idleSince || now) : 0;
+  } else {
+    entry.idleSince = 0;
+  }
+
   if (messages) {
     const userMessage = entry.nativeUserMessageID
       ? messages.find((message) => nativeMessageID(message) === entry.nativeUserMessageID) || null
@@ -49,24 +86,37 @@ function evaluateNativeSessionAdmissionObservation(entry, input = {}) {
       for (const message of messages) {
         const info = nativeMessageInfo(message);
         if (info?.role !== 'assistant' || info?.parentID !== entry.nativeUserMessageID) continue;
+        const terminal = assistantTerminalEvidence(message);
         if (info?.time?.completed || info?.completedAt || info?.error) entry.observedAssistantStep = true;
-        if (info?.error) entry.observedAssistantError = true;
+        if (terminal.error) entry.observedAssistantError = true;
+        if (terminal.terminal) entry.observedAssistantTerminal = true;
       }
     }
   }
 
   if (statuses && (!currentStatus || currentStatus.type === 'idle')) {
-    // A tool turn can contain several completed assistant messages. Their
-    // completion only proves that a step ran; OpenCode's session status is the
-    // authority for whether the entire user turn has finished.
-    if (entry.observedBusy) return { terminal: true, reason: 'native-session-idle' };
+    // A tool turn can contain several completed assistant messages. The status
+    // endpoint says that the runner is idle, but we also require this user
+    // turn's final assistant message (or error). This avoids a fast
+    // user+idle observation releasing a live multi-step tool run.
     if (entry.observedAssistantError) return { terminal: true, reason: 'native-assistant-error-idle' };
-    if (entry.observedAssistantStep) return { terminal: true, reason: 'native-session-idle-after-step' };
+    if (entry.observedAssistantTerminal) return { terminal: true, reason: 'native-session-idle-after-final' };
 
-    const now = Number.isFinite(input.now) ? input.now : Date.now();
-    if (!entry.observedUserMessage && !entry.observedBusy && now - entry.acceptedAt >= input.startTimeoutMs) {
+    if (entry.observedUserMessage
+      && !entry.observedBusy
+      && !entry.observedAssistantStep
+      && entry.idleSince
+      && now - entry.idleSince >= input.startTimeoutMs) {
       return { terminal: true, reason: 'native-prompt-not-started' };
     }
+  }
+
+  // When the status endpoint is unavailable, a terminal assistant result
+  // correlated to this user message is sufficient. A completed tool step is
+  // deliberately not sufficient.
+  if (!statuses && messages) {
+    if (entry.observedAssistantError) return { terminal: true, reason: 'native-assistant-error-transcript' };
+    if (entry.observedAssistantTerminal) return { terminal: true, reason: 'native-assistant-final-transcript' };
   }
   return null;
 }
@@ -149,5 +199,6 @@ module.exports = {
   createNativeSessionAdmissionGate,
   evaluateNativeSessionAdmissionObservation,
   nativeMessageID,
+  assistantTerminalEvidence,
   turnInProgressError,
 };
