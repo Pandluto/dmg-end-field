@@ -134,17 +134,8 @@ const catalogReaderAvailable = typeof createDataManagementService({
   builtinCatalogPath,
 }).readActiveGameCatalog === 'function';
 if (!catalogReaderAvailable) {
-  // W9 must remain reviewable before the W8 catalog implementation lands. The
-  // adjacent active-catalog reader contract test exercises this wiring with
-  // the published stable return shape; this full REST registration test runs
-  // unchanged as soon as the service exposes that reader.
-  console.log(JSON.stringify({
-    ok: true,
-    skipped: 'readActiveGameCatalog-unavailable',
-    coverage: 'def-equipment-3plus1-active-catalog-reader-contract-test.mjs',
-  }));
   fs.rmSync(root, { recursive: true, force: true });
-  process.exit(0);
+  assert.fail('3+1 registration E2E requires dataManagementService.readActiveGameCatalog(); integrate the W8 catalog implementation before running this contract');
 }
 
 const readonlyRepository = createTimelineRepository({ databasePath: timelineRepositoryPath });
