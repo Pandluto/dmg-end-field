@@ -318,6 +318,11 @@ try {
 
   for (const invalidInput of [
     { operatorQuery: 'bieli', unknown: true, __defTurnId: 'turn-unknown-field' },
+    {
+      operatorQuery: 'bieli',
+      requirements: [{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary', proof: true }],
+      __defTurnId: 'turn-forged-trigger-proof',
+    },
     { operatorQuery: 'x'.repeat(161), __defTurnId: 'turn-too-long' },
     {
       operatorQuery: 'bieli',
@@ -350,6 +355,20 @@ try {
   assert.equal(unresolved.response.status, 200, JSON.stringify(unresolved.payload));
   assert.equal(validateOutput(unresolved.payload.result), true, JSON.stringify(validateOutput.errors));
   assert.equal(unresolved.payload.result.state, 'UNRESOLVED');
+
+  const unresolvedTrigger = await assertReadOnlyCall('UNRESOLVED trigger requirement', () => (
+    recommend({
+      operatorQuery: 'bieli',
+      setQuery: 'tide',
+      requirements: [{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary' }],
+      __defTurnId: 'turn-unresolved-trigger',
+    })
+  ));
+  assert.equal(unresolvedTrigger.response.status, 200, JSON.stringify(unresolvedTrigger.payload));
+  assert.equal(validateOutput(unresolvedTrigger.payload.result), true, JSON.stringify(validateOutput.errors));
+  assert.equal(unresolvedTrigger.payload.result.state, 'UNRESOLVED');
+  assert.ok(unresolvedTrigger.payload.result.missing.some((entry) => entry.message.includes('寒冷伤害')
+    && entry.message.includes('潮涌') && entry.message.includes('第二段效果')));
 
   const conflict = await assertReadOnlyCall('constraint-conflict recommendation', () => recommend({
     operatorQuery: 'bieli',
@@ -409,6 +428,7 @@ try {
       'authenticated-registered-session-policy',
       'typed-error-http-mapping',
       'ready-needs-input-unresolved',
+      'controlled-trigger-requirement-unresolved',
       'opencode-wrapper-to-real-dispatcher',
       'bieli-tide-without-now-storage',
       'catalog-bytes-read-only',
