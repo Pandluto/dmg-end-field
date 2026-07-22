@@ -11,8 +11,10 @@ const CLIENT_TURN_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 // Native transcript reads may wait for OpenCode to resolve a session message.
 // Keep that allowance local to Interop observation: the bridge's normal GET
 // budget remains deliberately short, and no observation may retry forever.
-const NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS = 30000;
+const NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS = 5000;
 const NATIVE_INTEROP_OBSERVATION_RETRIES = 0;
+const NATIVE_INTEROP_OBSERVER_DEADLINE_MS = 90000;
+const NATIVE_INTEROP_OBSERVER_MAX_CONSECUTIVE_FAILURES = 3;
 
 function createError(code, message, component, options = {}) {
   return {
@@ -22,6 +24,7 @@ function createError(code, message, component, options = {}) {
     retryable: Boolean(options.retryable),
     ids: options.ids || {},
     ...(options.nextAction ? { nextAction: options.nextAction } : {}),
+    ...(options.details ? { details: options.details } : {}),
   };
 }
 
@@ -74,6 +77,7 @@ function createDefCodexInteropProtocol(options) {
   const audit = [];
   const tokens = new Map();
   const questionOwners = new Map();
+  const nativeObservationFlights = new Map();
   let seq = 0;
 
   const developmentOnly = isDevelopmentProfile(options.profile);
@@ -82,26 +86,64 @@ function createDefCodexInteropProtocol(options) {
     && Number(options.nativeInteropObservationTimeoutMs) > 0
     ? Math.min(Math.floor(Number(options.nativeInteropObservationTimeoutMs)), NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS)
     : NATIVE_INTEROP_OBSERVATION_TIMEOUT_MS;
+  const nativeInteropObserverDeadlineMs = Number.isFinite(Number(options.nativeInteropObserverDeadlineMs))
+    && Number(options.nativeInteropObserverDeadlineMs) > 0
+    ? Math.min(Math.floor(Number(options.nativeInteropObserverDeadlineMs)), NATIVE_INTEROP_OBSERVER_DEADLINE_MS)
+    : NATIVE_INTEROP_OBSERVER_DEADLINE_MS;
+  const nativeInteropObserverMaxConsecutiveFailures = Number.isInteger(options.nativeInteropObserverMaxConsecutiveFailures)
+    && options.nativeInteropObserverMaxConsecutiveFailures > 0
+    ? Math.min(options.nativeInteropObserverMaxConsecutiveFailures, NATIVE_INTEROP_OBSERVER_MAX_CONSECUTIVE_FAILURES)
+    : NATIVE_INTEROP_OBSERVER_MAX_CONSECUTIVE_FAILURES;
 
-  function nativeInteropObservationOptions() {
+  function nativeInteropObservationOptions(requestTimeoutMs = nativeInteropObservationTimeoutMs) {
+    const boundedTimeoutMs = Number.isFinite(Number(requestTimeoutMs)) && Number(requestTimeoutMs) > 0
+      ? Math.max(1, Math.min(Math.floor(Number(requestTimeoutMs)), nativeInteropObservationTimeoutMs))
+      : nativeInteropObservationTimeoutMs;
     return {
-      timeoutMs: nativeInteropObservationTimeoutMs,
+      timeoutMs: boundedTimeoutMs,
       retries: NATIVE_INTEROP_OBSERVATION_RETRIES,
     };
   }
 
-  function readNativeInteropTranscript(sessionId) {
-    return options.fetchJson(
-      `${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-transcript`,
-      nativeInteropObservationOptions(),
-    );
+  function joinNativeObservationFlight(flight, requestOptions, targetUrl) {
+    if (flight.deadlineAt <= Date.now() + requestOptions.timeoutMs) return flight.promise;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`request timeout after ${requestOptions.timeoutMs}ms: ${targetUrl}`));
+      }, requestOptions.timeoutMs);
+      timer.unref?.();
+      flight.promise.then(
+        (value) => { clearTimeout(timer); resolve(value); },
+        (error) => { clearTimeout(timer); reject(error); },
+      );
+    });
   }
 
-  function readNativeInteropQuestions(sessionId) {
-    return options.fetchJson(
-      `${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/interop-questions`,
-      nativeInteropObservationOptions(),
-    );
+  function readNativeInteropResource(sessionId, resource, requestTimeoutMs) {
+    const key = `${resource}:${sessionId}`;
+    const targetUrl = `${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/${resource}`;
+    const requestOptions = nativeInteropObservationOptions(requestTimeoutMs);
+    const existing = nativeObservationFlights.get(key);
+    if (existing) return joinNativeObservationFlight(existing, requestOptions, targetUrl);
+    const flight = {
+      deadlineAt: Date.now() + requestOptions.timeoutMs,
+      promise: null,
+    };
+    flight.promise = Promise.resolve()
+      .then(() => options.fetchJson(targetUrl, requestOptions))
+      .finally(() => {
+        if (nativeObservationFlights.get(key) === flight) nativeObservationFlights.delete(key);
+      });
+    nativeObservationFlights.set(key, flight);
+    return flight.promise;
+  }
+
+  function readNativeInteropTranscript(sessionId, requestTimeoutMs) {
+    return readNativeInteropResource(sessionId, 'interop-transcript', requestTimeoutMs);
+  }
+
+  function readNativeInteropQuestions(sessionId, requestTimeoutMs) {
+    return readNativeInteropResource(sessionId, 'interop-questions', requestTimeoutMs);
   }
 
   function idsFor(record = {}) {
@@ -377,8 +419,46 @@ function createDefCodexInteropProtocol(options) {
     record.idempotencyReleasedAt = Date.now();
   }
 
+  function nativeObservationFailure(resource, upstream = null, error = null) {
+    const status = Number(upstream?.status || 0);
+    if (!error && status >= 200 && status < 300 && upstream?.body?.ok !== false) return null;
+    const upstreamError = upstream?.body?.error;
+    const code = typeof upstreamError?.code === 'string'
+      ? upstreamError.code
+      : typeof upstream?.body?.code === 'string'
+        ? upstream.body.code
+        : '';
+    const messageValue = error
+      ? error instanceof Error ? error.message : String(error)
+      : typeof upstreamError === 'string'
+        ? upstreamError
+        : upstreamError?.message || upstream?.body?.message || '';
+    return {
+      resource,
+      upstreamStatus: status,
+      ...(code ? { upstreamCode: compactInteropValue(code, 160) } : {}),
+      ...(messageValue ? { upstreamMessage: compactInteropValue(messageValue, 300) } : {}),
+    };
+  }
+
+  function finishObservationTimeout(record, code, message, details = {}) {
+    if (record.status !== 'accepted') return;
+    const error = createError(code, message, 'sidecar', {
+      retryable: true,
+      ids: idsFor(record),
+      nextAction: 'Inspect the Interop transport, then stop the native turn before retrying this clientTurnId.',
+      details,
+    });
+    record.status = 'timeout';
+    record.error = error;
+    appendAudit('turn.timeout', record, error.code);
+    emit('timeout', record, error);
+  }
+
   async function observeTurn(record) {
     let firstToken = false;
+    let consecutiveFailures = 0;
+    let lastFailure = null;
     const seenTools = new Set();
     const maxAttempts = Number.isInteger(options.observerMaxAttempts) && options.observerMaxAttempts > 0
       ? options.observerMaxAttempts
@@ -386,61 +466,115 @@ function createDefCodexInteropProtocol(options) {
     const pollMs = Number.isFinite(options.observerPollMs) && options.observerPollMs >= 0
       ? options.observerPollMs
       : 1000;
+    const deadlineAt = Number(record.acceptedAt || Date.now()) + nativeInteropObserverDeadlineMs;
     for (let attempt = 0; attempt < maxAttempts && record.status === 'accepted'; attempt += 1) {
+      const remainingBeforePoll = deadlineAt - Date.now();
+      if (remainingBeforePoll <= 0) break;
       await new Promise((resolve) => {
-        const timer = setTimeout(resolve, pollMs);
+        const timer = setTimeout(resolve, Math.min(pollMs, remainingBeforePoll));
         timer.unref?.();
       });
       // A stop can arrive while this observer is asleep. Do not poll, emit, or
       // reconcile a provider terminal timestamp after the protocol terminal state
       // has already become stopped.
       if (record.status !== 'accepted') return;
-      try {
-        const [upstream, questions] = await Promise.all([
-          readNativeInteropTranscript(record.sessionId),
-          readNativeInteropQuestions(record.sessionId).catch(() => ({ status: 0, body: null })),
-        ]);
-        if (record.status !== 'accepted') return;
-        const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
-        const correlated = correlatedMessages(record, messages);
-        // An uncertain submission without a new native user message must stay
-        // uncertain. A completed answer from an earlier session turn is never
-        // evidence that this clientTurnId ran.
-        if (!correlated.userMessageId) continue;
-        if (questions.status >= 200 && questions.status < 300) attachQuestions(record, questions.body?.questions);
-        const latest = correlated.assistants.at(-1);
-        const parts = Array.isArray(latest?.parts) ? latest.parts : [];
-        for (const part of parts) {
-          if (record.status !== 'accepted') return;
-          if (!firstToken && part?.type === 'text' && String(part.text || '').trim()) {
-            firstToken = true;
-            emit('response-first-token', record, {});
-          }
-          if (String(part?.type || '').includes('tool')) {
-            const toolKey = String(part.callID || part.id || part.tool || JSON.stringify(part.input || {}));
-            const payload = toolPayload(part);
-            if (!seenTools.has(`${toolKey}:start`)) { seenTools.add(`${toolKey}:start`); emit('tool-start', record, payload); }
-            if (payload.status === 'completed' && !seenTools.has(`${toolKey}:completed`)) { seenTools.add(`${toolKey}:completed`); emit('tool-result', record, payload); }
-            if (payload.status === 'error' && !seenTools.has(`${toolKey}:error`)) { seenTools.add(`${toolKey}:error`); emit('tool-error', record, payload); }
-          }
-        }
-        if (record.status !== 'accepted') return;
-        const terminal = assistantTerminalEvidence(latest);
-        if (terminal.error) {
-          const provider = providerErrorPayload(latest.info.error);
-          record.status = provider.aborted ? 'stopped' : 'provider-error';
-          appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
-          emit(record.status, record, provider.error);
+      const remainingBeforeRequest = deadlineAt - Date.now();
+      if (remainingBeforeRequest <= 0) break;
+      const requestTimeoutMs = Math.min(nativeInteropObservationTimeoutMs, remainingBeforeRequest);
+      const [transcriptResult, questionsResult] = await Promise.allSettled([
+        readNativeInteropTranscript(record.sessionId, requestTimeoutMs),
+        readNativeInteropQuestions(record.sessionId, requestTimeoutMs),
+      ]);
+      if (record.status !== 'accepted') return;
+      const upstream = transcriptResult.status === 'fulfilled' ? transcriptResult.value : null;
+      const transcriptFailure = nativeObservationFailure(
+        'interop-transcript',
+        upstream,
+        transcriptResult.status === 'rejected' ? transcriptResult.reason : null,
+      );
+      if (transcriptFailure) {
+        consecutiveFailures += 1;
+        lastFailure = transcriptFailure;
+        if (consecutiveFailures >= nativeInteropObserverMaxConsecutiveFailures) {
+          finishObservationTimeout(
+            record,
+            'native-turn-observation-unavailable',
+            'Native turn observation failed repeatedly before a terminal transcript could be confirmed.',
+            { consecutiveFailures, lastFailure },
+          );
           return;
         }
-        if (terminal.terminal) {
-          record.status = 'completed'; appendAudit('turn.completed', record, 'completed'); emit('completed', record, {}); return;
+        continue;
+      }
+      consecutiveFailures = 0;
+      lastFailure = null;
+      const questionUpstream = questionsResult.status === 'fulfilled' ? questionsResult.value : null;
+      if (!nativeObservationFailure(
+        'interop-questions',
+        questionUpstream,
+        questionsResult.status === 'rejected' ? questionsResult.reason : null,
+      )) {
+        attachQuestions(record, questionUpstream.body?.questions);
+      }
+      const messages = Array.isArray(upstream.body?.messages) ? upstream.body.messages : [];
+      const correlated = correlatedMessages(record, messages);
+      // An uncertain submission without a new native user message must stay
+      // uncertain. A completed answer from an earlier session turn is never
+      // evidence that this clientTurnId ran.
+      if (!correlated.userMessageId) continue;
+      const latest = correlated.assistants.at(-1);
+      const parts = Array.isArray(latest?.parts) ? latest.parts : [];
+      for (const part of parts) {
+        if (record.status !== 'accepted') return;
+        if (!firstToken && part?.type === 'text' && String(part.text || '').trim()) {
+          firstToken = true;
+          emit('response-first-token', record, {});
         }
-      } catch {
-        // A transient transcript read does not cancel the native OpenCode run.
+        if (String(part?.type || '').includes('tool')) {
+          const toolKey = String(part.callID || part.id || part.tool || JSON.stringify(part.input || {}));
+          const payload = toolPayload(part);
+          if (!seenTools.has(`${toolKey}:start`)) { seenTools.add(`${toolKey}:start`); emit('tool-start', record, payload); }
+          if (payload.status === 'completed' && !seenTools.has(`${toolKey}:completed`)) { seenTools.add(`${toolKey}:completed`); emit('tool-result', record, payload); }
+          if (payload.status === 'error' && !seenTools.has(`${toolKey}:error`)) { seenTools.add(`${toolKey}:error`); emit('tool-error', record, payload); }
+        }
+      }
+      if (record.status !== 'accepted') return;
+      const terminal = assistantTerminalEvidence(latest);
+      if (terminal.error) {
+        const provider = providerErrorPayload(latest.info.error);
+        record.status = provider.aborted ? 'stopped' : 'provider-error';
+        appendAudit(provider.aborted ? 'turn.stopped' : 'turn.provider-error', record, provider.error.code);
+        emit(record.status, record, provider.error);
+        return;
+      }
+      if (terminal.terminal) {
+        record.status = 'completed'; appendAudit('turn.completed', record, 'completed'); emit('completed', record, {}); return;
       }
     }
-    if (record.status === 'accepted') { record.status = 'timeout'; appendAudit('turn.timeout', record, 'timeout'); emit('timeout', record, { component: 'provider' }); }
+    finishObservationTimeout(
+      record,
+      Date.now() >= deadlineAt ? 'native-turn-observation-deadline' : 'native-turn-observation-attempt-limit',
+      'Native turn observation reached its bounded end-to-end limit before a terminal transcript was confirmed.',
+      { deadlineMs: nativeInteropObserverDeadlineMs, ...(lastFailure ? { lastFailure } : {}) },
+    );
+  }
+
+  function ensureTurnObserver(record) {
+    if (record.observerPromise) return record.observerPromise;
+    record.observerStartedAt = Date.now();
+    record.observerPromise = observeTurn(record)
+      .catch((error) => {
+        finishObservationTimeout(
+          record,
+          'native-turn-observer-failed',
+          'Native turn observation failed before a terminal transcript could be confirmed.',
+          { failure: nativeObservationFailure('observer', null, error) },
+        );
+      })
+      .finally(() => {
+        record.observerSettledAt = Date.now();
+      });
+    return record.observerPromise;
   }
 
   function reconcileTranscriptCompletion(run, messages) {
@@ -565,8 +699,8 @@ function createDefCodexInteropProtocol(options) {
     turnsByClient.set(idempotencyKey, record);
     try {
       const baseline = await readNativeInteropTranscript(record.sessionId);
-      const messages = Array.isArray(baseline.body?.messages) ? baseline.body.messages : [];
-      record.transcriptBaselineKnown = baseline.status >= 200 && baseline.status < 300;
+      record.transcriptBaselineKnown = !nativeObservationFailure('interop-transcript', baseline);
+      const messages = record.transcriptBaselineKnown && Array.isArray(baseline.body?.messages) ? baseline.body.messages : [];
       record.transcriptBaselineIds = new Set(messages.map(messageId).filter(Boolean));
     } catch {
       record.transcriptBaselineKnown = false;
@@ -591,7 +725,7 @@ function createDefCodexInteropProtocol(options) {
       record.response = { ...record.response, submissionState: 'unknown' };
       appendAudit(continuation ? 'turn.continue' : 'turn.start', record, 'acceptance-unknown');
       emit('accepted', record, { ingressMode: record.ingressMode, snapshotAvailable: record.snapshotAvailable, submissionState: 'unknown' });
-      void observeTurn(record);
+      void ensureTurnObserver(record);
       json(response, 202, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, turn: record.response });
       return true;
     }
@@ -626,7 +760,7 @@ function createDefCodexInteropProtocol(options) {
     if (!continuation) emit('session-created', record, { host: 'workbench', nativeSession: true });
     if (!state.available) emit('snapshot-unavailable', record, { source: 'workbench-snapshot' });
     emit('ui-prompt-consumed', record, { uiConsumerId: consumer.id, nativeSession: true });
-    void observeTurn(record);
+    void ensureTurnObserver(record);
     json(response, 202, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, turn: record.response });
     return true;
   }
@@ -806,16 +940,27 @@ function createDefCodexInteropProtocol(options) {
       let upstream;
       try {
         upstream = await readNativeInteropTranscript(sessionId);
-      } catch {
+      } catch (error) {
         reject(response, 502, createError('native-transcript-observation-unavailable', 'OpenCode native transcript could not be read within the bounded observation window.', 'sidecar', {
           retryable: true,
           ids: { testRunId: run.testRunId, sessionId },
           nextAction: 'Check sidecar status, then retry transcript observation.',
+          details: nativeObservationFailure('interop-transcript', null, error),
+        }));
+        return true;
+      }
+      const transcriptFailure = nativeObservationFailure('interop-transcript', upstream);
+      if (transcriptFailure) {
+        reject(response, upstream.status === 404 ? 404 : 502, createError('native-transcript-observation-unavailable', 'OpenCode native transcript could not be read.', 'sidecar', {
+          retryable: upstream.status >= 500 || upstream.status === 0,
+          ids: { testRunId: run.testRunId, sessionId },
+          nextAction: 'Check sidecar status, then retry transcript observation.',
+          details: transcriptFailure,
         }));
         return true;
       }
       reconcileTranscriptCompletion(run, upstream.body?.messages);
-      json(response, upstream.status || 502, { ok: upstream.status >= 200 && upstream.status < 300, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), submissionState: turn.submissionState || 'accepted', status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
+      json(response, upstream.status, { ok: true, protocol: PROTOCOL, protocolVersion: PROTOCOL_VERSION, testRunId: run.testRunId, sessionId, turns: run.turns.map((turn) => ({ ...idsFor(turn), ingressMode: turn.ingressMode, rawUserText: turn.rawUserText, providerVisibleUserText: turn.providerVisibleUserText, harness: turn.harnessBinding || null, ...(turn.harnessWarning ? { harnessWarning: turn.harnessWarning } : {}), ...(turn.ingressMode === 'diagnostic' ? { diagnostic: turn.diagnostic, providerVisibleMessages: turn.providerVisibleMessages } : {}), submissionState: turn.submissionState || 'accepted', status: turn.status })), transcript: upstream.body?.messages || [] }); return true;
     }
     const questionsMatch = /^\/def-agent\/interop\/v1\/sessions\/([^/]+)\/questions$/.exec(path);
     if (method === 'GET' && questionsMatch) {
@@ -826,16 +971,24 @@ function createDefCodexInteropProtocol(options) {
       let upstream;
       try {
         upstream = await readNativeInteropQuestions(sessionId);
-      } catch {
+      } catch (error) {
         reject(response, 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read within the bounded observation window.', 'sidecar', {
           retryable: true,
           ids: { testRunId: run.testRunId, sessionId },
           nextAction: 'Check sidecar status, then retry question observation.',
+          details: nativeObservationFailure('interop-questions', null, error),
         }));
         return true;
       }
-      if (upstream.status < 200 || upstream.status >= 300) {
-        reject(response, upstream.status === 404 ? 404 : 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read.', 'sidecar', { retryable: upstream.status >= 500 || upstream.status === 0, ids: { testRunId: run.testRunId, sessionId }, nextAction: 'Check sidecar status, then retry question observation.' })); return true;
+      const questionFailure = nativeObservationFailure('interop-questions', upstream);
+      if (questionFailure) {
+        reject(response, upstream.status === 404 ? 404 : 502, createError('native-question-observation-unavailable', 'OpenCode native question state could not be read.', 'sidecar', {
+          retryable: upstream.status >= 500 || upstream.status === 0,
+          ids: { testRunId: run.testRunId, sessionId },
+          nextAction: 'Check sidecar status, then retry question observation.',
+          details: questionFailure,
+        }));
+        return true;
       }
       const questions = normalizeQuestions(upstream.body?.questions);
       const current = run.turns.find((turn) => turn.status === 'accepted') || run.turns.at(-1) || {};
