@@ -2,13 +2,24 @@
 
 ## 状态
 
-待实施。
+待实施。首轮并行分发方案已冻结，仍需执行 W0 基线门后开工。
 
 本 Task 是 [Spec 9](./spec.md) 的唯一实施任务。
 允许按检查点分批编码、验证和提交。
 
 规格基线为 `codex/merge-main-code-bloat-20260722@0a01c19`。
-实际开工时必须从包含本 Spec/Task 的最新已同意集成提交分支，并在 `verification.md` 记录准确 baseline。
+它只用于说明本规格从哪里开始，不再作为编码基线。
+
+实际开工时必须从包含下列内容的同一个干净提交建立所有工作分支：
+
+- 本 Spec/Task 的最新已同意提交；
+- 已通过验收的 `def_node` Session ownership 修复；若该修复未通过，则先包含其后续修复；
+- 用户明确要求先合入的其他修复。
+
+W0 将这个提交记为 `SOURCE_BASELINE_COMMIT`。
+完成 `implementation-map.md` 后再产生唯一的 `DISPATCH_COMMIT`。
+所有首轮工作包必须从该精确 `DISPATCH_COMMIT` 建分支，并在 `verification.md` 同时记录两个 SHA。
+不得再直接从 `0a01c19` 各自开工。
 
 Task 完成必须同时交付：
 
@@ -477,7 +488,7 @@ git diff --check
 ```
 
 - [ ] 新建 `scripts/def-equipment-3plus1-recommendation-contract-test.mjs`，覆盖 Service、状态、约束、Digest 和只读不变量。
-- [ ] 新建 `scripts/def-equipment-3plus1-tool-surface-contract-test.mjs`，覆盖 definitions、registry、native target 与 OpenCode export；P3 可独立通过。
+- [ ] 新建 `scripts/def-equipment-3plus1-tool-surface-contract-test.mjs`，覆盖 definitions、registry、native target 与 OpenCode export；W2 可独立通过。
 - [ ] 新建 `scripts/def-equipment-3plus1-registration-contract-test.mjs`，在集成分支覆盖 authenticated policy、Sidecar schema、dispatcher 与 Service wiring。
 - [ ] `package.json` 新增 `test:def-equipment-3plus1-recommendation`，串行运行上述三个 hermetic contract test。
 - [ ] 将新 package script 接入 `test:def-operator-build-planning` 或 `check`，只保留一个权威聚合入口。
@@ -570,82 +581,391 @@ git diff --check
 - [ ] 最终汇报 commits、测试、未覆盖和是否等待 Harness activation。
 - [ ] 不 push。
 
-## 十一、并行实施图
+## 十一、并行实施与分发合同
 
-本节用于后续分发子 Agent 或独立分支。
-它只拆交付边界，不改变 owner。
+本节是后续一次性分发多个智能体的执行清单。
+它只拆交付边界，不改变 Spec 9 的职责 owner。
 
-Checkpoint A 与 `implementation-map.md` 是并行开工门。
-它完成后，P1–P6 可以按容量并行。
+原拆分中的 Domain extraction 与 Recommendation Service 不再分给两个智能体。
+Service 必须直接导入真实 Domain，并独立跑通合同测试；把两者拆开会产生无法测试的半成品分支。
 
-| 包 | 建议分支 | 独占文件范围 | 产物 | 依赖 |
-| --- | --- | --- | --- | --- |
-| P0 Freeze | `codex/spec9-implementation-freeze` | 只读盘点与 `implementation-map.md` | baseline、调用方、迁移表、高冲突 owner | 已同意集成 baseline |
-| P1 Domain extraction | `codex/spec9-equipment-domain` | `scripts/def-core/stable-json.mjs`、`equipment-3plus1-domain.mjs`、`operator-build-evidence.mjs` 的必要导出、REST 中旧领域函数迁移 | 纯函数、共享 hash、旧 primitive 复用、无算法副本 | P0 |
-| P2 Recommendation Service | `codex/spec9-recommendation-service` | `scripts/def-core/equipment-3plus1-recommendation.mjs`、Service contract test | 阶段、状态、Envelope、Digest、fixture ports | P0；按 P1 固定导出编码 |
-| P3 Tool surface | `codex/spec9-recommendation-tool` | `definitions.mjs`、`registry.mjs`、`opencode/def.js`、tool-surface contract test | 模型 Tool、Schema、policy/target 映射 | P0；使用固定 V1 合同 |
-| P4 Runtime teaching cleanup | `codex/spec9-runtime-teaching` | Base Prompt、`timeline-workbench/SKILL.md` | 删除旧链路，只保留识别和解释 | P0；不依赖代码合并 |
-| P5 Harness candidate | `codex/spec9-harness-candidate` | 新 candidate 目录、3+1 Scenario、Harness 合同断言 | immutable candidate 与 trace 断言 | P0；不 promotion |
-| P6 Teacher audit | `codex/spec9-teacher-audit` | `.agents/skills/harness-audit-assistant/**` | owner 路由、量表、handoff 样例 | P0 |
-| P7 Integration | `codex/spec9-integration` | 合并后 REST 最终 wiring、registration contract test、`package.json`、testing doc、`implementation-map.md` 最终状态、`verification.md` | 无冲突集成、聚合命令、全量证据 | P1–P6 |
-| P8 Blackbox | 集成分支上执行 | 不修改生产代码；只补 verification/artifact | Interop、Computer Use、状态证据 | P7 |
+Runtime teaching cleanup 与 Harness candidate 也不再拆开。
+现有结构测试同时读取 Base Prompt、Runtime Skill、Harness、Scenario 与黑盒文档；分开修改会让两个分支互相等待。
 
-### 11.1 固定接口，允许并行
+首轮因此固定为四个真正独立的写入包：W1、W2、W3、W4。
 
-P1 与 P2 可以在 P0 后并行，但不得各自发明接口。
-共同使用 Spec 9 已冻结的：
+### 11.1 W0：集成负责人开工门
 
-- domain module 名称；
-- Recommendation Service 入口；
-- port 种类；
-- 输入、输出、状态、error 与 Digest；
-- 现有 comparator 和限制不变。
+W0 不是子 Agent 任务。
+集成负责人在一次性分发前完成。
 
-P2 可先用 fixture domain/ports 完成状态机测试。
-合并时必须替换为 P1 的真实导出，不能保留第二套 fixture 实现到生产路径。
+- [ ] 等待当前 `def_node` Session ownership 修复的手动验收结论。
+- [ ] 若通过，将修复提交与最新 Spec 9 文档合到一个干净集成分支；若失败，先纳入后续修复。
+- [ ] 记录唯一的 `SOURCE_BASELINE_COMMIT`，不得使用分支名代替 SHA。
+- [ ] 在该提交上运行 `git status --short --branch` 与 `git diff --check`。
+- [ ] 新建 `implementation-map.md`，至少冻结：
+  - `SOURCE_BASELINE_COMMIT`；
+  - 当前 3+1 私有函数与调用方；
+  - primitive 的真实消费者；
+  - 现位置到新模块的符号迁移；
+  - W1–W4 的文件锁；
+  - 已知基线测试结果。
+- [ ] 提交 `implementation-map.md`，把这个提交记为唯一的 `DISPATCH_COMMIT`。
+- [ ] 为 W1–W4 从同一个 `DISPATCH_COMMIT` 创建独立 worktree/分支。
+- [ ] 把 `SOURCE_BASELINE_COMMIT`、`DISPATCH_COMMIT`、工作包编号和本节链接写入每个分发提示词。
 
-P3 不编辑 `ai-cli-rest-server.mjs`。
-它只完成模型面、definition 和 registry。
-Sidecar dispatcher 的最终 import/call 由 P7 在 P1、P2 合并后接线。
+W0 未完成时不得先派某个编码包“试着做”。
+四个编码包必须看到相同代码与相同规格。
 
-### 11.2 高冲突文件规则
+### 11.2 两轮实施图
 
-- `scripts/ai-cli-rest-server.mjs`：P1 完成迁移前只归 P1；之后只归 P7；
-- `package.json`：只归 P7；其他包只在交付说明中提出 script 需求；
-- `spec.md`、`task9-1.md`：只归集成负责人；子任务发现合同问题时提交 Finding，不自行改规格；
-- `agent/harness/baseline/stable-v0/**`：任何包都不得修改；
-- 同一个 Scenario 或 contract test 不分给两个包同时编辑。
-
-### 11.3 分支交付合同
-
-每个包必须：
-
-1. 从 P7 指定的同一个 baseline 建分支；
-2. 只改表中授权文件；
-3. 记录依赖的 Spec 小节；
-4. 运行本包可独立运行的检查；
-5. 自动提交，不 push；
-6. 汇报 commit、文件、测试、未覆盖和集成注意事项。
-
-若合同与真实代码冲突，停止扩大修改。
-只提交证据或已证实的安全抽取，并由集成负责人先更新 Spec。
-
-### 11.4 集成顺序
-
-建议集成顺序：
-
-```text
-P0 freeze
-  → P1 domain
-  → P2 service
-  → P3 tool surface
-  → P4 / P5 / P6（次序可互换）
-  → P7 wiring + package scripts + hermetic regression
-  → P8 fresh-session blackbox
+```mermaid
+flowchart TD
+  W0["W0 冻结同一基线"] --> W1["W1 Core + Service"]
+  W0 --> W2["W2 Tool Surface"]
+  W0 --> W3["W3 Runtime Teaching + Harness"]
+  W0 --> W4["W4 Teacher Audit"]
+  W1 --> W5["W5 Integration"]
+  W2 --> W5
+  W3 --> W5
+  W4 --> W5
+  W5 --> W6["W6 Fresh-session Blackbox"]
 ```
 
-P7 不得用冲突解决顺手改写各包算法。
-需要语义变化时回到 primary owner 分支修复并重新提交。
+| 包 | 建议分支 | 相对规模 | 能否首轮同时派发 | 主要产物 |
+| --- | --- | --- | --- | --- |
+| W1 Core + Service | `codex/spec9-core-service` | 大 | 是 | Domain、Recommendation Service、REST composition、Service 合同 |
+| W2 Tool Surface | `codex/spec9-tool-surface` | 中 | 是 | definition、registry、OpenCode export、静态 Tool 合同 |
+| W3 Runtime Teaching + Harness | `codex/spec9-runtime-harness` | 中 | 是 | Prompt/Skill 收口、immutable candidate、Scenario 与测试口径 |
+| W4 Teacher Audit | `codex/spec9-teacher-audit` | 小 | 是 | owner 路由、审计量表、返修交接与样例 |
+| W5 Integration | `codex/spec9-integration` | 中 | 否，等待 W1–W4 | 合并、注册合同、聚合命令、verification |
+| W6 Blackbox | W5 集成提交的隔离测试 worktree | 中 | 否，等待 W5 | Interop、Computer Use、真实状态证据 |
+
+Checkpoint 不留无人负责的条目：
+
+| Task Checkpoint | 主要执行包 | 交叉验收 |
+| --- | --- | --- |
+| A 现状与职责冻结 | W0 | W5 更新最终迁移状态 |
+| B 复合 Tool 合同 | W2 | W1 实现业务校验；W5 验证真实注册接线 |
+| C Service 收口 | W1 | W5 跑聚合回归 |
+| D 删除重复规则 | W3；Tool description 由 W2 | W5 跑完整结构检查 |
+| E 审计返修 owner | W4 | W5 核对交付样例 |
+| F 自动验证 | W1、W2、W5 | W5 汇总唯一入口 |
+| G 真实 Agent 与桌面 | W6 | W5 记录 verification |
+| H 文档、决策与提交 | W5 | 集成负责人最终汇报 |
+
+### 11.3 W1：Core 与 Recommendation Service
+
+#### 目标
+
+把现有 REST 文件中的 3+1 确定算法迁入 core，并让新的 Recommendation Service 在一次调用内完成全部阶段。
+W1 是 Domain Service 的唯一实现 owner。
+
+#### 独占写入范围
+
+- `scripts/def-core/stable-json.mjs`；
+- `scripts/def-core/equipment-3plus1-domain.mjs`；
+- `scripts/def-core/equipment-3plus1-recommendation.mjs`；
+- `scripts/def-core/operator-build-evidence.mjs`，只增加 Spec 9 固定的纯函数导出；
+- `scripts/ai-cli-rest-server.mjs`；
+- `scripts/def-equipment-3plus1-recommendation-contract-test.mjs`；
+- 必要时更新 `scripts/def-native-catalog-bridge-contract-test.mjs` 与 `scripts/def-operator-build-guide-contract-test.mjs`，但只能保持旧 primitive 行为或适配函数迁移。
+
+未列出的文件只读。
+W1 不修改 Tool definition、registry、OpenCode export、Prompt、Skill、Harness、Scenario、`package.json` 或 Spec 文档。
+虽然 W1 独占 `ai-cli-rest-server.mjs`，它的授权范围仍只限 3+1、Guide/Profile 纯函数迁移和 recommend composition。
+不得修改、重排或回退同一文件中的 Work Node、Session ownership、approval、mutation 与 postcondition 路径。
+
+#### 必须完成
+
+- [ ] 按 Spec 9 第 6.5.2 节实现固定模块、导出和依赖方向。
+- [ ] 移动现有 catalog、set、topology、ranking 与 planner 逻辑；迁移后 REST 不保留算法副本。
+- [ ] 旧 primitive 与新 Service 复用同一 Domain 函数。
+- [ ] Guide/Profile 复用 `operator-build-evidence.mjs` 的纯函数，不复制 fallback 算法。
+- [ ] Service 只使用固定 ports，不调用模型 Tool export，不铸造 capability、token 或 artifact。
+- [ ] REST 只完成 ports 接线、认证、Service 调用和 HTTP error 映射。
+- [ ] 指定套装、自动选套装、correction、comparison、约束、tie 与三个业务终态均由 Service 决定。
+- [ ] 推荐前后 checkout、SQLite、pending command 与 approval 保持不变。
+- [ ] 保留现有 search-space、output-size 与 effect type-key 语义。
+
+#### 独立验收
+
+至少运行：
+
+```text
+node scripts/def-equipment-3plus1-recommendation-contract-test.mjs
+npm run test:def-operator-build-planning
+npm run test:def-native-catalog
+node --check scripts/ai-cli-rest-server.mjs
+git diff --check
+```
+
+若 `bun` 或本机 REST 冷启动造成环境阻塞，必须区分环境失败与断言失败。
+W1 的新 hermetic Service 测试本身必须 PASS，不能留给 W5 补齐。
+
+#### 交付
+
+提交中必须说明：迁出的旧函数、保留的 primitive、没有复制的算法、测试结果和 W5 所需的 route 名称。
+
+### 11.4 W2：Tool Surface
+
+#### 目标
+
+只建立模型可见合同与注册面，不实现领域算法，不编辑 REST。
+
+#### 独占写入范围
+
+- `agent/runtime/def-tools/definitions.mjs`；
+- `agent/runtime/def-tools/registry.mjs`；
+- `agent/runtime/def-tools/opencode/def.js`；
+- `scripts/def-equipment-3plus1-tool-surface-contract-test.mjs`。
+
+未列出的文件只读。
+W2 不修改 `scripts/ai-cli-rest-server.mjs`、`scripts/def-core/**`、Prompt、Skill、Harness、Scenario、`package.json` 或 Spec 文档。
+W2 对 `opencode/def.js` 的授权只覆盖 evidence Tool 分类、新 recommend export 及其输入映射。
+不得修改、重排或回退 `def_node_fork/bind/delete`、审批、materialize 或其他 mutation export。
+
+#### 必须完成
+
+- [ ] 完整实现 Task B1–B4 的名称、route、target、scope、risk、Schema 与 description。
+- [ ] `dataTargetFor()` 先匹配 recommend，再匹配宽泛 3plus1 primitive。
+- [ ] OpenCode export 只传输入与当前 session/turn identity，并原样返回 typed result/error。
+- [ ] 模型 Schema、Sidecar Schema 和 export 参数一一对应。
+- [ ] description 不出现内部 Guide/Profile/catalog/facts/plan 顺序。
+- [ ] 不隐藏仍有真实消费者的旧 primitive；退出决定等待 `implementation-map.md` 的证据。
+
+#### 独立验收
+
+至少运行：
+
+```text
+node scripts/def-equipment-3plus1-tool-surface-contract-test.mjs
+npm run test:def-model-instruction-tools
+node --check agent/runtime/def-tools/opencode/def.js
+git diff --check
+```
+
+静态 Tool 合同必须在没有 W1 代码的分支上独立 PASS。
+真实 dispatcher/Service 联通由 W5 registration contract 验证。
+
+#### 交付
+
+提交中必须列出四层 identity：model name、Sidecar route、canonical target、OpenCode export。
+
+### 11.5 W3：Runtime Teaching 与 Harness Candidate
+
+#### 目标
+
+一次性删除旧 3+1 模型编排教学，并建立只表达“使用复合能力”的 immutable candidate。
+W3 不修改稳定 Harness，也不实现 Tool 或 Service。
+
+#### 独占写入范围
+
+- `agent/runtime/def-opencode-adapter/index.cjs`；
+- `agent/runtime/def/skills/timeline-workbench/SKILL.md`；
+- 新目录 `agent/harness/examples/spec9-3plus1-composite-v1/**`；
+- `agent/harness/scenarios/equipment-3plus1-topology-v1.json`；
+- `agent/harness/scenarios/equipment-3plus1-set-selection-v1.json`；
+- 新建 `agent/harness/scenarios/equipment-3plus1-correction-v1.json`；
+- 新建 `agent/harness/scenarios/equipment-3plus1-unresolved-v1.json`；
+- `scripts/def-harness-guide-first-policy-contract-test.mjs`；
+- `scripts/def-harness-scenario-verification-contract-test.mjs`；
+- `docs/testing/def-agent-blackbox.md`。
+
+未列出的文件只读。
+`agent/harness/baseline/stable-v0/**` 永久禁止修改。
+W3 不修改 Tool、Service、registry、`package.json`、Spec 或审计 Skill。
+W3 对 adapter 的授权只覆盖 `buildAgentPrompt()` 中的 3+1 教学副本。
+不得修改 Session 创建、Harness binding、AgentRelease、Interop 或 runtime 生命周期。
+
+#### 必须完成
+
+- [ ] Base Prompt 删除 3+1 精确 Tool 顺序、capability、artifact 与 revision 搬运教学。
+- [ ] Runtime Skill 只保留识别复合请求、调用一次 recommend、解释 typed state、推荐不等于应用。
+- [ ] candidate 从 stable 内容复制后只改一个教学假设，不带旧内部阶段。
+- [ ] candidate 固定 `harnessId=def-equipment-3plus1-composite`、`version=9.1.0-candidate.1`。
+- [ ] Scenario 每轮要求 recommend 恰好一次，并禁止旧 guide/profile/materialize/shortlist/facts/plan 模型链。
+- [ ] correction 使用第二次完整 recommend，不复用旧 plan。
+- [ ] `user-correction-replan-v1.json` 保持不变；它验证选人目录纠正，不属于 3+1。
+- [ ] 黑盒文档改为复合 Tool 路径，并保留 Interop + Computer Use 双证据要求。
+- [ ] 结构检查不能误伤 native catalog 的其他合法使用路径。
+- [ ] 不修改 stable pointer，不 promotion。
+
+#### 独立验收
+
+至少运行：
+
+```text
+npm run test:def-harness-guide-first
+npm run test:def-harness-scenario-verification
+git diff --check
+```
+
+W3 分支不运行完整 `harness:check` 作为独立硬门，因为模型 Tool 注册由 W2 持有。
+完整 `harness:check` 必须在 W5 合并 W2 后通过。
+W3 的独立结构测试不得断言 W2 白名单文件已经包含新 Tool；该跨包 identity 只由 W5 registration contract 断言。
+
+#### 交付
+
+提交中必须列出删除的教学副本、新 candidate ref 所需字段、Scenario trace 变化，以及明确的“未 promotion”。
+
+### 11.6 W4：Teacher Audit
+
+#### 目标
+
+让开发侧会话审计使用 Spec 9 的同一职责表，并生成受限返修范围。
+
+#### 独占写入范围
+
+- `.agents/skills/harness-audit-assistant/SKILL.md`；
+- `.agents/skills/harness-audit-assistant/references/audit-rubric.md`；
+- `.agents/skills/harness-audit-assistant/references/handoff-template.md`；
+- 可新增 `.agents/skills/harness-audit-assistant/references/owner-routing-examples.md`；
+- 只有 Skill 摘要确实变化时，才可修改 `.agents/skills/harness-audit-assistant/agents/openai.yaml`。
+
+未列出的文件只读。
+W4 不修改产品 Runtime Skill、Harness、Tool、Service、Prompt、`package.json` 或 Spec 文档。
+
+#### 必须完成
+
+- [ ] Finding 固定包含 violated contract、primary owner、owner evidence、allowed/forbidden locations、duplicates to remove 与两类 regression。
+- [ ] `ENVIRONMENT` 与产品失败分开。
+- [ ] 证据不足时 owner 标记为假设，不生成肯定修法。
+- [ ] 返修提示词默认只授权 primary owner 与必要接口适配。
+- [ ] 加入 Tool result 缺字段、node ownership mismatch、fresh-session 任务识别失败三个路由样例。
+- [ ] 明确开发 Skill 与产品 Runtime Skill 不得混放或互相引用。
+
+#### 独立验收
+
+- 用三个固定样例各生成一次 owner 结论；三个结果必须落到不同主要 owner。
+- 检查 handoff 不再默认要求同时修改 Harness、Prompt、Skill 与 Tool。
+- 运行 `git diff --check`。
+
+#### 交付
+
+提交中必须附三个样例的 owner、允许修改位置与禁止重复位置。
+
+### 11.7 首轮固定握手
+
+W1–W4 不通过临时消息协商接口。
+它们只使用下面这组已经冻结的连接点：
+
+| 连接点 | 固定值 | 消费者 |
+| --- | --- | --- |
+| Service module | `scripts/def-core/equipment-3plus1-recommendation.mjs` | W1、W5 |
+| Service entry | `createDefEquipment3Plus1RecommendationService(ports).recommend({ sessionId, turnId, input })` | W1、W5 |
+| Sidecar route | `def.equipment.3plus1.recommend` | W1、W2、W5 |
+| Model Tool | `def_data_equipment_3plus1_recommend` | W2、W3、W5、W6 |
+| Canonical target | `def.data.resource.equipment_3plus1_recommend` | W2、W5 |
+| Success contract | `DefEquipmentThreePlusOneRecommendationV1` | W1、W2、W3、W5、W6 |
+| Error contract | `DefEquipmentThreePlusOneRecommendationErrorV1` | W1、W2、W5、W6 |
+| Business states | `READY / NEEDS_INPUT / UNRESOLVED` | W1、W2、W3、W5、W6 |
+| Harness candidate | `def-equipment-3plus1-composite@9.1.0-candidate.1` | W3、W5、W6 |
+
+输入、输出、failure stage、Digest 和 ports 的完整定义只引用 Spec 9 第 6.3–6.6 节。
+任何工作包都不得另起别名、兼容 route、第二版 Schema 或临时生产 adapter。
+
+如果真实代码无法使用某个连接点，该包返回 `contractFindings` 并停止扩面。
+不能自行修改本表后继续编码。
+
+#### 统一交付信封
+
+W1–W4 每个智能体最终必须返回同一结构：
+
+```text
+packageId:
+sourceBaselineCommit:
+dispatchCommit:
+commit:
+changedFiles:
+tests:
+  pass:
+  fail:
+  blocked:
+contractFindings:
+integrationNotes:
+```
+
+共同规则：
+
+1. 从 W0 给出的精确 `DISPATCH_COMMIT` 建分支；
+2. 开工前与提交前都检查 `git status --short --branch`；
+3. 只修改本包白名单文件；
+4. 不修改 `spec.md`、`task9-1.md` 或 `implementation-map.md`；
+5. 不修改 `package.json`；
+6. 合同与代码冲突时停止扩面，只报告 `contractFindings`；
+7. 完成后自动提交，不 push；
+8. 不接触用户正式 SQLite、历史失败 session、`.runtime`、密钥或真实 transcript。
+9. 首轮包之间不 cherry-pick、不合并、不直接修改对方分支；所有会合只发生在 W5。
+
+首轮提交不要求完整仓库测试全部通过。
+它要求本包独立检查通过，并明确列出只能在 W5 才能验证的跨包合同。
+
+### 11.8 W5：集成与责任回路
+
+W5 由集成负责人执行，不分给拥有 W1–W4 任一文件的实现智能体。
+
+#### 独占写入范围
+
+- `package.json`；
+- `scripts/def-equipment-3plus1-registration-contract-test.mjs`；
+- `implementation-map.md`；
+- `verification.md`；
+- 仅在合同 Finding 经用户或规格负责人确认后，才可修改 `spec.md` 与 `task9-1.md`。
+
+#### 集成顺序
+
+```text
+W1 Core + Service
+  → W2 Tool Surface
+  → W3 Runtime Teaching + Harness
+  → W4 Teacher Audit
+  → registration contract
+  → package aggregate
+  → full hermetic regression
+```
+
+W5 只做接线、聚合和证据记录。
+它不得借冲突解决重写 W1 的算法、W2 的 Schema、W3 的教学假设或 W4 的 owner 规则。
+
+任何语义失败都退回对应 owner 包：
+
+| 失败 | 返回 owner |
+| --- | --- |
+| 状态、排名、Digest、Profile、catalog、只读 postcondition | W1 |
+| 名称、Schema、registry、target、OpenCode export | W2 |
+| Prompt、Runtime Skill、Harness、Scenario、黑盒口径 | W3 |
+| Finding owner、返修范围与 handoff | W4 |
+
+#### 必须完成
+
+- [ ] 按 W1→W4 顺序合并提交；预期不出现同文件冲突。
+- [ ] 新增 registration contract，覆盖 authenticated policy、Sidecar dispatcher 与真实 Service wiring。
+- [ ] 在 `package.json` 建立唯一聚合入口 `test:def-equipment-3plus1-recommendation`。
+- [ ] 聚合入口串行运行 Service、Tool surface 与 registration 三个 hermetic test。
+- [ ] 接入 `test:def-operator-build-planning` 或 `check`，不得形成两个权威入口。
+- [ ] 保留 `DISPATCH_COMMIT` 中已有的全部测试脚本，尤其不得删除 `test:def-worknode-session-delete`。
+- [ ] 运行 Task F4 的完整命令矩阵和 `git diff --check`。
+- [ ] 更新 `implementation-map.md` 的迁移结果与 primitive 退出结论。
+- [ ] 新建 `verification.md`，区分 PASS、FAIL、BLOCKED 与 NOT RUN。
+- [ ] 自动提交，不 push。
+
+### 11.9 W6：Fresh-session Blackbox
+
+W6 从 W5 的精确集成提交建立隔离测试 worktree。
+它不修改生产代码，也不直接修改 W5 分支。
+
+- 按 `docs/testing/def-agent-blackbox.md` 执行；
+- 使用全新 native session 与正确的 `AgentReleaseV1`、Harness candidate ref；
+- 通过 Interop 记录 turn、Tool、question、error 与 final state；
+- 通过 Computer Use 确认真正可见的 UI；
+- 执行 Task G2 的指定、未指定、correction、unresolved 四类自然语言；
+- 执行 Task G5 的相邻只读回归；
+- 不做 mutation，不 promotion Harness；
+- 只返回证据报告，由 W5/集成负责人写入 `verification.md`。
+
+黑盒失败不得由测试智能体现场改 Prompt 或代码。
+它只按职责表标出主要 owner，再回到对应工作包修复。
 
 ## 十二、停止条件
 
