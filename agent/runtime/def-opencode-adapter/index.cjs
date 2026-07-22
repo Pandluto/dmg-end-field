@@ -482,7 +482,8 @@ function sameSessionBindingFile(left, right) {
     && (process.platform === 'win32' || left.dev === right.dev)
     && left.ino === right.ino
     && left.size === right.size
-    && left.mtimeMs === right.mtimeMs);
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs);
 }
 
 function readSafeSessionBindingFile(target, fileSystem = fs) {
@@ -495,8 +496,10 @@ function readSafeSessionBindingFile(target, fileSystem = fs) {
       || linkStat.size > MAX_SESSION_BINDING_BYTES) return null;
     const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
     descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
-    if (!sameSessionBindingFile(linkStat, fileSystem.fstatSync(descriptor))) return null;
+    const openedStat = fileSystem.fstatSync(descriptor);
+    if (!sameSessionBindingFile(linkStat, openedStat)) return null;
     const binding = JSON.parse(fileSystem.readFileSync(descriptor, 'utf8'));
+    if (!sameSessionBindingFile(openedStat, fileSystem.fstatSync(descriptor))) return null;
     return binding && typeof binding === 'object' && !Array.isArray(binding) ? binding : null;
   } catch {
     return null;
@@ -529,12 +532,16 @@ function openExistingSessionBindingForWrite(target) {
       throw invalidExistingSessionBinding('Existing DEF Session binding changed while being opened.');
     }
     const binding = JSON.parse(fs.readFileSync(descriptor, 'utf8'));
+    const finalStat = fs.fstatSync(descriptor);
+    if (!sameSessionBindingFile(openedStat, finalStat)) {
+      throw invalidExistingSessionBinding('Existing DEF Session binding changed while being read.');
+    }
     if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
       throw invalidExistingSessionBinding('Existing DEF Session binding is not a JSON object.');
     }
     fs.closeSync(descriptor);
     descriptor = undefined;
-    return { exists: true, descriptor: undefined, binding, stat: linkStat };
+    return { exists: true, descriptor: undefined, binding, stat: finalStat };
   } catch (error) {
     if (descriptor !== undefined) fs.closeSync(descriptor);
     if (error?.code === 'HARNESS_BINDING_INVALID') throw error;
@@ -946,6 +953,25 @@ function resolveNativeHarness(selector = 'stable') {
   return nativeHarnessLoader.resolve(selector || 'stable');
 }
 
+function createStableSessionHarnessIdentity(sessionID, skillId, deepseek, thinkingEffort) {
+  const resolvedHarness = resolveNativeHarness('stable');
+  const harnessBinding = defHarness.createSessionBinding({ sessionId: sessionID, resolved: resolvedHarness });
+  const agentRelease = createAgentRelease({
+    projectRoot,
+    skillId,
+    modelId: deepseek.model,
+    requestedThinkingEffort: normalizeThinkingEffort(thinkingEffort),
+    basePrompt: buildAgentPrompt(skillId),
+    harnessBinding,
+  });
+  nativeHarnessBySession.set(`${sessionID}:${harnessBinding.harness.contentHash}`, { resolved: resolvedHarness, binding: harnessBinding });
+  return {
+    harnessBinding,
+    agentRelease,
+    harnessWarning: resolvedHarness.error || null,
+  };
+}
+
 function isStrictLegacyStableHarnessBinding(binding) {
   const pinned = binding?.harnessBinding;
   const releaseHarness = binding?.agentRelease?.harness;
@@ -1252,6 +1278,9 @@ function writeSessionBinding(directory, session, options = {}) {
     ...(typeof session.boundNodeId === 'string' && session.boundNodeId.trim() ? { boundNodeId: session.boundNodeId.trim() } : existing?.boundNodeId ? { boundNodeId: existing.boundNodeId } : {}),
     createdAt: Date.now(),
   };
+  if (!binding.harnessBinding || !binding.agentRelease?.harness) {
+    throw invalidExistingSessionBinding('DEF Session binding requires a sealable Harness identity.');
+  }
   if (binding.harnessBinding && binding.agentRelease?.harness) {
     const sealKey = options.harnessSealKey === undefined
       ? getSessionHarnessSealKey()
@@ -1353,7 +1382,7 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
     } catch {
       return null;
     }
-  } else if (binding.harnessBinding && !isStrictLegacyStableHarnessBinding(binding)) {
+  } else if (!isStrictLegacyStableHarnessBinding(binding)) {
     return null;
   }
   maintainNativeSessionWorkspace(resolved);
@@ -1986,8 +2015,15 @@ function emitReplyRemainder(state, reply) {
   }
 }
 
+function readCurrentStreamSessionBinding(state) {
+  if (!state?.sessionID || typeof state.directory !== 'string' || !state.directory.trim()) return null;
+  const binding = readNativeSessionBinding(state.directory, state.sessionID, { includeNodeRelation: false });
+  return binding && path.resolve(binding.directory) === path.resolve(state.directory) ? binding : null;
+}
+
 function listChatSessions() {
   return Array.from(streamSessions.values())
+    .filter((session) => readCurrentStreamSessionBinding(session))
     .sort((left, right) => right.updatedAt - left.updatedAt)
     .map((session) => ({
       id: session.sessionID,
@@ -2065,6 +2101,7 @@ async function hydrateDefSession(sessionID, options = {}) {
 async function ensurePersistedStreamSession(sessionID, { config = {}, skillId, thinkingEffort, openCodeBaseUrl = '' } = {}) {
   const existing = streamSessions.get(sessionID);
   if (existing) {
+    if (!readCurrentStreamSessionBinding(existing)) throw persistedDefSessionNotFound();
     if (skillId && existing.skillId !== skillId) {
       const error = new Error(`DEF session skill mismatch: expected ${skillId}, received ${existing.skillId || 'unknown'}`);
       error.code = 'DEF_SESSION_SKILL_MISMATCH';
@@ -2108,7 +2145,7 @@ async function ensurePersistedStreamSession(sessionID, { config = {}, skillId, t
 
 function getChatSessionStream(sessionID) {
   const state = streamSessions.get(sessionID);
-  if (!state) return null;
+  if (!state || !readCurrentStreamSessionBinding(state)) return null;
   return {
     id: state.sessionID,
     sessionID: state.sessionID,
@@ -2121,9 +2158,7 @@ function getChatSessionStream(sessionID) {
 
 function getLiveDefTranscript(sessionID) {
   const state = streamSessions.get(sessionID);
-  if (!state) return null;
-  const binding = readNativeSessionBinding(state.directory, sessionID, { includeNodeRelation: false });
-  if (!binding || path.resolve(binding.directory) !== path.resolve(state.directory)) return null;
+  if (!state || !readCurrentStreamSessionBinding(state)) return null;
 
   const turns = new Map();
   for (const event of state.buffer) {
@@ -2329,7 +2364,8 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
   const query = `directory=${encodeURIComponent(directory)}`;
   const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
   const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, undefined, 15000);
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId });
+  const harnessIdentity = createStableSessionHarnessIdentity(session.id, skillId, deepseek, thinkingEffort);
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId, ...harnessIdentity });
   if (skillId === 'workbench' && workbenchContext && typeof workbenchContext === 'object') {
     writeNativeWorkbenchContext(directory, session.id, workbenchContext);
   }
@@ -2361,12 +2397,8 @@ async function runChatStream({ config, message, thinkingEffort, skillId = 'opera
 async function continueChat(sessionID, message, clientTurnId, options = {}) {
   const deepseek = sanitizeDeepSeekConfig(options.config || {});
   let state = streamSessions.get(sessionID);
-  const binding = state
-    ? readNativeSessionBinding(state.directory, sessionID, { includeNodeRelation: false })
-    : findNativeSessionBinding(sessionID);
-  if (!binding || (state && path.resolve(binding.directory) !== path.resolve(state.directory))) {
-    throw persistedDefSessionNotFound();
-  }
+  const binding = state ? readCurrentStreamSessionBinding(state) : findNativeSessionBinding(sessionID);
+  if (!binding) throw persistedDefSessionNotFound();
   if (state && options.skillId && state.skillId !== options.skillId) {
     const error = new Error(`DEF session skill mismatch: expected ${options.skillId}, received ${state.skillId || 'unknown'}`);
     error.code = 'DEF_SESSION_SKILL_MISMATCH';
@@ -2561,7 +2593,8 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
     const query = `directory=${encodeURIComponent(directory)}`;
     const sessionPayload = buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort });
     const session = await requestJson('POST', `${baseUrl}/session?${query}`, sessionPayload, runController.signal, 15000);
-    writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId });
+    const harnessIdentity = createStableSessionHarnessIdentity(session.id, skillId, deepseek, thinkingEffort);
+    writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId, ...harnessIdentity });
     activeRun.sessionID = session.id;
     const payload = {
       agent: selected.agent,
@@ -2636,11 +2669,26 @@ async function runChat({ config, message, thinkingEffort, skillId = 'operator' }
   }
 }
 
+function stopUntrustedSessionLocally(run) {
+  run.stopped = true;
+  run.controller?.abort(new Error('session binding is no longer trusted'));
+  run.eventController?.abort();
+  return {
+    ok: false,
+    stopped: true,
+    sessionID: run.sessionID,
+    reason: 'session-binding-invalid-local-stop-only',
+  };
+}
+
 async function stopChat(sessionID) {
   if (sessionID) {
     const state = streamSessions.get(sessionID);
     if (!state) {
       return { ok: true, stopped: false, sessionID, reason: 'session-not-found' };
+    }
+    if (!readCurrentStreamSessionBinding(state)) {
+      return stopUntrustedSessionLocally(state);
     }
     state.stopped = true;
     state.controller?.abort(new Error('stopped by user'));
@@ -2670,6 +2718,9 @@ async function stopChat(sessionID) {
   }
   run.controller.abort(new Error('stopped by user'));
   run.eventController.abort();
+  if (run.sessionID && !readCurrentStreamSessionBinding(run)) {
+    return stopUntrustedSessionLocally(run);
+  }
   if (run.sessionID && run.baseUrl) {
     const query = `directory=${encodeURIComponent(run.directory)}`;
     try {

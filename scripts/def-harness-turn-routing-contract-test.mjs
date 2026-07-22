@@ -26,6 +26,7 @@ const {
   continueChat,
   createAgentSessionWorkspace,
   ensureNativeSessionAxisBinding,
+  findNativeSessionBinding,
   getPersistedDefSession,
   getNativeHarnessSystem,
   hydrateDefSession,
@@ -368,6 +369,51 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
     ), false, 'plugin activation and the sidecar must agree on symlink rejection');
     assert.equal(symlinkContentReads, 0, 'neither reader may follow the Session binding symlink');
 
+    const makeInPlaceReadRaceFileSystem = () => {
+      const initialStat = {
+        dev: 1,
+        ino: 101,
+        size: Buffer.byteLength(JSON.stringify(sealedOuterBinding)),
+        mtimeMs: 10,
+        ctimeMs: 10,
+        isFile: () => true,
+        isSymbolicLink: () => false,
+      };
+      const changedStat = { ...initialStat, ctimeMs: 11 };
+      let fstatCalls = 0;
+      let closeCalls = 0;
+      return {
+        fileSystem: {
+          lstatSync: () => initialStat,
+          openSync: () => 51,
+          fstatSync: () => {
+            fstatCalls += 1;
+            return fstatCalls === 1 ? initialStat : changedStat;
+          },
+          readFileSync: () => JSON.stringify(sealedOuterBinding),
+          closeSync: () => {
+            closeCalls += 1;
+          },
+        },
+        closeCalls: () => closeCalls,
+      };
+    };
+    const sidecarReadRace = makeInPlaceReadRaceFileSystem();
+    assert.equal(readNativeSessionBinding(
+      recoveryDirectory,
+      oldSessionID,
+      { includeNodeRelation: false, harnessSealKey, fileSystem: sidecarReadRace.fileSystem },
+    ), null, 'the sidecar must reject an in-place Session binding change during descriptor read');
+    assert.equal(sidecarReadRace.closeCalls(), 1, 'sidecar read-race rejection must close its descriptor');
+    const activationReadRace = makeInPlaceReadRaceFileSystem();
+    assert.equal(readDefEquipment3Plus1HarnessActivation(
+      recoveryDirectory,
+      oldSessionID,
+      activationReadRace.fileSystem,
+      harnessActivationOptions,
+    ), false, 'plugin activation must reject the same in-place Session binding read race');
+    assert.equal(activationReadRace.closeCalls(), 1, 'plugin read-race rejection must close its descriptor');
+
     const newSessionID = 'sealed-recovery-new';
     const reboundHarnessBinding = makeHarnessBinding(newSessionID, 'explicit', compositeHarnessRef, 2);
     const reboundSession = {
@@ -444,6 +490,15 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
         timelineId: `timeline-${sessionID}`,
       };
     };
+    const bareWriteDirectory = createAgentSessionWorkspace('operator');
+    sidecarDirectories.push(bareWriteDirectory);
+    assert.throws(() => writeSessionBinding(bareWriteDirectory, {
+      id: 'bare-writer-rejected',
+      agent: 'def-operator',
+      skillId: 'operator',
+    }, { harnessSealKey }), (caught) => caught.code === 'HARNESS_BINDING_INVALID',
+    'the production writer must not create a binding that the safe reader must reject');
+    assert.equal(fs.existsSync(path.join(bareWriteDirectory, '.def-session.json')), false);
     const invalidExistingCases = [
       ['malformed', '{not-json'],
       ['null', 'null\n'],
@@ -761,6 +816,27 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       const badJson = createPersistedFixture('bad-json');
       fs.writeFileSync(badJson.target, '{not-json', 'utf8');
 
+      const bareDirectory = createAgentSessionWorkspace('operator');
+      sidecarDirectories.push(bareDirectory);
+      const bareBinding = {
+        label: 'bare-unbound',
+        sessionID: 'persisted-bare-unbound',
+        directory: bareDirectory,
+        target: path.join(bareDirectory, '.def-session.json'),
+      };
+      fs.writeFileSync(bareBinding.target, `${JSON.stringify({
+        schemaVersion: 5,
+        sessionID: bareBinding.sessionID,
+        axisBindingId: 'axis-persisted-bare-unbound',
+        directory: bareDirectory,
+        host: 'ai-cli',
+        skillId: 'operator',
+        agent: 'def-operator',
+      }, null, 2)}\n`, 'utf8');
+      registerFakeSession(bareBinding.sessionID, bareDirectory);
+      assert.equal(readNativeSessionBinding(bareDirectory, bareBinding.sessionID, { includeNodeRelation: false }), null,
+        'a bare binding without a seal or strict legacy stable Harness identity must fail closed');
+
       const junctionBinding = createPersistedFixture('junction-binding');
       const junctionTarget = path.join(harnessFixtureRoot, 'persisted-junction-binding-target');
       fs.mkdirSync(junctionTarget, { recursive: true });
@@ -795,7 +871,7 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       }, null, 2)}\n`, 'utf8');
       registerFakeSession(legacySessionID, legacyDirectory);
 
-      const invalidFixtures = [invalidSeal, outerTamper, badJson, junctionBinding, ...(symlinkBinding ? [symlinkBinding] : [])];
+      const invalidFixtures = [invalidSeal, outerTamper, badJson, bareBinding, junctionBinding, ...(symlinkBinding ? [symlinkBinding] : [])];
       const persisted = await listPersistedDefSessions({
         config: { apiKey: 'contract-only' },
         limit: 1000,
@@ -805,6 +881,8 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       assert(persistedIDs.has(legalSealed.sessionID), 'a legal sealed stable Session must remain listable');
       assert(persistedIDs.has(legacySessionID), 'a strict legacy stable Session must remain listable');
       for (const fixture of invalidFixtures) {
+        assert.equal(findNativeSessionBinding(fixture.sessionID), null,
+          `${fixture.label} must be absent from safe Session binding lookup`);
         assert.equal(persistedIDs.has(fixture.sessionID), false,
           `${fixture.label} must be absent from persisted Session discovery`);
         await assert.rejects(
@@ -903,16 +981,37 @@ assert.equal(runtimeEnv.DEF_HARNESS_RUNTIME_ROOT, path.resolve(harnessRuntimeRoo
       }
       assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(legalSealed.sessionID)}/persisted`)).status, 200);
       assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(legacySessionID)}/transcript`)).status, 200);
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(legacySessionID)}/message`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'legacy stable continuation', clientTurnId: 'legacy-stable-turn', skillId: 'operator' }),
+      })).status, 200, 'a strict legacy stable persisted Session must remain continuable');
       assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(liveThenTampered.sessionID)}/message`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ message: 'legal continuation', clientTurnId: 'legal-persisted-turn', skillId: 'operator' }),
       })).status, 200, 'a legal sealed persisted Session must remain continuable through the production HTTP route');
-      await new Promise((resolve) => setTimeout(resolve, 150));
 
       const liveTamperedBinding = JSON.parse(fs.readFileSync(liveThenTampered.target, 'utf8'));
       liveTamperedBinding.agent = 'def-tampered';
       fs.writeFileSync(liveThenTampered.target, `${JSON.stringify(liveTamperedBinding, null, 2)}\n`, 'utf8');
+      const liveSessionsAfterTamper = await readHttpJson('/api/chat/sessions');
+      assert.equal(liveSessionsAfterTamper.status, 200);
+      assert.equal(liveSessionsAfterTamper.body.sessions.some((session) => session.sessionID === liveThenTampered.sessionID), false,
+        'cached live Session listing must hide state whose binding is no longer trusted');
+      assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(liveThenTampered.sessionID)}/events`)).status, 404,
+        'cached SSE history must be inaccessible after its Session binding becomes untrusted');
+      const abortRequestsBeforeInvalidStop = fakeRequests.filter((request) => request.pathname.endsWith('/abort')).length;
+      const invalidStop = await readHttpJson(`/api/chat/${encodeURIComponent(liveThenTampered.sessionID)}/stop`, {
+        method: 'POST',
+      });
+      assert.equal(invalidStop.status, 200);
+      assert.equal(invalidStop.body.result.stopped, true,
+        'an untrusted cached Session must still permit a local safety stop');
+      assert.equal(invalidStop.body.result.reason, 'session-binding-invalid-local-stop-only');
+      assert.equal(fakeRequests.filter((request) => request.pathname.endsWith('/abort')).length, abortRequestsBeforeInvalidStop,
+        'an untrusted cached Session directory must never be used for an upstream abort');
+      await new Promise((resolve) => setTimeout(resolve, 25));
       const httpInvalidFixtures = [...invalidFixtures, liveThenTampered];
       for (const fixture of httpInvalidFixtures) {
         assert.equal((await readHttpJson(`/api/chat/${encodeURIComponent(fixture.sessionID)}/persisted`)).status, 404,

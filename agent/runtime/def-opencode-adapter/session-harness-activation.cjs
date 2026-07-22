@@ -27,7 +27,8 @@ function sameSessionBindingFile(left, right) {
     && (process.platform === 'win32' || left.dev === right.dev)
     && left.ino === right.ino
     && left.size === right.size
-    && left.mtimeMs === right.mtimeMs);
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs);
 }
 
 function isRegisteredHarnessBinding(harnessBinding, runtimeRoot) {
@@ -130,8 +131,10 @@ function readDefEquipment3Plus1HarnessActivation(directory, sessionID, fileSyste
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size <= 0 || stat.size > MAX_SESSION_BINDING_BYTES) return false;
     const noFollow = typeof fs.constants.O_NOFOLLOW === 'number' ? fs.constants.O_NOFOLLOW : 0;
     descriptor = fileSystem.openSync(target, fs.constants.O_RDONLY | noFollow);
-    if (!sameSessionBindingFile(stat, fileSystem.fstatSync(descriptor))) return false;
+    const openedStat = fileSystem.fstatSync(descriptor);
+    if (!sameSessionBindingFile(stat, openedStat)) return false;
     const binding = JSON.parse(fileSystem.readFileSync(descriptor, 'utf8'));
+    if (!sameSessionBindingFile(openedStat, fileSystem.fstatSync(descriptor))) return false;
     return isDefEquipment3Plus1HarnessBinding(binding, {
       directory: resolvedDirectory,
       sessionID,

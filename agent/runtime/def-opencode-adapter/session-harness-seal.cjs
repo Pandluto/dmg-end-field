@@ -30,7 +30,8 @@ function samePersistentSessionHarnessSealKeyFile(left, right) {
     && (process.platform === 'win32' || left.dev === right.dev)
     && left.ino === right.ino
     && left.size === right.size
-    && left.mtimeMs === right.mtimeMs);
+    && left.mtimeMs === right.mtimeMs
+    && left.ctimeMs === right.ctimeMs);
 }
 
 function persistentSessionHarnessSealKeySignature(stat, rawKeyFile) {
