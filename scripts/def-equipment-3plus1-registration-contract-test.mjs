@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,6 +34,10 @@ const workNodeDatabasePath = path.join(root, 'nodes.sqlite3');
 const governancePath = path.join(root, 'governance.json');
 const sessionId = 'equipment-3plus1-registration-session';
 const readonlyTimelineId = 'equipment-3plus1-readonly-timeline';
+
+function hashFileSha256(filePath) {
+  return `sha256:${createHash('sha256').update(fs.readFileSync(filePath)).digest('hex')}`;
+}
 
 const effect = (effectId, label, typeKey) => ({ effectId, label, typeKey, unit: 'percent', value: 0.2 });
 const item = (equipmentId, name, part, effects) => ({
@@ -242,6 +247,7 @@ async function readReadOnlyState() {
     commands: commands.payload.commands,
     questions: governance.payload.questions,
     approvals: governance.payload.approvals,
+    builtinCatalogSha256: hashFileSha256(builtinCatalogPath),
   };
 }
 
@@ -393,6 +399,7 @@ try {
   assert.deepEqual(readOnlyStateAfter.questions, []);
   assert.deepEqual(readOnlyStateAfter.approvals, []);
   assert.equal(fs.existsSync(nowStoragePath), false, '别礼+潮涌 recommendation must not read or materialize a now-storage projection');
+  assert.equal(readOnlyStateAfter.builtinCatalogSha256, registeredBaselineState.builtinCatalogSha256, '别礼+潮涌 recommendation must not mutate the trusted active catalog');
 
   console.log(JSON.stringify({
     ok: true,
@@ -404,6 +411,7 @@ try {
       'ready-needs-input-unresolved',
       'opencode-wrapper-to-real-dispatcher',
       'bieli-tide-without-now-storage',
+      'catalog-bytes-read-only',
       'read-only-postcondition',
       'state-hash-checkout-pending-command-question-approval',
     ],
