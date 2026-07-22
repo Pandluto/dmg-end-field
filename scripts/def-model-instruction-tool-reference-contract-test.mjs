@@ -14,10 +14,9 @@ const callableTools = new Set(
     .map((target) => target.nativeBinding)
     .filter((binding) => typeof binding === 'string' && binding.startsWith('def_')),
 );
-const serverSource = fs.readFileSync(path.join(root, 'agent/server/def-agent-server.cjs'), 'utf8');
-const dynamicPromptStart = serverSource.indexOf('function buildWorkbenchCheckoutSystemPrompt');
-const dynamicPromptEnd = serverSource.indexOf('async function syncNativeWorkbenchAxisBinding', dynamicPromptStart);
-assert(dynamicPromptStart >= 0 && dynamicPromptEnd > dynamicPromptStart, 'dynamic Workbench prompt builders must remain discoverable');
+const dynamicPromptSource = fs.readFileSync(path.join(root, 'agent/server/workbench-system-prompts.cjs'), 'utf8');
+assert.match(dynamicPromptSource, /function buildWorkbenchCheckoutSystemPrompt/);
+assert.match(dynamicPromptSource, /function buildWorkbenchContextSystemPrompt/);
 
 function markdownFiles(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -38,8 +37,8 @@ const instructionSources = [
   ...markdownFiles(path.join(root, 'agent/harness/examples'))
     .map((file) => ({ name: path.relative(root, file), text: fs.readFileSync(file, 'utf8') })),
   {
-    name: 'agent/server/def-agent-server.cjs:dynamic-workbench-prompts',
-    text: serverSource.slice(dynamicPromptStart, dynamicPromptEnd),
+    name: 'agent/server/workbench-system-prompts.cjs',
+    text: dynamicPromptSource,
   },
   {
     name: 'agent/runtime/def-tools/opencode/def.js',
