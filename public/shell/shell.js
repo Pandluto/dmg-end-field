@@ -2,6 +2,9 @@
   const runtime = window.desktopRuntime;
   const LOCAL_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
   const AI_CLI_REST_ORIGIN = 'http://127.0.0.1:17321';
+  const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
+  const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
+  const SHELL_RENDERER_CAPABILITY_STORAGE_KEY = 'def.shell.workbench-renderer-capability.v1';
   const IMAGE_RELEASE_MANIFEST_URL = 'https://github.com/Pandluto/dmg-end-field/releases/latest/download/assets-release-manifest.json';
   const IMPORT_SECTIONS = ['operators', 'weapons', 'equipments', 'buffs', 'timeline', 'runtime'];
   const REQUIRED_IMPORT_SESSION_KEYS = {
@@ -35,6 +38,23 @@
   };
 
   const $ = (id) => document.getElementById(id);
+
+  const readShellRendererCapability = () => {
+    try {
+      const url = new URL(window.location.href);
+      const injectedCapability = url.searchParams.get(WORKBENCH_RENDERER_CAPABILITY_QUERY);
+      if (injectedCapability) {
+        window.sessionStorage.setItem(SHELL_RENDERER_CAPABILITY_STORAGE_KEY, injectedCapability);
+        url.searchParams.delete(WORKBENCH_RENDERER_CAPABILITY_QUERY);
+        window.history.replaceState(window.history.state, document.title, `${url.pathname}${url.search}${url.hash}`);
+      }
+      return window.sessionStorage.getItem(SHELL_RENDERER_CAPABILITY_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const shellRendererCapability = readShellRendererCapability();
 
   const logElement = $('log');
   const appendLog = (line) => {
@@ -580,6 +600,10 @@
       setText('native-ai-cli-session-cleanup-status', '请先从已验证的 ai-cli 会话中选择要保留的当前会话。');
       return;
     }
+    if (!shellRendererCapability) {
+      setText('native-ai-cli-session-cleanup-status', '未获得本机授权；请关闭并重新打开 DEF Shell 后重试。');
+      return;
+    }
     const confirmed = window.confirm('旧的 DEF Shell ai-cli 会话将被永久删除，无法恢复。已选择的当前会话会保留，Workbench 会话不会被处理。是否继续？');
     if (!confirmed) {
       setText('native-ai-cli-session-cleanup-status', '已取消清理；没有删除任何会话。');
@@ -593,7 +617,10 @@
     try {
       const payload = await fetchLocalBridgeJson('/def-agent/native-sessions/cleanup', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          [WORKBENCH_RENDERER_CAPABILITY_HEADER]: shellRendererCapability,
+        },
         body: JSON.stringify({ host: 'ai-cli', keepSessionID }),
       });
       if (
@@ -606,10 +633,17 @@
       ) throw new Error('会话清理服务返回了无效结果。');
 
       const failedCount = payload.failed.length;
+      const summary = `${payload.ok && failedCount === 0 ? '清理完成' : '清理未完全完成'}：已删除 ${payload.deletedCount}，已不存在 ${payload.alreadyDeletedCount}，失败 ${failedCount}。当前会话已保留。`;
       state.nativeAiCliSessionsLoading = false;
-      await refreshNativeAiCliSessions(undefined, { announce: false });
-      setText('native-ai-cli-session-cleanup-status', `${payload.ok && failedCount === 0 ? '清理完成' : '清理未完全完成'}：已删除 ${payload.deletedCount}，已不存在 ${payload.alreadyDeletedCount}，失败 ${failedCount}。当前会话已保留。`);
+      setText('native-ai-cli-session-cleanup-status', summary);
       appendLog(`DEF Shell 会话清理 | keep=${keepSessionID} | deleted=${payload.deletedCount} | alreadyDeleted=${payload.alreadyDeletedCount} | failed=${failedCount}`);
+      try {
+        await refreshNativeAiCliSessions(undefined, { announce: false });
+      } catch (refreshError) {
+        const warning = ` 清理结果已确认；刷新会话列表失败：${refreshError instanceof Error ? refreshError.message : String(refreshError)}`;
+        setText('native-ai-cli-session-cleanup-status', `${summary}${warning}`);
+        appendLog(`DEF Shell 会话清理后刷新失败 | ${refreshError instanceof Error ? refreshError.message : String(refreshError)}`);
+      }
     } catch (error) {
       setText('native-ai-cli-session-cleanup-status', `清理 ai-cli 会话失败：${error instanceof Error ? error.message : String(error)}`);
       appendLog(`DEF Shell 会话清理失败 | ${error instanceof Error ? error.message : String(error)}`);

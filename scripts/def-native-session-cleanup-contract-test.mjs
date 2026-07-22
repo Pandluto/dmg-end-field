@@ -8,6 +8,13 @@ const require = createRequire(import.meta.url);
 const {
   cleanupNativeAiCliSessions,
 } = require('../agent/server/def-agent-server.cjs');
+const {
+  isAuthorizedNativeSessionCleanupRequest,
+} = require('../agent/server/native-session-cleanup-auth.cjs');
+const {
+  WORKBENCH_RENDERER_CAPABILITY_HEADER,
+  isAuthorizedWorkbenchRendererRequest,
+} = require('../electron/workbench-renderer-transport.cjs');
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const temporaryRoots = [];
 
@@ -73,6 +80,41 @@ function cleanupOptions(fixture, failSessionIDs = new Set()) {
 }
 
 try {
+  {
+    const internalToken = 'native-session-cleanup-contract-token';
+    assert.equal(isAuthorizedNativeSessionCleanupRequest({
+      headers: { 'x-def-internal-token': internalToken },
+    }, internalToken), true, 'the exact native loopback token is accepted');
+    assert.equal(isAuthorizedNativeSessionCleanupRequest({ headers: {} }, internalToken), false,
+      'a missing native loopback token is rejected');
+    assert.equal(isAuthorizedNativeSessionCleanupRequest({
+      headers: { 'x-def-internal-token': 'wrong-native-session-cleanup-contract-token' },
+    }, internalToken), false, 'a wrong native loopback token is rejected');
+  }
+
+  {
+    const rendererCapability = 'z'.repeat(43);
+    const requestUrl = new URL('http://127.0.0.1:31457/def-agent/native-sessions/cleanup');
+    assert.equal(isAuthorizedWorkbenchRendererRequest({
+      headers: {
+        origin: 'http://127.0.0.1:3030',
+        [WORKBENCH_RENDERER_CAPABILITY_HEADER]: rendererCapability,
+      },
+    }, requestUrl, rendererCapability, { bridgeHost: '127.0.0.1', bridgePort: 31457 }), true,
+    'the bridge accepts the Electron-injected capability from the trusted Shell origin');
+    assert.equal(isAuthorizedWorkbenchRendererRequest({
+      headers: { origin: 'http://127.0.0.1:3030' },
+    }, requestUrl, rendererCapability, { bridgeHost: '127.0.0.1', bridgePort: 31457 }), false,
+    'the bridge rejects a trusted origin without the capability');
+    assert.equal(isAuthorizedWorkbenchRendererRequest({
+      headers: {
+        origin: 'http://malicious.invalid',
+        [WORKBENCH_RENDERER_CAPABILITY_HEADER]: rendererCapability,
+      },
+    }, requestUrl, rendererCapability, { bridgeHost: '127.0.0.1', bridgePort: 31457 }), false,
+    'the bridge rejects a capability from an untrusted origin');
+  }
+
   {
     const fixture = createFixture('preserve');
     const current = fixture.addBinding('ai-cli', 'ses-current');
@@ -313,6 +355,8 @@ try {
   const shellHtml = fs.readFileSync(path.join(projectRoot, 'public/shell/index.html'), 'utf8');
   const shellSource = fs.readFileSync(path.join(projectRoot, 'public/shell/shell.js'), 'utf8');
   const mainSource = fs.readFileSync(path.join(projectRoot, 'electron/main.cjs'), 'utf8');
+  const sidecarSource = fs.readFileSync(path.join(projectRoot, 'agent/server/def-agent-server.cjs'), 'utf8');
+  const sidecarAuthSource = fs.readFileSync(path.join(projectRoot, 'agent/server/native-session-cleanup-auth.cjs'), 'utf8');
   assert.doesNotMatch(viewSource, /cleanupSessionHistory|native\/sessions\/cleanup/, 'the Web ai-cli view must not expose the Shell-only cleanup entry');
   assert.match(shellHtml, /id="native-ai-cli-keep-session"/);
   assert.match(shellHtml, /id="refresh-native-ai-cli-sessions"/);
@@ -328,20 +372,67 @@ try {
   assert.match(refreshSource, /\/def-agent\/chat\/persisted-sessions\?limit=100/);
   assert.match(shellSource, /session\?\.host === 'ai-cli'/);
   assert.match(shellSource, /state\.nativeAiCliSessions\.some/);
+  assert.match(shellSource, /sessionStorage\.setItem\(SHELL_RENDERER_CAPABILITY_STORAGE_KEY, injectedCapability\)/,
+    'Shell persists the one-time Electron-injected renderer capability');
+  assert.match(shellSource, /url\.searchParams\.delete\(WORKBENCH_RENDERER_CAPABILITY_QUERY\)/,
+    'Shell removes the renderer capability from the visible URL');
+  assert.match(shellSource, /window\.history\.replaceState\(/,
+    'Shell updates browser history after removing the renderer capability URL parameter');
   assert.match(cleanupSource, /window\.confirm\(/);
   assert.match(cleanupSource, /无法恢复/);
   assert.match(cleanupSource, /Workbench 会话不会被处理/);
   assert.match(cleanupSource, /\/def-agent\/native-sessions\/cleanup/);
+  assert.match(cleanupSource, /\[WORKBENCH_RENDERER_CAPABILITY_HEADER\]: shellRendererCapability/,
+    'Shell supplies the renderer capability only for the destructive cleanup request');
   assert.match(cleanupSource, /body: JSON\.stringify\(\{ host: 'ai-cli', keepSessionID \}\)/);
   assert.doesNotMatch(cleanupSource, /createNativeSession\(/, 'Shell cleanup must retain an explicitly selected session, never replace it');
+  const summaryIndex = cleanupSource.indexOf('const summary =');
+  const refreshIndex = cleanupSource.indexOf('await refreshNativeAiCliSessions', summaryIndex);
+  const refreshCatchIndex = cleanupSource.indexOf('catch (refreshError)', refreshIndex);
+  assert(summaryIndex >= 0 && refreshIndex > summaryIndex && refreshCatchIndex > refreshIndex,
+    'the backend deletion summary is established before the follow-up refresh');
+  assert.match(cleanupSource, /setText\('native-ai-cli-session-cleanup-status', `\$\{summary\}\$\{warning\}`\)/,
+    'a failed refresh preserves the confirmed deletion summary and adds only a warning');
 
   const bridgeStart = mainSource.indexOf("requestUrl.pathname === '/def-agent/native-sessions/cleanup'");
   const bridgeEnd = mainSource.indexOf('const defAgentEventsMatch', bridgeStart);
   assert(bridgeStart >= 0 && bridgeEnd > bridgeStart);
   const bridgeSource = mainSource.slice(bridgeStart, bridgeEnd);
+  const bridgeAuthorizationIndex = bridgeSource.indexOf('isAuthorizedWorkbenchRendererRequest');
+  const bridgeStartAgentIndex = bridgeSource.indexOf('await startDefAgent()');
+  assert(bridgeAuthorizationIndex >= 0 && bridgeStartAgentIndex > bridgeAuthorizationIndex,
+    'the bridge rejects an untrusted cleanup request before starting or forwarding to the sidecar');
   assert.match(bridgeSource, /await startDefAgent\(\)/);
   assert.match(bridgeSource, /http:\/\/127\.0\.0\.1:17322\/api\/native\/sessions\/cleanup/);
-  assert.match(bridgeSource, /postJsonUrl\(/);
+  assert.match(bridgeSource, /requestNativeLoopbackJson\(/,
+    'cleanup reaches the sidecar only over the native Node loopback transport');
+  assert.match(bridgeSource, /'x-def-internal-token': defInternalGovernanceToken/,
+    'the bridge adds internal authority only after renderer authorization');
+  assert.doesNotMatch(bridgeSource, /postJsonUrl\(/,
+    'cleanup never uses the browser-oriented generic transport');
+
+  const sidecarGateStart = sidecarSource.indexOf("if (requestUrl.pathname === '/api/native/sessions/cleanup')");
+  const sidecarOptionsStart = sidecarSource.indexOf("if (method === 'OPTIONS')", sidecarGateStart);
+  const sidecarRouteStart = sidecarSource.indexOf("if (method === 'POST' && requestUrl.pathname === '/api/native/sessions/cleanup')");
+  const sidecarRouteEnd = sidecarSource.indexOf('const nativeSessionDelete', sidecarRouteStart);
+  assert(sidecarGateStart >= 0 && sidecarOptionsStart > sidecarGateStart && sidecarRouteStart > sidecarOptionsStart && sidecarRouteEnd > sidecarRouteStart,
+    'the sidecar token gate runs before CORS preflight and the cleanup handler');
+  const sidecarGateSource = sidecarSource.slice(sidecarGateStart, sidecarOptionsStart);
+  const sidecarRouteSource = sidecarSource.slice(sidecarRouteStart, sidecarRouteEnd);
+  const privateWriterStart = sidecarSource.indexOf('function writeNativeSessionCleanupJson');
+  const privateWriterEnd = sidecarSource.indexOf('function buildEmbeddedProviderCatalog', privateWriterStart);
+  assert(privateWriterStart >= 0 && privateWriterEnd > privateWriterStart);
+  const privateWriterSource = sidecarSource.slice(privateWriterStart, privateWriterEnd);
+  assert.match(sidecarGateSource, /isAuthorizedNativeSessionCleanupRequest\(request, defInternalGovernanceToken\)/,
+    'the sidecar gates cleanup with the internal token');
+  assert.match(sidecarAuthSource, /crypto\.timingSafeEqual\(/,
+    'the sidecar cleanup token comparison is timing-safe');
+  assert.match(sidecarGateSource, /writeNativeSessionCleanupJson\(response, 403/,
+    'unauthorized cleanup does not inherit the sidecar-wide CORS response');
+  assert.match(sidecarRouteSource, /writeNativeSessionCleanupJson\(response, 200, result\)/,
+    'successful cleanup uses the non-CORS private response writer');
+  assert.doesNotMatch(privateWriterSource, /Access-Control-Allow-Origin/,
+    'the cleanup endpoint never advertises a browser CORS grant');
 
   console.log(JSON.stringify({
     ok: true,
@@ -358,6 +449,10 @@ try {
       'concurrent-cleanup-joined',
       'different-keep-concurrency-rejected',
       'repeat-safe',
+      'shell-capability-persisted-and-url-scrubbed',
+      'bridge-cleanup-capability-gate-and-native-loopback',
+      'sidecar-cleanup-internal-token-gate',
+      'summary-survives-refresh-failure',
       'shell-ui-confirm-explicit-keep-and-bridge-scope',
     ],
   }));

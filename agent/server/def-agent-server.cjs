@@ -34,6 +34,7 @@ const {
   buildWorkbenchCheckoutSystemPrompt,
   buildWorkbenchContextSystemPrompt,
 } = require('./workbench-system-prompts.cjs');
+const { isAuthorizedNativeSessionCleanupRequest } = require('./native-session-cleanup-auth.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -119,6 +120,16 @@ function buildJsonHeaders() {
 
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders());
+  response.end(JSON.stringify(payload));
+}
+
+// This is intentionally not CORS-enabled.  Only Electron's native loopback
+// bridge is allowed to call the destructive cleanup endpoint.
+function writeNativeSessionCleanupJson(response, statusCode, payload) {
+  response.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+  });
   response.end(JSON.stringify(payload));
 }
 
@@ -1315,6 +1326,16 @@ const server = http.createServer(async (request, response) => {
   const method = request.method || 'GET';
   const requestUrl = new URL(request.url || '/', `http://${HOST}:${PORT}`);
 
+  if (requestUrl.pathname === '/api/native/sessions/cleanup') {
+    if (method !== 'POST' || !isAuthorizedNativeSessionCleanupRequest(request, defInternalGovernanceToken)) {
+      writeNativeSessionCleanupJson(response, 403, {
+        ok: false,
+        error: 'native-session-cleanup-forbidden',
+      });
+      return;
+    }
+  }
+
   if (method === 'OPTIONS') {
     response.writeHead(204, buildJsonHeaders());
     response.end();
@@ -1442,7 +1463,7 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && requestUrl.pathname === '/api/native/sessions/cleanup') {
       const body = await readJsonBody(request);
       const result = await cleanupNativeAiCliSessions(body);
-      writeJson(response, 200, result);
+      writeNativeSessionCleanupJson(response, 200, result);
       return;
     }
 

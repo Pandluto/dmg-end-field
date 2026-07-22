@@ -1918,9 +1918,28 @@ function startBridgeServer() {
       }
 
       if (method === 'POST' && requestUrl.pathname === '/def-agent/native-sessions/cleanup') {
+        if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
+          bridgeHost: BRIDGE_HOST,
+          bridgePort: BRIDGE_PORT,
+        })) {
+          writeJson(response, 403, {
+            ok: false,
+            error: {
+              code: 'denied-renderer-transport',
+              message: 'Native session cleanup is unavailable to this caller.',
+            },
+          });
+          return;
+        }
         const defAgent = await startDefAgent();
         const body = await readJsonRequest(request);
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/native/sessions/cleanup', body);
+        const upstream = await requestNativeLoopbackJson('http://127.0.0.1:17322/api/native/sessions/cleanup', {
+          method: 'POST',
+          json: body,
+          headers: { 'x-def-internal-token': defInternalGovernanceToken },
+          timeoutMs: 30000,
+          retries: 0,
+        });
         writeJson(response, upstream.status || 500, {
           ok: upstream.status >= 200 && upstream.status < 300,
           defAgent,
