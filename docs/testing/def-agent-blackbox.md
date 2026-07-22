@@ -219,46 +219,25 @@ isolated capability.
 ## Read-only equipment 3+1 regression
 
 For the natural-language case `为别礼挑选一套装备，3 潮涌+1，需要主副属性都对`, retain the v1
-transcript and verify this read-only order:
+transcript and verify this read-only route:
 
-1. Call `def_data_operator_build_guide` once. It must resolve exact operator identity and
-   return `GUIDE_FOUND`, `PARTIAL_GUIDE_FOUND`, or `GUIDE_NOT_FOUND`; a generic knowledge
-   candidate is not guide evidence.
-2. Only for `PARTIAL_GUIDE_FOUND` or `GUIDE_NOT_FOUND`, call
-   `def_data_operator_build_profile` once with the exact returned fallback token. A complete
-   guide result must not call the fallback profile.
-3. Call `def_data_native_catalog_materialize` once, native-read its returned `manifestPath`,
-   and use artifact-only native `read` or `grep` for the named set and relevant effect keys.
-4. Call `def_data_equipment_3plus1_facts` with that artifact for unranked set, slot, source,
-   and duplicate-policy facts.
-5. Call `def_data_equipment_3plus1_plan` with the same artifact/source revision and the exact
-   unchanged `plannerProfile` plus `plannerProfileCapability` returned by guide discovery or
-   its authorized fallback. Only this plan result may rank and shortlist pieces.
+1. Call `def_data_equipment_3plus1_recommend` exactly once for the turn.
+2. Do not call a legacy guide/profile/catalog/shortlist/facts/plan model route, generic
+   game-knowledge, generic operator or skill fallback, Workbench/node tools, mutation, or
+   approval.
+3. Record the tool result's terminal state, questions, transcript, and before/after product
+   state. Checkout, selection, pending command, branch, commit, and approval state must remain
+   unchanged.
 
-The turn must not call legacy equipment/weapon/loadout-candidates, the generic
-`def_data_game_knowledge`/section path, generic operator/skill fallback, Workbench/node tools,
-mutation, or approval. `3+1` means at least three target-set memberships across `armor`,
-`glove`, `accessory1`, and `accessory2`; a four-piece target-set plan is legal when it remains
-the best verified profile match. An off-set is selected only when it strictly improves that
-match, and it may occupy any physical slot. If typed duplicate policy allows it, the same
-compatible accessory id may appear in both accessory slots.
+Interpret the typed result rather than recreating its internal reasoning. `READY` may present
+the returned evidence-backed recommendation, returned comparisons, and one best combination
+with at most two returned close alternatives. `NEEDS_INPUT` must ask only the returned bounded
+question. `UNRESOLVED` must identify returned missing or ambiguous evidence and must not invent a
+plan. The answer must not reinterpret equipment `fixedStat` as an operator attribute or invent a
+drop main stat, elemental trigger, or damage benefit.
 
-The answer must use the bounded planner shortlist—one best combination and at most two close
-alternatives—rather than enumerate physical-slot topologies or a candidate pool. Each selected
-piece must retain its stable id, slot, set membership, matched keys, ranking basis, missing
-facts, and ambiguity from the plan. It must not reinterpret equipment `fixedStat` as the
-operator primary/secondary attribute or invent a drop main stat, elemental trigger, or damage
-benefit. Record guide state, authorized profile fallback when present, artifact/source identity,
-facts and plan inputs/results, terminal state, questions, plus before/after state; all
-state-changing and approval fields must remain unchanged.
-
-For a `3+1` operator-fit request that does not name a target set, insert
-`def_data_equipment_set_fit_shortlist` after materialization and before exact-set facts. It must
-review the complete captured set catalog, reject sets without a typed profile-matching
-three-piece effect or a legal minimum-three-slot topology, and return at most three candidate
-sets. The Agent may pass only one returned exact set into facts/plan. The same-turn authorized
-profile capability remains unchanged and unconsumed by set selection. A shortlist, facts, or
-plan failure is terminal for the turn; legacy equipment/loadout search is not a fallback.
+For a request without a named target set, the same single composite call remains required. Do
+not assemble an alternate route from catalog or legacy equipment tools.
 
 If the Workbench AI panel reports an unavailable SQLite workspace instead of mounting its
 iframe, record it as a transport/session-topology failure, not as a catalog result. Confirm
@@ -270,8 +249,9 @@ For a configuration proposal, record the `def_operator_config_preview` result an
 it changes neither branch, checkout nor approval state. A later explicit user application turn
 must carry the unchanged proposal token into `def_operator_config_patch`; native approval and
 the visible postcondition remain required. A comparison, correction, or question such as
-“为什么不用两个悬河供氧栓” is a re-planning turn: it must not call the patch tool and requires a
-fresh preview before any later application.
+“为什么不用两个悬河供氧栓” is a fresh read-only recommendation turn: it must call
+`def_data_equipment_3plus1_recommend` exactly once, must not call the patch tool, and still
+requires a fresh preview before any later application.
 
 ## Support weapon convention regression
 

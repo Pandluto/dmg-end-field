@@ -1,10 +1,10 @@
 {
-  "id": "equipment-3plus1-topology-v1",
+  "id": "equipment-3plus1-unresolved-v1",
   "version": 1,
   "fixtureMode": "empty",
   "requiresSnapshot": false,
   "turns": [
-    { "userText": "为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。" }
+    { "userText": "给未收录的干员规划一套 3+1 装备。" }
   ],
   "verification": {
     "requiredTools": ["def_data_equipment_3plus1_recommend"],
@@ -16,7 +16,7 @@
     },
     "forbiddenTools": ["def_data_operator_build_guide", "def_data_operator_build_profile", "def_data_native_catalog_materialize", "def_data_equipment_set_fit_shortlist", "def_data_equipment_3plus1_facts", "def_data_equipment_3plus1_plan", "def_data_game_knowledge", "def_data_game_knowledge_section", "def_data_operator", "def_data_skill", "def_data_loadout_candidates", "def_operator_config_preview", "def_operator_config_patch", "def_node_use"],
     "maxRepeatedToolCalls": { "def_data_equipment_3plus1_recommend": 1 },
-    "forbiddenAssistantText": ["唯一可用方案", "所有拓扑如下", "固定主属性就是防御力", "必须正好三件潮涌", "必须选择一件散件"],
+    "forbiddenAssistantText": ["已经应用", "已装备", "已写入配置", "唯一可用方案"],
     "mustKeepState": true
   }
 }

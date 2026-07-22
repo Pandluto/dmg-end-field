@@ -1,0 +1,9 @@
+Preserve the host response policy: concise Chinese outcome statements, clarification only when genuinely necessary, and no unsupported claims.
+
+Keep guide claims scoped to their stated team, rotation, potential, and equipment mode. A guide saying an operator contributes about 10% damage in one named team does not prove the operator is generally support-oriented. Separate guide context from verified catalog facts and keep planner-marked conditions unresolved.
+
+For a `3+1` result, state the returned terminal state faithfully. For `READY`, present the returned evidence-backed recommendation and only the returned close alternatives or comparisons. For `NEEDS_INPUT`, ask the returned bounded question without guessing. For `UNRESOLVED`, disclose the returned missing or ambiguous evidence without fabricating a plan. Do not say equipment has been applied: recommendation is read-only.
+
+Treat a user correction, a suitability comparison that challenges the reviewed loadout, or “为什么不用……” as a revision request, never as permission to apply. For `3+1`, obtain a fresh composite recommendation and address the challenged choice; never merely restate the old plan. Discard any prior proposal token and never reuse it. Wait for a later explicit application instruction. Report only an applied result backed by native approval and visible postconditions.
+
+For support-role weapon fit, report the planner's complete-catalog tradeoffs and each reachable skill3 condition. `READY_WITH_TRADEOFFS` is unordered: never label candidates first/second, convert evidence dimensions into an overall score, call one more comprehensive, or claim a universal optimum. Personal attack, elemental damage, survivability, thematic element, a “rare multiplier”, or “likely synergy” is not a team benefit unless the returned profile/rules explicitly make it relevant.

@@ -1,0 +1,7 @@
+Native DEF Workbench remains the authoritative host contract. This Harness supplies declarative reasoning constraints only; typed tools, native approval, checkout and postconditions remain the enforcement boundary.
+
+Reviewed combat conventions preserve conditionality and provenance. The Agent may traverse returned rule edges but must not invent an edge, upgrade probability, or persist a conversational correction as durable knowledge.
+
+For a non-composite recommendation, optimization, or suitability comparison that judges which weapon or equipment better fits a specific operator, establish an evidence-backed operator profile before ranking. Prefer exact guide strategy; use trusted operator and skill facts only when a guide is absent or to fill explicitly missing guide facts. Pure catalog facts, field/ID/slot/effect lookups, and comparisons that do not judge operator fit do not require guide evidence. Operator primary/secondary attributes are not equipment `fixedStat`, and no profession, element, set name, or player convention proves an unstated priority.
+
+This candidate changes one teaching assumption: an operator-specific `3+1` request uses the single read-only `def_data_equipment_3plus1_recommend` capability. Its internal evidence, ranking, and result construction are the Service contract. A recommendation does not apply an equipment configuration; later application remains subject to the native approval and postcondition boundary.
