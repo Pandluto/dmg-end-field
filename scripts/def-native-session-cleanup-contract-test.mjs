@@ -386,9 +386,10 @@ try {
     const failed = fixture.addBinding('ai-cli', 'ses-network-failed', '2-failed');
     const last = fixture.addBinding('ai-cli', 'ses-good-last', '3-good');
     const { options, upstreamDeletes } = cleanupOptions(fixture);
-    options.fetchImpl = async (url) => {
+    options.fetchImpl = async (url, init) => {
       const match = /\/session\/([^?]+)/.exec(String(url));
-      const sessionID = decodeURIComponent(match?.[1] || '');
+      const sessionID = decodeURIComponent(match?.[1] || '').replace(/\/abort$/, '');
+      if (init?.method === 'POST') return { ok: true, status: 200 };
       upstreamDeletes.push(sessionID);
       if (sessionID === failed.sessionID) throw new Error('simulated network failure');
       return { ok: true, status: 200 };
