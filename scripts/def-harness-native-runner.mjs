@@ -162,11 +162,18 @@ function scenarioAssistantText(run) {
   }).join('\n');
 }
 
+function visibleTextOf(message) {
+  return (message?.parts || [])
+    .filter((part) => part?.type === 'text' && part?.ignored !== true)
+    .map((part) => part.text || '')
+    .join('\n');
+}
+
 function scenarioFinalVisibleAssistantText(turn) {
   const assistantIds = new Set(Array.isArray(turn?.assistantMessageIds) ? turn.assistantMessageIds : []);
   const visible = (Array.isArray(turn?.transcript?.messages) ? turn.transcript.messages : [])
     .filter((message) => message?.info?.role === 'assistant' && assistantIds.has(message?.info?.id))
-    .map(textOf)
+    .map(visibleTextOf)
     .map((text) => text.trim())
     .filter(Boolean);
   return visible.at(-1) || '';

@@ -1101,7 +1101,7 @@ Tool 内部阶段通过 typed result 和 trace metadata 可观察。
 `contract=DefEquipmentThreePlusOneRecommendationV1` 与 `state=UNRESOLVED`。
 metadata 中散落的 state 不能代替 typed result。
 
-回答侧只检查该轮最后一条可见 assistant 文本。
+回答侧只检查该轮最后一条可见 assistant 文本；`ignored:true` 的 text part 不计入可见文本。
 它必须把“寒冷伤害”“不能证明”“触发潮涌第二段”表达为同一个受限结论，
 并拒绝“寒冷伤害会/可以/能够触发潮涌第二段”等相反断言。
 中间消息出现关键词、最终回答反转，或把“不能证明”用于其他对象，都不能构成 PASS。

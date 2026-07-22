@@ -57,6 +57,15 @@ function syntheticTurn(index, toolEvents, assistantText = '给出新的证据化
   return syntheticTurnWithAssistantTexts(index, toolEvents, [assistantText]);
 }
 
+function syntheticTurnWithAssistantParts(index, toolEvents, parts) {
+  const assistantId = `assistant-${index}-parts`;
+  return {
+    toolEvents,
+    assistantMessageIds: [assistantId],
+    transcript: { messages: [{ info: { id: assistantId, role: 'assistant' }, parts }] },
+  };
+}
+
 function syntheticRun(turns, { changedState = false } = {}) {
   return {
     status: 'EXECUTED',
@@ -139,7 +148,7 @@ const expectations = [
   ['equipment-3plus1-topology-v1.json', 2, 1, ['为别礼挑选一套装备，3 潮涌+1，需要主副属性都对。']],
   ['equipment-3plus1-set-selection-v1.json', 2, 1, ['为汤汤挑一套 3+1 装备，优先适配她的输出机制，不指定套装。']],
   ['operator-config-correction-review-v1.json', 2, 2, ['给别礼规划一套 3 潮涌+1，先给我确认方案，不要应用。', '配件二为什么不用第二个悬河供氧栓？']],
-  ['equipment-3plus1-unresolved-v1.json', 3, 1, ['为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。']],
+  ['equipment-3plus1-unresolved-v1.json', 4, 1, ['为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。']],
 ];
 for (const [file, version, turnCount, prompts] of expectations) {
   const scenario = readScenario(file);
@@ -204,12 +213,37 @@ const unresolvedContradiction = evaluateScenarioVerification(syntheticRun([
   syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], '现有资料不能证明寒冷伤害会触发潮涌第二段；但寒冷伤害能够触发潮涌第二段。'),
 ]), unresolved);
 assert.ok(failureCodes(unresolvedContradiction).has('forbidden-final-assistant-pattern-present'));
+for (const adversarialComma of [
+  '虽然不能证明这一点，寒冷伤害会触发潮涌第二段。',
+  '虽然不能证明这一点, 寒冷伤害可以触发潮涌第二段。',
+]) {
+  const commaSeparatedContradiction = evaluateScenarioVerification(syntheticRun([
+    syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], adversarialComma),
+  ]), unresolved);
+  assert.ok(failureCodes(commaSeparatedContradiction).has('required-final-assistant-pattern-missing'));
+  assert.ok(failureCodes(commaSeparatedContradiction).has('forbidden-final-assistant-pattern-present'));
+}
 for (const modal of ['会', '可以', '能够']) {
   const positiveAssertion = evaluateScenarioVerification(syntheticRun([
     syntheticTurn(1, [completedTool(recommendTool, 'UNRESOLVED')], `寒冷伤害${modal}触发潮涌第二段。`),
   ]), unresolved);
   assert.ok(failureCodes(positiveAssertion).has('forbidden-final-assistant-pattern-present'));
 }
+const ignoredCompliance = evaluateScenarioVerification(syntheticRun([
+  syntheticTurnWithAssistantParts(1, [completedTool(recommendTool, 'UNRESOLVED')], [
+    { type: 'text', text: '现有资料不能证明寒冷伤害会触发潮涌第二段。', ignored: true },
+    { type: 'text', text: '寒冷伤害会触发潮涌第二段。' },
+  ]),
+]), unresolved);
+assert.ok(failureCodes(ignoredCompliance).has('required-final-assistant-pattern-missing'));
+assert.ok(failureCodes(ignoredCompliance).has('forbidden-final-assistant-pattern-present'));
+const ignoredContradiction = evaluateScenarioVerification(syntheticRun([
+  syntheticTurnWithAssistantParts(1, [completedTool(recommendTool, 'UNRESOLVED')], [
+    { type: 'text', text: '现有资料不能证明寒冷伤害会触发潮涌第二段。' },
+    { type: 'text', text: '寒冷伤害会触发潮涌第二段。', ignored: true },
+  ]),
+]), unresolved);
+assert.equal(ignoredContradiction.status, 'PASS');
 
 const userCorrection = readScenario('user-correction-replan-v1.json');
 assert.equal(userCorrection.id, 'user-correction-replan-v1');
@@ -226,6 +260,8 @@ console.log(JSON.stringify({
     'topology-and-set-scenarios-migrated',
     'unresolved-composite-scenario-present',
     'unresolved-typed-contract-state-and-final-visible-conclusion-required',
+    'unresolved-comma-clause-contradictions-rejected',
+    'final-visible-text-excludes-ignored-parts',
     'user-correction-replan-unchanged-scope',
   ],
 }));

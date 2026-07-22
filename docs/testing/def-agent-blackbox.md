@@ -242,7 +242,8 @@ not assemble an alternate route from catalog or legacy equipment tools.
 For the Spec 9 unresolved case, use `为别礼配 3 潮涌+1；如果资料不能证明寒冷伤害会触发潮涌第二段，就明确说不能证明。`.
 The turn passes only when the one composite Tool's actual result has
 `contract=DefEquipmentThreePlusOneRecommendationV1` and typed `state=UNRESOLVED`.
-Only the last visible assistant text in that turn counts as the final answer. It must bind
+Only the last visible assistant text in that turn counts as the final answer; text parts marked
+`ignored:true` are not visible evidence. The final text must bind
 “寒冷伤害”, “不能证明”, and “触发潮涌第二段” into the same conclusion and must not also assert
 that cold damage will/can trigger the second stage. Intermediate keywords, unrelated negation,
 metadata-only state, or a final answer that reverses an earlier hedge is not a pass.
