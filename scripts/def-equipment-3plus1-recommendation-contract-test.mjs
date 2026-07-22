@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createDefEquipment3Plus1RecommendationService } from './def-core/equipment-3plus1-recommendation.mjs';
 import { buildDefEquipmentCatalogSnapshot } from './def-core/equipment-3plus1-domain.mjs';
+import { hashDefStableValue } from './def-core/stable-json.mjs';
 
 const effect = (effectId, label, typeKey) => ({ effectId, label, typeKey, unit: 'percent', value: 0.2 });
 const item = (equipmentId, name, part, effects) => ({ equipmentId, name, part, effects });
@@ -46,6 +47,10 @@ const ports = {
 };
 const service = createDefEquipment3Plus1RecommendationService(ports);
 const invoke = (input) => service.recommend({ sessionId: 'service-contract-session', turnId: 'turn-1', input });
+const triggerRequirement = Object.freeze({
+  kind: 'operator-element-damage-triggers-set-effect',
+  setEffect: 'secondary',
+});
 
 function deepFreeze(value) {
   if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
@@ -60,11 +65,137 @@ assert.equal(ready.state, 'READY', JSON.stringify(ready));
 assert.equal(ready.result.selectedSet.id, 'tide');
 assert.equal(ready.result.plans[0].items.map((entry) => entry.slot).join(','), 'armor,glove,accessory1,accessory2');
 assert.match(ready.requestDigest, /^sha256:[0-9a-f]{64}$/);
+assert.equal(ready.requestDigest, `sha256:${hashDefStableValue({
+  contract: 'DefEquipmentThreePlusOneRecommendationV1',
+  operatorQuery: '别礼',
+  setQuery: '潮涌套',
+  requiredEquipmentQueries: [],
+  excludedEquipmentQueries: [],
+  compareEquipmentQueries: [],
+  duplicateAccessoryPolicy: 'catalog-default',
+  minimumSetPieces: 3,
+  shortlistLimit: 2,
+})}`, 'omitting requirements preserves the exact pre-extension V1 request digest');
 assert.match(ready.result.planDigest, /^sha256:[0-9a-f]{64}$/);
 assert.equal(ready.result.catalogEvidence.exhaustive, true);
 assert.ok(Array.isArray(ready.result.profileEvidence.evidenceRefs), 'READY always returns the typed profile evidenceRefs field');
 assert.ok(ready.result.profileEvidence.evidenceRefs.every((ref) => typeof ref === 'string' && ref.length > 0));
+assert.equal(Object.hasOwn(ready.result, 'requirementEvidence'), false,
+  'a V1 call without requirements preserves the prior result shape and READY behavior');
 assert.deepEqual(library, frozenSource, 'the service must not mutate a trusted source object');
+
+const unresolvedTrigger = await invoke({
+  operatorQuery: '别礼',
+  setQuery: '潮涌',
+  requirements: [triggerRequirement],
+});
+assert.equal(unresolvedTrigger.state, 'UNRESOLVED', JSON.stringify(unresolvedTrigger));
+assert.equal(unresolvedTrigger.result, null);
+assert.ok(unresolvedTrigger.missing.some((entry) => entry.code === 'set-secondary-effect-fact-unresolved'));
+assert.ok(unresolvedTrigger.missing.some((entry) => entry.message.includes('寒冷伤害')
+  && entry.message.includes('潮涌') && entry.message.includes('第二段效果')),
+  'UNRESOLVED evidence states the bounded cold-damage/selected-set/secondary-effect relation');
+assert.ok(unresolvedTrigger.sourceRefs.some((ref) => ref.kind === 'catalog' && ref.id === 'test-equipment'));
+assert.ok(unresolvedTrigger.sourceRefs.some((ref) => ref.kind === 'user-constraint' && ref.id.includes('operator-element-damage-triggers-set-effect')));
+assert.notEqual(unresolvedTrigger.requestDigest, ready.requestDigest,
+  'the controlled requirement participates in request identity while omitted V1 calls retain their old digest input');
+
+const proseOnlyLibrary = structuredClone(library);
+proseOnlyLibrary.gearSets.tide.threePieceBuffs.secondary = {
+  ...effect('tide-secondary-prose-only', '寒冷伤害触发潮涌第二段', 'magicDmgBonus'),
+  stage: 'secondary',
+  name: '潮涌·2层寒冷伤害后',
+  condition: '两层寒冷伤害后触发',
+  description: '寒冷伤害可以触发潮涌第二段',
+  raw: '寒冷伤害命中两次即可触发',
+};
+const proseOnlyService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(proseOnlyLibrary), storageKey: 'prose-only-equipment' }; },
+});
+const proseOnlyTrigger = await proseOnlyService.recommend({
+  sessionId: 'prose-only-session',
+  turnId: 'prose-only-turn',
+  input: { operatorQuery: '别礼', setQuery: '潮涌', requirements: [triggerRequirement] },
+});
+assert.equal(proseOnlyTrigger.state, 'UNRESOLVED', JSON.stringify(proseOnlyTrigger));
+assert.ok(proseOnlyTrigger.missing.some((entry) => entry.code === 'set-effect-trigger-fact-unresolved'),
+  'names, conditions, and descriptions cannot substitute for a structured trigger fact');
+
+const provenTriggerLibrary = structuredClone(proseOnlyLibrary);
+provenTriggerLibrary.gearSets.tide.threePieceBuffs.secondary.trigger = {
+  kind: 'damage-count',
+  producer: 'equipper',
+  damageType: 'ice',
+  count: 2,
+};
+const provenTriggerService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(provenTriggerLibrary), storageKey: 'proven-trigger-equipment' }; },
+});
+const provenTrigger = await provenTriggerService.recommend({
+  sessionId: 'proven-trigger-session',
+  turnId: 'proven-trigger-turn',
+  input: { operatorQuery: '别礼', setQuery: '潮涌', requirements: [triggerRequirement] },
+});
+assert.equal(provenTrigger.state, 'READY', JSON.stringify(provenTrigger));
+assert.deepEqual(provenTrigger.result.requirementEvidence, [{
+  kind: triggerRequirement.kind,
+  setEffect: 'secondary',
+  state: 'PROVEN',
+  operatorElement: 'ice',
+  damageType: 'ice',
+  setEffectId: 'tide-secondary-prose-only',
+  factPath: 'threePieceBuffs.secondary',
+  trigger: {
+    kind: 'damage-count',
+    producer: 'equipper',
+    damageType: 'ice',
+    count: 2,
+  },
+}]);
+
+const mismatchedTriggerLibrary = structuredClone(provenTriggerLibrary);
+mismatchedTriggerLibrary.gearSets.tide.threePieceBuffs.secondary.trigger.damageType = 'fire';
+const mismatchedTriggerService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(mismatchedTriggerLibrary), storageKey: 'mismatched-trigger-equipment' }; },
+});
+const mismatchedTrigger = await mismatchedTriggerService.recommend({
+  sessionId: 'mismatched-trigger-session',
+  turnId: 'mismatched-trigger-turn',
+  input: { operatorQuery: '别礼', setQuery: '潮涌', requirements: [triggerRequirement] },
+});
+assert.equal(mismatchedTrigger.state, 'UNRESOLVED', JSON.stringify(mismatchedTrigger));
+assert.ok(mismatchedTrigger.missing.some((entry) => entry.code === 'set-effect-trigger-damage-type-mismatch'));
+
+const duplicateSecondaryLibrary = structuredClone(provenTriggerLibrary);
+duplicateSecondaryLibrary.gearSets.tide.threePieceBuffs.secondaryDuplicate = {
+  ...duplicateSecondaryLibrary.gearSets.tide.threePieceBuffs.secondary,
+  effectId: 'tide-secondary-duplicate',
+};
+const duplicateSecondaryService = createDefEquipment3Plus1RecommendationService({
+  ...ports,
+  async readEquipmentLibrarySource() { return { library: structuredClone(duplicateSecondaryLibrary), storageKey: 'duplicate-secondary-equipment' }; },
+});
+const duplicateSecondary = await duplicateSecondaryService.recommend({
+  sessionId: 'duplicate-secondary-session',
+  turnId: 'duplicate-secondary-turn',
+  input: { operatorQuery: '别礼', setQuery: '潮涌', requirements: [triggerRequirement] },
+});
+assert.equal(duplicateSecondary.state, 'UNRESOLVED', JSON.stringify(duplicateSecondary));
+assert.ok(duplicateSecondary.missing.some((entry) => entry.code === 'set-secondary-effect-identity-conflict'),
+  'multiple structured secondary effects fail closed instead of choosing by object order or prose');
+
+const forgedTriggerProof = await invoke({
+  operatorQuery: '别礼',
+  setQuery: '潮涌',
+  requirements: [{ ...triggerRequirement, damageType: 'ice', proof: true }],
+});
+assert.equal(forgedTriggerProof.contract, 'DefEquipmentThreePlusOneRecommendationErrorV1');
+assert.equal(forgedTriggerProof.failureStage, 'validate-input');
+assert.equal(forgedTriggerProof.status, 400,
+  'the caller cannot inject damage type or proof into the controlled requirement');
 
 const immutableLibrary = deepFreeze(structuredClone(library));
 const immutableOperators = deepFreeze(structuredClone(operators));
@@ -166,4 +297,4 @@ const malformed = await invoke({ operatorQuery: '别礼', unknown: true });
 assert.equal(malformed.contract, 'DefEquipmentThreePlusOneRecommendationErrorV1');
 assert.equal(malformed.failureStage, 'validate-input');
 
-console.log(JSON.stringify({ ok: true, checks: ['ready', 'profile-evidence-refs', 'correction', 'comparison', 'needs-input', 'bounded-operator-ambiguity', 'bounded-equipment-ambiguity', 'set-priority-over-required', 'unresolved', 'constraint-error', 'strict-schema', 'readonly-source'] }));
+console.log(JSON.stringify({ ok: true, checks: ['ready', 'legacy-request-digest-compatible', 'profile-evidence-refs', 'trigger-requirement-unresolved', 'trigger-prose-not-proof', 'trigger-structured-proof-ready', 'trigger-mismatch-unresolved', 'duplicate-secondary-fail-closed', 'trigger-proof-injection-rejected', 'correction', 'comparison', 'needs-input', 'bounded-operator-ambiguity', 'bounded-equipment-ambiguity', 'set-priority-over-required', 'unresolved', 'constraint-error', 'strict-schema', 'readonly-source'] }));

@@ -62,6 +62,10 @@ assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.properties.compareEquipmentQueries.items.additionalProperties, false);
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.properties.duplicateAccessoryPolicy.enum, ['catalog-default', 'allow', 'forbid']);
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.constraints.properties.minimumSetPieces.enum, [3, 4]);
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.requirements.maxItems, 1);
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.requirements.items.additionalProperties, false);
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.requirements.items.properties.kind.const, 'operator-element-damage-triggers-set-effect');
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.requirements.items.properties.setEffect.const, 'secondary');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.shortlistLimit.enum, [1, 2, 3]);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.priorPlanDigest.pattern, '^sha256:[0-9a-f]{64}$');
 assert.match(DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA.properties.operatorQuery.description, /NFKC/i);
@@ -73,17 +77,21 @@ const modelVisibleRecommendSchema = z.toJSONSchema(
 );
 assert.deepEqual(
   Object.keys(modelVisibleRecommendSchema.properties || {}),
-  ['operatorQuery', 'setQuery', 'constraints', 'shortlistLimit', 'priorPlanDigest'],
+  ['operatorQuery', 'setQuery', 'constraints', 'requirements', 'shortlistLimit', 'priorPlanDigest'],
   'the OpenCode plugin boundary must advertise the flat recommendation input',
 );
 assert.deepEqual(modelVisibleRecommendSchema.required, ['operatorQuery']);
 assert.equal(Object.hasOwn(modelVisibleRecommendSchema.properties || {}, 'def'), false, 'Zod internals must never become a model-visible argument');
 assert.match(modelVisibleRecommendSchema.properties.constraints.description, /minimumSetPieces belongs here/i);
+assert.match(modelVisibleRecommendSchema.properties.requirements.description, /user asks whether operator elemental damage triggers/i);
+assert.equal(modelVisibleRecommendSchema.properties.requirements.items.additionalProperties, false);
 assert.match(data_equipment_3plus1_recommend.description, /do not add top-level minimumSetPieces/i);
+assert.match(data_equipment_3plus1_recommend.description, /never provide proof or prose/i);
 
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.contract.const, 'DefEquipmentThreePlusOneRecommendationV1');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.state.enum, ['READY', 'NEEDS_INPUT', 'UNRESOLVED']);
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.result.anyOf[1].properties.catalogEvidence.properties.exhaustive.const, true);
+assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA.properties.result.anyOf[1].properties.requirementEvidence.items.properties.state.const, 'PROVEN');
 assert.equal(DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA.properties.contract.const, 'DefEquipmentThreePlusOneRecommendationErrorV1');
 assert.deepEqual(DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA.properties.failureStage.enum, [
   'validate-input',
@@ -152,6 +160,10 @@ const createInputWithQuery = (query) => ({
     duplicateAccessoryPolicy: 'forbid',
     minimumSetPieces: 4,
   },
+  requirements: [{
+    kind: 'operator-element-damage-triggers-set-effect',
+    setEffect: 'secondary',
+  }],
   shortlistLimit: 2,
   priorPlanDigest: `sha256:${'a'.repeat(64)}`,
 });
@@ -229,6 +241,21 @@ assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({
 assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', unknown: true }).success, false);
 assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', constraints: { unknown: true } }).success, false);
 assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', constraints: { compareEquipmentQueries: [{ query: 'piece', unknown: true }] } }).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({
+  operatorQuery: 'Bieli',
+  requirements: [{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary', proof: true }],
+}).success, false, 'the model cannot inject proof into the controlled requirement');
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({
+  operatorQuery: 'Bieli',
+  requirements: [{ kind: 'operator-element-damage-triggers-set-effect', setEffect: 'primary' }],
+}).success, false);
+assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({
+  operatorQuery: 'Bieli',
+  requirements: [
+    { kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary' },
+    { kind: 'operator-element-damage-triggers-set-effect', setEffect: 'secondary' },
+  ],
+}).success, false);
 assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', shortlistLimit: 1.5 }).success, false);
 assert.equal(data_equipment_3plus1_recommend.inputSchema.safeParse({ operatorQuery: 'Bieli', priorPlanDigest: 'sha256:ABC' }).success, false);
 

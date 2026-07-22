@@ -14,6 +14,7 @@ import {
   buildDefEquipmentSetFitShortlist,
   buildDefEquipmentThreePlusOnePlan,
   createDefEquipmentPlanId,
+  evaluateDefEquipmentThreePlusOneRequirement,
   resolveDefEquipmentEntity,
   resolveDefEquipmentGearSet,
   validateDefEquipmentCatalogSnapshot,
@@ -24,9 +25,10 @@ const SUCCESS_CONTRACT = 'DefEquipmentThreePlusOneRecommendationV1';
 const ERROR_CONTRACT = 'DefEquipmentThreePlusOneRecommendationErrorV1';
 const SLOTS = ['armor', 'glove', 'accessory1', 'accessory2'];
 const HASH_RE = /^sha256:[0-9a-f]{64}$/;
-const ROOT_KEYS = new Set(['operatorQuery', 'setQuery', 'constraints', 'shortlistLimit', 'priorPlanDigest']);
+const ROOT_KEYS = new Set(['operatorQuery', 'setQuery', 'constraints', 'requirements', 'shortlistLimit', 'priorPlanDigest']);
 const CONSTRAINT_KEYS = new Set(['requiredEquipmentQueries', 'excludedEquipmentQueries', 'compareEquipmentQueries', 'duplicateAccessoryPolicy', 'minimumSetPieces']);
 const COMPARE_KEYS = new Set(['query', 'slot']);
+const REQUIREMENT_KEYS = new Set(['kind', 'setEffect']);
 
 function normalizeText(value) {
   return String(value || '').normalize('NFKC').trim().replace(/\s+/gu, ' ');
@@ -116,6 +118,15 @@ function parseInput(input) {
   if (!['catalog-default', 'allow', 'forbid'].includes(duplicateAccessoryPolicy)) throw new Error('constraints.duplicateAccessoryPolicy is invalid.');
   const minimumSetPieces = rawConstraints.minimumSetPieces === undefined ? 3 : rawConstraints.minimumSetPieces;
   if (!Number.isInteger(minimumSetPieces) || ![3, 4].includes(minimumSetPieces)) throw new Error('constraints.minimumSetPieces must be integer 3 or 4.');
+  const rawRequirements = input.requirements === undefined ? [] : input.requirements;
+  if (!Array.isArray(rawRequirements) || rawRequirements.length > 1) throw new Error('requirements must contain 0-1 controlled items.');
+  const requirements = rawRequirements.map((requirement, index) => {
+    if (!plainObject(requirement)) throw new Error(`requirements[${index}] must be an object.`);
+    for (const key of Object.keys(requirement)) if (!REQUIREMENT_KEYS.has(key)) throw new Error(`requirements[${index}].${key} is not supported.`);
+    if (requirement.kind !== 'operator-element-damage-triggers-set-effect') throw new Error(`requirements[${index}].kind is invalid.`);
+    if (requirement.setEffect !== 'secondary') throw new Error(`requirements[${index}].setEffect is invalid.`);
+    return { kind: requirement.kind, setEffect: requirement.setEffect };
+  });
   const shortlistLimit = input.shortlistLimit === undefined ? 3 : input.shortlistLimit;
   if (!Number.isInteger(shortlistLimit) || ![1, 2, 3].includes(shortlistLimit)) throw new Error('shortlistLimit must be integer 1, 2, or 3.');
   const priorPlanDigest = input.priorPlanDigest === undefined ? null : input.priorPlanDigest;
@@ -123,14 +134,17 @@ function parseInput(input) {
   const normalized = {
     operatorQuery, setQuery,
     constraints: { requiredEquipmentQueries, excludedEquipmentQueries, compareEquipmentQueries, duplicateAccessoryPolicy, minimumSetPieces },
+    requirements,
     shortlistLimit, priorPlanDigest,
   };
-  const requestDigest = `sha256:${hashDefStableValue({
+  const requestIdentity = {
     contract: SUCCESS_CONTRACT, operatorQuery, setQuery,
     requiredEquipmentQueries: [...requiredEquipmentQueries].sort(), excludedEquipmentQueries: [...excludedEquipmentQueries].sort(),
     compareEquipmentQueries: compareEquipmentQueries.map(({ query, slot }) => ({ query, slot })),
     duplicateAccessoryPolicy, minimumSetPieces, shortlistLimit,
-  })}`;
+    ...(requirements.length ? { requirements } : {}),
+  };
+  const requestDigest = `sha256:${hashDefStableValue(requestIdentity)}`;
   return { input: normalized, requestDigest };
 }
 
@@ -343,6 +357,25 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
           }
           selectedSet = snapshot.gearSets.find((entry) => entry.id === setChoice.shortlist[0].id);
         }
+        const catalogSourceRef = { kind: 'catalog', id: source.storageKey, revision: catalogRevision };
+        const requirementSourceRefs = normalizedInput.requirements.map((requirement) => ({
+          kind: 'user-constraint',
+          id: `requirement:${requirement.kind}:${requirement.setEffect}`,
+        }));
+        const requirementEvidence = [];
+        for (const requirement of normalizedInput.requirements) {
+          const evaluation = evaluateDefEquipmentThreePlusOneRequirement({ operator, gearSet: selectedSet, requirement });
+          if (!evaluation.ok) {
+            return businessEnvelope({
+              requestDigest,
+              state: 'UNRESOLVED',
+              completeness: 'partial',
+              missing: [missing(evaluation.code, evaluation.field, evaluation.message)],
+              sourceRefs: [...profileResolution.sourceRefs, catalogSourceRef, ...requirementSourceRefs],
+            });
+          }
+          requirementEvidence.push(evaluation.evidence);
+        }
         const planned = buildDefEquipmentThreePlusOnePlan({ snapshot, targetSetId: selectedSet.id, profile: profileResolution.profile, constraints: planConstraints, shortlistLimit: normalizedInput.shortlistLimit, minimumSetPieces: normalizedInput.constraints.minimumSetPieces });
         if (!planned.ok) return failure({ code: planned.code, failureStage: planned.code === 'equipment-3plus1-search-space-too-large' ? 'solve-plan' : 'validate-facts', message: planned.message, status: 409, sourceRevision: catalogRevision });
         if (!planned.shortlist.length || planned.missing.length) return businessEnvelope({ requestDigest, state: 'UNRESOLVED', completeness: 'partial', missing: planned.missing.map((entry) => missing(entry.code, entry.slot || entry.preferenceKey || 'plan', entry.message || 'The current catalog and profile cannot prove a complete legal plan.')), sourceRefs: profileResolution.sourceRefs });
@@ -371,7 +404,8 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
         const planAmbiguities = plans.flatMap((plan) => plan.ambiguities);
         const sourceRefs = [
           ...profileResolution.sourceRefs,
-          { kind: 'catalog', id: source.storageKey, revision: catalogRevision },
+          catalogSourceRef,
+          ...requirementSourceRefs,
           ...requiredIds.map((id) => ({ kind: 'user-constraint', id: `required:${id}` })),
           ...excludedIds.map((id) => ({ kind: 'user-constraint', id: `excluded:${id}` })),
         ];
@@ -384,6 +418,7 @@ export function createDefEquipment3Plus1RecommendationService(ports = {}) {
             evidenceRefs: profileEvidenceRefs(profileResolution.profile, profileResolution.sourceRefs),
           },
           catalogEvidence: { revision: catalogRevision, exhaustive: true }, selectedSet: selectedSetEvidence, plans, comparisons: comparisons.comparisons,
+          ...(requirementEvidence.length ? { requirementEvidence } : {}),
           planDigest: null,
         };
         result.planDigest = buildDefEquipmentPlanDigest({ requestDigest, operatorId: operator.id, profileHash, catalogRevision, selectedSet: selectedSetEvidence, plans });

@@ -2303,6 +2303,13 @@ function createDefEquipment3plus1RecommendArgShape(querySchema) {
       duplicateAccessoryPolicy: tool.schema.enum(['catalog-default', 'allow', 'forbid']).optional().describe('Optional duplicate-accessory policy.'),
       minimumSetPieces: tool.schema.union([tool.schema.literal(3), tool.schema.literal(4)]).optional().describe('Optional minimum target-set piece count.'),
     }).strict().optional().describe('Optional nested constraints. The 3+1 default already requires three target-set pieces; minimumSetPieces belongs here, never at the top level.'),
+    requirements: tool.schema.array(tool.schema.object({
+      kind: tool.schema.literal('operator-element-damage-triggers-set-effect')
+        .describe('Ask the Service to verify whether the resolved operator elemental damage reaches the selected set effect.'),
+      setEffect: tool.schema.literal('secondary')
+        .describe('Verify the selected set secondary effect; this is a controlled target, not a claimed fact.'),
+    }).strict()).max(1).optional()
+      .describe('Optional controlled trigger verification. Supply only when the user asks whether operator elemental damage triggers the selected set secondary effect. Never add proof, damage type, or prose.'),
     shortlistLimit: tool.schema.union([tool.schema.literal(1), tool.schema.literal(2), tool.schema.literal(3)]).optional().describe('Optional maximum number of returned plans.'),
     priorPlanDigest: tool.schema.string().regex(/^sha256:[0-9a-f]{64}$/).optional().describe('Optional prior plan digest that this request supersedes.'),
   }
@@ -2323,7 +2330,7 @@ const defEquipment3plus1RecommendArgs = tool.schema.object(
 })
 
 export const data_equipment_3plus1_recommend = {
-  description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. The default already means three target-set pieces plus one off-set piece; do not add top-level minimumSetPieces. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
+  description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, controlled trigger-reachability, and prior-plan constraints. When the user asks whether operator elemental damage triggers the selected set secondary effect, include the exact controlled requirements item; never provide proof or prose in it. The default already means three target-set pieces plus one off-set piece; do not add top-level minimumSetPieces. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
   // OpenCode's plugin boundary expects a field-to-Zod-schema map here. Passing
   // the composed ZodObject makes its model-visible JSON Schema expose Zod's
   // internal `def` member even though execute() validates a flat input.

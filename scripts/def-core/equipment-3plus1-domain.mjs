@@ -14,6 +14,25 @@ export const DEF_EQUIPMENT_THREE_PLUS_ONE_DUPLICATE_POLICY = Object.freeze({
   rule: 'One stable accessory id may occupy accessory1 and accessory2 when the catalog marks it compatible with both slots. Every physical slot still contributes one set membership.',
 });
 
+export const DEF_EQUIPMENT_3PLUS1_TRIGGER_REQUIREMENT_KIND = 'operator-element-damage-triggers-set-effect';
+export const DEF_EQUIPMENT_3PLUS1_TRIGGER_REQUIREMENT_SET_EFFECT = 'secondary';
+
+const OPERATOR_ELEMENT_DAMAGE_TYPES = Object.freeze({
+  ice: 'ice',
+  cold: 'ice',
+  寒冷: 'ice',
+  fire: 'fire',
+  火: 'fire',
+  灼热: 'fire',
+  electric: 'electric',
+  电磁: 'electric',
+  nature: 'nature',
+  自然: 'nature',
+  physical: 'physical',
+  物理: 'physical',
+});
+const SET_TRIGGER_DAMAGE_TYPES = new Set(['ice', 'fire', 'electric', 'nature', 'physical', 'magic']);
+
 const MAX_SEARCH_SPACE = 250_000;
 const SLOT_ORDER = DEF_EQUIPMENT_SLOT_FACTS.map(({ slot }) => slot);
 const PROFILE_DERIVATIONS = new Set(['guide', 'guide-partial', 'skill-analysis', 'guide-and-skill-analysis', 'combat-convention-and-skill-analysis', 'user']);
@@ -59,6 +78,118 @@ function projectGearSet(gearSet = {}) {
       ...(gearSet.threePieceBuff ? { single: gearSet.threePieceBuff } : {}),
       ...(gearSet.threePieceBuffs || {}),
     }),
+  };
+}
+
+function collectStructuredSetEffects(value, factPath = 'threePieceBuffs', output = []) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return output;
+  if (typeof value.effectId === 'string' && value.effectId.trim()) {
+    output.push({ factPath, effect: value });
+    return output;
+  }
+  for (const key of Object.keys(value).sort()) {
+    collectStructuredSetEffects(value[key], `${factPath}.${key}`, output);
+  }
+  return output;
+}
+
+/**
+ * Prove one controlled trigger requirement from typed catalog facts only.
+ * Names, descriptions, conditions, and other prose are deliberately ignored:
+ * an effect is reachable only when its source record has an exact stage and a
+ * complete structured trigger owned by the equipment catalog.
+ */
+export function evaluateDefEquipmentThreePlusOneRequirement({ operator, gearSet, requirement } = {}) {
+  const field = 'requirements[0]';
+  if (requirement?.kind !== DEF_EQUIPMENT_3PLUS1_TRIGGER_REQUIREMENT_KIND
+    || requirement?.setEffect !== DEF_EQUIPMENT_3PLUS1_TRIGGER_REQUIREMENT_SET_EFFECT) {
+    return {
+      ok: false,
+      code: 'equipment-3plus1-requirement-unsupported',
+      field,
+      message: 'The trigger requirement is not a supported controlled 3+1 requirement.',
+    };
+  }
+
+  const operatorElement = String(operator?.element || '').normalize('NFKC').trim().toLowerCase();
+  const damageType = OPERATOR_ELEMENT_DAMAGE_TYPES[operatorElement] || null;
+  if (!damageType) {
+    return {
+      ok: false,
+      code: 'operator-element-damage-type-unresolved',
+      field,
+      message: 'The trusted operator catalog does not provide a supported elemental damage type for this trigger requirement.',
+    };
+  }
+  const damageLabel = {
+    ice: '寒冷伤害',
+    fire: '灼热伤害',
+    electric: '电磁伤害',
+    nature: '自然伤害',
+    physical: '物理伤害',
+  }[damageType];
+  const setLabel = String(gearSet?.name || gearSet?.id || '所选套装');
+  const unprovenMessage = `现有可信资料不能证明${damageLabel}会触发所选套装“${setLabel}”的第二段效果。`;
+
+  const secondaryEffects = collectStructuredSetEffects(gearSet?.threePieceBuffs)
+    .filter(({ effect }) => effect.stage === DEF_EQUIPMENT_3PLUS1_TRIGGER_REQUIREMENT_SET_EFFECT);
+  if (secondaryEffects.length !== 1) {
+    return {
+      ok: false,
+      code: secondaryEffects.length
+        ? 'set-secondary-effect-identity-conflict'
+        : 'set-secondary-effect-fact-unresolved',
+      field,
+      message: secondaryEffects.length
+        ? `${unprovenMessage} 可信套装资料包含多个 secondary effect，无法确定唯一目标。`
+        : `${unprovenMessage} 可信套装资料没有标识唯一的结构化 secondary effect。`,
+    };
+  }
+
+  const [{ factPath, effect }] = secondaryEffects;
+  const trigger = effect.trigger;
+  const structuredTrigger = trigger
+    && typeof trigger === 'object'
+    && !Array.isArray(trigger)
+    && trigger.kind === 'damage-count'
+    && trigger.producer === 'equipper'
+    && SET_TRIGGER_DAMAGE_TYPES.has(trigger.damageType)
+    && Number.isInteger(trigger.count)
+    && trigger.count > 0;
+  if (!structuredTrigger) {
+    return {
+      ok: false,
+      code: 'set-effect-trigger-fact-unresolved',
+      field,
+      message: `${unprovenMessage} 第二段效果缺少完整的结构化 equipper damage trigger。`,
+    };
+  }
+  if (trigger.damageType !== damageType) {
+    return {
+      ok: false,
+      code: 'set-effect-trigger-damage-type-mismatch',
+      field,
+      message: `${unprovenMessage} 结构化 trigger 的 damageType 与干员元素伤害类型不一致。`,
+    };
+  }
+
+  return {
+    ok: true,
+    evidence: {
+      kind: requirement.kind,
+      setEffect: requirement.setEffect,
+      state: 'PROVEN',
+      operatorElement: String(operator.element),
+      damageType,
+      setEffectId: String(effect.effectId),
+      factPath,
+      trigger: {
+        kind: trigger.kind,
+        producer: trigger.producer,
+        damageType: trigger.damageType,
+        count: trigger.count,
+      },
+    },
   };
 }
 

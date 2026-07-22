@@ -156,6 +156,20 @@ export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA = Object.freeze({
         },
       },
     },
+    requirements: {
+      type: 'array',
+      maxItems: 1,
+      description: 'Optional controlled evidence requirement. It requests verification but carries no proof or free text; the Service derives the operator damage type and validates trusted set-effect trigger facts.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['kind', 'setEffect'],
+        properties: {
+          kind: { const: 'operator-element-damage-triggers-set-effect' },
+          setEffect: { const: 'secondary' },
+        },
+      },
+    },
     shortlistLimit: {
       type: 'integer',
       enum: [1, 2, 3],
@@ -234,6 +248,35 @@ export const DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA = Object.freeze({
               additionalProperties: false,
               required: ['revision', 'exhaustive'],
               properties: { revision: { type: 'string' }, exhaustive: { const: true } },
+            },
+            requirementEvidence: {
+              type: 'array',
+              maxItems: 1,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['kind', 'setEffect', 'state', 'operatorElement', 'damageType', 'setEffectId', 'factPath', 'trigger'],
+                properties: {
+                  kind: { const: 'operator-element-damage-triggers-set-effect' },
+                  setEffect: { const: 'secondary' },
+                  state: { const: 'PROVEN' },
+                  operatorElement: { type: 'string' },
+                  damageType: { type: 'string', enum: ['ice', 'fire', 'electric', 'nature', 'physical'] },
+                  setEffectId: { type: 'string' },
+                  factPath: { type: 'string' },
+                  trigger: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['kind', 'producer', 'damageType', 'count'],
+                    properties: {
+                      kind: { const: 'damage-count' },
+                      producer: { const: 'equipper' },
+                      damageType: { type: 'string', enum: ['ice', 'fire', 'electric', 'nature', 'physical', 'magic'] },
+                      count: { type: 'integer', minimum: 1 },
+                    },
+                  },
+                },
+              },
             },
             selectedSet: {
               anyOf: [
@@ -433,7 +476,7 @@ export const DEF_TOOL_DEFINITION_BASE = Object.freeze([
     riskLevel: 'read',
     approval: 'none',
     status: 'implemented',
-    description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
+    description: 'Return one read-only, evidence-backed 3+1 equipment recommendation for an operator with optional set, equipment, comparison, controlled trigger-reachability, and prior-plan constraints. Returns READY, NEEDS_INPUT, or UNRESOLVED; typed failures use DefEquipmentThreePlusOneRecommendationErrorV1.',
     inputSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_INPUT_SCHEMA,
     outputSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_OUTPUT_SCHEMA,
     errorSchema: DEF_EQUIPMENT_3PLUS1_RECOMMEND_ERROR_SCHEMA,
