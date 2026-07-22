@@ -690,7 +690,7 @@ export function cleanupNativeCatalogArtifacts(context, now = Date.now()) {
   cleanupExpiredNativeArtifacts(context, now)
 }
 
-function findReusableNativeArtifact(context, snapshot, now = Date.now()) {
+function findReusableNativeArtifact(context, snapshot, expectedFiles, now = Date.now()) {
   const root = nativeArtifactRoot(context)
   if (!fs.existsSync(root)) return null
   for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
@@ -698,7 +698,10 @@ function findReusableNativeArtifact(context, snapshot, now = Date.now()) {
     const artifactRoot = path.join(root, entry.name)
     const manifest = readNativeArtifactManifest(artifactRoot)
     if (!manifest || manifest.contract !== nativeCatalogArtifactContract || Number(manifest.expiresAt) <= now) continue
-    if (manifest.domain !== snapshot.domain || manifest.query !== snapshot.query || manifest.source?.revision !== snapshot.source?.revision) continue
+    if (manifest.domain !== snapshot.domain || manifest.query !== snapshot.query || manifest.selectionMode !== snapshot.selectionMode
+      || manifest.source?.revision !== snapshot.source?.revision) continue
+    if (!Array.isArray(manifest.files) || manifest.files.length !== expectedFiles.length
+      || expectedFiles.some((file, index) => manifest.files[index]?.path !== file.path || manifest.files[index]?.sha256 !== file.sha256)) continue
     if (!nativeArtifactFilesMatch(artifactRoot, manifest)) continue
     return { root: artifactRoot, manifest }
   }
@@ -718,23 +721,52 @@ function validateNativeCatalogSnapshot(snapshot) {
   if (!snapshot.source || typeof snapshot.source.storageKey !== 'string' || typeof snapshot.source.revision !== 'string') {
     throw new Error('native-catalog-artifact-invalid-snapshot: source revision is required')
   }
-  if (!Array.isArray(snapshot.files) || snapshot.files.length !== 1) {
-    throw new Error('native-catalog-artifact-invalid-snapshot: exactly one catalog data file is required')
+  if (!Array.isArray(snapshot.files) || snapshot.files.length === 0 || snapshot.files.length > 4) {
+    throw new Error('native-catalog-artifact-invalid-snapshot: one to four catalog data files are required')
   }
-  const file = snapshot.files[0]
-  nativeArtifactFileName(file?.path)
-  if (typeof file?.content !== 'string' || !file.content) {
-    throw new Error('native-catalog-artifact-invalid-snapshot: data file content is required')
+  const names = new Set()
+  const files = snapshot.files.map((file) => {
+    const fileName = nativeArtifactFileName(file?.path)
+    if (names.has(fileName)) throw new Error(`native-catalog-artifact-invalid-snapshot: duplicate data file ${fileName}`)
+    names.add(fileName)
+    if (typeof file?.content !== 'string' || !file.content) {
+      throw new Error('native-catalog-artifact-invalid-snapshot: data file content is required')
+    }
+    return {
+      path: fileName,
+      records: Number(file.records) || 0,
+      content: file.content,
+      sha256: sha256Text(file.content),
+    }
+  })
+  return files
+}
+
+function nativeArtifactManifestFiles(files) {
+  return files.map((file) => ({
+    path: file.path,
+    sha256: file.sha256,
+    records: file.records,
+  }))
+}
+
+function writeNativeArtifactFiles(directory, files) {
+  for (const file of files) {
+    const target = path.join(directory, file.path)
+    fs.writeFileSync(target, file.content, 'utf8')
+    if (sha256Text(fs.readFileSync(target, 'utf8')) !== file.sha256) {
+      throw new Error(`native-catalog-artifact-hash-mismatch: ${file.path}`)
+    }
   }
 }
 
 export function materializeNativeCatalogArtifact(context, snapshot, now = Date.now()) {
-  validateNativeCatalogSnapshot(snapshot)
+  const files = validateNativeCatalogSnapshot(snapshot)
   if (!context?.directory || typeof context.directory !== 'string' || !context.sessionID) throw new Error('native-catalog-artifact-session-directory-required')
   const root = nativeArtifactRoot(context)
   fs.mkdirSync(root, { recursive: true })
   cleanupExpiredNativeArtifacts(context, now)
-  const reusable = findReusableNativeArtifact(context, snapshot, now)
+  const reusable = findReusableNativeArtifact(context, snapshot, files, now)
   if (reusable) {
     registerNativeCatalogArtifact(context, reusable.root, reusable.manifest)
     return {
@@ -747,9 +779,6 @@ export function materializeNativeCatalogArtifact(context, snapshot, now = Date.n
   const artifactId = `catalog-${randomUUID()}`
   const temporary = path.join(root, `.tmp-${artifactId}`)
   const artifactRoot = path.join(root, artifactId)
-  const file = snapshot.files[0]
-  const fileName = nativeArtifactFileName(file.path)
-  const contentHash = sha256Text(file.content)
   const expiresAt = now + nativeCatalogArtifactTtlMs
   const manifest = {
     contract: nativeCatalogArtifactContract,
@@ -759,7 +788,7 @@ export function materializeNativeCatalogArtifact(context, snapshot, now = Date.n
     selectionReason: snapshot.selectionReason || null,
     query: snapshot.query,
     source: snapshot.source,
-    files: [{ path: fileName, sha256: contentHash, records: Number(file.records) || 0 }],
+    files: nativeArtifactManifestFiles(files),
     createdAt: now,
     expiresAt,
     readOnly: true,
@@ -767,10 +796,7 @@ export function materializeNativeCatalogArtifact(context, snapshot, now = Date.n
   }
   try {
     fs.mkdirSync(temporary, { recursive: false })
-    fs.writeFileSync(path.join(temporary, fileName), file.content, 'utf8')
-    if (sha256Text(fs.readFileSync(path.join(temporary, fileName), 'utf8')) !== contentHash) {
-      throw new Error('native-catalog-artifact-hash-mismatch')
-    }
+    writeNativeArtifactFiles(temporary, files)
     fs.writeFileSync(path.join(temporary, 'README.md'), [
       '# DEF native retrieval artifact',
       '',

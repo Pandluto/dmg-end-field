@@ -40,6 +40,38 @@ try {
   assert.equal(reused.artifactId, first.artifactId);
   assert.equal(reused.reused, true);
 
+  const fallbackSnapshot = {
+    ...snapshot,
+    query: '完全不存在的词',
+    selectionMode: 'domain-full-fallback',
+    files: [
+      { path: 'domain.full.jsonl', records: 2, content: '{"id":"gear-set-a"}\n{"id":"gear-set-b"}\n' },
+      { path: 'equipment-items.full.jsonl', records: 2, content: '{"id":"equipment-a"}\n{"id":"equipment-b"}\n' },
+    ],
+  };
+  const fallback = materializeNativeCatalogArtifact(context, fallbackSnapshot);
+  assert.equal(fallback.files.length, 2, 'one artifact may materialize every data file produced by the typed bridge');
+  assert.deepEqual(fallback.files.map((file) => file.path), ['domain.full.jsonl', 'equipment-items.full.jsonl']);
+  for (const file of fallback.files) {
+    assert.equal(fs.existsSync(path.join(root, fallback.root, file.path)), true, `${file.path} must be written inside the artifact root`);
+    assert.equal(file.sha256.length, 64);
+  }
+  const reusedFallback = materializeNativeCatalogArtifact(context, fallbackSnapshot);
+  assert.equal(reusedFallback.artifactId, fallback.artifactId);
+  assert.equal(reusedFallback.reused, true);
+
+  const changedFallback = materializeNativeCatalogArtifact(context, {
+    ...fallbackSnapshot,
+    files: fallbackSnapshot.files.map((file, index) => index === 0 ? { ...file, content: `${file.content}{"id":"gear-set-c"}\n` } : file),
+  });
+  assert.notEqual(changedFallback.artifactId, fallback.artifactId, 'reuse must compare the complete producer file contract, not only query and source revision');
+
+  assert.throws(() => materializeNativeCatalogArtifact(context, {
+    ...fallbackSnapshot,
+    query: '重复文件名',
+    files: [fallbackSnapshot.files[0], { ...fallbackSnapshot.files[1], path: fallbackSnapshot.files[0].path }],
+  }), /duplicate data file/);
+
   assert.doesNotThrow(() => assertDefNativeArtifactToolScope(
     { tool: 'read', sessionID: context.sessionID },
     { filePath: first.manifestPath },
@@ -94,7 +126,7 @@ try {
   assert.match(adapterSource, /edit: nodeCode \? \{ '\*': 'deny', 'node\/working\/\*\*': 'allow'/);
   const toolSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url), 'utf8');
   assert.match(toolSource, /nativeAccessRoot/);
-  console.log(JSON.stringify({ ok: true, checks: ['atomic-manifest', 'hash', 'reuse', 'ttl-cleanup', 'restart-ttl-cleanup', 'exact-artifact-path-guard', 'path-rejection', 'read-only-session-permission'] }));
+  console.log(JSON.stringify({ ok: true, checks: ['atomic-manifest', 'multi-file-producer-contract', 'hash', 'complete-contract-reuse', 'ttl-cleanup', 'restart-ttl-cleanup', 'exact-artifact-path-guard', 'path-rejection', 'read-only-session-permission'] }));
 } finally {
   fs.rmSync(root, { recursive: true, force: true });
 }
