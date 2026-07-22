@@ -8,6 +8,26 @@ const {
   evaluateNativeSessionAdmissionObservation,
 } = require('../agent/server/native-session-admission.cjs');
 
+// Keep this as a complete vendor-route inventory rather than a hand-picked
+// list of regressions. Adding a session POST route makes this contract fail
+// until its turn semantics are deliberately classified.
+const VENDOR_SESSION_POST_AUDIT = Object.freeze([
+  { vendorAction: 'create', proxyAction: null, handlerAction: 'create', kind: 'new-session' },
+  { vendorAction: 'fork', proxyAction: null, handlerAction: 'fork', kind: 'session-copy' },
+  { vendorAction: 'abort', proxyAction: null, handlerAction: 'abort', kind: 'turn-control' },
+  { vendorAction: 'init', proxyAction: 'init', handlerAction: 'init', source: 'proxy-init', kind: 'sync-turn' },
+  { vendorAction: 'share', proxyAction: null, handlerAction: 'share', kind: 'metadata' },
+  { vendorAction: 'summarize', proxyAction: 'summarize', handlerAction: 'summarize', source: 'proxy-summarize', kind: 'sync-turn' },
+  { vendorAction: 'prompt', proxyAction: 'message', handlerAction: 'prompt', source: 'ui', kind: 'sync-turn' },
+  { vendorAction: 'promptAsync', proxyAction: 'prompt_async', handlerAction: 'promptAsync', source: 'proxy-prompt-async', kind: 'async-turn' },
+  { vendorAction: 'command', proxyAction: 'command', handlerAction: 'command', source: 'proxy-command', kind: 'sync-turn' },
+  { vendorAction: 'shell', proxyAction: 'shell', handlerAction: 'shell', source: 'proxy-shell', kind: 'sync-turn' },
+  { vendorAction: 'revert', proxyAction: null, handlerAction: 'revert', kind: 'history-control' },
+  { vendorAction: 'unrevert', proxyAction: null, handlerAction: 'unrevert', kind: 'history-control' },
+  { vendorAction: 'permissionRespond', proxyAction: null, handlerAction: 'permissionRespond', kind: 'turn-control' },
+]);
+const TURN_INGRESSES = VENDOR_SESSION_POST_AUDIT.filter((entry) => entry.proxyAction);
+
 const gate = createNativeSessionAdmissionGate({ now: (() => { let value = 1000; return () => ++value; })() });
 const first = gate.admit({ sessionID: 'native-a', idempotencyKey: 'native-a:turn-a', source: 'interop' });
 assert.equal(first.kind, 'accepted');
@@ -28,20 +48,24 @@ assert.throws(
   'the UI route and interop route must share one native-session admission',
 );
 
-const nativeIngressGate = createNativeSessionAdmissionGate({ now: () => 1500 });
-const commandIngress = nativeIngressGate.admit({ sessionID: 'native-ingress', source: 'proxy-command' });
-assert.equal(commandIngress.kind, 'accepted');
-for (const source of ['ui', 'proxy-shell', 'interop']) {
-  assert.throws(
-    () => nativeIngressGate.admit({ sessionID: 'native-ingress', source }),
-    /native-session-turn-in-progress/,
-    `a ${source} turn cannot overlap an admitted /command turn`,
-  );
+for (const ingress of [...TURN_INGRESSES, { proxyAction: 'interop', source: 'interop', kind: 'async-turn' }]) {
+  const nativeIngressGate = createNativeSessionAdmissionGate({ now: () => 1500 });
+  const accepted = nativeIngressGate.admit({ sessionID: 'native-ingress', source: ingress.source });
+  assert.equal(accepted.kind, 'accepted');
+  for (const contender of [...TURN_INGRESSES, { proxyAction: 'interop', source: 'interop', kind: 'async-turn' }]) {
+    if (contender.source === ingress.source) continue;
+    assert.throws(
+      () => nativeIngressGate.admit({ sessionID: 'native-ingress', source: contender.source }),
+      /native-session-turn-in-progress/,
+      `a ${contender.proxyAction} turn cannot overlap an admitted ${ingress.proxyAction} turn`,
+    );
+  }
+  assert.equal(nativeIngressGate.release(accepted.entry, `${ingress.proxyAction}-terminal`), true);
 }
-assert.equal(nativeIngressGate.release(commandIngress.entry, 'native-command-terminal'), true);
-const shellIngress = nativeIngressGate.admit({ sessionID: 'native-ingress', source: 'proxy-shell' });
-assert.equal(shellIngress.kind, 'accepted', 'a shell turn is admitted only after the command terminal releases');
-assert.equal(nativeIngressGate.release(shellIngress.entry, 'submission-failed'), true,
+
+const rejectedShellGate = createNativeSessionAdmissionGate({ now: () => 1600 });
+const rejectedShell = rejectedShellGate.admit({ sessionID: 'native-ingress-failure', source: 'proxy-shell' });
+assert.equal(rejectedShellGate.release(rejectedShell.entry, 'submission-failed'), true,
   'an explicitly rejected shell submission releases rather than poisoning the session');
 
 let observations = 0;
@@ -174,19 +198,22 @@ assert(proxyStart >= 0 && proxyEnd > proxyStart, 'the native OpenCode proxy must
 assert.match(serverSource, /createNativeSessionAdmissionGate/,
   'the sidecar must instantiate the shared native-session gate');
 assert.match(proxySource, /nativeSessionAdmission\.admit\(/,
-  'UI session messages must acquire the shared admission before proxying');
-assert.match(proxySource, /\(message\|prompt_async\|command\|shell\|abort\)/,
-  'the proxy must recognize command and shell as native-turn ingress, not only message and prompt_async');
-assert.match(proxySource, /command: 'proxy-command'/,
-  'the command route must have an auditable admission source');
-assert.match(proxySource, /shell: 'proxy-shell'/,
-  'the shell route must have an auditable admission source');
+  'each native-turn ingress must acquire the shared admission before proxying');
+const sessionActionMatcherLine = proxySource.split('\n').find((line) => line.includes('const sessionActionMatch')) || '';
+for (const action of [...TURN_INGRESSES.map((entry) => entry.proxyAction), 'abort']) {
+  assert.match(sessionActionMatcherLine, new RegExp(`(?:\\(|\\|)${action}(?:\\||\\))`),
+    `the proxy route matcher must recognize the audited ${action} session action`);
+}
+for (const ingress of TURN_INGRESSES) {
+  assert.match(proxySource, new RegExp(`${ingress.proxyAction}: '${ingress.source}'`),
+    `${ingress.proxyAction} must have an auditable admission source`);
+}
 assert.match(proxySource, /if \(binding && sessionAction !== 'abort'\)/,
-  'every bound command and shell request must capture admission before forwarding; abort remains unchanged');
+  'every bound turn ingress must capture admission before forwarding; abort remains unchanged');
 assert.match(proxySource, /scheduleNativeSessionAdmissionWatch\(/,
-  'direct message and async prompt ingress must retain admission until native completion after a transport loss');
+  'async ingress and every transport-unknown turn must retain admission until native completion is observed');
 assert.match(proxySource, /await captureNativeSessionAdmissionBaseline\(admission, runtime, binding\)/,
-  'both direct message and async prompt ingress capture a transcript baseline before transport');
+  'every direct turn ingress captures a transcript baseline before transport');
 assert.match(serverSource, /evaluateNativeSessionAdmissionObservation\(/,
   'the sidecar watcher must use the status-aware turn-terminal evaluator');
 assert.match(serverSource, /retainNativePromptAdmissionForReconciliation/,
@@ -198,22 +225,54 @@ assert.match(serverSource, /sendNativeInteropPrompt[\s\S]*nativeSessionAdmission
 assert.match(serverSource, /releaseSession\(sessionID, 'native-abort'\)/,
   'a confirmed native abort must release the admission');
 assert.match(proxySource, /if \(!succeeded\) nativeSessionAdmission\.release\(admission, 'submission-failed'\)/,
-  'a known non-2xx command or shell failure releases its reservation');
+  'a known non-2xx failure releases a turn reservation');
 assert.match(proxySource, /if \(admission && !explicitRejection\) retainNativePromptAdmissionForReconciliation\(admission, runtime, binding\)/,
-  'a response that becomes indeterminate after acceptance keeps the command or shell reservation for reconciliation');
+  'a response that becomes indeterminate after acceptance keeps every turn reservation for reconciliation');
 assert.match(proxySource, /upstream\.on\('error',[\s\S]*retainNativePromptAdmissionForReconciliation\(admission, runtime, binding\)/,
-  'a transport failure before a response remains acceptance-unknown and cannot release command or shell admission');
+  'a transport failure before a response remains acceptance-unknown and cannot release a turn admission');
 assert.match(proxySource, /sessionAction === 'prompt_async'[\s\S]*else nativeSessionAdmission\.release\(admission, `native-\$\{sessionAction\}-terminal`\)/,
-  'only the asynchronous vendor route waits for watcher evidence; completed command and shell responses are terminal');
+  'only the asynchronous vendor route waits for watcher evidence; completed synchronous responses are terminal');
+assert.deepEqual(TURN_INGRESSES.filter((entry) => entry.kind === 'async-turn').map((entry) => entry.proxyAction), ['prompt_async'],
+  'the completion policy must name the complete set of asynchronous native-turn ingress routes');
 
 const vendorRoutes = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/server/routes/instance/httpapi/groups/session.ts', import.meta.url), 'utf8');
 const vendorHandlers = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts', import.meta.url), 'utf8');
 const vendorPrompt = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/session/prompt.ts', import.meta.url), 'utf8');
 const vendorRunner = fs.readFileSync(new URL('../agent/vendor/opencode/packages/opencode/src/effect/runner.ts', import.meta.url), 'utf8');
+const vendorPostActions = Array.from(vendorRoutes.matchAll(/HttpApiEndpoint\.post\("([^"\n]+)"/g), (match) => match[1]);
+assert.deepEqual(vendorPostActions, VENDOR_SESSION_POST_AUDIT.map((entry) => entry.vendorAction),
+  'every vendor session POST route must be classified before admission behavior can change');
+function vendorHandlerBlock(action) {
+  const marker = `const ${action} = Effect.fn("SessionHttpApi.${action}")`;
+  const start = vendorHandlers.indexOf(marker);
+  assert.notEqual(start, -1, `vendor handler ${action} must remain discoverable for the route audit`);
+  const next = vendorHandlers.indexOf('\n    const ', start + marker.length);
+  return vendorHandlers.slice(start, next === -1 ? vendorHandlers.length : next);
+}
+for (const entry of VENDOR_SESSION_POST_AUDIT.filter((item) => !item.proxyAction)) {
+  assert.doesNotMatch(vendorHandlerBlock(entry.handlerAction), /promptSvc\.(?:prompt|command|shell|loop)|compactSvc\.create|createUserMessage/,
+    `vendor ${entry.vendorAction} is classified as non-ingress and must not start a new native turn without updating this audit`);
+}
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("init", SessionPaths\.init,[\s\S]*?payload: InitPayload,[\s\S]*?success: described\(Schema\.Boolean, "200"\)/,
+  'vendor /init declares InitPayload and waits to return its Boolean result');
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("summarize", SessionPaths\.summarize,[\s\S]*?payload: SummarizePayload,[\s\S]*?success: described\(Schema\.Boolean, "Summarized session"\)/,
+  'vendor /summarize declares SummarizePayload and waits to return its Boolean result');
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("prompt", SessionPaths\.prompt,[\s\S]*?payload: PromptPayload,[\s\S]*?success: described\(SessionV1\.WithParts, "Created message"\)/,
+  'vendor /message declares PromptPayload and a completed WithParts response');
+assert.match(vendorRoutes, /HttpApiEndpoint\.post\("promptAsync", SessionPaths\.promptAsync,[\s\S]*?payload: PromptPayload,[\s\S]*?success: described\(HttpApiSchema\.NoContent, "Prompt accepted"\)/,
+  'vendor /prompt_async is the one immediate-acceptance route');
 assert.match(vendorRoutes, /HttpApiEndpoint\.post\("command", SessionPaths\.command,[\s\S]*?payload: CommandPayload,[\s\S]*?success: described\(SessionV1\.WithParts, "Created message"\)/,
   'vendor /command declares CommandPayload and a completed WithParts response');
 assert.match(vendorRoutes, /HttpApiEndpoint\.post\("shell", SessionPaths\.shell,[\s\S]*?payload: ShellPayload,[\s\S]*?success: described\(SessionV1\.WithParts, "Created message"\)/,
   'vendor /shell declares ShellPayload and a completed WithParts response');
+assert.match(vendorHandlers, /const init[\s\S]*?promptSvc\s*\.command\([\s\S]*?\)\s*\.pipe\([\s\S]*?return true/,
+  'vendor /init awaits promptSvc.command rather than acknowledging early');
+assert.match(vendorHandlers, /const summarize[\s\S]*?compactSvc\.create\([\s\S]*?promptSvc\.loop\(\{ sessionID: ctx\.params\.sessionID \}\)[\s\S]*?return true/,
+  'vendor /summarize first creates a compaction user message and then awaits the prompt loop');
+assert.match(vendorHandlers, /const prompt[\s\S]*?const message = yield\* promptSvc\s*\.prompt\([\s\S]*?return HttpServerResponse\.stream/,
+  'vendor /message awaits promptSvc.prompt before its stream closes');
+assert.match(vendorHandlers, /const promptAsync[\s\S]*?promptSvc\.prompt\([\s\S]*?Effect\.forkIn\(scope, \{ startImmediately: true \}\)[\s\S]*?return HttpApiSchema\.NoContent\.make\(\)/,
+  'vendor /prompt_async starts prompt work in the background and returns before terminal evidence exists');
 assert.match(vendorHandlers, /const command[\s\S]*?return yield\* promptSvc\s*\.command\(\{ \.\.\.ctx\.payload, sessionID: ctx\.params\.sessionID \}\)/,
   'vendor /command awaits promptSvc.command rather than acknowledging early');
 assert.match(vendorHandlers, /const shell[\s\S]*?return yield\* SessionError\.mapBusy\(promptSvc\.shell\(\{ \.\.\.ctx\.payload, sessionID: ctx\.params\.sessionID \}\)\)/,
@@ -225,4 +284,4 @@ assert.match(vendorPrompt, /const shell[\s\S]*?return yield\* state\.startShell\
 assert.match(vendorRunner, /const exit = yield\* Fiber\.await\(fiber\)/,
   'vendor startShell waits for the shell fiber to finish before returning its result');
 
-console.log('DEF native session admission contract: PASS (message, command, shell, and interop share single-flight; unknown transport states remain reserved)');
+console.log('DEF native session admission contract: PASS (all audited turn ingress routes and interop share single-flight; unknown transport states remain reserved)');

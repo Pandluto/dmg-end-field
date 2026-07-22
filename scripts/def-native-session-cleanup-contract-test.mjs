@@ -386,6 +386,9 @@ try {
     const failed = fixture.addBinding('ai-cli', 'ses-network-failed', '2-failed');
     const last = fixture.addBinding('ai-cli', 'ses-good-last', '3-good');
     const { options, upstreamDeletes, upstreamAborts } = cleanupOptions(fixture);
+    const gate = createNativeSessionAdmissionGate();
+    const active = gate.admit({ sessionID: failed.sessionID, source: 'interop' }).entry;
+    options.admissionGate = gate;
     options.fetchImpl = async (url, init) => {
       const match = /\/session\/([^/?]+)/.exec(String(url));
       const sessionID = decodeURIComponent(match?.[1] || '');
@@ -412,7 +415,11 @@ try {
       'a rejected delete must not stop later cleanup targets');
     assert.equal(fs.existsSync(first.directory), false);
     assert.equal(fs.existsSync(failed.directory), true,
-      'a delete network failure preserves the local binding and gate state for retry');
+      'a delete network failure preserves the local binding for retry');
+    assert.equal(gate.active(failed.sessionID), active,
+      'a delete network failure preserves the exact active admission entry rather than admitting a replacement turn');
+    assert.equal(active.releasedAt, 0,
+      'the failed delete must not mark the preserved admission as terminal');
     assert.equal(fs.existsSync(last.directory), false);
   }
 
