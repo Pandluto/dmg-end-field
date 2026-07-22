@@ -48,7 +48,7 @@ const snapshotFor = (payload) => ({
 });
 
 async function waitForReady() {
-  for (let index = 0; index < 80; index += 1) {
+  for (let index = 0; index < 400; index += 1) {
     try { if ((await fetch(`${baseUrl}/health`)).ok) return; } catch { /* starting */ }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }

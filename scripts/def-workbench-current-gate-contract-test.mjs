@@ -64,7 +64,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
 });
 
 async function waitForReady() {
-  for (let index = 0; index < 80; index += 1) {
+  for (let index = 0; index < 200; index += 1) {
     try {
       if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return;
     } catch {

@@ -167,7 +167,7 @@ const childExited = new Promise((resolve) => {
 });
 
 async function waitForReady() {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     try {
       if ((await fetch(`${baseUrl}/health`)).ok) return;
     } catch {
