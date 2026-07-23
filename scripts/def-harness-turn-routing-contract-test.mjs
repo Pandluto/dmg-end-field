@@ -67,10 +67,11 @@ assert.equal(unavailableToolBudgetProbe.status, 0, unavailableToolBudgetProbe.st
 
 const buttonCoordinateProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
-  const inferred = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 1, lineIndex: 3, characterName: '赛希' }, '请数一下当前节点上的技能按钮');
-  if ('nodeIndex' in inferred || 'lineIndex' in inferred || inferred.characterName !== '赛希') process.exit(2);
-  const explicit = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 99, lineIndex: 99 }, '查看 @2-4 的 BUFF');
+  const inferred = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 1, lineIndex: 3, characterName: '赛希', skillName: '普攻' }, '请数一下当前节点上的技能按钮');
+  if ('nodeIndex' in inferred || 'lineIndex' in inferred || 'characterName' in inferred || 'skillName' in inferred) process.exit(2);
+  const explicit = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 99, lineIndex: 99, characterName: '赛希', skillName: '普攻' }, '查看赛希普攻 @2-4 的 BUFF');
   if (explicit.nodeIndex !== 1 || explicit.lineIndex !== 3) process.exit(3);
+  if (explicit.characterName !== '赛希' || explicit.skillName !== '普攻') process.exit(4);
 `], { encoding: 'utf8' });
 assert.equal(buttonCoordinateProbe.status, 0, buttonCoordinateProbe.stderr || buttonCoordinateProbe.stdout);
 

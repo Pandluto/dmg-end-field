@@ -151,7 +151,14 @@ function stableToolInput(value) {
 
 export function sanitizeWorkbenchButtonArgs(args = {}, userText = '') {
   const next = { ...(args && typeof args === 'object' ? args : {}) }
-  const match = /@\s*(\d+)\s*-\s*(\d+)/u.exec(String(userText || '').normalize('NFKC'))
+  const normalizedUserText = String(userText || '').normalize('NFKC').toLocaleLowerCase()
+  for (const key of ['characterName', 'skillName']) {
+    const value = typeof next[key] === 'string'
+      ? next[key].normalize('NFKC').trim().toLocaleLowerCase()
+      : ''
+    if (!value || !normalizedUserText.includes(value)) delete next[key]
+  }
+  const match = /@\s*(\d+)\s*-\s*(\d+)/u.exec(normalizedUserText)
   if (!match) {
     delete next.nodeIndex
     delete next.lineIndex
