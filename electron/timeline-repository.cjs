@@ -3,7 +3,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
+const DOCUMENT_PERSISTENCE_KINDS = new Set(['formal', 'temporary', 'harness-fixture']);
+const HARNESS_FIXTURE_DOCUMENT_KIND = 'harness-fixture';
 const WORK_NODE_STATUSES = new Set(['draft', 'validated', 'blocked', 'applied', 'archived', 'open', 'ready', 'committed', 'abandoned']);
 const WORK_NODE_STATUS_TRANSITIONS = new Map([
   ['draft', new Set(['draft', 'validated', 'blocked', 'archived', 'abandoned'])],
@@ -76,6 +78,7 @@ function createTimelineRepository({ databasePath }) {
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
       is_temporary INTEGER NOT NULL DEFAULT 0,
+      persistence_kind TEXT NOT NULL DEFAULT 'formal' CHECK(persistence_kind IN ('formal', 'temporary', 'harness-fixture')),
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       archived_at INTEGER
@@ -192,6 +195,12 @@ function createTimelineRepository({ databasePath }) {
   if (!timelineDocumentColumns.has('is_temporary')) {
     db.exec('ALTER TABLE timeline_documents ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0;');
   }
+  if (!timelineDocumentColumns.has('persistence_kind')) {
+    // Archives predating persistence authority remain ordinary user documents.
+    // Their legacy temporary bit is retained independently so this migration
+    // never makes an existing temporary workspace bindable.
+    db.exec("ALTER TABLE timeline_documents ADD COLUMN persistence_kind TEXT NOT NULL DEFAULT 'formal' CHECK(persistence_kind IN ('formal', 'temporary', 'harness-fixture')); ");
+  }
   const workNodeColumns = db.prepare('PRAGMA table_info(timeline_work_nodes)').all();
   if (!workNodeColumns.some((column) => column.name === 'description')) {
     db.exec("ALTER TABLE timeline_work_nodes ADD COLUMN description TEXT NOT NULL DEFAULT '';");
@@ -267,10 +276,61 @@ function createTimelineRepository({ databasePath }) {
     return row && {
       id: row.id,
       label: row.label,
-      isTemporary: row.is_temporary === 1,
+      persistenceKind: row.persistence_kind || 'formal',
+      isTemporary: row.is_temporary === 1 || row.persistence_kind === 'temporary',
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       archivedAt: row.archived_at || null,
+    };
+  }
+
+  function isHarnessFixtureDocument(row) {
+    return row?.persistence_kind === HARNESS_FIXTURE_DOCUMENT_KIND;
+  }
+
+  function isTemporaryDocument(row) {
+    return row?.is_temporary === 1 || row?.persistence_kind === 'temporary';
+  }
+
+  function hasDocumentAccess(row, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
+    return Boolean(row)
+      && (allowHarnessFixture || !isHarnessFixtureDocument(row))
+      && (!requireHarnessFixture || isHarnessFixtureDocument(row));
+  }
+
+  function findDocumentForAccess(timelineId, options) {
+    const row = db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(timelineId);
+    return hasDocumentAccess(row, options) ? row : null;
+  }
+
+  function requireDocumentAccess(timelineId, options) {
+    const row = findDocumentForAccess(timelineId, options);
+    if (!row) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${timelineId}`);
+    return row;
+  }
+
+  function readRequestedPersistenceKind(input, { allowHarnessFixture = false } = {}) {
+    const requested = input?.persistenceKind ?? input?.documentKind ?? input?.kind;
+    const hasRequestedKind = requested !== undefined;
+    if (hasRequestedKind && (!DOCUMENT_PERSISTENCE_KINDS.has(requested) || (requested === HARNESS_FIXTURE_DOCUMENT_KIND && !allowHarnessFixture))) {
+      throw repositoryError(
+        requested === HARNESS_FIXTURE_DOCUMENT_KIND ? 'reserved-harness-fixture-authority' : 'invalid-timeline-document-persistence-kind',
+        requested === HARNESS_FIXTURE_DOCUMENT_KIND ? 403 : 400,
+        requested === HARNESS_FIXTURE_DOCUMENT_KIND
+          ? 'Harness fixture authority is reserved for trusted repository callers.'
+          : 'Timeline document persistence kind must be formal or temporary.',
+      );
+    }
+    const hasTemporaryState = Object.prototype.hasOwnProperty.call(input || {}, 'isTemporary');
+    if (hasTemporaryState && input.isTemporary === true && hasRequestedKind && requested !== 'temporary') {
+      throw repositoryError('conflicting-timeline-document-persistence-kind', 400, 'Temporary document state conflicts with its persistence kind.');
+    }
+    if (hasTemporaryState && input.isTemporary === false && requested === 'temporary') {
+      throw repositoryError('conflicting-timeline-document-persistence-kind', 400, 'Temporary document state conflicts with its persistence kind.');
+    }
+    return {
+      hasAuthority: hasRequestedKind || hasTemporaryState,
+      persistenceKind: hasRequestedKind ? requested : (input?.isTemporary ? 'temporary' : 'formal'),
     };
   }
 
@@ -373,23 +433,30 @@ function createTimelineRepository({ databasePath }) {
   function ensureDocument(input) {
     if (!input?.id || !input?.label) throw repositoryError('invalid-timeline-document', 400, 'Timeline document requires id and label.');
     const now = input.createdAt || Date.now();
-    const hasTemporaryState = Object.prototype.hasOwnProperty.call(input, 'isTemporary');
+    const authority = readRequestedPersistenceKind(input);
     return transaction(() => {
+      const existing = db.prepare('SELECT persistence_kind FROM timeline_documents WHERE id = ?').get(input.id);
+      if (isHarnessFixtureDocument(existing)) {
+        throw repositoryError('harness-fixture-document-not-found', 404, `Timeline document not found: ${input.id}`);
+      }
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, is_temporary, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, ?, NULL)
+        INSERT INTO timeline_documents (id, label, is_temporary, persistence_kind, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
         ON CONFLICT(id) DO UPDATE SET
           label = CASE WHEN ? THEN timeline_documents.label ELSE excluded.label END,
           is_temporary = CASE WHEN ? THEN excluded.is_temporary ELSE timeline_documents.is_temporary END,
+          persistence_kind = CASE WHEN ? THEN excluded.persistence_kind ELSE timeline_documents.persistence_kind END,
           updated_at = excluded.updated_at
       `).run(
         input.id,
         input.label,
-        input.isTemporary ? 1 : 0,
+        authority.persistenceKind === 'temporary' ? 1 : 0,
+        authority.persistenceKind,
         now,
         Date.now(),
         input.preserveExistingLabel ? 1 : 0,
-        hasTemporaryState ? 1 : 0,
+        authority.hasAuthority ? 1 : 0,
+        authority.hasAuthority ? 1 : 0,
       );
       return readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(input.id));
     });
@@ -400,8 +467,7 @@ function createTimelineRepository({ databasePath }) {
       throw repositoryError('invalid-timeline-snapshot', 400, 'Timeline snapshot requires id, timelineId, and label.');
     }
     return transaction(() => {
-      const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
-      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
+      requireDocumentAccess(input.timelineId);
       const createdAt = input.createdAt || Date.now();
       const payloadHash = ensurePayload(input.payload, createdAt);
       const existing = db.prepare(`
@@ -466,8 +532,8 @@ function createTimelineRepository({ databasePath }) {
         throw repositoryError('timeline-snapshot-id-conflict', 409, `Timeline snapshot already exists: ${input.snapshotId}`);
       }
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, NULL)
+        INSERT INTO timeline_documents (id, label, is_temporary, persistence_kind, created_at, updated_at, archived_at)
+        VALUES (?, ?, 0, 'formal', ?, ?, NULL)
       `).run(input.timelineId, input.documentLabel, createdAt, createdAt);
       const payloadHash = ensurePayload(input.payload, createdAt);
       db.prepare(`
@@ -514,9 +580,13 @@ function createTimelineRepository({ databasePath }) {
     }
     const createdAt = input.createdAt || Date.now();
     return transaction(() => {
+      const existing = db.prepare('SELECT persistence_kind FROM timeline_documents WHERE id = ?').get(input.timelineId);
+      if (isHarnessFixtureDocument(existing)) {
+        throw repositoryError('harness-fixture-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
+      }
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, NULL)
+        INSERT INTO timeline_documents (id, label, is_temporary, persistence_kind, created_at, updated_at, archived_at)
+        VALUES (?, ?, 0, 'formal', ?, ?, NULL)
         ON CONFLICT(id) DO UPDATE SET
           label = timeline_documents.label,
           updated_at = excluded.updated_at,
@@ -605,7 +675,7 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function importDocumentBundle(input) {
+  function importDocumentBundleWithAuthority(input, persistenceKind) {
     if (!input?.document?.id || !input?.document?.label || !Array.isArray(input.snapshots) || !input.snapshots.length) {
       const error = new Error('Timeline bundle import requires a document and at least one snapshot.');
       error.code = 'invalid-timeline-bundle';
@@ -667,9 +737,9 @@ function createTimelineRepository({ databasePath }) {
       }
       const now = input.document.createdAt || Date.now();
       db.prepare(`
-        INSERT INTO timeline_documents (id, label, is_temporary, created_at, updated_at, archived_at)
-        VALUES (?, ?, ?, ?, ?, NULL)
-      `).run(documentId, input.document.label, input.document.isTemporary ? 1 : 0, now, now);
+        INSERT INTO timeline_documents (id, label, is_temporary, persistence_kind, created_at, updated_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, ?, NULL)
+      `).run(documentId, input.document.label, persistenceKind === 'temporary' ? 1 : 0, persistenceKind, now, now);
       const snapshots = input.snapshots.map((snapshot) => {
         const createdAt = snapshot.createdAt || now;
         const payloadHash = ensurePayload(snapshot.payload, createdAt);
@@ -752,8 +822,27 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function exportDocumentBundle(timelineId) {
-    const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(timelineId));
+  function importDocumentBundle(input) {
+    const authority = readRequestedPersistenceKind(input?.document);
+    return importDocumentBundleWithAuthority(input, authority.persistenceKind);
+  }
+
+  // This is intentionally the only repository entry point able to persist a
+  // harness-fixture document. It is for the trusted in-process Harness host;
+  // ordinary bundle import must never receive this authority from bundle data.
+  function createHarnessFixtureDocumentBundle(input) {
+    if (!input?.document?.id || !input?.document?.label) {
+      throw repositoryError('invalid-harness-fixture-document', 400, 'Harness fixture creation requires a document id and label.');
+    }
+    return importDocumentBundleWithAuthority(input, HARNESS_FIXTURE_DOCUMENT_KIND);
+  }
+
+  function exportDocumentBundleWithVisibility(timelineId, { allowHarnessFixture = false } = {}) {
+    const documentRow = db.prepare(`
+      SELECT * FROM timeline_documents
+      WHERE id = ? AND archived_at IS NULL ${allowHarnessFixture ? '' : "AND persistence_kind != 'harness-fixture'"}
+    `).get(timelineId);
+    const document = readDocument(documentRow);
     if (!document) {
       const error = new Error(`Timeline document not found: ${timelineId}`);
       error.code = 'timeline-document-not-found';
@@ -778,11 +867,24 @@ function createTimelineRepository({ databasePath }) {
     };
   }
 
+  function exportDocumentBundle(timelineId) {
+    return exportDocumentBundleWithVisibility(timelineId);
+  }
+
+  function exportHarnessFixtureDocumentBundle(timelineId) {
+    const document = getHarnessFixtureDocument(timelineId);
+    if (!document) {
+      throw repositoryError('harness-fixture-document-not-found', 404, `Harness fixture document not found: ${timelineId}`);
+    }
+    return exportDocumentBundleWithVisibility(timelineId, { allowHarnessFixture: true });
+  }
+
   function setCheckoutRef(input) {
     if (!input?.timelineId || !input?.targetId || !['snapshot', 'work-node'].includes(input.targetType)) {
       throw repositoryError('invalid-timeline-checkout-ref', 400, 'Checkout ref requires timelineId, targetType, and targetId.');
     }
     return transaction(() => {
+      requireDocumentAccess(input.timelineId);
       if (input.targetType === 'snapshot') {
         const snapshot = db.prepare('SELECT id FROM timeline_snapshots WHERE id = ? AND timeline_id = ? AND archived_at IS NULL')
           .get(input.targetId, input.timelineId);
@@ -813,14 +915,20 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function upsertSessionAxisBinding(input) {
+  function upsertSessionAxisBindingWithAuthority(input, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
     if (!input?.id || !input?.timelineId || !input?.host || !input?.opencodeSessionId) {
       throw repositoryError('invalid-timeline-session-axis-binding', 400, 'Session axis binding requires id, timelineId, host, and opencodeSessionId.');
     }
     return transaction(() => {
-      const document = db.prepare('SELECT id, is_temporary FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(input.timelineId);
+      const document = db.prepare('SELECT id, is_temporary, persistence_kind FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(input.timelineId);
       if (!document) throw repositoryError('blocked-binding', 404, 'The bound SQLite workspace is unavailable.');
-      if (document.is_temporary === 1) {
+      if (isHarnessFixtureDocument(document) && !allowHarnessFixture) {
+        throw repositoryError('blocked-harness-fixture-workspace', 409, 'Harness fixture SQLite workspaces require trusted Harness binding.');
+      }
+      if (requireHarnessFixture && !isHarnessFixtureDocument(document)) {
+        throw repositoryError('invalid-harness-fixture-binding', 409, 'Trusted Harness binding requires a harness fixture workspace.');
+      }
+      if (isTemporaryDocument(document)) {
         throw repositoryError('blocked-temporary-workspace', 409, 'Temporary SQLite workspaces cannot be bound to DEF OpenCode.');
       }
       const existing = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(input.id));
@@ -854,11 +962,21 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function getSessionAxisContext(bindingId) {
+  function upsertSessionAxisBinding(input) {
+    return upsertSessionAxisBindingWithAuthority(input);
+  }
+
+  function upsertHarnessFixtureSessionAxisBinding(input) {
+    return upsertSessionAxisBindingWithAuthority(input, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
+  function getSessionAxisContextWithVisibility(bindingId, { requireHarnessFixture = false, allowHarnessFixture = false } = {}) {
     const binding = readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(bindingId));
     if (!binding) return null;
-    const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(binding.timelineId));
-    if (!document || document.isTemporary) return null;
+    const documentRow = db.prepare('SELECT * FROM timeline_documents WHERE id = ? AND archived_at IS NULL').get(binding.timelineId);
+    if (!documentRow || isTemporaryDocument(documentRow) || (isHarnessFixtureDocument(documentRow) && !allowHarnessFixture)
+      || (requireHarnessFixture && !isHarnessFixtureDocument(documentRow))) return null;
+    const document = readDocument(documentRow);
     const checkout = (() => {
       const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(binding.timelineId);
       return row ? { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at } : null;
@@ -878,8 +996,56 @@ function createTimelineRepository({ databasePath }) {
     return { binding, document, checkout, nodes };
   }
 
+  function getSessionAxisContext(bindingId) {
+    return getSessionAxisContextWithVisibility(bindingId);
+  }
+
+  function getHarnessFixtureSessionAxisContext(bindingId) {
+    return getSessionAxisContextWithVisibility(bindingId, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
+  function getSessionAxisBindingWithVisibility(id, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
+    const row = db.prepare(`
+      SELECT binding.* FROM timeline_session_axis_bindings binding
+      JOIN timeline_documents document ON document.id = binding.timeline_id
+      WHERE binding.id = ? ${requireHarnessFixture
+        ? "AND document.persistence_kind = 'harness-fixture'"
+        : (allowHarnessFixture ? '' : "AND document.persistence_kind != 'harness-fixture'")}
+    `).get(id);
+    return readSessionAxisBinding(row);
+  }
+
+  function getSessionAxisBindingBySessionWithVisibility(host, sessionID, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
+    const row = db.prepare(`
+      SELECT binding.* FROM timeline_session_axis_bindings binding
+      JOIN timeline_documents document ON document.id = binding.timeline_id
+      WHERE binding.host = ? AND binding.opencode_session_id = ? ${requireHarnessFixture
+        ? "AND document.persistence_kind = 'harness-fixture'"
+        : (allowHarnessFixture ? '' : "AND document.persistence_kind != 'harness-fixture'")}
+    `).get(host, sessionID);
+    return readSessionAxisBinding(row);
+  }
+
+  function getHarnessFixtureSessionAxisBinding(id) {
+    return getSessionAxisBindingWithVisibility(id, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
+  function getHarnessFixtureSessionAxisBindingBySession(host, sessionID) {
+    return getSessionAxisBindingBySessionWithVisibility(host, sessionID, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
   function deleteSessionAxisBinding(bindingId) {
-    return transaction(() => ({ deleted: db.prepare('DELETE FROM timeline_session_axis_bindings WHERE id = ?').run(bindingId).changes > 0 }));
+    return transaction(() => {
+      if (!getSessionAxisBindingWithVisibility(bindingId)) return { deleted: false };
+      return { deleted: db.prepare('DELETE FROM timeline_session_axis_bindings WHERE id = ?').run(bindingId).changes > 0 };
+    });
+  }
+
+  function deleteHarnessFixtureSessionAxisBinding(bindingId) {
+    return transaction(() => {
+      if (!getHarnessFixtureSessionAxisBinding(bindingId)) return { deleted: false };
+      return { deleted: db.prepare('DELETE FROM timeline_session_axis_bindings WHERE id = ?').run(bindingId).changes > 0 };
+    });
   }
 
   function appendAuditEvent(input) {
@@ -887,6 +1053,7 @@ function createTimelineRepository({ databasePath }) {
       throw repositoryError('invalid-timeline-audit-event', 400, 'Timeline audit event is missing required fields.');
     }
     return transaction(() => {
+      requireDocumentAccess(input.timelineId);
       db.prepare(`
         INSERT INTO timeline_audit_events (id, timeline_id, event_type, subject_type, subject_id, details, created_at)
         VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -908,7 +1075,11 @@ function createTimelineRepository({ databasePath }) {
       throw repositoryError('invalid-timeline-work-node-patch', 400, 'Work Node patch is missing required fields.');
     }
     return transaction(() => {
-      const node = db.prepare('SELECT id FROM timeline_work_nodes WHERE id = ? AND timeline_id = ?')
+      const node = db.prepare(`
+        SELECT node.id FROM timeline_work_nodes node
+        JOIN timeline_documents document ON document.id = node.timeline_id
+        WHERE node.id = ? AND node.timeline_id = ? AND document.persistence_kind != 'harness-fixture'
+      `)
         .get(input.nodeId, input.timelineId);
       if (!node) throw repositoryError('timeline-work-node-not-found', 404, `Timeline work node not found for patch: ${input.nodeId}`);
       if (db.prepare('SELECT 1 FROM timeline_work_node_patches WHERE id = ?').get(input.id)) {
@@ -943,7 +1114,11 @@ function createTimelineRepository({ databasePath }) {
 
   function archiveSnapshot(snapshotId) {
     return transaction(() => {
-      const snapshot = db.prepare('SELECT * FROM timeline_snapshots WHERE id = ? AND archived_at IS NULL').get(snapshotId);
+      const snapshot = db.prepare(`
+        SELECT snapshot.* FROM timeline_snapshots snapshot
+        JOIN timeline_documents document ON document.id = snapshot.timeline_id
+        WHERE snapshot.id = ? AND snapshot.archived_at IS NULL AND document.persistence_kind != 'harness-fixture'
+      `).get(snapshotId);
       if (!snapshot) throw new Error(`Timeline snapshot not found: ${snapshotId}`);
       const checkout = db.prepare(`
         SELECT 1 FROM checkout_refs WHERE timeline_id = ? AND target_type = 'snapshot' AND target_id = ?
@@ -969,8 +1144,7 @@ function createTimelineRepository({ databasePath }) {
 
   function importWorkNode(input) {
     return transaction(() => {
-      const document = db.prepare('SELECT id FROM timeline_documents WHERE id = ?').get(input.timelineId);
-      if (!document) throw repositoryError('timeline-document-not-found', 404, `Timeline document not found: ${input.timelineId}`);
+      requireDocumentAccess(input.timelineId);
       const existingNode = db.prepare('SELECT id, timeline_id, status, content_revision FROM timeline_work_nodes WHERE id = ?').get(input.id);
       if (existingNode?.timeline_id !== undefined && existingNode.timeline_id !== input.timelineId) {
         const error = new Error(`Timeline Work Node id already belongs to document: ${existingNode.timeline_id}`);
@@ -1053,7 +1227,11 @@ function createTimelineRepository({ databasePath }) {
       throw repositoryError('invalid-timeline-work-node-commit', 400, 'Timeline Work Node commit is missing required fields.');
     }
     return transaction(() => {
-      const node = db.prepare('SELECT timeline_id FROM timeline_work_nodes WHERE id = ?').get(input.nodeId);
+      const node = db.prepare(`
+        SELECT node.timeline_id FROM timeline_work_nodes node
+        JOIN timeline_documents document ON document.id = node.timeline_id
+        WHERE node.id = ? AND document.persistence_kind != 'harness-fixture'
+      `).get(input.nodeId);
       if (!node) throw repositoryError('timeline-work-node-not-found', 404, `Timeline Work Node not found for commit: ${input.nodeId}`);
       if (node.timeline_id !== input.timelineId) {
         throw repositoryError('timeline-work-node-commit-document-mismatch', 409, 'Timeline Work Node commit must belong to the node document.');
@@ -1137,7 +1315,11 @@ function createTimelineRepository({ databasePath }) {
   }
 
   function assertWorkNodeSubtreeDeletable(nodeId) {
-      const target = db.prepare('SELECT id, timeline_id FROM timeline_work_nodes WHERE id = ?').get(nodeId);
+      const target = db.prepare(`
+        SELECT node.id, node.timeline_id FROM timeline_work_nodes node
+        JOIN timeline_documents document ON document.id = node.timeline_id
+        WHERE node.id = ? AND document.persistence_kind != 'harness-fixture'
+      `).get(nodeId);
       if (!target) {
         const error = new Error(`Timeline work node not found: ${nodeId}`);
         error.code = 'timeline-work-node-not-found';
@@ -1185,15 +1367,17 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
-  function deleteDocument(timelineId) {
+  function deleteDocumentWithAuthority(timelineId, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
     return transaction(() => {
-      const document = readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(timelineId));
-      if (!document) {
+      const documentRow = db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(timelineId);
+      if (!documentRow || (isHarnessFixtureDocument(documentRow) && !allowHarnessFixture)
+        || (requireHarnessFixture && !isHarnessFixtureDocument(documentRow))) {
         const error = new Error(`Timeline document not found: ${timelineId}`);
         error.code = 'timeline-document-not-found';
         error.status = 404;
         throw error;
       }
+      const document = readDocument(documentRow);
       const nodeIds = db.prepare(`
         WITH RECURSIVE tree(id, depth) AS (
           SELECT id, 0 FROM timeline_work_nodes WHERE timeline_id = ? AND parent_id IS NULL
@@ -1216,6 +1400,42 @@ function createTimelineRepository({ databasePath }) {
     });
   }
 
+  function deleteDocument(timelineId) {
+    return deleteDocumentWithAuthority(timelineId);
+  }
+
+  function deleteHarnessFixtureDocument(timelineId) {
+    return deleteDocumentWithAuthority(timelineId, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
+  function getDocumentWithVisibility(id, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
+    const row = db.prepare(`
+      SELECT * FROM timeline_documents
+      WHERE id = ? ${allowHarnessFixture ? '' : "AND persistence_kind != 'harness-fixture'"}
+    `).get(id);
+    if (!row || (requireHarnessFixture && !isHarnessFixtureDocument(row))) return undefined;
+    return readDocument(row);
+  }
+
+  function getHarnessFixtureDocument(id) {
+    return getDocumentWithVisibility(id, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
+  function getWorkNodeWithVisibility(id, { allowHarnessFixture = false, requireHarnessFixture = false } = {}) {
+    const row = db.prepare(`
+      SELECT node.* FROM timeline_work_nodes node
+      JOIN timeline_documents document ON document.id = node.timeline_id
+      WHERE node.id = ? ${requireHarnessFixture
+        ? "AND document.persistence_kind = 'harness-fixture'"
+        : (allowHarnessFixture ? '' : "AND document.persistence_kind != 'harness-fixture'")}
+    `).get(id);
+    return readWorkNode(row, true, true);
+  }
+
+  function getHarnessFixtureWorkNode(id) {
+    return getWorkNodeWithVisibility(id, { allowHarnessFixture: true, requireHarnessFixture: true });
+  }
+
   return {
     databasePath,
     ensureDocument,
@@ -1223,13 +1443,20 @@ function createTimelineRepository({ databasePath }) {
     createDocumentFromTemplate,
     importLegacyArchive,
     importDocumentBundle,
+    createHarnessFixtureDocumentBundle,
     exportDocumentBundle,
+    exportHarnessFixtureDocumentBundle,
     setCheckoutRef,
     upsertSessionAxisBinding,
+    upsertHarnessFixtureSessionAxisBinding,
     getSessionAxisContext,
-    getSessionAxisBinding: (id) => readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE id = ?').get(id)),
-    getSessionAxisBindingBySession: (host, sessionID) => readSessionAxisBinding(db.prepare('SELECT * FROM timeline_session_axis_bindings WHERE host = ? AND opencode_session_id = ?').get(host, sessionID)),
+    getHarnessFixtureSessionAxisContext,
+    getSessionAxisBinding: getSessionAxisBindingWithVisibility,
+    getSessionAxisBindingBySession: getSessionAxisBindingBySessionWithVisibility,
+    getHarnessFixtureSessionAxisBinding,
+    getHarnessFixtureSessionAxisBindingBySession,
     deleteSessionAxisBinding,
+    deleteHarnessFixtureSessionAxisBinding,
     appendAuditEvent,
     appendWorkNodePatch,
     archiveSnapshot,
@@ -1239,25 +1466,45 @@ function createTimelineRepository({ databasePath }) {
     assertWorkNodeSubtreeDeletable,
     deleteWorkNodeSubtree,
     deleteDocument,
+    deleteHarnessFixtureDocument,
     getMeta: (key) => db.prepare('SELECT value FROM timeline_schema_meta WHERE key = ?').get(key)?.value || null,
     setMeta: (key, value) => db.prepare(`
       INSERT INTO timeline_schema_meta (key, value) VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
     `).run(key, typeof value === 'string' ? value : serialize(value)),
-    getDocument: (id) => readDocument(db.prepare('SELECT * FROM timeline_documents WHERE id = ?').get(id)),
+    // Ordinary callers (UI and REST included) only receive visible documents.
+    // Harness code must opt into the named fixture methods above.
+    getDocument: (id) => getDocumentWithVisibility(id),
+    getHarnessFixtureDocument,
     listDocuments: () => db.prepare(`
-      SELECT * FROM timeline_documents WHERE archived_at IS NULL ORDER BY updated_at DESC
+      SELECT * FROM timeline_documents
+      WHERE archived_at IS NULL AND persistence_kind != 'harness-fixture'
+      ORDER BY updated_at DESC
     `).all().map(readDocument),
-    getSnapshot: (id) => readSnapshot(db.prepare('SELECT * FROM timeline_snapshots WHERE id = ?').get(id), true),
+    getSnapshot: (id) => readSnapshot(db.prepare(`
+      SELECT snapshot.* FROM timeline_snapshots snapshot
+      JOIN timeline_documents document ON document.id = snapshot.timeline_id
+      WHERE snapshot.id = ? AND document.persistence_kind != 'harness-fixture'
+    `).get(id), true),
     listSnapshots: (timelineId) => db.prepare(`
-      SELECT * FROM timeline_snapshots WHERE timeline_id = ? AND archived_at IS NULL ORDER BY created_at DESC
+      SELECT snapshot.* FROM timeline_snapshots snapshot
+      JOIN timeline_documents document ON document.id = snapshot.timeline_id
+      WHERE snapshot.timeline_id = ? AND snapshot.archived_at IS NULL AND document.persistence_kind != 'harness-fixture'
+      ORDER BY snapshot.created_at DESC
     `).all(timelineId).map((row) => readSnapshot(row, true)),
     getCheckoutRef: (timelineId) => {
-      const row = db.prepare('SELECT * FROM checkout_refs WHERE timeline_id = ?').get(timelineId);
+      const row = db.prepare(`
+        SELECT checkout.* FROM checkout_refs checkout
+        JOIN timeline_documents document ON document.id = checkout.timeline_id
+        WHERE checkout.timeline_id = ? AND document.persistence_kind != 'harness-fixture'
+      `).get(timelineId);
       return row && { timelineId: row.timeline_id, targetType: row.target_type, targetId: row.target_id, updatedAt: row.updated_at };
     },
     listAuditEvents: (timelineId, limit = 100) => db.prepare(`
-      SELECT * FROM timeline_audit_events WHERE timeline_id = ? ORDER BY created_at DESC LIMIT ?
+      SELECT event.* FROM timeline_audit_events event
+      JOIN timeline_documents document ON document.id = event.timeline_id
+      WHERE event.timeline_id = ? AND document.persistence_kind != 'harness-fixture'
+      ORDER BY event.created_at DESC LIMIT ?
     `).all(timelineId, Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
       id: row.id,
       timelineId: row.timeline_id,
@@ -1268,7 +1515,10 @@ function createTimelineRepository({ databasePath }) {
       createdAt: row.created_at,
     })),
     listWorkNodePatches: (nodeId, limit = 100) => db.prepare(`
-      SELECT * FROM timeline_work_node_patches WHERE node_id = ? ORDER BY created_at DESC LIMIT ?
+      SELECT patch.* FROM timeline_work_node_patches patch
+      JOIN timeline_documents document ON document.id = patch.timeline_id
+      WHERE patch.node_id = ? AND document.persistence_kind != 'harness-fixture'
+      ORDER BY patch.created_at DESC LIMIT ?
     `).all(nodeId, Math.max(1, Math.min(Number(limit) || 100, 500))).map((row) => ({
       id: row.id,
       timelineId: row.timeline_id,
@@ -1279,16 +1529,30 @@ function createTimelineRepository({ databasePath }) {
       riskFlags: parse(row.risk_flags, []),
       createdAt: row.created_at,
     })),
-    getWorkNode: (id) => readWorkNode(db.prepare('SELECT * FROM timeline_work_nodes WHERE id = ?').get(id), true, true),
-    getWorkNodeCommit: (id) => readWorkNodeCommit(db.prepare('SELECT * FROM timeline_work_node_commits WHERE id = ?').get(id), true),
+    getWorkNode: getWorkNodeWithVisibility,
+    getHarnessFixtureWorkNode,
+    getWorkNodeCommit: (id) => readWorkNodeCommit(db.prepare(`
+      SELECT work_node_commit.* FROM timeline_work_node_commits work_node_commit
+      JOIN timeline_documents document ON document.id = work_node_commit.timeline_id
+      WHERE work_node_commit.id = ? AND document.persistence_kind != 'harness-fixture'
+    `).get(id), true),
     getLatestWorkNodeCommit: (nodeId) => readWorkNodeCommit(db.prepare(`
-      SELECT * FROM timeline_work_node_commits WHERE node_id = ? ORDER BY created_at DESC LIMIT 1
+      SELECT work_node_commit.* FROM timeline_work_node_commits work_node_commit
+      JOIN timeline_documents document ON document.id = work_node_commit.timeline_id
+      WHERE work_node_commit.node_id = ? AND document.persistence_kind != 'harness-fixture'
+      ORDER BY work_node_commit.created_at DESC LIMIT 1
     `).get(nodeId), true),
     listWorkNodeCommits: (timelineId) => db.prepare(`
-      SELECT * FROM timeline_work_node_commits WHERE timeline_id = ? ORDER BY created_at DESC
+      SELECT work_node_commit.* FROM timeline_work_node_commits work_node_commit
+      JOIN timeline_documents document ON document.id = work_node_commit.timeline_id
+      WHERE work_node_commit.timeline_id = ? AND document.persistence_kind != 'harness-fixture'
+      ORDER BY work_node_commit.created_at DESC
     `).all(timelineId).map((row) => readWorkNodeCommit(row, false)),
     listWorkNodes: (timelineId) => db.prepare(`
-      SELECT * FROM timeline_work_nodes WHERE timeline_id = ? ORDER BY created_at ASC
+      SELECT node.* FROM timeline_work_nodes node
+      JOIN timeline_documents document ON document.id = node.timeline_id
+      WHERE node.timeline_id = ? AND document.persistence_kind != 'harness-fixture'
+      ORDER BY node.created_at ASC
     `).all(timelineId).map((row) => {
       const basePayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.base_payload_hash)?.payload, {});
       const workingPayload = parse(db.prepare('SELECT payload FROM timeline_payload_blobs WHERE content_hash = ?').get(row.working_payload_hash)?.payload, {});
