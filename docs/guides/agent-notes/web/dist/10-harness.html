@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>Plan、Task 与 Subagent · Agent 开发随记</title>
+  <title>篇章 11：Harness · Agent 开发随记</title>
   <link rel="stylesheet" href="styles.css?v=20260721-11" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
@@ -38,7 +38,7 @@
   <a class="nav-item" href="03-context-skill-memory.html">
     <span>04</span>上下文、Skill 与 Memory
   </a>
-  <a class="nav-item active" href="04-plan-task-subagent.html">
+  <a class="nav-item" href="04-plan-task-subagent.html">
     <span>05</span>Plan、Task 与 Subagent
   </a>
   <a class="nav-item" href="05-def-and-opencode.html">
@@ -56,50 +56,20 @@
   <a class="nav-item" href="09-mcp-as-another-solution.html">
     <span>10</span>MCP 如何开放能力
   </a>
-  <a class="nav-item" href="10-harness.html">
+  <a class="nav-item active" href="10-harness.html">
     <span>11</span>Harness（待补充）
   </a></nav>
     <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
   </aside>
   <main>
     <div class="article-meta">
-      <div class="article-kicker"><span></span> 04-PLAN-TASK-SUBAGENT / DEF AGENT RUNTIME</div>
+      <div class="article-kicker"><span></span> 10-HARNESS / DEF AGENT RUNTIME</div>
       <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
     </div>
-    <article class="markdown-body"><h1>Plan、Task 与 Subagent</h1>
-<p>“换一件武器”通常不需要复杂规划。把目标扩大成“检查整支队伍的配装，找出冲突，再给出修改建议”，工作才真正出现顺序、依赖和分工。</p>
-<p>这几个词经常一起出现，负责的事情却不同：</p>
-<table>
-<thead>
-<tr>
-<th>名称</th>
-<th>在这次检查里负责什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Plan</td>
-<td>先读全队配置，再逐人检查，最后汇总建议。它描述顺序和依赖。</td>
-</tr>
-<tr>
-<td>Todo</td>
-<td>记录“待读取、检查中、待汇总”等进度。</td>
-</tr>
-<tr>
-<td>Task</td>
-<td>把“检查角色 A 的装备冲突”变成一块可以单独交付的工作。</td>
-</tr>
-<tr>
-<td>Subagent</td>
-<td>在独立上下文里接收这块 Task，完成检查并返回结论。</td>
-</tr>
-</tbody></table>
-<p>Plan 不是把结果提前写出来，Todo 也不是另一份 Plan。前者帮助 Agent 不忘记整体路径，后者让运行中的状态可见；Task 划出工作边界，Subagent 才是实际接手这块工作的执行者。</p>
-<h2>为什么要单独开上下文</h2>
-<p>检查一名角色可能要读取很多资料。如果所有过程都塞回主 Session，整队检查还没完成，上下文就已经被中间信息占满。Subagent 可以只拿到角色配置、检查规则和期望输出，做完以后把结论交回父 Agent，不必回传完整消息历史。</p>
-<p>这种 <strong>Context Isolation</strong> 让主线更干净，却不应该顺带扩大权限。子 Agent 能调用哪些工具、能否继续派生子 Agent、结果按什么格式返回，都要由父任务和 Runtime 明确限制。</p>
-<p>任务多也不等于一定要并行。几个步骤会频繁修改同一状态，或强依赖刚刚发生的对话时，拆开反而增加同步成本。先找到可以独立验收的 Task，再决定是否分派。</p>
-<p>Plan、Task 和 Subagent 都是产品能力，不是 Agent 的必选套餐。DEF 当前收窄了这组入口，主要路径仍是单 Session 内的工具循环；它更关心工具怎样读到产品事实、修改怎样进入草稿，以及应用后如何验证。</p>
-<p>这些抽象走进当前项目以后，会换成一些更具体的名字。下一页把它们串在一起：<a href="05-def-and-opencode.html">这些概念在 DEF 里怎样落地</a>。</p>
+    <article class="markdown-body"><h1>篇章 11：Harness</h1>
+<blockquote>
+<p>占位，内容待补充。</p>
+</blockquote>
 </article>
     <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
   </main>
