@@ -33,7 +33,7 @@
    - [Spec 8-3：进化产品化](./def-opencode-cognitive-runtime-spec8/spec8-3.md)
    - [预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
    - [预研究：Harness 自进化](./def-opencode-cognitive-runtime-spec8/harness-self-evolution-research.md)
-8. [Spec 9-1：停用 /AI CLI Def OpenCode 与清除 AI 模式历史会话](./def-opencode-host-retirement-spec9-1/spec.md)
+8. [Spec 9-1：停用 /AI CLI Def OpenCode 与清除全部 AI 模式会话](./def-opencode-host-retirement-spec9-1/spec.md)
 
 关联演进线：
 
