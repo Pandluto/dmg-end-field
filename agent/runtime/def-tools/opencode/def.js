@@ -1734,9 +1734,14 @@ export const data_loadout_candidates = batchLoadoutResource({
 
 export const data_operator_catalog = dataResource({
   title: 'DEF selection catalog resource',
-  description: 'Search the read-only operator catalog used by the selection screen. Use this after a user asks to find someone outside the current selected roster; it never changes that roster.',
+  contract: 'DefOperatorCatalogV2',
+  description: 'Search the read-only operator catalog used by the selection screen. An empty query returns the complete current local library; a named query returns bounded exact candidates. Use this after a user asks to find someone outside the current selected roster; it never changes that roster.',
   tool: 'def.operator.catalog.search',
-  input: ({ query }) => ({ query, limit: 12 }),
+  preserveContract: true,
+  input: ({ query }) => {
+    const normalizedQuery = typeof query === 'string' ? query.trim() : ''
+    return { query: normalizedQuery, limit: normalizedQuery ? 12 : 200 }
+  },
 })
 
 export const team_selection_apply = {

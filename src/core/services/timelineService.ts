@@ -149,6 +149,7 @@ function buildTimelineButtonsFromSkillButtonTable(
         skillDisplayName: button.skillDisplayName,
         skillIconUrl: button.skillIconUrl,
         customHits: button.customHits,
+        buffIds: [...(button.selectedBuff || [])],
       }))
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
 

@@ -19,6 +19,22 @@ const port = 18700 + Math.floor(Math.random() * 300);
 const databasePath = path.join(root, 'timeline.sqlite');
 const internalToken = 'tool-policy-contract-native-host';
 const repository = createTimelineRepository({ databasePath });
+const restStorageDir = path.join(root, 'rest');
+const operatorCatalogFixture = {};
+for (let index = 1; index <= 30; index += 1) {
+  const id = index === 1 ? 'operator-A' : index === 28 ? 'kamiao' : `operator-${index}`;
+  operatorCatalogFixture[id] = {
+    id,
+    name: index === 1 ? 'Catalog Operator A' : index === 28 ? '卡缪' : `Operator ${index}`,
+    element: index === 28 ? 'fire' : 'physical',
+    profession: index === 28 ? '先锋' : '近卫',
+    skills: {},
+  };
+}
+fs.mkdirSync(restStorageDir, { recursive: true });
+fs.writeFileSync(path.join(restStorageDir, 'localStorage.json'), JSON.stringify({
+  'def.operator-editor.library.v1': JSON.stringify(operatorCatalogFixture),
+}, null, 2));
 
 const emptyPayload = {
   selectedCharacters: [], timelineData: { staffLines: [] }, skillButtonTable: {}, allBuffList: [],
@@ -85,7 +101,7 @@ const child = spawn(process.execPath, ['scripts/ai-cli-rest-server.mjs'], {
     ...process.env,
     AI_CLI_REST_PORT: String(port),
     AI_CLI_REST_STORAGE_MODE: 'runtime',
-    AI_CLI_REST_STORAGE_DIR: path.join(root, 'rest'),
+    AI_CLI_REST_STORAGE_DIR: restStorageDir,
     AI_CLI_REST_VITE_CACHE_DIR: path.join(root, 'vite'),
     AI_TIMELINE_WORK_NODE_DB_PATH: path.join(root, 'nodes.sqlite'),
     AI_TIMELINE_WORK_NODE_LEGACY_PATH: path.join(root, 'nodes.json'),
@@ -346,6 +362,25 @@ try {
       assert(response.body.result.candidates.every((candidate) => candidate.scope === 'public-catalog'), tool);
     }
   }
+  const completeOperatorCatalog = await generic('def.operator.catalog.search', { query: '', limit: 200 });
+  assert.equal(completeOperatorCatalog.status, 200, JSON.stringify(completeOperatorCatalog.body));
+  assert.equal(completeOperatorCatalog.body.result.catalogCount, 30);
+  assert.equal(completeOperatorCatalog.body.result.count, 30);
+  assert.equal(completeOperatorCatalog.body.result.exhaustive, true);
+  assert.equal(completeOperatorCatalog.body.result.truncated, false);
+  assert.equal(completeOperatorCatalog.body.result.candidates[27].id, 'kamiao');
+
+  const completeCatalogSelectionValidation = await generic('def.team.selection.apply', {
+    characterIds: ['operator-A', 'kamiao'],
+    nodeTitle: 'Operator A 换卡缪',
+    nodeDescription: '保留当前 Operator A，并将卡缪加入完整候选队伍。',
+  }, 'session-a');
+  assert.equal(completeCatalogSelectionValidation.status, 409, JSON.stringify(completeCatalogSelectionValidation.body));
+  assert.equal(
+    completeCatalogSelectionValidation.body.result.code,
+    'approval-capability-required',
+    'a valid operator after the former 24-entry cutoff must reach approval validation',
+  );
 
   const treeBefore = treeState();
   const queueBefore = await request('/api/main-workbench/commands', { internal: true });

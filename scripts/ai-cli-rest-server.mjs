@@ -4130,14 +4130,18 @@ function compactDefOperatorCatalogEntry(raw, fallbackId) {
   };
 }
 
-function listDefOperatorCatalog(input = {}) {
+function readDefOperatorCatalogEntries() {
   const library = readMainWorkbenchJson(OPERATOR_CATALOG_STORAGE_KEY, {});
-  const entries = library && typeof library === 'object' && !Array.isArray(library)
+  return library && typeof library === 'object' && !Array.isArray(library)
     ? Object.entries(library).map(([fallbackId, raw]) => compactDefOperatorCatalogEntry(raw, fallbackId)).filter(Boolean)
     : [];
+}
+
+function listDefOperatorCatalog(input = {}) {
+  const entries = readDefOperatorCatalogEntries();
   const rawQuery = input.query || input.name || input.text || '';
   const query = normalizeDefToolText(rawQuery);
-  const limit = boundedDefLimit(input.limit, 12);
+  const limit = boundedDefLimit(input.limit, 12, 200);
   const matched = entries
     .filter((character) => !query || normalizeDefToolText(`${character.name} ${character.id} ${character.element} ${character.profession}`).includes(query))
     .map((character) => ({ ...character, confidence: normalizeDefToolText(character.name) === query ? 1 : 0.8 }));
@@ -8190,8 +8194,11 @@ async function executeDefTeamSelectionApply(input = {}) {
   if (requestedIds.length === 0 || requestedIds.length > 4) {
     return { ok: false, state: 'BLOCKED', code: 'invalid-team-selection', message: 'Provide one to four exact operator ids.', currentCheckoutTouched: false };
   }
-  const catalog = listDefOperatorCatalog({ limit: 24 });
-  const catalogById = new Map(catalog.candidates.map((character) => [character.id, character]));
+  // Mutation validation must use the same complete local selection library as
+  // exact catalog resolution. A bounded browse page is presentation data, not
+  // an authorization boundary: operators after that page remain valid local
+  // identities and must not become impossible to select.
+  const catalogById = new Map(readDefOperatorCatalogEntries().map((character) => [character.id, character]));
   const resolved = requestedIds.map((characterId) => catalogById.get(characterId)).filter(Boolean);
   if (resolved.length !== requestedIds.length) {
     return {

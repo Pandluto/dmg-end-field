@@ -4,7 +4,7 @@
 
 分支：`codex/def-opencode-spec9-2-implementation`
 
-当前实现提交：`d9dfc214`
+当前实现基线：`d9dfc214`；本次 Selection 回归修复：本提交
 
 ## 结论
 
@@ -16,7 +16,7 @@
 | 原子边界 | 通过 | semantic write-scope、CAS、串行提交、下游 disposition 和业务级上下文投影由代码约束 |
 | 自动验证 | 通过 | Manager 合同、项目回归、类型、构建、知识和仓库检查均通过 |
 | 只读黑盒与真实 UI | 通过 | 五业务均走正式 Interop；最新回合在真实 DEF iframe 可见 |
-| 写操作最终验收 | **未完成** | 尚未在隔离工作区完成五业务 mutation、native approval、跨业务计划和真实热重载 UI 矩阵 |
+| 写操作最终验收 | **部分通过** | Selection 已完成一次非空存档换人和一次反向恢复；其余业务 mutation、approval 拒绝、跨业务计划和真实热重载 UI 矩阵仍未完成 |
 
 所以当前状态是：**Task 1—14 完成，Task 15 部分完成；不能把整轮写成全部验收通过。**
 
@@ -37,11 +37,17 @@
 3. 模型可能为整条排轴查询虚构角色、技能或坐标过滤条件；
 4. `def_workbench_context` 会向当前业务泄露完整 Workbench 快照，削弱上下文原子性。
 
+本次 Selection 回归修复继续处理了三处确定性断裂：
+
+1. 本地干员库有 30 人，但空查询只返回 12 人，正式换人又只用前 24 人校验；
+2. Selection phase 成功推进后，模型仍可能重复旧 Tool 或虚构不存在的选人 getter；
+3. 非空旧存档重建排轴按钮时丢失 `selectedBuff → buffIds` 镜像，导致正确换人仍被产品校验拒绝。
+
 ## 自动验证
 
 | 命令 | 结果 |
 | --- | --- |
-| `npm run test:def-harness-manager` | 通过：44 个 Manager 测试及全部聚合合同 |
+| `npm run test:def-harness-manager` | 通过：58 个 Manager 测试及全部聚合合同 |
 | `npm run typecheck` | 通过 |
 | `npm test` | 通过 |
 | `npm run build:web` | 通过；仅保留既有 chunk/dynamic-import 警告 |
@@ -76,12 +82,30 @@ e9adde7b0bd194092f2ed62de890c8a49172d2f38fe50f1b5a3009798215cf56
 此前四个只读业务的 Interop 运行游标在 sidecar 重启后失效，因此这里只保留了
 Session/run/turn 和定性结果，不能把它们冒充为完整性能记录。
 
+## 2026-07-23 Selection 回归修复
+
+| 验证 | 证据 | 结果 |
+| --- | --- | --- |
+| 失败会话审计 | Session `ses_0706eab7bffe652fyPPXYhEbDM` | 58 条消息、41 次 Tool、15 次错误；确认不是文本记忆丢失，而是目录范围、阶段投影和写入校验断裂 |
+| 完整本地库 | Session `ses_070586d31ffeR6azPCbXXhncxr`，run `af248b71-decb-4dda-bb65-b610e093d2dc` | 一次 `def_data_operator_catalog` 返回 30/30，`exhaustive=true`、`truncated=false`，包含秋栗和卡缪 |
+| 正向换人 | Session `ses_07052a5b5ffeCxSKmygoDB62yQ`，run `ba34f975-0c57-4469-bef8-cb62552401fb` | 在非空存档把秋栗换为卡缪，生成 Work Node `ai-timeline-node-1784821969613-ascgi1y6`；由此隔离出旧存档 BUFF 镜像遗漏 |
+| 独立反向复测 | Session `ses_070500b10ffeO7TQtRElq4brbw`，run `e4d7c06b-9866-43e4-b09a-af22f95385cf`，turn `e98de304-389f-487e-b7c9-6c51eaad48d7` | `route → context → catalog → apply → context`，零 Tool 错误、零重复调用；生成 Work Node `ai-timeline-node-1784822145222-hfo6tx8y` |
+| 真实 UI 终态 | 同一反向复测 | iframe 显示“替换已成功应用”，秋栗卡片可见、卡缪卡片消失；队伍恢复为莱万汀、狼卫、艾尔黛拉、秋栗 |
+
+正向测试第一次得到 409 时没有放宽 Harness 或绕过正式 mutation。命令结果明确指出
+`Timeline button ... Buff ids differ from skillButtonTable`，最终修复是恢复
+`selectedBuff` 到持久化 `buffIds` 的既有镜像关系。修复后使用全新 Session 做反向操作，
+完整链路没有 unavailable-tool、phase-denied、retry-limit 或重复 apply。
+
+这组证据只证明 **Selection replace 的非空真实路径**。它不代替 Selection
+新增/删除、approval 拒绝以及另外四项业务的 mutation 验收。
+
 ## Task 15 剩余验收
 
 以下内容必须在独立、可清理的 SQLite/Workbench 测试工作区执行，不能直接拿用户
 当前正式排轴充当测试夹具：
 
-1. selection 的新增、换人、删人、native approval、真实页面和下游失效；
+1. selection 的新增、删人、approval 拒绝和完整下游失效矩阵；非空换人及真实页面已通过；
 2. loadout 的预览、纠正、后续确认、原 proposal 固定和配置页 postcondition；
 3. timeline 的添加、移动、删除、Work Node、审批和恢复；
 4. buff 的单体与批量写入、写域隔离和可见 postcondition；

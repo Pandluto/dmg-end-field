@@ -53,6 +53,17 @@ test('keeps direct conversation out of business routing', () => {
   assert.equal(rawResult.kind, 'conversation');
   assert.equal(rawResult.intent, 'previous-result');
 
+  for (const userText of [
+    '为什么被截断了',
+    '妈的谁设计的',
+    '这是你自己找到的，上下文丢了？',
+    '意思是你换不了人？',
+  ]) {
+    const followup = beginRoutePhase({ userText, definitions });
+    assert.equal(followup.kind, 'conversation', userText);
+    assert.equal(followup.intent, 'previous-result', userText);
+  }
+
   const schemaFollowup = beginRoutePhase({ userText: 'selectedCharacters 不就是队伍吗？', definitions });
   assert.equal(schemaFollowup.kind, 'conversation');
   assert.equal(schemaFollowup.intent, 'previous-result-semantics');

@@ -44,8 +44,9 @@
           "kind": "evidence",
           "tools": ["def.data.resource.operator_catalog"],
           "writes": [],
-          "instructions": "Resolve the user's complete operator wording to exact stable catalog identities. For an explicit request to browse the local operator library or replacement candidates, use one empty query and preserve catalogCount, exhaustive and truncated. Never guess an id or call a bounded page the whole catalog.",
+          "instructions": "Resolve the user's complete operator wording to exact stable catalog identities. For an explicit request to browse the local operator library or replacement candidates, use exactly one empty query; that contract must return the complete current local library. Preserve catalogCount, exhaustive and truncated. Never guess an id, issue parallel keyword probes, or call a bounded page the whole catalog.",
           "resultTransitions": [
+            {"path": "truncated", "equals": true, "target": "catalog-incomplete"},
             {"path": "catalogCount", "equals": 0, "target": "catalog-unavailable"}
           ],
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
@@ -55,8 +56,16 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Return exact matches and any remaining ambiguity. For a browse result, report catalogCount separately from the bounded candidate count and explicitly state when truncated=true.",
+          "instructions": "Return exact matches and any remaining ambiguity. For a browse result, report the complete local library once and ensure the returned count agrees with catalogCount.",
           "terminalState": "completed"
+        },
+        {
+          "id": "catalog-incomplete",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "The local operator catalog contract returned an incomplete page. Report that the complete library could not be read; do not start keyword probes, invent pagination, or call the partial list complete.",
+          "terminalState": "aborted"
         },
         {
           "id": "catalog-unavailable",
@@ -200,7 +209,7 @@
           "kind": "context",
           "tools": ["def.node.crud.context"],
           "writes": [],
-          "instructions": "Read the current roster and determine which current slot is being replaced.",
+          "instructions": "Read the current roster once and determine which current slot is being replaced. This successful context result is the authoritative roster for the rest of the turn; no separate selection getter exists.",
           "transitions": {"onSuccess": "resolve-operator", "onFailure": "failed"}
         },
         {
@@ -208,7 +217,11 @@
           "kind": "evidence",
           "tools": ["def.data.resource.operator_catalog"],
           "writes": [],
-          "instructions": "Resolve the replacement operator to one exact stable id and construct the complete ordered replacement roster.",
+          "instructions": "Use the authoritative roster already returned by the preceding context phase. Resolve the replacement operator to one exact stable id and construct the complete ordered replacement roster. Call only the currently projected catalog Tool, exactly once. Its successful result immediately advances the phase; never call a selection getter or repeat the catalog.",
+          "resultTransitions": [
+            {"path": "count", "equals": 0, "target": "identity-unresolved"},
+            {"path": "ambiguity", "equals": true, "target": "identity-unresolved"}
+          ],
           "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
         },
         {
@@ -216,7 +229,7 @@
           "kind": "mutation",
           "tools": ["def.team.selection.apply"],
           "writes": ["selection.members", "selection.order"],
-          "instructions": "Apply the complete ordered replacement once. Native approval must show the replacement and downstream invalidations.",
+          "instructions": "The authoritative current roster and exact replacement identity are already present in this turn. Call only the currently projected selection apply Tool, exactly once, with the complete ordered replacement. Do not re-read context or catalog. Native approval must show the replacement and downstream invalidations.",
           "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
           "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
         },
@@ -249,7 +262,15 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Ask only for the missing replacement slot or exact operator identity.",
+          "instructions": "Report 未应用 and the exact typed failure already present in the turn. Do not retry the same mutation, re-query an identity already resolved exactly, or invent a manual recovery step.",
+          "terminalState": "aborted"
+        },
+        {
+          "id": "identity-unresolved",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "The replacement identity was absent or ambiguous in the local selection catalog. Report 未应用 and ask only for the exact replacement operator; do not call the mutation.",
           "terminalState": "aborted"
         }
       ]

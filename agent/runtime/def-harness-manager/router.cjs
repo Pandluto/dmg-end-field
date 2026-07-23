@@ -34,6 +34,15 @@ function classifyConversationTurn(userText = '') {
   ) {
     return { kind: 'conversation', intent: 'previous-result', userText: text };
   }
+  if (
+    /(?:为什么|怎么).*(?:截断|只(?:返回|显示|给出?|找到)(?:了)?(?:\d+|这些|一部分)?(?:人|条|个)?|没有(?:全部|完整))/.test(compact)
+    || /^(?:(?:妈的|我操|操)，?)?谁设计的[？?。！!]*$/.test(compact)
+    || /(?:刚才|之前|明明).*(?:找到|查到|知道).*(?:上下文|丢|忘|还在|为什么|怎么)/.test(compact)
+    || /(?:上下文).*(?:丢|没了|忘了|不存在)/.test(compact)
+    || /^(?:意思是|所以).*(?:换不了|不能|没法|失败|做不了)/.test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'previous-result', userText: text };
+  }
   if (/(?:selectedCharacters|operatorConfigs|skillCatalog|checkoutPhase)/i.test(compact)) {
     return { kind: 'conversation', intent: 'previous-result-semantics', userText: text };
   }

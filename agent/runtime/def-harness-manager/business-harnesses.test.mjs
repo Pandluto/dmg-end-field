@@ -95,6 +95,49 @@ test('selection action operations reach the formal mutation and visible verifica
   }
 });
 
+test('selection catalog and replacement phases fail closed on incomplete identity evidence', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(businessRoot, 'selection', 'revisions', 'v1', 'manifest.json'),
+    'utf8',
+  ));
+  const searchPhases = manifest.operations.search.phases;
+  const search = searchPhases.find((phase) => phase.id === 'resolve-operator');
+  assert(search.resultTransitions.some((transition) => (
+    transition.path === 'truncated'
+    && transition.equals === true
+    && transition.target === 'catalog-incomplete'
+  )));
+  assert.equal(
+    searchPhases.find((phase) => phase.id === 'catalog-incomplete').terminalState,
+    'aborted',
+  );
+
+  const replacePhases = manifest.operations.replace.phases;
+  const resolve = replacePhases.find((phase) => phase.id === 'resolve-operator');
+  assert(resolve.resultTransitions.some((transition) => (
+    transition.path === 'ambiguity'
+    && transition.equals === true
+    && transition.target === 'identity-unresolved'
+  )));
+  assert.equal(
+    replacePhases.find((phase) => phase.id === 'identity-unresolved').terminalState,
+    'aborted',
+  );
+  assert.match(
+    replacePhases.find((phase) => phase.id === 'failed').instructions,
+    /Do not retry the same mutation/,
+  );
+  assert.match(
+    replacePhases.find((phase) => phase.id === 'read-current').instructions,
+    /no separate selection getter exists/,
+  );
+  assert.match(resolve.instructions, /never call a selection getter or repeat the catalog/);
+  assert.match(
+    replacePhases.find((phase) => phase.id === 'apply-selection').instructions,
+    /Do not re-read context or catalog/,
+  );
+});
+
 test('timeline action operations use the validated Work Node and then verify the visible checkout', () => {
   const definition = JSON.parse(fs.readFileSync(
     path.join(businessRoot, 'timeline', 'definition.json'),
@@ -123,4 +166,15 @@ test('damage Tool exposes a product-owned formula hash', () => {
   assert.match(restSource, /DEF_DAMAGE_FORMULA_VERSION = `sha256:/);
   assert.match(restSource, /formulaVersion: DEF_DAMAGE_FORMULA_VERSION/);
   assert.match(nativeToolSource, /formulaVersion: result\.formulaVersion/);
+});
+
+test('selection catalog browse and mutation validation share the complete local library', () => {
+  const restSource = fs.readFileSync(path.resolve('scripts/ai-cli-rest-server.mjs'), 'utf8');
+  const nativeToolSource = fs.readFileSync(path.resolve('agent/runtime/def-tools/opencode/def.js'), 'utf8');
+  assert.match(restSource, /function readDefOperatorCatalogEntries\(\)/);
+  assert.match(restSource, /new Map\(readDefOperatorCatalogEntries\(\)\.map/);
+  assert.doesNotMatch(restSource, /listDefOperatorCatalog\(\{ limit: 24 \}\)/);
+  assert.match(nativeToolSource, /contract: 'DefOperatorCatalogV2'/);
+  assert.match(nativeToolSource, /preserveContract: true/);
+  assert.match(nativeToolSource, /limit: normalizedQuery \? 12 : 200/);
 });

@@ -21,12 +21,20 @@ const sourceBusinessRoot = path.resolve(
 function makeLoadoutV2(businessRoot) {
   const v1 = path.join(businessRoot, 'loadout', 'revisions', 'v1');
   const v2 = path.join(businessRoot, 'loadout', 'revisions', 'v2');
+  fs.rmSync(v2, { recursive: true, force: true });
   fs.cpSync(v1, v2, { recursive: true });
   const manifestPath = path.join(v2, 'manifest.json');
   const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
   manifest.version = 'v2';
   fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
   fs.appendFileSync(path.join(v2, 'instructions.md'), '\nV2 hot-reload contract marker.\n', 'utf8');
+}
+
+function setLoadoutDefaultRevision(businessRoot, revision) {
+  const definitionPath = path.join(businessRoot, 'loadout', 'definition.json');
+  const definition = JSON.parse(fs.readFileSync(definitionPath, 'utf8'));
+  definition.defaultRevision = revision;
+  fs.writeFileSync(definitionPath, `${JSON.stringify(definition, null, 2)}\n`, 'utf8');
 }
 
 test('hot-reloads only loadout while pinning old transactions in the same Session', async () => {
@@ -37,6 +45,7 @@ test('hot-reloads only loadout while pinning old transactions in the same Sessio
     const revisionStatePath = path.join(root, 'revisions.json');
     fs.cpSync(sourceBusinessRoot, businessRoot, { recursive: true });
     fs.mkdirSync(sessionDirectory, { recursive: true });
+    setLoadoutDefaultRevision(businessRoot, 'v1');
     makeLoadoutV2(businessRoot);
 
     const runtime = new HarnessTransactionRuntime({
@@ -130,6 +139,11 @@ test('same-version hot reload preserves the pinned content for a fresh runtime',
     const revisionStatePath = path.join(root, 'revisions.json');
     fs.cpSync(sourceBusinessRoot, businessRoot, { recursive: true });
     fs.mkdirSync(sessionDirectory, { recursive: true });
+    setLoadoutDefaultRevision(businessRoot, 'v1');
+    fs.rmSync(path.join(businessRoot, 'loadout', 'revisions', 'v2'), {
+      recursive: true,
+      force: true,
+    });
     const firstRuntime = new HarnessTransactionRuntime({
       sessionDirectory,
       businessRoot,

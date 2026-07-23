@@ -17,10 +17,19 @@ through the exact operator catalog. Preserve stable ids and order. A candidate i
 always the complete resulting roster, not a sequence of partial add/remove
 mutations.
 
+Each phase keeps the successful result from the preceding phase in the same
+turn. Use that result directly. Call only the Tool currently projected by the
+Harness: never invent a remembered selection getter, repeat a Tool after its
+successful result has advanced the phase, or re-read current state between exact
+identity resolution and the single apply.
+
 The current selected roster and the selection-screen local catalog are separate
-scopes. A catalog browse may return only a bounded page; preserve
-`catalogCount`, `exhaustive` and `truncated`, and never infer the complete
-library from `selectedCharacters` or from a bounded candidate list.
+scopes. An empty operator-catalog query is the exhaustive local-library
+contract; call it once for a browse request and require `count === catalogCount`,
+`exhaustive=true` and `truncated=false`. A named lookup remains bounded to its
+exact candidates. Never infer the complete library from `selectedCharacters`,
+assemble it through parallel keyword probes, or present a partial result as a
+page that can be continued without a typed cursor.
 
 Distinguish:
 
@@ -48,4 +57,6 @@ After success, describe separately:
 4. that calculation must recompute.
 
 If catalog identity, approval, CAS or visible verification fails, report
-`未应用`; never fall back to editing Work Node payloads.
+`未应用` with the exact typed failure; never repeat an unchanged non-retryable
+mutation, invent a manual recovery step, or fall back to editing Work Node
+payloads.
