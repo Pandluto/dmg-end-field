@@ -140,6 +140,12 @@ const sealLoadMismatch = await createActiveHarnessThroughInterop({
 });
 assert.equal(sealLoadMismatch.status, 502);
 assert.equal(sealLoadMismatch.body.error.code, 'BLOCKED_HARNESS_LOAD', 'candidate seal/load failures remain Harness load failures');
+assert.deepEqual(sealLoadMismatch.body.error.details, {
+  resource: 'native-session-create',
+  upstreamStatus: 500,
+  upstreamCode: 'HARNESS_PROJECTION_SEAL_INVALID',
+  upstreamMessage: 'sealed session mismatch',
+}, 'authorized teacher ingress must retain a bounded, redacted sidecar cause for owner routing');
 const runnerSource = fs.readFileSync(new URL('./def-harness-native-runner.mjs', import.meta.url), 'utf8');
 assert(runnerSource.includes("caught.code === 'ERROR_SCENARIO' ? 'ERROR_VERIFIER'"),
   'runner must map Scenario configuration errors to the established ERROR_VERIFIER status while retaining error.code');

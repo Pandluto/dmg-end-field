@@ -875,7 +875,14 @@ function createDefCodexInteropProtocol(options) {
         if (nativeCreateCode === 'BLOCKED_ENVIRONMENT') {
           reject(response, 409, createError('BLOCKED_ENVIRONMENT', nativeCreateMessage || 'The visible Workbench current projection no longer admits this fresh Harness session.', 'sidecar', { retryable: true })); return true;
         }
-        reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', { retryable: true })); return true;
+        reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', {
+          retryable: true,
+          // Teacher ingress is already loopback-authorized. Preserve a bounded,
+          // redacted upstream cause so a real runtime failure can be assigned to
+          // its owner without exposing bearer material or changing the public
+          // Harness outcome vocabulary.
+          details: nativeObservationFailure('native-session-create', created),
+        })); return true;
       }
       const session = created.body.session;
       const runner = { id: `harness-runner-${crypto.randomUUID()}`, host: 'harness-runner', sessionId: session.id, directory: session.directory, timelineId, fixtureId: fixtureMode === 'hidden-fixture' ? projectionProvision.body.fixture.fixtureId : fixtureId, fixtureMode, boundNodeId: boundNodeId || null, harnessBinding: session.harnessBinding || null, agentRelease: session.agentRelease || null, projection: session.harnessProjection || null, ownedFixture: fixtureMode !== 'active-current-readonly', createdAt: Date.now(), updatedAt: Date.now() };
