@@ -1639,6 +1639,45 @@ function harnessLeaseIdentity(session) {
   };
 }
 
+function readHarnessProjectionAuthority(input = {}) {
+  if (!Object.prototype.hasOwnProperty.call(input, 'harnessProjection')) return { present: false };
+  const value = input.harnessProjection;
+  return {
+    present: true,
+    provisionToken: typeof value?.provisionToken === 'string' ? value.provisionToken.trim() : '',
+    mode: typeof value?.mode === 'string' ? value.mode.trim() : '',
+  };
+}
+
+function assertHarnessProjectionProvision(input, timelineId, boundNodeId = '') {
+  const authority = readHarnessProjectionAuthority(input);
+  if (!authority.present) return { ok: false, code: 'missing-harness-provision-token' };
+  return harnessProjectionLeases.assertProvision({
+    token: authority.provisionToken,
+    mode: authority.mode,
+    timelineId,
+    boundNodeId,
+  });
+}
+
+function isHiddenFixtureProvision(proof) {
+  return proof?.ok && (proof.mode || proof.record?.mode) === 'hidden-fixture';
+}
+
+function isActiveCurrentReadonlyProvision(proof) {
+  return proof?.ok && (proof.mode || proof.record?.mode) === 'active-current-readonly';
+}
+
+function resolveActiveHarnessFixtureBinding(binding) {
+  if (!binding) return { ok: false, code: 'blocked-harness-fixture-stale' };
+  return harnessProjectionLeases.resolve({
+    sessionId: binding.opencodeSessionId,
+    axisBindingId: binding.id,
+    timelineId: binding.timelineId,
+    boundNodeId: binding.boundNodeId || '',
+  }, { mode: 'hidden-fixture' });
+}
+
 function resolveHarnessFixtureCurrent(input = {}, { nodeId = '' } = {}) {
   const session = resolveHarnessFixtureBoundSession(input, { nodeId });
   if (!session.ok) return session;
@@ -10428,6 +10467,26 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(400, 'blocked-binding', 'Workbench binding assertion requires sessionBindingId, sessionID, host=workbench, and timelineId.');
     }
     const repository = getTimelineRepository();
+    const fixtureBinding = repository.getHarnessFixtureSessionAxisBinding(bindingId);
+    if (fixtureBinding) {
+      if (fixtureBinding.host !== 'workbench' || fixtureBinding.opencodeSessionId !== sessionID || fixtureBinding.timelineId !== timelineId) {
+        return failScript(409, 'blocked-session-mismatch', 'The requested Harness fixture binding does not match its SQLite workspace.');
+      }
+      const authority = readHarnessProjectionAuthority(input);
+      const proof = authority.present
+        ? assertHarnessProjectionProvision(input, timelineId, fixtureBinding.boundNodeId || '')
+        : resolveActiveHarnessFixtureBinding(fixtureBinding);
+      if (!isHiddenFixtureProvision(proof)) {
+        return failScript(409, proof?.code || 'harness-provision-mode-mismatch', 'The Harness fixture binding no longer has valid projection authority.');
+      }
+      const document = repository.getHarnessFixtureDocument(timelineId);
+      const context = repository.getHarnessFixtureSessionAxisContext(bindingId);
+      if (!document || document.archivedAt || document.isTemporary || !context?.binding || context.binding.id !== bindingId) {
+        return failScript(409, 'blocked-harness-fixture-stale', 'The Harness fixture workspace is no longer available.');
+      }
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding: fixtureBinding, document } } };
+    }
+    const authority = readHarnessProjectionAuthority(input);
     const binding = repository.getSessionAxisBinding(bindingId);
     const document = repository.getDocument(timelineId);
     if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID || binding.timelineId !== timelineId) {
@@ -10435,12 +10494,26 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     }
     if (!document || document.archivedAt) return failScript(409, 'blocked-binding-stale', 'The SQLite workspace bound to this DEF session is no longer available.');
     if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot be bound to DEF OpenCode.');
+    if (authority.present) {
+      const proof = assertHarnessProjectionProvision(input, timelineId, binding.boundNodeId || '');
+      if (!isActiveCurrentReadonlyProvision(proof) || (binding.boundNodeId || '') !== proof.boundNodeId) {
+        return failScript(409, proof?.code || 'harness-provision-mode-mismatch', 'Formal Workbench bindings require the exact active-current-readonly provision coordinates.');
+      }
+    }
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, document } } };
   }
   if (name === 'def.workbench.assert_timeline_admission') {
     const timelineId = typeof input.timelineId === 'string' ? input.timelineId.trim() : '';
     if (!timelineId) return failScript(400, 'blocked-binding', 'Workbench session creation requires timelineId.');
-    const document = getTimelineRepository().getDocument(timelineId);
+    const repository = getTimelineRepository();
+    const authority = readHarnessProjectionAuthority(input);
+    const proof = authority.present ? assertHarnessProjectionProvision(input, timelineId) : null;
+    if (authority.present && !proof.ok) {
+      return failScript(409, proof.code, 'Harness projection admission requires a valid, unconsumed projection provision.');
+    }
+    const document = isHiddenFixtureProvision(proof)
+      ? repository.getHarnessFixtureDocument(timelineId)
+      : repository.getDocument(timelineId);
     if (!document || document.archivedAt) return failScript(404, 'blocked-binding', 'The requested SQLite workspace is unavailable.');
     if (document.isTemporary) return failScript(409, 'blocked-temporary-workspace', 'Temporary SQLite workspaces cannot open DEF AI mode.');
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, document } } };
@@ -10482,15 +10555,76 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
       return failScript(400, 'blocked-binding', 'sessionBindingId, sessionID, host=workbench, and timelineId are required.');
     }
     const repository = getTimelineRepository();
+    const authority = readHarnessProjectionAuthority(input);
+    const requestedNodeId = typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
+      ? input.boundNodeId.trim()
+      : '';
+    let formalProvision = null;
+    const fixtureBinding = repository.getHarnessFixtureSessionAxisBinding(bindingId);
+    if (fixtureBinding) {
+      if (fixtureBinding.host !== host || fixtureBinding.opencodeSessionId !== sessionID || fixtureBinding.timelineId !== timelineId) {
+        return failScript(409, 'blocked-session-mismatch', 'A Harness fixture session binding cannot be rebound to another workspace.');
+      }
+      const proof = authority.present
+        ? assertHarnessProjectionProvision(input, timelineId, fixtureBinding.boundNodeId || '')
+        : resolveActiveHarnessFixtureBinding(fixtureBinding);
+      if (!isHiddenFixtureProvision(proof)) {
+        return failScript(409, proof?.code || 'harness-provision-mode-mismatch', 'The existing Harness fixture binding has no valid continuation authority.');
+      }
+      if (requestedNodeId && requestedNodeId !== fixtureBinding.boundNodeId) {
+        return failScript(409, 'blocked-session-mismatch', 'The requested Work Node does not match the Harness fixture binding.');
+      }
+      const context = repository.getHarnessFixtureSessionAxisContext(bindingId);
+      if (!context) return failScript(409, 'blocked-harness-fixture-stale', 'The Harness fixture workspace is unavailable.');
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding: fixtureBinding, context } } };
+    }
+    const existingFormalBinding = repository.getSessionAxisBinding(bindingId);
+    if (authority.present) {
+      const proof = assertHarnessProjectionProvision(input, timelineId, requestedNodeId);
+      if (!proof.ok) return failScript(409, proof.code, 'Harness fixture binding requires a valid, unconsumed projection provision.');
+      if (isHiddenFixtureProvision(proof)) {
+        if (repository.getSessionAxisBinding(bindingId)) {
+          return failScript(409, 'blocked-session-mismatch', 'A formal session binding cannot be promoted to a Harness fixture binding.');
+        }
+        const document = repository.getHarnessFixtureDocument(timelineId);
+        if (!document || document.archivedAt || document.isTemporary) {
+          return failScript(409, 'blocked-harness-fixture-stale', 'The requested Harness fixture workspace is unavailable.');
+        }
+        try {
+          const binding = repository.upsertHarnessFixtureSessionAxisBinding({
+            id: bindingId,
+            timelineId,
+            host,
+            opencodeSessionId: sessionID,
+            boundNodeId: proof.boundNodeId,
+          });
+          const context = repository.getHarnessFixtureSessionAxisContext(binding.id);
+          if (!context) return failScript(409, 'blocked-harness-fixture-stale', 'The Harness fixture workspace is unavailable.');
+          return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context } } };
+        } catch (error) {
+          return failScript(error?.status || 409, error?.code || 'blocked-harness-fixture-stale', error instanceof Error ? error.message : 'Harness fixture binding failed.');
+        }
+      }
+      if (!isActiveCurrentReadonlyProvision(proof)) {
+        return failScript(409, 'harness-provision-mode-mismatch', 'The Harness projection mode cannot bind a formal Workbench workspace.');
+      }
+      if (existingFormalBinding && (existingFormalBinding.host !== host
+        || existingFormalBinding.opencodeSessionId !== sessionID
+        || existingFormalBinding.timelineId !== timelineId
+        || (existingFormalBinding.boundNodeId || '') !== proof.boundNodeId)) {
+        return failScript(409, 'blocked-session-mismatch', 'The formal Workbench binding does not match the active-current-readonly provision.');
+      }
+      formalProvision = proof;
+    }
     try {
       const binding = repository.upsertSessionAxisBinding({
         id: bindingId,
         timelineId,
         host,
         opencodeSessionId: sessionID,
-        boundNodeId: typeof input.boundNodeId === 'string' && input.boundNodeId.trim()
-          ? input.boundNodeId.trim()
-          : null,
+        boundNodeId: formalProvision
+          ? (formalProvision.boundNodeId || null)
+          : (requestedNodeId || existingFormalBinding?.boundNodeId || null),
       });
       return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, binding, context: repository.getSessionAxisContext(binding.id) } } };
     } catch (error) {
@@ -10501,11 +10635,20 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     const bindingId = typeof input.sessionBindingId === 'string' ? input.sessionBindingId.trim() : '';
     const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!bindingId || !sessionID) return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId and sessionID are required.');
-    const binding = getTimelineRepository().getSessionAxisBinding(bindingId);
+    const repository = getTimelineRepository();
+    const fixtureBinding = repository.getHarnessFixtureSessionAxisBinding(bindingId);
+    if (fixtureBinding) {
+      if (fixtureBinding.host !== 'workbench' || fixtureBinding.opencodeSessionId !== sessionID) {
+        return failScript(409, 'blocked-session-mismatch', 'The requested Harness fixture binding does not belong to this Workbench session.');
+      }
+      const result = repository.deleteHarnessFixtureSessionAxisBinding(bindingId);
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
+    }
+    const binding = repository.getSessionAxisBinding(bindingId);
     if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID) {
       return failScript(409, 'blocked-session-mismatch', 'The requested binding does not belong to this Workbench session.');
     }
-    const result = getTimelineRepository().deleteSessionAxisBinding(bindingId);
+    const result = repository.deleteSessionAxisBinding(bindingId);
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, ...result } } };
   }
   if (name === 'def.worknode.list') {
@@ -11372,8 +11515,24 @@ async function handleMainWorkbenchRequest(method, pathname, query, body, invocat
     const sessionBindingId = typeof body?.sessionBindingId === 'string' ? body.sessionBindingId.trim() : '';
     const sessionID = typeof body?.sessionID === 'string' ? body.sessionID.trim() : '';
     const timelineId = typeof body?.timelineId === 'string' ? body.timelineId.trim() : '';
-    const binding = sessionBindingId ? getTimelineRepository().getSessionAxisBinding(sessionBindingId) : null;
-    const axisContext = binding ? getTimelineRepository().getSessionAxisContext(binding.id) : null;
+    const repository = getTimelineRepository();
+    const fixtureBinding = sessionBindingId ? repository.getHarnessFixtureSessionAxisBinding(sessionBindingId) : null;
+    if (fixtureBinding) {
+      if (fixtureBinding.host !== 'workbench' || fixtureBinding.opencodeSessionId !== sessionID
+        || !timelineId || fixtureBinding.timelineId !== timelineId) {
+        return failScript(409, 'blocked-session-mismatch', 'The native checkout projection request does not match its Harness fixture binding.');
+      }
+      const fixtureCurrent = resolveHarnessFixtureCurrent({ __defSessionId: sessionID });
+      if (!fixtureCurrent.ok || fixtureCurrent.binding.id !== fixtureBinding.id
+        || fixtureCurrent.binding.timelineId !== fixtureBinding.timelineId) {
+        return failScript(409, fixtureCurrent.code || 'blocked-harness-read-lease', 'The Harness fixture has no active checkout projection lease.');
+      }
+      // The current fixture projection is held only by the active lease.  Do
+      // not call or update the visible Canvas mirror on this isolated path.
+      return { status: 200, body: { ok: true, protocolVersion: 1, snapshot: fixtureCurrent.snapshot } };
+    }
+    const binding = sessionBindingId ? repository.getSessionAxisBinding(sessionBindingId) : null;
+    const axisContext = binding ? repository.getSessionAxisContext(binding.id) : null;
     const checkout = axisContext?.checkout || null;
     if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID
       || !timelineId || binding.timelineId !== timelineId
@@ -11381,7 +11540,7 @@ async function handleMainWorkbenchRequest(method, pathname, query, body, invocat
       || checkout?.timelineId !== binding.timelineId || checkout.targetType !== 'work-node') {
       return failScript(409, 'blocked-session-mismatch', 'The native checkout projection request does not match an active formal Workbench binding.');
     }
-    const node = getTimelineRepository().getWorkNode(checkout.targetId);
+    const node = repository.getWorkNode(checkout.targetId);
     if (!node || node.timelineId !== binding.timelineId) {
       return failScript(409, 'blocked-session-mismatch', 'The native checkout projection request targets a Work Node outside its binding.');
     }

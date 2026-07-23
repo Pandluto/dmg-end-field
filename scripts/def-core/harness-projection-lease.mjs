@@ -110,6 +110,43 @@ export function createHarnessProjectionLeaseStore({
     return { ok: true, token, expiresAt: provisions.get(tokenHash).expiresAt };
   }
 
+  // A native session must prove a still-provisioned lease before its first
+  // binding, but that proof must not consume the one-shot activation token.
+  // Return only the public binding coordinates needed by the Host; never
+  // expose the token, private projection, or full commitments.
+  function assertProvision({ token, mode, timelineId, boundNodeId = '' } = {}) {
+    const supplied = text(token);
+    if (!supplied) return { ok: false, code: 'missing-harness-provision-token' };
+    const tokenHash = digest(supplied);
+    const record = provisions.get(tokenHash);
+    if (!record || record.state !== 'provisioned') return { ok: false, code: 'harness-provision-invalid-or-consumed' };
+    if (record.expiresAt <= now()) {
+      provisions.delete(tokenHash);
+      return { ok: false, code: 'harness-provision-expired' };
+    }
+    const requestedMode = text(mode);
+    if (!requestedMode || requestedMode !== record.mode) return { ok: false, code: 'harness-provision-mode-mismatch' };
+    const expectedTimelineId = record.mode === 'hidden-fixture'
+      ? record.commitments.fixtureTimelineId
+      : record.commitments.sourceTimelineId;
+    const expectedBoundNodeId = record.mode === 'hidden-fixture'
+      ? record.commitments.fixtureNodeId
+      : (record.commitments.sourceCheckoutTargetType === 'work-node' ? record.commitments.sourceCheckoutTargetId : '');
+    if (!same(timelineId, expectedTimelineId)) return { ok: false, code: 'harness-provision-timeline-mismatch' };
+    const requestedBoundNodeId = text(boundNodeId);
+    if (requestedBoundNodeId && requestedBoundNodeId !== expectedBoundNodeId) {
+      return { ok: false, code: 'harness-provision-node-mismatch' };
+    }
+    return {
+      ok: true,
+      contract: record.contract,
+      mode: record.mode,
+      timelineId: expectedTimelineId,
+      boundNodeId: expectedBoundNodeId,
+      expiresAt: record.expiresAt,
+    };
+  }
+
   function activate({ token, session, ttlMs = MAX_ACTIVE_TTL_MS } = {}) {
     prune();
     const record = provisions.get(digest(token));
@@ -191,5 +228,5 @@ export function createHarnessProjectionLeaseStore({
     return { ok: true, status: record ? 'revoked' : 'already-revoked' };
   }
 
-  return { provision, activate, cancel, resolve, revoke, prune, MAX_PROVISION_TTL_MS, MAX_ACTIVE_TTL_MS };
+  return { provision, assertProvision, activate, cancel, resolve, revoke, prune, MAX_PROVISION_TTL_MS, MAX_ACTIVE_TTL_MS };
 }

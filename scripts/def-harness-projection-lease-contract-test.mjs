@@ -23,6 +23,16 @@ const commitments = {
 assert.equal(store.provision({ mode: 'typo', commitments }).ok, false, 'unknown projection modes must not downgrade to fixture mode');
 const provision = store.provision({ mode: 'hidden-fixture', commitments });
 assert.equal(provision.ok, true);
+const provisionAssertion = store.assertProvision({ token: provision.token, mode: 'hidden-fixture', timelineId: 'fixture', boundNodeId: 'fixture-node' });
+assert.equal(provisionAssertion.ok, true, 'first-bind provision assertion must not consume a valid lease');
+assert.equal(Object.hasOwn(provisionAssertion, 'token'), false, 'provision assertion must never echo its bearer token');
+assert.equal(Object.hasOwn(provisionAssertion, 'projection'), false, 'provision assertion must never expose private projection state');
+assert.equal(store.assertProvision({ token: provision.token, mode: 'active-current-readonly', timelineId: 'fixture', boundNodeId: 'fixture-node' }).ok, false,
+  'a provision assertion must require its exact mode');
+assert.equal(store.assertProvision({ token: provision.token, mode: 'hidden-fixture', timelineId: 'source', boundNodeId: 'fixture-node' }).ok, false,
+  'a provision assertion must require its exact timeline');
+assert.equal(store.assertProvision({ token: provision.token, mode: 'hidden-fixture', timelineId: 'fixture', boundNodeId: 'source-node' }).ok, false,
+  'a provision assertion must require its exact Work Node');
 const identity = { sessionId: 'fixture-session', axisBindingId: 'fixture-axis', timelineId: 'fixture', boundNodeId: 'fixture-node', harnessCommitment: 'sealed-harness', agentReleaseCommitment: 'sealed-release' };
 assert.equal(store.activate({ token: provision.token, session: { ...identity, boundNodeId: '' } }).code, 'harness-activation-node-mismatch', 'missing node identity must not match a fixture lease');
 assert.equal(store.activate({ token: provision.token, session: identity }).ok, true);
@@ -38,6 +48,13 @@ assert.equal(cancelStore.activate({ token: cancelledLease.token, session: identi
   'a cancelled provision cannot be activated later');
 assert.equal(cancelStore.cancel({ token: cancelledLease.token }).code, 'harness-provision-invalid-or-consumed',
   'cancel is one-shot just like activation');
+assert.equal(cancelStore.assertProvision({ token: cancelledLease.token, mode: 'hidden-fixture', timelineId: 'fixture', boundNodeId: 'fixture-node' }).ok, false,
+  'cancelled provisions cannot be asserted for a first bind');
+const expiringStore = createHarnessProjectionLeaseStore({ now: () => clock, randomBytes: () => Buffer.alloc(32, 9) });
+const expiringProvision = expiringStore.provision({ mode: 'hidden-fixture', commitments, ttlMs: 1 });
+clock += 2;
+assert.equal(expiringStore.assertProvision({ token: expiringProvision.token, mode: 'hidden-fixture', timelineId: 'fixture', boundNodeId: 'fixture-node' }).code, 'harness-provision-expired',
+  'expired provisions cannot be asserted for a first bind');
 const ttlStore = createHarnessProjectionLeaseStore({ now: () => clock, activeLimit: 1 });
 const ttlProvision = ttlStore.provision({ mode: 'hidden-fixture', commitments });
 const ttlIdentity = { ...identity, sessionId: 'ttl-session', axisBindingId: 'ttl-axis' };
@@ -316,6 +333,48 @@ try {
   assert.equal(fixtureProvision.status, 201, JSON.stringify(fixtureProvision.body));
   const fixture = fixtureProvision.body.fixture;
   assert(fixture?.timelineId && fixture?.boundNodeId);
+  const fixtureAuthority = { provisionToken: fixtureProvision.body.provisionToken, mode: 'hidden-fixture' };
+  assert.throws(() => repository.exportDocumentBundle(fixture.timelineId), (error) => error?.code === 'timeline-document-not-found',
+    'ordinary repository export must not disclose a hidden fixture');
+  const ordinaryFixtureAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission', input: { timelineId: fixture.timelineId },
+  });
+  assert.equal(ordinaryFixtureAdmission.status, 404, 'ordinary admission must not discover a hidden fixture');
+  const ordinaryFixtureBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'ordinary-fixture-axis', sessionID: 'ordinary-fixture-session', host: 'workbench', timelineId: fixture.timelineId, boundNodeId: fixture.boundNodeId },
+  });
+  assert.equal(ordinaryFixtureBind.status, 409, 'ordinary binding must not attach to a hidden fixture');
+  const fakeFixtureAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission',
+    input: { timelineId: fixture.timelineId, harnessProjection: { provisionToken: 'fake-provision', mode: 'hidden-fixture' } },
+  });
+  assert.equal(fakeFixtureAdmission.status, 409, 'fake provision tokens must fail closed');
+  const wrongModeFixtureAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission',
+    input: { timelineId: fixture.timelineId, harnessProjection: { ...fixtureAuthority, mode: 'active-current-readonly' } },
+  });
+  assert.equal(wrongModeFixtureAdmission.status, 409, 'wrong provision modes must fail closed');
+  const fixtureAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission', input: { timelineId: fixture.timelineId, harnessProjection: fixtureAuthority },
+  });
+  assert.equal(fixtureAdmission.status, 200, JSON.stringify(fixtureAdmission.body));
+  const fixtureBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId, harnessProjection: fixtureAuthority },
+  });
+  assert.equal(fixtureBind.status, 200, JSON.stringify(fixtureBind.body));
+  assert.equal(fixtureBind.body.result.binding.boundNodeId, fixture.boundNodeId, 'fixture first bind uses the lease commitment rather than caller-selected state');
+  const fixtureUnactivatedBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(fixtureUnactivatedBind.status, 409, 'fixture continuation without an active lease must not self-elevate');
+  const fixtureUnactivatedAssert = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(fixtureUnactivatedAssert.status, 409, 'fixture assertions without a token require an active lease');
   const cancelledProvision = await post('/api/main-workbench/harness-projection/provision', { mode: 'hidden-fixture', sourceSessionId: 'source-session' });
   assert.equal(cancelledProvision.status, 201);
   const cancelled = await post('/api/main-workbench/harness-projection/cancel', { provisionToken: cancelledProvision.body.provisionToken });
@@ -323,11 +382,18 @@ try {
     'cancel consumes a provision token without returning the capability');
   const cancelledReplay = await post('/api/main-workbench/harness-projection/cancel', { provisionToken: cancelledProvision.body.provisionToken });
   assert.equal(cancelledReplay.status, 409, 'cancelled provisions are one-shot and cannot be replayed');
+  const cancelledAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission',
+    input: {
+      timelineId: cancelledProvision.body.fixture.timelineId,
+      harnessProjection: { provisionToken: cancelledProvision.body.provisionToken, mode: 'hidden-fixture' },
+    },
+  });
+  assert.equal(cancelledAdmission.status, 409, 'cancelled provision tokens cannot authorize hidden admission');
   const cancelledFixtureDelete = await post('/api/main-workbench/harness-projection/delete-fixture', { timelineId: cancelledProvision.body.fixture.timelineId });
   assert.equal(cancelledFixtureDelete.status, 200, 'authenticated Harness fixture cleanup uses the privileged repository operation');
   const cancelledFixtureRepeat = await post('/api/main-workbench/harness-projection/delete-fixture', { timelineId: cancelledProvision.body.fixture.timelineId });
   assert.equal(cancelledFixtureRepeat.status, 404, 'fixture cleanup reports an already-absent fixture for strict rollback evidence');
-  repository.upsertHarnessFixtureSessionAxisBinding({ id: 'fixture-axis', timelineId: fixture.timelineId, host: 'workbench', opencodeSessionId: 'fixture-session', boundNodeId: fixture.boundNodeId });
   const spoof = await post('/api/main-workbench/harness-projection/activate', { provisionToken: fixtureProvision.body.provisionToken, mode: 'hidden-fixture', sessionId: 'fixture-session', harnessCommitment: 'forged', agentReleaseCommitment: 'forged' });
   assert.equal(spoof.status, 409, 'activation must require independently registered sealed identity');
   const registered = await post('/api/main-workbench/harness-projection/register-native', { sessionId: 'fixture-session', harnessCommitment: 'sealed-harness', agentReleaseCommitment: 'sealed-release' });
@@ -335,7 +401,29 @@ try {
   const activated = await post('/api/main-workbench/harness-projection/activate', { provisionToken: fixtureProvision.body.provisionToken, mode: 'hidden-fixture', sessionId: 'fixture-session' });
   assert.equal(activated.status, 200, JSON.stringify(activated.body));
   assert.equal(Object.hasOwn(activated.body, 'provisionToken'), false, 'activation must not expose a bearer provision token');
+  const fixtureContinuationBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(fixtureContinuationBind.status, 200, JSON.stringify(fixtureContinuationBind.body));
+  const fixtureContinuationAssert = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(fixtureContinuationAssert.status, 200, 'fixture assertion without a token must use only its active lease');
+  const consumedFixtureBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId, harnessProjection: fixtureAuthority },
+  });
+  assert.equal(consumedFixtureBind.status, 409, 'consumed provisions cannot be replayed for a bound fixture');
   const visibleBefore = JSON.stringify((await get('/api/main-workbench/snapshot')).body.snapshot);
+  const fixtureCheckout = await post('/api/main-workbench/checkout-projection', {
+    sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', timelineId: fixture.timelineId,
+  });
+  assert.equal(fixtureCheckout.status, 200, JSON.stringify(fixtureCheckout.body));
+  assert.equal(fixtureCheckout.body.snapshot.source, 'harness-fixture', 'hidden checkout reads return the active fixture projection');
+  assert.equal(JSON.stringify((await get('/api/main-workbench/snapshot')).body.snapshot), visibleBefore,
+    'hidden checkout reads must not mutate the visible Canvas mirror');
   const snapshotRead = await post('/api/def-tools/call', { tool: 'def.workbench.snapshot', sessionId: 'fixture-session', input: { sessionBindingId: 'fixture-axis' } });
   assert.equal(snapshotRead.status, 200, JSON.stringify(snapshotRead.body));
   assert.equal(snapshotRead.body.result.snapshot.source, 'harness-fixture');
@@ -351,6 +439,29 @@ try {
   assert.equal(revoked.status, 200);
   const afterRevoke = await post('/api/def-tools/call', { tool: 'def.workbench.snapshot', sessionId: 'fixture-session', input: { sessionBindingId: 'fixture-axis' } });
   assert.equal(afterRevoke.status, 409, 'revoked fixture lease must fail closed');
+  const afterRevokeBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(afterRevokeBind.status, 409, 'revoked fixture leases cannot continue binding');
+  const afterRevokeAssert = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_session_axis',
+    input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', host: 'workbench', timelineId: fixture.timelineId },
+  });
+  assert.equal(afterRevokeAssert.status, 409, 'revoked fixture leases cannot continue assertions');
+  const afterRevokeCheckout = await post('/api/main-workbench/checkout-projection', {
+    sessionBindingId: 'fixture-axis', sessionID: 'fixture-session', timelineId: fixture.timelineId,
+  });
+  assert.equal(afterRevokeCheckout.status, 409, 'hidden checkout reads fail after lease revocation');
+  const wrongFixtureCleanup = await post('/api/def-tools/call', {
+    tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: 'fixture-axis', sessionID: 'wrong-fixture-session' },
+  });
+  assert.equal(wrongFixtureCleanup.status, 409, 'fixture cleanup requires the exact owning session');
+  const fixtureCleanup = await post('/api/def-tools/call', {
+    tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: 'fixture-axis', sessionID: 'fixture-session' },
+  });
+  assert.equal(fixtureCleanup.status, 200, JSON.stringify(fixtureCleanup.body));
+  assert.equal(repository.getHarnessFixtureSessionAxisBinding('fixture-axis'), undefined, 'fixture cleanup deletes only the special binding');
 
   const nonRead = await post('/api/main-workbench/harness-projection/provision', {
     mode: 'active-current-readonly', sourceSessionId: 'source-session', allowedTools: ['def_team_loadout_plan_apply'],
@@ -360,10 +471,35 @@ try {
     mode: 'active-current-readonly', sourceSessionId: 'source-session', allowedTools: ['def_operator_config_preview'],
   });
   assert.equal(activeProvision.status, 201, JSON.stringify(activeProvision.body));
-  repository.upsertSessionAxisBinding({ id: 'active-axis', timelineId: 'source', host: 'workbench', opencodeSessionId: 'active-session', boundNodeId: 'source-node' });
+  const activeAuthority = { provisionToken: activeProvision.body.provisionToken, mode: 'active-current-readonly' };
+  const activeAdmission = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_timeline_admission', input: { timelineId: 'source', harnessProjection: activeAuthority },
+  });
+  assert.equal(activeAdmission.status, 200, JSON.stringify(activeAdmission.body));
+  const activeBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'active-axis', sessionID: 'active-session', host: 'workbench', timelineId: 'source', harnessProjection: activeAuthority },
+  });
+  assert.equal(activeBind.status, 200, JSON.stringify(activeBind.body));
+  assert.equal(activeBind.body.result.binding.boundNodeId, 'source-node', 'active-current provision pins its formal binding to the committed current node');
+  const activeAssert = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_session_axis',
+    input: { sessionBindingId: 'active-axis', sessionID: 'active-session', host: 'workbench', timelineId: 'source', harnessProjection: activeAuthority },
+  });
+  assert.equal(activeAssert.status, 200, JSON.stringify(activeAssert.body));
   await post('/api/main-workbench/harness-projection/register-native', { sessionId: 'active-session', harnessCommitment: 'active-harness', agentReleaseCommitment: 'active-release' });
   const active = await post('/api/main-workbench/harness-projection/activate', { provisionToken: activeProvision.body.provisionToken, mode: 'active-current-readonly', sessionId: 'active-session' });
   assert.equal(active.status, 200, JSON.stringify(active.body));
+  const activeContinuationBind = await post('/api/def-tools/call', {
+    tool: 'def.workbench.bind_session_axis',
+    input: { sessionBindingId: 'active-axis', sessionID: 'active-session', host: 'workbench', timelineId: 'source' },
+  });
+  assert.equal(activeContinuationBind.status, 200, 'active-current continuation without a token remains the ordinary formal binding path');
+  const activeContinuationAssert = await post('/api/def-tools/call', {
+    tool: 'def.workbench.assert_session_axis',
+    input: { sessionBindingId: 'active-axis', sessionID: 'active-session', host: 'workbench', timelineId: 'source' },
+  });
+  assert.equal(activeContinuationAssert.status, 200, 'active-current assertions without a token remain the ordinary formal binding path');
   const activePreview = await post('/api/def-tools/call', { tool: 'def.operator.config.preview', sessionId: 'active-session', input: {} });
   assert.notEqual(activePreview.status, 403, 'real visible Canvas policy allows its explicit read-only preview tool');
   const activeWrite = await post('/api/def-tools/call', { tool: 'def.team.selection.apply', sessionId: 'active-session', input: {} });
