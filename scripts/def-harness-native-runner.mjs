@@ -43,6 +43,12 @@ async function observeEvents(sessionId, cursor, token, milliseconds = 900) {
 }
 function terminal(turn) { return ['completed', 'stopped', 'timeout', 'provider-error', 'bridge-error', 'max-step'].includes(turn?.status); }
 function redactPublic(value) { return JSON.parse(JSON.stringify(value, (key, item) => /authorization|token|secret|evaluator/i.test(key) ? '[redacted]' : item)); }
+function nativeCreateRollbackArtifact(caught) {
+  const rollback = caught?.detail?.payload?.error?.details?.rollback;
+  return rollback && typeof rollback === 'object' && !Array.isArray(rollback)
+    ? redactPublic(rollback)
+    : null;
+}
 function textOf(message) { return (message?.parts || []).filter((part) => part?.type === 'text').map((part) => part.text || '').join('\n'); }
 function protocolFacts(messages, prompt) {
   const user = messages.find((message) => message?.info?.role === 'user' && textOf(message) === prompt) || null;
@@ -1275,6 +1281,18 @@ export async function runNativeScenario({ scenario, harnessSelector = 'stable', 
     run.verification = verified.verification;
     run.status = verified.status;
   } catch (caught) {
+    const rollback = nativeCreateRollbackArtifact(caught);
+    // A failed create has no assigned runner to DELETE.  Interop still owns
+    // the provision/fixture rollback, so retain that real cleanup artifact in
+    // the native run evidence rather than leaving an unexplained false value.
+    if (rollback) {
+      run.cleanup = {
+        ...run.cleanup,
+        source: 'interop-native-create',
+        completed: rollback.completed === true,
+        artifact: rollback,
+      };
+    }
     run.error = { source: 'harness', code: caught.code || 'ERROR_PROTOCOL', message: caught.message, detail: redactPublic(caught.detail || {}) };
     run.status = caught.code === 'BLOCKED_ENVIRONMENT'
       ? 'BLOCKED_ENVIRONMENT'

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
@@ -30,6 +31,13 @@ assert.equal(store.resolve({ ...identity, harnessCommitment: '', agentReleaseCom
 assert.equal(store.resolve({ ...identity, boundNodeId: '' }).ok, false, 'runtime lease lookup must retain exact bound node identity');
 assert.equal(store.revoke(identity.sessionId).status, 'revoked');
 assert.equal(store.resolve(identity).ok, false, 'revoke must fail closed before cleanup continues');
+const cancelStore = createHarnessProjectionLeaseStore({ now: () => clock, randomBytes: () => Buffer.alloc(32, 8) });
+const cancelledLease = cancelStore.provision({ mode: 'hidden-fixture', commitments });
+assert.equal(cancelStore.cancel({ token: cancelledLease.token }).status, 'cancelled');
+assert.equal(cancelStore.activate({ token: cancelledLease.token, session: identity }).code, 'harness-provision-invalid-or-consumed',
+  'a cancelled provision cannot be activated later');
+assert.equal(cancelStore.cancel({ token: cancelledLease.token }).code, 'harness-provision-invalid-or-consumed',
+  'cancel is one-shot just like activation');
 const ttlStore = createHarnessProjectionLeaseStore({ now: () => clock, activeLimit: 1 });
 const ttlProvision = ttlStore.provision({ mode: 'hidden-fixture', commitments });
 const ttlIdentity = { ...identity, sessionId: 'ttl-session', axisBindingId: 'ttl-axis' };
@@ -105,47 +113,137 @@ const badScenario = await interopCall(interop, 'POST', '/def-agent/interop/v1/ha
 }, authorized.body.token);
 assert.equal(badScenario.status, 400);
 assert.equal(badScenario.body.error.code, 'ERROR_SCENARIO', 'Interop must preserve Scenario policy failures instead of reporting BLOCKED_ENVIRONMENT');
-function createNativeCreateFailureInterop(nativeCreate) {
-  return createDefCodexInteropProtocol({
+function createNativeCreateFailureInterop(nativeCreate, {
+  cancel = { status: 200, body: { ok: true, status: 'cancelled' } },
+  fixtureDelete = { status: 200, body: { ok: true } },
+} = {}) {
+  const calls = [];
+  const protocol = createDefCodexInteropProtocol({
     profile: 'development', baseUrl: 'http://127.0.0.1:31457', sidecarUrl: 'http://127.0.0.1:17322',
     snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot', snapshotHeaders: { 'x-def-internal-token': 'test' }, auditFile: '',
     fetchJson: async () => ({ status: 200, body: { ok: true } }),
     postJson: async (url) => {
+      calls.push(url);
       if (url.includes('/harness-projection/provision')) {
-        return { status: 201, body: { ok: true, provisionToken: 'one-shot', source: { timelineId: 'source', boundNodeId: 'source-node' } } };
+        return {
+          status: 201,
+          body: {
+            ok: true,
+            provisionToken: 'one-shot',
+            fixture: { fixtureId: 'fixture-unit', timelineId: 'fixture-unit-timeline', boundNodeId: 'fixture-unit-node' },
+            source: { timelineId: 'source', boundNodeId: 'source-node' },
+          },
+        };
       }
+      if (url.includes('/harness-projection/cancel')) return cancel;
+      if (url.includes('/harness-projection/delete-fixture')) return fixtureDelete;
+      if (url.includes('/local-data/timeline-documents/') && url.endsWith('/delete')) return fixtureDelete;
       if (url === 'http://127.0.0.1:17322/api/native/session') return nativeCreate;
       return { status: 200, body: { ok: true } };
     },
     writeJson(response, status, body) { response.status = status; response.body = body; }, writeSse() {}, writeSseHeaders() {},
   });
+  protocol.contractCalls = calls;
+  return protocol;
 }
-async function createActiveHarnessThroughInterop(nativeCreate) {
-  const protocol = createNativeCreateFailureInterop(nativeCreate);
+async function createHarnessThroughInterop(nativeCreate, {
+  fixtureMode = 'active-current-readonly',
+  ...options
+} = {}) {
+  const protocol = createNativeCreateFailureInterop(nativeCreate, options);
   const auth = await interopCall(protocol, 'POST', '/def-agent/interop/v1/authorize');
   await interopCall(protocol, 'POST', '/def-agent/interop/v1/ui/consumer', { host: 'workbench', sessionId: 'visible-source' });
-  return interopCall(protocol, 'POST', '/def-agent/interop/v1/harness/sessions', {
-    harnessSelector: 'stable', fixtureMode: 'active-current-readonly', scenarioToolAllowlist: ['def_operator_config_preview'],
+  const response = await interopCall(protocol, 'POST', '/def-agent/interop/v1/harness/sessions', {
+    harnessSelector: 'stable', fixtureMode, scenarioToolAllowlist: ['def_operator_config_preview'],
   }, auth.body.token);
+  return { protocol, response };
 }
-const ownerMismatch = await createActiveHarnessThroughInterop({
+const { response: ownerMismatch } = await createHarnessThroughInterop({
   status: 409,
   body: { ok: false, error: { code: 'BLOCKED_ENVIRONMENT', message: 'owner mismatch before provider', status: 409 } },
 });
 assert.equal(ownerMismatch.status, 409);
 assert.equal(ownerMismatch.body.error.code, 'BLOCKED_ENVIRONMENT', 'active owner/checkout mismatch must preserve the pre-provider environment block');
-const sealLoadMismatch = await createActiveHarnessThroughInterop({
+const { response: sealLoadMismatch } = await createHarnessThroughInterop({
   status: 500,
   body: { ok: false, error: { code: 'HARNESS_PROJECTION_SEAL_INVALID', message: 'sealed session mismatch', status: 500 } },
 });
 assert.equal(sealLoadMismatch.status, 502);
 assert.equal(sealLoadMismatch.body.error.code, 'BLOCKED_HARNESS_LOAD', 'candidate seal/load failures remain Harness load failures');
 assert.deepEqual(sealLoadMismatch.body.error.details, {
-  resource: 'native-session-create',
-  upstreamStatus: 500,
-  upstreamCode: 'HARNESS_PROJECTION_SEAL_INVALID',
-  upstreamMessage: 'sealed session mismatch',
-}, 'authorized teacher ingress must retain a bounded, redacted sidecar cause for owner routing');
+  upstream: {
+    resource: 'native-session-create',
+    upstreamStatus: 500,
+    upstreamCode: 'HARNESS_PROJECTION_SEAL_INVALID',
+    upstreamMessage: 'sealed session mismatch',
+  },
+  rollback: {
+    attempted: true,
+    projection: { attempted: true, status: 200, outcome: 'confirmed' },
+    fixture: { attempted: false, outcome: 'not-required' },
+    completed: true,
+  },
+}, 'authorized teacher ingress must retain a bounded, redacted sidecar cause and verifiable rollback evidence');
+assert.equal(sealLoadMismatch.body.error.retryable, false, 'deterministic Harness seal failures are not retryable environment blocks');
+
+const longSecret = `Bearer secret-bearer provisionToken=${'x'.repeat(380)} apiKey=api-key-secret password=password-secret Authorization: authorization-secret`;
+const { response: coldBootstrap } = await createHarnessThroughInterop({
+  status: 500,
+  body: { ok: false, error: { details: { cause: { code: 'OPENCODE_REQUEST_TIMEOUT', message: longSecret } } } },
+});
+assert.equal(coldBootstrap.status, 503, 'known cold-bootstrap transport failure maps to retryable environment status');
+assert.equal(coldBootstrap.body.error.code, 'BLOCKED_ENVIRONMENT');
+assert.equal(coldBootstrap.body.error.retryable, true);
+assert.equal(coldBootstrap.body.error.details.upstream.upstreamCode, 'OPENCODE_REQUEST_TIMEOUT', 'nested typed transport code is classified');
+assert.doesNotMatch(coldBootstrap.body.error.details.upstream.upstreamMessage, /secret-bearer|api-key-secret|password-secret|authorization-secret|x{20}|\$1/i,
+  'upstream diagnostic text redacts bearer, token, api-key, password, and authorization values without exposing replacement literals');
+assert.match(coldBootstrap.body.error.details.upstream.upstreamMessage, /\[redacted\]/, 'upstream token values are replaced before returning diagnostics');
+
+const { response: stringTransport } = await createHarnessThroughInterop({
+  status: 500,
+  body: { ok: false, error: 'OPENCODE_CONNECTION_CLOSED: bootstrap socket closed' },
+});
+assert.equal(stringTransport.status, 503, 'string-form typed transport failures remain environment blocks');
+assert.equal(stringTransport.body.error.code, 'BLOCKED_ENVIRONMENT');
+
+const { response: unknownFailure } = await createHarnessThroughInterop({
+  status: 500,
+  body: { ok: false, error: { code: 'SOME_NEW_UPSTREAM_FAILURE', message: `unknown upstream state ${'z'.repeat(380)}` } },
+});
+assert.equal(unknownFailure.status, 502);
+assert.equal(unknownFailure.body.error.code, 'ERROR_PROTOCOL', 'unknown upstream codes must not be promoted to Harness-load blocks');
+assert.equal(unknownFailure.body.error.retryable, false);
+assert.equal(unknownFailure.body.error.details.upstream.upstreamMessage.length, 300, 'non-secret upstream diagnostics truncate at 300 characters');
+
+for (const [deleteStatus, expectedOutcome, completed] of [
+  [200, 'confirmed', true],
+  [404, 'already-absent', true],
+  [500, 'failed', false],
+]) {
+  const { protocol, response } = await createHarnessThroughInterop({
+    status: 500,
+    body: { ok: false, error: { code: 'HARNESS_HASH_MISMATCH', message: 'deterministic hash failure' } },
+  }, {
+    fixtureMode: 'clone-current',
+    fixtureDelete: { status: deleteStatus, body: { ok: deleteStatus === 200 } },
+  });
+  assert.equal(response.status, 502);
+  assert.equal(response.body.error.code, 'BLOCKED_HARNESS_LOAD');
+  assert.equal(response.body.error.details.rollback.fixture.status, deleteStatus);
+  assert.equal(response.body.error.details.rollback.fixture.outcome, expectedOutcome, `fixture delete ${deleteStatus} is recorded exactly`);
+  assert.equal(response.body.error.details.rollback.completed, completed, `fixture delete ${deleteStatus} controls verified rollback completion`);
+  assert.equal(protocol.contractCalls.some((url) => url.includes('/harness-projection/delete-fixture')), true,
+    'hidden native-create failure uses the privileged Harness fixture cleanup route');
+}
+const { response: cancelUnavailable } = await createHarnessThroughInterop({
+  status: 500,
+  body: { ok: false, error: { code: 'HARNESS_HASH_MISMATCH', message: 'native failure after lease consumption' } },
+}, {
+  cancel: { status: 409, body: { ok: false, error: { code: 'harness-provision-invalid-or-consumed', message: 'already active or revoked' } } },
+});
+assert.equal(cancelUnavailable.body.error.details.rollback.projection.outcome, 'failed',
+  'a consumed/activated provision is explicit failed cancellation evidence, never a fabricated cleanup success');
+assert.equal(cancelUnavailable.body.error.details.rollback.completed, false);
 const runnerSource = fs.readFileSync(new URL('./def-harness-native-runner.mjs', import.meta.url), 'utf8');
 assert(runnerSource.includes("caught.code === 'ERROR_SCENARIO' ? 'ERROR_VERIFIER'"),
   'runner must map Scenario configuration errors to the established ERROR_VERIFIER status while retaining error.code');
@@ -218,7 +316,18 @@ try {
   assert.equal(fixtureProvision.status, 201, JSON.stringify(fixtureProvision.body));
   const fixture = fixtureProvision.body.fixture;
   assert(fixture?.timelineId && fixture?.boundNodeId);
-  repository.upsertSessionAxisBinding({ id: 'fixture-axis', timelineId: fixture.timelineId, host: 'workbench', opencodeSessionId: 'fixture-session', boundNodeId: fixture.boundNodeId });
+  const cancelledProvision = await post('/api/main-workbench/harness-projection/provision', { mode: 'hidden-fixture', sourceSessionId: 'source-session' });
+  assert.equal(cancelledProvision.status, 201);
+  const cancelled = await post('/api/main-workbench/harness-projection/cancel', { provisionToken: cancelledProvision.body.provisionToken });
+  assert.deepEqual(cancelled, { status: 200, body: { ok: true, protocolVersion: 1, status: 'cancelled' } },
+    'cancel consumes a provision token without returning the capability');
+  const cancelledReplay = await post('/api/main-workbench/harness-projection/cancel', { provisionToken: cancelledProvision.body.provisionToken });
+  assert.equal(cancelledReplay.status, 409, 'cancelled provisions are one-shot and cannot be replayed');
+  const cancelledFixtureDelete = await post('/api/main-workbench/harness-projection/delete-fixture', { timelineId: cancelledProvision.body.fixture.timelineId });
+  assert.equal(cancelledFixtureDelete.status, 200, 'authenticated Harness fixture cleanup uses the privileged repository operation');
+  const cancelledFixtureRepeat = await post('/api/main-workbench/harness-projection/delete-fixture', { timelineId: cancelledProvision.body.fixture.timelineId });
+  assert.equal(cancelledFixtureRepeat.status, 404, 'fixture cleanup reports an already-absent fixture for strict rollback evidence');
+  repository.upsertHarnessFixtureSessionAxisBinding({ id: 'fixture-axis', timelineId: fixture.timelineId, host: 'workbench', opencodeSessionId: 'fixture-session', boundNodeId: fixture.boundNodeId });
   const spoof = await post('/api/main-workbench/harness-projection/activate', { provisionToken: fixtureProvision.body.provisionToken, mode: 'hidden-fixture', sessionId: 'fixture-session', harnessCommitment: 'forged', agentReleaseCommitment: 'forged' });
   assert.equal(spoof.status, 409, 'activation must require independently registered sealed identity');
   const registered = await post('/api/main-workbench/harness-projection/register-native', { sessionId: 'fixture-session', harnessCommitment: 'sealed-harness', agentReleaseCommitment: 'sealed-release' });
@@ -269,6 +378,72 @@ try {
   // This is test-only hygiene; never turn an otherwise successful contract
   // into a failure because the OS delayed releasing a temporary SQLite file.
   try { fs.rmSync(root, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 }); } catch {}
+}
+
+// This boundary test deliberately fails before Interop can return a runner.
+// The native runner must preserve Interop's actual rollback artifact instead
+// of skipping cleanup evidence because `runner` is still null.
+const runnerArtifactRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-runner-artifact-'));
+const nativeCreateRollback = {
+  attempted: true,
+  projection: { attempted: true, status: 200, outcome: 'confirmed' },
+  fixture: { attempted: true, status: 404, outcome: 'already-absent' },
+  completed: true,
+};
+let unexpectedRunnerDelete = 0;
+const runnerServer = http.createServer((request, response) => {
+  const write = (status, body) => {
+    response.writeHead(status, { 'content-type': 'application/json' });
+    response.end(JSON.stringify(body));
+  };
+  if (request.method === 'GET' && request.url === '/def-agent/interop/v1/status') {
+    write(200, { ok: true, agent: { ready: true }, workbench: { snapshotAvailable: true } }); return;
+  }
+  if (request.method === 'POST' && request.url === '/def-agent/interop/v1/authorize') {
+    write(201, { ok: true, token: 'runner-contract-token' }); return;
+  }
+  if (request.method === 'GET' && request.url === '/def-agent/interop/v1/state') {
+    write(200, { ok: true, state: {} }); return;
+  }
+  if (request.method === 'POST' && request.url === '/def-agent/interop/v1/harness/sessions') {
+    write(503, {
+      ok: false,
+      error: {
+        code: 'BLOCKED_ENVIRONMENT',
+        message: 'cold bootstrap',
+        details: { rollback: nativeCreateRollback },
+      },
+    }); return;
+  }
+  if (request.method === 'DELETE' && request.url.startsWith('/def-agent/interop/v1/harness/sessions/')) {
+    unexpectedRunnerDelete += 1;
+  }
+  write(404, { ok: false, error: { code: 'unexpected-runner-request', message: request.url } });
+});
+const runnerOriginalCwd = process.cwd();
+const runnerOriginalUrl = process.env.DEF_INTEROP_URL;
+try {
+  await new Promise((resolve) => runnerServer.listen(0, '127.0.0.1', resolve));
+  process.env.DEF_INTEROP_URL = `http://127.0.0.1:${runnerServer.address().port}`;
+  process.chdir(runnerArtifactRoot);
+  const { runNativeScenario } = await import(`${new URL('./def-harness-native-runner.mjs', import.meta.url).href}?native-create-artifact=${Date.now()}`);
+  const run = await runNativeScenario({
+    scenario: { id: 'native-create-artifact', version: 1, turns: [{ userText: 'verify pre-runner cleanup evidence' }] },
+    cleanup: true,
+  });
+  assert.equal(run.status, 'BLOCKED_ENVIRONMENT');
+  assert.equal(run.cleanup.source, 'interop-native-create');
+  assert.equal(run.cleanup.completed, true);
+  assert.deepEqual(run.cleanup.artifact, nativeCreateRollback, 'pre-runner failure records the real Interop cleanup artifact');
+  assert.equal(unexpectedRunnerDelete, 0, 'no runner DELETE is fabricated before a runner is assigned');
+  const artifact = JSON.parse(fs.readFileSync(path.join(runnerArtifactRoot, '.runtime', 'def-harness', 'runs', run.runId, 'native-run.json'), 'utf8'));
+  assert.deepEqual(artifact.cleanup.artifact, nativeCreateRollback, 'persisted native-run artifact keeps the pre-runner cleanup evidence');
+} finally {
+  process.chdir(runnerOriginalCwd);
+  if (runnerOriginalUrl === undefined) delete process.env.DEF_INTEROP_URL;
+  else process.env.DEF_INTEROP_URL = runnerOriginalUrl;
+  await new Promise((resolve) => runnerServer.close(resolve));
+  try { fs.rmSync(runnerArtifactRoot, { recursive: true, force: true, maxRetries: 2, retryDelay: 50 }); } catch {}
 }
 
 process.stdout.write('[def-harness-projection-lease-contract-test] passed\n');

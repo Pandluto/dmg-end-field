@@ -155,6 +155,22 @@ export function createHarnessProjectionLeaseStore({
     return { ok: true, record: active };
   }
 
+  function cancel({ token } = {}) {
+    prune();
+    const supplied = text(token);
+    if (!supplied) return { ok: false, code: 'missing-harness-provision-token' };
+    const tokenHash = digest(supplied);
+    const record = provisions.get(tokenHash);
+    if (!record || record.state !== 'provisioned') {
+      return { ok: false, code: 'harness-provision-invalid-or-consumed' };
+    }
+    // Consume the capability before returning.  This is deliberately not a
+    // best-effort marker: a cancelled provision cannot race a later activate.
+    record.state = 'cancelled';
+    provisions.delete(tokenHash);
+    return { ok: true, status: 'cancelled' };
+  }
+
   function resolve(session, { mode = '' } = {}) {
     prune();
     const identity = safeSession(session);
@@ -175,5 +191,5 @@ export function createHarnessProjectionLeaseStore({
     return { ok: true, status: record ? 'revoked' : 'already-revoked' };
   }
 
-  return { provision, activate, resolve, revoke, prune, MAX_PROVISION_TTL_MS, MAX_ACTIVE_TTL_MS };
+  return { provision, activate, cancel, resolve, revoke, prune, MAX_PROVISION_TTL_MS, MAX_ACTIVE_TTL_MS };
 }

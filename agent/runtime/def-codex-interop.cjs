@@ -285,9 +285,9 @@ function createDefCodexInteropProtocol(options) {
   function compactInteropValue(value, limit = 600) {
     const text = typeof value === 'string' ? value : JSON.stringify(value ?? null);
     const redacted = text
-      .replace(/Bearer\s+[A-Za-z0-9._~+/-]+=*/gi, 'Bearer [redacted]')
-      .replace(/(?:api[-_ ]?key|token|authorization|password)["'\s:=]+[A-Za-z0-9._~+/-]+/gi, '$1=[redacted]');
-    return redacted.length > limit ? `${redacted.slice(0, limit)}…` : redacted;
+      .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[redacted]')
+      .replace(/((?:api[-_ ]?key|token|authorization|password))["'\s:=]+[A-Za-z0-9._~+/-]+/gi, '$1=[redacted]');
+    return redacted.length > limit ? redacted.slice(0, limit) : redacted;
   }
 
   function safeInteropValue(value, depth = 0) {
@@ -419,26 +419,149 @@ function createDefCodexInteropProtocol(options) {
     record.idempotencyReleasedAt = Date.now();
   }
 
+  function nativeUpstreamMetadata(upstream = null, error = null) {
+    const codes = [];
+    const messages = [];
+    const statuses = [];
+    const seen = new Set();
+    const remember = (list, value) => {
+      if (typeof value !== 'string' || !value.trim() || list.includes(value.trim())) return;
+      list.push(value.trim());
+    };
+    const inspect = (value, depth = 0) => {
+      if (depth > 4 || value === null || value === undefined) return;
+      if (typeof value === 'string') {
+        remember(messages, value);
+        const typed = value.toUpperCase().match(/\b(?:OPENCODE_REQUEST_TIMEOUT|OPENCODE_CONNECTION_CLOSED|OPENCODE_RESPONSE_ABORTED|OPENCODE_REQUEST_ABORTED|HARNESS_HASH_MISMATCH|HARNESS_BINDING_INVALID|HARNESS_PROJECTION_SEAL_INVALID|HARNESS_CANDIDATE_LOAD_FAILED|BLOCKED_HARNESS_LOAD|BLOCKED_BINDING|BLOCKED_ENVIRONMENT)\b/g) || [];
+        for (const code of typed) remember(codes, code);
+        return;
+      }
+      if (typeof value !== 'object' || seen.has(value)) return;
+      seen.add(value);
+      if (Number.isFinite(Number(value.status))) statuses.push(Number(value.status));
+      remember(codes, value.code);
+      remember(messages, value.message);
+      if (value instanceof Error) {
+        remember(codes, value.code);
+        remember(messages, value.message);
+      }
+      for (const key of ['error', 'body', 'details', 'cause']) inspect(value[key], depth + 1);
+    };
+    inspect(error);
+    inspect(upstream);
+    return {
+      status: Number(upstream?.status || statuses[0] || 0),
+      codes,
+      messages,
+    };
+  }
+
   function nativeObservationFailure(resource, upstream = null, error = null) {
     const status = Number(upstream?.status || 0);
     if (!error && status >= 200 && status < 300 && upstream?.body?.ok !== false) return null;
-    const upstreamError = upstream?.body?.error;
-    const code = typeof upstreamError?.code === 'string'
-      ? upstreamError.code
-      : typeof upstream?.body?.code === 'string'
-        ? upstream.body.code
-        : '';
-    const messageValue = error
-      ? error instanceof Error ? error.message : String(error)
-      : typeof upstreamError === 'string'
-        ? upstreamError
-        : upstreamError?.message || upstream?.body?.message || '';
+    const metadata = nativeUpstreamMetadata(upstream, error);
     return {
       resource,
       upstreamStatus: status,
-      ...(code ? { upstreamCode: compactInteropValue(code, 160) } : {}),
-      ...(messageValue ? { upstreamMessage: compactInteropValue(messageValue, 300) } : {}),
+      ...(metadata.codes[0] ? { upstreamCode: compactInteropValue(metadata.codes[0], 160) } : {}),
+      ...(metadata.messages[0] ? { upstreamMessage: compactInteropValue(metadata.messages[0], 300) } : {}),
     };
+  }
+
+  function nativeCreateFailureClassification(upstream = null, error = null) {
+    const metadata = nativeUpstreamMetadata(upstream, error);
+    const codes = new Set(metadata.codes.map((code) => code.toUpperCase()));
+    const messages = metadata.messages.map((message) => message.trim());
+    const hasExactMessage = (expression) => messages.some((message) => expression.test(message));
+    const transport = [
+      'OPENCODE_REQUEST_TIMEOUT',
+      'OPENCODE_CONNECTION_CLOSED',
+      'OPENCODE_RESPONSE_ABORTED',
+      'OPENCODE_REQUEST_ABORTED',
+    ].some((code) => codes.has(code))
+      || hasExactMessage(/^OpenCode request timeout(?:\b|$)/i)
+      || hasExactMessage(/^OpenCode connection closed before the response completed(?:\b|$)/i)
+      || hasExactMessage(/^OpenCode response aborted before completion(?:\b|$)/i);
+    if (transport) {
+      return {
+        code: 'BLOCKED_ENVIRONMENT',
+        status: 503,
+        retryable: true,
+        message: 'Native Harness session creation is temporarily unavailable while the local OpenCode runtime is starting or reconnecting.',
+      };
+    }
+    if (codes.has('BLOCKED_ENVIRONMENT')) {
+      return {
+        code: 'BLOCKED_ENVIRONMENT',
+        status: metadata.status === 409 ? 409 : 503,
+        retryable: true,
+        message: 'The visible Workbench environment no longer admits this fresh Harness session.',
+      };
+    }
+    const deterministicHarnessLoadCodes = new Set([
+      'BLOCKED_HARNESS_LOAD',
+      'HARNESS_HASH_MISMATCH',
+      'HARNESS_BINDING_INVALID',
+      'HARNESS_PROJECTION_SEAL_INVALID',
+      'HARNESS_CANDIDATE_LOAD_FAILED',
+      'BLOCKED_BINDING',
+    ]);
+    if ([...codes].some((code) => deterministicHarnessLoadCodes.has(code))) {
+      return {
+        code: 'BLOCKED_HARNESS_LOAD',
+        status: 502,
+        retryable: false,
+        message: 'The selected Harness could not be loaded for this native session.',
+      };
+    }
+    return {
+      code: 'ERROR_PROTOCOL',
+      status: 502,
+      retryable: false,
+      message: 'Native Harness session creation failed before a classified runtime state was established.',
+    };
+  }
+
+  function rollbackStepEvidence(resource, upstream = null, error = null, { allowNotFound = false } = {}) {
+    const status = Number(upstream?.status || 0);
+    const accepted = (status >= 200 && status < 300 && upstream?.body?.ok !== false)
+      || (allowNotFound && status === 404);
+    const failure = accepted ? null : nativeObservationFailure(resource, upstream, error);
+    return {
+      attempted: true,
+      status: status || null,
+      outcome: accepted ? (status === 404 ? 'already-absent' : 'confirmed') : 'failed',
+      ...(failure ? { failure } : {}),
+    };
+  }
+
+  async function rollbackNativeCreateFailure({ restBaseUrl, provisionToken = '', timelineId = '', fixtureMode = '', ownedFixture = false } = {}) {
+    const rollback = {
+      attempted: true,
+      projection: { attempted: false, outcome: 'not-required' },
+      fixture: { attempted: false, outcome: 'not-required' },
+      completed: false,
+    };
+    if (provisionToken) {
+      try {
+        const cancelled = await options.postJson(`${restBaseUrl}/api/main-workbench/harness-projection/cancel`, { provisionToken });
+        rollback.projection = rollbackStepEvidence('harness-projection-cancel', cancelled);
+      } catch (error) {
+        rollback.projection = rollbackStepEvidence('harness-projection-cancel', null, error);
+      }
+    }
+    if (ownedFixture && timelineId) {
+      try {
+        const deleted = fixtureMode === 'hidden-fixture'
+          ? await options.postJson(`${restBaseUrl}/api/main-workbench/harness-projection/delete-fixture`, { timelineId })
+          : await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {});
+        rollback.fixture = rollbackStepEvidence('harness-fixture-delete', deleted, null, { allowNotFound: true });
+      } catch (error) {
+        rollback.fixture = rollbackStepEvidence('harness-fixture-delete', null, error, { allowNotFound: true });
+      }
+    }
+    rollback.completed = rollback.projection.outcome !== 'failed' && rollback.fixture.outcome !== 'failed';
+    return rollback;
   }
 
   function finishObservationTimeout(record, code, message, details = {}) {
@@ -829,12 +952,12 @@ function createDefCodexInteropProtocol(options) {
       let boundNodeId = '';
       let fixture;
       let projectionProvision = null;
+      const restBaseUrl = new URL(options.snapshotUrl).origin;
       if (fixtureMode === 'hidden-fixture' || fixtureMode === 'active-current-readonly') {
         const consumer = currentConsumer();
         if (!consumer?.sessionId) {
           reject(response, 409, createError('BLOCKED_ENVIRONMENT', 'A current-reading Harness mode requires an active visible Workbench UI session.', 'fixture', { retryable: true })); return true;
         }
-        const restBaseUrl = new URL(options.snapshotUrl).origin;
         projectionProvision = await options.postJson(`${restBaseUrl}/api/main-workbench/harness-projection/provision`, {
           mode: fixtureMode,
           sourceSessionId: consumer.sessionId,
@@ -864,24 +987,38 @@ function createDefCodexInteropProtocol(options) {
       if (fixture.status < 200 || fixture.status >= 300 || fixture.body?.ok === false) {
         reject(response, 502, createError('harness-fixture-create-failed', 'Could not create isolated Harness timeline fixture.', 'fixture', { retryable: true })); return true;
       }
-      const created = await options.postJson(`${options.sidecarUrl}/api/native/session`, {
-        host: 'workbench', harnessSelector: selector, timelineId, boundNodeId,
-        ...(projectionProvision ? { harnessProjection: { provisionToken: projectionProvision.body.provisionToken, mode: fixtureMode } } : {}),
-      });
-      if (created.status < 200 || created.status >= 300 || created.body?.ok !== true || !created.body?.session?.id) {
-        const nativeCreateCode = created.body?.error?.code || created.body?.code || '';
-        const nativeCreateMessage = created.body?.error?.message || created.body?.message || '';
-        if (fixtureMode !== 'active-current-readonly') await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(timelineId)}/delete`, {}).catch(() => undefined);
-        if (nativeCreateCode === 'BLOCKED_ENVIRONMENT') {
-          reject(response, 409, createError('BLOCKED_ENVIRONMENT', nativeCreateMessage || 'The visible Workbench current projection no longer admits this fresh Harness session.', 'sidecar', { retryable: true })); return true;
-        }
-        reject(response, 502, createError('BLOCKED_HARNESS_LOAD', 'Could not create a native Harness runner session.', 'sidecar', {
-          retryable: true,
-          // Teacher ingress is already loopback-authorized. Preserve a bounded,
-          // redacted upstream cause so a real runtime failure can be assigned to
-          // its owner without exposing bearer material or changing the public
-          // Harness outcome vocabulary.
-          details: nativeObservationFailure('native-session-create', created),
+      const provisionToken = typeof projectionProvision?.body?.provisionToken === 'string'
+        ? projectionProvision.body.provisionToken
+        : '';
+      let created = null;
+      let nativeCreateError = null;
+      try {
+        created = await options.postJson(`${options.sidecarUrl}/api/native/session`, {
+          host: 'workbench', harnessSelector: selector, timelineId, boundNodeId,
+          ...(provisionToken ? { harnessProjection: { provisionToken, mode: fixtureMode } } : {}),
+        });
+      } catch (error) {
+        nativeCreateError = error;
+      }
+      if (nativeObservationFailure('native-session-create', created, nativeCreateError)
+        || !created?.body?.session?.id) {
+        // The provision capability and its fixture belong to this failed
+        // creation attempt.  Record each cleanup result instead of treating a
+        // rejected delete as a successful rollback.
+        const rollback = await rollbackNativeCreateFailure({
+          restBaseUrl,
+          provisionToken,
+          timelineId,
+          fixtureMode,
+          ownedFixture: fixtureMode !== 'active-current-readonly',
+        });
+        const classification = nativeCreateFailureClassification(created, nativeCreateError);
+        reject(response, classification.status, createError(classification.code, classification.message, 'sidecar', {
+          retryable: classification.retryable,
+          details: {
+            upstream: nativeObservationFailure('native-session-create', created, nativeCreateError),
+            rollback,
+          },
         })); return true;
       }
       const session = created.body.session;
