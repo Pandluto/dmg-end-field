@@ -450,6 +450,10 @@ function getSessionHarnessSealKey() {
 }
 
 function buildOpenCodeRuntimeEnv(openCodeConfig, options = {}) {
+  const inheritedEnv = { ...process.env };
+  // Never let a parent-process pure-mode setting suppress DEF's explicit
+  // file:// plugin or Skills configuration.
+  delete inheritedEnv.OPENCODE_PURE;
   const home = path.resolve(options.openCodeHome || getDefOpenCodeHome());
   const dataHome = path.join(home, 'data');
   const stateHome = path.join(home, 'state');
@@ -464,7 +468,7 @@ function buildOpenCodeRuntimeEnv(openCodeConfig, options = {}) {
     : normalizeSealKey(options.harnessSealKey);
   if (!configuredSealKey) throw new Error('DEF Session Harness seal key is unavailable.');
   return {
-    ...process.env,
+    ...inheritedEnv,
     XDG_DATA_HOME: dataHome,
     XDG_STATE_HOME: stateHome,
     XDG_CACHE_HOME: cacheHome,
@@ -472,6 +476,12 @@ function buildOpenCodeRuntimeEnv(openCodeConfig, options = {}) {
     OPENCODE_DB: dbPath,
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_SHARE: '1',
+    // DEF supplies its own Skills path. Do not inherit user-global ~/.agents
+    // or ~/.claude skills into an embedded runtime.
+    OPENCODE_DISABLE_EXTERNAL_SKILLS: 'true',
+    // The file:// DEF plugin is shipped with this runtime. Avoid unrelated
+    // generic plugin installs and their shared npm lock during bootstrap.
+    OPENCODE_DISABLE_CONFIG_DEPENDENCY_INSTALL: 'true',
     OPENCODE_CONFIG_CONTENT: JSON.stringify(openCodeConfig),
     DEF_HARNESS_RUNTIME_ROOT: path.resolve(options.harnessRuntimeRoot || harnessRuntimeRoot),
     [SESSION_HARNESS_SEAL_KEY_ENV]: configuredSealKey,
