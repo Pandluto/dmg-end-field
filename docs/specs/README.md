@@ -34,6 +34,7 @@
    - [预研究：认知运行时与游戏知识 Agent](./def-opencode-cognitive-runtime-spec8/research.md)
    - [预研究：Harness 自进化](./def-opencode-cognitive-runtime-spec8/harness-self-evolution-research.md)
 8. [Spec 9-1：停用 /AI CLI Def OpenCode 与清除全部 AI 模式会话](./def-opencode-host-retirement-spec9-1/spec.md)
+9. [Spec 9-2：Tool 与 Harness 原子职责研究](./def-opencode-tools-harness-atomicity-spec9-2/spec.md)
 
 关联演进线：
 
