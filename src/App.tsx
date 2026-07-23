@@ -12,7 +12,6 @@ import { BuffDraftSheetPage, isBuffSheetPath } from './components/BuffDraftPage'
 import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraftPage';
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
-import { AiCliPage, isAiCliPath } from './components/AiCliPage';
 import { McpFillPage, isMcpFillPath } from './components/McpFillPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
 import {
@@ -74,10 +73,6 @@ function App() {
 
   if (isImageManagerPath(currentPath)) {
     return <ImageManagerPage />;
-  }
-
-  if (isAiCliPath(currentPath)) {
-    return <AiCliPage />;
   }
 
   if (isMcpFillPath(currentPath)) {

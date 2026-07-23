@@ -59,8 +59,7 @@ export type MainWorkbenchCommand =
         | 'weaponSheet'
         | 'equipmentSheet'
         | 'damageSheet'
-        | 'damageReportPpt'
-        | 'aiCli';
+        | 'damageReportPpt';
       characterId?: string;
       characterName?: string;
     }

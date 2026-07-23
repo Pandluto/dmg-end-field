@@ -286,8 +286,8 @@ async function call(tool, input, { sessionId = 'operator-build-session', authent
   return { response, payload: await response.json() };
 }
 
-async function register(sessionId) {
-  return call('def.native_catalog.register_session', { sessionId, host: 'ai-cli' }, { sessionId: '', authenticated: true });
+async function register(sessionId, host = 'workbench') {
+  return call('def.native_catalog.register_session', { sessionId, host }, { sessionId: '', authenticated: true });
 }
 
 try {
@@ -300,6 +300,9 @@ try {
   assert.equal(unauthenticated.response.status, 403);
   assert.equal(unauthenticated.payload.error?.code, 'denied-native-build-evidence-session');
 
+  const disabledHostRegistration = await register('disabled-ai-cli-build-session', 'ai-cli');
+  assert.equal(disabledHostRegistration.response.status, 410, JSON.stringify(disabledHostRegistration.payload));
+  assert.equal(disabledHostRegistration.payload.error?.code, 'DEF_OPENCODE_HOST_DISABLED');
   const registration = await register('operator-build-session');
   assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
   const otherRegistration = await register('another-operator-build-session');

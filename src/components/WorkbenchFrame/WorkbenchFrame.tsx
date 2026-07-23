@@ -161,13 +161,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.imageManager);
   }, []);
 
-  const handleOpenAiCli = useCallback(() => {
-    if (window.desktopRuntime) {
-      return;
-    }
-    navigateToAppPath(APP_ROUTE_PATHS.aiCli);
-  }, []);
-
   const handleOpenMcpFill = useCallback(() => {
     navigateToAppPath(APP_ROUTE_PATHS.mcpFill);
   }, []);
@@ -234,15 +227,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
         <span className="workbench-trigger-text">图片管理</span>
-      </button>
-      <button
-        className="workbench-top-trigger workbench-bottom-nav-button"
-        type="button"
-        onClick={handleOpenAiCli}
-        disabled={Boolean(window.desktopRuntime)}
-        title={window.desktopRuntime ? 'AI CLI 请在 Web 主界面中打开' : ''}
-      >
-        <span className="workbench-trigger-text">AI CLI</span>
       </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenMcpFill}>
         <span className="workbench-trigger-text">MCP 填表</span>

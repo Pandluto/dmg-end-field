@@ -200,14 +200,14 @@ async function requestInternalRest(pathname, method, body) {
   return { response, payload: await response.json() };
 }
 
-async function registerNativeSession(sessionId = 'native-catalog-contract-session', { authenticated = true } = {}) {
+async function registerNativeSession(sessionId = 'native-catalog-contract-session', { authenticated = true, host = 'workbench' } = {}) {
   const response = await fetch(`${baseUrl}/api/def-tools/call`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       ...(authenticated ? { 'x-def-internal-token': 'native-catalog-contract' } : {}),
     },
-    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host: 'ai-cli' } }),
+    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host } }),
   });
   const payload = await response.json();
   return { response, payload };
@@ -305,9 +305,12 @@ try {
   const untrustedRegistration = await registerNativeSession('untrusted-native-session', { authenticated: false });
   assert.equal(untrustedRegistration.response.status, 403);
   assert.equal(untrustedRegistration.payload.error?.code, 'denied-internal-governance');
+  const disabledHostRegistration = await registerNativeSession('disabled-ai-cli-session', { host: 'ai-cli' });
+  assert.equal(disabledHostRegistration.response.status, 410, JSON.stringify(disabledHostRegistration.payload));
+  assert.equal(disabledHostRegistration.payload.error?.code, 'DEF_OPENCODE_HOST_DISABLED');
   const registration = await registerNativeSession();
   assert.equal(registration.response.status, 200, JSON.stringify(registration.payload));
-  assert.equal(registration.payload.result?.host, 'ai-cli');
+  assert.equal(registration.payload.result?.host, 'workbench');
 
   // A sidecar restart clears the ephemeral registration map, but it must not
   // leave an authenticated native Workbench session locked out when its formal

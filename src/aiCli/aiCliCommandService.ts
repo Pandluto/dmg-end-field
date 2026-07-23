@@ -709,7 +709,7 @@ function executeCommand(
             ['proposal', 'proposal.clear', 'reject/unsave all pending proposals in current session'],
             ['shortcut', 'Y', 'approve pending or save approved'],
             ['shortcut', 'N', 'reject pending or unsave approved'],
-            ['handoff', 'REST -> Web CLI', 'external proposals auto-import via SSE'],
+            ['handoff', 'REST -> MCP Fill', 'review external proposals in the supported MCP Fill page'],
             ['agent', 'agent.logs [limit]', 'show recent agent operation logs'],
             ['agent', 'agent.sessions [limit]', 'show current single agent session'],
             ['agent', 'agent.guide', 'show first-call guide for LLM agents'],
@@ -742,7 +742,7 @@ function executeCommand(
         '  fill.check never writes; fill.apply creates a proposal (does not write library).',
         '  use proposal.approve to apply to working state; proposal.save to write to local truth.',
         '  buff.open only switches active editor draft from an existing library entry.',
-        '  REST apply creates proposal only; Web CLI imports pending proposals via SSE for user Y/Y approval.',
+        '  REST apply creates proposal only; review pending proposals in the supported MCP Fill page.',
         '  do not ask users to re-run fill.apply in browser after REST apply.',
         '  if multiple pending proposals block Y/N, call proposal.clear through REST or handle proposals explicitly.',
         '  for operator Chinese JSON payloads, prefer POST /api/operator/fill/check|apply over CLI args to avoid shell encoding loss.',
@@ -812,13 +812,12 @@ function executeCommand(
         '',
         'handoff rule:',
         '  REST fill.apply creates a proposal only. It does NOT save to library.',
-        '  After REST apply, the proposal is automatically handed off to Web CLI via SSE.',
-        '  Do NOT ask the user to re-run fill.apply in the browser.',
-        '  Single pending: user opens /ai-cli and presses Y to approve, then Y to save.',
+        '  After REST apply, review the proposal in the supported MCP Fill page.',
+        '  Do NOT ask the user to open the retired /ai-cli page or re-run fill.apply.',
         '  Before asking the user to approve, self-check pending proposal count from apply response or proposal.list.',
         '  If multiple pending proposals block Y/Y, call REST proposal.clear immediately, then resubmit only the current proposal.',
         '  If multiple edits are intended, submit and finish them one by one.',
-        '  REST approval/save commands return 403. This is expected; approval must happen in Web CLI.',
+        '  REST approval/save commands return 403. This is expected; approval must happen in the supported review UI.',
       ],
     });
   }
@@ -1591,10 +1590,10 @@ function executeCommand(
           ]
         : [];
       const nextActionText = client === 'rest'
-        ? 'Open Web CLI /ai-cli; proposal auto-imports via SSE. Press Y to approve, then Y to save.'
+        ? 'Open the MCP Fill review page; /ai-cli is retired. Do not re-run fill.apply.'
         : 'Press Y to approve, N to reject';
       const nextActionZh = client === 'rest'
-        ? '打开 /ai-cli，提案会自动同步；按 Y 批准，再按 Y 保存'
+        ? '打开 MCP 填表审核提案；/ai-cli 已停用，无需重新执行 fill.apply'
         : '按 Y 批准，按 N 拒绝';
       return makeResponse({
         lines: [
@@ -1602,7 +1601,7 @@ function executeCommand(
           `[state] approval=${labelApproval(proposal.approvalStatus)} save=${labelSave(proposal.saveStatus)} (审批=${labelApprovalZh(proposal.approvalStatus)} 保存=${labelSaveZh(proposal.saveStatus)})`,
           ...formatProposalPayloadPreview(proposal),
           `[next] ${nextActionText} (${nextActionZh})`,
-          client === 'rest' ? '[handoff] auto-syncing to Web CLI via SSE. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新执行 fill.apply)' : '',
+          client === 'rest' ? '[handoff] review in MCP Fill. Do not re-run fill.apply. (请在 MCP 填表中审核，无需重新执行 fill.apply)' : '',
           ...restBacklogLines,
         ].filter(Boolean),
         effects: { writes: false, storage: [] },
@@ -1955,7 +1954,7 @@ export function runAiCliCommand(
     });
   } else if (permissionError) {
     const permissionHint = request.client === 'rest'
-      ? 'hint: this command requires a writer/user-confirmation client. Use ?client=web-cli or body.client="web-cli" only from the trusted Web CLI/user path. (提示：该命令需要写权限/用户确认客户端；可信 Web CLI 用户路径可使用 ?client=web-cli 或 body.client="web-cli")'
+      ? 'hint: this command requires a writer/user-confirmation client. The retired /ai-cli page is not a review surface; use the supported MCP Fill UI. (提示：该命令需要写权限/用户确认客户端；/ai-cli 已停用，请使用 MCP 填表审核)'
       : '';
     response = makeResponse({
       ok: false,

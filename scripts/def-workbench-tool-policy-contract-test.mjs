@@ -243,7 +243,7 @@ try {
   const nativeServerSource = fs.readFileSync(path.join(process.cwd(), 'agent/server/def-agent-server.cjs'), 'utf8');
   const contextRoute = nativeServerSource.slice(
     nativeServerSource.indexOf("requestUrl.pathname === '/api/native/context'"),
-    nativeServerSource.indexOf("requestUrl.pathname === '/api/chat'"),
+    nativeServerSource.indexOf('const nativeInteropPrompt ='),
   );
   assert(contextRoute.includes('await awaitNativeWorkbenchCheckoutProjection(binding);'),
     'native context attach must await the authenticated Canvas projection before accepting the attachment');

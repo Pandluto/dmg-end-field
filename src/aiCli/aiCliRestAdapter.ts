@@ -364,7 +364,7 @@ export function handleAiCliRestRequest(
         'Do not invent modifier types; use the app-provided modifier catalog in fill.task.',
         'For Weapon fill, only skill3.effects is preserved; use category condition/passive/countable and leave imgUrl empty if no image URL exists.',
         'Treat REST apply as a proposal creation only; it does NOT save to library.',
-        'After REST apply, guide the user to open /ai-cli and use Y/Y or proposal.approve #1 / proposal.save #1.',
+        'After REST apply, review the pending proposal through the existing MCP Fill page. The retired /ai-cli page is unavailable.',
         'Before fill.apply, self-check the pending proposal count with proposal.list.',
         'If any pending proposal exists, REST fill.apply is refused. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one.',
         'Do NOT ask the user to re-run fill.apply in the browser.',
@@ -373,7 +373,7 @@ export function handleAiCliRestRequest(
         readonly: 'Default rest client is read/dry-run oriented.',
         write: 'Use explicit write profile/client only when the user has confirmed.',
         events: 'Subscribe to GET /api/agent/events for SSE agent.records updates.',
-        handoff: 'REST fill.apply creates a proposal. Web CLI imports pending proposals via SSE. REST refuses another fill.apply while any pending proposal exists. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal, or submit multiple edits one by one. Do not re-run fill.apply in Web CLI.',
+        handoff: 'REST fill.apply creates a proposal. Review it through the existing MCP Fill flow. Do not re-run fill.apply in any UI. REST refuses another fill.apply while any pending proposal exists. Call proposal.clear through POST /api/ai-cli/run only for stale backlog, then resubmit only the current proposal, or submit multiple edits one by one.',
       },
       scriptWorkbench: {
         purpose: 'Optional temporary helper scripts for JSON cleanup, comparison, batching, and draft generation.',
@@ -444,17 +444,17 @@ export function handleAiCliRestRequest(
           'saveTimelineSnapshot/restoreTimelineSnapshot are legacy user snapshot compatibility tools for current checkout only; do not use them as AI branch logs or appdata work nodes.',
           'Use setOperatorConfig to atomically change a selected operator weapon and/or equipment before refreshing operator config.',
           'Legacy setOperatorWeapon/setOperatorEquipment remain supported; use setOperatorConfig with gearSetName/gearSetId and fillSlots:true for a four-piece loadout, or slotKey plus equipmentName/equipmentId for one piece.',
-          'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageSheet, damageReportPpt, aiCli, selection, or canvas.',
+          'Use openWorkbenchPage for operatorConfig, weaponSheet, equipmentSheet, damageSheet, damageReportPpt, selection, or canvas.',
         ],
       },
       emergencyFallback: {
         name: 'now-storage proposal injection',
         useOnlyWhen: 'REST fill.check/fill.apply is blocked by a verified REST runtime/cache mismatch and the draft data has already been independently validated.',
-        effect: 'Creates a Wait/Wait proposal only; it must still be approved and saved through Web CLI Y/Y before the library changes.',
+        effect: 'Creates a Wait/Wait proposal only; it must still be reviewed through the supported MCP Fill flow before the library changes.',
         bridgeSyncRequired: [
           'POST http://127.0.0.1:31457/local-data/now-storage with the full archive object',
           'POST http://127.0.0.1:31457/local-data/now-storage-state with {"forceApply":true}',
-          'Refresh Web CLI after bridge sync so browser localStorage imports the proposal',
+          'Open the MCP Fill review page after bridge sync',
         ],
         warning: 'Do not use direct now-storage writes as the normal agent path. Prefer REST validation/apply whenever /health diagnostics match the current contract.',
       },
@@ -538,8 +538,7 @@ export function handleAiCliRestRequest(
             'Call POST /api/buff/fill/check.',
             'If check fails, fix JSON and check again.',
             'Call POST /api/buff/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
-            'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
-            'Single pending: user presses Y to approve, then Y to save.',
+            'After apply, guide the user to the existing MCP Fill review page. The retired /ai-cli page is unavailable.',
             'Before fill.apply, self-check pending count with proposal.list.',
             'If any pending proposal exists, REST fill.apply is refused. For stale backlog, call proposal.clear through POST /api/ai-cli/run, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one.',
             'Do NOT ask the user to re-run fill.apply in the browser.',
@@ -579,8 +578,7 @@ export function handleAiCliRestRequest(
             'Call POST /api/weapon/fill/check.',
             'If check fails, fix JSON and check again.',
             'Call POST /api/weapon/fill/apply only after validation passes. This creates a proposal, NOT a library write.',
-            'After apply, guide the user to open /ai-cli. The pending proposal is imported automatically.',
-            'Single pending: user presses Y to approve, then Y to save.',
+            'After apply, guide the user to the existing MCP Fill review page. The retired /ai-cli page is unavailable.',
           ],
           outputContract: {
             formatName: 'WeaponFillAiDraft',
@@ -1019,7 +1017,7 @@ export function handleAiCliRestRequest(
       sessionId: context.sessionId,
     });
     response.requestId = request.body.requestId;
-    // Override nextAction and lines for REST apply to always guide users to Web CLI
+    // REST apply creates a proposal; direct users to the supported review surface.
     if (request.path.endsWith('/apply') && response.proposal) {
       const pendingCount = readPendingAgentProposals(context.sessionId).length;
       const approvalBlocked = pendingCount > 1;
@@ -1029,9 +1027,9 @@ export function handleAiCliRestRequest(
       }
       response.proposal.nextAction = approvalBlocked
         ? 'call REST proposal.clear now, then resubmit only the current proposal; for multiple edits, submit and finish them one by one.'
-        : 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
-      if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
-        response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
+        : 'open the MCP Fill review page; /ai-cli is retired. do not re-run fill.apply.';
+      if (!response.lines.some((l) => l.includes('handoff') || l.includes('MCP Fill'))) {
+        response.lines.push('[handoff] review this proposal in MCP Fill. Do not re-run fill.apply. (请在 MCP 填表中审核，无需重新 fill.apply)');
       }
     }
     return jsonResponse(response.ok ? 200 : 400, response);
@@ -1074,9 +1072,9 @@ export function handleAiCliRestRequest(
     });
     response.requestId = request.body.requestId;
     if (request.path.endsWith('/apply') && response.proposal) {
-      response.proposal.nextAction = 'open Web CLI /ai-cli; the pending proposal will be imported automatically. press Y to approve, then Y to save. do not re-run fill.apply.';
-      if (!response.lines.some((l) => l.includes('handoff') || l.includes('Web CLI'))) {
-        response.lines.push('[handoff] this proposal will auto-sync to Web CLI. Do not re-run fill.apply. (将自动同步到 Web CLI，无需重新 fill.apply)');
+      response.proposal.nextAction = 'open the MCP Fill review page; /ai-cli is retired. do not re-run fill.apply.';
+      if (!response.lines.some((l) => l.includes('handoff') || l.includes('MCP Fill'))) {
+        response.lines.push('[handoff] review this proposal in MCP Fill. Do not re-run fill.apply. (请在 MCP 填表中审核，无需重新 fill.apply)');
       }
     }
     return jsonResponse(response.ok ? 200 : 400, response);

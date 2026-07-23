@@ -358,7 +358,7 @@
     setText('def-agent-url', url);
     setText('def-agent-status', state.defAgentRunning
       ? `运行中 | pid=${defAgent?.pid || '-'} | ${url}`
-      : 'DEF Agent 后台未运行。/ai-cli 对话会按需启动，Shell 也可以在这里手动管理。');
+      : 'DEF Agent 后台未运行。主界面 AI 模式会按需启动，Shell 也可以在这里手动管理。');
 
     const button = $('toggle-def-agent');
     if (button) {
@@ -443,22 +443,6 @@
       const keyInput = $('deepseek-api-key');
       if (keyInput) keyInput.value = '';
       appendLog(`DeepSeek | 配置已保存 | ${payload.deepseek?.model || '-'}`);
-    } finally {
-      setButtonBusy(button, false);
-    }
-  };
-
-  const testDefAgentHi = async (button) => {
-    setButtonBusy(button, true, '测试中');
-    try {
-      const payload = await fetchLocalBridgeJson('/def-agent/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: 'hi' }),
-      });
-      renderDefAgentStatus(payload.defAgent);
-      setText('deepseek-config-status', payload.result?.content || payload.result?.error || '后台没有返回内容');
-      appendLog(`DEF Agent | hi | ${payload.result?.provider || '-'} | ${payload.result?.usedRemoteModel ? 'remote' : 'local'}`);
     } finally {
       setButtonBusy(button, false);
     }
@@ -1485,9 +1469,6 @@
     });
     $('save-deepseek-config')?.addEventListener('click', (event) => {
       saveDeepSeekConfig(event.currentTarget).catch((error) => appendLog(`DeepSeek 配置失败 | ${error instanceof Error ? error.message : String(error)}`));
-    });
-    $('test-def-agent-hi')?.addEventListener('click', (event) => {
-      testDefAgentHi(event.currentTarget).catch((error) => appendLog(`DEF Agent hi 测试失败 | ${error instanceof Error ? error.message : String(error)}`));
     });
     $('refresh-data-management')?.addEventListener('click', () => {
       Promise.all([refreshDataManagement(), refreshDataReleaseUpdateState(), refreshArchives()])

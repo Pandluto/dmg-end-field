@@ -63,8 +63,13 @@ const skillMap = {
 
 const DEF_EMBEDDED_PROFILE_VERSION = 1;
 
-function buildNativeHostProfile(host = 'ai-cli') {
-  const normalizedHost = host === 'workbench' ? 'workbench' : 'ai-cli';
+function buildNativeHostProfile(host) {
+  if (host !== 'workbench' && host !== 'ai-cli') {
+    const error = new Error('DEF OpenCode requires an explicit known host.');
+    error.code = 'DEF_OPENCODE_HOST_INVALID';
+    throw error;
+  }
+  const normalizedHost = host;
   const skillId = normalizedHost === 'workbench' ? 'workbench' : 'operator';
   const selected = skillMap[skillId];
   return Object.freeze({
@@ -402,6 +407,15 @@ function getAgentWorkspaceDir() {
     resolvedAgentWorkspaceDir = fs.realpathSync(agentWorkspaceDir);
   }
   return resolvedAgentWorkspaceDir;
+}
+
+function isManagedNativeHostDirectory(directory, host) {
+  if (typeof directory !== 'string' || !directory.trim()) return false;
+  if (host !== 'workbench' && host !== 'ai-cli') return false;
+  const hostRoot = path.resolve(getAgentWorkspaceDir(), 'sessions', host);
+  const resolved = path.resolve(directory);
+  const relative = path.relative(hostRoot, resolved);
+  return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
 function getDefOpenCodeHome() {
@@ -822,19 +836,23 @@ function getNativeHarnessSystem(binding, userText = '') {
     warning: binding.harnessWarning || null,
   };
 }
-async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, thinkingEffort = 'medium', harnessSelector = 'stable', timelineId = '', boundNodeId = '' } = {}) {
+async function createNativeHostSession({ config = {}, host, thinkingEffort = 'medium', harnessSelector = 'stable', timelineId = '', boundNodeId = '' } = {}) {
+  if (host !== 'workbench') {
+    const error = new Error(host === 'ai-cli'
+      ? 'The ai-cli DEF OpenCode host is disabled.'
+      : 'DEF OpenCode requires host=workbench.');
+    error.code = host === 'ai-cli' ? 'DEF_OPENCODE_HOST_DISABLED' : 'DEF_OPENCODE_HOST_INVALID';
+    error.status = host === 'ai-cli' ? 410 : 400;
+    throw error;
+  }
   const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
-  if (host === 'workbench' && !normalizedTimelineId) {
+  if (!normalizedTimelineId) {
     const error = new Error('Workbench DEF sessions require an explicit timelineId.');
     error.code = 'BLOCKED_BINDING';
     throw error;
   }
-  const resolvedSkillId = host === 'workbench'
-    ? 'workbench'
-    : skillMap[skillId] && skillId !== 'workbench'
-      ? skillId
-      : 'operator';
-  const selected = skillMap[resolvedSkillId] || skillMap.operator;
+  const resolvedSkillId = 'workbench';
+  const selected = skillMap.workbench;
   const deepseek = sanitizeDeepSeekConfig(config);
   const resolvedHarness = resolveNativeHarness(harnessSelector);
   const directory = createAgentSessionWorkspace(resolvedSkillId);
@@ -866,13 +884,15 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
 async function recoverNativeHostSession({ config = {}, directory, sessionID } = {}) {
   const binding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
   if (!binding) throw new Error('Native session binding not found.');
+  if (binding.host !== 'workbench') {
+    const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+    error.code = 'DEF_OPENCODE_HOST_DISABLED';
+    error.status = 410;
+    throw error;
+  }
 
-  const resolvedSkillId = skillMap[binding.skillId]
-    ? binding.skillId
-    : binding.host === 'workbench'
-      ? 'workbench'
-      : 'operator';
-  const selected = skillMap[resolvedSkillId] || skillMap.operator;
+  const resolvedSkillId = 'workbench';
+  const selected = skillMap.workbench;
   const deepseek = sanitizeDeepSeekConfig(config);
   const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, 'medium');
   const query = `directory=${encodeURIComponent(binding.directory)}`;
@@ -927,9 +947,14 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
 }
 
 function createAgentSessionWorkspace(skillId) {
+  if (skillId !== 'workbench') {
+    const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+    error.code = 'DEF_OPENCODE_HOST_DISABLED';
+    error.status = 410;
+    throw error;
+  }
   const root = getAgentWorkspaceDir();
-  const host = skillId === 'workbench' ? 'workbench' : 'ai-cli';
-  const directory = path.join(root, 'sessions', host, crypto.randomUUID());
+  const directory = path.join(root, 'sessions', 'workbench', crypto.randomUUID());
   const toolsDir = path.join(directory, '.opencode', 'tools');
   fs.mkdirSync(toolsDir, { recursive: true });
   if (!fs.existsSync(defOpenCodeToolSource)) {
@@ -981,6 +1006,12 @@ function syncNativeSessionWorkspaceFiles(directory) {
 }
 
 function writeSessionBinding(directory, session) {
+  if (session?.skillId !== 'workbench' || (session?.profile && session.profile.host !== 'workbench')) {
+    const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+    error.code = 'DEF_OPENCODE_HOST_DISABLED';
+    error.status = 410;
+    throw error;
+  }
   const existing = readJsonFile(path.join(directory, '.def-session.json'));
   const axisBindingId = typeof existing?.axisBindingId === 'string' && existing.axisBindingId.trim()
     ? existing.axisBindingId.trim()
@@ -992,8 +1023,8 @@ function writeSessionBinding(directory, session) {
     directory,
     agent: session.agent,
     skillId: session.skillId,
-    host: session.skillId === 'workbench' ? 'workbench' : 'ai-cli',
-    profile: session.profile || buildNativeHostProfile(session.skillId === 'workbench' ? 'workbench' : 'ai-cli'),
+    host: 'workbench',
+    profile: session.profile || buildNativeHostProfile('workbench'),
     ...(session.harnessBinding ? { harnessBinding: session.harnessBinding } : existing?.harnessBinding ? { harnessBinding: existing.harnessBinding } : {}),
     ...(session.harnessWarning ? { harnessWarning: session.harnessWarning } : existing?.harnessWarning ? { harnessWarning: existing.harnessWarning } : {}),
     ...(typeof session.timelineId === 'string' && session.timelineId.trim() ? { timelineId: session.timelineId.trim() } : existing?.timelineId ? { timelineId: existing.timelineId } : {}),
@@ -1040,8 +1071,13 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   const binding = readJsonFile(path.join(resolved, '.def-session.json'));
   if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
   if (path.resolve(binding.directory || resolved) !== resolved) return null;
-  syncNativeSessionWorkspaceFiles(resolved);
-  const host = binding.host === 'workbench' ? 'workbench' : 'ai-cli';
+  const host = binding.host === 'workbench'
+    ? 'workbench'
+    : binding.host === 'ai-cli'
+      ? 'ai-cli'
+      : null;
+  if (!host) return null;
+  if (host === 'workbench') syncNativeSessionWorkspaceFiles(resolved);
   const expected = buildNativeHostProfile(host);
   return {
     ...binding,
@@ -1059,9 +1095,20 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   };
 }
 
+function readNativeSessionBindingForDirectory(directory, options = {}) {
+  if (typeof directory !== 'string' || !directory.trim()) return null;
+  const sessionsRoot = path.resolve(getAgentWorkspaceDir(), 'sessions');
+  const resolved = path.resolve(directory);
+  const relative = path.relative(sessionsRoot, resolved);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  const stored = readJsonFile(path.join(resolved, '.def-session.json'));
+  const sessionID = typeof stored?.sessionID === 'string' ? stored.sessionID.trim() : '';
+  return sessionID ? readNativeSessionBinding(resolved, sessionID, options) : null;
+}
+
 function ensureNativeSessionAxisBinding(directory, sessionID) {
   const binding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
-  if (!binding || binding.axisBindingId) return binding;
+  if (!binding || binding.host !== 'workbench' || binding.axisBindingId) return binding?.host === 'workbench' ? binding : null;
   const target = path.join(binding.directory, '.def-session.json');
   const stored = readJsonFile(target);
   if (!stored) return binding;
@@ -1193,7 +1240,13 @@ function isDefOpenCodeSession(info) {
 }
 
 function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort }) {
-  const normalizedSkillId = skillMap[skillId] ? skillId : 'operator';
+  if (skillId !== 'workbench') {
+    const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+    error.code = 'DEF_OPENCODE_HOST_DISABLED';
+    error.status = 410;
+    throw error;
+  }
+  const normalizedSkillId = 'workbench';
   return {
     title: normalizedSkillId === 'workbench' ? '排轴助手' : 'DEF 数据助手',
     agent: selected.agent,
@@ -1206,7 +1259,7 @@ function buildSessionCreatePayload({ selected, deepseek, skillId, thinkingEffort
       app: 'dmg-end-field',
       schemaVersion: DEF_TRANSCRIPT_SCHEMA_VERSION,
       skillId: normalizedSkillId,
-      host: normalizedSkillId === 'workbench' ? 'workbench' : 'ai-cli',
+      host: 'workbench',
       thinkingEffort: normalizeThinkingEffort(thinkingEffort),
     },
   };
@@ -2388,20 +2441,11 @@ module.exports = {
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,
+  readNativeSessionBindingForDirectory,
   ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
+  isManagedNativeHostDirectory,
   writeNativeWorkbenchContext,
-  runChat,
-  runChatStream,
-  continueChat,
-  stopChat,
-  listChatSessions,
-  listPersistedDefSessions,
-  getPersistedDefSession,
-  hydrateDefSession,
   cleanupNativeRetrievalArtifacts,
-  createAgentSessionWorkspace,
-  getChatSessionStream,
-  getLiveDefTranscript,
   shutdownRuntime,
 };

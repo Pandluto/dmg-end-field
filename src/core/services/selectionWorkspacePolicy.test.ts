@@ -34,3 +34,6 @@ assert.equal(validateMainWorkbenchCommand({
   nodeDescription: '保留主力干员，并替换两名支援干员。',
   approval: { mode: 'manual', approvedBy: 'user' },
 }).ok, true);
+assert.equal(validateMainWorkbenchCommand({ op: 'openWorkbenchPage', page: 'aiCli' }).ok, false);
+assert.equal(validateMainWorkbenchCommand({ op: 'openWorkbenchPage', page: 'unknown-page' }).ok, false);
+assert.equal(validateMainWorkbenchCommand({ op: 'openWorkbenchPage', page: 'canvas' }).ok, true);

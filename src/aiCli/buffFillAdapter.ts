@@ -223,7 +223,7 @@ function buildTaskPackage(draft: BuffDraft, sourceText: string) {
     systemPrompt: buffSheetAiSystemPromptRaw.trim(),
     instruction: 'Return exactly one BuffFillAiDraft JSON object. No Markdown. No explanation. Modifier effects may include category=condition/countable/passive. Multiplier buffs remain effectKind=modifier, always use category=condition, keep the original supported type, and write multiplier={coefficient: positiveNumber}; do not create multiplierMultiplier and do not copy coefficient into value. multiplier is incompatible with countable and extraHit. fill.apply creates a proposal only; it does NOT save to library. Before fill.apply, self-check pending count with proposal.list. REST fill.apply is refused while any pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. If multiple edits are intended, submit and finish them one by one. Do not ask the user to re-run fill.apply.',
     outputSchema: createBuffFillAiDraftSchema(),
-    approvalSaveWarning: 'IMPORTANT: After REST fill.apply, the proposal is handed off to Web CLI automatically. Do not submit another fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal. Do NOT tell the user to re-run fill.apply in the browser.',
+    approvalSaveWarning: 'IMPORTANT: After REST fill.apply, review the proposal in the supported MCP Fill page. The retired /ai-cli page is unavailable. Do not submit another fill.apply while a pending proposal exists. For stale backlog, call proposal.clear through REST, then resubmit only the current proposal.',
   };
 }
 

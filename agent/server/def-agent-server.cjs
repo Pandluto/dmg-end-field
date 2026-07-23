@@ -5,16 +5,6 @@ const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { DatabaseSync } = require('node:sqlite');
 const {
-  runChat,
-  runChatStream,
-  continueChat,
-  stopChat,
-  listChatSessions,
-  listPersistedDefSessions,
-  getPersistedDefSession,
-  hydrateDefSession,
-  getChatSessionStream,
-  getLiveDefTranscript,
   shutdownRuntime,
   sanitizeDeepSeekConfig,
   summarizeConfig,
@@ -23,10 +13,11 @@ const {
   createNativeHostSession,
   getNativeHarnessSystem,
   recoverNativeHostSession,
-  buildNativeHostProfile,
   readNativeSessionBinding,
+  readNativeSessionBindingForDirectory,
   ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
+  isManagedNativeHostDirectory,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
@@ -83,12 +74,22 @@ async function ensureDefRestService() {
 
 async function registerNativeCatalogSession(session) {
   const sessionId = typeof session?.sessionID === 'string' ? session.sessionID.trim() : '';
-  const host = session?.host === 'workbench' ? 'workbench' : session?.host === 'ai-cli' ? 'ai-cli' : '';
-  if (!sessionId || !host) throw new Error('Native catalog session registration requires a native session id and host.');
+  if (session?.host === 'ai-cli') {
+    const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+    error.code = 'DEF_OPENCODE_HOST_DISABLED';
+    error.status = 410;
+    throw error;
+  }
+  if (!sessionId || session?.host !== 'workbench') {
+    const error = new Error('Native catalog session registration requires a workbench session.');
+    error.code = 'DEF_OPENCODE_HOST_INVALID';
+    error.status = 400;
+    throw error;
+  }
   const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
-    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host } }),
+    body: JSON.stringify({ tool: 'def.native_catalog.register_session', input: { sessionId, host: 'workbench' } }),
     signal: AbortSignal.timeout(5000),
   });
   const payload = await response.json().catch(() => null);
@@ -459,6 +460,7 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const routeParts = requestUrl.pathname.split('/').filter(Boolean);
   let embeddedProfile = null;
   let embeddedSession = null;
+  let disabledHostBinding = false;
   // The local OpenCode UI normalizes an embedded native session to either
   // `/{directorySlug}/session/{sessionId}` or
   // `/server/{directorySlug}/session/{sessionId}`. Both are client-document
@@ -481,8 +483,9 @@ function serveOpenCodeUi(request, response, requestUrl) {
       const directory = Buffer.from(directorySlug, 'base64url').toString('utf8');
       const binding = findNativeSessionBinding(decodedSessionID)
         || readNativeSessionBinding(directory, decodedSessionID);
-      embeddedProfile = binding?.profile || null;
-      if (binding) {
+      disabledHostBinding = binding?.host === 'ai-cli';
+      embeddedProfile = binding?.host === 'workbench' ? binding.profile : null;
+      if (binding?.host === 'workbench') {
         embeddedSession = { sessionID: decodedSessionID, directory: binding.directory };
       }
     } catch {
@@ -490,11 +493,17 @@ function serveOpenCodeUi(request, response, requestUrl) {
       embeddedSession = null;
     }
   }
-  if (!embeddedProfile) {
-    const requestedHost = requestUrl.searchParams.get('def_host') === 'workbench' ? 'workbench' : 'ai-cli';
-    embeddedProfile = buildNativeHostProfile(requestedHost);
+  if (isIndex && (!embeddedProfile || !embeddedSession)) {
+    writeJson(response, disabledHostBinding ? 410 : 404, {
+      ok: false,
+      error: disabledHostBinding
+        ? 'The ai-cli DEF OpenCode host is disabled.'
+        : 'native-workbench-session-binding-not-found',
+      ...(disabledHostBinding ? { code: 'DEF_OPENCODE_HOST_DISABLED' } : {}),
+    });
+    return true;
   }
-  const embeddedTitle = embeddedProfile.host === 'workbench' ? 'DEF · 排轴助手' : 'DEF · 数据助手';
+  const embeddedTitle = 'DEF · 排轴助手';
   const body = isIndex
     ? Buffer.from(fileBody.toString('utf8').replace('<title>OpenCode</title>', `<title>${embeddedTitle}</title>`).replace(
       '</head>',
@@ -512,9 +521,46 @@ function serveOpenCodeUi(request, response, requestUrl) {
 }
 
 async function proxyOpenCodeRequest(request, response) {
+  const target = new URL(request.url || '/', defRestUrl);
+  const requestedDirectory = readRequestDirectory(request, target);
+  const denyDisabledHost = () => {
+    writeJson(response, 410, {
+      ok: false,
+      error: 'The ai-cli DEF OpenCode host is disabled.',
+      code: 'DEF_OPENCODE_HOST_DISABLED',
+    });
+    return true;
+  };
+  if (isManagedNativeHostDirectory(requestedDirectory, 'ai-cli')) return denyDisabledHost();
+
+  const sessionRouteMatch = /^\/session(?:\/([^/]+))?(?:\/|$)/.exec(target.pathname);
+  let proxyBinding = null;
+  if (sessionRouteMatch) {
+    const routeSessionID = sessionRouteMatch[1] && sessionRouteMatch[1] !== 'status'
+      ? decodeURIComponent(sessionRouteMatch[1])
+      : '';
+    proxyBinding = routeSessionID
+      ? findNativeSessionBinding(routeSessionID) || readNativeSessionBinding(requestedDirectory, routeSessionID)
+      : readNativeSessionBindingForDirectory(requestedDirectory, { includeNodeRelation: false });
+    if (proxyBinding?.host === 'ai-cli') return denyDisabledHost();
+    if (!proxyBinding || proxyBinding.host !== 'workbench') {
+      writeJson(response, 403, { ok: false, error: 'native-workbench-session-binding-not-found' });
+      return true;
+    }
+    if (requestedDirectory && path.resolve(requestedDirectory) !== path.resolve(proxyBinding.directory)) {
+      writeJson(response, 409, { ok: false, error: 'native-session-directory-mismatch' });
+      return true;
+    }
+    if (target.pathname === '/session' && request.method !== 'GET') {
+      writeJson(response, 403, { ok: false, error: 'native-session-create-must-use-workbench-host' });
+      return true;
+    }
+  }
+
   const runtime = runtimeSummary(readConfig().deepseek);
   if (!runtime.running || !runtime.serverUrl) return Promise.resolve(false);
-  const target = new URL(request.url || '/', runtime.serverUrl);
+  target.host = new URL(runtime.serverUrl).host;
+  target.protocol = new URL(runtime.serverUrl).protocol;
   // Native DEF sessions are served under an encoded workspace-directory prefix:
   // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
   // OpenCode route as well, but do not assume the prefix is literally `server`.
@@ -524,32 +570,23 @@ async function proxyOpenCodeRequest(request, response) {
   let binding = null;
   if (request.method === 'POST' && sessionMessageMatch) {
     const sessionID = decodeURIComponent(sessionMessageMatch[1]);
-    const directory = target.searchParams.get('directory') || '';
-    binding = readNativeSessionBinding(directory, sessionID);
-    if (binding) {
-      const axisContext = binding.host === 'workbench' ? await syncNativeWorkbenchAxisBinding(binding) : null;
-      const incoming = await readJsonBody(request);
-      const userText = Array.isArray(incoming.parts)
-        ? incoming.parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n').trim()
-        : '';
-      const workbenchContext = binding.host === 'workbench'
-        ? readNativeWorkbenchContext(binding)
-        : null;
-      const harness = getNativeHarnessSystem(binding, userText);
-      const checkoutState = binding.host === 'workbench' ? updateNativeWorkbenchCheckoutState(binding, axisContext) : null;
-      const selectedSystem = binding.host === 'workbench'
-        ? buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, incoming.system].filter(Boolean).join('\n\n'))
-        : incoming.system;
-      rewrittenBody = Buffer.from(JSON.stringify({
-        ...incoming,
-        agent: binding.agent,
-        ...(binding.host === 'workbench' ? {
-          system: checkoutState
-            ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, incoming.parts)
-            : selectedSystem,
-        } : {}),
-      }), 'utf8');
-    }
+    binding = proxyBinding || findNativeSessionBinding(sessionID);
+    const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+    const incoming = await readJsonBody(request);
+    const userText = Array.isArray(incoming.parts)
+      ? incoming.parts.filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n').trim()
+      : '';
+    const workbenchContext = readNativeWorkbenchContext(binding);
+    const harness = getNativeHarnessSystem(binding, userText);
+    const checkoutState = updateNativeWorkbenchCheckoutState(binding, axisContext);
+    const selectedSystem = buildWorkbenchContextSystemPrompt(workbenchContext, [harness.system, incoming.system].filter(Boolean).join('\n\n'));
+    rewrittenBody = Buffer.from(JSON.stringify({
+      ...incoming,
+      agent: binding.agent,
+      system: checkoutState
+        ? buildWorkbenchCheckoutSystemPrompt(checkoutState, selectedSystem, incoming.parts)
+        : selectedSystem,
+    }), 'utf8');
   }
   return new Promise((resolve, reject) => {
     const headers = { ...request.headers, host: target.host };
@@ -583,13 +620,21 @@ async function proxyOpenCodeRequest(request, response) {
   });
 }
 
-async function readNativeInteropTranscript(sessionID) {
+function requireNativeWorkbenchBinding(sessionID) {
   const binding = findNativeSessionBinding(sessionID);
-  if (!binding) {
-    const error = new Error('native-session-binding-not-found');
-    error.status = 404;
+  if (!binding || binding.host !== 'workbench') {
+    const error = new Error(binding?.host === 'ai-cli'
+      ? 'The ai-cli DEF OpenCode host is disabled.'
+      : 'native-workbench-session-binding-not-found');
+    error.code = binding?.host === 'ai-cli' ? 'DEF_OPENCODE_HOST_DISABLED' : undefined;
+    error.status = binding?.host === 'ai-cli' ? 410 : 404;
     throw error;
   }
+  return binding;
+}
+
+async function readNativeInteropTranscript(sessionID) {
+  const binding = requireNativeWorkbenchBinding(sessionID);
   const runtime = await ensureRuntime(readConfig().deepseek);
   const response = await fetch(
     `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/message?directory=${encodeURIComponent(binding.directory)}`,
@@ -604,12 +649,7 @@ async function readNativeInteropTranscript(sessionID) {
 }
 
 async function readNativeInteropQuestions(sessionID) {
-  const binding = findNativeSessionBinding(sessionID);
-  if (!binding || binding.host !== 'workbench') {
-    const error = new Error('native-workbench-session-binding-not-found');
-    error.status = 404;
-    throw error;
-  }
+  const binding = requireNativeWorkbenchBinding(sessionID);
   const runtime = await ensureRuntime(readConfig().deepseek);
   const response = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(binding.directory)}`, {
     signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
@@ -678,12 +718,7 @@ async function sendNativeInteropPrompt(sessionID, body) {
 }
 
 async function sendNativeInteropPromptOnce(sessionID, body) {
-  const binding = findNativeSessionBinding(sessionID);
-  if (!binding || binding.host !== 'workbench') {
-    const error = new Error('native-workbench-session-binding-not-found');
-    error.status = 404;
-    throw error;
-  }
+  const binding = requireNativeWorkbenchBinding(sessionID);
   const requestedHarness = typeof body?.harnessSelector === 'string' ? body.harnessSelector.trim() : '';
   if (requestedHarness) {
     const pinned = binding.harnessBinding?.harness;
@@ -758,12 +793,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
 }
 
 async function stopNativeInteropPrompt(sessionID) {
-  const binding = findNativeSessionBinding(sessionID);
-  if (!binding || binding.host !== 'workbench') {
-    const error = new Error('native-workbench-session-binding-not-found');
-    error.status = 404;
-    throw error;
-  }
+  const binding = requireNativeWorkbenchBinding(sessionID);
   const runtime = await ensureRuntime(readConfig().deepseek);
   const response = await fetch(
     `${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}/abort?directory=${encodeURIComponent(binding.directory)}`,
@@ -1142,17 +1172,23 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/session') {
-      await ensureDefRestService();
       const body = await readJsonBody(request);
-      const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
+      if (body.host !== 'workbench') {
+        const error = new Error(body.host === 'ai-cli'
+          ? 'The ai-cli DEF OpenCode host is disabled.'
+          : 'DEF OpenCode requires an explicit host=workbench.');
+        error.code = body.host === 'ai-cli' ? 'DEF_OPENCODE_HOST_DISABLED' : 'DEF_OPENCODE_HOST_INVALID';
+        error.status = body.host === 'ai-cli' ? 410 : 400;
+        throw error;
+      }
       const timelineId = typeof body.timelineId === 'string' ? body.timelineId.trim() : '';
-      if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId);
+      await ensureDefRestService();
+      await assertWorkbenchTimelineAdmission(timelineId);
       let session = null;
       try {
         session = await createNativeHostSession({
           config: readConfig().deepseek,
-          host,
-          skillId: typeof body.skillId === 'string' ? body.skillId : undefined,
+          host: 'workbench',
           thinkingEffort: body.thinkingEffort,
           harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
           timelineId,
@@ -1174,7 +1210,17 @@ const server = http.createServer(async (request, response) => {
       const sessionID = decodeURIComponent(nativeSessionRecovery[1]);
       const body = await readJsonBody(request);
       const existingBinding = readNativeSessionBinding(typeof body.directory === 'string' ? body.directory : '', sessionID, { includeNodeRelation: false });
-      if (existingBinding?.host === 'workbench') await syncNativeWorkbenchAxisBinding(existingBinding);
+      if (existingBinding?.host === 'ai-cli') {
+        const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+        error.code = 'DEF_OPENCODE_HOST_DISABLED';
+        error.status = 410;
+        throw error;
+      }
+      if (!existingBinding) {
+        writeJson(response, 404, { ok: false, error: 'native-workbench-session-binding-not-found' });
+        return;
+      }
+      await syncNativeWorkbenchAxisBinding(existingBinding);
       const session = await recoverNativeHostSession({
         config: readConfig().deepseek,
         directory: typeof body.directory === 'string' ? body.directory : '',
@@ -1193,12 +1239,8 @@ const server = http.createServer(async (request, response) => {
       const action = nativeQuestionAction[2];
       const body = await readJsonBody(request);
       const sessionID = typeof body.sessionID === 'string' ? body.sessionID : '';
-      const binding = findNativeSessionBinding(sessionID);
-      if (!binding) {
-        writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
-        return;
-      }
-      if (binding.host === 'workbench') await syncNativeWorkbenchAxisBinding(binding);
+      const binding = requireNativeWorkbenchBinding(sessionID);
+      await syncNativeWorkbenchAxisBinding(binding);
 
       const runtime = runtimeSummary(readConfig().deepseek);
       const answers = Array.isArray(body.answers) ? body.answers : [];
@@ -1273,6 +1315,13 @@ const server = http.createServer(async (request, response) => {
     if (method === 'GET' && requestUrl.pathname === '/api/native/bootstrap') {
       const sessionID = requestUrl.searchParams.get('sessionID') || '';
       const directory = requestUrl.searchParams.get('directory') || '';
+      const storedBinding = readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
+      if (storedBinding?.host === 'ai-cli') {
+        const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+        error.code = 'DEF_OPENCODE_HOST_DISABLED';
+        error.status = 410;
+        throw error;
+      }
       const binding = ensureNativeSessionAxisBinding(directory, sessionID);
       if (!binding) {
         writeJson(response, 404, { ok: false, error: 'native-session-binding-not-found' });
@@ -1288,7 +1337,13 @@ const server = http.createServer(async (request, response) => {
       const sessionID = requestUrl.searchParams.get('sessionID') || '';
       const directory = requestUrl.searchParams.get('directory') || '';
       const binding = readNativeSessionBinding(directory, sessionID);
-      if (!binding || binding.profile?.features?.nodeReview !== true) {
+      if (binding?.host === 'ai-cli') {
+        const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+        error.code = 'DEF_OPENCODE_HOST_DISABLED';
+        error.status = 410;
+        throw error;
+      }
+      if (!binding || binding.host !== 'workbench' || binding.profile?.features?.nodeReview !== true) {
         writeJson(response, 403, { ok: false, error: 'node-review-not-permitted' });
         return;
       }
@@ -1323,6 +1378,13 @@ const server = http.createServer(async (request, response) => {
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/context') {
       const body = await readJsonBody(request);
+      const storedBinding = readNativeSessionBinding(body.directory, body.sessionID, { includeNodeRelation: false });
+      if (storedBinding?.host === 'ai-cli') {
+        const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+        error.code = 'DEF_OPENCODE_HOST_DISABLED';
+        error.status = 410;
+        throw error;
+      }
       const binding = ensureNativeSessionAxisBinding(body.directory, body.sessionID);
       const contextTimelineId = typeof body.context?.timeline?.id === 'string' ? body.context.timeline.id.trim() : '';
       if (!binding || binding.host !== 'workbench' || !binding.timelineId || contextTimelineId !== binding.timelineId) {
@@ -1400,175 +1462,6 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
-    if (method === 'GET' && requestUrl.pathname === '/api/chat/sessions') {
-      writeJson(response, 200, {
-        ok: true,
-        sessions: listChatSessions(),
-      });
-      return;
-    }
-
-    if (method === 'GET' && requestUrl.pathname === '/api/chat/persisted-sessions') {
-      const sessions = await listPersistedDefSessions({
-        config: readConfig().deepseek,
-        limit: Number(requestUrl.searchParams.get('limit') || 100) || 100,
-      });
-      writeJson(response, 200, {
-        ok: true,
-        sessions,
-      });
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/api/chat') {
-      await ensureDefRestService();
-      const body = await readJsonBody(request);
-      const result = await runChat({
-        config: readConfig().deepseek,
-        message: body.message,
-        thinkingEffort: body.thinkingEffort,
-        skillId: body.skillId,
-        workbenchContext: body.workbenchContext,
-      });
-      writeJson(response, result.ok ? 200 : 502, {
-        ok: result.ok,
-        result,
-      });
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/api/chat/stream') {
-      await ensureDefRestService();
-      const body = await readJsonBody(request);
-      let workbenchContext = body.workbenchContext;
-      if (body.skillId === 'workbench' && (!workbenchContext || typeof workbenchContext !== 'object')) {
-        try {
-          const snapshotResponse = await fetch(`${defRestUrl}/api/main-workbench/snapshot`, {
-            signal: AbortSignal.timeout(4000),
-            headers: process.env.DEF_INTERNAL_GOVERNANCE_TOKEN ? { 'x-def-internal-token': process.env.DEF_INTERNAL_GOVERNANCE_TOKEN } : {},
-          });
-          const snapshotBody = await snapshotResponse.json();
-          const snapshot = snapshotBody?.snapshot || snapshotBody?.data || snapshotBody;
-          if (snapshotResponse.ok && snapshotBody?.ok !== false) {
-            workbenchContext = { schemaVersion: 1, source: 'sidecar-workbench-snapshot', updatedAt: Date.now(), snapshot };
-          }
-        } catch {
-          workbenchContext = null;
-        }
-      }
-      const result = await runChatStream({
-        config: readConfig().deepseek,
-        message: body.message,
-        thinkingEffort: body.thinkingEffort,
-        skillId: body.skillId,
-        clientTurnId: body.clientTurnId,
-        workbenchContext,
-      });
-      const binding = body.skillId === 'workbench'
-        ? ensureNativeSessionAxisBinding(result.directory, result.sessionID)
-        : null;
-      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-      writeJson(response, 200, {
-        ok: true,
-        sessionId: result.sessionId,
-        sessionID: result.sessionID,
-        axisContext,
-      });
-      return;
-    }
-
-    const eventsMatch = /^\/api\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
-    if (method === 'GET' && eventsMatch) {
-      const sessionID = decodeURIComponent(eventsMatch[1]);
-      const stream = getChatSessionStream(sessionID);
-      if (!stream) {
-        writeJson(response, 404, {
-          ok: false,
-          error: 'session-not-found',
-        });
-        return;
-      }
-      const fromSeq = Number(requestUrl.searchParams.get('from') || 0) || 0;
-      writeSseHeaders(response);
-      for (const event of stream.buffer) {
-        if ((event.seq || 0) > fromSeq) writeSse(response, event);
-      }
-      const onEvent = (event) => writeSse(response, event);
-      stream.eventEmitter.on('event', onEvent);
-      const heartbeat = setInterval(() => {
-        response.write(`event: heartbeat\ndata: ${JSON.stringify({ ok: true, sessionId: sessionID, at: Date.now() })}\n\n`);
-      }, 15000);
-      request.on('close', () => {
-        clearInterval(heartbeat);
-        stream.eventEmitter.off('event', onEvent);
-      });
-      return;
-    }
-
-    const persistedMatch = /^\/api\/chat\/([^/]+)\/persisted$/.exec(requestUrl.pathname);
-    if (method === 'GET' && persistedMatch) {
-      const sessionID = decodeURIComponent(persistedMatch[1]);
-      const persisted = await getPersistedDefSession(sessionID, { config: readConfig().deepseek });
-      writeJson(response, 200, {
-        ok: true,
-        session: persisted.summary,
-      });
-      return;
-    }
-
-    const transcriptMatch = /^\/api\/chat\/([^/]+)\/transcript$/.exec(requestUrl.pathname);
-    if (method === 'GET' && transcriptMatch) {
-      const sessionID = decodeURIComponent(transcriptMatch[1]);
-      const transcript = getLiveDefTranscript(sessionID) || await hydrateDefSession(sessionID, { config: readConfig().deepseek });
-      writeJson(response, 200, {
-        ok: true,
-        ...transcript,
-      });
-      return;
-    }
-
-    const messageMatch = /^\/api\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
-    if (method === 'POST' && messageMatch) {
-      await ensureDefRestService();
-      const sessionID = decodeURIComponent(messageMatch[1]);
-      const body = await readJsonBody(request);
-      const result = await continueChat(sessionID, body.message, body.clientTurnId, {
-        config: readConfig().deepseek,
-        thinkingEffort: body.thinkingEffort,
-        skillId: body.skillId,
-        workbenchContext: body.workbenchContext,
-      });
-      const binding = body.skillId === 'workbench'
-        ? ensureNativeSessionAxisBinding(result.directory, result.sessionID)
-        : null;
-      const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-      writeJson(response, 200, {
-        ok: true,
-        sessionId: result.sessionId,
-        sessionID: result.sessionID,
-        axisContext,
-      });
-      return;
-    }
-
-    const stopMatch = /^\/api\/chat\/([^/]+)\/stop$/.exec(requestUrl.pathname);
-    if (method === 'POST' && stopMatch) {
-      const sessionID = decodeURIComponent(stopMatch[1]);
-      writeJson(response, 200, {
-        ok: true,
-        result: await stopChat(sessionID),
-      });
-      return;
-    }
-
-    if (method === 'POST' && requestUrl.pathname === '/api/chat/stop') {
-      writeJson(response, 200, {
-        ok: true,
-        result: await stopChat(),
-      });
-      return;
-    }
-
     const nativeQuestionDecision = /^\/question\/([^/]+)\/(reply|reject)$/.exec(requestUrl.pathname);
     if (method === 'POST' && nativeQuestionDecision) {
       const runtime = runtimeSummary(readConfig().deepseek);
@@ -1576,9 +1469,20 @@ const server = http.createServer(async (request, response) => {
       const requestID = decodeURIComponent(nativeQuestionDecision[1]);
       const action = nativeQuestionDecision[2];
       const nativeSessionID = decodeURIComponent(readRequestHeader(request, 'x-def-question-session'));
-      const nativeBinding = findNativeSessionBinding(nativeSessionID);
-      if (nativeBinding?.host === 'workbench') await syncNativeWorkbenchAxisBinding(nativeBinding);
-      const directory = nativeBinding?.directory || requestedDirectory;
+      const nativeBinding = findNativeSessionBinding(nativeSessionID)
+        || readNativeSessionBindingForDirectory(requestedDirectory, { includeNodeRelation: false });
+      if (nativeBinding?.host === 'ai-cli' || isManagedNativeHostDirectory(requestedDirectory, 'ai-cli')) {
+        const error = new Error('The ai-cli DEF OpenCode host is disabled.');
+        error.code = 'DEF_OPENCODE_HOST_DISABLED';
+        error.status = 410;
+        throw error;
+      }
+      if (!nativeBinding || nativeBinding.host !== 'workbench') {
+        writeJson(response, 403, { ok: false, error: 'native-workbench-session-binding-not-found' });
+        return;
+      }
+      await syncNativeWorkbenchAxisBinding(nativeBinding);
+      const directory = nativeBinding.directory;
       const pending = await fetch(`${runtime.serverUrl}/question?directory=${encodeURIComponent(directory)}`).then((item) => item.json());
       const requestRecord = Array.isArray(pending) ? pending.find((item) => item?.id === requestID) : null;
       const decisionBody = action === 'reply' ? await readJsonBody(request) : {};

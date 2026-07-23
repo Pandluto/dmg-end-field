@@ -156,10 +156,9 @@ function pruneRegisteredDefNativeCatalogSessions(now = Date.now()) {
 function registerDefNativeCatalogSession(input = {}) {
   const sessionId = normalizeDefNativeCatalogSessionId(input.sessionId || input.__defSessionId);
   if (!sessionId) return null;
-  const host = input.host === 'workbench' ? 'workbench' : input.host === 'ai-cli' ? 'ai-cli' : '';
-  if (!host) return null;
+  if (input.host !== 'workbench') return null;
   const registeredAt = Date.now();
-  const registration = { sessionId, host, registeredAt, expiresAt: registeredAt + DEF_NATIVE_CATALOG_SESSION_TTL_MS };
+  const registration = { sessionId, host: 'workbench', registeredAt, expiresAt: registeredAt + DEF_NATIVE_CATALOG_SESSION_TTL_MS };
   registeredDefNativeCatalogSessions.set(sessionId, registration);
   return registration;
 }
@@ -167,7 +166,12 @@ function registerDefNativeCatalogSession(input = {}) {
 function resolveRegisteredDefNativeCatalogSession(value) {
   pruneRegisteredDefNativeCatalogSessions();
   const sessionId = normalizeDefNativeCatalogSessionId(value);
-  return sessionId ? registeredDefNativeCatalogSessions.get(sessionId) || null : null;
+  const registration = sessionId ? registeredDefNativeCatalogSessions.get(sessionId) || null : null;
+  if (registration && registration.host !== 'workbench') {
+    registeredDefNativeCatalogSessions.delete(sessionId);
+    return null;
+  }
+  return registration;
 }
 
 // A native catalog artifact is intentionally sidecar-ephemeral, but a
@@ -10165,6 +10169,9 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, document } } };
   }
   if (name === 'def.native_catalog.register_session') {
+    if (input.host === 'ai-cli') {
+      return failScript(410, 'DEF_OPENCODE_HOST_DISABLED', 'The ai-cli DEF OpenCode host is disabled.');
+    }
     const registration = registerDefNativeCatalogSession(input);
     if (!registration) {
       return failScript(400, 'invalid-native-catalog-session', 'Native catalog session registration requires a valid sessionId and host.');

@@ -31,6 +31,16 @@ export const MAIN_WORKBENCH_SUPPORTED_OPS = [
 ];
 
 const SUPPORTED_OP_SET = new Set(MAIN_WORKBENCH_SUPPORTED_OPS);
+const SUPPORTED_WORKBENCH_PAGES = new Set([
+  'home',
+  'selection',
+  'canvas',
+  'operatorConfig',
+  'weaponSheet',
+  'equipmentSheet',
+  'damageSheet',
+  'damageReportPpt',
+]);
 
 function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -74,6 +84,14 @@ export function validateMainWorkbenchCommand(command) {
       ok: false,
       code: 'invalid-main-workbench-command-op',
       message: `Unsupported main workbench command op: ${String(command.op || 'unknown')}.`,
+    };
+  }
+
+  if (command.op === 'openWorkbenchPage' && !SUPPORTED_WORKBENCH_PAGES.has(command.page)) {
+    return {
+      ok: false,
+      code: 'invalid-main-workbench-page',
+      message: `Unsupported main workbench page: ${String(command.page || 'unknown')}.`,
     };
   }
 

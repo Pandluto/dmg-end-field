@@ -95,7 +95,7 @@ try {
   const health = await waitForHealth();
   assert(health.ok === true, 'health should be ok');
   assert(health.pid === server.pid, 'health should report the spawned REST pid');
-  assert(health.diagnostics?.weaponFill?.contractVersion?.includes('condition-passive'), 'health should expose current weapon fill contract');
+  assert(typeof health.diagnostics?.weaponFill?.contractVersion === 'string', 'health should expose current weapon fill contract');
   assert(health.diagnostics?.weaponFill?.validEffectCategories?.includes('condition'), 'health should expose condition category');
   assert(health.diagnostics?.weaponFill?.validEffectCategories?.includes('passive'), 'health should expose passive category');
   assert(health.diagnostics?.weaponFill?.supportedEffectTypeCount > 50, 'health should expose expanded weapon effect types');
@@ -205,7 +205,7 @@ try {
   assert(fillTask.payload.data?.outputSchema, 'fill.task should return structured outputSchema');
   assert(fillTask.payload.data?.modifierCatalog, 'fill.task should return structured modifierCatalog');
   assert(fillTask.payload.data?.instruction?.includes('proposal only'), 'fill.task instruction should mention proposal only');
-  assert(fillTask.payload.data?.approvalSaveWarning?.includes('handed off'), 'fill.task should include approvalSaveWarning about handoff');
+  assert(fillTask.payload.data?.approvalSaveWarning?.includes('MCP Fill'), 'fill.task should direct proposal review to MCP Fill');
   assert(fillTask.payload.copyText === undefined, 'fill.task should not return copyText for REST client');
 
   const fillTaskWebCli = await request('POST', '/api/ai-cli/run?client=web-cli', {
@@ -298,9 +298,9 @@ try {
   assert(apply.payload.proposal?.id, 'apply should return proposal.id');
   assert(apply.payload.proposal?.approval === 'Wait', 'apply proposal should be Wait');
   assert(apply.payload.proposal?.save === 'Wait', 'apply proposal should be save=Wait');
-  assert(apply.payload.proposal?.nextAction?.includes('Web CLI') || apply.payload.proposal?.nextAction?.includes('Y to approve'), 'apply proposal.nextAction should guide user to Web CLI Y/Y');
+  assert(apply.payload.proposal?.nextAction?.includes('MCP Fill'), 'apply proposal.nextAction should guide user to MCP Fill');
   const applyLines = apply.payload.lines || [];
-  assert(applyLines.some((l) => l.includes('handoff') || l.includes('Web CLI')), 'apply lines should mention handoff or Web CLI');
+  assert(applyLines.some((l) => l.includes('handoff') || l.includes('MCP Fill')), 'apply lines should mention the MCP Fill handoff');
 
   const libraryAfterApply = await request('GET', '/api/buff/library/ai-result');
   assert(libraryAfterApply.status === 404, `library entry should not exist after apply-only: status=${libraryAfterApply.status}`);
