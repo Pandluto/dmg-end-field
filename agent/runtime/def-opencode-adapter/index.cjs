@@ -14,6 +14,12 @@ const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
 const OPENCODE_HOST = '127.0.0.1';
 const OPENCODE_PORT_BASE = Number(process.env.DEF_OPENCODE_PORT || 17445);
 const OPENCODE_PORT_MAX_ATTEMPTS = 20;
+// OpenCode initializes the project-scoped plugin/runtime on the first session
+// created for a new isolated Workbench directory.  That routinely takes more
+// than ten seconds on desktop builds, so the session request must not race a
+// 15-second transport timeout and leave the UI in a false "service unavailable"
+// state while OpenCode completes successfully in the background.
+const OPENCODE_SESSION_CREATE_TIMEOUT_MS = 60000;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
@@ -755,7 +761,13 @@ async function createNativeHostSession({ config = {}, host, thinkingEffort = 'me
   const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
-  const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  const session = await requestJson(
+    'POST',
+    `${serverUrl}/session?${query}`,
+    payload,
+    undefined,
+    OPENCODE_SESSION_CREATE_TIMEOUT_MS,
+  );
   const profile = buildNativeHostProfile(host);
   writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, timelineId: normalizedTimelineId, boundNodeId });
   return {
@@ -807,7 +819,13 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
   if (existing.status !== 404) throw new Error(`OpenCode session check failed: HTTP ${existing.status}`);
 
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort: 'medium' });
-  const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  const session = await requestJson(
+    'POST',
+    `${serverUrl}/session?${query}`,
+    payload,
+    undefined,
+    OPENCODE_SESSION_CREATE_TIMEOUT_MS,
+  );
   const profile = buildNativeHostProfile(binding.host);
   writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
   return {
