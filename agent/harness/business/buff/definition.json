@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "businessId": "buff",
+  "displayName": "BUFF",
+  "summary": "查看、解析、添加、删除、替换、批量处理并应用按钮 BUFF、层数、覆盖、异常与相关战斗状态。",
+  "defaultRevision": "v1",
+  "operations": [
+    "inspect",
+    "resolve",
+    "source",
+    "add",
+    "remove",
+    "replace",
+    "batch",
+    "stack",
+    "coverage",
+    "apply",
+    "restore"
+  ],
+  "toolCeiling": [
+    "def.node.crud.context",
+    "def.node.crud.buttons",
+    "def.node.crud.buff_ranking",
+    "def.data.resource.buff",
+    "def.node.code.read",
+    "def.node.code.edit",
+    "def.node.code.apply_patch",
+    "def.node.code.rebuild",
+    "def.node.crud.fork",
+    "def.node.crud.read",
+    "def.node.crud.validate",
+    "def.node.crud.diff",
+    "def.node.crud.use",
+    "def.node.crud.restore"
+  ],
+  "writeScope": [
+    "buff.bindings",
+    "buff.stacks",
+    "buff.anomaly",
+    "buff.combatState"
+  ],
+  "completion": {
+    "required": [
+      "exact-button-and-buff-identities",
+      "reference-stack-and-conflict-validation",
+      "semantic-diff",
+      "native-approval",
+      "scheme-CAS",
+      "visible-buff-postcondition"
+    ]
+  },
+  "downstream": {
+    "selection": "continue",
+    "loadout": "continue",
+    "timeline": "continue",
+    "calculation": "recompute"
+  }
+}

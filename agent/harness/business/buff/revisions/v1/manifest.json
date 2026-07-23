@@ -1,0 +1,708 @@
+{
+  "schemaVersion": 1,
+  "businessId": "buff",
+  "version": "v1",
+  "writeScope": [
+    "buff.bindings",
+    "buff.stacks",
+    "buff.anomaly",
+    "buff.combatState"
+  ],
+  "operations": {
+    "inspect": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the authoritative current checkout and scheme version.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read exact target buttons and their current selected BUFF state.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report current BUFF bindings, layers and relevant state for the exact buttons.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report missing checkout/button facts without guessing.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "resolve": {
+      "entryPhase": "resolve-buff",
+      "phases": [
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Resolve the complete BUFF name/id to exact typed candidates, source conditions and stack fields.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return exact ids, source, applicability, stack/coverage facts and ambiguity.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State that no exact BUFF identity was established.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "source": {
+      "entryPhase": "resolve-buff",
+      "phases": [
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Read the typed BUFF source and activation conditions.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Explain only returned source/condition/coverage facts and their scheme applicability.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report unsupported or missing source facts.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "add": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve exact target buttons and current BUFF bindings.",
+          "transitions": {"onSuccess": "resolve-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Resolve one exact BUFF and its legal layer/coverage conditions.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one Agent-named child Work Node for the BUFF change.",
+          "transitions": {"onSuccess": "edit-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-buff",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Add the exact BUFF to the exact button(s). Do not move, replace, copy or delete any skill button.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate BUFF references, layers, conflicts, mirrors and button identity preservation.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify the semantic diff is BUFF-only.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Request native approval and use the same validated Work Node revision.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read the live target buttons and verify the BUFF binding and layers.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the visible applied BUFF change and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 with the failed phase; preserve the draft and never mutate button structure.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "remove": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve exact target buttons and the exact current BUFF being removed.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child BUFF draft.",
+          "transitions": {"onSuccess": "edit-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-buff",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Remove only the requested BUFF binding and dependent BUFF-owned layer/state fields.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate references and unchanged skill-button structure.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify BUFF-only semantic removal.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Use the validated draft under native approval.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify the live buttons no longer carry the binding.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the visible removal and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 without deleting or moving the button.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "replace": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve exact target and current binding.",
+          "transitions": {"onSuccess": "resolve-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Resolve the exact replacement BUFF and conditions.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child BUFF draft.",
+          "transitions": {"onSuccess": "edit-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-buff",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Replace only BUFF-owned fields on the exact button.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate replacement references, layers and conflicts.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify skill identity and position did not change.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Apply under native approval and scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify the visible replacement.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the applied replacement and recalculation.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 and the exact conflict or validation failure.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "batch": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind one scheme version for the entire batch.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve the bounded exact target button set. Batch size is not a separate Harness.",
+          "transitions": {"onSuccess": "resolve-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Resolve each requested BUFF identity and shared conditions before writing any button.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child Work Node for the complete batch.",
+          "transitions": {"onSuccess": "edit-batch", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-batch",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Apply the complete batch atomically in one draft. Do not split it into per-button transactions.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate all references, layers, conflicts and unchanged button structure.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Review one BUFF-only batch semantic diff.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Use the batch draft once under native approval.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify every target button in live state.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report one batch outcome, per-button result and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the entire batch as 未应用 when atomic validation/application fails.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "stack": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current scheme.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read exact current binding and stack state.",
+          "transitions": {"onSuccess": "resolve-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Read legal stack semantics and limits.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child BUFF draft.",
+          "transitions": {"onSuccess": "edit-stack", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-stack",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["buff.stacks"],
+          "instructions": "Change only the typed stack count/segment fields.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate legal stack count and binding consistency.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify stack-only semantic change.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.stacks"],
+          "instructions": "Apply the validated stack change under native approval.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify visible stack state.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the applied layer change and recomputation.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report invalid stack or application failure.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "coverage": {
+      "entryPhase": "read-buttons",
+      "phases": [
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read exact buttons and current BUFF coverage state.",
+          "transitions": {"onSuccess": "resolve-buff", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-buff",
+          "kind": "evidence",
+          "tools": ["def.data.resource.buff"],
+          "writes": [],
+          "instructions": "Resolve source, target coverage, overlap and conflict facts.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Explain current coverage and conflicts without modifying state.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State which coverage fact is missing.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "apply": {
+      "entryPhase": "bind-draft",
+      "phases": [
+        {
+          "id": "bind-draft",
+          "kind": "context",
+          "tools": ["def.node.crud.read"],
+          "writes": [],
+          "instructions": "Bind the exact named BUFF draft; never use an arbitrary latest node.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate references, stacks, conflicts and semantic write scope.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Confirm the diff changes only BUFF-owned fields.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Use the same revision under native approval and scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify every reviewed BUFF field in live buttons.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report visible outcome and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 and preserve the draft.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "restore": {
+      "entryPhase": "bind-current",
+      "phases": [
+        {
+          "id": "bind-current",
+          "kind": "context",
+          "tools": ["def.node.crud.read"],
+          "writes": [],
+          "instructions": "Bind current Work Node base.",
+          "transitions": {"onSuccess": "restore-base", "onFailure": "failed"}
+        },
+        {
+          "id": "restore-base",
+          "kind": "mutation",
+          "tools": ["def.node.crud.restore"],
+          "writes": ["buff.bindings", "buff.stacks", "buff.anomaly", "buff.combatState"],
+          "instructions": "Restore only when semantic diff is BUFF-owned; reject any timeline/loadout/selection difference.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Verify visible restored BUFF state.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report restored BUFF state and recalculation.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未恢复 for out-of-scope base changes or failed verification.",
+          "terminalState": "aborted"
+        }
+      ]
+    }
+  }
+}
