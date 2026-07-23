@@ -426,6 +426,43 @@
     }
   };
 
+  const cleanupWorkbenchSessions = async (button) => {
+    const confirmed = window.confirm(
+      '将删除全部主界面 AI 模式 Session，包括当前正在使用的会话，且不可恢复。正在进行的对话会终止；重新进入 AI 模式时会创建新会话。Timeline、Work Node 和业务数据不受影响。确认继续？',
+    );
+    if (!confirmed) return;
+
+    setButtonBusy(button, true, '正在清除');
+    try {
+      const response = await fetch(`${LOCAL_BRIDGE_ORIGIN}/def-agent/workbench-sessions/cleanup`, {
+        method: 'POST',
+        cache: 'no-store',
+      });
+      const payload = await response.json().catch(() => null);
+      if (!payload || !Number.isFinite(Number(payload.targetCount)) || !Array.isArray(payload.failed)) {
+        throw new Error(payload?.error?.message || payload?.error || `清理请求失败：HTTP ${response.status}`);
+      }
+      if (payload.defAgent) renderDefAgentStatus(payload.defAgent);
+
+      const targetCount = Number(payload.targetCount);
+      const deletedCount = Number(payload.deletedCount || 0);
+      const failed = payload.failed;
+      let statusText = '';
+      if (payload.ok && targetCount === 0) {
+        statusText = '没有可清除的 AI 模式会话。';
+      } else if (failed.length === 0) {
+        statusText = `清理完成：目标 ${targetCount}，已删除 ${deletedCount}。`;
+      } else {
+        const failures = failed.map((item) => `${item.sessionID || '-'}：${item.code || 'NATIVE_SESSION_CLEANUP_FAILED'}`).join('；');
+        statusText = `清理未完全完成：目标 ${targetCount}，已删除 ${deletedCount}，失败 ${failed.length}。${failures}`;
+      }
+      setText('workbench-session-cleanup-status', statusText);
+      appendLog(`AI 模式会话清理 | target=${targetCount} | deleted=${deletedCount} | failed=${failed.length}`);
+    } finally {
+      setButtonBusy(button, false);
+    }
+  };
+
   const saveDeepSeekConfig = async (button) => {
     setButtonBusy(button, true, '保存中');
     try {
@@ -1466,6 +1503,12 @@
     });
     $('toggle-def-agent')?.addEventListener('click', (event) => {
       toggleDefAgent(event.currentTarget).catch((error) => appendLog(`DEF Agent 切换失败 | ${error instanceof Error ? error.message : String(error)}`));
+    });
+    $('cleanup-workbench-sessions')?.addEventListener('click', (event) => {
+      cleanupWorkbenchSessions(event.currentTarget).catch((error) => {
+        setText('workbench-session-cleanup-status', `清理失败：${error instanceof Error ? error.message : String(error)}`);
+        appendLog(`AI 模式会话清理失败 | ${error instanceof Error ? error.message : String(error)}`);
+      });
     });
     $('save-deepseek-config')?.addEventListener('click', (event) => {
       saveDeepSeekConfig(event.currentTarget).catch((error) => appendLog(`DeepSeek 配置失败 | ${error instanceof Error ? error.message : String(error)}`));

@@ -18,6 +18,7 @@ const {
   ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
   isManagedNativeHostDirectory,
+  listManagedNativeHostSessionBindings,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion } = require('../runtime/def-opencode-adapter/harness-turn-router.cjs');
@@ -29,7 +30,11 @@ const runtimeRoot = path.join(projectRoot, 'agent', 'runtime');
 const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
 const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
-const questionStorePath = path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3');
+const questionStorePath = path.resolve(
+  typeof process.env.DEF_AGENT_QUESTION_STORE_PATH === 'string' && process.env.DEF_AGENT_QUESTION_STORE_PATH.trim()
+    ? process.env.DEF_AGENT_QUESTION_STORE_PATH.trim()
+    : path.join(projectRoot, '.runtime', 'def-agent', 'questions.sqlite3'),
+);
 const OPENCODE_ACTION_TIMEOUT_MS = 5000;
 const startedAt = Date.now();
 const defRestUrl = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321';
@@ -44,6 +49,7 @@ let questionStore = null;
 // turn. Keep the sidecar's acceptance keyed by the caller correlation so a
 // retry joins the original operation instead of issuing another prompt.
 const nativeInteropPromptRequests = new Map();
+let workbenchSessionCleanupActive = false;
 
 async function defRestReady() {
   try {
@@ -320,7 +326,8 @@ function saveNativeQuestion(input) {
 }
 
 function deleteNativeQuestionRecords(sessionID) {
-  getQuestionStore().prepare('DELETE FROM def_native_question WHERE session_id = ?').run(sessionID);
+  const result = getQuestionStore().prepare('DELETE FROM def_native_question WHERE session_id = ?').run(sessionID);
+  return { deleted: Number(result.changes || 0) };
 }
 
 function compactInteropValue(value, limit = 600) {
@@ -853,6 +860,74 @@ async function rejectPendingQuestions(runtime, directory, sessionID) {
   }
 }
 
+function nativeSessionCleanupError(code, message, status = 500) {
+  const error = new Error(message);
+  error.code = code;
+  error.status = status;
+  return error;
+}
+
+async function rejectPendingQuestionsForCleanup(runtime, binding) {
+  const query = `directory=${encodeURIComponent(binding.directory)}`;
+  let pendingResponse;
+  try {
+    pendingResponse = await fetch(`${runtime.serverUrl}/question?${query}`, {
+      signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+    });
+  } catch (error) {
+    throw nativeSessionCleanupError(
+      'PENDING_QUESTION_CLEANUP_FAILED',
+      error instanceof Error ? error.message : String(error),
+      502,
+    );
+  }
+  if (pendingResponse.status === 404) return [];
+  if (!pendingResponse.ok) {
+    throw nativeSessionCleanupError(
+      'PENDING_QUESTION_CLEANUP_FAILED',
+      `OpenCode pending-question lookup failed: HTTP ${pendingResponse.status}`,
+      502,
+    );
+  }
+  let pending;
+  try {
+    pending = await pendingResponse.json();
+  } catch {
+    throw nativeSessionCleanupError('PENDING_QUESTION_CLEANUP_FAILED', 'OpenCode returned an invalid pending-question response.', 502);
+  }
+  if (!Array.isArray(pending)) {
+    throw nativeSessionCleanupError('PENDING_QUESTION_CLEANUP_FAILED', 'OpenCode returned an invalid pending-question list.', 502);
+  }
+
+  const rejected = [];
+  for (const question of pending) {
+    if (question?.sessionID !== binding.sessionID || !question?.id) continue;
+    let rejection;
+    try {
+      rejection = await fetch(`${runtime.serverUrl}/question/${encodeURIComponent(question.id)}/reject?${query}`, {
+        method: 'POST',
+        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw nativeSessionCleanupError(
+        'PENDING_QUESTION_CLEANUP_FAILED',
+        error instanceof Error ? error.message : String(error),
+        502,
+      );
+    }
+    if (!rejection.ok && rejection.status !== 404) {
+      throw nativeSessionCleanupError(
+        'PENDING_QUESTION_CLEANUP_FAILED',
+        `OpenCode pending-question rejection failed: HTTP ${rejection.status}`,
+        502,
+      );
+    }
+    rejected.push(question.id);
+  }
+  return rejected;
+}
+
 async function rejectPendingQuestionsForSessionAbort(runtime, request, target) {
   if (request.method !== 'POST') return;
   const abortMatch = /^\/session\/([^/]+)\/abort$/.exec(target.pathname);
@@ -1116,14 +1191,159 @@ async function assertWorkbenchTimelineAdmission(timelineId) {
 }
 
 async function removeNativeWorkbenchAxisBinding(binding) {
-  if (!binding?.axisBindingId || binding.host !== 'workbench') return;
-  await ensureDefRestService();
-  await fetch(`${defRestUrl}/api/def-tools/call`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
-    body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID } }),
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => undefined);
+  if (binding?.host !== 'workbench' || !binding.axisBindingId) return { deleted: false, skipped: true };
+  try {
+    await ensureDefRestService();
+    const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+      body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID } }),
+      signal: AbortSignal.timeout(5000),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok !== true || payload?.result?.ok !== true) {
+      throw new Error(payload?.error?.message || payload?.result?.message || `HTTP ${response.status}`);
+    }
+    return payload.result;
+  } catch (error) {
+    throw nativeSessionCleanupError(
+      'SESSION_AXIS_UNBIND_FAILED',
+      error instanceof Error ? error.message : String(error),
+      502,
+    );
+  }
+}
+
+function revalidateManagedNativeSessionBinding(binding) {
+  if (!binding || !['workbench', 'ai-cli'].includes(binding.host)
+    || !isManagedNativeHostDirectory(binding.directory, binding.host)) {
+    throw nativeSessionCleanupError('INVALID_MANAGED_SESSION_BINDING', 'The native session binding is outside its managed host root.', 409);
+  }
+  const current = readNativeSessionBinding(binding.directory, binding.sessionID, {
+    includeNodeRelation: false,
+    syncWorkspaceFiles: false,
+  });
+  if (!current || current.host !== binding.host || current.directory !== binding.directory) {
+    throw nativeSessionCleanupError('INVALID_MANAGED_SESSION_BINDING', 'The native session binding changed before cleanup.', 409);
+  }
+  return current;
+}
+
+async function deleteManagedNativeSession(binding, runtime) {
+  const current = revalidateManagedNativeSessionBinding(binding);
+  await rejectPendingQuestionsForCleanup(runtime, current);
+
+  let upstream;
+  try {
+    upstream = await fetch(
+      `${runtime.serverUrl}/session/${encodeURIComponent(current.sessionID)}?directory=${encodeURIComponent(current.directory)}`,
+      {
+        method: 'DELETE',
+        headers: { 'x-opencode-directory': encodeURIComponent(current.directory) },
+        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
+      },
+    );
+  } catch (error) {
+    throw nativeSessionCleanupError(
+      'OPENCODE_SESSION_DELETE_FAILED',
+      error instanceof Error ? error.message : String(error),
+      502,
+    );
+  }
+  if (!upstream.ok && upstream.status !== 404) {
+    throw nativeSessionCleanupError(
+      'OPENCODE_SESSION_DELETE_FAILED',
+      `OpenCode session delete failed: HTTP ${upstream.status}`,
+      502,
+    );
+  }
+
+  try {
+    const questionCleanup = deleteNativeQuestionRecords(current.sessionID);
+    if (!Number.isInteger(questionCleanup?.deleted) || questionCleanup.deleted < 0) {
+      throw new Error('Native question cleanup returned an invalid result.');
+    }
+  } catch (error) {
+    throw nativeSessionCleanupError(
+      'QUESTION_RECORD_DELETE_FAILED',
+      error instanceof Error ? error.message : String(error),
+      500,
+    );
+  }
+
+  if (current.host === 'workbench') await removeNativeWorkbenchAxisBinding(current);
+
+  try {
+    fs.rmSync(current.directory, { recursive: true, force: false });
+    if (fs.existsSync(current.directory)) {
+      throw new Error('The managed session directory still exists after deletion.');
+    }
+  } catch (error) {
+    throw nativeSessionCleanupError(
+      'SESSION_DIRECTORY_DELETE_FAILED',
+      error instanceof Error ? error.message : String(error),
+      500,
+    );
+  }
+  return {
+    ok: true,
+    status: upstream.status === 404 ? 'local-residue-deleted' : 'deleted',
+    sessionID: current.sessionID,
+    host: current.host,
+  };
+}
+
+async function cleanupAllManagedWorkbenchSessions() {
+  const bindings = listManagedNativeHostSessionBindings('workbench');
+  const targetCount = bindings.length;
+  if (targetCount === 0) {
+    return { statusCode: 200, payload: { ok: true, targetCount: 0, deletedCount: 0, failed: [] } };
+  }
+
+  let runtime;
+  try {
+    await ensureDefRestService();
+    runtime = await ensureRuntime(readConfig().deepseek);
+  } catch (error) {
+    return {
+      statusCode: 503,
+      payload: {
+        ok: false,
+        targetCount,
+        deletedCount: 0,
+        failed: bindings.map((binding) => ({
+          sessionID: binding.sessionID,
+          code: 'OPENCODE_RUNTIME_UNAVAILABLE',
+        })),
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+
+  let deletedCount = 0;
+  const failed = [];
+  for (const binding of bindings) {
+    try {
+      await deleteManagedNativeSession(binding, runtime);
+      deletedCount += 1;
+    } catch (error) {
+      failed.push({
+        sessionID: binding.sessionID,
+        code: error && typeof error === 'object' && typeof error.code === 'string'
+          ? error.code
+          : 'NATIVE_SESSION_CLEANUP_FAILED',
+      });
+    }
+  }
+  return {
+    statusCode: 200,
+    payload: {
+      ok: failed.length === 0,
+      targetCount,
+      deletedCount,
+      failed,
+    },
+  };
 }
 
 // A create request owns its directory until the binding and initial context
@@ -1285,30 +1505,62 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (method === 'POST' && requestUrl.pathname === '/api/native/workbench-sessions/cleanup') {
+      if (workbenchSessionCleanupActive) {
+        writeJson(response, 409, {
+          ok: false,
+          targetCount: 0,
+          deletedCount: 0,
+          failed: [],
+          error: 'workbench-session-cleanup-in-progress',
+          code: 'WORKBENCH_SESSION_CLEANUP_IN_PROGRESS',
+        });
+        return;
+      }
+      workbenchSessionCleanupActive = true;
+      try {
+        const body = await readJsonBody(request);
+        if (Object.keys(body).length > 0) {
+          writeJson(response, 400, {
+            ok: false,
+            targetCount: 0,
+            deletedCount: 0,
+            failed: [],
+            error: 'cleanup-request-must-be-empty',
+            code: 'INVALID_WORKBENCH_SESSION_CLEANUP_REQUEST',
+          });
+          return;
+        }
+        const cleanup = await cleanupAllManagedWorkbenchSessions();
+        writeJson(response, cleanup.statusCode, cleanup.payload);
+      } finally {
+        workbenchSessionCleanupActive = false;
+      }
+      return;
+    }
+
     const nativeSessionDelete = /^\/api\/native\/session\/([^/]+)$/.exec(requestUrl.pathname);
     const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
     if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
       const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
-      const binding = findNativeSessionBinding(sessionID);
+      const binding = findNativeSessionBinding(sessionID, { syncWorkspaceFiles: false });
       if (!binding) {
         writeJson(response, 200, { ok: true, status: 'already-deleted' });
         return;
       }
-      const runtime = runtimeSummary(readConfig().deepseek);
-      await rejectPendingQuestions(runtime, binding.directory, sessionID);
-      const upstream = await fetch(`${runtime.serverUrl}/session/${encodeURIComponent(sessionID)}?directory=${encodeURIComponent(binding.directory)}`, {
-        method: 'DELETE',
-        headers: { 'x-opencode-directory': encodeURIComponent(binding.directory) },
-        signal: AbortSignal.timeout(OPENCODE_ACTION_TIMEOUT_MS),
-      }).catch(() => undefined);
-      if (upstream && !upstream.ok && upstream.status !== 404) {
-        writeJson(response, upstream.status, { ok: false, error: 'native-session-delete-failed' });
-        return;
+      let runtime;
+      try {
+        if (binding.host === 'workbench') await ensureDefRestService();
+        runtime = await ensureRuntime(readConfig().deepseek);
+      } catch (error) {
+        throw nativeSessionCleanupError(
+          'OPENCODE_RUNTIME_UNAVAILABLE',
+          error instanceof Error ? error.message : String(error),
+          503,
+        );
       }
-      deleteNativeQuestionRecords(sessionID);
-      await removeNativeWorkbenchAxisBinding(binding);
-      fs.rmSync(binding.directory, { recursive: true, force: true });
-      writeJson(response, 200, { ok: true, status: 'deleted' });
+      const result = await deleteManagedNativeSession(binding, runtime);
+      writeJson(response, 200, result);
       return;
     }
 

@@ -1077,7 +1077,7 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
       ? 'ai-cli'
       : null;
   if (!host) return null;
-  if (host === 'workbench') syncNativeSessionWorkspaceFiles(resolved);
+  if (host === 'workbench' && options.syncWorkspaceFiles !== false) syncNativeSessionWorkspaceFiles(resolved);
   const expected = buildNativeHostProfile(host);
   return {
     ...binding,
@@ -1117,7 +1117,7 @@ function ensureNativeSessionAxisBinding(directory, sessionID) {
   return readNativeSessionBinding(binding.directory, sessionID, { includeNodeRelation: false });
 }
 
-function findNativeSessionBinding(sessionID) {
+function findNativeSessionBinding(sessionID, options = {}) {
   if (typeof sessionID !== 'string' || !sessionID.trim()) return null;
   const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
   if (!fs.existsSync(sessionsRoot)) return null;
@@ -1129,11 +1129,42 @@ function findNativeSessionBinding(sessionID) {
       const directory = path.join(hostRoot, sessionEntry.name);
       const binding = readJsonFile(path.join(directory, '.def-session.json'));
       if (binding?.sessionID === sessionID) {
-        return readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false });
+        return readNativeSessionBinding(directory, sessionID, { includeNodeRelation: false, ...options });
       }
     }
   }
   return null;
+}
+
+function listManagedNativeHostSessionBindings(host) {
+  if (host !== 'workbench' && host !== 'ai-cli') return [];
+  const sessionsRoot = path.join(getAgentWorkspaceDir(), 'sessions');
+  const hostRoot = path.join(sessionsRoot, host);
+  if (!fs.existsSync(sessionsRoot) || !fs.existsSync(hostRoot)) return [];
+  if (fs.lstatSync(sessionsRoot).isSymbolicLink() || fs.lstatSync(hostRoot).isSymbolicLink()) return [];
+  const realSessionsRoot = fs.realpathSync(sessionsRoot);
+  const realHostRoot = fs.realpathSync(hostRoot);
+  if (realHostRoot !== path.join(realSessionsRoot, host)) return [];
+  const bindings = [];
+  for (const entry of fs.readdirSync(realHostRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const candidate = path.join(realHostRoot, entry.name);
+    let realCandidate = '';
+    try {
+      realCandidate = fs.realpathSync(candidate);
+    } catch {
+      continue;
+    }
+    const relative = path.relative(realHostRoot, realCandidate);
+    if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) continue;
+    const binding = readNativeSessionBindingForDirectory(realCandidate, {
+      includeNodeRelation: false,
+      syncWorkspaceFiles: false,
+    });
+    if (!binding || binding.host !== host || binding.directory !== realCandidate) continue;
+    bindings.push(binding);
+  }
+  return bindings.sort((left, right) => left.sessionID.localeCompare(right.sessionID));
 }
 
 function writeNativeWorkbenchContext(directory, sessionID, context) {
@@ -2445,6 +2476,7 @@ module.exports = {
   ensureNativeSessionAxisBinding,
   findNativeSessionBinding,
   isManagedNativeHostDirectory,
+  listManagedNativeHostSessionBindings,
   writeNativeWorkbenchContext,
   cleanupNativeRetrievalArtifacts,
   shutdownRuntime,

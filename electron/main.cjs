@@ -1822,6 +1822,16 @@ function startBridgeServer() {
         return;
       }
 
+      if (method === 'POST' && requestUrl.pathname === '/def-agent/workbench-sessions/cleanup') {
+        const defAgent = await startDefAgent();
+        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/native/workbench-sessions/cleanup', {});
+        writeJson(response, upstream.status || 500, {
+          ...(upstream.body || {}),
+          defAgent,
+        });
+        return;
+      }
+
       if (method === 'POST' && requestUrl.pathname === '/image-assets/create-directory') {
         writeJson(response, 200, handleCreateImageDirectory(await readJsonRequest(request)));
         return;

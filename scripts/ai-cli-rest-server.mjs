@@ -10228,7 +10228,10 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     const sessionID = typeof input.sessionID === 'string' ? input.sessionID.trim() : '';
     if (!bindingId || !sessionID) return failScript(400, 'invalid-session-axis-binding', 'sessionBindingId and sessionID are required.');
     const binding = getTimelineRepository().getSessionAxisBinding(bindingId);
-    if (!binding || binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID) {
+    if (!binding) {
+      return { status: 200, body: { ok: true, protocolVersion: 1, tool: name, result: { ok: true, deleted: false, alreadyDeleted: true } } };
+    }
+    if (binding.host !== 'workbench' || binding.opencodeSessionId !== sessionID) {
       return failScript(409, 'blocked-session-mismatch', 'The requested binding does not belong to this Workbench session.');
     }
     const result = getTimelineRepository().deleteSessionAxisBinding(bindingId);
