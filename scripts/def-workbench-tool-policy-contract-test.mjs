@@ -412,7 +412,23 @@ try {
     nativeServerSource.indexOf('const nativeSessionRecovery ='),
   );
   assert(createRoute.includes('session = await createNativeHostSession('));
-  assert(createRoute.includes('const axisContext = await syncNativeWorkbenchAxisBinding(binding);'));
+  assert.match(createRoute,
+    /const harnessProjectionAuthority = harnessProjection\s*\?\s*\{[\s\S]*?provisionToken:[\s\S]*?mode:[\s\S]*?\}\s*:\s*null;/,
+    'native creation must derive the transient authority only from its gated harnessProjection request');
+  assert.match(createRoute, /assertWorkbenchTimelineAdmission\(timelineId, harnessProjectionAuthority\)/,
+    'native creation must carry governed authority through timeline admission');
+  assert.match(createRoute, /syncNativeWorkbenchAxisBinding\(binding, harnessProjectionAuthority\)/,
+    'native creation must carry governed authority through its initial axis bind');
+  const recoveryRoute = nativeServerSource.slice(
+    nativeServerSource.indexOf('const nativeSessionRecovery =', createRoute.indexOf('const nativeSessionRecovery =')),
+    nativeServerSource.indexOf('const nativeQuestionAction =', createRoute.indexOf('const nativeSessionRecovery =')),
+  );
+  assert.match(recoveryRoute, /syncNativeWorkbenchAxisBinding\(existingBinding\)/,
+    'recovery must retain its ordinary existing-binding sync path');
+  assert.match(recoveryRoute, /syncNativeWorkbenchAxisBinding\(binding\)/,
+    'recovery must retain its ordinary recovered-binding sync path');
+  assert.doesNotMatch(recoveryRoute, /harnessProjectionAuthority|harnessProjection:/,
+    'recovery must not elevate itself from a timeline identity');
   assert(createRoute.includes('await cleanupFailedNativeSessionCreate(session);'));
   const cleanupHelper = nativeServerSource.slice(
     nativeServerSource.indexOf('async function cleanupFailedNativeSessionCreate(session)'),
