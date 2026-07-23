@@ -175,12 +175,13 @@ class BusinessTransactionStore {
     return clone(next);
   }
 
-  transition(transactionId, { phase, status, currentSchemeVersion, proposal, artifact, capability, workNodeRef } = {}) {
+  transition(transactionId, { phase, status, currentSchemeVersion, formulaVersion, proposal, artifact, capability, workNodeRef } = {}) {
     return this.update(transactionId, (transaction) => ({
       ...transaction,
       ...(phase ? { phase } : {}),
       ...(status ? { status } : {}),
       ...(currentSchemeVersion ? { currentSchemeVersion } : {}),
+      ...(formulaVersion ? { formulaVersion } : {}),
       ...(proposal !== undefined ? { proposal } : {}),
       ...(artifact !== undefined ? { artifact } : {}),
       ...(capability !== undefined ? { capability } : {}),

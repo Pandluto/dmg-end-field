@@ -59,6 +59,14 @@ const HOST = '127.0.0.1';
 const PORT = Number(process.env.AI_CLI_REST_PORT || 17321);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
+const DEF_DAMAGE_FORMULA_VERSION = `sha256:${createHash('sha256')
+  .update([
+    'src/core/services/damageReportService.ts',
+    'src/core/calculators/skillButtonDamageCalculatorV2.ts',
+    'src/core/calculators/buffCalculator.ts',
+    'src/core/calculators/buffZoneCalculator.ts',
+  ].map((relativePath) => fs.readFileSync(path.join(projectRoot, relativePath), 'utf8')).join('\n'))
+  .digest('hex')}`;
 const storageDir = process.env.AI_CLI_REST_STORAGE_DIR
   || path.join(projectRoot, '.runtime', 'ai-cli-rest');
 const agentScriptDir = process.env.DEF_AGENT_SCRIPT_DIR
@@ -10458,7 +10466,11 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     result = await applyDefTeamLoadoutPlan(input);
     if (!result.ok) return failScript(409, result.code || 'team-loadout-plan-apply-failed', result.message || 'Team loadout plan was not applied.', { component: 'team-loadout-plan', state: result.state, nextAction: result.nextAction, results: result.results });
   } else if (name === 'def.workbench.damage_report') {
-    result = { snapshotUpdatedAt: snapshot?.updatedAt || null, damageReport: snapshot?.damageReport || null };
+    result = {
+      snapshotUpdatedAt: snapshot?.updatedAt || null,
+      formulaVersion: DEF_DAMAGE_FORMULA_VERSION,
+      damageReport: snapshot?.damageReport || null,
+    };
   } else if (name === 'def.character.resolve') {
     result = resolveDefCharacters(input);
   } else if (name === 'def.operator.catalog.search') {

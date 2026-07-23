@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "businessId": "calculation",
+  "displayName": "计算统计",
+  "summary": "读取完整方案并计算、汇总、比较、归因、诊断、解释或导出伤害与统计结果。",
+  "defaultRevision": "v1",
+  "operations": [
+    "calculate",
+    "aggregate",
+    "compare",
+    "attribute",
+    "diagnose",
+    "export",
+    "explain"
+  ],
+  "toolCeiling": [
+    "def.node.crud.context",
+    "def.data.resource.damage"
+  ],
+  "writeScope": [],
+  "completion": {
+    "required": [
+      "complete-scheme-version",
+      "formula-version",
+      "statistical-scope",
+      "missing-inputs",
+      "typed-damage-report"
+    ],
+    "sourceWrites": "none"
+  },
+  "downstream": {
+    "selection": "none",
+    "loadout": "none",
+    "timeline": "none",
+    "buff": "none"
+  }
+}

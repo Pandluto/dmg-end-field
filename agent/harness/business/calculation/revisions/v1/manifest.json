@@ -1,0 +1,267 @@
+{
+  "schemaVersion": 1,
+  "businessId": "calculation",
+  "version": "v1",
+  "writeScope": [],
+  "operations": {
+    "calculate": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the complete current scheme version and reject stale upstream state.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read the current typed damage report and product formula version. Never recompute formulas in the Harness.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return totals and requested rows with scheme version, formula version, statistical scope and missing inputs.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report unavailable/stale inputs and the precise recovery action; do not invent a result.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "aggregate": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind one complete scheme version and the user's aggregation scope.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read the typed report once and aggregate only returned rows.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Aggregate by the requested operator, skill, hit, element or total scope and retain formula/scheme identity.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State which rows or scope are unavailable.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "compare": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the current comparison scheme. Any supplied prior report must retain its own scheme/formula version.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read the current typed report. Compare only reports with explicit compatible statistical scope.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report absolute and relative differences without attributing causality not present in typed rows.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "If a second versioned report or compatible scope is absent, state that comparison is unsupported for the supplied inputs.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "attribute": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current complete scheme and requested attribution target.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read per-button/per-hit typed report facts, including returned BUFF/zone contributions when present.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Attribute only along returned rows and zones; separate measured contribution from explanatory inference.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State which attribution detail is absent from the typed report.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "diagnose": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the exact scheme and note incomplete/stale upstream inputs.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read the typed report and inspect missing rows, zero values, unexpected shares and returned diagnostic facts.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Separate confirmed input/report issues from hypotheses and propose only read-only next checks.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the missing report or upstream state that blocks diagnosis.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "export": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the scheme and requested export scope/format.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read the typed report once.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return a bounded copyable table/JSON-like summary in the response with scheme/formula/scope metadata. V1 does not claim a file was created.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that no versioned report is available to export.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "explain": {
+      "entryPhase": "bind-scheme",
+      "phases": [
+        {
+          "id": "bind-scheme",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the exact report scheme and the user's requested statistical term.",
+          "transitions": {"onSuccess": "read-damage", "onFailure": "failed"}
+        },
+        {
+          "id": "read-damage",
+          "kind": "evidence",
+          "tools": ["def.data.resource.damage"],
+          "writes": [],
+          "instructions": "Read current report values and formula-version identity. Do not substitute a rewritten formula.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Explain expected/non-crit/share/hit/zone scope using returned facts and label any general explanation separately.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State that the requested scope is absent rather than inventing it.",
+          "terminalState": "aborted"
+        }
+      ]
+    }
+  }
+}

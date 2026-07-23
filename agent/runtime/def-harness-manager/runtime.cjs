@@ -353,6 +353,13 @@ class HarnessTransactionRuntime {
     const transaction = this.transactions.require(bridge.transactionId);
     const revision = await this.registry.resolveRevision(transaction.businessId, transaction.harnessRevision);
     const phase = revision.manifest.operations[transaction.operation].phases.find((candidate) => candidate.id === transaction.phase);
+    const typedOutput = parsedToolOutput(output);
+    if (transaction.businessId === 'calculation'
+      && canonicalToolId === 'def.data.resource.damage'
+      && typeof typedOutput.formulaVersion === 'string'
+      && typedOutput.formulaVersion) {
+      this.transactions.transition(transaction.transactionId, { formulaVersion: typedOutput.formulaVersion });
+    }
     const semanticMutation = output?.metadata?.semanticMutation;
     const semantic = phase.kind === 'mutation' && semanticMutation?.beforePayload && semanticMutation?.afterPayload
       ? analyzeBusinessMutation({

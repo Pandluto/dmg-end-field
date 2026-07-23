@@ -2266,6 +2266,7 @@ export const data_damage = dataResource({
   input: () => ({}),
   transform: (result) => ({
     snapshotUpdatedAt: result.snapshotUpdatedAt,
+    formulaVersion: result.formulaVersion,
     damageReport: result.damageReport ? {
       generatedAt: result.damageReport.generatedAt,
       buttonCount: result.damageReport.buttonCount,
