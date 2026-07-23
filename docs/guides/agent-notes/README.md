@@ -20,7 +20,7 @@
 | 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./07-developer-skill.md) |
 | 页面、正式节点和 AI 会话怎样避免各说各话 | [AI 进入 Workbench 以后，谁才算“当前”](./08-workbench-state-machine.md) |
 | 内置 Agent 之外，MCP 怎样成为另一种解决路线 | [MCP 作为另外一种解法](./09-mcp-as-another-solution.md) |
-| 篇章 11：Harness | [Harness：围绕 Agent 的求解环境](./10-harness.md) |
+| 篇章 11：Harness | [Harness：让 Agent 真正会做业务](./10-harness.md) |
 
 这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以[架构事实源](../../architecture/README.md)为准。
 
