@@ -72,33 +72,38 @@
 <p>简单说，Harness 就是模型外面那套帮助它做事的东西。模型负责判断，Harness 把当前信息、可用能力和执行结果接到一起。</p>
 <h2>广义 Harness 会指什么？</h2>
 <p>这个词没有一条公认的边界。有人只把 Prompt 和 Tool Loop 叫 Harness，也有人把 Context、Skills、Memory、权限、状态和结果检查都算进去。</p>
-<p>本文说的是后一种。</p>
+<p>更严格地说，广义 Harness 可以理解为模型与外部环境之间的<strong>运行时支架（runtime substrate）</strong>：它管理模型怎样观察任务、调用能力、接收反馈、保存状态并判断完成。本文采用这个较宽的定义，再把其中可迭代的业务 Harness 和负责执行它的 Runtime 分开讨论。<a href="https://arxiv.org/abs/2605.13357">AI Harness Engineering</a></p>
 <h2>Harness 和 Tools、Workflow 的关系</h2>
+<p>这里先分清两种容易混用的说法：Workflow 是预先定义的控制结构；一次运行真正走过的路径，更准确地说是 Execution Trace。现代 Agent 框架也通常用 Workflow 表示预定路径，用 Agent 表示由模型动态决定过程和 Tool 使用。<a href="https://docs.langchain.com/oss/python/langgraph/workflows-agents">LangGraph：Workflows and agents</a></p>
 <table>
 <thead>
 <tr>
 <th>名词</th>
-<th>是什么</th>
-<th>在配装里是什么</th>
+<th>抽象层级</th>
+<th>主要定义什么</th>
+<th>对执行路径的约束</th>
 </tr>
 </thead>
 <tbody><tr>
 <td>Tool</td>
-<td>一个具体能力</td>
-<td>读取配装、生成预览、应用修改</td>
+<td>能力接口</td>
+<td>输入、输出、Schema、前置条件、副作用和错误</td>
+<td>不规定路径，只提供一个可执行动作</td>
 </tr>
 <tr>
 <td>Workflow</td>
-<td>一次任务走过的步骤</td>
-<td>查询、预览、确认、应用</td>
+<td>控制流</td>
+<td>步骤、顺序、分支、重试和结束条件</td>
+<td>明确规定全部或部分路径</td>
 </tr>
 <tr>
 <td>Harness</td>
-<td>支撑整项业务的环境</td>
-<td>把当前配装、游戏知识、Tools 和结果检查接起来</td>
+<td>Agent 的运行边界</td>
+<td>Context 怎样进入、哪些 Tools 可用、状态怎样延续、结果怎样反馈和验证</td>
+<td>不要求唯一路径，也可以承载一个或多个 Workflow</td>
 </tr>
 </tbody></table>
-<p>Tool 决定“能不能做”，Workflow 记录“这次怎么做”，Harness 负责让整件事能够发生。</p>
+<p>三者不是同一种东西从小到大的三个版本。Tool 定义 Agent 的“动作词汇”，Workflow 定义动作之间的控制关系，Harness 定义模型在什么信息、能力和规则下工作。同一组 Tools 可以组成不同 Workflow；同一个 Workflow 也可以因为 Context、权限和完成条件不同，运行在不同 Harness 中。</p>
 <h2>Harness 和 Skills 的关系</h2>
 <table>
 <thead>
@@ -131,33 +136,68 @@
 </tbody></table>
 <p>Skill 可以告诉模型“通常应该怎么配装”，但它不能保证模型一定照做，也不能拦住一次错误写入。</p>
 <h2>Harness 和 Context 的关系</h2>
+<p>Context 也有两层。OpenAI Agents SDK 的文档会明确区分模型能看到的 Context，以及只供 Runtime、Tools 和 Hooks 使用的本地 Context。<a href="https://openai.github.io/openai-agents-python/context/">OpenAI Agents SDK：Context management</a></p>
+<table>
+<thead>
+<tr>
+<th>Context 层次</th>
+<th>包含什么</th>
+<th>模型是否直接看到</th>
+<th>Harness 负责什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>LLM Context</td>
+<td>Instructions、对话历史、Tool 描述与结果、检索到的知识</td>
+<td>看到，并且受 Context Window 限制</td>
+<td>选择、排序和压缩本轮真正需要的内容</td>
+</tr>
+<tr>
+<td>Runtime Context</td>
+<td>Session、Checkout、业务事务、权限状态、数据访问依赖</td>
+<td>不一定看到</td>
+<td>把它们绑定到 Tools 和当前运行，并只向模型投影必要部分</td>
+</tr>
+</tbody></table>
+<p>所以 Context 不是“搜集到的所有材料”，而是系统为当前问题做出的状态表示。Harness 负责 Context Engineering：从全部可用信息中选择什么进入模型、什么留在代码侧、什么时候刷新，以及哪些内容需要跨回合保存。</p>
+<h2>Harness 和 Prompts 的关系</h2>
+<p>Prompt 和 Harness 不是单纯的“小集合”和“大集合”，它们处在不同层次：</p>
 <table>
 <thead>
 <tr>
 <th>对比</th>
-<th>Context</th>
+<th>Prompt</th>
 <th>Harness</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>是什么</td>
-<td>模型这一轮实际看到的内容</td>
-<td>决定这一轮应该准备什么</td>
+<td>所在位置</td>
+<td>一次模型调用的输入接口</td>
+<td>包围模型调用的运行与控制层</td>
 </tr>
 <tr>
-<td>配装例子</td>
-<td>当前角色、当前装备、用户要求、Tool Result</td>
-<td>选择这些内容并在下一轮更新</td>
+<td>主要形式</td>
+<td>Instructions、Messages、模板和变量最终组成的 Tokens</td>
+<td>Prompt、Context 规则、Tool Registry、状态、权限和验证代码</td>
 </tr>
 <tr>
-<td>使用时间</td>
-<td>一次模型请求</td>
-<td>可以跨多个回合</td>
+<td>生命周期</td>
+<td>面向一次请求，或作为模板被重复渲染</td>
+<td>贯穿一次完整事务和多个模型回合</td>
+</tr>
+<tr>
+<td>能产生什么约束</td>
+<td>影响模型怎样理解和生成，但文本本身不能执行或拦截副作用</td>
+<td>可以在 Runtime、Tool 和产品边界真正拒绝调用、保存状态和验证结果</td>
+</tr>
+<tr>
+<td>两者关系</td>
+<td>是 Harness 与模型交流的主要界面</td>
+<td>决定当前应该生成或选择什么 Prompt</td>
 </tr>
 </tbody></table>
-<p>Context 是这一轮摆在模型面前的材料，Harness 负责准备材料。</p>
-<h2>Harness 和 Prompts 的关系</h2>
-<p>Prompt 只是把一部分内容交给模型的文字。Harness 还包括 Tool、状态、权限和结果检查，所以不能把 Harness 简化成一份大 Prompt。</p>
+<p>Prompt 很重要，因为模型需要靠它理解当前目标和参考方法；但 Prompt 中写着“不要越权”，并不等于系统真的拦住了越权。OpenAI Agents SDK 也把 Instructions、Tools 等 Agent 配置，与 Runner 管理的回合、Tool 执行、Guardrails 和 Sessions 分开处理。<a href="https://openai.github.io/openai-agents-python/">OpenAI Agents SDK</a></p>
+<p>因此，复杂 Harness 最终一定会有 Prompt，但它不能只存在于 Prompt 里。软性的业务方法可以通过 Prompt 表达，真正的能力边界、状态延续和结果验证仍然要由 Runtime 与产品代码完成。</p>
 <h2>本项目 Harness 的特性</h2>
 <p>本项目里有两类规则：</p>
 <table>
