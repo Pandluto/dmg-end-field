@@ -28,7 +28,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Return totals and requested rows with scheme version, formula version, statistical scope and missing inputs.",
+          "instructions": "Return totals and requested rows with scheme version, formula version and statistical scope. Report only missing inputs explicitly identified by the current typed damage result; buttonCount=0 proves there are no calculated buttons, but does not prove any operator's loadout is missing.",
           "terminalState": "completed"
         },
         {

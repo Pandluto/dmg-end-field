@@ -20,6 +20,11 @@ Separate four fact classes:
    profile;
 4. applied state comes only from the visible Operator Config postcondition.
 
+The selected-team reader is allowed to return an incomplete record. When its
+`complete` flag is false or it reports a requested operator under `missing`,
+null weapon/skill values and empty equipment arrays mean “saved loadout
+unavailable”, not “confirmed unequipped” or “default build”.
+
 For operator-fit questions, discover the exact operator guide first. A complete
 guide supplies an unchanged planner profile/capability. Only partial or missing
 guides authorize the exact fallback token. Never replace this chain with generic

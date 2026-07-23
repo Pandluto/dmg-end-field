@@ -33,7 +33,11 @@ const projectRoot = path.resolve(__dirname, '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime');
 const defRuntimeRoot = path.join(runtimeRoot, 'def');
 const openCodeUiRoot = path.join(runtimeRoot, 'opencode-ui');
-const configPath = path.join(projectRoot, '.runtime', 'def-agent', 'config.json');
+const configPath = path.resolve(
+  typeof process.env.DEF_AGENT_CONFIG_PATH === 'string' && process.env.DEF_AGENT_CONFIG_PATH.trim()
+    ? process.env.DEF_AGENT_CONFIG_PATH.trim()
+    : path.join(projectRoot, '.runtime', 'def-agent', 'config.json'),
+);
 const questionStorePath = path.resolve(
   typeof process.env.DEF_AGENT_QUESTION_STORE_PATH === 'string' && process.env.DEF_AGENT_QUESTION_STORE_PATH.trim()
     ? process.env.DEF_AGENT_QUESTION_STORE_PATH.trim()

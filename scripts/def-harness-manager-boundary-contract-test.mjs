@@ -55,15 +55,62 @@ assert.equal(getDefToolLocalContract('def.data.resource.damage').sideEffect, 're
 const serverSource = fs.readFileSync('agent/server/def-agent-server.cjs', 'utf8');
 const adapterSource = fs.readFileSync('agent/runtime/def-opencode-adapter/index.cjs', 'utf8');
 const bridgeSource = fs.readFileSync('agent/runtime/def-tools/opencode/harness-manager-bridge.mjs', 'utf8');
+const defToolSource = fs.readFileSync('agent/runtime/def-tools/opencode/def.js', 'utf8');
 const electronSource = fs.readFileSync('electron/main.cjs', 'utf8');
 const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+const startDefAgentSource = electronSource.slice(
+  electronSource.indexOf('async function startDefAgent'),
+  electronSource.indexOf('async function stopDefAgent'),
+);
 assert.match(serverSource, /message\|prompt_async/);
+assert.match(serverSource, /process\.env\.DEF_AGENT_CONFIG_PATH/);
 assert.match(bridgeSource, /HARNESS_RUNTIME_NOT_PREPARED/);
 assert.match(bridgeSource, /managedWorkbenchBinding/);
+assert.match(bridgeSource, /harnessToolChoiceForProjection/);
+assert.match(bridgeSource, /Model tried to call unavailable tool/);
+assert.match(defToolSource, /characterName: tool\.schema\.string\(\).*\.optional\(\)/s);
+assert.match(defToolSource, /nodeIndex: tool\.schema\.number\(\)\.int\(\)\.min\(0\).*\.optional\(\)/s);
 assert.doesNotMatch(adapterSource, /copyFileSync\(defOpenCodeToolSource/);
 assert.match(adapterSource, /fs\.rmSync\(path\.join\(toolsDir, 'def\.js'\)/);
-assert.match(electronSource, /DEF_HARNESS_STATE_PATH/);
-assert.match(electronSource, /DEF_HARNESS_WATCH: isDev \? '1' : '0'/);
+assert.match(startDefAgentSource, /DEF_AGENT_CONFIG_PATH: agentConfigPath/);
+assert.match(startDefAgentSource, /DEF_HARNESS_STATE_PATH/);
+assert.match(startDefAgentSource, /DEF_HARNESS_WATCH: isDev \? '1' : '0'/);
 assert(packageJson.build.files.includes('agent/harness/business/**'));
+
+const { harnessToolChoiceForProjection } = await import('../agent/runtime/def-tools/opencode/harness-manager-bridge.mjs');
+assert.equal(harnessToolChoiceForProjection({
+  mode: 'business',
+  allowedToolBindings: ['def_workbench_buttons'],
+}), 'required');
+assert.equal(harnessToolChoiceForProjection({
+  mode: 'business',
+  phase: 'awaiting-confirmation',
+  allowedToolBindings: [],
+}), undefined);
+assert.equal(harnessToolChoiceForProjection({
+  mode: 'complete',
+  allowedToolBindings: [],
+}), undefined);
+
+const vendorRequestSource = fs.readFileSync(
+  'agent/vendor/opencode/packages/opencode/src/session/llm/request.ts',
+  'utf8',
+);
+const vendorLlmSource = fs.readFileSync(
+  'agent/vendor/opencode/packages/opencode/src/session/llm.ts',
+  'utf8',
+);
+assert.match(vendorRequestSource, /toolChoice: toolProjection\.toolChoice/);
+assert.match(vendorRequestSource, /providerID === "deepseek" && toolProjection\.toolChoice === "required"/);
+assert.match(vendorRequestSource, /params\.options\.thinking = \{ type: "disabled" \}/);
+assert.match(vendorRequestSource, /params\.options\.parallel_tool_calls = false/);
+assert.match(vendorRequestSource, /delete params\.options\.reasoningEffort/);
+assert.match(vendorLlmSource, /projectedToolNames\.length === 1/);
+assert.match(vendorLlmSource, /type: "tool" as const, toolName: projectedToolNames\[0\]/);
+assert.match(vendorLlmSource, /resolvedToolChoice\s*\?\s*"required"\s*:\s*undefined/);
+assert.match(vendorLlmSource, /toolChoice: resolvedToolChoice/);
+assert.match(vendorLlmSource, /failed\.inputSchema\(\{ toolName: resolvedToolChoice\.toolName \}\)/);
+assert.match(vendorLlmSource, /schema\.type === "object" && required\.length === 0/);
+assert.match(vendorLlmSource, /input: "\{\}"/);
 
 console.log('DEF Harness Manager Host/Tool boundary contract: PASS');

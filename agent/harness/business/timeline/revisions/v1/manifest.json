@@ -54,7 +54,7 @@
           "kind": "context",
           "tools": ["def.node.crud.buttons"],
           "writes": [],
-          "instructions": "Read exact button candidates. For @N-L, pass nodeIndex=N-1 and lineIndex=L-1 without reinterpretation.",
+          "instructions": "Call the button reader exactly once. For a whole-checkout list or count, omit every filter. Only when the user explicitly supplies @N-L, pass nodeIndex=N-1 and lineIndex=L-1 without reinterpretation.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -62,7 +62,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report exact button identity, position and order from the current checkout.",
+          "instructions": "Answer only the requested button count, identity, position or order from the button-reader result. Do not volunteer skill-catalog or roster facts; an empty button result says only that the current checkout has zero buttons.",
           "terminalState": "completed"
         },
         {

@@ -55,6 +55,25 @@ const retryFuseProbe = spawnSync('bun', ['-e', `
 `], { encoding: 'utf8' });
 assert.equal(retryFuseProbe.status, 0, retryFuseProbe.stderr || retryFuseProbe.stdout);
 
+const unavailableToolBudgetProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  mod.beginDefToolTurn('projection-session', 'projection-turn');
+  const failure = (callID, tool, available) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'projection-session', callID, tool, state: { status: 'error', error: "Model tried to call unavailable tool 'invalid'. Available tools: " + available + "." } } } });
+  mod.recordDefToolEventFailure(failure('stale-1', 'def_workbench_buttons', 'def_workbench_context'));
+  mod.recordDefToolEventFailure(failure('stale-2', 'def_workbench_context', 'def_workbench_buttons'));
+  mod.assertDefToolTurnNotBlocked('projection-session', 'def_workbench_buttons');
+`], { encoding: 'utf8' });
+assert.equal(unavailableToolBudgetProbe.status, 0, unavailableToolBudgetProbe.stderr || unavailableToolBudgetProbe.stdout);
+
+const buttonCoordinateProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  const inferred = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 1, lineIndex: 3, characterName: '赛希' }, '请数一下当前节点上的技能按钮');
+  if ('nodeIndex' in inferred || 'lineIndex' in inferred || inferred.characterName !== '赛希') process.exit(2);
+  const explicit = mod.sanitizeWorkbenchButtonArgs({ nodeIndex: 99, lineIndex: 99 }, '查看 @2-4 的 BUFF');
+  if (explicit.nodeIndex !== 1 || explicit.lineIndex !== 3) process.exit(3);
+`], { encoding: 'utf8' });
+assert.equal(buttonCoordinateProbe.status, 0, buttonCoordinateProbe.stderr || buttonCoordinateProbe.stdout);
+
 const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   const failure = (callID, input) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'target-session', callID, tool: 'operator_config_patch', input, state: { status: 'error', error: 'operator-config-preview-failed: temporary renderer response' } } } });

@@ -17,6 +17,12 @@ Bind current checkout and read exact target buttons. Resolve each BUFF through
 the typed catalog, preserving id, source, applicability, stack semantics,
 coverage and conflicts. Never infer a BUFF from display similarity.
 
+A whole-checkout inspection reads the button list exactly once with no filters.
+Never split that read into one call per selected character. Use a character,
+skill or coordinate filter only when the user explicitly narrows the target.
+“整条时间轴” is the full button list of the current checkout, not every saved
+Work Node or branch. Never make BUFF claims about an uninspected checkout.
+
 A batch is one atomic candidate over a bounded set of exact buttons. Do not
 create a “batch Harness” or split the change into independent transactions.
 

@@ -9,6 +9,6 @@
   "bunVersion": "1.3.14",
   "modelsSnapshot": ".runtime/opencode-build/models.dev.api.json",
   "modelsSnapshotSha256": "f56fd9c1d437f8e98954d9e47e34f14737efa7cd421b1a950d42665afe54b79b",
-  "checksumSha256": "e3888c1292a5d029e81ddaf466ad103dca86adb99281571623e3aa99629b3d26",
-  "builtAt": "2026-07-23T10:39:06.315Z"
+  "checksumSha256": "0c9f8b137a8af45accfdb3fc8ebccc7c74ff56a03a0c9f141a89abc4ba7bdda1",
+  "builtAt": "2026-07-23T11:26:22.130Z"
 }

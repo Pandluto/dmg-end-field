@@ -17,7 +17,7 @@
           "kind": "context",
           "tools": ["def.data.resource.team_loadouts"],
           "writes": [],
-          "instructions": "Read the current selected team's exact loadouts once. Do not read Workbench node state for this read-only operation.",
+          "instructions": "Read the current selected team's loadout record once. Do not read Workbench node state for this read-only operation. Preserve the contract's complete flag and missing reasons.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -25,7 +25,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report exact current weapon, equipment, skill levels and missing fields per requested operator.",
+          "instructions": "Report exact current weapon, equipment and skill levels only when the returned record is complete for those fields. If complete=false or a requested operator has a missing reason, say the saved loadout is unavailable; never reinterpret null, empty arrays or missing catalog data as a confirmed naked/default loadout.",
           "terminalState": "completed"
         },
         {

@@ -298,6 +298,7 @@ export interface Hooks {
     input: { sessionID: string; directory: string; model: Model },
     output: {
       tools: Record<string, unknown>
+      toolChoice?: "auto" | "required" | "none"
     },
   ) => Promise<void>
   "experimental.provider.small_model"?: (input: { provider: ProviderV2 }, output: { model?: ModelV2 }) => Promise<void>

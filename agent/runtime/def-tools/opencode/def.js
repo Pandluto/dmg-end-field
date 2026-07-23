@@ -28,6 +28,7 @@ const defToolFailureBudget = new Map()
 const defToolTurnMutationStops = new Map()
 const defToolTurnEvidenceStops = new Map()
 const defToolTurnPolicies = new Map()
+const defToolTurnUserTexts = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
 const { classifyDefExecutableTurnPolicy, validateRouteSubmission } = harnessRouter
@@ -74,6 +75,9 @@ export function beginDefToolTurn(sessionID, turnID) {
   for (const key of defToolTurnPolicies.keys()) {
     if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnPolicies.delete(key)
   }
+  for (const key of defToolTurnUserTexts.keys()) {
+    if (key.startsWith(`${sessionID}:`) && key !== `${sessionID}:${turnID}`) defToolTurnUserTexts.delete(key)
+  }
 }
 
 function userTextFromChatParts(parts) {
@@ -105,13 +109,15 @@ function operatorConfigApplyIntentSignature(sessionID, turnID) {
 export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
   beginDefToolTurn(sessionID, turnID)
   if (typeof sessionID !== 'string' || !sessionID || typeof turnID !== 'string' || !turnID) return
+  const userText = userTextFromChatParts(parts)
+  defToolTurnUserTexts.set(`${sessionID}:${turnID}`, userText)
   defOperatorConfigTurnIntents.set(sessionID, {
     turnID,
-    explicitApply: hasExplicitOperatorConfigApplyIntent(userTextFromChatParts(parts)),
+    explicitApply: hasExplicitOperatorConfigApplyIntent(userText),
     updatedAt: Date.now(),
   })
   const scope = `${sessionID}:${turnID}`
-  const classified = classifyDefExecutableTurnPolicy(userTextFromChatParts(parts))
+  const classified = classifyDefExecutableTurnPolicy(userText)
   if (classified) defToolTurnPolicies.set(scope, {
     ...classified,
     allowedTools: new Set(['def_data_skill']),
@@ -119,6 +125,7 @@ export function beginDefToolTurnFromChatMessage(sessionID, turnID, parts = []) {
   })
   else defToolTurnPolicies.delete(scope)
   if (defOperatorConfigTurnIntents.size > 256) defOperatorConfigTurnIntents.delete(defOperatorConfigTurnIntents.keys().next().value)
+  if (defToolTurnUserTexts.size > 256) defToolTurnUserTexts.delete(defToolTurnUserTexts.keys().next().value)
 }
 
 export function getDefOperatorConfigTurnIdentity(context = {}) {
@@ -140,6 +147,26 @@ function stableToolInput(value) {
     .filter(([key]) => !['__defSessionId', '__defTurnId', '__defApplyIntent', 'waitMs', 'snapshotWaitMs'].includes(key))
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, entry]) => [key, stableToolInput(entry)]))
+}
+
+export function sanitizeWorkbenchButtonArgs(args = {}, userText = '') {
+  const next = { ...(args && typeof args === 'object' ? args : {}) }
+  const match = /@\s*(\d+)\s*-\s*(\d+)/u.exec(String(userText || '').normalize('NFKC'))
+  if (!match) {
+    delete next.nodeIndex
+    delete next.lineIndex
+    return next
+  }
+  const nodeNumber = Number.parseInt(match[1], 10)
+  const lineNumber = Number.parseInt(match[2], 10)
+  if (nodeNumber < 1 || lineNumber < 1) {
+    delete next.nodeIndex
+    delete next.lineIndex
+    return next
+  }
+  next.nodeIndex = nodeNumber - 1
+  next.lineIndex = lineNumber - 1
+  return next
 }
 
 function mutationTargetFingerprint(toolName, input = {}) {
@@ -166,6 +193,10 @@ function normalizeToolFailureCode(error) {
   }
   const match = /^([a-z0-9][a-z0-9-]{2,80})\s*:/i.exec(text)
   return match ? match[1].toLowerCase() : 'tool-execution-failed'
+}
+
+function isPreExecutionUnavailableToolFailure(error) {
+  return /Model tried to call unavailable tool\b.*\bAvailable tools:/i.test(String(error || ''))
 }
 
 function recordTurnFailure({ sessionID, toolName, input, code, callID }) {
@@ -289,6 +320,10 @@ export function recordDefToolEventFailure(event) {
   if (event?.type !== 'message.part.updated') return
   const part = event?.properties?.part
   if (part?.type !== 'tool' || part?.state?.status !== 'error') return
+  // AI SDK reports a provider's stale tool name through the synthetic
+  // `invalid` repair tool. No product tool ran, so this must not consume the
+  // turn retry budget or block the next correctly projected tool.
+  if (isPreExecutionUnavailableToolFailure(part.state.error)) return
   const code = normalizeToolFailureCode(part.state.error)
   if (code === 'def-tool-turn-policy-blocked') return
   recordTurnFailure({
@@ -1283,16 +1318,26 @@ export const workbench_current_node = {
 }
 
 export const workbench_buttons = {
-  description: 'Read current-checkout buttons using exact coordinates. @N-L always means nodeIndex=N-1 and lineIndex=L-1; use this before resolving a button for deletion or edit.',
+  description: 'Read the current-checkout button list or exact matching buttons in one call. Omit every filter to list/count the entire checkout. Only pass coordinates when the user explicitly supplies @N-L; then @N-L means nodeIndex=N-1 and lineIndex=L-1.',
   args: {
-    characterName: { type: 'string', description: 'Optional character name.' },
-    skillName: { type: 'string', description: 'Optional skill display name.' },
-    nodeIndex: { type: 'number', description: 'Zero-based timeline node index.' },
-    lineIndex: { type: 'number', description: 'Zero-based timeline line index.' },
+    characterName: tool.schema.string().describe('Character name filter.').optional(),
+    skillName: tool.schema.string().describe('Skill display-name filter.').optional(),
+    nodeIndex: tool.schema.number().int().min(0)
+      .describe('Zero-based timeline node index; omit unless the user gives an exact coordinate.')
+      .optional(),
+    lineIndex: tool.schema.number().int().min(0)
+      .describe('Zero-based timeline line index; omit unless the user gives an exact coordinate.')
+      .optional(),
   },
   async execute(args, context) {
     context.metadata({ title: 'Find DEF timeline buttons' })
-    const result = await callDefTool('def.workbench.find_buttons', args, context)
+    const turnID = activeDefToolTurns.get(context.sessionID) || context.messageID || ''
+    const userText = defToolTurnUserTexts.get(`${context.sessionID}:${turnID}`) || ''
+    const result = await callDefTool(
+      'def.workbench.find_buttons',
+      sanitizeWorkbenchButtonArgs(args, userText),
+      context,
+    )
     return {
       title: 'DEF timeline button candidates',
       output: JSON.stringify(result, null, 2),
@@ -2349,6 +2394,7 @@ export const data_damage = dataResource({
   title: 'DEF damage resource',
   description: 'Read the trusted current DEF damage report.',
   tool: 'def.workbench.damage_report',
+  args: {},
   input: () => ({}),
   transform: (result) => ({
     snapshotUpdatedAt: result.snapshotUpdatedAt,

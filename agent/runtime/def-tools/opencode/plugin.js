@@ -5,6 +5,7 @@ import {
   advanceHarnessToolFailure,
   appendHarnessSystem,
   assertHarnessToolBefore,
+  harnessToolChoiceForProjection,
   projectHarnessTools,
   recordHarnessChatTurn,
 } from './harness-manager-bridge.mjs'
@@ -64,11 +65,13 @@ export default async function DefToolsPlugin() {
       })
     },
     'experimental.chat.tools.transform': async (input, output) => {
-      await projectHarnessTools({
+      const projection = await projectHarnessTools({
         sessionId: input?.sessionID,
         directory: input?.directory,
         tools: output.tools,
       })
+      const toolChoice = harnessToolChoiceForProjection(projection)
+      if (toolChoice) output.toolChoice = toolChoice
     },
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)

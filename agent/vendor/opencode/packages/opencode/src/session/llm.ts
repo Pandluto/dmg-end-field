@@ -111,6 +111,11 @@ const live: Layer.Layer<
         flags,
         isWorkflow,
       })
+      const projectedToolNames = Object.keys(prepared.tools).filter((name) => name !== "invalid")
+      const resolvedToolChoice =
+        prepared.toolChoice === "required" && projectedToolNames.length === 1
+          ? { type: "tool" as const, toolName: projectedToolNames[0] }
+          : prepared.toolChoice
 
       // Wire up toolExecutor for DWS workflow models so that tool calls
       // from the workflow service are executed via opencode's tool system
@@ -231,7 +236,12 @@ const live: Layer.Layer<
           llmClient,
           messages: prepared.messages,
           tools: prepared.tools,
-          toolChoice: input.toolChoice,
+          toolChoice:
+            typeof resolvedToolChoice === "string"
+              ? resolvedToolChoice
+              : resolvedToolChoice
+                ? "required"
+                : undefined,
           temperature: prepared.params.temperature,
           topP: prepared.params.topP,
           topK: prepared.params.topK,
@@ -301,6 +311,28 @@ const live: Layer.Layer<
                 toolName: lower,
               }
             }
+            // Some OpenAI-compatible providers replay a Tool name from the
+            // preceding step even when a singleton named tool_choice was sent.
+            // The Harness projection is authoritative, so repair that stale
+            // name only when the one allowed Tool provably accepts an empty
+            // object. Required-input Tools still fail closed and ask the model
+            // for valid arguments on the next step.
+            if (
+              typeof resolvedToolChoice === "object" &&
+              resolvedToolChoice.type === "tool" &&
+              failed.toolCall.toolName !== resolvedToolChoice.toolName &&
+              !prepared.tools[failed.toolCall.toolName]
+            ) {
+              const schema = await failed.inputSchema({ toolName: resolvedToolChoice.toolName })
+              const required = Array.isArray(schema.required) ? schema.required : []
+              if (schema.type === "object" && required.length === 0) {
+                return {
+                  ...failed.toolCall,
+                  input: "{}",
+                  toolName: resolvedToolChoice.toolName,
+                }
+              }
+            }
             return {
               ...failed.toolCall,
               input: JSON.stringify({
@@ -316,7 +348,7 @@ const live: Layer.Layer<
           providerOptions: ProviderTransform.providerOptions(input.model, prepared.params.options),
           activeTools: Object.keys(prepared.tools).filter((x) => x !== "invalid"),
           tools: prepared.tools,
-          toolChoice: input.toolChoice,
+          toolChoice: resolvedToolChoice,
           maxOutputTokens: prepared.params.maxOutputTokens,
           abortSignal: input.abort,
           headers: prepared.headers,

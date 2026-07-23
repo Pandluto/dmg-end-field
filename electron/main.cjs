@@ -3822,8 +3822,6 @@ async function startAiCliRest() {
       DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
-      DEF_HARNESS_STATE_PATH: path.join(runtimeRoot, 'def-harness-manager', 'revisions.json'),
-      DEF_HARNESS_WATCH: isDev ? '1' : '0',
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
       LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
       LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
@@ -3983,6 +3981,20 @@ async function startDefAgent() {
   const runtimeRoot = app.isPackaged
     ? path.join(app.getPath('userData'), 'runtime')
     : path.join(__dirname, '..', '.runtime');
+  const configuredAgentConfigPath = typeof process.env.DEF_AGENT_CONFIG_PATH === 'string'
+    && process.env.DEF_AGENT_CONFIG_PATH.trim()
+    ? path.resolve(process.env.DEF_AGENT_CONFIG_PATH.trim())
+    : '';
+  const agentConfigPath = configuredAgentConfigPath
+    || path.join(app.getPath('userData'), 'runtime', 'def-agent', 'config.json');
+  if (!configuredAgentConfigPath && !fs.existsSync(agentConfigPath)) {
+    const legacyAgentConfigPath = path.join(__dirname, '..', '.runtime', 'def-agent', 'config.json');
+    if (fs.existsSync(legacyAgentConfigPath)) {
+      fs.mkdirSync(path.dirname(agentConfigPath), { recursive: true });
+      fs.copyFileSync(legacyAgentConfigPath, agentConfigPath);
+      try { fs.chmodSync(agentConfigPath, 0o600); } catch { /* best effort on platforms without chmod */ }
+    }
+  }
   defAgentProcess = spawn(process.execPath, [scriptPath], {
     cwd: getNodeSidecarCwd(),
     env: buildNodeSidecarEnv({
@@ -4002,6 +4014,9 @@ async function startDefAgent() {
       DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
+      DEF_AGENT_CONFIG_PATH: agentConfigPath,
+      DEF_HARNESS_STATE_PATH: path.join(runtimeRoot, 'def-harness-manager', 'revisions.json'),
+      DEF_HARNESS_WATCH: isDev ? '1' : '0',
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
       LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
       LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',

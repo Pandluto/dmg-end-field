@@ -23,7 +23,7 @@ Every result must state:
 - product formula-version hash;
 - snapshot/report generation identity;
 - statistical scope requested by the user;
-- missing or stale inputs.
+- missing or stale inputs explicitly returned by the current typed report.
 
 An upstream selection/loadout/timeline/BUFF mutation makes an old calculation
 stale or schedules recompute. Never compare an old report as though it described
@@ -35,6 +35,10 @@ Use the existing typed damage/report capability once per phase. Aggregate and
 compare only returned rows. Attribution may use returned per-button, per-hit,
 BUFF and zone details; do not invent causal contribution when the report does
 not expose it.
+
+An empty report proves that it contains no calculated buttons. It does not by
+itself prove that every selected operator lacks a loadout, BUFF or catalog
+record. Do not turn absent rows into a cross-business diagnosis.
 
 Keep measured facts separate from hypotheses in diagnosis. Formula explanations
 describe the product result and scope but do not replace the product engine.

@@ -25,7 +25,7 @@
           "kind": "context",
           "tools": ["def.node.crud.buttons"],
           "writes": [],
-          "instructions": "Read exact target buttons and their current selected BUFF state.",
+          "instructions": "Call the button reader exactly once. “整条时间轴” means every button in the current checkout, never every saved Work Node or branch. For a whole-checkout BUFF inspection, omit every filter and never split the read by character. Pass filters only when the user explicitly narrows the request to one exact character, skill or @N-L coordinate.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -33,7 +33,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report current BUFF bindings, layers and relevant state for the exact buttons.",
+          "instructions": "Report only current-checkout BUFF bindings, layers and relevant state from the single button-reader result. An empty result proves only that the current checkout has zero buttons and therefore no button-bound BUFF; do not list Work Nodes, branches, roster or skill catalog, and do not infer any uninspected checkout.",
           "terminalState": "completed"
         },
         {

@@ -28,6 +28,7 @@ type PrepareInput = {
   readonly messages: ModelMessage[]
   readonly small?: boolean
   readonly tools: Record<string, Tool>
+  readonly toolChoice?: "auto" | "required" | "none"
   readonly provider: Provider.Info
   readonly auth: Auth.Info | undefined
   readonly plugin: Plugin.Interface
@@ -39,6 +40,7 @@ export type Prepared = {
   readonly system: string[]
   readonly messages: ModelMessage[]
   readonly tools: Record<string, Tool>
+  readonly toolChoice?: "auto" | "required" | "none"
   readonly params: {
     readonly temperature?: number
     readonly topP?: number
@@ -147,11 +149,27 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   )
 
   const tools = resolveTools(input)
+  const toolProjection: {
+    tools: Record<string, Tool>
+    toolChoice?: "auto" | "required" | "none"
+  } = {
+    tools,
+    toolChoice: input.toolChoice,
+  }
   yield* input.plugin.trigger(
     "experimental.chat.tools.transform",
     { sessionID: input.sessionID, directory: instance.directory, model: input.model },
-    { tools },
+    toolProjection,
   )
+  // DeepSeek's thinking mode rejects forced Tool selection. A projected
+  // transaction phase must remain fail-closed, so run that phase without
+  // thinking and restore the agent's normal reasoning options once Tool
+  // selection returns to auto.
+  if (input.model.providerID === "deepseek" && toolProjection.toolChoice === "required") {
+    params.options.thinking = { type: "disabled" }
+    params.options.parallel_tool_calls = false
+    delete params.options.reasoningEffort
+  }
   // Codex parity: OpenAI Responses-family providers hardcode `strict: false`
   // on every function tool so MCP-sourced and dynamic schemas that don't
   // satisfy OpenAI's structured-outputs constraints still register.
@@ -188,6 +206,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
     system,
     messages,
     tools: Object.fromEntries(Object.entries(tools).toSorted(([a], [b]) => a.localeCompare(b))),
+    toolChoice: toolProjection.toolChoice,
     params,
     messageTransformOptions: options,
     headers: {

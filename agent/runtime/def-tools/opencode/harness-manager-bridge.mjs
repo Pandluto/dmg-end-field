@@ -42,8 +42,15 @@ export function recordHarnessChatTurn(sessionId, turnId) {
   if (directory && readRuntimeBridge(directory)) runtimeFor(directory).bindTurn(sessionId, turnId)
 }
 
+export function harnessToolChoiceForProjection(projection) {
+  if (!['route', 'business', 'clarify'].includes(projection?.mode)) return undefined
+  return Array.isArray(projection.allowedToolBindings) && projection.allowedToolBindings.length > 0
+    ? 'required'
+    : undefined
+}
+
 export async function projectHarnessTools({ sessionId, directory, tools }) {
-  if (!sessionId || !directory) return
+  if (!sessionId || !directory) return null
   sessionDirectories.set(sessionId, directory)
   const bridge = readRuntimeBridge(directory)
   if (!bridge) {
@@ -52,7 +59,7 @@ export async function projectHarnessTools({ sessionId, directory, tools }) {
       error.code = 'HARNESS_RUNTIME_NOT_PREPARED'
       throw error
     }
-    return
+    return null
   }
   const turnId = pendingTurnIds.get(sessionId)
   if (turnId && bridge.turnId !== turnId) runtimeFor(directory).bindTurn(sessionId, turnId)
@@ -61,6 +68,7 @@ export async function projectHarnessTools({ sessionId, directory, tools }) {
   for (const binding of Object.keys(tools)) {
     if (!allowed.has(binding)) delete tools[binding]
   }
+  return current
 }
 
 export function appendHarnessSystem({ sessionId, directory, system }) {
@@ -87,6 +95,9 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
       : '',
     bridge.mode === 'clarify'
       ? `Required clarification: ${JSON.stringify(bridge.question || {})}`
+      : '',
+    harnessToolChoiceForProjection(bridge)
+      ? 'This phase is incomplete until one projected Tool succeeds. A final answer cannot complete the turn before that Tool call.'
       : '',
     bridge.instructions || '',
     `Bound context: ${JSON.stringify(visibleContext)}`,
@@ -138,6 +149,10 @@ export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId,
 export async function advanceHarnessToolFailure(event) {
   const part = event?.properties?.part
   if (event?.type !== 'message.part.updated' || part?.type !== 'tool' || part?.state?.status !== 'error') return
+  // A provider can replay a tool name from the preceding projection. OpenCode
+  // rejects it before execution, so it is not transaction evidence and must
+  // not advance or fail the current Harness phase.
+  if (/Model tried to call unavailable tool\b.*\bAvailable tools:/i.test(String(part.state.error || ''))) return
   const directory = sessionDirectories.get(part.sessionID)
   if (!directory || !readRuntimeBridge(directory)) return
   const key = `${part.sessionID}:${part.callID}`
