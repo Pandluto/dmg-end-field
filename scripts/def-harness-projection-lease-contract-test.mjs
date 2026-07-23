@@ -261,6 +261,112 @@ const { response: cancelUnavailable } = await createHarnessThroughInterop({
 assert.equal(cancelUnavailable.body.error.details.rollback.projection.outcome, 'failed',
   'a consumed/activated provision is explicit failed cancellation evidence, never a fabricated cleanup success');
 assert.equal(cancelUnavailable.body.error.details.rollback.completed, false);
+
+// Exercise runner cleanup through the Interop memory transport. Hidden
+// fixtures are repository-internal, so a normal runner DELETE must use the
+// privileged fixture route; empty fixtures remain on the ordinary route.
+function createHarnessRunnerCleanupInterop({ fixtureMode, fixtureDeleteStatus = 200 } = {}) {
+  const calls = [];
+  let nextFixtureDeleteStatus = fixtureDeleteStatus;
+  const protocol = createDefCodexInteropProtocol({
+    profile: 'development', baseUrl: 'http://127.0.0.1:31457', sidecarUrl: 'http://127.0.0.1:17322',
+    snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot', snapshotHeaders: { 'x-def-internal-token': 'test' }, auditFile: '',
+    fetchJson: async () => ({ status: 200, body: { ok: true } }),
+    postJson: async (url, body) => {
+      calls.push({ url, body });
+      if (url.includes('/harness-projection/provision')) {
+        return {
+          status: 201,
+          body: {
+            ok: true,
+            provisionToken: 'runner-cleanup-provision',
+            fixture: { fixtureId: 'runner-cleanup-fixture', timelineId: 'runner-cleanup-hidden-timeline', boundNodeId: 'runner-cleanup-node' },
+            source: { timelineId: 'visible-source', boundNodeId: 'source-node' },
+          },
+        };
+      }
+      if (url === 'http://127.0.0.1:31457/local-data/timeline-documents') return { status: 201, body: { ok: true } };
+      if (url === 'http://127.0.0.1:17322/api/native/session') {
+        const sessionId = fixtureMode === 'empty' ? 'empty-runner-session' : 'hidden-runner-session';
+        return { status: 201, body: { ok: true, session: { id: sessionId, directory: `C:\\def-contract\\${sessionId}` } } };
+      }
+      if (url.includes('/runner-cleanup')) return { status: 204, body: null };
+      if (url.includes('/harness-projection/delete-fixture')
+        || (url.includes('/local-data/timeline-documents/') && url.endsWith('/delete'))) {
+        return { status: nextFixtureDeleteStatus, body: { ok: nextFixtureDeleteStatus >= 200 && nextFixtureDeleteStatus < 300 } };
+      }
+      return { status: 500, body: { ok: false, error: { code: 'unexpected-cleanup-route' } } };
+    },
+    writeJson(response, status, body) { response.status = status; response.body = body; }, writeSse() {}, writeSseHeaders() {},
+  });
+  return {
+    protocol,
+    calls,
+    setFixtureDeleteStatus(status) { nextFixtureDeleteStatus = status; },
+  };
+}
+
+async function createHarnessRunnerForCleanup(transport, fixtureMode) {
+  const auth = await interopCall(transport.protocol, 'POST', '/def-agent/interop/v1/authorize');
+  if (fixtureMode !== 'empty') {
+    const uiConsumer = await interopCall(transport.protocol, 'POST', '/def-agent/interop/v1/ui/consumer', { host: 'workbench', sessionId: 'visible-source' });
+    assert.equal(uiConsumer.status, 200);
+  }
+  const created = await interopCall(transport.protocol, 'POST', '/def-agent/interop/v1/harness/sessions', {
+    harnessSelector: 'stable', fixtureMode, scenarioToolAllowlist: ['def_operator_config_preview'],
+  }, auth.body.token);
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  return { token: auth.body.token, runner: created.body.runner };
+}
+
+const hiddenCleanupTransport = createHarnessRunnerCleanupInterop({ fixtureMode: 'clone-current' });
+const hiddenCleanupRunner = await createHarnessRunnerForCleanup(hiddenCleanupTransport, 'clone-current');
+const hiddenCleanup = await interopCall(hiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${hiddenCleanupRunner.runner.sessionId}`, {}, hiddenCleanupRunner.token);
+assert.equal(hiddenCleanup.status, 200, JSON.stringify(hiddenCleanup.body));
+assert.equal(hiddenCleanupTransport.calls.filter((call) => call.url.includes('/harness-projection/delete-fixture')).length, 1,
+  'hidden fixture cleanup must use the authenticated fixture delete route exactly once');
+assert.equal(hiddenCleanupTransport.calls.filter((call) => call.url.includes('/local-data/timeline-documents/') && call.url.endsWith('/delete')).length, 0,
+  'hidden fixture cleanup must never fall back to the ordinary local-data delete route');
+const hiddenCleanupRepeat = await interopCall(hiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${hiddenCleanupRunner.runner.sessionId}`, {}, hiddenCleanupRunner.token);
+assert.equal(hiddenCleanupRepeat.status, 200);
+assert.equal(hiddenCleanupRepeat.body.status, 'already-closed', 'only a previously removed runner is idempotently already closed');
+assert.equal(hiddenCleanupTransport.calls.filter((call) => call.url.includes('/runner-cleanup')).length, 1,
+  'a successful runner cleanup removes the runner map entry before repeat DELETE');
+
+const failedHiddenCleanupTransport = createHarnessRunnerCleanupInterop({ fixtureMode: 'clone-current', fixtureDeleteStatus: 500 });
+const failedHiddenCleanupRunner = await createHarnessRunnerForCleanup(failedHiddenCleanupTransport, 'clone-current');
+const failedHiddenCleanup = await interopCall(failedHiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${failedHiddenCleanupRunner.runner.sessionId}`, {}, failedHiddenCleanupRunner.token);
+assert.equal(failedHiddenCleanup.status, 502, 'a failed hidden fixture cleanup must retain the runner for retry');
+assert.equal(failedHiddenCleanup.body.error.code, 'harness-fixture-cleanup-failed');
+failedHiddenCleanupTransport.setFixtureDeleteStatus(200);
+const retriedHiddenCleanup = await interopCall(failedHiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${failedHiddenCleanupRunner.runner.sessionId}`, {}, failedHiddenCleanupRunner.token);
+assert.equal(retriedHiddenCleanup.status, 200, 'the retained runner can retry cleanup after a fixture-delete failure');
+
+const absentHiddenCleanupTransport = createHarnessRunnerCleanupInterop({ fixtureMode: 'clone-current', fixtureDeleteStatus: 404 });
+const absentHiddenCleanupRunner = await createHarnessRunnerForCleanup(absentHiddenCleanupTransport, 'clone-current');
+const absentHiddenCleanup = await interopCall(absentHiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${absentHiddenCleanupRunner.runner.sessionId}`, {}, absentHiddenCleanupRunner.token);
+assert.equal(absentHiddenCleanup.status, 502, 'a missing first-delete fixture is not fabricated as successful cleanup');
+absentHiddenCleanupTransport.setFixtureDeleteStatus(200);
+const retriedAbsentHiddenCleanup = await interopCall(absentHiddenCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${absentHiddenCleanupRunner.runner.sessionId}`, {}, absentHiddenCleanupRunner.token);
+assert.equal(retriedAbsentHiddenCleanup.status, 200, 'a runner retained after a missing fixture response can be retried and closed');
+
+const emptyCleanupTransport = createHarnessRunnerCleanupInterop({ fixtureMode: 'empty' });
+const emptyCleanupRunner = await createHarnessRunnerForCleanup(emptyCleanupTransport, 'empty');
+const emptyCleanup = await interopCall(emptyCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${emptyCleanupRunner.runner.sessionId}`, {}, emptyCleanupRunner.token);
+assert.equal(emptyCleanup.status, 200, JSON.stringify(emptyCleanup.body));
+assert.equal(emptyCleanupTransport.calls.filter((call) => call.url.includes('/harness-projection/delete-fixture')).length, 0,
+  'empty fixtures do not use the privileged hidden-fixture route');
+assert.equal(emptyCleanupTransport.calls.filter((call) => call.url.includes('/local-data/timeline-documents/') && call.url.endsWith('/delete')).length, 1,
+  'empty fixtures preserve ordinary local-data cleanup');
+
+const activeCurrentCleanupTransport = createHarnessRunnerCleanupInterop({ fixtureMode: 'active-current-readonly' });
+const activeCurrentCleanupRunner = await createHarnessRunnerForCleanup(activeCurrentCleanupTransport, 'active-current-readonly');
+const activeCurrentCleanup = await interopCall(activeCurrentCleanupTransport.protocol, 'DELETE', `/def-agent/interop/v1/harness/sessions/${activeCurrentCleanupRunner.runner.sessionId}`, {}, activeCurrentCleanupRunner.token);
+assert.equal(activeCurrentCleanup.status, 200, JSON.stringify(activeCurrentCleanup.body));
+assert.equal(activeCurrentCleanupTransport.calls.filter((call) => call.url.includes('/harness-projection/delete-fixture')
+  || (call.url.includes('/local-data/timeline-documents/') && call.url.endsWith('/delete'))).length, 0,
+  'active-current runners do not own or delete a fixture');
+
 const runnerSource = fs.readFileSync(new URL('./def-harness-native-runner.mjs', import.meta.url), 'utf8');
 assert(runnerSource.includes("caught.code === 'ERROR_SCENARIO' ? 'ERROR_VERIFIER'"),
   'runner must map Scenario configuration errors to the established ERROR_VERIFIER status while retaining error.code');

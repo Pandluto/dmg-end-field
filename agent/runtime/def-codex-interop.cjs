@@ -1036,7 +1036,16 @@ function createDefCodexInteropProtocol(options) {
       const deleted = await options.postJson(`${options.sidecarUrl}/api/native/session/${encodeURIComponent(sessionId)}/runner-cleanup`, {});
       if (deleted.status < 200 || deleted.status >= 300) { reject(response, 502, createError('harness-session-cleanup-failed', 'Native Harness runner session could not be cleaned up.', 'sidecar', { retryable: true, ids: { sessionId } })); return true; }
       if (runner.ownedFixture) {
-        const fixture = await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(runner.timelineId)}/delete`, {});
+        // A hidden fixture exists only in the repository's internal Harness
+        // partition.  Its public local-data route intentionally reports 404;
+        // cleanup must use the same authenticated route as create rollback.
+        const fixture = runner.fixtureMode === 'hidden-fixture'
+          ? await options.postJson(`${new URL(options.snapshotUrl).origin}/api/main-workbench/harness-projection/delete-fixture`, { timelineId: runner.timelineId })
+          : await options.postJson(`${baseUrl}/local-data/timeline-documents/${encodeURIComponent(runner.timelineId)}/delete`, {});
+        // The runner remains retained on every non-2xx response (including
+        // 404). A subsequent DELETE of an already removed runner is the only
+        // idempotent already-closed case; an absent owned fixture on the first
+        // cleanup must not be misreported as verified cleanup.
         if (fixture.status < 200 || fixture.status >= 300) { reject(response, 502, createError('harness-fixture-cleanup-failed', 'Harness timeline fixture could not be cleaned up.', 'fixture', { retryable: true, ids: { sessionId } })); return true; }
       }
       harnessRunners.delete(sessionId);
