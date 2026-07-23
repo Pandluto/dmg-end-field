@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { createRequire } from 'node:module';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,7 +7,11 @@ import path from 'node:path';
 
 const projectRoot = path.resolve(import.meta.dirname, '..');
 const require = createRequire(import.meta.url);
-const { buildOpenCodeRuntimeEnv } = require('../agent/runtime/def-opencode-adapter/index.cjs');
+const {
+  buildOpenCodeRuntimeEnv,
+  verifyOpenCodeRuntimeBinary,
+  OPENCODE_RUNTIME_INTEGRITY_ERROR,
+} = require('../agent/runtime/def-opencode-adapter/index.cjs');
 
 const adapterPath = path.join(projectRoot, 'agent/runtime/def-opencode-adapter/index.cjs');
 const flagPath = path.join(projectRoot, 'agent/vendor/opencode/packages/core/src/flag/flag.ts');
@@ -110,6 +115,126 @@ assert.match(adapterSource,
   /skills:\s*\{\s*paths:\s*\[skillsRoot\],\s*\},\s*plugin:\s*\[pathToFileURL\(defOpenCodePluginSource\)\.href\]/,
   'DEF config must retain its explicit Skills path and file:// plugin');
 
+function currentRuntimeTarget() {
+  return `${process.platform}-${process.arch}`;
+}
+
+function expectedBinaryName(version = '1.0.0') {
+  return `opencode-${version}${process.platform === 'win32' ? '.exe' : ''}`;
+}
+
+function sha256(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function createRuntimeFixture({
+  binary = Buffer.from('verified runtime fixture'),
+  manifest = {},
+  checksums = {},
+} = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-opencode-runtime-integrity-'));
+  const target = currentRuntimeTarget();
+  const version = '1.0.0';
+  const binaryName = expectedBinaryName(version);
+  const relativeBinary = `bin/${target}/${binaryName}`;
+  const binaryPath = path.join(root, ...relativeBinary.split('/'));
+  fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
+  fs.writeFileSync(binaryPath, binary);
+  const digest = sha256(binary);
+  const runtimeManifest = {
+    name: 'opencode-core',
+    upstreamVersion: version,
+    runtimeTarget: target,
+    binary: relativeBinary,
+    checksumSha256: digest,
+    ...manifest,
+  };
+  const runtimeChecksums = {
+    files: {
+      [relativeBinary]: {
+        sha256: digest,
+        bytes: binary.length,
+      },
+    },
+    ...checksums,
+  };
+  fs.writeFileSync(path.join(root, 'manifest.json'), JSON.stringify(runtimeManifest), 'utf8');
+  fs.writeFileSync(path.join(root, 'checksums.json'), JSON.stringify(runtimeChecksums), 'utf8');
+  return { root, target, binaryPath, relativeBinary, runtimeManifest, runtimeChecksums };
+}
+
+function expectIntegrityFailure(run, reason) {
+  assert.throws(run, (error) => error?.code === OPENCODE_RUNTIME_INTEGRITY_ERROR
+    && (!reason || error.reason === reason), `runtime integrity must fail closed${reason ? ` with ${reason}` : ''}`);
+}
+
+const runtimeFixtureRoots = [];
+try {
+  const valid = createRuntimeFixture();
+  runtimeFixtureRoots.push(valid.root);
+  const verifiedPath = verifyOpenCodeRuntimeBinary({ runtimeRoot: valid.root, cache: new Map() });
+  assert.equal(verifiedPath, fs.realpathSync(valid.binaryPath), 'a matching manifest, checksum entry, size, and binary hash must verify');
+
+  const hashMismatch = createRuntimeFixture({
+    manifest: { checksumSha256: '0'.repeat(64) },
+    checksums: { files: {} },
+  });
+  runtimeFixtureRoots.push(hashMismatch.root);
+  hashMismatch.runtimeChecksums.files[hashMismatch.relativeBinary] = {
+    sha256: '0'.repeat(64),
+    bytes: fs.statSync(hashMismatch.binaryPath).size,
+  };
+  fs.writeFileSync(path.join(hashMismatch.root, 'checksums.json'), JSON.stringify(hashMismatch.runtimeChecksums), 'utf8');
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: hashMismatch.root, cache: new Map() }), 'binary-sha256-mismatch');
+
+  const inconsistentMetadata = createRuntimeFixture({
+    manifest: { checksumSha256: '1'.repeat(64) },
+  });
+  runtimeFixtureRoots.push(inconsistentMetadata.root);
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: inconsistentMetadata.root, cache: new Map() }), 'checksums-invalid-or-inconsistent');
+
+  const sizeMismatch = createRuntimeFixture();
+  runtimeFixtureRoots.push(sizeMismatch.root);
+  sizeMismatch.runtimeChecksums.files[sizeMismatch.relativeBinary].bytes += 1;
+  fs.writeFileSync(path.join(sizeMismatch.root, 'checksums.json'), JSON.stringify(sizeMismatch.runtimeChecksums), 'utf8');
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: sizeMismatch.root, cache: new Map() }), 'binary-size-mismatch');
+
+  const traversal = createRuntimeFixture({
+    manifest: { binary: '../outside/opencode.exe' },
+  });
+  runtimeFixtureRoots.push(traversal.root);
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: traversal.root, cache: new Map() }), 'manifest-binary-path-invalid');
+
+  const targetMismatch = createRuntimeFixture({
+    manifest: { runtimeTarget: 'other-platform-x64' },
+  });
+  runtimeFixtureRoots.push(targetMismatch.root);
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: targetMismatch.root, cache: new Map() }), 'manifest-target-mismatch');
+
+  const missingManifest = createRuntimeFixture();
+  runtimeFixtureRoots.push(missingManifest.root);
+  fs.rmSync(path.join(missingManifest.root, 'manifest.json'));
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: missingManifest.root, cache: new Map() }), 'manifest-target-mismatch');
+
+  const missingChecksums = createRuntimeFixture();
+  runtimeFixtureRoots.push(missingChecksums.root);
+  fs.rmSync(path.join(missingChecksums.root, 'checksums.json'));
+  expectIntegrityFailure(() => verifyOpenCodeRuntimeBinary({ runtimeRoot: missingChecksums.root, cache: new Map() }), 'checksums-invalid-or-inconsistent');
+} finally {
+  for (const root of runtimeFixtureRoots) fs.rmSync(root, { recursive: true, force: true });
+}
+
+const resolverStart = adapterSource.indexOf('function resolveOpenCodeBinary()');
+const resolverEnd = adapterSource.indexOf('\nfunction processRunning', resolverStart);
+assert(resolverStart >= 0 && resolverEnd > resolverStart, 'the native runtime resolver must remain source-identifiable');
+assert.match(adapterSource.slice(resolverStart, resolverEnd), /return verifyOpenCodeRuntimeBinary\(\);/,
+  'the resolver must fail closed through runtime integrity verification rather than select an existing binary');
+const startupStart = adapterSource.indexOf('const startPromise = (async () => {');
+const startupEnd = adapterSource.indexOf('\n    opencodeProcess = child;', startupStart);
+const startupSource = adapterSource.slice(startupStart, startupEnd);
+assert(startupSource.indexOf('const binaryPath = resolveOpenCodeBinary();') < startupSource.indexOf('const child = spawn(binaryPath'),
+  'runtime integrity verification must complete before the OpenCode binary can be spawned');
+
 console.log(JSON.stringify({
   ok: true,
   checks: [
@@ -117,6 +242,8 @@ console.log(JSON.stringify({
     'external-home-skills-disabled',
     'generic-config-dependency-install-disabled',
     'file-plugin-and-def-skills-retained',
+    'runtime-manifest-checksum-binary-integrity',
+    'runtime-integrity-fails-closed-before-spawn',
     'no-provider-access',
   ],
 }));

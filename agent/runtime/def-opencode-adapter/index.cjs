@@ -696,10 +696,6 @@ function platformRuntimeTarget() {
   return `${platform}-${process.arch}`;
 }
 
-function runtimeBinaryName() {
-  return process.platform === 'win32' ? 'opencode.exe' : 'opencode';
-}
-
 function resolveAsarUnpackedPath(filePath) {
   const marker = `${path.sep}app.asar${path.sep}`;
   if (!filePath.includes(marker)) return filePath;
@@ -714,25 +710,172 @@ function getRuntimeChecksums() {
   return readJsonFile(path.join(runtimeRoot, 'checksums.json'));
 }
 
+const OPENCODE_RUNTIME_INTEGRITY_ERROR = 'OPENCODE_RUNTIME_INTEGRITY_INVALID';
+const verifiedOpenCodeRuntimeBinaries = new Map();
+
+function runtimeIntegrityError(reason) {
+  const error = new Error(`OpenCode runtime integrity verification failed (${reason}). Run "npm run build:opencode-runtime" before starting DEF agent.`);
+  error.code = OPENCODE_RUNTIME_INTEGRITY_ERROR;
+  error.reason = reason;
+  return error;
+}
+
+function isPlainRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeRuntimeSha256(value) {
+  const checksum = typeof value === 'string' ? value.trim() : '';
+  return /^[a-f0-9]{64}$/i.test(checksum) ? checksum.toLowerCase() : '';
+}
+
+function runtimeFileIdentity(stat) {
+  return [
+    stat.ino,
+    stat.size,
+    stat.mode,
+    stat.mtimeMs,
+    stat.ctimeMs,
+  ].join(':');
+}
+
+function isPathInside(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return Boolean(relative)
+    && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relative);
+}
+
+function expectedRuntimeBinaryName(manifest) {
+  const upstreamVersion = typeof manifest?.upstreamVersion === 'string' ? manifest.upstreamVersion.trim() : '';
+  if (!/^[0-9]+(?:\.[0-9]+){0,2}(?:-[a-z0-9][a-z0-9.-]*)?$/i.test(upstreamVersion)) return '';
+  const extension = process.platform === 'win32' ? '.exe' : '';
+  return `opencode-${upstreamVersion}${extension}`;
+}
+
+function declaredRuntimeBinary(manifest, target) {
+  if (!isPlainRecord(manifest) || manifest.runtimeTarget !== target) {
+    throw runtimeIntegrityError('manifest-target-mismatch');
+  }
+  const binary = typeof manifest.binary === 'string' ? manifest.binary : '';
+  const expectedName = expectedRuntimeBinaryName(manifest);
+  const expectedPath = expectedName ? `bin/${target}/${expectedName}` : '';
+  if (!binary
+    || binary.includes('\\')
+    || path.posix.isAbsolute(binary)
+    || binary !== path.posix.normalize(binary)
+    || binary !== expectedPath) {
+    throw runtimeIntegrityError('manifest-binary-path-invalid');
+  }
+  return binary;
+}
+
+function readRuntimeIntegrityMetadata(root, target, options = {}) {
+  const manifestRoot = path.resolve(root);
+  const manifest = Object.prototype.hasOwnProperty.call(options, 'manifest')
+    ? options.manifest
+    : readJsonFile(path.join(manifestRoot, 'manifest.json'));
+  const checksums = Object.prototype.hasOwnProperty.call(options, 'checksums')
+    ? options.checksums
+    : readJsonFile(path.join(manifestRoot, 'checksums.json'));
+  const binary = declaredRuntimeBinary(manifest, target);
+  const manifestChecksum = normalizeRuntimeSha256(manifest?.checksumSha256);
+  const checksumEntry = isPlainRecord(checksums?.files) ? checksums.files[binary] : null;
+  const checksumsChecksum = normalizeRuntimeSha256(checksumEntry?.sha256);
+  const bytes = checksumEntry?.bytes;
+  if (!manifestChecksum || !checksumsChecksum || manifestChecksum !== checksumsChecksum
+    || !Number.isSafeInteger(bytes) || bytes < 0) {
+    throw runtimeIntegrityError('checksums-invalid-or-inconsistent');
+  }
+  return { binary, checksum: manifestChecksum, bytes };
+}
+
+function hashOpenFileSha256(fileDescriptor) {
+  const hash = crypto.createHash('sha256');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+  let position = 0;
+  while (true) {
+    const bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, position);
+    if (!bytesRead) break;
+    hash.update(buffer.subarray(0, bytesRead));
+    position += bytesRead;
+  }
+  return hash.digest('hex');
+}
+
+// Verify the binary selected by the release manifest before every first use.
+// The initial hash is made through an opened descriptor; later calls may use a
+// file-identity cache so routine runtime summaries do not rehash a 100+ MB exe.
+function verifyOpenCodeRuntimeBinary(options = {}) {
+  const target = typeof options.runtimeTarget === 'string' && options.runtimeTarget
+    ? options.runtimeTarget
+    : platformRuntimeTarget();
+  const manifestRoot = path.resolve(options.runtimeRoot || runtimeRoot);
+  const binaryRoot = path.resolve(resolveAsarUnpackedPath(manifestRoot));
+  const cache = options.cache instanceof Map ? options.cache : verifiedOpenCodeRuntimeBinaries;
+  let metadata;
+  try {
+    metadata = readRuntimeIntegrityMetadata(manifestRoot, target, options);
+  } catch (error) {
+    if (error?.code === OPENCODE_RUNTIME_INTEGRITY_ERROR) throw error;
+    throw runtimeIntegrityError('runtime-metadata-unreadable');
+  }
+
+  const declaredPath = path.resolve(binaryRoot, ...metadata.binary.split('/'));
+  if (!isPathInside(binaryRoot, declaredPath)) throw runtimeIntegrityError('manifest-binary-outside-runtime-root');
+
+  let binaryPath;
+  let before;
+  try {
+    const realRoot = fs.realpathSync(binaryRoot);
+    binaryPath = fs.realpathSync(declaredPath);
+    if (!isPathInside(realRoot, binaryPath)) throw runtimeIntegrityError('binary-resolves-outside-runtime-root');
+    const listed = fs.lstatSync(declaredPath);
+    if (listed.isSymbolicLink()) throw runtimeIntegrityError('binary-symlink-not-allowed');
+    before = fs.statSync(binaryPath);
+    if (!before.isFile()) throw runtimeIntegrityError('binary-not-a-file');
+  } catch (error) {
+    if (error?.code === OPENCODE_RUNTIME_INTEGRITY_ERROR) throw error;
+    throw runtimeIntegrityError('binary-unavailable');
+  }
+
+  const cacheKey = [binaryPath, target, metadata.binary, metadata.checksum, metadata.bytes].join('\0');
+  const identity = runtimeFileIdentity(before);
+  if (cache.get(cacheKey) === identity) return binaryPath;
+
+  let descriptor;
+  try {
+    descriptor = fs.openSync(binaryPath, 'r');
+    const openedBefore = fs.fstatSync(descriptor);
+    if (!openedBefore.isFile() || runtimeFileIdentity(openedBefore) !== identity) {
+      throw runtimeIntegrityError('binary-changed-before-verification');
+    }
+    const actualChecksum = hashOpenFileSha256(descriptor);
+    const openedAfter = fs.fstatSync(descriptor);
+    if (runtimeFileIdentity(openedAfter) !== runtimeFileIdentity(openedBefore)) {
+      throw runtimeIntegrityError('binary-changed-during-verification');
+    }
+    const pathAfter = fs.statSync(binaryPath);
+    if (runtimeFileIdentity(pathAfter) !== runtimeFileIdentity(openedAfter)) {
+      throw runtimeIntegrityError('binary-replaced-after-verification');
+    }
+    if (openedAfter.size !== metadata.bytes) throw runtimeIntegrityError('binary-size-mismatch');
+    if (actualChecksum !== metadata.checksum) throw runtimeIntegrityError('binary-sha256-mismatch');
+    cache.set(cacheKey, runtimeFileIdentity(openedAfter));
+    return binaryPath;
+  } catch (error) {
+    if (error?.code === OPENCODE_RUNTIME_INTEGRITY_ERROR) throw error;
+    throw runtimeIntegrityError('binary-verification-unreadable');
+  } finally {
+    if (descriptor !== undefined) {
+      try { fs.closeSync(descriptor); } catch {}
+    }
+  }
+}
+
 function resolveOpenCodeBinary() {
-  const target = platformRuntimeTarget();
-  const binaryName = runtimeBinaryName();
-  const manifest = getRuntimeManifest();
-  const candidates = [];
-
-  if (manifest?.runtimeTarget === target && typeof manifest.binary === 'string' && manifest.binary) {
-    candidates.push(path.join(runtimeRoot, manifest.binary));
-  }
-  candidates.push(path.join(runtimeRoot, 'bin', target, binaryName));
-
-  for (const candidate of candidates) {
-    const resolved = resolveAsarUnpackedPath(candidate);
-    if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
-  }
-
-  throw new Error(
-    `OpenCode runtime binary is missing for ${target}. Run "npm run build:opencode-runtime" before starting DEF agent.`,
-  );
+  return verifyOpenCodeRuntimeBinary();
 }
 
 function processRunning(child) {
@@ -3202,9 +3345,11 @@ module.exports = {
   DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_DEEPSEEK_MODEL,
   OPENCODE_PORT_BASE,
+  OPENCODE_RUNTIME_INTEGRITY_ERROR,
   buildAgentPrompt,
   buildCapabilityPermission,
   buildOpenCodeRuntimeEnv,
+  verifyOpenCodeRuntimeBinary,
   sanitizeDeepSeekConfig,
   summarizeConfig,
   runtimeSummary,
