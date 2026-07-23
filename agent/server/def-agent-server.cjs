@@ -21,6 +21,7 @@ const {
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
 const { prepareWorkbenchTurn } = require('../runtime/def-harness-manager/index.cjs');
+const { readRuntimeBridge } = require('../runtime/def-harness-manager/bridge.cjs');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.DEF_AGENT_PORT || 17322);
@@ -438,8 +439,43 @@ const staticMimeTypes = {
   '.woff2': 'font/woff2',
 };
 
+function readEmbeddedNativeSessionRoute(requestUrl) {
+  const routeParts = requestUrl.pathname.split('/').filter(Boolean);
+  const sessionRouteIndex = routeParts.lastIndexOf('session');
+  const directorySlug = sessionRouteIndex > 0 ? routeParts[sessionRouteIndex - 1] : '';
+  const sessionID = sessionRouteIndex >= 0 ? routeParts[sessionRouteIndex + 1] : '';
+  const isNativeSessionRoute = Boolean(
+    directorySlug
+    && sessionID
+    && (sessionRouteIndex === 1 || (sessionRouteIndex === 2 && routeParts[0] === 'server')),
+  );
+  if (!isNativeSessionRoute) return null;
+  try {
+    const decodedSessionID = decodeURIComponent(sessionID);
+    // `/server/<key>/session/<id>` stores the OpenCode server key rather
+    // than a DEF workspace directory. The stable session id is therefore
+    // the authority for the active binding; retain the direct-directory
+    // lookup only for the older local route shape.
+    const directory = Buffer.from(directorySlug, 'base64url').toString('utf8');
+    const binding = findNativeSessionBinding(decodedSessionID)
+      || readNativeSessionBinding(directory, decodedSessionID);
+    return { binding, decodedSessionID };
+  } catch {
+    return null;
+  }
+}
+
 function serveOpenCodeUi(request, response, requestUrl) {
   if (!['GET', 'HEAD'].includes(request.method || 'GET')) return false;
+  const embeddedRoute = readEmbeddedNativeSessionRoute(requestUrl);
+  if (embeddedRoute?.binding?.host === 'ai-cli') {
+    writeJson(response, 410, {
+      ok: false,
+      error: 'The ai-cli DEF OpenCode host is disabled.',
+      code: 'DEF_OPENCODE_HOST_DISABLED',
+    });
+    return true;
+  }
   if (!fs.existsSync(path.join(openCodeUiRoot, 'index.html'))) return false;
 
   let requestedPath;
@@ -463,49 +499,23 @@ function serveOpenCodeUi(request, response, requestUrl) {
   const extension = path.extname(assetPath).toLowerCase();
   const isIndex = assetPath === path.join(openCodeUiRoot, 'index.html');
   const fileBody = fs.readFileSync(assetPath);
-  const routeParts = requestUrl.pathname.split('/').filter(Boolean);
   let embeddedProfile = null;
   let embeddedSession = null;
-  let disabledHostBinding = false;
   // The local OpenCode UI normalizes an embedded native session to either
   // `/{directorySlug}/session/{sessionId}` or
   // `/server/{directorySlug}/session/{sessionId}`. Both are client-document
   // routes served from this static UI.
-  const sessionRouteIndex = routeParts.lastIndexOf('session');
-  const directorySlug = sessionRouteIndex > 0 ? routeParts[sessionRouteIndex - 1] : '';
-  const sessionID = sessionRouteIndex >= 0 ? routeParts[sessionRouteIndex + 1] : '';
-  const isNativeSessionRoute = Boolean(
-    directorySlug
-    && sessionID
-    && (sessionRouteIndex === 1 || (sessionRouteIndex === 2 && routeParts[0] === 'server')),
-  );
-  if (isNativeSessionRoute) {
-    try {
-      const decodedSessionID = decodeURIComponent(sessionID);
-      // `/server/<key>/session/<id>` stores the OpenCode server key rather
-      // than a DEF workspace directory.  The stable session id is therefore
-      // the authority for the active binding; retain the direct-directory
-      // lookup only for the older local route shape.
-      const directory = Buffer.from(directorySlug, 'base64url').toString('utf8');
-      const binding = findNativeSessionBinding(decodedSessionID)
-        || readNativeSessionBinding(directory, decodedSessionID);
-      disabledHostBinding = binding?.host === 'ai-cli';
-      embeddedProfile = binding?.host === 'workbench' ? binding.profile : null;
-      if (binding?.host === 'workbench') {
-        embeddedSession = { sessionID: decodedSessionID, directory: binding.directory };
-      }
-    } catch {
-      embeddedProfile = null;
-      embeddedSession = null;
-    }
+  if (embeddedRoute?.binding?.host === 'workbench') {
+    embeddedProfile = embeddedRoute.binding.profile;
+    embeddedSession = {
+      sessionID: embeddedRoute.decodedSessionID,
+      directory: embeddedRoute.binding.directory,
+    };
   }
   if (isIndex && (!embeddedProfile || !embeddedSession)) {
-    writeJson(response, disabledHostBinding ? 410 : 404, {
+    writeJson(response, 404, {
       ok: false,
-      error: disabledHostBinding
-        ? 'The ai-cli DEF OpenCode host is disabled.'
-        : 'native-workbench-session-binding-not-found',
-      ...(disabledHostBinding ? { code: 'DEF_OPENCODE_HOST_DISABLED' } : {}),
+      error: 'native-workbench-session-binding-not-found',
     });
     return true;
   }
@@ -730,17 +740,11 @@ async function sendNativeInteropPrompt(sessionID, body) {
 
 async function sendNativeInteropPromptOnce(sessionID, body) {
   const binding = requireNativeWorkbenchBinding(sessionID);
-  const requestedHarness = typeof body?.harnessSelector === 'string' ? body.harnessSelector.trim() : '';
-  if (requestedHarness) {
-    const pinned = binding.harnessBinding?.harness;
-    const matches = requestedHarness === binding.harnessBinding?.selector
-      || requestedHarness === `${pinned?.harnessId || ''}@${pinned?.version || ''}`;
-    if (!matches) {
-      const error = new Error('BLOCKED_HARNESS_LOAD: native session is pinned to a different Harness.');
-      error.code = 'BLOCKED_HARNESS_LOAD';
-      error.status = 409;
-      throw error;
-    }
+  if (body?.harnessSelector !== undefined) {
+    const error = new Error('Global Harness selectors were retired; the Manager resolves one active business Revision per transaction.');
+    error.code = 'LEGACY_HARNESS_SELECTOR_RETIRED';
+    error.status = 410;
+    throw error;
   }
   const rawUserText = typeof body?.rawUserText === 'string' ? body.rawUserText.trim() : '';
   const providerVisibleUserText = typeof body?.providerVisibleUserText === 'string'
@@ -798,14 +802,11 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
       { role: 'system', source: 'workbench-context', text: payload.system },
       { role: 'user', text: rawUserText },
     ],
-    harnessBinding: preparedTurn.compatibility?.binding || null,
-    sessionHarnessBinding: preparedTurn.compatibility?.sessionBinding || null,
-    harnessRoute: preparedTurn.compatibility?.turnRoute || null,
-    harnessWarning: preparedTurn.compatibility?.warning,
     harnessManager: {
       phase: preparedTurn.phase,
       transaction: preparedTurn.transaction,
       trace: preparedTurn.trace,
+      projection: preparedTurn.projection,
     },
   };
 }
@@ -1336,6 +1337,12 @@ const server = http.createServer(async (request, response) => {
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/session') {
       const body = await readJsonBody(request);
+      if (body.harnessSelector !== undefined) {
+        const error = new Error('Global Harness selectors were retired; activate a single business Revision through the Harness Manager.');
+        error.code = 'LEGACY_HARNESS_SELECTOR_RETIRED';
+        error.status = 410;
+        throw error;
+      }
       if (body.host !== 'workbench') {
         const error = new Error(body.host === 'ai-cli'
           ? 'The ai-cli DEF OpenCode host is disabled.'
@@ -1353,7 +1360,6 @@ const server = http.createServer(async (request, response) => {
           config: readConfig().deepseek,
           host: 'workbench',
           thinkingEffort: body.thinkingEffort,
-          harnessSelector: typeof body.harnessSelector === 'string' ? body.harnessSelector : 'stable',
           timelineId,
           boundNodeId: typeof body.boundNodeId === 'string' ? body.boundNodeId : '',
         });
@@ -1538,7 +1544,21 @@ const server = http.createServer(async (request, response) => {
       }
       await migrateNativeSessionTitle(binding);
       const axisContext = await syncNativeWorkbenchAxisBinding(binding);
-      writeJson(response, 200, { ok: true, binding, profile: binding.profile, axisContext });
+      const managerProjection = readRuntimeBridge(binding.directory);
+      writeJson(response, 200, {
+        ok: true,
+        binding,
+        profile: binding.profile,
+        axisContext,
+        harnessManager: managerProjection ? {
+          mode: managerProjection.mode,
+          transactionId: managerProjection.transactionId || null,
+          businessId: managerProjection.businessId || null,
+          operation: managerProjection.operation || null,
+          phase: managerProjection.phase || null,
+          projectionRevision: managerProjection.projectionRevision,
+        } : null,
+      });
       return;
     }
 
@@ -1612,7 +1632,16 @@ const server = http.createServer(async (request, response) => {
     if (method === 'POST' && nativeInteropPrompt) {
       const sessionID = decodeURIComponent(nativeInteropPrompt[1]);
       const result = await sendNativeInteropPrompt(sessionID, await readJsonBody(request));
-      writeJson(response, 202, { ok: true, sessionId: sessionID, ingressMode: result.ingressMode, acceptedAt: result.acceptedAt, nativeUserMessageId: result.nativeUserMessageId || undefined, providerVisibleMessages: result.providerVisibleMessages, harnessBinding: result.harnessBinding || null, sessionHarnessBinding: result.sessionHarnessBinding || null, harnessRoute: result.harnessRoute || null, harnessWarning: result.harnessWarning || null, idempotent: result.idempotent === true });
+      writeJson(response, 202, {
+        ok: true,
+        sessionId: sessionID,
+        ingressMode: result.ingressMode,
+        acceptedAt: result.acceptedAt,
+        nativeUserMessageId: result.nativeUserMessageId || undefined,
+        providerVisibleMessages: result.providerVisibleMessages,
+        harnessManager: result.harnessManager,
+        idempotent: result.idempotent === true,
+      });
       return;
     }
 
@@ -1764,7 +1793,7 @@ const server = http.createServer(async (request, response) => {
     });
   } catch (error) {
     const errorCode = error && typeof error === 'object' && typeof error.code === 'string' ? error.code : undefined;
-    writeJson(response, Number.isInteger(error?.status) ? error.status : errorCode === 'DEF_SESSION_SKILL_MISMATCH' || errorCode === 'BLOCKED_HARNESS_LOAD' ? 409 : 500, {
+    writeJson(response, Number.isInteger(error?.status) ? error.status : errorCode === 'DEF_SESSION_SKILL_MISMATCH' ? 409 : 500, {
       ok: false,
       error: error instanceof Error ? error.message : String(error),
       ...(errorCode ? { code: errorCode } : {}),

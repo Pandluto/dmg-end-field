@@ -6,6 +6,7 @@
   "defaultRevision": "v1",
   "operations": [
     "inspect",
+    "current",
     "add",
     "remove",
     "move",

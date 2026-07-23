@@ -6,6 +6,11 @@ This Harness reads a complete versioned scheme and the product damage report. It
 supports calculate, aggregate, compare, attribute, diagnose, explain and a
 copyable response export.
 
+The internal `skill_fact` operation is the deterministic narrow path for a
+user who names one exact skill or hit and asks for its multiplier, element or
+damage classification. It performs one typed skill-catalog read and never
+substitutes a current damage report.
+
 It has no source-state write scope. It never selects operators, changes loadout,
 edits timeline buttons or changes BUFF. It also never reimplements the damage
 formula.

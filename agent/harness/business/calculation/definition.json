@@ -11,11 +11,13 @@
     "attribute",
     "diagnose",
     "export",
-    "explain"
+    "explain",
+    "skill_fact"
   ],
   "toolCeiling": [
     "def.node.crud.context",
-    "def.data.resource.damage"
+    "def.data.resource.damage",
+    "def.data.resource.skill"
   ],
   "writeScope": [],
   "completion": {

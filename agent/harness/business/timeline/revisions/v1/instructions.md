@@ -6,6 +6,9 @@ This Harness owns skill-button identity, coordinate, order and timeline
 structure. It supports inspect, add, remove, move, replace, copy, validate,
 preview, apply and restore.
 
+The internal `current` operation is the narrow deterministic form of inspect
+for “当前节点是什么” and reads only the authoritative current-node capability.
+
 It does not own `selectedBuff`, BUFF stacks, anomaly configuration, resistance
 configuration or operator loadout. Those fields can share a physical button
 record but remain outside timeline write scope.

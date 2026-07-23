@@ -2,14 +2,11 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 // DEF tools are loaded from this repository rather than a package workspace.
-// Resolve the vendored OpenCode plugin API explicitly so Bun does not look for
-// a nonexistent repo-root @opencode-ai/plugin installation. This is a local
-// workspace package, so the file URL must include the exported TypeScript
-// entrypoint; bare package subpaths are not resolved from this repository.
-import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/src/tool.ts'
+// Resolve the vendored OpenCode plugin API explicitly from its checked-in
+// workspace package; no repo-root/node_modules installation is required.
+import { tool } from '../../../vendor/opencode/packages/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
-import turnRouter from '../../def-opencode-adapter/harness-turn-router.cjs'
 import harnessRouter from '../../def-harness-manager/router.cjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
@@ -33,8 +30,7 @@ const defToolTurnEvidenceStops = new Map()
 const defToolTurnPolicies = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
-const { classifyDefExecutableTurnPolicy } = turnRouter
-const { validateRouteSubmission } = harnessRouter
+const { classifyDefExecutableTurnPolicy, validateRouteSubmission } = harnessRouter
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',

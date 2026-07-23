@@ -9,6 +9,35 @@
     "timeline.structure"
   ],
   "operations": {
+    "current": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.current"],
+          "writes": [],
+          "instructions": "Read the authoritative current Work Node only; do not derive it from transcript, parentage or latest-updated state.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return only the typed current-node identity and label requested by the user.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State that no authoritative current Work Node is available.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
     "inspect": {
       "entryPhase": "read-context",
       "phases": [

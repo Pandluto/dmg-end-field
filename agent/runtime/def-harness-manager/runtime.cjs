@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const path = require('path');
 const { BusinessHarnessRegistry } = require('./registry.cjs');
 const { BusinessPlanStore } = require('./plans.cjs');
@@ -49,6 +50,69 @@ function transitionForResult(phase, output) {
   return matched?.target || phase.transitions?.onSuccess;
 }
 
+function firstString(value, paths) {
+  for (const expression of paths) {
+    const candidate = valueAtPath(value, expression);
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return '';
+}
+
+function evidenceFromToolResult({ transaction, phase, canonicalToolId, callId, output, typedOutput }) {
+  if (phase.kind !== 'evidence' || !resultSucceeded(output)) return null;
+  const referenceId = firstString(typedOutput, [
+    'referenceId',
+    'artifact.artifactId',
+    'artifactId',
+    'operator.id',
+    'character.id',
+    'source.id',
+    'reportId',
+  ]) || String(output?.metadata?.artifactId || output?.metadata?.resultRef || callId || canonicalToolId);
+  const sectionId = firstString(typedOutput, ['section.sectionId', 'sectionId']);
+  const contentHash = firstString(typedOutput, [
+    'contentHash',
+    'source.revision',
+    'sourceRevision',
+    'bundleHash',
+    'planHash',
+    'formulaVersion',
+  ]) || `sha256:${crypto.createHash('sha256').update(JSON.stringify(typedOutput || {})).digest('hex')}`;
+  return {
+    source: canonicalToolId,
+    referenceId,
+    sectionId,
+    contentHash,
+    applicability: `${transaction.businessId}.${transaction.operation}:${transaction.target || ''}`,
+    conditions: transaction.constraints,
+  };
+}
+
+function resultBindings(output, typedOutput) {
+  const artifactId = firstString(typedOutput, ['artifact.artifactId', 'artifactId'])
+    || String(output?.metadata?.artifactId || '');
+  const capabilityToken = firstString(typedOutput, [
+    'plannerProfileCapability',
+    'approvalCapability',
+    'capability.token',
+    'fallbackToken',
+  ]);
+  const capabilityType = capabilityToken
+    ? ['plannerProfileCapability', 'approvalCapability', 'capability.token', 'fallbackToken']
+      .find((expression) => firstString(typedOutput, [expression]) === capabilityToken)
+    : '';
+  const nodeId = firstString(typedOutput, ['node.id', 'nodeId'])
+    || String(output?.metadata?.nodeId || '');
+  return {
+    artifact: output?.metadata?.artifact
+      || (typedOutput?.artifact && typeof typedOutput.artifact === 'object' ? typedOutput.artifact : null)
+      || (artifactId ? { id: artifactId, sourceRevision: firstString(typedOutput, ['source.revision', 'sourceRevision']) } : undefined),
+    capability: output?.metadata?.capability
+      || (capabilityToken ? { required: true, type: capabilityType, token: capabilityToken } : undefined),
+    workNodeRef: nodeId ? { required: true, nodeId } : undefined,
+  };
+}
+
 class HarnessTransactionRuntime {
   constructor({
     sessionDirectory,
@@ -95,9 +159,17 @@ class HarnessTransactionRuntime {
   }
 
   async prepareRoute({ context, userText, definitions, turnId = '' }) {
-    const unfinished = this.transactions.list({ statuses: ['active', 'awaiting-confirmation'] });
-    const route = beginRoutePhase({ userText, transactions: unfinished, definitions });
+    let unfinished = this.transactions.list({ statuses: ['active', 'awaiting-confirmation'] });
+    let route = beginRoutePhase({ userText, transactions: unfinished, definitions });
+    if (route.kind === 'continue' && route.intent === 'correct') {
+      this.transactions.supersede(route.transactionId);
+      unfinished = this.transactions.list({ statuses: ['active', 'awaiting-confirmation'] });
+      route = beginRoutePhase({ userText, transactions: unfinished, definitions });
+    }
     if (route.kind === 'continue') return this.resumeTransaction(route.transactionId, route.intent, { context, turnId });
+    if (route.kind === 'new-business' && route.deterministic === true) {
+      return this.beginBusinessTransaction(route, context, { turnId });
+    }
     if (route.kind === 'clarify') {
       return this.writeProjection({
         mode: 'clarify',
@@ -242,6 +314,54 @@ class HarnessTransactionRuntime {
     return this.projectTransaction(transaction.transactionId, { turnId });
   }
 
+  async finalizeTerminalPhase(transaction, phase, { context, turnId = '' } = {}) {
+    const status = phase.terminalState === 'completed' ? 'completed' : 'aborted';
+    const completed = TERMINAL_STATUSES.has(transaction.status)
+      ? transaction
+      : this.transactions.markTerminal(transaction.transactionId, status, phase.terminalState);
+    let plan = null;
+    if (completed.planId) {
+      if (status === 'completed') {
+        plan = this.plans.completeCurrentStep(completed.planId, completed.currentSchemeVersion);
+        if (plan.status === 'active') {
+          const nextStep = plan.steps[plan.currentIndex];
+          return this.beginBusinessTransaction(nextStep, {
+            ...context,
+            sessionId: completed.sessionId,
+            timelineId: completed.timelineId,
+            checkoutId: completed.checkoutId,
+            checkoutType: completed.checkoutType,
+            schemeVersion: completed.currentSchemeVersion,
+          }, {
+            planId: plan.planId,
+            planStepIndex: plan.currentIndex,
+            turnId,
+          });
+        }
+      } else {
+        plan = this.plans.stop(completed.planId, `${completed.businessId}.${completed.operation}:${phase.terminalState}`);
+      }
+    }
+    return this.writeProjection({
+      mode: 'complete',
+      sessionId: completed.sessionId,
+      turnId,
+      transactionId: completed.transactionId,
+      businessId: completed.businessId,
+      operation: completed.operation,
+      phase: phase.id,
+      phaseKind: phase.kind,
+      instructions: [
+        phase.instructions || '',
+        plan?.status === 'completed' ? `Cross-business plan completed: ${plan.goal}` : '',
+        plan?.status === 'stopped' ? `Cross-business plan stopped: ${plan.stopReason}` : '',
+      ].filter(Boolean).join('\n'),
+      context,
+      plan,
+      allowedToolIds: [],
+    });
+  }
+
   async projectTransaction(transactionId, { turnId = '' } = {}) {
     const transaction = this.transactions.require(transactionId);
     if (TERMINAL_STATUSES.has(transaction.status)) {
@@ -256,6 +376,20 @@ class HarnessTransactionRuntime {
       const error = new Error(`Transaction phase is absent from its pinned Revision: ${transaction.phase}`);
       error.code = 'HARNESS_TRANSACTION_PHASE_INVALID';
       throw error;
+    }
+    if (phase.terminalState && phase.terminalState !== 'awaiting-confirmation') {
+      return this.finalizeTerminalPhase(transaction, phase, {
+        turnId,
+        context: {
+          sessionId: transaction.sessionId,
+          timelineId: transaction.timelineId,
+          checkoutId: transaction.checkoutId,
+          schemeVersion: transaction.currentSchemeVersion,
+          target: transaction.target,
+          constraints: transaction.constraints,
+          evidenceRefs: transaction.evidenceRefs,
+        },
+      });
     }
     return this.writeProjection({
       mode: 'business',
@@ -354,6 +488,19 @@ class HarnessTransactionRuntime {
     const revision = await this.registry.resolveRevision(transaction.businessId, transaction.harnessRevision);
     const phase = revision.manifest.operations[transaction.operation].phases.find((candidate) => candidate.id === transaction.phase);
     const typedOutput = parsedToolOutput(output);
+    const bindings = resultBindings(output, typedOutput);
+    if (bindings.artifact !== undefined || bindings.capability !== undefined || bindings.workNodeRef !== undefined) {
+      this.transactions.transition(transaction.transactionId, bindings);
+    }
+    const evidence = evidenceFromToolResult({
+      transaction,
+      phase,
+      canonicalToolId,
+      callId,
+      output,
+      typedOutput,
+    });
+    if (evidence) this.transactions.addEvidence(transaction.transactionId, evidence);
     if (transaction.businessId === 'calculation'
       && canonicalToolId === 'def.data.resource.damage'
       && typeof typedOutput.formulaVersion === 'string'
@@ -413,15 +560,9 @@ class HarnessTransactionRuntime {
           allowedToolIds: [],
         });
       }
-      const status = next.terminalState === 'completed' ? 'completed' : 'aborted';
-      this.transactions.markTerminal(transaction.transactionId, status, next.terminalState);
-      return this.writeProjection({
-        ...bridge,
-        mode: 'complete',
-        phase: next.id,
-        phaseKind: next.kind,
-        instructions: next.instructions || '',
-        allowedToolIds: [],
+      return this.finalizeTerminalPhase(transaction, next, {
+        context: bridge.context,
+        turnId,
       });
     }
     this.transactions.transition(transaction.transactionId, { phase: next.id });

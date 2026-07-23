@@ -262,6 +262,35 @@
           "terminalState": "aborted"
         }
       ]
+    },
+    "skill_fact": {
+      "entryPhase": "read-skill-fact",
+      "phases": [
+        {
+          "id": "read-skill-fact",
+          "kind": "evidence",
+          "tools": ["def.data.resource.skill"],
+          "writes": [],
+          "instructions": "Call the typed skill resource exactly once with the complete operator plus skill/hit name from the user, preserving numeric variants. Use per-hit skillType and element instead of inferring them from the parent skill.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Answer only the requested typed multiplier, element or damage classification. Distinguish the parent skill type from independently typed hit facts.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the exact unresolved operator/skill identity or missing typed fact; do not try another resource.",
+          "terminalState": "aborted"
+        }
+      ]
     }
   }
 }

@@ -1,6 +1,7 @@
 const BUSINESS_IDS = Object.freeze(['selection', 'loadout', 'timeline', 'buff', 'calculation']);
 const BUSINESS_ID_SET = new Set(BUSINESS_IDS);
 const CONTINUABLE_STATUSES = new Set(['awaiting-confirmation', 'active']);
+const DIRECT_CURRENT_NODE_QUESTION = /^(?:请)?(?:告诉我|查看|查询|确认)?(?:一下)?(?:当前|现在)(?:的)?(?:工作)?节点(?:是|为|叫)?(?:什么|哪个|哪一个|多少|的名称|的ID|的id)?[？?。！!]*$/;
 
 const DEFAULT_BUSINESS_DEFINITIONS = Object.freeze([
   { businessId: 'selection', summary: '查看或改变当前队伍成员与顺序。' },
@@ -12,6 +13,50 @@ const DEFAULT_BUSINESS_DEFINITIONS = Object.freeze([
 
 function normalizedText(value) {
   return String(value || '').normalize('NFKC').trim();
+}
+
+function isDirectCurrentNodeQuestion(userText = '') {
+  return DIRECT_CURRENT_NODE_QUESTION.test(normalizedText(userText));
+}
+
+function classifyDefExecutableTurnPolicy(userText = '') {
+  const normalized = normalizedText(userText).replace(/\s+/g, '');
+  const asksSkillFacts = /(?:具体数值|倍率|伤害类型|算什么伤害|属于什么伤害|吃(?:什么|哪种|哪类)?(?:战技|终结技|大招|连携技|普攻|重击)?加成)/.test(normalized);
+  const namesSkillOrHit = /(?:技能|战技|连携|终结技|大招|普攻|重击|攻击|水龙卷|图腾|层|(?:^|[^a-z])[abeq](?:[^a-z]|$))/i.test(normalized);
+  const asksCurrentDamageReport = /(?:当前|这个按钮|伤害报告|总伤害|伤害面板)/.test(normalized);
+  const asksEquipmentFact = /(?:武器|装备|配件|护手|护甲)/.test(normalized);
+  if (asksSkillFacts && namesSkillOrHit && !asksCurrentDamageReport && !asksEquipmentFact) {
+    return { kind: 'exact-skill-facts', sourceText: normalized };
+  }
+  return null;
+}
+
+function deterministicRoute(userText) {
+  const text = normalizedText(userText);
+  const executablePolicy = classifyDefExecutableTurnPolicy(text);
+  if (executablePolicy?.kind === 'exact-skill-facts') {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'calculation',
+      operation: 'skill_fact',
+      target: text,
+      requestedEffect: '读取并解释用户点名的精确技能或命中事实',
+      constraints: ['exact-skill-facts', 'single-typed-skill-read'],
+    };
+  }
+  if (isDirectCurrentNodeQuestion(text)) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'timeline',
+      operation: 'current',
+      target: 'current-checkout',
+      requestedEffect: '读取当前 Work Node',
+      constraints: ['current-node-only'],
+    };
+  }
+  return null;
 }
 
 function continuationIntent(userText) {
@@ -138,6 +183,8 @@ function validateRouteSubmission(submission, { definitions } = {}) {
 function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
   const continuation = matchContinuation({ userText, transactions });
   if (continuation) return continuation;
+  const deterministic = deterministicRoute(userText);
+  if (deterministic) return deterministic;
   return {
     kind: 'route-phase',
     userText: normalizedText(userText),
@@ -164,7 +211,10 @@ module.exports = {
   BUSINESS_IDS,
   DEFAULT_BUSINESS_DEFINITIONS,
   beginRoutePhase,
+  classifyDefExecutableTurnPolicy,
   continuationIntent,
+  deterministicRoute,
+  isDirectCurrentNodeQuestion,
   matchContinuation,
   resolveRoute,
   validateRouteSubmission,

@@ -22,6 +22,7 @@ function buildHostKernelContext({
   checkoutState,
   workbenchContext,
   diagnostic,
+  transactionContext,
 }) {
   const checkout = normalizeCheckout(checkoutState);
   const projection = axisContext?.projection && typeof axisContext.projection === 'object'
@@ -39,6 +40,7 @@ function buildHostKernelContext({
       axisBindingId: binding?.axisBindingId || axisContext?.binding?.id || '',
     }),
     checkout,
+    schemeVersion: transactionContext?.schemeVersion || '',
     projection,
     selectedWorkbenchNode: workbenchContext || null,
     gates: Object.freeze(gates),

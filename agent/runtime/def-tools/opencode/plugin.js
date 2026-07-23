@@ -1,5 +1,5 @@
 import * as definitions from './def.js'
-import { DEF_NATIVE_TARGETS } from '../registry.mjs'
+import { DEF_NATIVE_TARGETS, DEF_TOOL_LOCAL_CONTRACTS } from '../registry.mjs'
 import {
   advanceHarnessToolAfter,
   advanceHarnessToolFailure,
@@ -9,6 +9,18 @@ import {
   recordHarnessChatTurn,
 } from './harness-manager-bridge.mjs'
 
+function localContractDescription(target) {
+  const contract = DEF_TOOL_LOCAL_CONTRACTS[target.id]
+  return [
+    contract?.purpose,
+    contract?.input,
+    contract?.result,
+    `Side effect: ${contract?.sideEffect || 'unknown'}.`,
+    `Capability source: ${contract?.capabilitySource || 'none'}.`,
+    `Typed errors: ${(contract?.typedErrors || []).join(', ')}.`,
+  ].filter(Boolean).join(' ')
+}
+
 export default async function DefToolsPlugin() {
   const tool = {}
   for (const target of DEF_NATIVE_TARGETS) {
@@ -17,10 +29,17 @@ export default async function DefToolsPlugin() {
     if (!definition || typeof definition.execute !== 'function') {
       throw new Error(`DEF registry native binding has no implementation: ${target.nativeBinding}`)
     }
-    tool[target.nativeBinding] = definition
+    tool[target.nativeBinding] = {
+      ...definition,
+      description: localContractDescription(target),
+    }
   }
   return {
     tool,
+    'tool.definition': async (input, output) => {
+      const target = DEF_NATIVE_TARGETS.find((candidate) => candidate.nativeBinding === input?.toolID)
+      if (target) output.description = localContractDescription(target)
+    },
     event: async ({ event }) => {
       definitions.recordDefToolEventFailure(event)
       await advanceHarnessToolFailure(event)

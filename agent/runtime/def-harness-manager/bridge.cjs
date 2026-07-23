@@ -59,7 +59,7 @@ function assertProjectedTool({
   canonicalToolId,
 }) {
   const current = readRuntimeBridge(sessionDirectory);
-  if (!current || current.mode === 'legacy-compatibility') return current;
+  if (!current) return current;
   if (current.sessionId !== sessionId) {
     const error = new Error('Harness Tool gate rejected a Session mismatch.');
     error.code = 'HARNESS_TOOL_SESSION_MISMATCH';

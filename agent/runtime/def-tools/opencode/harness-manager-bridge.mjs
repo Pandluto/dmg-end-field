@@ -34,7 +34,7 @@ export async function projectHarnessTools({ sessionId, directory, tools }) {
   if (!sessionId || !directory) return
   sessionDirectories.set(sessionId, directory)
   const bridge = readRuntimeBridge(directory)
-  if (!bridge || bridge.mode === 'legacy-compatibility') return
+  if (!bridge) return
   const turnId = pendingTurnIds.get(sessionId)
   if (turnId && bridge.turnId !== turnId) runtimeFor(directory).bindTurn(sessionId, turnId)
   const current = readRuntimeBridge(directory)
@@ -48,13 +48,16 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
   if (!sessionId || !directory) return
   sessionDirectories.set(sessionId, directory)
   const bridge = readRuntimeBridge(directory)
-  if (!bridge || bridge.mode === 'legacy-compatibility') return
+  if (!bridge) return
   system.push([
     'DEF HARNESS MANAGER ACTIVE PHASE (authoritative):',
     `Mode: ${bridge.mode}.`,
     `Business: ${bridge.businessId || 'none'}.`,
     `Operation: ${bridge.operation || 'none'}.`,
     `Phase: ${bridge.phase || 'none'}.`,
+    bridge.mode === 'route'
+      ? `Available business definitions: ${JSON.stringify(bridge.routeDefinitions || [])}`
+      : '',
     bridge.instructions || '',
     `Bound context: ${JSON.stringify(bridge.context || {})}`,
   ].filter(Boolean).join('\n'))

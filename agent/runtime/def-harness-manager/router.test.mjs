@@ -16,9 +16,9 @@ const { BusinessPlanStore } = require('./plans.cjs');
 const definitions = [
   { businessId: 'selection', operations: ['replace'], summary: 'selection' },
   { businessId: 'loadout', operations: ['recommend', 'apply'], summary: 'loadout' },
-  { businessId: 'timeline', operations: ['add'], summary: 'timeline' },
+  { businessId: 'timeline', operations: ['add', 'current'], summary: 'timeline' },
   { businessId: 'buff', operations: ['add'], summary: 'buff' },
-  { businessId: 'calculation', operations: ['calculate'], summary: 'calculation' },
+  { businessId: 'calculation', operations: ['calculate', 'skill_fact'], summary: 'calculation' },
 ];
 
 test('new requests enter a Tool-isolated route phase', () => {
@@ -27,6 +27,21 @@ test('new requests enter a Tool-isolated route phase', () => {
   assert.deepEqual(route.allowedTools, ['def.harness.route']);
   assert.equal(route.definitions.length, 5);
   assert.doesNotMatch(route.instructions, /def_data_|def_node_/);
+});
+
+test('moves only narrow deterministic facts directly into a business transaction route', () => {
+  const skillFact = beginRoutePhase({
+    userText: '图腾下落-2层里的水龙卷算什么伤害',
+    definitions,
+  });
+  assert.equal(skillFact.deterministic, true);
+  assert.equal(skillFact.businessId, 'calculation');
+  assert.equal(skillFact.operation, 'skill_fact');
+
+  const currentNode = beginRoutePhase({ userText: '当前节点是什么？', definitions });
+  assert.equal(currentNode.deterministic, true);
+  assert.equal(currentNode.businessId, 'timeline');
+  assert.equal(currentNode.operation, 'current');
 });
 
 test('validates the required single and cross-business examples', () => {

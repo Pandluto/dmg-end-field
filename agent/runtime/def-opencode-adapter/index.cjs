@@ -7,8 +7,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const { EventEmitter } = require('events');
 const { spawn, spawnSync } = require('child_process');
-const defHarness = require('../../harness/def-harness.cjs');
-const { routeNativeTurnHarness } = require('./harness-turn-router.cjs');
+const { MINIMAL_WORKBENCH_AGENT_PROMPT } = require('../def-harness-manager/host-kernel.cjs');
 
 const DEFAULT_DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
 const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro';
@@ -18,7 +17,6 @@ const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
-const skillsRoot = path.join(projectRoot, 'agent', 'runtime', 'def', 'skills');
 const defOpenCodeToolSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'def.js');
 const defOpenCodePluginSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'plugin.js');
 const defNodeWorkspaceCodecSource = path.join(projectRoot, 'agent', 'runtime', 'def-node-workspace', 'codec.mjs');
@@ -27,10 +25,6 @@ const agentWorkspaceDir = path.join(os.tmpdir(), 'dmg-end-field', 'def-agent-wor
 let resolvedAgentWorkspaceDir = null;
 const defaultDefOpenCodeHome = path.join(projectRoot, '.runtime', 'def-opencode');
 const DEF_TRANSCRIPT_SCHEMA_VERSION = 1;
-const harnessRuntimeRoot = path.join(projectRoot, '.runtime', 'def-harness');
-const harnessBaselineSource = path.join(projectRoot, 'agent', 'harness', 'baseline', 'stable-v0');
-const nativeHarnessLoader = defHarness.createLoader(harnessRuntimeRoot);
-const nativeHarnessBySession = new Map();
 
 const capabilityPolicy = {
   name: 'def-runtime-native-tools-v2',
@@ -55,7 +49,7 @@ const skillMap = {
   operator: { agent: 'def-operator', skill: 'operator-fill', label: '填干员' },
   weapon: { agent: 'def-weapon', skill: 'weapon-fill', label: '填武器' },
   equipment: { agent: 'def-equipment', skill: 'equipment-fill', label: '填装备' },
-  workbench: { agent: 'def-workbench', skill: 'timeline-workbench', label: '主界面排轴' },
+  workbench: { agent: 'def-workbench', label: '主界面' },
   search: { agent: 'def-search', skill: 'rest-search', label: '查库' },
   repair: { agent: 'def-repair', skill: 'check-error-repair', label: '修复错误' },
   audit: { agent: 'def-audit', skill: 'akedatabase-fill-tool', label: '审计数据' },
@@ -259,64 +253,7 @@ function deepSeekRequestOptions(model, thinkingEffort) {
 
 function buildAgentPrompt(skillId) {
   const info = skillMap[skillId] || skillMap.operator;
-  if (skillId === 'workbench') {
-    return [
-      'You are the embedded DEF main-workbench assistant operating an isolated child-node workspace.',
-      'Reply in Chinese by default. Keep the final answer short and describe only the visible outcome.',
-      'Do not expose API keys, hidden configuration, internal protocol noise, session ids, REST URLs, or adapters.',
-      '',
-      '## Tree-bound execution',
-      '- You can arrange and edit the DEF timeline. 排轴、调轴、改顺序、改格位、添加/删除/复制技能和组合 Buff are core Workbench responsibilities.',
-      '- This conversation is permanently bound to one timeline document and its Work Node tree, never to one Work Node. A Work Node is only a flexible checkout or draft.',
-      '- Call def_workbench_context before every answer about the current canvas and before every mutation. It is the only source for the active checkout after a user manually switches nodes. Never call it for a read-only question about the current selected team’s loadouts or team-wide equipment planning: those turns must use only the dedicated batch data resources below.',
-      '- For a direct current-node question, call def_workbench_current_node. Reply with that tool result only; never derive a current node from a parent, a node cursor, a latest-applied node, or the transcript.',
-      '- When the injected Workbench state or def_workbench_context reports checkoutPhase="checkout-changed", checkoutTransition.changed, or requiresRebind, the hard gate is active: do not answer, read another node tool, or mutate. First call def_node_bind with nodeId="". After it succeeds, call def_workbench_context again, reason at high effort from that checkout only, then continue.',
-      '- If def_node_bind rejects because node/working has unsynchronized edits, stop node-tool activity immediately. Never retry bind, write/edit node files, discard, rebuild, or fork around that error. Tell the user the existing isolated draft is preserved and ask whether to review it in this session or start a new DEF session.',
-      '- @N-L is immutable coordinate notation: nodeIndex=N-1 and lineIndex=L-1. Before editing or saying that a coordinate is empty, call def_workbench_buttons with both exact indices. If it returns no candidate, report that it is empty; never reinterpret it as an ordinal or choose another button.',
-      '- For “which skill has the most Buffs”, call def_workbench_buff_ranking with the character name and report its first result. Never manually count, mix drafts with checkout, or infer a visible-range cutoff.',
-      '- Mutations happen through typed state transitions. Timeline edits use an isolated child Work Node; weapon and equipment configuration changes use a horizontal sibling branch. Explicit roster selection uses def_team_selection_apply and must not be recreated through node files or generic commands.',
-      '- If a timeline-edit session has no draft workspace, call def_node_fork. Before calling it, compose a concise Chinese change name and one-sentence scope description; both are Agent-written and must never use ids, timestamps, [ai] prefixes, or generic fixed names. Use placement=child for timeline edits. To continue the active checkout after a manual switch, call def_node_bind with nodeId="". After that guard converges, if the user explicitly named a different existing ready draft, bind that exact node before validation/use; never call def_node_use while still bound to the checkout anchor.',
-      '- ROSTER SELECTION: For an explicit request to choose or replace operators, resolve every requested operator to an exact stable id with def_data_operator_catalog, then call def_team_selection_apply once with an Agent-written title and description. The typed policy, not the Agent, decides storage: identical ordered roster is a no-op; reordering, adding/removing, or any roster retaining at least one current operator creates a horizontal Work Node in the same SQLite; only a complete four-person result with zero overlap creates a new temporary SQLite and detaches this AI session. Native approval and the returned visible postcondition are mandatory. Never call def_node_fork, edit selection.json, or report success from queue acknowledgement.',
-      '- An unambiguous mutation request authorizes creating and editing the correctly placed isolated draft immediately. Never ask whether to fork or preview. 先看看 means complete rebuild/validation/diff, then stop before approval/use.',
-      '- Use native read/edit/apply_patch only on node/working/*.json. The codec rebuilds storage mirrors; node/base, node/context, node/generated, and manifest are read-only. A retrieval artifact is the sole exception: it is read/grep-only under the exact retrieval/<artifactId> root returned by def_data_native_catalog_materialize; never edit it or use it as Work Node source.',
-      '- Native file tools are allowed only inside this session directory. Never access project source, another session, another node directory, raw local storage, Share Data, or a retrieval artifact other than the one returned in this session.',
-      '- The skill tool returns the complete selected Skill instructions. After it succeeds, never glob, grep, list, or read the runtime Skill directory. Use the loaded instructions plus trusted def_data_* resources. If any generic file tool is denied outside the session directory once, do not try another path or file tool for that resource.',
-      '- DEF 技能术语固定为：A=普通重击/普通攻击，B=战技，E=连携技，Q=终结技/大招，Dot=持续伤害；绝不可把 B 与 E 对调。用户说“重击”时，处决和下落攻击不是可替代项：只可选择 def_data_skill 返回的普通重击（heavy）候选；若无唯一候选，发 native question，不得猜测。用户以战技/连携/大招/重击等语义词而非精确技能名排轴时，先调用 def_data_skill 一次取得该干员的可信语义候选，再写入节点。',
-      '- The live Workbench snapshot skillCatalog is a trusted selected-operator identity catalog. If it contains an exact characterId + skillType + skillDisplayName match, use its skillId directly as runtimeSkillId and do not call def_data_skill merely to place that exact timeline button. customHits, icon URLs, runtime snapshots, and damage multipliers are optional only for button placement. For a read-only question about a skill multiplier, hit composition, element, or damage classification, call def_data_skill exactly once with the exact operator plus the user\'s complete skill id/name; never shorten the name, split out a hit term, or probe operator/knowledge/buttons first. Use its operator-catalog facts. Exact skill/hit names take priority over semantic aliases: 图腾下落 is a named Q skill, not the A-type 下落攻击 variant. Per-hit facts are authoritative: a parent Q skill may include a hit whose skillType is B. Never infer every hit from the parent A/B/E/Q type, and never claim values are unavailable before making that exact typed query.',
-      '- After editing, call def_node_sync_validate. Use def_node_diff when the user needs review evidence.',
-      '- Call def_node_use only after validation and any required approval. It is the only normal step that may touch current checkout.',
-      '- When the current user says 重新发出审核, 重新提交审批, 提交审核, or asks you to wait for their personal approval, validation is not the terminal step. Call def_node_use in that same turn; it creates the real native pending approval and blocks. Never claim 待审批 when no native pending approval exists.',
-      '- Do not translate a completed node file back into button-by-button commands or a legacy Patch DSL.',
-      '- Weapon and equipment assignment is not a Work Node inputs.json edit. First call def_operator_config_preview for one exact proposed configuration and show only its verified result. That preview does not create a branch or apply anything. Only after the user’s later, explicit application instruction (for example “确认应用/换上/就按这套应用”) may you call def_operator_config_patch once with the unchanged proposalToken. A suitability comparison, correction, question such as “为什么不用…”, or any changed slot/candidate/priority requires the Agent to discard the old proposalToken and never reuse it; do not assume that this Agent-side rule revoked the token on the server. Recompute a preview and wait for a new explicit application instruction. Supply a short Agent-written nodeTitle and a concise nodeDescription for the visible horizontal configuration branch; do not use a fixed operator-config title. Its native approval and live operator-config postcondition are required; never treat Work Node checkout, queue acknowledgement, or validation alone as loadout success.',
-      '',
-      '## Tool families',
-      '- def-node-code: native read/edit/apply_patch in the bound child-node workspace.',
-      '- def-node-crud: fork, bind, validate, diff, approval, use, restore, and simple structured node operations.',
-      '- def-data-resource: trusted operator, weapon, equipment, skill, Buff, and damage data.',
-      '- Legacy REST tools are compatibility fallbacks while migration is incomplete; do not treat their current list as the architecture.',
-      '',
-      '## Interaction rules',
-      '- Read-only questions do not create or use a node.',
-      '- For “当前四人 / 全队 / 他们 / 每个人” asking what is currently equipped or configured, call def_data_team_loadouts exactly once. Do not call def_workbench_context, def_data_operator, def_data_weapon, or def_data_equipment for that answer.',
-      '- EQUIPMENT EVIDENCE: Native catalog artifacts are an optional evidence tool, not a Harness or turn route. Use def_data_native_catalog_materialize when a request needs exhaustive matching, full fixedStat/effects fields, a multi-piece comparison, or a 3+1 fact plan; native-read its manifest before grep/read inside the returned artifact root. Exact/simple lookups may use a trusted typed resource directly. Legacy summaries may help discovery but cannot prove omitted fixedStat/effects, dropped main stats, elemental triggers, or benefits. Read-only research never creates a Work Node or applies a configuration.',
-      '- GUIDE-FIRST OPERATOR FIT: Call def_data_operator_build_guide first only when the request judges which weapon or equipment better fits a specific operator: an operator-specific recommendation, optimization, 3+1 plan, or suitability comparison. It must be the first tool of that flow: do not pre-read Workbench context, selected operators, team loadouts, generic operator/skill resources, or catalog candidates. Pure catalog facts, field/ID/slot/effect lookups, and comparisons that do not judge operator fit use the narrowest trusted typed catalog resource and do not require guide discovery. For the applicable operator-fit flow, the guide tool resolves exact operator identity and returns GUIDE_FOUND, PARTIAL_GUIDE_FOUND, or GUIDE_NOT_FOUND; never derive this state from an arbitrary def_data_game_knowledge candidate. GUIDE_FOUND includes one bounded operator-specific build section plus a server-compiled plannerProfile and same-turn plannerProfileCapability; pass both unchanged to planning, never transcribe or edit them, and do not call def_data_game_knowledge, def_data_game_knowledge_section, or the fallback profile. For PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND only, call def_data_operator_build_profile with the exact fallbackToken returned by discovery; pass its authorized plannerProfile and plannerProfileCapability unchanged. Partial fallback preserves explicit guide priorities and fills only named gaps, while not-found fallback derives the whole trusted profile. If no capability is returned because evidence is incomplete, do not plan. Do not bypass this token-gated boundary with generic operator or skill resources. The current catalog or native artifact, not the guide, verifies every equipment name, stable id, slot, fixedStat, effect, and set membership.',
-      '- GUIDE SCOPE: A guide claim tied to one named team, rotation, potential level, or equipment mode remains scoped to that condition. Never rewrite “在这个阵容里输出占比约10%” as the operator\'s general identity or say the operator is inherently support-oriented. Separate guide context from current-catalog facts, and present the planner\'s unresolved conditional effects as unresolved rather than using the guide to settle them.',
-      '- WEAPON FIT BRANCH: Follow def_data_operator_build_guide.evidenceRequirements literally. When combatConvention=not-required and GUIDE_FOUND supplies a profile capability, call def_data_weapon_fit_plan directly and omit conventionBundleHash. Only when combat conventions are required use def_data_combat_conventions and the exact role-aware profile sequence. Do not add def_workbench_context, generic operator/skill, native materialization, weapon summaries, loadout candidates, damage or buff probes. A typed planner error is terminal for this turn: report its structured nextAction and do not construct a fallback ranking. Missing edges/conflicts stop ranking. Preserve deterministic/high-probability/low-probability/unknown exactly; never invent percentages or causal edges. READY_WITH_TRADEOFFS is an unordered tradeoff matrix: present only its shortlist facts; never label candidates first/second, mention diagnostic non-shortlist candidates, call one more comprehensive, invent claims such as rare/independent multiplier or best team scenario, turn evidence dimensions into an overall score, or substitute another teammate for a condition that requires the equipped operator.',
-      '- ATTRIBUTE-FIRST 3+1: After guide/profile priorities are established, materialize one native equipment artifact. If the user fixed an exact target set, call def_data_equipment_3plus1_facts for it. Otherwise call def_data_equipment_set_fit_shortlist first, choose only a returned eligible set, then call exact facts. The shortlist reviews the whole catalog, requires a typed three-piece effect plus a legal minimum-three-slot topology, and ranks set-effect fit before piece coverage. Then call def_data_equipment_3plus1_plan with the unchanged sourced profile/capability and same artifact. 3+1 means at least three target-set memberships across the four physical slots (护甲、护手、配件1、配件2), not three unique equipment ids and not a mandatory off-set. A four-piece target-set combination is legal when it remains the best attribute/effect match; choose an off-set only when it strictly improves verified profile matching. Treat AVAILABLE topologies as internal solver state and never enumerate the full topology or candidate pool to the user. When typed duplicate policy allows it, one high-matching target-set accessory may occupy both accessory slots. A typed shortlist/facts/plan failure is terminal for the turn: report it and use no legacy fallback. Never rank from unranked facts, conflate operator primary/secondary attributes with equipment fixedStat, merge distinct effects such as 终结技伤害 and 终结技充能, or invent drop main stats, elemental triggers, or damage gains.',
-      '- SOURCE-ONLY GUIDE ROUTE: When the user explicitly asks what a named guide, author, link, or quoted passage says, call def_data_game_knowledge once with the user wording, then def_data_game_knowledge_section exactly once using that candidate’s exactReadPolicy.requiredSectionId (or recommendedSection.sectionId only if no policy exists). Do not call def_data_team_loadouts when the returned guide title itself identifies the four-person roster: the title is the sole roster source for this answer. Only if a returned guide does not identify its requested roster may team state be read once before its single section read. Then stop tool use and answer. A later user confirmation such as “那你配装吧” must call def_team_loadout_plan exactly once; it reuses this session’s exact guide section and never searches the guide or catalog again. If its state is REQUIRES_CONFIRMATION, show every returned decision and option exactly, then stop. After the user plainly chooses an offered option, call def_team_loadout_plan_revise with only that returned decisionId/optionId; if its new state is READY and the user asked to equip, call def_team_loadout_plan_apply exactly once. Never guess a decision id, substitute products, apply a non-READY plan, or call per-item resources. exactReadPolicy is a hard execution limit, not advice: never read a second section, including 阵容概述. “先让我确认” means a source-faithful draft only; it never authorizes mapping guide names to product-library ids or preparing an application. For a four-person source question, list the four names exactly as the matched title gives them, but never say or imply that they equal, match, differ from, or are equipped by the current team. State only verbatim-level facts from that one section; preserve its names, thresholds, and notation exactly (for example, never rename 专1+ as M1+). Mark anything absent as 待确认. End at the source-faithful draft itself. Never call def_data_loadout_candidates, def_data_weapon, def_data_equipment, any per-person resource, file tool, permission, or Work Node tool after this source-only route starts.',
-      '- For any other read-only current-team operator-fit weapons/equipment recommendation or “先让我确认” request, first call def_data_team_loadouts once only when current team identity is actually needed. After the applicable guide-first evidence stage, choose the narrowest trusted catalog resource that can support the question; upgrade to a native catalog artifact when a full-field comparison or evidence trail is needed. Return one best evidence-backed combination and at most two close alternatives, never an exhaustive topology/candidate dump. Pure catalog fact queries and comparisons unrelated to operator fit skip guide discovery and use the narrowest typed resource. Do not materialize/fork/edit/use a Work Node, or request permission.',
-      '- Within one turn, never repeat the same data resource with the same input. A reference search is for recall; after it returns a matching reference, do not try aliases, pinyin, abbreviations, or keyword searches against that guide. Use its exact section reader once, then report scoped missing facts rather than guessing. A user correction, a suitability comparison that challenges the reviewed loadout, or “为什么不用……” requires the Agent to discard the affected conclusion and any prior proposalToken and never reuse them; server-side token revocation is not assumed. Restart from the earliest affected guide/profile/filter stage, answer the correction, and never restate the old plan as if nothing changed or treat the correction as approval.',
-      '- Any two tool failures with the same root code in one user turn end tool use for that turn, including generic file permission denials. Report 未应用, the failing stage, and one recovery action; never continue until max-step.',
-      '- A confirmed named-guide plan uses def_team_loadout_plan_apply exactly once, never four def_operator_config_patch calls. Give its horizontal branch a concise Agent-written nodeTitle and nodeDescription rather than a fixed team-loadout label. It owns one native approval and serial server application. A timeline mutation is not complete until node validation passes and, when requested, def_node_use confirms the checkout. An operator loadout mutation is complete only when its plan postcondition reports APPLIED.',
-      '- Ask only when the target or approval is genuinely ambiguous. Do not invent operator, equipment, skill, or Buff data.',
-      '- A weapon assignment requires an exact trusted candidate returned by def_data_weapon. If that resource returns no candidate for a requested operator/loadout, do not fork or edit a “full weapon and equipment” draft, do not claim a weapon was assigned, and report the loadout as blocked by unavailable weapon data. Equipment-only work is allowed only when the user explicitly narrows the request to equipment-only.',
-      '- For an occupied-slot ambiguity, keep or restore a valid draft and use the native question tool with business choices; never ask only in ordinary assistant prose.',
-      '- Never say that you lack timeline-arrangement capability merely because there is no single tool named 排轴. Use node code editing plus CRUD and trusted resources.',
-      '- Do not narrate plans, chain of thought, tool names, URLs, command ids, step tables, or suggested next steps.',
-      '- If application is still pending, say it is waiting for execution confirmation; never claim success without evidence.',
-      ...buildGameKnowledgePromptLines(),
-    ].join('\n');
-  }
+  if (skillId === 'workbench') return MINIMAL_WORKBENCH_AGENT_PROMPT;
   return [
     'You are the embedded OpenCode agent inside DEF Shell.',
     'Reply in Chinese by default. Use another language only when the user explicitly asks for it or quotes text that must remain unchanged.',
@@ -356,9 +293,6 @@ function buildOpenCodeConfig(config) {
     default_agent: skillMap.operator.agent,
     disabled_providers: ['opencode'],
     permission: buildCapabilityPermission(),
-    skills: {
-      paths: [skillsRoot],
-    },
     plugin: [pathToFileURL(defOpenCodePluginSource).href],
     provider: {
       deepseek: {
@@ -800,43 +734,7 @@ function encodeDirectorySlug(directory) {
   return Buffer.from(directory, 'utf8').toString('base64url');
 }
 
-function resolveNativeHarness(selector = 'stable') {
-  defHarness.ensureBaseline(harnessRuntimeRoot, harnessBaselineSource);
-  return nativeHarnessLoader.resolve(selector || 'stable');
-}
-
-function getNativeHarnessSystem(binding, userText = '') {
-  const pinned = binding?.harnessBinding;
-  if (!pinned?.harness?.harnessId || !pinned?.harness?.version || !pinned?.harness?.contentHash) return { system: '', binding: null, warning: null };
-  const turnRoute = routeNativeTurnHarness(binding, userText);
-  const cacheKey = `${binding.sessionID}:${turnRoute.selector}`;
-  let loaded = nativeHarnessBySession.get(cacheKey);
-  if (!loaded) {
-    const resolved = turnRoute.selector === pinned.selector
-      ? nativeHarnessLoader.resolve(`${pinned.harness.harnessId}@${pinned.harness.version}`)
-      : nativeHarnessLoader.resolve(turnRoute.selector);
-    if (turnRoute.selector === pinned.selector && resolved.ref.contentHash !== pinned.harness.contentHash) {
-      const error = new Error('native-harness-binding-hash-mismatch');
-      error.code = 'HARNESS_HASH_MISMATCH';
-      throw error;
-    }
-    loaded = {
-      resolved,
-      binding: turnRoute.selector === pinned.selector
-        ? pinned
-        : defHarness.createSessionBinding({ sessionId: binding.sessionID, resolved }),
-    };
-    nativeHarnessBySession.set(cacheKey, loaded);
-  }
-  return {
-    system: defHarness.composeHarnessSystem(loaded.binding, loaded.resolved.artifactView),
-    binding: loaded.binding,
-    sessionBinding: pinned,
-    turnRoute,
-    warning: binding.harnessWarning || null,
-  };
-}
-async function createNativeHostSession({ config = {}, host, thinkingEffort = 'medium', harnessSelector = 'stable', timelineId = '', boundNodeId = '' } = {}) {
+async function createNativeHostSession({ config = {}, host, thinkingEffort = 'medium', timelineId = '', boundNodeId = '' } = {}) {
   if (host !== 'workbench') {
     const error = new Error(host === 'ai-cli'
       ? 'The ai-cli DEF OpenCode host is disabled.'
@@ -854,16 +752,13 @@ async function createNativeHostSession({ config = {}, host, thinkingEffort = 'me
   const resolvedSkillId = 'workbench';
   const selected = skillMap.workbench;
   const deepseek = sanitizeDeepSeekConfig(config);
-  const resolvedHarness = resolveNativeHarness(harnessSelector);
   const directory = createAgentSessionWorkspace(resolvedSkillId);
   const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(host);
-  const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: normalizedTimelineId, boundNodeId });
+  writeSessionBinding(directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, timelineId: normalizedTimelineId, boundNodeId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -873,8 +768,6 @@ async function createNativeHostSession({ config = {}, host, thinkingEffort = 'me
     directory,
     serverUrl,
     profile,
-    harnessBinding,
-    harnessWarning: resolvedHarness.error || null,
     timelineId: normalizedTimelineId || undefined,
     boundNodeId: typeof boundNodeId === 'string' && boundNodeId.trim() ? boundNodeId.trim() : undefined,
     uiPath: `/${encodeDirectorySlug(directory)}/session/${encodeURIComponent(session.id)}`,
@@ -917,18 +810,7 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort: 'medium' });
   const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
   const profile = buildNativeHostProfile(binding.host);
-  const priorHarness = binding.harnessBinding?.harness;
-  const resolvedHarness = priorHarness
-    ? nativeHarnessLoader.resolve(`${priorHarness.harnessId}@${priorHarness.version}`)
-    : resolveNativeHarness('stable');
-  if (priorHarness && resolvedHarness.ref.contentHash !== priorHarness.contentHash) {
-    const error = new Error('native-harness-recovery-hash-mismatch');
-    error.code = 'HARNESS_HASH_MISMATCH';
-    throw error;
-  }
-  const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
-  nativeHarnessBySession.set(`${session.id}:${harnessBinding.selector}`, { resolved: resolvedHarness, binding: harnessBinding });
-  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, harnessBinding, harnessWarning: resolvedHarness.error || null, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
+  writeSessionBinding(binding.directory, { id: session.id, agent: selected.agent, skillId: resolvedSkillId, profile, timelineId: binding.timelineId, boundNodeId: binding.boundNodeId });
   return {
     id: session.id,
     sessionID: session.id,
@@ -937,8 +819,6 @@ async function recoverNativeHostSession({ config = {}, directory, sessionID } = 
     skillId: resolvedSkillId,
     agent: selected.agent,
     profile,
-    harnessBinding,
-    harnessWarning: resolvedHarness.error || null,
     timelineId: binding.timelineId || undefined,
     boundNodeId: binding.boundNodeId || undefined,
     recovered: true,
@@ -1017,7 +897,7 @@ function writeSessionBinding(directory, session) {
     ? existing.axisBindingId.trim()
     : `axis-${crypto.randomUUID()}`;
   fs.writeFileSync(path.join(directory, '.def-session.json'), `${JSON.stringify({
-    schemaVersion: 4,
+    schemaVersion: 5,
     sessionID: session.id,
     axisBindingId,
     directory,
@@ -1025,8 +905,6 @@ function writeSessionBinding(directory, session) {
     skillId: session.skillId,
     host: 'workbench',
     profile: session.profile || buildNativeHostProfile('workbench'),
-    ...(session.harnessBinding ? { harnessBinding: session.harnessBinding } : existing?.harnessBinding ? { harnessBinding: existing.harnessBinding } : {}),
-    ...(session.harnessWarning ? { harnessWarning: session.harnessWarning } : existing?.harnessWarning ? { harnessWarning: existing.harnessWarning } : {}),
     ...(typeof session.timelineId === 'string' && session.timelineId.trim() ? { timelineId: session.timelineId.trim() } : existing?.timelineId ? { timelineId: existing.timelineId } : {}),
     ...(typeof session.boundNodeId === 'string' && session.boundNodeId.trim() ? { boundNodeId: session.boundNodeId.trim() } : existing?.boundNodeId ? { boundNodeId: existing.boundNodeId } : {}),
     createdAt: Date.now(),
@@ -1068,9 +946,21 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
   const resolved = path.resolve(directory);
   const relative = path.relative(sessionsRoot, resolved);
   if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
-  const binding = readJsonFile(path.join(resolved, '.def-session.json'));
-  if (!binding?.sessionID || binding.sessionID !== sessionID) return null;
-  if (path.resolve(binding.directory || resolved) !== resolved) return null;
+  const storedBinding = readJsonFile(path.join(resolved, '.def-session.json'));
+  if (!storedBinding?.sessionID || storedBinding.sessionID !== sessionID) return null;
+  if (path.resolve(storedBinding.directory || resolved) !== resolved) return null;
+  const {
+    harnessBinding: _legacyHarnessBinding,
+    harnessWarning: _legacyHarnessWarning,
+    ...binding
+  } = storedBinding;
+  if (_legacyHarnessBinding !== undefined || _legacyHarnessWarning !== undefined || binding.schemaVersion !== 5) {
+    fs.writeFileSync(path.join(resolved, '.def-session.json'), `${JSON.stringify({
+      ...binding,
+      schemaVersion: 5,
+      directory: resolved,
+    }, null, 2)}\n`, 'utf8');
+  }
   const host = binding.host === 'workbench'
     ? 'workbench'
     : binding.host === 'ai-cli'
@@ -1087,8 +977,6 @@ function readNativeSessionBinding(directory, sessionID, options = {}) {
     skillId: expected.skillId,
     profile: expected,
     axisBindingId: typeof binding.axisBindingId === 'string' && binding.axisBindingId.trim() ? binding.axisBindingId.trim() : null,
-    harnessBinding: binding.harnessBinding || null,
-    harnessWarning: binding.harnessWarning || null,
     timelineId: typeof binding.timelineId === 'string' && binding.timelineId.trim() ? binding.timelineId.trim() : null,
     boundNodeId: typeof binding.boundNodeId === 'string' && binding.boundNodeId.trim() ? binding.boundNodeId.trim() : null,
     nodeRelation: options.includeNodeRelation === false ? null : readNativeNodeRelation(resolved),
@@ -2468,7 +2356,6 @@ module.exports = {
   runtimeSummary,
   ensureRuntime,
   createNativeHostSession,
-  getNativeHarnessSystem,
   recoverNativeHostSession,
   buildNativeHostProfile,
   readNativeSessionBinding,

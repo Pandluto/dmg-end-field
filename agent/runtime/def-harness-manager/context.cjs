@@ -36,7 +36,6 @@ function bindTransactionContext({
     : null;
   return Object.freeze({
     sessionId: binding.sessionID,
-    sessionDirectory: binding.directory || '',
     timelineId,
     axisBindingId: binding.axisBindingId || axisContext?.binding?.id || '',
     checkoutId: checkout.targetId,

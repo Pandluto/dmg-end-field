@@ -277,6 +277,110 @@ test('later confirmation resumes the same pinned proposal transaction', async ()
   assert.equal(runtime.transactions.get(transactionId).proposal.token, 'proposal-token-a');
 });
 
+test('a correction supersedes the reviewed transaction and returns to route phase', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.prepareRoute({ context, userText: '换成别礼', turnId: 'turn-preview' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'route-call',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'new-business',
+      businessId: 'selection',
+      operation: 'replace',
+      target: '别礼',
+      requestedEffect: '换成别礼',
+    } } },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'read-call',
+    toolBinding: 'def_read',
+    canonicalToolId: 'def.read',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'preview-call',
+    toolBinding: 'def_preview',
+    canonicalToolId: 'def.preview',
+    output: { output: '{"ok":true,"proposalToken":"proposal-token-a"}', metadata: {} },
+  });
+  const transactionId = readRuntimeBridge(sessionDirectory).transactionId;
+
+  await runtime.prepareRoute({ context, userText: '不对，改成赛希', turnId: 'turn-correct' });
+  const reroute = readRuntimeBridge(sessionDirectory);
+  assert.equal(runtime.transactions.get(transactionId).status, 'superseded');
+  assert.equal(reroute.mode, 'route');
+  assert.deepEqual(reroute.allowedToolBindings, ['def_harness_route']);
+});
+
+test('a cross-business plan starts the next pinned transaction with the new scheme', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.prepareRoute({ context, userText: '先换成别礼，再换成赛希', turnId: 'turn-plan' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-plan',
+    callId: 'route-call',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'cross-business',
+      goal: '依次完成两项选择变更',
+      steps: [
+        { businessId: 'selection', operation: 'replace', target: '别礼', requestedEffect: '换成别礼' },
+        { businessId: 'selection', operation: 'replace', target: '赛希', requestedEffect: '换成赛希' },
+      ],
+    } } },
+  });
+  const first = readRuntimeBridge(sessionDirectory);
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-plan',
+    callId: 'read-first',
+    toolBinding: 'def_read',
+    canonicalToolId: 'def.read',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-plan',
+    callId: 'preview-first',
+    toolBinding: 'def_preview',
+    canonicalToolId: 'def.preview',
+    output: { output: '{"ok":true,"proposalToken":"proposal-first"}', metadata: {} },
+  });
+  await runtime.prepareRoute({ context, userText: '确认', turnId: 'turn-confirm-first' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-confirm-first',
+    callId: 'apply-first',
+    toolBinding: 'def_apply',
+    canonicalToolId: 'def.apply',
+    output: { output: '{"ok":true}', metadata: { schemeVersion: 'scheme-b' } },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-confirm-first',
+    callId: 'verify-first',
+    toolBinding: 'def_verify',
+    canonicalToolId: 'def.verify',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+  const second = readRuntimeBridge(sessionDirectory);
+  assert.equal(second.mode, 'business');
+  assert.equal(second.phase, 'context');
+  assert.notEqual(second.transactionId, first.transactionId);
+  assert.equal(second.context.schemeVersion, 'scheme-b');
+  const plan = runtime.plans.get(runtime.transactions.get(second.transactionId).planId);
+  assert.equal(plan.currentIndex, 1);
+  assert.equal(plan.steps[1].inputSchemeVersion, 'scheme-b');
+});
+
 test('OpenCode request preparation and DEF plugin share the phase bridge', () => {
   const requestSource = fs.readFileSync(new URL('../../vendor/opencode/packages/opencode/src/session/llm/request.ts', import.meta.url), 'utf8');
   const pluginContractSource = fs.readFileSync(new URL('../../vendor/opencode/packages/plugin/src/index.ts', import.meta.url), 'utf8');

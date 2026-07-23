@@ -4,29 +4,24 @@ import fs from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { classifyDefExecutableTurnPolicy, isDirectCurrentNodeQuestion, routeNativeTurnHarness } = require('../agent/runtime/def-opencode-adapter/harness-turn-router.cjs');
+const {
+  beginRoutePhase,
+  classifyDefExecutableTurnPolicy,
+  isDirectCurrentNodeQuestion,
+} = require('../agent/runtime/def-harness-manager/router.cjs');
 
-const binding = {
-  harnessBinding: {
-    selector: 'candidate/operator-config-horizontal-metadata',
-    harness: { harnessId: 'def-operator-config-atomic-failfast', version: '1.1.0', contentHash: 'hash' },
-  },
-};
-
-assert.equal(routeNativeTurnHarness(binding, '把赛希配件换成长息加固板').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '先开别礼战技，再释放赛希连携，最后放大招').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '给别礼换武器，然后重新排轴').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '查一下潮涌套的力量词条').task, 'operator-config');
-assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '为别礼挑选一套装备，3 潮涌+1，需要主副属性都对').task, 'operator-config');
-assert.equal(routeNativeTurnHarness(binding, '给别礼换上潮涌套').selector, 'candidate/operator-config-horizontal-metadata');
-assert.equal(routeNativeTurnHarness(binding, '请为刚才已校验的9按钮节点重新发出审核').selector, 'stable');
-assert.equal(routeNativeTurnHarness(binding, '图腾下落-2层里的水龙卷算什么伤害').task, 'exact-skill-facts');
 assert.equal(classifyDefExecutableTurnPolicy('图腾下落-2层里的水龙卷算什么伤害')?.kind, 'exact-skill-facts');
 assert.equal(classifyDefExecutableTurnPolicy('这把武器的伤害倍率是多少'), null);
 assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
 assert.equal(isDirectCurrentNodeQuestion('请基于当前空排轴创建新节点'), false);
+assert.deepEqual(
+  {
+    businessId: beginRoutePhase({ userText: '图腾下落-2层里的水龙卷算什么伤害' }).businessId,
+    operation: beginRoutePhase({ userText: '图腾下落-2层里的水龙卷算什么伤害' }).operation,
+  },
+  { businessId: 'calculation', operation: 'skill_fact' },
+);
+assert.equal(beginRoutePhase({ userText: '给别礼换武器，然后重新排轴' }).kind, 'route-phase');
 
 const serverSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
 assert.equal((serverSource.match(/prepareWorkbenchTurn\(\{/g) || []).length, 2);
@@ -34,19 +29,10 @@ assert.doesNotMatch(serverSource, /getNativeHarnessSystem/);
 assert.doesNotMatch(serverSource, /buildWorkbenchCheckoutSystemPrompt/);
 
 const managerSource = fs.readFileSync(new URL('../agent/runtime/def-harness-manager/index.cjs', import.meta.url), 'utf8');
-assert.match(managerSource, /getNativeHarnessSystem\(binding, userText\)/);
-assert.match(managerSource, /composeLegacyWorkbenchSystem/);
-const compatibilitySource = fs.readFileSync(new URL('../agent/runtime/def-harness-manager/compatibility.cjs', import.meta.url), 'utf8');
-assert.match(compatibilitySource, /same typed-tool failure code occurs twice/);
-assert.match(compatibilitySource, /interop pending is null/);
-assert.match(compatibilitySource, /EXACT SKILL FACT CONTRACT/);
-assert.match(compatibilitySource, /Call def_data_skill as the first and only tool/);
-
-const skillSource = fs.readFileSync(new URL('../agent/runtime/def/skills/timeline-workbench/SKILL.md', import.meta.url), 'utf8');
-assert.match(skillSource, /approvalPolicy=manual/);
-assert.match(skillSource, /skillKey.*never a substitute/);
-assert.match(skillSource, /same failure code occurs twice/);
-assert.match(skillSource, /call `def_node_use` in the same turn/);
+assert.match(managerSource, /HarnessTransactionRuntime/);
+assert.match(managerSource, /runtime\.prepareRoute/);
+assert.match(managerSource, /runtime\.transactions\.recover/);
+assert.doesNotMatch(managerSource, /getNativeHarnessSystem|composeLegacyWorkbenchSystem|legacy-compatibility/);
 
 const pluginSource = fs.readFileSync(new URL('../agent/runtime/def-tools/opencode/plugin.js', import.meta.url), 'utf8');
 assert.match(pluginSource, /'chat\.message'/);
@@ -155,14 +141,17 @@ assert.match(restServerSource, /restoreRegisteredDefNativeCatalogSession/);
 assert.match(restServerSource, /getSessionAxisBindingBySession\('workbench', sessionId\)/);
 
 const adapterSource = fs.readFileSync(new URL('../agent/runtime/def-opencode-adapter/index.cjs', import.meta.url), 'utf8');
-assert.match(adapterSource, /EQUIPMENT EVIDENCE/);
+assert.match(adapterSource, /return MINIMAL_WORKBENCH_AGENT_PROMPT/);
+assert.doesNotMatch(
+  adapterSource,
+  /timeline-workbench|resolveNativeHarness|composeHarnessSystem|retired-workbench-legacy-prompt|Tree-bound execution/,
+);
 assert.match(adapterSource, /DEF_EMPTY_ASSISTANT_RESPONSE/);
 assert.match(adapterSource, /if \(!visibleContent\) throw new Error\(DEF_EMPTY_ASSISTANT_RESPONSE\)/);
 assert.doesNotMatch(adapterSource, /CURRENT TURN — EXECUTABLE READ-ONLY CATALOG CONTRACT/);
 
 const viewSource = fs.readFileSync(new URL('../src/components/def-opencode/DefOpenCodeView.tsx', import.meta.url), 'utf8');
-assert.match(viewSource, /__defHarnessSelector/);
-assert.match(viewSource, /harnessSelector: developmentHarnessSelector/);
+assert.doesNotMatch(viewSource, /__defHarnessSelector|harnessSelector/);
 assert.match(viewSource, /SIDECAR_BOOTSTRAP_URL = 'http:\/\/127\.0\.0\.1:31457\/open-def-agent'/,
   'the DEF host must start its local sidecar before calling the sidecar origin');
 assert.match(viewSource, /await ensureNativeSidecar\(\);\s*const ensureResponse = await fetch\(`\$\{origin\}\/api\/runtime\/ensure`/,

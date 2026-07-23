@@ -45,13 +45,8 @@ export function DefOpenCodeView({
   const [statusError, setStatusError] = useState('');
   const [session, setSession] = useState<NativeSession | null>(null);
   const origin = `http://127.0.0.1:${SIDECAR_PORT}`;
-  const developmentHarnessSelector = useMemo(() => {
-    if (!import.meta.env.DEV || typeof window === 'undefined') return '';
-    return new URL(window.location.href).searchParams.get('__defHarnessSelector')?.trim() || '';
-  }, []);
-
   const normalizedTimelineId = typeof timelineId === 'string' ? timelineId.trim() : '';
-  const storageKey = `def-opencode.native-session.workbench.${encodeURIComponent(normalizedTimelineId)}${developmentHarnessSelector ? `.${encodeURIComponent(developmentHarnessSelector)}` : ''}.v2`;
+  const storageKey = `def-opencode.native-session.workbench.${encodeURIComponent(normalizedTimelineId)}.v3`;
 
   const ensureNativeSidecar = async () => {
     const response = await fetch(SIDECAR_BOOTSTRAP_URL, { method: 'POST' });
@@ -84,7 +79,6 @@ export function DefOpenCodeView({
       body: JSON.stringify({
         host: 'workbench',
         timelineId: normalizedTimelineId,
-        ...(developmentHarnessSelector ? { harnessSelector: developmentHarnessSelector } : {}),
       }),
     });
     const payload = await response.json().catch(() => null) as {

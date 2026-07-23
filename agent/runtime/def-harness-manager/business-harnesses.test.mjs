@@ -12,9 +12,9 @@ const businessRoot = path.resolve('agent/harness/business');
 const expectedOperations = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
   loadout: ['inspect', 'resolve', 'recommend', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
-  timeline: ['inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
+  timeline: ['inspect', 'current', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
-  calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain'],
+  calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 };
 
 test('loads five real default V1 Harnesses independently', async () => {
