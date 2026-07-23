@@ -17,6 +17,10 @@ const PHASE_KINDS = new Set([
   'response',
   'unsupported',
 ]);
+const CONTEXT_SOURCE_FORMATS = new Set(['json-compact', 'json-verbatim']);
+const MAX_CONTEXT_SOURCES_PER_PHASE = 4;
+const MAX_CONTEXT_SOURCE_BYTES = 128 * 1024;
+const LEGACY_SOURCE_DEFAULT_VERSION = 'v1';
 
 function readJson(filePath, label) {
   let parsed;
@@ -34,6 +38,14 @@ function sha256(parts) {
   const hash = crypto.createHash('sha256');
   for (const part of parts) hash.update(part);
   return hash.digest('hex');
+}
+
+function hardDefinition(definition) {
+  const source = definition && typeof definition === 'object' && !Array.isArray(definition)
+    ? definition
+    : {};
+  const { defaultRevision: _defaultRevision, ...hardBoundary } = source;
+  return hardBoundary;
 }
 
 function revisionSort(left, right) {
@@ -60,6 +72,9 @@ function validateDefinition(definition, expectedBusinessId) {
   if (definition?.businessId !== expectedBusinessId) errors.push(`definition.businessId must be ${expectedBusinessId}`);
   if (!BUSINESS_ID_SET.has(definition?.businessId)) errors.push(`unsupported business id: ${definition?.businessId}`);
   if (typeof definition?.summary !== 'string' || !definition.summary.trim()) errors.push('definition.summary is required');
+  if (typeof definition?.defaultRevision !== 'string' || !definition.defaultRevision.trim()) {
+    errors.push('definition.defaultRevision is required');
+  }
   const operations = assertStringArray(definition?.operations, 'definition.operations', errors, { allowEmpty: false });
   if (new Set(operations).size !== operations.length) errors.push('definition.operations contains duplicates');
   const toolCeiling = assertStringArray(definition?.toolCeiling, 'definition.toolCeiling', errors);
@@ -159,6 +174,52 @@ function validateRevision({ definition, manifest, instructions, toolIds, source 
       const writes = assertStringArray(phase.writes || [], `${operationId}.${phase.id}.writes`, errors);
       for (const field of writes) {
         if (!allowedWriteScope.has(field) || !manifestWriteScope.includes(field)) errors.push(`Phase ${phase.id} expands write scope: ${field}`);
+      }
+      if (phase.contextSources !== undefined) {
+        if (!Array.isArray(phase.contextSources)
+          || phase.contextSources.length === 0
+          || phase.contextSources.length > MAX_CONTEXT_SOURCES_PER_PHASE) {
+          errors.push(`Operation ${operationId} phase ${phase.id} contextSources must contain 1-${MAX_CONTEXT_SOURCES_PER_PHASE} entries`);
+        } else {
+          for (const [sourceIndex, contextSource] of phase.contextSources.entries()) {
+            const label = `${operationId}.${phase.id}.contextSources[${sourceIndex}]`;
+            const sourcePath = contextSource?.path;
+            const normalized = typeof sourcePath === 'string' ? path.posix.normalize(sourcePath) : '';
+            if (!contextSource || typeof contextSource !== 'object' || Array.isArray(contextSource)) {
+              errors.push(`${label} must be an object`);
+              continue;
+            }
+            if (typeof sourcePath !== 'string'
+              || !sourcePath
+              || sourcePath.includes('\\')
+              || path.posix.isAbsolute(sourcePath)
+              || normalized !== sourcePath
+              || !normalized.startsWith('node/working/')
+              || normalized === 'node/working/') {
+              errors.push(`${label}.path must be a normalized file below node/working`);
+            }
+            if (!CONTEXT_SOURCE_FORMATS.has(contextSource.format)) {
+              errors.push(`${label}.format must be json-compact or json-verbatim`);
+            }
+            if (!Number.isInteger(contextSource.maxBytes)
+              || contextSource.maxBytes <= 0
+              || contextSource.maxBytes > MAX_CONTEXT_SOURCE_BYTES) {
+              errors.push(`${label}.maxBytes must be an integer from 1 to ${MAX_CONTEXT_SOURCE_BYTES}`);
+            }
+          }
+        }
+        if (phase.terminalState) {
+          errors.push(`Operation ${operationId} phase ${phase.id} cannot bind contextSources after termination`);
+        }
+      }
+      if (phase.exactReply !== undefined) {
+        if (!phase.terminalState
+          || typeof phase.exactReply !== 'string'
+          || !phase.exactReply.trim()
+          || phase.exactReply.length > 200
+          || /[<>]/.test(phase.exactReply)) {
+          errors.push(`Operation ${operationId} phase ${phase.id} exactReply must be a 1-200 character markup-free terminal reply`);
+        }
       }
       if (phase.terminalState && !TERMINAL_STATES.has(phase.terminalState)) {
         errors.push(`Operation ${operationId} phase ${phase.id} has invalid terminalState`);
@@ -268,7 +329,7 @@ class BusinessHarnessRegistry {
       businessId: record.businessId,
       version: record.version,
       contentHash: record.contentHash,
-      definition,
+      definition: hardDefinition(definition),
       manifest: record.manifest,
       instructions: record.instructions,
     });
@@ -287,7 +348,7 @@ class BusinessHarnessRegistry {
       throw error;
     }
     const currentDefinition = this.definitions.get(businessId) || this.loadDefinition(businessId);
-    if (JSON.stringify(cached.definition) !== JSON.stringify(currentDefinition)) {
+    if (JSON.stringify(hardDefinition(cached.definition)) !== JSON.stringify(hardDefinition(currentDefinition))) {
       const error = new Error(`Pinned Revision uses a different hard business definition: ${businessId}@${revisionRef.version}`);
       error.code = 'HARNESS_DEFINITION_REVISION_MISMATCH';
       throw error;
@@ -364,7 +425,7 @@ class BusinessHarnessRegistry {
     const record = Object.freeze({
       businessId,
       version,
-      contentHash: sha256([JSON.stringify(definition), manifestRaw, instructions]),
+      contentHash: sha256([JSON.stringify(hardDefinition(definition)), manifestRaw, instructions]),
       manifest,
       instructions,
       directory,
@@ -414,20 +475,46 @@ class BusinessHarnessRegistry {
   }
 
   async resolveActive(businessId) {
+    this.controller.reload();
     let state = this.controller.businessState(businessId);
-    if (!state.active) {
-      const definition = this.definitions.get(businessId) || this.loadDefinition(businessId);
-      if (typeof definition.defaultRevision === 'string' && definition.defaultRevision) {
-        const record = await this.validate(businessId, definition.defaultRevision);
-        this.controller.registerCandidate(businessId, {
-          version: record.version,
-          contentHash: record.contentHash,
-        });
-        state = this.controller.activate(businessId, {
-          version: record.version,
-          contentHash: record.contentHash,
-        });
+    const definition = this.definitions.get(businessId) || this.loadDefinition(businessId);
+    const desiredDefaultVersion = definition.defaultRevision;
+    const observedDefaultVersion = state.sourceDefaultVersion || LEGACY_SOURCE_DEFAULT_VERSION;
+    const defaultChanged = observedDefaultVersion !== desiredDefaultVersion;
+
+    if (!state.active || defaultChanged) {
+      let record;
+      try {
+        record = await this.validate(businessId, desiredDefaultVersion);
+      } catch (error) {
+        if (!state.active || state.revoked.includes(state.active.version)) throw error;
+        return this.resolveRevision(businessId, state.active);
       }
+      if (state.revoked.includes(record.version)) {
+        state = this.controller.markSourceDefaultVersion(
+          businessId,
+          desiredDefaultVersion,
+          { expectedSourceDefaultVersion: observedDefaultVersion },
+        );
+      } else {
+        state = this.controller.activate(
+          businessId,
+          {
+            version: record.version,
+            contentHash: record.contentHash,
+          },
+          {
+            sourceDefaultVersion: desiredDefaultVersion,
+            expectedSourceDefaultVersion: observedDefaultVersion,
+          },
+        );
+      }
+    } else if (!state.sourceDefaultVersion) {
+      state = this.controller.markSourceDefaultVersion(
+        businessId,
+        desiredDefaultVersion,
+        { expectedSourceDefaultVersion: observedDefaultVersion },
+      );
     }
     if (!state.active) return null;
     if (state.revoked.includes(state.active.version)) return null;

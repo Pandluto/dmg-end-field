@@ -16,6 +16,7 @@ function definition(businessId) {
     schemaVersion: 1,
     businessId,
     summary: `${businessId} business`,
+    defaultRevision: 'v1',
     operations: ['inspect', 'apply'],
     toolCeiling: toolIds,
     writeScope: businessId === 'calculation' ? [] : [`${businessId}.value`],
@@ -125,6 +126,30 @@ test('rejects invalid Tool, expanded write scope, dead end and mutation without 
       { id: 'apply', kind: 'mutation', tools: ['def.apply'], writes: ['selection.value'], transitions: { onSuccess: 'done', onFailure: 'done' } },
       { id: 'done', kind: 'response', tools: [], writes: [], terminalState: 'completed' },
     ] } } }],
+    ['unsafe-context-source', { operations: { inspect: { entryPhase: 'read', phases: [
+      {
+        id: 'read',
+        kind: 'context',
+        tools: ['def.read'],
+        writes: [],
+        contextSources: [{ path: '../secret.json', format: 'json-verbatim', maxBytes: 1024 }],
+        transitions: { onSuccess: 'done', onFailure: 'failed' },
+      },
+      { id: 'done', kind: 'response', tools: [], writes: [], terminalState: 'completed' },
+      { id: 'failed', kind: 'response', tools: [], writes: [], terminalState: 'aborted' },
+    ] } } }],
+    ['invalid-context-source-type', { operations: { inspect: { entryPhase: 'read', phases: [
+      {
+        id: 'read',
+        kind: 'context',
+        tools: ['def.read'],
+        writes: [],
+        contextSources: [{ path: 42, format: 'json-verbatim', maxBytes: 1024 }],
+        transitions: { onSuccess: 'done', onFailure: 'failed' },
+      },
+      { id: 'done', kind: 'response', tools: [], writes: [], terminalState: 'completed' },
+      { id: 'failed', kind: 'response', tools: [], writes: [], terminalState: 'aborted' },
+    ] } } }],
   ];
   for (const [name, overrides] of cases) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), `def-business-${name}-`));
@@ -132,6 +157,46 @@ test('rejects invalid Tool, expanded write scope, dead end and mutation without 
     const registry = new BusinessHarnessRegistry({ businessRoot: root, statePath: path.join(root, 'state.json'), toolIds });
     await assert.rejects(() => registry.validate('selection', 'v1'), { code: 'HARNESS_REVISION_INVALID' }, name);
   }
+});
+
+test('adopts a changed source default once while preserving an explicit rollback', async () => {
+  const { root, registry } = fixture();
+  const statePath = path.join(root, '.state', 'revisions.json');
+  const first = await registry.resolveActive('selection');
+  assert.equal(first.version, 'v1');
+  assert.equal(registry.controller.businessState('selection').sourceDefaultVersion, 'v1');
+
+  const legacyState = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+  delete legacyState.businesses.selection.sourceDefaultVersion;
+  fs.writeFileSync(statePath, `${JSON.stringify(legacyState, null, 2)}\n`, 'utf8');
+  const legacyCachePath = path.join(
+    path.dirname(statePath),
+    'revision-cache',
+    'selection',
+    `${first.contentHash}.json`,
+  );
+  const legacyCache = JSON.parse(fs.readFileSync(legacyCachePath, 'utf8'));
+  legacyCache.definition.defaultRevision = 'v1';
+  fs.writeFileSync(legacyCachePath, `${JSON.stringify(legacyCache, null, 2)}\n`, 'utf8');
+
+  const upgradedDefinition = definition('selection');
+  upgradedDefinition.defaultRevision = 'v2';
+  fs.writeFileSync(
+    path.join(root, 'selection', 'definition.json'),
+    `${JSON.stringify(upgradedDefinition, null, 2)}\n`,
+    'utf8',
+  );
+  const upgraded = new BusinessHarnessRegistry({ businessRoot: root, statePath, toolIds });
+  assert.equal((await upgraded.resolveActive('selection')).version, 'v2');
+  assert.equal(upgraded.controller.businessState('selection').sourceDefaultVersion, 'v2');
+
+  await upgraded.rollback('selection');
+  assert.equal((await upgraded.resolveActive('selection')).version, 'v1');
+  assert.equal(upgraded.controller.businessState('selection').sourceDefaultVersion, 'v2');
+
+  const restarted = new BusinessHarnessRegistry({ businessRoot: root, statePath, toolIds });
+  assert.equal((await restarted.resolveActive('selection')).version, 'v1');
+  assert.equal(restarted.controller.businessState('selection').sourceDefaultVersion, 'v2');
 });
 
 test('keeps last-known-good active when reload validation fails', async () => {

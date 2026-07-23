@@ -3,7 +3,7 @@
   "businessId": "timeline",
   "displayName": "排轴",
   "summary": "查看、添加、删除、移动、替换、复制、验证、预览、应用或恢复技能按钮与排轴结构。",
-  "defaultRevision": "v1",
+  "defaultRevision": "v13",
   "operations": [
     "inspect",
     "current",

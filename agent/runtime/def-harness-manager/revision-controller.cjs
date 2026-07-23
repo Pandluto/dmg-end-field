@@ -45,6 +45,9 @@ class RevisionController {
       active: current.active || null,
       previous: current.previous || null,
       revoked: Array.isArray(current.revoked) ? [...current.revoked] : [],
+      sourceDefaultVersion: typeof current.sourceDefaultVersion === 'string'
+        ? current.sourceDefaultVersion
+        : '',
       updatedAt: Number(current.updatedAt || 0),
     };
   }
@@ -74,8 +77,17 @@ class RevisionController {
     return this.update(businessId, (current) => ({ ...current, candidate: revisionRef }));
   }
 
-  activate(businessId, revisionRef) {
+  activate(
+    businessId,
+    revisionRef,
+    { sourceDefaultVersion, expectedSourceDefaultVersion } = {},
+  ) {
     return this.update(businessId, (current) => {
+      const observedSourceDefaultVersion = current.sourceDefaultVersion || 'v1';
+      if (expectedSourceDefaultVersion !== undefined
+        && observedSourceDefaultVersion !== expectedSourceDefaultVersion) {
+        return current;
+      }
       if (current.revoked.includes(revisionRef.version)) {
         const error = new Error(`Revision is revoked: ${businessId}@${revisionRef.version}`);
         error.code = 'HARNESS_REVISION_REVOKED';
@@ -92,7 +104,19 @@ class RevisionController {
         candidate: revisionRef,
         active: revisionRef,
         previous: previous || null,
+        ...(sourceDefaultVersion !== undefined ? { sourceDefaultVersion } : {}),
       };
+    });
+  }
+
+  markSourceDefaultVersion(businessId, sourceDefaultVersion, { expectedSourceDefaultVersion } = {}) {
+    return this.update(businessId, (current) => {
+      const observedSourceDefaultVersion = current.sourceDefaultVersion || 'v1';
+      if (expectedSourceDefaultVersion !== undefined
+        && observedSourceDefaultVersion !== expectedSourceDefaultVersion) {
+        return current;
+      }
+      return { ...current, sourceDefaultVersion };
     });
   }
 

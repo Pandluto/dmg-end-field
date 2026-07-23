@@ -43,10 +43,10 @@ export function recordHarnessChatTurn(sessionId, turnId) {
 }
 
 export function harnessToolChoiceForProjection(projection) {
-  if (!['route', 'business', 'clarify'].includes(projection?.mode)) return undefined
+  if (!['route', 'business', 'clarify', 'complete'].includes(projection?.mode)) return undefined
   return Array.isArray(projection.allowedToolBindings) && projection.allowedToolBindings.length > 0
     ? 'required'
-    : undefined
+    : 'none'
 }
 
 export async function projectHarnessTools({ sessionId, directory, tools }) {
@@ -96,7 +96,7 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
     bridge.mode === 'clarify'
       ? `Required clarification: ${JSON.stringify(bridge.question || {})}`
       : '',
-    harnessToolChoiceForProjection(bridge)
+    harnessToolChoiceForProjection(bridge) === 'required'
       ? 'This phase is incomplete until one projected Tool succeeds. A final answer cannot complete the turn before that Tool call.'
       : '',
     bridge.instructions || '',
@@ -133,6 +133,7 @@ export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId,
   const key = `${sessionId}:${callId}`
   if (completedToolCalls.has(key)) return
   completedToolCalls.add(key)
+  if (completedToolCalls.size > 1024) completedToolCalls.delete(completedToolCalls.values().next().value)
   const runtime = runtimeFor(directory)
   runtime.refreshFromDisk()
   await runtime.afterTool({
@@ -143,23 +144,31 @@ export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId,
     canonicalToolId: canonicalToolId(tool),
     output,
   })
-  if (completedToolCalls.size > 1024) completedToolCalls.delete(completedToolCalls.values().next().value)
 }
 
 export async function advanceHarnessToolFailure(event) {
   const part = event?.properties?.part
   if (event?.type !== 'message.part.updated' || part?.type !== 'tool' || part?.state?.status !== 'error') return
-  // A provider can replay a tool name from the preceding projection. OpenCode
-  // rejects it before execution, so it is not transaction evidence and must
-  // not advance or fail the current Harness phase.
-  if (/Model tried to call unavailable tool\b.*\bAvailable tools:/i.test(String(part.state.error || ''))) return
+  const unavailable = /Model tried to call unavailable tool\b.*\bAvailable tools:/i
+    .test(String(part.state.error || ''))
   const directory = sessionDirectories.get(part.sessionID)
   if (!directory || !readRuntimeBridge(directory)) return
   const key = `${part.sessionID}:${part.callID}`
   if (completedToolCalls.has(key)) return
   completedToolCalls.add(key)
+  if (completedToolCalls.size > 1024) completedToolCalls.delete(completedToolCalls.values().next().value)
   const runtime = runtimeFor(directory)
   runtime.refreshFromDisk()
+  if (unavailable) {
+    await runtime.rejectUnavailableTool({
+      sessionId: part.sessionID,
+      turnId: pendingTurnIds.get(part.sessionID) || '',
+      callId: part.callID,
+      toolBinding: part.tool,
+      error: String(part.state.error || ''),
+    })
+    return
+  }
   await runtime.afterTool({
     sessionId: part.sessionID,
     turnId: pendingTurnIds.get(part.sessionID) || '',
@@ -172,5 +181,4 @@ export async function advanceHarnessToolFailure(event) {
       metadata: { ok: false, state: 'error' },
     },
   })
-  if (completedToolCalls.size > 1024) completedToolCalls.delete(completedToolCalls.values().next().value)
 }

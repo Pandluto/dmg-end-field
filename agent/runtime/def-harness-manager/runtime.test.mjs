@@ -16,6 +16,7 @@ const toolTargets = [
   { id: 'def.preview', nativeBinding: 'def_preview' },
   { id: 'def.apply', nativeBinding: 'def_apply' },
   { id: 'def.verify', nativeBinding: 'def_verify' },
+  { id: 'def.node.code.edit', nativeBinding: 'edit' },
 ];
 
 function writeSelection(root, version = 'v1') {
@@ -26,6 +27,7 @@ function writeSelection(root, version = 'v1') {
     schemaVersion: 1,
     businessId: 'selection',
     summary: 'selection',
+    defaultRevision: version,
     operations: ['replace'],
     toolCeiling: ['def.read', 'def.preview', 'def.apply', 'def.verify'],
     writeScope: ['selection.members'],
@@ -96,6 +98,7 @@ function writeSelection(root, version = 'v1') {
             tools: [],
             writes: [],
             instructions: 'Report failure.',
+            exactReply: '操作未完成，当前状态没有改变。',
             terminalState: 'aborted',
           },
         ],
@@ -103,6 +106,70 @@ function writeSelection(root, version = 'v1') {
     },
   }, null, 2));
   fs.writeFileSync(path.join(revision, 'instructions.md'), '# Selection\nUse exact typed facts.\n');
+}
+
+function writeTimelineMutation(root, version = 'v1', { contextSources } = {}) {
+  const business = path.join(root, 'timeline');
+  const revision = path.join(business, 'revisions', version);
+  fs.mkdirSync(revision, { recursive: true });
+  fs.writeFileSync(path.join(business, 'definition.json'), JSON.stringify({
+    schemaVersion: 1,
+    businessId: 'timeline',
+    summary: 'timeline',
+    defaultRevision: version,
+    operations: ['copy'],
+    toolCeiling: ['def.node.code.edit', 'def.verify'],
+    writeScope: ['timeline.buttonIdentity'],
+    completion: { verification: 'visible' },
+    downstream: { buff: 'stale', calculation: 'recompute' },
+  }, null, 2));
+  fs.writeFileSync(path.join(revision, 'manifest.json'), JSON.stringify({
+    schemaVersion: 1,
+    businessId: 'timeline',
+    version,
+    writeScope: ['timeline.buttonIdentity'],
+    operations: {
+      copy: {
+        entryPhase: 'edit',
+        phases: [
+          {
+            id: 'edit',
+            kind: 'mutation',
+            tools: ['def.node.code.edit'],
+            writes: ['timeline.buttonIdentity'],
+            instructions: 'Edit one timeline button.',
+            ...(contextSources ? { contextSources } : {}),
+            transitions: { onSuccess: 'verify', onFailure: 'failed' },
+          },
+          {
+            id: 'verify',
+            kind: 'verification',
+            tools: ['def.verify'],
+            writes: [],
+            instructions: 'Verify.',
+            transitions: { onSuccess: 'done', onFailure: 'failed' },
+          },
+          {
+            id: 'done',
+            kind: 'response',
+            tools: [],
+            writes: [],
+            instructions: 'Done.',
+            terminalState: 'completed',
+          },
+          {
+            id: 'failed',
+            kind: 'response',
+            tools: [],
+            writes: [],
+            instructions: 'Report failure.',
+            terminalState: 'aborted',
+          },
+        ],
+      },
+    },
+  }, null, 2));
+  fs.writeFileSync(path.join(revision, 'instructions.md'), '# Timeline\nKeep timeline and Buff writes separate.\n');
 }
 
 async function fixture() {
@@ -120,6 +187,7 @@ async function fixture() {
   await registry.register('selection', 'v1');
   await registry.activate('selection');
   return {
+    businessRoot,
     sessionDirectory,
     runtime: new HarnessTransactionRuntime({
       sessionDirectory,
@@ -304,6 +372,8 @@ test('moves failures through the declared failure exit', async () => {
   const bridge = readRuntimeBridge(sessionDirectory);
   assert.equal(bridge.mode, 'complete');
   assert.equal(bridge.phase, 'failed');
+  assert.equal(bridge.exactReply, '操作未完成，当前状态没有改变。');
+  assert.match(bridge.instructions, /entire user-visible reply must be exactly/);
   assert.equal(runtime.transactions.get(bridge.transactionId).status, 'aborted');
 });
 
@@ -396,8 +466,11 @@ test('a correction supersedes the reviewed transaction and returns to route phas
 });
 
 test('a cross-business plan starts the next pinned transaction with the new scheme', async () => {
-  const { sessionDirectory, runtime, context } = await fixture();
-  await runtime.prepareRoute({ context, userText: '先换成别礼，再换成赛希', turnId: 'turn-plan' });
+  const { businessRoot, sessionDirectory, runtime, context } = await fixture();
+  writeTimelineMutation(businessRoot);
+  await runtime.registry.register('timeline', 'v1');
+  await runtime.registry.activate('timeline');
+  await runtime.prepareRoute({ context, userText: '先换成别礼，再复制排轴按钮', turnId: 'turn-plan' });
   await runtime.afterTool({
     sessionId: 'session-a',
     turnId: 'turn-plan',
@@ -406,10 +479,10 @@ test('a cross-business plan starts the next pinned transaction with the new sche
     canonicalToolId: 'def.harness.route',
     output: { metadata: { route: {
       kind: 'cross-business',
-      goal: '依次完成两项选择变更',
+      goal: '换人后复制排轴按钮',
       steps: [
         { businessId: 'selection', operation: 'replace', target: '别礼', requestedEffect: '换成别礼' },
-        { businessId: 'selection', operation: 'replace', target: '赛希', requestedEffect: '换成赛希' },
+        { businessId: 'timeline', operation: 'copy', target: '@1-1 → @2-1', requestedEffect: '复制排轴按钮' },
       ],
     } } },
   });
@@ -452,7 +525,7 @@ test('a cross-business plan starts the next pinned transaction with the new sche
   });
   const second = readRuntimeBridge(sessionDirectory);
   assert.equal(second.mode, 'business');
-  assert.equal(second.phase, 'context');
+  assert.equal(second.phase, 'edit');
   assert.notEqual(second.transactionId, first.transactionId);
   assert.equal(second.context.schemeVersion, 'scheme-b');
   const plan = runtime.plans.get(runtime.transactions.get(second.transactionId).planId);
@@ -481,7 +554,302 @@ test('a real mutation without a resulting scheme version fails closed', async ()
     output: { output: '{"ok":true}', metadata: { currentCheckoutTouched: true } },
   }), { code: 'HARNESS_MUTATION_SCHEME_VERSION_REQUIRED' });
   assert.equal(runtime.transactions.get(transaction.transactionId).status, 'stale');
-  assert.equal(readRuntimeBridge(sessionDirectory).phase, 'apply');
+  assert.equal(readRuntimeBridge(sessionDirectory).mode, 'complete');
+  assert.deepEqual(readRuntimeBridge(sessionDirectory).allowedToolBindings, []);
+});
+
+test('a terminal transaction closes a stale Tool projection before and after execution', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  const revision = await runtime.registry.resolveActive('selection');
+  const transaction = runtime.transactions.create({
+    context,
+    businessId: 'selection',
+    operation: 'replace',
+    harnessRevision: revision,
+    target: '别礼',
+    phase: 'apply',
+  });
+  await runtime.projectTransaction(transaction.transactionId, { turnId: 'turn-terminal-gate' });
+  runtime.transactions.markTerminal(transaction.transactionId, 'aborted', 'synthetic-terminal');
+
+  await assert.rejects(runtime.beforeTool({
+    sessionId: 'session-a',
+    turnId: 'turn-terminal-gate',
+    callId: 'apply-after-terminal-before',
+    toolBinding: 'def_apply',
+    canonicalToolId: 'def.apply',
+    args: {},
+  }), { code: 'HARNESS_TRANSACTION_TERMINAL' });
+  let bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'complete');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+
+  await runtime.writeProjection({
+    mode: 'business',
+    sessionId: 'session-a',
+    turnId: 'turn-terminal-gate',
+    transactionId: transaction.transactionId,
+    businessId: 'selection',
+    operation: 'replace',
+    phase: 'apply',
+    phaseKind: 'mutation',
+    instructions: 'Synthetic stale projection.',
+    context,
+    allowedToolIds: ['def.apply'],
+  });
+  await assert.rejects(runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-terminal-gate',
+    callId: 'apply-after-terminal-after',
+    toolBinding: 'def_apply',
+    canonicalToolId: 'def.apply',
+    output: { output: '{"ok":true}', metadata: {} },
+  }), { code: 'HARNESS_TRANSACTION_TERMINAL' });
+  bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'complete');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+});
+
+test('two unavailable Tool requests stop the phase instead of looping', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.beginBusinessTransaction({
+    kind: 'new-business',
+    businessId: 'selection',
+    operation: 'replace',
+    target: '别礼',
+    requestedEffect: '换成别礼',
+  }, context, { turnId: 'turn-unavailable' });
+
+  await runtime.rejectUnavailableTool({
+    sessionId: 'session-a',
+    turnId: 'turn-unavailable',
+    callId: 'unavailable-1',
+    toolBinding: 'def_apply',
+    error: "Model tried to call unavailable tool 'invalid'. Available tools: def_read.",
+  });
+  let bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'business');
+  assert.equal(bridge.phase, 'context');
+  assert.equal(bridge.phaseGuard.count, 1);
+  assert.deepEqual(bridge.allowedToolBindings, ['def_read']);
+  assert.equal(runtime.transactions.get(bridge.transactionId).status, 'active');
+
+  await runtime.rejectUnavailableTool({
+    sessionId: 'session-a',
+    turnId: 'turn-unavailable',
+    callId: 'unavailable-2',
+    toolBinding: 'def_apply',
+    error: "Model tried to call unavailable tool 'invalid'. Available tools: def_read.",
+  });
+  bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'complete');
+  assert.equal(bridge.phase, 'failed');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+  assert.equal(runtime.transactions.get(bridge.transactionId).status, 'aborted');
+  assert.equal(runtime.transactions.get(bridge.transactionId).terminalReason, 'repeated-unavailable-tool');
+});
+
+test('a phase binds one complete Work Node source without expanding Tool access', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-bound-context-'));
+  const businessRoot = path.join(root, 'business');
+  const sessionDirectory = path.join(root, 'session');
+  const revisionStatePath = path.join(root, 'revisions.json');
+  const scopedTools = [
+    ...toolTargets,
+    { id: 'def.node.code.edit', nativeBinding: 'edit' },
+  ];
+  const sourceDirectory = path.join(sessionDirectory, 'node', 'working');
+  fs.mkdirSync(sourceDirectory, { recursive: true });
+  const source = JSON.stringify({
+    staffLines: Array.from({ length: 500 }, (_, index) => ({
+      id: `line-${index}`,
+      buttons: index === 499 ? [{ id: 'tail-button', nodeIndex: 7 }] : [],
+    })),
+  }, null, 2);
+  fs.writeFileSync(path.join(sourceDirectory, 'timeline.json'), source);
+  writeTimelineMutation(businessRoot, 'v1', {
+    contextSources: [{
+      path: 'node/working/timeline.json',
+      format: 'json-verbatim',
+      maxBytes: 131072,
+    }],
+  });
+  const registry = new BusinessHarnessRegistry({
+    businessRoot,
+    statePath: revisionStatePath,
+    toolIds: scopedTools.map((target) => target.id),
+  });
+  await registry.register('timeline', 'v1');
+  await registry.activate('timeline');
+  const runtime = new HarnessTransactionRuntime({
+    sessionDirectory,
+    businessRoot,
+    revisionStatePath,
+    toolTargets: scopedTools,
+  });
+  await runtime.beginBusinessTransaction({
+    kind: 'new-business',
+    businessId: 'timeline',
+    operation: 'copy',
+    requestedEffect: 'copy one button',
+  }, {
+    sessionId: 'session-a',
+    timelineId: 'timeline-a',
+    checkoutId: 'node-a',
+    checkoutType: 'work-node',
+    schemeVersion: 'scheme-a',
+  }, { turnId: 'turn-bound-context' });
+
+  const bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.phase, 'edit');
+  assert.deepEqual(bridge.allowedToolBindings, ['edit']);
+  assert.match(bridge.instructions, /"id": "tail-button"/);
+  assert.match(bridge.instructions, /They are complete; do not request continuation reads/);
+  assert.match(bridge.instructions, /Every bound source above is complete/);
+  assert.ok(
+    bridge.instructions.indexOf('Every bound source above is complete')
+      > bridge.instructions.indexOf('"id": "tail-button"'),
+  );
+  assert.deepEqual(bridge.boundContextSources.map((entry) => entry.path), [
+    'node/working/timeline.json',
+  ]);
+  assert.equal(Object.hasOwn(bridge.boundContextSources[0], 'content'), false);
+});
+
+test('an unavailable bound Work Node source closes the phase before mutation', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-missing-context-'));
+  const businessRoot = path.join(root, 'business');
+  const sessionDirectory = path.join(root, 'session');
+  const revisionStatePath = path.join(root, 'revisions.json');
+  const scopedTools = [
+    ...toolTargets,
+    { id: 'def.node.code.edit', nativeBinding: 'edit' },
+  ];
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  writeTimelineMutation(businessRoot, 'v1', {
+    contextSources: [{
+      path: 'node/working/timeline.json',
+      format: 'json-verbatim',
+      maxBytes: 131072,
+    }],
+  });
+  const registry = new BusinessHarnessRegistry({
+    businessRoot,
+    statePath: revisionStatePath,
+    toolIds: scopedTools.map((target) => target.id),
+  });
+  await registry.register('timeline', 'v1');
+  await registry.activate('timeline');
+  const runtime = new HarnessTransactionRuntime({
+    sessionDirectory,
+    businessRoot,
+    revisionStatePath,
+    toolTargets: scopedTools,
+  });
+  const bridge = await runtime.beginBusinessTransaction({
+    kind: 'new-business',
+    businessId: 'timeline',
+    operation: 'copy',
+    requestedEffect: 'copy one button',
+  }, {
+    sessionId: 'session-a',
+    timelineId: 'timeline-a',
+    checkoutId: 'node-a',
+    checkoutType: 'work-node',
+    schemeVersion: 'scheme-a',
+  }, { turnId: 'turn-missing-context' });
+
+  assert.equal(bridge.mode, 'complete');
+  assert.equal(bridge.phase, 'failed');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+  assert.equal(runtime.transactions.get(bridge.transactionId).terminalReason, 'phase-context-source-unavailable');
+});
+
+test('a rejected semantic write closes the projected mutation Tool', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-scope-stop-'));
+  const businessRoot = path.join(root, 'business');
+  const sessionDirectory = path.join(root, 'session');
+  const revisionStatePath = path.join(root, 'revisions.json');
+  const scopedTools = [
+    ...toolTargets,
+    { id: 'def.node.code.edit', nativeBinding: 'edit' },
+  ];
+  fs.mkdirSync(sessionDirectory, { recursive: true });
+  writeTimelineMutation(businessRoot);
+  const registry = new BusinessHarnessRegistry({
+    businessRoot,
+    statePath: revisionStatePath,
+    toolIds: scopedTools.map((target) => target.id),
+  });
+  await registry.register('timeline', 'v1');
+  await registry.activate('timeline');
+  const runtime = new HarnessTransactionRuntime({
+    sessionDirectory,
+    businessRoot,
+    revisionStatePath,
+    toolTargets: scopedTools,
+  });
+  const baseButton = {
+    id: 'button-a',
+    characterId: 'a',
+    characterName: 'a',
+    skillType: 'A',
+    runtimeSkillId: 'skill-a',
+    skillDisplayName: 'Skill A',
+    staffIndex: 0,
+    lineIndex: 0,
+    nodeIndex: 0,
+    nodeNumber: 1,
+    selectedBuff: [],
+  };
+  for (const kind of ['base', 'working']) {
+    const directory = path.join(sessionDirectory, 'node', kind);
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, 'selection.json'), JSON.stringify({ selectedCharacters: ['a'] }));
+    fs.writeFileSync(path.join(directory, 'timeline.json'), JSON.stringify({
+      staffLines: [{
+        staffIndex: 0,
+        characterName: 'a',
+        occupiedNodes: [0],
+        buttons: [{ ...baseButton, selectedBuff: kind === 'working' ? ['buff-a'] : [] }],
+      }],
+    }));
+    fs.writeFileSync(path.join(directory, 'buffs.json'), JSON.stringify({
+      allBuffList: [{ id: 'buff-a' }],
+      anomalyStateSnapshots: [],
+    }));
+    fs.writeFileSync(path.join(directory, 'inputs.json'), JSON.stringify({
+      characterInputMap: {},
+      operatorConfigPageCache: {},
+    }));
+  }
+  const context = {
+    sessionId: 'session-a',
+    timelineId: 'timeline-a',
+    checkoutId: 'node-a',
+    checkoutType: 'work-node',
+    schemeVersion: 'scheme-a',
+  };
+  await runtime.beginBusinessTransaction({
+    kind: 'new-business',
+    businessId: 'timeline',
+    operation: 'copy',
+    requestedEffect: 'copy one button',
+  }, context, { turnId: 'turn-scope' });
+
+  await assert.rejects(runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-scope',
+    callId: 'edit-scope',
+    toolBinding: 'edit',
+    canonicalToolId: 'def.node.code.edit',
+    output: { output: '{"ok":true}', metadata: {} },
+  }), { code: 'HARNESS_MUTATION_WRITE_SCOPE_VIOLATION' });
+  const bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'complete');
+  assert.equal(bridge.phase, 'failed');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+  assert.equal(runtime.transactions.get(bridge.transactionId).status, 'aborted');
 });
 
 test('an intentional temporary-workspace detach completes the step and stops its plan', async () => {

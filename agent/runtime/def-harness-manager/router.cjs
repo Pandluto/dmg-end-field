@@ -177,6 +177,10 @@ function validateRouteSubmission(submission, { definitions } = {}) {
       throw routeError('cross-business route requires two to five ordered steps');
     }
     const steps = submission.steps.map((step, index) => normalizeStep(step, index, knownDefinitions));
+    const businessIds = new Set(steps.map((step) => step.businessId));
+    if (businessIds.size === 1) {
+      throw routeError('cross-business route requires at least two different business ids; submit one new-business operation for a single business');
+    }
     return {
       kind,
       goal: normalizedText(submission.goal) || steps.map((step) => step.requestedEffect).join(' → '),
@@ -206,6 +210,7 @@ function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
       'Submit one structured route through def_harness_route.',
       'Do not answer the business question, read game knowledge, or modify product state in this phase.',
       'Entities, operators, equipment, skills, BUFF names, “3+1”, and batch size are targets or constraints, never business ids.',
+      'Use cross-business only when the request spans at least two different business ids. Proposal, validation, application, and verification inside one business belong to one new-business operation and must not be split into route steps.',
     ].join('\n'),
   };
 }

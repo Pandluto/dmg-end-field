@@ -76,6 +76,74 @@ test('keeps timeline and BUFF writes adjacent but non-overlapping', () => {
   assert.equal(removal.pass, true);
   assert.deepEqual(removal.productCascades, ['buff']);
   assert.deepEqual(removal.cascadeDetails.removedButtonIds, ['button-a']);
+
+  const additionAfter = structuredClone(before);
+  const addedButton = button('button-c', 'b', 2);
+  addedButton.panelConfig = {
+    selectedBuff: [],
+    globallyDisabledBuffIds: [],
+    manualDisabledBuffIdsBySegmentKey: {},
+  };
+  addedButton.buffStackCounts = {};
+  additionAfter.skillButtonTable['button-c'] = addedButton;
+  additionAfter.timelineData.staffLines[1].buttons.push({ id: 'button-c' });
+  additionAfter.timelineData.staffLines[1].occupiedNodes = [1, 2];
+  const addition = analyzeBusinessMutation({
+    businessId: 'timeline',
+    beforePayload: before,
+    afterPayload: additionAfter,
+  });
+  assert.equal(addition.pass, true);
+  assert.deepEqual(addition.productCascades, ['buff']);
+  assert.deepEqual(addition.cascadeDetails.addedButtonIds, ['button-c']);
+
+  const additionWithCanonicalDefaults = structuredClone(additionAfter);
+  additionWithCanonicalDefaults.skillButtonTable['button-c'].anomalyConfig = {
+    selectedStatuses: [],
+    selectedDamages: [],
+    selectedStateSnapshotIds: [],
+  };
+  additionWithCanonicalDefaults.skillButtonTable['button-c'].resistanceConfig = {
+    targetResistance: {
+      physicalResistance: 0,
+      fireResistance: 0,
+      electricResistance: 0,
+      iceResistance: 0,
+      natureResistance: 0,
+    },
+  };
+  additionWithCanonicalDefaults.skillButtonTable['button-c'].panelConfig = {
+    selectedBuff: [],
+    globallyDisabledBuffIds: [],
+    manualDisabledBuffIdsBySegmentKey: {},
+    manualBuffStackCountsBySegmentKey: {},
+    manualDisabledHitKeys: [],
+  };
+  assert.equal(analyzeBusinessMutation({
+    businessId: 'timeline',
+    beforePayload: before,
+    afterPayload: additionWithCanonicalDefaults,
+  }).pass, true);
+
+  const additionWithBuff = structuredClone(additionAfter);
+  additionWithBuff.skillButtonTable['button-c'].selectedBuff = ['buff-a'];
+  const invalidAddition = analyzeBusinessMutation({
+    businessId: 'timeline',
+    beforePayload: before,
+    afterPayload: additionWithBuff,
+  });
+  assert.equal(invalidAddition.pass, false);
+  assert.match(invalidAddition.unexplainedChanges.join(','), /added-button-has-buff-state/);
+
+  const additionWithUnknownBuffState = structuredClone(additionAfter);
+  additionWithUnknownBuffState.skillButtonTable['button-c'].panelConfig.debug = false;
+  const invalidUnknownState = analyzeBusinessMutation({
+    businessId: 'timeline',
+    beforePayload: before,
+    afterPayload: additionWithUnknownBuffState,
+  });
+  assert.equal(invalidUnknownState.pass, false);
+  assert.match(invalidUnknownState.unexplainedChanges.join(','), /added-button-has-buff-state/);
 });
 
 test('accepts deterministic selection cleanup but rejects unrelated additions', () => {

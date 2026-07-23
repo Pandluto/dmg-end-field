@@ -16,7 +16,7 @@ const { BusinessPlanStore } = require('./plans.cjs');
 const definitions = [
   { businessId: 'selection', operations: ['replace'], summary: 'selection' },
   { businessId: 'loadout', operations: ['recommend', 'apply'], summary: 'loadout' },
-  { businessId: 'timeline', operations: ['add', 'current'], summary: 'timeline' },
+  { businessId: 'timeline', operations: ['add', 'apply', 'copy', 'current'], summary: 'timeline' },
   { businessId: 'buff', operations: ['add'], summary: 'buff' },
   { businessId: 'calculation', operations: ['calculate', 'skill_fact'], summary: 'calculation' },
 ];
@@ -75,6 +75,30 @@ test('validates the required single and cross-business examples', () => {
     ],
   }, { definitions });
   assert.deepEqual(pipeline.steps.map((step) => step.businessId), ['selection', 'loadout']);
+
+  assert.throws(() => validateRouteSubmission({
+    kind: 'cross-business',
+    goal: '复制燃烬到第2格并应用',
+    steps: [
+      {
+        businessId: 'timeline',
+        operation: 'copy',
+        target: '莱万汀第1格',
+        requestedEffect: '复制到第2格',
+        constraints: ['不带BUFF'],
+      },
+      {
+        businessId: 'timeline',
+        operation: 'apply',
+        target: '莱万汀第2格',
+        requestedEffect: '应用复制结果',
+        constraints: ['无BUFF'],
+      },
+    ],
+  }, { definitions }), {
+    code: 'HARNESS_ROUTE_INVALID',
+    message: /at least two different business ids/,
+  });
 
   const newSelectionWhileAnotherTransactionExists = beginRoutePhase({
     userText: '换成别礼',

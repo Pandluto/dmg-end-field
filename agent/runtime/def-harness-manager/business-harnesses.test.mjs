@@ -17,12 +17,20 @@ const expectedOperations = {
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 };
 
-test('loads five real default V1 Harnesses independently', async () => {
+const expectedDefaultVersions = {
+  selection: 'v1',
+  loadout: 'v1',
+  timeline: 'v13',
+  buff: 'v1',
+  calculation: 'v1',
+};
+
+test('loads five real default Harnesses independently', async () => {
   const statePath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'def-five-business-')), 'revisions.json');
   const registry = new BusinessHarnessRegistry({ businessRoot, statePath });
   for (const businessId of BUSINESS_IDS) {
     const revision = await registry.resolveActive(businessId);
-    assert.equal(revision.version, 'v1', businessId);
+    assert.equal(revision.version, expectedDefaultVersions[businessId], businessId);
     assert.deepEqual(
       Object.keys(revision.manifest.operations).sort(),
       [...expectedOperations[businessId]].sort(),
@@ -60,10 +68,11 @@ test('keeps business write domains disjoint and calculation read-only', () => {
 test('business Harness sources do not import each other', () => {
   for (const businessId of BUSINESS_IDS) {
     const directory = path.join(businessRoot, businessId);
+    const definition = JSON.parse(fs.readFileSync(path.join(directory, 'definition.json'), 'utf8'));
     const sources = [
       fs.readFileSync(path.join(directory, 'definition.json'), 'utf8'),
-      fs.readFileSync(path.join(directory, 'revisions', 'v1', 'manifest.json'), 'utf8'),
-      fs.readFileSync(path.join(directory, 'revisions', 'v1', 'instructions.md'), 'utf8'),
+      fs.readFileSync(path.join(directory, 'revisions', definition.defaultRevision, 'manifest.json'), 'utf8'),
+      fs.readFileSync(path.join(directory, 'revisions', definition.defaultRevision, 'instructions.md'), 'utf8'),
     ].join('\n');
     assert.doesNotMatch(sources, /\b(?:import|require)\s*\(/);
     assert.doesNotMatch(sources, /\.\.\/(?:selection|loadout|timeline|buff|calculation)\//);
@@ -87,8 +96,12 @@ test('selection action operations reach the formal mutation and visible verifica
 });
 
 test('timeline action operations use the validated Work Node and then verify the visible checkout', () => {
+  const definition = JSON.parse(fs.readFileSync(
+    path.join(businessRoot, 'timeline', 'definition.json'),
+    'utf8',
+  ));
   const manifest = JSON.parse(fs.readFileSync(
-    path.join(businessRoot, 'timeline', 'revisions', 'v1', 'manifest.json'),
+    path.join(businessRoot, 'timeline', 'revisions', definition.defaultRevision, 'manifest.json'),
     'utf8',
   ));
   for (const operationId of ['add', 'remove', 'move', 'replace', 'copy']) {

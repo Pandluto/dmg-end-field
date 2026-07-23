@@ -86,11 +86,11 @@ assert.equal(harnessToolChoiceForProjection({
   mode: 'business',
   phase: 'awaiting-confirmation',
   allowedToolBindings: [],
-}), undefined);
+}), 'none');
 assert.equal(harnessToolChoiceForProjection({
   mode: 'complete',
   allowedToolBindings: [],
-}), undefined);
+}), 'none');
 
 const vendorRequestSource = fs.readFileSync(
   'agent/vendor/opencode/packages/opencode/src/session/llm/request.ts',

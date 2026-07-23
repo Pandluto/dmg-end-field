@@ -123,7 +123,87 @@ function buffCatalogById(payload = {}) {
 }
 
 function deterministicRemovedButtonBuffCleanup(beforePayload, afterPayload, removedButtonIds) {
+  return deterministicTimelineButtonBuffLifecycle(beforePayload, afterPayload, {
+    removedButtonIds,
+  });
+}
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function containsOnlyKeys(value, allowedKeys) {
+  return Object.keys(value).every((key) => allowedKeys.has(key));
+}
+
+function isAbsentOrEmptyArray(value) {
+  return value === null || value === undefined || (Array.isArray(value) && value.length === 0);
+}
+
+function isAbsentOrEmptyRecord(value) {
+  return value === null || value === undefined || (isRecord(value) && Object.keys(value).length === 0);
+}
+
+function isCanonicalEmptyAnomalyConfig(value) {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value) || !containsOnlyKeys(value, new Set([
+    'selectedStatuses',
+    'selectedDamages',
+    'selectedStateSnapshotIds',
+  ]))) return false;
+  return isAbsentOrEmptyArray(value.selectedStatuses)
+    && isAbsentOrEmptyArray(value.selectedDamages)
+    && isAbsentOrEmptyArray(value.selectedStateSnapshotIds);
+}
+
+function isCanonicalEmptyResistanceConfig(value) {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value) || !containsOnlyKeys(value, new Set(['targetResistance']))) return false;
+  const target = value.targetResistance;
+  if (target === null || target === undefined) return true;
+  const resistanceKeys = new Set([
+    'physicalResistance',
+    'fireResistance',
+    'electricResistance',
+    'iceResistance',
+    'natureResistance',
+  ]);
+  return isRecord(target)
+    && containsOnlyKeys(target, resistanceKeys)
+    && Object.values(target).every((entry) => typeof entry === 'number' && entry === 0);
+}
+
+function isCanonicalEmptyPanelConfig(value) {
+  if (value === null || value === undefined) return true;
+  if (!isRecord(value) || !containsOnlyKeys(value, new Set([
+    'selectedBuff',
+    'globallyDisabledBuffIds',
+    'manualDisabledBuffIdsBySegmentKey',
+    'manualBuffStackCountsBySegmentKey',
+    'manualDisabledHitKeys',
+  ]))) return false;
+  return isAbsentOrEmptyArray(value.selectedBuff)
+    && isAbsentOrEmptyArray(value.globallyDisabledBuffIds)
+    && isAbsentOrEmptyRecord(value.manualDisabledBuffIdsBySegmentKey)
+    && isAbsentOrEmptyRecord(value.manualBuffStackCountsBySegmentKey)
+    && isAbsentOrEmptyArray(value.manualDisabledHitKeys);
+}
+
+function hasCanonicalEmptyBuffState(button = {}) {
+  return isAbsentOrEmptyArray(button.selectedBuff)
+    && isAbsentOrEmptyRecord(button.buffStackCounts)
+    && isCanonicalEmptyAnomalyConfig(button.anomalyConfig)
+    && isCanonicalEmptyResistanceConfig(button.resistanceConfig)
+    && isCanonicalEmptyPanelConfig(button.panelConfig);
+}
+
+function deterministicTimelineButtonBuffLifecycle(
+  beforePayload,
+  afterPayload,
+  { removedButtonIds = [], addedButtonIds = [] } = {},
+) {
   const removed = new Set(removedButtonIds);
+  const added = new Set(addedButtonIds);
   const beforeButtons = buttons(beforePayload);
   const afterButtons = buttons(afterPayload);
   const removedBuffIds = new Set(
@@ -134,7 +214,11 @@ function deterministicRemovedButtonBuffCleanup(beforePayload, afterPayload, remo
     )),
   );
   for (const [buttonId, afterButton] of Object.entries(afterButtons)) {
-    if (!beforeButtons[buttonId] || !same(buffButton(beforeButtons[buttonId]), buffButton(afterButton))) {
+    if (!beforeButtons[buttonId]) {
+      if (added.has(buttonId) && hasCanonicalEmptyBuffState(afterButton)) continue;
+      return { pass: false, reason: `added-button-has-buff-state:${buttonId}` };
+    }
+    if (!same(buffButton(beforeButtons[buttonId]), buffButton(afterButton))) {
       return { pass: false, reason: `changed-surviving-button-buff:${buttonId}` };
     }
   }
@@ -168,7 +252,12 @@ function deterministicRemovedButtonBuffCleanup(beforePayload, afterPayload, remo
       return { pass: false, reason: `removed-unrelated-buff:${buffId}` };
     }
   }
-  return { pass: true, removedButtonIds: [...removed], removedBuffIds: [...removedBuffIds] };
+  return {
+    pass: true,
+    removedButtonIds: [...removed],
+    addedButtonIds: [...added],
+    removedBuffIds: [...removedBuffIds],
+  };
 }
 
 function mapCleanupOnlyRemovesAllowed(before = {}, after = {}, allowedRemovedIds = []) {
@@ -284,12 +373,14 @@ function analyzeBusinessMutation({ businessId, beforePayload, afterPayload }) {
       const beforeButtonIds = Object.keys(buttons(normalizedBeforePayload));
       const afterButtonIds = new Set(Object.keys(buttons(normalizedAfterPayload)));
       const removedButtonIds = beforeButtonIds.filter((id) => !afterButtonIds.has(id));
-      const cascade = deterministicRemovedButtonBuffCleanup(
+      const beforeButtonIdSet = new Set(beforeButtonIds);
+      const addedButtonIds = [...afterButtonIds].filter((id) => !beforeButtonIdSet.has(id));
+      const cascade = deterministicTimelineButtonBuffLifecycle(
         normalizedBeforePayload,
         normalizedAfterPayload,
-        removedButtonIds,
+        { removedButtonIds, addedButtonIds },
       );
-      if (removedButtonIds.length && cascade.pass) {
+      if ((removedButtonIds.length || addedButtonIds.length) && cascade.pass) {
         productCascades.push(domain);
         cascadeDetails = { ...cascadeDetails, ...cascade };
       } else {
