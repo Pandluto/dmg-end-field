@@ -1091,7 +1091,7 @@ function readNativeWorkbenchContext(binding) {
   };
 }
 
-async function syncNativeWorkbenchAxisBinding(binding) {
+async function syncNativeWorkbenchAxisBinding(binding, harnessProjectionAuthority = null) {
   if (!binding || binding.host !== 'workbench') return null;
   const current = binding.axisBindingId ? binding : ensureNativeSessionAxisBinding(binding.directory, binding.sessionID);
   if (!current?.axisBindingId || !current.timelineId) {
@@ -1100,6 +1100,14 @@ async function syncNativeWorkbenchAxisBinding(binding) {
     throw error;
   }
   await ensureDefRestService();
+  const authority = harnessProjectionAuthority
+    && typeof harnessProjectionAuthority.provisionToken === 'string'
+    && typeof harnessProjectionAuthority.mode === 'string'
+    ? {
+      provisionToken: harnessProjectionAuthority.provisionToken,
+      mode: harnessProjectionAuthority.mode,
+    }
+    : null;
   const bindAxis = async (boundNodeId = '') => {
     const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
       method: 'POST',
@@ -1112,6 +1120,7 @@ async function syncNativeWorkbenchAxisBinding(binding) {
           host: 'workbench',
           timelineId: current.timelineId,
           boundNodeId: boundNodeId || undefined,
+          ...(authority ? { harnessProjection: authority } : {}),
         },
       }),
       signal: AbortSignal.timeout(5000),
@@ -1134,7 +1143,13 @@ async function syncNativeWorkbenchAxisBinding(binding) {
     headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
     body: JSON.stringify({
       tool: 'def.workbench.assert_session_axis',
-      input: { sessionBindingId: current.axisBindingId, sessionID: current.sessionID, host: 'workbench', timelineId: current.timelineId },
+      input: {
+        sessionBindingId: current.axisBindingId,
+        sessionID: current.sessionID,
+        host: 'workbench',
+        timelineId: current.timelineId,
+        ...(authority ? { harnessProjection: authority } : {}),
+      },
     }),
     signal: AbortSignal.timeout(5000),
   });
@@ -1186,17 +1201,31 @@ async function awaitNativeWorkbenchCheckoutProjection(binding) {
   return payload.snapshot;
 }
 
-async function assertWorkbenchTimelineAdmission(timelineId) {
+async function assertWorkbenchTimelineAdmission(timelineId, harnessProjectionAuthority = null) {
   if (typeof timelineId !== 'string' || !timelineId.trim()) {
     const error = new Error('Workbench DEF session creation requires timelineId.');
     error.code = 'BLOCKED_BINDING';
     throw error;
   }
   await ensureDefRestService();
+  const authority = harnessProjectionAuthority
+    && typeof harnessProjectionAuthority.provisionToken === 'string'
+    && typeof harnessProjectionAuthority.mode === 'string'
+    ? {
+      provisionToken: harnessProjectionAuthority.provisionToken,
+      mode: harnessProjectionAuthority.mode,
+    }
+    : null;
   const response = await fetch(`${defRestUrl}/api/def-tools/call`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
-    body: JSON.stringify({ tool: 'def.workbench.assert_timeline_admission', input: { timelineId: timelineId.trim() } }),
+    body: JSON.stringify({
+      tool: 'def.workbench.assert_timeline_admission',
+      input: {
+        timelineId: timelineId.trim(),
+        ...(authority ? { harnessProjection: authority } : {}),
+      },
+    }),
     signal: AbortSignal.timeout(5000),
   });
   const payload = await response.json().catch(() => null);
@@ -1680,9 +1709,15 @@ const server = http.createServer(async (request, response) => {
         error.code = 'HARNESS_PROJECTION_FORBIDDEN';
         throw error;
       }
+      const harnessProjectionAuthority = harnessProjection
+        ? {
+          provisionToken: typeof harnessProjection.provisionToken === 'string' ? harnessProjection.provisionToken : '',
+          mode: typeof harnessProjection.mode === 'string' ? harnessProjection.mode : '',
+        }
+        : null;
       const host = body.host === 'workbench' ? 'workbench' : 'ai-cli';
       const timelineId = typeof body.timelineId === 'string' ? body.timelineId.trim() : '';
-      if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId);
+      if (host === 'workbench') await assertWorkbenchTimelineAdmission(timelineId, harnessProjectionAuthority);
       let session = null;
       try {
         session = await createNativeHostSession({
@@ -1696,7 +1731,7 @@ const server = http.createServer(async (request, response) => {
         });
         await registerNativeCatalogSession(session);
         const binding = ensureNativeSessionAxisBinding(session.directory, session.sessionID);
-        const axisContext = await syncNativeWorkbenchAxisBinding(binding);
+        const axisContext = await syncNativeWorkbenchAxisBinding(binding, harnessProjectionAuthority);
         const projection = harnessProjection
           ? await activateHarnessProjection(harnessProjection, session, binding)
           : null;
