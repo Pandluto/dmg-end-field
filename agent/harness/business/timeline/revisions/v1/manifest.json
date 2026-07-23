@@ -1,0 +1,632 @@
+{
+  "schemaVersion": 1,
+  "businessId": "timeline",
+  "version": "v1",
+  "writeScope": [
+    "timeline.buttonIdentity",
+    "timeline.buttonPosition",
+    "timeline.buttonOrder",
+    "timeline.structure"
+  ],
+  "operations": {
+    "inspect": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the authoritative checkout and current timeline context.",
+          "transitions": {"onSuccess": "read-buttons", "onFailure": "failed"}
+        },
+        {
+          "id": "read-buttons",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read exact button candidates. For @N-L, pass nodeIndex=N-1 and lineIndex=L-1 without reinterpretation.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report exact button identity, position and order from the current checkout.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the missing checkout or exact button fact; do not infer from transcript.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "add": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind to current checkout and scheme version.",
+          "transitions": {"onSuccess": "resolve-skill", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-skill",
+          "kind": "evidence",
+          "tools": ["def.data.resource.skill"],
+          "writes": [],
+          "instructions": "Resolve the user's complete skill wording for the exact selected operator. Preserve per-hit facts but use the stable runtime skill identity for the button.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one Agent-named child Work Node for this timeline edit.",
+          "transitions": {"onSuccess": "read-source", "onFailure": "failed"}
+        },
+        {
+          "id": "read-source",
+          "kind": "context",
+          "tools": ["def.node.code.read"],
+          "writes": [],
+          "instructions": "Read the canonical working timeline source inside the bound Work Node.",
+          "transitions": {"onSuccess": "edit-source", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-source",
+          "kind": "mutation",
+          "tools": ["def.node.code.edit"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Add one exact skill button at the requested legal position. Do not add or change selectedBuff.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Rebuild mirrors and validate button identity, selected operator, slot uniqueness and timeline invariants.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Produce semantic diff and confirm no BUFF business field changed.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the validated draft and exact semantic change. It is not applied to the current checkout.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report draft creation/edit/validation failure and preserve the isolated draft.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "remove": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind to current checkout.",
+          "transitions": {"onSuccess": "read-target", "onFailure": "failed"}
+        },
+        {
+          "id": "read-target",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve exactly one current button by immutable coordinate or complete identity.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child timeline draft.",
+          "transitions": {"onSuccess": "edit-source", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-source",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Remove exactly the resolved button. Product mirror cleanup is allowed; no unrelated button or BUFF edit is allowed.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate rebuilt mirrors and references.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify the semantic diff contains only the requested removal and deterministic mirror cleanup.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the validated removal draft and affected BUFF/calculation state.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Do not remove an ambiguous button; report the exact missing fact.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "move": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-target", "onFailure": "failed"}
+        },
+        {
+          "id": "read-target",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve the source button and exact target coordinate.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child draft.",
+          "transitions": {"onSuccess": "edit-source", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-source",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Move only the resolved button; preserve its skill identity and BUFF fields.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate slot uniqueness, staff identity and mirrors.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify only position/order/structure changed.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the validated move draft.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report collision, ambiguity or validation failure without applying.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "replace": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-target", "onFailure": "failed"}
+        },
+        {
+          "id": "read-target",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve exactly one existing button.",
+          "transitions": {"onSuccess": "resolve-skill", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-skill",
+          "kind": "evidence",
+          "tools": ["def.data.resource.skill"],
+          "writes": [],
+          "instructions": "Resolve the complete replacement skill for the same selected operator unless the user explicitly changes the staff owner.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child draft.",
+          "transitions": {"onSuccess": "edit-source", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-source",
+          "kind": "mutation",
+          "tools": ["def.node.code.edit"],
+          "writes": ["timeline.buttonIdentity"],
+          "instructions": "Replace only skill identity fields. Preserve coordinate and BUFF fields unless product validation requires explicit cleanup.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate exact skill identity and mirrors.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Reject any unrelated timeline or BUFF change.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the validated replacement draft.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report unresolved skill identity or validation failure.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "copy": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout.",
+          "transitions": {"onSuccess": "read-target", "onFailure": "failed"}
+        },
+        {
+          "id": "read-target",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Resolve the exact source button and target coordinate.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one child draft.",
+          "transitions": {"onSuccess": "copy-button", "onFailure": "failed"}
+        },
+        {
+          "id": "copy-button",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Copy skill identity into one new stable button at the target. Do not copy selectedBuff unless the user separately requests a BUFF operation.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Validate new id, slot, selected operator and mirrors.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify the new button and no BUFF copy.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the validated copy draft.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report exact source/target or validation failure.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "validate": {
+      "entryPhase": "bind-node",
+      "phases": [
+        {
+          "id": "bind-node",
+          "kind": "context",
+          "tools": ["def.node.crud.read"],
+          "writes": [],
+          "instructions": "Bind the explicitly named draft, or the current checkout anchor after a checkout transition.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Rebuild and validate the bound Work Node.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Return typed semantic diff and risk flags.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report validation and semantic diff without applying.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Preserve the draft and report validation issues.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "preview": {
+      "entryPhase": "read-context",
+      "phases": [
+        {
+          "id": "read-context",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind current checkout, exact user target and scheme version.",
+          "transitions": {"onSuccess": "read-target", "onFailure": "failed"}
+        },
+        {
+          "id": "read-target",
+          "kind": "context",
+          "tools": ["def.node.crud.buttons"],
+          "writes": [],
+          "instructions": "Read exact source/target button facts when the change references existing coordinates.",
+          "transitions": {"onSuccess": "resolve-skill", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-skill",
+          "kind": "evidence",
+          "tools": ["def.data.resource.skill"],
+          "writes": [],
+          "instructions": "Resolve exact new skill identity when needed; otherwise preserve the exact current identity.",
+          "transitions": {"onSuccess": "fork-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "fork-draft",
+          "kind": "proposal",
+          "tools": ["def.node.crud.fork"],
+          "writes": [],
+          "instructions": "Create one Agent-named child draft for the complete requested timeline change.",
+          "transitions": {"onSuccess": "read-source", "onFailure": "failed"}
+        },
+        {
+          "id": "read-source",
+          "kind": "context",
+          "tools": ["def.node.code.read"],
+          "writes": [],
+          "instructions": "Read the canonical working timeline source.",
+          "transitions": {"onSuccess": "edit-source", "onFailure": "failed"}
+        },
+        {
+          "id": "edit-source",
+          "kind": "mutation",
+          "tools": ["def.node.code.apply_patch"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Apply the complete requested timeline edit to the isolated draft only. selectedBuff and BUFF state are forbidden.",
+          "transitions": {"onSuccess": "validate-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "validate-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.validate"],
+          "writes": [],
+          "instructions": "Rebuild and validate the draft.",
+          "transitions": {"onSuccess": "diff-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "diff-draft",
+          "kind": "verification",
+          "tools": ["def.node.crud.diff"],
+          "writes": [],
+          "instructions": "Verify the semantic diff is timeline-only and bind the Work Node id/revision to this transaction.",
+          "transitions": {"onSuccess": "awaiting-confirmation", "onFailure": "failed"}
+        },
+        {
+          "id": "awaiting-confirmation",
+          "kind": "awaiting-confirmation",
+          "tools": [],
+          "writes": [],
+          "instructions": "Wait for later explicit confirmation of this exact Work Node revision and semantic diff.",
+          "transitions": {"onConfirm": "use-draft", "onReject": "rejected"},
+          "terminalState": "awaiting-confirmation"
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Use the same validated Work Node revision under native approval and scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline reflect the reviewed semantic diff.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report applied timeline changes, visible result, BUFF downstream impact and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "rejected",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Confirm that the draft was not used.",
+          "terminalState": "aborted"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 and preserve any isolated draft for inspection.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "apply": {
+      "entryPhase": "requires-reviewed-draft",
+      "phases": [
+        {
+          "id": "requires-reviewed-draft",
+          "kind": "unsupported",
+          "tools": [],
+          "writes": [],
+          "instructions": "Direct apply without a unique awaiting-confirmation timeline transaction is unsupported. Preview/validate the draft first.",
+          "terminalState": "unsupported"
+        }
+      ]
+    },
+    "restore": {
+      "entryPhase": "bind-current",
+      "phases": [
+        {
+          "id": "bind-current",
+          "kind": "context",
+          "tools": ["def.node.crud.read"],
+          "writes": [],
+          "instructions": "Bind the current checkout Work Node and immutable base.",
+          "transitions": {"onSuccess": "restore-base", "onFailure": "failed"}
+        },
+        {
+          "id": "restore-base",
+          "kind": "mutation",
+          "tools": ["def.node.crud.restore"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Restore only when the reviewed base diff is timeline-owned. Native approval and semantic write-scope enforcement are mandatory.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the visible restored timeline and scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report restored timeline state and downstream impact.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未恢复 when the base includes out-of-scope BUFF/loadout/selection changes or verification fails.",
+          "terminalState": "aborted"
+        }
+      ]
+    }
+  }
+}

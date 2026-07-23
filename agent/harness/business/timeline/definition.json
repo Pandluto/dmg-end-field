@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "businessId": "timeline",
+  "displayName": "排轴",
+  "summary": "查看、添加、删除、移动、替换、复制、验证、预览、应用或恢复技能按钮与排轴结构。",
+  "defaultRevision": "v1",
+  "operations": [
+    "inspect",
+    "add",
+    "remove",
+    "move",
+    "replace",
+    "copy",
+    "validate",
+    "preview",
+    "apply",
+    "restore"
+  ],
+  "toolCeiling": [
+    "def.node.crud.context",
+    "def.node.crud.current",
+    "def.node.crud.buttons",
+    "def.data.resource.skill",
+    "def.node.code.read",
+    "def.node.code.edit",
+    "def.node.code.apply_patch",
+    "def.node.code.materialize",
+    "def.node.code.status",
+    "def.node.code.rebuild",
+    "def.node.code.discard",
+    "def.node.crud.fork",
+    "def.node.crud.read",
+    "def.node.crud.validate",
+    "def.node.crud.diff",
+    "def.node.crud.use",
+    "def.node.crud.restore"
+  ],
+  "writeScope": [
+    "timeline.buttonIdentity",
+    "timeline.buttonPosition",
+    "timeline.buttonOrder",
+    "timeline.structure"
+  ],
+  "completion": {
+    "draft": "The bound Work Node rebuilds and validates with a semantic diff.",
+    "apply": [
+      "same-work-node-revision",
+      "native-approval",
+      "scheme-CAS",
+      "visible-timeline-postcondition"
+    ],
+    "restore": "Only succeeds when semantic diff contains timeline-owned changes and permitted product cascades."
+  },
+  "downstream": {
+    "selection": "continue",
+    "loadout": "continue",
+    "buff": "hard-invalid-when-a-referenced-button-disappears-otherwise-stale",
+    "calculation": "recompute"
+  }
+}
