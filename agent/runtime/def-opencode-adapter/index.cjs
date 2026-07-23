@@ -38,6 +38,10 @@ const MAX_SESSION_BINDING_BYTES = 64 * 1024;
 const PERSISTED_SESSION_SCAN_MAX_ENTRIES = 1024;
 const PERSISTED_SESSION_LOOKUP_CONCURRENCY = 8;
 const PERSISTED_SESSION_LIST_TIMEOUT_MS = 25000;
+// Retained fresh creates reached 13.4s, while startup history bootstrap can
+// hold the shared plugin-install lock for roughly 25s. Keep bounded headroom
+// here without widening turn/provider request budgets.
+const NATIVE_OPENCODE_FRESH_SESSION_CREATE_TIMEOUT_MS = 45000;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
@@ -998,6 +1002,9 @@ function requestJson(method, url, body, signal, timeoutMs = 60000) {
     timer = setTimeout(() => {
       const error = new Error('OpenCode request timeout');
       error.code = 'OPENCODE_REQUEST_TIMEOUT';
+      // Settle with the authoritative timeout before destroy can synchronously
+      // emit close/error and replace it with a generic transport failure.
+      rejectOnce(error);
       request.destroy(error);
     }, timeoutMs);
     request.on('close', () => {
@@ -1180,7 +1187,13 @@ async function createNativeHostSession({ config = {}, host = 'ai-cli', skillId, 
   const serverUrl = await ensureOpenCodeServer(deepseek, resolvedSkillId, thinkingEffort);
   const query = `directory=${encodeURIComponent(directory)}`;
   const payload = buildSessionCreatePayload({ selected, deepseek, skillId: resolvedSkillId, thinkingEffort });
-  const session = await requestJson('POST', `${serverUrl}/session?${query}`, payload, undefined, 15000);
+  const session = await requestJson(
+    'POST',
+    `${serverUrl}/session?${query}`,
+    payload,
+    undefined,
+    NATIVE_OPENCODE_FRESH_SESSION_CREATE_TIMEOUT_MS,
+  );
   const profile = buildNativeHostProfile(host);
   const harnessBinding = defHarness.createSessionBinding({ sessionId: session.id, resolved: resolvedHarness });
   const agentRelease = createAgentRelease({
@@ -3205,6 +3218,7 @@ module.exports = {
   hydrateDefSession,
   cleanupNativeRetrievalArtifacts,
   createAgentSessionWorkspace,
+  requestJson,
   getChatSessionStream,
   getLiveDefTranscript,
   shutdownRuntime,
