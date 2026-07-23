@@ -10,6 +10,7 @@ import { tool } from '../../../vendor/opencode/node_modules/@opencode-ai/plugin/
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 import turnRouter from '../../def-opencode-adapter/harness-turn-router.cjs'
+import harnessRouter from '../../def-harness-manager/router.cjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -33,6 +34,7 @@ const defToolTurnPolicies = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
 const { classifyDefExecutableTurnPolicy } = turnRouter
+const { validateRouteSubmission } = harnessRouter
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
@@ -2190,6 +2192,44 @@ export const data_equipment_3plus1_plan = {
         state: result.state,
         shortlistCount: Array.isArray(result.shortlist) ? result.shortlist.length : 0,
         readOnly: true,
+      },
+    }
+  },
+}
+
+const harnessRouteStepSchema = tool.schema.object({
+  businessId: tool.schema.enum(['selection', 'loadout', 'timeline', 'buff', 'calculation']),
+  operation: tool.schema.string().min(1).max(80),
+  target: tool.schema.string().max(240).optional(),
+  requestedEffect: tool.schema.string().min(1).max(240),
+  constraints: tool.schema.array(tool.schema.string().min(1).max(240)).max(16).optional(),
+})
+
+export const harness_route = {
+  description: 'Submit one structured Harness Manager route classification. This internal route capability validates only business, operation, target, requested effect, ordered cross-business steps, or an ambiguity question. It does not read game knowledge, answer the business request, or change product state.',
+  args: {
+    kind: tool.schema.enum(['new-business', 'cross-business', 'clarify']),
+    businessId: tool.schema.enum(['selection', 'loadout', 'timeline', 'buff', 'calculation']).optional(),
+    operation: tool.schema.string().min(1).max(80).optional(),
+    target: tool.schema.string().max(240).optional(),
+    requestedEffect: tool.schema.string().max(240).optional(),
+    constraints: tool.schema.array(tool.schema.string().min(1).max(240)).max(16).optional(),
+    goal: tool.schema.string().max(480).optional(),
+    steps: tool.schema.array(harnessRouteStepSchema).min(2).max(5).optional(),
+    question: tool.schema.string().max(240).optional(),
+    ambiguity: tool.schema.string().max(240).optional(),
+    choices: tool.schema.array(tool.schema.string().min(1).max(160)).max(8).optional(),
+  },
+  async execute(args) {
+    const route = validateRouteSubmission(args)
+    return {
+      title: 'DEF Harness route submitted',
+      output: JSON.stringify({ ok: true, route }, null, 2),
+      metadata: {
+        family: 'def-harness-manager',
+        route,
+        readOnly: true,
+        currentCheckoutTouched: false,
       },
     }
   },

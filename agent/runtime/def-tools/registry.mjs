@@ -21,6 +21,7 @@ export const DEF_PROJECTION_ACCESS = Object.freeze({
 });
 
 const INTERNAL_GOVERNANCE_TOOLS = new Set([
+  'def.harness.route',
   'def.workbench.bind_session_axis',
   'def.workbench.unbind_session_axis',
   'def.workbench.assert_session_axis',
@@ -195,6 +196,7 @@ const CANONICAL_TARGETS = Object.freeze({
 });
 
 export const DEF_NATIVE_TARGETS = Object.freeze([
+  { id: 'def.harness.route', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_harness_route', status: 'implemented', workspaceScope: 'internal-governance', exposure: ['workbench'] },
   { id: 'def.node.code.read', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'read', status: 'implemented', workspaceScope: 'child-node' },
   { id: 'def.node.code.edit', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'edit', status: 'implemented', workspaceScope: 'child-node' },
   { id: 'def.node.code.apply_patch', family: DEF_TOOL_FAMILY.NODE_CODE, source: 'opencode-native', nativeBinding: 'apply_patch', status: 'implemented', workspaceScope: 'child-node' },
@@ -276,6 +278,7 @@ const TOOL_TYPED_ERRORS = Object.freeze({
 });
 
 function nativeTargetEffect(target) {
+  if (target.id === 'def.harness.route') return 'manager-route-only';
   if (target.id.startsWith('def.data.resource.')) return target.id === 'def.data.resource.native_catalog_materialize' ? 'session-artifact' : 'read-only';
   if (['def.node.code.read', 'def.node.code.status', 'def.node.crud.list', 'def.node.crud.context', 'def.node.crud.current', 'def.node.crud.buttons', 'def.node.crud.buff_ranking', 'def.node.crud.diff'].includes(target.id)) return 'read-only';
   if (target.id === 'def.operator.config.preview' || target.id === 'def.data.resource.team_loadout_plan') return 'proposal-only';
@@ -285,6 +288,7 @@ function nativeTargetEffect(target) {
 }
 
 function localResultContract(effect) {
+  if (effect === 'manager-route-only') return 'Returns only a validated structured route for the Harness Manager; it reads no game knowledge and changes no product state.';
   if (effect === 'read-only') return 'Returns typed facts with identity/source fields and an explicit success or typed error state.';
   if (effect === 'proposal-only') return 'Returns an immutable proposal/plan reference; it does not apply the proposal.';
   if (effect === 'session-artifact') return 'Returns a registered read-only artifact identity and manifest path scoped to the Session.';
