@@ -20,7 +20,7 @@ const pages = [
   ["07-developer-skill.md", "开发者自己的 Skill"],
   ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
   ["09-mcp-as-another-solution.md", "MCP 如何开放能力"],
-  ["10-harness.md", "Harness（待补充）"],
+  ["10-harness.md", "Harness"],
 ]
 
 const escapeHtml = (value) =>
