@@ -244,6 +244,80 @@ export const DEF_NATIVE_TARGETS = Object.freeze([
   { id: 'def.operator.config.patch', family: DEF_TOOL_FAMILY.NODE_CRUD, source: 'def-native', nativeBinding: 'def_operator_config_patch', status: 'implemented', workspaceScope: 'current-checkout', exposure: ['workbench'] },
 ]);
 
+const TOOL_CAPABILITY_SOURCES = Object.freeze({
+  'def.node.crud.request_approval': 'native OpenCode approval requested by def_node_use',
+  'def.node.crud.record_approval': 'native OpenCode approval decision bound to the pending node use',
+  'def.node.crud.use': 'server-minted one-time approval capability plus Work Node revision',
+  'def.node.crud.restore': 'native approval plus current checkout revision',
+  'def.team.selection.apply': 'native approval plus exact ordered operator ids and checkout revision',
+  'def.team.loadout.plan.revise': 'stored plan id/hash and one returned decision/option pair',
+  'def.team.loadout.plan.apply': 'READY stored plan id/hash plus native approval capability',
+  'def.data.resource.operator_build_profile': 'same-turn fallback token from operator build guide discovery',
+  'def.data.resource.weapon_fit_plan': 'same-turn planner profile capability and required convention bundle hash',
+  'def.data.resource.equipment_set_fit_shortlist': 'same-turn planner profile capability and native catalog artifact',
+  'def.data.resource.equipment_3plus1_facts': 'registered native catalog artifact and exact set identity',
+  'def.data.resource.equipment_3plus1_plan': 'same-turn planner profile capability and matching native catalog artifact revision',
+  'def.operator.config.preview': 'current checkout revision and exact reviewed configuration input',
+  'def.operator.config.patch': 'unchanged proposal token, explicit apply intent, native approval capability, and checkout revision',
+});
+
+const TOOL_TYPED_ERRORS = Object.freeze({
+  'def.node.crud.use': ['blocked-session-mismatch', 'approval-rejected', 'revision-conflict', 'visible-postcondition-failed'],
+  'def.node.crud.restore': ['blocked-session-mismatch', 'approval-rejected', 'revision-conflict', 'visible-postcondition-failed'],
+  'def.team.selection.apply': ['blocked-session-mismatch', 'operator-selection-invalid', 'approval-rejected', 'visible-postcondition-failed'],
+  'def.team.loadout.plan.apply': ['team-loadout-plan-not-ready', 'team-loadout-plan-mismatch', 'approval-rejected', 'visible-postcondition-failed'],
+  'def.data.resource.operator_build_profile': ['operator-build-fallback-token-invalid', 'operator-build-profile-incomplete'],
+  'def.data.resource.weapon_fit_plan': ['weapon-fit-capability-invalid', 'weapon-fit-combat-convention-incomplete', 'weapon-fit-catalog-incomplete'],
+  'def.data.resource.equipment_set_fit_shortlist': ['equipment-set-fit-capability-invalid', 'equipment-set-fit-catalog-invalid'],
+  'def.data.resource.equipment_3plus1_facts': ['equipment-3plus1-catalog-invalid', 'equipment-3plus1-set-not-found'],
+  'def.data.resource.equipment_3plus1_plan': ['equipment-3plus1-capability-invalid', 'equipment-3plus1-catalog-invalid', 'equipment-3plus1-no-legal-plan'],
+  'def.operator.config.preview': ['operator-config-preview-failed', 'operator-config-timeline-invariant-failed'],
+  'def.operator.config.patch': ['operator-config-explicit-review-required', 'operator-config-proposal-mismatch', 'operator-config-apply-intent-required', 'revision-conflict', 'visible-postcondition-failed'],
+});
+
+function nativeTargetEffect(target) {
+  if (target.id.startsWith('def.data.resource.')) return target.id === 'def.data.resource.native_catalog_materialize' ? 'session-artifact' : 'read-only';
+  if (['def.node.code.read', 'def.node.code.status', 'def.node.crud.list', 'def.node.crud.context', 'def.node.crud.current', 'def.node.crud.buttons', 'def.node.crud.buff_ranking', 'def.node.crud.diff'].includes(target.id)) return 'read-only';
+  if (target.id === 'def.operator.config.preview' || target.id === 'def.data.resource.team_loadout_plan') return 'proposal-only';
+  if (target.id.includes('request_approval') || target.id.includes('record_approval')) return 'native-approval';
+  if (target.id.startsWith('def.node.code.') || ['def.node.crud.fork', 'def.node.crud.read', 'def.node.crud.update', 'def.node.crud.delete', 'def.node.crud.validate'].includes(target.id)) return 'isolated-work-node';
+  return 'current-checkout-mutation';
+}
+
+function localResultContract(effect) {
+  if (effect === 'read-only') return 'Returns typed facts with identity/source fields and an explicit success or typed error state.';
+  if (effect === 'proposal-only') return 'Returns an immutable proposal/plan reference; it does not apply the proposal.';
+  if (effect === 'session-artifact') return 'Returns a registered read-only artifact identity and manifest path scoped to the Session.';
+  if (effect === 'native-approval') return 'Returns the native approval state/capability or an explicit rejection/cancellation.';
+  if (effect === 'isolated-work-node') return 'Returns the resulting draft identity/revision/validation state without silently changing the formal checkout.';
+  return 'Returns applied/no-op/rejected state with revision and visible-postcondition evidence where applicable.';
+}
+
+export const DEF_TOOL_LOCAL_CONTRACTS = Object.freeze(Object.fromEntries(
+  DEF_NATIVE_TARGETS.map((target) => {
+    const sideEffect = nativeTargetEffect(target);
+    return [target.id, Object.freeze({
+      id: target.id,
+      binding: target.nativeBinding,
+      purpose: `Execute only the canonical ${target.id} capability.`,
+      input: `Arguments are validated by the native ${target.nativeBinding} schema; Harness instructions may constrain values but cannot replace that schema.`,
+      result: localResultContract(sideEffect),
+      sideEffect,
+      capabilitySource: TOOL_CAPABILITY_SOURCES[target.id] || 'none; normal Host/session/checkout exposure still applies',
+      typedErrors: Object.freeze(TOOL_TYPED_ERRORS[target.id] || ['def-tool-input-invalid', 'def-tool-scope-denied', 'def-tool-execution-failed']),
+    })];
+  }),
+));
+
+export function getDefToolLocalContract(id) {
+  return DEF_TOOL_LOCAL_CONTRACTS[id] || null;
+}
+
+export function listDefToolLocalContracts(ids = undefined) {
+  const requested = Array.isArray(ids) ? ids : DEF_NATIVE_TARGETS.map((target) => target.id);
+  return requested.map((id) => getDefToolLocalContract(id)).filter(Boolean);
+}
+
 function familyFor(id) {
   if (NODE_CODE_TOOLS.has(id)) return DEF_TOOL_FAMILY.NODE_CODE;
   if (DATA_RESOURCE_TOOLS.has(id)) return DEF_TOOL_FAMILY.DATA_RESOURCE;

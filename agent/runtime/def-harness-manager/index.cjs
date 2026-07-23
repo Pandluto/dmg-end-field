@@ -1,5 +1,6 @@
 const { getNativeHarnessSystem } = require('../def-opencode-adapter/index.cjs');
 const { composeLegacyWorkbenchSystem } = require('./compatibility.cjs');
+const { buildHostKernelContext } = require('./host-kernel.cjs');
 
 function diagnosticSystemText(diagnostic) {
   if (!diagnostic || typeof diagnostic !== 'object') return '';
@@ -25,6 +26,13 @@ async function prepareWorkbenchTurn({
     ? parts
     : [{ type: 'text', text: String(userText || '') }];
   const harness = getNativeHarnessSystem(binding, userText);
+  const hostKernel = buildHostKernelContext({
+    binding,
+    axisContext,
+    checkoutState,
+    workbenchContext,
+    diagnostic,
+  });
   const system = composeLegacyWorkbenchSystem({
     harnessSystem: harness.system,
     workbenchContext,
@@ -46,6 +54,7 @@ async function prepareWorkbenchTurn({
       checkoutId: checkoutState?.current?.targetId || '',
       harnessSelector: harness.selector || '',
     },
+    hostKernel,
     compatibility: {
       binding: harness.binding,
       sessionBinding: harness.sessionBinding || harness.binding,
