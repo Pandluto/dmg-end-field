@@ -447,10 +447,16 @@
       const targetCount = Number(payload.targetCount);
       const deletedCount = Number(payload.deletedCount || 0);
       const failed = payload.failed;
+      if ((!response.ok || payload.ok !== true) && failed.length === 0) {
+        const errorMessage = typeof payload.error === 'string'
+          ? payload.error
+          : payload.error?.message || payload.code || `清理请求失败：HTTP ${response.status}`;
+        throw new Error(errorMessage);
+      }
       let statusText = '';
       if (payload.ok && targetCount === 0) {
         statusText = '没有可清除的 AI 模式会话。';
-      } else if (failed.length === 0) {
+      } else if (payload.ok && failed.length === 0) {
         statusText = `清理完成：目标 ${targetCount}，已删除 ${deletedCount}。`;
       } else {
         const failures = failed.map((item) => `${item.sessionID || '-'}：${item.code || 'NATIVE_SESSION_CLEANUP_FAILED'}`).join('；');

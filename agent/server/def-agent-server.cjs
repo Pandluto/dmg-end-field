@@ -49,7 +49,7 @@ let questionStore = null;
 // turn. Keep the sidecar's acceptance keyed by the caller correlation so a
 // retry joins the original operation instead of issuing another prompt.
 const nativeInteropPromptRequests = new Map();
-let workbenchSessionCleanupActive = false;
+let nativeSessionCleanupOwner = '';
 
 async function defRestReady() {
   try {
@@ -1506,7 +1506,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (method === 'POST' && requestUrl.pathname === '/api/native/workbench-sessions/cleanup') {
-      if (workbenchSessionCleanupActive) {
+      if (nativeSessionCleanupOwner) {
         writeJson(response, 409, {
           ok: false,
           targetCount: 0,
@@ -1517,7 +1517,7 @@ const server = http.createServer(async (request, response) => {
         });
         return;
       }
-      workbenchSessionCleanupActive = true;
+      nativeSessionCleanupOwner = 'workbench-bulk';
       try {
         const body = await readJsonBody(request);
         if (Object.keys(body).length > 0) {
@@ -1534,7 +1534,7 @@ const server = http.createServer(async (request, response) => {
         const cleanup = await cleanupAllManagedWorkbenchSessions();
         writeJson(response, cleanup.statusCode, cleanup.payload);
       } finally {
-        workbenchSessionCleanupActive = false;
+        if (nativeSessionCleanupOwner === 'workbench-bulk') nativeSessionCleanupOwner = '';
       }
       return;
     }
@@ -1543,24 +1543,38 @@ const server = http.createServer(async (request, response) => {
     const nativeRunnerCleanup = /^\/api\/native\/session\/([^/]+)\/runner-cleanup$/.exec(requestUrl.pathname);
     if ((method === 'DELETE' && nativeSessionDelete) || (method === 'POST' && nativeRunnerCleanup)) {
       const sessionID = decodeURIComponent((nativeSessionDelete || nativeRunnerCleanup)[1]);
-      const binding = findNativeSessionBinding(sessionID, { syncWorkspaceFiles: false });
-      if (!binding) {
-        writeJson(response, 200, { ok: true, status: 'already-deleted' });
+      if (nativeSessionCleanupOwner) {
+        writeJson(response, 409, {
+          ok: false,
+          error: 'native-session-cleanup-in-progress',
+          code: 'NATIVE_SESSION_CLEANUP_IN_PROGRESS',
+        });
         return;
       }
-      let runtime;
+      const cleanupOwner = `exact:${sessionID}`;
+      nativeSessionCleanupOwner = cleanupOwner;
       try {
-        if (binding.host === 'workbench') await ensureDefRestService();
-        runtime = await ensureRuntime(readConfig().deepseek);
-      } catch (error) {
-        throw nativeSessionCleanupError(
-          'OPENCODE_RUNTIME_UNAVAILABLE',
-          error instanceof Error ? error.message : String(error),
-          503,
-        );
+        const binding = findNativeSessionBinding(sessionID, { syncWorkspaceFiles: false });
+        if (!binding) {
+          writeJson(response, 200, { ok: true, status: 'already-deleted' });
+          return;
+        }
+        let runtime;
+        try {
+          if (binding.host === 'workbench') await ensureDefRestService();
+          runtime = await ensureRuntime(readConfig().deepseek);
+        } catch (error) {
+          throw nativeSessionCleanupError(
+            'OPENCODE_RUNTIME_UNAVAILABLE',
+            error instanceof Error ? error.message : String(error),
+            503,
+          );
+        }
+        const result = await deleteManagedNativeSession(binding, runtime);
+        writeJson(response, 200, result);
+      } finally {
+        if (nativeSessionCleanupOwner === cleanupOwner) nativeSessionCleanupOwner = '';
       }
-      const result = await deleteManagedNativeSession(binding, runtime);
-      writeJson(response, 200, result);
       return;
     }
 

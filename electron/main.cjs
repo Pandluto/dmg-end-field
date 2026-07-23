@@ -1824,7 +1824,13 @@ function startBridgeServer() {
 
       if (method === 'POST' && requestUrl.pathname === '/def-agent/workbench-sessions/cleanup') {
         const defAgent = await startDefAgent();
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/native/workbench-sessions/cleanup', {});
+        // The sidecar bounds every target operation; the bridge must not time out
+        // the aggregate batch while later targets are still being processed.
+        const upstream = await postJsonUrl(
+          'http://127.0.0.1:17322/api/native/workbench-sessions/cleanup',
+          {},
+          { timeoutMs: 0 },
+        );
         writeJson(response, upstream.status || 500, {
           ...(upstream.body || {}),
           defAgent,
@@ -2378,9 +2384,12 @@ function postJsonUrl(url, payload, options = {}) {
       });
     });
     request.on('error', reject);
-    request.setTimeout(30000, () => {
-      request.destroy(new Error('request timeout'));
-    });
+    const timeoutMs = Number.isFinite(options.timeoutMs) ? Math.max(0, Number(options.timeoutMs)) : 30000;
+    if (timeoutMs > 0) {
+      request.setTimeout(timeoutMs, () => {
+        request.destroy(new Error('request timeout'));
+      });
+    }
     request.write(body);
     request.end();
   });

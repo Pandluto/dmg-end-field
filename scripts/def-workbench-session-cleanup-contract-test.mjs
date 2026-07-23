@@ -263,6 +263,13 @@ try {
   const concurrent = await request(sidecarUrl, '/api/native/workbench-sessions/cleanup');
   assert.equal(concurrent.response.status, 409, JSON.stringify(concurrent.payload));
   assert.equal(concurrent.payload.code, 'WORKBENCH_SESSION_CLEANUP_IN_PROGRESS');
+  const concurrentExact = await request(
+    sidecarUrl,
+    `/api/native/session/${encodeURIComponent(aiCli.sessionID)}`,
+    { method: 'DELETE' },
+  );
+  assert.equal(concurrentExact.response.status, 409, JSON.stringify(concurrentExact.payload));
+  assert.equal(concurrentExact.payload.code, 'NATIVE_SESSION_CLEANUP_IN_PROGRESS');
 
   const first = await firstPromise;
   assert.equal(first.response.status, 200, JSON.stringify(first.payload));
@@ -296,8 +303,17 @@ try {
   assert.deepEqual(empty.payload, { ok: true, targetCount: 0, deletedCount: 0, failed: [] });
   assert.equal(runtimeEnsureCount, 2, 'empty cleanup must not start or ensure OpenCode');
 
-  const exact = createBinding({ sessionID: 'ses-exact-delete' });
-  const exactDelete = await request(sidecarUrl, `/api/native/session/${encodeURIComponent(exact.sessionID)}`, { method: 'DELETE' });
+  const exact = createBinding({ sessionID: 'ses-exact-delete', slowQuestionLookup: true });
+  const exactDeletePromise = request(
+    sidecarUrl,
+    `/api/native/session/${encodeURIComponent(exact.sessionID)}`,
+    { method: 'DELETE' },
+  );
+  await new Promise((resolve) => setTimeout(resolve, 75));
+  const bulkDuringExactDelete = await request(sidecarUrl, '/api/native/workbench-sessions/cleanup');
+  assert.equal(bulkDuringExactDelete.response.status, 409, JSON.stringify(bulkDuringExactDelete.payload));
+  assert.equal(bulkDuringExactDelete.payload.code, 'WORKBENCH_SESSION_CLEANUP_IN_PROGRESS');
+  const exactDelete = await exactDeletePromise;
   assert.equal(exactDelete.response.status, 200, JSON.stringify(exactDelete.payload));
   assert.equal(exactDelete.payload.ok, true);
   assert.equal(fs.existsSync(exact.directory), false);
@@ -319,11 +335,15 @@ try {
   for (const bridgeSource of [electronSource, devSource]) {
     assert.match(bridgeSource, /\/def-agent\/workbench-sessions\/cleanup/);
     assert.match(bridgeSource, /\/api\/native\/workbench-sessions\/cleanup/);
+    assert.match(bridgeSource, /Number\.isFinite\(options\.timeoutMs\)/);
+    assert.match(bridgeSource, /\/api\/native\/workbench-sessions\/cleanup'[\s\S]{0,180}\{ timeoutMs: 0 \}/);
   }
   assert.equal((shellHtml.match(/清除全部 AI 模式会话/g) || []).length, 1);
   assert.match(shellSource, /window\.confirm/);
   assert.match(shellSource, /Timeline、Work Node 和业务数据不受影响/);
   assert.match(shellSource, /method:\s*'POST'/);
+  assert.match(shellSource, /\(!response\.ok \|\| payload\.ok !== true\) && failed\.length === 0/);
+  assert.match(shellSource, /payload\.ok && failed\.length === 0/);
 
   console.log(JSON.stringify({
     ok: true,
@@ -331,6 +351,7 @@ try {
       'empty-request-only',
       'no-auth-required',
       'single-flight-cleanup',
+      'bulk-and-exact-delete-mutually-exclusive',
       'one-runtime-ensure-per-nonempty-bulk',
       'partial-failure-continues',
       'network-failure-retryable',
@@ -340,8 +361,9 @@ try {
       'single-delete-shares-exact-flow',
       'host-and-root-isolation',
       'business-data-preserved',
+      'cleanup-bridge-has-no-fixed-overall-timeout',
       'electron-and-dev-bridge-parity',
-      'shell-confirmation-and-result-ui',
+      'shell-confirmation-error-and-result-ui',
     ],
   }));
 } finally {
