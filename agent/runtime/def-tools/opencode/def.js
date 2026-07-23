@@ -953,11 +953,14 @@ function requireWorkbenchSelectionMatchesCheckout(workbench) {
   throw error
 }
 
-async function readWorkbenchState(context) {
+async function readWorkbenchState(context, { includeSemanticPayload = false } = {}) {
   const target = inside(context.directory, workbenchContextFile)
   if (!fs.existsSync(target)) throw new Error('No live Workbench context is attached to this session.')
   const attached = JSON.parse(fs.readFileSync(target, 'utf8'))
-  const snapshot = await callDefTool('def.workbench.snapshot', { sessionBindingId: attached.axisBindingId }, context)
+  const snapshot = await callDefTool('def.workbench.snapshot', {
+    sessionBindingId: attached.axisBindingId,
+    ...(includeSemanticPayload ? { includeSemanticPayload: true } : {}),
+  }, context)
   const checkout = snapshot?.axisContext?.checkout || null
   const observation = writeSessionCheckoutObservation(context, checkout)
   const selectedNodeId = typeof attached?.context?.selectedWorkbenchNode?.id === 'string'
@@ -974,6 +977,57 @@ async function readWorkbenchState(context) {
     checkoutChanged: observation.changed,
     previousCheckout: observation.previous,
     checkoutPhase: observation.phase,
+  }
+}
+
+function schemeVersionFromWorkbenchState(context, workbench) {
+  const axisContext = workbench?.snapshot?.axisContext
+  const checkout = axisContext?.checkout || null
+  if (!checkout?.targetId) return ''
+  let session = null
+  try {
+    session = JSON.parse(fs.readFileSync(inside(context.directory, '.def-session.json'), 'utf8'))
+  } catch {
+    session = null
+  }
+  const timelineId = session?.timelineId || axisContext?.document?.id || axisContext?.binding?.timelineId || ''
+  if (!timelineId) return ''
+  const checkoutNode = Array.isArray(axisContext?.nodes)
+    ? axisContext.nodes.find((node) => node?.id === checkout.targetId)
+    : null
+  const identity = [
+    timelineId,
+    checkout.targetType || '',
+    checkout.targetId || '',
+    Number(checkout.updatedAt || 0),
+    Number(checkoutNode?.updatedAt || 0),
+  ].join(':')
+  return createHash('sha256').update(identity).digest('hex')
+}
+
+function semanticPayloadFromWorkbench(workbench) {
+  const payload = workbench?.snapshot?.semanticPayload
+  return payload && typeof payload === 'object' ? payload : null
+}
+
+async function observeMutationScheme(context, result, { beforeWorkbench } = {}) {
+  if (result?.currentCheckoutTouched !== true) return {}
+  try {
+    const workbench = await readWorkbenchState(context, {
+      includeSemanticPayload: Boolean(beforeWorkbench),
+    })
+    const schemeVersion = schemeVersionFromWorkbenchState(context, workbench)
+    const beforePayload = semanticPayloadFromWorkbench(beforeWorkbench)
+    const afterPayload = semanticPayloadFromWorkbench(workbench)
+    return {
+      ...(schemeVersion ? { schemeVersion } : { schemeVersionUnavailable: true }),
+      ...(beforePayload && afterPayload ? { semanticMutation: { beforePayload, afterPayload } } : {}),
+    }
+  } catch (error) {
+    return {
+      schemeVersionUnavailable: true,
+      schemeVersionObservationError: error instanceof Error ? error.message : String(error),
+    }
   }
 }
 
@@ -1316,8 +1370,20 @@ export const node_diff = {
     const synced = await syncWorkspace(context)
     return {
       title: 'DEF child node diff',
-      output: JSON.stringify({ nodeId: synced.nodeId, diff: synced.diff, diffSummary: synced.diffSummary, checkoutDecision: synced.checkoutDecision }, null, 2),
-      metadata: { nodeId: synced.nodeId, family: 'def-node-crud' },
+      output: JSON.stringify({
+        nodeId: synced.nodeId,
+        revision: synced.revision,
+        workingHash: synced.workingHash,
+        diff: synced.diff,
+        diffSummary: synced.diffSummary,
+        checkoutDecision: synced.checkoutDecision,
+      }, null, 2),
+      metadata: {
+        nodeId: synced.nodeId,
+        revision: synced.revision,
+        workingHash: synced.workingHash,
+        family: 'def-node-crud',
+      },
     }
   },
 }
@@ -1392,10 +1458,16 @@ export const node_use = {
     if (used.currentCheckoutTouched === true) {
       writeBinding(context, { ...readBinding(context), checkoutAnchorNodeId: binding.nodeId })
     }
+    const schemeMetadata = await observeMutationScheme(context, used)
     return {
       title: used.ok ? 'DEF child node in use' : 'DEF child node use pending',
       output: JSON.stringify(used, null, 2),
-      metadata: { nodeId: binding.nodeId, family: 'def-node-crud', currentCheckoutTouched: used.currentCheckoutTouched === true },
+      metadata: {
+        nodeId: binding.nodeId,
+        family: 'def-node-crud',
+        currentCheckoutTouched: used.currentCheckoutTouched === true,
+        ...schemeMetadata,
+      },
     }
   },
 }
@@ -1424,10 +1496,16 @@ export const node_restore = {
       approvalCapability: approval.approvalCapability,
       reload: false,
     }, context)
+    const schemeMetadata = await observeMutationScheme(context, restored)
     return {
       title: restored.ok ? 'DEF node base restored' : 'DEF node restore pending',
       output: JSON.stringify(restored, null, 2),
-      metadata: { nodeId: binding.nodeId, family: 'def-node-crud', currentCheckoutTouched: restored.currentCheckoutTouched === true },
+      metadata: {
+        nodeId: binding.nodeId,
+        family: 'def-node-crud',
+        currentCheckoutTouched: restored.currentCheckoutTouched === true,
+        ...schemeMetadata,
+      },
     }
   },
 }
@@ -1550,7 +1628,7 @@ export const team_selection_apply = {
   },
   async execute(args, context) {
     context.metadata({ title: 'Apply DEF team selection' })
-    const workbench = await readWorkbenchState(context)
+    const workbench = await readWorkbenchState(context, { includeSemanticPayload: true })
     requireWorkbenchCheckoutReady(context)
     requireWorkbenchSelectionMatchesCheckout(workbench)
     const checkoutNodeId = workbench.checkoutNodeId
@@ -1606,6 +1684,13 @@ export const team_selection_apply = {
       nodeDescription: args.nodeDescription,
       approvalCapability: approval.approvalCapability,
     }, context)
+    const sessionDetached = result.transition === 'new-temporary-workspace'
+      && result.postcondition?.axisBindingVerification === true
+    const schemeMetadata = await observeMutationScheme(context, result, { beforeWorkbench: workbench })
+    const selectedAfter = Array.isArray(result?.postcondition?.selectedCharacterIds)
+      ? result.postcondition.selectedCharacterIds.map(String)
+      : args.characterIds.map(String)
+    const selectedAfterSet = new Set(selectedAfter)
     return {
       title: result.ok ? 'DEF team selection applied' : 'DEF team selection not applied',
       output: JSON.stringify(result, null, 2),
@@ -1613,7 +1698,12 @@ export const team_selection_apply = {
         family: 'def-team-selection',
         transition: result.transition || null,
         currentCheckoutTouched: result.currentCheckoutTouched === true,
+        sessionDetached,
         postcondition: result.postcondition?.pass === true,
+        semanticEffects: {
+          removedCharacterIds: currentCharacterIds.map(String).filter((id) => !selectedAfterSet.has(id)),
+        },
+        ...schemeMetadata,
       },
     }
   },
@@ -2325,16 +2415,26 @@ export const operator_config_patch = {
     proposalToken: tool.schema.string().min(20).max(96).optional().describe('Required only for def_operator_config_patch: unchanged proposalToken returned by def_operator_config_preview in an earlier user turn for this exact configuration.'),
   },
   async execute(args, context) {
+    const beforeWorkbench = await readWorkbenchState(context, { includeSemanticPayload: true })
     const result = await executeDefOperatorConfigAtomic(args, context, {
       callDefTool,
       askWithApproval,
       formatApprovalPatterns: formatOperatorConfigApprovalPatterns,
       getOperatorConfigTurnIdentity: getDefOperatorConfigTurnIdentity,
     })
+    const schemeMetadata = await observeMutationScheme(context, {
+      ...result,
+      currentCheckoutTouched: result.ok === true,
+    }, { beforeWorkbench })
     return {
       title: 'DEF operator configuration applied',
       output: JSON.stringify(result, null, 2),
-      metadata: { family: 'def-operator-config', currentCheckoutTouched: result.ok === true, postcondition: result.postcondition?.pass === true },
+      metadata: {
+        family: 'def-operator-config',
+        currentCheckoutTouched: result.ok === true,
+        postcondition: result.postcondition?.pass === true,
+        ...schemeMetadata,
+      },
     }
   },
 }

@@ -35,6 +35,11 @@ class BusinessPlanStore {
     atomicWriteJson(this.storePath, this.store);
   }
 
+  reload() {
+    this.store = readStore(this.storePath);
+    return this.store;
+  }
+
   create({ sessionId, timelineId, checkoutId, goal, steps, schemeVersion }) {
     if (!Array.isArray(steps) || steps.length < 2) throw new Error('A cross-business plan requires at least two steps.');
     const now = Date.now();

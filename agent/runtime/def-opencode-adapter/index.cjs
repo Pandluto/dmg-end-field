@@ -17,7 +17,6 @@ const OPENCODE_PORT_MAX_ATTEMPTS = 20;
 
 const projectRoot = path.resolve(__dirname, '..', '..', '..');
 const runtimeRoot = path.join(projectRoot, 'agent', 'runtime', 'opencode-core');
-const defOpenCodeToolSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'def.js');
 const defOpenCodePluginSource = path.join(projectRoot, 'agent', 'runtime', 'def-tools', 'opencode', 'plugin.js');
 const defNodeWorkspaceCodecSource = path.join(projectRoot, 'agent', 'runtime', 'def-node-workspace', 'codec.mjs');
 const runtimeLogDir = path.join(projectRoot, '.runtime', 'def-agent');
@@ -837,10 +836,6 @@ function createAgentSessionWorkspace(skillId) {
   const directory = path.join(root, 'sessions', 'workbench', crypto.randomUUID());
   const toolsDir = path.join(directory, '.opencode', 'tools');
   fs.mkdirSync(toolsDir, { recursive: true });
-  if (!fs.existsSync(defOpenCodeToolSource)) {
-    throw new Error(`Missing DEF OpenCode native tool module: ${defOpenCodeToolSource}`);
-  }
-  fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
   const workspaceCodecDir = path.join(directory, 'def-node-workspace');
   fs.mkdirSync(workspaceCodecDir, { recursive: true });
   fs.copyFileSync(defNodeWorkspaceCodecSource, path.join(workspaceCodecDir, 'codec.mjs'));
@@ -881,7 +876,10 @@ function syncNativeSessionWorkspaceFiles(directory) {
   const codecDir = path.join(directory, 'def-node-workspace');
   fs.mkdirSync(toolsDir, { recursive: true });
   fs.mkdirSync(codecDir, { recursive: true });
-  fs.copyFileSync(defOpenCodeToolSource, path.join(toolsDir, 'def.js'));
+  // DEF tools are registered by the repository plugin. A copied session-local
+  // module has broken repo-relative imports and would register the same tools
+  // a second time. Remove the old managed copy when recovering older sessions.
+  fs.rmSync(path.join(toolsDir, 'def.js'), { force: true });
   fs.copyFileSync(defNodeWorkspaceCodecSource, path.join(codecDir, 'codec.mjs'));
 }
 

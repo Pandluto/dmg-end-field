@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import {
   DEF_NATIVE_TARGETS,
@@ -50,5 +51,19 @@ for (const target of DEF_NATIVE_TARGETS) {
 assert.equal(getDefToolLocalContract('def.operator.config.preview').sideEffect, 'proposal-only');
 assert.match(getDefToolLocalContract('def.operator.config.patch').capabilitySource, /proposal token/);
 assert.equal(getDefToolLocalContract('def.data.resource.damage').sideEffect, 'read-only');
+
+const serverSource = fs.readFileSync('agent/server/def-agent-server.cjs', 'utf8');
+const adapterSource = fs.readFileSync('agent/runtime/def-opencode-adapter/index.cjs', 'utf8');
+const bridgeSource = fs.readFileSync('agent/runtime/def-tools/opencode/harness-manager-bridge.mjs', 'utf8');
+const electronSource = fs.readFileSync('electron/main.cjs', 'utf8');
+const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+assert.match(serverSource, /message\|prompt_async/);
+assert.match(bridgeSource, /HARNESS_RUNTIME_NOT_PREPARED/);
+assert.match(bridgeSource, /managedWorkbenchBinding/);
+assert.doesNotMatch(adapterSource, /copyFileSync\(defOpenCodeToolSource/);
+assert.match(adapterSource, /fs\.rmSync\(path\.join\(toolsDir, 'def\.js'\)/);
+assert.match(electronSource, /DEF_HARNESS_STATE_PATH/);
+assert.match(electronSource, /DEF_HARNESS_WATCH: isDev \? '1' : '0'/);
+assert(packageJson.build.files.includes('agent/harness/business/**'));
 
 console.log('DEF Harness Manager Host/Tool boundary contract: PASS');

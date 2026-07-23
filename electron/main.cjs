@@ -3822,6 +3822,8 @@ async function startAiCliRest() {
       DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
       DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
       DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
+      DEF_HARNESS_STATE_PATH: path.join(runtimeRoot, 'def-harness-manager', 'revisions.json'),
+      DEF_HARNESS_WATCH: isDev ? '1' : '0',
       DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
       LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
       LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',

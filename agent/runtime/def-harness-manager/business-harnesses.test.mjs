@@ -70,6 +70,40 @@ test('business Harness sources do not import each other', () => {
   }
 });
 
+test('selection action operations reach the formal mutation and visible verification', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(businessRoot, 'selection', 'revisions', 'v1', 'manifest.json'),
+    'utf8',
+  ));
+  for (const operationId of ['add', 'remove', 'replace', 'reorder', 'apply']) {
+    const phases = manifest.operations[operationId].phases;
+    const mutationIndex = phases.findIndex((phase) => phase.tools.includes('def.team.selection.apply'));
+    const verificationIndex = phases.findIndex((phase) => (
+      phase.kind === 'verification' && phase.tools.includes('def.node.crud.context')
+    ));
+    assert(mutationIndex >= 0, `${operationId} must call the formal selection mutation`);
+    assert(verificationIndex > mutationIndex, `${operationId} must verify the visible selection after mutation`);
+  }
+});
+
+test('timeline action operations use the validated Work Node and then verify the visible checkout', () => {
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(businessRoot, 'timeline', 'revisions', 'v1', 'manifest.json'),
+    'utf8',
+  ));
+  for (const operationId of ['add', 'remove', 'move', 'replace', 'copy']) {
+    const phases = manifest.operations[operationId].phases;
+    const diffIndex = phases.findIndex((phase) => phase.tools.includes('def.node.crud.diff'));
+    const useIndex = phases.findIndex((phase) => phase.tools.includes('def.node.crud.use'));
+    const visibleIndex = phases.findIndex((phase) => (
+      phase.kind === 'verification' && phase.tools.includes('def.node.crud.context')
+    ));
+    assert(diffIndex >= 0, `${operationId} must review a semantic diff`);
+    assert(useIndex > diffIndex, `${operationId} must use only the validated draft`);
+    assert(visibleIndex > useIndex, `${operationId} must verify the visible checkout after use`);
+  }
+});
+
 test('damage Tool exposes a product-owned formula hash', () => {
   const restSource = fs.readFileSync(path.resolve('scripts/ai-cli-rest-server.mjs'), 'utf8');
   const nativeToolSource = fs.readFileSync(path.resolve('agent/runtime/def-tools/opencode/def.js'), 'utf8');

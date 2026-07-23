@@ -45,6 +45,27 @@ function buttons(payload) {
     : {};
 }
 
+function payloadFromNodeSource(value = {}) {
+  if (!value?.selection || !value?.timeline || !value?.buffs || !value?.inputs) return value;
+  const staffLines = Array.isArray(value.timeline.staffLines) ? value.timeline.staffLines : [];
+  return {
+    selectedCharacters: value.selection.selectedCharacters || [],
+    characterInputMap: value.inputs.characterInputMap || {},
+    operatorConfigPageCache: value.inputs.operatorConfigPageCache || {},
+    timelineData: {
+      version: value.timeline.version,
+      staffLines,
+    },
+    skillButtonTable: Object.fromEntries(
+      staffLines.flatMap((line) => (Array.isArray(line?.buttons) ? line.buttons : []))
+        .filter((button) => button?.id)
+        .map((button) => [button.id, button]),
+    ),
+    allBuffList: value.buffs.allBuffList || [],
+    anomalyStateSnapshots: value.buffs.anomalyStateSnapshots || [],
+  };
+}
+
 function timelineButton(button = {}) {
   return stable({
     id: button.id,
@@ -95,6 +116,69 @@ function buffProjection(payload = {}) {
   };
 }
 
+function buffCatalogById(payload = {}) {
+  return new Map((Array.isArray(payload.allBuffList) ? payload.allBuffList : [])
+    .filter((entry) => entry?.id)
+    .map((entry) => [String(entry.id), entry]));
+}
+
+function deterministicRemovedButtonBuffCleanup(beforePayload, afterPayload, removedButtonIds) {
+  const removed = new Set(removedButtonIds);
+  const beforeButtons = buttons(beforePayload);
+  const afterButtons = buttons(afterPayload);
+  const removedBuffIds = new Set(
+    [...removed].flatMap((buttonId) => (
+      Array.isArray(beforeButtons[buttonId]?.selectedBuff)
+        ? beforeButtons[buttonId].selectedBuff.map(String)
+        : []
+    )),
+  );
+  for (const [buttonId, afterButton] of Object.entries(afterButtons)) {
+    if (!beforeButtons[buttonId] || !same(buffButton(beforeButtons[buttonId]), buffButton(afterButton))) {
+      return { pass: false, reason: `changed-surviving-button-buff:${buttonId}` };
+    }
+  }
+  if (!same(beforePayload.anomalyStateSnapshots || [], afterPayload.anomalyStateSnapshots || [])) {
+    return { pass: false, reason: 'changed-anomaly-state' };
+  }
+  const beforeCatalog = buffCatalogById(beforePayload);
+  const afterCatalog = buffCatalogById(afterPayload);
+  const withoutRefCount = (entry) => {
+    if (!entry || typeof entry !== 'object') return entry;
+    const { refCount: _refCount, ...rest } = entry;
+    return rest;
+  };
+  for (const [buffId, afterEntry] of afterCatalog) {
+    const beforeEntry = beforeCatalog.get(buffId);
+    if (!beforeEntry || !same(withoutRefCount(beforeEntry), withoutRefCount(afterEntry))) {
+      return { pass: false, reason: `changed-buff-catalog:${buffId}` };
+    }
+    if (!same(beforeEntry.refCount, afterEntry.refCount) && !removedBuffIds.has(buffId)) {
+      return { pass: false, reason: `changed-unrelated-buff-refcount:${buffId}` };
+    }
+  }
+  const survivingReferences = new Set(
+    Object.values(afterButtons).flatMap((button) => (
+      Array.isArray(button?.selectedBuff) ? button.selectedBuff.map(String) : []
+    )),
+  );
+  for (const buffId of beforeCatalog.keys()) {
+    if (!afterCatalog.has(buffId)
+      && (!removedBuffIds.has(buffId) || survivingReferences.has(buffId))) {
+      return { pass: false, reason: `removed-unrelated-buff:${buffId}` };
+    }
+  }
+  return { pass: true, removedButtonIds: [...removed], removedBuffIds: [...removedBuffIds] };
+}
+
+function mapCleanupOnlyRemovesAllowed(before = {}, after = {}, allowedRemovedIds = []) {
+  const allowed = new Set(allowedRemovedIds.map(String));
+  for (const [id, value] of Object.entries(after || {})) {
+    if (!Object.hasOwn(before || {}, id) || !same(before[id], value)) return false;
+  }
+  return Object.keys(before || {}).every((id) => Object.hasOwn(after || {}, id) || allowed.has(String(id)));
+}
+
 function projections(payload = {}) {
   return {
     selection: stable(payload.selectedCharacters || []),
@@ -133,18 +217,33 @@ function selectionCascade(beforePayload, afterPayload) {
   if (removedButtonIds.some((id) => !removedCharacterIds.includes(String(beforeButtons[id]?.characterId || '')))) {
     return { pass: false, reason: 'selection-cascade-removed-retained-character-button', removedCharacterIds, removedButtonIds };
   }
+  const buffCleanup = deterministicRemovedButtonBuffCleanup(beforePayload, afterPayload, removedButtonIds);
+  if (!buffCleanup.pass) {
+    return {
+      pass: false,
+      reason: `selection-cascade-${buffCleanup.reason}`,
+      removedCharacterIds,
+      removedButtonIds,
+    };
+  }
+  if (!mapCleanupOnlyRemovesAllowed(
+    beforePayload.characterInputMap,
+    afterPayload.characterInputMap,
+    removedCharacterIds,
+  )) {
+    return { pass: false, reason: 'selection-cascade-changed-character-input', removedCharacterIds, removedButtonIds };
+  }
   const beforeConfigs = beforePayload.operatorConfigPageCache || {};
   const afterConfigs = afterPayload.operatorConfigPageCache || {};
-  for (const [characterId, config] of Object.entries(afterConfigs)) {
-    if (!Object.hasOwn(beforeConfigs, characterId) || !same(beforeConfigs[characterId], config)) {
-      return { pass: false, reason: 'selection-cascade-added-or-changed-loadout', removedCharacterIds, removedButtonIds };
-    }
+  if (!mapCleanupOnlyRemovesAllowed(beforeConfigs, afterConfigs, removedCharacterIds)) {
+    return { pass: false, reason: 'selection-cascade-changed-loadout', removedCharacterIds, removedButtonIds };
   }
-  const changedConfigIds = Object.keys(beforeConfigs).filter((id) => !same(beforeConfigs[id], afterConfigs[id]));
-  if (changedConfigIds.some((id) => !removedCharacterIds.includes(String(id)))) {
-    return { pass: false, reason: 'selection-cascade-removed-retained-loadout', removedCharacterIds, removedButtonIds };
-  }
-  return { pass: true, removedCharacterIds, removedButtonIds };
+  return {
+    pass: true,
+    removedCharacterIds,
+    removedButtonIds,
+    removedBuffIds: buffCleanup.removedBuffIds,
+  };
 }
 
 function changedUnknownTopLevel(beforePayload, afterPayload) {
@@ -160,8 +259,10 @@ function analyzeBusinessMutation({ businessId, beforePayload, afterPayload }) {
     error.code = 'HARNESS_WRITE_SCOPE_INVALID';
     throw error;
   }
-  const before = projections(beforePayload);
-  const after = projections(afterPayload);
+  const normalizedBeforePayload = payloadFromNodeSource(beforePayload);
+  const normalizedAfterPayload = payloadFromNodeSource(afterPayload);
+  const before = projections(normalizedBeforePayload);
+  const after = projections(normalizedAfterPayload);
   const changedDomains = Object.keys(before).filter((domain) => domain !== 'calculation' && !same(before[domain], after[domain]));
   const activeChanges = changedDomains.filter((domain) => domain === businessId);
   const productCascades = [];
@@ -170,7 +271,7 @@ function analyzeBusinessMutation({ businessId, beforePayload, afterPayload }) {
 
   for (const domain of changedDomains.filter((candidate) => candidate !== businessId)) {
     if (businessId === 'selection' && ['loadout', 'timeline', 'buff'].includes(domain)) {
-      const cascade = selectionCascade(beforePayload, afterPayload);
+      const cascade = selectionCascade(normalizedBeforePayload, normalizedAfterPayload);
       if (cascade.pass) {
         productCascades.push(domain);
         cascadeDetails = { ...cascadeDetails, ...cascade };
@@ -179,13 +280,38 @@ function analyzeBusinessMutation({ businessId, beforePayload, afterPayload }) {
       }
       continue;
     }
+    if (businessId === 'timeline' && domain === 'buff') {
+      const beforeButtonIds = Object.keys(buttons(normalizedBeforePayload));
+      const afterButtonIds = new Set(Object.keys(buttons(normalizedAfterPayload)));
+      const removedButtonIds = beforeButtonIds.filter((id) => !afterButtonIds.has(id));
+      const cascade = deterministicRemovedButtonBuffCleanup(
+        normalizedBeforePayload,
+        normalizedAfterPayload,
+        removedButtonIds,
+      );
+      if (removedButtonIds.length && cascade.pass) {
+        productCascades.push(domain);
+        cascadeDetails = { ...cascadeDetails, ...cascade };
+      } else {
+        unexplainedChanges.push(`${domain}:timeline-cascade-${cascade.reason || 'no-removed-button'}`);
+      }
+      continue;
+    }
     unexplainedChanges.push(domain);
   }
+  if (businessId === 'timeline') {
+    const beforeButtonIds = Object.keys(buttons(normalizedBeforePayload));
+    const afterButtonIds = new Set(Object.keys(buttons(normalizedAfterPayload)));
+    cascadeDetails = {
+      ...cascadeDetails,
+      removedButtonIds: beforeButtonIds.filter((id) => !afterButtonIds.has(id)),
+    };
+  }
   if (businessId === 'calculation' && changedDomains.length) unexplainedChanges.push(...changedDomains);
-  unexplainedChanges.push(...changedUnknownTopLevel(beforePayload, afterPayload).map((key) => `unknown:${key}`));
-  const recalculations = [...new Set([...Object.keys(beforePayload || {}), ...Object.keys(afterPayload || {})])]
+  unexplainedChanges.push(...changedUnknownTopLevel(normalizedBeforePayload, normalizedAfterPayload).map((key) => `unknown:${key}`));
+  const recalculations = [...new Set([...Object.keys(normalizedBeforePayload || {}), ...Object.keys(normalizedAfterPayload || {})])]
     .filter((key) => DERIVED_TOP_LEVEL_KEYS.has(key))
-    .filter((key) => !same(beforePayload?.[key], afterPayload?.[key]));
+    .filter((key) => !same(normalizedBeforePayload?.[key], normalizedAfterPayload?.[key]));
   return {
     pass: unexplainedChanges.length === 0,
     businessId,
@@ -201,5 +327,6 @@ function analyzeBusinessMutation({ businessId, beforePayload, afterPayload }) {
 module.exports = {
   analyzeBusinessMutation,
   buffProjection,
+  payloadFromNodeSource,
   timelineProjection,
 };

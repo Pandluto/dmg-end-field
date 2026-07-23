@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const { BusinessHarnessRegistry } = require('./registry.cjs');
+const { RevisionController } = require('./revision-controller.cjs');
 
 const toolIds = ['def.read', 'def.preview', 'def.apply', 'def.verify'];
 
@@ -92,6 +93,22 @@ test('activates and rolls back one business without changing another', async () 
   await registry.rollback('loadout');
   assert.equal((await registry.resolveActive('loadout')).version, 'v1');
   assert.equal((await registry.resolveActive('selection')).version, 'v1');
+});
+
+test('merges revision updates written by separate runtime controllers', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-controller-merge-'));
+  try {
+    const statePath = path.join(root, 'revisions.json');
+    const first = new RevisionController({ statePath });
+    const second = new RevisionController({ statePath });
+    first.registerCandidate('selection', { version: 'v1', contentHash: 'selection-v1' });
+    second.registerCandidate('loadout', { version: 'v1', contentHash: 'loadout-v1' });
+    const recovered = new RevisionController({ statePath });
+    assert.equal(recovered.businessState('selection').candidate.contentHash, 'selection-v1');
+    assert.equal(recovered.businessState('loadout').candidate.contentHash, 'loadout-v1');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('rejects invalid Tool, expanded write scope, dead end and mutation without verification', async () => {

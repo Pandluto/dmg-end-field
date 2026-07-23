@@ -200,6 +200,82 @@ test('reprojects Tools after route and each Tool result', async () => {
   assert.equal(runtime.transactions.get(bridge.transactionId).status, 'awaiting-confirmation');
 });
 
+test('a cached plugin runtime reloads transaction state written by the server runtime', async () => {
+  const { sessionDirectory, runtime: serverRuntime, context } = await fixture();
+  const pluginRuntime = new HarnessTransactionRuntime({
+    sessionDirectory,
+    businessRoot: serverRuntime.registry.businessRoot,
+    revisionStatePath: serverRuntime.registry.controller.statePath,
+    toolTargets,
+  });
+  await serverRuntime.prepareRoute({ context, userText: '换成别礼', turnId: 'turn-shared' });
+  await serverRuntime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-shared',
+    callId: 'route-shared',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'new-business',
+      businessId: 'selection',
+      operation: 'replace',
+      target: '别礼',
+      requestedEffect: '换成别礼',
+    } } },
+  });
+  const transactionId = readRuntimeBridge(sessionDirectory).transactionId;
+  assert.equal(pluginRuntime.transactions.get(transactionId), null);
+
+  pluginRuntime.refreshFromDisk();
+  assert.equal(pluginRuntime.transactions.get(transactionId).phase, 'context');
+  await pluginRuntime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-shared',
+    callId: 'read-shared',
+    toolBinding: 'def_read',
+    canonicalToolId: 'def.read',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+
+  assert.equal(serverRuntime.transactions.get(transactionId).phase, 'context');
+  serverRuntime.refreshFromDisk();
+  assert.equal(serverRuntime.transactions.get(transactionId).phase, 'proposal');
+  assert.equal(readRuntimeBridge(sessionDirectory).phase, 'proposal');
+});
+
+test('clarification uses the native question and then returns to the route gate', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.prepareRoute({ context, userText: '处理一下', turnId: 'turn-clarify' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-clarify',
+    callId: 'route-clarify',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'clarify',
+      ambiguity: 'business',
+      question: '你要换人还是改配装？',
+      choices: ['换人', '改配装'],
+    } } },
+  });
+  let bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'clarify');
+  assert.deepEqual(bridge.allowedToolBindings, ['question']);
+
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-clarify',
+    callId: 'question-clarify',
+    toolBinding: 'question',
+    canonicalToolId: '',
+    output: { output: '换人', metadata: {} },
+  });
+  bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'route');
+  assert.deepEqual(bridge.allowedToolBindings, ['def_harness_route']);
+});
+
 test('moves failures through the declared failure exit', async () => {
   const { sessionDirectory, runtime, context } = await fixture();
   await runtime.prepareRoute({ context, userText: '换成别礼', turnId: 'turn-failure' });
@@ -361,7 +437,10 @@ test('a cross-business plan starts the next pinned transaction with the new sche
     callId: 'apply-first',
     toolBinding: 'def_apply',
     canonicalToolId: 'def.apply',
-    output: { output: '{"ok":true}', metadata: { schemeVersion: 'scheme-b' } },
+    output: {
+      output: '{"ok":true}',
+      metadata: { currentCheckoutTouched: true, schemeVersion: 'scheme-b' },
+    },
   });
   await runtime.afterTool({
     sessionId: 'session-a',
@@ -379,6 +458,80 @@ test('a cross-business plan starts the next pinned transaction with the new sche
   const plan = runtime.plans.get(runtime.transactions.get(second.transactionId).planId);
   assert.equal(plan.currentIndex, 1);
   assert.equal(plan.steps[1].inputSchemeVersion, 'scheme-b');
+});
+
+test('a real mutation without a resulting scheme version fails closed', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  const revision = await runtime.registry.resolveActive('selection');
+  const transaction = runtime.transactions.create({
+    context,
+    businessId: 'selection',
+    operation: 'replace',
+    harnessRevision: revision,
+    target: '别礼',
+    phase: 'apply',
+  });
+  await runtime.projectTransaction(transaction.transactionId, { turnId: 'turn-no-scheme' });
+  await assert.rejects(runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-no-scheme',
+    callId: 'apply-no-scheme',
+    toolBinding: 'def_apply',
+    canonicalToolId: 'def.apply',
+    output: { output: '{"ok":true}', metadata: { currentCheckoutTouched: true } },
+  }), { code: 'HARNESS_MUTATION_SCHEME_VERSION_REQUIRED' });
+  assert.equal(runtime.transactions.get(transaction.transactionId).status, 'stale');
+  assert.equal(readRuntimeBridge(sessionDirectory).phase, 'apply');
+});
+
+test('an intentional temporary-workspace detach completes the step and stops its plan', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  const revision = await runtime.registry.resolveActive('selection');
+  const plan = runtime.plans.create({
+    sessionId: context.sessionId,
+    timelineId: context.timelineId,
+    checkoutId: context.checkoutId,
+    goal: '全队替换后继续配装',
+    schemeVersion: context.schemeVersion,
+    steps: [
+      { businessId: 'selection', operation: 'replace', requestedEffect: '全队替换' },
+      { businessId: 'selection', operation: 'replace', requestedEffect: '后续操作' },
+    ],
+  });
+  const transaction = runtime.transactions.create({
+    context,
+    businessId: 'selection',
+    operation: 'replace',
+    harnessRevision: revision,
+    target: '全新四人队',
+    phase: 'apply',
+    planId: plan.planId,
+    planStepIndex: 0,
+  });
+  runtime.plans.bindCurrentTransaction(plan.planId, transaction.transactionId, context.schemeVersion);
+  await runtime.projectTransaction(transaction.transactionId, { turnId: 'turn-detached' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-detached',
+    callId: 'apply-detached',
+    toolBinding: 'def_apply',
+    canonicalToolId: 'def.apply',
+    output: {
+      output: '{"ok":true,"transition":"new-temporary-workspace"}',
+      metadata: { currentCheckoutTouched: true, sessionDetached: true },
+    },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-detached',
+    callId: 'verify-detached',
+    toolBinding: 'def_verify',
+    canonicalToolId: 'def.verify',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+  assert.equal(runtime.transactions.get(transaction.transactionId).status, 'completed');
+  assert.equal(runtime.plans.get(plan.planId).status, 'stopped');
+  assert.equal(readRuntimeBridge(sessionDirectory).mode, 'complete');
 });
 
 test('OpenCode request preparation and DEF plugin share the phase bridge', () => {

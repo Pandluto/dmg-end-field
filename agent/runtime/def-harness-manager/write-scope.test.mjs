@@ -61,7 +61,21 @@ test('keeps timeline and BUFF writes adjacent but non-overlapping', () => {
   assert.equal(analyzeBusinessMutation({ businessId: 'buff', beforePayload: before, afterPayload: buffAfter }).pass, true);
   const timelineResult = analyzeBusinessMutation({ businessId: 'timeline', beforePayload: before, afterPayload: buffAfter });
   assert.equal(timelineResult.pass, false);
-  assert.deepEqual(timelineResult.unexplainedChanges, ['buff']);
+  assert.match(timelineResult.unexplainedChanges.join(','), /changed-surviving-button-buff/);
+
+  const removalAfter = structuredClone(before);
+  delete removalAfter.skillButtonTable['button-a'];
+  removalAfter.timelineData.staffLines[0].buttons = [];
+  removalAfter.timelineData.staffLines[0].occupiedNodes = [];
+  removalAfter.allBuffList = [];
+  const removal = analyzeBusinessMutation({
+    businessId: 'timeline',
+    beforePayload: before,
+    afterPayload: removalAfter,
+  });
+  assert.equal(removal.pass, true);
+  assert.deepEqual(removal.productCascades, ['buff']);
+  assert.deepEqual(removal.cascadeDetails.removedButtonIds, ['button-a']);
 });
 
 test('accepts deterministic selection cleanup but rejects unrelated additions', () => {
@@ -82,6 +96,26 @@ test('accepts deterministic selection cleanup but rejects unrelated additions', 
   const invalid = analyzeBusinessMutation({ businessId: 'selection', beforePayload: before, afterPayload: malicious });
   assert.equal(invalid.pass, false);
   assert.match(invalid.unexplainedChanges.join(','), /selection-cascade-added-buttons/);
+
+  const changedRetainedBuff = structuredClone(after);
+  changedRetainedBuff.skillButtonTable['button-a'].selectedBuff = [];
+  const invalidBuff = analyzeBusinessMutation({
+    businessId: 'selection',
+    beforePayload: before,
+    afterPayload: changedRetainedBuff,
+  });
+  assert.equal(invalidBuff.pass, false);
+  assert.match(invalidBuff.unexplainedChanges.join(','), /changed-surviving-button-buff/);
+
+  const changedRetainedLoadout = structuredClone(after);
+  changedRetainedLoadout.characterInputMap.a.level = 80;
+  const invalidLoadout = analyzeBusinessMutation({
+    businessId: 'selection',
+    beforePayload: before,
+    afterPayload: changedRetainedLoadout,
+  });
+  assert.equal(invalidLoadout.pass, false);
+  assert.match(invalidLoadout.unexplainedChanges.join(','), /changed-character-input/);
 });
 
 test('allows calculation recomputation only without source-state writes', () => {

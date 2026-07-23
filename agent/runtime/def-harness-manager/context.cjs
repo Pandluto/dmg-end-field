@@ -18,6 +18,7 @@ function bindTransactionContext({
   workbenchContext,
   schemeVersion,
   formulaVersion,
+  serviceEpoch,
 }) {
   if (!binding?.sessionID || binding.host !== 'workbench') {
     const error = new Error('A business transaction requires a managed Workbench Session.');
@@ -44,6 +45,7 @@ function bindTransactionContext({
     selectedWorkbenchNodeId: workbenchContext?.id || '',
     schemeVersion: schemeVersion || stableSchemeVersion({ timelineId, checkout, checkoutNode }),
     formulaVersion: formulaVersion || '',
+    serviceEpoch: String(serviceEpoch || ''),
     observedAt: Date.now(),
   });
 }

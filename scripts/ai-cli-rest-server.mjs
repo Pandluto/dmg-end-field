@@ -6521,7 +6521,9 @@ function resolveDefSkills(input = {}) {
         : [];
       return Boolean(query && (
         (skillId && query.includes(skillId))
-        || (displayName && (query.includes(displayName) || displayName.includes(query)))
+        || (displayName
+          && (displayName.length > 1 || query === displayName)
+          && (query.includes(displayName) || displayName.includes(query)))
         || hitDisplayNames.some((hitName) => query.includes(hitName) || hitName.includes(query))
       ));
     })
@@ -10410,7 +10412,13 @@ async function executeDefTool(name, input = {}, query = new URLSearchParams(), i
     if (!requestedBindingId || requestedBindingId !== session.binding.id) {
       return failScript(409, 'blocked-session-mismatch', 'The requested session-axis binding does not belong to this DEF session.');
     }
-    result = { snapshot: session.snapshot, axisContext: session.axisContext };
+    result = {
+      snapshot: session.snapshot,
+      axisContext: session.axisContext,
+      ...(input.includeSemanticPayload === true
+        ? { semanticPayload: cloneJson(session.checkoutPayload) }
+        : {}),
+    };
   } else if (name === 'def.workbench.evidence') {
     result = buildMainWorkbenchEvidence(snapshot, {
       prompt: input.prompt || input.query || '',
@@ -10711,6 +10719,7 @@ async function handleDefToolRequest(method, pathname, query, body, invocation = 
       workingHash: hashDefNodeValue(candidate.workingPayload),
       parentNodeId: parent.id,
       parentRevision: Number(parent.contentRevision || parent.updatedAt),
+      structuralParentNodeId: candidate.parentNodeId || null,
       parentWorkingHash: hashDefNodeValue(parent.workingPayload),
       finalConfigs: [],
       diff: [],

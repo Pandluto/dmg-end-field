@@ -51,6 +51,11 @@ class BusinessTransactionStore {
     atomicWriteJson(this.storePath, this.store);
   }
 
+  reload() {
+    this.store = readStore(this.storePath);
+    return this.store;
+  }
+
   list({ statuses, businessId } = {}) {
     const statusSet = Array.isArray(statuses) ? new Set(statuses) : null;
     return this.store.transactions
@@ -106,6 +111,7 @@ class BusinessTransactionStore {
       startingSchemeVersion: context.schemeVersion,
       currentSchemeVersion: context.schemeVersion,
       formulaVersion: context.formulaVersion || '',
+      serviceEpoch: context.serviceEpoch || '',
       businessId,
       operation,
       harnessRevision: {
@@ -258,6 +264,7 @@ class BusinessTransactionStore {
     isRevisionRevoked = () => false,
     referenceAvailable = async () => true,
   } = {}) {
+    const now = Date.now();
     const recovered = [];
     for (const candidate of this.list()) {
       if (TERMINAL_STATUSES.has(candidate.status)) {
@@ -278,6 +285,19 @@ class BusinessTransactionStore {
       } else if (candidate.currentSchemeVersion !== context.schemeVersion) {
         terminalStatus = 'stale';
         reason = 'scheme-version-changed';
+      } else if ((candidate.proposal || candidate.capability?.required)
+        && context.serviceEpoch
+        && candidate.serviceEpoch !== context.serviceEpoch) {
+        terminalStatus = candidate.capability?.required ? 'aborted' : 'stale';
+        reason = candidate.serviceEpoch
+          ? 'ephemeral-reference-service-restarted'
+          : 'ephemeral-reference-service-epoch-missing';
+      } else if (candidate.proposal?.expiresAt && Number(candidate.proposal.expiresAt) <= now) {
+        terminalStatus = 'stale';
+        reason = 'proposal-reference-expired';
+      } else if (candidate.capability?.expiresAt && Number(candidate.capability.expiresAt) <= now) {
+        terminalStatus = 'aborted';
+        reason = 'capability-reference-expired';
       } else if (candidate.proposal && (!candidate.proposal.token || !(await referenceAvailable('proposal', candidate.proposal)))) {
         terminalStatus = 'stale';
         reason = 'proposal-reference-unavailable';

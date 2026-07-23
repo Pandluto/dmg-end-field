@@ -33,6 +33,11 @@ class RevisionController {
     this.state = readState(this.statePath);
   }
 
+  reload() {
+    this.state = readState(this.statePath);
+    return this.state;
+  }
+
   businessState(businessId) {
     const current = this.state.businesses[businessId] || {};
     return {
@@ -45,6 +50,10 @@ class RevisionController {
   }
 
   update(businessId, updater) {
+    // Revision state is shared by the sidecar, the OpenCode plugin runtime and
+    // the development watcher. Always merge against the latest durable state
+    // so an activation in one process cannot erase another business update.
+    this.reload();
     const current = this.businessState(businessId);
     const next = updater(current);
     this.state = {
@@ -72,7 +81,10 @@ class RevisionController {
         error.code = 'HARNESS_REVISION_REVOKED';
         throw error;
       }
-      const previous = current.active && current.active.version !== revisionRef.version
+      const activeChanged = current.active
+        && (current.active.version !== revisionRef.version
+          || current.active.contentHash !== revisionRef.contentHash);
+      const previous = activeChanged
         ? current.active
         : current.previous;
       return {

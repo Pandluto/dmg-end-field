@@ -9,10 +9,17 @@ import {
   recordHarnessChatTurn,
 } from './harness-manager-bridge.mjs'
 
-function localContractDescription(target) {
+function localPurpose(description, fallback) {
+  const value = String(description || '').trim()
+  if (!value) return fallback
+  const firstSentence = value.split(/(?<=[。.!?])\s+/u)[0]?.trim()
+  return firstSentence || fallback
+}
+
+function localContractDescription(target, baseDescription = '') {
   const contract = DEF_TOOL_LOCAL_CONTRACTS[target.id]
   return [
-    contract?.purpose,
+    localPurpose(baseDescription, contract?.purpose),
     contract?.input,
     contract?.result,
     `Side effect: ${contract?.sideEffect || 'unknown'}.`,
@@ -31,14 +38,14 @@ export default async function DefToolsPlugin() {
     }
     tool[target.nativeBinding] = {
       ...definition,
-      description: localContractDescription(target),
+      description: localContractDescription(target, definition.description),
     }
   }
   return {
     tool,
     'tool.definition': async (input, output) => {
       const target = DEF_NATIVE_TARGETS.find((candidate) => candidate.nativeBinding === input?.toolID)
-      if (target) output.description = localContractDescription(target)
+      if (target) output.description = localContractDescription(target, output.description)
     },
     event: async ({ event }) => {
       definitions.recordDefToolEventFailure(event)

@@ -132,6 +132,22 @@
           "tools": ["def.node.crud.diff"],
           "writes": [],
           "instructions": "Produce semantic diff and confirm no BUFF business field changed.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Use the validated Work Node under native approval and the current scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline contain the exact added button.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -139,7 +155,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report the validated draft and exact semantic change. It is not applied to the current checkout.",
+          "instructions": "Report the applied button, exact semantic change, visible result and calculation recompute.",
           "terminalState": "completed"
         },
         {
@@ -201,6 +217,22 @@
           "tools": ["def.node.crud.diff"],
           "writes": [],
           "instructions": "Verify the semantic diff contains only the requested removal and deterministic mirror cleanup.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Use the validated removal Work Node under native approval and the current scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline no longer contain the removed button.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -208,7 +240,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report the validated removal draft and affected BUFF/calculation state.",
+          "instructions": "Report the applied removal, visible result and affected BUFF/calculation state.",
           "terminalState": "completed"
         },
         {
@@ -270,6 +302,22 @@
           "tools": ["def.node.crud.diff"],
           "writes": [],
           "instructions": "Verify only position/order/structure changed.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Use the validated move Work Node under native approval and the current scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline show the exact target position.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -277,7 +325,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report the validated move draft.",
+          "instructions": "Report the applied move and visible target position.",
           "terminalState": "completed"
         },
         {
@@ -347,6 +395,22 @@
           "tools": ["def.node.crud.diff"],
           "writes": [],
           "instructions": "Reject any unrelated timeline or BUFF change.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonIdentity"],
+          "instructions": "Use the validated replacement Work Node under native approval and the current scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline show the exact replacement skill at the preserved coordinate.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -354,7 +418,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report the validated replacement draft.",
+          "instructions": "Report the applied replacement and visible preserved coordinate.",
           "terminalState": "completed"
         },
         {
@@ -416,6 +480,22 @@
           "tools": ["def.node.crud.diff"],
           "writes": [],
           "instructions": "Verify the new button and no BUFF copy.",
+          "transitions": {"onSuccess": "use-draft", "onFailure": "failed"}
+        },
+        {
+          "id": "use-draft",
+          "kind": "mutation",
+          "tools": ["def.node.crud.use"],
+          "writes": ["timeline.buttonIdentity", "timeline.buttonPosition", "timeline.buttonOrder", "timeline.structure"],
+          "instructions": "Use the validated copy Work Node under native approval and the current scheme CAS.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the current checkout and visible timeline contain the new stable button without copied BUFF state.",
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -423,7 +503,7 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Report the validated copy draft.",
+          "instructions": "Report the applied copy and visible result without claiming a BUFF copy.",
           "terminalState": "completed"
         },
         {

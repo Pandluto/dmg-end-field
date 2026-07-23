@@ -107,6 +107,32 @@ test('marks changed schemes stale and missing capabilities aborted on recovery',
   assert.equal(store.get(stale.transactionId).status, 'stale');
 });
 
+test('invalidates ephemeral proposal and capability references after service restart or expiry', async () => {
+  const { context, store } = fixture();
+  const liveContext = { ...context, serviceEpoch: 'service-a' };
+  const proposal = createLoadout(store, liveContext);
+  store.lockForConfirmation(proposal.transactionId, {
+    proposal: { id: 'proposal-a', token: 'token-a', expiresAt: Date.now() + 60_000 },
+  });
+  const capability = createLoadout(store, liveContext);
+  store.lockForConfirmation(capability.transactionId, {
+    proposal: { id: 'proposal-b', token: 'token-b', expiresAt: Date.now() + 60_000 },
+    capability: { required: true, token: 'capability-b', expiresAt: Date.now() + 60_000 },
+  });
+  await store.recover({ context: { ...liveContext, serviceEpoch: 'service-b' } });
+  assert.equal(store.get(proposal.transactionId).status, 'stale');
+  assert.equal(store.get(proposal.transactionId).terminalReason, 'ephemeral-reference-service-restarted');
+  assert.equal(store.get(capability.transactionId).status, 'aborted');
+
+  const expired = createLoadout(store, liveContext);
+  store.lockForConfirmation(expired.transactionId, {
+    proposal: { id: 'proposal-expired', token: 'token-expired', expiresAt: Date.now() - 1 },
+  });
+  await store.recover({ context: liveContext });
+  assert.equal(store.get(expired.transactionId).status, 'stale');
+  assert.equal(store.get(expired.transactionId).terminalReason, 'proposal-reference-expired');
+});
+
 test('pins the original Revision and revokes only matching unfinished transactions', async () => {
   const { context, store } = fixture();
   const v1 = createLoadout(store, context, 'v1');

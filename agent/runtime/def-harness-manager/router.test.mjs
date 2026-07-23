@@ -26,6 +26,7 @@ test('new requests enter a Tool-isolated route phase', () => {
   assert.equal(route.kind, 'route-phase');
   assert.deepEqual(route.allowedTools, ['def.harness.route']);
   assert.equal(route.definitions.length, 5);
+  assert.deepEqual(route.definitions.find((item) => item.businessId === 'loadout').operations, ['recommend', 'apply']);
   assert.doesNotMatch(route.instructions, /def_data_|def_node_/);
 });
 
@@ -74,6 +75,15 @@ test('validates the required single and cross-business examples', () => {
     ],
   }, { definitions });
   assert.deepEqual(pipeline.steps.map((step) => step.businessId), ['selection', 'loadout']);
+
+  const newSelectionWhileAnotherTransactionExists = beginRoutePhase({
+    userText: '换成别礼',
+    definitions,
+    transactions: [
+      { transactionId: 'tx-loadout', businessId: 'loadout', operation: 'preview', status: 'awaiting-confirmation' },
+    ],
+  });
+  assert.equal(newSelectionWhileAnotherTransactionExists.kind, 'route-phase');
 });
 
 test('continues one pending candidate and clarifies two', () => {
@@ -93,6 +103,25 @@ test('continues one pending candidate and clarifies two', () => {
   });
   assert.equal(two.kind, 'clarify');
   assert.equal(two.reason, 'ambiguous-continuation');
+
+  const awaitingWins = matchContinuation({
+    userText: '确认',
+    transactions: [
+      { transactionId: 'tx-active', businessId: 'timeline', operation: 'add', status: 'active' },
+      { transactionId: 'tx-awaiting', businessId: 'loadout', operation: 'preview', status: 'awaiting-confirmation' },
+    ],
+  });
+  assert.equal(awaitingWins.kind, 'continue');
+  assert.equal(awaitingWins.transactionId, 'tx-awaiting');
+
+  const resume = matchContinuation({
+    userText: '继续',
+    transactions: [
+      { transactionId: 'tx-active', businessId: 'timeline', operation: 'add', status: 'active' },
+    ],
+  });
+  assert.equal(resume.intent, 'resume');
+  assert.equal(resume.transactionId, 'tx-active');
 });
 
 test('rejects entities and terms used as business ids', () => {

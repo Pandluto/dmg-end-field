@@ -14,6 +14,24 @@ const {
   writeRuntimeBridge,
 } = require('./bridge.cjs');
 
+function readJsonIfPresent(filePath) {
+  try {
+    return JSON.parse(require('fs').readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function readNodeSource(sessionDirectory, layer) {
+  const root = path.join(sessionDirectory, 'node', layer);
+  const selection = readJsonIfPresent(path.join(root, 'selection.json'));
+  const timeline = readJsonIfPresent(path.join(root, 'timeline.json'));
+  const buffs = readJsonIfPresent(path.join(root, 'buffs.json'));
+  const inputs = readJsonIfPresent(path.join(root, 'inputs.json'));
+  if (!selection || !timeline || !buffs || !inputs) return null;
+  return { schemaVersion: 1, selection, timeline, buffs, inputs };
+}
+
 function resultSucceeded(output) {
   if (output?.metadata?.ok === false) return false;
   if (output?.metadata?.state === 'error') return false;
@@ -101,15 +119,41 @@ function resultBindings(output, typedOutput) {
     ? ['plannerProfileCapability', 'approvalCapability', 'capability.token', 'fallbackToken']
       .find((expression) => firstString(typedOutput, [expression]) === capabilityToken)
     : '';
+  const expiresAt = Number(
+    valueAtPath(typedOutput, 'capability.expiresAt')
+    || typedOutput?.expiresAt
+    || output?.metadata?.expiresAt
+    || 0,
+  ) || undefined;
   const nodeId = firstString(typedOutput, ['node.id', 'nodeId'])
     || String(output?.metadata?.nodeId || '');
+  const nodeRevision = valueAtPath(typedOutput, 'node.contentRevision')
+    ?? valueAtPath(typedOutput, 'node.updatedAt')
+    ?? typedOutput?.revision
+    ?? output?.metadata?.revision;
+  const workingHash = firstString(typedOutput, [
+    'node.workingHash',
+    'workingHash',
+  ]) || String(output?.metadata?.workingHash || '');
   return {
     artifact: output?.metadata?.artifact
       || (typedOutput?.artifact && typeof typedOutput.artifact === 'object' ? typedOutput.artifact : null)
       || (artifactId ? { id: artifactId, sourceRevision: firstString(typedOutput, ['source.revision', 'sourceRevision']) } : undefined),
     capability: output?.metadata?.capability
-      || (capabilityToken ? { required: true, type: capabilityType, token: capabilityToken } : undefined),
-    workNodeRef: nodeId ? { required: true, nodeId } : undefined,
+      || (capabilityToken ? {
+        required: true,
+        type: capabilityType,
+        token: capabilityToken,
+        ...(expiresAt ? { expiresAt } : {}),
+      } : undefined),
+    workNodeRef: nodeId ? {
+      required: true,
+      nodeId,
+      ...(nodeRevision !== undefined && nodeRevision !== null
+        ? { revision: Number(nodeRevision) || String(nodeRevision) }
+        : {}),
+      ...(workingHash ? { workingHash } : {}),
+    } : undefined,
   };
 }
 
@@ -134,6 +178,13 @@ class HarnessTransactionRuntime {
     this.mutationLeases = new Map();
   }
 
+  refreshFromDisk() {
+    this.registry.controller.reload();
+    this.transactions.reload();
+    this.plans.reload();
+    return this;
+  }
+
   async targets() {
     if (!this.toolTargets) {
       const registry = await import('../def-tools/registry.mjs');
@@ -149,6 +200,9 @@ class HarnessTransactionRuntime {
   async writeProjection(value) {
     const allowedToolIds = Array.isArray(value.allowedToolIds) ? value.allowedToolIds : [];
     const allowedToolBindings = (await Promise.all(allowedToolIds.map((toolId) => this.bindingFor(toolId)))).filter(Boolean);
+    if (value.mode === 'clarify' && !allowedToolBindings.includes('question')) {
+      allowedToolBindings.push('question');
+    }
     const current = readRuntimeBridge(this.sessionDirectory);
     return writeRuntimeBridge(this.sessionDirectory, {
       ...value,
@@ -181,6 +235,8 @@ class HarnessTransactionRuntime {
         phase: 'clarify',
         instructions: route.question,
         question: route,
+        routeDefinitions: definitions,
+        userText,
         context,
         allowedToolIds: [],
       });
@@ -321,7 +377,9 @@ class HarnessTransactionRuntime {
       : this.transactions.markTerminal(transaction.transactionId, status, phase.terminalState);
     let plan = null;
     if (completed.planId) {
-      if (status === 'completed') {
+      if (status === 'completed' && completed.sessionDetached) {
+        plan = this.plans.stop(completed.planId, 'workbench-session-detached-after-selection');
+      } else if (status === 'completed') {
         plan = this.plans.completeCurrentStep(completed.planId, completed.currentSchemeVersion);
         if (plan.status === 'active') {
           const nextStep = plan.steps[plan.currentIndex];
@@ -332,6 +390,7 @@ class HarnessTransactionRuntime {
             checkoutId: completed.checkoutId,
             checkoutType: completed.checkoutType,
             schemeVersion: completed.currentSchemeVersion,
+            serviceEpoch: completed.serviceEpoch,
           }, {
             planId: plan.planId,
             planStepIndex: plan.currentIndex,
@@ -385,6 +444,7 @@ class HarnessTransactionRuntime {
           timelineId: transaction.timelineId,
           checkoutId: transaction.checkoutId,
           schemeVersion: transaction.currentSchemeVersion,
+          serviceEpoch: transaction.serviceEpoch,
           target: transaction.target,
           constraints: transaction.constraints,
           evidenceRefs: transaction.evidenceRefs,
@@ -406,6 +466,7 @@ class HarnessTransactionRuntime {
         timelineId: transaction.timelineId,
         checkoutId: transaction.checkoutId,
         schemeVersion: transaction.currentSchemeVersion,
+        serviceEpoch: transaction.serviceEpoch,
         target: transaction.target,
         constraints: transaction.constraints,
         evidenceRefs: transaction.evidenceRefs,
@@ -439,12 +500,58 @@ class HarnessTransactionRuntime {
     }
     if (bridge?.phaseKind === 'mutation' && bridge.transactionId) {
       const transaction = this.transactions.require(bridge.transactionId);
+      let semantic = null;
+      if (['timeline', 'buff'].includes(transaction.businessId)
+        && ['def_node_use', 'def_node_restore'].includes(toolBinding)) {
+        const binding = readJsonIfPresent(path.join(this.sessionDirectory, '.def-node.json'));
+        const expected = transaction.workNodeRef;
+        const referenceMismatch = expected?.required && (
+          !binding
+          || binding.nodeId !== expected.nodeId
+          || (expected.revision !== undefined && String(binding.revision) !== String(expected.revision))
+          || (expected.workingHash && binding.workingHash !== expected.workingHash)
+        );
+        if (referenceMismatch) {
+          this.transactions.markTerminal(
+            transaction.transactionId,
+            'stale',
+            'work-node-reference-changed-before-commit',
+          );
+          const error = new Error('The reviewed Work Node revision changed before commit.');
+          error.code = 'HARNESS_WORK_NODE_REFERENCE_STALE';
+          error.details = {
+            expected,
+            actual: binding
+              ? { nodeId: binding.nodeId, revision: binding.revision, workingHash: binding.workingHash }
+              : null,
+          };
+          throw error;
+        }
+        const baseSource = readNodeSource(this.sessionDirectory, 'base');
+        const workingSource = readNodeSource(this.sessionDirectory, 'working');
+        if (!baseSource || !workingSource) {
+          const error = new Error('Harness mutation preflight requires complete node/base and node/working sources.');
+          error.code = 'HARNESS_MUTATION_SOURCE_UNAVAILABLE';
+          throw error;
+        }
+        semantic = analyzeBusinessMutation({
+          businessId: transaction.businessId,
+          beforePayload: toolBinding === 'def_node_restore' ? workingSource : baseSource,
+          afterPayload: toolBinding === 'def_node_restore' ? baseSource : workingSource,
+        });
+        if (!semantic.pass) {
+          const error = new Error(`Harness mutation exceeds ${transaction.businessId} write scope before commit.`);
+          error.code = 'HARNESS_MUTATION_WRITE_SCOPE_VIOLATION';
+          error.details = semantic;
+          throw error;
+        }
+      }
       const lease = await this.commits.acquire({
         transactionId: transaction.transactionId,
         timelineId: transaction.timelineId,
         checkoutId: transaction.checkoutId,
       });
-      this.mutationLeases.set(callId, lease);
+      this.mutationLeases.set(callId, { lease, semantic });
     }
     return bridge;
   }
@@ -453,8 +560,8 @@ class HarnessTransactionRuntime {
     try {
       return await this.advanceAfterTool(input);
     } finally {
-      const lease = this.mutationLeases.get(input.callId);
-      if (lease) this.commits.release(lease);
+      const pendingMutation = this.mutationLeases.get(input.callId);
+      if (pendingMutation?.lease) this.commits.release(pendingMutation.lease);
       this.mutationLeases.delete(input.callId);
     }
   }
@@ -462,6 +569,13 @@ class HarnessTransactionRuntime {
   async advanceAfterTool({ sessionId, turnId, callId, toolBinding, canonicalToolId, output }) {
     const bridge = this.assertTool({ sessionId, turnId, toolBinding, canonicalToolId });
     if (bridge.mode === 'route') {
+      if (!resultSucceeded(output)) {
+        return this.writeProjection({
+          ...bridge,
+          turnId,
+          instructions: `${bridge.instructions || ''}\nThe previous route submission failed validation. Submit one corrected structured route; do not answer the business request directly.`.trim(),
+        });
+      }
       const route = output?.metadata?.route || (() => {
         try {
           return JSON.parse(output?.output || '{}')?.route;
@@ -475,6 +589,30 @@ class HarnessTransactionRuntime {
         throw error;
       }
       return this.acceptRouteSubmission(route, { turnId });
+    }
+    if (bridge.mode === 'clarify') {
+      if (toolBinding !== 'question') {
+        const error = new Error('Manager clarification only permits the native question interaction.');
+        error.code = 'HARNESS_CLARIFICATION_TOOL_INVALID';
+        throw error;
+      }
+      if (!resultSucceeded(output)) {
+        return this.writeProjection({
+          ...bridge,
+          turnId,
+          instructions: `${bridge.instructions || ''}\nThe native question did not return an answer. Keep this request unresolved and do not guess.`.trim(),
+        });
+      }
+      return this.writeProjection({
+        ...bridge,
+        mode: 'route',
+        phase: 'route',
+        phaseKind: 'route',
+        turnId,
+        instructions: 'Use the user answer returned by the native question interaction to submit one structured route through def_harness_route.',
+        question: null,
+        allowedToolIds: ['def.harness.route'],
+      });
     }
     if (bridge.mode !== 'business' || !bridge.transactionId) return bridge;
     this.transactions.recordToolResult(bridge.transactionId, {
@@ -508,13 +646,28 @@ class HarnessTransactionRuntime {
       this.transactions.transition(transaction.transactionId, { formulaVersion: typedOutput.formulaVersion });
     }
     const semanticMutation = output?.metadata?.semanticMutation;
-    const semantic = phase.kind === 'mutation' && semanticMutation?.beforePayload && semanticMutation?.afterPayload
+    const preflightSemantic = this.mutationLeases.get(callId)?.semantic || null;
+    let semantic = phase.kind === 'mutation' && semanticMutation?.beforePayload && semanticMutation?.afterPayload
       ? analyzeBusinessMutation({
         businessId: transaction.businessId,
         beforePayload: semanticMutation.beforePayload,
         afterPayload: semanticMutation.afterPayload,
       })
-      : null;
+      : preflightSemantic;
+    if (!semantic && phase.kind === 'mutation'
+      && ['timeline', 'buff'].includes(transaction.businessId)
+      && ['edit', 'apply_patch'].includes(toolBinding)
+      && resultSucceeded(output)) {
+      const baseSource = readNodeSource(this.sessionDirectory, 'base');
+      const workingSource = readNodeSource(this.sessionDirectory, 'working');
+      if (baseSource && workingSource) {
+        semantic = analyzeBusinessMutation({
+          businessId: transaction.businessId,
+          beforePayload: baseSource,
+          afterPayload: workingSource,
+        });
+      }
+    }
     if (semantic && !semantic.pass) {
       this.transactions.markTerminal(transaction.transactionId, 'aborted', 'write-scope-violation');
       const error = new Error(`Harness mutation exceeds ${transaction.businessId} write scope.`);
@@ -522,9 +675,38 @@ class HarnessTransactionRuntime {
       error.details = semantic;
       throw error;
     }
-    if (phase.kind === 'mutation' && resultSucceeded(output) && output?.metadata?.currentCheckoutTouched !== false) {
+    if (phase.kind === 'mutation' && resultSucceeded(output) && output?.metadata?.currentCheckoutTouched === true) {
       const newSchemeVersion = output?.metadata?.schemeVersion || output?.metadata?.postcondition?.schemeVersion || '';
-      if (newSchemeVersion) this.transactions.transition(transaction.transactionId, { currentSchemeVersion: newSchemeVersion });
+      const sessionDetached = output?.metadata?.sessionDetached === true;
+      if (sessionDetached) {
+        this.transactions.update(transaction.transactionId, (current) => ({
+          ...current,
+          sessionDetached: true,
+        }), 'session-detached', {
+          transition: typedOutput.transition || output?.metadata?.transition || '',
+        });
+      } else if (!newSchemeVersion) {
+        applyDownstreamEffects({
+          transactionStore: this.transactions,
+          sourceTransactionId: transaction.transactionId,
+          sourceBusiness: transaction.businessId,
+          effects: semantic?.cascadeDetails || output?.metadata?.semanticEffects || {},
+          newSchemeVersion: '',
+        });
+        this.transactions.markTerminal(
+          transaction.transactionId,
+          'stale',
+          'mutation-scheme-version-unavailable',
+        );
+        if (transaction.planId) {
+          this.plans.stop(transaction.planId, 'mutation-scheme-version-unavailable');
+        }
+        const error = new Error('The mutation reached the product, but Harness Manager could not bind its resulting scheme version.');
+        error.code = 'HARNESS_MUTATION_SCHEME_VERSION_REQUIRED';
+        throw error;
+      } else {
+        this.transactions.transition(transaction.transactionId, { currentSchemeVersion: newSchemeVersion });
+      }
       applyDownstreamEffects({
         transactionStore: this.transactions,
         sourceTransactionId: transaction.transactionId,
@@ -546,7 +728,11 @@ class HarnessTransactionRuntime {
         this.transactions.lockForConfirmation(transaction.transactionId, {
           proposal: output?.metadata?.proposal || (
             parsed?.proposalToken
-              ? { id: parsed.proposalId || parsed.planId || parsed.proposalToken, token: parsed.proposalToken }
+              ? {
+                id: parsed.proposalId || parsed.planId || parsed.proposalToken,
+                token: parsed.proposalToken,
+                ...(Number(parsed.expiresAt) ? { expiresAt: Number(parsed.expiresAt) } : {}),
+              }
               : transaction.proposal
           ),
           artifact: output?.metadata?.artifact || transaction.artifact,

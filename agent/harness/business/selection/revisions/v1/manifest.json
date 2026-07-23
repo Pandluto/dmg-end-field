@@ -81,15 +81,40 @@
           "kind": "evidence",
           "tools": ["def.data.resource.operator_catalog"],
           "writes": [],
-          "instructions": "Resolve only the operator being added and preserve every retained operator in order.",
-          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+          "instructions": "Resolve only the operator being added, construct the complete one-to-four member roster, and preserve every retained operator in order.",
+          "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
         },
         {
-          "id": "candidate",
-          "kind": "plan",
+          "id": "apply-selection",
+          "kind": "mutation",
+          "tools": ["def.team.selection.apply"],
+          "writes": ["selection.members", "selection.order"],
+          "instructions": "Apply the complete resulting roster once. Native approval must display the candidate and its downstream cleanup before the product mutation runs.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
+          "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the visible ordered roster and resulting scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Present the complete resulting ordered roster and downstream impact. If application was not requested, stop here.",
+          "instructions": "Report the applied or no-op roster, visible result, product cleanup and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "detached",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that the disjoint four-person roster was verified in a new temporary workspace and this DEF Session was intentionally detached, so any remaining cross-business plan stopped.",
           "terminalState": "completed"
         },
         {
@@ -110,15 +135,40 @@
           "kind": "context",
           "tools": ["def.node.crud.context"],
           "writes": [],
-          "instructions": "Read the exact current roster and identify the removal target from current state.",
-          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+          "instructions": "Read the exact current roster, identify one unambiguous removal target, and construct the complete remaining roster.",
+          "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
         },
         {
-          "id": "candidate",
-          "kind": "plan",
+          "id": "apply-selection",
+          "kind": "mutation",
+          "tools": ["def.team.selection.apply"],
+          "writes": ["selection.members", "selection.order"],
+          "instructions": "Apply the complete remaining roster once. Native approval must show the departing operator and product cleanup.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
+          "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the visible remaining roster and resulting scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Present the complete resulting roster, including buttons/configurations that product cleanup will invalidate.",
+          "instructions": "Report the applied roster, product cleanup and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "detached",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the verified temporary-workspace transition and intentional DEF Session detachment.",
           "terminalState": "completed"
         },
         {
@@ -147,15 +197,40 @@
           "kind": "evidence",
           "tools": ["def.data.resource.operator_catalog"],
           "writes": [],
-          "instructions": "Resolve the replacement operator to one exact stable id.",
-          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+          "instructions": "Resolve the replacement operator to one exact stable id and construct the complete ordered replacement roster.",
+          "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
         },
         {
-          "id": "candidate",
-          "kind": "plan",
+          "id": "apply-selection",
+          "kind": "mutation",
+          "tools": ["def.team.selection.apply"],
+          "writes": ["selection.members", "selection.order"],
+          "instructions": "Apply the complete ordered replacement once. Native approval must show the replacement and downstream invalidations.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
+          "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the visible replacement roster and resulting scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Present the complete ordered replacement candidate and its downstream invalidations.",
+          "instructions": "Report the applied replacement, product cleanup and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "detached",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that the verified full-team replacement entered a new temporary workspace and intentionally detached this DEF Session.",
           "terminalState": "completed"
         },
         {
@@ -176,15 +251,40 @@
           "kind": "context",
           "tools": ["def.node.crud.context"],
           "writes": [],
-          "instructions": "Read the ordered roster and preserve the exact member set.",
-          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+          "instructions": "Read the ordered roster, preserve the exact member set, and construct the complete requested order.",
+          "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
         },
         {
-          "id": "candidate",
-          "kind": "plan",
+          "id": "apply-selection",
+          "kind": "mutation",
+          "tools": ["def.team.selection.apply"],
+          "writes": ["selection.members", "selection.order"],
+          "instructions": "Apply one complete order once; do not model reordering as remove plus add. Native approval remains mandatory.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
+          "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Verify the visible order, unchanged member set and resulting scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Present one complete order candidate; do not describe reordering as remove plus add.",
+          "instructions": "Report the applied or no-op order and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "detached",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the verified temporary-workspace transition and intentional DEF Session detachment.",
           "terminalState": "completed"
         },
         {
@@ -259,7 +359,8 @@
           "tools": ["def.team.selection.apply"],
           "writes": ["selection.members", "selection.order"],
           "instructions": "Apply the complete ordered roster once through the formal selection capability. Native approval, CAS and product cleanup remain mandatory.",
-          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"},
+          "resultTransitions": [{"path": "transition", "equals": "new-temporary-workspace", "target": "detached"}]
         },
         {
           "id": "verify-visible",
@@ -275,6 +376,14 @@
           "tools": [],
           "writes": [],
           "instructions": "Report applied/no-op outcome, visible roster, product cleanup and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "detached",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that the disjoint four-person roster was verified in a new temporary workspace and this DEF Session was intentionally detached, so any remaining cross-business plan stopped.",
           "terminalState": "completed"
         },
         {

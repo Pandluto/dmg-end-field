@@ -20,7 +20,11 @@ const {
   listManagedNativeHostSessionBindings,
   writeNativeWorkbenchContext,
 } = require('../runtime/def-opencode-adapter/index.cjs');
-const { prepareWorkbenchTurn } = require('../runtime/def-harness-manager/index.cjs');
+const {
+  prepareWorkbenchTurn,
+  startHarnessRevisionWatchers,
+  stopHarnessRevisionWatchers,
+} = require('../runtime/def-harness-manager/index.cjs');
 const { readRuntimeBridge } = require('../runtime/def-harness-manager/bridge.cjs');
 
 const HOST = '127.0.0.1';
@@ -76,6 +80,20 @@ async function ensureDefRestService() {
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
   throw new Error(`DEF tool service did not become ready at ${defRestUrl}`);
+}
+
+async function readDefRestServiceEpoch() {
+  await ensureDefRestService();
+  const response = await fetch(`${defRestUrl}/health`, {
+    signal: AbortSignal.timeout(2000),
+  });
+  const health = await response.json().catch(() => null);
+  if (!response.ok || !health?.startedAt || !health?.pid) {
+    const error = new Error('DEF Tool service did not expose a stable runtime epoch.');
+    error.code = 'DEF_REST_SERVICE_EPOCH_UNAVAILABLE';
+    throw error;
+  }
+  return `${health.pid}:${health.startedAt}`;
 }
 
 async function registerNativeCatalogSession(session) {
@@ -581,7 +599,7 @@ async function proxyOpenCodeRequest(request, response) {
   // `/{directorySlug}/session/{sessionId}`.  Keep accepting the unprefixed
   // OpenCode route as well, but do not assume the prefix is literally `server`.
   await rejectPendingQuestionsForSessionAbort(runtime, request, target);
-  const sessionMessageMatch = /^\/session\/([^/]+)\/message$/.exec(target.pathname);
+  const sessionMessageMatch = /^\/session\/([^/]+)\/(?:message|prompt_async)$/.exec(target.pathname);
   let rewrittenBody = null;
   let binding = null;
   if (request.method === 'POST' && sessionMessageMatch) {
@@ -602,6 +620,7 @@ async function proxyOpenCodeRequest(request, response) {
       userText,
       parts: incoming.parts,
       incomingSystem: incoming.system,
+      serviceEpoch: await readDefRestServiceEpoch(),
     });
     rewrittenBody = Buffer.from(JSON.stringify({
       ...incoming,
@@ -771,6 +790,7 @@ async function sendNativeInteropPromptOnce(sessionID, body) {
     userText: rawUserText,
     parts: [{ type: 'text', text: rawUserText }],
     diagnostic,
+    serviceEpoch: await readDefRestServiceEpoch(),
   });
   const payload = {
     agent: binding.agent,
@@ -1803,10 +1823,21 @@ const server = http.createServer(async (request, response) => {
 
 server.listen(PORT, HOST, () => {
   console.log(`[def-agent-sidecar] listening on http://${HOST}:${PORT}`);
+  if (process.env.NODE_ENV === 'development' || process.env.DEF_HARNESS_WATCH === '1') {
+    startHarnessRevisionWatchers({
+      onReload: (result) => {
+        const state = result?.ok ? 'activated' : `rejected:${result?.error?.code || 'unknown'}`;
+        console.log(`[def-harness-manager] ${result?.businessId || 'unknown'} ${state}`);
+      },
+    }).catch((error) => {
+      console.error(`[def-harness-manager] revision watcher unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
 });
 
 function shutdownAndExit(signal) {
   try {
+    stopHarnessRevisionWatchers();
     shutdownRuntime();
     if (defRestProcess && defRestProcess.exitCode === null) defRestProcess.kill('SIGTERM');
   } finally {
@@ -1818,5 +1849,6 @@ function shutdownAndExit(signal) {
 process.once('SIGTERM', () => shutdownAndExit('SIGTERM'));
 process.once('SIGINT', () => shutdownAndExit('SIGINT'));
 process.once('exit', () => {
+  stopHarnessRevisionWatchers();
   shutdownRuntime();
 });

@@ -64,7 +64,8 @@ function continuationIntent(userText) {
   if (!text) return null;
   if (/^(?:确认|同意|应用|换上|就按这套|按这套|执行)(?:应用|换上|执行|刚才|那套|该方案|此方案|它|吧|。|！|!)*$/.test(text)) return 'confirm';
   if (/^(?:拒绝|取消|不要|先不|暂不)(?:[。！!吧])?$/.test(text)) return 'reject';
-  if (/(?:改成|换成|为什么不用|不对|修正|重新规划|重新推荐)/.test(text)) return 'correct';
+  if (/^(?:继续|接着|继续处理|接着处理)(?:[。！!吧])?$/.test(text)) return 'resume';
+  if (/(?:为什么不用|不对|修正|重新规划|重新推荐|(?:刚才|那套|该方案|这个方案).*(?:改成|换成)|把(?:刚才|那套|该方案|这个方案).*(?:改成|换成))/.test(text)) return 'correct';
   return null;
 }
 
@@ -81,9 +82,14 @@ function transactionLabel(transaction) {
 function matchContinuation({ userText, transactions = [] }) {
   const intent = continuationIntent(userText);
   if (!intent) return null;
+  const eligibleStatuses = intent === 'confirm' || intent === 'reject'
+    ? new Set(['awaiting-confirmation'])
+    : intent === 'resume'
+      ? new Set(['active'])
+      : CONTINUABLE_STATUSES;
   const candidates = transactions.filter((transaction) => (
     transaction
-    && CONTINUABLE_STATUSES.has(transaction.status)
+    && eligibleStatuses.has(transaction.status)
     && transaction.revoked !== true
   ));
   if (candidates.length === 1) {
@@ -189,7 +195,11 @@ function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
     kind: 'route-phase',
     userText: normalizedText(userText),
     definitions: (Array.isArray(definitions) ? definitions : DEFAULT_BUSINESS_DEFINITIONS)
-      .map(({ businessId, summary }) => ({ businessId, summary })),
+      .map(({ businessId, summary, operations }) => ({
+        businessId,
+        summary,
+        ...(Array.isArray(operations) ? { operations: [...operations] } : {}),
+      })),
     allowedTools: ['def.harness.route'],
     instructions: [
       'Classify only the business result requested by the user.',

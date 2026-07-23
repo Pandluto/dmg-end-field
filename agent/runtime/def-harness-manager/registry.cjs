@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const { RevisionController } = require('./revision-controller.cjs');
+const { RevisionController, atomicWriteJson } = require('./revision-controller.cjs');
 
 const BUSINESS_IDS = Object.freeze(['selection', 'loadout', 'timeline', 'buff', 'calculation']);
 const BUSINESS_ID_SET = new Set(BUSINESS_IDS);
@@ -218,8 +218,11 @@ class BusinessHarnessRegistry {
   constructor({ businessRoot, statePath, toolIds } = {}) {
     this.businessRoot = path.resolve(businessRoot || path.join(__dirname, '..', '..', 'harness', 'business'));
     this.controller = new RevisionController({
-      statePath: statePath || path.join(this.businessRoot, '..', '..', '..', '.runtime', 'def-harness-manager', 'revisions.json'),
+      statePath: statePath
+        || process.env.DEF_HARNESS_STATE_PATH
+        || path.join(this.businessRoot, '..', '..', '..', '.runtime', 'def-harness-manager', 'revisions.json'),
     });
+    this.revisionCacheRoot = path.join(path.dirname(this.controller.statePath), 'revision-cache');
     this.toolIds = Array.isArray(toolIds) ? [...toolIds] : null;
     this.definitions = new Map();
     this.revisions = new Map();
@@ -241,6 +244,73 @@ class BusinessHarnessRegistry {
 
   revisionPath(businessId, version) {
     return path.join(this.businessRoot, businessId, 'revisions', version);
+  }
+
+  revisionCachePath(businessId, contentHash) {
+    return path.join(this.revisionCacheRoot, businessId, `${contentHash}.json`);
+  }
+
+  persistRevisionCache(record, definition) {
+    const target = this.revisionCachePath(record.businessId, record.contentHash);
+    if (fs.existsSync(target)) {
+      const cached = readJson(target, `${record.businessId}@${record.version} immutable cache`);
+      if (cached?.contentHash !== record.contentHash
+        || cached?.businessId !== record.businessId
+        || cached?.version !== record.version) {
+        const error = new Error(`Immutable Revision cache collision: ${record.businessId}@${record.contentHash}`);
+        error.code = 'HARNESS_REVISION_CACHE_COLLISION';
+        throw error;
+      }
+      return;
+    }
+    atomicWriteJson(target, {
+      schemaVersion: 1,
+      businessId: record.businessId,
+      version: record.version,
+      contentHash: record.contentHash,
+      definition,
+      manifest: record.manifest,
+      instructions: record.instructions,
+    });
+  }
+
+  async loadRevisionCache(businessId, revisionRef) {
+    const target = this.revisionCachePath(businessId, revisionRef.contentHash);
+    if (!fs.existsSync(target)) return null;
+    const cached = readJson(target, `${businessId}@${revisionRef.contentHash} immutable cache`);
+    if (cached?.schemaVersion !== 1
+      || cached.businessId !== businessId
+      || cached.version !== revisionRef.version
+      || cached.contentHash !== revisionRef.contentHash) {
+      const error = new Error(`Immutable Revision cache is invalid: ${businessId}@${revisionRef.contentHash}`);
+      error.code = 'HARNESS_REVISION_CACHE_INVALID';
+      throw error;
+    }
+    const currentDefinition = this.definitions.get(businessId) || this.loadDefinition(businessId);
+    if (JSON.stringify(cached.definition) !== JSON.stringify(currentDefinition)) {
+      const error = new Error(`Pinned Revision uses a different hard business definition: ${businessId}@${revisionRef.version}`);
+      error.code = 'HARNESS_DEFINITION_REVISION_MISMATCH';
+      throw error;
+    }
+    const toolIds = await this.ensureToolIds();
+    validateRevision({
+      definition: currentDefinition,
+      manifest: cached.manifest,
+      instructions: cached.instructions,
+      toolIds,
+      source: `${businessId}@${revisionRef.version} immutable cache`,
+    });
+    const record = Object.freeze({
+      businessId,
+      version: cached.version,
+      contentHash: cached.contentHash,
+      manifest: cached.manifest,
+      instructions: cached.instructions,
+      directory: path.dirname(target),
+      immutableCachePath: target,
+    });
+    this.revisions.set(`${businessId}@${record.version}:${record.contentHash}`, record);
+    return record;
   }
 
   loadDefinition(businessId, { allowDefinitionChange = false } = {}) {
@@ -299,7 +369,8 @@ class BusinessHarnessRegistry {
       instructions,
       directory,
     });
-    this.revisions.set(`${businessId}@${version}`, record);
+    this.persistRevisionCache(record, definition);
+    this.revisions.set(`${businessId}@${version}:${record.contentHash}`, record);
     return record;
   }
 
@@ -329,7 +400,7 @@ class BusinessHarnessRegistry {
 
   async rollback(businessId) {
     const previous = this.controller.businessState(businessId).previous;
-    if (previous) await this.validate(businessId, previous.version);
+    if (previous) await this.resolveRevision(businessId, previous);
     const state = this.controller.rollback(businessId);
     return { record: await this.resolveActive(businessId), state };
   }
@@ -360,15 +431,7 @@ class BusinessHarnessRegistry {
     }
     if (!state.active) return null;
     if (state.revoked.includes(state.active.version)) return null;
-    const cached = this.revisions.get(`${businessId}@${state.active.version}`);
-    if (cached?.contentHash === state.active.contentHash) return cached;
-    const loaded = await this.validate(businessId, state.active.version);
-    if (loaded.contentHash !== state.active.contentHash) {
-      const error = new Error(`Active Revision content changed without activation: ${businessId}@${state.active.version}`);
-      error.code = 'HARNESS_REVISION_HASH_MISMATCH';
-      throw error;
-    }
-    return loaded;
+    return this.resolveRevision(businessId, state.active);
   }
 
   async resolveRevision(businessId, revisionRef) {
@@ -382,10 +445,12 @@ class BusinessHarnessRegistry {
       error.code = 'HARNESS_REVISION_REVOKED';
       throw error;
     }
-    const cached = this.revisions.get(`${businessId}@${revisionRef.version}`);
-    const record = cached?.contentHash === revisionRef.contentHash
-      ? cached
-      : await this.validate(businessId, revisionRef.version);
+    const cacheKey = `${businessId}@${revisionRef.version}:${revisionRef.contentHash}`;
+    const cached = this.revisions.get(cacheKey);
+    if (cached) return cached;
+    const immutable = await this.loadRevisionCache(businessId, revisionRef);
+    if (immutable) return immutable;
+    const record = await this.validate(businessId, revisionRef.version);
     if (record.contentHash !== revisionRef.contentHash) {
       const error = new Error(`Pinned Revision hash mismatch: ${businessId}@${revisionRef.version}`);
       error.code = 'HARNESS_REVISION_HASH_MISMATCH';

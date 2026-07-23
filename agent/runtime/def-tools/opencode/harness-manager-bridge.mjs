@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import managerRuntime from '../../def-harness-manager/runtime.cjs'
 import managerBridge from '../../def-harness-manager/bridge.cjs'
 import { DEF_NATIVE_TARGETS } from '../registry.mjs'
@@ -8,6 +10,16 @@ const sessionDirectories = new Map()
 const pendingTurnIds = new Map()
 const runtimes = new Map()
 const completedToolCalls = new Set()
+
+function managedWorkbenchBinding(directory) {
+  if (!directory) return null
+  try {
+    const binding = JSON.parse(fs.readFileSync(path.join(directory, '.def-session.json'), 'utf8'))
+    return binding?.host === 'workbench' && binding?.sessionID ? binding : null
+  } catch {
+    return null
+  }
+}
 
 function canonicalToolId(binding) {
   return DEF_NATIVE_TARGETS.find((target) => target.nativeBinding === binding)?.id || ''
@@ -34,7 +46,14 @@ export async function projectHarnessTools({ sessionId, directory, tools }) {
   if (!sessionId || !directory) return
   sessionDirectories.set(sessionId, directory)
   const bridge = readRuntimeBridge(directory)
-  if (!bridge) return
+  if (!bridge) {
+    if (managedWorkbenchBinding(directory)) {
+      const error = new Error('Harness Manager projection is missing for this managed Workbench request.')
+      error.code = 'HARNESS_RUNTIME_NOT_PREPARED'
+      throw error
+    }
+    return
+  }
   const turnId = pendingTurnIds.get(sessionId)
   if (turnId && bridge.turnId !== turnId) runtimeFor(directory).bindTurn(sessionId, turnId)
   const current = readRuntimeBridge(directory)
@@ -48,7 +67,15 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
   if (!sessionId || !directory) return
   sessionDirectories.set(sessionId, directory)
   const bridge = readRuntimeBridge(directory)
-  if (!bridge) return
+  if (!bridge) {
+    if (managedWorkbenchBinding(directory)) {
+      const error = new Error('Harness Manager system projection is missing for this managed Workbench request.')
+      error.code = 'HARNESS_RUNTIME_NOT_PREPARED'
+      throw error
+    }
+    return
+  }
+  const { serviceEpoch: _serviceEpoch, ...visibleContext } = bridge.context || {}
   system.push([
     'DEF HARNESS MANAGER ACTIVE PHASE (authoritative):',
     `Mode: ${bridge.mode}.`,
@@ -58,15 +85,27 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
     bridge.mode === 'route'
       ? `Available business definitions: ${JSON.stringify(bridge.routeDefinitions || [])}`
       : '',
+    bridge.mode === 'clarify'
+      ? `Required clarification: ${JSON.stringify(bridge.question || {})}`
+      : '',
     bridge.instructions || '',
-    `Bound context: ${JSON.stringify(bridge.context || {})}`,
+    `Bound context: ${JSON.stringify(visibleContext)}`,
   ].filter(Boolean).join('\n'))
 }
 
 export async function assertHarnessToolBefore({ sessionId, turnId, tool, callId, args }) {
   const directory = sessionDirectories.get(sessionId)
-  if (!directory || !readRuntimeBridge(directory)) return
+  if (!directory) return
+  if (!readRuntimeBridge(directory)) {
+    if (managedWorkbenchBinding(directory)) {
+      const error = new Error('Harness Manager Tool gate is missing for this managed Workbench request.')
+      error.code = 'HARNESS_RUNTIME_NOT_PREPARED'
+      throw error
+    }
+    return
+  }
   const runtime = runtimeFor(directory)
+  runtime.refreshFromDisk()
   await runtime.beforeTool({
     sessionId,
     turnId: turnId || pendingTurnIds.get(sessionId) || '',
@@ -83,7 +122,9 @@ export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId,
   const key = `${sessionId}:${callId}`
   if (completedToolCalls.has(key)) return
   completedToolCalls.add(key)
-  await runtimeFor(directory).afterTool({
+  const runtime = runtimeFor(directory)
+  runtime.refreshFromDisk()
+  await runtime.afterTool({
     sessionId,
     turnId: turnId || pendingTurnIds.get(sessionId) || '',
     callId,
@@ -102,7 +143,9 @@ export async function advanceHarnessToolFailure(event) {
   const key = `${part.sessionID}:${part.callID}`
   if (completedToolCalls.has(key)) return
   completedToolCalls.add(key)
-  await runtimeFor(directory).afterTool({
+  const runtime = runtimeFor(directory)
+  runtime.refreshFromDisk()
+  await runtime.afterTool({
     sessionId: part.sessionID,
     turnId: pendingTurnIds.get(part.sessionID) || '',
     callId: part.callID,
