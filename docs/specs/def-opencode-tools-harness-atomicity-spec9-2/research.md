@@ -1,444 +1,892 @@
-# Spec 9-2 Research：Tool 与 Harness 原子职责
+# Spec 9-2 Research：五业务原子 Harness 架构推导
 
 ## 状态
 
-研究完成，未进入代码实施。
+研究完成，工程实施尚未开始。
 
-本研究以提交 `448f5688` 上的当前实现为对象，只回答一件事：
+本研究不是一篇架构论文，也不追求抽象形式本身。它为同目录 [`spec.md`](./spec.md) 提供可复核的推导依据：
 
-> Tool 与 Harness 分别应该决定什么；Harness 内部各单元如何只保留一个责任，避免重复、冲突和隐式覆盖。
+> 从 DEF 当前产品状态、Typed Tools、OpenCode 运行链路和旧 Harness 实现出发，证明为什么目标边界必须是五个业务 Harness，为什么 Harness 必须与业务上下文绑定，以及管理、热重载和迁移机制最少需要哪些组成部分。
 
-旧的无效 Spec 9 已归档，不作为本研究输入。Harness 整包版本化、Session 固定、候选发布，以及任何配装术语都不是本研究主旨。
+研究结论必须同时满足三条标准：
 
-## 一、先说结论
+1. **可追溯**：每个目标组件都能追溯到当前代码中的事实或冲突；
+2. **可反驳**：必须说明相邻切法为什么不能满足同一组不变量；
+3. **可落实**：每个关系都能转化为运行时合同、状态或验收证据。
 
-当前项目还没有做到 Harness 原子化。
+## 一、研究问题
 
-现有八个 slot 是文件分类，不是责任原子。相同规则同时存在于：
+本轮只研究一个总问题：
 
-- OpenCode Agent 的固定系统提示；
-- 每回合注入的宿主提示；
-- Harness 的多个 slot；
-- runtime Skill；
-- Tool 的模型描述；
-- Tool plugin 的可执行回合门禁；
-- REST Tool registry、访问策略和具体 handler。
+> 在 Typed Tools 平级注册、游戏知识贯穿业务、方案状态互相依赖的前提下，如何让选人、配装、排轴、BUFF、计算统计各自拥有唯一的业务决定权，同时能够在同一 DEF Session 中独立注册、迭代和热重载？
 
-`def-harness.cjs` 能校验路径、hash、slot 名称和包兼容性，但不会判断两段内容是否拥有同一决定权，也不会判断它们是否矛盾。最终组合只是按固定顺序全文拼接。因此，当前系统依赖“多处文字刚好保持一致”，而不是依赖明确的唯一责任人。
+该问题包含三个不可分割的子问题：
 
-原子化不等于增加文件、slot、manifest 或版本号。这里的原子定义为：
-
-> 对一种决定拥有唯一解释权、具有明确输入输出、能独立修改和验证、且不需要另一处重复同一规则的最小责任单元。
-
-用最直白的话说：
-
-- Tool 回答“能做什么、接受什么、允许不允许、实际发生了什么”；
-- Harness 回答“面对这个用户请求，应该选择哪个安全能力、按什么业务步骤使用、最后怎么说明”；
-- 产品状态与知识源回答“事实是什么”；
-- Judge 回答“做得对不对”。
-
-任何一个问题同时由两处回答，都还没有原子化。
-
-## 二、研究范围与证据
-
-### 2.1 检查对象
-
-| 层 | 当前主要入口 | 本研究关注点 |
+| 子问题 | 必须回答的内容 | 若不回答的后果 |
 | --- | --- | --- |
-| Harness 包装与组合 | `agent/harness/def-harness.cjs` | slot 合同、组合方式、冲突检查 |
-| Harness 内容 | `agent/harness/baseline/stable-v0/`、`agent/harness/examples/` | 单元是否独立、候选是否只改变一个假设 |
-| 固定 Agent 提示 | `agent/runtime/def-opencode-adapter/index.cjs` | 是否另有一套未声明为 Harness 的行为规则 |
-| 每回合宿主提示 | `agent/server/def-agent-server.cjs` | 状态注入是否夹带路由、工作流和回复规则 |
-| runtime Skills | `agent/runtime/def/skills/**/SKILL.md` | Skill 是否是单一过程，还是第二套总 Harness |
-| 模型侧 Tool | `agent/runtime/def-tools/opencode/def.js` | schema、描述、执行门禁和工作流是否混在一起 |
-| Tool registry | `agent/runtime/def-tools/definitions.mjs`、`registry.mjs` | Tool 是否存在唯一合同 |
-| Tool 执行端 | `scripts/ai-cli-rest-server.mjs`、`scripts/def-core/*` | 准入、执行、验证、错误和输出合同的实际归属 |
-| 产品命令合同 | `src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs` | 硬约束是否已由代码拥有 |
+| 解耦 | 当前业务规则究竟分散在哪里，目标 owner 是谁 | 新 Harness 与旧 Prompt、Skill、router 继续冲突 |
+| 管理 | Harness 如何注册、实例化、绑定上下文、投影 Tool、追踪和失效 | 五个文件仍只是另一种静态 Prompt 拼接 |
+| 原子业务 | 什么才是一个业务 Harness，Operation、实体和知识处于什么位置 | 再次按名词、Tool 或文件机械拆分 |
 
-### 2.2 明确排除
+因此，“只拆内容”“只做管理器”或“只建五个空 Harness”均不能单独构成本轮答案。
 
-本研究不：
+## 二、研究方法与判定标准
 
-- 修改任何运行时代码、Tool、Harness、Skill 或提示词；
-- 设计整包版本、Session pinning、promotion 或 rollback；
-- 研究任何具体配装算法或业务答案；
-- 用旧无效 Spec 9 的研究结论倒推本轮目标；
-- 把“当前实现存在”误写成“目标架构必须保留”。
+### 2.1 证据范围
 
-## 三、当前真实结构
-
-一次 Workbench 回合实际经过的行为来源大致如下：
-
-| 顺序 | 来源 | 当前实际内容 |
+| 层 | 主要证据 | 研究目的 |
 | --- | --- | --- |
-| 1 | `buildAgentPrompt("workbench")` | 身份、路由、工具选择、工作流、失败处理、回复要求 |
-| 2 | runtime Skill | 某领域的详细步骤，同时再次包含路由、知识、失败和回复规则 |
-| 3 | 每回合宿主状态提示 | 当前 checkout/selection，也夹带“必须先调用什么”等行为命令 |
-| 4 | Harness 八槽 | 再次注入合同、路由、工具指南、工作流、知识和回复策略 |
-| 5 | Tool 描述与 args | 本地能力说明，但部分描述继续规定前后 Tool、失败后的动作和回复方式 |
-| 6 | plugin/REST 可执行门禁 | 实际阻止 Tool、判断权限、限制重试、执行状态转换 |
-| 7 | Tool handler 与产品命令 | 执行领域逻辑、验证输入、产生副作用和 postcondition |
+| 旧 Harness | `agent/harness/def-harness.cjs`、`agent/harness/baseline/stable-v0/**` | 验证八槽组合、整包绑定和当前热插拔含义 |
+| Agent 入口 | `agent/runtime/def-opencode-adapter/index.cjs` | 查明固定 Workbench Prompt、Session 绑定和调用链 |
+| 回合路由 | `agent/runtime/def-opencode-adapter/harness-turn-router.cjs` | 查明当前业务识别是否足以承担五业务路由 |
+| runtime Skill | `agent/runtime/def/skills/timeline-workbench/SKILL.md` | 查明是否存在第二套跨业务 Harness |
+| Tool 注册 | `agent/runtime/def-tools/registry.mjs`、`opencode/plugin.js` | 验证 Tool 平级注册和现有执行前 hook |
+| Tool 合同与执行 | `agent/runtime/def-tools/opencode/def.js`、`scripts/ai-cli-rest-server.mjs` | 识别 capability、approval、事务和 postcondition |
+| OpenCode 核心 | `agent/vendor/opencode/packages/opencode/src/session/**` | 验证逐回合 Tool 投影是否具备实现基础 |
+| 方案状态 | `agent/runtime/def-node-workspace/codec.mjs`、`timeline-invariant.mjs` | 查明五业务状态是否能按文件或 Tool 分割 |
+| 产品硬合同 | `src/agentKernel/mainWorkbench/commandSchemaRuntime.mjs` | 区分 Harness 判断与不可绕过的产品校验 |
+| 历史架构口径 | `docs/architecture/harness-training.md` | 比较旧“新 Session 选整包”和本轮在线迭代要求 |
 
-前三套较长的教学内容可以在同一回合同时出现：
+### 2.2 原子边界判据
 
-- 固定 Workbench 提示的核心规则约 20 KB；
-- `timeline-workbench/SKILL.md` 约 16.7 KB；
-- stable Harness 八个 Markdown 合计约 11 KB。
+候选 Harness 边界记为 `h`。只有同时满足以下条件，`h` 才是业务原子：
 
-字符数本身不是错误；问题是三者大量拥有相同的决定权，却没有组合合同。
+1. 用户能够表达一个独立业务目标；
+2. 它拥有唯一的直接语义写域，或明确为只读派生域；
+3. 它具有独立完成判据和失败状态；
+4. 它可以包含多个 Operation，而不需要另一个 Harness 共同决定同一结果；
+5. 它与其他业务的关系可以表达为输入依赖、状态失效或显式 handoff；
+6. 修改其业务策略时，不要求同步重写其他 Harness 的同义规则；
+7. 它可以绑定当前方案、目标实体和知识证据形成一项真实事务。
 
-## 四、证据化发现
+这一定义排除了“一个文件就是一个原子”“一个名词就是一个原子”和“一个 Tool 就是一个原子”。
 
-### F1：八个 slot 只有名称边界，没有语义边界
+### 2.3 需要维持的四种原子性
 
-`agent/harness/def-harness.cjs:11` 声明八个 slot；`agent/harness/def-harness.cjs:88` 之后只验证 slot 名、文件安全、能力标签和结构。
-
-`agent/harness/def-harness.cjs:317` 的组合器按固定顺序把所有文本直接连接。它没有：
-
-- 单元 id；
-- 责任声明；
-- 输入或输出；
-- 依赖；
-- 触发范围；
-- 禁止拥有的责任；
-- 冲突键；
-- 重复规则检测；
-- 语义优先级。
-
-artifact 的 `when` 字段在 `agent/harness/def-harness.cjs:77` 被保存，但 `composeHarnessSystem()` 不读取它。也就是说，artifact 级条件目前不是有效的运行时组合语义。
-
-结论：slot 目前只能证明“内容放在哪个文件”，不能证明“内容只负责什么”。
-
-### F2：stable Harness 内部已经发生跨槽重复
-
-以当前 stable 的同一装备推荐分流为例：
-
-| slot | 实际承担的内容 |
+| 原子性 | 含义 |
 | --- | --- |
-| `agentContract` | 何时需要某类证据、哪些推断禁止、部分输出约束 |
-| `routingPolicy` | 首个 Tool、后续分支、终止条件 |
-| `toolGuidance` | 同一首个 Tool、分支、不可回退和参数传递 |
-| `workflows` | 再次写出完整调用顺序、审批和结束条件 |
-| `responsePolicy` | 再次写修订重算、token 处理、成功条件 |
+| 决定原子性 | 同一业务决定只有一个 Harness owner |
+| 写入原子性 | 一次提交的直接修改只能落入当前业务写域 |
+| 事务原子性 | 预览、确认、应用和验证属于同一业务事务 |
+| 迭代原子性 | 可单独发布或回退一个业务 Revision，不替换其他业务 |
 
-这些不是五个不同决定，而是一个业务流程被拆成五份自然语言副本。
+四者缺一不可。只做到文件独立或版本号独立，不构成 Harness 原子化。
 
-`roleCards` 只有“预留未来角色卡”，`skills` 只有“使用宿主 Skills”。它们是占位文本，不是拥有独立责任的运行单元。
+## 三、当前实现事实
 
-结论：当前八槽同时存在“一个责任写进多个槽”和“为凑齐槽而存在的空责任”。
+### F1：Tool 的注册面是平级的
 
-### F3：大多数主题 candidate 修改的是整套文件，不是一个训练假设
+`agent/runtime/def-tools/registry.mjs` 的 `DEF_NATIVE_TARGETS` 以平级 canonical id 记录 native binding、family、scope 和 exposure。`agent/runtime/def-tools/opencode/plugin.js` 遍历该数组，把所有可实现的 `def_*` binding 放进同一个 OpenCode `tool` map。
 
-当前 `agent/harness/examples/` 中，专门用于展示单槽变更的 `candidate-v1` 只修改一个 slot；其余主题 candidate 相对 stable 普遍修改 7 至 8 个 slot。
-
-`operator-config-atomic-failfast-v1` 尤其具有代表性：同一个“失败后停止”的假设同时写进 `agentContract`、`roleCards`、`skills`、`routingPolicy`、`toolGuidance`、`responsePolicy` 和 `workflows`。
-
-这说明 candidate 的最小变更单位仍是“围绕一个主题重写一包提示词”，不是“替换一个责任原子”。
-
-### F4：真正的大 Harness 不在 Harness 目录里
-
-`agent/runtime/def-opencode-adapter/index.cjs:261` 开始的 Workbench 固定提示，同时规定：
-
-- 何时读取当前上下文；
-- 何时选择某个数据 Tool；
-- 如何完成节点 mutation；
-- 何时审批；
-- 如何处理失败；
-- 最终答案说什么或不说什么。
-
-这已经是一套完整 Harness，只是没有进入 Harness slot 模型。
-
-`agent/runtime/def/skills/timeline-workbench/SKILL.md` 又重复了上述大部分内容。该 Skill 同时负责全局上下文规则、多个业务路由、多个 mutation 流程、重试、知识读取和回复格式，远超一个可复用 Skill 的单一责任。
-
-结论：只整理 `agent/harness/` 不会得到原子化；必须先承认所有模型行为来源都属于同一责任盘点。
-
-### F5：声明式 routing 与可执行 routing 混在两边
-
-`agent/harness/baseline/stable-v0/routing.md` 声明模型如何分流。
-
-与此同时：
-
-- `agent/runtime/def-opencode-adapter/harness-turn-router.cjs` 用正则识别回合类型并切换 Harness/任务；
-- `agent/runtime/def-tools/opencode/def.js:107` 为同一回合建立可执行 Tool policy；
-- `agent/runtime/def-tools/opencode/def.js:321` 实际阻止不在 allowlist 内的 Tool；
-- `agent/server/def-agent-server.cjs:994` 又向 system prompt 注入该回合必须采取的 Tool 行为。
-
-需要硬阻止的权限或状态规则属于 Tool/Host enforcement；在若干安全 Tool 中选择哪一个则属于 Harness routing。当前实现没有按这个标准拆开，而是把“自然语言意图识别”直接做成了 Tool 全局门禁。
-
-### F6：Tool 合同本身也不是单一来源
-
-同一个能力目前可能分散在：
-
-- `definitions.mjs` 的 dotted name、scope、risk、approval 和简短描述；
-- `registry.mjs` 的 family、host exposure、workspace scope、canonical target；
-- `scripts/ai-cli-rest-server.mjs` 的 input/output 元数据和 handler；
-- `opencode/def.js` 的 snake_case 模型名、另一份 schema、另一份长描述和 wrapper；
-- `commandSchemaRuntime.mjs` 的最终产品命令验证；
-- `buildCapabilityPermission()` 的真实 OpenCode permission。
-
-`registry.mjs:247` 以后还通过集合、名称前缀和正则推导 family/canonical target。`scripts/ai-cli-rest-server.mjs:8140` 为很多 Tool 生成泛化 input schema，并给所有 Tool 使用相同的 `{ ok, tool, result }` output 轮廓。
-
-现有 registry 能检查“字段存在”，但不能证明：
-
-- REST 名与模型名来自同一个 canonical contract；
-- `approval` 元数据与实际 native permission 一致；
-- scope 元数据与真正的准入 gate 一致；
-- Tool 描述引用的结果字段真实存在；
-- output state、错误和 postcondition 被准确建模。
-
-结论：Harness 无法只引用一个稳定 Tool 合同，只能重复抄写 Tool 行为来补足缺失信息。
-
-### F7：Tool 描述泄漏了 Harness 的职责
-
-例如 `agent/runtime/def-tools/opencode/def.js:1624` 的一个数据 Tool 描述，不只说明自身能力，还规定：
-
-- 它必须是某类请求的第一步；
-- 哪些其他 Tool 不可调用；
-- 后续调用哪一个 Tool；
-- 什么状态下停止；
-- 最终结果如何呈现。
-
-其中只有“输入、输出、事实范围、是否产生副作用”属于 Tool 本地合同。首步选择、跨 Tool 顺序和呈现方式分别属于 Harness router、workflow 和 response policy。
-
-Tool 描述承担这些职责，会与 Harness 自身产生两个路由真相。
-
-### F8：当前已经存在可观察的文字冲突
-
-“当前节点是什么”在同一最终 system prompt 中可能同时得到：
-
-- `agent/server/def-agent-server.cjs:1033`：必须调用 `def_workbench_current_node`；
-- `agent/server/def-agent-server.cjs:1067`：直接从注入字段回答，不要再调用 Tool；
-- `agent/runtime/def-opencode-adapter/index.cjs:272`：调用 Tool，并只按 Tool 结果回复。
-
-这不是模型偶发理解错误，而是三个责任源对同一决定给出了不同答案。当前组合器没有冲突报告，只能依赖文本顺序和模型自行取舍。
-
-### F9：已有一些正确的硬边界，应保留而不是提示词化
-
-以下责任已经较接近正确归属：
-
-- `registry.mjs` 的 host/workspace exposure；
-- `applyDefToolInvocationPolicy()` 的服务端准入；
-- `commandSchemaRuntime.mjs` 的产品命令验证；
-- native permission 与 approval capability；
-- current checkout/session 绑定 gate；
-- handler 的副作用、幂等和 postcondition；
-- plugin 对已发生 Tool 失败的可执行熔断。
-
-这些属于 Tool/Host enforcement。Harness 可以解释结果并决定下一条安全业务路径，但不应重复声明或假装能改变这些边界。
-
-### F10：hash、包不可变和 Session 固定不能解决职责冲突
-
-当前 Harness runtime 能证明一组字节没有变化，也能把它绑定到 Session。它不能证明这些字节：
-
-- 没有跨槽重复；
-- 没有和固定 Agent prompt、Skill、Tool 描述冲突；
-- 每个 candidate 只修改了一个假设；
-- 组合后存在唯一行为含义。
-
-因此，版本化是运输和复现机制，不是原子化机制。本研究不把它作为答案。
-
-## 五、目标责任模型
-
-### 5.1 判断归属的四个问题
-
-遇到任何规则，按以下顺序判断：
-
-1. 违反它会越权、写错状态、绕过审批或错误宣称成功吗？
-   - 是：必须由 Tool/Host 代码强制。
-2. 它描述输入、输出、错误、事实范围或一次业务副作用吗？
-   - 是：属于 Tool contract。
-3. 它决定面对某种用户意图选择哪个安全能力，或如何组合多个安全能力吗？
-   - 是：属于 Harness router/workflow/Skill。
-4. 它只决定答案的结构、语气和披露方式吗？
-   - 是：属于 Harness response policy。
-
-当前事实不放 Harness；测试期望不放 Worker；无法归入上述任一项的规则，应先证明其必要性，而不是再建一个 slot。
-
-### 5.2 Tool 的原子职责
-
-一个模型可见 Tool 应代表一个清楚的业务能力或一个清楚的业务效果，并拥有唯一 canonical contract。
-
-| Tool 子责任 | 必须拥有 | 不得拥有 |
-| --- | --- | --- |
-| Capability contract | canonical id、用途、精确 input/output schema、事实范围、副作用类型 | 用户意图分类、跨 Tool 流程 |
-| Admission gate | host、workspace、current-state、permission、approval、capability、CAS 前置条件 | 用提示词请求模型自觉遵守 |
-| Executor | 确定性的读取、计算或一次业务事务 | 最终回复措辞 |
-| Result contract | 明确状态、错误码、`retryable`、`stateChanged`、postcondition、证据来源 | “接下来必须调用某 Tool”的长篇教学 |
-| Verifier/audit | 成功判定、可见后置条件、审计证据 | 由模型自行猜测成功 |
-| Exposure adapter | 从 canonical contract 派生 REST/OpenCode 名称和 schema | 复制出另一份独立合同 |
-
-Tool 原子化不要求把内部每一步都暴露成小 Tool。一个用户可见的原子 mutation 可以在内部完成 prepare、审批、提交、回滚和验证，只要它只有一个可说明的业务效果，并准确报告未执行、部分执行或完成。
-
-反过来，也不能让 Harness 调用许多低级 Tool 后自行拼出事务正确性。
-
-### 5.3 Harness 的目标单元
-
-现有八槽不应被默认保留。先按责任判断其去留：
-
-| 当前 slot | 目标责任 | 处理结论 | 明确禁止 |
-| --- | --- | --- | --- |
-| `agentContract` | 跨任务恒定的身份、使命、认识论和全局不变量 | 保留但大幅收窄 | Tool 名、领域步骤、参数、回复模板 |
-| `roleCards` | 某一工作角色的协作姿态和决策关注点 | 可选保留；没有真实差异时不加载占位符 | 权限、路由、工作流、安全门禁 |
-| `knowledgePacks` | 有来源、范围和时效说明的非实时解释性知识 | 保留并与产品事实隔离 | 当前状态、Tool schema、调用顺序 |
-| `skills` | 只引用可加载 Skill 及其适用范围 | 改成 Skill reference/binding；不再写第二份 Skill 内容 | 重复实际 `SKILL.md`、全局规则 |
-| `routingPolicy` | 用户意图到一个 `workflowId` 或 `skillId` 的选择 | 保留并只负责入口选择 | 完整步骤、Tool 参数、回复格式 |
-| `toolGuidance` | 当前没有独立决定权 | 不再作为可手写规范源；若保留，只能由 canonical Tool contract 生成只读模型视图 | 另写 schema、权限、跨 Tool 顺序、回复规则 |
-| `responsePolicy` | 把已确定的结果状态转换为用户可读结构 | 保留并只负责表达 | 触发 Tool、改变结果状态、执行 mutation |
-| `workflows` | 基于 typed state 的跨能力状态机 | 保留；实际 Skill 也按同一合同视为可复用 workflow | 复制 Tool schema、当前事实、全局角色、回复文案 |
-
-因此，目标不是“八个 slot 各写一点”，而是“只有确有独立决定权的单元才存在”。
-
-### 5.4 Skill 的位置
-
-实际 `SKILL.md` 是 Harness 的可复用过程单元，不是 Tool，也不是知识包。
-
-一个原子 Skill 应：
-
-- 只解决一种有边界的任务；
-- 声明适用输入和完成输出；
-- 引用 Tool capability id，而不复制 schema；
-- 使用 typed result state 进行流程转换；
-- 依赖全局 `agentContract`，不重复它；
-- 依赖全局 `responsePolicy`，不重写通用回复规范；
-- 不包含其他领域的总路由。
-
-Harness 的 `skills` slot 若存在，只负责“可用 Skill 与触发范围”的绑定。它不应再装一份自然语言 Skill。
-
-### 5.5 Host context 的位置
-
-宿主注入只应提供不可从对话可靠推断的当前事实，例如：
-
-- 当前 host；
-- 当前 timeline/checkout identity；
-- 当前可见 selection；
-- 是否发生 checkout transition；
-- 对应事实的更新时间或 revision。
-
-它不应同时写“先调用哪个 Tool、最多调用几次、最后怎么回答”。这些分别属于 Harness workflow 或 Tool gate。
-
-### 5.6 Knowledge 与当前事实
-
-| 内容 | 唯一来源 |
-| --- | --- |
-| 当前 checkout、当前角色、当前配置 | Host context 或 typed Tool result |
-| 产品 catalog、id、数值、状态 | typed Tool/data service |
-| 经审核但非实时的解释性知识 | Knowledge unit，带来源与适用范围 |
-| 用户本轮偏好与修正 | 当前 conversation state |
-| 回归期望、正确答案、评分规则 | Judge，禁止注入 Worker/Harness |
-
-Harness 可以规定信任顺序，但不能复制当前事实本身。
-
-## 六、唯一决定权矩阵
-
-| 决定 | 唯一 owner | 其他层如何使用 |
-| --- | --- | --- |
-| Tool 是否存在、叫什么、输入输出是什么 | canonical Tool contract | Harness 只引用 capability id 和 typed state |
-| Tool 能否在当前 host/workspace 调用 | Tool admission gate | Harness 接受允许/拒绝结果 |
-| mutation 是否需要审批 | Tool admission/permission | Harness 不得降低或伪造 |
-| mutation 是否成功 | Tool verifier/postcondition | response 只转述已验证状态 |
-| 当前产品事实 | Host context / Tool result | Knowledge 与 Harness 不得覆盖 |
-| 用户意图属于哪类任务 | Harness router | Tool 不写“我是第一步” |
-| 多个安全能力如何衔接 | Harness workflow/Skill | Tool 只返回足够的 typed state |
-| Tool 失败是否可重试 | Tool result contract | workflow 依据字段选择重试、转向或停止 |
-| 安全上绝不允许的 fallback | Tool gate | Harness 不重复承担安全责任 |
-| 结果如何排序、摘要和披露 | Harness response policy | Tool 返回结构化语义，例如 `ordered: false` |
-| Agent 的长期使命与事实纪律 | Harness agent contract | Skill/route 不重复 |
-| 评估通过条件 | Judge | 不进入 Tool 描述或 Worker 提示 |
-
-## 七、组合与冲突规则
-
-### 7.1 不使用“后写覆盖前写”
-
-Tool enforcement 永远高于模型教学，但这不是让矛盾文本继续存在的优先级机制。
-
-目标规则是：
-
-- Harness 与 Tool 冲突：Harness 无效；
-- 两个 Harness 单元拥有同一决定：组合无效；
-- 两个 Harness route 对同一输入同时成为唯一入口：组合无效；
-- workflow 引用不存在的 Tool、state 或字段：组合无效；
-- response policy 改变 Tool 的状态含义：组合无效；
-- Knowledge 声称覆盖当前 typed fact：组合无效。
-
-同一层内部不得依赖“拼接顺序”解决冲突。
-
-### 7.2 最小责任卡
-
-后续任何原子单元至少需要能回答以下字段；这是一张责任卡，不是版本系统：
+因此，Tool Registry 的结构事实是：
 
 ```text
-id
-kind
-owns
-inputs
-outputs
-dependsOn
-mustNotOwn
-evidence
+ToolRegistry = { toolId → typed definition }
 ```
 
-其中 `owns` 必须是唯一的决定描述。若两个单元填写出相同 `owns`，应先合并或重新切分，不能直接组合。
+不是：
 
-### 7.3 原子变更判定
+```text
+selection/
+loadout/
+timeline/
+buff/
+calculation/
+```
 
-一个候选或修改只有同时满足以下条件，才叫原子：
+这并不妨碍 Harness 建立从属关系。从属关系应是“业务阶段引用 Tool”的图，而不是把注册表改成目录树。
 
-1. 只改变一个责任卡的 `owns` 或实现；
-2. 不要求同步改写其他单元中的同义规则；
-3. 依赖者只通过输入输出合同受影响；
-4. 能说明预期改变哪些场景；
-5. 能说明哪些相邻场景必须不变；
-6. 失败时能精确回退该单元，而不是回退整包教学内容。
+### F2：Tool 与业务天然是多对多
 
-如果一次修改必须同时改 `agentContract + routing + toolGuidance + workflow + response` 才能保持一致，说明责任切分仍然失败。
+现有 Tool 已经出现两类关系：
 
-## 八、用三个现有问题验证模型
+1. **共享事务能力**
+   - `fork / bind / validate / diff / use / restore` 服务多个 mutation 业务；
+   - native read/edit/apply_patch 是 Work Node 媒介，不等于排轴业务本身。
+2. **有向能力链**
+   - guide/profile 产生 planner profile capability；
+   - catalog materialize 产生 artifact id；
+   - preview 产生 proposal token；
+   - approval、plan hash、node revision 和 checkout 构成后续调用前提。
 
-### 8.1 当前节点查询
+如果强行规定“一个 Tool 只属于一个 Harness”，要么复制 Tool，要么让某个 Harness垄断公共事务能力，两种结果都会制造新的耦合。
 
-目标分配：
+结论：业务拥有 Tool 的**使用权边界**，不拥有 Tool 本身。
 
-- Host context：提供当前 checkout 的事实；
-- Tool：在需要重新读取时返回唯一 current-node 结果；
-- Harness route：根据“上下文已足够/需要刷新”选择直接回答或调用 Tool；
-- response policy：规定只显示用户需要的名称/id。
+### F3：游戏方案状态不能按文件或字段树机械分割
 
-不得再由三份 system text 同时规定“必须调用”和“禁止调用”。
+`decodeDefNodePayload()` 当前投影出：
 
-### 8.2 精确技能事实查询
+```text
+selection.selectedCharacters
+timeline.staffLines[].buttons[]
+buffs.allBuffList
+inputs.characterInputMap
+inputs.operatorConfigPageCache
+```
 
-目标分配：
+但 `selectedBuff` 位于 timeline button 内；同一个 button 同时承载技能身份、位置和 BUFF 绑定。`skillButtonTable` 与 `timelineData.staffLines` 又必须保持身份和字段收敛。
 
-- Harness route：识别这是技能事实任务并选择对应 workflow；
-- Tool schema/validation：要求完整查询并返回命中范围；
-- Tool result：返回每个 hit 的可信类型、数值和缺失状态；
-- Tool gate：只阻止越权或不合法输入，不负责通用自然语言路由；
-- response policy：按 Tool 事实回答，不扩写未返回结论。
+这说明：
 
-“这个自然语言请求只能调用哪个 Tool”不应同时出现在 router、Skill、宿主 prompt 和 plugin gate。
+- 排轴和 BUFF 会触碰同一物理对象；
+- 选人变化会使 staff line 和 button 引用失效；
+- 配装位于 inputs/config cache，但会改变计算输入，可能使排轴或 BUFF 结论过期；
+- 计算结果是完整方案的派生，不是独立可随意写入的源状态。
 
-### 8.3 干员配置应用
+因此，文件级权限既过宽又不准确。正确边界必须建立在 **semantic diff** 上。
 
-目标分配：
+### F4：当前业务行为存在多个并行 owner
 
-- Harness workflow：预览、等待明确确认、提交一次应用请求；
-- Tool：proposal/capability 校验、native approval、事务执行、错误、postcondition；
-- Host：当前 checkout 与 session identity；
-- response policy：区分预览、拒绝、未执行、失败和已验证完成。
+`buildAgentPrompt("workbench")` 已经同时定义：
 
-Harness 不重写审批条件和成功判定；Tool 不规定最终中文文案。
+- 选人；
+- 配装；
+- 排轴；
+- BUFF；
+- 部分计算和事实查询；
+- guide-first、3+1、source-only 等业务流程；
+- Tool 顺序、失败停止、审批和最终回复。
 
-这三个不同场景均能落入同一责任模型，说明该模型不是围绕某个业务术语临时设计。
+`timeline-workbench/SKILL.md`、旧八槽 Harness、每 Turn 宿主 Prompt、Tool description 和 plugin policy 又分别持有其中一部分。
 
-## 九、研究结论
+所以当前调用链不是：
 
-1. 当前最主要的问题是“决定权重复”，不是 Harness 包是否可版本化。
-2. 八槽只是当前存储形式，不是目标原子模型；`toolGuidance` 尤其不具备独立规范责任。
-3. 固定 Agent prompt、runtime Skill、每回合宿主提示都必须纳入 Harness 责任盘点，否则只改 `agent/harness/` 没有意义。
-4. Tool 应先形成唯一 canonical contract；REST、OpenCode 和文档视图都从它派生。
-5. 安全、权限、状态、审批、副作用和成功判定必须留在可执行 Tool/Host 边界。
-6. 意图路由、跨能力流程、Skill 选择和回复表达才是 Harness 的核心责任。
-7. Harness 单元之间不设文字覆盖优先级；重复 owner 或矛盾必须在组合前判为无效。
-8. 原子 candidate 应只改变一个责任卡，不再围绕一个主题同步重写七八个文件。
+```text
+一个业务 Harness → 一组 Tool
+```
 
-本轮已经把职责模型研究清楚，但没有授权或实施迁移。任何代码重构、slot 调整、Tool registry 合并、prompt 去重或 Skill 拆分，都应在用户确认后另开实施规格。
+而是：
+
+```text
+固定 Prompt
++ 总 Skill
++ Host 回合命令
++ 八槽全文
++ Tool description
++ plugin policy
++ server handler
+```
+
+其中前五项都可能向模型解释“下一步该做什么”。这构成决定权重复。
+
+### F5：旧八槽是存储分类，不是业务原子
+
+`agent/harness/def-harness.cjs` 声明八个 `SLOT_NAMES`，校验 manifest、文件 hash 和 package 结构。`composeHarnessSystem()` 按固定顺序读取八槽并全文拼接。
+
+它没有建模：
+
+- business；
+- operation；
+- phase；
+- semantic write scope；
+- Tool ref；
+- context binding；
+- dependency；
+- postcondition；
+- owner conflict。
+
+一个业务规则可以同时出现在 agent contract、routing、tool guidance、workflow 和 response policy，组合器仍会判定合法。
+
+结论：八槽 package 能证明字节完整，不能证明架构职责独立。
+
+### F6：旧热插拔的单位是整包和新 Session
+
+`createSessionBinding()` 把整个 Harness ref 和全部 slot hash 绑定到 Session。`getNativeHarnessSystem()` 读取该 binding，并以 Session 和 selector 缓存已加载内容。
+
+`docs/architecture/harness-training.md` 对此给出的定义也很明确：
+
+> promotion 或 rollback 只改变之后新 Session 的 stable 解析结果；正在对话的 Agent 不在线换包。
+
+这满足旧训练实验的可复现性，但不满足本轮目标：
+
+- 同一 Session 内五个业务不能独立演进；
+- 修改一个配装规则需要替换整包；
+- 新业务规则要等到新 Session 才生效；
+- Session 生命周期远长于一项业务事务。
+
+### F7：当前回合 router 不能承担五业务解析
+
+`harness-turn-router.cjs` 只处理少量正则场景：精确技能事实和 timeline 对 operator-config candidate 的覆盖。它没有输出 business、operation、targets、phase、未完成事务或跨业务 plan。
+
+正则可以保留为确定性高置信 shortcut，但不能作为五业务总 resolver。
+
+### F8：现有 OpenCode 具备逐回合 Tool 过滤基础，但尚缺 Phase bridge
+
+OpenCode `PromptInput` 接受 `tools` 开关；Session Prompt 会把这些开关合入 permission。LLM request 的 `resolveTools()` 会同时根据：
+
+- 本轮 user tool 开关；
+- Agent permission；
+- Session/请求 permission
+
+过滤最终提交给模型的 Tool。`resolveTools()` 会在 LLM request 准备时运行。
+
+同时，OpenCode plugin contract 提供 `tool.execute.before` 和 `tool.execute.after`；DEF plugin 当前只实现了 before。
+
+这证明目标架构不需要把 OpenCode Tool Registry 改成业务树，但并不等于 Phase 投影已经完成。一次用户 Turn 内可能发生：
+
+```text
+evidence Tool result
+  → Phase 从 evidence 进入 plan
+  → 同一 Turn 的下一次模型请求
+```
+
+若只在用户 Prompt 进入时设置一次 Tool，后一 Phase 要么看不到需要的 Tool，要么必须一开始暴露整个 Operation 的 Tool 集。
+
+因此本轮还必须增加一个窄的 Phase Projection Bridge：
+
+1. 在回合开始时投影模型可见 Tool；
+2. `tool.execute.after` 把 typed result 交给 Instance 状态机并推进 Phase；
+3. 下一次 LLM request 准备时重新读取 Instance，投影 system context 和 Tool；
+4. 在执行前再次校验 Instance、Operation 和 Phase；
+5. 继续由服务端执行 host、checkout、approval 和 schema 硬门禁。
+
+该 bridge 可以通过窄 plugin/core integration 实现，但不能靠 Prompt 自律，也不能把所有阶段 Tool 一次性暴露。
+
+### F9：现有产品已经提供事务与验证积木
+
+当前链路已有：
+
+- Session 与 timeline/checkout binding；
+- 页面投影与 checkout 收敛校验；
+- Work Node fork/bind/patch/validate/diff/use/restore；
+- proposal token、artifact id、planner capability、plan hash；
+- native approval；
+- CAS、revision 和重复调用控制；
+- semantic diff 的部分结构；
+- 可见页面 postcondition；
+- 伤害计算和产品命令 schema。
+
+这些能力不是旧 Harness 的附属品，而是目标 Manager 可以复用的执行基础。
+
+### F10：游戏知识已经是流程输入，但当前绑定粒度不稳定
+
+当前 guide、profile、catalog artifact、game knowledge section 和 planner capability 已经体现“证据 → 计划 → 应用”的消费链。
+
+问题不在于没有知识，而在于：
+
+- 业务查询策略写在巨型 Prompt 中；
+- 某些知识路线被提升为全局规则；
+- 预览后用户确认时，使用过的证据没有统一绑定到业务 Instance；
+- 角色、术语和攻略片段容易被误当成 Harness 分类。
+
+知识必须贯穿业务，但不能取代业务边界。
+
+## 四、被排除的错误切法
+
+| 切法 | 表面合理性 | 不能成立的原因 | 正确位置 |
+| --- | --- | --- | --- |
+| 一个角色一个 Harness | 角色拥有大量专属知识 | 角色同时参与选人、配装、排轴、BUFF、计算；会复制五类流程 | Instance target + knowledge key |
+| `3+1` 一个 Harness | 是稳定游戏术语 | 它只是配装 Operation 的约束，不拥有独立状态和完成判据 | loadout 参数/知识 |
+| 潮涌套一个 Harness | 是具体装备集合 | 实体数量会无限扩张，且仍只服务配装判断 | catalog entity |
+| 新增、删除、换人各一个 Harness | 用户动作不同 | 三者共享队伍状态、规则和 postcondition | selection Operations |
+| 一个 Tool 一个 Harness | Tool 可执行且 typed | 公共 Tool 被多个业务复用；业务常需多个 Tool 才完成 | Operation/Phase Tool graph |
+| 一个文件一个 Harness | 容易做目录权限 | BUFF 与 timeline 同处 button，状态跨文件镜像 | semantic write scope |
+| 八个 slot 各一个原子 | 已有 manifest | slot 没有唯一决定权，相同流程横跨多个 slot | 迁移后退出主链路 |
+| 一个全局知识 Harness | 知识贯穿全部流程 | 知识没有独立用户业务结果，会重新形成万能上下文 | Knowledge Binder |
+| 一个 Session 一个 Harness 包 | 容易复现 | Session 包含多项事务，无法单业务热更新 | Instance 绑定 Revision |
+| 一个 Turn 一个 Harness 版本 | 更新最快 | 预览与确认可能跨 Turn，规则会中途改变 | 业务事务绑定 Revision |
+| 一个万能 Workbench Harness | 能处理跨业务请求 | 决定权重新集中，无法独立迭代和验收 | ordered Business Plan |
+
+排除这些切法后，剩余边界必须同时满足“端到端业务结果”和“唯一语义写域”。
+
+## 五、五业务边界的推导
+
+### 5.1 为什么从业务流程切
+
+本项目不是通用 Agent。它的工具面服务于一个固定游戏方案生命周期：
+
+```text
+选人 → 配装 → 排轴 → 上 BUFF → 计算与统计
+```
+
+这五项分别改变不同的玩家可见业务结论，并且每一步都能建立独立 postcondition。它们是产品业务，不是 Agent 技术层。
+
+### 5.2 五业务最低边界
+
+| Business | 拥有的直接决定 | 典型 Operation | 完成判据 | 对下游的影响 |
+| --- | --- | --- | --- | --- |
+| selection | 队伍成员及顺序 | inspect、add、remove、replace、reorder、analyze、apply | 新队伍可见且 selection postcondition 通过 | 配装/排轴/BUFF 可能失效，计算重算 |
+| loadout | 角色武器、装备、技能等级和配置输入 | inspect、resolve、recommend、compare、preview、apply、restore | 目标配置可见且 loadout postcondition 通过 | 排轴/BUFF 结论可能过期，计算重算 |
+| timeline | 技能动作身份、顺序、位置和排轴结构 | inspect、add、remove、move、replace、copy、preview、apply、restore | 排轴结构合法且页面可见 | BUFF 绑定可能失效，计算重算 |
+| buff | 按钮 BUFF 绑定、层数、异常和覆盖状态 | inspect、source、add、remove、replace、batch、stack、coverage、apply、restore | BUFF 语义和覆盖结果可见 | 计算重算 |
+| calculation | 完整方案的派生计算与统计 | calculate、aggregate、compare、attribute、diagnose、export、explain | 输出标明输入 scheme revision 和统计口径 | 不直接写回四类源状态 |
+
+这里的 Operation 集可以扩展，但业务集合不能因出现新角色、新套装、新 Tool 或新术语而扩张。
+
+### 5.3 “别礼 3+1 潮涌套”的归属证明
+
+用户请求：
+
+```text
+给别礼配置 3+1 潮涌套
+```
+
+结构化后是：
+
+```text
+business = loadout
+operation = preview/apply（由用户措辞和当前事务决定）
+target = 别礼
+constraint = 3+1
+requestedSet = 潮涌套
+context = 当前队伍、当前配置、catalog、适用攻略知识
+```
+
+“别礼”是 target，“3+1”是配装术语，“潮涌套”是 catalog entity。三者都不产生新的业务状态 owner。因此只创建一个 loadout Instance。
+
+若请求改为：
+
+```text
+把队伍里的某人换成别礼，再给别礼配 3+1 潮涌套
+```
+
+则 Resolver 生成：
+
+```text
+selection.replace
+  → 读取新的 scheme revision
+  → loadout.preview/apply
+```
+
+这是两个业务事务组成的有序 plan，不是一个万能 Harness。
+
+## 六、上下文强绑定的最小模型
+
+### 6.1 为什么 Harness 不能脱离上下文
+
+同一句“换上这套”只有结合以下信息才有确定含义：
+
+- 正在继续哪个 proposal；
+- proposal 针对哪个角色；
+- 当前 timeline/checkout 是否仍是原方案；
+- 配置或 catalog revision 是否变化；
+- 用户是否已明确确认；
+- 预览使用了哪些知识证据。
+
+因此 Harness 不是一段独立 Prompt。真正执行单位是：
+
+```text
+Harness Instance
+  = Harness Revision
+  + Business Transaction
+  + Scheme Context
+  + Conversation Focus
+  + Knowledge Evidence
+  + Current Phase
+```
+
+### 6.2 为什么绑定单位是业务事务
+
+| 绑定单位 | 问题 |
+| --- | --- |
+| Session | 太大；同一 Session 会连续处理多项业务，新 Revision 无法及时生效 |
+| Turn | 太小；preview → confirmation → apply 会跨 Turn，中途换规则会破坏一致性 |
+| Tool call | 更小；无法表达业务完成、用户确认和多 Tool 状态机 |
+| Business transaction | 同时覆盖跨 Turn 连续性和下一项业务使用新版的需求 |
+
+所以 Revision 必须在 Instance 创建时绑定，并保持到该事务结束；Session 本身不再绑定整个五业务包。
+
+### 6.3 上下文身份
+
+Instance 至少需要记录：
+
+```text
+sessionId
+transactionId
+businessId
+operationId
+harnessRevision
+timelineId
+checkoutId
+baseSchemeRevision
+currentSchemeRevision
+targets
+conversationFocus
+knowledgeEvidenceRefs
+candidateArtifact
+phase
+status
+```
+
+这里既要保存稳定身份，也要保存 revision lineage。事务提交后可以得到新 scheme revision，但不能因此丢失它基于哪个 revision 规划。
+
+这些字段必须进入机器可读 Instance Store，而不是只写入 transcript。若进程恢复时不能还原 proposal、capability、scheme lineage 或 evidence，正确状态是 `stale/aborted`，不是让模型根据旧对话续猜。
+
+### 6.4 事务状态
+
+```text
+active
+awaiting-confirmation
+completed
+aborted
+superseded
+stale
+revoked
+```
+
+- 用户修正目标：旧事务 `superseded`；
+- 方案被外部修改：依据依赖和 revision 检查进入 `stale`；
+- 用户拒绝：`aborted`；
+- Revision 被紧急撤销：`revoked`；
+- typed postcondition 通过：`completed`。
+
+不得仅靠对话文本猜测这些状态。
+
+## 七、目标关系模型
+
+### 7.1 对象
+
+设：
+
+```text
+B = {selection, loadout, timeline, buff, calculation}
+O_b = 业务 b 的 Operation 集
+P_(b,o) = Operation 的 Phase 集
+T = 平级 Typed Tool 集
+K = 带来源的游戏知识集合
+X = 当前方案语义状态
+```
+
+Harness 分为三个不同生命周期对象：
+
+| 对象 | 决定内容 | 变化频率 |
+| --- | --- | --- |
+| Harness Type | 业务 id、Operation 上限、Tool ceiling、直接写域、依赖、兼容合同 | 低；通常需代码迁移 |
+| Harness Revision | resolver hints、Phase 图、知识选择、Tool refs、业务策略和表达 | 高；允许热重载 |
+| Harness Instance | 本次事务的 context、target、evidence、phase、candidate 和状态 | 每项业务事务 |
+
+三者不能合并。否则要么 Revision 可以越过硬边界，要么每次业务都复制完整类型合同。
+
+### 7.2 Intent Resolver
+
+Resolver 是纯分类与规划边界：
+
+```text
+R(userText, conversationFocus, activeInstances, schemeContext)
+  → new | continue | pipeline | clarify
+```
+
+其输出必须结构化：
+
+```text
+steps[] = {
+  businessId,
+  operationId,
+  targets,
+  requestedEffect
+}
+transactionId?
+confidence
+ambiguities
+```
+
+Resolver 不调用业务 Tool，不修改状态，也不承载五业务详细工作流。正则只能作为确定性 shortcut；其输出仍必须通过 Type Registry 校验。
+
+Revision 的 resolver hint 只能帮助识别本 Type 已声明的 Operation，不能扩张业务边界。若用户明确请求多个效果，输出 pipeline；若一个效果出现多个可能 owner，输出 clarify。禁止用 Revision 激活顺序、文本顺序或正则先后形成隐式优先级。
+
+### 7.3 Harness 与 Tool 的从属关系
+
+定义：
+
+```text
+Use ⊆ (Business × Operation × Phase) × Tool
+```
+
+则某一 Instance 当前 Phase 的候选 Tool 为：
+
+```text
+ProjectedTools(i, p)
+  = { t | ((i.business, i.operation, p), t) ∈ Use }
+```
+
+最终可用集合为：
+
+```text
+ActiveTools(i, p)
+  = ProjectedTools(i, p)
+  ∩ TypeToolCeiling(i.business)
+  ∩ RegistryExposure(i.host, i.workspace)
+  ∩ Permission(i.session, i.turn)
+```
+
+这同时表达了：
+
+- Tool 仍平级注册；
+- 一个 Tool 可被多个业务引用；
+- 同一业务不同 Phase 看到不同 Tool；
+- Harness 不能扩大 registry、host 或 permission 边界。
+
+共享 Tool 必须在所有需要它的 Operation/Phase 上分别建立显式边；不设一个隐式全局业务 Tool 集，否则它会成为新的归属旁路。
+
+### 7.4 Operation 是有限状态图
+
+每个 Operation 必须编译成：
+
+```text
+Phase
+  → allowedTools
+  → requiredCapabilities
+  → acceptedTypedResults
+  → transition
+```
+
+例如配装应用不是一句自然语言顺序，而是：
+
+```text
+evidence
+  → plan
+  → preview(proposalToken)
+  → awaiting-confirmation
+  → apply(exact proposalToken)
+  → verify(postcondition)
+```
+
+proposal token、artifact id、plan hash 和 approval capability 是图上的 typed edge。Harness 只能传递和消费，不能伪造。
+
+### 7.5 四层执行约束
+
+| 层 | 责任 | 被绕过时的结果 |
+| --- | --- | --- |
+| 模型可见性 | 只向模型提交当前 Phase Tool | 减少误选和上下文污染 |
+| 执行前 gate | 校验 Instance、Operation、Phase、Tool ref | 即使模型构造调用也拒绝越界 |
+| 服务端合同 | host、workspace、checkout、permission、approval、capability、CAS、schema | 保持不可绕过的产品安全 |
+| semantic diff/postcondition | 验证直接写域、级联类型和可见结果 | 防止“调用成功”被误报为业务完成 |
+
+模型可见性是精度机制，不是安全机制；安全仍由后三层闭合。
+
+## 八、语义状态、写域与级联
+
+### 8.1 状态模型
+
+源状态记为：
+
+```text
+X = (Selection, Loadout, Timeline, Buff)
+```
+
+计算统计是派生：
+
+```text
+Calculation = F(X, CatalogFacts, FormulaVersion)
+```
+
+五个业务拥有的是语义决定，不是底层 Tool 或物理文件。
+
+### 8.2 实际差异分类
+
+一次 mutation 产生的全部差异必须满足：
+
+```text
+ActualDiff
+  = DirectBusinessDiff
+  ⊎ DeterministicReconciliation
+  ⊎ DerivedRecalculation
+```
+
+`⊎` 表示三类互斥；每个 change 只能有一个 owner。
+
+| 差异 | owner | 例子 |
+| --- | --- | --- |
+| DirectBusinessDiff | 当前 Harness Type | selection 直接替换队员；timeline 直接移动按钮 |
+| DeterministicReconciliation | 产品代码 | 删除离队角色的非法按钮引用；同步镜像字段 |
+| DerivedRecalculation | 公式/统计引擎 | 配装或 BUFF 变化后重算伤害 |
+
+任何不能归类的变化都必须拒绝。这样既不让 selection Harness 获得 timeline 写权，也允许产品为保持合法状态执行确定性清理。
+
+### 8.3 依赖图
+
+```text
+selection → loadout
+selection → timeline
+selection → buff
+selection → calculation
+loadout   → timeline
+loadout   → buff
+loadout   → calculation
+timeline  → buff
+timeline  → calculation
+buff      → calculation
+```
+
+一条边不应永久固定成单一结果；它应有一个根据具体 semantic diff 判定的 effect classifier：
+
+```text
+effect(edge, diff, downstreamState)
+  → none | hard-invalid | stale | recompute
+```
+
+典型结果如下：
+
+| 上游差异 | 下游 | 典型 effect |
+| --- | --- | --- |
+| 删除/替换角色 | 该角色的按钮或 BUFF 绑定 | `hard-invalid` + 确定性清理 |
+| 保留角色但改变队伍结构 | 旧配装推荐、排轴分析 | `stale` |
+| 武器/技能等级变化 | 依赖旧配置的排轴或 BUFF 判断 | `stale`，必要时 `hard-invalid` |
+| 删除 timeline button | 绑定在该 button 的 BUFF | `hard-invalid` |
+| 任一源状态有效变化 | 计算统计 | `recompute` |
+
+不得用 Prompt 中一句“注意重新检查”代替状态失效。
+
+### 8.4 并存不等于并发覆盖
+
+同一 Session 可以有多个只读、分析或待确认 Instance，但同一个 timeline/checkout 的 mutation commit 必须按 scheme revision 串行化：
+
+```text
+expectedRevision(instance) = currentRevision(checkout)
+```
+
+是提交的必要条件。一次 commit 得到新 revision 后，其他未完成 Instance 由 Dependency Manager 根据实际 semantic diff 重新分类。即使分类为 `none`，旧 token/candidate 也只能在 typed revalidation 通过后绑定新 revision。
+
+这条规则把“业务 Harness 相互独立”和“共享一个产品方案”统一起来：允许决策并存，但不允许 last-write-wins、静默 rebase 或跨 revision 偷用确认。
+
+## 九、游戏知识的架构位置
+
+### 9.1 知识不是第六业务
+
+知识没有独立的方案写域，也没有与玩家业务目标对应的完成态。它是五业务的证据输入：
+
+| Business | 典型知识问题 |
+| --- | --- |
+| selection | 定位、队伍机制、替代关系、适用场景 |
+| loadout | 武器装备适配、套装术语、属性阈值、条件收益 |
+| timeline | 资源循环、触发条件、技能衔接、冷热启动 |
+| buff | 来源、覆盖、层数、冲突、乘区 |
+| calculation | 公式解释、统计口径、归因和比较条件 |
+
+### 9.2 Knowledge Binder
+
+知识读取键至少包含：
+
+```text
+businessId
+operationId
+targets
+schemeRevision
+userConstraints
+```
+
+返回 evidence ref，而不是把整篇攻略并入永久 Prompt：
+
+```text
+sourceId
+sectionId
+contentHash/revision
+claimScope
+applicableConditions
+retrievedAt
+```
+
+Mutation 事务必须保存实际使用的 evidence refs。用户确认旧 proposal 时，不得静默换用另一篇攻略或另一组条件。
+
+### 9.3 不同事实域不能互相覆盖
+
+| 问题 | 权威来源 |
+| --- | --- |
+| 当前队伍、配置、按钮、BUFF | 当前 checkout/projection 或 typed Tool |
+| catalog id、数值、槽位、效果 | typed product catalog |
+| 攻略判断、适用条件、策略解释 | 带来源的 knowledge evidence |
+| 伤害结果 | 指定 formula version 对当前 scheme revision 的计算 |
+| 用户偏好与确认 | 当前业务 Instance 的 conversation focus |
+
+“知识贯穿全链路”不等于“攻略可以覆盖当前产品事实”。
+
+## 十、Harness Manager 的必要组成
+
+每个组件都由一个已观察问题推导，不是为了完整感而堆叠：
+
+| 当前问题 | 必要组件 | 最小职责 |
+| --- | --- | --- |
+| Revision 不能越过业务硬边界 | Type Registry | 校验 Operation、Tool ceiling、写域、依赖和兼容性 |
+| 旧整包不能单业务更新 | Revision Registry | 按 business 保存 candidate/active/previous |
+| 正则 router 不足 | Intent Resolver | 输出结构化单业务或跨业务 plan |
+| preview/confirm 跨 Turn | Instance Store | 保存事务、Phase、candidate、evidence 和状态 |
+| Tool 平级但业务有从属关系 | Tool Graph/Projector | 计算当前 Phase 可见 Tool |
+| Harness 必须绑定真实方案 | Context Binder | 绑定 timeline、checkout、scheme revision 和页面投影 |
+| 游戏知识贯穿但不能全局注入 | Knowledge Binder | 获取并固定最小证据切片 |
+| 上游修改影响下游 | Dependency Manager | 产生 invalid/stale/recompute |
+| 同 Session 需要下一事务用新版 | Hot Reload Controller | 校验并原子替换单业务 active Revision |
+| 当前故障难定位 | Trace/Audit | 记录 route、Revision、context、Tool、transition 和结果 |
+
+删除其中任一组件都会恢复一个已确认的问题。
+
+## 十一、热重载推导
+
+### 11.1 三种生命周期
+
+| 生命周期 | 对象 | 更新规则 |
+| --- | --- | --- |
+| 类型期 | Harness Type | 改硬边界需代码和迁移，不是热重载 |
+| 发布期 | Harness Revision | 校验后可按单业务 activate/rollback/revoke |
+| 事务期 | Harness Instance | 创建时绑定 Revision，直到完成或终止 |
+
+### 11.2 为什么不能原地修改活跃事务
+
+若用户先获得配装预览 `P`，随后 Revision 从 `r1` 更新到 `r2`，确认时有两种错误：
+
+- 用 `r2` 解释 `r1` 生成的 proposal：规则和证据可能不一致；
+- 重新生成 proposal 但仍把用户原确认视为有效：用户确认的对象已改变。
+
+所以：
+
+```text
+Instance(P).revision = r1
+```
+
+必须保持到 `P` 完成、放弃、过期或撤销。
+
+### 11.3 为什么同一 Session 的新事务必须用新版
+
+Session 只是容纳多项业务的会话。若 `r2` 已激活，用户在同一 Session 发起一项新的配装事务，继续使用 `r1` 没有业务一致性理由。
+
+因此：
+
+```text
+new Instance(loadout).revision = activeRevision(loadout)
+```
+
+无需重建 Session，也不影响 selection/timeline/buff/calculation 的 active Revision。
+
+### 11.4 发布算法
+
+```text
+source changed
+  → parse
+  → Type boundary validation
+  → Tool reference validation
+  → workflow graph validation
+  → knowledge selector validation
+  → write-scope validation
+  → compatibility validation
+  → compile generation
+  → atomic swap activeRevision[businessId]
+```
+
+校验失败保留最后一个可用 Revision。严重缺陷通过 `revoke` 使相关未完成 Instance 进入 `revoked`，不能让它继续 apply。
+
+这比“Session 整包不可变”更小，也比“每 Turn 自动换文本”更安全。
+
+## 十二、解耦迁移的逻辑
+
+### 12.1 行为来源分类
+
+迁移前必须把每条现存规则归入且只归入一个类别：
+
+| 类别 | 应保留的内容 |
+| --- | --- |
+| Host Kernel | Session/checkout 事实、不可绕过的系统边界 |
+| Harness Type | 业务硬边界、Operation 上限、Tool ceiling、写域、依赖 |
+| Harness Revision | 业务判断、Phase 图、Tool refs、追问、纠错、表达 |
+| Knowledge | 有来源、有范围的游戏知识 |
+| Tool contract | 本 Tool 输入、输出、副作用和 typed error |
+| Tool/Host enforcement | permission、approval、capability、CAS、schema、postcondition |
+| Judge | 测试场景、评分和预期结果 |
+| 删除 | 重复、冲突、占位或已失效规则 |
+
+同一规则不能为了“加强效果”在多处重复。
+
+### 12.2 必须退出主链路的内容
+
+- 固定 Workbench Prompt 中的五业务详细流程；
+- `timeline-workbench` Skill 中的全局路由和重复工作流；
+- Host 每 Turn Prompt 中的业务教学；
+- 八槽全文拼接和 Session 整包 binding；
+- 少量正则组成的总 router；
+- Tool description 中的跨 Tool 工作流和最终回复规范；
+- stable Harness 中围绕局部术语形成的全局规则。
+
+### 12.3 必须保留的内容
+
+- timeline/session/checkout 真实绑定；
+- 当前页面投影收敛；
+- canonical Tool schema 和 exposure；
+- permission、native approval、capability、CAS；
+- Work Node validation/diff/use/restore；
+- 产品命令和公式；
+- semantic postcondition；
+- Judge 与运行中 Harness 的隔离。
+
+### 12.4 为什么三项必须同轮切换
+
+存在一个迁移闭环：
+
+```text
+旧规则退出
+  → 需要新 Harness 承担业务决定
+  → 新 Harness 需要 Manager 才能绑定上下文和 Tool
+  → Manager 需要真实五业务 Revision 才能验证主链路
+  → 主链路成立后旧规则才能安全退出
+```
+
+工程上可以按依赖分 task 和 commit，但发布态只能有一次完整切换。长期双轨会使唯一 owner 不变量失效。
+
+## 十三、可行性与缺口
+
+### 13.1 可直接复用
+
+| 目标能力 | 当前基础 |
+| --- | --- |
+| 平级 Tool 注册 | `DEF_NATIVE_TARGETS` + OpenCode plugin |
+| 回合开始时的模型侧 Tool 过滤 | `PromptInput.tools`/permission + `resolveTools()` |
+| Tool 前后 hook | OpenCode `tool.execute.before/after`；DEF 当前已使用 before |
+| Host/workspace admission | registry exposure + REST invocation policy |
+| 事务 token/capability | proposal、artifact、planner、approval 现有链路 |
+| 方案上下文 | Session-axis、timeline、checkout、scheme revision |
+| 工作副本与提交 | Work Node fork/bind/validate/diff/use/restore |
+| semantic evidence | 当前 diff、timeline invariant、页面 postcondition |
+| 计算 | 现有公式和 damage report |
+
+### 13.2 必须新增或重构
+
+- 五个 Harness Type schema；
+- 单业务 Revision schema、编译与 registry；
+- 结构化 Intent Resolver；
+- 跨 Turn Instance Store；
+- Operation/Phase Tool graph；
+- Phase Projection Bridge；
+- Context/Knowledge Binder；
+- semantic write-scope classifier；
+- 五业务 dependency effects；
+- 单业务 hot reload/rollback/revoke；
+- 统一 trace；
+- 旧 Prompt、Skill、八槽和 Tool description 的责任迁移；
+- 五个非空、可执行的初始 Revision。
+
+这说明目标具有工程可完成性，但不是一次简单的 Prompt 拆文件。
+
+## 十四、可证伪的不变量
+
+目标架构必须让以下命题能够由自动合同或黑盒证据判真伪：
+
+1. 任一时刻，一个业务事务只有一个 active Harness Instance。
+2. 任一 Instance 只引用一个 Harness Type 和一个 Revision。
+3. 每次模型请求的可见 Tool 与当前 Operation/Phase 完全一致。
+4. 任一 Tool call 都能追溯到当前 Operation/Phase 的 Tool ref。
+5. 未投影 Tool 即使被模型构造，也会在执行前被拒绝。
+6. 任一直接 semantic diff 都属于当前业务写域。
+7. 任一额外 diff 都能被标记为确定性 reconciliation 或派生 recomputation。
+8. 任一 mutation commit 都匹配当前 checkout revision 并通过 CAS。
+9. 任一知识结论都能追溯到 evidence ref 和适用条件。
+10. 任一 proposal 的确认使用创建它的 Revision、方案 lineage 和 evidence。
+11. 单业务 Revision 激活不改变其他四个业务。
+12. 新事务使用最新 active Revision，未完成事务不被静默换版。
+13. 上游状态变化以 typed invalid/stale/recompute 传播。
+14. 固定 Prompt、旧总 Skill 和八槽不再拥有五业务规则。
+15. 业务完成以产品 postcondition 和真实 UI 为证据，不以模型自述为证据。
+
+如果其中任一命题只能靠“模型应该理解”成立，则实现尚未完成。
+
+## 十五、研究结论
+
+1. DEF 的 Harness 原子必须从五个游戏业务切分，不能从角色、术语、Tool、文件或旧 slot 切分。
+2. 选人、配装、排轴、BUFF、计算统计是稳定业务边界；新增、换人、3+1、批量 BUFF 等是内部 Operation 或约束。
+3. Harness 与上下文不可分。运行单位必须是绑定方案 lineage、目标、知识证据和 Phase 的业务 Instance。
+4. Session 太大、Turn 太小；业务事务是兼顾连续性和热更新的最小 Revision 绑定单位。
+5. Typed Tools 保持平级注册；从属关系由 `(Business, Operation, Phase) → Tool` 工作流图表达。
+6. 业务拥有 semantic state 和 postcondition，不拥有通用 Tool 或物理文件。
+7. 上游业务变化必须通过 `hard-invalid / stale / recompute` 传播，确定性级联由产品代码拥有。
+8. 游戏知识是五业务的有来源证据输入，不是第六 Harness，也不是全局巨型 Prompt。
+9. Harness Manager 的各组件都由现存问题推导；它是五业务原子真正可运行、可管理、可热重载的必要条件。
+10. 本轮必须一起完成旧行为来源解耦、Manager 和五个真实 Revision；任何局部完成都会保留双重 owner。
+
+这些结论共同构成 [`spec.md`](./spec.md) 的架构依据，后续任务不得通过删减其中任一关系来换取表面上的快速完成。
