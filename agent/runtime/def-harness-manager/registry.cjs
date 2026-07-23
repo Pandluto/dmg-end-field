@@ -341,6 +341,29 @@ class BusinessHarnessRegistry {
     return loaded;
   }
 
+  async resolveRevision(businessId, revisionRef) {
+    if (!revisionRef?.version || !revisionRef?.contentHash) {
+      const error = new Error(`Pinned Revision is incomplete for ${businessId}.`);
+      error.code = 'HARNESS_REVISION_INVALID';
+      throw error;
+    }
+    if (this.controller.isRevoked(businessId, revisionRef.version)) {
+      const error = new Error(`Revision is revoked: ${businessId}@${revisionRef.version}`);
+      error.code = 'HARNESS_REVISION_REVOKED';
+      throw error;
+    }
+    const cached = this.revisions.get(`${businessId}@${revisionRef.version}`);
+    const record = cached?.contentHash === revisionRef.contentHash
+      ? cached
+      : await this.validate(businessId, revisionRef.version);
+    if (record.contentHash !== revisionRef.contentHash) {
+      const error = new Error(`Pinned Revision hash mismatch: ${businessId}@${revisionRef.version}`);
+      error.code = 'HARNESS_REVISION_HASH_MISMATCH';
+      throw error;
+    }
+    return record;
+  }
+
   async inspect(businessId) {
     const definition = this.definitions.get(businessId) || this.loadDefinition(businessId);
     return {

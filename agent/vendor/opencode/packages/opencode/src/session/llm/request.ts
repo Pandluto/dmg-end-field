@@ -54,6 +54,7 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
   mergeDeep(target, source ?? {}) as Record<string, any>
 
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
+  const instance = yield* InstanceState.context
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
   const system = [
     [
@@ -68,7 +69,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   const header = system[0]
   yield* input.plugin.trigger(
     "experimental.chat.system.transform",
-    { sessionID: input.sessionID, model: input.model },
+    { sessionID: input.sessionID, directory: instance.directory, model: input.model },
     { system },
   )
   if (system.length > 2 && system[0] === header) {
@@ -146,6 +147,11 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   )
 
   const tools = resolveTools(input)
+  yield* input.plugin.trigger(
+    "experimental.chat.tools.transform",
+    { sessionID: input.sessionID, directory: instance.directory, model: input.model },
+    { tools },
+  )
   // Codex parity: OpenAI Responses-family providers hardcode `strict: false`
   // on every function tool so MCP-sourced and dynamic schemas that don't
   // satisfy OpenAI's structured-outputs constraints still register.
@@ -175,7 +181,7 @@ export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: Pre
   }
 
   const opencodeProjectID = input.model.providerID.startsWith("opencode")
-    ? (yield* InstanceState.context).project.id
+    ? instance.project.id
     : undefined
 
   return {

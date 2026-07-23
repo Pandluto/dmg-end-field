@@ -289,9 +289,15 @@ export interface Hooks {
     },
   ) => Promise<void>
   "experimental.chat.system.transform"?: (
-    input: { sessionID?: string; model: Model },
+    input: { sessionID?: string; directory?: string; model: Model },
     output: {
       system: string[]
+    },
+  ) => Promise<void>
+  "experimental.chat.tools.transform"?: (
+    input: { sessionID: string; directory: string; model: Model },
+    output: {
+      tools: Record<string, unknown>
     },
   ) => Promise<void>
   "experimental.provider.small_model"?: (input: { provider: ProviderV2 }, output: { model?: ModelV2 }) => Promise<void>

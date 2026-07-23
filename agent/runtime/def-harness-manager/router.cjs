@@ -57,6 +57,7 @@ function matchContinuation({ userText, transactions = [] }) {
       choices: candidates.map(transactionLabel),
     };
   }
+  if (intent === 'correct') return null;
   return {
     kind: 'clarify',
     reason: 'continuation-not-found',
