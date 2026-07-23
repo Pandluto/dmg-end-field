@@ -2,7 +2,7 @@
 
 ## 状态
 
-规格与任务已完成，等待实施。
+已实施并完成验收。
 
 本规格是独立的新一轮工作，不续写已经无效化归档的旧 Spec 9。
 
@@ -254,3 +254,48 @@ Shell 中所有“服务 `/ai-cli`”的说明改为“服务主界面 AI 模式
 - 失败可见、可重试，且不跨宿主或业务数据；
 - 聚焦合同测试与真实 Electron 验收通过；
 - 实现没有扩张到本规格明确排除的领域。
+
+## 九、实施与验证结果
+
+### 9.1 实施提交
+
+- `810777aa refactor(def-opencode): retire ai-cli host ingress`
+- `86e8ff00 feat(def-shell): clear all workbench ai sessions`
+- `2f83b300 fix(def-shell): serialize session cleanup`
+
+实现严格限定在两个主旨内：退役 `ai-cli` def-opencode Host，以及为 `workbench` 增加全量清理。未修改 Harness 包、runtime Skills、Knowledge、3+1 或业务算法。
+
+### 9.2 自动验证
+
+以下命令通过：
+
+- `npm run typecheck`
+- `npm test`
+- `npm run test:def-opencode-host-retirement`
+- `npm run test:def-workbench-session-cleanup`
+- `npm run test:def-native-catalog`
+- `npm run test:def-operator-build-guide`
+- `git diff --check`
+
+聚焦清理合同覆盖空请求、无鉴权、Host/真实目录边界、固定删除顺序、部分失败继续、网络失败重试、上游 404 收敛、精确 axis unbind、重复调用、bulk/exact/runner 互斥、Electron/dev bridge 一致性、长批次无 bridge 总超时、Shell 错误与结果文案。
+
+### 9.3 真实 Electron 与 Interop 验收
+
+- 主界面不再显示 “AI CLI”；直接访问 `/ai-cli` 不再挂载旧产品页。
+- 正式 Timeline 的 AI 模式创建 `ses_0733f5a80ffeBi07UfGbm14Vo7`，Interop v1 能绑定同一会话并完成只读自然语言回合。
+- AI 模式保持打开时，通过 Shell 使用的 Electron bridge 发起 cleanup，返回 `targetCount=1 / deletedCount=1 / failed=[]`；精确目录和 session-axis binding 消失，当前 iframe 随即以 403 失效。
+- 退出并重新进入 AI 模式后创建新会话 `ses_072c135f9fferG4vqOBNvC0eMy`；再次清理同样返回 `1 / 1 / []`。
+- DEF Shell 真实界面验证了唯一按钮、一次确认和“没有可清除的 AI 模式会话”空结果。
+- 第一次清理前后，`user.sqlite` 排除 `timeline_session_axis_bindings` 的语义哈希均为 `4e92db6b3e360b0fc5eebf7d0a64d3a034f2f1cb1fd15bc10bba4b094dcb4f96`；`ai-timeline-worknodes.sqlite3` 哈希均为 `f6b79052ef2e65f4f4e10c1ace7fb42e04a0aecaf8f9cd88ab045de82303cdbf`；旧 `sessions/ai-cli` 内容哈希均为 `2cd8636496ba3728a5366a94731d55439618d44b97f9488e10978634a3fdce0c`。
+- 原 TimelineDocument、Work Node 和 checkout 仍存在且身份不变；两个目标 Workbench binding 均已删除。
+
+### 9.4 独立审计
+
+独立 subagent Zeno 首轮给出 `GO WITH CONDITIONS`，指出长批次 bridge 超时、bulk/exact 删除竞态和 Shell 409 误报三个 P2。提交 `2f83b300` 完成最小返修并补充合同后，Zeno 复审结论为 `GO`：
+
+- 三个 P2 全部关闭；
+- 没有剩余的 Spec 9-1 问题；
+- 没有偏离唯一主旨；
+- 共享 AI REST、MCP Fill、Timeline、Work Node 与 typed tools 边界未被破坏。
+
+所有实施与收尾提交均排除用户已有的 `data/sharedata/**` 工作树变化，未 push。
