@@ -63,7 +63,32 @@ function writeSelection(root, version = 'v1') {
             tools: [],
             writes: [],
             instructions: 'Wait.',
+            transitions: { onConfirm: 'apply', onReject: 'failed' },
             terminalState: 'awaiting-confirmation',
+          },
+          {
+            id: 'apply',
+            kind: 'mutation',
+            tools: ['def.apply'],
+            writes: ['selection.members'],
+            instructions: 'Apply.',
+            transitions: { onSuccess: 'verify', onFailure: 'failed' },
+          },
+          {
+            id: 'verify',
+            kind: 'verification',
+            tools: ['def.verify'],
+            writes: [],
+            instructions: 'Verify.',
+            transitions: { onSuccess: 'done', onFailure: 'failed' },
+          },
+          {
+            id: 'done',
+            kind: 'response',
+            tools: [],
+            writes: [],
+            instructions: 'Done.',
+            terminalState: 'completed',
           },
           {
             id: 'failed',
@@ -204,6 +229,52 @@ test('moves failures through the declared failure exit', async () => {
   assert.equal(bridge.mode, 'complete');
   assert.equal(bridge.phase, 'failed');
   assert.equal(runtime.transactions.get(bridge.transactionId).status, 'aborted');
+});
+
+test('later confirmation resumes the same pinned proposal transaction', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.prepareRoute({ context, userText: '换成别礼', turnId: 'turn-preview' });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'route-call',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'new-business',
+      businessId: 'selection',
+      operation: 'replace',
+      target: '别礼',
+      requestedEffect: '换成别礼',
+    } } },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'read-call',
+    toolBinding: 'def_read',
+    canonicalToolId: 'def.read',
+    output: { output: '{"ok":true}', metadata: {} },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-preview',
+    callId: 'preview-call',
+    toolBinding: 'def_preview',
+    canonicalToolId: 'def.preview',
+    output: { output: '{"ok":true,"proposalToken":"proposal-token-a"}', metadata: {} },
+  });
+  const awaiting = readRuntimeBridge(sessionDirectory);
+  const transactionId = awaiting.transactionId;
+  const revision = runtime.transactions.get(transactionId).harnessRevision;
+
+  await runtime.prepareRoute({ context, userText: '确认', turnId: 'turn-confirm' });
+  const resumed = readRuntimeBridge(sessionDirectory);
+  assert.equal(resumed.transactionId, transactionId);
+  assert.equal(resumed.phase, 'apply');
+  assert.deepEqual(resumed.allowedToolBindings, ['def_apply']);
+  assert.deepEqual(runtime.transactions.get(transactionId).harnessRevision, revision);
+  assert.equal(runtime.transactions.get(transactionId).proposal.token, 'proposal-token-a');
 });
 
 test('OpenCode request preparation and DEF plugin share the phase bridge', () => {

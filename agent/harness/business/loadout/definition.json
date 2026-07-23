@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "businessId": "loadout",
+  "displayName": "配装",
+  "summary": "查看、解析、推荐、比较、预览、确认应用或恢复武器、装备、技能等级与配置输入。",
+  "defaultRevision": "v1",
+  "operations": [
+    "inspect",
+    "resolve",
+    "recommend",
+    "recommend_weapon",
+    "recommend_equipment",
+    "compare",
+    "preview",
+    "apply",
+    "restore"
+  ],
+  "toolCeiling": [
+    "def.node.crud.context",
+    "def.data.resource.team_loadouts",
+    "def.data.resource.operator_build_guide",
+    "def.data.resource.operator_build_profile",
+    "def.data.resource.combat_conventions",
+    "def.data.resource.game_knowledge",
+    "def.data.resource.game_knowledge_section",
+    "def.data.resource.weapon",
+    "def.data.resource.weapon_fit_plan",
+    "def.data.resource.equipment",
+    "def.data.resource.native_catalog_materialize",
+    "def.data.resource.equipment_set_fit_shortlist",
+    "def.data.resource.equipment_3plus1_facts",
+    "def.data.resource.equipment_3plus1_plan",
+    "def.data.resource.team_loadout_plan",
+    "def.team.loadout.plan.revise",
+    "def.team.loadout.plan.apply",
+    "def.operator.config.preview",
+    "def.operator.config.patch"
+  ],
+  "writeScope": [
+    "loadout.weapon",
+    "loadout.equipment",
+    "loadout.skillLevels",
+    "loadout.inputs"
+  ],
+  "completion": {
+    "preview": "An immutable proposal token is bound to target, constraints, evidence, Harness Revision and scheme version.",
+    "apply": [
+      "explicit-later-confirmation",
+      "same-proposal-and-evidence",
+      "native-approval",
+      "scheme-version-and-CAS",
+      "visible-operator-config-postcondition"
+    ],
+    "restore": "unsupported-until-a-loadout-only-restore-capability-exists"
+  },
+  "downstream": {
+    "selection": "continue",
+    "timeline": "revalidate-when-skill-identity-or-input-changes",
+    "buff": "continue-unless-referenced-state-becomes-invalid",
+    "calculation": "recompute"
+  }
+}

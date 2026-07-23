@@ -79,7 +79,10 @@ function validateDefinition(definition, expectedBusinessId) {
 
 function phaseTargets(phase) {
   const transitions = phase?.transitions && typeof phase.transitions === 'object' ? phase.transitions : {};
-  return Object.values(transitions).filter((target) => typeof target === 'string' && target);
+  return [
+    ...Object.values(transitions),
+    ...(Array.isArray(phase?.resultTransitions) ? phase.resultTransitions.map((transition) => transition?.target) : []),
+  ].filter((target) => typeof target === 'string' && target);
 }
 
 function reachesTerminal(startId, phasesById, memo = new Map(), visiting = new Set()) {
@@ -164,6 +167,19 @@ function validateRevision({ definition, manifest, instructions, toolIds, source 
         if (!phase.transitions || typeof phase.transitions !== 'object') errors.push(`Operation ${operationId} phase ${phase.id} has no transitions`);
         if (typeof phase.transitions?.onSuccess !== 'string') errors.push(`Operation ${operationId} phase ${phase.id} has no success exit`);
         if (typeof phase.transitions?.onFailure !== 'string') errors.push(`Operation ${operationId} phase ${phase.id} has no failure exit`);
+      }
+      if (phase.resultTransitions !== undefined) {
+        if (!Array.isArray(phase.resultTransitions)) {
+          errors.push(`Operation ${operationId} phase ${phase.id} resultTransitions must be an array`);
+        } else {
+          for (const [transitionIndex, transition] of phase.resultTransitions.entries()) {
+            if (!transition || typeof transition.path !== 'string' || !transition.path
+              || !Object.hasOwn(transition, 'equals')
+              || typeof transition.target !== 'string' || !transition.target) {
+              errors.push(`Operation ${operationId} phase ${phase.id} resultTransitions[${transitionIndex}] is invalid`);
+            }
+          }
+        }
       }
     }
     if (!phasesById.has(operation.entryPhase)) errors.push(`Operation ${operationId} entryPhase does not exist`);

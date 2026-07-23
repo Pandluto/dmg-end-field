@@ -25,6 +25,30 @@ function resultSucceeded(output) {
   return true;
 }
 
+function parsedToolOutput(output) {
+  if (output?.metadata?.typedResult && typeof output.metadata.typedResult === 'object') return output.metadata.typedResult;
+  try {
+    return typeof output?.output === 'string' ? JSON.parse(output.output) : (output?.output || {});
+  } catch {
+    return {};
+  }
+}
+
+function valueAtPath(value, pathExpression) {
+  return String(pathExpression || '').split('.').filter(Boolean).reduce(
+    (current, key) => current && typeof current === 'object' ? current[key] : undefined,
+    value,
+  );
+}
+
+function transitionForResult(phase, output) {
+  if (!resultSucceeded(output)) return phase.transitions?.onFailure;
+  const parsed = parsedToolOutput(output);
+  const matched = (Array.isArray(phase.resultTransitions) ? phase.resultTransitions : [])
+    .find((transition) => valueAtPath(parsed, transition.path) === transition.equals);
+  return matched?.target || phase.transitions?.onSuccess;
+}
+
 class HarnessTransactionRuntime {
   constructor({
     sessionDirectory,
@@ -73,7 +97,7 @@ class HarnessTransactionRuntime {
   async prepareRoute({ context, userText, definitions, turnId = '' }) {
     const unfinished = this.transactions.list({ statuses: ['active', 'awaiting-confirmation'] });
     const route = beginRoutePhase({ userText, transactions: unfinished, definitions });
-    if (route.kind === 'continue') return this.projectTransaction(route.transactionId, { turnId });
+    if (route.kind === 'continue') return this.resumeTransaction(route.transactionId, route.intent, { context, turnId });
     if (route.kind === 'clarify') {
       return this.writeProjection({
         mode: 'clarify',
@@ -103,6 +127,54 @@ class HarnessTransactionRuntime {
       context,
       allowedToolIds: route.allowedTools,
     });
+  }
+
+  async resumeTransaction(transactionId, intent, { context, turnId = '' } = {}) {
+    const transaction = this.transactions.require(transactionId);
+    if (transaction.status !== 'awaiting-confirmation') {
+      return this.projectTransaction(transactionId, { turnId });
+    }
+    if (context
+      && (transaction.sessionId !== context.sessionId
+        || transaction.timelineId !== context.timelineId
+        || transaction.checkoutId !== context.checkoutId
+        || transaction.currentSchemeVersion !== context.schemeVersion)) {
+      this.transactions.markTerminal(transactionId, 'stale', 'confirmation-context-changed');
+      const error = new Error('The confirmed proposal no longer matches the current scheme.');
+      error.code = 'HARNESS_CONFIRMATION_STALE';
+      throw error;
+    }
+    if (intent === 'reject') {
+      this.transactions.markTerminal(transactionId, 'aborted', 'user-rejected');
+      return this.writeProjection({
+        mode: 'complete',
+        sessionId: transaction.sessionId,
+        turnId,
+        transactionId,
+        businessId: transaction.businessId,
+        operation: transaction.operation,
+        phase: 'rejected',
+        instructions: 'The user rejected the proposal. Confirm that no mutation was applied.',
+        context,
+        allowedToolIds: [],
+      });
+    }
+    if (intent !== 'confirm') {
+      const error = new Error('A correction must supersede this proposal and start a fresh route.');
+      error.code = 'HARNESS_CONFIRMATION_CORRECTION_REQUIRES_REPLAN';
+      throw error;
+    }
+    const revision = await this.registry.resolveRevision(transaction.businessId, transaction.harnessRevision);
+    const operation = revision.manifest.operations[transaction.operation];
+    const awaiting = operation.phases.find((phase) => phase.id === transaction.phase);
+    const nextId = awaiting?.transitions?.onConfirm;
+    if (!nextId || !operation.phases.some((phase) => phase.id === nextId)) {
+      const error = new Error(`Harness operation ${transaction.operation} has no confirmation continuation.`);
+      error.code = 'HARNESS_CONFIRMATION_UNSUPPORTED';
+      throw error;
+    }
+    this.transactions.transition(transactionId, { phase: nextId, status: 'active' });
+    return this.projectTransaction(transactionId, { turnId });
   }
 
   async acceptRouteSubmission(submission, { turnId = '' } = {}) {
@@ -307,7 +379,7 @@ class HarnessTransactionRuntime {
         newSchemeVersion,
       });
     }
-    const nextId = resultSucceeded(output) ? phase.transitions?.onSuccess : phase.transitions?.onFailure;
+    const nextId = transitionForResult(phase, output);
     const next = revision.manifest.operations[transaction.operation].phases.find((candidate) => candidate.id === nextId);
     if (!next) {
       const error = new Error(`Harness phase transition target not found: ${nextId}`);
@@ -316,8 +388,13 @@ class HarnessTransactionRuntime {
     }
     if (next.terminalState) {
       if (next.terminalState === 'awaiting-confirmation') {
+        const parsed = parsedToolOutput(output);
         this.transactions.lockForConfirmation(transaction.transactionId, {
-          proposal: output?.metadata?.proposal || transaction.proposal,
+          proposal: output?.metadata?.proposal || (
+            parsed?.proposalToken
+              ? { id: parsed.proposalId || parsed.planId || parsed.proposalToken, token: parsed.proposalToken }
+              : transaction.proposal
+          ),
           artifact: output?.metadata?.artifact || transaction.artifact,
           capability: output?.metadata?.capability || transaction.capability,
         });

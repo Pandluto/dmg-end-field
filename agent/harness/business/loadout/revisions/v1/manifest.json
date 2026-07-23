@@ -1,0 +1,465 @@
+{
+  "schemaVersion": 1,
+  "businessId": "loadout",
+  "version": "v1",
+  "writeScope": [
+    "loadout.weapon",
+    "loadout.equipment",
+    "loadout.skillLevels",
+    "loadout.inputs"
+  ],
+  "operations": {
+    "inspect": {
+      "entryPhase": "read-loadouts",
+      "phases": [
+        {
+          "id": "read-loadouts",
+          "kind": "context",
+          "tools": ["def.data.resource.team_loadouts"],
+          "writes": [],
+          "instructions": "Read the current selected team's exact loadouts once. Do not read Workbench node state for this read-only operation.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report exact current weapon, equipment, skill levels and missing fields per requested operator.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that current loadout state is unavailable; do not substitute catalog candidates.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "resolve": {
+      "entryPhase": "resolve-catalog",
+      "phases": [
+        {
+          "id": "resolve-catalog",
+          "kind": "evidence",
+          "tools": ["def.data.resource.weapon", "def.data.resource.equipment"],
+          "writes": [],
+          "instructions": "Use the narrowest exact typed catalog resolver for the named weapon or equipment fact. This is identity/fact resolution, not operator-fit ranking.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return stable ids, slots, fixed facts, effects and typed ambiguity only.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State that the named catalog entity is absent or ambiguous.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "recommend": {
+      "entryPhase": "discover-guide",
+      "phases": [
+        {
+          "id": "discover-guide",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_guide"],
+          "writes": [],
+          "instructions": "Resolve the exact operator and discover its scoped build guide before any operator-fit equipment planning.",
+          "resultTransitions": [
+            {"path": "state", "equals": "PARTIAL_GUIDE_FOUND", "target": "fallback-profile"},
+            {"path": "state", "equals": "GUIDE_NOT_FOUND", "target": "fallback-profile"}
+          ],
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-profile",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_profile"],
+          "writes": [],
+          "instructions": "Use only the exact same-turn fallback token. Preserve explicit partial-guide priorities and fill only named gaps.",
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "materialize-catalog",
+          "kind": "evidence",
+          "tools": ["def.data.resource.native_catalog_materialize"],
+          "writes": [],
+          "instructions": "Materialize one equipment artifact for exhaustive 3+1 planning and retain its source revision.",
+          "transitions": {"onSuccess": "read-3plus1-facts", "onFailure": "failed"}
+        },
+        {
+          "id": "read-3plus1-facts",
+          "kind": "evidence",
+          "tools": ["def.data.resource.equipment_3plus1_facts"],
+          "writes": [],
+          "instructions": "Read unranked slot, set-membership, source and duplicate-policy facts for the exact user-named set.",
+          "transitions": {"onSuccess": "plan-3plus1", "onFailure": "failed"}
+        },
+        {
+          "id": "plan-3plus1",
+          "kind": "plan",
+          "tools": ["def.data.resource.equipment_3plus1_plan"],
+          "writes": [],
+          "instructions": "Pass the unchanged profile capability and same artifact/source revision. Only this planner ranks the bounded 3+1 shortlist.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return one best verified combination and at most two close alternatives with stable ids, slots, matched keys, missing facts and ambiguity.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Stop at the typed guide/profile/catalog/facts/planner failure. Do not use a legacy fallback ranking.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "recommend_equipment": {
+      "entryPhase": "discover-guide",
+      "phases": [
+        {
+          "id": "discover-guide",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_guide"],
+          "writes": [],
+          "instructions": "Discover scoped operator priorities first.",
+          "resultTransitions": [
+            {"path": "state", "equals": "PARTIAL_GUIDE_FOUND", "target": "fallback-profile"},
+            {"path": "state", "equals": "GUIDE_NOT_FOUND", "target": "fallback-profile"}
+          ],
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-profile",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_profile"],
+          "writes": [],
+          "instructions": "Use the exact authorized fallback token and retain the returned capability unchanged.",
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "materialize-catalog",
+          "kind": "evidence",
+          "tools": ["def.data.resource.native_catalog_materialize"],
+          "writes": [],
+          "instructions": "Materialize the complete current equipment catalog once.",
+          "transitions": {"onSuccess": "shortlist-set", "onFailure": "failed"}
+        },
+        {
+          "id": "shortlist-set",
+          "kind": "evidence",
+          "tools": ["def.data.resource.equipment_set_fit_shortlist"],
+          "writes": [],
+          "instructions": "When no target set was named, review the full artifact and return at most three legal profile-matching sets.",
+          "transitions": {"onSuccess": "read-3plus1-facts", "onFailure": "failed"}
+        },
+        {
+          "id": "read-3plus1-facts",
+          "kind": "evidence",
+          "tools": ["def.data.resource.equipment_3plus1_facts"],
+          "writes": [],
+          "instructions": "Choose one exact returned set and read its unranked facts.",
+          "transitions": {"onSuccess": "plan-3plus1", "onFailure": "failed"}
+        },
+        {
+          "id": "plan-3plus1",
+          "kind": "plan",
+          "tools": ["def.data.resource.equipment_3plus1_plan"],
+          "writes": [],
+          "instructions": "Rank with the unchanged profile capability and source revision.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return the bounded legal shortlist without enumerating solver topology.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return the typed terminal evidence failure and no legacy fallback.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "recommend_weapon": {
+      "entryPhase": "discover-guide",
+      "phases": [
+        {
+          "id": "discover-guide",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_guide"],
+          "writes": [],
+          "instructions": "Discover the exact operator guide and its evidenceRequirements first.",
+          "resultTransitions": [
+            {"path": "state", "equals": "PARTIAL_GUIDE_FOUND", "target": "fallback-combat-conventions"},
+            {"path": "state", "equals": "GUIDE_NOT_FOUND", "target": "fallback-combat-conventions"},
+            {"path": "evidenceRequirements.combatConvention", "equals": "required", "target": "guide-combat-conventions"},
+            {"path": "evidenceRequirements.combatConvention", "equals": "not-required", "target": "weapon-plan"}
+          ],
+          "transitions": {"onSuccess": "weapon-plan", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-combat-conventions",
+          "kind": "evidence",
+          "tools": ["def.data.resource.combat_conventions"],
+          "writes": [],
+          "instructions": "Resolve one reviewed role-aware weapon-fit convention bundle for partial/missing-guide fallback.",
+          "transitions": {"onSuccess": "fallback-profile", "onFailure": "failed"}
+        },
+        {
+          "id": "guide-combat-conventions",
+          "kind": "evidence",
+          "tools": ["def.data.resource.combat_conventions"],
+          "writes": [],
+          "instructions": "Resolve the reviewed convention bundle required by the complete guide, while preserving its supplied profile capability.",
+          "transitions": {"onSuccess": "weapon-plan", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-profile",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_profile"],
+          "writes": [],
+          "instructions": "Use the exact fallback token and convention bundle hash. If the complete guide already supplied a profile, this phase is bypassed.",
+          "transitions": {"onSuccess": "weapon-plan", "onFailure": "failed"}
+        },
+        {
+          "id": "weapon-plan",
+          "kind": "plan",
+          "tools": ["def.data.resource.weapon_fit_plan"],
+          "writes": [],
+          "instructions": "Evaluate every compatible current-catalog weapon with the unchanged profile capability and only the required convention hash.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Preserve deterministic/high-probability/low-probability/unknown evidence. READY_WITH_TRADEOFFS is an unordered matrix, not a universal winner.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the typed nextAction and stop; do not construct a fallback weapon ranking.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "compare": {
+      "entryPhase": "discover-guide",
+      "phases": [
+        {
+          "id": "discover-guide",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_guide"],
+          "writes": [],
+          "instructions": "Bind comparison criteria to the exact operator and scoped guide conditions.",
+          "resultTransitions": [
+            {"path": "state", "equals": "PARTIAL_GUIDE_FOUND", "target": "fallback-profile"},
+            {"path": "state", "equals": "GUIDE_NOT_FOUND", "target": "fallback-profile"}
+          ],
+          "transitions": {"onSuccess": "resolve-candidates", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-profile",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_profile"],
+          "writes": [],
+          "instructions": "Derive only the missing comparison criteria from authorized fallback.",
+          "transitions": {"onSuccess": "resolve-candidates", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-candidates",
+          "kind": "evidence",
+          "tools": ["def.data.resource.weapon", "def.data.resource.equipment"],
+          "writes": [],
+          "instructions": "Resolve every named candidate to complete typed catalog facts.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Compare only sourced dimensions and surface conditional or missing facts. Do not apply.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State which candidate or evidence condition cannot be compared.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "preview": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.data.resource.team_loadouts"],
+          "writes": [],
+          "instructions": "Bind the target operator and exact current loadout without creating a branch.",
+          "transitions": {"onSuccess": "discover-guide", "onFailure": "failed"}
+        },
+        {
+          "id": "discover-guide",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_guide"],
+          "writes": [],
+          "instructions": "Discover scoped operator build evidence.",
+          "resultTransitions": [
+            {"path": "state", "equals": "PARTIAL_GUIDE_FOUND", "target": "fallback-profile"},
+            {"path": "state", "equals": "GUIDE_NOT_FOUND", "target": "fallback-profile"}
+          ],
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "fallback-profile",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_build_profile"],
+          "writes": [],
+          "instructions": "Use the exact fallback token and lock the resulting profile capability into this transaction.",
+          "transitions": {"onSuccess": "materialize-catalog", "onFailure": "failed"}
+        },
+        {
+          "id": "materialize-catalog",
+          "kind": "evidence",
+          "tools": ["def.data.resource.native_catalog_materialize"],
+          "writes": [],
+          "instructions": "Materialize one current equipment artifact and retain its source identity.",
+          "transitions": {"onSuccess": "read-3plus1-facts", "onFailure": "failed"}
+        },
+        {
+          "id": "read-3plus1-facts",
+          "kind": "evidence",
+          "tools": ["def.data.resource.equipment_3plus1_facts"],
+          "writes": [],
+          "instructions": "Read exact set and topology facts without ranking.",
+          "transitions": {"onSuccess": "plan-3plus1", "onFailure": "failed"}
+        },
+        {
+          "id": "plan-3plus1",
+          "kind": "plan",
+          "tools": ["def.data.resource.equipment_3plus1_plan"],
+          "writes": [],
+          "instructions": "Create one complete four-slot reviewed candidate with the unchanged profile capability.",
+          "transitions": {"onSuccess": "preview-config", "onFailure": "failed"}
+        },
+        {
+          "id": "preview-config",
+          "kind": "proposal",
+          "tools": ["def.operator.config.preview"],
+          "writes": [],
+          "instructions": "Preview one complete exact operator configuration. This must not create a branch, request approval or change checkout.",
+          "transitions": {"onSuccess": "awaiting-confirmation", "onFailure": "failed"}
+        },
+        {
+          "id": "awaiting-confirmation",
+          "kind": "awaiting-confirmation",
+          "tools": [],
+          "writes": [],
+          "instructions": "Wait for a later explicit confirmation. A question, comparison, correction or changed condition supersedes this proposal and requires fresh evidence and preview.",
+          "transitions": {"onConfirm": "apply-config", "onReject": "rejected"},
+          "terminalState": "awaiting-confirmation"
+        },
+        {
+          "id": "apply-config",
+          "kind": "mutation",
+          "tools": ["def.operator.config.patch"],
+          "writes": ["loadout.weapon", "loadout.equipment", "loadout.skillLevels", "loadout.inputs"],
+          "instructions": "Consume the unchanged proposal token once. Native approval, scheme CAS and exact visible configuration postcondition are mandatory.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.data.resource.team_loadouts"],
+          "writes": [],
+          "instructions": "Read the live target loadout and verify every applied slot/level plus the new scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report the visible applied configuration, branch/postcondition, product cascades and calculation recompute.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "rejected",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Confirm that the proposal was rejected and nothing was applied.",
+          "terminalState": "aborted"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用, the exact failed stage and one typed recovery action. Never reuse a failed or superseded proposal.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "apply": {
+      "entryPhase": "requires-proposal",
+      "phases": [
+        {
+          "id": "requires-proposal",
+          "kind": "unsupported",
+          "tools": [],
+          "writes": [],
+          "instructions": "Direct apply without the unique awaiting-confirmation transaction and unchanged proposal token is unsupported. Ask the user to preview first.",
+          "terminalState": "unsupported"
+        }
+      ]
+    },
+    "restore": {
+      "entryPhase": "unsupported-loadout-only-restore",
+      "phases": [
+        {
+          "id": "unsupported-loadout-only-restore",
+          "kind": "unsupported",
+          "tools": [],
+          "writes": [],
+          "instructions": "V1 has no dedicated loadout-only restore capability. Do not use whole-node restore because it may overwrite timeline or BUFF state.",
+          "terminalState": "unsupported"
+        }
+      ]
+    }
+  }
+}
