@@ -29,12 +29,18 @@ assert.equal(isDirectCurrentNodeQuestion('当前节点是什么？'), true);
 assert.equal(isDirectCurrentNodeQuestion('请基于当前空排轴创建新节点'), false);
 
 const serverSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
-assert.match(serverSource, /getNativeHarnessSystem\(binding, rawUserText\)/);
-assert.match(serverSource, /buildWorkbenchCheckoutSystemPrompt\(checkoutState/);
-assert.match(serverSource, /same typed-tool failure code occurs twice/);
-assert.match(serverSource, /interop pending is null/);
-assert.match(serverSource, /EXACT SKILL FACT CONTRACT/);
-assert.match(serverSource, /Call def_data_skill as the first and only tool/);
+assert.equal((serverSource.match(/prepareWorkbenchTurn\(\{/g) || []).length, 2);
+assert.doesNotMatch(serverSource, /getNativeHarnessSystem/);
+assert.doesNotMatch(serverSource, /buildWorkbenchCheckoutSystemPrompt/);
+
+const managerSource = fs.readFileSync(new URL('../agent/runtime/def-harness-manager/index.cjs', import.meta.url), 'utf8');
+assert.match(managerSource, /getNativeHarnessSystem\(binding, userText\)/);
+assert.match(managerSource, /composeLegacyWorkbenchSystem/);
+const compatibilitySource = fs.readFileSync(new URL('../agent/runtime/def-harness-manager/compatibility.cjs', import.meta.url), 'utf8');
+assert.match(compatibilitySource, /same typed-tool failure code occurs twice/);
+assert.match(compatibilitySource, /interop pending is null/);
+assert.match(compatibilitySource, /EXACT SKILL FACT CONTRACT/);
+assert.match(compatibilitySource, /Call def_data_skill as the first and only tool/);
 
 const skillSource = fs.readFileSync(new URL('../agent/runtime/def/skills/timeline-workbench/SKILL.md', import.meta.url), 'utf8');
 assert.match(skillSource, /approvalPolicy=manual/);
