@@ -1,0 +1,17 @@
+{
+  "versions": {
+    "zmd-data-v1.4.1": {
+      "fileName": "release-zmd-data-v1.4.1-share-20260716-214525-7-16-3.json",
+      "sha256": "sha256:f60894355f51811bfcc9c938974288bcc56082554f76e3440b04a79997c6d8eb",
+      "downloadedAt": "2026-07-17T17:42:33.977Z",
+      "manifestUrl": ""
+    },
+    "zmd-v1.4.1": {
+      "fileName": "release-zmd-v1.4.1-share-20260718-020802-zmd-v1.4.1.json",
+      "sha256": "sha256:23c079b8eff633829b8f8753d72f2984261f8ab68e80ad08597656d89f85fd4f",
+      "downloadedAt": "2026-07-17T18:09:45.841Z",
+      "manifestUrl": ""
+    }
+  },
+  "activeVersion": "zmd-v1.4.1"
+}
