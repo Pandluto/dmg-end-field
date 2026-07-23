@@ -47,7 +47,7 @@ export default async function DefToolsPlugin() {
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)
       definitions.assertDefNativeArtifactToolScope(input, output?.args)
-      assertHarnessToolBefore({
+      await assertHarnessToolBefore({
         sessionId: input?.sessionID,
         turnId: input?.messageID,
         tool: input?.tool,

@@ -3,6 +3,9 @@ const { BusinessHarnessRegistry } = require('./registry.cjs');
 const { BusinessPlanStore } = require('./plans.cjs');
 const { beginRoutePhase, validateRouteSubmission } = require('./router.cjs');
 const { BusinessTransactionStore, TERMINAL_STATUSES } = require('./transactions.cjs');
+const { MutationCommitCoordinator } = require('./commit-coordinator.cjs');
+const { applyDownstreamEffects } = require('./downstream.cjs');
+const { analyzeBusinessMutation } = require('./semantic-write-scope.cjs');
 const {
   assertProjectedTool,
   bindRuntimeTurn,
@@ -39,6 +42,8 @@ class HarnessTransactionRuntime {
     });
     this.transactions = new BusinessTransactionStore({ sessionDirectory: this.sessionDirectory });
     this.plans = new BusinessPlanStore({ sessionDirectory: this.sessionDirectory });
+    this.commits = new MutationCommitCoordinator({ sessionDirectory: this.sessionDirectory });
+    this.mutationLeases = new Map();
   }
 
   async targets() {
@@ -217,7 +222,38 @@ class HarnessTransactionRuntime {
     });
   }
 
-  async afterTool({ sessionId, turnId, callId, toolBinding, canonicalToolId, output }) {
+  async beforeTool({ sessionId, turnId, callId, toolBinding, canonicalToolId, args }) {
+    const bridge = this.assertTool({ sessionId, turnId, toolBinding, canonicalToolId });
+    if (bridge?.transactionId) {
+      this.transactions.recordToolCall(bridge.transactionId, {
+        callId,
+        toolId: canonicalToolId,
+        inputRef: args,
+      });
+    }
+    if (bridge?.phaseKind === 'mutation' && bridge.transactionId) {
+      const transaction = this.transactions.require(bridge.transactionId);
+      const lease = await this.commits.acquire({
+        transactionId: transaction.transactionId,
+        timelineId: transaction.timelineId,
+        checkoutId: transaction.checkoutId,
+      });
+      this.mutationLeases.set(callId, lease);
+    }
+    return bridge;
+  }
+
+  async afterTool(input) {
+    try {
+      return await this.advanceAfterTool(input);
+    } finally {
+      const lease = this.mutationLeases.get(input.callId);
+      if (lease) this.commits.release(lease);
+      this.mutationLeases.delete(input.callId);
+    }
+  }
+
+  async advanceAfterTool({ sessionId, turnId, callId, toolBinding, canonicalToolId, output }) {
     const bridge = this.assertTool({ sessionId, turnId, toolBinding, canonicalToolId });
     if (bridge.mode === 'route') {
       const route = output?.metadata?.route || (() => {
@@ -245,6 +281,32 @@ class HarnessTransactionRuntime {
     const transaction = this.transactions.require(bridge.transactionId);
     const revision = await this.registry.resolveRevision(transaction.businessId, transaction.harnessRevision);
     const phase = revision.manifest.operations[transaction.operation].phases.find((candidate) => candidate.id === transaction.phase);
+    const semanticMutation = output?.metadata?.semanticMutation;
+    const semantic = phase.kind === 'mutation' && semanticMutation?.beforePayload && semanticMutation?.afterPayload
+      ? analyzeBusinessMutation({
+        businessId: transaction.businessId,
+        beforePayload: semanticMutation.beforePayload,
+        afterPayload: semanticMutation.afterPayload,
+      })
+      : null;
+    if (semantic && !semantic.pass) {
+      this.transactions.markTerminal(transaction.transactionId, 'aborted', 'write-scope-violation');
+      const error = new Error(`Harness mutation exceeds ${transaction.businessId} write scope.`);
+      error.code = 'HARNESS_MUTATION_WRITE_SCOPE_VIOLATION';
+      error.details = semantic;
+      throw error;
+    }
+    if (phase.kind === 'mutation' && resultSucceeded(output) && output?.metadata?.currentCheckoutTouched !== false) {
+      const newSchemeVersion = output?.metadata?.schemeVersion || output?.metadata?.postcondition?.schemeVersion || '';
+      if (newSchemeVersion) this.transactions.transition(transaction.transactionId, { currentSchemeVersion: newSchemeVersion });
+      applyDownstreamEffects({
+        transactionStore: this.transactions,
+        sourceTransactionId: transaction.transactionId,
+        sourceBusiness: transaction.businessId,
+        effects: semantic?.cascadeDetails || output?.metadata?.semanticEffects || {},
+        newSchemeVersion,
+      });
+    }
     const nextId = resultSucceeded(output) ? phase.transitions?.onSuccess : phase.transitions?.onFailure;
     const next = revision.manifest.operations[transaction.operation].phases.find((candidate) => candidate.id === nextId);
     if (!next) {

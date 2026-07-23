@@ -60,23 +60,18 @@ export function appendHarnessSystem({ sessionId, directory, system }) {
   ].filter(Boolean).join('\n'))
 }
 
-export function assertHarnessToolBefore({ sessionId, turnId, tool, callId, args }) {
+export async function assertHarnessToolBefore({ sessionId, turnId, tool, callId, args }) {
   const directory = sessionDirectories.get(sessionId)
   if (!directory || !readRuntimeBridge(directory)) return
   const runtime = runtimeFor(directory)
-  const bridge = runtime.assertTool({
+  await runtime.beforeTool({
     sessionId,
     turnId: turnId || pendingTurnIds.get(sessionId) || '',
     toolBinding: tool,
     canonicalToolId: canonicalToolId(tool),
+    callId,
+    args,
   })
-  if (bridge?.transactionId) {
-    runtime.transactions.recordToolCall(bridge.transactionId, {
-      callId,
-      toolId: canonicalToolId(tool),
-      inputRef: args,
-    })
-  }
 }
 
 export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId, output }) {
