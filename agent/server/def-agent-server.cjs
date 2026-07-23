@@ -1237,15 +1237,61 @@ async function assertWorkbenchTimelineAdmission(timelineId, harnessProjectionAut
   return payload.result.document;
 }
 
+function nativeAxisUnbindFailure() {
+  const error = new Error('Native Workbench session axis unbind could not be confirmed.');
+  error.code = 'NATIVE_SESSION_AXIS_UNBIND_FAILED';
+  return error;
+}
+
 async function removeNativeWorkbenchAxisBinding(binding) {
   if (!binding?.axisBindingId || binding.host !== 'workbench') return;
   await ensureDefRestService();
-  await fetch(`${defRestUrl}/api/def-tools/call`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
-    body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID } }),
-    signal: AbortSignal.timeout(5000),
-  }).catch(() => undefined);
+  let response;
+  let payload;
+  try {
+    response = await fetch(`${defRestUrl}/api/def-tools/call`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-def-internal-token': defInternalGovernanceToken },
+      body: JSON.stringify({ tool: 'def.workbench.unbind_session_axis', input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID } }),
+      signal: AbortSignal.timeout(5000),
+    });
+    payload = await response.json().catch(() => null);
+  } catch {
+    throw nativeAxisUnbindFailure();
+  }
+  if (!response.ok || payload?.ok !== true || payload?.result?.ok !== true) {
+    throw nativeAxisUnbindFailure();
+  }
+}
+
+const classifiedHarnessProjectionFailureCodes = new Set([
+  'BLOCKED_HARNESS_LOAD',
+  'BLOCKED_BINDING',
+  'BLOCKED_ENVIRONMENT',
+  'OPENCODE_REQUEST_TIMEOUT',
+  'OPENCODE_CONNECTION_CLOSED',
+  'OPENCODE_RESPONSE_ABORTED',
+  'OPENCODE_REQUEST_ABORTED',
+]);
+
+function classifiedHarnessProjectionCreateFailure(error) {
+  const candidateCode = typeof error?.code === 'string' ? error.code.trim() : '';
+  const classified = classifiedHarnessProjectionFailureCodes.has(candidateCode)
+    || /^HARNESS_[A-Z0-9_]+$/.test(candidateCode);
+  if (classified) {
+    return {
+      code: candidateCode,
+      status: Number.isInteger(error?.status) && error.status >= 400 && error.status <= 599 ? error.status : 500,
+      message: `Native Harness session creation failed with classified code ${candidateCode}.`,
+    };
+  }
+  const upstreamCode = /^[A-Z][A-Z0-9_]{0,63}$/.test(candidateCode) ? candidateCode : '';
+  return {
+    code: 'NATIVE_SESSION_CREATE_FAILED',
+    status: 500,
+    message: 'Native Harness session creation failed before a classified runtime state was established.',
+    ...(upstreamCode ? { upstreamCode } : {}),
+  };
 }
 
 function harnessProjectionCommitment(value) {
@@ -1747,14 +1793,11 @@ const server = http.createServer(async (request, response) => {
         if (session?.sessionID) await revokeHarnessProjection(session.sessionID, 'native-create-failed').catch(() => undefined);
         await cleanupFailedNativeSessionCreate(session);
         if (harnessProjection) {
-          const code = typeof error?.code === 'string' ? error.code : 'BLOCKED_HARNESS_LOAD';
-          const status = Number.isInteger(error?.status) ? error.status : 500;
-          writeJson(response, status, {
+          const classified = classifiedHarnessProjectionCreateFailure(error);
+          writeJson(response, classified.status, {
             ok: false,
             error: {
-              code,
-              message: error instanceof Error ? error.message : String(error),
-              status,
+              ...classified,
             },
           });
           return;
@@ -2298,5 +2341,6 @@ module.exports = {
   cleanupNativeAiCliSessions,
   deleteNativeSessionById,
   enumerateNativeAiCliCleanupTargets,
+  removeNativeWorkbenchAxisBinding,
   server,
 };

@@ -14,6 +14,7 @@ const {
   cleanupNativeAiCliSessions,
   deleteNativeSessionById,
 } = require('../agent/server/def-agent-server.cjs');
+const serverModulePath = require.resolve('../agent/server/def-agent-server.cjs');
 const { createNativeSessionAdmissionGate } = require('../agent/server/native-session-admission.cjs');
 const {
   isAuthorizedNativeSessionCleanupRequest,
@@ -135,6 +136,79 @@ function cleanupOptions(fixture, failSessionIDs = new Set()) {
   };
 }
 
+async function assertNativeWorkbenchAxisUnbindContract() {
+  const originalFetch = globalThis.fetch;
+  const originalRestBaseUrl = process.env.DEF_REST_BASE_URL;
+  const originalGovernanceToken = process.env.DEF_INTERNAL_GOVERNANCE_TOKEN;
+  const mockRestBaseUrl = 'http://def-native-axis-unbind-contract.invalid';
+  const governanceToken = 'native-axis-unbind-contract-token';
+  const binding = {
+    host: 'workbench',
+    sessionID: 'ses-axis-unbind-contract',
+    axisBindingId: 'axis-unbind-contract',
+  };
+  let outcome = 'success';
+  const calls = [];
+  process.env.DEF_REST_BASE_URL = mockRestBaseUrl;
+  process.env.DEF_INTERNAL_GOVERNANCE_TOKEN = governanceToken;
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (String(url) === `${mockRestBaseUrl}/health`) {
+      return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    assert.equal(String(url), `${mockRestBaseUrl}/api/def-tools/call`);
+    assert.equal(init.method, 'POST');
+    assert.equal(init.headers['x-def-internal-token'], governanceToken);
+    const body = JSON.parse(init.body);
+    assert.deepEqual(body, {
+      tool: 'def.workbench.unbind_session_axis',
+      input: { sessionBindingId: binding.axisBindingId, sessionID: binding.sessionID },
+    });
+    if (outcome === 'transport-failure') throw new Error(`transport failure leaked ${governanceToken}`);
+    if (outcome === 'server-failure') {
+      return new Response(JSON.stringify({ ok: false, error: { message: `server failure leaked ${governanceToken}` } }), {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { ok: true } }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  };
+
+  try {
+    delete require.cache[serverModulePath];
+    const { removeNativeWorkbenchAxisBinding } = require(serverModulePath);
+    await removeNativeWorkbenchAxisBinding(binding);
+    assert.equal(calls.filter((call) => call.url.endsWith('/api/def-tools/call')).length, 1,
+      'a 200 tool acknowledgement confirms axis removal');
+
+    outcome = 'server-failure';
+    await assert.rejects(
+      removeNativeWorkbenchAxisBinding(binding),
+      (error) => error?.code === 'NATIVE_SESSION_AXIS_UNBIND_FAILED'
+        && !String(error.message).includes(governanceToken),
+      'a non-2xx unbind response remains retryable and never exposes the governance token',
+    );
+
+    outcome = 'transport-failure';
+    await assert.rejects(
+      removeNativeWorkbenchAxisBinding(binding),
+      (error) => error?.code === 'NATIVE_SESSION_AXIS_UNBIND_FAILED'
+        && !String(error.message).includes(governanceToken),
+      'a transport failure remains retryable and never exposes the governance token',
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalRestBaseUrl === undefined) delete process.env.DEF_REST_BASE_URL;
+    else process.env.DEF_REST_BASE_URL = originalRestBaseUrl;
+    if (originalGovernanceToken === undefined) delete process.env.DEF_INTERNAL_GOVERNANCE_TOKEN;
+    else process.env.DEF_INTERNAL_GOVERNANCE_TOKEN = originalGovernanceToken;
+    delete require.cache[serverModulePath];
+  }
+}
+
 try {
   {
     const internalToken = 'native-session-cleanup-contract-token';
@@ -147,6 +221,8 @@ try {
       headers: { 'x-def-internal-token': 'wrong-native-session-cleanup-contract-token' },
     }, internalToken), false, 'a wrong native loopback token is rejected');
   }
+
+  await assertNativeWorkbenchAxisUnbindContract();
 
   {
     const partial = nativeSessionCleanupResult.summarize({
@@ -290,6 +366,68 @@ try {
     assert.equal(gate.active(binding.sessionID), null, 'the gate releases only after confirmed delete');
     assert.equal(fs.existsSync(binding.directory), false);
     assert.equal(active.releaseReason, 'native-session-deleted');
+  }
+
+  {
+    const fixture = createFixture('axis-unbind-retry');
+    const binding = fixture.addBinding('workbench', 'ses-axis-unbind-retry');
+    const gate = createNativeSessionAdmissionGate();
+    const active = gate.admit({ sessionID: binding.sessionID, source: 'interop' }).entry;
+    const events = [];
+    const releaseSession = gate.releaseSession.bind(gate);
+    gate.releaseSession = (...args) => {
+      events.push('admission');
+      return releaseSession(...args);
+    };
+    let failUnbind = true;
+    const options = {
+      bindingResolver: fixture.findBinding,
+      runtime: { serverUrl: 'http://fake-opencode.invalid' },
+      admissionGate: gate,
+      revokeHarnessProjection: async () => { events.push('revoke'); },
+      rejectQuestions: async () => { events.push('questions'); },
+      deleteQuestionRecords: () => { events.push('question-records'); },
+      removeAxisBinding: async () => {
+        events.push('unbind');
+        if (failUnbind) {
+          const error = new Error('axis unbind could not be confirmed');
+          error.code = 'NATIVE_SESSION_AXIS_UNBIND_FAILED';
+          throw error;
+        }
+      },
+      removeDirectory: (directory) => {
+        events.push('directory');
+        fs.rmSync(directory, { recursive: true, force: true });
+      },
+      fetchImpl: async (_url, init) => {
+        events.push(init?.method === 'POST' ? 'abort' : 'delete');
+        return { ok: true, status: 200 };
+      },
+    };
+    const failed = await deleteNativeSessionById(binding.sessionID, options);
+    assert.deepEqual(failed, {
+      ok: false,
+      status: 'failed',
+      sessionID: binding.sessionID,
+      code: 'NATIVE_SESSION_AXIS_UNBIND_FAILED',
+    }, 'an unconfirmed axis removal cannot be reported as deleted');
+    assert(events.indexOf('revoke') >= 0 && events.indexOf('revoke') < events.indexOf('unbind'),
+      'projection revocation precedes axis cleanup');
+    assert.equal(events.includes('directory'), false, 'an unconfirmed axis removal retains the local directory');
+    assert.equal(events.includes('admission'), false, 'an unconfirmed axis removal retains admission state');
+    assert.equal(fs.existsSync(binding.directory), true, 'the failed cleanup remains retryable');
+    assert.equal(gate.active(binding.sessionID), active, 'the failed cleanup keeps the active admission');
+
+    events.length = 0;
+    failUnbind = false;
+    const retried = await deleteNativeSessionById(binding.sessionID, options);
+    assert.equal(retried.status, 'deleted', 'a later confirmed axis removal completes cleanup');
+    assert(events.indexOf('revoke') < events.indexOf('unbind')
+      && events.indexOf('unbind') < events.indexOf('directory')
+      && events.indexOf('directory') < events.indexOf('admission'),
+    'cleanup commits only in revoke, unbind, directory, admission order');
+    assert.equal(fs.existsSync(binding.directory), false);
+    assert.equal(gate.active(binding.sessionID), null);
   }
 
   {

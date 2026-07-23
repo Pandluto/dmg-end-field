@@ -116,11 +116,15 @@ function makeSession({ sessionID, host = 'workbench', timelineId }) {
 }
 
 let sequence = 0;
-adapter.createNativeHostSession = async ({ host, timelineId }) => makeSession({
-  sessionID: `created-${++sequence}`,
-  host,
-  timelineId,
-});
+let nextCreateFailure = null;
+adapter.createNativeHostSession = async ({ host, timelineId }) => {
+  if (nextCreateFailure) throw nextCreateFailure;
+  return makeSession({
+    sessionID: `created-${++sequence}`,
+    host,
+    timelineId,
+  });
+};
 adapter.recoverNativeHostSession = async ({ sessionID }) => sessions.get(sessionID);
 adapter.ensureNativeSessionAxisBinding = (directory, sessionID) => {
   const session = sessions.get(sessionID);
@@ -175,6 +179,19 @@ function assertNoSecret(value, label) {
   assert.doesNotMatch(JSON.stringify(value), new RegExp(authority.provisionToken), `${label} must not expose the provision token`);
 }
 
+async function postHiddenCreateFailure(error) {
+  nextCreateFailure = error;
+  try {
+    return await postNative('/api/native/session', {
+      host: 'workbench',
+      timelineId: 'failed-hidden-fixture-timeline',
+      harnessProjection: authority,
+    }, { 'x-def-internal-token': internalToken });
+  } finally {
+    nextCreateFailure = null;
+  }
+}
+
 try {
   const hiddenStart = restCalls.length;
   const hidden = await postNative('/api/native/session', {
@@ -194,6 +211,46 @@ try {
   for (const call of hiddenProtected) {
     assert.deepEqual(call.input.harnessProjection, authority, `${call.tool} must receive the exact governed authority`);
   }
+
+  const uncoded = await postHiddenCreateFailure(new Error(`uncoded failure leaked ${authority.provisionToken}`));
+  assert.equal(uncoded.status, 500);
+  assert.equal(uncoded.body.error.code, 'NATIVE_SESSION_CREATE_FAILED');
+  assert.equal(uncoded.body.error.status, 500);
+  assert.equal(Object.hasOwn(uncoded.body.error, 'upstreamCode'), false, 'an uncoded failure has no promoted upstream classification');
+  assertNoSecret(uncoded.body, 'uncoded create failure');
+
+  const unknown = new Error(`unknown failure leaked ${authority.provisionToken}`);
+  unknown.code = 'UPSTREAM_EXPERIMENTAL_FAILURE';
+  unknown.status = 418;
+  const unknownFailure = await postHiddenCreateFailure(unknown);
+  assert.equal(unknownFailure.status, 500, 'unknown upstream codes cannot control the public status');
+  assert.equal(unknownFailure.body.error.code, 'NATIVE_SESSION_CREATE_FAILED');
+  assert.equal(unknownFailure.body.error.upstreamCode, 'UPSTREAM_EXPERIMENTAL_FAILURE', 'an unknown code remains bounded diagnostic context only');
+  assertNoSecret(unknownFailure.body, 'unknown create failure');
+
+  const sealFailure = new Error(`seal failure leaked ${authority.provisionToken}`);
+  sealFailure.code = 'HARNESS_PROJECTION_SEAL_INVALID';
+  sealFailure.status = 409;
+  const sealed = await postHiddenCreateFailure(sealFailure);
+  assert.equal(sealed.status, 409);
+  assert.equal(sealed.body.error.code, 'HARNESS_PROJECTION_SEAL_INVALID');
+  assertNoSecret(sealed.body, 'classified seal failure');
+
+  const environmentFailure = new Error(`environment failure leaked ${authority.provisionToken}`);
+  environmentFailure.code = 'BLOCKED_ENVIRONMENT';
+  environmentFailure.status = 503;
+  const environment = await postHiddenCreateFailure(environmentFailure);
+  assert.equal(environment.status, 503);
+  assert.equal(environment.body.error.code, 'BLOCKED_ENVIRONMENT');
+  assertNoSecret(environment.body, 'classified environment failure');
+
+  const transportFailure = new Error(`transport failure leaked ${authority.provisionToken}`);
+  transportFailure.code = 'OPENCODE_REQUEST_TIMEOUT';
+  transportFailure.status = 504;
+  const transport = await postHiddenCreateFailure(transportFailure);
+  assert.equal(transport.status, 504);
+  assert.equal(transport.body.error.code, 'OPENCODE_REQUEST_TIMEOUT');
+  assertNoSecret(transport.body, 'classified transport failure');
 
   const ordinaryStart = restCalls.length;
   const ordinary = await postNative('/api/native/session', {
