@@ -8,6 +8,7 @@ import { tool } from '../../../vendor/opencode/packages/plugin/src/tool.ts'
 import { decodeDefNodePayload, hashDefNodeValue } from '../../def-node-workspace/codec.mjs'
 import { executeDefOperatorConfigAtomic, executeDefOperatorConfigPreview } from './operator-config-input.mjs'
 import harnessRouter from '../../def-harness-manager/router.cjs'
+import harnessManagerBridge from '../../def-harness-manager/bridge.cjs'
 
 const restBase = process.env.DEF_REST_BASE_URL || 'http://127.0.0.1:17321'
 const bindingFile = '.def-node.json'
@@ -32,6 +33,7 @@ const defToolTurnUserTexts = new Map()
 const activeDefToolTurns = new Map()
 const defOperatorConfigTurnIntents = new Map()
 const { classifyDefExecutableTurnPolicy, validateRouteSubmission } = harnessRouter
+const { readRuntimeBridge } = harnessManagerBridge
 const NON_RETRYABLE_MUTATION_CODES = new Set([
   'operator-config-timeline-invariant-failed',
   'prepared-capability-invalid',
@@ -174,6 +176,64 @@ export function sanitizeWorkbenchButtonArgs(args = {}, userText = '') {
   next.nodeIndex = nodeNumber - 1
   next.lineIndex = lineNumber - 1
   return next
+}
+
+function projectAxisContextForHarness(axisContext) {
+  if (!axisContext || typeof axisContext !== 'object') return axisContext
+  return {
+    binding: axisContext.binding || null,
+    document: axisContext.document || null,
+    checkout: axisContext.checkout || null,
+  }
+}
+
+export function projectWorkbenchContextForHarness(value, businessId = '') {
+  if (!businessId || !value || typeof value !== 'object') return value
+  const attached = value.attached && typeof value.attached === 'object'
+    ? {
+        ...value.attached,
+        context: value.attached.context && typeof value.attached.context === 'object'
+          ? {
+              ...value.attached.context,
+              axisContext: projectAxisContextForHarness(value.attached.context.axisContext),
+            }
+          : value.attached.context,
+      }
+    : value.attached
+  const snapshotContainer = value.snapshot && typeof value.snapshot === 'object'
+    ? value.snapshot
+    : {}
+  const liveSnapshot = snapshotContainer.snapshot && typeof snapshotContainer.snapshot === 'object'
+    ? snapshotContainer.snapshot
+    : {}
+  const projectedLiveSnapshot = Object.fromEntries([
+    'schemaVersion',
+    'updatedAt',
+    'source',
+    'timelineId',
+    'activeTimelineId',
+    'checkout',
+    'currentView',
+  ].filter((key) => key in liveSnapshot).map((key) => [key, liveSnapshot[key]]))
+  const businessFields = {
+    selection: ['selectedCharacters'],
+    loadout: ['selectedCharacters', 'operatorConfigs'],
+    timeline: ['selectedCharacters', 'skillButtons'],
+    buff: ['skillButtons'],
+    calculation: [],
+  }[businessId] || []
+  for (const key of businessFields) {
+    if (key in liveSnapshot) projectedLiveSnapshot[key] = liveSnapshot[key]
+  }
+  return {
+    attached,
+    snapshot: {
+      ...snapshotContainer,
+      snapshot: projectedLiveSnapshot,
+      axisContext: projectAxisContextForHarness(snapshotContainer.axisContext),
+    },
+    checkoutTransition: value.checkoutTransition,
+  }
 }
 
 function mutationTargetFingerprint(toolName, input = {}) {
@@ -1271,6 +1331,7 @@ export const workbench_context = {
   async execute(_args, context) {
     const workbench = await readWorkbenchState(context)
     const binding = fs.existsSync(inside(context.directory, bindingFile)) ? readBinding(context) : null
+    const harnessProjection = readRuntimeBridge(context.directory)
     const checkoutTransition = {
       changed: workbench.checkoutChanged,
       previous: workbench.previousCheckout,
@@ -1287,10 +1348,20 @@ export const workbench_context = {
       reasoningEffort: workbench.checkoutChanged ? 'high' : 'normal',
       phase: workbench.checkoutPhase,
     }
+    const output = projectWorkbenchContextForHarness(
+      { attached: workbench.attached, snapshot: workbench.snapshot, checkoutTransition },
+      harnessProjection?.businessId || '',
+    )
     return {
       title: 'DEF Workbench context',
-      output: JSON.stringify(boundResourceValue({ attached: workbench.attached, snapshot: workbench.snapshot, checkoutTransition }), null, 2),
-      metadata: { family: 'def-node-crud', host: 'workbench', updatedAt: workbench.attached.updatedAt, checkoutChanged: workbench.checkoutChanged },
+      output: JSON.stringify(boundResourceValue(output), null, 2),
+      metadata: {
+        family: 'def-node-crud',
+        host: 'workbench',
+        businessId: harnessProjection?.businessId || null,
+        updatedAt: workbench.attached.updatedAt,
+        checkoutChanged: workbench.checkoutChanged,
+      },
     }
   },
 }

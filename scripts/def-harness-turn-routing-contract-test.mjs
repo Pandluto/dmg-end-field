@@ -75,6 +75,32 @@ const buttonCoordinateProbe = spawnSync('bun', ['-e', `
 `], { encoding: 'utf8' });
 assert.equal(buttonCoordinateProbe.status, 0, buttonCoordinateProbe.stderr || buttonCoordinateProbe.stdout);
 
+const contextProjectionProbe = spawnSync('bun', ['-e', `
+  const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
+  const value = {
+    attached: { context: { axisContext: { binding: { id: 'binding' }, document: { id: 'timeline' }, checkout: { targetId: 'node' }, nodes: [{ id: 'other' }] } } },
+    snapshot: {
+      snapshot: {
+        schemaVersion: 1,
+        selectedCharacters: [{ id: 'saixi' }],
+        skillCatalog: [{ id: 'skill' }],
+        skillButtons: [{ id: 'button' }],
+        damageReport: { totalExpected: 42 },
+        operatorConfigs: [{ id: 'config' }],
+      },
+      axisContext: { binding: { id: 'binding' }, document: { id: 'timeline' }, checkout: { targetId: 'node' }, nodes: [{ id: 'other' }] },
+    },
+    checkoutTransition: { changed: false },
+  };
+  const timeline = mod.projectWorkbenchContextForHarness(value, 'timeline');
+  if (!timeline.snapshot.snapshot.selectedCharacters || !timeline.snapshot.snapshot.skillButtons) process.exit(2);
+  if ('skillCatalog' in timeline.snapshot.snapshot || 'damageReport' in timeline.snapshot.snapshot || 'operatorConfigs' in timeline.snapshot.snapshot) process.exit(3);
+  if ('nodes' in timeline.snapshot.axisContext || 'nodes' in timeline.attached.context.axisContext) process.exit(4);
+  const calculation = mod.projectWorkbenchContextForHarness(value, 'calculation');
+  if ('selectedCharacters' in calculation.snapshot.snapshot || 'skillButtons' in calculation.snapshot.snapshot || 'damageReport' in calculation.snapshot.snapshot) process.exit(5);
+`], { encoding: 'utf8' });
+assert.equal(contextProjectionProbe.status, 0, contextProjectionProbe.stderr || contextProjectionProbe.stdout);
+
 const mutationTargetBudgetProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});
   const failure = (callID, input) => ({ type: 'message.part.updated', properties: { part: { type: 'tool', sessionID: 'target-session', callID, tool: 'operator_config_patch', input, state: { status: 'error', error: 'operator-config-preview-failed: temporary renderer response' } } } });
