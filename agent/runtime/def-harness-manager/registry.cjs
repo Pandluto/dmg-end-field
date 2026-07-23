@@ -327,7 +327,21 @@ class BusinessHarnessRegistry {
   }
 
   async resolveActive(businessId) {
-    const state = this.controller.businessState(businessId);
+    let state = this.controller.businessState(businessId);
+    if (!state.active) {
+      const definition = this.definitions.get(businessId) || this.loadDefinition(businessId);
+      if (typeof definition.defaultRevision === 'string' && definition.defaultRevision) {
+        const record = await this.validate(businessId, definition.defaultRevision);
+        this.controller.registerCandidate(businessId, {
+          version: record.version,
+          contentHash: record.contentHash,
+        });
+        state = this.controller.activate(businessId, {
+          version: record.version,
+          contentHash: record.contentHash,
+        });
+      }
+    }
     if (!state.active) return null;
     if (state.revoked.includes(state.active.version)) return null;
     const cached = this.revisions.get(`${businessId}@${state.active.version}`);

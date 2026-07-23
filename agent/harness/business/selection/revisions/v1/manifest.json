@@ -1,0 +1,291 @@
+{
+  "schemaVersion": 1,
+  "businessId": "selection",
+  "version": "v1",
+  "writeScope": [
+    "selection.members",
+    "selection.order"
+  ],
+  "operations": {
+    "inspect": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the authoritative current checkout and selected roster.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report only the current ordered roster and bound scheme version.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report that the current roster could not be read and give the typed recovery action.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "search": {
+      "entryPhase": "resolve-operator",
+      "phases": [
+        {
+          "id": "resolve-operator",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_catalog"],
+          "writes": [],
+          "instructions": "Resolve the user's complete operator wording to exact stable catalog identities. Never guess an id.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Return the bounded exact matches and any remaining ambiguity.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State that no exact operator identity was established.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "add": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the current ordered roster and checkout before constructing the addition.",
+          "transitions": {"onSuccess": "resolve-operator", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-operator",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_catalog"],
+          "writes": [],
+          "instructions": "Resolve only the operator being added and preserve every retained operator in order.",
+          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+        },
+        {
+          "id": "candidate",
+          "kind": "plan",
+          "tools": [],
+          "writes": [],
+          "instructions": "Present the complete resulting ordered roster and downstream impact. If application was not requested, stop here.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Do not create a partial roster; report the unresolved operator or invalid team size.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "remove": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the exact current roster and identify the removal target from current state.",
+          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+        },
+        {
+          "id": "candidate",
+          "kind": "plan",
+          "tools": [],
+          "writes": [],
+          "instructions": "Present the complete resulting roster, including buttons/configurations that product cleanup will invalidate.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Do not remove an ambiguous or absent operator.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "replace": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the current roster and determine which current slot is being replaced.",
+          "transitions": {"onSuccess": "resolve-operator", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-operator",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_catalog"],
+          "writes": [],
+          "instructions": "Resolve the replacement operator to one exact stable id.",
+          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+        },
+        {
+          "id": "candidate",
+          "kind": "plan",
+          "tools": [],
+          "writes": [],
+          "instructions": "Present the complete ordered replacement candidate and its downstream invalidations.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Ask only for the missing replacement slot or exact operator identity.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "reorder": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the ordered roster and preserve the exact member set.",
+          "transitions": {"onSuccess": "candidate", "onFailure": "failed"}
+        },
+        {
+          "id": "candidate",
+          "kind": "plan",
+          "tools": [],
+          "writes": [],
+          "instructions": "Present one complete order candidate; do not describe reordering as remove plus add.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report duplicated, missing, or unknown roster members.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "analyze": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Bind the analysis to the current ordered roster and scheme version.",
+          "transitions": {"onSuccess": "resolve-candidate", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-candidate",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_catalog"],
+          "writes": [],
+          "instructions": "Resolve any proposed new operator exactly. Catalog identity is fact; strategic claims require scoped evidence and may remain unsupported in V1.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Explain direct roster and downstream state impact without applying.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "State which identity or current-state fact is missing.",
+          "terminalState": "aborted"
+        }
+      ]
+    },
+    "apply": {
+      "entryPhase": "read-current",
+      "phases": [
+        {
+          "id": "read-current",
+          "kind": "context",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read the authoritative roster and scheme version immediately before constructing the full apply input.",
+          "transitions": {"onSuccess": "resolve-operators", "onFailure": "failed"}
+        },
+        {
+          "id": "resolve-operators",
+          "kind": "evidence",
+          "tools": ["def.data.resource.operator_catalog"],
+          "writes": [],
+          "instructions": "Resolve every requested roster member to an exact stable id and preserve the requested order.",
+          "transitions": {"onSuccess": "apply-selection", "onFailure": "failed"}
+        },
+        {
+          "id": "apply-selection",
+          "kind": "mutation",
+          "tools": ["def.team.selection.apply"],
+          "writes": ["selection.members", "selection.order"],
+          "instructions": "Apply the complete ordered roster once through the formal selection capability. Native approval, CAS and product cleanup remain mandatory.",
+          "transitions": {"onSuccess": "verify-visible", "onFailure": "failed"}
+        },
+        {
+          "id": "verify-visible",
+          "kind": "verification",
+          "tools": ["def.node.crud.context"],
+          "writes": [],
+          "instructions": "Read current context again and verify the visible ordered roster and new scheme version.",
+          "transitions": {"onSuccess": "done", "onFailure": "failed"}
+        },
+        {
+          "id": "done",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report applied/no-op outcome, visible roster, product cleanup and downstream dispositions.",
+          "terminalState": "completed"
+        },
+        {
+          "id": "failed",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "Report 未应用 with the exact failed stage and typed recovery action.",
+          "terminalState": "aborted"
+        }
+      ]
+    }
+  }
+}

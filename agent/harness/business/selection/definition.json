@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "businessId": "selection",
+  "displayName": "选人",
+  "summary": "查看、搜索、分析并明确改变当前队伍成员与顺序。",
+  "defaultRevision": "v1",
+  "operations": [
+    "inspect",
+    "search",
+    "add",
+    "remove",
+    "replace",
+    "reorder",
+    "analyze",
+    "apply"
+  ],
+  "toolCeiling": [
+    "def.node.crud.context",
+    "def.data.resource.operator_catalog",
+    "def.team.selection.apply"
+  ],
+  "writeScope": [
+    "selection.members",
+    "selection.order"
+  ],
+  "completion": {
+    "required": [
+      "native-approval-for-mutation",
+      "scheme-version-match",
+      "visible-selection-postcondition"
+    ],
+    "noOp": "The exact ordered roster is unchanged."
+  },
+  "downstream": {
+    "loadout": "stale-when-target-or-team-context-changes",
+    "timeline": "hard-invalid-when-an-operator-leaves-otherwise-stale",
+    "buff": "hard-invalid-when-its-button-leaves-otherwise-stale",
+    "calculation": "recompute"
+  }
+}
