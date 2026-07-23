@@ -68,12 +68,12 @@
     </div>
     <article class="markdown-body"><h1>篇章 11：Harness</h1>
 <p>前面给 Agent 接上了 Typed Tools。它已经能读配装、改装备、跑计算，但我们很快遇到下一个问题：会调用 Tools，不等于会处理业务。</p>
-<h2>什么是Harness？</h2>
+<h2>什么是 Harness？</h2>
 <p>简单说，Harness 就是模型外面那套帮助它做事的东西。模型负责判断，Harness 把当前信息、可用能力和执行结果接到一起。</p>
-<h2>广义harness会指什么：</h2>
+<h2>广义 Harness 会指什么？</h2>
 <p>这个词没有一条公认的边界。有人只把 Prompt 和 Tool Loop 叫 Harness，也有人把 Context、Skills、Memory、权限、状态和结果检查都算进去。</p>
 <p>本文说的是后一种。</p>
-<h2>harness和tools/Workflow的关系</h2>
+<h2>Harness 和 Tools、Workflow 的关系</h2>
 <table>
 <thead>
 <tr>
@@ -99,7 +99,7 @@
 </tr>
 </tbody></table>
 <p>Tool 决定“能不能做”，Workflow 记录“这次怎么做”，Harness 负责让整件事能够发生。</p>
-<h2>harness和skills的关系</h2>
+<h2>Harness 和 Skills 的关系</h2>
 <table>
 <thead>
 <tr>
@@ -130,7 +130,7 @@
 </tr>
 </tbody></table>
 <p>Skill 可以告诉模型“通常应该怎么配装”，但它不能保证模型一定照做，也不能拦住一次错误写入。</p>
-<h2>harness和context的关系</h2>
+<h2>Harness 和 Context 的关系</h2>
 <table>
 <thead>
 <tr>
@@ -156,9 +156,9 @@
 </tr>
 </tbody></table>
 <p>Context 是这一轮摆在模型面前的材料，Harness 负责准备材料。</p>
-<h2>harness和prompts的关系</h2>
+<h2>Harness 和 Prompts 的关系</h2>
 <p>Prompt 只是把一部分内容交给模型的文字。Harness 还包括 Tool、状态、权限和结果检查，所以不能把 Harness 简化成一份大 Prompt。</p>
-<h2>本项目harness特性：</h2>
+<h2>本项目 Harness 的特性</h2>
 <p>本项目里有两类规则：</p>
 <table>
 <thead>
@@ -180,9 +180,9 @@
 </tr>
 </tbody></table>
 <p>我们可以禁止模型调用不该出现的 Tool，却不能规定它必须按哪几句话思考。</p>
-<h3>为什么不能强制：</h3>
+<h3>为什么不能强制？</h3>
 <p>真实用户经常说不完整，也会中途改条件。同一个问题可能先追问，也可能先查资料；如果把每一步写死，最后得到的只是容易卡住的固定 Workflow。</p>
-<h2>什么是Runtime？ 在整个agent里面扮演什么角色，和harness的关系</h2>
+<h2>Runtime 在整个 Agent 中扮演什么角色？它和 Harness 是什么关系？</h2>
 <p>模型自己不会一直运行。用户发来消息以后，需要一段程序把 Prompt、Context 和 Tools 交给模型，再把 Tool Result 送回来，这段程序就是 Runtime。</p>
 <div class="capability-strip" role="img" aria-label="Harness、Runtime 与 Agent 的关系">
   <div><small>准备什么</small><strong>Harness</strong></div>
@@ -193,11 +193,11 @@
 </div>
 
 <p>Harness 告诉 Runtime 这次应该准备什么，Runtime 负责把它真的跑起来。</p>
-<h2>典型的垂直领域harness：</h2>
-<h3>1、垂直领域特性：解决实际问题</h3>
+<h2>典型的垂直领域 Harness</h2>
+<h3>1、垂直领域的特性：解决实际问题</h3>
 <p>通用 Agent 什么都能聊，但每次都要由用户补充背景和判断标准。垂直领域 Agent 做的事情更少，却应该知道项目里的对象是什么、数据从哪里来，以及做到什么程度才算完成。</p>
 <p>Multi-agent 解决的是“这件事分给几个 Agent”。垂直领域 Harness 解决的是“这件事本身应该怎么做”，不是同一个问题。</p>
-<h3>2、以本项目为例：</h3>
+<h3>2、以本项目为例</h3>
 <p>用户不会说“请调用装备修改 Tool”，而会说“给别礼配一套 3+1 潮涌装备”。Agent 得先看当前配装，再查角色和装备知识，给出一套完整候选；用户确认以后才能修改，最后还要回页面确认真的换上了。</p>
 <pre><code class="language-text">当前配装
 → 角色攻略和装备数据
@@ -245,8 +245,8 @@
 </tr>
 </tbody></table>
 <p>PSM 只是知识工程里用来描述“方法”的概念。Harness 还要把这个方法接到模型、Tools 和真实产品上。</p>
-<h2>垂直领域的知识（游戏知识）:</h2>
-<h3>1、游戏知识和harness的关系</h3>
+<h2>垂直领域的知识（游戏知识）</h2>
+<h3>1、游戏知识和 Harness 的关系</h3>
 <p>Harness 不需要把所有游戏知识都写在自己里面。它只要知道这次该查什么；角色定位、装备数据和攻略结论由各自的知识来源提供。</p>
 <table>
 <thead>
@@ -272,10 +272,10 @@
 <td>公式和计算引擎</td>
 </tr>
 </tbody></table>
-<h3>2、问题：写死prompts？实际遇到的迭代问题。</h3>
+<h3>2、问题：写死 Prompts？实际遇到的迭代问题</h3>
 <p>项目早期直接把规则写进 Prompt，确实最快。后来同一条配装规则同时出现在固定 Prompt、Host Prompt、Skill 和 Tool Description 里，改一处就容易漏掉其他地方，模型还可能同时看到新旧两种说法。</p>
 <p>这时问题已经不是 Prompt 长，而是谁才是这条规则的主人。</p>
-<h3>3、Typed Tools完成之后、迭代的是什么</h3>
+<h3>3、Typed Tools 完成之后，迭代的是什么？</h3>
 <p>Typed Tools 完成以后，读写接口相对稳定。接下来经常变化的，是游戏知识和处理业务的方法。</p>
 <table>
 <thead>
@@ -306,11 +306,11 @@
 </tr>
 </tbody></table>
 <p>所以不是继续手改一份全局 Prompt。应该修改对应的 Harness 或知识，Runtime 再把当前需要的内容放进这一轮 Prompt。</p>
-<h2>拆解业务—&gt; 建模，再提PSM概念：</h2>
+<h2>拆解业务 → 建模，再提 PSM</h2>
 <h3>1、迭代与管理</h3>
 <p>如果选人、配装、排轴、BUFF 和计算都塞进同一个 Harness，改配装规则时就可能影响其他业务。把它们分开以后，每项业务可以单独更新、启用和回退。</p>
 <p>正在进行的业务继续使用开始时的版本，下一项新业务再使用新版本。这样用户确认方案时，规则不会突然换掉。</p>
-<h3>2、形象的说法：原子化harness</h3>
+<h3>2、形象的说法：原子化 Harness</h3>
 <p>这里的“原子”不是最小步骤，而是一件可以独立做完的业务。“3+1”只是配装条件，四件装备也不是四个 Harness；完整的配装才是一个 Harness。</p>
 <table>
 <thead>
@@ -340,10 +340,10 @@
 <td>计算、比较和归因结果</td>
 </tr>
 </tbody></table>
-<h3>3、业务拆分？ No 领域问题求解 Harness ，及其可迭代体系。</h3>
+<h3>3、业务拆分？No，是领域问题求解 Harness 及其可迭代体系</h3>
 <p>这不只是把代码分成五个模块。每一项业务还要有自己的方法、知识、Tools、进行中的状态和完成检查，并且能够独立更新。</p>
 <p>最终要建立的是五个领域问题求解 Harness，以及管理它们持续迭代的体系。</p>
-<h2>开发与训练 （未完待续）</h2>
+<h2>开发与训练（未完待续）</h2>
 <p>训练改变模型本身，Harness 开发改变模型工作的环境。一个问题到底应该训练，还是继续修改 Tools、知识和 Harness，留到下一部分继续。</p>
 </article>
     <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
