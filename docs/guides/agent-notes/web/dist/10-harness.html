@@ -216,28 +216,40 @@
 <table>
 <thead>
 <tr>
-<th>知识工程</th>
-<th>Agent 开发</th>
+<th>知识工程名词</th>
+<th>Harness / Agent 对应名词</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>任务：要解决什么问题</td>
-<td>用户当前要完成什么业务</td>
+<td>Task</td>
+<td>Domain Problem（领域问题）</td>
 </tr>
 <tr>
-<td>方法：通常怎样求解</td>
-<td>Harness 中的方法参考</td>
+<td>Problem Instance</td>
+<td>Transaction（业务事务）</td>
 </tr>
 <tr>
-<td>领域知识：求解需要什么知识</td>
-<td>按当前问题读取的游戏知识</td>
+<td>Problem-Solving Method</td>
+<td>Method / Solving Paradigm（求解范式）</td>
 </tr>
 <tr>
-<td>程序实现：怎样运行</td>
-<td>Runtime、Tools 和产品代码</td>
+<td>Domain Model</td>
+<td>Domain Knowledge（领域知识）</td>
+</tr>
+<tr>
+<td>Knowledge Role</td>
+<td>Context / Evidence（上下文与证据）</td>
+</tr>
+<tr>
+<td>Control Structure</td>
+<td>Phase / Workflow（阶段与流程）</td>
+</tr>
+<tr>
+<td>Implementation</td>
+<td>Runtime + Typed Tools</td>
 </tr>
 </tbody></table>
-<p>PSM 只解释 Harness 的方法层。Harness 还包括 Context、Tools、状态、权限和验证，所以二者不能画等号。</p>
+<p>PSM 只对应 Harness 的 Method / Solving Paradigm。完整 Harness 还会组织表中其他部分。</p>
 <h2>垂直领域的知识</h2>
 <h3>游戏知识和 Harness 的关系</h3>
 <table>
