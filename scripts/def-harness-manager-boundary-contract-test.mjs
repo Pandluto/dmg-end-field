@@ -56,6 +56,7 @@ const serverSource = fs.readFileSync('agent/server/def-agent-server.cjs', 'utf8'
 const adapterSource = fs.readFileSync('agent/runtime/def-opencode-adapter/index.cjs', 'utf8');
 const bridgeSource = fs.readFileSync('agent/runtime/def-tools/opencode/harness-manager-bridge.mjs', 'utf8');
 const defToolSource = fs.readFileSync('agent/runtime/def-tools/opencode/def.js', 'utf8');
+const localDataBridgeSource = fs.readFileSync('src/utils/localDataBridge.ts', 'utf8');
 const electronSource = fs.readFileSync('electron/main.cjs', 'utf8');
 const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 const startDefAgentSource = electronSource.slice(
@@ -68,6 +69,14 @@ assert.match(bridgeSource, /HARNESS_RUNTIME_NOT_PREPARED/);
 assert.match(bridgeSource, /managedWorkbenchBinding/);
 assert.match(bridgeSource, /harnessToolChoiceForProjection/);
 assert.match(bridgeSource, /Model tried to call unavailable tool/);
+assert.match(bridgeSource, /transformHarnessCompletedText/);
+assert.match(bridgeSource, /DSML/);
+assert.match(localDataBridgeSource, /buildIndependentLibraryMirror/);
+assert.match(localDataBridgeSource, /action: 'mirror-independent-libraries'/);
+assert.match(
+  localDataBridgeSource,
+  /if \(options\.preserveWorkspaceSession\)[\s\S]*await saveIndependentLibrariesToNowStorage\(result\.archive\);[\s\S]*return false;/,
+);
 assert.match(defToolSource, /characterName: tool\.schema\.string\(\).*\.optional\(\)/s);
 assert.match(defToolSource, /nodeIndex: tool\.schema\.number\(\)\.int\(\)\.min\(0\).*\.optional\(\)/s);
 assert.doesNotMatch(adapterSource, /copyFileSync\(defOpenCodeToolSource/);
@@ -89,6 +98,10 @@ assert.equal(harnessToolChoiceForProjection({
 }), 'none');
 assert.equal(harnessToolChoiceForProjection({
   mode: 'complete',
+  allowedToolBindings: [],
+}), 'none');
+assert.equal(harnessToolChoiceForProjection({
+  mode: 'conversation',
   allowedToolBindings: [],
 }), 'none');
 

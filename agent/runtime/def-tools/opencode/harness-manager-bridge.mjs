@@ -43,10 +43,39 @@ export function recordHarnessChatTurn(sessionId, turnId) {
 }
 
 export function harnessToolChoiceForProjection(projection) {
-  if (!['route', 'business', 'clarify', 'complete'].includes(projection?.mode)) return undefined
+  if (!['route', 'business', 'clarify', 'complete', 'conversation'].includes(projection?.mode)) return undefined
   return Array.isArray(projection.allowedToolBindings) && projection.allowedToolBindings.length > 0
     ? 'required'
     : 'none'
+}
+
+function containsInternalMarkup(text) {
+  return /<\s*[｜|]*\s*DSML|<\/?\s*(?:tool_calls?|function_calls?|invoke|parameter)\b|<!doctype\s+html|<\s*(?:html|head|body|script)\b/i
+    .test(String(text || ''))
+}
+
+function removeInternalMarkup(text) {
+  return String(text || '')
+    .replace(/<\s*[｜|]*\s*DSML[\s\S]*?<\/\s*[｜|]*\s*DSML\s*[｜|]*\s*(?:tool_calls?|function_calls?)\s*>/gi, '')
+    .replace(/<\/?\s*[｜|]*\s*DSML[^>]*>/gi, '')
+    .replace(/<\/?\s*(?:tool_calls?|function_calls?|invoke|parameter)\b[^>]*>/gi, '')
+    .replace(/<!doctype\s+html[\s\S]*$/gi, '')
+    .replace(/<\s*(?:html|head|body|script)\b[\s\S]*$/gi, '')
+    .trim()
+}
+
+export function transformHarnessCompletedText({ sessionId, text }) {
+  const directory = sessionDirectories.get(sessionId)
+  if (!directory) return text
+  const bridge = readRuntimeBridge(directory)
+  if (!bridge || !['complete', 'conversation'].includes(bridge.mode)) return text
+  if (typeof bridge.exactReply === 'string' && bridge.exactReply.trim()) {
+    return bridge.exactReply.trim()
+  }
+  if (!containsInternalMarkup(text)) return text
+  const cleaned = removeInternalMarkup(text)
+  if (cleaned) return cleaned
+  return '这次没有形成可读的业务结论，请重新说一次你的目标。'
 }
 
 export async function projectHarnessTools({ sessionId, directory, tools }) {

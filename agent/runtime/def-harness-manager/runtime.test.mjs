@@ -8,7 +8,11 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { BusinessHarnessRegistry } = require('./registry.cjs');
 const { HarnessTransactionRuntime } = require('./runtime.cjs');
-const { readRuntimeBridge } = require('./bridge.cjs');
+const { readRuntimeBridge, writeRuntimeBridge } = require('./bridge.cjs');
+const {
+  projectHarnessTools,
+  transformHarnessCompletedText,
+} = await import('../def-tools/opencode/harness-manager-bridge.mjs');
 
 const toolTargets = [
   { id: 'def.harness.route', nativeBinding: 'def_harness_route' },
@@ -342,6 +346,65 @@ test('clarification uses the native question and then returns to the route gate'
   bridge = readRuntimeBridge(sessionDirectory);
   assert.equal(bridge.mode, 'route');
   assert.deepEqual(bridge.allowedToolBindings, ['def_harness_route']);
+});
+
+test('direct dialogue gets a no-Tool projection instead of a fake business transaction', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  let bridge = await runtime.prepareRoute({
+    context,
+    userText: '工具返回给你的原始 json 是什么',
+    turnId: 'turn-direct-result',
+  });
+  assert.equal(bridge.mode, 'conversation');
+  assert.equal(bridge.phase, 'previous-result');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+  assert.equal(runtime.transactions.list().length, 0);
+
+  bridge = await runtime.prepareRoute({
+    context,
+    userText: '会话 id 给我',
+    turnId: 'turn-direct-session',
+  });
+  assert.equal(bridge.mode, 'conversation');
+  assert.equal(bridge.exactReply, '当前会话 ID 是：session-a');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+});
+
+test('terminal text guard enforces exact replies and removes internal call markup', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-harness-text-guard-'));
+  const sessionId = 'session-text-guard';
+  fs.mkdirSync(root, { recursive: true });
+  writeRuntimeBridge(root, {
+    mode: 'complete',
+    sessionId,
+    phase: 'done',
+    exactReply: '当前会话 ID 是：session-text-guard',
+    allowedToolIds: [],
+    allowedToolBindings: [],
+  });
+  await projectHarnessTools({ sessionId, directory: root, tools: {} });
+  assert.equal(
+    transformHarnessCompletedText({
+      sessionId,
+      text: '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="def_data_operator_catalog"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+    }),
+    '当前会话 ID 是：session-text-guard',
+  );
+
+  writeRuntimeBridge(root, {
+    mode: 'conversation',
+    sessionId,
+    phase: 'plain-language-correction',
+    allowedToolIds: [],
+    allowedToolBindings: [],
+  });
+  assert.equal(
+    transformHarnessCompletedText({
+      sessionId,
+      text: '<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="def_data_operator_catalog"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+    }),
+    '这次没有形成可读的业务结论，请重新说一次你的目标。',
+  );
 });
 
 test('moves failures through the declared failure exit', async () => {

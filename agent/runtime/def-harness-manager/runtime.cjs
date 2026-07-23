@@ -319,6 +319,49 @@ class HarnessTransactionRuntime {
       route = beginRoutePhase({ userText, transactions: unfinished, definitions });
     }
     if (route.kind === 'continue') return this.resumeTransaction(route.transactionId, route.intent, { context, turnId });
+    if (route.kind === 'conversation') {
+      const recentTransactions = this.transactions.list()
+        .slice(-3)
+        .reverse()
+        .map((transaction) => ({
+          businessId: transaction.businessId,
+          operation: transaction.operation,
+          target: transaction.target,
+          status: transaction.status,
+          terminalReason: transaction.terminalReason || '',
+        }));
+      const exactReply = route.intent === 'session-id'
+        ? `当前会话 ID 是：${context.sessionId}`
+        : route.intent === 'capabilities'
+          ? '当前业务能力共 5 类：选人、配装、排轴、BUFF、计算与统计。每一轮只开放当前阶段需要的能力，所以你看到的不是全部能力清单。'
+          : undefined;
+      const instructionsByIntent = {
+        'session-id': 'The user explicitly requested the current session id. Return the exact reply and nothing else.',
+        capabilities: 'Explain the five user-facing business capabilities, not internal Tool bindings. Clarify that phase projection is not the global capability inventory.',
+        'previous-result': 'Answer from the immediately preceding typed Tool result already present in the transcript. If the user asks for its raw JSON, reproduce that business result exactly without inventing, re-running, or exposing tool-call protocol markup. If no such result is present, say so plainly.',
+        'previous-result-semantics': 'Explain the named field using the immediately preceding typed result and current conversation. A selected roster field represents the current selected team, not the complete local operator catalog.',
+        'plain-language-correction': 'Acknowledge the correction and restate the immediately preceding supported outcome in plain Chinese. Do not start a new business route, call a Tool, output code, or add unsupported facts.',
+      };
+      return this.writeProjection({
+        mode: 'conversation',
+        sessionId: context.sessionId,
+        turnId,
+        transactionId: null,
+        businessId: null,
+        operation: null,
+        phase: route.intent,
+        phaseKind: 'response',
+        instructions: [
+          instructionsByIntent[route.intent] || 'Answer the direct conversational question from the current transcript and Host facts.',
+          'Reply once in natural Chinese. Never emit internal Tool-call markup, DSML, XML, HTML protocol blocks, or hidden routing details.',
+        ].join('\n'),
+        exactReply,
+        recentTransactions,
+        userText,
+        context,
+        allowedToolIds: [],
+      });
+    }
     if (route.kind === 'new-business' && route.deterministic === true) {
       return this.beginBusinessTransaction(route, context, { turnId });
     }

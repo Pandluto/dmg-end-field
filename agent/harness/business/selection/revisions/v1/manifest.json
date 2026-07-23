@@ -44,7 +44,10 @@
           "kind": "evidence",
           "tools": ["def.data.resource.operator_catalog"],
           "writes": [],
-          "instructions": "Resolve the user's complete operator wording to exact stable catalog identities. Never guess an id.",
+          "instructions": "Resolve the user's complete operator wording to exact stable catalog identities. For an explicit request to browse the local operator library or replacement candidates, use one empty query and preserve catalogCount, exhaustive and truncated. Never guess an id or call a bounded page the whole catalog.",
+          "resultTransitions": [
+            {"path": "catalogCount", "equals": 0, "target": "catalog-unavailable"}
+          ],
           "transitions": {"onSuccess": "done", "onFailure": "failed"}
         },
         {
@@ -52,8 +55,16 @@
           "kind": "response",
           "tools": [],
           "writes": [],
-          "instructions": "Return the bounded exact matches and any remaining ambiguity.",
+          "instructions": "Return exact matches and any remaining ambiguity. For a browse result, report catalogCount separately from the bounded candidate count and explicitly state when truncated=true.",
           "terminalState": "completed"
+        },
+        {
+          "id": "catalog-unavailable",
+          "kind": "response",
+          "tools": [],
+          "writes": [],
+          "instructions": "The selection-screen local operator library is currently empty. Report this as a local catalog-source problem, not proof that the operator does not exist in the game or in external knowledge.",
+          "terminalState": "aborted"
         },
         {
           "id": "failed",

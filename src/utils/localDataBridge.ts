@@ -97,6 +97,12 @@ const NOW_STORAGE_SKIPPED_BACKUP_AT_KEY = '__def.localdata.now-storage-skipped-b
 const NOW_STORAGE_RELOAD_COUNT_KEY = '__def.localdata.now-storage-reload-count.v1';
 const NOW_STORAGE_LAST_RELOAD_AT_KEY = '__def.localdata.now-storage-last-reload-at.v1';
 const NOW_STORAGE_RELOAD_DEBOUNCE_MS = 5000;
+const INDEPENDENT_LIBRARY_SECTIONS: LocalDataSection[] = [
+  'operators',
+  'weapons',
+  'equipments',
+  'buffs',
+];
 
 let isNowStorageBridgeStarted = false;
 let scheduledNowStorageReloadTimer: number | null = null;
@@ -489,6 +495,62 @@ async function saveCurrentStorageToNowStorage(): Promise<void> {
   });
 }
 
+function buildIndependentLibraryMirror(
+  existingArchive: LocalDataArchive | null | undefined,
+): LocalDataArchive {
+  const current = buildArchive({
+    id: 'now-storage',
+    name: 'now-storage',
+    sections: INDEPENDENT_LIBRARY_SECTIONS,
+  });
+  const existingIsValid = existingArchive?.type === 'def.localdata.archive.v1'
+    && existingArchive.schemaVersion === 1
+    && existingArchive.storage
+    && typeof existingArchive.storage === 'object';
+  const existing = existingIsValid ? existingArchive : null;
+  const preservedLocal = Object.fromEntries(
+    Object.entries(existing?.storage?.local || {})
+      .filter(([key]) => !shouldIncludeLocalKey(key, INDEPENDENT_LIBRARY_SECTIONS))
+  );
+  const existingSections = Array.isArray(existing?.sections) ? existing.sections : [];
+  const sections = existingSections.includes('all')
+    ? ['all'] as LocalDataSection[]
+    : uniqueSections([...existingSections, ...INDEPENDENT_LIBRARY_SECTIONS]);
+  return {
+    ...current,
+    id: existing?.id || current.id,
+    name: existing?.name || current.name,
+    description: existing?.description,
+    createdAt: existing?.createdAt || current.createdAt,
+    sections,
+    storage: {
+      local: {
+        ...preservedLocal,
+        ...current.storage.local,
+      },
+      // SQLite owns the live Workbench/session state. Keep any existing
+      // archive payload intact, but never mirror the browser session into it.
+      session: existing?.storage?.session || {},
+    },
+  };
+}
+
+async function saveIndependentLibrariesToNowStorage(
+  existingArchive: LocalDataArchive | null | undefined,
+): Promise<void> {
+  const archive = buildIndependentLibraryMirror(existingArchive);
+  const saved = await fetchBridgeJson<{ ok: boolean }>('/local-data/now-storage', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(archive),
+  });
+  if (!saved?.ok) {
+    throw new Error('now-storage 独立资料库镜像失败');
+  }
+}
+
 async function setNowStorageForceApply(forceApply: boolean): Promise<void> {
   const result = await fetchBridgeJson<{ ok: boolean; state?: { forceApply: boolean; updatedAt: string | null } }>('/local-data/now-storage-state', {
     method: 'POST',
@@ -531,9 +593,16 @@ async function syncNowStorageFromLocalBridge(options: {
 
   if (!result.state?.forceApply) {
     if (options.preserveWorkspaceSession) {
-      // user.sqlite owns the current workbench state. It must not be mirrored
-      // to now-storage on every boot, but explicit data-package applies still
-      // continue through the forceApply branch below.
+      // user.sqlite owns the current Workbench/session state, while the
+      // operator, weapon, equipment and Buff editors still live in browser
+      // localStorage. Mirror only those independent libraries so the DEF
+      // sidecar reads the same catalogs as the visible desktop UI.
+      console.log('[localDataBridge] now-storage action', {
+        action: 'mirror-independent-libraries',
+        forceApply: false,
+        stateUpdatedAt: result.state?.updatedAt || null,
+      });
+      await saveIndependentLibrariesToNowStorage(result.archive);
       return false;
     }
     const stateUpdatedAt = result.state?.updatedAt || null;

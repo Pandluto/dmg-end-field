@@ -14,8 +14,8 @@ const {
 const { BusinessPlanStore } = require('./plans.cjs');
 
 const definitions = [
-  { businessId: 'selection', operations: ['replace'], summary: 'selection' },
-  { businessId: 'loadout', operations: ['recommend', 'apply'], summary: 'loadout' },
+  { businessId: 'selection', operations: ['inspect', 'search', 'replace'], summary: 'selection' },
+  { businessId: 'loadout', operations: ['inspect', 'evaluate', 'resolve', 'recommend', 'apply'], summary: 'loadout' },
   { businessId: 'timeline', operations: ['add', 'apply', 'copy', 'current'], summary: 'timeline' },
   { businessId: 'buff', operations: ['add'], summary: 'buff' },
   { businessId: 'calculation', operations: ['calculate', 'skill_fact'], summary: 'calculation' },
@@ -26,7 +26,10 @@ test('new requests enter a Tool-isolated route phase', () => {
   assert.equal(route.kind, 'route-phase');
   assert.deepEqual(route.allowedTools, ['def.harness.route']);
   assert.equal(route.definitions.length, 5);
-  assert.deepEqual(route.definitions.find((item) => item.businessId === 'loadout').operations, ['recommend', 'apply']);
+  assert.deepEqual(
+    route.definitions.find((item) => item.businessId === 'loadout').operations,
+    ['inspect', 'evaluate', 'resolve', 'recommend', 'apply'],
+  );
   assert.doesNotMatch(route.instructions, /def_data_|def_node_/);
 });
 
@@ -43,6 +46,50 @@ test('moves only narrow deterministic facts directly into a business transaction
   assert.equal(currentNode.deterministic, true);
   assert.equal(currentNode.businessId, 'timeline');
   assert.equal(currentNode.operation, 'current');
+});
+
+test('keeps direct conversation out of business routing', () => {
+  const rawResult = beginRoutePhase({ userText: '工具返回给你的原始 json 是什么', definitions });
+  assert.equal(rawResult.kind, 'conversation');
+  assert.equal(rawResult.intent, 'previous-result');
+
+  const schemaFollowup = beginRoutePhase({ userText: 'selectedCharacters 不就是队伍吗？', definitions });
+  assert.equal(schemaFollowup.kind, 'conversation');
+  assert.equal(schemaFollowup.intent, 'previous-result-semantics');
+
+  const capabilities = beginRoutePhase({ userText: '告诉我你所有工具', definitions });
+  assert.equal(capabilities.kind, 'conversation');
+  assert.equal(capabilities.intent, 'capabilities');
+
+  const sessionId = beginRoutePhase({ userText: '会话 id 给我', definitions });
+  assert.equal(sessionId.kind, 'conversation');
+  assert.equal(sessionId.intent, 'session-id');
+});
+
+test('routes strong vertical-domain requests without an avoidable clarification', () => {
+  const evaluation = beginRoutePhase({ userText: '莱万汀这个配装好吗', definitions });
+  assert.equal(evaluation.businessId, 'loadout');
+  assert.equal(evaluation.operation, 'evaluate');
+
+  const currentRoster = beginRoutePhase({ userText: '现在队伍里有谁', definitions });
+  assert.equal(currentRoster.businessId, 'selection');
+  assert.equal(currentRoster.operation, 'inspect');
+
+  const exactOperator = beginRoutePhase({ userText: '你知道卡缪吗', definitions });
+  assert.equal(exactOperator.businessId, 'selection');
+  assert.equal(exactOperator.operation, 'search');
+
+  const localCatalog = beginRoutePhase({ userText: '本地角色库有谁', definitions });
+  assert.equal(localCatalog.businessId, 'selection');
+  assert.equal(localCatalog.operation, 'search');
+
+  const replacementCandidates = beginRoutePhase({ userText: '如果重新选一个人，能换谁', definitions });
+  assert.equal(replacementCandidates.businessId, 'selection');
+  assert.equal(replacementCandidates.operation, 'search');
+
+  const weaponCatalog = beginRoutePhase({ userText: '看看本地武器库', definitions });
+  assert.equal(weaponCatalog.businessId, 'loadout');
+  assert.equal(weaponCatalog.operation, 'resolve');
 });
 
 test('validates the required single and cross-business examples', () => {

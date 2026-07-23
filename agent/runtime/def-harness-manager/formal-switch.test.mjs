@@ -111,6 +111,22 @@ test('direct current-node question uses the timeline current operation only', as
   assert.deepEqual(prepared.allowedTools.nativeBindings, ['def_workbench_current_node']);
 });
 
+test('common Workbench dialogue and catalog intents bypass avoidable route churn', async () => {
+  const direct = await prepare('工具返回给你的原始 json 是什么');
+  assert.equal(direct.prepared.trace.mode, 'conversation');
+  assert.deepEqual(direct.prepared.allowedTools.nativeBindings, []);
+  assert.equal(direct.prepared.transaction, null);
+
+  const roster = await prepare('现在队伍里有谁');
+  assert.equal(roster.prepared.trace.businessId, 'selection');
+  assert.equal(roster.prepared.trace.operation, 'inspect');
+
+  const evaluation = await prepare('莱万汀这个配装好吗');
+  assert.equal(evaluation.prepared.trace.businessId, 'loadout');
+  assert.equal(evaluation.prepared.trace.operation, 'evaluate');
+  assert.deepEqual(evaluation.prepared.allowedTools.nativeBindings, ['def_data_operator_build_guide']);
+});
+
 test('legacy Session package fields are stripped during recovery', () => {
   const directory = path.join(
     os.tmpdir(),

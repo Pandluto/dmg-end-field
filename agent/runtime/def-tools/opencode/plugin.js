@@ -8,6 +8,7 @@ import {
   harnessToolChoiceForProjection,
   projectHarnessTools,
   recordHarnessChatTurn,
+  transformHarnessCompletedText,
 } from './harness-manager-bridge.mjs'
 
 function localPurpose(description, fallback) {
@@ -72,6 +73,12 @@ export default async function DefToolsPlugin() {
       })
       const toolChoice = harnessToolChoiceForProjection(projection)
       if (toolChoice) output.toolChoice = toolChoice
+    },
+    'experimental.text.complete': async (input, output) => {
+      output.text = transformHarnessCompletedText({
+        sessionId: input?.sessionID,
+        text: output.text,
+      })
     },
     'tool.execute.before': async (input, output) => {
       definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)

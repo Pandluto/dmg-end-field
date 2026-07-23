@@ -347,15 +347,17 @@ class BusinessHarnessRegistry {
       error.code = 'HARNESS_REVISION_CACHE_INVALID';
       throw error;
     }
-    const currentDefinition = this.definitions.get(businessId) || this.loadDefinition(businessId);
-    if (JSON.stringify(hardDefinition(cached.definition)) !== JSON.stringify(hardDefinition(currentDefinition))) {
-      const error = new Error(`Pinned Revision uses a different hard business definition: ${businessId}@${revisionRef.version}`);
-      error.code = 'HARNESS_DEFINITION_REVISION_MISMATCH';
-      throw error;
-    }
+    // A transaction pins both the Revision content and the hard business
+    // boundary that validated it. A later code migration may add an operation
+    // to the current definition; that must affect new transactions without
+    // making an already-pinned transaction unreadable.
+    const pinnedDefinition = validateDefinition({
+      ...cached.definition,
+      defaultRevision: cached.version,
+    }, businessId);
     const toolIds = await this.ensureToolIds();
     validateRevision({
-      definition: currentDefinition,
+      definition: pinnedDefinition,
       manifest: cached.manifest,
       instructions: cached.instructions,
       toolIds,

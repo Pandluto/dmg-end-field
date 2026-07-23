@@ -1,4 +1,4 @@
-# Loadout Harness V1
+# Loadout Harness V2
 
 ## Business boundary
 

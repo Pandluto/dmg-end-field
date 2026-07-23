@@ -22,6 +22,11 @@ assert.deepEqual(
   { businessId: 'calculation', operation: 'skill_fact' },
 );
 assert.equal(beginRoutePhase({ userText: '给别礼换武器，然后重新排轴' }).kind, 'route-phase');
+assert.equal(beginRoutePhase({ userText: '莱万汀这个配装好吗' }).operation, 'evaluate');
+assert.equal(beginRoutePhase({ userText: '现在队伍里有谁' }).operation, 'inspect');
+assert.equal(beginRoutePhase({ userText: '本地角色库有谁' }).operation, 'search');
+assert.equal(beginRoutePhase({ userText: '工具返回给你的原始 json 是什么' }).kind, 'conversation');
+assert.equal(beginRoutePhase({ userText: '会话 id 给我' }).intent, 'session-id');
 
 const serverSource = fs.readFileSync(new URL('../agent/server/def-agent-server.cjs', import.meta.url), 'utf8');
 assert.equal((serverSource.match(/prepareWorkbenchTurn\(\{/g) || []).length, 2);
@@ -42,6 +47,8 @@ assert.match(pluginSource, /assertDefToolTurnNotBlocked/);
 assert.match(pluginSource, /assertDefNativeArtifactToolScope/);
 assert.match(pluginSource, /recordDefToolEventFailure/);
 assert.match(pluginSource, /event: async/);
+assert.match(pluginSource, /'experimental\.text\.complete'/);
+assert.match(pluginSource, /transformHarnessCompletedText/);
 
 const retryFuseProbe = spawnSync('bun', ['-e', `
   const mod = await import(${JSON.stringify(new URL('../agent/runtime/def-tools/opencode/def.js', import.meta.url).href)});

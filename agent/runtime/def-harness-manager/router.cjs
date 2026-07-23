@@ -2,6 +2,7 @@ const BUSINESS_IDS = Object.freeze(['selection', 'loadout', 'timeline', 'buff', 
 const BUSINESS_ID_SET = new Set(BUSINESS_IDS);
 const CONTINUABLE_STATUSES = new Set(['awaiting-confirmation', 'active']);
 const DIRECT_CURRENT_NODE_QUESTION = /^(?:请)?(?:告诉我|查看|查询|确认)?(?:一下)?(?:当前|现在)(?:的)?(?:工作)?节点(?:是|为|叫)?(?:什么|哪个|哪一个|多少|的名称|的ID|的id)?[？?。！!]*$/;
+const DIRECT_SESSION_ID_QUESTION = /^(?:请)?(?:告诉我|给我|查看|查询)?(?:一下)?(?:当前|这个|本次)?(?:的)?会话(?:的)?(?:ID|id|编号)(?:(?:是|为)?(?:什么|多少)|(?:给我|告诉我))?[？?。！!]*$/i;
 
 const DEFAULT_BUSINESS_DEFINITIONS = Object.freeze([
   { businessId: 'selection', summary: '查看或改变当前队伍成员与顺序。' },
@@ -19,6 +20,39 @@ function isDirectCurrentNodeQuestion(userText = '') {
   return DIRECT_CURRENT_NODE_QUESTION.test(normalizedText(userText));
 }
 
+function classifyConversationTurn(userText = '') {
+  const text = normalizedText(userText);
+  const compact = text.replace(/\s+/g, '');
+  if (!compact) return null;
+  if (DIRECT_SESSION_ID_QUESTION.test(compact)) {
+    return { kind: 'conversation', intent: 'session-id', userText: text };
+  }
+  if (
+    /(?:工具|刚才|上一次|上个|前面).*(?:原始)?(?:JSON|json|返回值|返回结果)/
+      .test(compact)
+    || /(?:原始)?(?:JSON|json).*(?:工具|刚才|上一次|上个|前面)/.test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'previous-result', userText: text };
+  }
+  if (/(?:selectedCharacters|operatorConfigs|skillCatalog|checkoutPhase)/i.test(compact)) {
+    return { kind: 'conversation', intent: 'previous-result-semantics', userText: text };
+  }
+  if (
+    /(?:说人话|别(?:再)?(?:输出|显示|回复).*(?:HTML|html|代码|标签)|你(?:刚才|这次).*(?:答非所问|答错|跑偏|没回答)|回复.*(?:HTML|html).*(?:代码|标签))/
+      .test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'plain-language-correction', userText: text };
+  }
+  if (
+    /^(?:请)?(?:告诉我|列出|查看)?(?:一下)?你(?:的)?(?:所有|全部)?(?:工具|能力)(?:有哪些|是什么|有多少)?[？?。！!]*$/
+      .test(compact)
+    || /^(?:就)?这么少[？?。！!]*$/.test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'capabilities', userText: text };
+  }
+  return null;
+}
+
 function classifyDefExecutableTurnPolicy(userText = '') {
   const normalized = normalizedText(userText).replace(/\s+/g, '');
   const asksSkillFacts = /(?:具体数值|倍率|伤害类型|算什么伤害|属于什么伤害|吃(?:什么|哪种|哪类)?(?:战技|终结技|大招|连携技|普攻|重击)?加成)/.test(normalized);
@@ -33,6 +67,8 @@ function classifyDefExecutableTurnPolicy(userText = '') {
 
 function deterministicRoute(userText) {
   const text = normalizedText(userText);
+  const conversation = classifyConversationTurn(text);
+  if (conversation) return conversation;
   const executablePolicy = classifyDefExecutableTurnPolicy(text);
   if (executablePolicy?.kind === 'exact-skill-facts') {
     return {
@@ -54,6 +90,67 @@ function deterministicRoute(userText) {
       target: 'current-checkout',
       requestedEffect: '读取当前 Work Node',
       constraints: ['current-node-only'],
+    };
+  }
+  const compact = text.replace(/\s+/g, '');
+  const asksCurrentRoster = /(?:当前|现在|这次)?(?:队伍|阵容)(?:里|中)?(?:有谁|是谁|有哪些|成员)|(?:当前|现在)(?:选了|已选)(?:谁|哪些干员|哪些角色)/.test(compact);
+  if (asksCurrentRoster) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'selection',
+      operation: 'inspect',
+      target: 'current-roster',
+      requestedEffect: '读取当前已选队伍及顺序',
+      constraints: ['selected-roster-only'],
+    };
+  }
+  const asksLoadoutEvaluation = /(?:配装|装备|武器).*(?:好吗|好不好|怎么样|是否合理|合理吗|合适吗|适合吗|评价|评估|分析|诊断)|(?:评价|评估|分析|诊断).*(?:配装|装备|武器)/.test(compact);
+  if (asksLoadoutEvaluation) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'loadout',
+      operation: 'evaluate',
+      target: text,
+      requestedEffect: '基于当前已保存配装和干员构筑证据评价适配性',
+      constraints: ['current-loadout', 'operator-fit', 'read-only'],
+    };
+  }
+  const asksCurrentLoadout = /(?:当前|现在|这个|这套).*(?:配装|武器|装备).*(?:是什么|有哪些|配了什么|穿了什么|带了什么)|(?:配装|武器|装备).*(?:当前|现在).*(?:是什么|有哪些|配了什么|穿了什么|带了什么)/.test(compact);
+  if (asksCurrentLoadout) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'loadout',
+      operation: 'inspect',
+      target: text,
+      requestedEffect: '读取目标干员当前已保存配装',
+      constraints: ['current-loadout', 'read-only'],
+    };
+  }
+  const asksOperatorCatalog = /(?:本地|选人)?(?:干员|角色)(?:库|目录)(?:有谁|有哪些|全部|所有)?|(?:查询|查找|看看|查看|列出|我要你查)(?:全部|所有)?(?:干员|角色)|(?:重新选|换一个|换人).*(?:能换谁|有哪些|候选)|(?:其他人).*(?:看|查|换)|^你知道[^？?。！!]+吗[？?。！!]*$/.test(compact);
+  if (asksOperatorCatalog) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'selection',
+      operation: 'search',
+      target: text,
+      requestedEffect: '查询选人界面的本地干员目录',
+      constraints: ['catalog-scope', 'preserve-count-and-truncation'],
+    };
+  }
+  const asksLoadoutCatalog = /(?:本地)?(?:武器|装备)(?:库|目录)(?:有哪些|全部|所有|有什么)?|(?:查询|查找|看看|查看|列出).*(?:武器|装备)/.test(compact);
+  if (asksLoadoutCatalog) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'loadout',
+      operation: 'resolve',
+      target: text,
+      requestedEffect: '查询干员配置页的本地武器或装备目录',
+      constraints: ['catalog-scope', 'preserve-count-and-truncation'],
     };
   }
   return null;
@@ -226,6 +323,7 @@ module.exports = {
   BUSINESS_IDS,
   DEFAULT_BUSINESS_DEFINITIONS,
   beginRoutePhase,
+  classifyConversationTurn,
   classifyDefExecutableTurnPolicy,
   continuationIntent,
   deterministicRoute,

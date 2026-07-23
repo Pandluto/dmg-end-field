@@ -17,6 +17,11 @@ through the exact operator catalog. Preserve stable ids and order. A candidate i
 always the complete resulting roster, not a sequence of partial add/remove
 mutations.
 
+The current selected roster and the selection-screen local catalog are separate
+scopes. A catalog browse may return only a bounded page; preserve
+`catalogCount`, `exhaustive` and `truncated`, and never infer the complete
+library from `selectedCharacters` or from a bounded candidate list.
+
 Distinguish:
 
 - exact ordered no-op;

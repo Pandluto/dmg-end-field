@@ -3,9 +3,10 @@
   "businessId": "loadout",
   "displayName": "配装",
   "summary": "查看、解析、推荐、比较、预览、确认应用或恢复武器、装备、技能等级与配置输入。",
-  "defaultRevision": "v1",
+  "defaultRevision": "v2",
   "operations": [
     "inspect",
+    "evaluate",
     "resolve",
     "recommend",
     "recommend_weapon",

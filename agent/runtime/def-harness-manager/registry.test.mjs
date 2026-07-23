@@ -199,6 +199,42 @@ test('adopts a changed source default once while preserving an explicit rollback
   assert.equal(restarted.controller.businessState('selection').sourceDefaultVersion, 'v2');
 });
 
+test('keeps a pinned old Revision readable after a hard-boundary migration', async () => {
+  const { root, registry } = fixture();
+  const statePath = path.join(root, '.state', 'revisions.json');
+  const pinned = await registry.resolveActive('selection');
+  assert.equal(pinned.version, 'v1');
+
+  const upgradedDefinition = definition('selection');
+  upgradedDefinition.defaultRevision = 'v2';
+  upgradedDefinition.operations.push('analyze');
+  fs.writeFileSync(
+    path.join(root, 'selection', 'definition.json'),
+    `${JSON.stringify(upgradedDefinition, null, 2)}\n`,
+    'utf8',
+  );
+  const v2Path = path.join(root, 'selection', 'revisions', 'v2', 'manifest.json');
+  const v2 = JSON.parse(fs.readFileSync(v2Path, 'utf8'));
+  v2.operations.analyze = {
+    entryPhase: 'read',
+    phases: [
+      { id: 'read', kind: 'context', tools: ['def.read'], writes: [], transitions: { onSuccess: 'done', onFailure: 'failed' } },
+      { id: 'done', kind: 'response', tools: [], writes: [], terminalState: 'completed' },
+      { id: 'failed', kind: 'response', tools: [], writes: [], terminalState: 'aborted' },
+    ],
+  };
+  fs.writeFileSync(v2Path, `${JSON.stringify(v2, null, 2)}\n`, 'utf8');
+
+  const restarted = new BusinessHarnessRegistry({ businessRoot: root, statePath, toolIds });
+  const active = await restarted.resolveActive('selection');
+  assert.equal(active.version, 'v2');
+  assert.deepEqual(Object.keys(active.manifest.operations).sort(), ['analyze', 'apply', 'inspect']);
+
+  const oldPinned = await restarted.resolveRevision('selection', pinned);
+  assert.equal(oldPinned.contentHash, pinned.contentHash);
+  assert.deepEqual(Object.keys(oldPinned.manifest.operations).sort(), ['apply', 'inspect']);
+});
+
 test('keeps last-known-good active when reload validation fails', async () => {
   const { root, registry } = fixture();
   await registry.reloadBusiness('loadout', 'v1');

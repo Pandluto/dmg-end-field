@@ -11,7 +11,7 @@ const businessRoot = path.resolve('agent/harness/business');
 
 const expectedOperations = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
-  loadout: ['inspect', 'resolve', 'recommend', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
+  loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
   timeline: ['inspect', 'current', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
@@ -19,7 +19,7 @@ const expectedOperations = {
 
 const expectedDefaultVersions = {
   selection: 'v1',
-  loadout: 'v1',
+  loadout: 'v2',
   timeline: 'v13',
   buff: 'v1',
   calculation: 'v1',
