@@ -612,6 +612,37 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 }
 
 /* Harness notebook theme: one visual language from shell to article content. */
+.harness-document {
+  color-scheme: light;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(78,125,103,.72) #eee8dc;
+}
+
+.harness-document::-webkit-scrollbar,
+.harness-page .sidebar nav::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.harness-document::-webkit-scrollbar-track,
+.harness-page .sidebar nav::-webkit-scrollbar-track {
+  background: #eee8dc;
+  border-left: 1px solid rgba(130,119,100,.12);
+}
+
+.harness-document::-webkit-scrollbar-thumb,
+.harness-page .sidebar nav::-webkit-scrollbar-thumb {
+  min-height: 48px;
+  background: rgba(78,125,103,.72);
+  border: 2px solid #eee8dc;
+  border-radius: 999px;
+}
+
+.harness-document::-webkit-scrollbar-thumb:hover,
+.harness-page .sidebar nav::-webkit-scrollbar-thumb:hover {
+  background: var(--note-green);
+}
+
 .harness-page {
   --ink: #282621;
   --muted: #706b62;
@@ -731,6 +762,8 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 .harness-page .sidebar nav {
   gap: 4px;
   padding: 20px 10px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(78,125,103,.72) #eee8dc;
 }
 
 .harness-page .nav-item {

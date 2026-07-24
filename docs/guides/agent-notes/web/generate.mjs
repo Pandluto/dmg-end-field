@@ -42,13 +42,13 @@ const shell = ({ file, title, content }) => {
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/syabro/neat-annotations@83199c8c7420b85f775c770c5ee481df69b840bc/neat-annotations.css" />` : ""
 
   return `<!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN"${isHarnessPage ? ' class="harness-document"' : ""}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>${escapeHtml(title)} · Agent 开发随记</title>${annotationAssets}
-  <link rel="stylesheet" href="styles.css?v=20260724-3" />
+  <link rel="stylesheet" href="styles.css?v=20260724-4" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
 <body${isHarnessPage ? ' class="harness-page"' : ""}>
