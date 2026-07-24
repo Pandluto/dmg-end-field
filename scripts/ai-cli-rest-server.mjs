@@ -5302,7 +5302,7 @@ function discoverDefOperatorBuildGuide(input = {}) {
   const operatorId = String(resolved.id || operator.id || '').trim();
   const operatorName = String(operator.name || '').trim();
   const conventionRequired = operatorRequiresCombatConvention(operator);
-  const goal = typeof input.goal === 'string' && input.goal.trim() ? input.goal.trim() : 'damage';
+  const goal = typeof input.goal === 'string' && input.goal.trim() ? input.goal.trim() : 'unspecified';
   const setQuery = typeof input.setQuery === 'string' && input.setQuery.trim() ? input.setQuery.trim() : null;
   const discovery = discoverOperatorBuildGuides(loadOperatorBuildGuideReferences(), {
     id: operatorId,
@@ -5402,9 +5402,11 @@ function discoverDefOperatorBuildGuide(input = {}) {
       fallbackToken: reusableResolution.fallbackToken,
       missingFacts: reusableResolution.missingFacts,
       reused: true,
-      nextAction: conventionRequired
-        ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
-        : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+      nextAction: reusableResolution.guide?.strategy?.directRecommendation?.present
+        ? 'Follow the active Harness operation. A generic equipment recommendation may verify the guide-named catalog entities and answer directly; a planner operation must use the exact fallback token without inventing a damage goal.'
+        : conventionRequired
+          ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
+          : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
     };
   }
   const fallbackToken = crypto.randomUUID();
@@ -5428,6 +5430,8 @@ function discoverDefOperatorBuildGuide(input = {}) {
     guide,
     guidePreferenceGroups: supportedGuideGroups,
     guideContextScope,
+    guideRole: guideStrategy?.roleAssessment?.kind || 'unresolved',
+    guideBuildObjective: guideStrategy?.buildObjective?.kind || 'unresolved',
     conventionRequired,
     goal: base.query.goal,
     setQuery: base.query.setQuery,
@@ -5445,9 +5449,11 @@ function discoverDefOperatorBuildGuide(input = {}) {
     guideResolutionId,
     fallbackToken,
     missingFacts,
-    nextAction: conventionRequired
-      ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
-      : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
+    nextAction: guideStrategy?.directRecommendation?.present
+      ? 'Follow the active Harness operation. A generic equipment recommendation may verify the guide-named catalog entities and answer directly; a planner operation must use the exact fallback token without inventing a damage goal.'
+      : conventionRequired
+        ? 'Call def_data_combat_conventions once for this operator and weapon-fit/operator-fit intent, then call def_data_operator_build_profile in this same turn with the exact fallbackToken and returned conventionBundleHash.'
+        : 'Call def_data_operator_build_profile once in this same user turn with this exact opaque fallbackToken. Do not substitute generic operator or skill resources.',
   };
 }
 
@@ -5460,10 +5466,17 @@ function mergePartialGuidePlannerProfile(profile, resolution) {
       acceptedTypeKeys: group.acceptedTypeKeys.filter((typeKey) => !ignoredTypeKeys.has(typeKey)),
     }))
     .filter((group) => group.acceptedTypeKeys.length);
-  const teamScopedGuide = resolution.guideContextScope === 'team-composition';
-  const derivedTypeKeys = new Set(profile.plannerProfile.preferenceGroups.flatMap((group) => group.acceptedTypeKeys));
+  const functionalGuide = ['charge', 'support', 'healing'].includes(resolution.guideBuildObjective)
+    || resolution.guideRole === 'support';
+  const teamScopedGuide = resolution.guideContextScope === 'team-composition' && !functionalGuide;
+  const eligibleDerivedGroups = functionalGuide
+    ? profile.plannerProfile.preferenceGroups.filter((group) => (
+      ['primary-attribute', 'secondary-attribute'].includes(group.kind)
+    ))
+    : profile.plannerProfile.preferenceGroups;
+  const derivedTypeKeys = new Set(eligibleDerivedGroups.flatMap((group) => group.acceptedTypeKeys));
   const coveredTypeKeys = new Set(guideGroups.flatMap((group) => group.acceptedTypeKeys));
-  const derivedGroups = profile.plannerProfile.preferenceGroups.filter((group) => (
+  const derivedGroups = eligibleDerivedGroups.filter((group) => (
     teamScopedGuide || !group.acceptedTypeKeys.some((typeKey) => coveredTypeKeys.has(typeKey))
   ));
   const scopedGuideGroups = teamScopedGuide
@@ -5475,10 +5488,14 @@ function mergePartialGuidePlannerProfile(profile, resolution) {
   const guideEvidence = resolution.guide?.contentHash
     ? [`guide-sha256:${resolution.guide.contentHash}`]
     : [];
+  const retainedDerivedKeys = new Set(derivedGroups.map((group) => group.key));
+  const retainedDerivedEvidence = profile.preferenceGroups
+    .filter((group) => retainedDerivedKeys.has(group.key))
+    .flatMap((group) => group.evidenceRefs || []);
   const plannerProfile = {
     ...profile.plannerProfile,
     derivation: 'guide-and-skill-analysis',
-    evidenceRefs: [...new Set([...guideEvidence, ...profile.plannerProfile.evidenceRefs])],
+    evidenceRefs: [...new Set([...guideEvidence, ...retainedDerivedEvidence])],
     keywords: preferenceGroups.map((group) => group.label),
     preferenceGroups,
   };
@@ -5495,6 +5512,8 @@ function mergePartialGuidePlannerProfile(profile, resolution) {
     derivation: {
       ...profile.derivation,
       source: 'partial-guide-plus-operator-catalog-skill-fallback',
+      guideRole: resolution.guideRole,
+      guideBuildObjective: resolution.guideBuildObjective,
     },
   };
 }

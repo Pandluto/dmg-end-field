@@ -51,9 +51,9 @@
 | `npm run typecheck` | 通过 |
 | `npm test` | 通过 |
 | `npm run build:web` | 通过；仅保留既有 chunk/dynamic-import 警告 |
-| `npm run check:repo` | 通过：`tracked=6916 syntax=132 docs=21 images=524` |
+| `npm run check:repo` | 通过：`tracked=6924 syntax=132 docs=21 images=524` |
 | `npm run check:knowledge` | 通过 |
-| `npm run build:opencode-runtime` | 通过；darwin-arm64 runtime SHA-256 为 `0c9f8b137a8af45accfdb3fc8ebccc7c74ff56a03a0c9f141a89abc4ba7bdda1` |
+| `npm run build:opencode-runtime` | 通过；darwin-arm64 runtime SHA-256 为 `a39016805f0c2aff3e68f485bb2734a768bce7c0c89ae404f4e0f41aa8666735` |
 | 四个关键 JS/CJS `node --check` 与 `git diff --check` | 通过 |
 
 `data/sharedata/**` 在接手前后的聚合 SHA-256 均为：
@@ -135,6 +135,52 @@ artifact id、profile capability 和完整 planner profile。Materializer 对模
 opaque artifact id；服务端仍持有完整 artifact 供 typed Tool 校验。最终回答逐项保留
 `所有技能伤害`、`终结技伤害`、`连携技伤害` 三项 missing，并明确不是伤害模拟或唯一
 最优结论。
+
+## 2026-07-24 通用配装与 3+1 原子边界修复
+
+继续审计 Session `ses_06e16a60effeAjwLEUrelH6n7Q` 后确认：虽然该会话的具名
+3+1 链路能完成，但当用户只问“狼卫带什么”时，旧 Harness 仍可能把通用配装建议
+塌缩成 3+1 规划，并以默认伤害目标覆盖角色攻略中的辅助、充能职责。攻略提取还可能
+跨越干员小节，把相邻角色信息混入狼卫证据。
+
+本次修复没有修改选人、配装、排轴、BUFF 或伤害业务 Tool handler。变更集中在
+loadout Harness V4、Router 和攻略证据适配层：
+
+1. `recommend` 只处理通用配装建议，必须先读角色攻略；不得隐式进入 3+1；
+2. `recommend_named_set` 只处理用户明确说出的套装，`recommend_discovered_set`
+   只处理用户明确要求挑选套装的请求；
+3. 攻略证据显式保留角色定位、配装目标和直接建议，并按干员小节隔离；
+4. “3件潮涌加1件散件”固定提取为 `潮涌`，不再误提取为 `件潮涌`；
+5. planner 返回 `PARTIAL`、`AMBIGUOUS` 或 `NO_PLAN` 时统一停在 `unresolved`，
+   只能报告候选和证据边界，不得替模型做并列裁决或邀请继续写入。
+
+| 验证 | Interop 证据 | 结果 |
+| --- | --- | --- |
+| 通用狼卫配装 | Session `ses_06daaada1ffeSZEng115TqcGsC`，run `c65dff7f-7323-4a60-b01c-71ac84c50e0c`，turn `d0bdf10e-95ca-4fe7-900b-37475ceb77d0` | 固定进入 `loadout/recommend`；只调用攻略和一次 `长息` 精确装备查询；回答保留辅助点火、充能目标、四件充能装和常见 3 长息，没有进入 3+1 planner |
+| 明确潮涌 3+1 | Session `ses_06da33106ffecMEocJ4lqY0jxv`，run `ce528416-f600-41aa-b361-0104e76ce8cb` | 固定进入 `loadout/recommend_named_set`，约束为 `equipment-set:潮涌`；五个只读 Tool 各调用一次且全部成功；planner 返回两个并列候选后停在 `unresolved` |
+| 真实 UI 与状态 | 同上两次回归 | iframe 中可见完整 Tool 序列和自然中文回答；0 Tool error、0 question、无 HTML；checkout、revision `1784823989871`、四人队伍与 `pending=null` 前后不变 |
+
+通用建议的正式只读序列为：
+
+```text
+operator_build_guide
+→ equipment(query=长息)
+```
+
+明确潮涌 3+1 的正式只读序列为：
+
+```text
+operator_build_guide
+→ operator_build_profile
+→ native_catalog_materialize(equipment-set=潮涌)
+→ equipment_3plus1_facts
+→ equipment_3plus1_plan(AMBIGUOUS)
+→ unresolved
+```
+
+诊断期间还发现当前存档已选的莱万汀不在本地干员目录中。该数据状态会让针对莱万汀
+的攻略查询按合同返回未找到，但它不是本次 Harness 路由退化的成因，因此本次没有
+修改本地干员库、存档或业务 Tool 来掩盖这一边界。
 
 ## Task 15 剩余验收
 

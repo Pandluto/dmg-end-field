@@ -15,7 +15,20 @@ const { BusinessPlanStore } = require('./plans.cjs');
 
 const definitions = [
   { businessId: 'selection', operations: ['inspect', 'search', 'replace'], summary: 'selection' },
-  { businessId: 'loadout', operations: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_equipment', 'apply'], summary: 'loadout' },
+  {
+    businessId: 'loadout',
+    operations: [
+      'inspect',
+      'evaluate',
+      'resolve',
+      'recommend',
+      'recommend_named_set',
+      'recommend_discovered_set',
+      'recommend_equipment',
+      'apply',
+    ],
+    summary: 'loadout',
+  },
   { businessId: 'timeline', operations: ['add', 'apply', 'copy', 'current'], summary: 'timeline' },
   { businessId: 'buff', operations: ['add'], summary: 'buff' },
   { businessId: 'calculation', operations: ['calculate', 'skill_fact'], summary: 'calculation' },
@@ -28,7 +41,16 @@ test('new requests enter a Tool-isolated route phase', () => {
   assert.equal(route.definitions.length, 5);
   assert.deepEqual(
     route.definitions.find((item) => item.businessId === 'loadout').operations,
-    ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_equipment', 'apply'],
+    [
+      'inspect',
+      'evaluate',
+      'resolve',
+      'recommend',
+      'recommend_named_set',
+      'recommend_discovered_set',
+      'recommend_equipment',
+      'apply',
+    ],
   );
   assert.doesNotMatch(route.instructions, /def_data_|def_node_/);
 });
@@ -113,6 +135,16 @@ test('routes strong vertical-domain requests without an avoidable clarification'
   assert.equal(weaponCatalog.businessId, 'loadout');
   assert.equal(weaponCatalog.operation, 'resolve');
 
+  const genericEquipment = beginRoutePhase({ userText: '狼卫带什么', definitions });
+  assert.equal(genericEquipment.businessId, 'loadout');
+  assert.equal(genericEquipment.operation, 'recommend');
+  assert.equal(genericEquipment.equipmentSetMode, undefined);
+  assert(genericEquipment.constraints.includes('no-implicit-3plus1'));
+
+  const explicitThreePlusOne = beginRoutePhase({ userText: '狼卫 3+1 怎么配装', definitions });
+  assert.equal(explicitThreePlusOne.kind, 'route-phase');
+  assert.deepEqual(explicitThreePlusOne.allowedTools, ['def.harness.route']);
+
   assert.deepEqual(beginRoutePhase({
     userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
     definitions,
@@ -120,7 +152,7 @@ test('routes strong vertical-domain requests without an avoidable clarification'
     kind: 'new-business',
     deterministic: true,
     businessId: 'loadout',
-    operation: 'recommend',
+    operation: 'recommend_named_set',
     target: '莱万汀如果偏偏想带两个动火用配件,可以怎么带',
     requestedEffect: '围绕用户点名的装备套装生成只读配装建议',
     constraints: [
@@ -146,7 +178,7 @@ test('validates the required single and cross-business examples', () => {
   }, { definitions });
   assert.equal(loadout.businessId, 'loadout');
   assert.equal(loadout.target, '别礼');
-  assert.equal(loadout.operation, 'recommend');
+  assert.equal(loadout.operation, 'recommend_named_set');
   assert(loadout.constraints.includes('equipment-set:潮涌'));
 
   const selection = validateRouteSubmission({
@@ -174,7 +206,7 @@ test('validates the required single and cross-business examples', () => {
     ],
   }, { definitions });
   assert.deepEqual(pipeline.steps.map((step) => step.businessId), ['selection', 'loadout']);
-  assert.equal(pipeline.steps[1].operation, 'recommend');
+  assert.equal(pipeline.steps[1].operation, 'recommend_named_set');
 
   assert.throws(() => validateRouteSubmission({
     kind: 'cross-business',
@@ -267,7 +299,7 @@ test('makes named-set and set-discovery loadout routes mutually exclusive', () =
     equipmentSetMode: 'named-set',
     equipmentSetQuery: '动火用',
   }, { definitions });
-  assert.equal(named.operation, 'recommend');
+  assert.equal(named.operation, 'recommend_named_set');
   assert(named.constraints.includes('equipment-set:动火用'));
 
   const discovery = validateRouteSubmission({
@@ -278,7 +310,7 @@ test('makes named-set and set-discovery loadout routes mutually exclusive', () =
     requestedEffect: '推荐一套 3+1',
     equipmentSetMode: 'discover-set',
   }, { definitions });
-  assert.equal(discovery.operation, 'recommend_equipment');
+  assert.equal(discovery.operation, 'recommend_discovered_set');
   assert(discovery.constraints.includes('equipment-set-mode:discover-set'));
 
   const correctedFromUserText = validateRouteSubmission({
@@ -292,7 +324,7 @@ test('makes named-set and set-discovery loadout routes mutually exclusive', () =
     definitions,
     userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
   });
-  assert.equal(correctedFromUserText.operation, 'recommend');
+  assert.equal(correctedFromUserText.operation, 'recommend_named_set');
   assert.equal(correctedFromUserText.equipmentSetMode, 'named-set');
   assert.equal(correctedFromUserText.equipmentSetQuery, '动火用');
   assert(correctedFromUserText.constraints.includes('equipment-set:动火用'));
@@ -309,7 +341,7 @@ test('makes named-set and set-discovery loadout routes mutually exclusive', () =
     definitions,
     userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
   });
-  assert.equal(normalizedFromUserText.operation, 'recommend');
+  assert.equal(normalizedFromUserText.operation, 'recommend_named_set');
   assert.equal(normalizedFromUserText.equipmentSetQuery, '动火用');
 
   assert.throws(() => validateRouteSubmission({
@@ -339,18 +371,82 @@ test('makes named-set and set-discovery loadout routes mutually exclusive', () =
     definitions,
     userText: '给别礼配置 3 潮涌+1',
   });
-  assert.equal(threePlusOne.operation, 'recommend');
+  assert.equal(threePlusOne.operation, 'recommend_named_set');
   assert.equal(threePlusOne.equipmentSetQuery, '潮涌');
+
+  const quantifiedThreePlusOne = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '别礼',
+    requestedEffect: '配置 3 件潮涌加 1 件散件',
+    equipmentSetMode: 'discover-set',
+  }, {
+    definitions,
+    userText: '给别礼配3件潮涌加1件散件，怎么带',
+  });
+  assert.equal(quantifiedThreePlusOne.operation, 'recommend_named_set');
+  assert.equal(quantifiedThreePlusOne.equipmentSetQuery, '潮涌');
+  assert(quantifiedThreePlusOne.constraints.includes('equipment-set:潮涌'));
+
+  const generic = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '狼卫',
+    requestedEffect: '推荐装备',
+  }, {
+    definitions,
+    userText: '狼卫带什么',
+  });
+  assert.equal(generic.operation, 'recommend');
+  assert.equal(generic.equipmentSetMode, undefined);
+  assert.equal(generic.equipmentSetQuery, undefined);
+  assert(generic.constraints.includes('no-implicit-3plus1'));
+
+  const modelInventedSetMode = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_discovered_set',
+    target: '狼卫',
+    requestedEffect: '推荐装备',
+    equipmentSetMode: 'discover-set',
+  }, {
+    definitions,
+    userText: '狼卫带什么',
+  });
+  assert.equal(modelInventedSetMode.operation, 'recommend');
+  assert.equal(modelInventedSetMode.equipmentSetMode, undefined);
+  assert(modelInventedSetMode.constraints.includes('no-implicit-3plus1'));
+
+  const explicitDiscovery = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend',
+    target: '狼卫',
+    requestedEffect: '配置 3+1',
+    equipmentSetMode: 'discover-set',
+  }, {
+    definitions,
+    userText: '给狼卫配 3+1',
+  });
+  assert.equal(explicitDiscovery.operation, 'recommend_discovered_set');
+  assert.equal(explicitDiscovery.equipmentSetQuery, undefined);
 
   assert.throws(() => validateRouteSubmission({
     kind: 'new-business',
     businessId: 'loadout',
-    operation: 'recommend_equipment',
-    target: '莱万汀',
-    requestedEffect: '推荐装备',
-  }, { definitions }), {
+    operation: 'recommend_named_set',
+    target: '狼卫',
+    requestedEffect: '配置 3+1',
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '潮涌',
+  }, {
+    definitions,
+    userText: '给狼卫配 3+1',
+  }), {
     code: 'HARNESS_ROUTE_INVALID',
-    message: /equipmentSetMode/,
+    message: /was not named in the original user request/,
   });
 });
 

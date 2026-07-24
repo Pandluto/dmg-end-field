@@ -25,6 +25,13 @@ function skill(displayName, buttonType, peakMultipliers) {
   };
 }
 
+function lineOffsets(text) {
+  const offsets = [0];
+  for (const match of text.matchAll(/\n/g)) offsets.push(match.index + 1);
+  if (offsets.at(-1) !== text.length) offsets.push(text.length);
+  return offsets;
+}
+
 const operators = {
   bieli: {
     id: 'bieli',
@@ -88,6 +95,19 @@ const operators = {
         },
       },
     },
+  },
+  langwei: {
+    id: 'langwei',
+    name: '狼卫',
+    element: 'fire',
+    profession: '术师',
+    mainStat: '力量',
+    subStat: '敏捷',
+    skills: {
+      'skill-B-1': skill('野性突袭', 'B', [5]),
+      'skill-Q-1': skill('狼之怒', 'Q', [9]),
+    },
+    buffs: {},
   },
 };
 
@@ -231,6 +251,95 @@ const negativeOnlyStrategy = extractGuideBuildStrategy(
 );
 assert.deepEqual(negativeOnlyStrategy.preferenceGroups, []);
 assert.equal(negativeOnlyStrategy.sufficientForPlanner, false);
+
+const multiOperatorGuideLines = [
+  '## 五、装备养成推荐',
+  '',
+  '### 5.1 莱万汀（42）',
+  '',
+  '| 方案 | 配置 | 说明 |',
+  '| 极限伤害套 | 3 件动火用 + 充能衣服 | 只为伤害拉满，非常推荐 |',
+  '',
+  '### 5.2 狼卫',
+  '',
+  '- 主要就是点火，技能点可以不用加。',
+  '- 满足充能阈值情况下，装备自由搭配。',
+  '- 推荐四充能装。穿 3 件长息是因为套装生命和力量，穿散件充能也可以。',
+  '- 核心：狼卫大招越快越好。',
+];
+const multiOperatorGuideText = multiOperatorGuideLines.join('\n');
+const multiOperatorReference = {
+  id: 'synthetic-fire-team',
+  title: '莱万汀×狼卫火队装备养成',
+  text: multiOperatorGuideText,
+  lineOffsets: lineOffsets(multiOperatorGuideText),
+  index: {
+    headings: [
+      {
+        sectionId: 'equipment',
+        heading: '五、装备养成推荐',
+        level: 2,
+        parentSectionId: null,
+        lineStart: 0,
+        lineEnd: multiOperatorGuideLines.length,
+      },
+      {
+        sectionId: 'laevatain',
+        heading: '5.1 莱万汀（42）',
+        level: 3,
+        parentSectionId: 'equipment',
+        lineStart: 2,
+        lineEnd: 7,
+      },
+      {
+        sectionId: 'langwei',
+        heading: '5.2 狼卫',
+        level: 3,
+        parentSectionId: 'equipment',
+        lineStart: 7,
+        lineEnd: multiOperatorGuideLines.length,
+      },
+    ],
+  },
+};
+const laevatainGuide = discoverOperatorBuildGuides(
+  [multiOperatorReference],
+  { id: 'laevatain', name: '莱万汀' },
+  { goal: 'unspecified', setQuery: '动火用' },
+);
+assert.equal(laevatainGuide.candidates[0].recommendedSection.sectionId, 'laevatain');
+assert.equal(
+  laevatainGuide.candidates[0].strategy.preferenceGroups.some((group) => group.key === 'primary-strength'),
+  false,
+  'an operator guide must not inherit preference terms from an adjacent operator subsection',
+);
+assert.deepEqual(laevatainGuide.candidates[0].strategy.directRecommendation.catalogQueries, ['动火用']);
+
+const langweiGuide = discoverOperatorBuildGuides(
+  [multiOperatorReference],
+  { id: 'langwei', name: '狼卫' },
+  { goal: 'unspecified' },
+);
+assert.equal(langweiGuide.candidates[0].recommendedSection.sectionId, 'langwei');
+assert.deepEqual(
+  langweiGuide.candidates[0].strategy.preferenceGroups.map((group) => group.key),
+  ['ultimate-charge', 'primary-strength'],
+);
+assert.equal(langweiGuide.candidates[0].strategy.roleAssessment.kind, 'support');
+assert.equal(langweiGuide.candidates[0].strategy.buildObjective.kind, 'charge');
+assert.equal(langweiGuide.candidates[0].strategy.directRecommendation.present, true);
+assert.deepEqual(langweiGuide.candidates[0].strategy.directRecommendation.catalogQueries, ['长息']);
+assert.equal(
+  langweiGuide.candidates[0].strategy.preferenceGroups.some((group) => group.key === 'ultimate-damage'),
+  false,
+  'faster ultimate rotation must not be converted into ultimate damage',
+);
+assert.deepEqual(
+  extractGuideBuildStrategy('新手方案：3 件动火用 + 充能衣服，两件衣服二选一。')
+    .directRecommendation.catalogQueries,
+  ['动火用'],
+  'generic part wording must not be promoted into an exact catalog entity query',
+);
 
 fs.writeFileSync(nowStoragePath, `${JSON.stringify({
   type: 'def.localdata.archive.v1',
@@ -408,6 +517,45 @@ try {
   assert.match(knownGuide.payload.result.plannerProfileCapability, /^[0-9a-f-]{36}$/);
   assert.match(knownGuide.payload.result.plannerProfileHash, /^[a-f0-9]{64}$/);
 
+  const langweiRuntimeGuide = await call('def.operator.build.guide', {
+    operatorQuery: '狼卫',
+    __defTurnId: 'turn-langwei',
+  });
+  assert.equal(langweiRuntimeGuide.response.status, 200, JSON.stringify(langweiRuntimeGuide.payload));
+  assert.equal(langweiRuntimeGuide.payload.result.state, 'PARTIAL_GUIDE_FOUND');
+  assert.equal(langweiRuntimeGuide.payload.result.query.goal, 'unspecified');
+  assert.match(langweiRuntimeGuide.payload.result.guide.section.heading, /狼卫/);
+  assert.equal(langweiRuntimeGuide.payload.result.guide.strategy.roleAssessment.kind, 'support');
+  assert.equal(langweiRuntimeGuide.payload.result.guide.strategy.buildObjective.kind, 'charge');
+  assert.deepEqual(
+    langweiRuntimeGuide.payload.result.guide.strategy.directRecommendation.catalogQueries,
+    ['长息'],
+  );
+  assert.equal(
+    langweiRuntimeGuide.payload.result.guide.strategy.preferenceGroups
+      .some((group) => group.key === 'ultimate-damage'),
+    false,
+  );
+
+  const langweiRuntimeProfile = await call('def.operator.build.profile', {
+    operatorQuery: '狼卫',
+    fallbackToken: langweiRuntimeGuide.payload.result.fallbackToken,
+    __defTurnId: 'turn-langwei',
+  });
+  assert.equal(langweiRuntimeProfile.response.status, 200, JSON.stringify(langweiRuntimeProfile.payload));
+  assert.equal(langweiRuntimeProfile.payload.result.state, 'PROFILE_READY');
+  assert.deepEqual(
+    langweiRuntimeProfile.payload.result.plannerProfile.preferenceGroups.map((group) => group.key),
+    ['ultimate-charge', 'primary-strength', 'secondary-attribute'],
+  );
+  assert.equal(
+    langweiRuntimeProfile.payload.result.plannerProfile.preferenceGroups
+      .some((group) => ['skill-damage', 'general-damage', 'elemental-damage'].includes(group.kind)),
+    false,
+  );
+  assert.equal(langweiRuntimeProfile.payload.result.derivation.guideRole, 'support');
+  assert.equal(langweiRuntimeProfile.payload.result.derivation.guideBuildObjective, 'charge');
+
   const incompleteGuide = await call('def.operator.build.guide', {
     operatorQuery: '证据不全干员',
     goal: '优先伤害',
@@ -522,6 +670,7 @@ try {
       'incomplete-profile-fails-closed',
       'guide-profile-capability-bound',
       'bounded-known-guide-section',
+      'functional-guide-objective-preserved',
       'support-convention-required',
       'support-role-aware-profile',
       'complete-compatible-weapon-plan',

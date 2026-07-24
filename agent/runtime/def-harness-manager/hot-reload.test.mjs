@@ -140,14 +140,15 @@ test('same-version hot reload preserves the pinned content for a fresh runtime',
     fs.cpSync(sourceBusinessRoot, businessRoot, { recursive: true });
     fs.mkdirSync(sessionDirectory, { recursive: true });
     setLoadoutDefaultRevision(businessRoot, 'v1');
-    fs.rmSync(path.join(businessRoot, 'loadout', 'revisions', 'v2'), {
-      recursive: true,
-      force: true,
-    });
-    fs.rmSync(path.join(businessRoot, 'loadout', 'revisions', 'v3'), {
-      recursive: true,
-      force: true,
-    });
+    const loadoutRevisionsRoot = path.join(businessRoot, 'loadout', 'revisions');
+    for (const entry of fs.readdirSync(loadoutRevisionsRoot, { withFileTypes: true })) {
+      if (entry.isDirectory() && entry.name !== 'v1') {
+        fs.rmSync(path.join(loadoutRevisionsRoot, entry.name), {
+          recursive: true,
+          force: true,
+        });
+      }
+    }
     const firstRuntime = new HarnessTransactionRuntime({
       sessionDirectory,
       businessRoot,

@@ -31,7 +31,8 @@ const SKILL_DAMAGE_GROUPS = Object.freeze({
 });
 
 const GUIDE_PREFERENCE_PATTERNS = Object.freeze([
-  { key: 'ultimate-damage', label: '终结技伤害', kind: 'skill-damage', acceptedTypeKeys: ['ultimateDmgBonus'], pattern: /终结技(?:伤害|增伤|倍率|优先|核心)?|大招(?:伤害|增伤|倍率|优先|核心)?/g },
+  { key: 'ultimate-charge', label: '终结技充能效率', kind: 'rotation-utility', acceptedTypeKeys: ['ultimateChargeEfficiency'], pattern: /(?:终结技|大招)[^，。；\n]{0,12}(?:充能|越快越好|尽快|更快)|充能(?:效率|阈值|装|词条|越高越好)?/g },
+  { key: 'ultimate-damage', label: '终结技伤害', kind: 'skill-damage', acceptedTypeKeys: ['ultimateDmgBonus'], pattern: /终结技(?:伤害|增伤|倍率|输出|爆发)|大招(?:伤害|增伤|倍率|输出|爆发)/g },
   { key: 'all-skill-damage', label: '所有技能伤害', kind: 'general-damage', acceptedTypeKeys: ['allSkillDmgBonus'], pattern: /所有技能(?:伤害|增伤)?|全技能(?:伤害|增伤)?/g },
   { key: 'chain-skill-damage', label: '连携技伤害', kind: 'skill-damage', acceptedTypeKeys: ['chainSkillDmgBonus'], pattern: /连携技(?:伤害|增伤|倍率|优先|核心)?/g },
   { key: 'battle-skill-damage', label: '战技伤害', kind: 'skill-damage', acceptedTypeKeys: ['skillDmgBonus'], pattern: /战技(?:伤害|增伤|倍率|优先|核心|专三|主加)/g },
@@ -41,6 +42,8 @@ const GUIDE_PREFERENCE_PATTERNS = Object.freeze([
   { key: 'electric-damage', label: '电磁伤害', kind: 'elemental-damage', acceptedTypeKeys: ['electricDmgBonus', 'iceElectricDmgBonus'], pattern: /电磁(?:伤害|输出|增伤)|电伤/g },
   { key: 'nature-damage', label: '自然伤害', kind: 'elemental-damage', acceptedTypeKeys: ['natureDmgBonus', 'fireNatureDmgBonus'], pattern: /自然(?:伤害|输出|增伤)/g },
   { key: 'physical-damage', label: '物理伤害', kind: 'elemental-damage', acceptedTypeKeys: ['physicalDmgBonus'], pattern: /物理(?:伤害|输出|增伤|爆发)/g },
+  { key: 'team-damage', label: '队友伤害', kind: 'team-utility', acceptedTypeKeys: ['allDmgBonus'], pattern: /队友伤害|全队(?:伤害|增伤)|团队增伤/g },
+  { key: 'healing', label: '治疗效率', kind: 'healing-utility', acceptedTypeKeys: ['healingBonus'], pattern: /治疗效率|奶量/g },
   { key: 'source-skill', label: '源石技艺强度', kind: 'general-damage', acceptedTypeKeys: ['sourceSkillBoost'], pattern: /源石技艺(?:强度)?/g },
   { key: 'primary-strength', label: '力量', kind: 'primary-attribute', acceptedTypeKeys: ['strengthBoost'], pattern: /力量/g },
   { key: 'primary-agility', label: '敏捷', kind: 'primary-attribute', acceptedTypeKeys: ['agilityBoost'], pattern: /敏捷/g },
@@ -50,6 +53,12 @@ const GUIDE_PREFERENCE_PATTERNS = Object.freeze([
 
 const GUIDE_NEGATIVE_PREFIX = /(?:不推荐|不建议|无需|不需要|不要|避免|舍弃|不吃|不优先|低优先|非核心|不适合)[^，。；\n]{0,12}$/;
 const GUIDE_NEGATIVE_SUFFIX = /^[^，。；\n]{0,8}(?:收益低|优先级低|不推荐|不建议|无需|不需要|不优先|不适合|不吃)/;
+const GUIDE_SUPPORT_ROLE_PATTERN = /主要(?:就是|负责)?(?:点火|挂火)|(?:定位|作为|属于)(?:是|为)?[^，。；\n]{0,8}辅助|(?:治疗|奶量)(?:优先|保证|核心)|队友伤害|全队(?:伤害|增伤)/g;
+const GUIDE_DAMAGE_ROLE_PATTERN = /极限伤害|伤害拉满|(?:主打|核心|定位|作为)[^，。；\n]{0,8}(?:输出|伤害)|输出向/g;
+const GUIDE_HEALING_OBJECTIVE_PATTERN = /治疗效率|奶量(?:优先|保证|核心)|保证奶量/g;
+const GUIDE_DIRECT_RECOMMENDATION_PATTERN = /推荐|方案|配置|搭配|穿|带|装备|套/;
+const GUIDE_DIRECT_EQUIPMENT_PATTERN = /[一二两三四五六七八九十\d]+\s*件|充能装|套装|护甲|护手|胸甲|配件|衣服|武器/;
+const GUIDE_COUNTED_SET_PATTERN = /[一二两三四五六七八九十\d]+\s*件\s*([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·._-]{1,15}?)(?=\s*(?:[+＋]|是|因为|拿|，|。|（|\(|$))/gu;
 
 function normalized(value) {
   return String(value || '').normalize('NFKC').trim().toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
@@ -172,8 +181,8 @@ function sectionAncestors(reference, section) {
 
 function sectionHasBuildStrategy(reference, section) {
   const text = referenceSectionText(reference, section);
-  return /装备|配装|养成|武器|套装|词条/.test(`${section?.heading || ''}\n${text}`)
-    && /推荐|优先|选择|适合|方案|词条|套装|武器|装备/.test(text);
+  return /装备|配装|养成|武器|套装|词条|方案|配置|搭配|充能装|衣服|胸甲/.test(`${section?.heading || ''}\n${text}`)
+    && /推荐|优先|选择|适合|方案|配置|搭配|词条|套装|武器|装备|穿|带|件/.test(text);
 }
 
 function findOperatorBuildSection(reference, identityNeedles) {
@@ -233,17 +242,78 @@ export function extractGuideBuildStrategy(content, { evidenceRef = '', setQuery 
   }
   matches.sort((left, right) => left.index - right.index || left.group.key.localeCompare(right.group.key));
   const preferenceGroups = uniqueGroups(matches.map((entry) => entry.group)).slice(0, 12);
+  const roleSignals = [
+    ...[...text.matchAll(new RegExp(GUIDE_SUPPORT_ROLE_PATTERN.source, GUIDE_SUPPORT_ROLE_PATTERN.flags))]
+      .map((match) => ({ kind: 'support', matchedText: match[0] })),
+    ...[...text.matchAll(new RegExp(GUIDE_DAMAGE_ROLE_PATTERN.source, GUIDE_DAMAGE_ROLE_PATTERN.flags))]
+      .map((match) => ({ kind: 'damage', matchedText: match[0] })),
+  ];
+  const hasSupportRole = roleSignals.some((signal) => signal.kind === 'support');
+  const hasDamageRole = roleSignals.some((signal) => signal.kind === 'damage');
+  const role = hasSupportRole && hasDamageRole
+    ? 'hybrid'
+    : hasSupportRole
+      ? 'support'
+      : hasDamageRole
+        ? 'damage'
+        : 'unresolved';
+  const hasChargeObjective = preferenceGroups.some((group) => group.key === 'ultimate-charge');
+  const hasHealingObjective = GUIDE_HEALING_OBJECTIVE_PATTERN.test(text);
+  const hasDamageObjective = hasDamageRole || preferenceGroups.some((group) => (
+    ['skill-damage', 'general-damage', 'elemental-damage'].includes(group.kind)
+  ));
+  const objective = hasChargeObjective && hasDamageObjective
+    ? 'hybrid'
+    : hasChargeObjective
+      ? 'charge'
+      : hasHealingObjective
+        ? 'healing'
+        : hasSupportRole
+          ? 'support'
+          : hasDamageObjective
+            ? 'damage'
+            : 'unresolved';
+  const recommendationEvidence = text.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line
+      && GUIDE_DIRECT_RECOMMENDATION_PATTERN.test(line)
+      && GUIDE_DIRECT_EQUIPMENT_PATTERN.test(line))
+    .slice(0, 8);
+  const catalogQueries = [...new Set(
+    [...text.matchAll(new RegExp(GUIDE_COUNTED_SET_PATTERN.source, GUIDE_COUNTED_SET_PATTERN.flags))]
+      .map((match) => String(match[1] || '').trim())
+      .filter((query) => query && !/^(?:衣服|胸甲|护甲|护手|配件|充能装|散件|装备)/.test(query)),
+  )].slice(0, 8);
   const normalizedSetQuery = normalized(setQuery);
   return {
     preferenceGroups,
     keywordLabels: preferenceGroups.map((group) => group.label),
     excludedMatches,
+    roleAssessment: {
+      kind: role,
+      evidence: roleSignals.slice(0, 8),
+    },
+    buildObjective: {
+      kind: objective,
+      evidence: [
+        ...preferenceGroups
+          .filter((group) => ['ultimate-charge', 'healing'].includes(group.key))
+          .map((group) => ({ kind: group.key, matchedText: group.matchedText })),
+        ...roleSignals,
+      ].slice(0, 8),
+    },
+    directRecommendation: {
+      present: recommendationEvidence.length > 0,
+      hasCatalogQueries: catalogQueries.length > 0,
+      catalogQueries,
+      evidence: recommendationEvidence,
+    },
     requestedSetMentioned: normalizedSetQuery ? normalized(text).includes(normalizedSetQuery) : null,
     sufficientForPlanner: preferenceGroups.length >= 2,
   };
 }
 
-export function discoverOperatorBuildGuides(references, operator, { goal = 'damage', setQuery = '' } = {}) {
+export function discoverOperatorBuildGuides(references, operator, { goal = 'unspecified', setQuery = '' } = {}) {
   const operatorId = String(operator?.id || '').trim();
   const operatorName = String(operator?.name || '').trim();
   const identityNeedles = [operatorName, operatorId].map(normalized).filter(Boolean);

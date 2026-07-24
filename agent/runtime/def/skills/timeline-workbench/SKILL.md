@@ -19,6 +19,17 @@ Only when a request judges which weapon or equipment better fits a specific oper
 - `PARTIAL_GUIDE_FOUND`: a relevant section supports only part of the priorities. Preserve the supported part and derive only the missing part from trusted operator and skill facts.
 - `GUIDE_NOT_FOUND`: no exact operator build evidence exists. Only then derive the profile from trusted operator facts and skill data.
 
+For a generic equipment request such as “狼卫带什么”, follow the active
+Harness's generic recommendation branch. Read the bounded guide's
+`roleAssessment`, `buildObjective`, and `directRecommendation`; when it names
+catalog entities, resolve all of those exact names in one `def_data_equipment`
+call. This branch does not invoke the fallback profile, catalog materializer,
+set shortlist, or `3+1` planner merely because the guide state is partial.
+Profession is an ambiguity signal, not a build goal. In particular, wording
+such as “大招越快越好” establishes charge/rotation priority, not ultimate
+damage. Only an explicit `3+1`, named-set, or choose-a-set request enters the
+planner flow below.
+
 Do not classify or promote an arbitrary generic knowledge-search hit into one of these states. Call `def_data_operator_build_profile` only with the fallback token returned by `PARTIAL_GUIDE_FOUND` or `GUIDE_NOT_FOUND`; it may fill only the missing profile fields authorized by that token. Do not call it after `GUIDE_FOUND`. A source-only request such as “这篇攻略怎么说” still uses `def_data_game_knowledge` plus one exact `def_data_game_knowledge_section` and then stops. A build recommendation is different: the guide supplies strategy, while the current typed catalog or native artifact must verify every equipment name, stable id, slot, `fixedStat`, effect and set membership before recommendation. Never copy stale guide ids or treat a catalog record as proof of a strategy.
 
 Guide strategy is evidence, not a universal operator identity. A statement tied to one named team, rotation, potential level, or equipment mode stays scoped to that condition: never turn “在这个阵容里输出占比约 10%” into a general claim that the operator is support-oriented. Keep guide context separate from current-catalog facts and leave planner-marked conditional effects unresolved.

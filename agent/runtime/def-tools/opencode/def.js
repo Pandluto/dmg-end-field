@@ -1838,10 +1838,10 @@ export const team_selection_apply = {
 }
 
 export const data_operator_build_guide = {
-  description: 'Required first evidence step only when judging which weapon or equipment better fits a specific operator: an operator-specific recommendation, optimization, 3+1 plan, or suitability comparison. Pure catalog facts, field/ID/slot/effect lookups, and comparisons unrelated to operator fit do not require this tool and should use the narrowest trusted typed catalog resource. For the applicable operator-fit flow, it resolves one exact operator and searches every allowlisted game-knowledge reference for an operator-specific build section. GUIDE_FOUND returns one bounded strategy section plus a server-compiled plannerProfile and same-turn plannerProfileCapability; pass that pair unchanged to planning. Only PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND returns a same-session, same-turn fallbackToken for def_data_operator_build_profile. This tool never searches the equipment catalog or mutates configuration.',
+  description: 'Required first evidence step only when judging which weapon or equipment better fits a specific operator: an operator-specific recommendation, optimization, 3+1 plan, or suitability comparison. Pure catalog facts, field/ID/slot/effect lookups, and comparisons unrelated to operator fit do not require this tool and should use the narrowest trusted typed catalog resource. It resolves one exact operator and one bounded operator-specific build section, including guide-scoped role, build objective and any direct equipment recommendation. GUIDE_FOUND returns a server-compiled plannerProfile and same-turn plannerProfileCapability; pass that pair unchanged to planning. Only PARTIAL_GUIDE_FOUND or GUIDE_NOT_FOUND returns a same-session, same-turn fallbackToken for def_data_operator_build_profile. This tool never searches the equipment catalog or mutates configuration.',
   args: {
     operatorQuery: tool.schema.string().min(1).max(160).describe('Exact operator name or stable id, for example 别礼 or bieli.'),
-    goal: tool.schema.string().min(1).max(160).optional().describe('Build goal in the user wording; defaults to damage.'),
+    goal: tool.schema.string().min(1).max(160).optional().describe('Only a build goal explicitly stated by the user. Omit it when the user asks a generic recommendation; the guide must resolve the objective instead of defaulting to damage.'),
     setQuery: tool.schema.string().min(1).max(160).optional().describe('Optional user-required equipment set, for example 潮涌.'),
   },
   async execute(args, context) {
@@ -1849,7 +1849,7 @@ export const data_operator_build_guide = {
     const { turnID } = getDefOperatorConfigTurnIdentity(context)
     const result = await callDefTool('def.operator.build.guide', {
       operatorQuery: args.operatorQuery.trim(),
-      goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : 'damage',
+      goal: typeof args.goal === 'string' && args.goal.trim() ? args.goal.trim() : 'unspecified',
       ...(typeof args.setQuery === 'string' && args.setQuery.trim() ? { setQuery: args.setQuery.trim() } : {}),
       __defTurnId: turnID,
     }, context)

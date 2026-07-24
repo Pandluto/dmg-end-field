@@ -11,7 +11,20 @@ const businessRoot = path.resolve('agent/harness/business');
 
 const expectedOperations = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
-  loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
+  loadout: [
+    'inspect',
+    'evaluate',
+    'resolve',
+    'recommend',
+    'recommend_named_set',
+    'recommend_discovered_set',
+    'recommend_weapon',
+    'recommend_equipment',
+    'compare',
+    'preview',
+    'apply',
+    'restore',
+  ],
   timeline: ['inspect', 'current', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
@@ -19,7 +32,7 @@ const expectedOperations = {
 
 const expectedDefaultVersions = {
   selection: 'v1',
-  loadout: 'v3',
+  loadout: 'v4',
   timeline: 'v13',
   buff: 'v1',
   calculation: 'v1',
@@ -48,40 +61,52 @@ test('loads five real default Harnesses independently', async () => {
   }
 });
 
-test('loadout v3 separates named-set discovery and stops on partial plans', () => {
-  const revisionRoot = path.join(businessRoot, 'loadout', 'revisions', 'v3');
+test('loadout v4 separates generic advice from explicit set planning and stops on unresolved plans', () => {
+  const revisionRoot = path.join(businessRoot, 'loadout', 'revisions', 'v4');
   const manifest = JSON.parse(fs.readFileSync(
     path.join(revisionRoot, 'manifest.json'),
     'utf8',
   ));
   const instructions = fs.readFileSync(path.join(revisionRoot, 'instructions.md'), 'utf8');
-  assert.match(instructions, /Never claim that the target can apply, sustain, or reliably trigger/);
+  assert.match(instructions, /Never claim that the operator can apply, sustain or reliably trigger/);
   assert.match(instructions, /explicit typed result establishes that trigger\s+capability/);
-  const named = manifest.operations.recommend.phases;
-  const discovery = manifest.operations.recommend_equipment.phases;
+  assert.match(instructions, /`3\+1` is a loadout term and a specialized subflow/);
+  assert.match(instructions, /Profession, element and common player lore\s+are ambiguity signals/);
+  const generic = manifest.operations.recommend.phases;
+  const named = manifest.operations.recommend_named_set.phases;
+  const discovery = manifest.operations.recommend_discovered_set.phases;
+  assert.equal(generic.some((phase) => phase.tools.includes('def.data.resource.equipment_3plus1_plan')), false);
+  assert.equal(generic.some((phase) => phase.tools.includes('def.data.resource.native_catalog_materialize')), false);
+  assert.equal(generic.some((phase) => phase.tools.includes('def.data.resource.equipment')), true);
   assert.equal(named.some((phase) => phase.tools.includes('def.data.resource.equipment_set_fit_shortlist')), false);
   assert.equal(discovery.some((phase) => phase.tools.includes('def.data.resource.equipment_set_fit_shortlist')), true);
-  for (const operationId of ['recommend', 'recommend_equipment', 'preview']) {
+  for (const operationId of ['recommend_named_set', 'recommend_discovered_set', 'preview']) {
     const phases = manifest.operations[operationId].phases;
     const planner = phases.find((phase) => phase.tools.includes('def.data.resource.equipment_3plus1_plan'));
-    assert(planner.resultTransitions.some((transition) => (
-      transition.path === 'state'
-      && transition.equals === 'PARTIAL'
-      && transition.target === 'partial'
-    )), operationId);
-    const partial = phases.find((phase) => phase.id === 'partial');
-    assert.equal(partial.terminalState, 'aborted', operationId);
-    assert.match(partial.instructions, /PARTIAL/, operationId);
-    assert.match(partial.instructions, /optimal|optimum/, operationId);
-    assert.match(partial.instructions, /do not ask a follow-up question/, operationId);
-    assert.match(partial.instructions, /absent from|guide alternative/, operationId);
+    for (const state of ['PARTIAL', 'AMBIGUOUS', 'NO_PLAN']) {
+      assert(planner.resultTransitions.some((transition) => (
+        transition.path === 'state'
+        && transition.equals === state
+        && transition.target === 'unresolved'
+      )), `${operationId}.${state}`);
+    }
+    const unresolved = phases.find((phase) => phase.id === 'unresolved');
+    assert.equal(unresolved.terminalState, 'aborted', operationId);
+    assert.match(unresolved.instructions, /AMBIGUOUS/, operationId);
+    assert.match(unresolved.instructions, /optimal|optimum/, operationId);
+    assert.match(unresolved.instructions, /follow-up questions/, operationId);
+    assert.match(unresolved.instructions, /absent alternative/, operationId);
+    assert.match(unresolved.instructions, /raw numeric ranges/, operationId);
+    assert.match(unresolved.instructions, /exactly two sections/, operationId);
+    assert.match(unresolved.instructions, /offers, or invitations/, operationId);
+    assert.match(unresolved.instructions, /trigger-applicability analysis/, operationId);
   }
   const previewPlanner = manifest.operations.preview.phases.find(
     (phase) => phase.tools.includes('def.data.resource.equipment_3plus1_plan'),
   );
   assert.equal(
-    previewPlanner.resultTransitions.find((transition) => transition.equals === 'PARTIAL').target,
-    'partial',
+    previewPlanner.resultTransitions.find((transition) => transition.equals === 'AMBIGUOUS').target,
+    'unresolved',
   );
 });
 

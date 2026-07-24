@@ -21,7 +21,7 @@ function inferNamedEquipmentSetQuery(userText = '') {
   if (!compact) return '';
   const patterns = [
     /(?:[一二两三四五六七八九十\d]+)(?:个|件)?([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?=配件|护手|护甲)/u,
-    /(?:三|3)([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?:\+|加)(?:一|1)/u,
+    /(?:三|3)(?:个|件)?([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?:\+|加)(?:一|1)/u,
     /(?:配置|换成|想要|选择|选|用|带|穿)([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?:套装|套)(?=$|[，,。！？?、;+])/u,
   ];
   for (const pattern of patterns) {
@@ -37,6 +37,12 @@ function comparableEquipmentSetQuery(value = '') {
     .replace(/^[「『【《"'“”‘’]+|[」』】》"'“”‘’]+$/g, '')
     .replace(/(?:套装|套|配件|护手|护甲)$/u, '')
     .toLocaleLowerCase();
+}
+
+function hasEquipmentSetSelectionIntent(userText = '') {
+  const compact = normalizedText(userText).replace(/\s+/g, '');
+  if (!compact) return false;
+  return /(?:3(?:\+|加)1|三加一|套装|配一套|选一套|哪一套|哪套|什么套|选.*套|推荐.*套)/.test(compact);
 }
 
 function isDirectCurrentNodeQuestion(userText = '') {
@@ -129,7 +135,7 @@ function deterministicRoute(userText) {
       kind: 'new-business',
       deterministic: true,
       businessId: 'loadout',
-      operation: 'recommend',
+      operation: 'recommend_named_set',
       target: text,
       requestedEffect: '围绕用户点名的装备套装生成只读配装建议',
       constraints: [
@@ -139,6 +145,22 @@ function deterministicRoute(userText) {
       ],
       equipmentSetMode: 'named-set',
       equipmentSetQuery: namedEquipmentSetQuery,
+    };
+  }
+  const asksGenericEquipmentRecommendation = (
+    /^[\p{Script=Han}A-Za-z0-9·_-]{1,24}带什么[？?。！!]*$/u.test(compact)
+    || /(?:带什么装备|穿什么|怎么配装|装备怎么配|配什么装备|装备推荐)/.test(compact)
+  ) && !/武器/.test(compact)
+    && !hasEquipmentSetSelectionIntent(compact);
+  if (asksGenericEquipmentRecommendation) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'loadout',
+      operation: 'recommend',
+      target: text,
+      requestedEffect: '先按精确攻略确定构筑目标，再用当前目录核验泛化装备建议',
+      constraints: ['read-only', 'guide-first', 'no-implicit-3plus1'],
     };
   }
   const executablePolicy = classifyDefExecutableTurnPolicy(text);
@@ -302,8 +324,17 @@ function normalizeStep(step, index, definitions, { userText = '' } = {}) {
     : [];
   let equipmentSetMode = normalizedText(step?.equipmentSetMode);
   let equipmentSetQuery = normalizedText(step?.equipmentSetQuery);
-  if (businessId === 'loadout' && ['recommend', 'recommend_equipment'].includes(operation)) {
+  if (businessId === 'loadout' && [
+    'recommend',
+    'recommend_equipment',
+    'recommend_named_set',
+    'recommend_discovered_set',
+  ].includes(operation)) {
+    const routeText = normalizedText(userText) || `${target} ${requestedEffect}`;
     const inferredNamedSetQuery = inferNamedEquipmentSetQuery(userText);
+    const explicitSetIntent = Boolean(inferredNamedSetQuery)
+      || hasEquipmentSetSelectionIntent(routeText)
+      || (!normalizedText(userText) && ['named-set', 'discover-set'].includes(equipmentSetMode));
     if (inferredNamedSetQuery) {
       if (
         equipmentSetQuery
@@ -314,18 +345,33 @@ function normalizeStep(step, index, definitions, { userText = '' } = {}) {
       equipmentSetMode = 'named-set';
       equipmentSetQuery = inferredNamedSetQuery;
     }
-    if (!['named-set', 'discover-set'].includes(equipmentSetMode)) {
-      throw routeError(`steps[${index}].equipmentSetMode must be named-set or discover-set for an equipment recommendation`);
+    if (explicitSetIntent) {
+      if (!['named-set', 'discover-set'].includes(equipmentSetMode)) {
+        throw routeError(`steps[${index}].equipmentSetMode must be named-set or discover-set for an explicit equipment-set recommendation`);
+      }
+      if (equipmentSetMode === 'named-set' && !equipmentSetQuery) {
+        throw routeError(`steps[${index}].equipmentSetQuery is required when equipmentSetMode=named-set`);
+      }
+      if (
+        normalizedText(userText)
+        && equipmentSetMode === 'named-set'
+        && equipmentSetQuery
+        && !comparableEquipmentSetQuery(userText).includes(comparableEquipmentSetQuery(equipmentSetQuery))
+      ) {
+        throw routeError(`steps[${index}].equipmentSetQuery was not named in the original user request`);
+      }
+      if (equipmentSetMode === 'discover-set' && equipmentSetQuery) {
+        throw routeError(`steps[${index}].equipmentSetQuery must be omitted when equipmentSetMode=discover-set`);
+      }
+      operation = equipmentSetMode === 'named-set' ? 'recommend_named_set' : 'recommend_discovered_set';
+      constraints.push(`equipment-set-mode:${equipmentSetMode}`);
+      if (equipmentSetQuery) constraints.push(`equipment-set:${equipmentSetQuery}`);
+    } else {
+      operation = 'recommend';
+      equipmentSetMode = '';
+      equipmentSetQuery = '';
+      constraints.push('no-implicit-3plus1');
     }
-    if (equipmentSetMode === 'named-set' && !equipmentSetQuery) {
-      throw routeError(`steps[${index}].equipmentSetQuery is required when equipmentSetMode=named-set`);
-    }
-    if (equipmentSetMode === 'discover-set' && equipmentSetQuery) {
-      throw routeError(`steps[${index}].equipmentSetQuery must be omitted when equipmentSetMode=discover-set`);
-    }
-    operation = equipmentSetMode === 'named-set' ? 'recommend' : 'recommend_equipment';
-    constraints.push(`equipment-set-mode:${equipmentSetMode}`);
-    if (equipmentSetQuery) constraints.push(`equipment-set:${equipmentSetQuery}`);
   }
   return {
     businessId,
@@ -416,7 +462,7 @@ function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
       'Use kind=conversation for greetings, praise, thanks, acknowledgements, closings, or direct non-business dialogue. Never turn social dialogue into a clarification question.',
       'Use kind=clarify only when the user is asking for a business result but a missing choice prevents selecting an operation.',
       'Entities, operators, equipment, skills, BUFF names, “3+1”, and batch size are targets or constraints, never business ids.',
-      'For a loadout equipment recommendation, always set equipmentSetMode. A phrase such as “两个动火用配件”, “3 潮涌+1”, or “潮涌套” names a set even when the word 套装 is omitted: use named-set plus the exact set name. Use discover-set and omit equipmentSetQuery only when the user asks you to choose which set. The Manager validates the original user text and canonicalizes these to mutually exclusive Harness operations.',
+      'For a generic loadout request such as “狼卫带什么”, use operation=recommend and omit equipmentSetMode: 3+1 is not the default equipment workflow. Set equipmentSetMode only when the user explicitly requests 3+1, names a set, or asks you to choose a set. A phrase such as “两个动火用配件”, “3 潮涌+1”, or “潮涌套” names a set even when the word 套装 is omitted: use named-set plus the exact set name. Use discover-set without equipmentSetQuery only for an explicit set-selection request. The Manager validates the original user text and canonicalizes generic, named-set and discovered-set operations separately.',
       'Use cross-business only when the request spans at least two different business ids. Proposal, validation, application, and verification inside one business belong to one new-business operation and must not be split into route steps.',
     ].join('\n'),
   };
@@ -438,6 +484,7 @@ module.exports = {
   continuationIntent,
   deterministicRoute,
   inferNamedEquipmentSetQuery,
+  hasEquipmentSetSelectionIntent,
   isDirectCurrentNodeQuestion,
   matchContinuation,
   resolveRoute,

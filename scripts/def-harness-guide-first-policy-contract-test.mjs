@@ -6,6 +6,7 @@ const project = path.resolve(import.meta.dirname, '..');
 const read = (relativePath) => fs.readFileSync(path.join(project, relativePath), 'utf8');
 
 const adapter = read('agent/runtime/def-opencode-adapter/index.cjs');
+const hostKernel = read('agent/runtime/def-harness-manager/host-kernel.cjs');
 const skill = read('agent/runtime/def/skills/timeline-workbench/SKILL.md');
 const defTools = read('agent/runtime/def-tools/opencode/def.js');
 const blackbox = read('docs/testing/def-agent-blackbox.md');
@@ -14,7 +15,11 @@ const harnessRoots = [
   'agent/harness/examples/candidate-v1',
 ];
 
-for (const source of [adapter, skill]) {
+assert.match(adapter, /MINIMAL_WORKBENCH_AGENT_PROMPT/);
+assert.match(hostKernel, /The Harness Manager supplies the active business, operation, phase, instructions, context, and allowed Tools/);
+assert.doesNotMatch(adapter, /GUIDE_FOUND|PARTIAL_GUIDE_FOUND|GUIDE_NOT_FOUND/);
+
+for (const source of [skill]) {
   assert.match(source, /GUIDE_FOUND/);
   assert.match(source, /PARTIAL_GUIDE_FOUND/);
   assert.match(source, /GUIDE_NOT_FOUND/);
