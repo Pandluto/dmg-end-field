@@ -85,7 +85,7 @@
 <li>等用户确认时，原来的方案有没有被别人改过？</li>
 <li>Tool 说成功以后，真实页面到底变没变？</li>
 </ul>
-<p>这些问题不能从 Tool 列表里直接得到答案。它们共同决定的是：<strong>这个 Agent 怎样完成一项真实业务。</strong></p>
+<p>这些问题不能从 Tool 列表里直接得到答案。它们共同决定的是：<strong>这个 Agent 怎样完成一项真实工作。</strong></p>
 <p>当然也可以写一个 <code>auto_loadout</code>，把整套配装逻辑塞进代码。这样很快，但 Agent 学会的只是调用配装程序，并没有学会处理配装问题。</p>
 <p>就像给一个只会读稿的人接上装备查询和修改 Tools。他有手了，仍然不会做攻略。因为 Prompt（提示词）还在教他读稿，Skill 里是读稿经验，Context（上下文）里也只有稿件。</p>
 <p>那把 Prompt 里的“读稿”改成“做攻略”呢？</p>
@@ -104,7 +104,7 @@
 <div class="capability-strip" role="img" aria-label="模型、Harness 与真实环境的关系">
   <div><small>判断下一步</small><strong>模型</strong></div>
   <b>→</b>
-  <div class="accent"><small>准备 · 约束 · 反馈</small><strong>Harness</strong></div>
+  <div class="accent"><small>准备 · 组织 · 反馈</small><strong>Harness</strong></div>
   <b>→</b>
   <div><small>产生真实结果</small><strong>Tools + 产品</strong></div>
 </div>
@@ -115,246 +115,119 @@
 </blockquote>
 <p>它决定模型在什么信息和能力条件下工作，模型输出怎样被系统接收、执行、拒绝、记录和反馈，一件尚未完成的工作又怎样继续下去。</p>
 <p>所以 Harness 不是单独一份 Prompt，也不是一组 Tools。</p>
-<p>同一个模型接上不同 Harness，会表现得像不同的 Agent。不是模型突然变聪明了，而是它醒来以后，看见的事实、拿到的能力、受到的限制和面对的完成标准都变了。</p>
+<p>同一个模型接上不同 Harness，会表现得像不同的 Agent。不是模型突然变聪明了，而是它醒来以后，看见的事实、拿到的能力、受到的限制都变了。</p>
 <h2>广义 Harness 会指什么？</h2>
-<p>Harness 没有一条被所有框架共同采用的边界。</p>
+<p>不同文章里的 Harness，边界并不完全一样。</p>
 <p>最窄的说法，可能只指 System Prompt（系统提示词）和 Tool Loop（工具调用循环）；更宽的说法，会把 Context、Memory（记忆）、Skills、状态、权限、沙箱、审批和结果检查都算进去。</p>
-<p>因此，看到别人讨论 Harness，第一件事不是争定义，而是先问：</p>
+<p>所以看到别人讨论 Harness，可以先问一句：</p>
 <blockquote>
 <p>他把边界画到了哪里？</p>
 </blockquote>
-<p>这篇采用宽一点的说法。广义 Harness 是模型与真实环境之间的<strong>运行支架</strong>：它让模型能够持续取得信息、提出行动、接收反馈并延续状态。<a href="https://arxiv.org/abs/2605.13357">AI Harness Engineering</a>（《人工智能运行支架工程》）也把 Agent 能力放在“模型—Harness—环境”这个整体中讨论。</p>
+<p>这篇采用宽一点的说法。广义 Harness 是模型与真实环境之间的运行支架：它让模型持续取得信息、提出行动、接收反馈并延续状态。<a href="https://arxiv.org/abs/2605.13357">AI Harness Engineering</a>也把 Agent 能力放在“模型—Harness—环境”这个整体中讨论。</p>
 <p>在这个项目里，还可以把定义再收紧一点：</p>
 <blockquote>
 <p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。</strong></p>
 </blockquote>
-<p>这句话有一个容易误读的地方。</p>
-<p>“由运行时强制”不是强制模型照着某套步骤思考。<strong>方法是强参考；能力边界、执行状态和完成结果才由 Runtime 强制。</strong></p>
-<details>
-<summary>展开：本文对几个工程名词的约定</summary>
-
-<table>
-<thead>
-<tr>
-<th>本文称呼</th>
-<th>指什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Harness System</td>
-<td>模型周围完整的运行环境</td>
-</tr>
-<tr>
-<td>Business Harness</td>
-<td>配装、排轴这类完整业务的责任边界</td>
-</tr>
-<tr>
-<td>Business Harness Version</td>
-<td>某项业务在一次发布中采用的方法、规则和完成条件</td>
-</tr>
-<tr>
-<td>Harness Runtime</td>
-<td>加载这些声明、维护进度并执行硬检查的程序</td>
-</tr>
-</tbody></table>
-<p>这不是行业统一术语，只是为了避免把所有东西都叫 Harness。</p>
-</details>
-
-<h2>Harness 和 Tools（工具）、Skills、Workflow 的关系</h2>
-<p>这几组关系不用讲复杂。看它们怎样作用于 Agent 就够了：</p>
+<p>这篇讨论的是这个整体怎样被组织。Runtime 就是 Harness 实际运作的地方；缓存、状态机和内部执行机制，不在这里展开。</p>
+<h2>Harness 和 Prompt、Tool、Skill、Workflow 的关系</h2>
+<p>这几组关系不用讲复杂：</p>
 <table>
 <thead>
 <tr>
 <th>概念</th>
-<th>作用方式</th>
-<th>它管什么</th>
+<th>它怎样作用于 Agent</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>Tool（工具）</td>
-<td><strong>强制能力</strong></td>
-<td>可以不调用；一旦调用，输入、执行和结果由程序定义</td>
+<td>Prompt</td>
+<td>直接告诉模型目标和要求</td>
+</tr>
+<tr>
+<td>Context</td>
+<td>提供这一次判断所需的材料</td>
+</tr>
+<tr>
+<td>Tool</td>
+<td>提供由程序执行的能力</td>
 </tr>
 <tr>
 <td>Skill</td>
-<td><strong>非强制参考</strong></td>
-<td>提供一份可选的方法目录</td>
+<td>提供一份非强制的方法目录</td>
 </tr>
 <tr>
 <td>Workflow</td>
-<td><strong>强制路径</strong></td>
-<td>按确定顺序串联 Tools</td>
+<td>强制按确定顺序串联 Tools</td>
 </tr>
 <tr>
-<td>Context（上下文）</td>
-<td><strong>当前材料</strong></td>
-<td>把本轮判断需要的事实和任务状态摆到模型面前</td>
-</tr>
-<tr>
-<td>Prompt（提示词）</td>
-<td><strong>模型说明</strong></td>
-<td>告诉模型目标和方法，不能替产品执行约束</td>
-</tr>
-<tr>
-<td>Business Harness</td>
-<td><strong>方法层非强制、但强参考</strong></td>
-<td>让一套领域方法成为默认工作依据，并组织知识、Context、能力、状态与完成验证</td>
-</tr>
-<tr>
-<td>Runtime</td>
-<td><strong>强制边界与后果</strong></td>
-<td>检查能力、权限、状态、写入和真实结果</td>
+<td>Harness</td>
+<td>把这些东西和更多运行条件组织起来</td>
 </tr>
 </tbody></table>
-<p>Harness 不能和 Tool、Skill、Workflow 算成同一层的部件，因为它会把这些东西和更多运行条件组织在一起。但从效果上比较，区别很清楚：</p>
+<p>Tool、Skill 和 Workflow 不能与 Harness 算成同一层的部件。但如果只比较它们最终怎样影响模型，区别很清楚：</p>
 <blockquote>
-<p><strong>Skill 是“这里有一份资料”；Workflow 是“必须按这条路走”；Harness 则让一套领域方法成为强参考，但不把偏离方法本身判成错误。</strong></p>
+<p><strong>Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。</strong></p>
 </blockquote>
 <h2>本项目 Harness 的特性：先从“解一道题”说起</h2>
 <p>很多读者没开发过 Agent，但都做过题。</p>
 <p>一道普通证明题给出条件和结论。解题的人要看懂题目，想起可用的定理，选择证明办法；走不通，就换一条路。</p>
 <p>知识工程里有一个概念叫 Problem-Solving Method（问题求解方法，简称 PSM），讨论的就是“一类问题可以怎样解”。<a href="https://www.cs.vu.nl/~guus/papers/Schreiber07a.pdf">知识工程对 PSM 的介绍</a></p>
-<p>Agent 的运行看起来也很像：理解用户的话，取得需要的信息，调用 Tools，处理返回结果；如果事情还没完成，就继续下一轮。</p>
+<p>Agent 的运行看起来也很像：理解用户的话，取得需要的信息，调用 Tools，处理返回结果；如果还需要 Tool，就继续下一轮；不再需要 Tool，就退出循环并给出答案。</p>
 <p>PSM 让这件事变得好懂，但它到这里就该停了。</p>
 <blockquote>
 <p><strong>PSM 不是 Harness，也没有智能；它只是借“怎样解一道题”这个熟悉视角，让读者看见 Harness 需要为智能体组织和管理题目、方法与临场判断。</strong></p>
 </blockquote>
-<p>Harness 不替模型解题。它负责把这一类题需要的知识、方法、当下材料和可用能力准备好，也接住模型临场做出的动作，保存进度，守住边界，最后检查事情是不是真的完成了。</p>
-<h3>为什么不能强制？</h3>
+<p>Harness 不替模型解题。它把这一类题可能用到的知识、方法、当下材料和能力组织起来，让模型在里面判断。</p>
+<h3>为什么不能写死？</h3>
 <p>同一句“帮我配一套装备”，合法的走法并不只有一条。</p>
 <ul>
 <li>用户只想听建议，Agent 不必进入写入。</li>
 <li>目标角色不清楚，Agent 可以先追问。</li>
 <li>现有证据不够，Agent 可以先读攻略，也可以先看装备数据。</li>
-<li>等用户确认时页面已经变化，原方案就要重新判断。</li>
+<li>Tool 返回结果以后，新的事实可能让模型改变原来的判断。</li>
 </ul>
 <p>这些情况当然可以全写成分支。但分支越写越多，最后得到的是一条巨大的 Workflow，不是一个仍能临场判断的 Agent。</p>
 <blockquote>
 <p><strong>当你把这一切都写死，还有什么意义？到底是你在管这些问题，还是 Harness 在管？</strong></p>
 </blockquote>
-<p>所以，Runtime 不该检查模型有没有逐步照抄推荐方法。模型换了一条路，只要没有越界，并且真实结果通过验证，这项任务仍然可以成功。</p>
-<p>这就是这篇手记最想说的一句：</p>
-<blockquote>
-<p><strong>方法不强制，边界和后果强制。</strong></p>
-</blockquote>
-<h2>Runtime 在整个 Agent 中扮演什么角色？</h2>
-<p>Harness 组织一类业务的完整工作条件，Runtime 负责让这些条件在每一次真实任务中生效。</p>
-<p>它不会替模型判断哪套装备更好。它做的是另外一类事情：</p>
-<table>
-<thead>
-<tr>
-<th>时刻</th>
-<th>Runtime 做什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>模型判断前</td>
-<td>识别业务、固定 Harness 版本、组装当前事实和任务状态、提供 Tools 与方法参考</td>
-</tr>
-<tr>
-<td>模型提出动作后</td>
-<td>检查 Schema（结构定义）、权限、确认、状态版本和写入范围，再决定执行或拒绝</td>
-</tr>
-<tr>
-<td>动作执行后</td>
-<td>刷新真实产品状态，保存进度，检查结果是否达到完成条件</td>
-</tr>
-</tbody></table>
-<p>一项配装可能跨过多轮对话，甚至停半天等用户确认。因此只保存 Session（会话）还不够。</p>
-<p>本文把这一次可暂停、可恢复的具体工作叫作<strong>业务事务</strong>：Session 记得“聊过什么”，业务事务记得“事情做到哪里”。</p>
-<p>比如用户确认前手动换了一件装备。聊天记录没有丢，但旧 Proposal（待确认方案）已经过期。Runtime 要拒绝旧写入，重新取得真实状态，再把变化交还给模型判断。</p>
-<p>于是三者的关系很简单：</p>
-<blockquote>
-<p><strong>Harness 组织工作条件，Runtime 加载条件并强制其中的硬边界，Trace（执行轨迹）记录实际发生了什么。</strong></p>
-</blockquote>
-<details>
-<summary>展开：Runtime 在配装事务中保存和检查什么</summary>
-
-<ul>
-<li>固定这次任务使用的 Business Harness 版本；</li>
-<li>保存目标角色、队伍、当前配装和产品状态版本；</li>
-<li>保存模型形成的候选、用户修正和待确认方案；</li>
-<li>在真实修改前检查权限、确认对象、状态版本和写入范围；</li>
-<li>修改后重新读取真实页面；</li>
-<li>结果一致才完成；不一致就继续处理、恢复或失败。</li>
-</ul>
-<p>OpenAI Agents SDK（OpenAI 智能体开发工具包）已经提供基础 Agent Loop（智能体循环）、会话记忆和 Human-in-the-loop（人在回路）；这里的 Runtime 还要补上业务路由、业务事务、Harness 版本和领域完成条件。<a href="https://openai.github.io/openai-agents-python/running_agents/">OpenAI Agents SDK：Running agents（运行智能体）</a></p>
-</details>
-
+<p>Harness 不固定唯一解法。它要做到的，是让合适的方法在合适的时候成为模型的<strong>强参考</strong>。</p>
 <h2>典型的垂直领域 Harness</h2>
 <p>垂直领域不是把 Agent 的名字换成行业名词。</p>
 <p>它真正特殊的地方，是<strong>同一类问题会反复出现</strong>。</p>
-<h3>1、垂直领域的特性：解决实际问题</h3>
-<p>今天有人要配装，明天还会有人要配装。</p>
-<p>每次的角色、队伍、页面状态和用户意图都不同。模型要读哪些材料、先问什么、怎样比较，也可能不同。</p>
-<p>但这项业务承担什么责任，哪些来源可信，可以使用哪些能力，哪里不能写，怎样才算完成，却会反复出现。</p>
-<p><strong>稳定的不是一条解题路线，而是一类问题的工作条件。</strong></p>
-<details>
-<summary>展开：通用 Agent 与垂直领域 Agent 的工程重心</summary>
-
-<table>
-<thead>
-<tr>
-<th>通用 Agent</th>
-<th>垂直领域 Agent</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>问题范围开放，结构多由用户临时给出</td>
-<td>问题集合相对稳定，可以提前建模</td>
-</tr>
-<tr>
-<td>按任务临时寻找事实来源</td>
-<td>可以预先规定每类事实的权威来源</td>
-</tr>
-<tr>
-<td>每次临时规划</td>
-<td>同类问题可以积累方法参考</td>
-</tr>
-<tr>
-<td>完成条件随任务变化</td>
-<td>可以沉淀写入范围和后置条件</td>
-</tr>
-<tr>
-<td>主要迭代通用能力</td>
-<td>还要迭代知识、方法和业务版本</td>
-</tr>
-</tbody></table>
-<p>这只是工程重心，不是绝对分类。Multi-agent（多智能体）解决的是几个 Agent 怎样分工，也不会自动补齐这些业务建模。</p>
-</details>
-
-<h3>2、以本项目为例</h3>
-<p>再走一次开头那句话：</p>
+<p>今天有人要配装，明天还会有人要配装。每次的角色、队伍、页面状态和用户意图都不同，模型的判断也可能不同。</p>
+<p>反复出现的，是游戏知识、可用能力、常见方法，以及它们应该在什么时候进入这次问题。</p>
+<p><strong>稳定的不是一条解题路线，而是可以反复组织起来的工作条件。</strong></p>
+<h3>再看一次配装</h3>
 <blockquote>
 <p>帮我给当前角色搭一套适合当前队伍的装备。</p>
 </blockquote>
-<p>用户要的是完整配装，不是查询某件装备，也不是修改一个栏位。于是这项请求进入配装 Business Harness。</p>
-<p>模型可能先确认“当前角色”是谁，也可能已经从页面取得答案；可能先看现有装备，也可能因为目标含糊而先追问。Harness 不固定这个顺序。</p>
-<p>但它会把需要的条件组织起来：真实角色与队伍、当前配装、带来源的攻略、装备数据、公式、可用 Tools、写入边界，以及这次任务已经做到哪里。</p>
-<p>模型据此形成方案。用户只要建议，可以到这里结束；用户要应用，Runtime 就在写入前检查确认和页面版本，写入后再读真实页面。Tool 返回 <code>success</code>，仍然不等于整项业务已经完成。</p>
-<p>配装 Business Harness 对用户承担的完整承诺，可以写成一句话：</p>
-<blockquote>
-<p><strong>理解目标，基于可追溯的事实形成可解释方案；需要落到产品时，经用户确认，在配装边界内修改，并用真实产品状态证明结果。</strong></p>
-</blockquote>
-<h2>垂直领域的知识（游戏知识）</h2>
-<h3>1、游戏知识和 Harness 的关系</h3>
+<p>模型第一次判断前，可能需要看到当前角色、队伍、现有装备和一份配装方法。</p>
+<p>如果材料不够，它可能先追问，也可能调用查询 Tool。Tool Result（工具结果）回来以后，当前材料发生变化，模型再做下一轮判断。</p>
+<pre><code class="language-text">当前 Context
+→ 模型判断
+→ 需要 Tool，就调用
+→ Tool Result 回到 Context
+→ 模型继续判断
+→ 不再需要 Tool，给出答案
+</code></pre>
+<p>这个例子不需要继续规定“正确的配装流程”。它只用来说明一件事：<strong>模型每一轮看见什么，会直接影响它怎样使用 Tools。</strong></p>
+<h2>垂直领域的知识</h2>
 <p><strong>Harness 使用知识，但不复制知识。</strong></p>
-<p>它要说明的是：这类问题需要哪些知识，去哪里读，各自能证明什么。攻略更新不该迫使整个流程重写；方法调整也不该复制一份新的装备数据库。</p>
+<p>它要组织的是：这类问题需要哪些知识，去哪里读，什么时候读。攻略更新不该迫使整个 Harness 重写；方法调整也不该复制一份新的装备数据库。</p>
 <details>
-<summary>展开：配装 Harness 使用的几类知识</summary>
+<summary>展开：配装时可能出现的几类材料</summary>
 
 <table>
 <thead>
 <tr>
-<th>知识角色</th>
-<th>权威来源</th>
+<th>材料</th>
+<th>来源</th>
 <th>用来做什么</th>
 </tr>
 </thead>
 <tbody><tr>
 <td>当前事实</td>
 <td>真实产品状态</td>
-<td>确定这次问题的起点</td>
+<td>看清角色、队伍和现有配装</td>
 </tr>
 <tr>
 <td>游戏事实</td>
@@ -367,228 +240,118 @@
 <td>形成候选、解释选择</td>
 </tr>
 <tr>
-<td>本次决定</td>
-<td>业务事务</td>
-<td>保存修正、Proposal 和确认</td>
+<td>运行结果</td>
+<td>Tool Result</td>
+<td>把已经发生的事情带进下一轮</td>
 </tr>
 </tbody></table>
-<p><strong>文字可以解释证据，不能代替证据。</strong></p>
+<p>文字可以解释证据，不能代替证据。</p>
 </details>
 
-<details>
-<summary>展开：为什么 Context 不该一次塞满</summary>
-
-<p>产品状态、Catalog、攻略、公式结果、业务事务和会话历史有不同的来源与寿命。业务 Harness 只声明需要什么，Runtime 再按本轮任务选择、压缩和刷新。</p>
-<p>代码侧还可能保留身份、权限和任务引用；真正进入模型的，只是当前判断所需的信息。OpenAI Agents SDK 也区分 Local Run Context（本地运行上下文）与 Model-visible Context（模型可见上下文）。<a href="https://openai.github.io/openai-agents-python/context/">OpenAI Agents SDK：Context management（上下文管理）</a></p>
-</details>
-
-<h3>2、问题：写死 Prompts（提示词）？实际遇到的迭代问题</h3>
+<p>这里最重要的变化，是不要再把所有材料一次塞满。</p>
+<p>有些 Context 从任务开始就需要；有些只在准备调用某个 Tool 时有用；还有一些，必须等 Tool Result 回来以后才成立。</p>
+<p>到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong>来源、用途和运行位置</strong>。</p>
+<h2>写死 Prompt 以后，我们实际遇到了什么？</h2>
 <p>项目早期把业务规则写进 Prompt，没有错。业务还没稳定时，这是验证想法最快的地方。</p>
 <p>后来遇到一个很实际的问题：Skill 偶尔没有加载。</p>
-<p>为了保险，我们把关键规则复制进固定 Prompt。接着又复制到 Tool Description（工具描述）和 Runtime。Prompt 越来越长，同一句“应用配装前必须确认”也到处都是。</p>
+<p>为了保险，我们把关键规则复制进固定 Prompt。接着又复制到 Tool Description 和 Runtime。同一句“应用配装前必须确认”，到处都有一点。</p>
 <p>这时问题已经不是“Prompt 太长”，而是：</p>
 <blockquote>
-<p><strong>一项业务行为被写在很多地方，却没有一个完整的责任主体。</strong></p>
+<p><strong>我们没有一个地方说清楚：一份 Context 由谁提供，又应该在什么时候出现。</strong></p>
 </blockquote>
-<p>解法不是再写一份更大的 Prompt。方法和完成条件回到 Business Harness，状态与硬边界交给 Runtime 和 Product Kernel（产品内核）。Prompt 仍然可以迭代，只是不再充当所有业务规则的仓库。</p>
-<details>
-<summary>展开：一项行为应该由谁负责</summary>
-
-<table>
-<thead>
-<tr>
-<th>内容</th>
-<th>主要负责人</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>当前页面和方案事实</td>
-<td>Host Kernel（宿主内核）</td>
-</tr>
-<tr>
-<td>业务目标、方法参考、知识角色和完成条件</td>
-<td>Business Harness</td>
-</tr>
-<tr>
-<td>带来源和适用条件的攻略</td>
-<td>领域知识</td>
-</tr>
-<tr>
-<td>单个能力的输入、输出、错误和执行</td>
-<td>Typed Tool（类型化工具）</td>
-</tr>
-<tr>
-<td>路由、事务、版本、Context 和阶段推进</td>
-<td>Harness Runtime</td>
-</tr>
-<tr>
-<td>权限、审批、写入和真实后置检查</td>
-<td>Product Kernel（产品内核）</td>
-</tr>
-<tr>
-<td>实际发生了什么</td>
-<td>Trace（执行轨迹）</td>
-</tr>
-</tbody></table>
-<p><a href="https://ruhan-wang.github.io/Harness-Handbook/#one-behavior-many-implementation-sites">Harness Handbook</a>（《运行支架手册》）把这类问题称为“一个行为，多个实现位置”。文件树告诉我们代码放在哪里；业务 Harness 和 Trace 让我们追问这项行为由谁负责、实际有没有发生。</p>
-</details>
-
-<h3>3、Typed Tools（类型化工具）完成之后，迭代的是什么？</h3>
-<p>Typed Tools 完成，只表示 Agent 的手相对稳定了。</p>
-<p>之后长期变化的，是它<strong>怎样使用这些手解决业务</strong>：配装方法会变，攻略会变，产品动作会增加，审批和状态检查也会调整。</p>
-<p>把变化放回正确位置，项目才回答得了两件事：<strong>这次行为为什么变了？只改配装，会不会误伤选人、排轴或 BUFF？</strong></p>
-<details>
-<summary>展开：常见变化应该落在哪里</summary>
-
-<table>
-<thead>
-<tr>
-<th>变化</th>
-<th>主要修改位置</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>新增读取或写入能力</td>
-<td>Typed Tool 与产品接口</td>
-</tr>
-<tr>
-<td>Tool 参数、返回值或错误变化</td>
-<td>Tool Schema（工具结构定义） / Handler（处理器）</td>
-</tr>
-<tr>
-<td>装备数据或公式变化</td>
-<td>Catalog / Formula Engine（公式引擎）</td>
-</tr>
-<tr>
-<td>攻略结论和适用条件变化</td>
-<td>领域知识</td>
-</tr>
-<tr>
-<td>配装怎样分析、追问和形成候选</td>
-<td>配装 Harness 版本</td>
-</tr>
-<tr>
-<td>事务、阶段和版本怎样运行</td>
-<td>Harness Runtime</td>
-</tr>
-<tr>
-<td>权限、审批或写入范围变化</td>
-<td>Runtime / Product Kernel</td>
-</tr>
-<tr>
-<td>真实结果怎样验证</td>
-<td>产品状态与 Trace</td>
-</tr>
-</tbody></table>
-</details>
-
-<h2>拆解业务 → 建模：从方法走向可迭代体系</h2>
-<p>方法、知识和执行责任各自归位以后，还差一个边界。</p>
-<p>如果全部塞进一个通用 Harness，改配装方法时，选人、排轴和计算都可能一起受影响。反过来，如果按字段或 Tool 切得太碎，又没有任何东西对“搭好一套装备”负责。</p>
-<p>所以真正的问题不是“文件放在哪个目录”，而是：</p>
+<p><a href="https://ruhan-wang.github.io/Harness-Handbook/#one-behavior-many-implementation-sites">Harness Handbook</a>把类似问题称为“一个行为，多个实现位置”。一条行为可能同时经过 Prompt、Tool Wrapper（工具包装器）、权限、状态和执行环境。只看文件树，很难知道它真正散落在哪里。</p>
+<p>Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map（行为地图）。</p>
+<p>这也给了我们一个更具体的方向：既然 Tool 可以注册，Context 为什么不能注册？</p>
+<h2>从 Harness 拆出 Context 原子</h2>
+<p>我们一开始把这件事叫作“原子化 Harness”。</p>
+<p>这个名字很容易让人误会：仿佛要先规定若干个“小 Harness”，再把每一项业务塞进去。</p>
+<p>其实不是。</p>
+<p>Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong>Context Source（上下文源）</strong>。</p>
 <blockquote>
-<p><strong>哪一块能接住一件完整工作，而且可以独立修改？</strong></p>
+<p><strong>Context Source 是一份可以独立注册的 Context。它说明自己提供什么、什么时候需要，以及进入 Agent Loop（智能体循环）的哪个位置。</strong></p>
 </blockquote>
-<h3>1、形象的说法：原子化 Harness</h3>
-<p>这里的“原子”不是最小文件、最小 Tool 或最小步骤，而是：</p>
-<blockquote>
-<p><strong>一类拥有完整业务责任、明确写入边界，并且可以独立版本化和完成验证的领域问题。</strong></p>
-</blockquote>
-<p>用户会把它当成一件完整工作提出。它有自己的方法参考、知识角色、任务状态、能力范围和完成条件，也值得独立发布和回退。</p>
-<p>按这个标准，本项目可以拆成五个 Business Harness：</p>
+<p>原子的数量当然不固定。以后多一种知识、多一种 Tool 用法，或者多一种 Tool Result 的解释方式，都可以继续增加新的 Context Source。</p>
+<h3>像注册 Tool 一样注册 Context</h3>
+<p>Tool Registry（工具注册表）不会只保存一段 Tool 代码。它还要让系统知道这个 Tool 是什么、能做什么、怎样调用，以及调用发到哪里。</p>
+<p>Context Registry（上下文注册表）要回答的是另一组问题：</p>
 <table>
 <thead>
 <tr>
-<th>Business Harness</th>
-<th>它负责什么</th>
-<th>完成证据</th>
+<th>Tool Registry</th>
+<th>Context Registry</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>选人</td>
-<td>增加、删除、替换和调整队伍</td>
-<td>真实页面中的当前队伍</td>
+<td>这是什么能力？</td>
+<td>这是什么 Context？</td>
 </tr>
 <tr>
-<td>配装</td>
-<td>分析、比较、预览和应用角色配置</td>
-<td>真实角色配置页</td>
+<td>什么情况下可以找到它？</td>
+<td>什么情况下需要它？</td>
 </tr>
 <tr>
-<td>排轴</td>
-<td>添加、移动、替换和应用技能按钮</td>
-<td>真实时间轴</td>
+<td>输入和输出是什么？</td>
+<td>来源和呈现内容是什么？</td>
 </tr>
 <tr>
-<td>BUFF</td>
-<td>查询、添加、替换和批量处理 BUFF</td>
-<td>真实按钮 BUFF 状态</td>
+<td>调用路由到哪里？</td>
+<td>它进入 Agent Loop 的哪个位置？</td>
 </tr>
 <tr>
-<td>计算统计</td>
-<td>计算、比较、归因和解释</td>
-<td>绑定方案与公式版本的结果</td>
+<td>Tool 执行后返回什么？</td>
+<td>状态变化后怎样更新或移除？</td>
 </tr>
 </tbody></table>
-<p>所以“当前角色”是实体，“适合当前队伍”是目标条件，武器和护甲是候选的一部分，<code>apply_loadout</code> 是 Tool；<strong>“搭一套装备”才是一项完整业务。</strong></p>
-<p>原子化保护的是完整责任和独立迭代，不是把系统切得越碎越好。</p>
-<h3>2、为什么需要版本？</h3>
-<p>版本不是为了给每段 Prompt 和每次 Tool Call（工具调用）编号。只有能独立接住一件事、也会独立变化的业务能力，才值得单独版本化。</p>
-<p>配装 V1 已经形成待确认方案，用户离开了。第二天 V2 发布。用户回来点击“确认”时，这项任务不能偷偷换成 V2——他确认的是 V1 在当时事实下形成的方案。</p>
-<p>所以任务开始时固定版本。新任务可以使用 V2，进行中的任务继续使用 V1，除非旧版本被明确撤销。</p>
-<details>
-<summary>展开：业务定义、版本和事务分别记录什么</summary>
-
-<table>
-<thead>
-<tr>
-<th>记录</th>
-<th>负责什么</th>
-<th>例子</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>业务定义</td>
-<td>稳定的责任、写入范围和完成条件</td>
-<td>配装能改装备，不能改队伍成员</td>
-</tr>
-<tr>
-<td>Business Harness 版本</td>
-<td>本次发布采用的方法参考、知识入口和异常处理</td>
-<td>配装 V1、V2</td>
-</tr>
-<tr>
-<td>业务事务</td>
-<td>这一次的目标、证据、Proposal、确认和进度</td>
-<td>正在给当前角色配装</td>
-</tr>
-</tbody></table>
-</details>
-
-<h3>3、业务拆分？No，是五项完整能力</h3>
-<p>如果只是把代码分成五个目录，事情没有完成。</p>
-<p>每个 Business Harness 都要有自己的<strong>业务责任、方法参考、知识角色、事务状态、能力范围、写入边界、完成验证和版本生命周期</strong>。它们可以共享 Tools、知识和产品状态，但不能共享模糊的业务所有权。</p>
-<p>跨业务请求也不需要一个“万能 Harness”。Manager（管理器）可以保存总体计划，再按当前目标创建需要的业务事务；每一项实际工作仍由自己的 Business Harness 负责。</p>
-<p>最终得到的不是五份更长的 Prompt，而是<strong>五项可以独立运行、换版、验证和追溯的领域问题求解能力</strong>。</p>
-<details>
-<summary>展开：字段位置和跨业务计划都不会取消业务边界</summary>
-
-<p><code>selectedBuff</code> 可能保存在时间轴按钮上。排轴 Harness 负责按钮身份、位置和顺序；BUFF Harness 负责同一按钮上的 BUFF。字段住在同一个对象里，不代表两个业务可以互相修改对方的责任范围。</p>
-<p>用户同时提出换人、配装、排轴、上 BUFF 和计算时，Manager 保存的是跨业务计划。下面只是一种可能的依赖顺序，不是 Harness 的默认定义：</p>
-<pre><code class="language-text">选人 → 配装 → 排轴 → BUFF → 计算
+<p>这张表不是要把模型的判断重新写死。Registry 只负责让每个 Context 原子有名字、有来源、有位置；模型仍然根据这些 Context 判断下一步。</p>
+<h3>“位置”到底在哪里？</h3>
+<p>Context 不会异步插进一个正在执行的 Tool 中间。</p>
+<p>对模型可见的 Context，最终都要在一次模型调用开始前到位：</p>
+<pre><code class="language-text">Context Sources
+→ 在模型调用前组装
+→ 模型决定是否调用 Tool
+→ Tool 执行并返回结果
+→ Context Sources 根据新状态刷新
+→ 在下一次模型调用前重新组装
 </code></pre>
-<p>前一步失败、被拒绝或过期，后一步就不能继续消费旧结果。</p>
+<p>所以：</p>
+<ul>
+<li>“Tool 调用前的 Context”，是产生这次 Tool Call（工具调用）的模型回合开始前已经可见的内容；</li>
+<li>“怎样调用 Tool”的 Context，也在这个位置成为方法参考；</li>
+<li>“Tool 调用后的 Context”，是在 Tool Result 落定以后、下一次模型回合开始以前进入的内容。</li>
+</ul>
+<p>硬能力仍然属于 Tool。Context Source 告诉模型当前有什么、可以怎样理解和使用；Tool Schema（工具结构定义）与 Handler（处理器）继续决定程序真正怎样执行。</p>
+<p>这也是“非强制，但强参考”在工程上最直观的样子：方法没有被藏在一份可能不加载的目录里，也没有被写成唯一 Workflow；它被放到真正需要它的 Context 位置。</p>
+<details>
+<summary>展开：OpenCode 已经使用的几个名字</summary>
+
+<p>OpenCode 当前把一个可独立观察、拥有稳定 key（键）、可以单独刷新和渲染的值叫作 <strong>Context Source</strong>。</p>
+<p>多个 Context Sources 由 <strong>System Context Registry（系统上下文注册表）</strong> 注册和组合。第一次模型调用时，它们形成初始 Context；后续状态变化，则在 Tool Result 等内容落定以后、下一次模型调用以前进入。</p>
+<p>这个位置叫 <strong>Safe Provider-Turn Boundary（安全模型回合边界）</strong>。</p>
+<p>此前的一轮项目实现里，我们还使用过 <strong>Bound Context Source（绑定上下文源）</strong>：它强调某份 Context 绑定到一个具体阶段，而不是永远占据全局 Prompt。</p>
+<p><a href="https://arxiv.org/abs/2606.14249">HarnessX</a>把可组合的 Harness 部件称为 Typed Harness Primitives（类型化 Harness 原语）。名称并不统一，但它提供了一个相近的思路：Harness 可以从一块整体，变成可以定位和单独调整的组成部分。</p>
 </details>
 
+<h2>Typed Tools 完成之后，迭代的是什么？</h2>
+<p>Typed Tools 完成，只表示 Agent 的手相对稳定了。</p>
+<p>之后长期变化的，是它在每个位置拿到的 Context：</p>
+<ul>
+<li>配装方法变了，修改对应的方法 Context；</li>
+<li>攻略变了，更新知识来源；</li>
+<li>新增 Tool，补上它的用途和调用前 Context；</li>
+<li>Tool Result 结构变了，调整调用后的解释 Context；</li>
+<li>出现一种新问题，注册新的 Context Source。</li>
+</ul>
+<p>这些改变不需要预先凑成固定数量的业务，也不需要重写一份总 Prompt。</p>
+<p>Context Source 有稳定身份以后，变化才有位置；Registry 能增加、移除和组合它们以后，Harness 才真正变得可管理。</p>
 <h2>先停在这里</h2>
 <p>绕了一圈，Harness 仍然是最合适的主名称。</p>
-<p>因为它说的是方法、材料、能力、状态和约束围绕 Agent 形成的整体，而不是其中某一个部件。</p>
-<p>它不替模型预先解完问题，也不要求模型走唯一的路。它给模型足够强的参考，再由 Runtime 守住能力、状态、执行和完成边界。</p>
-<p>所以本篇最后留下的，不是一张配装流程图，而是一个判断：</p>
+<p>因为它说的是领域知识、问题求解方法、Context、能力、状态和运行条件围绕 Agent 形成的整体，而不是其中某一个 Context Source。</p>
+<p>它不替模型预先解完问题，也不要求模型走唯一的路。它把需要的 Context 放到相应的位置，让方法成为<strong>非强制，但强参考</strong>。</p>
+<p>所以本篇最后留下的，不是一张固定配装流程图，也不是一组固定数量的“小 Harness”，而是这样一个理解：</p>
 <blockquote>
-<p><strong>垂直领域 Harness 把一类反复出现的业务问题，变成模型可以自主判断、系统可以持续管理、结果可以真实验证的完整能力。</strong></p>
+<p><strong>Harness 是整体；Context Source 是可以注册、增加、组合并绑定运行位置的原子。</strong></p>
 </blockquote>
-<p>至于运行轨迹怎样反过来改进 Harness，又怎样形成自训练，留到下一篇单独说。</p>
+<p>至于运行留下的经验怎样反过来改进这些 Context Sources，又怎样形成自训练，留到下一篇单独说。</p>
 </article>
     <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
   </main>
