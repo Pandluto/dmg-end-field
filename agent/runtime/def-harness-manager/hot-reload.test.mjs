@@ -144,6 +144,10 @@ test('same-version hot reload preserves the pinned content for a fresh runtime',
       recursive: true,
       force: true,
     });
+    fs.rmSync(path.join(businessRoot, 'loadout', 'revisions', 'v3'), {
+      recursive: true,
+      force: true,
+    });
     const firstRuntime = new HarnessTransactionRuntime({
       sessionDirectory,
       businessRoot,

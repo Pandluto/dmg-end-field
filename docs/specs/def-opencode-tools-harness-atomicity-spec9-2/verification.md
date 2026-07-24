@@ -1,10 +1,10 @@
 # Spec 9-2 实现与验收记录
 
-日期：2026-07-23
+日期：2026-07-24
 
 分支：`codex/def-opencode-spec9-2-implementation`
 
-当前实现基线：`d9dfc214`；本次 Selection 回归修复：本提交
+本轮会话回归修复基线：`d9ee61ea`；本次 Harness 修复：本提交
 
 ## 结论
 
@@ -47,7 +47,7 @@
 
 | 命令 | 结果 |
 | --- | --- |
-| `npm run test:def-harness-manager` | 通过：58 个 Manager 测试及全部聚合合同 |
+| `npm run harness:check` | 通过：64 个 Manager 测试及全部聚合合同 |
 | `npm run typecheck` | 通过 |
 | `npm test` | 通过 |
 | `npm run build:web` | 通过；仅保留既有 chunk/dynamic-import 警告 |
@@ -99,6 +99,42 @@ Session/run/turn 和定性结果，不能把它们冒充为完整性能记录。
 
 这组证据只证明 **Selection replace 的非空真实路径**。它不代替 Selection
 新增/删除、approval 拒绝以及另外四项业务的 mutation 验收。
+
+## 2026-07-24 会话回归修复
+
+失败证据来自用户手点 Session
+`ses_070335059ffebgyP4ijmEeHilU`。原始导出、结构化轨迹和审计保存在被 Git 忽略的
+`data/localdata/def-session-audits/ses_070335059ffebgyP4ijmEeHilU/`。该会话确认了四个
+相关问题：普通对话会进入 route/question 循环；具名套装会误走套装发现；opaque
+artifact 文案与阶段投影矛盾；planner `PARTIAL` 会被回答成“最佳/最优”。
+
+本次修复只调整 Harness、Harness Manager、Manager plugin 投影和内部 route/artifact
+合同；没有修改任何选人、配装、排轴、BUFF 或伤害业务 Tool handler。
+
+| 验证 | Interop 证据 | 结果 |
+| --- | --- | --- |
+| 普通称赞 | Session `ses_06e2c8b8bffeiQXk9eFppmoEWi`，run `61eb1b04-c3bf-45b9-bc17-ce6099d37ea9`，turn `87f851c2-37d4-45b1-ad67-7cf29cbdae5c` | “你还挺聪明”命中 `conversation/social-praise`；0 Tool、0 question，约 2.1 秒完成，真实 iframe 显示自然中文回答 |
+| 具名套装边界失败 1 | Session `ses_06e1ced3affeWRS2P6VGUDRteb`，run `e3cef7bd-25a8-473a-8852-c0703b22be0c` | 暴露 `动火用` 与模型提交的 `动火用配件` 被误判冲突；该 run 含 Tool error，不记 PASS |
+| 具名套装边界失败 2 | Session `ses_06e1b711dffeLkFVBqCUnqfAp1`，run `525ee254-7d04-4167-8610-f37ef77372ed` | 暴露模型仍可把明确的配件请求误提交为 clarify；产生 1 张问题卡，不记 PASS |
+| 最终具名套装回归 | Session `ses_06e16a60effeAjwLEUrelH6n7Q`，run `f7417795-6cd7-4c7d-a12c-7454a3efcb06`，turn `83fc3249-fb97-47de-b9e0-b7e6756ac4a4` | Harness `v3@c2bca318…`；确定性进入 `loadout/recommend/named-set`，5 个业务 Tool 全成功，0 question，约 26.7 秒完成 |
+| 真实 UI 与状态 | 同一最终回归 | 最终 PARTIAL 回答在真实 iframe 可见；没有 HTML、攻略替代、追问或无证据的稳定触发断言。checkout、revision `1784823989871`、四人队伍和 `pending=null` 前后不变 |
+
+最终具名套装的只读序列为：
+
+```text
+operator_build_guide
+→ operator_build_profile
+→ native_catalog_materialize
+→ equipment_3plus1_facts
+→ equipment_3plus1_plan(PARTIAL)
+```
+
+没有 `equipment_set_fit_shortlist`、generic native read、mutation、approval 或 Work Node
+Tool。Manager 在模型调用前从用户原文固定 `equipment-set:动火用`，后续又覆盖模型可编辑的
+artifact id、profile capability 和完整 planner profile。Materializer 对模型只暴露
+opaque artifact id；服务端仍持有完整 artifact 供 typed Tool 校验。最终回答逐项保留
+`所有技能伤害`、`终结技伤害`、`连携技伤害` 三项 missing，并明确不是伤害模拟或唯一
+最优结论。
 
 ## Task 15 剩余验收
 

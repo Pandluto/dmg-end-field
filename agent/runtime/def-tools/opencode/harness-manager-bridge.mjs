@@ -78,6 +78,30 @@ export function transformHarnessCompletedText({ sessionId, text }) {
   return '这次没有形成可读的业务结论，请重新说一次你的目标。'
 }
 
+export function projectHarnessToolResult({ tool, output }) {
+  if (tool !== 'def_data_native_catalog_materialize' || typeof output?.output !== 'string') return output
+  let parsed
+  try {
+    parsed = JSON.parse(output.output)
+  } catch {
+    return output
+  }
+  if (!parsed?.artifactId) return output
+  output.output = JSON.stringify({
+    contract: parsed.contract,
+    artifactId: parsed.artifactId,
+    domain: parsed.domain,
+    selectionMode: parsed.selectionMode,
+    query: parsed.query,
+    source: parsed.source,
+    expiresAt: parsed.expiresAt,
+    readOnly: parsed.readOnly === true,
+    reused: parsed.reused === true,
+    nextAction: 'Pass artifactId directly to the one Tool projected by the current Harness phase. Do not read artifact files.',
+  })
+  return output
+}
+
 export async function projectHarnessTools({ sessionId, directory, tools }) {
   if (!sessionId || !directory) return null
   sessionDirectories.set(sessionId, directory)
@@ -173,6 +197,7 @@ export async function advanceHarnessToolAfter({ sessionId, turnId, tool, callId,
     canonicalToolId: canonicalToolId(tool),
     output,
   })
+  projectHarnessToolResult({ tool, output })
 }
 
 export async function advanceHarnessToolFailure(event) {

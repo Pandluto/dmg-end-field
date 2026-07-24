@@ -2144,7 +2144,7 @@ export const data_equipment = dataResource({
 })
 
 export const data_native_catalog_materialize = {
-  description: 'Materialize one deterministic, read-only equipment or weapon catalog artifact inside this native session. Call once per domain/query turn, then read its manifest and use native grep/read only under the returned retrieval root. This tool never recommends, applies configuration, reads raw local storage, or returns catalog content in its model output.',
+  description: 'Materialize one deterministic, read-only equipment or weapon catalog artifact inside this native session. In a typed equipment-planning flow, treat the returned artifactId as opaque and pass it directly to the next projected typed Tool; do not insert a generic file read. The retrieval root remains available only for an explicitly projected native catalog-inspection flow. This tool never recommends, applies configuration, or reads raw local storage.',
   args: {
     domain: tool.schema.enum(['equipment', 'weapon']).describe('Catalog domain to materialize.'),
     query: tool.schema.string().min(1).max(240).describe('The user wording to select an exact entity, deterministic substring records, or an explicit no-match fallback.'),
@@ -2192,22 +2192,22 @@ function readNativeCatalogArtifactForFacts(context, artifactId) {
   }
   cleanupExpiredNativeArtifacts(context)
   const entry = nativeCatalogArtifactsBySession.get(context?.sessionID)?.get(normalizedId)
-  if (!entry) throw new Error('native-catalog-artifact-not-found: materialize and read an unexpired artifact in this session first')
+  if (!entry) throw new Error('native-catalog-artifact-not-found: materialize an unexpired artifact in this session first')
   const manifest = readNativeArtifactManifest(entry.root)
   if (!manifest || manifest.contract !== nativeCatalogArtifactContract || manifest.artifactId !== normalizedId || manifest.domain !== 'equipment') {
     throw new Error('native-catalog-artifact-invalid: the supplied artifact is not an intact equipment evidence artifact')
   }
   if (Number(manifest.expiresAt) <= Date.now() || !nativeArtifactFilesMatch(entry.root, manifest)) {
     removeNativeCatalogArtifact(context, normalizedId, entry.root)
-    throw new Error('native-catalog-artifact-expired-or-tampered: materialize a fresh equipment artifact and read its manifest')
+    throw new Error('native-catalog-artifact-expired-or-tampered: materialize a fresh equipment artifact')
   }
   return { root: entry.root, manifest }
 }
 
 export const data_equipment_3plus1_facts = {
-  description: 'After reading an exact native equipment artifact manifest, return a compact complete summary of every physical-slot topology satisfying at least three named-set memberships. Target-set facts are emitted once, large off-set pools are not embedded, and a compatible accessory may legally occupy both accessory slots. This facts tool never ranks or applies equipment.',
+  description: 'From one opaque session-bound native equipment artifact, return a compact complete summary of every physical-slot topology satisfying at least three named-set memberships. Target-set facts are emitted once, large off-set pools are not embedded, and a compatible accessory may legally occupy both accessory slots. This facts tool never ranks or applies equipment.',
   args: {
-    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    artifactId: tool.schema.string().min(20).max(96).describe('Opaque artifactId returned by def_data_native_catalog_materialize in this session; pass it directly without a generic file read.'),
     setQuery: tool.schema.string().min(1).max(160).describe('One exact equipment set name from that artifact.'),
     characterId: tool.schema.string().min(1).max(160).optional().describe('Optional selected character identity. It is recorded only; it never supplies an unverified attribute preference.'),
   },
@@ -2256,7 +2256,7 @@ const equipmentPreferenceGroupSchema = tool.schema.object({
 export const data_equipment_set_fit_shortlist = {
   description: 'When the user asks which equipment set should anchor a 3+1 build and has not already fixed one exact set, review every set in the current native artifact before choosing. Requires the unchanged same-turn plannerProfile/capability. It requires a typed three-piece effect and a legal minimum-three-slot topology, ranks set-effect fit before piece coverage, returns the evidence for every reviewed set, and never mutates configuration. A typed failure is terminal for this recommendation turn.',
   args: {
-    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    artifactId: tool.schema.string().min(20).max(96).describe('Opaque artifactId returned by def_data_native_catalog_materialize in this session; pass it directly without a generic file read.'),
     plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile.'),
     characterProfile: tool.schema.object({
       characterId: tool.schema.string().min(1).max(160),
@@ -2350,7 +2350,7 @@ export const data_weapon_fit_plan = {
 export const data_equipment_3plus1_plan = {
   description: 'Build one bounded read-only 3+1 shortlist from the same session artifact and the unchanged plannerProfile issued by def_data_operator_build_guide or def_data_operator_build_profile. The exact same-turn plannerProfileCapability is mandatory and prevents model-edited evidence. Primary/secondary attributes are character effect priorities and are never matched against equipment fixedStat. The planner exhaustively checks at least three named-set memberships, all four physical slots, and optional duplicate compatible accessories, then returns exact ids plus per-piece matchKeys/count/rankingBasis/missing/ambiguity. It never invents a character profile, simulates damage, previews mutation, or applies equipment.',
   args: {
-    artifactId: tool.schema.string().min(20).max(96).describe('artifactId returned by def_data_native_catalog_materialize after its manifest has been read.'),
+    artifactId: tool.schema.string().min(20).max(96).describe('Opaque artifactId returned by def_data_native_catalog_materialize in this session; pass it directly without a generic file read.'),
     setQuery: tool.schema.string().min(1).max(160).describe('One exact named equipment set from that artifact.'),
     plannerProfileCapability: tool.schema.string().min(20).max(160).describe('Exact opaque same-turn capability returned with the unchanged plannerProfile by guide discovery or authorized fallback.'),
     characterProfile: tool.schema.object({
@@ -2417,17 +2417,26 @@ const harnessRouteStepSchema = tool.schema.object({
   target: tool.schema.string().max(240).optional(),
   requestedEffect: tool.schema.string().min(1).max(240),
   constraints: tool.schema.array(tool.schema.string().min(1).max(240)).max(16).optional(),
+  equipmentSetMode: tool.schema.enum(['named-set', 'discover-set']).optional()
+    .describe('Required for loadout equipment recommendations: named-set when the user fixed a set, discover-set only when the Harness must choose one.'),
+  equipmentSetQuery: tool.schema.string().min(1).max(160).optional()
+    .describe('Exact user-named equipment set. Required with named-set and forbidden with discover-set.'),
 })
 
 export const harness_route = {
-  description: 'Submit one structured Harness Manager route classification. This internal route capability validates only business, operation, target, requested effect, ordered cross-business steps, or an ambiguity question. It does not read game knowledge, answer the business request, or change product state.',
+  description: 'Submit one structured Harness Manager route classification. Use conversation for social or direct non-business dialogue, clarify only when missing business information blocks operation selection, and otherwise submit one business operation or ordered cross-business plan. This internal capability does not read game knowledge, answer the business request, or change product state.',
   args: {
-    kind: tool.schema.enum(['new-business', 'cross-business', 'clarify']),
+    kind: tool.schema.enum(['conversation', 'new-business', 'cross-business', 'clarify']),
+    intent: tool.schema.string().min(1).max(80).optional().describe('Short dialogue intent when kind=conversation, such as greeting, praise, acknowledgement, closing, or direct-question.'),
     businessId: tool.schema.enum(['selection', 'loadout', 'timeline', 'buff', 'calculation']).optional(),
     operation: tool.schema.string().min(1).max(80).optional(),
     target: tool.schema.string().max(240).optional(),
     requestedEffect: tool.schema.string().max(240).optional(),
     constraints: tool.schema.array(tool.schema.string().min(1).max(240)).max(16).optional(),
+    equipmentSetMode: tool.schema.enum(['named-set', 'discover-set']).optional()
+      .describe('Required for a loadout equipment recommendation: named-set if the user named a set, otherwise discover-set.'),
+    equipmentSetQuery: tool.schema.string().min(1).max(160).optional()
+      .describe('Exact user-named equipment set; required only when equipmentSetMode=named-set.'),
     goal: tool.schema.string().max(480).optional(),
     steps: tool.schema.array(harnessRouteStepSchema).min(2).max(5).optional(),
     question: tool.schema.string().max(240).optional(),

@@ -227,8 +227,9 @@ transcript and verify this read-only order:
 2. Only for `PARTIAL_GUIDE_FOUND` or `GUIDE_NOT_FOUND`, call
    `def_data_operator_build_profile` once with the exact returned fallback token. A complete
    guide result must not call the fallback profile.
-3. Call `def_data_native_catalog_materialize` once, native-read its returned `manifestPath`,
-   and use artifact-only native `read` or `grep` for the named set and relevant effect keys.
+3. Call `def_data_native_catalog_materialize` once and pass its opaque session-bound
+   `artifactId` directly to the next projected typed equipment Tool. A generic
+   `read` or `grep` step is not part of this planning flow.
 4. Call `def_data_equipment_3plus1_facts` with that artifact for unranked set, slot, source,
    and duplicate-policy facts.
 5. Call `def_data_equipment_3plus1_plan` with the same artifact/source revision and the exact

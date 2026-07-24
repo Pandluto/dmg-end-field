@@ -131,6 +131,7 @@ function readNodeSource(sessionDirectory, layer) {
 }
 
 function resultSucceeded(output) {
+  if (output?.error) return false;
   if (output?.metadata?.ok === false) return false;
   if (output?.metadata?.state === 'error') return false;
   try {
@@ -140,6 +141,30 @@ function resultSucceeded(output) {
     // A Tool-local text result is a successful execution unless metadata says otherwise.
   }
   return true;
+}
+
+function decodeQuotedAnswer(value) {
+  try {
+    return JSON.parse(`"${value}"`);
+  } catch {
+    return String(value || '');
+  }
+}
+
+function clarificationAnswerText(output) {
+  const raw = typeof output?.output === 'string'
+    ? output.output.trim()
+    : typeof output?.output === 'number' || typeof output?.output === 'boolean'
+      ? String(output.output)
+      : '';
+  if (!raw) return '';
+  const answers = [];
+  const pattern = /"((?:\\.|[^"\\])*)"="((?:\\.|[^"\\])*)"/g;
+  for (const match of raw.matchAll(pattern)) {
+    const answer = decodeQuotedAnswer(match[2]).trim();
+    if (answer) answers.push(answer);
+  }
+  return answers.length ? answers.join('\n') : raw;
 }
 
 function parsedToolOutput(output) {
@@ -233,6 +258,9 @@ function resultBindings(output, typedOutput) {
     'node.workingHash',
     'workingHash',
   ]) || String(output?.metadata?.workingHash || '');
+  const plannerProfile = typedOutput?.plannerProfile && typeof typedOutput.plannerProfile === 'object'
+    ? structuredClone(typedOutput.plannerProfile)
+    : null;
   return {
     artifact: output?.metadata?.artifact
       || (typedOutput?.artifact && typeof typedOutput.artifact === 'object' ? typedOutput.artifact : null)
@@ -243,6 +271,14 @@ function resultBindings(output, typedOutput) {
         type: capabilityType,
         token: capabilityToken,
         ...(expiresAt ? { expiresAt } : {}),
+        ...(capabilityType === 'plannerProfileCapability' && plannerProfile
+          ? {
+            boundArguments: {
+              plannerProfileCapability: capabilityToken,
+              characterProfile: plannerProfile,
+            },
+          }
+          : {}),
       } : undefined),
     workNodeRef: nodeId ? {
       required: true,
@@ -253,6 +289,58 @@ function resultBindings(output, typedOutput) {
       ...(workingHash ? { workingHash } : {}),
     } : undefined,
   };
+}
+
+const ARTIFACT_BOUND_TOOL_IDS = new Set([
+  'def.data.resource.equipment_set_fit_shortlist',
+  'def.data.resource.equipment_3plus1_facts',
+  'def.data.resource.equipment_3plus1_plan',
+]);
+const PROFILE_BOUND_TOOL_IDS = new Set([
+  'def.data.resource.equipment_set_fit_shortlist',
+  'def.data.resource.equipment_3plus1_plan',
+]);
+const NAMED_SET_BOUND_TOOL_IDS = new Set([
+  'def.data.resource.equipment_3plus1_facts',
+  'def.data.resource.equipment_3plus1_plan',
+]);
+
+function namedEquipmentSetFromTransaction(transaction) {
+  const prefix = 'equipment-set:';
+  const constraint = (transaction?.constraints || [])
+    .find((candidate) => typeof candidate === 'string' && candidate.startsWith(prefix));
+  return constraint ? constraint.slice(prefix.length).trim() : '';
+}
+
+function bindTransactionToolArgs(transaction, canonicalToolId, args) {
+  if (!transaction || !args || typeof args !== 'object' || Array.isArray(args)) return args;
+  if (
+    canonicalToolId === 'def.data.resource.operator_build_profile'
+    && transaction.capability?.type === 'fallbackToken'
+    && transaction.capability?.token
+  ) {
+    args.fallbackToken = transaction.capability.token;
+  }
+  if (ARTIFACT_BOUND_TOOL_IDS.has(canonicalToolId)) {
+    const artifactId = transaction.artifact?.id || transaction.artifact?.artifactId;
+    if (artifactId) args.artifactId = artifactId;
+  }
+  if (
+    PROFILE_BOUND_TOOL_IDS.has(canonicalToolId)
+    && transaction.capability?.type === 'plannerProfileCapability'
+    && transaction.capability?.token
+  ) {
+    args.plannerProfileCapability = transaction.capability.token;
+    const characterProfile = transaction.capability?.boundArguments?.characterProfile;
+    if (characterProfile && typeof characterProfile === 'object') {
+      args.characterProfile = structuredClone(characterProfile);
+    }
+  }
+  if (NAMED_SET_BOUND_TOOL_IDS.has(canonicalToolId)) {
+    const setQuery = namedEquipmentSetFromTransaction(transaction);
+    if (setQuery) args.setQuery = setQuery;
+  }
+  return args;
 }
 
 class HarnessTransactionRuntime {
@@ -310,6 +398,58 @@ class HarnessTransactionRuntime {
     });
   }
 
+  async projectConversation(route, {
+    context,
+    userText = '',
+    turnId = '',
+  } = {}) {
+    const recentTransactions = this.transactions.list()
+      .slice(-3)
+      .reverse()
+      .map((transaction) => ({
+        businessId: transaction.businessId,
+        operation: transaction.operation,
+        target: transaction.target,
+        status: transaction.status,
+        terminalReason: transaction.terminalReason || '',
+      }));
+    const exactReply = route.intent === 'session-id'
+      ? `当前会话 ID 是：${context.sessionId}`
+      : route.intent === 'capabilities'
+        ? '当前业务能力共 5 类：选人、配装、排轴、BUFF、计算与统计。每一轮只开放当前阶段需要的能力，所以你看到的不是全部能力清单。'
+        : undefined;
+    const instructionsByIntent = {
+      'session-id': 'The user explicitly requested the current session id. Return the exact reply and nothing else.',
+      capabilities: 'Explain the five user-facing business capabilities, not internal Tool bindings. Clarify that phase projection is not the global capability inventory.',
+      'previous-result': 'Answer from the immediately preceding typed Tool result already present in the transcript. If the user asks for its raw JSON, reproduce that business result exactly without inventing, re-running, or exposing tool-call protocol markup. If no such result is present, say so plainly.',
+      'previous-result-semantics': 'Explain the named field using the immediately preceding typed result and current conversation. A selected roster field represents the current selected team, not the complete local operator catalog.',
+      'plain-language-correction': 'Acknowledge the correction and restate the immediately preceding supported outcome in plain Chinese. Do not start a new business route, call a Tool, output code, or add unsupported facts.',
+      'social-greeting': 'Reply briefly and naturally to the greeting. Do not ask a forced follow-up question.',
+      'social-praise': 'Acknowledge the praise briefly and naturally. Do not ask what to do next and do not start a business route.',
+      'social-acknowledgement': 'Reply briefly only when a reply is useful. Do not ask another question or start a business route.',
+      general: 'Answer the direct non-business dialogue from the current transcript and Host facts. Do not manufacture a business request.',
+    };
+    return this.writeProjection({
+      mode: 'conversation',
+      sessionId: context.sessionId,
+      turnId,
+      transactionId: null,
+      businessId: null,
+      operation: null,
+      phase: route.intent || 'general',
+      phaseKind: 'response',
+      instructions: [
+        instructionsByIntent[route.intent] || instructionsByIntent.general,
+        'Reply once in natural Chinese. Never emit internal Tool-call markup, DSML, XML, HTML protocol blocks, or hidden routing details.',
+      ].join('\n'),
+      exactReply,
+      recentTransactions,
+      userText,
+      context,
+      allowedToolIds: [],
+    });
+  }
+
   async prepareRoute({ context, userText, definitions, turnId = '' }) {
     let unfinished = this.transactions.list({ statuses: ['active', 'awaiting-confirmation'] });
     let route = beginRoutePhase({ userText, transactions: unfinished, definitions });
@@ -320,47 +460,7 @@ class HarnessTransactionRuntime {
     }
     if (route.kind === 'continue') return this.resumeTransaction(route.transactionId, route.intent, { context, turnId });
     if (route.kind === 'conversation') {
-      const recentTransactions = this.transactions.list()
-        .slice(-3)
-        .reverse()
-        .map((transaction) => ({
-          businessId: transaction.businessId,
-          operation: transaction.operation,
-          target: transaction.target,
-          status: transaction.status,
-          terminalReason: transaction.terminalReason || '',
-        }));
-      const exactReply = route.intent === 'session-id'
-        ? `当前会话 ID 是：${context.sessionId}`
-        : route.intent === 'capabilities'
-          ? '当前业务能力共 5 类：选人、配装、排轴、BUFF、计算与统计。每一轮只开放当前阶段需要的能力，所以你看到的不是全部能力清单。'
-          : undefined;
-      const instructionsByIntent = {
-        'session-id': 'The user explicitly requested the current session id. Return the exact reply and nothing else.',
-        capabilities: 'Explain the five user-facing business capabilities, not internal Tool bindings. Clarify that phase projection is not the global capability inventory.',
-        'previous-result': 'Answer from the immediately preceding typed Tool result already present in the transcript. If the user asks for its raw JSON, reproduce that business result exactly without inventing, re-running, or exposing tool-call protocol markup. If no such result is present, say so plainly.',
-        'previous-result-semantics': 'Explain the named field using the immediately preceding typed result and current conversation. A selected roster field represents the current selected team, not the complete local operator catalog.',
-        'plain-language-correction': 'Acknowledge the correction and restate the immediately preceding supported outcome in plain Chinese. Do not start a new business route, call a Tool, output code, or add unsupported facts.',
-      };
-      return this.writeProjection({
-        mode: 'conversation',
-        sessionId: context.sessionId,
-        turnId,
-        transactionId: null,
-        businessId: null,
-        operation: null,
-        phase: route.intent,
-        phaseKind: 'response',
-        instructions: [
-          instructionsByIntent[route.intent] || 'Answer the direct conversational question from the current transcript and Host facts.',
-          'Reply once in natural Chinese. Never emit internal Tool-call markup, DSML, XML, HTML protocol blocks, or hidden routing details.',
-        ].join('\n'),
-        exactReply,
-        recentTransactions,
-        userText,
-        context,
-        allowedToolIds: [],
-      });
+      return this.projectConversation(route, { context, userText, turnId });
     }
     if (route.kind === 'new-business' && route.deterministic === true) {
       return this.beginBusinessTransaction(route, context, { turnId });
@@ -464,7 +564,17 @@ class HarnessTransactionRuntime {
       error.code = 'HARNESS_ROUTE_PHASE_REQUIRED';
       throw error;
     }
-    const route = validateRouteSubmission(submission, { definitions: bridge.routeDefinitions });
+    const route = validateRouteSubmission(submission, {
+      definitions: bridge.routeDefinitions,
+      userText: bridge.userText,
+    });
+    if (route.kind === 'conversation') {
+      return this.projectConversation(route, {
+        context: bridge.context,
+        userText: bridge.userText,
+        turnId: turnId || bridge.turnId,
+      });
+    }
     if (route.kind === 'clarify') {
       return this.writeProjection({
         ...bridge,
@@ -738,6 +848,7 @@ class HarnessTransactionRuntime {
       throw error;
     }
     if (boundTransaction) {
+      bindTransactionToolArgs(boundTransaction, canonicalToolId, args);
       this.transactions.recordToolCall(bridge.transactionId, {
         callId,
         toolId: canonicalToolId,
@@ -965,15 +1076,19 @@ class HarnessTransactionRuntime {
           instructions: `${bridge.instructions || ''}\nThe native question did not return an answer. Keep this request unresolved and do not guess.`.trim(),
         });
       }
-      return this.writeProjection({
-        ...bridge,
-        mode: 'route',
-        phase: 'route',
-        phaseKind: 'route',
+      const answer = clarificationAnswerText(output);
+      if (!answer) {
+        return this.writeProjection({
+          ...bridge,
+          turnId,
+          instructions: `${bridge.instructions || ''}\nThe native question returned no usable answer. Keep this request unresolved and do not guess.`.trim(),
+        });
+      }
+      return this.prepareRoute({
+        context: bridge.context,
+        userText: answer,
+        definitions: bridge.routeDefinitions,
         turnId,
-        instructions: 'Use the user answer returned by the native question interaction to submit one structured route through def_harness_route.',
-        question: null,
-        allowedToolIds: ['def.harness.route'],
       });
     }
     if (bridge.mode !== 'business' || !bridge.transactionId) return bridge;

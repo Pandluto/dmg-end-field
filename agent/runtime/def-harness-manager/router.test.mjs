@@ -15,7 +15,7 @@ const { BusinessPlanStore } = require('./plans.cjs');
 
 const definitions = [
   { businessId: 'selection', operations: ['inspect', 'search', 'replace'], summary: 'selection' },
-  { businessId: 'loadout', operations: ['inspect', 'evaluate', 'resolve', 'recommend', 'apply'], summary: 'loadout' },
+  { businessId: 'loadout', operations: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_equipment', 'apply'], summary: 'loadout' },
   { businessId: 'timeline', operations: ['add', 'apply', 'copy', 'current'], summary: 'timeline' },
   { businessId: 'buff', operations: ['add'], summary: 'buff' },
   { businessId: 'calculation', operations: ['calculate', 'skill_fact'], summary: 'calculation' },
@@ -28,7 +28,7 @@ test('new requests enter a Tool-isolated route phase', () => {
   assert.equal(route.definitions.length, 5);
   assert.deepEqual(
     route.definitions.find((item) => item.businessId === 'loadout').operations,
-    ['inspect', 'evaluate', 'resolve', 'recommend', 'apply'],
+    ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_equipment', 'apply'],
   );
   assert.doesNotMatch(route.instructions, /def_data_|def_node_/);
 });
@@ -75,6 +75,17 @@ test('keeps direct conversation out of business routing', () => {
   const sessionId = beginRoutePhase({ userText: '会话 id 给我', definitions });
   assert.equal(sessionId.kind, 'conversation');
   assert.equal(sessionId.intent, 'session-id');
+
+  for (const [userText, intent] of [
+    ['你好', 'social-greeting'],
+    ['你还挺聪明', 'social-praise'],
+    ['谢谢', 'social-acknowledgement'],
+    ['暂时不用', 'social-acknowledgement'],
+  ]) {
+    const social = beginRoutePhase({ userText, definitions });
+    assert.equal(social.kind, 'conversation', userText);
+    assert.equal(social.intent, intent, userText);
+  }
 });
 
 test('routes strong vertical-domain requests without an avoidable clarification', () => {
@@ -101,6 +112,25 @@ test('routes strong vertical-domain requests without an avoidable clarification'
   const weaponCatalog = beginRoutePhase({ userText: '看看本地武器库', definitions });
   assert.equal(weaponCatalog.businessId, 'loadout');
   assert.equal(weaponCatalog.operation, 'resolve');
+
+  assert.deepEqual(beginRoutePhase({
+    userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
+    definitions,
+  }), {
+    kind: 'new-business',
+    deterministic: true,
+    businessId: 'loadout',
+    operation: 'recommend',
+    target: '莱万汀如果偏偏想带两个动火用配件,可以怎么带',
+    requestedEffect: '围绕用户点名的装备套装生成只读配装建议',
+    constraints: [
+      'read-only',
+      'equipment-set-mode:named-set',
+      'equipment-set:动火用',
+    ],
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '动火用',
+  });
 });
 
 test('validates the required single and cross-business examples', () => {
@@ -111,9 +141,13 @@ test('validates the required single and cross-business examples', () => {
     target: '别礼',
     requestedEffect: '配置 3+1 潮涌套',
     constraints: ['3+1', '潮涌套'],
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '潮涌',
   }, { definitions });
   assert.equal(loadout.businessId, 'loadout');
   assert.equal(loadout.target, '别礼');
+  assert.equal(loadout.operation, 'recommend');
+  assert(loadout.constraints.includes('equipment-set:潮涌'));
 
   const selection = validateRouteSubmission({
     kind: 'new-business',
@@ -129,10 +163,18 @@ test('validates the required single and cross-business examples', () => {
     goal: '换成别礼，再配 3+1 潮涌套',
     steps: [
       { businessId: 'selection', operation: 'replace', target: '别礼', requestedEffect: '换成别礼' },
-      { businessId: 'loadout', operation: 'recommend', target: '别礼', requestedEffect: '配置 3+1 潮涌套' },
+      {
+        businessId: 'loadout',
+        operation: 'recommend_equipment',
+        target: '别礼',
+        requestedEffect: '配置 3+1 潮涌套',
+        equipmentSetMode: 'named-set',
+        equipmentSetQuery: '潮涌',
+      },
     ],
   }, { definitions });
   assert.deepEqual(pipeline.steps.map((step) => step.businessId), ['selection', 'loadout']);
+  assert.equal(pipeline.steps[1].operation, 'recommend');
 
   assert.throws(() => validateRouteSubmission({
     kind: 'cross-business',
@@ -213,6 +255,113 @@ test('rejects entities and terms used as business ids', () => {
     operation: 'recommend',
     requestedEffect: '配装',
   }), { code: 'HARNESS_ROUTE_INVALID' });
+});
+
+test('makes named-set and set-discovery loadout routes mutually exclusive', () => {
+  const named = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '莱万汀',
+    requestedEffect: '带两个动火配件',
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '动火用',
+  }, { definitions });
+  assert.equal(named.operation, 'recommend');
+  assert(named.constraints.includes('equipment-set:动火用'));
+
+  const discovery = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend',
+    target: '莱万汀',
+    requestedEffect: '推荐一套 3+1',
+    equipmentSetMode: 'discover-set',
+  }, { definitions });
+  assert.equal(discovery.operation, 'recommend_equipment');
+  assert(discovery.constraints.includes('equipment-set-mode:discover-set'));
+
+  const correctedFromUserText = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '莱万汀',
+    requestedEffect: '带两个动火用配件',
+    equipmentSetMode: 'discover-set',
+  }, {
+    definitions,
+    userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
+  });
+  assert.equal(correctedFromUserText.operation, 'recommend');
+  assert.equal(correctedFromUserText.equipmentSetMode, 'named-set');
+  assert.equal(correctedFromUserText.equipmentSetQuery, '动火用');
+  assert(correctedFromUserText.constraints.includes('equipment-set:动火用'));
+
+  const normalizedFromUserText = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '莱万汀',
+    requestedEffect: '带两个动火用配件',
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '动火用配件',
+  }, {
+    definitions,
+    userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
+  });
+  assert.equal(normalizedFromUserText.operation, 'recommend');
+  assert.equal(normalizedFromUserText.equipmentSetQuery, '动火用');
+
+  assert.throws(() => validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '莱万汀',
+    requestedEffect: '带两个动火用配件',
+    equipmentSetMode: 'named-set',
+    equipmentSetQuery: '潮涌套',
+  }, {
+    definitions,
+    userText: '莱万汀如果偏偏想带两个动火用配件，可以怎么带',
+  }), {
+    code: 'HARNESS_ROUTE_INVALID',
+    message: /conflicts with the named set/,
+  });
+
+  const threePlusOne = validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '别礼',
+    requestedEffect: '配置 3+1',
+    equipmentSetMode: 'discover-set',
+  }, {
+    definitions,
+    userText: '给别礼配置 3 潮涌+1',
+  });
+  assert.equal(threePlusOne.operation, 'recommend');
+  assert.equal(threePlusOne.equipmentSetQuery, '潮涌');
+
+  assert.throws(() => validateRouteSubmission({
+    kind: 'new-business',
+    businessId: 'loadout',
+    operation: 'recommend_equipment',
+    target: '莱万汀',
+    requestedEffect: '推荐装备',
+  }, { definitions }), {
+    code: 'HARNESS_ROUTE_INVALID',
+    message: /equipmentSetMode/,
+  });
+});
+
+test('accepts a first-class conversation route without manufacturing ambiguity', () => {
+  assert.deepEqual(validateRouteSubmission({
+    kind: 'conversation',
+    intent: 'praise',
+  }, { definitions }), {
+    kind: 'conversation',
+    intent: 'praise',
+  });
 });
 
 test('persists and advances an ordered plan with each new scheme version', () => {

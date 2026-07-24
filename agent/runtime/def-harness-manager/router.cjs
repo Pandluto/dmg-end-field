@@ -16,6 +16,29 @@ function normalizedText(value) {
   return String(value || '').normalize('NFKC').trim();
 }
 
+function inferNamedEquipmentSetQuery(userText = '') {
+  const compact = normalizedText(userText).replace(/\s+/g, '');
+  if (!compact) return '';
+  const patterns = [
+    /(?:[一二两三四五六七八九十\d]+)(?:个|件)?([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?=配件|护手|护甲)/u,
+    /(?:三|3)([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?:\+|加)(?:一|1)/u,
+    /(?:配置|换成|想要|选择|选|用|带|穿)([\p{Script=Han}A-Za-z][\p{Script=Han}A-Za-z0-9·_-]{1,15}?)(?:套装|套)(?=$|[，,。！？?、;+])/u,
+  ];
+  for (const pattern of patterns) {
+    const candidate = normalizedText(pattern.exec(compact)?.[1]);
+    if (candidate) return candidate;
+  }
+  return '';
+}
+
+function comparableEquipmentSetQuery(value = '') {
+  return normalizedText(value)
+    .replace(/\s+/g, '')
+    .replace(/^[「『【《"'“”‘’]+|[」』】》"'“”‘’]+$/g, '')
+    .replace(/(?:套装|套|配件|护手|护甲)$/u, '')
+    .toLocaleLowerCase();
+}
+
 function isDirectCurrentNodeQuestion(userText = '') {
   return DIRECT_CURRENT_NODE_QUESTION.test(normalizedText(userText));
 }
@@ -59,6 +82,24 @@ function classifyConversationTurn(userText = '') {
   ) {
     return { kind: 'conversation', intent: 'capabilities', userText: text };
   }
+  if (
+    /^(?:(?:嗨|哈喽|你好|您好|hello|hi|hey|在吗|喂)[呀啊哦哟嘛吗]*|早上好|中午好|下午好|晚上好)[，,。.!！?？]*$/i
+      .test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'social-greeting', userText: text };
+  }
+  if (
+    /^(?:(?:你)?(?:还)?(?:挺|真|很)?(?:聪明|厉害|靠谱|专业|牛(?:逼)?|不错)|干得好|做得好|可以(?:可以)?|漂亮|好家伙)[呀啊哦哟嘛]*[，,。.!！?？]*$/
+      .test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'social-praise', userText: text };
+  }
+  if (
+    /^(?:谢谢|多谢|谢了|感谢|好的?|行(?:吧)?|可以|ok|okay|嗯+|明白了?|知道了?|收到|没事|暂时不用(?:了)?|不用了?|先这样(?:吧)?|之后再说|回头再说|再见|拜拜)[呀啊哦哟嘛]*[，,。.!！?？]*$/i
+      .test(compact)
+  ) {
+    return { kind: 'conversation', intent: 'social-acknowledgement', userText: text };
+  }
   return null;
 }
 
@@ -78,6 +119,28 @@ function deterministicRoute(userText) {
   const text = normalizedText(userText);
   const conversation = classifyConversationTurn(text);
   if (conversation) return conversation;
+  const namedEquipmentSetQuery = inferNamedEquipmentSetQuery(text);
+  const compact = text.replace(/\s+/g, '');
+  if (
+    namedEquipmentSetQuery
+    && /(?:怎么带|如何带|想带|要带|搭配|配装|配置|推荐|挑选|选择)/.test(compact)
+  ) {
+    return {
+      kind: 'new-business',
+      deterministic: true,
+      businessId: 'loadout',
+      operation: 'recommend',
+      target: text,
+      requestedEffect: '围绕用户点名的装备套装生成只读配装建议',
+      constraints: [
+        'read-only',
+        'equipment-set-mode:named-set',
+        `equipment-set:${namedEquipmentSetQuery}`,
+      ],
+      equipmentSetMode: 'named-set',
+      equipmentSetQuery: namedEquipmentSetQuery,
+    };
+  }
   const executablePolicy = classifyDefExecutableTurnPolicy(text);
   if (executablePolicy?.kind === 'exact-skill-facts') {
     return {
@@ -101,7 +164,6 @@ function deterministicRoute(userText) {
       constraints: ['current-node-only'],
     };
   }
-  const compact = text.replace(/\s+/g, '');
   const asksCurrentRoster = /(?:当前|现在|这次)?(?:队伍|阵容)(?:里|中)?(?:有谁|是谁|有哪些|成员)|(?:当前|现在)(?:选了|已选)(?:谁|哪些干员|哪些角色)/.test(compact);
   if (asksCurrentRoster) {
     return {
@@ -223,9 +285,9 @@ function matchContinuation({ userText, transactions = [] }) {
   };
 }
 
-function normalizeStep(step, index, definitions) {
+function normalizeStep(step, index, definitions, { userText = '' } = {}) {
   const businessId = normalizedText(step?.businessId);
-  const operation = normalizedText(step?.operation);
+  let operation = normalizedText(step?.operation);
   const target = normalizedText(step?.target);
   const requestedEffect = normalizedText(step?.requestedEffect);
   if (!BUSINESS_ID_SET.has(businessId)) throw routeError(`steps[${index}].businessId is invalid`);
@@ -235,14 +297,44 @@ function normalizeStep(step, index, definitions) {
   }
   if (!operation) throw routeError(`steps[${index}].operation is required`);
   if (!requestedEffect) throw routeError(`steps[${index}].requestedEffect is required`);
+  const constraints = Array.isArray(step?.constraints)
+    ? step.constraints.map(normalizedText).filter(Boolean)
+    : [];
+  let equipmentSetMode = normalizedText(step?.equipmentSetMode);
+  let equipmentSetQuery = normalizedText(step?.equipmentSetQuery);
+  if (businessId === 'loadout' && ['recommend', 'recommend_equipment'].includes(operation)) {
+    const inferredNamedSetQuery = inferNamedEquipmentSetQuery(userText);
+    if (inferredNamedSetQuery) {
+      if (
+        equipmentSetQuery
+        && comparableEquipmentSetQuery(equipmentSetQuery) !== comparableEquipmentSetQuery(inferredNamedSetQuery)
+      ) {
+        throw routeError(`steps[${index}].equipmentSetQuery conflicts with the named set in the user request`);
+      }
+      equipmentSetMode = 'named-set';
+      equipmentSetQuery = inferredNamedSetQuery;
+    }
+    if (!['named-set', 'discover-set'].includes(equipmentSetMode)) {
+      throw routeError(`steps[${index}].equipmentSetMode must be named-set or discover-set for an equipment recommendation`);
+    }
+    if (equipmentSetMode === 'named-set' && !equipmentSetQuery) {
+      throw routeError(`steps[${index}].equipmentSetQuery is required when equipmentSetMode=named-set`);
+    }
+    if (equipmentSetMode === 'discover-set' && equipmentSetQuery) {
+      throw routeError(`steps[${index}].equipmentSetQuery must be omitted when equipmentSetMode=discover-set`);
+    }
+    operation = equipmentSetMode === 'named-set' ? 'recommend' : 'recommend_equipment';
+    constraints.push(`equipment-set-mode:${equipmentSetMode}`);
+    if (equipmentSetQuery) constraints.push(`equipment-set:${equipmentSetQuery}`);
+  }
   return {
     businessId,
     operation,
     target,
     requestedEffect,
-    constraints: Array.isArray(step?.constraints)
-      ? step.constraints.map(normalizedText).filter(Boolean)
-      : [],
+    constraints: [...new Set(constraints)],
+    ...(equipmentSetMode ? { equipmentSetMode } : {}),
+    ...(equipmentSetQuery ? { equipmentSetQuery } : {}),
   };
 }
 
@@ -257,10 +349,16 @@ function definitionMap(definitions) {
   return new Map(source.map((definition) => [definition.businessId, definition]));
 }
 
-function validateRouteSubmission(submission, { definitions } = {}) {
+function validateRouteSubmission(submission, { definitions, userText = '' } = {}) {
   if (!submission || typeof submission !== 'object' || Array.isArray(submission)) throw routeError('route submission must be an object');
   const knownDefinitions = definitionMap(definitions);
   const kind = normalizedText(submission.kind);
+  if (kind === 'conversation') {
+    return {
+      kind,
+      intent: normalizedText(submission.intent) || 'general',
+    };
+  }
   if (kind === 'clarify') {
     const question = normalizedText(submission.question);
     const ambiguity = normalizedText(submission.ambiguity);
@@ -275,14 +373,14 @@ function validateRouteSubmission(submission, { definitions } = {}) {
     };
   }
   if (kind === 'new-business') {
-    const step = normalizeStep(submission, 0, knownDefinitions);
+    const step = normalizeStep(submission, 0, knownDefinitions, { userText });
     return { kind, ...step };
   }
   if (kind === 'cross-business') {
     if (!Array.isArray(submission.steps) || submission.steps.length < 2 || submission.steps.length > 5) {
       throw routeError('cross-business route requires two to five ordered steps');
     }
-    const steps = submission.steps.map((step, index) => normalizeStep(step, index, knownDefinitions));
+    const steps = submission.steps.map((step, index) => normalizeStep(step, index, knownDefinitions, { userText }));
     const businessIds = new Set(steps.map((step) => step.businessId));
     if (businessIds.size === 1) {
       throw routeError('cross-business route requires at least two different business ids; submit one new-business operation for a single business');
@@ -293,7 +391,7 @@ function validateRouteSubmission(submission, { definitions } = {}) {
       steps,
     };
   }
-  throw routeError('route kind must be new-business, cross-business, or clarify');
+  throw routeError('route kind must be conversation, new-business, cross-business, or clarify');
 }
 
 function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
@@ -315,7 +413,10 @@ function beginRoutePhase({ userText, transactions = [], definitions } = {}) {
       'Classify only the business result requested by the user.',
       'Submit one structured route through def_harness_route.',
       'Do not answer the business question, read game knowledge, or modify product state in this phase.',
+      'Use kind=conversation for greetings, praise, thanks, acknowledgements, closings, or direct non-business dialogue. Never turn social dialogue into a clarification question.',
+      'Use kind=clarify only when the user is asking for a business result but a missing choice prevents selecting an operation.',
       'Entities, operators, equipment, skills, BUFF names, “3+1”, and batch size are targets or constraints, never business ids.',
+      'For a loadout equipment recommendation, always set equipmentSetMode. A phrase such as “两个动火用配件”, “3 潮涌+1”, or “潮涌套” names a set even when the word 套装 is omitted: use named-set plus the exact set name. Use discover-set and omit equipmentSetQuery only when the user asks you to choose which set. The Manager validates the original user text and canonicalizes these to mutually exclusive Harness operations.',
       'Use cross-business only when the request spans at least two different business ids. Proposal, validation, application, and verification inside one business belong to one new-business operation and must not be split into route steps.',
     ].join('\n'),
   };
@@ -325,7 +426,7 @@ function resolveRoute({ userText, transactions, submission, definitions } = {}) 
   const continuation = matchContinuation({ userText, transactions });
   if (continuation) return continuation;
   if (!submission) return beginRoutePhase({ userText, transactions, definitions });
-  return validateRouteSubmission(submission, { definitions });
+  return validateRouteSubmission(submission, { definitions, userText });
 }
 
 module.exports = {
@@ -336,6 +437,7 @@ module.exports = {
   classifyDefExecutableTurnPolicy,
   continuationIntent,
   deterministicRoute,
+  inferNamedEquipmentSetQuery,
   isDirectCurrentNodeQuestion,
   matchContinuation,
   resolveRoute,

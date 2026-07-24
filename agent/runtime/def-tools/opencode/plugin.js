@@ -81,8 +81,6 @@ export default async function DefToolsPlugin() {
       })
     },
     'tool.execute.before': async (input, output) => {
-      definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)
-      definitions.assertDefNativeArtifactToolScope(input, output?.args)
       await assertHarnessToolBefore({
         sessionId: input?.sessionID,
         turnId: input?.messageID,
@@ -90,6 +88,8 @@ export default async function DefToolsPlugin() {
         callId: input?.callID,
         args: output?.args,
       })
+      definitions.assertDefToolTurnNotBlocked(input?.sessionID, input?.tool, output?.args)
+      definitions.assertDefNativeArtifactToolScope(input, output?.args)
     },
     'tool.execute.after': async (input, output) => {
       await advanceHarnessToolAfter({

@@ -10,6 +10,7 @@ const { BusinessHarnessRegistry } = require('./registry.cjs');
 const { HarnessTransactionRuntime } = require('./runtime.cjs');
 const { readRuntimeBridge, writeRuntimeBridge } = require('./bridge.cjs');
 const {
+  projectHarnessToolResult,
   projectHarnessTools,
   transformHarnessCompletedText,
 } = await import('../def-tools/opencode/harness-manager-bridge.mjs');
@@ -21,6 +22,7 @@ const toolTargets = [
   { id: 'def.apply', nativeBinding: 'def_apply' },
   { id: 'def.verify', nativeBinding: 'def_verify' },
   { id: 'def.node.code.edit', nativeBinding: 'edit' },
+  { id: 'def.data.resource.equipment_3plus1_plan', nativeBinding: 'def_data_equipment_3plus1_plan' },
 ];
 
 function writeSelection(root, version = 'v1') {
@@ -315,7 +317,7 @@ test('a cached plugin runtime reloads transaction state written by the server ru
   assert.equal(readRuntimeBridge(sessionDirectory).phase, 'proposal');
 });
 
-test('clarification uses the native question and then returns to the route gate', async () => {
+test('clarification consumes the native answer exactly once before continuing', async () => {
   const { sessionDirectory, runtime, context } = await fixture();
   await runtime.prepareRoute({ context, userText: '处理一下', turnId: 'turn-clarify' });
   await runtime.afterTool({
@@ -346,6 +348,36 @@ test('clarification uses the native question and then returns to the route gate'
   bridge = readRuntimeBridge(sessionDirectory);
   assert.equal(bridge.mode, 'route');
   assert.deepEqual(bridge.allowedToolBindings, ['def_harness_route']);
+
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-clarify',
+    callId: 'route-clarify-again',
+    toolBinding: 'def_harness_route',
+    canonicalToolId: 'def.harness.route',
+    output: { metadata: { route: {
+      kind: 'clarify',
+      ambiguity: 'business',
+      question: '接下来想怎么搞？',
+      choices: ['换人', '会话 ID'],
+    } } },
+  });
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-clarify',
+    callId: 'question-session-id',
+    toolBinding: 'question',
+    canonicalToolId: '',
+    output: {
+      output: "User has answered your questions: \"接下来想怎么搞？\"=\"会话id 给我\". You can now continue with the user's answers in mind.",
+      metadata: {},
+    },
+  });
+  bridge = readRuntimeBridge(sessionDirectory);
+  assert.equal(bridge.mode, 'conversation');
+  assert.equal(bridge.phase, 'session-id');
+  assert.equal(bridge.exactReply, '当前会话 ID 是：session-a');
+  assert.deepEqual(bridge.allowedToolBindings, []);
 });
 
 test('direct dialogue gets a no-Tool projection instead of a fake business transaction', async () => {
@@ -367,6 +399,15 @@ test('direct dialogue gets a no-Tool projection instead of a fake business trans
   });
   assert.equal(bridge.mode, 'conversation');
   assert.equal(bridge.exactReply, '当前会话 ID 是：session-a');
+  assert.deepEqual(bridge.allowedToolBindings, []);
+
+  bridge = await runtime.prepareRoute({
+    context,
+    userText: '你还挺聪明',
+    turnId: 'turn-direct-praise',
+  });
+  assert.equal(bridge.mode, 'conversation');
+  assert.equal(bridge.phase, 'social-praise');
   assert.deepEqual(bridge.allowedToolBindings, []);
 });
 
@@ -405,6 +446,151 @@ test('terminal text guard enforces exact replies and removes internal call marku
     }),
     '这次没有形成可读的业务结论，请重新说一次你的目标。',
   );
+});
+
+test('Harness projects native catalog artifacts as opaque ids without file-read hints', () => {
+  const output = {
+    output: JSON.stringify({
+      contract: 'DefNativeCatalogArtifactV1',
+      artifactId: 'catalog-opaque-a',
+      domain: 'equipment',
+      selectionMode: 'entity-full',
+      query: '动火用',
+      source: { revision: 'catalog-revision-a' },
+      root: 'retrieval/catalog-opaque-a',
+      manifestPath: 'retrieval/catalog-opaque-a/manifest.json',
+      files: [{ path: 'entity.full.json' }],
+      allowedNativeOperations: ['read', 'grep'],
+      expiresAt: Date.now() + 60_000,
+      readOnly: true,
+      reused: false,
+    }),
+    metadata: { artifactId: 'catalog-opaque-a' },
+  };
+  projectHarnessToolResult({
+    tool: 'def_data_native_catalog_materialize',
+    output,
+  });
+  const projected = JSON.parse(output.output);
+  assert.equal(projected.artifactId, 'catalog-opaque-a');
+  assert.equal(projected.nextAction.includes('Pass artifactId directly'), true);
+  assert.equal(Object.hasOwn(projected, 'root'), false);
+  assert.equal(Object.hasOwn(projected, 'manifestPath'), false);
+  assert.equal(Object.hasOwn(projected, 'files'), false);
+  assert.equal(Object.hasOwn(projected, 'allowedNativeOperations'), false);
+});
+
+test('Harness overwrites model-edited planner inputs with transaction-bound evidence', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  const revision = await runtime.registry.resolveActive('selection');
+  const transaction = runtime.transactions.create({
+    context,
+    businessId: 'selection',
+    operation: 'replace',
+    harnessRevision: revision,
+    target: '莱万汀',
+    constraints: ['equipment-set-mode:named-set', 'equipment-set:动火用'],
+    phase: 'context',
+  });
+  runtime.transactions.transition(transaction.transactionId, {
+    artifact: { id: 'catalog-bound-a', sourceRevision: 'catalog-revision-a' },
+    capability: {
+      required: true,
+      type: 'plannerProfileCapability',
+      token: 'planner-capability-bound-a',
+      boundArguments: {
+        plannerProfileCapability: 'planner-capability-bound-a',
+        characterProfile: {
+          characterId: 'laevatain',
+          keywords: ['战技伤害', '智识'],
+          preferenceGroups: [{ key: 'battle-skill-damage', acceptedTypeKeys: ['skillDmgBonus'] }],
+        },
+      },
+    },
+  });
+  await runtime.writeProjection({
+    mode: 'business',
+    sessionId: 'session-a',
+    turnId: 'turn-bound-planner',
+    transactionId: transaction.transactionId,
+    businessId: 'selection',
+    operation: 'replace',
+    phase: 'context',
+    phaseKind: 'evidence',
+    instructions: 'Use bound planner evidence.',
+    context,
+    allowedToolIds: ['def.data.resource.equipment_3plus1_plan'],
+  });
+  const args = {
+    artifactId: 'catalog-model-edited',
+    setQuery: '潮涌',
+    plannerProfileCapability: 'planner-capability-model-edited',
+    characterProfile: {
+      characterId: 'laevatain',
+      keywords: ['战技伤害', '智识', '动火用配件'],
+      preferenceGroups: [],
+    },
+  };
+  await runtime.beforeTool({
+    sessionId: 'session-a',
+    turnId: 'turn-bound-planner',
+    callId: 'plan-bound-call',
+    toolBinding: 'def_data_equipment_3plus1_plan',
+    canonicalToolId: 'def.data.resource.equipment_3plus1_plan',
+    args,
+  });
+  assert.equal(args.artifactId, 'catalog-bound-a');
+  assert.equal(args.setQuery, '动火用');
+  assert.equal(args.plannerProfileCapability, 'planner-capability-bound-a');
+  assert.deepEqual(args.characterProfile, {
+    characterId: 'laevatain',
+    keywords: ['战技伤害', '智识'],
+    preferenceGroups: [{ key: 'battle-skill-damage', acceptedTypeKeys: ['skillDmgBonus'] }],
+  });
+});
+
+test('Harness stores the exact planner profile beside its opaque capability', async () => {
+  const { sessionDirectory, runtime, context } = await fixture();
+  await runtime.beginBusinessTransaction({
+    kind: 'new-business',
+    businessId: 'selection',
+    operation: 'replace',
+    target: '莱万汀',
+    requestedEffect: 'synthetic evidence binding',
+  }, context, { turnId: 'turn-store-profile' });
+  const transactionId = readRuntimeBridge(sessionDirectory).transactionId;
+  await runtime.afterTool({
+    sessionId: 'session-a',
+    turnId: 'turn-store-profile',
+    callId: 'profile-result-call',
+    toolBinding: 'def_read',
+    canonicalToolId: 'def.read',
+    output: {
+      output: JSON.stringify({
+        ok: true,
+        plannerProfileCapability: 'planner-capability-stored-a',
+        plannerProfile: {
+          characterId: 'laevatain',
+          keywords: ['战技伤害'],
+          preferenceGroups: [{ key: 'battle-skill-damage', acceptedTypeKeys: ['skillDmgBonus'] }],
+        },
+      }),
+      metadata: {},
+    },
+  });
+  assert.deepEqual(runtime.transactions.get(transactionId).capability, {
+    required: true,
+    type: 'plannerProfileCapability',
+    token: 'planner-capability-stored-a',
+    boundArguments: {
+      plannerProfileCapability: 'planner-capability-stored-a',
+      characterProfile: {
+        characterId: 'laevatain',
+        keywords: ['战技伤害'],
+        preferenceGroups: [{ key: 'battle-skill-damage', acceptedTypeKeys: ['skillDmgBonus'] }],
+      },
+    },
+  });
 });
 
 test('moves failures through the declared failure exit', async () => {

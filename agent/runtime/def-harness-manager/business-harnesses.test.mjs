@@ -19,7 +19,7 @@ const expectedOperations = {
 
 const expectedDefaultVersions = {
   selection: 'v1',
-  loadout: 'v2',
+  loadout: 'v3',
   timeline: 'v13',
   buff: 'v1',
   calculation: 'v1',
@@ -46,6 +46,43 @@ test('loads five real default Harnesses independently', async () => {
       }
     }
   }
+});
+
+test('loadout v3 separates named-set discovery and stops on partial plans', () => {
+  const revisionRoot = path.join(businessRoot, 'loadout', 'revisions', 'v3');
+  const manifest = JSON.parse(fs.readFileSync(
+    path.join(revisionRoot, 'manifest.json'),
+    'utf8',
+  ));
+  const instructions = fs.readFileSync(path.join(revisionRoot, 'instructions.md'), 'utf8');
+  assert.match(instructions, /Never claim that the target can apply, sustain, or reliably trigger/);
+  assert.match(instructions, /explicit typed result establishes that trigger\s+capability/);
+  const named = manifest.operations.recommend.phases;
+  const discovery = manifest.operations.recommend_equipment.phases;
+  assert.equal(named.some((phase) => phase.tools.includes('def.data.resource.equipment_set_fit_shortlist')), false);
+  assert.equal(discovery.some((phase) => phase.tools.includes('def.data.resource.equipment_set_fit_shortlist')), true);
+  for (const operationId of ['recommend', 'recommend_equipment', 'preview']) {
+    const phases = manifest.operations[operationId].phases;
+    const planner = phases.find((phase) => phase.tools.includes('def.data.resource.equipment_3plus1_plan'));
+    assert(planner.resultTransitions.some((transition) => (
+      transition.path === 'state'
+      && transition.equals === 'PARTIAL'
+      && transition.target === 'partial'
+    )), operationId);
+    const partial = phases.find((phase) => phase.id === 'partial');
+    assert.equal(partial.terminalState, 'aborted', operationId);
+    assert.match(partial.instructions, /PARTIAL/, operationId);
+    assert.match(partial.instructions, /optimal|optimum/, operationId);
+    assert.match(partial.instructions, /do not ask a follow-up question/, operationId);
+    assert.match(partial.instructions, /absent from|guide alternative/, operationId);
+  }
+  const previewPlanner = manifest.operations.preview.phases.find(
+    (phase) => phase.tools.includes('def.data.resource.equipment_3plus1_plan'),
+  );
+  assert.equal(
+    previewPlanner.resultTransitions.find((transition) => transition.equals === 'PARTIAL').target,
+    'partial',
+  );
 });
 
 test('keeps business write domains disjoint and calculation read-only', () => {
