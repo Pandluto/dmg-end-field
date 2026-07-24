@@ -107,7 +107,7 @@
 <p>Harness 没有一条被所有框架共同采用的边界。</p>
 <p>从系统角度看，广义 Harness 可以理解为模型与外部环境之间的<strong>运行支架</strong>。它组织模型怎样获得信息、提出行动、接收反馈、延续状态，并把行动连接到真实执行。<a href="https://arxiv.org/abs/2605.13357">AI Harness Engineering（AI Harness 工程）</a> 进一步把 Agent 能力放在“模型—Harness—环境”这个整体中讨论，而不是只归因于模型本身。</p>
 <h2>Harness 和 Tools、Workflow 的关系</h2>
-<p>定义本身还不够。要看清 Harness 的边界，需要把它与几个最容易混淆的概念逐一分开。</p>
+<p>Tools、Workflow 和 Harness 经常一起出现，但它们回答的是三种不同问题：一个动作怎样执行、哪些控制关系必须固定，以及一类完整业务怎样处理。</p>
 <table>
 <thead>
 <tr>
@@ -165,8 +165,8 @@
   </div>
 </div>
 
-<p>同一个 Tool 可以被多个业务 Harness 使用；业务 Harness 也只在顺序必须固定时引用 Workflow，其余步骤仍可由模型根据当前情况选择。<a href="https://docs.langchain.com/oss/python/langgraph/workflows-agents">LangGraph：Workflows and agents</a></p>
-<p>Tool 可以声明与自身安全执行直接相关的前置条件，例如提交时必须携带有效版本号、删除必须经过审批。完整业务的跨 Tool 方法则不属于某一个 Tool：如果只是推荐做法，它属于业务 Harness；如果顺序必须由程序固定，它属于 Workflow。</p>
+<p>同一个 Tool 可以被多个业务 Harness 使用；业务 Harness 只在顺序必须固定时引用 Workflow，其余步骤仍可由模型根据当前情况选择。<a href="https://docs.langchain.com/oss/python/langgraph/workflows-agents">LangGraph：Workflows and agents</a></p>
+<p>Tool 只负责自己的动作合同。跨 Tool 的推荐方法属于业务 Harness，必须固定的顺序才属于 Workflow。</p>
 <p>Tool 与 Workflow 的边界清楚以后，还要区分另一组容易混淆的东西：提供可复用材料的 Skill，与负责完整业务的 Harness。</p>
 <h2>Harness 和 Skills 的关系</h2>
 <p>Skill 和业务 Harness 都可能包含领域知识和做法，因此最容易被混为一谈。关键区别不在内容长短，而在它们是否承担一类完整业务的声明职责。</p>
@@ -209,8 +209,7 @@
 <td>求解方法同样不能保证服从；硬边界由程序强制</td>
 </tr>
 </tbody></table>
-<p>“Skill 非强制”不是说宿主不能强制加载 Skill，也不是说 Skill 只能包含文字。Skill 可以携带说明、脚本、模板和其他资源，宿主也可以要求模型在特定任务中读取它。</p>
-<p>真正不能被 Skill 单独保证的，是模型一定按照其中的方法逐条行动。Skill 里的自然语言方法进入模型以后，仍然是模型决策的输入；即使 Skill 附带脚本，脚本能够执行也是因为运行时、Tool 或沙箱提供了执行能力。</p>
+<p>“Skill 非强制”不是说宿主不能强制加载 Skill，也不是说 Skill 只能包含文字。关键在于：<strong>被加载不等于其中的方法已经被执行</strong>。自然语言方法仍然只是模型决策的输入；即使 Skill 附带脚本，脚本能够执行也是因为运行时、Tool 或沙箱提供了执行能力。</p>
 <p>因此，Skill 适合提供“通常应该怎样做”；“绝对不允许发生什么”仍然必须落在 Tool、权限、审批和产品代码中。业务 Harness 可以引用 Skills，但不能把硬边界寄托在 Skill 的服从率上。</p>
 <p>方法材料归 Skill，完整业务责任归 Harness。接下来再看，一次具体工作需要的信息从哪里来，又由谁组装。</p>
 <h2>Harness 和 Context 的关系</h2>
@@ -371,7 +370,7 @@
   <div class="runtime-state"><b>业务事务保存</b><span>Harness 版本</span><span>产品版本</span><span>待确认方案</span><span>用户确认</span><span>当前阶段</span></div>
 </div>
 
-<p>运行时还要留下<strong>执行轨迹（Execution Trace，后文简称 Trace）</strong>，记录本次使用的 Harness 版本、当时的产品状态、Tool 调用、用户确认、状态变化和完成证据。要判断“修改前是否真的等待了确认”，不能只看 Prompt 里有没有这句话，而要检查确认、执行和结果验证是否真的发生。<a href="https://ruhan-wang.github.io/Harness-Handbook/#one-behavior-many-implementation-sites">Harness Handbook</a></p>
+<p>运行时还要留下<strong>执行轨迹（Execution Trace，后文简称 Trace）</strong>，记录本次使用的 Harness 版本、当时的产品状态、Tool 调用、用户确认、状态变化和完成证据。要判断“修改前是否真的等待了确认”，不能只看 Prompt 里有没有这句话，而要检查确认、执行和结果验证是否真的发生。</p>
 <p>有了执行机制以后，再看为什么垂直领域值得把这类业务方法长期建模。</p>
 <h2>典型的垂直领域 Harness</h2>
 <p>这种区分在所有 Agent 中都有意义，但在问题类型和业务对象相对稳定的垂直领域里，它尤其值得单独建模。</p>
@@ -572,6 +571,7 @@
   </div>
 </div>
 
+<p>开发者关心的是“应用配装前是否真的确认”，这项行为的实现却分散在 Prompt、Skill、Tool 和运行时等位置。<a href="https://ruhan-wang.github.io/Harness-Handbook/#one-behavior-many-implementation-sites">Harness Handbook（Harness 手册）</a> 所说的行为与实现之间的断层，就是从一个可观察的行为出发，却找不到唯一对应的实现位置。</p>
 <p>重构不是把一句规则换个地方再复制，而是把说明、状态、强制执行和证据分别放回正确位置。文件树仍然告诉我们代码放在哪里；业务 Harness 与执行轨迹则让人能够从一项行为找到这些实现怎样共同工作。</p>
 <h3>3、Typed Tools 完成之后，迭代的是什么？</h3>
 <p>Typed Tools 稳定以后，项目并不会停止变化。只是变化的中心从“Agent 有没有能力”转向了“Agent 怎样使用这些能力解决业务”。</p>
@@ -625,7 +625,6 @@
 </tr>
 </tbody></table>
 <p>Prompt 当然仍然会独立迭代。需要改变的是：不再把所有业务规则都塞进一份全局 Prompt。Prompt 模板和指令继续作为可版本化来源；运行时再结合当前 Harness 版本、事务状态、Tool 参数结构、对话历史和事实证据，组装本轮最终模型输入。</p>
-<p>以后迭代配装方法，修改的是配装业务的 Harness 版本；迭代游戏攻略，修改的是知识；新增修改能力，修改的是 Tool；改变审批和版本一致性，修改的是运行时或产品代码。</p>
 <p>只有把变化放回正确的归属处，系统才能回答两个重要问题：</p>
 <ul>
 <li>这次行为为什么变了？</li>
@@ -634,7 +633,7 @@
 <h2>拆解业务 → 建模：从方法走向可迭代体系</h2>
 <p>当一类业务已经拥有自己的定义、方法、状态和验证以后，下一个问题才是：这些业务单元的边界应该画在哪里？</p>
 <h3>1、迭代与管理</h3>
-<p>要让业务 Harness 真正可以迭代，至少要分清三种记录。</p>
+<p>发布配装方法 V2 时，已经按 V1 开始并等待用户确认的任务不能在中途静默换版。要让方法可以迭代、进行中的任务又保持一致，至少要分清三种记录。</p>
 <table>
 <thead>
 <tr>
