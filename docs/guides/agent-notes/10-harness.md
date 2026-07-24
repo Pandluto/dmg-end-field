@@ -38,7 +38,7 @@ Tool Description（工具说明：**血狼破军**只会读稿）、
 
 ## 什么是 Harness？
 
-广义上，Harness 是围绕模型建立的运行机制。模型负责生成下一步回复或行动请求；Harness 则把模型连接到上下文、工具、状态、权限、执行环境和结果反馈，使这些输出能够成为一次真实、连续并可检查的工作过程。
+Harness 是**围绕**模型建立的运行机制。
 
 <div class="capability-strip" role="img" aria-label="模型、Harness 与真实环境的关系">
   <div><small>决定下一步</small><strong>模型</strong></div>
@@ -48,15 +48,19 @@ Tool Description（工具说明：**血狼破军**只会读稿）、
   <div><small>产生真实结果</small><strong>Tools + 产品</strong></div>
 </div>
 
-这里的 Harness 不是单独一份 Prompt，也不是一组 Tools。它描述的是模型在什么信息和能力条件下工作，以及模型输出怎样被系统接收、执行、拒绝、记录和反馈。
+不是单独一份 Prompt，也不是一组 Tools。它描述的是模型在什么信息和能力条件下工作，以及模型输出怎样被系统接收、执行、拒绝、记录和反馈。
+
+这简直是**调教**。
+
+我调教血狼破甲吗？那太好了
+
+最窄的说法只包括 System Prompt（系统提示词）和 Tool Loop（工具循环）；更宽的说法会把 Context（上下文）、Memory（记忆）、Skills（技能包）、状态、权限、沙箱、审批和结果检查都算进去。不同文章使用同一个词时，谈论的可能不是完全相同的系统范围。
 
 同一个模型接上不同 Harness，会表现得像不同的 Agent。差别不一定来自模型更聪明，而可能来自上下文、能力边界、状态、反馈和完成条件完全不同。
 
 ## 广义 Harness 会指什么？
 
 Harness 没有一条被所有框架共同采用的边界。
-
-最窄的说法只包括 System Prompt（系统提示词）和 Tool Loop（工具循环）；更宽的说法会把 Context（上下文）、Memory（记忆）、Skills（技能包）、状态、权限、沙箱、审批和结果检查都算进去。不同文章使用同一个词时，谈论的可能不是完全相同的系统范围。
 
 从系统角度看，广义 Harness 可以理解为模型与外部环境之间的**运行支架**。它组织模型怎样获得信息、提出行动、接收反馈、延续状态，并把行动连接到真实执行。[AI Harness Engineering（AI Harness 工程）](https://arxiv.org/abs/2605.13357) 进一步把 Agent 能力放在“模型—Harness—环境”这个整体中讨论，而不是只归因于模型本身。
 
