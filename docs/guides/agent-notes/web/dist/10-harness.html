@@ -106,40 +106,6 @@
 <h2>广义 Harness 会指什么？</h2>
 <p>Harness 没有一条被所有框架共同采用的边界。</p>
 <p>从系统角度看，广义 Harness 可以理解为模型与外部环境之间的<strong>运行支架</strong>。它组织模型怎样获得信息、提出行动、接收反馈、延续状态，并把行动连接到真实执行。<a href="https://arxiv.org/abs/2605.13357">AI Harness Engineering（AI Harness 工程）</a> 进一步把 Agent 能力放在“模型—Harness—环境”这个整体中讨论，而不是只归因于模型本身。</p>
-<p>本文接受这个广义定义，但为了讲清本项目的设计，会继续分出三个层次：</p>
-<table>
-<thead>
-<tr>
-<th>层次</th>
-<th>正式称呼</th>
-<th>后文简称</th>
-<th>负责什么</th>
-<th>不负责什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>整体运行层</td>
-<td>Harness 系统（Harness System）</td>
-<td>Harness 系统</td>
-<td>连接模型、上下文、Tools、状态、权限、执行环境与反馈</td>
-<td>不等于某一份业务方法</td>
-</tr>
-<tr>
-<td>业务声明层</td>
-<td>业务 Harness 版本（Business Harness Revision）</td>
-<td>业务 Harness / Harness 版本</td>
-<td>声明某类领域问题的目标、求解方法、知识角色、工具策略和完成条件</td>
-<td>不直接执行 Tool，也不自行保存运行状态</td>
-</tr>
-<tr>
-<td>程序执行层</td>
-<td>Harness 运行时（Harness Runtime）</td>
-<td>运行时</td>
-<td>路由业务、加载 Harness 版本、组装上下文、维护事务、执行检查并推进过程</td>
-<td>不把领域方法硬编码成一套全局流程</td>
-</tr>
-</tbody></table>
-<p>这三个词不是行业统一标准，而是本文为了避免“所有东西都叫 Harness”而采用的项目内边界。“业务 Harness”是配装、排轴这类长期存在的业务单元；“Harness 版本”是运行时为某次业务事务实际加载的不可变版本。后文只有讨论版本固定、发布或回退时，才强调“版本”。</p>
 <h2>Harness 和 Tools、Workflow 的关系</h2>
 <p>定义本身还不够。要看清 Harness 的边界，需要把它与几个最容易混淆的概念逐一分开。</p>
 <table>
