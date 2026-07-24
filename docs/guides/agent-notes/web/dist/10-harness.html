@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>篇章 11：Harness · Agent 开发随记</title>
-  <link rel="stylesheet" href="styles.css?v=20260721-11" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shantell+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/syabro/neat-annotations@83199c8c7420b85f775c770c5ee481df69b840bc/neat-annotations.css" />
+  <link rel="stylesheet" href="styles.css?v=20260724-1" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
-<body>
+<body class="harness-page">
   <div class="page-glow glow-one"></div>
   <div class="page-glow glow-two"></div>
   <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
@@ -97,8 +101,8 @@
 <p>这就是这篇手记里的 Harness。</p>
 <h2>什么是 Harness？</h2>
 <p>先给一个不严谨、但好理解的说法：</p>
-<blockquote>
-<p><strong>Harness 是模型的工作台。</strong></p>
+<blockquote class="annotation-quote annotation-quote--intro">
+<p><strong><span class="ann ann-n ann-blue" data-note="先建立直觉">Harness 是模型的工作台。</span></strong></p>
 </blockquote>
 <p>模型负责判断下一步。Harness 把这一刻需要的材料和能力摆到桌上，接住模型提出的动作，再处理动作产生的结果。</p>
 <div class="capability-strip" role="img" aria-label="模型、Harness 与真实环境的关系">
@@ -165,7 +169,7 @@
 </tbody></table>
 <p>Tool、Skill 和 Workflow 不能与 Harness 算成同一层的部件。但如果只比较它们最终怎样影响模型，区别很清楚：</p>
 <blockquote>
-<p><strong>Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。</strong></p>
+<p><strong>Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。</strong></p>
 </blockquote>
 <h2>本项目 Harness 的特性：先从“解一道题”说起</h2>
 <p>很多读者没开发过 Agent，但都做过题。</p>
@@ -266,7 +270,7 @@
 <p>我们一开始把这件事叫作“原子化 Harness”。</p>
 <p>这个名字很容易让人误会：仿佛要先规定若干个“小 Harness”，再把每一项业务塞进去。</p>
 <p>其实不是。</p>
-<p>Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong>Context Source（上下文源）</strong>。</p>
+<p class="annotation-line">Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong><span class="ann ann-n ann-green" data-note="真正可注册的原子">Context Source（上下文源）</span></strong>。</p>
 <blockquote>
 <p><strong>Context Source 是一份可以独立注册的 Context。它说明自己提供什么、什么时候需要，以及进入 Agent Loop（智能体循环）的哪个位置。</strong></p>
 </blockquote>

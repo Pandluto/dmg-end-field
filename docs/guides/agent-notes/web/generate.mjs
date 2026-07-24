@@ -35,6 +35,12 @@ const shell = ({ file, title, content }) => {
   const articleLabel = file === "09-mcp-as-another-solution.md"
     ? "09 / MODEL CONTEXT PROTOCOL"
     : `${file.replace(/\.md$/, "").toUpperCase()} / DEF AGENT RUNTIME`
+  const isHarnessPage = file === "10-harness.md"
+  const annotationAssets = isHarnessPage ? `
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Shantell+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/syabro/neat-annotations@83199c8c7420b85f775c770c5ee481df69b840bc/neat-annotations.css" />` : ""
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -42,11 +48,11 @@ const shell = ({ file, title, content }) => {
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>${escapeHtml(title)} · Agent 开发随记</title>
-  <link rel="stylesheet" href="styles.css?v=20260721-11" />
+  <title>${escapeHtml(title)} · Agent 开发随记</title>${annotationAssets}
+  <link rel="stylesheet" href="styles.css?v=20260724-1" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
-<body>
+<body${isHarnessPage ? ' class="harness-page"' : ""}>
   <div class="page-glow glow-one"></div>
   <div class="page-glow glow-two"></div>
   <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
@@ -83,6 +89,24 @@ for (const [file, navTitle] of pages) {
   const markdown = await readFile(sourcePath, "utf8")
   const title = markdown.match(/^#\s+(.+)$/m)?.[1] ?? navTitle
   let content = await marked.parse(markdown, { gfm: true })
+
+  if (file === "10-harness.md") {
+    content = content
+      .replace(
+        "<blockquote>\n<p><strong>Harness 是模型的工作台。</strong></p>\n</blockquote>",
+        `<blockquote class="annotation-quote annotation-quote--intro">
+<p><strong><span class="ann ann-n ann-blue" data-note="先建立直觉">Harness 是模型的工作台。</span></strong></p>
+</blockquote>`,
+      )
+      .replace(
+        "Harness 对模型的效果，则是非强制，但强参考。",
+        `Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。`,
+      )
+      .replace(
+        "<p>Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong>Context Source（上下文源）</strong>。</p>",
+        `<p class="annotation-line">Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong><span class="ann ann-n ann-green" data-note="真正可注册的原子">Context Source（上下文源）</span></strong>。</p>`,
+      )
+  }
 
   content = content.replaceAll(/href="\.\/([^"#]+)\.md(#[^"]*)?"/g, (_, target, hash = "") =>
     `href="${target}.html${hash}"`)

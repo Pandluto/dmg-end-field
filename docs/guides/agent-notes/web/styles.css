@@ -7,6 +7,19 @@
   --blue: #445fd3;
   --violet: #7c52bd;
   --dark: #0e1524;
+  --shadow-rgb: 24 26 34;
+  --shadow-card:
+    0 0 0 1px rgb(var(--shadow-rgb) / .06),
+    0 1px 2px -1px rgb(var(--shadow-rgb) / .08),
+    0 2px 4px rgb(var(--shadow-rgb) / .05);
+  --shadow-dreamy:
+    0 0 0 1px rgb(var(--shadow-rgb) / .06),
+    0 1px 2px rgb(var(--shadow-rgb) / .05),
+    0 2px 4px rgb(var(--shadow-rgb) / .05),
+    0 4px 8px rgb(var(--shadow-rgb) / .05),
+    0 8px 16px rgb(var(--shadow-rgb) / .05),
+    0 16px 32px rgb(var(--shadow-rgb) / .05),
+    0 32px 64px rgb(var(--shadow-rgb) / .05);
   color: var(--ink);
   background: var(--paper);
   font-family: var(--apple-font);
@@ -130,6 +143,13 @@ main { margin-left: 308px; padding: 132px 7vw 45px; }
 }
 .markdown-body::before { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: linear-gradient(90deg,var(--blue),var(--violet),transparent 82%); }
 
+.harness-page .markdown-body {
+  border: 1px solid rgb(var(--shadow-rgb) / .08);
+  border-radius: 18px;
+  box-shadow: var(--shadow-dreamy);
+}
+.harness-page .markdown-body::before { border-radius: 18px 18px 0 0; }
+
 h1, h2, h3 { margin-top: 0; color: var(--ink); letter-spacing: -.045em; line-height: 1.2; }
 h1 { margin-bottom: 31px; color: #173b85; font-size: clamp(38px, 5vw, 55px); font-weight: 800; letter-spacing: -.065em; }
 h2 { margin: 54px 0 18px; padding-top: 6px; font-size: 27px; font-weight: 800; }
@@ -143,11 +163,24 @@ strong { color: #263651; }
 blockquote { margin: 31px 0; padding: 21px 23px; background: #f3f6ff; border: 1px solid #9aabe6; border-left: 3px solid var(--blue); }
 blockquote p { margin: 0; color: #53627a; }
 
+.harness-page blockquote { border-radius: 12px; box-shadow: var(--shadow-card); }
+.annotation-quote--intro { margin-bottom: 76px; }
+.annotation-line { margin-bottom: 74px; }
+.ann::after { font-family: 'Shantell Sans', 'KaiTi', 'STKaiti', 'Comic Sans MS', cursive !important; }
+.annotation-quote .ann,
+.annotation-line .ann {
+  --ann-label-max-width: 170px;
+  --ann-text-y: 7px;
+}
+.annotation-quote .ann { --ann-color: #3b72c4; }
+.annotation-line .ann { --ann-color: #2f8f5b; }
+
 .markdown-body details {
   margin: 24px 0 28px;
   background: #f7f9fd;
   border: 1px solid #d5dfed;
 }
+.harness-page .markdown-body details { border-radius: 12px; box-shadow: var(--shadow-card); overflow: hidden; }
 .markdown-body summary {
   display: flex;
   align-items: center;
@@ -193,6 +226,7 @@ blockquote p { margin: 0; color: #53627a; }
 .markdown-body details pre { margin-top: 17px; margin-bottom: 18px; }
 
 pre { overflow-x: auto; margin: 28px 0; padding: 24px 25px; color: #e8efff; background: #18284f; border: 1px solid #34486f; box-shadow: 14px 16px 0 rgba(99,122,203,.08); }
+.harness-page pre { border-radius: 12px; box-shadow: var(--shadow-card); }
 code { font: .88em/1.7 var(--apple-font); }
 :not(pre) > code { padding: 2px 6px; color: #5a4992; background: #eeeaf7; border-radius: 2px; }
 
@@ -215,6 +249,8 @@ hr { margin: 45px 0; border: 0; border-top: 1px solid var(--line); }
   box-shadow: 12px 14px 0 rgba(68,95,211,.055);
 }
 .capability-strip > div { display: flex; min-height: 92px; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 14px 10px; text-align: center; background: #fff; border: 1px solid #cbd6ec; }
+.harness-page .capability-strip { border-radius: 14px; box-shadow: var(--shadow-card); }
+.harness-page .capability-strip > div { border-radius: 10px; box-shadow: var(--shadow-card); }
 .capability-strip > b { display: grid; place-items: center; color: var(--blue); font: 500 22px var(--apple-font); }
 .capability-strip small { color: #78869d; font: 500 8px var(--apple-font); letter-spacing: .11em; }
 .capability-strip strong { color: #263651; font-size: 13px; }
@@ -230,6 +266,7 @@ hr { margin: 45px 0; border: 0; border-top: 1px solid var(--line); }
   border: 1px solid #c8d3e8;
   box-shadow: 12px 14px 0 rgba(68,95,211,.055);
 }
+.harness-page .article-diagram { border-radius: 14px; box-shadow: var(--shadow-card); }
 .diagram-heading {
   display: flex;
   align-items: baseline;
@@ -565,4 +602,11 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   .transport-branch::before { display: none; }
   .project-transport-paths > div { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
   footer { flex-direction: column; }
+}
+
+@media (max-width: 600px) {
+  .harness-page .ann[data-note]::before,
+  .harness-page .ann[data-note]::after { display: none; }
+  .harness-page .annotation-quote--intro { margin-bottom: 31px; }
+  .harness-page .annotation-line { margin-bottom: 20px; }
 }
