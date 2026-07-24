@@ -143,6 +143,55 @@ strong { color: #263651; }
 blockquote { margin: 31px 0; padding: 21px 23px; background: #f3f6ff; border: 1px solid #9aabe6; border-left: 3px solid var(--blue); }
 blockquote p { margin: 0; color: #53627a; }
 
+.markdown-body details {
+  margin: 24px 0 28px;
+  background: #f7f9fd;
+  border: 1px solid #d5dfed;
+}
+.markdown-body summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 17px;
+  color: #52617a;
+  background: #f1f4fa;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.55;
+  cursor: pointer;
+  list-style: none;
+  transition: color .16s ease, background .16s ease;
+}
+.markdown-body summary::-webkit-details-marker { display: none; }
+.markdown-body summary::before {
+  content: '+';
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  color: #fff;
+  background: #6077cf;
+  font: 500 15px/1 var(--apple-font);
+}
+.markdown-body summary:hover { color: #304b8d; background: #e9eef9; }
+.markdown-body summary:focus-visible { outline: 2px solid #7489dc; outline-offset: 2px; }
+.markdown-body details[open] > summary { color: #304b8d; border-bottom: 1px solid #d5dfed; }
+.markdown-body details[open] > summary::before { content: '−'; }
+.markdown-body details > :not(summary) { margin-right: 17px; margin-left: 17px; }
+.markdown-body details > p:first-of-type,
+.markdown-body details > ul:first-of-type,
+.markdown-body details > ol:first-of-type { margin-top: 16px; }
+.markdown-body details > p:last-child,
+.markdown-body details > ul:last-child,
+.markdown-body details > ol:last-child,
+.markdown-body details > table:last-child,
+.markdown-body details > pre:last-child { margin-bottom: 18px; }
+.markdown-body details p,
+.markdown-body details li { font-size: 13px; line-height: 1.78; }
+.markdown-body details table { width: calc(100% - 34px); margin-top: 17px; margin-bottom: 18px; }
+.markdown-body details pre { margin-top: 17px; margin-bottom: 18px; }
+
 pre { overflow-x: auto; margin: 28px 0; padding: 24px 25px; color: #e8efff; background: #18284f; border: 1px solid #34486f; box-shadow: 14px 16px 0 rgba(99,122,203,.08); }
 code { font: .88em/1.7 var(--apple-font); }
 :not(pre) > code { padding: 2px 6px; color: #5a4992; background: #eeeaf7; border-radius: 2px; }
