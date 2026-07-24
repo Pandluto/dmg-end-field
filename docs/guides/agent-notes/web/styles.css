@@ -517,7 +517,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   max-height: calc(100vh - 24px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
   background: #fff;
   border: 1px solid #9aabe6;
   box-shadow: 0 24px 60px rgba(32,48,85,.24);
@@ -635,7 +635,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   min-height: 48px;
   background: rgba(78,125,103,.72);
   border: 2px solid #eee8dc;
-  border-radius: 999px;
+  border-radius: 0;
 }
 
 .harness-document::-webkit-scrollbar-thumb:hover,
@@ -671,6 +671,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 .harness-page *::before,
 .harness-page *::after {
   font-family: var(--note-font) !important;
+  border-radius: 0 !important;
 }
 
 .harness-page::before {

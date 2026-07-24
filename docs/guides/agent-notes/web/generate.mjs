@@ -48,7 +48,7 @@ const shell = ({ file, title, content }) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>${escapeHtml(title)} · Agent 开发随记</title>${annotationAssets}
-  <link rel="stylesheet" href="styles.css?v=20260724-4" />
+  <link rel="stylesheet" href="styles.css?v=20260724-6" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
 <body${isHarnessPage ? ' class="harness-page"' : ""}>
