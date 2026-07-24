@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
-  <title>篇章 11：Harness（运行支架） · Agent 开发随记</title>
+  <title>篇章 11：Harness · Agent 开发随记</title>
   <link rel="stylesheet" href="styles.css?v=20260721-11" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
@@ -66,8 +66,8 @@
       <div class="article-kicker"><span></span> 10-HARNESS / DEF AGENT RUNTIME</div>
       <div class="glossary-hint"><b>?</b> 点击带点线的名词，可看简明解释</div>
     </div>
-    <article class="markdown-body"><h1>篇章 11：Harness（运行支架）</h1>
-<p>前面已经给 Agent（智能体）接上了 Typed Tools（类型化工具）。</p>
+    <article class="markdown-body"><h1>篇章 11：Harness</h1>
+<p>前面已经给 Agent 接上了 Typed Tools（类型化工具）。</p>
 <p>它能读取当前队伍和配装，能修改装备、编辑排轴、添加 BUFF（增益效果），也能调用真实公式完成计算。到这里，Agent 算是有手了。</p>
 <p>然后用户说：</p>
 <blockquote>
@@ -87,7 +87,7 @@
 </ul>
 <p>这些问题不能从 Tool 列表里直接得到答案。它们共同决定的是：<strong>这个 Agent 怎样完成一项真实业务。</strong></p>
 <p>当然也可以写一个 <code>auto_loadout</code>，把整套配装逻辑塞进代码。这样很快，但 Agent 学会的只是调用配装程序，并没有学会处理配装问题。</p>
-<p>就像给一个只会读稿的人接上装备查询和修改 Tools。他有手了，仍然不会做攻略。因为 Prompt（提示词）还在教他读稿，Skill（技能包）里是读稿经验，Context（上下文）里也只有稿件。</p>
+<p>就像给一个只会读稿的人接上装备查询和修改 Tools。他有手了，仍然不会做攻略。因为 Prompt（提示词）还在教他读稿，Skill 里是读稿经验，Context（上下文）里也只有稿件。</p>
 <p>那把 Prompt 里的“读稿”改成“做攻略”呢？</p>
 <p>也不够。旧方法可能还留在 Host Prompt（宿主提示词）、Skill 和 Tool Description（工具描述）里；权限、审批、任务进度和真实产品状态，也不会跟着一句 Prompt 一起变化。</p>
 <p>问题于是从“改哪一句 Prompt”，变成了：</p>
@@ -95,7 +95,7 @@
 <p>模型周围这整套工作条件，究竟由谁组织？</p>
 </blockquote>
 <p>这就是这篇手记里的 Harness。</p>
-<h2>什么是 Harness（运行支架）？</h2>
+<h2>什么是 Harness？</h2>
 <p>先给一个不严谨、但好理解的说法：</p>
 <blockquote>
 <p><strong>Harness 是模型的工作台。</strong></p>
@@ -116,7 +116,7 @@
 <p>它决定模型在什么信息和能力条件下工作，模型输出怎样被系统接收、执行、拒绝、记录和反馈，一件尚未完成的工作又怎样继续下去。</p>
 <p>所以 Harness 不是单独一份 Prompt，也不是一组 Tools。</p>
 <p>同一个模型接上不同 Harness，会表现得像不同的 Agent。不是模型突然变聪明了，而是它醒来以后，看见的事实、拿到的能力、受到的限制和面对的完成标准都变了。</p>
-<h2>广义 Harness（运行支架）会指什么？</h2>
+<h2>广义 Harness 会指什么？</h2>
 <p>Harness 没有一条被所有框架共同采用的边界。</p>
 <p>最窄的说法，可能只指 System Prompt（系统提示词）和 Tool Loop（工具调用循环）；更宽的说法，会把 Context、Memory（记忆）、Skills、状态、权限、沙箱、审批和结果检查都算进去。</p>
 <p>因此，看到别人讨论 Harness，第一件事不是争定义，而是先问：</p>
@@ -129,7 +129,7 @@
 <p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。</strong></p>
 </blockquote>
 <p>这句话有一个容易误读的地方。</p>
-<p>“由运行时强制”不是强制模型照着某套步骤思考。<strong>方法是强参考；能力边界、执行状态和完成结果才由 Runtime（运行时）强制。</strong></p>
+<p>“由运行时强制”不是强制模型照着某套步骤思考。<strong>方法是强参考；能力边界、执行状态和完成结果才由 Runtime 强制。</strong></p>
 <details>
 <summary>展开：本文对几个工程名词的约定</summary>
 
@@ -141,26 +141,26 @@
 </tr>
 </thead>
 <tbody><tr>
-<td>Harness System（运行支架系统）</td>
+<td>Harness System</td>
 <td>模型周围完整的运行环境</td>
 </tr>
 <tr>
-<td>Business Harness（业务运行支架）</td>
+<td>Business Harness</td>
 <td>配装、排轴这类完整业务的责任边界</td>
 </tr>
 <tr>
-<td>Business Harness Version（业务运行支架版本）</td>
+<td>Business Harness Version</td>
 <td>某项业务在一次发布中采用的方法、规则和完成条件</td>
 </tr>
 <tr>
-<td>Harness Runtime（运行支架运行时）</td>
+<td>Harness Runtime</td>
 <td>加载这些声明、维护进度并执行硬检查的程序</td>
 </tr>
 </tbody></table>
 <p>这不是行业统一术语，只是为了避免把所有东西都叫 Harness。</p>
 </details>
 
-<h2>Harness（运行支架）和 Tools（工具）、Skills（技能包）、Workflow（工作流）的关系</h2>
+<h2>Harness 和 Tools（工具）、Skills、Workflow 的关系</h2>
 <p>这几组关系不用讲复杂。看它们怎样作用于 Agent 就够了：</p>
 <table>
 <thead>
@@ -176,12 +176,12 @@
 <td>可以不调用；一旦调用，输入、执行和结果由程序定义</td>
 </tr>
 <tr>
-<td>Skill（技能包）</td>
+<td>Skill</td>
 <td><strong>非强制参考</strong></td>
 <td>提供一份可选的方法目录</td>
 </tr>
 <tr>
-<td>Workflow（工作流）</td>
+<td>Workflow</td>
 <td><strong>强制路径</strong></td>
 <td>按确定顺序串联 Tools</td>
 </tr>
@@ -196,12 +196,12 @@
 <td>告诉模型目标和方法，不能替产品执行约束</td>
 </tr>
 <tr>
-<td>Business Harness（业务运行支架）</td>
+<td>Business Harness</td>
 <td><strong>方法层非强制、但强参考</strong></td>
 <td>让一套领域方法成为默认工作依据，并组织知识、Context、能力、状态与完成验证</td>
 </tr>
 <tr>
-<td>Runtime（运行时）</td>
+<td>Runtime</td>
 <td><strong>强制边界与后果</strong></td>
 <td>检查能力、权限、状态、写入和真实结果</td>
 </tr>
@@ -210,7 +210,7 @@
 <blockquote>
 <p><strong>Skill 是“这里有一份资料”；Workflow 是“必须按这条路走”；Harness 则让一套领域方法成为强参考，但不把偏离方法本身判成错误。</strong></p>
 </blockquote>
-<h2>本项目 Harness（运行支架）的特性：先从“解一道题”说起</h2>
+<h2>本项目 Harness 的特性：先从“解一道题”说起</h2>
 <p>很多读者没开发过 Agent，但都做过题。</p>
 <p>一道普通证明题给出条件和结论。解题的人要看懂题目，想起可用的定理，选择证明办法；走不通，就换一条路。</p>
 <p>知识工程里有一个概念叫 Problem-Solving Method（问题求解方法，简称 PSM），讨论的就是“一类问题可以怎样解”。<a href="https://www.cs.vu.nl/~guus/papers/Schreiber07a.pdf">知识工程对 PSM 的介绍</a></p>
@@ -237,7 +237,7 @@
 <blockquote>
 <p><strong>方法不强制，边界和后果强制。</strong></p>
 </blockquote>
-<h2>Runtime（运行时）在整个 Agent（智能体）中扮演什么角色？</h2>
+<h2>Runtime 在整个 Agent 中扮演什么角色？</h2>
 <p>Harness 组织一类业务的完整工作条件，Runtime 负责让这些条件在每一次真实任务中生效。</p>
 <p>它不会替模型判断哪套装备更好。它做的是另外一类事情：</p>
 <table>
@@ -281,7 +281,7 @@
 <p>OpenAI Agents SDK（OpenAI 智能体开发工具包）已经提供基础 Agent Loop（智能体循环）、会话记忆和 Human-in-the-loop（人在回路）；这里的 Runtime 还要补上业务路由、业务事务、Harness 版本和领域完成条件。<a href="https://openai.github.io/openai-agents-python/running_agents/">OpenAI Agents SDK：Running agents（运行智能体）</a></p>
 </details>
 
-<h2>典型的垂直领域 Harness（运行支架）</h2>
+<h2>典型的垂直领域 Harness</h2>
 <p>垂直领域不是把 Agent 的名字换成行业名词。</p>
 <p>它真正特殊的地方，是<strong>同一类问题会反复出现</strong>。</p>
 <h3>1、垂直领域的特性：解决实际问题</h3>
@@ -295,8 +295,8 @@
 <table>
 <thead>
 <tr>
-<th>通用 Agent（智能体）</th>
-<th>垂直领域 Agent（智能体）</th>
+<th>通用 Agent</th>
+<th>垂直领域 Agent</th>
 </tr>
 </thead>
 <tbody><tr>
@@ -337,7 +337,7 @@
 <p><strong>理解目标，基于可追溯的事实形成可解释方案；需要落到产品时，经用户确认，在配装边界内修改，并用真实产品状态证明结果。</strong></p>
 </blockquote>
 <h2>垂直领域的知识（游戏知识）</h2>
-<h3>1、游戏知识和 Harness（运行支架）的关系</h3>
+<h3>1、游戏知识和 Harness 的关系</h3>
 <p><strong>Harness 使用知识，但不复制知识。</strong></p>
 <p>它要说明的是：这类问题需要哪些知识，去哪里读，各自能证明什么。攻略更新不该迫使整个流程重写；方法调整也不该复制一份新的装备数据库。</p>
 <details>
@@ -407,7 +407,7 @@
 </tr>
 <tr>
 <td>业务目标、方法参考、知识角色和完成条件</td>
-<td>Business Harness（业务运行支架）</td>
+<td>Business Harness</td>
 </tr>
 <tr>
 <td>带来源和适用条件的攻略</td>
@@ -419,7 +419,7 @@
 </tr>
 <tr>
 <td>路由、事务、版本、Context 和阶段推进</td>
-<td>Harness Runtime（运行支架运行时）</td>
+<td>Harness Runtime</td>
 </tr>
 <tr>
 <td>权限、审批、写入和真实后置检查</td>
@@ -489,7 +489,7 @@
 <blockquote>
 <p><strong>哪一块能接住一件完整工作，而且可以独立修改？</strong></p>
 </blockquote>
-<h3>1、形象的说法：原子化 Harness（运行支架）</h3>
+<h3>1、形象的说法：原子化 Harness</h3>
 <p>这里的“原子”不是最小文件、最小 Tool 或最小步骤，而是：</p>
 <blockquote>
 <p><strong>一类拥有完整业务责任、明确写入边界，并且可以独立版本化和完成验证的领域问题。</strong></p>
@@ -499,7 +499,7 @@
 <table>
 <thead>
 <tr>
-<th>Business Harness（业务运行支架）</th>
+<th>Business Harness</th>
 <th>它负责什么</th>
 <th>完成证据</th>
 </tr>
