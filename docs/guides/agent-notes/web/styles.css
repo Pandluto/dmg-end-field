@@ -627,11 +627,19 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   --note-green: #4e7d67;
   --note-amber: #b87835;
   --note-red: #bd664e;
-  --note-reading: 'LXGW WenKai Screen', 'KaiTi', 'STKaiti', serif;
-  --note-mono: 'Cascadia Mono', 'SFMono-Regular', Consolas, monospace;
-  --note-hand: 'Shantell Sans', 'LXGW WenKai Screen', 'KaiTi', 'STKaiti', 'Comic Sans MS', cursive;
+  --note-font: 'Microsoft YaHei', '微软雅黑', sans-serif;
+  --note-reading: var(--note-font);
+  --note-mono: var(--note-font);
+  --note-hand: var(--note-font);
+  font-family: var(--note-font) !important;
   color: var(--note-ink);
   background-color: #f4f0e7;
+}
+
+.harness-page *,
+.harness-page *::before,
+.harness-page *::after {
+  font-family: var(--note-font) !important;
 }
 
 .harness-page::before {

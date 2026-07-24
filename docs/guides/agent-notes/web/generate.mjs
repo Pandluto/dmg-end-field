@@ -39,10 +39,6 @@ const shell = ({ file, title, content }) => {
       ? "DEV NOTE 11 / HARNESS"
       : `${file.replace(/\.md$/, "").toUpperCase()} / DEF AGENT RUNTIME`
   const annotationAssets = isHarnessPage ? `
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Shantell+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lxgw-wenkai-screen-webfont@1.7.0/style.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/syabro/neat-annotations@83199c8c7420b85f775c770c5ee481df69b840bc/neat-annotations.css" />` : ""
 
   return `<!doctype html>
@@ -52,7 +48,7 @@ const shell = ({ file, title, content }) => {
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>${escapeHtml(title)} · Agent 开发随记</title>${annotationAssets}
-  <link rel="stylesheet" href="styles.css?v=20260724-2" />
+  <link rel="stylesheet" href="styles.css?v=20260724-3" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
 <body${isHarnessPage ? ' class="harness-page"' : ""}>
