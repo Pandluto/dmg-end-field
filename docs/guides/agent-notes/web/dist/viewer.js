@@ -1,3 +1,37 @@
+const themeRoot = document.documentElement
+const themeToggle = document.querySelector(".theme-toggle")
+const themeMedia = window.matchMedia("(prefers-color-scheme: dark)")
+
+function updateThemeControl() {
+  if (!themeToggle) return
+  const isDark = themeRoot.dataset.theme === "dark"
+  const icon = themeToggle.querySelector(".theme-icon")
+  const label = themeToggle.querySelector(".theme-label")
+  if (icon) icon.textContent = isDark ? "日" : "夜"
+  if (label) label.textContent = isDark ? "亮色" : "暗色"
+  themeToggle.setAttribute("aria-pressed", String(isDark))
+  themeToggle.title = isDark ? "切换至亮色模式" : "切换至暗色模式"
+}
+
+if (themeToggle) {
+  updateThemeControl()
+  themeToggle.addEventListener("click", () => {
+    const nextTheme = themeRoot.dataset.theme === "dark" ? "light" : "dark"
+    themeRoot.dataset.theme = nextTheme
+    themeRoot.dataset.themeSource = "stored"
+    try {
+      window.localStorage.setItem("agent-notes-theme", nextTheme)
+    } catch {}
+    updateThemeControl()
+  })
+}
+
+themeMedia.addEventListener("change", (event) => {
+  if (themeRoot.dataset.themeSource !== "system") return
+  themeRoot.dataset.theme = event.matches ? "dark" : "light"
+  updateThemeControl()
+})
+
 const glossary = [
   ["Agent", ["Agent"], "基础概念", "让模型能够连续观察、调用工具并根据结果继续行动的完整运行系统。", "DEF 复用 OpenCode 的会话与循环，再接入自己的领域工具和产品边界。", "模型负责生成下一步；Agent 还包括 Runtime、状态、工具和权限。"],
   ["Runtime", ["Runtime"], "运行机制", "托住模型执行的外层程序，负责会话、循环、工具执行、取消、重试与状态更新。", "OpenCode Runtime 承担通用 Agent 能力，DEF Adapter 补入产品上下文。", "它不是模型本身，也不是单纯的聊天界面。"],

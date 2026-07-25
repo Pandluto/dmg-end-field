@@ -715,6 +715,40 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 }
 
 .notes-page .header-section { color: #817a70; }
+.notes-page .header-actions {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.notes-page .theme-toggle {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  color: #5e594f;
+  background: #f8f3e9;
+  border: 1px solid #c8c0b2;
+  font: 500 10px var(--note-font) !important;
+  letter-spacing: .04em;
+  cursor: pointer;
+}
+
+.notes-page .theme-toggle:hover,
+.notes-page .theme-toggle:focus-visible {
+  color: #315947;
+  background: #fffaf0;
+  border-color: #86a18f;
+  outline: none;
+}
+
+.notes-page .theme-icon {
+  color: var(--note-green);
+  font-size: 12px;
+  line-height: 1;
+}
+
 .notes-page .header-link {
   color: #4d4942;
   border-bottom: 1px dashed #8f887c;
@@ -1269,6 +1303,13 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 }
 
 @media (max-width: 600px) {
+  .notes-page .theme-toggle {
+    width: 34px;
+    height: 34px;
+    justify-content: center;
+    padding: 0;
+  }
+  .notes-page .theme-label { display: none; }
   .notes-page h1 { font-size: 34px; }
   .notes-page h1::after { width: 112px; }
   .notes-page h2 { font-size: 23px; }
@@ -1285,5 +1326,556 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   }
   .notes-page .markdown-body .context-viewpoint > summary::after {
     grid-column: 2;
+  }
+}
+
+/* Dark notebook: warm paper blacks, restrained marks, no color inversion. */
+.notes-document[data-theme="dark"] {
+  color-scheme: dark;
+  color: #efede7;
+  background: #171713;
+  scrollbar-color: rgba(102,151,124,.78) #20201c;
+}
+
+.notes-document[data-theme="dark"]::-webkit-scrollbar-track,
+.notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-track {
+  background: #20201c;
+  border-left-color: rgba(231,226,215,.08);
+}
+
+.notes-document[data-theme="dark"]::-webkit-scrollbar-thumb,
+.notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-thumb {
+  background: rgba(102,151,124,.78);
+  border-color: #20201c;
+}
+
+.notes-document[data-theme="dark"] .notes-page {
+  --ink: #efede7;
+  --muted: #aaa49a;
+  --line: #484740;
+  --paper: #171713;
+  --blue: #77a58d;
+  --violet: #b78762;
+  --note-paper: #1c1c18;
+  --note-panel: #23221d;
+  --note-ink: #efede7;
+  --note-muted: #aaa49a;
+  --note-line: #484740;
+  --note-green: #6d9c82;
+  --note-amber: #c18a47;
+  --note-red: #c97963;
+  --shadow-rgb: 0 0 0;
+  color: var(--note-ink);
+  background-color: #171713;
+}
+
+.notes-document[data-theme="dark"] .notes-page::before {
+  opacity: .45;
+  background-image:
+    radial-gradient(circle, rgba(236,231,219,.075) .7px, transparent .8px);
+}
+
+.notes-document[data-theme="dark"] .notes-page .site-header {
+  background: rgba(25,25,21,.96);
+  border-bottom-color: #44443d;
+  box-shadow: 0 4px 18px rgba(0,0,0,.24);
+}
+
+.notes-document[data-theme="dark"] .notes-page .brand,
+.notes-document[data-theme="dark"] .notes-page .sidebar-head strong {
+  color: #f1efe9;
+}
+
+.notes-document[data-theme="dark"] .notes-page .brand img {
+  border-color: #4b4a43;
+  box-shadow: 0 3px 12px rgba(0,0,0,.3);
+}
+
+.notes-document[data-theme="dark"] .notes-page .header-section,
+.notes-document[data-theme="dark"] .notes-page .header-link,
+.notes-document[data-theme="dark"] .notes-page .sidebar-head small,
+.notes-document[data-theme="dark"] .notes-page .article-kicker,
+.notes-document[data-theme="dark"] .notes-page .glossary-hint {
+  color: #aaa49a;
+}
+
+.notes-document[data-theme="dark"] .notes-page .header-link {
+  border-bottom-color: #68665d;
+}
+
+.notes-document[data-theme="dark"] .notes-page .theme-toggle {
+  color: #cbc6ba;
+  background: #20201b;
+  border-color: #55544c;
+}
+
+.notes-document[data-theme="dark"] .notes-page .theme-toggle:hover,
+.notes-document[data-theme="dark"] .notes-page .theme-toggle:focus-visible {
+  color: #f3f0e8;
+  background: #282720;
+  border-color: #759580;
+}
+
+.notes-document[data-theme="dark"] .notes-page .sidebar {
+  background:
+    linear-gradient(rgba(29,29,25,.97), rgba(29,29,25,.97)),
+    repeating-linear-gradient(to bottom, transparent 0 31px, rgba(231,226,215,.04) 31px 32px);
+  border-right-color: #44443d;
+  box-shadow: inset -10px 0 28px rgba(0,0,0,.1);
+}
+
+.notes-document[data-theme="dark"] .notes-page .sidebar-head {
+  border-bottom-color: #4a4942;
+}
+
+.notes-document[data-theme="dark"] .notes-page .sidebar-head p,
+.notes-document[data-theme="dark"] .notes-page .sidebar-foot,
+.notes-document[data-theme="dark"] .notes-page footer {
+  color: #969087;
+}
+
+.notes-document[data-theme="dark"] .notes-page .nav-item {
+  color: #b4aea3;
+}
+
+.notes-document[data-theme="dark"] .notes-page .nav-item span {
+  color: #77736b;
+}
+
+.notes-document[data-theme="dark"] .notes-page .nav-item:hover {
+  color: #9bc3ad;
+  border-color: #4b4a43;
+  background: rgba(242,238,229,.045);
+}
+
+.notes-document[data-theme="dark"] .notes-page .nav-item.active {
+  color: #f0ede6;
+  border-color: #65635a;
+  background: #26251f;
+  box-shadow: 2px 3px 0 rgba(0,0,0,.22);
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body {
+  color: var(--note-ink);
+  background: var(--note-paper);
+  border-color: #4a4942;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,.018),
+    0 2px 3px rgba(0,0,0,.18),
+    0 12px 30px rgba(0,0,0,.24),
+    0 36px 76px rgba(0,0,0,.3);
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body::after {
+  background: rgba(201,121,99,.18);
+}
+
+.notes-document[data-theme="dark"] .notes-page h1,
+.notes-document[data-theme="dark"] .notes-page h2,
+.notes-document[data-theme="dark"] .notes-page h3 {
+  color: #f1efe9;
+}
+
+.notes-document[data-theme="dark"] .notes-page h1::after {
+  border-top-color: rgba(193,138,71,.74);
+}
+
+.notes-document[data-theme="dark"] .notes-page p,
+.notes-document[data-theme="dark"] .notes-page li {
+  color: #c8c2b7;
+}
+
+.notes-document[data-theme="dark"] .notes-page strong,
+.notes-document[data-theme="dark"] .notes-page b {
+  color: #eeeae2;
+}
+
+.notes-document[data-theme="dark"] .notes-page a {
+  color: #8db69f;
+  text-decoration-color: rgba(141,182,159,.58);
+}
+
+.notes-document[data-theme="dark"] .notes-page hr {
+  border-top-color: #4a4942;
+}
+
+.notes-document[data-theme="dark"] .notes-page blockquote {
+  background: #2a261b;
+  border-color: #665a37;
+  box-shadow: 2px 3px 0 rgba(0,0,0,.26);
+}
+
+.notes-document[data-theme="dark"] .notes-page blockquote::before {
+  color: #e3c886;
+  background: #473b23;
+  border-color: #756237;
+}
+
+.notes-document[data-theme="dark"] .notes-page blockquote p {
+  color: #d6cdbb;
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body details {
+  background: #23221d;
+  border-color: #565349;
+  box-shadow: 2px 3px 0 rgba(0,0,0,.24);
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body summary {
+  color: #cbc5b9;
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body summary::before {
+  border-color: #607d6c;
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body summary:hover,
+.notes-document[data-theme="dark"] .notes-page .markdown-body details[open] > summary {
+  color: #f0ede6;
+  background: rgba(242,238,229,.045);
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body .context-viewpoint {
+  border-top-color: #4b4941;
+  border-bottom-color: #4b4941;
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body .context-viewpoint > summary {
+  color: #c9c3b8;
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body .context-viewpoint > summary:hover,
+.notes-document[data-theme="dark"] .notes-page .markdown-body .context-viewpoint[open] > summary {
+  color: #f0ede6;
+  background: rgba(242,238,229,.035);
+}
+
+.notes-document[data-theme="dark"] .notes-page .markdown-body .context-viewpoint[open] > summary {
+  border-bottom-color: #4b4941;
+}
+
+.notes-document[data-theme="dark"] .notes-page pre {
+  color: #ddd8cd;
+  background:
+    repeating-linear-gradient(to bottom, #211f1a 0 30px, #353128 30px 31px);
+  border-color: #504c42;
+  box-shadow: 3px 4px 0 rgba(0,0,0,.25);
+}
+
+.notes-document[data-theme="dark"] .notes-page pre code {
+  color: #ddd8cd;
+}
+
+.notes-document[data-theme="dark"] .notes-page :not(pre) > code {
+  color: #d8b886;
+  background: #302a20;
+  box-shadow: inset 0 -1px 0 rgba(216,184,134,.18);
+}
+
+.notes-document[data-theme="dark"] .notes-page table {
+  background: #1e1e1a;
+  border-color: #4b4942;
+  box-shadow: 2px 3px 0 rgba(0,0,0,.24);
+}
+
+.notes-document[data-theme="dark"] .notes-page th,
+.notes-document[data-theme="dark"] .notes-page td {
+  color: #c5bfb4;
+  border-color: #48463f;
+}
+
+.notes-document[data-theme="dark"] .notes-page th {
+  color: #eeeae2;
+  background: #292720;
+}
+
+.notes-document[data-theme="dark"] .notes-page .capability-strip,
+.notes-document[data-theme="dark"] .notes-page .article-diagram,
+.notes-document[data-theme="dark"] .notes-page .approval-flow,
+.notes-document[data-theme="dark"] .notes-page .message-flow,
+.notes-document[data-theme="dark"] .notes-page .transport-map,
+.notes-document[data-theme="dark"] .notes-page .qa-note {
+  color: #c8c2b7;
+  background: #211f1a;
+  border-color: #4d4b43;
+  box-shadow: 3px 4px 0 rgba(0,0,0,.25);
+}
+
+.notes-document[data-theme="dark"] .notes-page .capability-strip > div,
+.notes-document[data-theme="dark"] .notes-page .relation-branches > div,
+.notes-document[data-theme="dark"] .notes-page .context-sources,
+.notes-document[data-theme="dark"] .notes-page .context-outputs,
+.notes-document[data-theme="dark"] .notes-page .runtime-input,
+.notes-document[data-theme="dark"] .notes-page .runtime-output,
+.notes-document[data-theme="dark"] .notes-page .runtime-state,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-contracts,
+.notes-document[data-theme="dark"] .notes-page .ownership-before,
+.notes-document[data-theme="dark"] .notes-page .ownership-after,
+.notes-document[data-theme="dark"] .notes-page .version-track > div,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-harnesses > div,
+.notes-document[data-theme="dark"] .notes-page .host-participant,
+.notes-document[data-theme="dark"] .notes-page .approval-node,
+.notes-document[data-theme="dark"] .notes-page .transport-branch,
+.notes-document[data-theme="dark"] .notes-page .flow-decision {
+  background: #1d1d19;
+  border-color: #4c4a43;
+}
+
+.notes-document[data-theme="dark"] .notes-page .capability-strip .accent,
+.notes-document[data-theme="dark"] .notes-page .relation-root,
+.notes-document[data-theme="dark"] .notes-page .context-runtime,
+.notes-document[data-theme="dark"] .notes-page .runtime-core,
+.notes-document[data-theme="dark"] .notes-page .flow-step,
+.notes-document[data-theme="dark"] .notes-page .flow-finish strong,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-manager,
+.notes-document[data-theme="dark"] .notes-page .server-participant,
+.notes-document[data-theme="dark"] .notes-page .approval-node.verify,
+.notes-document[data-theme="dark"] .notes-page .transport-message {
+  background: #263129;
+  border-color: #4f6b5a;
+}
+
+.notes-document[data-theme="dark"] .notes-page .diagram-heading,
+.notes-document[data-theme="dark"] .notes-page .message-head {
+  border-bottom-color: #4a4942;
+}
+
+.notes-document[data-theme="dark"] .notes-page .diagram-track,
+.notes-document[data-theme="dark"] .notes-page .diagram-track.flexible,
+.notes-document[data-theme="dark"] .notes-page .diagram-track.enforced {
+  background: #22211c;
+  border-color: #4d4b43;
+}
+
+.notes-document[data-theme="dark"] .notes-page .track-label,
+.notes-document[data-theme="dark"] .notes-page .contract-phase {
+  background: rgba(238,234,226,.035);
+  border-color: #4e4c44;
+}
+
+.notes-document[data-theme="dark"] .notes-page .track-nodes span,
+.notes-document[data-theme="dark"] .notes-page .contract-nodes span,
+.notes-document[data-theme="dark"] .notes-page .runtime-core span,
+.notes-document[data-theme="dark"] .notes-page .flow-build span,
+.notes-document[data-theme="dark"] .notes-page .flow-decision span,
+.notes-document[data-theme="dark"] .notes-page .ownership-before span,
+.notes-document[data-theme="dark"] .notes-page .ownership-after span,
+.notes-document[data-theme="dark"] .notes-page .host-participant span,
+.notes-document[data-theme="dark"] .notes-page .project-transport-paths > div {
+  color: #c2bcb1;
+  background: #27261f;
+  border-color: #4c4a43;
+}
+
+.notes-document[data-theme="dark"] .notes-page .runtime-input span,
+.notes-document[data-theme="dark"] .notes-page .runtime-output span,
+.notes-document[data-theme="dark"] .notes-page .runtime-state span,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-contracts span,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-shared span,
+.notes-document[data-theme="dark"] .notes-page .context-sources span,
+.notes-document[data-theme="dark"] .notes-page .context-outputs span,
+.notes-document[data-theme="dark"] .notes-page .relation-branches span,
+.notes-document[data-theme="dark"] .notes-page .sse-note {
+  color: #bbb5aa;
+  background: #292820;
+}
+
+.notes-document[data-theme="dark"] .notes-page .flow-build,
+.notes-document[data-theme="dark"] .notes-page .diagram-feedback,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-shared,
+.notes-document[data-theme="dark"] .notes-page .project-transport-paths > div {
+  background: #24251f;
+  border-color: #4b5148;
+}
+
+.notes-document[data-theme="dark"] .notes-page .flow-decision .branch-loop,
+.notes-document[data-theme="dark"] .notes-page .version-track .transaction-a {
+  background: #2a252b;
+  border-color: #5b4d5d;
+}
+
+.notes-document[data-theme="dark"] .notes-page .flow-decision .branch-stop,
+.notes-document[data-theme="dark"] .notes-page .version-revoke,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-stop {
+  background: #292321;
+  border-color: #594743;
+}
+
+.notes-document[data-theme="dark"] .notes-page .version-track .transaction-b {
+  background: #263129;
+  border-color: #4f6b5a;
+}
+
+.notes-document[data-theme="dark"] .notes-page .flow-finish span {
+  color: #bbb5aa;
+  background: #27251f;
+  border-color: #4c4941;
+}
+
+.notes-document[data-theme="dark"] .notes-page .message-phase {
+  color: #b7b0a4;
+  background: #333127;
+}
+
+.notes-document[data-theme="dark"] .notes-page .message-row::before,
+.notes-document[data-theme="dark"] .notes-page .transport-branches::before,
+.notes-document[data-theme="dark"] .notes-page .transport-branch::before {
+  border-color: #59645b;
+}
+
+.notes-document[data-theme="dark"] .notes-page .message-row span,
+.notes-document[data-theme="dark"] .notes-page .message-row i {
+  color: #c8c2b7;
+  background: #211f1a;
+}
+
+.notes-document[data-theme="dark"] .notes-page .diagram-heading strong,
+.notes-document[data-theme="dark"] .notes-page .relation-root strong,
+.notes-document[data-theme="dark"] .notes-page .relation-branches strong,
+.notes-document[data-theme="dark"] .notes-page .context-sources b,
+.notes-document[data-theme="dark"] .notes-page .context-outputs b,
+.notes-document[data-theme="dark"] .notes-page .context-runtime strong,
+.notes-document[data-theme="dark"] .notes-page .track-label strong,
+.notes-document[data-theme="dark"] .notes-page .runtime-input strong,
+.notes-document[data-theme="dark"] .notes-page .runtime-output strong,
+.notes-document[data-theme="dark"] .notes-page .flow-step strong,
+.notes-document[data-theme="dark"] .notes-page .flow-decision > strong,
+.notes-document[data-theme="dark"] .notes-page .flow-build strong,
+.notes-document[data-theme="dark"] .notes-page .ownership-before strong,
+.notes-document[data-theme="dark"] .notes-page .version-track strong,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-manager strong,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-harnesses strong,
+.notes-document[data-theme="dark"] .notes-page .host-participant b,
+.notes-document[data-theme="dark"] .notes-page .server-participant strong,
+.notes-document[data-theme="dark"] .notes-page .qa-note strong,
+.notes-document[data-theme="dark"] .notes-page .approval-node strong,
+.notes-document[data-theme="dark"] .notes-page .message-head strong,
+.notes-document[data-theme="dark"] .notes-page .transport-message strong,
+.notes-document[data-theme="dark"] .notes-page .transport-branch strong,
+.notes-document[data-theme="dark"] .notes-page .project-transport-paths strong {
+  color: #ece8df;
+}
+
+.notes-document[data-theme="dark"] .notes-page .diagram-heading small,
+.notes-document[data-theme="dark"] .notes-page .relation-root small,
+.notes-document[data-theme="dark"] .notes-page .relation-branches small,
+.notes-document[data-theme="dark"] .notes-page .context-sources > small,
+.notes-document[data-theme="dark"] .notes-page .context-runtime small,
+.notes-document[data-theme="dark"] .notes-page .runtime-input small,
+.notes-document[data-theme="dark"] .notes-page .runtime-core small,
+.notes-document[data-theme="dark"] .notes-page .runtime-output small,
+.notes-document[data-theme="dark"] .notes-page .track-label small,
+.notes-document[data-theme="dark"] .notes-page .contract-phase > small,
+.notes-document[data-theme="dark"] .notes-page .flow-step small,
+.notes-document[data-theme="dark"] .notes-page .flow-build small,
+.notes-document[data-theme="dark"] .notes-page .ownership-before small,
+.notes-document[data-theme="dark"] .notes-page .ownership-after small,
+.notes-document[data-theme="dark"] .notes-page .version-track small,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-manager small,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-shared small,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-harnesses small,
+.notes-document[data-theme="dark"] .notes-page .host-participant > small,
+.notes-document[data-theme="dark"] .notes-page .server-participant > small,
+.notes-document[data-theme="dark"] .notes-page .mcp-link small,
+.notes-document[data-theme="dark"] .notes-page .approval-node small,
+.notes-document[data-theme="dark"] .notes-page .transport-message small,
+.notes-document[data-theme="dark"] .notes-page .transport-branch small {
+  color: #9c968d;
+}
+
+.notes-document[data-theme="dark"] .notes-page .relation-runtime,
+.notes-document[data-theme="dark"] .notes-page .context-runtime span,
+.notes-document[data-theme="dark"] .notes-page .track-label span,
+.notes-document[data-theme="dark"] .notes-page .runtime-output span,
+.notes-document[data-theme="dark"] .notes-page .version-track span,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-dependency,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-harnesses span,
+.notes-document[data-theme="dark"] .notes-page .host-participant em,
+.notes-document[data-theme="dark"] .notes-page .server-participant em,
+.notes-document[data-theme="dark"] .notes-page .qa-note p,
+.notes-document[data-theme="dark"] .notes-page .transport-choice,
+.notes-document[data-theme="dark"] .notes-page .transport-branch p,
+.notes-document[data-theme="dark"] .notes-page .project-transport-paths span {
+  color: #aaa49a;
+}
+
+.notes-document[data-theme="dark"] .notes-page .diagram-down,
+.notes-document[data-theme="dark"] .notes-page .diagram-arrow,
+.notes-document[data-theme="dark"] .notes-page .relation-runtime i,
+.notes-document[data-theme="dark"] .notes-page .track-nodes i,
+.notes-document[data-theme="dark"] .notes-page .contract-nodes i,
+.notes-document[data-theme="dark"] .notes-page .contract-down,
+.notes-document[data-theme="dark"] .notes-page .runtime-core i,
+.notes-document[data-theme="dark"] .notes-page .flow-build i,
+.notes-document[data-theme="dark"] .notes-page .flow-build b,
+.notes-document[data-theme="dark"] .notes-page .version-track > i,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-dependency i,
+.notes-document[data-theme="dark"] .notes-page .ecosystem-harnesses > i,
+.notes-document[data-theme="dark"] .notes-page .mcp-link,
+.notes-document[data-theme="dark"] .notes-page .approval-flow > i,
+.notes-document[data-theme="dark"] .notes-page .transport-down,
+.notes-document[data-theme="dark"] .notes-page .project-transport-paths i {
+  color: #79a68e;
+}
+
+.notes-document[data-theme="dark"] .notes-page .qa-mark {
+  color: #a8c8b6;
+  background: #29352e;
+  border-color: #526d5e;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-term {
+  border-bottom-color: #a8835f;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-term:hover,
+.notes-document[data-theme="dark"] .notes-page .glossary-term:focus-visible {
+  color: #a8cbb7;
+  background: #302a20;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-popover {
+  background: #1e1e1a;
+  border-color: #656158;
+  box-shadow: 5px 7px 0 rgba(0,0,0,.28), 0 22px 54px rgba(0,0,0,.42);
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-head {
+  background: #29271f;
+  border-bottom-color: #4b4942;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-head small,
+.notes-document[data-theme="dark"] .notes-page .glossary-body b {
+  color: #8eb59f;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-head strong {
+  color: #f0ede6;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-close {
+  color: #c2bcb1;
+  background: #20201b;
+  border-color: #5a5850;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-close:hover,
+.notes-document[data-theme="dark"] .notes-page .glossary-close:focus-visible {
+  color: #171713;
+  background: #9bc3ad;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-body > div {
+  border-bottom-color: #45443d;
+}
+
+.notes-document[data-theme="dark"] .notes-page .glossary-body p {
+  color: #c2bcb1;
+}
+
+@media (max-width: 1100px) {
+  .notes-document[data-theme="dark"] .notes-page .sidebar {
+    box-shadow: 18px 0 42px rgba(0,0,0,.42);
   }
 }

@@ -5,8 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>这些概念在 DEF 里怎样落地 · Agent 开发随记</title>
-  <link rel="stylesheet" href="styles.css?v=20260725-1" />
-  <script src="viewer.js?v=20260721-11" defer></script>
+  <script>
+    (() => {
+      const root = document.documentElement
+      const requestedTheme = new URLSearchParams(window.location.search).get("theme")
+      let storedTheme = null
+      try {
+        storedTheme = window.localStorage.getItem("agent-notes-theme")
+      } catch {}
+      const validTheme = (value) => value === "light" || value === "dark"
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+      root.dataset.theme = validTheme(requestedTheme)
+        ? requestedTheme
+        : validTheme(storedTheme)
+          ? storedTheme
+          : systemTheme
+      root.dataset.themeSource = validTheme(requestedTheme)
+        ? "query"
+        : validTheme(storedTheme)
+          ? "stored"
+          : "system"
+    })()
+  </script>
+  <link rel="stylesheet" href="styles.css?v=20260725-2" />
+  <script src="viewer.js?v=20260725-1" defer></script>
 </head>
 <body class="notes-page">
   <div class="page-glow glow-one"></div>
@@ -18,7 +40,13 @@
       <span>终末地伤害工作台</span>
     </a>
     <span class="header-section">AGENT NOTES / READING EDITION</span>
-    <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+    <div class="header-actions">
+      <button class="theme-toggle" type="button" aria-label="切换明暗模式">
+        <span class="theme-icon" aria-hidden="true">夜</span>
+        <span class="theme-label">暗色</span>
+      </button>
+      <a class="header-link" href="https://github.com/Pandluto/dmg-end-field" target="_blank" rel="noreferrer">GitHub 源码 <span>↗</span></a>
+    </div>
   </header>
   <aside class="sidebar">
     <div class="sidebar-head"><small><i></i> READING ROUTE</small><strong>Agent 开发随记</strong><p>从模型回答问题，一路读到工具、权限、状态、Skill 和 MCP。</p></div>
