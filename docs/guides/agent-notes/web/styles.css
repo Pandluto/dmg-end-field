@@ -658,9 +658,10 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   --note-green: #4e7d67;
   --note-amber: #b87835;
   --note-red: #bd664e;
-  --note-font: 'Microsoft YaHei', '微软雅黑', sans-serif;
+  --note-font: 'Microsoft YaHei UI', 'Microsoft YaHei', '微软雅黑', sans-serif;
+  --note-heading: 'DengXian', '等线', 'Microsoft YaHei UI', 'Microsoft YaHei', sans-serif;
   --note-reading: var(--note-font);
-  --note-mono: var(--note-font);
+  --note-mono: 'Segoe UI', var(--note-font);
   --note-hand: var(--note-font);
   font-family: var(--note-font) !important;
   color: var(--note-ink);
@@ -855,7 +856,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 .harness-page h2,
 .harness-page h3 {
   color: var(--note-ink);
-  font-family: var(--note-mono) !important;
+  font-family: var(--note-heading) !important;
   text-wrap: balance;
 }
 
@@ -863,7 +864,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   margin-bottom: 38px;
   font-size: clamp(38px, 5vw, 52px);
   font-weight: 700;
-  letter-spacing: -.07em;
+  letter-spacing: -.025em;
 }
 
 .harness-page h1::after {
@@ -880,7 +881,8 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 .harness-page h2 {
   margin-top: 58px;
   font-size: 27px;
-  letter-spacing: -.055em;
+  font-weight: 700;
+  letter-spacing: -.015em;
 }
 
 .harness-page h2::before {
@@ -893,7 +895,8 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 .harness-page h3 {
   margin-top: 39px;
   font-size: 20px;
-  letter-spacing: -.035em;
+  font-weight: 700;
+  letter-spacing: -.01em;
 }
 
 .harness-page p,
@@ -904,7 +907,26 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   line-height: 1.95;
 }
 
-.harness-page strong { color: #34312c; }
+.harness-page strong,
+.harness-page b {
+  color: #34312c;
+  font-weight: 500;
+}
+
+.harness-page .markdown-body strong {
+  padding-inline: .08em;
+  margin-inline: -.02em;
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 58%,
+      rgba(224, 191, 105, .34) 58%,
+      rgba(224, 191, 105, .34) 91%,
+      transparent 91%
+    );
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
 
 .harness-page a {
   color: #3f705b;
@@ -1050,6 +1072,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 
 .harness-page .glossary-term {
   border-bottom: 2px dotted #a47b53;
+  font-weight: 500;
 }
 
 .harness-page .glossary-term:hover,
