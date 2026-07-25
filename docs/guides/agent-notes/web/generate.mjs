@@ -98,12 +98,8 @@ for (const [file, navTitle] of pages) {
 </blockquote>`,
       )
       .replace(
-        "Harness 对模型的效果，则是非强制，但强参考。",
-        `Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。`,
-      )
-      .replace(
-        "<p>Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong>Context Source（上下文源）</strong>。</p>",
-        `<p class="annotation-line">Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 <strong><span class="ann ann-n ann-green" data-note="真正可注册的原子">Context Source（上下文源）</span></strong>。</p>`,
+        "Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。",
+        `Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。`,
       )
   }
 
