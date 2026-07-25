@@ -158,25 +158,9 @@ Harness 不固定唯一解法。它要做到的，是让合适的方法在合适
 
 到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的**来源、用途和运行位置**。
 
-## 写死 Prompt 以后，我们实际遇到了什么？
-
-项目早期把业务规则写进 Prompt，没有错。业务还没稳定时，这是验证想法最快的地方。
-
-后来遇到一个很实际的问题：Skill 偶尔没有加载。
-
-为了保险，我们把关键规则复制进固定 Prompt。接着又复制到 Tool Description 和 Runtime。同一句“应用配装前必须确认”，到处都有一点。
-
-这时问题已经不是“Prompt 太长”，而是：
-
-> **我们没有一个地方说清楚：一份 Context 由谁提供，又应该在什么时候出现。**
-
-[Harness Handbook](https://ruhan-wang.github.io/Harness-Handbook/#one-behavior-many-implementation-sites)把类似问题称为“一个行为，多个实现位置”。一条行为可能同时经过 Prompt、Tool Wrapper（工具包装器）、权限、状态和执行环境。只看文件树，很难知道它真正散落在哪里。
-
-Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map（行为地图）。
-
-这也给了我们一个更具体的方向：如果 Tool 可以被统一管理，Context 也应该有明确的来源和使用时机。
-
 ## Harness 对 Context 的管理
+
+> **我们没有一个地方说清楚：一份 Context 由谁提供，又应该出现在什么地方。**
 
 <details id="context-anthropic" class="context-viewpoint context-viewpoint--anthropic">
 <summary><span class="context-viewpoint__label">Anthropic</span><span class="context-viewpoint__thesis">把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</span></summary>
