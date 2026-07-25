@@ -93,14 +93,14 @@
 <p>这就是这篇手记里的 Harness。</p>
 <h2>什么是 Harness？</h2>
 <p>Harness 是<strong>围绕</strong>模型建立的运行机制。</p>
-<p>不是单独一份 Prompt，也不是一组 Tools。它描述的是模型在什么信息和能力条件下工作，以及模型输出怎样被系统接收、执行、拒绝、记录和反馈。</p>
+<p><span class="pen-mark pen-underline pen-red">不是单独一份 Prompt，也不是一组 Tools</span>。它描述的是模型在什么信息和能力条件下工作，以及模型输出怎样被系统接收、执行、拒绝、记录和反馈。</p>
 <p>Harness直译是<strong>驾驭</strong>，工程化的问题，讲起来没有<strong>调教</strong>这么变态</p>
 <h2>广义 Harness 会指什么？</h2>
 <p>不同文章里的 Harness，边界并不完全一样。</p>
 <p>最窄的说法，可能只指 System Prompt（系统提示词）和 Tool Loop（工具调用循环）；更宽的说法，会把 Context、Memory（记忆）、Skills、状态、权限、沙箱、审批和结果检查都算进去。</p>
 <p>在这个项目里，还可以把定义再收紧一点：</p>
 <blockquote>
-<p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留模型在边界内的自主推理能力。</strong></p>
+<p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留<span class="pen-mark pen-circle pen-blue">模型在边界内的自主推理能力</span>。</strong></p>
 </blockquote>
 <p>（Runtime 就是 Harness 实际运作的地方；缓存、状态机和内部执行机制，不在这里展开。）</p>
 <h2>Harness 和 Prompt、Tool、Skill、Workflow 的关系</h2>
@@ -148,10 +148,10 @@
 <p>Agent 的运行看起来也很像：理解用户的话，取得需要的信息，调用 Tools（循环），处理返回结果；就退出循环并给出答案。</p>
 <p>PSM 让这件事变得好懂，但是呢</p>
 <blockquote>
-<p><strong>PSM 没有智能；“怎样解一道题”是写不能死的</strong></p>
+<p><strong>PSM 没有智能；“怎样解一道题”是<span class="ann ann-n ann-red ann-psm" data-note="方法 ≠ 固定流程">写不能死</span>的</strong></p>
 </blockquote>
 <h3>为什么不能写死？</h3>
-<p>同一句“帮我配一套装备”，合法的走法并不只有一条。</p>
+<p>同一句“帮我配一套装备”，<span class="pen-mark pen-underline pen-green">合法的走法并不只有一条</span>。</p>
 <ul>
 <li>用户只想听建议，Agent 不必进入写入。</li>
 <li>目标角色不清楚，Agent 可以先追问。</li>
@@ -165,7 +165,7 @@
 </ul>
 </details>
 
-<p>这些情况当然可以全写成分支。但分支越写越多，最后得到的是一条巨大的 Workflow，不是一个仍能临场判断的 Agent。</p>
+<p>这些情况当然可以全写成分支。但分支越写越多，最后得到的是一条<span class="pen-mark pen-circle pen-red">巨大的 Workflow</span>，不是一个仍能临场判断的 Agent。</p>
 <blockquote>
 <p><strong>当你把这一切都写死，还有什么意义？到底是你在管这些问题，还是 Harness 在管？</strong></p>
 </blockquote>
@@ -173,7 +173,7 @@
 <h2>典型的垂直领域 Agent</h2>
 <p>游戏场景是具体内容，我们和通用Agent做一下区分</p>
 <p>通用 Agent 面对开放问题，临时组织这一轮需要的材料；</p>
-<p>垂直领域 Agent 反复处理同一类问题，因此可以持续复用领域知识、问题求解方法和 Tools，同时仍然根据每一次真实场景临场判断（Context）。</p>
+<p>垂直领域 Agent 反复处理同一类问题，因此可以<span class="pen-mark pen-underline pen-green">持续复用领域知识、问题求解方法和 Tools</span>，同时仍然根据每一次真实场景<span class="pen-mark pen-circle pen-amber">临场判断</span>（Context）。</p>
 <p>因此，垂直领域 Harness 的特色不是把流程写死，而是把领域知识、Tools、权限与审查机制稳定地组织在一起，这也专业又灵活，快速又稳定。</p>
 <h2>垂直领域的知识</h2>
 <p class="annotation-line"><strong>Harness 使用知识，但<span class="ann ann-n ann-green" data-note="不重复维护另一份权威副本">不复制知识</span>。</strong></p>
@@ -213,8 +213,8 @@
 <p>文字可以解释证据，不能代替证据。</p>
 </details>
 
-<p>这里最重要的变化，是不要再把所有材料一次塞满。</p>
-<p>有些 Context 从任务开始就需要；有些只在准备调用某个 Tool 时有用；还有一些，必须等 Tool Result 回来以后才成立。</p>
+<p>这里最重要的变化，是<span class="pen-mark pen-underline pen-red">不要再把所有材料一次塞满</span>。</p>
+<p>有些 Context <span class="pen-mark pen-underline pen-blue">从任务开始</span>就需要；有些只在<span class="pen-mark pen-underline pen-amber">准备调用某个 Tool</span>时有用；还有一些，必须等<span class="pen-mark pen-underline pen-green">Tool Result 回来以后</span>才成立。</p>
 <p class="annotation-line">到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong><span class="ann ann-n ann-purple" data-note="材料按需进入 Context">来源、用途和运行位置</span></strong>。</p>
 <h2>Harness 对 Context 的管理</h2>
 <p>项目早期把业务规则写进 Prompt，没有错。业务还没稳定时，这是验证想法最快的地方。</p>

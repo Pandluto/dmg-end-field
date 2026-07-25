@@ -99,11 +99,43 @@ for (const [file, navTitle] of pages) {
       )
       .replace(
         "可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。",
-        `可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留模型在边界内的自主推理能力。`,
+        `可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留<span class="pen-mark pen-circle pen-blue">模型在边界内的自主推理能力</span>。`,
+      )
+      .replace(
+        "不是单独一份 Prompt，也不是一组 Tools。",
+        `<span class="pen-mark pen-underline pen-red">不是单独一份 Prompt，也不是一组 Tools</span>。`,
       )
       .replace(
         "Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。",
         `Tool 是<span class="ann ann-sw ann-green ann-schema" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-nw ann-amber ann-method" data-note="这里说的是方法层">非强制，但强参考</span>。`,
+      )
+      .replace(
+        "PSM 没有智能；“怎样解一道题”是写不能死的",
+        `PSM 没有智能；“怎样解一道题”是<span class="ann ann-n ann-red ann-psm" data-note="方法 ≠ 固定流程">写不能死</span>的`,
+      )
+      .replace(
+        "合法的走法并不只有一条",
+        `<span class="pen-mark pen-underline pen-green">合法的走法并不只有一条</span>`,
+      )
+      .replace(
+        "一条巨大的 Workflow",
+        `一条<span class="pen-mark pen-circle pen-red">巨大的 Workflow</span>`,
+      )
+      .replace(
+        "持续复用领域知识、问题求解方法和 Tools",
+        `<span class="pen-mark pen-underline pen-green">持续复用领域知识、问题求解方法和 Tools</span>`,
+      )
+      .replace(
+        "临场判断（Context）",
+        `<span class="pen-mark pen-circle pen-amber">临场判断</span>（Context）`,
+      )
+      .replace(
+        "不要再把所有材料一次塞满",
+        `<span class="pen-mark pen-underline pen-red">不要再把所有材料一次塞满</span>`,
+      )
+      .replace(
+        "有些 Context 从任务开始就需要；有些只在准备调用某个 Tool 时有用；还有一些，必须等 Tool Result 回来以后才成立。",
+        `有些 Context <span class="pen-mark pen-underline pen-blue">从任务开始</span>就需要；有些只在<span class="pen-mark pen-underline pen-amber">准备调用某个 Tool</span>时有用；还有一些，必须等<span class="pen-mark pen-underline pen-green">Tool Result 回来以后</span>才成立。`,
       )
       .replace(
         "<p><strong>Harness 使用知识，但不复制知识。</strong></p>",
