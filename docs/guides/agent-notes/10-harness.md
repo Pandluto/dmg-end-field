@@ -220,6 +220,6 @@ Typed Tools 让 Agent 的“手”相对稳定下来，之后长期变化的是�
 
 ## 先停在这里
 
-Harness 仍然是最合适的主名称：它组织领域知识、Tools、Context、权限、状态和运行条件，但不替模型写死唯一解法。
+Harness 组织领域知识、Tools、Context、权限、状态和运行条件，但不替模型写死唯一解法。
 
 > **Harness 是整体；它让 Context 在合适的时机进入，在不再适用时更新或退出。**
