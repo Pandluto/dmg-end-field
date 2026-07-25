@@ -984,6 +984,7 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   overflow: visible;
   background: transparent;
   border: 0;
+  border-top: 1px solid #d7cec0;
   border-bottom: 1px solid #d7cec0;
   border-left: 3px solid var(--viewpoint-accent);
   border-radius: 0;
