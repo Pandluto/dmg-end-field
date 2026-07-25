@@ -103,7 +103,7 @@ for (const [file, navTitle] of pages) {
       )
       .replace(
         "Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。",
-        `Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-s ann-amber ann-method" data-note="这里说的是方法层">非强制，但强参考</span>。`,
+        `Tool 是<span class="ann ann-sw ann-green ann-schema" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-nw ann-amber ann-method" data-note="这里说的是方法层">非强制，但强参考</span>。`,
       )
       .replace(
         "<p><strong>Harness 使用知识，但不复制知识。</strong></p>",
