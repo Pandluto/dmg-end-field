@@ -160,6 +160,14 @@ Harness 不固定唯一解法。它要做到的，是让合适的方法在合适
 
 ## Harness 对 Context 的管理
 
+项目早期把业务规则写进 Prompt，没有错。业务还没稳定时，这是验证想法最快的地方。
+
+后来遇到一个很实际的问题：Skill 偶尔没有加载。
+
+为了保险，我们把关键规则复制进固定 Prompt。接着又复制到 Tool Description 和 Runtime。同一句“应用配装前必须确认”，到处都有一点。
+
+这时问题已经不是“Prompt 太长”，而是：
+
 > **我们没有一个地方说清楚：一份 Context 由谁提供，又应该出现在什么地方。**
 
 <details id="context-anthropic" class="context-viewpoint context-viewpoint--anthropic">
