@@ -174,9 +174,9 @@ Harness 不固定唯一解法。它要做到的，是让合适的方法在合适
 
 Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map（行为地图）。
 
-这也给了我们一个更具体的方向：既然 Tool 可以注册，Context 为什么不能注册？
+这也给了我们一个更具体的方向：如果 Tool 可以被统一管理，Context 也应该有明确的来源和使用时机。
 
-## 从 Harness 拆出 Context 原子
+## Harness 对 Context 的管理
 
 <details id="context-anthropic" class="context-viewpoint context-viewpoint--anthropic">
 <summary><span class="context-viewpoint__label">Anthropic</span><span class="context-viewpoint__thesis">把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</span></summary>
@@ -212,15 +212,13 @@ OpenAI 讨论的是这些材料怎样成为 Agent 可以找到、理解和验证
 
 </details>
 
-### 两种看法放回 Harness
+### 管理 Context 的来源与生命周期
 
 Anthropic 从一次模型调用向内看，回答“这一轮应该看什么”；OpenAI 从整个工程环境向外看，回答“材料去哪里找、能做什么、结果怎样验证”。
 
-两者放在一起，Harness 仍然是整体，但 Context 不必是一整块 Prompt。领域知识、当前状态、Tool 的使用方法和 Tool Result，都可以成为独立维护、按需进入模型回合的 Context 原子。
+两者放在一起，Harness 不负责把所有 Context 塞进一个 Prompt；它负责让模型在需要时找到合适的材料，也让这些材料随状态变化及时更新或退出。
 
-在本项目里，我们把这样的 Context 原子称为 **Context Source（上下文源）**。这是本项目基于两种思路做出的工程抽象，不是 Anthropic 或 OpenAI 规定的统一术语。
-
-> **Context Source 说明一份 Context 从哪里来、解决什么问题、什么时候需要，以及状态变化后怎样更新或退出。**
+> **Harness 对 Context 的管理：Context 从哪里来、解决什么问题、什么时候需要，以及状态变化后怎样更新或退出。**
 
 ## Typed Tools 完成之后，迭代的是什么？
 
@@ -232,22 +230,22 @@ Typed Tools 完成，只表示 Agent 的手相对稳定了。
 - 攻略变了，更新知识来源；
 - 新增 Tool，补上它的用途和调用前 Context；
 - Tool Result 结构变了，调整调用后的解释 Context；
-- 出现一种新问题，注册新的 Context Source。
+- 出现一种新问题，补上对应的知识、读取路径或审查规则。
 
 这些改变不需要预先凑成固定数量的业务，也不需要重写一份总 Prompt。
 
-Context Source 有稳定身份以后，变化才有位置；Registry 能增加、移除和组合它们以后，Harness 才真正变得可管理。
+只要每份材料的来源、用途、触发时机和退出条件清楚，Harness 就能让它们各自变化，而不互相淹没。
 
 ## 先停在这里
 
 绕了一圈，Harness 仍然是最合适的主名称。
 
-因为它说的是领域知识、问题求解方法、Context、能力、状态和运行条件围绕 Agent 形成的整体，而不是其中某一个 Context Source。
+因为它说的是领域知识、问题求解方法、Context、能力、状态和运行条件围绕 Agent 形成的整体，而不是其中某一份 Prompt 或知识。
 
 它不替模型预先解完问题，也不要求模型走唯一的路。它把需要的 Context 放到相应的位置，让方法成为**非强制，但强参考**。
 
 所以本篇最后留下的，不是一张固定配装流程图，也不是一组固定数量的“小 Harness”，而是这样一个理解：
 
-> **Harness 是整体；Context Source 是可以注册、增加、组合并绑定运行位置的原子。**
+> **Harness 是整体；它让 Context 在合适的时机进入，在不再适用时更新或退出。**
 
-至于运行留下的经验怎样反过来改进这些 Context Sources，又怎样形成自训练，留到下一篇单独说。
+至于运行留下的经验怎样反过来改进 Context 管理，又怎样形成自训练，留到下一篇单独说。
