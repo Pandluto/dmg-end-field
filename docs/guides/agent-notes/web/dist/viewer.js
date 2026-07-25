@@ -1,8 +1,21 @@
 const themeRoot = document.documentElement
 const themeToggle = document.querySelector(".theme-toggle")
 const themeMedia = window.matchMedia("(prefers-color-scheme: dark)")
+const LIGHT_ICON = "app-icon.png"
+const DARK_ICON = "app-icon-dark.png"
+
+function syncBrandIcon() {
+  const isDark = themeRoot.dataset.theme === "dark"
+  const targetSrc = isDark ? DARK_ICON : LIGHT_ICON
+  document.querySelectorAll(".brand img").forEach((img) => {
+    if (img.getAttribute("src") !== targetSrc) {
+      img.setAttribute("src", targetSrc)
+    }
+  })
+}
 
 function updateThemeControl() {
+  syncBrandIcon()
   if (!themeToggle) return
   const isDark = themeRoot.dataset.theme === "dark"
   const icon = themeToggle.querySelector(".theme-icon")
@@ -12,6 +25,8 @@ function updateThemeControl() {
   themeToggle.setAttribute("aria-pressed", String(isDark))
   themeToggle.title = isDark ? "切换至亮色模式" : "切换至暗色模式"
 }
+
+syncBrandIcon()
 
 if (themeToggle) {
   updateThemeControl()

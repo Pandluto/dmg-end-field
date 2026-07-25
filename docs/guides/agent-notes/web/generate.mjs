@@ -70,7 +70,7 @@ const shell = ({ file, title, content }) => {
           : "system"
     })()
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260725-3" />
+  <link rel="stylesheet" href="styles.css?v=20260725-4" />
   <script src="viewer.js?v=20260725-1" defer></script>
 </head>
 <body class="notes-page">
@@ -200,5 +200,6 @@ await writeFile(path.join(outputDir, "index.html"), await readFile(path.join(out
 await writeFile(path.join(outputDir, "styles.css"), await readFile(path.join(previewDir, "styles.css"), "utf8"))
 await writeFile(path.join(outputDir, "viewer.js"), await readFile(path.join(previewDir, "viewer.js"), "utf8"))
 await copyFile(path.join(worktree, "electron/assets/icon.png"), path.join(outputDir, "app-icon.png"))
+await copyFile(path.join(worktree, "electron/assets/icon-dark.png"), path.join(outputDir, "app-icon-dark.png"))
 
 console.log(`Rendered ${pages.length} pages to ${outputDir}`)
