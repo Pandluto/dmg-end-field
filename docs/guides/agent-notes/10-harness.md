@@ -224,4 +224,4 @@ Harness 组织领域知识、Tools、Context、权限、状态和运行条件，
 
 > **Harness 是整体；它让 Context 在合适的时机进入，在不再适用时更新或退出。**
 
-DEF OpenCode 也在研究一套 Context 管理的注册机制，但尚未形成严谨的论述，所以本文暂不展开。
+DEF OpenCode 也在探索一套 Context 管理的注册机制；相关实践尚未沉淀为严谨的方法论，本文暂不展开。
