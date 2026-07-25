@@ -99,7 +99,7 @@ for (const [file, navTitle] of pages) {
       )
       .replace(
         "可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。",
-        `可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留<span class="pen-mark pen-circle pen-blue">模型在边界内的自主推理能力</span>。`,
+        `可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留模型在边界内的自主推理能力。`,
       )
       .replace(
         "不是单独一份 Prompt，也不是一组 Tools。",
@@ -118,16 +118,8 @@ for (const [file, navTitle] of pages) {
         `<span class="pen-mark pen-underline pen-green">合法的走法并不只有一条</span>`,
       )
       .replace(
-        "一条巨大的 Workflow",
-        `一条<span class="pen-mark pen-circle pen-red">巨大的 Workflow</span>`,
-      )
-      .replace(
         "持续复用领域知识、问题求解方法和 Tools",
         `<span class="pen-mark pen-underline pen-green">持续复用领域知识、问题求解方法和 Tools</span>`,
-      )
-      .replace(
-        "临场判断（Context）",
-        `<span class="pen-mark pen-circle pen-amber">临场判断</span>（Context）`,
       )
       .replace(
         "不要再把所有材料一次塞满",

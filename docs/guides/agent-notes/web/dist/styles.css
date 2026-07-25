@@ -999,22 +999,6 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   -webkit-box-decoration-break: clone;
 }
 
-.harness-page .pen-circle {
-  display: inline-block;
-  padding: 0 5px 1px;
-  white-space: nowrap;
-}
-
-.harness-page .pen-circle::before {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  inset: -5px -4px -4px;
-  background: var(--pen-color);
-  opacity: .82;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 60' preserveAspectRatio='none'%3E%3Cellipse cx='120' cy='30' rx='116' ry='25' fill='none' stroke='black' stroke-width='2.2' transform='rotate(-1 120 30)'/%3E%3C/svg%3E") center / 100% 100% no-repeat;
-}
-
 .harness-page .markdown-body details {
   background: var(--note-panel);
   border: 1px dashed #c7bdad;
