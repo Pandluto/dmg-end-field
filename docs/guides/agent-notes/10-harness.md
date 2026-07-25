@@ -178,73 +178,43 @@ Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map�
 
 ## 从 Harness 拆出 Context 原子
 
-我们一开始把这件事叫作“原子化 Harness”。
+Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。[Anthropic：Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
-这个名字很容易让人误会：仿佛要先规定若干个“小 Harness”，再把每一项业务塞进去。
+OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。[OpenAI：Harness Engineering](https://openai.com/index/harness-engineering/)
 
-其实不是。
+### Anthropic：每一轮该看什么
 
-Harness 是整体。真正被拆出来、可以继续增加的原子，不必再叫 Harness。它就是一份 **Context Source（上下文源）**。
+Anthropic 讨论的是模型眼前这一轮。
 
-> **Context Source 是一份可以独立注册的 Context。它说明自己提供什么、什么时候需要，以及进入 Agent Loop（智能体循环）的哪个位置。**
+Context 不只是 Prompt，还包括 Tools、MCP、外部数据、消息历史和刚刚返回的 Tool Result。它们都在争夺有限的 Context Window（上下文窗口），放得越多，并不代表模型理解得越好。
 
-原子的数量当然不固定。以后多一种知识、多一种 Tool 用法，或者多一种 Tool Result 的解释方式，都可以继续增加新的 Context Source。
+所以重点不是把材料一次塞满，而是保留少量高价值信息。固定规则可以先给；文件、查询和链接只保留轻量索引，需要时再由 Agent 使用 Tools 读取。每一次读取又会产生新的事实，帮助 Agent 决定下一步还要看什么。
 
-### 像注册 Tool 一样注册 Context
+这是一种 Progressive Disclosure（渐进披露）：Agent 一层一层取得材料，只把当前判断真正需要的部分留在工作记忆里。
 
-Tool Registry（工具注册表）不会只保存一段 Tool 代码。它还要让系统知道这个 Tool 是什么、能做什么、怎样调用，以及调用发到哪里。
+长任务也不能只靠更大的 Context Window。Anthropic 使用 Compaction（压缩）、结构化笔记、Memory（记忆）和 Subagent（子 Agent），让旧信息被概括、外置或者隔离，而不是永远堆在主 Agent 眼前。
 
-Context Registry（上下文注册表）要回答的是另一组问题：
+### OpenAI：材料放在哪里
 
-| Tool Registry | Context Registry |
-| --- | --- |
-| 这是什么能力？ | 这是什么 Context？ |
-| 什么情况下可以找到它？ | 什么情况下需要它？ |
-| 输入和输出是什么？ | 来源和呈现内容是什么？ |
-| 调用路由到哪里？ | 它进入 Agent Loop 的哪个位置？ |
-| Tool 执行后返回什么？ | 状态变化后怎样更新或移除？ |
+OpenAI 讨论的是这些材料怎样成为 Agent 可以找到、理解和验证的工作环境。
 
-这张表不是要把模型的判断重新写死。Registry 只负责让每个 Context 原子有名字、有来源、有位置；模型仍然根据这些 Context 判断下一步。
+他们试过把说明全部写进一个巨大的 AGENTS.md，结果很快出现问题：重要内容互相淹没，规则容易过期，也很难检查到底是谁维护、是否仍然正确。
 
-### “位置”到底在哪里？
+后来 AGENTS.md 只保留为地图。真正的知识进入版本化的 docs、架构文档、执行计划和生成资料；Agent 从一个小入口出发，再根据任务找到更深的来源。这同样是渐进披露，但重点从“模型窗口”转向了“知识怎样组织”。
 
-Context 不会异步插进一个正在执行的 Tool 中间。
+只让 Agent 读到文档还不够。OpenAI 还让 UI、日志、指标和测试对 Agent 可见，并把架构边界交给 Linter（静态检查）和结构测试强制。文档负责说明，Tools 负责行动，程序负责守住不能违反的规则。
 
-对模型可见的 Context，最终都要在一次模型调用开始前到位：
+这套 Harness 的原则可以概括为：边界集中强制，边界之内保留自主。
 
-```text
-Context Sources
-→ 在模型调用前组装
-→ 模型决定是否调用 Tool
-→ Tool 执行并返回结果
-→ Context Sources 根据新状态刷新
-→ 在下一次模型调用前重新组装
-```
+### 两种看法放回 Harness
 
-所以：
+Anthropic 从一次模型调用向内看，回答“这一轮应该看什么”；OpenAI 从整个工程环境向外看，回答“材料去哪里找、能做什么、结果怎样验证”。
 
-- “Tool 调用前的 Context”，是产生这次 Tool Call（工具调用）的模型回合开始前已经可见的内容；
-- “怎样调用 Tool”的 Context，也在这个位置成为方法参考；
-- “Tool 调用后的 Context”，是在 Tool Result 落定以后、下一次模型回合开始以前进入的内容。
+两者放在一起，Harness 仍然是整体，但 Context 不必是一整块 Prompt。领域知识、当前状态、Tool 的使用方法和 Tool Result，都可以成为独立维护、按需进入模型回合的 Context 原子。
 
-硬能力仍然属于 Tool。Context Source 告诉模型当前有什么、可以怎样理解和使用；Tool Schema（工具结构定义）与 Handler（处理器）继续决定程序真正怎样执行。
+在本项目里，我们把这样的 Context 原子称为 **Context Source（上下文源）**。这是本项目基于两种思路做出的工程抽象，不是 Anthropic 或 OpenAI 规定的统一术语。
 
-这也是“非强制，但强参考”在工程上最直观的样子：方法没有被藏在一份可能不加载的目录里，也没有被写成唯一 Workflow；它被放到真正需要它的 Context 位置。
-
-<details>
-<summary>展开：OpenCode 已经使用的几个名字</summary>
-
-OpenCode 当前把一个可独立观察、拥有稳定 key（键）、可以单独刷新和渲染的值叫作 **Context Source**。
-
-多个 Context Sources 由 **System Context Registry（系统上下文注册表）** 注册和组合。第一次模型调用时，它们形成初始 Context；后续状态变化，则在 Tool Result 等内容落定以后、下一次模型调用以前进入。
-
-这个位置叫 **Safe Provider-Turn Boundary（安全模型回合边界）**。
-
-此前的一轮项目实现里，我们还使用过 **Bound Context Source（绑定上下文源）**：它强调某份 Context 绑定到一个具体阶段，而不是永远占据全局 Prompt。
-
-[HarnessX](https://arxiv.org/abs/2606.14249)把可组合的 Harness 部件称为 Typed Harness Primitives（类型化 Harness 原语）。名称并不统一，但它提供了一个相近的思路：Harness 可以从一块整体，变成可以定位和单独调整的组成部分。
-
-</details>
+> **Context Source 说明一份 Context 从哪里来、解决什么问题、什么时候需要，以及状态变化后怎样更新或退出。**
 
 ## Typed Tools 完成之后，迭代的是什么？
 
