@@ -950,7 +950,13 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 
 .harness-page .annotation-quote--intro { margin-bottom: 83px; }
 .harness-page .annotation-line { margin-bottom: 76px; }
+.harness-page .annotation-line .ann { --ann-label-max-width: 210px; }
 .harness-page .ann::after { font-family: var(--note-hand) !important; }
+.harness-page blockquote:has(.ann-runtime) { margin-bottom: 82px; }
+.harness-page blockquote:has(.ann-method) {
+  margin-top: 82px;
+  margin-bottom: 83px;
+}
 
 .harness-page .markdown-body details {
   background: var(--note-panel);

@@ -98,8 +98,24 @@ for (const [file, navTitle] of pages) {
 </blockquote>`,
       )
       .replace(
+        "可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。",
+        `可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留模型在边界内的自主推理能力。`,
+      )
+      .replace(
         "Tool 是强制性的能力，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是非强制，但强参考。",
-        `Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。`,
+        `Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-s ann-amber ann-method" data-note="这里说的是方法层">非强制，但强参考</span>。`,
+      )
+      .replace(
+        "<p><strong>Harness 使用知识，但不复制知识。</strong></p>",
+        `<p class="annotation-line"><strong>Harness 使用知识，但<span class="ann ann-n ann-green" data-note="不重复维护另一份权威副本">不复制知识</span>。</strong></p>`,
+      )
+      .replace(
+        "<p>到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong>来源、用途和运行位置</strong>。</p>",
+        `<p class="annotation-line">到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong><span class="ann ann-n ann-purple" data-note="材料按需进入 Context">来源、用途和运行位置</span></strong>。</p>`,
+      )
+      .replace(
+        "<p>Typed Tools 让 Agent 的“手”相对稳定下来，之后长期变化的是它在不同位置拿到的 Context：方法、知识、Tool 的用途、Tool Result 的解释和审查规则都会继续更新。</p>",
+        `<p class="annotation-line">Typed Tools 让 Agent 的<span class="ann ann-n ann-blue" data-note="稳定的是 Schema 与调用契约">“手”相对稳定下来</span>，之后长期变化的是它在不同位置拿到的 Context：方法、知识、Tool 的用途、Tool Result 的解释和审查规则都会继续更新。</p>`,
       )
   }
 

@@ -100,7 +100,7 @@
 <p>最窄的说法，可能只指 System Prompt（系统提示词）和 Tool Loop（工具调用循环）；更宽的说法，会把 Context、Memory（记忆）、Skills、状态、权限、沙箱、审批和结果检查都算进去。</p>
 <p>在这个项目里，还可以把定义再收紧一点：</p>
 <blockquote>
-<p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、由运行时强制的整体，同时保留模型在边界内的自主推理能力。</strong></p>
+<p><strong>本项目中的 Harness，是围绕一类业务问题建立的完整 Agent 求解环境。它将领域知识、问题求解方法、上下文、能力边界、执行状态与完成验证组织为可版本化、<span class="ann ann-n ann-red ann-runtime" data-note="强制关键边界，不强制唯一解法">由运行时强制</span>的整体，同时保留模型在边界内的自主推理能力。</strong></p>
 </blockquote>
 <p>（Runtime 就是 Harness 实际运作的地方；缓存、状态机和内部执行机制，不在这里展开。）</p>
 <h2>Harness 和 Prompt、Tool、Skill、Workflow 的关系</h2>
@@ -139,7 +139,7 @@
 </tbody></table>
 <p>Tool、Skill 、Workflow 与 Harness 显然不是同一层次。但如果只比较它们最终怎样影响模型，区别很清楚：</p>
 <blockquote>
-<p><strong>Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-amber">非强制，但强参考</span>。</strong></p>
+<p><strong>Tool 是<span class="ann ann-n ann-green" data-note="Schema / Typed Tools 约束下">强制性的能力</span>，Skill 是非强制性的目录，Workflow 是强制串联 Tools；Harness 对模型的效果，则是<span class="ann ann-s ann-amber ann-method" data-note="这里说的是方法层">非强制，但强参考</span>。</strong></p>
 </blockquote>
 <h2>面向业务的Harness：先从“解一道题”说起</h2>
 <p>一道普通证明题。</p>
@@ -176,7 +176,7 @@
 <p>垂直领域 Agent 反复处理同一类问题，因此可以持续复用领域知识、问题求解方法和 Tools，同时仍然根据每一次真实场景临场判断（Context）。</p>
 <p>因此，垂直领域 Harness 的特色不是把流程写死，而是把领域知识、Tools、权限与审查机制稳定地组织在一起，这也专业又灵活，快速又稳定。</p>
 <h2>垂直领域的知识</h2>
-<p><strong>Harness 使用知识，但不复制知识。</strong></p>
+<p class="annotation-line"><strong>Harness 使用知识，但<span class="ann ann-n ann-green" data-note="不重复维护另一份权威副本">不复制知识</span>。</strong></p>
 <p>它要组织的是：这类问题需要哪些知识，去哪里读，什么时候读。攻略更新不该迫使整个 Harness 重写；方法调整也不该复制一份新的装备数据库。</p>
 <details>
 <summary>展开：配装时可能出现的几类材料</summary>
@@ -215,7 +215,7 @@
 
 <p>这里最重要的变化，是不要再把所有材料一次塞满。</p>
 <p>有些 Context 从任务开始就需要；有些只在准备调用某个 Tool 时有用；还有一些，必须等 Tool Result 回来以后才成立。</p>
-<p>到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong>来源、用途和运行位置</strong>。</p>
+<p class="annotation-line">到了这里，Context 已经不只是一大段“背景资料”。它开始有自己的<strong><span class="ann ann-n ann-purple" data-note="材料按需进入 Context">来源、用途和运行位置</span></strong>。</p>
 <h2>Harness 对 Context 的管理</h2>
 <p>项目早期把业务规则写进 Prompt，没有错。业务还没稳定时，这是验证想法最快的地方。</p>
 <p>后来我们发现，只把关键规则放在 Skill 里并不可靠：它不一定会在需要的那一轮进入模型的 Context。</p>
@@ -253,7 +253,7 @@
 <p><strong>Harness 对 Context 的管理：Context 从哪里来、解决什么问题、什么时候需要，以及状态变化后怎样更新或退出。</strong></p>
 </blockquote>
 <h2>Typed Tools 完成之后，迭代的是什么？</h2>
-<p>Typed Tools 让 Agent 的“手”相对稳定下来，之后长期变化的是它在不同位置拿到的 Context：方法、知识、Tool 的用途、Tool Result 的解释和审查规则都会继续更新。</p>
+<p class="annotation-line">Typed Tools 让 Agent 的<span class="ann ann-n ann-blue" data-note="稳定的是 Schema 与调用契约">“手”相对稳定下来</span>，之后长期变化的是它在不同位置拿到的 Context：方法、知识、Tool 的用途、Tool Result 的解释和审查规则都会继续更新。</p>
 <p>只要来源、用途、触发时机和退出条件清楚，这些变化就不必重写一份总 Prompt。</p>
 <h2>先停在这里</h2>
 <p>Harness 组织领域知识、Tools、Context、权限、状态和运行条件，但不替模型写死唯一解法。</p>
