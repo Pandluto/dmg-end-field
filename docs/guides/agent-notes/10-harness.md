@@ -178,11 +178,10 @@ Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map�
 
 ## 从 Harness 拆出 Context 原子
 
-Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。[Anthropic：Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+<details>
+<summary>Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</summary>
 
-OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。[OpenAI：Harness Engineering](https://openai.com/index/harness-engineering/)
-
-### Anthropic：每一轮该看什么
+[Anthropic：Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
 Anthropic 讨论的是模型眼前这一轮。
 
@@ -194,7 +193,12 @@ Context 不只是 Prompt，还包括 Tools、MCP、外部数据、消息历史�
 
 长任务也不能只靠更大的 Context Window。Anthropic 使用 Compaction（压缩）、结构化笔记、Memory（记忆）和 Subagent（子 Agent），让旧信息被概括、外置或者隔离，而不是永远堆在主 Agent 眼前。
 
-### OpenAI：材料放在哪里
+</details>
+
+<details>
+<summary>OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。</summary>
+
+[OpenAI：Harness Engineering](https://openai.com/index/harness-engineering/)
 
 OpenAI 讨论的是这些材料怎样成为 Agent 可以找到、理解和验证的工作环境。
 
@@ -205,6 +209,8 @@ OpenAI 讨论的是这些材料怎样成为 Agent 可以找到、理解和验证
 只让 Agent 读到文档还不够。OpenAI 还让 UI、日志、指标和测试对 Agent 可见，并把架构边界交给 Linter（静态检查）和结构测试强制。文档负责说明，Tools 负责行动，程序负责守住不能违反的规则。
 
 这套 Harness 的原则可以概括为：边界集中强制，边界之内保留自主。
+
+</details>
 
 ### 两种看法放回 Harness
 

@@ -228,20 +228,28 @@
 <p>Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map（行为地图）。</p>
 <p>这也给了我们一个更具体的方向：既然 Tool 可以注册，Context 为什么不能注册？</p>
 <h2>从 Harness 拆出 Context 原子</h2>
-<p>Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。<a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Anthropic：Context Engineering</a></p>
-<p>OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。<a href="https://openai.com/index/harness-engineering/">OpenAI：Harness Engineering</a></p>
-<h3>Anthropic：每一轮该看什么</h3>
+<details>
+<summary>Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</summary>
+
+<p><a href="https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents">Anthropic：Context Engineering</a></p>
 <p>Anthropic 讨论的是模型眼前这一轮。</p>
 <p>Context 不只是 Prompt，还包括 Tools、MCP、外部数据、消息历史和刚刚返回的 Tool Result。它们都在争夺有限的 Context Window（上下文窗口），放得越多，并不代表模型理解得越好。</p>
 <p>所以重点不是把材料一次塞满，而是保留少量高价值信息。固定规则可以先给；文件、查询和链接只保留轻量索引，需要时再由 Agent 使用 Tools 读取。每一次读取又会产生新的事实，帮助 Agent 决定下一步还要看什么。</p>
 <p>这是一种 Progressive Disclosure（渐进披露）：Agent 一层一层取得材料，只把当前判断真正需要的部分留在工作记忆里。</p>
 <p>长任务也不能只靠更大的 Context Window。Anthropic 使用 Compaction（压缩）、结构化笔记、Memory（记忆）和 Subagent（子 Agent），让旧信息被概括、外置或者隔离，而不是永远堆在主 Agent 眼前。</p>
-<h3>OpenAI：材料放在哪里</h3>
+</details>
+
+<details>
+<summary>OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。</summary>
+
+<p><a href="https://openai.com/index/harness-engineering/">OpenAI：Harness Engineering</a></p>
 <p>OpenAI 讨论的是这些材料怎样成为 Agent 可以找到、理解和验证的工作环境。</p>
 <p>他们试过把说明全部写进一个巨大的 AGENTS.md，结果很快出现问题：重要内容互相淹没，规则容易过期，也很难检查到底是谁维护、是否仍然正确。</p>
 <p>后来 AGENTS.md 只保留为地图。真正的知识进入版本化的 docs、架构文档、执行计划和生成资料；Agent 从一个小入口出发，再根据任务找到更深的来源。这同样是渐进披露，但重点从“模型窗口”转向了“知识怎样组织”。</p>
 <p>只让 Agent 读到文档还不够。OpenAI 还让 UI、日志、指标和测试对 Agent 可见，并把架构边界交给 Linter（静态检查）和结构测试强制。文档负责说明，Tools 负责行动，程序负责守住不能违反的规则。</p>
 <p>这套 Harness 的原则可以概括为：边界集中强制，边界之内保留自主。</p>
+</details>
+
 <h3>两种看法放回 Harness</h3>
 <p>Anthropic 从一次模型调用向内看，回答“这一轮应该看什么”；OpenAI 从整个工程环境向外看，回答“材料去哪里找、能做什么、结果怎样验证”。</p>
 <p>两者放在一起，Harness 仍然是整体，但 Context 不必是一整块 Prompt。领域知识、当前状态、Tool 的使用方法和 Tool Result，都可以成为独立维护、按需进入模型回合的 Context 原子。</p>
