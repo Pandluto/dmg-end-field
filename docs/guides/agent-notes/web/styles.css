@@ -913,21 +913,6 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   font-weight: 500;
 }
 
-.harness-page .markdown-body strong {
-  padding-inline: .08em;
-  margin-inline: -.02em;
-  background:
-    linear-gradient(
-      to bottom,
-      transparent 58%,
-      rgba(224, 191, 105, .34) 58%,
-      rgba(224, 191, 105, .34) 91%,
-      transparent 91%
-    );
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
-}
-
 .harness-page a {
   color: #3f705b;
   text-decoration-color: rgba(63,112,91,.52);
