@@ -228,4 +228,4 @@ SQLite 当前正式节点负责保存事实；页面工作副本负责快速展�
 
 > 现在选中了哪些干员？
 
-Workbench 内部状态收敛以后，项目又遇到另一个选择：不是所有 AI 协作都必须继续接进内置 Agent，外部 Codex 也可以通过标准协议使用一组更窄的能力。下一页继续记录 [MCP 作为另外一种解法](./09-mcp-as-another-solution.md)。
+Workbench 内部状态收敛以后，项目又遇到另一个选择：不是所有 AI 协作都必须继续接进内置 Agent，外部 Codex 也可以通过标准协议使用一组更窄的能力。下一页继续记录 [MCP 作为另外一种解法](./10-mcp-as-another-solution.md)。

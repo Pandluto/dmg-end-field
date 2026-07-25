@@ -39,4 +39,4 @@ handler      程序实际执行什么
 
 工具注册同样不代表每轮都向模型开放。Runtime 还会根据当前 Agent、Session、Skill 和权限，筛选本轮真正可用的工具。模型只能调用它此刻看得到的能力。
 
-到这里，模型终于能准确提出一次操作。接下来的问题是：读取可以直接完成，修改是否也能直接完成？这层边界记在 [Permission 与 Hook](./02-permission-and-hooks.md) 里。
+到这里，模型终于能准确提出一次操作。接下来的问题是：读取可以直接完成，修改是否也能直接完成？这层边界记在 [Permission 与 Hook](./03-permission-and-hooks.md) 里。

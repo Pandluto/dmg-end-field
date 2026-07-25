@@ -1,6 +1,6 @@
 # 草稿：当 AI 进入 Workbench
 
-> 本文是开发手记第 08 篇的写作草稿，不参与本地阅读页导航。正式内容以 `../08-workbench-state-machine.md` 为准。
+> 本文是开发手记第 09 篇的写作草稿，不参与本地阅读页导航。正式内容以 `../09-workbench-state-machine.md` 为准。
 
 Workbench 接入 AI 后，页面、SQLite 和 AI 会话会同时保存“当前状态”。这不是同一类数据：SQLite 的当前正式节点是正式依据，React 页面工作副本负责快速显示和编辑，AI 会话归属限制 AI 能访问哪条正式数据轴。
 
