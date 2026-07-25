@@ -12,15 +12,15 @@
 | --- | --- |
 | 模型为什么回答得了问题，却不能自己完成操作 | [从聊天到 Agent](./00-chat-to-agent.md) |
 | 模型怎样准确调用程序里的能力 | [Tool Use：让模型碰到外部世界](./01-tool-use.md) |
-| 参数正确以后，谁来决定这次操作能不能做 | [Permission 与 Hook](./02-permission-and-hooks.md) |
-| 对话、知识与长期记忆应该放在哪里 | [上下文、Skill 与 Memory](./03-context-skill-memory.md) |
-| 任务变大以后，怎样规划和分工 | [Plan、Task 与 Subagent](./04-plan-task-subagent.md) |
-| 这些概念在当前项目里怎样连成一条链 | [这些概念在 DEF 里怎样落地](./05-def-and-opencode.md) |
-| 工具卡住、进程退出或响应丢失后怎么办 | [运行中的状态、持久化与恢复](./06-state-persistence-recovery.md) |
-| 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./07-developer-skill.md) |
-| 页面、正式节点和 AI 会话怎样避免各说各话 | [AI 进入 Workbench 以后，谁才算“当前”](./08-workbench-state-machine.md) |
-| 内置 Agent 之外，MCP 怎样成为另一种解决路线 | [MCP 作为另外一种解法](./09-mcp-as-another-solution.md) |
-| 篇章 11：Harness | [篇章 11：Harness](./10-harness.md) |
+| Harness | [Harness](./02-harness.md) |
+| 参数正确以后，谁来决定这次操作能不能做 | [Permission 与 Hook](./03-permission-and-hooks.md) |
+| 对话、知识与长期记忆应该放在哪里 | [上下文、Skill 与 Memory](./04-context-skill-memory.md) |
+| 任务变大以后，怎样规划和分工 | [Plan、Task 与 Subagent](./05-plan-task-subagent.md) |
+| 这些概念在当前项目里怎样连成一条链 | [这些概念在 DEF 里怎样落地](./06-def-and-opencode.md) |
+| 工具卡住、进程退出或响应丢失后怎么办 | [运行中的状态、持久化与恢复](./07-state-persistence-recovery.md) |
+| 哪些重复开发经验适合整理成 Skill | [开发者自己的 Skill](./08-developer-skill.md) |
+| 页面、正式节点和 AI 会话怎样避免各说各话 | [AI 进入 Workbench 以后，谁才算“当前”](./09-workbench-state-machine.md) |
+| 内置 Agent 之外，MCP 怎样成为另一种解决路线 | [MCP 作为另外一种解法](./10-mcp-as-another-solution.md) |
 
 这里讲的是理解 Agent 所需的主干。项目实现继续变化时，以[架构事实源](../../architecture/README.md)为准。
 

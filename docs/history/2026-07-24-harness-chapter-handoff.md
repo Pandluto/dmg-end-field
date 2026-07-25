@@ -5,17 +5,19 @@
 > - 远端基线：`8d8a91fc`
 > - 正文结果提交：`752df1b0`
 > - 性质：开发手记写作交接，不是 Harness 的新 Spec
+>
+> 2026-07-25 后续调整：Harness 已移动到 Tool Use 后，当前文件为 `02-harness.md`；下文保留 2026-07-24 当时的写作记录。
 
 ## 一、当前结果
 
 本轮完成了《Agent 开发随记》中 Harness 篇章的重新整理。
 
-- 正文：[篇章 11：Harness](../guides/agent-notes/10-harness.md)
-- 访谈原始记录：[Harness 篇章访谈记录](../guides/agent-notes/drafts/10-harness-interview-notes.md)
-- 阅读页生成结果：`docs/guides/agent-notes/web/dist/10-harness.html`
+- 正文：[Harness](../guides/agent-notes/02-harness.md)
+- 访谈原始记录：[Harness 篇章访谈记录](../guides/agent-notes/drafts/02-harness-interview-notes.md)
+- 阅读页生成结果：`docs/guides/agent-notes/web/dist/02-harness.html`
 - OpenAI Sites 打包目录：`docs/guides/agent-notes/site`
 
-文件名仍是 `10-harness.md`，正文标题仍是“篇章 11：Harness”。不要为了统一编号擅自改标题；这是本轮沿用的既有命名。
+交接当时文件名仍是 `10-harness.md`，正文标题仍是“篇章 11：Harness”；这一命名后来已由用户明确调整。
 
 最终正文的叙事顺序是：
 
@@ -232,9 +234,9 @@ Bound Context Source 强调 Context 绑定到具体阶段，而不是永久堆�
 
 | 文件 | 状态 |
 | --- | --- |
-| `docs/guides/agent-notes/10-harness.md` | Harness 正文已重写 |
-| `docs/guides/agent-notes/drafts/10-harness-interview-notes.md` | 新增访谈与纠错记录 |
-| `docs/guides/agent-notes/web/dist/10-harness.html` | 已按正文重新生成 |
+| `docs/guides/agent-notes/02-harness.md` | Harness 正文已重写 |
+| `docs/guides/agent-notes/drafts/02-harness-interview-notes.md` | 新增访谈与纠错记录 |
+| `docs/guides/agent-notes/web/dist/02-harness.html` | 已按正文重新生成 |
 | `docs/guides/agent-notes/web/styles.css` | 阅读页样式调整 |
 | `docs/guides/agent-notes/web/dist/styles.css` | 已同步生成样式 |
 | `docs/history/2026-07-24-harness-chapter-handoff.md` | 本交接报告 |
@@ -279,7 +281,7 @@ python3 -m http.server 4175 --directory docs/guides/agent-notes/web/dist
 然后打开：
 
 ```text
-http://127.0.0.1:4175/10-harness.html
+http://127.0.0.1:4175/02-harness.html
 ```
 
 本轮已完成：

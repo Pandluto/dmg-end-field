@@ -10,7 +10,7 @@ const serverDir = path.join(outputDir, "server")
 const metadataDir = path.join(outputDir, ".openai")
 
 await access(path.join(sourceDir, "index.html"))
-await access(path.join(sourceDir, "10-harness.html"))
+await access(path.join(sourceDir, "02-harness.html"))
 
 await rm(outputDir, { recursive: true, force: true })
 await mkdir(clientDir, { recursive: true })

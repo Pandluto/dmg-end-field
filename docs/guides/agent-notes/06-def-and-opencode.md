@@ -41,4 +41,4 @@ Work Node、Checkout 这些名称属于 DEF，别的 Agent 产品未必照搬。
 
 Sidecar 负责创建和管理真正运行 Agent Loop 的 OpenCode Worker，把 DEF 上下文和工具接进去，却不复制另一套产品数据库。项目还保留外部观察协议，用真实用户语言发起 Turn，再从事件、工具记录和界面终态判断任务是否完成。
 
-顺着这条链继续往下，就会遇到最容易被忽略的部分：工具正在等审批时窗口关了，或 Apply 发出后响应丢了，系统究竟还能相信什么？下一页单独讲[运行中的状态、持久化与恢复](./06-state-persistence-recovery.md)。更精确的组件边界仍以[架构事实源](../../architecture/README.md)为准。
+顺着这条链继续往下，就会遇到最容易被忽略的部分：工具正在等审批时窗口关了，或 Apply 发出后响应丢了，系统究竟还能相信什么？下一页单独讲[运行中的状态、持久化与恢复](./07-state-persistence-recovery.md)。更精确的组件边界仍以[架构事实源](../../architecture/README.md)为准。

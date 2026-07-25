@@ -12,15 +12,15 @@ const pages = [
   ["README.md", "阅读入口"],
   ["00-chat-to-agent.md", "从聊天到 Agent"],
   ["01-tool-use.md", "Tool Use"],
-  ["02-permission-and-hooks.md", "Permission 与 Hook"],
-  ["03-context-skill-memory.md", "上下文、Skill 与 Memory"],
-  ["04-plan-task-subagent.md", "Plan、Task 与 Subagent"],
-  ["05-def-and-opencode.md", "概念怎样落到 DEF"],
-  ["06-state-persistence-recovery.md", "状态、持久化与恢复"],
-  ["07-developer-skill.md", "开发者自己的 Skill"],
-  ["08-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
-  ["09-mcp-as-another-solution.md", "MCP 如何开放能力"],
-  ["10-harness.md", "Harness"],
+  ["02-harness.md", "Harness"],
+  ["03-permission-and-hooks.md", "Permission 与 Hook"],
+  ["04-context-skill-memory.md", "上下文、Skill 与 Memory"],
+  ["05-plan-task-subagent.md", "Plan、Task 与 Subagent"],
+  ["06-def-and-opencode.md", "概念怎样落到 DEF"],
+  ["07-state-persistence-recovery.md", "状态、持久化与恢复"],
+  ["08-developer-skill.md", "开发者自己的 Skill"],
+  ["09-workbench-state-machine.md", "AI 进入 Workbench 以后，谁才算“当前”"],
+  ["10-mcp-as-another-solution.md", "MCP 如何开放能力"],
 ]
 
 const escapeHtml = (value) =>
@@ -32,26 +32,26 @@ const navigation = (activeFile) => pages.map(([file, label], index) => `
   </a>`).join("")
 
 const shell = ({ file, title, content }) => {
-  const isHarnessPage = file === "10-harness.md"
-  const articleLabel = file === "09-mcp-as-another-solution.md"
-    ? "09 / MODEL CONTEXT PROTOCOL"
+  const isHarnessPage = file === "02-harness.md"
+  const articleLabel = file === "10-mcp-as-another-solution.md"
+    ? "10 / MODEL CONTEXT PROTOCOL"
     : isHarnessPage
-      ? "DEV NOTE 11 / HARNESS"
+      ? "DEV NOTE 03 / HARNESS"
       : `${file.replace(/\.md$/, "").toUpperCase()} / DEF AGENT RUNTIME`
   const annotationAssets = isHarnessPage ? `
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/syabro/neat-annotations@83199c8c7420b85f775c770c5ee481df69b840bc/neat-annotations.css" />` : ""
 
   return `<!doctype html>
-<html lang="zh-CN"${isHarnessPage ? ' class="harness-document"' : ""}>
+<html lang="zh-CN" class="notes-document">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>${escapeHtml(title)} · Agent 开发随记</title>${annotationAssets}
-  <link rel="stylesheet" href="styles.css?v=20260724-6" />
+  <link rel="stylesheet" href="styles.css?v=20260725-1" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
-<body${isHarnessPage ? ' class="harness-page"' : ""}>
+<body class="notes-page">
   <div class="page-glow glow-one"></div>
   <div class="page-glow glow-two"></div>
   <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
@@ -89,7 +89,7 @@ for (const [file, navTitle] of pages) {
   const title = markdown.match(/^#\s+(.+)$/m)?.[1] ?? navTitle
   let content = await marked.parse(markdown, { gfm: true })
 
-  if (file === "10-harness.md") {
+  if (file === "02-harness.md") {
     content = content
       .replace(
         "<blockquote>\n<p><strong>Harness 是模型的工作台。</strong></p>\n</blockquote>",
@@ -153,6 +153,20 @@ for (const [file, navTitle] of pages) {
 
   await writeFile(path.join(outputDir, file.replace(/\.md$/, ".html")), shell({ file, title, content }))
 }
+
+await writeFile(path.join(outputDir, "10-harness.html"), `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="robots" content="noindex" />
+  <link rel="canonical" href="02-harness.html" />
+  <title>Harness · Agent 开发随记</title>
+</head>
+<body>
+  <script>location.replace("02-harness.html" + location.search + location.hash)</script>
+  <a href="02-harness.html">Harness 已移动到 Tool Use 后一章</a>
+</body>
+</html>`)
 
 await writeFile(path.join(outputDir, "index.html"), await readFile(path.join(outputDir, "README.html"), "utf8"))
 await writeFile(path.join(outputDir, "styles.css"), await readFile(path.join(previewDir, "styles.css"), "utf8"))

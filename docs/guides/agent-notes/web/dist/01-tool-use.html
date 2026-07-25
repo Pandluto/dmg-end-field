@@ -1,14 +1,14 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="notes-document">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light dark" />
   <title>Tool Use：让模型碰到外部世界 · Agent 开发随记</title>
-  <link rel="stylesheet" href="styles.css?v=20260724-6" />
+  <link rel="stylesheet" href="styles.css?v=20260725-1" />
   <script src="viewer.js?v=20260721-11" defer></script>
 </head>
-<body>
+<body class="notes-page">
   <div class="page-glow glow-one"></div>
   <div class="page-glow glow-two"></div>
   <button class="menu-button" aria-label="打开目录" onclick="document.body.classList.toggle('menu-open')">目录</button>
@@ -32,32 +32,32 @@
   <a class="nav-item active" href="01-tool-use.html">
     <span>02</span>Tool Use
   </a>
-  <a class="nav-item" href="02-permission-and-hooks.html">
-    <span>03</span>Permission 与 Hook
+  <a class="nav-item" href="02-harness.html">
+    <span>03</span>Harness
   </a>
-  <a class="nav-item" href="03-context-skill-memory.html">
-    <span>04</span>上下文、Skill 与 Memory
+  <a class="nav-item" href="03-permission-and-hooks.html">
+    <span>04</span>Permission 与 Hook
   </a>
-  <a class="nav-item" href="04-plan-task-subagent.html">
-    <span>05</span>Plan、Task 与 Subagent
+  <a class="nav-item" href="04-context-skill-memory.html">
+    <span>05</span>上下文、Skill 与 Memory
   </a>
-  <a class="nav-item" href="05-def-and-opencode.html">
-    <span>06</span>概念怎样落到 DEF
+  <a class="nav-item" href="05-plan-task-subagent.html">
+    <span>06</span>Plan、Task 与 Subagent
   </a>
-  <a class="nav-item" href="06-state-persistence-recovery.html">
-    <span>07</span>状态、持久化与恢复
+  <a class="nav-item" href="06-def-and-opencode.html">
+    <span>07</span>概念怎样落到 DEF
   </a>
-  <a class="nav-item" href="07-developer-skill.html">
-    <span>08</span>开发者自己的 Skill
+  <a class="nav-item" href="07-state-persistence-recovery.html">
+    <span>08</span>状态、持久化与恢复
   </a>
-  <a class="nav-item" href="08-workbench-state-machine.html">
-    <span>09</span>AI 进入 Workbench 以后，谁才算“当前”
+  <a class="nav-item" href="08-developer-skill.html">
+    <span>09</span>开发者自己的 Skill
   </a>
-  <a class="nav-item" href="09-mcp-as-another-solution.html">
-    <span>10</span>MCP 如何开放能力
+  <a class="nav-item" href="09-workbench-state-machine.html">
+    <span>10</span>AI 进入 Workbench 以后，谁才算“当前”
   </a>
-  <a class="nav-item" href="10-harness.html">
-    <span>11</span>Harness
+  <a class="nav-item" href="10-mcp-as-another-solution.html">
+    <span>11</span>MCP 如何开放能力
   </a></nav>
     <p class="sidebar-foot"><b>MARKDOWN SOURCE</b><br />正文由仓库中的 Markdown 生成</p>
   </aside>
@@ -93,7 +93,7 @@ handler      程序实际执行什么
 <p>类型不只是为了少报错。稳定的调用对象还能被权限规则识别，被日志记录，也能在失败后重新定位。模型说过什么是一回事，程序准备执行什么则应该有一份清楚的结构。</p>
 <p>不过，Schema 只回答“参数是否合法”，不回答“这件事该不该做”。角色名填写正确，不代表模型可以直接替换武器；调用结构完整，也不等于用户已经批准。</p>
 <p>工具注册同样不代表每轮都向模型开放。Runtime 还会根据当前 Agent、Session、Skill 和权限，筛选本轮真正可用的工具。模型只能调用它此刻看得到的能力。</p>
-<p>到这里，模型终于能准确提出一次操作。接下来的问题是：读取可以直接完成，修改是否也能直接完成？这层边界记在 <a href="02-permission-and-hooks.html">Permission 与 Hook</a> 里。</p>
+<p>到这里，模型终于能准确提出一次操作。接下来的问题是：读取可以直接完成，修改是否也能直接完成？这层边界记在 <a href="03-permission-and-hooks.html">Permission 与 Hook</a> 里。</p>
 </article>
     <footer><span>终末地伤害工作台</span><span>LOCAL · TRACEABLE · ASSISTED</span></footer>
   </main>

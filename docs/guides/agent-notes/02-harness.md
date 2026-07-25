@@ -1,4 +1,4 @@
-# 篇章 11：Harness
+# Harness
 
 前面已经给 Agent 接上了 Typed Tools（类型化工具）。
 
