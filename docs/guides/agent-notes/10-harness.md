@@ -178,8 +178,8 @@ Harness Handbook 的做法，是把这些位置重新画成一张 Behavior Map�
 
 ## 从 Harness 拆出 Context 原子
 
-<details>
-<summary>Anthropic 把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</summary>
+<details id="context-anthropic" class="context-viewpoint context-viewpoint--anthropic">
+<summary><span class="context-viewpoint__label">Anthropic</span><span class="context-viewpoint__thesis">把系统指令、Tools、MCP、外部数据和消息历史视为不同的上下文组成部分；每次调用模型前重新决定哪些内容应该进入窗口。</span></summary>
 
 [Anthropic：Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
 
@@ -195,8 +195,8 @@ Context 不只是 Prompt，还包括 Tools、MCP、外部数据、消息历史�
 
 </details>
 
-<details>
-<summary>OpenAI 强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。</summary>
+<details id="context-openai" class="context-viewpoint context-viewpoint--openai">
+<summary><span class="context-viewpoint__label">OpenAI</span><span class="context-viewpoint__thesis">强调不要把所有知识塞进一个巨大 Prompt，而是让简短的 AGENTS.md 充当地图，指向结构化的知识源；Agent 再按任务读取相关内容。</span></summary>
 
 [OpenAI：Harness Engineering](https://openai.com/index/harness-engineering/)
 

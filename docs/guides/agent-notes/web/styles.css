@@ -978,6 +978,99 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   background: rgba(236,231,219,.62);
 }
 
+.harness-page .markdown-body .context-viewpoint {
+  --viewpoint-accent: var(--note-green);
+  margin: 14px 0 0;
+  overflow: visible;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #d7cec0;
+  border-left: 3px solid var(--viewpoint-accent);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.harness-page .markdown-body .context-viewpoint--openai {
+  --viewpoint-accent: var(--note-amber);
+}
+
+.harness-page .markdown-body .context-viewpoint > summary {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) 24px;
+  gap: 18px;
+  align-items: start;
+  padding: 17px 10px 18px 19px;
+  color: #4f4b44;
+  background: transparent;
+  font-family: var(--note-font) !important;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.8;
+}
+
+.harness-page .markdown-body .context-viewpoint > summary::before {
+  content: none;
+}
+
+.harness-page .markdown-body .context-viewpoint > summary::after {
+  content: '＋';
+  grid-column: 3;
+  grid-row: 1;
+  color: var(--viewpoint-accent);
+  font: 400 18px/1.5 var(--note-font);
+  text-align: center;
+  transition: transform .18s ease;
+}
+
+.harness-page .markdown-body .context-viewpoint[open] > summary::after {
+  content: '−';
+}
+
+.harness-page .markdown-body .context-viewpoint > summary:hover {
+  color: #36332e;
+  background: rgba(244,239,228,.58);
+}
+
+.harness-page .markdown-body .context-viewpoint[open] > summary {
+  color: #36332e;
+  background: transparent;
+  border-bottom: 1px dashed #d7cec0;
+}
+
+.harness-page .context-viewpoint__label {
+  grid-column: 1;
+  color: var(--viewpoint-accent);
+  font: 600 12px/1.8 var(--note-mono) !important;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.harness-page .context-viewpoint__thesis {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.harness-page .markdown-body .context-viewpoint > :not(summary) {
+  margin-right: 22px;
+  margin-left: 22px;
+}
+
+.harness-page .markdown-body .context-viewpoint > p:first-of-type {
+  margin-top: 18px;
+  font-size: 12px;
+}
+
+.harness-page .markdown-body .context-viewpoint > p:not(:first-of-type) {
+  font-size: 15px;
+  line-height: 1.9;
+}
+
+.harness-page .markdown-body .context-viewpoint > p:last-child {
+  margin-bottom: 21px;
+}
+
 .harness-page pre {
   color: #35322d;
   background:
@@ -1132,4 +1225,17 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   .harness-page h1::after { width: 112px; }
   .harness-page h2 { font-size: 23px; }
   .harness-page blockquote { padding-inline: 20px; }
+  .harness-page .markdown-body .context-viewpoint > summary {
+    grid-template-columns: minmax(0, 1fr) 24px;
+    gap: 5px 12px;
+    padding-left: 16px;
+  }
+  .harness-page .context-viewpoint__label { grid-column: 1; }
+  .harness-page .context-viewpoint__thesis {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .harness-page .markdown-body .context-viewpoint > summary::after {
+    grid-column: 2;
+  }
 }
