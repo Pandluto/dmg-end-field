@@ -70,7 +70,7 @@ const shell = ({ file, title, content }) => {
           : "system"
     })()
   </script>
-  <link rel="stylesheet" href="styles.css?v=20260725-2" />
+  <link rel="stylesheet" href="styles.css?v=20260725-3" />
   <script src="viewer.js?v=20260725-1" defer></script>
 </head>
 <body class="notes-page">

@@ -1334,7 +1334,11 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
   color-scheme: dark;
   color: #efede7;
   background: #171713;
-  scrollbar-color: rgba(102,151,124,.78) #20201c;
+  scrollbar-color: #686c66 #20201c;
+}
+
+.notes-document[data-theme="dark"] .notes-page .sidebar nav {
+  scrollbar-color: #686c66 #20201c;
 }
 
 .notes-document[data-theme="dark"]::-webkit-scrollbar-track,
@@ -1345,8 +1349,25 @@ footer { width: min(100%,830px); display: flex; justify-content: space-between; 
 
 .notes-document[data-theme="dark"]::-webkit-scrollbar-thumb,
 .notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-thumb {
-  background: rgba(102,151,124,.78);
+  background: #686c66;
   border-color: #20201c;
+}
+
+.notes-document[data-theme="dark"]::-webkit-scrollbar-thumb:hover,
+.notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-thumb:hover {
+  background: #81998a;
+}
+
+.notes-document[data-theme="dark"]::-webkit-scrollbar-button,
+.notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.notes-document[data-theme="dark"]::-webkit-scrollbar-corner,
+.notes-document[data-theme="dark"] .notes-page .sidebar nav::-webkit-scrollbar-corner {
+  background: #20201c;
 }
 
 .notes-document[data-theme="dark"] .notes-page {
