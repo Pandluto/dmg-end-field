@@ -2,7 +2,5 @@
 
 - [开发与启动](./development.md)
 - [快速上手](./quick-start.md)
-- [Agent 开发随记](./agent-notes/README.md)
-- [旧版纯文本快速上手](./quick-start-legacy.txt)
 
-Markdown 版为当前维护入口；纯文本版只作为历史兼容保留。
+本目录只保留当前维护入口。Agent Notes 与 Pages 源码由专用远端分支继续承载，旧版纯文本指南可从 Git 历史恢复。

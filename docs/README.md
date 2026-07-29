@@ -1,49 +1,26 @@
 # 项目文档入口
 
-本项目采用 Spec 驱动开发。`docs/specs/` 是需求、研究、任务、实现记录与验收证据的主目录；查找文档时，应先从对应 Spec 进入。
+1.8 LTS 分支只保留当前仍会约束产品、数据和发布行为的文档。已经完成的研究、任务清单、阶段验收与实验性架构材料由 Git 历史保存，不再长期占用主文档树。
 
 ## 从这里开始
 
-- [项目架构总览](./architecture/overview.md)：桌面界面、本地数据、AI 协作与 Harness 如何分层。
-- [开发与启动](./guides/development.md)：安装依赖、启动桌面开发环境、构建与验证入口。
-- [技术栈与技术选择](./technology-stack.md)：核心技术边界及其取舍。
-- [Spec 总索引](./specs/README.md)：按产品演进线查找规格与实施记录。
-- [测试方法](./testing/README.md)：跨 Spec 复用的测试口径，不存放某次 Spec 的验收结果。
-- [架构事实源](./architecture/README.md)：当前系统、运行拓扑、数据与安全边界、CI/CD、ADR 和跨 Spec 审计。
-- [历史记录](./history/README.md)：无单一 Spec 归属的历史迭代记录。
-- [用户指南](./guides/quick-start.md)：面向使用者的产品说明。
-- [数据管理规格](./specs/data-management-sqlite-release/spec.md)：SQLite 工作区、数据包、存档与 Release 的当前边界。
+- [用户快速上手](./guides/quick-start.md)
+- [开发与启动](./guides/development.md)
+- [项目架构总览](./architecture/overview.md)
+- [数据生命周期](./architecture/data-lifecycle.md)
+- [技术栈与技术选择](./technology-stack.md)
+- [当前 Spec 索引](./specs/README.md)
+- [测试方法](./testing/README.md)
+- [1.8 LTS 首轮文档清理记录](./maintenance/1.8-lts-initial-document-cleanup.md)
 
-## 文档归属规则
+## 保留规则
 
-一个开发主题应拥有独立的 `docs/specs/<spec-id>/` 目录。该目录可以按需包含：
+1. `docs/architecture/` 记录当前系统事实，不保存已经退出产品范围的实验架构。
+2. `docs/specs/` 优先保留仍约束实现的 `spec.md`；活跃开发期间可以存在 `tasks.md`，完成后再决定是否归档。
+3. `docs/testing/` 只保存可以跨功能复用的测试方法。
+4. 用户指南只描述当前产品，不保留重复的旧版文本。
+5. 删除的过程材料必须在维护记录中说明基线、范围和恢复方式。
 
-```text
-spec.md                    # 目标、范围、约束、验收标准
-tasks.md                   # 实施任务与完成状态
-research*.md               # 形成规格前后的研究
-verification*.md           # 构建、测试、黑盒与手工验收证据
-feedback*.md               # 评审意见
-fix-report*.md             # 该 Spec 完成后的维护修复
-health-review*.md          # 完成后的架构或行为健康审查
-```
+## 恢复历史材料
 
-规则：
-
-1. 新的需求、任务、研究、验收和修复记录默认进入对应 Spec 目录。
-2. 某次 Spec 的测试记录属于该 Spec；`docs/testing/` 只保存可跨 Spec 复用的方法和口径。
-3. 明确归属的审查直接写入对应 Spec；只有跨多个 Spec 的审计才进入 `docs/architecture/audits/`。
-4. 顶层 `docs/` 只保留导航、用户文档和确实跨 Spec 的稳定参考资料。
-5. 开启新一轮 Spec / Tasks 时，仍须先等待用户给出标题、目标或具体内容；目录和空壳不能替代需求输入。
-
-## 生命周期
-
-```text
-research → spec → tasks → coding → verification → maintenance review/fix
-```
-
-`spec.md` 是需求事实源，`tasks.md` 是执行清单，`verification*.md` 是完成证据。研究和审查可以影响后续 Spec，但不应悄悄改写已经冻结的规格。
-
-## Legacy 文档
-
-第一轮迁移已经清空顶层开发文档、`docs/agent-check/` 与 `docs/agent-cli/`。历史材料按“所属 Spec / 跨 Spec 架构审计 / 无法归属的历史记录”三类安置；后续新增文档不得恢复这些散落目录。
+首轮删除均可从基线提交 `073132d55d9253cb45c366b3beb93425f5330557` 恢复。Agent Notes 和 Pages 内容还分别保留在远端 `codex/agent-development-notes` 与 `codex/github-pages-showcase` 分支。
