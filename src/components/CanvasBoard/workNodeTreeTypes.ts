@@ -1,4 +1,4 @@
-export type WorkNodeTreeSource = 'manual-checkpoint' | 'ai-turn' | 'checkout' | 'restore' | 'discard';
+export type WorkNodeTreeSource = 'manual-checkpoint' | 'edit' | 'checkout' | 'restore' | 'discard';
 
 export type WorkNodeTreeStatus = 'draft' | 'validated' | 'blocked' | 'checked-out' | 'restored' | 'discarded';
 

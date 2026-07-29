@@ -1,9 +1,0 @@
-{
-  "id": "pass-to-pass-v1",
-  "version": 1,
-  "regressionKind": "PASS_TO_PASS",
-  "turns": [
-    { "userText": "你好。" }
-  ],
-  "expect": { "slot": "responsePolicy" }
-}

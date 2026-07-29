@@ -41,14 +41,35 @@ for (const file of files) {
   if (segments.some((segment) => ['.claude', '.trae', '.zcode'].includes(segment))) {
     fail(`tracked obsolete agent configuration: ${file}`);
   }
+  if ([
+    'agent/',
+    '.agents/skills/harness-audit-assistant/',
+    'src/aiCli/',
+    'src/legacyFillCore/',
+    'src/legacyFillHost/',
+    'src/legacyFillService/',
+    'src/components/def-opencode/',
+  ].some((prefix) => file.startsWith(prefix))) {
+    fail(`removed Agent/MCP runtime returned: ${file}`);
+  }
 }
 
 if (packageJson.packageManager !== 'npm@11.13.0') fail('packageManager must pin npm@11.13.0');
 if (!packageJson.engines?.node?.includes('>=24')) fail('Node.js 24 must be declared in engines');
-if (!packageJson.dependencies?.vite) fail('vite must be a runtime dependency for the packaged REST sidecar');
-if (!packageJson.build?.files?.includes('src/**')) fail('electron-builder files must include src/** for sidecar SSR modules');
-if (!packageJson.build?.asarUnpack?.includes('node_modules/@esbuild/**')) {
-  fail('electron-builder must unpack the esbuild child-process binary');
+if (!packageJson.devDependencies?.vite) fail('vite must remain a development dependency');
+if (packageJson.dependencies?.['@modelcontextprotocol/sdk'] || packageJson.dependencies?.zod) {
+  fail('MCP-only runtime dependencies must not ship in the LTS package');
+}
+if (packageJson.build?.files?.some((entry) => /^(?:src|agent)\//.test(entry))) {
+  fail('electron-builder must not package source or Agent runtime trees');
+}
+for (const runtimeBuilder of [
+  'scripts/build-data-release-package.mjs',
+  'scripts/build-image-release-manifest.mjs',
+]) {
+  if (!packageJson.build?.files?.includes(runtimeBuilder)) {
+    fail(`electron-builder must package the retained release builder: ${runtimeBuilder}`);
+  }
 }
 
 const manifest = readJson('public/assets/images/_manifest.json');
@@ -60,13 +81,11 @@ for (const [index, entry] of (Array.isArray(manifest) ? manifest : []).entries()
   }
 }
 
-const syntaxRoots = ['scripts/', 'electron/', 'agent/server/', 'agent/runtime/', 'agent/harness/'];
+const syntaxRoots = ['scripts/', 'electron/'];
 const syntaxFiles = files.filter(
   (file) =>
     syntaxRoots.some((prefix) => file.startsWith(prefix)) &&
-    !file.startsWith('agent/vendor/') &&
-    /\.(?:cjs|mjs|js)$/.test(file) &&
-    !file.startsWith('agent/runtime/opencode-ui/'),
+    /\.(?:cjs|mjs|js)$/.test(file),
 );
 for (const file of syntaxFiles) {
   const result = spawnSync(process.execPath, ['--check', path.join(root, file)], {

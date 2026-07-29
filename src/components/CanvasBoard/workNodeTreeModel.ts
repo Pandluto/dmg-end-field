@@ -34,7 +34,7 @@ function inferSource(node: AiTimelineWorkNodeListItem, hasCheckout: boolean): Wo
   if (node.status === 'abandoned') return 'discard';
   if (hasLog(node, /Rolled back|restore_base|basePayload|回退|恢复/i)) return 'restore';
   if (hasCheckout || node.status === 'applied' || hasLog(node, /Applied AI timeline work node checkout|checkout/i)) return 'checkout';
-  return 'ai-turn';
+  return 'edit';
 }
 
 function inferStatus(node: AiTimelineWorkNodeListItem, source: WorkNodeTreeSource, hasCheckout: boolean): WorkNodeTreeStatus {
@@ -60,13 +60,13 @@ function extractConversationId(node: AiTimelineWorkNodeListItem) {
 
 function buildNodeTitle(node: AiTimelineWorkNodeListItem, source: WorkNodeTreeSource) {
   const cleaned = (node.label || node.id)
-    .replace(/^\[(manual-checkpoint|ai-turn|checkout|restore|discard)\]\s*/i, '')
+    .replace(/^\[(manual-checkpoint|ai-turn|edit|checkout|restore|discard)\]\s*/i, '')
     .trim();
   if (cleaned) return cleaned;
-  if (source === 'manual-checkpoint') return '进入 AI 模式前';
+  if (source === 'manual-checkpoint') return '手动检查点';
   if (source === 'checkout') return '已应用节点';
   if (source === 'restore') return '已恢复节点基线';
-  return 'AI 对话节点';
+  return '编辑节点';
 }
 
 function makePayloadRef(kind: 'base' | 'working', node: AiTimelineWorkNodeListItem) {

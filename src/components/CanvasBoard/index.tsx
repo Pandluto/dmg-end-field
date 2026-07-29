@@ -3,7 +3,6 @@ import { flushSync } from 'react-dom';
 import { useAppContext } from '../../context/AppContext';
 import { loadLocalOperatorCharacters } from '../../core/services/localOperatorAdapter';
 import { SkillSandbox } from './SkillSandbox';
-import { MainWorkbenchAiPanel } from './MainWorkbenchAiPanel';
 import { WorkNodeTreePanel, type WorkbenchSelectedNodeContext } from './WorkNodeTreePanel';
 import { useCanvasWidth } from './hooks/useCanvasWidth';
 import { useSelectStart } from './hooks/useSelectStart';
@@ -156,29 +155,6 @@ function hasCheckpointPayloadChanged(
   nextPayload: TimelineSnapshotPayload,
 ): boolean {
   return serializeCheckpointPayload(previousPayload) !== serializeCheckpointPayload(nextPayload);
-}
-
-function checkoutProjectionTeamMatches(
-  checkoutPayload: TimelineSnapshotPayload,
-  workingProjection: TimelineSnapshotPayload,
-): boolean {
-  const sameIds = (left: string[] = [], right: string[] = []) => (
-    left.length === right.length && left.every((value, index) => value === right[index])
-  );
-  if (!sameIds(checkoutPayload.selectedCharacters, workingProjection.selectedCharacters)) return false;
-  const checkoutButtons = checkoutPayload.skillButtonTable || {};
-  const projectedButtons = workingProjection.skillButtonTable || {};
-  const checkoutButtonIds = Object.keys(checkoutButtons).sort();
-  const projectedButtonIds = Object.keys(projectedButtons).sort();
-  if (!sameIds(checkoutButtonIds, projectedButtonIds)) return false;
-  return checkoutButtonIds.every((buttonId) => {
-    const checkoutButton = checkoutButtons[buttonId];
-    const projectedButton = projectedButtons[buttonId];
-    return Boolean(projectedButton)
-      && checkoutButton.characterId === projectedButton.characterId
-      && checkoutButton.skillType === projectedButton.skillType
-      && sameIds([...(checkoutButton.selectedBuff || [])].sort(), [...(projectedButton.selectedBuff || [])].sort());
-  });
 }
 
 function checkoutIdentity(checkoutRef: TimelineCheckoutRef | null): string {
@@ -515,7 +491,6 @@ interface CanvasBoardProps {
   workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
   isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
-  onWorkbenchTopZoneOpenChange?: (open: boolean) => void;
   onSkillButtonModalOpen?: () => void;
   onSkillButtonModalClose?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
@@ -528,7 +503,6 @@ export function CanvasBoard({
   workbenchMode: _workbenchMode = 'timeline',
   isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
-  onWorkbenchTopZoneOpenChange,
   onSkillButtonModalOpen,
   onSkillButtonModalClose,
   onOpenOperatorConfig,
@@ -558,15 +532,11 @@ export function CanvasBoard({
   const [restorePanelTab, setRestorePanelTab] = useState<'local' | 'shared' | 'sqlite'>('local');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
-  const [isAiMode, setIsAiMode] = useState(false);
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
   const [workNodeSaveNotice, setWorkNodeSaveNotice] = useState('');
   const [pendingWorkNodeCheckoutId, setPendingWorkNodeCheckoutId] = useState('');
-  const [checkoutWorkbenchNode, setCheckoutWorkbenchNode] = useState<WorkbenchSelectedNodeContext | null>(null);
-  const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
-  const shouldRestoreTopZoneAfterAiRef = useRef(false);
   const [isRefreshingAvailableCandidates, setIsRefreshingAvailableCandidates] = useState(false);
   const [isBatchResistanceModalOpen, setIsBatchResistanceModalOpen] = useState(false);
   const [batchTargetResistance, setBatchTargetResistance] = useState<Required<HitResistanceInput>>(
@@ -612,75 +582,12 @@ export function CanvasBoard({
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
 
-  const enterAiMode = async () => {
+  const openWorkNodePanel = async () => {
     if (timelineSessionError) {
       setWorkNodeSaveNotice(timelineSessionError);
       window.setTimeout(() => setWorkNodeSaveNotice(''), 4200);
       return;
     }
-    if (!isTimelineSessionReady || !activeTimelineId || activeTimelineIsTemporary) {
-      const message = activeTimelineIsTemporary
-        ? '当前 SQLite 工作区尚未完成首次保存/命名，暂不能进入 AI 模式。'
-        : '当前 SQLite 工作区尚未就绪，暂不能进入 AI 模式。';
-      setWorkNodeSaveNotice(message);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 3200);
-      return;
-    }
-    const expectedIdentity = { ...activeTimelineIdentityRef.current };
-    try {
-      const { payload, checkoutNode } = await readFormalCheckoutPayload(expectedIdentity.timelineId, activeCheckoutRef);
-      const currentIdentity = activeTimelineIdentityRef.current;
-      if (currentIdentity.timelineId !== expectedIdentity.timelineId
-        || currentIdentity.checkout !== expectedIdentity.checkout
-        || currentIdentity.isTemporary) {
-        throw new Error('当前 SQLite 或 checkout 已变化；未进入 AI 模式。');
-      }
-      // A native session is mounted only after the UI runtime has been reset
-      // to the persisted checkout.  This deliberately restores P instead of
-      // overwriting it with an uncheckpointed working projection.
-      hydrateCheckoutRuntime(payload);
-      setCheckoutWorkbenchNode(checkoutNode);
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => resolve());
-      }));
-      const hydratedPayload = getCurrentTimelineSnapshotPayload();
-      const settledIdentity = activeTimelineIdentityRef.current;
-      if (!hydratedPayload || !checkoutProjectionTeamMatches(payload, hydratedPayload)
-        || settledIdentity.timelineId !== expectedIdentity.timelineId
-        || settledIdentity.checkout !== expectedIdentity.checkout) {
-        throw new Error('当前 UI 工作副本未能收敛到 checkout；未进入 AI 模式。');
-      }
-      shouldRestoreTopZoneAfterAiRef.current = isWorkbenchTopZoneOpen;
-      if (isWorkbenchTopZoneOpen) {
-        onWorkbenchTopZoneOpenChange?.(false);
-      }
-      setAiHoverZone('right');
-      setIsAiMode(true);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '无法读取当前正式 SQLite checkout；未进入 AI 模式。';
-      setWorkNodeSaveNotice(message);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 4200);
-    }
-  };
-
-  const exitAiMode = () => {
-    setIsAiMode(false);
-    setAiHoverZone('right');
-    if (shouldRestoreTopZoneAfterAiRef.current) {
-      onWorkbenchTopZoneOpenChange?.(true);
-    }
-    shouldRestoreTopZoneAfterAiRef.current = false;
-  };
-
-  const toggleAiMode = () => {
-    if (isAiMode) {
-      exitAiMode();
-      return;
-    }
-    void enterAiMode();
-  };
-
-  const openWorkNodePanel = async () => {
     if (!await promoteTemporaryTimeline()) return;
     setPendingWorkNodeCheckoutId('');
     setWorkNodeRefreshKey((current) => current + 1);
@@ -690,10 +597,6 @@ export function CanvasBoard({
   const handleWorkNodeSelection = useCallback((node: WorkbenchSelectedNodeContext) => {
     setPendingWorkNodeCheckoutId(node.nodeId);
   }, []);
-
-  useEffect(() => {
-    setCheckoutWorkbenchNode(null);
-  }, [activeTimelineId]);
 
   useEffect(() => {
     temporaryPromotionRef.current = activeTimelineIsTemporary;
@@ -713,21 +616,6 @@ export function CanvasBoard({
       },
     }, 'work-node-tree');
     setPendingWorkNodeCheckoutId('');
-  };
-
-  const refreshWorkNodePanel = () => {
-    setWorkNodeRefreshKey((current) => current + 1);
-  };
-
-  const updateAiHoverZoneFromClientX = (clientX: number) => {
-    const aiPanelWidth = Math.min(window.innerWidth * 0.5, 760, Math.max(0, window.innerWidth - 96));
-    const nextHoverZone = clientX >= window.innerWidth - aiPanelWidth ? 'right' : 'left';
-    setAiHoverZone((current) => (current === nextHoverZone ? current : nextHoverZone));
-  };
-
-  const handleAiLayoutMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!isAiMode) return;
-    updateAiHoverZoneFromClientX(event.clientX);
   };
 
   const {
@@ -911,16 +799,16 @@ export function CanvasBoard({
     expectedCheckoutRef: TimelineCheckoutRef | null,
   ) => {
     if (!timelineId || !expectedCheckoutRef || expectedCheckoutRef.timelineId !== timelineId) {
-      throw new Error('当前正式 SQLite 没有可验证的 checkout；未进入 AI 模式。');
+      throw new Error('当前正式 SQLite 没有可恢复的 checkout。');
     }
     const repository = createTimelineRepositoryClient();
     const exported = await repository.exportDocumentBundle(timelineId);
     if (exported.document.id !== timelineId || exported.document.isTemporary || exported.document.archivedAt) {
-      throw new Error('当前 SQLite 已不可用于 AI 模式；未进入 AI 模式。');
+      throw new Error('当前 SQLite 工作区不可恢复。');
     }
     const persistedCheckout = exported.checkoutRef;
     if (!persistedCheckout || checkoutIdentity(persistedCheckout) !== checkoutIdentity(expectedCheckoutRef)) {
-      throw new Error('当前 checkout 已变化；未进入 AI 模式。');
+      throw new Error('当前 checkout 已变化，请刷新后重试。');
     }
     const checkoutWorkNode = persistedCheckout.targetType === 'work-node'
       ? exported.workNodes.find((node) => node.id === persistedCheckout.targetId)
@@ -929,24 +817,17 @@ export function CanvasBoard({
       ? exported.snapshots.find((snapshot) => snapshot.id === persistedCheckout.targetId)?.payload
       : checkoutWorkNode?.workingPayload;
     if (!payload) {
-      throw new Error('当前 checkout payload 不存在；未进入 AI 模式。');
+      throw new Error('当前 checkout payload 不存在。');
     }
     return {
       payload,
       checkoutRef: persistedCheckout,
-      checkoutNode: checkoutWorkNode ? {
-        nodeId: checkoutWorkNode.id,
-        name: checkoutWorkNode.label,
-        description: checkoutWorkNode.description,
-      } : null,
     };
   }, []);
 
   const refreshWorkbenchAfterCheckout = useCallback(() => {
-    // A native DEF OpenCode checkout changes data outside the normal pointer-driven
-    // canvas flow. Re-mount the data-bound canvas/sandbox once after hydration so
-    // their local layout caches cannot retain the pre-approval operator set.
-    // This is intentionally not a browser reload and does not recreate OpenCode.
+    // Re-mount the data-bound canvas/sandbox once after checkout hydration so
+    // local layout caches cannot retain the previous operator set.
     setCheckoutRenderRevision((revision) => revision + 1);
     setWorkNodeRefreshKey((revision) => revision + 1);
   }, []);
@@ -973,7 +854,7 @@ export function CanvasBoard({
       .then(() => setTimelineSessionError(''))
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
-        setTimelineSessionError(`无法读取正式 SQLite 工作区：${message}。请从 DEF Shell 的“打开浏览器 Web”进入工作台后重试。`);
+        setTimelineSessionError(`无法读取正式 SQLite 工作区：${message}。请从桌面 Shell 的“打开浏览器 Web”进入工作台后重试。`);
       })
       .finally(() => setIsTimelineSessionReady(true));
   }, [refreshActiveDocument]);
@@ -993,17 +874,15 @@ export function CanvasBoard({
     }
     void (async () => {
       try {
-        const { payload, checkoutNode } = await readFormalCheckoutPayload(activeTimelineId, activeCheckoutRef);
+        const { payload } = await readFormalCheckoutPayload(activeTimelineId, activeCheckoutRef);
         const currentIdentity = activeTimelineIdentityRef.current;
         if (currentIdentity.timelineId === activeTimelineId
           && currentIdentity.checkout === checkoutIdentity(activeCheckoutRef)
           && !currentIdentity.isTemporary) {
           hydrateCheckoutRuntime(payload);
-          setCheckoutWorkbenchNode(checkoutNode);
         }
       } catch {
-        // A first-run document legitimately has no checkout to hydrate.  AI
-        // admission re-reads this state and refuses to mount until it does.
+        // A first-run document legitimately has no checkout to hydrate.
       } finally {
         if (checkoutBootstrapIdentityRef.current === bootstrapIdentity) {
           isCheckoutBootstrapPendingRef.current = false;
@@ -2000,7 +1879,6 @@ export function CanvasBoard({
     const repository = createTimelineRepositoryClient();
     const previousCheckoutRef = activeCheckoutRef ? { ...activeCheckoutRef } : null;
     const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
-    const previousCheckoutNode = checkoutWorkbenchNode;
     const expectedVisibleIds = Object.keys(node.workingPayload.skillButtonTable || {}).sort();
     let checkoutRefUpdated = false;
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
@@ -2031,15 +1909,12 @@ export function CanvasBoard({
         : (await repository.listDocuments()).find((entry) => entry.id === node.timelineId)
           || { id: node.timelineId, label: node.label };
       activateTimeline({ document: documentEntry, checkoutRef, workingPayload: node.workingPayload });
-      setCheckoutWorkbenchNode({ nodeId: node.id, name: node.label, description: node.description || '' });
       if (lifecyclePlan.markCheckoutApplied) {
         applied = await client.markCheckoutApplied(node.id, {
           commitId: commit.id,
           // Checkout identity includes updatedAt.  Reusing the exact value
-          // already persisted above keeps the renderer projection, the
-          // session binding, and SQLite checkout on one immutable identity.
-          // A second Date.now() here used to make the next Agent turn fail
-          // closed until the user refreshed the page.
+          // already persisted above keeps the renderer projection and SQLite
+          // checkout on one immutable identity.
           appliedAt: checkoutRef.updatedAt,
           appliedBy: command.approval?.approvedBy || (isManualApproval ? 'user' : 'ai'),
           rationale: command.approval?.rationale || 'Foreground renderer hydrated and displayed the exact reviewed timeline.',
@@ -2056,7 +1931,6 @@ export function CanvasBoard({
         await repository.setCheckoutRef(previousCheckoutRef).catch(() => undefined);
       }
       activateTimeline({ document: previousDocument, checkoutRef: previousCheckoutRef, workingPayload: currentPayload });
-      setCheckoutWorkbenchNode(previousCheckoutNode);
       hydrateCheckoutRuntime(currentPayload, { flushRender: true });
       refreshWorkbenchAfterCheckout();
       await waitForVisibleCanvasButtons(Object.keys(currentPayload.skillButtonTable || {}));
@@ -3059,7 +2933,7 @@ export function CanvasBoard({
   }, [setSessionWorkingPayload]);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
-    disabled: isAiMode,
+    disabled: false,
     config: canvasConfig,
     canvasWidth,
     staffCount,
@@ -3089,21 +2963,6 @@ export function CanvasBoard({
       window.removeEventListener('def-main-workbench-control', handleControlEvent);
     };
   }, [currentView, selectedCharacters, skillButtons, staffCount]);
-
-  useEffect(() => {
-    if (!isAiMode) {
-      return undefined;
-    }
-
-    const handlePointerMove = (event: PointerEvent) => {
-      updateAiHoverZoneFromClientX(event.clientX);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, { passive: true });
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-    };
-  }, [isAiMode]);
 
   useEffect(() => {
     const publishWhenVisible = () => {
@@ -4214,9 +4073,6 @@ export function CanvasBoard({
   const canvasBoardClassName = [
     'canvas-board',
     isWorkbenchTopZoneOpen ? 'has-top-zone' : '',
-    isAiMode ? 'is-ai-mode' : '',
-    isAiMode && aiHoverZone === 'left' ? 'is-ai-hover-left' : '',
-    isAiMode && aiHoverZone === 'right' ? 'is-ai-hover-right' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -4238,8 +4094,6 @@ export function CanvasBoard({
       isInspectMode={isInspectMode}
       onInspectStart={() => setIsInspectMode(true)}
       onInspectEnd={() => setIsInspectMode(false)}
-      isAiMode={isAiMode}
-      onToggleAiMode={toggleAiMode}
       onOpenWorkNodePanel={openWorkNodePanel}
     />
   );
@@ -4247,7 +4101,7 @@ export function CanvasBoard({
   return (
     <div className={canvasBoardClassName}>
       {workNodeSaveNotice && <div className="canvas-work-node-save-notice" role="status">{workNodeSaveNotice}</div>}
-      <div className="canvas-layout" onMouseMove={handleAiLayoutMouseMove}>
+      <div className="canvas-layout">
         <div className="canvas-background-layer">
           <div className="skew-panel" />
           <div className="skew-panel-bottom" />
@@ -4278,34 +4132,14 @@ export function CanvasBoard({
             isDraggingActive={Boolean(draggingState)}
             isBrowseMode={isBrowseMode}
             isInspectMode={isInspectMode}
-            isDragDisabled={isAiMode}
+            isDragDisabled={false}
             resistanceRevision={resistanceRevision}
           />
         </div>
 
-        {isAiMode ? (
-          <>
-            <aside className={`canvas-right-zone is-ai-real-right ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
-              {rightWorkbenchContent}
-            </aside>
-            <aside className="canvas-right-zone is-ai-panel">
-              <MainWorkbenchAiPanel
-                selectedCharacters={selectedCharacters}
-                skillButtons={skillButtons}
-                timelineId={activeTimelineId}
-                timelineLabel={activeTimelineLabel}
-                timelineIsTemporary={activeTimelineIsTemporary}
-                checkoutWorkbenchNode={checkoutWorkbenchNode}
-                onExit={exitAiMode}
-                onWorkNodeChanged={refreshWorkNodePanel}
-              />
-            </aside>
-          </>
-        ) : (
-          <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
-            {rightWorkbenchContent}
-          </aside>
-        )}
+        <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
+          {rightWorkbenchContent}
+        </aside>
 
         <div className="canvas-bottom-zone">
           <div className="canvas-bottom-zone-left">

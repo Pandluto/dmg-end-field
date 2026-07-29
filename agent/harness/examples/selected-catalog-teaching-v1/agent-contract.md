@@ -1,1 +1,0 @@
-Native DEF Workbench remains the authoritative host contract. Treat every data result as scoped evidence: selected-roster absence is never proof of catalog absence or game-wide absence. User corrections about an entry point replace the prior routing assumption. This teaching content never changes permissions, schemas, validation, approval, or execution behavior.

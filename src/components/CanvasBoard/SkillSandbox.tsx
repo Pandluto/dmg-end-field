@@ -48,10 +48,6 @@ interface SkillSandboxProps {
   onInspectStart?: () => void;
   /** 结束透视模式 */
   onInspectEnd?: () => void;
-  /** AI 模式是否开启 */
-  isAiMode?: boolean;
-  /** 切换 AI 模式 */
-  onToggleAiMode?: () => void;
   /** 打开 work node 节点树 */
   onOpenWorkNodePanel?: () => void | Promise<void>;
 }
@@ -108,8 +104,6 @@ export function SkillSandbox({
   isInspectMode = false,
   onInspectStart,
   onInspectEnd,
-  isAiMode = false,
-  onToggleAiMode,
   onOpenWorkNodePanel,
 }: SkillSandboxProps) {
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -247,16 +241,6 @@ export function SkillSandbox({
           </button>
           <button
             type="button"
-            className={`sandbox-reserved-action sandbox-reserved-action--ai${isAiMode ? ' is-active' : ''}`}
-            aria-label="AI 模式"
-            title="AI 模式"
-            aria-pressed={isAiMode}
-            onClick={onToggleAiMode}
-          >
-            <span className="sandbox-reserved-action-text">AI</span>
-          </button>
-          <button
-            type="button"
             className="sandbox-reserved-action sandbox-reserved-action--worknode"
             aria-label="Work node 节点树"
             title="Work node 节点树"
@@ -362,11 +346,10 @@ export function SkillSandbox({
                   className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''}`}
                 >
                   <div
-                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}${isAiMode ? ' is-drag-disabled' : ''}`}
-                    aria-disabled={isAiMode}
+                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
                     style={{ backgroundColor: getElementBackgroundColor(character.element) }}
                     onMouseDown={(e) => {
-                      if (isBrowseMode || isAiMode) {
+                      if (isBrowseMode) {
                         e.preventDefault();
                         return;
                       }

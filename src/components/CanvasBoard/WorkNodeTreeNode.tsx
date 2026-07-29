@@ -4,7 +4,7 @@ import type { WorkNodeTreeNode as WorkNodeTreeNodeModel } from './workNodeTreeTy
 
 const SOURCE_LABELS: Record<WorkNodeTreeNodeModel['source'], string> = {
   'manual-checkpoint': '基线',
-  'ai-turn': 'AI',
+  edit: '编辑',
   checkout: '应用',
   restore: '回退',
   discard: '丢弃',
@@ -44,6 +44,7 @@ function formatTime(timestamp: number) {
 function compactTitle(title: string) {
   return title
     .replace(/^进入 AI 模式前\s*/i, '')
+    .replace(/^手动检查点\s*/i, '')
     .replace(/^\d{4}\/\d{1,2}\/\d{1,2}\s*/, '')
     .trim() || 'checkpoint';
 }

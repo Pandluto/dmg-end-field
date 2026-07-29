@@ -8,10 +8,10 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
 import { safeSessionStorage } from '../../utils/storage';
 import {
-  getLocalAgentHealth,
+  getLocalBridgeHealth,
   requestCloseShell,
   requestOpenShell,
-} from '../../utils/localAgent';
+} from '../../utils/localBridge';
 import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel' | 'buffBatchEdit';
@@ -55,10 +55,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
 
   const toggleDrawer = useCallback(() => {
     setIsDrawerOpen(prev => !prev);
-  }, []);
-
-  const setWorkbenchTopZoneOpen = useCallback((open: boolean) => {
-    setIsDrawerOpen(open);
   }, []);
 
   const handleModeClick = useCallback((mode: WorkbenchMode) => {
@@ -161,20 +157,9 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.imageManager);
   }, []);
 
-  const handleOpenAiCli = useCallback(() => {
-    if (window.desktopRuntime) {
-      return;
-    }
-    navigateToAppPath(APP_ROUTE_PATHS.aiCli);
-  }, []);
-
-  const handleOpenMcpFill = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.mcpFill);
-  }, []);
-
-  const syncLocalAgentStatus = useCallback(async () => {
+  const syncLocalBridgeStatus = useCallback(async () => {
     try {
-      const health = await getLocalAgentHealth();
+      const health = await getLocalBridgeHealth();
       if (!health.shell.running || health.shell.state === 'missing') {
         setShellStatus('hidden');
       } else {
@@ -235,18 +220,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
       <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
         <span className="workbench-trigger-text">图片管理</span>
       </button>
-      <button
-        className="workbench-top-trigger workbench-bottom-nav-button"
-        type="button"
-        onClick={handleOpenAiCli}
-        disabled={Boolean(window.desktopRuntime)}
-        title={window.desktopRuntime ? 'AI CLI 请在 Web 主界面中打开' : ''}
-      >
-        <span className="workbench-trigger-text">AI CLI</span>
-      </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenMcpFill}>
-        <span className="workbench-trigger-text">MCP 填表</span>
-      </button>
       <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
         <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>
         <span className="workbench-trigger-divider">|</span>
@@ -269,12 +242,12 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
   }, [currentView, workbenchMode]);
 
   useEffect(() => {
-    syncLocalAgentStatus();
-    const timer = window.setInterval(syncLocalAgentStatus, 5000);
+    syncLocalBridgeStatus();
+    const timer = window.setInterval(syncLocalBridgeStatus, 5000);
     return () => {
       window.clearInterval(timer);
     };
-  }, [syncLocalAgentStatus]);
+  }, [syncLocalBridgeStatus]);
 
   return (
     <div className={`workbench-frame ${isDrawerOpen ? 'has-top-zone' : ''}`}>
@@ -350,7 +323,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             workbenchControl={workbenchControl}
             bottomRightControl={bottomNavControls}
             isWorkbenchTopZoneOpen={isDrawerOpen}
-            onWorkbenchTopZoneOpenChange={setWorkbenchTopZoneOpen}
           />
         )}
       </main>

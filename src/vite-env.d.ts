@@ -1,32 +1,11 @@
 /// <reference types="vite/client" />
 
 declare module '*.mjs' {
-  export const buildMainWorkbenchEvidence: (
-    snapshot: unknown,
-    options?: {
-      prompt?: string;
-      previousFocus?: unknown;
-      previousButtonId?: string;
-      focusState?: unknown;
-      inferredGoal?: unknown;
-    },
-  ) => unknown;
-  export const resolveMainWorkbenchSnapshotFocus: (
-    snapshot: unknown,
-    prompt?: string,
-    previousFocusOrButtonId?: unknown,
-  ) => unknown;
-  export const buildMainWorkbenchButtonEvidence: (button: unknown, reason?: string) => unknown;
   export const buildAiTimelineCheckoutDecision: (input?: {
     approvalPolicy?: string;
     riskFlags?: unknown[];
     diff?: unknown;
   }) => unknown;
-  export const MAIN_WORKBENCH_SUPPORTED_OPS: readonly string[];
-  export const isMainWorkbenchCommandOp: (op: unknown) => boolean;
-  export const normalizeMainWorkbenchCommand: (command: unknown) => unknown;
-  export const validateMainWorkbenchCommand: (command: unknown) => unknown;
-  export const validateMainWorkbenchCommands: (commands: unknown[]) => unknown;
 }
 
 interface ImageAssetEntry {

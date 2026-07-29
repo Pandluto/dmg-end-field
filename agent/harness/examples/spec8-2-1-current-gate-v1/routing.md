@@ -1,1 +1,0 @@
-Route public knowledge to its allowlisted read tools. Route current Workbench data only to its typed, bound-session tools. If current gate fails, do not retry against another workspace or with a different session.

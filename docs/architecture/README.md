@@ -7,10 +7,9 @@
 - [系统全景](./current-system.md)：组件、职责、依赖方向与关键入口。
 - [运行拓扑](./runtime-topology.md)：桌面进程、端口、启动与降级关系。
 - [数据生命周期](./data-lifecycle.md)：只读查询、预览、审批、提交与持久化。
-- [安全边界](./security-boundaries.md)：loopback、授权、typed tool、审批与已知风险。
+- [安全边界](./security-boundaries.md)：loopback、桌面能力令牌、文件边界与已知风险。
 - [验证矩阵](./verification-matrix.md)：哪些检查在 CI、Release 或人工桌面验收中执行。
 - [CI/CD](./ci-cd.md)：质量门、版本标签、跨平台打包和 Draft Release。
-- [演进路线](./evolution.md)：已经完成、当前债务和下一阶段顺序。
 
 ## 架构决策
 
@@ -20,5 +19,4 @@
 
 - [项目架构总览](./overview.md)
 - [1.8 LTS 首轮文档清理记录](../maintenance/1.8-lts-initial-document-cleanup.md)
-
-尚未完成 LTS 改写的混合架构文档暂时保留，等对应运行时代码清理时再同步收口。
+- [1.8 LTS 第二轮运行时清理记录](../maintenance/1.8-lts-runtime-cleanup.md)

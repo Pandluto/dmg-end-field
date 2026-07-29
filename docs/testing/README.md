@@ -1,8 +1,12 @@
-# 测试文档
+# 测试入口
 
-本目录只保存可被多个 Spec 复用的测试方法、入口与判定口径。
+本目录只记录跨 Spec 可复用的测试口径。
 
-- [DEF Agent 黑盒测试口径](./def-agent-blackbox.md)
+- 合并门：`npm run check`
+- Work Node / SQLite：`npm run smoke:work-node-sqlite`
+- 数据管理：`npm run smoke:data-management`
+- 数据 Release：`npm run smoke:data-release-builder`
+- 下载与应用边界：`npm run smoke:local-data-archive-flow`
+- Electron 主链：`npm run smoke:operator-config`
 
-某次 Spec 的实际 prompt、session、耗时、tool calls 与通过/失败结论，应写入该 Spec 目录中的 `verification*.md`，不再放到本目录。
-
+某次功能的具体验证结果应记录在对应 Spec 或维护记录中。

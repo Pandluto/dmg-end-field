@@ -1,12 +1,6 @@
 # Spec 总索引
 
-本页只索引仍会约束 1.8 LTS 产品行为的规格。DEF OpenCode、旧 AI CLI 及其阶段研究、任务和验收记录已经移出当前文档树。
-
-## Legacy Fill / MCP
-
-- [Legacy AI CLI 独立化、标准 MCP 与 Web 填表](./legacy-ai-cli-mcp-extraction/README.md)
-
-MCP 在 1.8 LTS 中作为独立本地能力保留。过程性 T0–T9 验收记录不再进入 LTS 文档索引。
+本页只索引仍会约束 1.8 LTS 产品行为的规格。DEF OpenCode、旧 AI CLI、Harness、MCP/Legacy Fill 及其阶段研究、任务和验收记录已经移出当前文档树。
 
 ## 数据、排轴与工作台
 

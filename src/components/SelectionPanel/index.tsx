@@ -5,7 +5,7 @@ import {
   isLocalOperatorLibraryStorageKey,
   loadLocalOperatorCharacters,
 } from '../../core/services/localOperatorAdapter';
-import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../aiCli/aiCliCommandService';
+import { LOCAL_LIBRARY_CHANGED_EVENT } from '../../constants/events';
 import { Character } from '../../types';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';

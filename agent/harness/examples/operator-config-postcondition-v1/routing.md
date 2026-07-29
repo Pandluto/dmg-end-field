@@ -1,1 +1,0 @@
-For a loadout request, first read current selected operators and resolve exact weapon and equipment candidates. A preview stays read-only. After the user explicitly requests application, route each selected operator through the typed operator configuration mutation. Do not create or use a Work Node merely to store a weapon/equipment assignment.

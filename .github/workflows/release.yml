@@ -38,38 +38,9 @@ jobs:
       - name: Run deterministic quality gate
         run: npm run check
 
-  models_snapshot:
-    name: Freeze models.dev snapshot
-    needs: validate
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      sha256: ${{ steps.snapshot.outputs.sha256 }}
-    steps:
-      - name: Fetch and validate one release snapshot
-        id: snapshot
-        shell: bash
-        run: |
-          mkdir -p release-inputs
-          curl --fail --location --retry 3 --retry-all-errors \
-            https://models.dev/api.json \
-            --output release-inputs/models.dev.api.json
-          node -e "JSON.parse(require('node:fs').readFileSync('release-inputs/models.dev.api.json', 'utf8'))"
-          sha256="$(sha256sum release-inputs/models.dev.api.json | cut -d ' ' -f 1)"
-          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
-          echo "$sha256  models.dev.api.json" > release-inputs/SHA256SUMS
-
-      - name: Upload frozen models snapshot
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: release-models-snapshot
-          path: release-inputs
-          if-no-files-found: error
-          retention-days: 14
-
   package:
     name: Package ${{ matrix.label }}
-    needs: [validate, models_snapshot]
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
@@ -92,43 +63,20 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-
       - name: Install application dependencies
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm ci
 
-      - name: Install vendored OpenCode dependencies
-        working-directory: agent/vendor/opencode
-        run: bun install --frozen-lockfile
-
-      - name: Download frozen models snapshot
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: release-models-snapshot
-          path: .runtime/release-inputs
-
       - name: Build Windows portable package
         if: runner.os == 'Windows'
-        env:
-          MODELS_DEV_API_JSON: ${{ github.workspace }}/.runtime/release-inputs/models.dev.api.json
-          MODELS_DEV_API_SHA256: ${{ needs.models_snapshot.outputs.sha256 }}
         run: npm run electron:build
 
       - name: Build macOS DMG without automatic signing
         if: runner.os == 'macOS'
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          MODELS_DEV_API_JSON: ${{ github.workspace }}/.runtime/release-inputs/models.dev.api.json
-          MODELS_DEV_API_SHA256: ${{ needs.models_snapshot.outputs.sha256 }}
         run: npm run electron:build:mac
-
-      - name: Start packaged sidecar and verify writable paths
-        run: npm run smoke:packaged-sidecar
 
       - name: Upload package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

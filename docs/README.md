@@ -12,6 +12,7 @@
 - [当前 Spec 索引](./specs/README.md)
 - [测试方法](./testing/README.md)
 - [1.8 LTS 首轮文档清理记录](./maintenance/1.8-lts-initial-document-cleanup.md)
+- [1.8 LTS 第二轮运行时清理记录](./maintenance/1.8-lts-runtime-cleanup.md)
 
 ## 保留规则
 
@@ -23,4 +24,4 @@
 
 ## 恢复历史材料
 
-首轮删除均可从基线提交 `073132d55d9253cb45c366b3beb93425f5330557` 恢复。Agent Notes 和 Pages 内容还分别保留在远端 `codex/agent-development-notes` 与 `codex/github-pages-showcase` 分支。
+两轮删除均可从基线提交 `073132d55d9253cb45c366b3beb93425f5330557` 恢复。Agent Notes 和 Pages 内容还分别保留在远端 `codex/agent-development-notes` 与 `codex/github-pages-showcase` 分支。

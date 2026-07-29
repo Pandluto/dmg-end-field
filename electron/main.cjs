@@ -1,6 +1,4 @@
 const crypto = require('crypto');
-const defInternalGovernanceToken = crypto.randomUUID();
-const legacyFillHostToken = crypto.randomUUID();
 const fs = require('fs');
 const http = require('http');
 const https = require('https');
@@ -17,15 +15,9 @@ const {
   validateLocalDataReleaseManifest,
   validateReferenceArchiveReleaseManifest,
 } = require('./data-management-service.cjs');
-const { buildNodeSidecarEnv: createNodeSidecarEnv } = require('./sidecar-runtime.cjs');
-const { createDefCodexInteropProtocol } = require('../agent/runtime/def-codex-interop.cjs');
 const {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
-  buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
-  buildWorkbenchUpstreamSearch,
-  isAllowedWorkbenchRendererTransport,
-  isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
   readOrCreateWorkbenchRendererCapability,
@@ -70,47 +62,11 @@ let shellWindow = null;
 let webPrewarmWindow = null;
 let bridgeServer = null;
 let shellStartedAt = null;
-let aiCliRestProcess = null;
-let aiCliRestStartedAt = null;
-let defAgentProcess = null;
-let defAgentStartedAt = null;
-let legacyFillServiceProcess = null;
-let legacyFillServiceStartedAt = null;
 let isAppQuitting = false;
 let appTray = null;
-const mcpFillWebActions = new Map();
-const mcpFillWebSaveContinuations = new Map();
-function buildInteropNativeHeaders(url) {
-  return buildProtectedWorkbenchNativeHeaders(
-    url,
-    `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
-    defInternalGovernanceToken,
-  );
-}
-const defCodexInterop = createDefCodexInteropProtocol({
-  profile: isDev ? 'development' : 'release',
-  baseUrl: `http://${BRIDGE_HOST}:${BRIDGE_PORT}`,
-  sidecarUrl: 'http://127.0.0.1:17322',
-  snapshotUrl: 'http://127.0.0.1:17321/api/main-workbench/snapshot',
-  snapshotHeaders: { 'x-def-internal-token': defInternalGovernanceToken },
-  auditFile: path.join(app.getPath('userData'), 'def-codex-interop.audit.jsonl'),
-  bridgeVersion: 'electron-main',
-  writeJson,
-  writeSse,
-  writeSseHeaders,
-  fetchJson: (url, options = {}) => fetchJsonUrl(url, {
-    ...options,
-    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
-  }),
-  postJson: (url, payload, options = {}) => postJsonUrl(url, payload, {
-    ...options,
-    headers: { ...(options.headers || {}), ...buildInteropNativeHeaders(url) },
-  }),
-});
 let savedDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let activeDesktopScaleKey = DEFAULT_DESKTOP_SCALE_KEY;
 let startupWarmupScheduled = false;
-let aiRuntimeWarmupPromise = null;
 const imageUpdateState = {
   status: 'idle',
   currentVersion: null,
@@ -232,7 +188,7 @@ function updateTrayMenu() {
   }
 
   const shellVisible = getShellVisibilityState() === 'visible';
-  appTray.setToolTip(shellVisible ? 'DEF Shell 已打开' : 'DEF Shell 后台运行中');
+  appTray.setToolTip(shellVisible ? '伤害工作台 Shell 已打开' : '伤害工作台 Shell 后台运行中');
   appTray.setContextMenu(
     Menu.buildFromTemplate([
       {
@@ -352,7 +308,7 @@ function createShellWindow(options = {}) {
       height: shellContentSize.height,
       minWidth: Math.min(shellContentSize.width, SHELL_MIN_WIDTH),
       minHeight: Math.min(shellContentSize.height, SHELL_MIN_HEIGHT),
-      title: 'DEF Desktop Shell',
+      title: '伤害工作台 Shell',
       show: !startHidden,
       backgroundColor: '#edf5ee',
     })
@@ -434,7 +390,7 @@ function warmWebAppInHiddenWindow() {
       height: 320,
       show: false,
       skipTaskbar: true,
-      title: 'DEF Web Prewarm',
+      title: '伤害工作台 Web Prewarm',
       backgroundColor: '#ffffff',
     })
   );
@@ -482,8 +438,6 @@ function scheduleStartupWarmups() {
     return;
   }
   startupWarmupScheduled = true;
-  void warmAiRuntimeAtStartup();
-  void warmLegacyFillServiceAtStartup();
   setTimeout(warmWebAppInHiddenWindow, 300);
   setTimeout(() => warmImageAssetCache('startup'), 1200);
 }
@@ -531,7 +485,7 @@ function getSenderRole(event) {
 }
 
 function buildJsonHeaders(response) {
-  const origin = String(response.__defRequestOrigin || '');
+  const origin = String(response.__requestOrigin || '');
   return {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -600,218 +554,6 @@ function tryServeStaticFromRoot({ method, requestUrl, response, rootDir, urlPref
 function writeJson(response, statusCode, payload) {
   response.writeHead(statusCode, buildJsonHeaders(response));
   response.end(JSON.stringify(payload));
-}
-
-function writeSseHeaders(response) {
-  const origin = String(response.__defRequestOrigin || '');
-  response.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    ...( /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/i.test(origin) ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}),
-  });
-}
-
-function writeSse(response, eventName, payload) {
-  response.write(`event: ${eventName}\n`);
-  response.write(`data: ${JSON.stringify(payload)}\n\n`);
-}
-
-async function proxyMainWorkbenchRendererTransport(request, response, requestUrl) {
-  const method = request.method || 'GET';
-  if (!requestUrl.pathname.startsWith('/api/main-workbench/')
-    && !requestUrl.pathname.startsWith('/api/ai-timeline-worknodes')
-    && !requestUrl.pathname.startsWith('/api/timeline-')) return false;
-  if (!isAllowedWorkbenchRendererTransport(method, requestUrl.pathname)
-    || !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
-      bridgeHost: BRIDGE_HOST,
-      bridgePort: BRIDGE_PORT,
-    })) {
-    writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench renderer transport is unavailable to this caller.' } });
-    return true;
-  }
-  const upstreamUrl = `http://127.0.0.1:17321${requestUrl.pathname}${buildWorkbenchUpstreamSearch(requestUrl)}`;
-  if (method === 'GET' && requestUrl.pathname === '/api/main-workbench/commands/events') {
-    proxySseUrl(upstreamUrl, request, response, {
-      headers: { 'x-def-internal-token': defInternalGovernanceToken },
-      origin: String(request.headers.origin || ''),
-    });
-    return true;
-  }
-  const body = method === 'POST' ? JSON.stringify(await readJsonRequest(request)) : undefined;
-  const upstream = await fetchUrlRawWithRetry(upstreamUrl, {
-    method,
-    headers: {
-      'x-def-internal-token': defInternalGovernanceToken,
-      ...(body === undefined ? {} : {
-        'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(body),
-      }),
-    },
-    body,
-    timeoutMs: 10000,
-    retries: 0,
-  });
-  response.writeHead(upstream.statusCode || 502, {
-    ...buildJsonHeaders(response),
-    'Content-Type': upstream.headers['content-type'] || 'application/json; charset=utf-8',
-  });
-  response.end(upstream.body);
-  return true;
-}
-
-function normalizeMcpFillWebActionBinding(input) {
-  const binding = {
-    proposalId: input?.proposalId,
-    reviewSessionId: input?.reviewSessionId,
-    expectedRevision: Number(input?.expectedRevision),
-    expectedManifestDigest: input?.expectedManifestDigest,
-  };
-  if (typeof binding.proposalId !== 'string' || !binding.proposalId
-    || typeof binding.reviewSessionId !== 'string' || !binding.reviewSessionId
-    || !Number.isInteger(binding.expectedRevision) || binding.expectedRevision < 1
-    || typeof binding.expectedManifestDigest !== 'string' || !binding.expectedManifestDigest) {
-    const error = new Error('MCP Fill Web action requires a complete review binding');
-    error.status = 400;
-    error.code = 'invalid-mcp-fill-web-action';
-    throw error;
-  }
-  return binding;
-}
-
-function issueMcpFillWebAction(action, input) {
-  if (!['confirm', 'reject'].includes(action)) {
-    const error = new Error('MCP Fill Web action requires a supported action');
-    error.status = 400;
-    error.code = 'invalid-mcp-fill-web-action';
-    throw error;
-  }
-  const binding = normalizeMcpFillWebActionBinding(input);
-  const token = crypto.randomUUID();
-  mcpFillWebActions.set(token, { action, ...binding, expiresAt: Date.now() + 2000 });
-  setTimeout(() => mcpFillWebActions.delete(token), 2100);
-  return token;
-}
-
-function consumeMcpFillWebAction(token, action, input) {
-  const binding = normalizeMcpFillWebActionBinding(input);
-  const value = mcpFillWebActions.get(token);
-  mcpFillWebActions.delete(token);
-  if (!value || value.action !== action
-    || value.proposalId !== binding.proposalId
-    || value.reviewSessionId !== binding.reviewSessionId
-    || value.expectedRevision !== binding.expectedRevision
-    || value.expectedManifestDigest !== binding.expectedManifestDigest
-    || value.expiresAt < Date.now()) {
-    const error = new Error('A fresh MCP Fill Web confirmation is required');
-    error.status = 403;
-    error.code = 'mcp-fill-web-action-required';
-    throw error;
-  }
-}
-
-async function handleMcpFillWebHost(request, response, requestUrl, method) {
-  if (!requestUrl.pathname.startsWith('/mcp-fill-host/')) return false;
-  if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
-    bridgeHost: BRIDGE_HOST,
-    bridgePort: BRIDGE_PORT,
-  })) {
-    writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'MCP Fill Web Host transport is unavailable to this caller.' } });
-    return true;
-  }
-
-  const hostHeaders = { 'x-legacy-fill-host-token': legacyFillHostToken };
-  if (method === 'GET' && requestUrl.pathname === '/mcp-fill-host/state') {
-    const state = getLegacyFillServiceRuntimeInfo();
-    writeJson(response, 200, { ok: true, state: { running: state.running, pid: state.pid, startedAt: state.startedAt, url: state.url, mcpUrl: state.mcpUrl } });
-    return true;
-  }
-  if (method === 'GET' && requestUrl.pathname === '/mcp-fill-host/proposals') {
-    const result = await fetchJsonUrl('http://127.0.0.1:17323/internal/proposals', { headers: hostHeaders });
-    writeJson(response, result.status || 500, result.body);
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/actions/issue') {
-    const payload = await readJsonRequest(request);
-    writeJson(response, 200, { ok: true, actionCapability: issueMcpFillWebAction(payload.action, payload) });
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/claim') {
-    const payload = await readJsonRequest(request);
-    const reviewSessionId = `legacy-fill-review-${crypto.randomUUID()}`;
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/claim', { ...payload, reviewSessionId }, { headers: hostHeaders });
-    writeJson(response, result.status || 500, { ...result.body, ...(result.body?.ok ? { reviewSessionId } : {}) });
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/decision') {
-    const { actionCapability, ...payload } = await readJsonRequest(request);
-    if (payload.decision !== 'rejected') {
-      writeJson(response, 403, { ok: false, error: { code: 'mcp-fill-web-decision-denied', message: 'Web review exposes reject or combined confirm-and-save only.' } });
-      return true;
-    }
-    consumeMcpFillWebAction(actionCapability, 'reject', payload);
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', payload, { headers: hostHeaders });
-    writeJson(response, result.status || 500, result.body);
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/confirm') {
-    const { actionCapability, alreadyApproved, proposal, ...payload } = await readJsonRequest(request);
-    consumeMcpFillWebAction(actionCapability, 'confirm', payload);
-    const decision = alreadyApproved
-      ? { status: 200, body: { ok: true, proposal } }
-      : await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', { ...payload, decision: 'approved' }, { headers: hostHeaders });
-    if (!decision.body?.ok || !decision.body?.proposal) {
-      writeJson(response, decision.status || 500, decision.body);
-      return true;
-    }
-    const begin = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/begin', {
-      ...payload,
-      expectedRevision: decision.body.proposal.revision,
-    }, { headers: hostHeaders });
-    if (!begin.body?.ok || !begin.body?.proposal || begin.body.proposal.lifecycleStatus === 'stale') {
-      writeJson(response, begin.status || 500, begin.body);
-      return true;
-    }
-    const saveCapability = crypto.randomUUID();
-    mcpFillWebSaveContinuations.set(saveCapability, { proposalId: payload.proposalId, expiresAt: Date.now() + 30000 });
-    setTimeout(() => mcpFillWebSaveContinuations.delete(saveCapability), 30100);
-    writeJson(response, 200, { ...begin.body, approvedProposal: decision.body.proposal, saveCapability });
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/save-result') {
-    const { saveCapability, ...payload } = await readJsonRequest(request);
-    const continuation = mcpFillWebSaveContinuations.get(saveCapability);
-    mcpFillWebSaveContinuations.delete(saveCapability);
-    if (!continuation || continuation.proposalId !== payload.proposalId || continuation.expiresAt < Date.now()) {
-      writeJson(response, 403, { ok: false, error: { code: 'mcp-fill-save-continuation-invalid', message: 'MCP Fill save continuation is invalid or expired.' } });
-      return true;
-    }
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', payload, { headers: hostHeaders });
-    writeJson(response, result.status || 500, result.body);
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/proposals/save/reconcile') {
-    const { snapshot, ...payload } = await readJsonRequest(request);
-    const published = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', snapshot, { headers: hostHeaders });
-    if (!published.body?.ok) {
-      writeJson(response, published.status || 500, published.body);
-      return true;
-    }
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', {
-      ...payload,
-      ok: true,
-    }, { headers: hostHeaders });
-    writeJson(response, result.status || 500, { ...result.body, reconciled: Boolean(result.body?.ok) });
-    return true;
-  }
-  if (method === 'POST' && requestUrl.pathname === '/mcp-fill-host/snapshots/publish') {
-    const payload = await readJsonRequest(request);
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', payload.snapshot, { headers: hostHeaders });
-    writeJson(response, result.status || 500, result.body);
-    return true;
-  }
-  writeJson(response, 404, { ok: false, error: { code: 'mcp-fill-web-host-route-not-found', message: 'Unknown MCP Fill Web Host route.' } });
-  return true;
 }
 
 function tryServeUserImageByRequestPath({ method, requestPath, response }) {
@@ -946,157 +688,19 @@ function getShellRuntimeInfo() {
   };
 }
 
-function isAiCliRestRunning() {
-  return Boolean(aiCliRestProcess && aiCliRestProcess.exitCode === null && !aiCliRestProcess.killed);
-}
-
-function isDefAgentRunning() {
-  return Boolean(defAgentProcess && defAgentProcess.exitCode === null && !defAgentProcess.killed);
-}
-
-function isLegacyFillServiceRunning() {
-  return Boolean(legacyFillServiceProcess && legacyFillServiceProcess.exitCode === null && !legacyFillServiceProcess.killed);
-}
-
-function getAiCliRestRuntimeInfo() {
-  return {
-    running: isAiCliRestRunning(),
-    pid: aiCliRestProcess?.pid ?? null,
-    startedAt: aiCliRestStartedAt,
-    url: 'http://127.0.0.1:17321',
-  };
-}
-
-function getDefAgentRuntimeInfo() {
-  return {
-    running: isDefAgentRunning(),
-    pid: defAgentProcess?.pid ?? null,
-    startedAt: defAgentStartedAt,
-    url: 'http://127.0.0.1:17322',
-  };
-}
-
-function getLegacyFillServiceRuntimeInfo() {
-  const runtimeRoot = app.isPackaged
-    ? path.join(app.getPath('userData'), 'runtime', 'legacy-fill-service')
-    : path.join(__dirname, '..', '.runtime', 'legacy-fill-service');
-  return {
-    running: isLegacyFillServiceRunning(),
-    pid: legacyFillServiceProcess?.pid ?? null,
-    startedAt: legacyFillServiceStartedAt,
-    url: 'http://127.0.0.1:17323',
-    mcpUrl: 'http://127.0.0.1:17323/mcp',
-    mcpClientConfigPath: path.join(runtimeRoot, 'mcp-client.json'),
-  };
-}
-
-function ensureLegacyFillMcpClientConfig(runtimeRoot) {
-  const configPath = path.join(runtimeRoot, 'mcp-client.json');
-  try {
-    const current = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    if (current?.contract === 'LegacyFillMcpClientConfigV1' && typeof current.token === 'string'
-      && typeof current.ownerNamespace === 'string' && current.token && current.ownerNamespace) return current;
-  } catch { /* create the private client config below */ }
-  const installationId = crypto.randomUUID();
-  const config = {
-    contract: 'LegacyFillMcpClientConfigV1',
-    transport: 'streamable-http',
-    url: 'http://127.0.0.1:17323/mcp',
-    token: crypto.randomUUID(),
-    ownerNamespace: `codex:${installationId}:desktop-default`,
-    createdAt: new Date().toISOString(),
-  };
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
-  try { fs.chmodSync(configPath, 0o600); } catch { /* best effort on platforms without chmod */ }
-  return config;
-}
-
 function getBridgeHealth() {
   return {
     ok: true,
-    service: 'def-local-bridge',
+    service: 'local-workbench-bridge',
     host: BRIDGE_HOST,
     port: BRIDGE_PORT,
     shell: getShellRuntimeInfo(),
-    aiCliRest: getAiCliRestRuntimeInfo(),
-    defAgent: getDefAgentRuntimeInfo(),
-    legacyFillService: getLegacyFillServiceRuntimeInfo(),
     desktopSettings: getDesktopSettingsPayload(),
   };
 }
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForAiCliRestHealth(expectedPid, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const health = await fetchJsonUrl('http://127.0.0.1:17321/health');
-      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid) {
-        return health.body;
-      }
-    } catch {
-      // Keep polling until the process has finished Vite SSR startup.
-    }
-    await delay(250);
-  }
-  throw new Error(`AI CLI REST health check timed out for pid ${expectedPid}`);
-}
-
-async function waitForLegacyFillServiceHealth(expectedPid, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const health = await fetchJsonUrl('http://127.0.0.1:17323/health');
-      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid
-        && health.body?.service === 'legacy-fill-service') return health.body;
-    } catch {
-      // The independent fill service may still be starting.
-    }
-    await delay(250);
-  }
-  throw new Error(`Legacy Fill service health check timed out for pid ${expectedPid}`);
-}
-
-function waitForProcessExit(child, timeoutMs = 5000) {
-  return new Promise((resolve) => {
-    if (!child || child.exitCode !== null) {
-      resolve({ exited: true });
-      return;
-    }
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve({ exited: false, reason: 'timeout' });
-    }, timeoutMs);
-    const cleanup = () => {
-      clearTimeout(timer);
-      child.off('exit', onExit);
-    };
-    const onExit = (code, signal) => {
-      cleanup();
-      resolve({ exited: true, code, signal });
-    };
-    child.once('exit', onExit);
-  });
-}
-
-function killProcessTree(pid) {
-  if (!pid) return false;
-  try {
-    if (process.platform === 'win32') {
-      const result = spawnSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      return result.status === 0;
-    }
-    process.kill(pid, 'SIGTERM');
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function startBridgeServer() {
@@ -1107,34 +711,21 @@ function startBridgeServer() {
   bridgeServer = http.createServer(async (request, response) => {
     const method = request.method || 'GET';
     const requestUrl = new URL(request.url || '/', `http://${BRIDGE_HOST}:${BRIDGE_PORT}`);
-    response.__defRequestOrigin = request.headers.origin || '';
+    response.__requestOrigin = request.headers.origin || '';
 
     try {
       if (method === 'OPTIONS') {
-      response.writeHead(204, buildJsonHeaders(response));
+        response.writeHead(204, buildJsonHeaders(response));
         response.end();
         return;
       }
 
       if (isProtectedWorkbenchRendererLocalDataPath(requestUrl.pathname)
-        && !isAuthorizedWorkbenchNativeRequest(request, defInternalGovernanceToken)
         && !isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
           bridgeHost: BRIDGE_HOST,
           bridgePort: BRIDGE_PORT,
         })) {
         writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'Workbench local-data transport is unavailable to this caller.' } });
-        return;
-      }
-
-      if (await defCodexInterop.handle(request, response, requestUrl, readJsonRequest)) {
-        return;
-      }
-
-      if (await proxyMainWorkbenchRendererTransport(request, response, requestUrl)) {
-        return;
-      }
-
-      if (await handleMcpFillWebHost(request, response, requestUrl, method)) {
         return;
       }
 
@@ -1763,174 +1354,6 @@ function startBridgeServer() {
         return;
       }
 
-      if (method === 'POST' && ['/open-mcp-fill', '/open-legacy-fill-review'].includes(requestUrl.pathname)) {
-        if (!isAuthorizedWorkbenchRendererRequest(request, requestUrl, workbenchRendererCapability, {
-          bridgeHost: BRIDGE_HOST,
-          bridgePort: BRIDGE_PORT,
-        })) {
-          writeJson(response, 403, { ok: false, error: { code: 'denied-renderer-transport', message: 'MCP Fill Host workspace is unavailable to this caller.' } });
-          return;
-        }
-        writeJson(response, 200, {
-          ok: true,
-          review: { opened: false, reason: 'web-route', title: 'MCP 填表', url: `${getBrowserWebUrl()}#/mcp-fill` },
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/open-ai-cli-rest') {
-        writeJson(response, 200, {
-          ok: true,
-          aiCliRest: await startAiCliRest(),
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/close-ai-cli-rest') {
-        writeJson(response, 200, {
-          ok: true,
-          aiCliRest: await stopAiCliRest(),
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/open-def-agent') {
-        writeJson(response, 200, {
-          ok: true,
-          defAgent: await startDefAgent(),
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/close-def-agent') {
-        writeJson(response, 200, {
-          ok: true,
-          defAgent: await stopDefAgent(),
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/def-agent/deepseek-config') {
-        const defAgent = await startDefAgent();
-        const body = await readJsonRequest(request);
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/config/deepseek', body);
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat') {
-        const defAgent = await startDefAgent();
-        const body = await readJsonRequest(request);
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat', body);
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat/stream') {
-        const defAgent = await startDefAgent();
-        const body = await readJsonRequest(request);
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat/stream', body);
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/sessions') {
-        await startDefAgent();
-        const upstream = await fetchJsonUrl('http://127.0.0.1:17322/api/chat/sessions');
-        writeJson(response, upstream.status || 500, upstream.body);
-        return;
-      }
-
-      if (method === 'GET' && requestUrl.pathname === '/def-agent/chat/persisted-sessions') {
-        await startDefAgent();
-        const limit = requestUrl.searchParams.get('limit');
-        const suffix = limit ? `?limit=${encodeURIComponent(limit)}` : '';
-        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/persisted-sessions${suffix}`);
-        writeJson(response, upstream.status || 500, upstream.body);
-        return;
-      }
-
-      const defAgentEventsMatch = /^\/def-agent\/chat\/([^/]+)\/events$/.exec(requestUrl.pathname);
-      if (method === 'GET' && defAgentEventsMatch) {
-        await startDefAgent();
-        const sessionID = encodeURIComponent(decodeURIComponent(defAgentEventsMatch[1]));
-        const from = requestUrl.searchParams.get('from');
-        const suffix = from ? `?from=${encodeURIComponent(from)}` : '';
-        proxySseUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/events${suffix}`, request, response);
-        return;
-      }
-
-      const defAgentPersistedMatch = /^\/def-agent\/chat\/([^/]+)\/persisted$/.exec(requestUrl.pathname);
-      if (method === 'GET' && defAgentPersistedMatch) {
-        await startDefAgent();
-        const sessionID = encodeURIComponent(decodeURIComponent(defAgentPersistedMatch[1]));
-        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/persisted`);
-        writeJson(response, upstream.status || 500, upstream.body);
-        return;
-      }
-
-      const defAgentTranscriptMatch = /^\/def-agent\/chat\/([^/]+)\/transcript$/.exec(requestUrl.pathname);
-      if (method === 'GET' && defAgentTranscriptMatch) {
-        await startDefAgent();
-        const sessionID = encodeURIComponent(decodeURIComponent(defAgentTranscriptMatch[1]));
-        const upstream = await fetchJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/transcript`, {
-          timeoutMs: 60000,
-          retries: 0,
-        });
-        writeJson(response, upstream.status || 500, upstream.body);
-        return;
-      }
-
-      const defAgentMessageMatch = /^\/def-agent\/chat\/([^/]+)\/message$/.exec(requestUrl.pathname);
-      if (method === 'POST' && defAgentMessageMatch) {
-        const defAgent = await startDefAgent();
-        const body = await readJsonRequest(request);
-        const sessionID = encodeURIComponent(decodeURIComponent(defAgentMessageMatch[1]));
-        const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/message`, body);
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
-      const defAgentStopMatch = /^\/def-agent\/chat\/([^/]+)\/stop$/.exec(requestUrl.pathname);
-      if (method === 'POST' && defAgentStopMatch) {
-        const defAgent = await startDefAgent();
-        const sessionID = encodeURIComponent(decodeURIComponent(defAgentStopMatch[1]));
-        const upstream = await postJsonUrl(`http://127.0.0.1:17322/api/chat/${sessionID}/stop`, {});
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
-      if (method === 'POST' && requestUrl.pathname === '/def-agent/chat/stop') {
-        const defAgent = await startDefAgent();
-        const upstream = await postJsonUrl('http://127.0.0.1:17322/api/chat/stop', {});
-        writeJson(response, upstream.status || 500, {
-          ok: upstream.status >= 200 && upstream.status < 300,
-          defAgent,
-          ...upstream.body,
-        });
-        return;
-      }
-
       if (method === 'POST' && requestUrl.pathname === '/image-assets/create-directory') {
         writeJson(response, 200, handleCreateImageDirectory(await readJsonRequest(request)));
         return;
@@ -2056,9 +1479,6 @@ function startBridgeServer() {
 }
 
 function stopServers() {
-  stopAiCliRest();
-  stopDefAgent();
-  stopLegacyFillService();
   if (bridgeServer) {
     bridgeServer.close();
     bridgeServer = null;
@@ -2066,59 +1486,6 @@ function stopServers() {
 }
 
 ipcMain.handle('desktop:get-role', (event) => getSenderRole(event));
-ipcMain.handle('desktop:get-legacy-fill-service-state', () => getLegacyFillServiceRuntimeInfo());
-ipcMain.handle('desktop:list-legacy-fill-proposals', async () => {
-  const result = await fetchJsonUrl('http://127.0.0.1:17323/internal/proposals', {
-    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-  });
-  return result.body;
-});
-ipcMain.handle('desktop:inspect-legacy-fill-proposal', async (_event, payload) => {
-  const ownerNamespace = encodeURIComponent(String(payload?.ownerNamespace || ''));
-  const proposalId = encodeURIComponent(String(payload?.proposalId || ''));
-  const result = await fetchJsonUrl(`http://127.0.0.1:17323/internal/proposals/${proposalId}?ownerNamespace=${ownerNamespace}`, {
-    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-  });
-  return result.body;
-});
-ipcMain.handle('desktop:claim-legacy-fill-proposal', async (_event, payload) => {
-  const reviewSessionId = `legacy-fill-review-${crypto.randomUUID()}`;
-  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/claim', {
-    ...payload,
-    reviewSessionId,
-  }, { headers: { 'x-legacy-fill-host-token': legacyFillHostToken } });
-  return { ...result.body, ...(result.body?.ok ? { reviewSessionId } : {}) };
-});
-ipcMain.handle('desktop:decide-legacy-fill-proposal', async (_event, payload) => {
-  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/decision', payload, {
-    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-  });
-  return result.body;
-});
-ipcMain.handle('desktop:begin-save-legacy-fill-proposal', async (_event, payload) => {
-  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/begin', payload, {
-    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-  });
-  return result.body;
-});
-ipcMain.handle('desktop:record-save-legacy-fill-proposal', async (_event, payload) => {
-  const result = await postJsonUrl('http://127.0.0.1:17323/internal/proposals/save/result', payload, {
-    headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-  });
-  return result.body;
-});
-ipcMain.handle('desktop:publish-legacy-fill-snapshot', async (_event, payload) => {
-  try {
-    const service = isLegacyFillServiceRunning() ? getLegacyFillServiceRuntimeInfo() : await startLegacyFillService();
-    if (service.ready === false) return { ok: false, code: 'legacy-fill-service-unavailable', error: service.error || service.reason };
-    const result = await postJsonUrl('http://127.0.0.1:17323/internal/snapshots/publish', payload, {
-      headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-    });
-    return result.body;
-  } catch (error) {
-    return { ok: false, code: 'legacy-fill-snapshot-publish-failed', error: error instanceof Error ? error.message : String(error) };
-  }
-});
 ipcMain.handle('desktop:get-shell-state', () => ({
   appName: app.getName(),
   appVersion: app.getVersion(),
@@ -2430,87 +1797,6 @@ function getImageReleaseVersionDir(assetVersion) {
     throw new Error('图片资源版本无效');
   }
   return path.join(getImageReleaseVersionsDir(), safeVersion);
-}
-
-async function waitForDefAgentHealth(expectedPid, timeoutMs = 15000) {
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    try {
-      const health = await fetchJsonUrl('http://127.0.0.1:17322/health');
-      if (health.status === 200 && health.body?.ok === true && health.body?.pid === expectedPid) {
-        return health.body;
-      }
-    } catch {
-      // Keep polling until the sidecar starts listening.
-    }
-    await delay(250);
-  }
-  throw new Error(`DEF agent health check timed out for pid ${expectedPid}`);
-}
-
-function postJsonUrl(url, payload, options = {}) {
-  return new Promise((resolve, reject) => {
-    const body = JSON.stringify(payload || {});
-    const requestUrl = new URL(url);
-    const request = http.request({
-      hostname: requestUrl.hostname,
-      port: requestUrl.port,
-      path: `${requestUrl.pathname}${requestUrl.search}`,
-      method: 'POST',
-      headers: {
-        ...(options.headers || {}),
-        'Content-Type': 'application/json; charset=utf-8',
-        'Content-Length': Buffer.byteLength(body),
-      },
-    }, (response) => {
-      const chunks = [];
-      response.on('data', (chunk) => chunks.push(chunk));
-      response.on('end', () => {
-        try {
-          resolve({
-            status: response.statusCode,
-            body: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}'),
-          });
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-    request.on('error', reject);
-    request.setTimeout(30000, () => {
-      request.destroy(new Error('request timeout'));
-    });
-    request.write(body);
-    request.end();
-  });
-}
-
-function proxySseUrl(url, clientRequest, clientResponse, options = {}) {
-  const requestUrl = new URL(url);
-  const upstream = http.request({
-    hostname: requestUrl.hostname,
-    port: requestUrl.port,
-    path: `${requestUrl.pathname}${requestUrl.search}`,
-    method: 'GET',
-    headers: { Accept: 'text/event-stream', ...(options.headers || {}) },
-  }, (upstreamResponse) => {
-    clientResponse.writeHead(upstreamResponse.statusCode || 502, {
-      'Content-Type': upstreamResponse.headers['content-type'] || 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      ...(options.origin ? { 'Access-Control-Allow-Origin': options.origin, Vary: 'Origin' } : { 'Access-Control-Allow-Origin': '*' }),
-    });
-    upstreamResponse.pipe(clientResponse);
-  });
-  upstream.on('error', (error) => {
-    if (!clientResponse.headersSent) {
-      writeJson(clientResponse, 502, { ok: false, error: error instanceof Error ? error.message : String(error) });
-    } else {
-      clientResponse.end();
-    }
-  });
-  clientRequest.on('close', () => upstream.destroy());
-  upstream.end();
 }
 
 function parseStrictImageReleaseVersion(value) {
@@ -3869,331 +3155,12 @@ function getAssetsRoot() {
   return ensureProductionAssetsRoot();
 }
 
-function buildNodeSidecarEnv(extra = {}) {
-  return createNodeSidecarEnv({
-    userDataPath: app.getPath('userData'),
-    resourcesPath: process.resourcesPath,
-    packaged: app.isPackaged,
-    extra,
-  });
-}
-
-function getNodeSidecarCwd() {
-  if (app.isPackaged) {
-    return path.dirname(process.execPath);
-  }
-  return path.join(__dirname, '..');
-}
-
-async function startAiCliRest() {
-  if (isAiCliRestRunning()) {
-    return {
-      started: false,
-      reason: 'already-running',
-      ...getAiCliRestRuntimeInfo(),
-    };
-  }
-
-  ensureLocalDataDirectory();
-  const runtimeRoot = app.isPackaged
-    ? path.join(app.getPath('userData'), 'runtime')
-    : path.join(__dirname, '..', '.runtime');
-  const scriptPath = path.join(__dirname, '..', 'scripts', 'ai-cli-rest-server.mjs');
-  aiCliRestProcess = spawn(process.execPath, [scriptPath], {
-    cwd: getNodeSidecarCwd(),
-    env: buildNodeSidecarEnv({
-      AI_CLI_REST_PORT: '17321',
-      AI_CLI_REST_STORAGE_DIR: path.join(runtimeRoot, 'ai-cli-rest'),
-      AI_CLI_REST_VITE_CACHE_DIR: path.join(runtimeRoot, 'vite-ai-cli-rest', String(process.pid)),
-      AI_CLI_NOW_STORAGE_PATH: getNowStoragePath(),
-      AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath(),
-      AI_TIMELINE_WORK_NODE_LEGACY_PATH: getLegacyAiTimelineWorkNodesPath(),
-      TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath(),
-      DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
-      DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
-      DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
-      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
-      LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
-      LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
-    }),
-    stdio: 'ignore',
-    detached: false,
-    windowsHide: true,
-  });
-  aiCliRestStartedAt = Date.now();
-
-  aiCliRestProcess.once('exit', () => {
-    aiCliRestProcess = null;
-    aiCliRestStartedAt = null;
-  });
-
-  let health = null;
-  try {
-    health = await waitForAiCliRestHealth(aiCliRestProcess.pid);
-  } catch (error) {
-    return {
-      started: true,
-      ready: false,
-      reason: 'launched-health-timeout',
-      error: error instanceof Error ? error.message : String(error),
-      ...getAiCliRestRuntimeInfo(),
-    };
-  }
-
-  return {
-    started: true,
-    ready: true,
-    reason: 'launched',
-    health,
-    ...getAiCliRestRuntimeInfo(),
-  };
-}
-
-async function stopAiCliRest() {
-  if (!isAiCliRestRunning()) {
-    return {
-      stopped: false,
-      reason: 'not-running',
-      ...getAiCliRestRuntimeInfo(),
-    };
-  }
-
-  const stoppingProcess = aiCliRestProcess;
-  killProcessTree(stoppingProcess.pid);
-  const exit = await waitForProcessExit(stoppingProcess);
-  if (!exit.exited) {
-    return {
-      stopped: false,
-      reason: 'exit-timeout',
-      running: Boolean(stoppingProcess.exitCode === null),
-      pid: stoppingProcess.pid ?? null,
-      startedAt: aiCliRestStartedAt,
-      url: 'http://127.0.0.1:17321',
-    };
-  }
-  return {
-    stopped: true,
-    reason: 'terminated',
-    running: false,
-    pid: null,
-    startedAt: null,
-    url: 'http://127.0.0.1:17321',
-  };
-}
-
-function buildLegacyFillServiceEnv(extra = {}) {
-  const environment = { ...process.env, ELECTRON_RUN_AS_NODE: '1', ...extra };
-  for (const key of Object.keys(environment)) {
-    if (key.startsWith('DEF_') || key.startsWith('OPENCODE_')) delete environment[key];
-  }
-  return environment;
-}
-
-async function startLegacyFillService() {
-  if (isLegacyFillServiceRunning()) return { started: false, reason: 'already-running', ...getLegacyFillServiceRuntimeInfo() };
-  ensureLocalDataDirectory();
-  const runtimeRoot = app.isPackaged
-    ? path.join(app.getPath('userData'), 'runtime', 'legacy-fill-service')
-    : path.join(__dirname, '..', '.runtime', 'legacy-fill-service');
-  fs.mkdirSync(runtimeRoot, { recursive: true });
-  const mcpClient = ensureLegacyFillMcpClientConfig(runtimeRoot);
-  const scriptPath = path.join(__dirname, '..', 'scripts', 'legacy-fill-service.mjs');
-  legacyFillServiceProcess = spawn(process.execPath, [scriptPath], {
-    cwd: getNodeSidecarCwd(),
-    env: buildLegacyFillServiceEnv({
-      LEGACY_FILL_SERVICE_PORT: '17323',
-      LEGACY_FILL_HOST_TOKEN: legacyFillHostToken,
-      LEGACY_FILL_MCP_CLIENTS_JSON: JSON.stringify({ [mcpClient.token]: mcpClient.ownerNamespace }),
-      LEGACY_FILL_DATABASE_PATH: path.join(getLocalDataDirectory(), 'legacy-fill.sqlite3'),
-      LEGACY_FILL_REGISTRY_PATH: path.join(runtimeRoot, 'registry.json'),
-      LEGACY_FILL_DOMAIN_RUNTIME_PATH: path.join(__dirname, '..', 'dist', 'legacy-fill', 'domain-runtime.mjs'),
-      LEGACY_FILL_STRATEGY_PATH: path.join(__dirname, '..', 'src', 'legacyFillService', 'resources', 'strategy-v1.json'),
-      LEGACY_FILL_GOLDEN_PATH: path.join(__dirname, '..', 'src', 'legacyFillService', 'resources', 'golden-v1.json'),
-    }),
-    stdio: 'ignore',
-    detached: false,
-    windowsHide: true,
-  });
-  legacyFillServiceStartedAt = Date.now();
-  legacyFillServiceProcess.once('exit', (code, signal) => {
-    appendRuntimeLog('legacy-fill-service', `exit code=${code ?? '-'} signal=${signal || '-'}`);
-    legacyFillServiceProcess = null;
-    legacyFillServiceStartedAt = null;
-  });
-  try {
-    const health = await waitForLegacyFillServiceHealth(legacyFillServiceProcess.pid);
-    return { started: true, ready: true, reason: 'launched', health, ...getLegacyFillServiceRuntimeInfo() };
-  } catch (error) {
-    return { started: true, ready: false, reason: 'launched-health-timeout', error: error instanceof Error ? error.message : String(error), ...getLegacyFillServiceRuntimeInfo() };
-  }
-}
-
-async function stopLegacyFillService() {
-  if (!isLegacyFillServiceRunning()) return { stopped: false, reason: 'not-running', ...getLegacyFillServiceRuntimeInfo() };
-  const stoppingProcess = legacyFillServiceProcess;
-  try {
-    await postJsonUrl('http://127.0.0.1:17323/internal/shutdown', {}, {
-      headers: { 'x-legacy-fill-host-token': legacyFillHostToken },
-    });
-  } catch {
-    killProcessTree(stoppingProcess.pid);
-  }
-  const exit = await waitForProcessExit(stoppingProcess);
-  if (!exit.exited) {
-    killProcessTree(stoppingProcess.pid);
-    return { stopped: false, reason: 'exit-timeout', ...getLegacyFillServiceRuntimeInfo() };
-  }
-  return { stopped: true, reason: 'terminated', running: false, pid: null, startedAt: null, url: 'http://127.0.0.1:17323' };
-}
-
-async function warmLegacyFillServiceAtStartup() {
-  const startedAt = Date.now();
-  try {
-    const service = await startLegacyFillService();
-    appendRuntimeLog('legacy-fill-prewarm', `${service.ready === false ? 'unavailable' : 'ready'} elapsedMs=${Date.now() - startedAt} pid=${service.pid || '-'}`);
-    return service;
-  } catch (error) {
-    appendRuntimeLog('legacy-fill-prewarm', `unavailable elapsedMs=${Date.now() - startedAt} ${error instanceof Error ? error.message : String(error)}`);
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function startDefAgent() {
-  if (isDefAgentRunning()) {
-    return {
-      started: false,
-      reason: 'already-running',
-      ...getDefAgentRuntimeInfo(),
-    };
-  }
-
-  const scriptPath = path.join(__dirname, '..', 'agent', 'server', 'def-agent-server.cjs');
-  const runtimeRoot = app.isPackaged
-    ? path.join(app.getPath('userData'), 'runtime')
-    : path.join(__dirname, '..', '.runtime');
-  defAgentProcess = spawn(process.execPath, [scriptPath], {
-    cwd: getNodeSidecarCwd(),
-    env: buildNodeSidecarEnv({
-      DEF_AGENT_PORT: '17322',
-      // The agent sidecar can own a restarted typed-tool child when the main
-      // process's original REST child is unavailable.  Give it the identical
-      // local-data topology so that recovery cannot silently bind OpenCode to
-      // the repository checkout while the Canvas is showing a different
-      // sessionStorage/SQLite workspace.
-      AI_CLI_REST_PORT: '17321',
-      AI_CLI_REST_STORAGE_DIR: path.join(runtimeRoot, 'ai-cli-rest'),
-      AI_CLI_REST_VITE_CACHE_DIR: path.join(runtimeRoot, 'vite-ai-cli-rest', String(process.pid)),
-      AI_CLI_NOW_STORAGE_PATH: getNowStoragePath(),
-      AI_TIMELINE_WORK_NODE_DB_PATH: getAiTimelineWorkNodesPath(),
-      AI_TIMELINE_WORK_NODE_LEGACY_PATH: getLegacyAiTimelineWorkNodesPath(),
-      TIMELINE_REPOSITORY_DB_PATH: getTimelineRepositoryPath(),
-      DATA_MANAGEMENT_RUNTIME_ROOT: getRuntimeDataRoot(),
-      DEF_TOOL_GOVERNANCE_PATH: path.join(getLocalDataDirectory(), 'def-tool-governance.json'),
-      DEF_AGENT_SCRIPT_DIR: path.join(runtimeRoot, 'def-agent', 'scripts'),
-      DEF_INTERNAL_GOVERNANCE_TOKEN: defInternalGovernanceToken,
-      LEGACY_FILL_SERVICE_URL: 'http://127.0.0.1:17323',
-      LEGACY_FILL_COMPAT_PROXY_ENABLED: '1',
-    }),
-    stdio: 'ignore',
-    detached: false,
-    windowsHide: true,
-  });
-  defAgentStartedAt = Date.now();
-
-  defAgentProcess.once('exit', () => {
-    defAgentProcess = null;
-    defAgentStartedAt = null;
-  });
-
-  let health = null;
-  try {
-    health = await waitForDefAgentHealth(defAgentProcess.pid);
-  } catch (error) {
-    return {
-      started: true,
-      ready: false,
-      reason: 'launched-health-timeout',
-      error: error instanceof Error ? error.message : String(error),
-      ...getDefAgentRuntimeInfo(),
-    };
-  }
-
-  return {
-    started: true,
-    ready: true,
-    reason: 'launched',
-    health,
-    ...getDefAgentRuntimeInfo(),
-  };
-}
-
-function warmAiRuntimeAtStartup() {
-  if (aiRuntimeWarmupPromise) return aiRuntimeWarmupPromise;
-  const startedAt = Date.now();
-  aiRuntimeWarmupPromise = (async () => {
-    const rest = await startAiCliRest();
-    if (rest.ready === false) {
-      throw new Error(`AI REST did not become ready: ${rest.reason || 'unknown'}`);
-    }
-    const agent = await startDefAgent();
-    if (agent.ready === false) {
-      throw new Error(`DEF sidecar did not become ready: ${agent.reason || 'unknown'}`);
-    }
-    const runtime = await postJsonUrl('http://127.0.0.1:17322/api/runtime/ensure', {});
-    if (runtime.status < 200 || runtime.status >= 300 || runtime.body?.ok !== true) {
-      throw new Error(runtime.body?.error || `OpenCode prewarm failed: HTTP ${runtime.status}`);
-    }
-    appendRuntimeLog('ai-prewarm', `ready elapsedMs=${Date.now() - startedAt} rest=${rest.pid || '-'} sidecar=${agent.pid || '-'} opencode=${runtime.body?.runtime?.port || '-'}`);
-    return { ok: true, rest, agent, runtime: runtime.body?.runtime || null };
-  })().catch((error) => {
-    appendRuntimeLog('ai-prewarm', `failed elapsedMs=${Date.now() - startedAt} ${error instanceof Error ? error.message : String(error)}`);
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
-  });
-  return aiRuntimeWarmupPromise;
-}
-
-async function stopDefAgent() {
-  if (!isDefAgentRunning()) {
-    return {
-      stopped: false,
-      reason: 'not-running',
-      ...getDefAgentRuntimeInfo(),
-    };
-  }
-
-  const stoppingProcess = defAgentProcess;
-  killProcessTree(stoppingProcess.pid);
-  const exit = await waitForProcessExit(stoppingProcess);
-  if (!exit.exited) {
-    return {
-      stopped: false,
-      reason: 'exit-timeout',
-      running: Boolean(stoppingProcess.exitCode === null),
-      pid: stoppingProcess.pid ?? null,
-      startedAt: defAgentStartedAt,
-      url: 'http://127.0.0.1:17322',
-    };
-  }
-  return {
-    stopped: true,
-    reason: 'terminated',
-    running: false,
-    pid: null,
-    startedAt: null,
-    url: 'http://127.0.0.1:17322',
-  };
-}
-
 function getPackagedAssetsRoot() {
   return path.join(__dirname, '..', 'dist', 'assets');
 }
 
 function getProductionAssetsRoot() {
   return path.join(getRuntimeDataRoot(), 'images');
-}
-
-function getDevImageRoot() {
-  return path.join(__dirname, '..', 'data', 'images');
 }
 
 function getPrimaryImageRoot() {

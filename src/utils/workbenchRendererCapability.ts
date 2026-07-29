@@ -1,5 +1,5 @@
-export const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
-export const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
+export const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-workbench-renderer-capability';
+export const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__workbenchRendererCapability';
 const WORKBENCH_RENDERER_CAPABILITY_SESSION_KEY = 'def.main-workbench.renderer-capability.v1';
 const WORKBENCH_RENDERER_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 
@@ -52,12 +52,4 @@ export function withWorkbenchRendererCapability(input: RequestInfo | URL, header
     result.set(WORKBENCH_RENDERER_CAPABILITY_HEADER, rendererCapability);
   }
   return result;
-}
-
-export function buildWorkbenchRendererEventUrl(baseUrl: string, pathname: string): string {
-  const url = new URL(pathname, baseUrl);
-  if (rendererCapability && isWorkbenchRendererBridgeUrl(url)) {
-    url.searchParams.set(WORKBENCH_RENDERER_CAPABILITY_QUERY, rendererCapability);
-  }
-  return url.toString();
 }

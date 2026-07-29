@@ -10,12 +10,12 @@
 
 ## Decision
 
-prepare 在当前 checkout 下创建临时 child Work Node，绑定 parent/child revision、plan hash 和 capability；批准时用 `contentRevision` CAS 提交，随后验证 commit、child 和 live mirror。
+工作台在当前 checkout 下创建 child Work Node，并用 `contentRevision` CAS 保护提交，避免基于过期快照覆盖用户已经保存的修改。
 
 ## Consequences
 
-拒绝可以做到零变化，过期写入 fail-closed；实现需要显式清理临时 child 和处理 `PARTIAL`，不能依靠模型重试 409。
+过期写入会被拒绝；实现需要明确处理 revision 冲突，并由用户决定刷新还是保留当前编辑。
 
 ## Evidence
 
-`electron/timeline-repository.cjs`、`scripts/ai-cli-rest-server.mjs`、Spec 8-1-3 verification。
+`electron/timeline-repository.cjs`、`src/utils/mainWorkbenchControl.ts` 和 Work Node SQLite smoke。

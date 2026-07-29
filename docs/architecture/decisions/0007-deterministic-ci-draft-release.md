@@ -6,7 +6,7 @@
 
 ## Context
 
-项目同时包含可重复的静态/合同检查，以及依赖真实 Electron、OpenCode session、provider 和 UI permission 的桌面验收。把两者混成一个 PR job 会制造随机失败或用 mock 冒充真实链路；完全手工发布又缺少可追溯构建。
+项目同时包含可重复的静态/合同检查，以及依赖真实 Electron、SQLite、文件系统权限和 UI 交互的桌面验收。把两者混成一个 PR job 会制造随机失败或用 mock 冒充真实链路；完全手工发布又缺少可追溯构建。
 
 ## Decision
 

@@ -2,28 +2,10 @@ import type { Character, SkillButtonType } from '../types';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
 import type { SkillButtonBuff } from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
-import {
-  buildWorkbenchRendererEventUrl,
-  withWorkbenchRendererCapability,
-} from './workbenchRendererCapability';
-
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
-// Browser Workbench renderers do not possess the native REST token.  The
-// Electron bridge authenticates the local renderer and forwards only the
-// allowlisted projection/command transport to the token-protected REST host.
-export const MAIN_WORKBENCH_REST_BASE_URL = 'http://127.0.0.1:31457';
-const MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS = 300;
-const MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS = 15000;
-const MAIN_WORKBENCH_REMOTE_SNAPSHOT_HEARTBEAT_MS = 2000;
-
-let nextRemoteWorkbenchPullAt = 0;
-let remoteWorkbenchPullInFlight: Promise<void> | null = null;
-let remoteWorkbenchCommandEventSource: EventSource | null = null;
-let lastRemoteWorkbenchSnapshotPushAt = 0;
-
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
 export type MainWorkbenchCommand =
@@ -59,8 +41,7 @@ export type MainWorkbenchCommand =
         | 'weaponSheet'
         | 'equipmentSheet'
         | 'damageSheet'
-        | 'damageReportPpt'
-        | 'aiCli';
+        | 'damageReportPpt';
       characterId?: string;
       characterName?: string;
     }
@@ -232,9 +213,7 @@ export type MainWorkbenchCommand =
       }>;
     }
   | {
-      // The typed DEF operator-config tool uses this combined operation so a
-      // weapon plus four-piece loadout is persisted as one checkout revision.
-      // Keep the two narrower operations above for legacy callers only.
+      // Persists weapon plus four-piece loadout as one checkout revision.
       op: 'setOperatorConfig';
       characterId?: string;
       characterName?: string;
@@ -436,17 +415,6 @@ export interface MainWorkbenchSnapshot {
   };
 }
 
-declare global {
-  interface Window {
-    defMainWorkbench?: {
-      enqueue: (command: MainWorkbenchCommand, source?: string) => QueuedMainWorkbenchCommand;
-      enqueueMany: (commands: MainWorkbenchCommand[], source?: string) => QueuedMainWorkbenchCommand[];
-      commands: () => QueuedMainWorkbenchCommand[];
-      snapshot: () => MainWorkbenchSnapshot | null;
-    };
-  }
-}
-
 function canUseLocalStorage(): boolean {
   return typeof window !== 'undefined' && Boolean(window.localStorage);
 }
@@ -626,127 +594,15 @@ export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): voi
   writeJsonStorage(MAIN_WORKBENCH_SNAPSHOT_KEY, snapshot);
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = MAIN_WORKBENCH_REMOTE_PULL_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await window.fetch(input, {
-      ...init,
-      headers: withWorkbenchRendererCapability(input, init.headers),
-      signal: init.signal || controller.signal,
-    });
-  } finally {
-    window.clearTimeout(timeoutId);
-  }
-}
-
-async function pullRemoteMainWorkbenchCommandsOnce(): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
-  try {
-    const response = await fetchWithTimeout(`${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands?status=pending`, {
-      cache: 'no-store',
-    });
-    if (!response.ok) return;
-    const payload = await response.json() as { commands?: QueuedMainWorkbenchCommand[] };
-    const now = Date.now();
-    if (now - lastRemoteWorkbenchSnapshotPushAt >= MAIN_WORKBENCH_REMOTE_SNAPSHOT_HEARTBEAT_MS) {
-      const snapshot = readMainWorkbenchSnapshot();
-      if (snapshot) {
-        lastRemoteWorkbenchSnapshotPushAt = now;
-        await pushMainWorkbenchSnapshot(snapshot);
-      }
-    }
-    if (!Array.isArray(payload.commands) || payload.commands.length === 0) return;
-
-    importRemoteMainWorkbenchCommands(payload.commands);
-  } catch {
-    nextRemoteWorkbenchPullAt = Date.now() + MAIN_WORKBENCH_REMOTE_PULL_COOLDOWN_MS;
-    // REST bridge is optional; page-local control still works without it.
-  }
-}
-
-function importRemoteMainWorkbenchCommands(commands: QueuedMainWorkbenchCommand[]): void {
-  const queue = readMainWorkbenchCommandQueue();
-  const knownIds = new Set(queue.map((entry) => entry.id));
-  const imported = commands
-      .map((entry) => normalizeQueuedCommand(entry, 'rest'))
-      .filter((entry): entry is QueuedMainWorkbenchCommand => Boolean(entry))
-      .filter((entry) => !knownIds.has(entry.id));
-  if (imported.length === 0) return;
-  writeMainWorkbenchCommandQueue([...queue, ...imported]);
-  emitControlEvent();
-}
-
-function connectRemoteMainWorkbenchCommandEvents(): void {
-  if (typeof window === 'undefined' || typeof window.EventSource !== 'function') return;
-  remoteWorkbenchCommandEventSource?.close();
-  const eventSource = new window.EventSource(buildWorkbenchRendererEventUrl(
-    MAIN_WORKBENCH_REST_BASE_URL,
-    '/api/main-workbench/commands/events',
-  ));
-  remoteWorkbenchCommandEventSource = eventSource;
-  eventSource.addEventListener('main-workbench.commands', (event) => {
-    try {
-      const payload = JSON.parse((event as MessageEvent).data) as { commands?: QueuedMainWorkbenchCommand[] };
-      if (Array.isArray(payload.commands)) importRemoteMainWorkbenchCommands(payload.commands);
-    } catch {
-      // Polling remains as a fallback when an event frame is malformed.
-    }
-  });
-}
-
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
-  const now = Date.now();
-  if (now < nextRemoteWorkbenchPullAt) return;
-  if (remoteWorkbenchPullInFlight) return remoteWorkbenchPullInFlight;
-
-  remoteWorkbenchPullInFlight = pullRemoteMainWorkbenchCommandsOnce()
-    .finally(() => {
-      remoteWorkbenchPullInFlight = null;
-    });
-  return remoteWorkbenchPullInFlight;
+  // Retained as a no-op while local command consumers are migrated away from
+  // the removed remote REST transport.
 }
 
-export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
-  try {
-    const url = `${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/commands/result`;
-    await window.fetch(url, {
-      method: 'POST',
-      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json; charset=utf-8' }),
-      body: JSON.stringify({
-        id: entry.id,
-        status: entry.status,
-        result: entry.result,
-        error: entry.error,
-      }),
-    });
-  } catch {
-    // Best effort only; localStorage result log remains authoritative in the page.
-  }
+export async function pushMainWorkbenchCommandResult(_entry: QueuedMainWorkbenchCommand): Promise<void> {
+  // Results already live in the page-local recovery log.
 }
 
-export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
-  if (typeof window === 'undefined' || typeof window.fetch !== 'function') return;
-  try {
-    const url = `${MAIN_WORKBENCH_REST_BASE_URL}/api/main-workbench/snapshot`;
-    await window.fetch(url, {
-      method: 'POST',
-      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json; charset=utf-8' }),
-      body: JSON.stringify({ snapshot }),
-    });
-  } catch {
-    // Optional REST mirror.
-  }
-}
-
-export function installMainWorkbenchWindowApi(): void {
-  if (typeof window === 'undefined') return;
-  window.defMainWorkbench = {
-    enqueue: (command, source = 'browser') => enqueueMainWorkbenchCommand(command, source),
-    enqueueMany: (commands, source = 'browser') => enqueueMainWorkbenchCommands(commands, source),
-    commands: readMainWorkbenchCommandQueue,
-    snapshot: readMainWorkbenchSnapshot,
-  };
-  connectRemoteMainWorkbenchCommandEvents();
+export async function pushMainWorkbenchSnapshot(_snapshot: MainWorkbenchSnapshot): Promise<void> {
+  // The local snapshot mirror is now authoritative.
 }

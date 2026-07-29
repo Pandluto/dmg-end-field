@@ -2,8 +2,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-def-workbench-renderer-capability';
-const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__defWorkbenchRendererCapability';
+const WORKBENCH_RENDERER_CAPABILITY_HEADER = 'x-workbench-renderer-capability';
+const WORKBENCH_RENDERER_CAPABILITY_QUERY = '__workbenchRendererCapability';
 
 function createWorkbenchRendererCapability() {
   return crypto.randomBytes(32).toString('base64url');
@@ -87,54 +87,10 @@ function isAuthorizedWorkbenchRendererRequest(request, requestUrl, expectedCapab
   return safeCapabilityEqual(readWorkbenchRendererCapability(request, requestUrl), expectedCapability);
 }
 
-function isAuthorizedWorkbenchNativeRequest(request, expectedToken) {
-  const token = request?.headers?.['x-def-internal-token'];
-  return safeCapabilityEqual(typeof token === 'string' ? token : '', expectedToken);
-}
-
-function buildProtectedWorkbenchNativeHeaders(url, expectedOrigin, token) {
-  try {
-    const target = new URL(url);
-    if (target.origin === expectedOrigin && isProtectedWorkbenchRendererLocalDataPath(target.pathname) && token) {
-      return { 'x-def-internal-token': token };
-    }
-  } catch {
-    // Invalid or relative targets receive no native authority.
-  }
-  return {};
-}
-
 function buildRendererCapabilityUrl(url, capability) {
   const target = new URL(url);
   target.searchParams.set(WORKBENCH_RENDERER_CAPABILITY_QUERY, capability);
   return target.toString();
-}
-
-function buildWorkbenchUpstreamSearch(requestUrl) {
-  const search = new URLSearchParams(requestUrl.searchParams);
-  search.delete(WORKBENCH_RENDERER_CAPABILITY_QUERY);
-  const serialized = search.toString();
-  return serialized ? `?${serialized}` : '';
-}
-
-function isAllowedWorkbenchRendererTransport(method, pathname) {
-  const route = `${method} ${pathname}`;
-  if ((method === 'GET' || method === 'POST') && pathname.startsWith('/api/timeline-')) return true;
-  if (new Set([
-    'GET /api/main-workbench/snapshot',
-    'POST /api/main-workbench/snapshot',
-    'GET /api/main-workbench/commands',
-    'POST /api/main-workbench/commands/result',
-    'GET /api/main-workbench/commands/events',
-    'GET /api/ai-timeline-worknodes',
-    'POST /api/ai-timeline-worknodes/create',
-  ]).has(route)) return true;
-  const match = /^\/api\/ai-timeline-worknodes\/[^/]+(?:\/([^/]+))?$/.exec(pathname);
-  if (!match) return false;
-  if (method === 'GET') return !match[1] || match[1] === 'diff';
-  return method === 'POST' && new Set([
-    'update', 'delete', 'commit', 'checkout-applied', 'rollback-applied',
-  ]).has(match[1]);
 }
 
 function isProtectedWorkbenchRendererLocalDataPath(pathname) {
@@ -147,14 +103,10 @@ function isProtectedWorkbenchRendererLocalDataPath(pathname) {
 module.exports = {
   WORKBENCH_RENDERER_CAPABILITY_HEADER,
   WORKBENCH_RENDERER_CAPABILITY_QUERY,
-  buildProtectedWorkbenchNativeHeaders,
   buildRendererCapabilityUrl,
-  buildWorkbenchUpstreamSearch,
   createWorkbenchRendererCapability,
   isValidWorkbenchRendererCapability,
   readOrCreateWorkbenchRendererCapability,
-  isAllowedWorkbenchRendererTransport,
-  isAuthorizedWorkbenchNativeRequest,
   isAuthorizedWorkbenchRendererRequest,
   isProtectedWorkbenchRendererLocalDataPath,
   isTrustedWorkbenchRendererOrigin,

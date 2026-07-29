@@ -17,7 +17,7 @@
  */
 
 import React, { createContext, useCallback, useContext, useMemo, useReducer, ReactNode, useEffect, useRef } from 'react';
-import { LOCAL_LIBRARY_CHANGED_EVENT } from '../aiCli/aiCliCommandService';
+import { LOCAL_LIBRARY_CHANGED_EVENT } from '../constants/events';
 import {
   AppState,
   Character,
@@ -661,7 +661,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
             equipmentSheet: APP_ROUTE_PATHS.equipmentSheet,
             damageSheet: APP_ROUTE_PATHS.damageSheet,
             damageReportPpt: APP_ROUTE_PATHS.damageReportPpt,
-            aiCli: APP_ROUTE_PATHS.aiCli,
           };
           if (command.characterId || command.characterName) {
             const restorableCharacterMap = buildRestorableCharacterMap(state.loadedCharacters);

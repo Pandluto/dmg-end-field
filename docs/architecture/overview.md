@@ -2,91 +2,36 @@
 
 [← 返回项目入口](../../README.md)
 
-终末地伤害工作台的核心不是“网页里接一个聊天框”，而是把配装、排轴和 AI 修改都放进一个本地、可追溯的工作流。桌面应用保存事实，AI 只能在被定义的边界内生成提案，用户决定是否应用。
-
-## 设计原则
-
-1. **本地优先**：排轴与资料的正式事实源在桌面应用本机，不依赖云端数据库。
-2. **先提案，后应用**：AI 的改动先进入隔离草稿，经过检查与确认才会影响当前方案。
-3. **边界可见**：Agent 只可调用已定义的领域工具，不能任意读项目、执行 Shell 或修改未知目录。
-4. **能力可复现**：运行时、规则和场景都可版本化；候选改动须以真实会话回放验证。
-
-## 全局结构
+1.8 LTS 是一个本地优先的伤害计算与排轴工作台。React 负责业务界面，Electron 提供桌面窗口与受控本地桥接，SQLite 保存排轴文档、快照和 Work Node；角色、武器、装备与 Buff 的当前投影保留在浏览器存储中。
 
 ```mermaid
-flowchart TB
-  User["使用者"] --> UI["React 工作台\n配装、排轴、资料编辑"]
-  UI --> Bridge["Electron 本地桥接\nREST / SSE · 127.0.0.1"]
-  Bridge --> Repository["Timeline Repository\nSQLite · 本机 AppData"]
-  UI --> Adapter["DEF OpenCode Adapter\n本地 AI 运行时"]
-  Adapter --> Tools["Typed Tools\n角色、武器、装备、伤害、排轴"]
-  Tools --> Draft["Work Node 草稿"]
-  Draft --> User
-  User -->|"确认应用"| Repository
-  Harness["Harness\n版本化场景回放与比较"] -. 验证 .-> Adapter
+flowchart LR
+  User["用户"] --> UI["React / Vite 工作台"]
+  UI --> Bridge["Electron 本地桥接\n127.0.0.1:31457"]
+  Bridge --> Repo["Timeline Repository\nSQLite"]
+  Bridge --> Data["数据包与图片管理"]
+  UI --> Storage["localStorage / sessionStorage\n当前资料投影"]
+  Repo --> Archive["本地 / 共享排轴存档"]
+  Data --> Package["Local Data / Share Data"]
 ```
 
-浏览器渲染层访问的是 `127.0.0.1` 的本地桥接，而不是云端 API；桥接连接 Electron 主进程、本地 SQLite 和本地 Agent。图片资源、数据包和应用程序安装包各有独立的发布流程，不能互相替代。
+## 稳定边界
 
-## 数据：完整包、存档与工作区
+- SQLite 是当前排轴、快照、节点树和 checkout 的事实源。
+- 浏览器存储保存当前已应用的业务资料投影；完整数据包只有经用户明确“应用数据”后才改变投影。
+- 网络下载只进入 Share Data，不自动覆盖 Local Data、浏览器状态或当前 SQLite 工作区。
+- 本地/共享排轴存档转换为新的 SQLite 工作区后才能使用，不直接覆盖当前页面。
+- 图片资源、完整数据包和应用安装包是三条独立发布链。
 
-主界面直接使用两种工作态：SQLite 保存当前可编辑的排轴/节点树，浏览器存储保存已经应用的角色、Buff、装备与武器数据。它们的可搬运边界则是完整数据包和独立排轴存档：
-
-```text
-Local Data / Share Data（完整数据包）
-  └─ “应用数据” → localStorage 数据投影 + 共享存档
-
-本地存档 / 共享存档（仅排轴与节点树）
-  └─ 转换 → 新 SQLite 工作区
-
-SQLite 工作区
-  └─ 导出本地存档 / 预存到共享存档
-```
-
-网络下载只会校验并写入 Share Data。它不会自动应用数据、替换当前 SQLite 工作区或改变浏览器状态；用户需要在 Shell 中明确应用。反过来，存档也不能直接覆盖当前页面，只能转换为新的 SQLite 工作区。这些规则让下载、试用、恢复与删除保持可追溯且互不误删。
-
-## 排轴：从编辑器到可恢复文档
-
-排轴不是一份会被覆盖的页面状态，而是一份 SQLite 文档。它大致由下列对象组成：
-
-```text
-TimelineDocument
-├─ Snapshot：用户保存的不可变恢复点
-├─ Work Node：AI 生成的隔离分支草稿
-├─ CheckoutRef：当前已应用的目标
-└─ Audit Event：保存、恢复、校验、审批与删除事件
-```
-
-- 完整配置按内容哈希保存；快照与 Work Node 引用同一份不可变 payload，便于去重和校验。
-- `localStorage`、`sessionStorage` 是当前已应用资料的页面投影；SQLite 是当前排轴版本事实源。旧 JSON 仅用于兼容导入或完整数据包承载。
-- 分享时从已选 Local Data 或 Share Data 生成带版本的完整包；下载会先校验 schema、hash 与 ZIP 文件集合，再原子写入 Share Data。
-
-这也是 AI 必须先落到 Work Node 的原因：它可以探索另一种排轴，而不会把正在使用的正式方案直接覆盖掉。
-
-## AI：把“能做事”限制成可检查的提案
-
-项目内置并启动经构建的上游 OpenCode 源码，再由 DEF adapter 为 Workbench 与 AI CLI 约束会话、技能和可见能力。模型并不拥有任意本机权限；实际操作要经过 Typed Tools 进入领域接口。
-
-| 层次 | 责任 |
-| --- | --- |
-| OpenCode Runtime | 承载本地会话、模型交互与工具调度。 |
-| DEF adapter | 将终末地工作流映射到运行时，并收紧会话、技能和能力策略。 |
-| Typed Tools | 提供角色、武器、装备、伤害、排轴等显式操作；拒绝任意文件、Shell、任务编排和未知目录写入。 |
-| Work Node | 保存基线、工作副本、补丁、校验、Diff 与风险，让提案可检查、可应用、可丢弃。 |
-
-## Harness：验证运行时，而非证明一次演示成功
-
-Harness 将 Agent 的规则、技能、路由和工作流打成带版本与内容哈希的工件。候选改动在真实本地会话中回放指定场景，并与稳定版本比较：目标问题是否修复、原本可用的流程是否退化，以及预览是否意外改动了用户状态。裁判输入不进入 Agent 的可见提示与轨迹，避免系统只是在记住答案。
+1.8 LTS 不包含 DEF OpenCode、Harness、AI CLI 或 MCP 服务。历史持久化键中的 `def.*` 和 Work Node API 中的 `ai-timeline-*` 名称为兼容既有用户数据而保留，不代表仍内置 Agent 运行时。
 
 ## 目录责任
 
 ```text
-src/                    React 页面、组件、领域逻辑与计算器
-electron/               主进程、预加载和本地能力桥接
-agent/runtime/          DEF tools、OpenCode adapter 与 Work Node 运行时
-agent/harness/          Harness 工件、会话回放与评估逻辑
-scripts/                构建、数据处理与 smoke 脚本
-public/data/            角色、武器、装备等静态资料
+src/             React 页面、领域逻辑、计算器与浏览器桥接
+electron/        桌面主进程、SQLite、数据与图片服务
+scripts/         构建、数据处理、合同与 smoke 脚本
+public/data/     内建产品资料
+public/shell/    桌面 Shell 页面
+docs/            当前架构、指南、仍有效规格与维护记录
 ```
-
-实现与验证细节会继续沉淀在各个 [Spec](../specs/README.md) 中；本页只描述跨功能稳定的架构边界。
