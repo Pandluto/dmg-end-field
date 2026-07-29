@@ -19,7 +19,7 @@
 - `npm run build` 通过。
 - `npm run test:operator-panel` 通过。
 - `node scripts/run-ts-test.mjs /src/core/calculators/buffZoneCalculator.test.ts` 通过。
-- 核心用例已覆盖 `1.32`、`1.452`、`1.694` 三个 spec 场景。
+- 核心用例已覆盖普通四区 `1.22`、`1.242`、`1.484` 及技能倍率 `3.960` 场景。
 - 旧 `multiplierMultiplier` → `multiplierBonus + multiplier.coefficient` 迁移用例已覆盖。
 
 ## Spec-Fix: Buff Sheet Producer Alignment
@@ -278,20 +278,21 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 
 - [x] 普通 Buff 的 `kn` 进入对应乘区 additiveContributions。
 - [x] multiplier coefficient 进入对应乘区 multiplierContributions。
-- [x] 普通四区按 `multiplierProduct × (1 + additiveTotal)` 计算。
-- [x] 技能倍率区按 `multiplierProduct × (baseMultiplier + additiveTotal)` 计算。
+- [x] 普通四区按 `baseValue + additiveTotal × multiplierProduct` 计算。
+- [x] 技能倍率区按 `(baseMultiplier + additiveTotal) × multiplierProduct` 计算。
 - [x] 没有 multiplier 时 `multiplierProduct=1`。
 - [ ] multiplier 引用 type 只决定命中范围。
-- [ ] multiplier 命中后作用于当前 hit 的整个对应乘区。
+- [ ] 普通四区 multiplier 作用于当前 hit 的 Buff 加成和，技能倍率 multiplier 作用于“基础倍率 + 倍率加算”。
 - [ ] 不将 multiplier 限制为只放大同名普通 Buff。
 - [ ] 收敛现有 `calculateElementDmgBonus`、`calculateSkillDmgBonus` 和 fragile/vulnerability/amplify 标量逻辑。
 - [ ] 收敛旧 `multiplierBonus/multiplierMultiplier` 技能倍率专用计算。
 
 ### Required Calculation Scenarios
 
-- [x] 寒冷 hit：法术脆弱普通加算 `0.20` 与寒冷脆弱 multiplier `1.10` 得到脆弱区 `1.32`。
-- [x] 寒冷 hit：法术脆弱普通加算 `0.20`、法术脆弱 multiplier `1.10`、寒冷脆弱 multiplier `1.10` 得到 `1.452`。
-- [x] 寒冷 hit：两层 `0.20` 法术脆弱与两个 `1.10` multiplier 得到 `1.694`。
+- [x] 寒冷 hit：法术脆弱普通加算 `0.20` 与寒冷脆弱 multiplier `1.10` 得到脆弱区 `1.22`。
+- [x] 寒冷 hit：法术脆弱普通加算 `0.20`、法术脆弱 multiplier `1.10`、寒冷脆弱 multiplier `1.10` 得到 `1.242`。
+- [x] 寒冷 hit：两层 `0.20` 法术脆弱与两个 `1.10` multiplier 得到 `1.484`。
+- [x] 技能基础倍率 `3.300`、倍率加算 `0`、multiplier `1.200` 得到技能倍率区 `3.960`。
 - [ ] target 不匹配的普通 Buff 和 multiplier Buff 均不生成贡献。
 - [ ] hit 手动禁用的普通 Buff 和 multiplier Buff 均不生成贡献。
 - [ ] 没有 multiplier 时五区结果与历史公式一致。
@@ -356,8 +357,8 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] Excel 中普通 countable Buff 可追踪 `n/k/kn`。
 - [ ] Excel 中 multiplier Buff 可追踪 type 和 coefficient。
 - [ ] 五类乘区公式支持 additive refs 和 multiplier refs。
-- [ ] 普通四区公式使用 `PRODUCT(multiplier) × (1 + SUM(additive))` 的等价表达。
-- [ ] 技能倍率区公式使用 `PRODUCT(multiplier) × (base + SUM(additive))` 的等价表达。
+- [ ] 普通四区公式使用 `base + SUM(additive) × PRODUCT(multiplier)` 的等价表达。
+- [ ] 技能倍率区公式使用 `(base + SUM(additive)) × PRODUCT(multiplier)` 的等价表达。
 - [ ] 移除仅识别旧 `multiplierMultiplier` type 的公式。
 - [ ] Excel 不通过最终值反推基础加算或 multiplier。
 - [ ] Excel 不再假设易伤、脆弱和增幅只能是 `1 + sum(buff.value)`。
@@ -382,9 +383,10 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 
 - [ ] 为 Stage 1 增加最小纯函数覆盖：普通 Buff `k=1`。
 - [ ] 为 Stage 1 增加最小纯函数覆盖：countable `0.20 × 2 = 0.40`。
-- [ ] 为 Stage 2 增加最小纯函数覆盖：跨字段寒冷脆弱 multiplier 场景结果 `1.32`。
-- [ ] 为 Stage 2 增加最小纯函数覆盖：两个 multiplier 场景结果 `1.452`。
-- [ ] 为 Stage 2 增加最小纯函数覆盖：两层普通 Buff 与两个 multiplier 场景结果 `1.694`。
+- [ ] 为 Stage 2 增加最小纯函数覆盖：跨字段寒冷脆弱 multiplier 场景结果 `1.22`。
+- [ ] 为 Stage 2 增加最小纯函数覆盖：两个 multiplier 场景结果 `1.242`。
+- [ ] 为 Stage 2 增加最小纯函数覆盖：两层普通 Buff 与两个 multiplier 场景结果 `1.484`。
+- [ ] 为 Stage 2 增加最小纯函数覆盖：技能基础倍率 `3.300` 在零加算、`1.200` multiplier 下结果为 `3.960`。
 - [ ] 增加旧普通 Buff 缺少 multiplier 的兼容覆盖。
 - [ ] 增加旧 `multiplierMultiplier` 到新模型的迁移覆盖。
 - [ ] 手工验证 Operator Studio 保存、重开、导出和导入。
@@ -408,8 +410,8 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] countable 当前层数继续作为 `k`。
 - [ ] Stage 1 独立生成 `kn`，且不回写快照。
 - [ ] Stage 2 统一完成 hit 匹配和五区聚合。
-- [ ] multiplier 命中后作用于当前 hit 的整个对应乘区。
-- [ ] spec 中 `1.32`、`1.452` 和 `1.694` 三个场景通过。
+- [ ] 普通四区 multiplier 只放大 Buff 加成和，技能倍率 multiplier 放大“基础倍率 + 倍率加算”。
+- [ ] spec 中 `1.22`、`1.242`、`1.484` 和技能倍率 `3.960` 场景通过。
 - [ ] 普通、异常、Dot 和额外 hit 使用同一五区结果。
 - [ ] 详情、Damage Sheet、Report 和 Excel 使用同一结果来源。
 - [ ] 旧存储、时间轴和分享数据可兼容。
@@ -424,6 +426,15 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [x] Report 的 extraHit 行与异常伤害明细保持同样展开语义。
 - [x] 保留旧 `buff-extra-hit-{buffId}` 禁用 Buff 配置对展开层的兼容。
 - [x] 补充最小 extraHit 集成覆盖，确认每层不再放大基础倍率。
+
+## Spec-Fix: Skill Multiplier Base Scaling
+
+- [x] 普通四区继续按 `baseValue + additiveTotal × multiplierProduct` 计算。
+- [x] 技能倍率区独立按 `(baseMultiplier + additiveTotal) × multiplierProduct` 计算。
+- [x] 普通、异常、Dot 和额外 hit 的技能倍率公式展示与核心公式一致。
+- [x] 补充 `3.300 × 1.200 = 3.960` 的零加算回归覆盖。
+- [x] 补充“基础倍率 + 倍率加算”整体参与乘算的回归覆盖。
+- [x] `npm run test:numeric` 与 `npm run build` 通过。
 
 ## Explicit Non-Tasks
 

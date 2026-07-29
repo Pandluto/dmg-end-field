@@ -24,7 +24,9 @@ zone = 1 + a + b + c
 本轮需要支持：
 
 ```text
-zone = A × B × C × (1 + a + b + c)
+普通四区 = 1 + (a + b + c) × A × B × C
+
+技能倍率区 = (baseMultiplier + a + b + c) × A × B × C
 ```
 
 同时，Buff 数值链路需要从单一数值 `n` 扩展为可计算的 `kn`。
@@ -105,7 +107,7 @@ interface BuffCalculationMeta {
 字段名可在实现阶段调整，但语义必须保持：
 
 - 未标记 multiplier：该 Buff 是原有字段的普通加算贡献。
-- 标记 multiplier：该 Buff 引用原有字段以继承该字段的命中范围；命中后，为当前 hit 对应的整个乘区提供独立乘算系数。
+- 标记 multiplier：该 Buff 引用原有字段以继承该字段的命中范围；命中后，为当前 hit 对应乘区提供独立乘算系数。普通四区只用该系数放大 Buff 加成和，技能倍率区则用该系数放大“基础倍率 + 倍率加算”。
 
 示例：
 
@@ -122,7 +124,7 @@ interface BuffCalculationMeta {
 表示：
 
 ```text
-当法术脆弱字段能够命中当前 hit 时，当前 hit 的整个脆弱乘区独立乘以 1.1
+当法术脆弱字段能够命中当前 hit 时，当前 hit 的脆弱 Buff 加成和独立乘以 1.1，脆弱区基础值 1 不参与乘算
 ```
 
 不表示：
@@ -200,7 +202,12 @@ multiplier: {
 
 本轮 multiplier 只允许引用以下五类乘区的原有字段。
 
-multiplier 引用字段的职责是决定它能否命中当前 hit。命中后，它作用于当前 hit 已经合并完成的整个对应乘区，不只放大同名字段的普通加算值。
+multiplier 引用字段的职责是决定它能否命中当前 hit。命中后，它进入当前 hit 对应乘区的 `multiplierProduct`，且不只放大同名字段的普通加算值。
+
+五区使用两种明确区分的结算语义：
+
+- 伤害加成、脆弱、易伤、增幅：保留乘区基础值，只放大当前 hit 命中的 Buff 加成和。
+- 技能倍率：基础倍率本身是有效数值，乘算系数放大“基础倍率 + 倍率加算”的整体。
 
 ### Damage Bonus
 
@@ -215,8 +222,9 @@ multiplier 引用字段的职责是决定它能否命中当前 hit。命中后�
 
 ```text
 damageBonusZone =
-  product(matching multiplier buffs)
-  × (1 + sum(matching normal buff kn))
+  baseDamageBonusZone
+  + sum(matching normal buff kn)
+    × product(matching multiplier buffs)
 ```
 
 ### Fragile
@@ -225,8 +233,9 @@ damageBonusZone =
 
 ```text
 fragileZone =
-  product(matching multiplier buffs)
-  × (1 + sum(matching normal buff kn))
+  1
+  + sum(matching normal buff kn)
+    × product(matching multiplier buffs)
 ```
 
 ### Vulnerability
@@ -235,8 +244,9 @@ fragileZone =
 
 ```text
 vulnerabilityZone =
-  product(matching multiplier buffs)
-  × (1 + sum(matching normal buff kn))
+  1
+  + sum(matching normal buff kn)
+    × product(matching multiplier buffs)
 ```
 
 示例：
@@ -245,7 +255,7 @@ vulnerabilityZone =
 法术脆弱普通加算总和 = 0.20
 法术脆弱 multiplier = 1.10
 
-vulnerabilityZone = 1.10 × (1 + 0.20) = 1.32
+vulnerabilityZone = 1 + 0.20 × 1.10 = 1.22
 ```
 
 跨字段合并示例：
@@ -267,10 +277,10 @@ vulnerabilityZone = 1.10 × (1 + 0.20) = 1.32
 随后在 hit 级脆弱乘区统一结算：
 
 ```text
-vulnerabilityZone = 1.10 × (1 + 0.20) = 1.32
+vulnerabilityZone = 1 + 0.20 × 1.10 = 1.22
 ```
 
-寒冷脆弱 multiplier 虽然引用 `cold/ice vulnerability` 字段，但它命中后放大的是寒冷 hit 的整个脆弱乘区，因此会同时放大该 hit 命中的法术脆弱。
+寒冷脆弱 multiplier 虽然引用 `cold/ice vulnerability` 字段，但它命中后放大的是寒冷 hit 汇总后的脆弱 Buff 加成和，因此会同时放大该 hit 命中的法术脆弱；脆弱区基础值 1 保持不变。
 
 多个 multiplier 与 countable 普通 Buff 示例：
 
@@ -291,8 +301,8 @@ Stage 2 再沿用原有命中逻辑并聚合当前 hit 的脆弱区：
 
 ```text
 vulnerabilityZone
-= 1.10 × 1.10 × (1 + 0.40)
-= 1.694
+= 1 + 0.40 × 1.10 × 1.10
+= 1.484
 ```
 
 ### Amplify
@@ -301,8 +311,9 @@ vulnerabilityZone
 
 ```text
 amplifyZone =
-  product(matching multiplier buffs)
-  × (1 + sum(matching normal buff kn))
+  1
+  + sum(matching normal buff kn)
+    × product(matching multiplier buffs)
 ```
 
 ### Skill Multiplier
@@ -311,9 +322,23 @@ amplifyZone =
 
 ```text
 skillMultiplier =
-  product(matching multiplier buffs)
-  × (baseMultiplier + sum(matching normal buff kn))
+  (baseMultiplier + sum(matching normal buff kn))
+  × product(matching multiplier buffs)
 ```
+
+技能倍率区不得套用普通四区“基础值不参与乘算”的公式。即使倍率加算和为 `0`，乘算 Buff 也必须作用于技能本身的基础倍率：
+
+```text
+baseMultiplier = 3.300
+additiveTotal = 0
+multiplierProduct = 1.200
+
+skillMultiplier
+= (3.300 + 0) × 1.200
+= 3.960
+```
+
+不得计算为 `3.300 + 0 × 1.200 = 3.300`。
 
 现有：
 
@@ -511,13 +536,13 @@ multiplier.coefficient
 最终：
 
 ```text
-zone = A × B × (1 + k1C + k2D)
+zone = baseZone + (k1C + k2D) × A × B
 ```
 
 技能倍率区：
 
 ```text
-skillMultiplier = A × B × (baseMultiplier + k1C + k2D)
+skillMultiplier = (baseMultiplier + k1C + k2D) × A × B
 ```
 
 Stage 1 负责“单个 Buff 当前是多少”；Stage 2 负责“哪些 Buff 命中当前 hit，以及如何组成乘区”。
@@ -677,13 +702,13 @@ interface ZoneCalculationResult {
 普通四区：
 
 ```text
-finalValue = multiplierProduct × (1 + additiveTotal)
+finalValue = baseValue + additiveTotal × multiplierProduct
 ```
 
 技能倍率区：
 
 ```text
-finalValue = multiplierProduct × (baseMultiplier + additiveTotal)
+finalValue = (baseMultiplier + additiveTotal) × multiplierProduct
 ```
 
 没有 multiplier 时：
@@ -711,7 +736,7 @@ multiplier Buff SHALL 使用其引用 type 原有的匹配规则。
 - `type=skillDmgBonus`：匹配对应技能类型范围。
 - Buff 自身 target 仍可进一步限制到 `damageKey/skillType/element`。
 
-匹配完成后 SHALL 先在 hit 级合并所有普通加算贡献，再将所有命中的 multiplier 系数乘到整个对应乘区：
+匹配完成后 SHALL 先在 hit 级合并所有普通加算贡献，再计算所有命中的 multiplier 系数乘积：
 
 ```text
 matched additive contributions
@@ -720,7 +745,9 @@ matched additive contributions
 matched multiplier contributions
 → multiplierProduct
 
-zone = multiplierProduct × (base + additiveTotal)
+普通四区 = baseValue + additiveTotal × multiplierProduct
+
+技能倍率区 = (baseMultiplier + additiveTotal) × multiplierProduct
 ```
 
 系统 SHALL NOT 将 multiplier 限制为只放大与其引用 type 同名的普通 Buff。
@@ -794,13 +821,14 @@ coefficient
 公式示例：
 
 ```text
-脆弱区 = 1.100 × (1 + 20.0%) = 1.320
+脆弱区 = 1 + 20.0% × 1.100 = 1.220
 ```
 
 多个 multiplier：
 
 ```text
-脆弱区 = 1.100 × 1.050 × (1 + 20.0% + 8.0%)
+脆弱区 = 1 + (20.0% + 8.0%) × 1.100 × 1.050
+技能倍率区 = (330.0% + 0.0%) × 1.200 = 396.0%
 ```
 
 无 multiplier 时可以简化为：
@@ -916,10 +944,11 @@ kn = 0.15
 ### Requirement: 五类乘区
 
 - WHEN 某乘区存在普通 Buff 和 multiplier Buff
-- THEN 普通 Buff 的 `kn` 进入括号内加算和
-- AND multiplier Buff 的 coefficient 进入括号外乘积
+- THEN 普通 Buff 的 `kn` 进入 additiveTotal
+- AND multiplier Buff 的 coefficient 进入 multiplierProduct
 - AND 两类贡献使用相同的 type 匹配规则
-- AND multiplier 命中后作用于当前 hit 的整个对应乘区
+- AND 普通四区只使用 multiplierProduct 放大 additiveTotal，不放大基础值
+- AND 技能倍率区使用 multiplierProduct 放大“baseMultiplier + additiveTotal”
 - AND 不只作用于与 multiplier 引用 type 同名的普通 Buff
 
 #### Scenario: 寒冷脆弱 Multiplier 放大法术脆弱
@@ -930,7 +959,7 @@ kn = 0.15
 - AND 没有寒冷脆弱普通加算
 - THEN 法术脆弱按原命中规则进入当前 hit 的脆弱加算和
 - AND 寒冷脆弱 multiplier 按原命中规则进入当前 hit 的脆弱乘算积
-- AND 最终脆弱区为 `1.10 × (1 + 0.20) = 1.32`
+- AND 最终脆弱区为 `1 + 0.20 × 1.10 = 1.22`
 
 #### Scenario: 两个 Multiplier 同时命中
 
@@ -939,7 +968,7 @@ kn = 0.15
 - AND 存在寒冷脆弱 multiplier `1.10`
 - AND 存在法术脆弱普通加算 `0.20`
 - THEN 两个 multiplier 均进入当前 hit 的脆弱乘算积
-- AND 最终脆弱区为 `1.10 × 1.10 × (1 + 0.20) = 1.452`
+- AND 最终脆弱区为 `1 + 0.20 × 1.10 × 1.10 = 1.242`
 
 #### Scenario: 两层普通脆弱与两个 Multiplier
 
@@ -948,7 +977,15 @@ kn = 0.15
 - AND 当前寒冷 hit 同时命中法术脆弱 multiplier `1.10`
 - AND 当前寒冷 hit 同时命中寒冷脆弱 multiplier `1.10`
 - THEN Stage 1 生成法术脆弱有效值 `0.40`
-- AND Stage 2 生成脆弱区 `1.10 × 1.10 × (1 + 0.40) = 1.694`
+- AND Stage 2 生成脆弱区 `1 + 0.40 × 1.10 × 1.10 = 1.484`
+
+#### Scenario: 技能倍率乘算必须覆盖基础倍率
+
+- WHEN 当前 hit 的基础技能倍率为 `3.300`
+- AND 当前 hit 没有倍率加算 Buff
+- AND 当前 hit 命中技能倍率 multiplier `1.200`
+- THEN 技能倍率区为 `(3.300 + 0) × 1.200 = 3.960`
+- AND 不得使用普通四区公式计算为 `3.300 + 0 × 1.200 = 3.300`
 
 ### Requirement: SessionStorage
 
@@ -976,10 +1013,13 @@ kn = 0.15
 - multiplier 与 countable 不允许同时设置在同一个 Buff 定义上。
 - `kn` 解析与 hit 级乘区聚合在两个阶段完成。
 - `kn` 不回写 all-buff-list 或 skill-button。
-- multiplier 引用 type 只决定命中范围，命中后作用于当前 hit 的整个对应乘区。
+- multiplier 引用 type 只决定命中范围；命中后进入当前 hit 对应乘区的 multiplierProduct。
 - 寒冷脆弱 multiplier 可以放大同一寒冷 hit 命中的法术脆弱。
 - 法术脆弱和寒冷脆弱 multiplier 同时命中寒冷 hit 时独立相乘。
-- 两层 `20%` 法术脆弱与两个 `1.10` multiplier 的脆弱区结果为 `1.694`。
+- 两层 `20%` 法术脆弱与两个 `1.10` multiplier 的脆弱区结果为 `1.484`。
+- 普通四区的基础值不参与 multiplier 乘算。
+- 技能倍率区按 `(baseMultiplier + additiveTotal) × multiplierProduct` 计算。
+- 基础技能倍率 `3.300`、倍率加算 `0`、乘算系数 `1.200` 时结果为 `3.960`。
 - 伤害加成、易伤、脆弱、增幅和技能倍率支持独立乘算。
 - 现有元素、法术、物理和技能类型命中规则保持不变。
 - 其他乘区不受本轮影响。
@@ -1212,7 +1252,7 @@ condition / countable
 - 单次 hit 匹配生成贡献。
 - 普通 Buff `kn` 进入 additiveTotal。
 - multiplier coefficient 进入 multiplierProduct。
-- multiplier 命中后作用于整个 hit 乘区。
+- 普通四区 multiplier 作用于当前 hit 的 Buff 加成和，技能倍率 multiplier 作用于“基础倍率 + 倍率加算”。
 - 五类乘区输出结构化结果。
 
 完成标准：
@@ -1221,7 +1261,7 @@ condition / countable
 2层法术脆弱 20%
 + 法术脆弱 multiplier 1.1
 + 寒冷脆弱 multiplier 1.1
-→ 寒冷 hit 脆弱区 1.694
+→ 寒冷 hit 脆弱区 1.484
 ```
 
 ### Phase 7: Normal, Anomaly And Extra-Hit Integration

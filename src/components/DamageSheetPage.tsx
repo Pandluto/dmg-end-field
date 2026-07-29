@@ -385,6 +385,9 @@ function formatStructuredZoneFormula(hitResult: HitCalcResult, columnKey: string
   const baseValue = isSkillMultiplier
     ? hitResult.multiplier.base
     : zone.finalValue - zone.additiveTotal * zone.multiplierProduct;
+  if (isSkillMultiplier) {
+    return `(${baseValue.toFixed(3)} + ${zone.additiveTotal.toFixed(3)}) × ${zone.multiplierProduct.toFixed(3)} = ${zone.finalValue.toFixed(3)}`;
+  }
   return `${baseValue.toFixed(3)} + ${zone.multiplierProduct.toFixed(3)} × ${zone.additiveTotal.toFixed(3)} = ${zone.finalValue.toFixed(3)}`;
 }
 

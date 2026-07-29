@@ -182,13 +182,16 @@ function buildAppliedBuffTags(
 function formatZoneFormula(
   zone: ZoneCalculationResult | undefined,
   legacyAdditiveTotal: number,
-  legacyBaseValue = 1
+  legacyBaseValue = 1,
+  multiplyBaseValue = false
 ): string {
   if (!zone) {
     return `${legacyBaseValue.toFixed(3)} + ${formatPercent(legacyAdditiveTotal)} = ${(legacyBaseValue + legacyAdditiveTotal).toFixed(3)}`;
   }
 
-  const baseValue = zone.finalValue - zone.additiveTotal * zone.multiplierProduct;
+  const baseValue = multiplyBaseValue
+    ? legacyBaseValue
+    : zone.finalValue - zone.additiveTotal * zone.multiplierProduct;
   const multiplierText = zone.multiplierContributions.length > 0
     ? zone.multiplierContributions
         .map((contribution) => (contribution.multiplierCoefficient ?? contribution.effectiveValue).toFixed(3))
@@ -196,6 +199,9 @@ function formatZoneFormula(
     : zone.multiplierProduct.toFixed(3);
   if (zone.multiplierContributions.length === 0) {
     return `${baseValue.toFixed(3)} + ${formatPercent(zone.additiveTotal)} = ${zone.finalValue.toFixed(3)}`;
+  }
+  if (multiplyBaseValue) {
+    return `(${baseValue.toFixed(3)} + ${formatPercent(zone.additiveTotal)}) × ${multiplierText} = ${zone.finalValue.toFixed(3)}`;
   }
   return `${baseValue.toFixed(3)} + ${multiplierText} × ${formatPercent(zone.additiveTotal)} = ${zone.finalValue.toFixed(3)}`;
 }
@@ -273,12 +279,14 @@ function buildFormula(
     multiplierFormulaText: formatZoneFormula(
       activeHit.zones.skillMultiplier,
       activeHit.multiplier.afterBonus - activeHit.multiplier.base,
-      activeHit.multiplier.base
+      activeHit.multiplier.base,
+      true
     ),
     formulaText: formatZoneFormula(
       activeHit.zones.skillMultiplier,
       activeHit.multiplier.afterBonus - activeHit.multiplier.base,
-      activeHit.multiplier.base
+      activeHit.multiplier.base,
+      true
     ),
     elementBonusText: formatPercent(activeHit.zones.elementBonus),
     skillBonusText: formatPercent(activeHit.zones.skillBonus),

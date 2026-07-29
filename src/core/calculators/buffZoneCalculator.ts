@@ -148,15 +148,18 @@ function createZoneResult(
     (product, contribution) => product * (contribution.multiplierCoefficient ?? 1),
     1
   );
+  const finalValue = zone === 'skillMultiplier'
+    // 技能倍率的基础值本身就是有效倍率，乘算效果需要覆盖“基础倍率 + 倍率加算”。
+    ? (baseValue + additiveTotal) * multiplierProduct
+    // 其余四区的基础值不参与乘算，乘算效果只放大 Buff 加成部分。
+    : baseValue + additiveTotal * multiplierProduct;
 
   return {
     additiveContributions,
     multiplierContributions,
     additiveTotal,
     multiplierProduct,
-    // 乘算效果只放大该区的加成值，不能放大区间基础值（通常为 1）。
-    // 例如：16% 脆弱 ×1.5 = 1 + 0.16 × 1.5 = 1.24，而非 1.5 × (1 + 0.16)。
-    finalValue: baseValue + additiveTotal * multiplierProduct,
+    finalValue,
   };
 }
 
