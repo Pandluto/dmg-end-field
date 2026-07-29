@@ -517,8 +517,11 @@ export function CanvasBoard({
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
   const [isSaveSnapshotModalOpen, setIsSaveSnapshotModalOpen] = useState(false);
+  const [isTimelineNameModalOpen, setIsTimelineNameModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [snapshotDraftName, setSnapshotDraftName] = useState('');
+  const [timelineNameDraft, setTimelineNameDraft] = useState('');
+  const [timelineNameError, setTimelineNameError] = useState('');
   const [shareDraftName, setShareDraftName] = useState('');
   const [shareScope, setShareScope] = useState<'snapshot' | 'branch' | 'document'>('snapshot');
   const [shareBranchRootId, setShareBranchRootId] = useState('');
@@ -567,6 +570,8 @@ export function CanvasBoard({
   const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
+  const timelineNameRequestRef = useRef<Promise<string | null> | null>(null);
+  const timelineNameResolverRef = useRef<((value: string | null) => void) | null>(null);
   const activeTimelineIdentityRef = useRef({
     timelineId: activeTimelineId,
     checkout: checkoutIdentity(activeCheckoutRef),
@@ -601,6 +606,12 @@ export function CanvasBoard({
   useEffect(() => {
     temporaryPromotionRef.current = activeTimelineIsTemporary;
   }, [activeTimelineIsTemporary]);
+
+  useEffect(() => () => {
+    timelineNameResolverRef.current?.(null);
+    timelineNameResolverRef.current = null;
+    timelineNameRequestRef.current = null;
+  }, []);
 
   const closeWorkNodePanel = () => {
     setIsWorkNodePanelOpen(false);
@@ -3575,11 +3586,8 @@ export function CanvasBoard({
   async function promoteTemporaryTimeline(): Promise<boolean> {
     if (!temporaryPromotionRef.current) return true;
 
-    const label = window.prompt('首次保存前，请为这个 SQLite 工作区命名：', '')?.trim();
-    if (!label) {
-      if (label === '') alert('请输入 SQLite 工作区名称后再保存。');
-      return false;
-    }
+    const label = await requestTimelineName();
+    if (!label) return false;
 
     try {
       const document = await createTimelineRepositoryClient().ensureDocument({
@@ -3598,6 +3606,39 @@ export function CanvasBoard({
       alert(`SQLite 工作区转正失败：${formatTimelineOperationError(error)}`);
       return false;
     }
+  }
+
+  function requestTimelineName(): Promise<string | null> {
+    if (timelineNameRequestRef.current) return timelineNameRequestRef.current;
+    setTimelineNameDraft('');
+    setTimelineNameError('');
+    setIsTimelineNameModalOpen(true);
+    const request = new Promise<string | null>((resolve) => {
+      timelineNameResolverRef.current = (value) => {
+        timelineNameResolverRef.current = null;
+        timelineNameRequestRef.current = null;
+        resolve(value);
+      };
+    });
+    timelineNameRequestRef.current = request;
+    return request;
+  }
+
+  function closeTimelineNameModal(): void {
+    setIsTimelineNameModalOpen(false);
+    setTimelineNameError('');
+    timelineNameResolverRef.current?.(null);
+  }
+
+  function confirmTimelineName(): void {
+    const label = timelineNameDraft.trim();
+    if (!label) {
+      setTimelineNameError('请输入工作区名称。');
+      return;
+    }
+    setIsTimelineNameModalOpen(false);
+    setTimelineNameError('');
+    timelineNameResolverRef.current?.(label);
   }
 
   const handleSaveWorkNodeCheckpoint = async (): Promise<boolean> => {
@@ -4404,6 +4445,56 @@ export function CanvasBoard({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {isTimelineNameModalOpen && (
+        <div className="timeline-snapshot-modal-overlay" onClick={closeTimelineNameModal}>
+          <form
+            className="timeline-snapshot-modal timeline-snapshot-save-modal"
+            onClick={(event) => event.stopPropagation()}
+            onSubmit={(event) => {
+              event.preventDefault();
+              confirmTimelineName();
+            }}
+          >
+            <div className="timeline-snapshot-modal-head">
+              <div>
+                <h3>命名当前工作区</h3>
+                <p>这是首次保存。名称会用于开始页、存档和工作节点记录。</p>
+              </div>
+              <button type="button" className="modal-close-btn" onClick={closeTimelineNameModal}>
+                关闭
+              </button>
+            </div>
+
+            <label className="timeline-snapshot-form-label" htmlFor="timeline-workspace-name">
+              工作区名称
+            </label>
+            <input
+              id="timeline-workspace-name"
+              className="timeline-snapshot-name-input"
+              type="text"
+              value={timelineNameDraft}
+              onChange={(event) => {
+                setTimelineNameDraft(event.target.value);
+                if (timelineNameError) setTimelineNameError('');
+              }}
+              placeholder="例如：别礼主力排轴"
+              maxLength={60}
+              autoFocus
+            />
+            {timelineNameError && <p className="form-error" role="alert">{timelineNameError}</p>}
+
+            <div className="timeline-snapshot-form-actions">
+              <button type="button" className="btn-calculate" onClick={closeTimelineNameModal}>
+                取消
+              </button>
+              <button type="submit" className="btn-save">
+                保存并继续
+              </button>
+            </div>
+          </form>
         </div>
       )}
 
