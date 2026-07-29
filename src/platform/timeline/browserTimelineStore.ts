@@ -79,6 +79,38 @@ export type BrowserTimelineArchiveSummary = {
   worktreeDiagnostic?: { code: string; message: string };
 };
 
+export type LegacyTimelineArchive = {
+  type: 'dmg.timeline-archive.v1';
+  archiveVersion: 1;
+  source: TimelineArchiveSource | 'reference';
+  archiveId: string;
+  label: string;
+  createdAt: string;
+  payload: TimelineSnapshotPayload;
+  worktree?: {
+    nodes: Array<{
+      id: string;
+      parentNodeId?: string;
+      branchId?: string;
+      label?: string;
+      description?: string;
+      status?: string;
+      approvalPolicy?: string;
+      riskFlags?: unknown[];
+      logs?: unknown[];
+      createdAt?: number;
+      updatedAt?: number;
+      contentRevision?: number;
+      basePayload: TimelineSnapshotPayload;
+      workingPayload: TimelineSnapshotPayload;
+    }>;
+    currentNodeId?: string | null;
+    nodeCount?: number;
+    rootPayloadHash?: string | null;
+    currentPayloadHash?: string | null;
+  };
+};
+
 export type BrowserTimelineSqliteWorkspace = {
   document: TimelineDocument;
   checkoutRef: TimelineCheckoutRef | null;
@@ -1654,6 +1686,189 @@ async function storeArchive(input: {
     [archiveId],
   );
   return archiveFromRow(rows[0]);
+}
+
+function legacyTimelineArchiveToBundle(
+  archive: LegacyTimelineArchive,
+): BrowserTimelineBundle {
+  if (
+    archive?.type !== 'dmg.timeline-archive.v1'
+    || archive.archiveVersion !== 1
+    || !archive.archiveId?.trim()
+    || !archive.label?.trim()
+    || !archive.payload
+    || typeof archive.payload !== 'object'
+  ) {
+    fail(
+      'invalid-timeline-archive',
+      400,
+      '排轴存档类型、版本或内容无效。',
+    );
+  }
+  const createdAt = Date.parse(archive.createdAt) || Date.now();
+  const timelineId = archive.archiveId;
+  const snapshotId = `${timelineId}-snapshot`;
+  const nodes = Array.isArray(archive.worktree?.nodes)
+    ? archive.worktree.nodes
+    : [];
+  const workNodes: BrowserTimelineWorkNode[] = nodes
+    .filter((node) => (
+      Boolean(node?.id?.trim())
+      && Boolean(node.basePayload)
+      && Boolean(node.workingPayload)
+    ))
+    .map((node) => {
+      const nodeCreatedAt = Number(node.createdAt) || createdAt;
+      const nodeUpdatedAt = Number(node.updatedAt) || nodeCreatedAt;
+      return {
+        id: node.id.trim(),
+        ...(node.parentNodeId?.trim() ? { parentNodeId: node.parentNodeId.trim() } : {}),
+        timelineId,
+        branchId: node.branchId?.trim() || node.id.trim(),
+        label: node.label?.trim() || node.id.trim(),
+        description: node.description || '',
+        status: normalizeStatus(node.status),
+        approvalPolicy: normalizeApprovalPolicy(node.approvalPolicy),
+        riskFlags: normalizeRiskFlags(node.riskFlags),
+        logs: Array.isArray(node.logs)
+          ? node.logs as BrowserTimelineWorkNode['logs']
+          : [],
+        basePayload: node.basePayload,
+        workingPayload: node.workingPayload,
+        baseSummary: summarizeTimelinePayload(node.basePayload),
+        workingSummary: summarizeTimelinePayload(node.workingPayload),
+        contentRevision: Number(node.contentRevision) || nodeUpdatedAt,
+        createdAt: nodeCreatedAt,
+        updatedAt: nodeUpdatedAt,
+      };
+    });
+  const currentNodeId = archive.worktree?.currentNodeId;
+  const hasCurrentNode = Boolean(
+    currentNodeId && workNodes.some((node) => node.id === currentNodeId),
+  );
+  return {
+    document: {
+      id: timelineId,
+      label: archive.label.trim(),
+      isTemporary: false,
+      createdAt,
+      updatedAt: createdAt,
+      archivedAt: null,
+    },
+    snapshots: [{
+      id: snapshotId,
+      timelineId,
+      label: archive.label.trim(),
+      payloadHash: '',
+      createdAt,
+      archivedAt: null,
+      payload: archive.payload,
+    }],
+    workNodes,
+    commits: [],
+    checkoutRef: hasCurrentNode
+      ? {
+        timelineId,
+        targetType: 'work-node',
+        targetId: currentNodeId!,
+        updatedAt: createdAt,
+      }
+      : {
+        timelineId,
+        targetType: 'snapshot',
+        targetId: snapshotId,
+        updatedAt: createdAt,
+      },
+  };
+}
+
+export async function importLegacyTimelineArchive(
+  archive: LegacyTimelineArchive,
+  library: TimelineArchiveLibrary = 'shared',
+): Promise<{
+  imported: boolean;
+  reused: boolean;
+  archive: BrowserTimelineArchiveSummary;
+}> {
+  const bundle = legacyTimelineArchiveToBundle(archive);
+  const payloadHash = await hashPayload(archive.payload);
+  const existingByHash = await webDatabase.query<Row>(
+    'SELECT * FROM timeline_archives WHERE payload_hash = ? AND library = ? LIMIT 1',
+    [payloadHash, library],
+  );
+  if (existingByHash[0]) {
+    return {
+      imported: false,
+      reused: true,
+      archive: archiveFromRow(existingByHash[0]),
+    };
+  }
+
+  let archiveId = archive.archiveId;
+  const existingById = await webDatabase.query<Row>(
+    'SELECT payload_hash FROM timeline_archives WHERE archive_id = ? LIMIT 1',
+    [archiveId],
+  );
+  if (existingById[0]) {
+    archiveId = `${archiveId}-${payloadHash.replace(/^sha256:/, '').slice(0, 10)}`;
+  }
+  const stored = await storeArchive({
+    library,
+    label: archive.label,
+    bundle,
+    archiveId,
+    createdAt: archive.createdAt,
+  });
+  return { imported: true, reused: false, archive: stored };
+}
+
+export async function exportLegacyTimelineArchives(
+  library: TimelineArchiveLibrary,
+): Promise<LegacyTimelineArchive[]> {
+  const rows = await webDatabase.query<Row>(
+    'SELECT * FROM timeline_archives WHERE library = ? ORDER BY created_at ASC',
+    [library],
+  );
+  return rows.flatMap((row) => {
+    const bundle = parseJson<BrowserTimelineBundle | null>(row.bundle_json, null);
+    if (!bundle) return [];
+    const resolved = resolveBundlePayload(bundle);
+    if (!resolved.payload) return [];
+    const currentNodeId = bundle.checkoutRef?.targetType === 'work-node'
+      ? bundle.checkoutRef.targetId
+      : null;
+    return [{
+      type: 'dmg.timeline-archive.v1' as const,
+      archiveVersion: 1 as const,
+      source: library,
+      archiveId: textValue(row.archive_id),
+      label: textValue(row.label),
+      createdAt: textValue(row.created_at),
+      payload: resolved.payload,
+      ...(bundle.workNodes.length > 0 ? {
+        worktree: {
+          nodes: bundle.workNodes.map((node) => ({
+            id: node.id,
+            ...(node.parentNodeId ? { parentNodeId: node.parentNodeId } : {}),
+            branchId: node.branchId,
+            label: node.label,
+            description: node.description,
+            status: node.status,
+            approvalPolicy: node.approvalPolicy,
+            riskFlags: node.riskFlags,
+            logs: node.logs,
+            createdAt: node.createdAt,
+            updatedAt: node.updatedAt,
+            contentRevision: node.contentRevision,
+            basePayload: node.basePayload,
+            workingPayload: node.workingPayload,
+          })),
+          currentNodeId,
+          nodeCount: bundle.workNodes.length,
+        },
+      } : {}),
+    }];
+  });
 }
 
 export async function listTimelineArchives(

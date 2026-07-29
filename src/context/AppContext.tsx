@@ -21,13 +21,11 @@ import { LOCAL_LIBRARY_CHANGED_EVENT } from '../constants/events';
 import {
   AppState,
   Character,
-  SandboxSkill,
   SkillButton,
   SkillType,
   ViewType,
   DEFAULT_CANVAS_CONFIG,
 } from '../types';
-import { resolveAvatarUrl, resolvePublicPath, resolveSkillIconUrl } from '../utils/assetResolver';
 import {
   cleanupStorage,
   getSelectedCharacterIds,
@@ -46,7 +44,6 @@ import {
 import { applySelectionWorkspaceTransition } from '../core/services/selectionWorkspaceTransition';
 import { getTimelineSessionSnapshot } from '../agentKernel/timelineRepository/timelineSession';
 import {
-  buildRuntimeOperatorTemplateFromOfficialCharacter,
   buildRuntimeOperatorTemplateFromDraft,
 } from '../core/services/operatorTemplateAdapter';
 import { setRuntimeOperatorTemplateMap } from '../utils/storage';
@@ -201,30 +198,6 @@ const serializeCharactersForRefresh = (characters: Character[]) => JSON.stringif
   })),
 );
 
-function buildOfficialSandboxSkills(character: Character): SandboxSkill[] {
-  const officialSkillMap = {
-    A: character.skills.normalAttack,
-    B: character.skills.skill,
-    E: character.skills.chainSkill,
-    Q: character.skills.ultimate,
-  } as const;
-
-  return (['A', 'B', 'E', 'Q'] as const).map((skillType) => {
-    const skill = officialSkillMap[skillType];
-    const multipliers = skill?.multipliers?.M3 ?? skill?.multipliers?.['9'] ?? {};
-    const hitCount = Object.keys(multipliers).filter((key) => /^hit\d+$/i.test(key)).length || 1;
-
-    return {
-      id: `official-${skillType}`,
-      displayName: skill?.name || skillType,
-      buttonType: skillType,
-      iconUrl: character.skillIconMap?.[skillType],
-      hitCount,
-      source: 'official',
-    };
-  });
-}
-
 /**
  * 状态更新纯函数
  * 根据 action 类型对 AppState 进行不可变更新
@@ -374,7 +347,7 @@ const AppContext = createContext<AppContextType | null>(null);
 
 /**
  * 根 Provider 组件
- * 初始化时加载所有干员 JSON 数据，并注入 avatarUrl / skillIconMap 派生字段
+ * 初始化时从已经应用的本地干员库加载全部运行时角色
  */
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, initialState);
@@ -382,7 +355,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const canvasLocalRefreshSignatureRef = useRef<string | null>(null);
   const loadedCharactersSignatureRef = useRef<string | null>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
-  const officialCharactersRequestRef = useRef<Promise<Character[]> | null>(null);
 
   const refreshSelectedLocalCharacters = useCallback((selectedCharacters: Character[]) => {
     const localDraftMap = loadLocalOperatorDraftMap();
@@ -407,67 +379,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return changed ? refreshedCharacters : selectedCharacters;
   }, []);
 
-  /**
-   * 从 public/data/characters/operators-list.json 动态加载所有干员名称列表，
-   * 再根据名称加载对应角色的 JSON 数据。
-   * 加载完成后为每个干员注入派生字段：
-   * - avatarUrl：头像图片路径
-   * - skillIconMap：四个技能的图标路径映射
-   */
-  const loadOfficialCharacters = useCallback(async (): Promise<Character[]> => {
-    if (officialCharactersRequestRef.current) {
-      return officialCharactersRequestRef.current;
-    }
-
-    const request = (async () => {
-      const listResponse = await fetch(resolvePublicPath('data/characters/operators-list.json'), { cache: 'no-store' });
-      if (!listResponse.ok) {
-        console.warn('Failed to load operators-list.json');
-        return [];
-      }
-      const operatorList: { name: string }[] = await listResponse.json();
-      const characters: Character[] = [];
-
-      for (const operator of operatorList) {
-        const fileName = `${operator.name}/${operator.name}.json`;
-        try {
-          const response = await fetch(resolvePublicPath(`data/characters/${fileName}`), { cache: 'no-store' });
-          if (response.ok) {
-            const data = await response.json();
-            const character = data as Character;
-            character.id = character.name;
-            character.avatarUrl = resolveAvatarUrl(character.name);
-            character.skillIconMap = {
-              A: resolveSkillIconUrl(character.name, 'A'),
-              B: resolveSkillIconUrl(character.name, 'B'),
-              E: resolveSkillIconUrl(character.name, 'E'),
-              Q: resolveSkillIconUrl(character.name, 'Q'),
-            };
-            character.librarySource = 'official';
-            character.sandboxSkills = buildOfficialSandboxSkills(character);
-            characters.push(character);
-          }
-        } catch (error) {
-          console.warn(`Failed to load ${fileName}:`, error);
-        }
-      }
-
-      return characters;
-    })();
-    officialCharactersRequestRef.current = request;
-    try {
-      return await request;
-    } finally {
-      if (officialCharactersRequestRef.current === request) {
-        officialCharactersRequestRef.current = null;
-      }
-    }
-  }, []);
-
-  const buildRestorableCharacterMap = useCallback((officialCharacters: Character[]) => {
-    const localCharacters = loadLocalOperatorCharacters();
+  const buildRestorableCharacterMap = useCallback((characters?: Character[]) => {
+    const localCharacters = characters ?? loadLocalOperatorCharacters();
     const restorableCharacterMap = new Map<string, Character>();
-    officialCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
     localCharacters.forEach((char) => restorableCharacterMap.set(char.id, char));
     return restorableCharacterMap;
   }, []);
@@ -484,20 +398,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const localDraftMap = loadLocalOperatorDraftMap();
 
     // 为每个已选角色构建模板
-    const nextMap: Record<string, ReturnType<typeof buildRuntimeOperatorTemplateFromOfficialCharacter>> = {};
+    const nextMap: Record<string, ReturnType<typeof buildRuntimeOperatorTemplateFromDraft>> = {};
 
     selectedCharacters.forEach((character) => {
-      if (character.librarySource === 'official') {
-        // 官方角色：直接从 character 构建
-        nextMap[character.id] = buildRuntimeOperatorTemplateFromOfficialCharacter(character);
-      } else if (character.librarySource === 'local') {
-        // 本地角色：按 id 定向取 draft 后构建
-        const draft = localDraftMap[character.id];
-        if (draft) {
-          nextMap[character.id] = buildRuntimeOperatorTemplateFromDraft(draft);
-        } else {
-          console.warn(`[AppContext] 本地角色 ${character.id} 的 draft 不存在，跳过模板构建`);
-        }
+      const draft = localDraftMap[character.id];
+      if (draft) {
+        nextMap[character.id] = buildRuntimeOperatorTemplateFromDraft(draft);
+      } else {
+        console.warn(`[AppContext] 本地角色 ${character.id} 的 draft 不存在，跳过模板构建`);
       }
     });
 
@@ -511,7 +419,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const loadCharacters = useCallback(async () => {
     try {
-      const characters = await loadOfficialCharacters();
+      const characters = loadLocalOperatorCharacters();
       loadedCharactersSignatureRef.current = serializeCharactersForRefresh(characters);
       dispatch({ type: 'SET_LOADED_CHARACTERS', characters });
       const restorableCharacterMap = buildRestorableCharacterMap(characters);
@@ -565,11 +473,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           console.log('[AppContext] 无有效恢复条件，模板表已清空');
         }
     } catch (error) {
-      console.warn('Failed to load operators list:', error);
+      console.warn('Failed to load local operator library:', error);
     } finally {
       selectedCharactersHydratedRef.current = true;
     }
-  }, [buildRestorableCharacterMap, loadOfficialCharacters, rebuildSelectedRuntimeTemplateMap, refreshSelectedLocalCharacters]);
+  }, [buildRestorableCharacterMap, rebuildSelectedRuntimeTemplateMap, refreshSelectedLocalCharacters]);
 
   const refreshSelectedCharacters = useCallback(async (): Promise<Character[]> => {
     const selectedIds = (
@@ -583,13 +491,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return [];
     }
 
-    const officialCharacters = await loadOfficialCharacters();
-    const officialCharactersSignature = serializeCharactersForRefresh(officialCharacters);
-    if (loadedCharactersSignatureRef.current !== officialCharactersSignature) {
-      loadedCharactersSignatureRef.current = officialCharactersSignature;
-      dispatch({ type: 'SET_LOADED_CHARACTERS', characters: officialCharacters });
+    const localCharacters = loadLocalOperatorCharacters();
+    const localCharactersSignature = serializeCharactersForRefresh(localCharacters);
+    if (loadedCharactersSignatureRef.current !== localCharactersSignature) {
+      loadedCharactersSignatureRef.current = localCharactersSignature;
+      dispatch({ type: 'SET_LOADED_CHARACTERS', characters: localCharacters });
     }
-    const restorableCharacterMap = buildRestorableCharacterMap(officialCharacters);
+    const restorableCharacterMap = buildRestorableCharacterMap(localCharacters);
     const refreshedCharacters = selectedIds
       .map((characterId) => restorableCharacterMap.get(characterId))
       .filter((character): character is Character => Boolean(character))
@@ -611,7 +519,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
 
     return refreshedCharacters;
-  }, [buildRestorableCharacterMap, loadOfficialCharacters, rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
+  }, [buildRestorableCharacterMap, rebuildSelectedRuntimeTemplateMap, state.selectedCharacters]);
 
   const processMainWorkbenchSelectionCommand = useCallback(async () => {
     if (isProcessingWorkbenchCommandRef.current) {
@@ -815,7 +723,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const draft = localDraftMap[character.id];
         return draft
           ? `${character.id}:${draft.name}:${draft.avatarUrl}:${JSON.stringify(Object.keys(draft.skills || {}))}:${JSON.stringify(Object.values(draft.skills || {}).map((skill) => [skill.displayName, skill.buttonType, skill.iconUrl, skill.hitCount]))}`
-          : `${character.id}:official`;
+          : `${character.id}:missing-local-draft`;
       })
       .join('|');
 

@@ -30,7 +30,7 @@ const ELEMENT_COLORS: Record<string, string> = {
 
 export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
-  const { selectedCharacters, loadedCharacters } = state;
+  const { selectedCharacters } = state;
   const { activeTimelineId, activeTimelineIsTemporary } = useTimelineSession();
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
@@ -66,20 +66,9 @@ export function SelectionPanel() {
     );
   }, [selectedCharacters]);
 
-  const availableCharacters = useMemo(() => {
-    const nextMap = new Map<string, Character>();
-    loadedCharacters.forEach((character) => {
-      nextMap.set(character.id, character);
-    });
-    localCharacters.forEach((character) => {
-      nextMap.set(character.id, character);
-    });
-    return [...nextMap.values()];
-  }, [loadedCharacters, localCharacters]);
-
   const availableCharacterMap = useMemo(
-    () => new Map(availableCharacters.map((character) => [character.id, character])),
-    [availableCharacters],
+    () => new Map(localCharacters.map((character) => [character.id, character])),
+    [localCharacters],
   );
 
   const draftCharacters = useMemo(
@@ -93,9 +82,9 @@ export function SelectionPanel() {
   const filteredCharacters = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) {
-      return availableCharacters;
+      return localCharacters;
     }
-    return availableCharacters.filter((character) => {
+    return localCharacters.filter((character) => {
       const fields = [
         character.name,
         character.id,
@@ -105,7 +94,7 @@ export function SelectionPanel() {
       ];
       return fields.some((field) => String(field || '').toLowerCase().includes(keyword));
     });
-  }, [availableCharacters, query]);
+  }, [localCharacters, query]);
 
   const isSelected = (characterId: string) => draftCharacterIds.includes(characterId);
   const isFull = draftCharacterIds.length >= 4;
@@ -240,10 +229,10 @@ export function SelectionPanel() {
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索名称 / 职业 / 属性"
               />
-              <span>{filteredCharacters.length} / {availableCharacters.length}</span>
+              <span>{filteredCharacters.length} / {localCharacters.length}</span>
             </div>
 
-            {availableCharacters.length === 0 ? (
+            {localCharacters.length === 0 ? (
               <div className="selection-empty">
                 <strong>干员资料尚未载入</strong>
                 <button type="button" className="selection-ghost-button" onClick={openOperatorDraft}>

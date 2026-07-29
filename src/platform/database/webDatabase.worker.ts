@@ -82,6 +82,23 @@ function migrateSchema(): void {
       byte_size INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS local_data_packages (
+      storage_scope TEXT NOT NULL CHECK(storage_scope IN ('local', 'share')),
+      package_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      archive_json TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      source_name TEXT,
+      data_version TEXT,
+      created_at TEXT NOT NULL,
+      updated_at INTEGER NOT NULL,
+      byte_size INTEGER NOT NULL,
+      PRIMARY KEY (storage_scope, package_id)
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_local_data_packages_scope
+      ON local_data_packages(storage_scope, updated_at DESC);
+
     CREATE TABLE IF NOT EXISTS timeline_documents (
       id TEXT PRIMARY KEY,
       label TEXT NOT NULL,
@@ -197,7 +214,7 @@ function migrateSchema(): void {
     ) STRICT;
 
     INSERT INTO app_meta(key, value, updated_at)
-    VALUES ('schema_version', '2', unixepoch('subsec') * 1000)
+    VALUES ('schema_version', '3', unixepoch('subsec') * 1000)
     ON CONFLICT(key) DO UPDATE SET
       value = excluded.value,
       updated_at = excluded.updated_at;

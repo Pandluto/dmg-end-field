@@ -11,6 +11,7 @@ import {
   type ImageInstallProgress,
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
+import { applyDefaultLocalDataPackage } from '../../platform/data/localDataPackages';
 
 interface WelcomePageProps {
   onInstalled: (
@@ -49,6 +50,10 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
         || await installDefaultImagePackage((next) => {
           setProgress({ ...next, packageLabel: '图片资源' });
         });
+      await applyDefaultLocalDataPackage({
+        backup: false,
+        replacePackage: true,
+      });
       onInstalled(installed, images);
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : String(installError));
@@ -67,8 +72,8 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
           <p className="eyebrow">第一次使用</p>
           <h1>先把基础资料装进浏览器</h1>
           <p>
-            程序本体已经准备好。角色、武器、装备、Buff 与图片资料会在你确认后下载，
-            校验完成后保存在这个浏览器中，之后可离线使用。
+            程序本体已经准备好。完整 Local Data、图片资料会在你确认后下载，
+            资料应用到浏览器 SQLite 后即可离线使用。
           </p>
           <div className="onboarding-points">
             <div>
@@ -87,13 +92,13 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
         </div>
         <div className="install-panel">
           <div className="install-panel-header">
-            <span>官方基础资料包</span>
+            <span>Web LTS 基础资料包</span>
             <span className="status-chip">{isInstalling ? '正在安装' : '尚未安装'}</span>
           </div>
           <div className="package-contents">
-            <span>角色与技能</span>
-            <span>武器与装备</span>
-            <span>Buff 原始索引</span>
+            <span>30 位本地干员</span>
+            <span>75 件本地武器</span>
+            <span>装备与 Buff 本地库</span>
             <span>559 个图片资源</span>
           </div>
           {progress && (

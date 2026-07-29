@@ -59,6 +59,11 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+const LEGACY_DESKTOP_IMAGE_HOSTS = new Set([
+  '127.0.0.1:31457',
+  'localhost:31457',
+]);
+
 let currentCapabilities = BROWSER_CAPABILITIES;
 let builtinManifest: ImageAssetEntry[] | null = null;
 let hydrationPromise: Promise<void> | null = null;
@@ -262,7 +267,12 @@ export function resolveBrowserImageUrl(path?: string | null): string | null {
   let normalized = path;
   try {
     const url = new URL(path, window.location.href);
-    if (/^https?:/i.test(path) && url.origin !== window.location.origin) {
+    const isLegacyDesktopImage = LEGACY_DESKTOP_IMAGE_HOSTS.has(url.host);
+    if (
+      /^https?:/i.test(path)
+      && url.origin !== window.location.origin
+      && !isLegacyDesktopImage
+    ) {
       return path;
     } else {
       normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));

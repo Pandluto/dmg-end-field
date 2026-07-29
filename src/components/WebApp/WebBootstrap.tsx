@@ -21,6 +21,10 @@ import {
 } from '../../platform/storage/persistentStorage';
 import { bootstrapUserWorkspaceBridge, flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
 import { hydrateBrowserImageAssets } from '../../utils/imageBridge';
+import {
+  applyDefaultLocalDataPackage,
+  hasAnyAppliedIndependentLibraries,
+} from '../../platform/data/localDataPackages';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -57,6 +61,9 @@ export function WebBootstrap() {
       setInstalledPackage(installed);
       setInstalledImagePackage(imagePackage);
       const complete = Boolean(installed && imagePackage);
+      if (complete && !hasAnyAppliedIndependentLibraries()) {
+        await applyDefaultLocalDataPackage({ backup: false });
+      }
       setPhase(complete ? 'ready' : 'onboarding');
       if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
