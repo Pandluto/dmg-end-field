@@ -1,12 +1,28 @@
 # 测试入口
 
-本目录只记录跨 Spec 可复用的测试口径。
+## 确定性检查
 
-- 合并门：`npm run check`
-- Work Node / SQLite：`npm run smoke:work-node-sqlite`
-- 数据管理：`npm run smoke:data-management`
-- 数据 Release：`npm run smoke:data-release-builder`
-- 下载与应用边界：`npm run smoke:local-data-archive-flow`
-- Electron 主链：`npm run smoke:operator-config`
+```bash
+npm run check
+```
 
-某次功能的具体验证结果应记录在对应 Spec 或维护记录中。
+它依次执行：
+
+- 仓库与 manifest/hash 合同；
+- high 级依赖审计；
+- TypeScript 检查；
+- 现有单元/合同测试；
+- Timeline bundle smoke；
+- Web/PWA production build。
+
+## 必须使用真实浏览器的边界
+
+以下能力不能只靠 Node 测试证明：
+
+- OPFS 数据库刷新后持久化；
+- 首次下载、解压、Cache Storage 与图片真实显示；
+- Web Locks/BroadcastChannel 的双标签页占用与接管；
+- 文件选择器导入图片或 SQLite；
+- Service Worker 控制后的离线启动。
+
+浏览器验收至少记录 URL、浏览器、操作、可见后置状态和控制台错误。功能专项的详细证据写入对应维护记录，不在本目录堆积一次性截图或日志。

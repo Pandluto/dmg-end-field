@@ -24,11 +24,11 @@ export function isManagedDir(dir: string): boolean {
 
 // ── Asset source checks ──
 
-export function isUserAsset(entry: { source?: 'builtin' | 'release' | 'user' | 'legacy' }): boolean {
-  return entry.source === 'release' || entry.source === 'user' || entry.source === 'legacy';
+export function isUserAsset(entry: { source?: 'builtin' | 'release' | 'user' }): boolean {
+  return entry.source === 'release' || entry.source === 'user';
 }
 
-export function isBuiltinAsset(entry: { source?: 'builtin' | 'release' | 'user' | 'legacy' }): boolean {
+export function isBuiltinAsset(entry: { source?: 'builtin' | 'release' | 'user' }): boolean {
   return entry.source === 'builtin';
 }
 
@@ -184,14 +184,10 @@ export function toUserImageRelPath(entry: {
   relativePath: string;
   fileName?: string;
   canonicalPath?: string;
-  source?: 'builtin' | 'release' | 'user' | 'legacy';
+  source?: 'builtin' | 'release' | 'user';
   mappingWinner?: boolean;
 }): string | null {
-  if (entry.source !== 'release' && entry.source !== 'user' && entry.source !== 'legacy') return null;
-  if (entry.canonicalPath?.startsWith('user-images/')) {
-    const rel = entry.canonicalPath.slice('user-images/'.length);
-    return rel.startsWith('images/') ? rel.slice('images/'.length) : rel;
-  }
+  if (entry.source !== 'release' && entry.source !== 'user') return null;
   const prefix = `${MANAGED_REL}/`;
   if (!entry.relativePath.startsWith(prefix)) return null;
   const rel = entry.relativePath.slice(prefix.length);

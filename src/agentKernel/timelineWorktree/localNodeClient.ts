@@ -151,7 +151,7 @@ export async function probeAiTimelineWorkNodeRuntime(
  * Browser-native Work Node client.
  *
  * The optional base URL remains accepted so older callers keep compiling, but
- * the Web LTS never performs a localhost or Electron transport request.
+ * the Web LTS never performs a native or server-side transport request.
  */
 export function createAiTimelineWorkNodeClient(_baseUrl?: string) {
   return {

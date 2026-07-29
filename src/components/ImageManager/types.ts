@@ -4,9 +4,9 @@ export interface ImageAssetEntry {
   baseName: string;
   ext: string;
   relativePath: string;
-  /** 'builtin' = 项目自带只读素材, 'release' = 发布更新素材, 'user' = 图片根目录素材, 'legacy' = 旧 AppData 素材 */
-  source?: 'builtin' | 'release' | 'user' | 'legacy';
-  /** Canonical browser-facing path. New references should prefer user-images/<fileName>. */
+  /** 'builtin' = 项目自带只读素材, 'release' = 官方资料包, 'user' = 浏览器 SQLite 素材 */
+  source?: 'builtin' | 'release' | 'user';
+  /** Canonical browser-facing logical path. */
   canonicalPath?: string;
   publicUrl?: string;
   rootId?: string;

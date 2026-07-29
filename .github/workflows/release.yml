@@ -1,4 +1,4 @@
-name: Release draft
+name: Web release draft
 
 on:
   push:
@@ -28,8 +28,6 @@ jobs:
           cache: npm
 
       - name: Install locked dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm ci
 
       - name: Match tag to package version
@@ -39,20 +37,10 @@ jobs:
         run: npm run check
 
   package:
-    name: Package ${{ matrix.label }}
+    name: Package static Web application
     needs: validate
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: windows-x64
-            artifact: '*.exe'
-          - os: macos-latest
-            label: macos-arm64
-            artifact: '*.dmg'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -63,26 +51,20 @@ jobs:
           node-version: 24
           cache: npm
 
-      - name: Install application dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - name: Install locked dependencies
         run: npm ci
 
-      - name: Build Windows portable package
-        if: runner.os == 'Windows'
-        run: npm run electron:build
+      - name: Build self-contained Web package
+        run: npm run build:local
 
-      - name: Build macOS DMG without automatic signing
-        if: runner.os == 'macOS'
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npm run electron:build:mac
+      - name: Archive static files
+        run: tar -czf "dmg-end-field-web-${GITHUB_REF_NAME}.tar.gz" -C dist .
 
-      - name: Upload package artifact
+      - name: Upload Web artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: dmg-end-field-${{ matrix.label }}
-          path: release/${{ matrix.artifact }}
+          name: dmg-end-field-web
+          path: dmg-end-field-web-*.tar.gz
           if-no-files-found: error
           retention-days: 14
 
@@ -94,43 +76,34 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Download package artifacts
+      - name: Download Web artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: artifacts
 
-      - name: Create checksums and draft release
+      - name: Create checksum and draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
           mapfile -d '' files < <(find artifacts -type f -print0)
-          if (( ${#files[@]} == 0 )); then
-            echo 'No release artifacts were downloaded.' >&2
+          if (( ${#files[@]} != 1 )); then
+            echo "Expected one Web archive, found ${#files[@]}." >&2
             exit 1
           fi
-          mkdir release-files
-          for file in "${files[@]}"; do
-            name="$(basename "$file")"
-            if [[ -e "release-files/$name" ]]; then
-              echo "Duplicate release artifact name: $name" >&2
-              exit 1
-            fi
-            cp "$file" "release-files/$name"
-          done
-          (cd release-files && sha256sum -- *) > SHA256SUMS
-          mapfile -d '' release_files < <(find release-files -maxdepth 1 -type f -print0 | sort -z)
+          archive="${files[0]}"
+          (cd "$(dirname "$archive")" && sha256sum "$(basename "$archive")") > SHA256SUMS
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             if [[ "$(gh api "repos/$GH_REPO/releases/tags/$GITHUB_REF_NAME" --jq .draft)" != 'true' ]]; then
-              echo "Refusing to replace assets on a published release." >&2
+              echo 'Refusing to replace assets on a published release.' >&2
               exit 1
             fi
-            gh release upload "$GITHUB_REF_NAME" "${release_files[@]}" SHA256SUMS --clobber
+            gh release upload "$GITHUB_REF_NAME" "$archive" SHA256SUMS --clobber
           else
-            gh release create "$GITHUB_REF_NAME" "${release_files[@]}" SHA256SUMS \
+            gh release create "$GITHUB_REF_NAME" "$archive" SHA256SUMS \
               --draft \
               --verify-tag \
               --generate-notes \
-              --title "终末地伤害工作台 $GITHUB_REF_NAME"
+              --title "终末地伤害工作台 Web LTS $GITHUB_REF_NAME"
           fi

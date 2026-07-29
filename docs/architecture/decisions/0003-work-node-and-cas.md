@@ -18,4 +18,5 @@
 
 ## Evidence
 
-`electron/timeline-repository.cjs`、`src/utils/mainWorkbenchControl.ts` 和 Work Node SQLite smoke。
+`src/platform/timeline/browserTimelineStore.ts`、`src/utils/mainWorkbenchControl.ts`、
+`src/agentKernel/timelineWorktree/checkoutLifecycle.test.ts` 与浏览器 SQLite 验收。

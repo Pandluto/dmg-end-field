@@ -6,15 +6,15 @@
 
 ## Context
 
-项目同时包含可重复的静态/合同检查，以及依赖真实 Electron、SQLite、文件系统权限和 UI 交互的桌面验收。把两者混成一个 PR job 会制造随机失败或用 mock 冒充真实链路；完全手工发布又缺少可追溯构建。
+项目同时包含可重复的静态/合同检查，以及依赖真实浏览器 OPFS、Cache Storage、Service Worker、文件选择器和多标签页交互的验收。把两者混成一个 PR job 会制造随机失败或用 mock 冒充真实链路；完全手工发布又缺少可追溯构建。
 
 ## Decision
 
-所有 push/PR 在 GitHub Hosted Runner 上执行锁依赖的确定性 `npm run check`。版本 tag 在 Windows 和 macOS 分别构建并生成 checksum，但只创建 Draft Release；真实安装和桌面 smoke 后人工公开。
+所有 push/PR 在 GitHub Hosted Runner 上执行锁依赖的确定性 `npm run check`。版本 tag 生成包含资料 sidecar 的静态 Web 压缩包和 checksum，但只创建 Draft Release；真实浏览器验收后人工决定是否公开。
 
 ## Consequences
 
-合并反馈快速且可信，发布产物可追溯；桌面 E2E 暂时是独立人工门，签名/公证和 scheduled native runner 需要后续 ADR。
+合并反馈快速且可信，发布产物可追溯；OPFS、PWA 离线与多标签页 E2E 暂时是独立浏览器门。若未来自动部署或增加服务端鉴权，需要新的发布决策。
 
 ## Evidence
 

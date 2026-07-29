@@ -15,8 +15,8 @@
     },
     {
       "path": "data/akedb-raw-index/manifest.json",
-      "sha256": "998d91b2fdf0d7327d599448cd4b04d1bf39a8419b983bef16c1a9465c540c5a",
-      "size": 1324
+      "sha256": "0166453992dfc89bdb437441b42bc6cb7d1ca63f826820db8fc23830bd9a85d7",
+      "size": 1205
     },
     {
       "path": "data/akedb-raw-index/skills.json",
@@ -220,8 +220,8 @@
     },
     {
       "path": "data/equipments/equipments.json",
-      "sha256": "8794329d46abdcce0c22898318b425203702a4a7e3639a138f6247e7f79d4078",
-      "size": 253219
+      "sha256": "4ce35622be6eff7b5f18925191423db44addb2eae5383e40afefd0a1f30383c3",
+      "size": 247049
     },
     {
       "path": "data/weapons/J.E.T/J.E.T..json",
@@ -499,6 +499,6 @@
       "size": 5705
     }
   ],
-  "totalBytes": 2760038,
-  "generatedAt": "2026-07-29T15:09:56.908Z"
+  "totalBytes": 2753749,
+  "generatedAt": "2026-07-29T16:06:47.980Z"
 }

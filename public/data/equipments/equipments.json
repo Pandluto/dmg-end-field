@@ -33,7 +33,7 @@
           "equipmentId": "equipment-g-1-0-0",
           "name": "落潮轻甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%90%BD%E6%BD%AE%E8%BD%BB%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/落潮轻甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -90,7 +90,7 @@
           "equipmentId": "equipment-g-1-0-1",
           "name": "潮涌手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%BD%AE%E6%B6%8C%E6%89%8B%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/潮涌手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -147,7 +147,7 @@
           "equipmentId": "equipment-g-1-0-2",
           "name": "悬河供氧栓",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%82%AC%E6%B2%B3%E4%BE%9B%E6%B0%A7%E6%A0%93.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/悬河供氧栓.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -204,7 +204,7 @@
           "equipmentId": "equipment-g-1-0-3",
           "name": "浊流切割炬",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B5%8A%E6%B5%81%E5%88%87%E5%89%B2%E7%82%AC.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/浊流切割炬.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -652,7 +652,7 @@
           "equipmentId": "equipment-g-7",
           "name": "点剑重装甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E9%87%8D%E8%A3%85%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑重装甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -709,7 +709,7 @@
           "equipmentId": "equipment-g-8",
           "name": "点剑轻装甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E8%BD%BB%E8%A3%85%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑轻装甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -766,7 +766,7 @@
           "equipmentId": "equipment-g-9",
           "name": "点剑重装甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E9%87%8D%E8%A3%85%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑重装甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -823,7 +823,7 @@
           "equipmentId": "equipment-g-1-0",
           "name": "点剑战术手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E6%88%98%E6%9C%AF%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑战术手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -880,7 +880,7 @@
           "equipmentId": "equipment-g-1-1",
           "name": "点剑战术手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E6%88%98%E6%9C%AF%E6%89%8B%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑战术手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -937,7 +937,7 @@
           "equipmentId": "equipment-g-1-2",
           "name": "点剑战术手甲·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E6%88%98%E6%9C%AF%E6%89%8B%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑战术手甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -994,7 +994,7 @@
           "equipmentId": "equipment-g-1-3",
           "name": "点剑火石",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E7%81%AB%E7%9F%B3.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑火石.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1051,7 +1051,7 @@
           "equipmentId": "equipment-g-1-4",
           "name": "点剑短刃",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E7%9F%AD%E5%88%83.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑短刃.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1108,7 +1108,7 @@
           "equipmentId": "equipment-g-1-5",
           "name": "点剑微型滤芯",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E5%BE%AE%E5%9E%8B%E6%BB%A4%E8%8A%AF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑微型滤芯.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1165,7 +1165,7 @@
           "equipmentId": "equipment-g-1-6",
           "name": "点剑定位信标",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%82%B9%E5%89%91%E5%AE%9A%E4%BD%8D%E4%BF%A1%E6%A0%87.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/点剑定位信标.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1305,7 +1305,7 @@
           "equipmentId": "equipment-g-1-7",
           "name": "生物辅助重甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E9%87%8D%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助重甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1362,7 +1362,7 @@
           "equipmentId": "equipment-g-1-8",
           "name": "生物辅助胸甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E8%83%B8%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助胸甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1419,7 +1419,7 @@
           "equipmentId": "equipment-g-1-9",
           "name": "生物辅助臂甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E8%87%82%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助臂甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1476,7 +1476,7 @@
           "equipmentId": "equipment-g-2-0",
           "name": "生物辅助手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%89%8B%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1533,7 +1533,7 @@
           "equipmentId": "equipment-g-2-1",
           "name": "生物辅助接驳器",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%8E%A5%E9%A9%B3%E5%99%A8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助接驳器.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1590,7 +1590,7 @@
           "equipmentId": "equipment-g-2-2",
           "name": "生物辅助接驳器·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%8E%A5%E9%A9%B3%E5%99%A8%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助接驳器·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1647,7 +1647,7 @@
           "equipmentId": "equipment-g-2-3",
           "name": "生物辅助护板",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%8A%A4%E6%9D%BF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助护板.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1704,7 +1704,7 @@
           "equipmentId": "equipment-g-2-4",
           "name": "生物辅助护盾针",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%8A%A4%E7%9B%BE%E9%92%88.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助护盾针.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1747,7 +1747,7 @@
           "equipmentId": "equipment-g-2-5",
           "name": "生物辅助接驳器·贰型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%94%9F%E7%89%A9%E8%BE%85%E5%8A%A9%E6%8E%A5%E9%A9%B3%E5%99%A8%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/生物辅助接驳器·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1860,7 +1860,7 @@
           "equipmentId": "equipment-g-2-6",
           "name": "轻超域护板",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E6%8A%A4%E6%9D%BF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域护板.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1917,7 +1917,7 @@
           "equipmentId": "equipment-g-2-7",
           "name": "轻超域护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -1974,7 +1974,7 @@
           "equipmentId": "equipment-g-2-8",
           "name": "轻超域轻护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E8%BD%BB%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域轻护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2031,7 +2031,7 @@
           "equipmentId": "equipment-g-2-9",
           "name": "轻超域分析环",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E5%88%86%E6%9E%90%E7%8E%AF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域分析环.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2088,7 +2088,7 @@
           "equipmentId": "equipment-g-3-0",
           "name": "轻超域稳定盘",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E7%A8%B3%E5%AE%9A%E7%9B%98.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域稳定盘.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2145,7 +2145,7 @@
           "equipmentId": "equipment-g-3-1",
           "name": "轻超域稳定盘·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E7%A8%B3%E5%AE%9A%E7%9B%98%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域稳定盘·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2202,7 +2202,7 @@
           "equipmentId": "equipment-g-3-2",
           "name": "轻超域腕表",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%BD%BB%E8%B6%85%E5%9F%9F%E8%85%95%E8%A1%A8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/轻超域腕表.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2299,7 +2299,7 @@
           "equipmentId": "equipment-g-3-3",
           "name": "碾骨披巾",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E6%8A%AB%E5%B7%BE.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨披巾.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2356,7 +2356,7 @@
           "equipmentId": "equipment-g-3-4",
           "name": "碾骨披巾·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E6%8A%AB%E5%B7%BE%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨披巾·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2413,7 +2413,7 @@
           "equipmentId": "equipment-g-3-5",
           "name": "碾骨重护甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%87%8D%E6%8A%A4%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨重护甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2470,7 +2470,7 @@
           "equipmentId": "equipment-g-3-6",
           "name": "碾骨重护甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%87%8D%E6%8A%A4%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨重护甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2527,7 +2527,7 @@
           "equipmentId": "equipment-g-3-7",
           "name": "碾骨重护甲·贰型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%87%8D%E6%8A%A4%E7%94%B2%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨重护甲·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2584,7 +2584,7 @@
           "equipmentId": "equipment-g-3-8",
           "name": "碾骨腕带",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E8%85%95%E5%B8%A6.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨腕带.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2641,7 +2641,7 @@
           "equipmentId": "equipment-g-3-9",
           "name": "碾骨腕带·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E8%85%95%E5%B8%A6%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨腕带·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2698,7 +2698,7 @@
           "equipmentId": "equipment-g-4-0",
           "name": "碾骨手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2755,7 +2755,7 @@
           "equipmentId": "equipment-g-4-1",
           "name": "碾骨面具",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%9D%A2%E5%85%B7.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨面具.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2812,7 +2812,7 @@
           "equipmentId": "equipment-g-4-2",
           "name": "碾骨面具·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%9D%A2%E5%85%B7%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨面具·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2869,7 +2869,7 @@
           "equipmentId": "equipment-g-4-3",
           "name": "碾骨面具·贰型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E9%9D%A2%E5%85%B7%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨面具·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2926,7 +2926,7 @@
           "equipmentId": "equipment-g-4-4",
           "name": "碾骨小雕像",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E5%B0%8F%E9%9B%95%E5%83%8F.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨小雕像.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -2983,7 +2983,7 @@
           "equipmentId": "equipment-g-4-5",
           "name": "碾骨小雕像·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E5%B0%8F%E9%9B%95%E5%83%8F%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨小雕像·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3040,7 +3040,7 @@
           "equipmentId": "equipment-g-4-6",
           "name": "碾骨小雕像·贰型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%A2%BE%E9%AA%A8%E5%B0%8F%E9%9B%95%E5%83%8F%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/碾骨小雕像·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3137,7 +3137,7 @@
           "equipmentId": "equipment-g-4-7",
           "name": "脉冲式干扰服",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%84%89%E5%86%B2%E5%BC%8F%E5%B9%B2%E6%89%B0%E6%9C%8D.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/脉冲式干扰服.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3194,7 +3194,7 @@
           "equipmentId": "equipment-g-4-8",
           "name": "脉冲式手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%84%89%E5%86%B2%E5%BC%8F%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/脉冲式手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3251,7 +3251,7 @@
           "equipmentId": "equipment-g-4-9",
           "name": "脉冲式校准器",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%84%89%E5%86%B2%E5%BC%8F%E6%A0%A1%E5%87%86%E5%99%A8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/脉冲式校准器.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3294,7 +3294,7 @@
           "equipmentId": "equipment-g-5-0",
           "name": "脉冲式探针",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%84%89%E5%86%B2%E5%BC%8F%E6%8E%A2%E9%92%88.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/脉冲式探针.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3351,7 +3351,7 @@
           "equipmentId": "equipment-g-5-1",
           "name": "脉冲式侵入核",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E8%84%89%E5%86%B2%E5%BC%8F%E4%BE%B5%E5%85%A5%E6%A0%B8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/脉冲式侵入核.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3414,7 +3414,7 @@
           "equipmentId": "equipment-g-5-2",
           "name": "拓荒护甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E6%8A%A4%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒护甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3471,7 +3471,7 @@
           "equipmentId": "equipment-g-5-3",
           "name": "拓荒护甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E6%8A%A4%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒护甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3528,7 +3528,7 @@
           "equipmentId": "equipment-g-5-4",
           "name": "拓荒护甲·贰型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E6%8A%A4%E7%94%B2%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒护甲·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3585,7 +3585,7 @@
           "equipmentId": "equipment-g-5-5",
           "name": "拓荒护甲·叁型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E6%8A%A4%E7%94%B2%C2%B7%E5%8F%81%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒护甲·叁型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3642,7 +3642,7 @@
           "equipmentId": "equipment-g-5-6",
           "name": "拓荒护服",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E6%8A%A4%E6%9C%8D.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒护服.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3699,7 +3699,7 @@
           "equipmentId": "equipment-g-5-7",
           "name": "拓荒纤维手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E7%BA%A4%E7%BB%B4%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒纤维手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3756,7 +3756,7 @@
           "equipmentId": "equipment-g-5-8",
           "name": "拓荒纤维手套·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E7%BA%A4%E7%BB%B4%E6%89%8B%E5%A5%97%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒纤维手套·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3813,7 +3813,7 @@
           "equipmentId": "equipment-g-5-9",
           "name": "拓荒耐蚀手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E8%80%90%E8%9A%80%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒耐蚀手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3870,7 +3870,7 @@
           "equipmentId": "equipment-g-6-0",
           "name": "拓荒增量供氧栓",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E5%A2%9E%E9%87%8F%E4%BE%9B%E6%B0%A7%E6%A0%93.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒增量供氧栓.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3927,7 +3927,7 @@
           "equipmentId": "equipment-g-6-1",
           "name": "拓荒增量供氧栓·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E5%A2%9E%E9%87%8F%E4%BE%9B%E6%B0%A7%E6%A0%93%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒增量供氧栓·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -3984,7 +3984,7 @@
           "equipmentId": "equipment-g-6-2",
           "name": "拓荒通信器",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E9%80%9A%E4%BF%A1%E5%99%A8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒通信器.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4041,7 +4041,7 @@
           "equipmentId": "equipment-g-6-3",
           "name": "拓荒通信器·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E9%80%9A%E4%BF%A1%E5%99%A8%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒通信器·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4098,7 +4098,7 @@
           "equipmentId": "equipment-g-6-4",
           "name": "拓荒供氧栓",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E4%BE%9B%E6%B0%A7%E6%A0%93.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒供氧栓.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4141,7 +4141,7 @@
           "equipmentId": "equipment-g-6-5",
           "name": "拓荒分析仪",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%8B%93%E8%8D%92%E5%88%86%E6%9E%90%E4%BB%AA.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/拓荒分析仪.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4224,7 +4224,7 @@
           "equipmentId": "equipment-g-6-6",
           "name": "动火用辅助骨骼",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E8%BE%85%E5%8A%A9%E9%AA%A8%E9%AA%BC.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用辅助骨骼.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4281,7 +4281,7 @@
           "equipmentId": "equipment-g-6-7",
           "name": "动火用外骨骼",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E5%A4%96%E9%AA%A8%E9%AA%BC.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用外骨骼.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4338,7 +4338,7 @@
           "equipmentId": "equipment-g-6-8",
           "name": "动火用手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E6%89%8B%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4395,7 +4395,7 @@
           "equipmentId": "equipment-g-6-9",
           "name": "动火用手甲·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E6%89%8B%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用手甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4452,7 +4452,7 @@
           "equipmentId": "equipment-g-7-0",
           "name": "动火用手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4509,7 +4509,7 @@
           "equipmentId": "equipment-g-7-1",
           "name": "动火用储能匣",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E5%82%A8%E8%83%BD%E5%8C%A3.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用储能匣.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4566,7 +4566,7 @@
           "equipmentId": "equipment-g-7-2",
           "name": "动火用电力匣",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E7%94%B5%E5%8A%9B%E5%8C%A3.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用电力匣.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4623,7 +4623,7 @@
           "equipmentId": "equipment-g-7-3",
           "name": "动火用测温镜",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%8A%A8%E7%81%AB%E7%94%A8%E6%B5%8B%E6%B8%A9%E9%95%9C.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/动火用测温镜.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4746,7 +4746,7 @@
           "equipmentId": "equipment-g-7-4",
           "name": "M.I.警用护甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%8A%A4%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用护甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4803,7 +4803,7 @@
           "equipmentId": "equipment-g-7-5",
           "name": "M.I.警用护甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%8A%A4%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用护甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4860,7 +4860,7 @@
           "equipmentId": "equipment-g-7-6",
           "name": "M.I.警用罩衣",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E7%BD%A9%E8%A1%A3.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用罩衣.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4917,7 +4917,7 @@
           "equipmentId": "equipment-g-7-7",
           "name": "M.I.警用罩衣·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E7%BD%A9%E8%A1%A3%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用罩衣·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -4974,7 +4974,7 @@
           "equipmentId": "equipment-g-7-8",
           "name": "M.I.警用罩衣·贰型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E7%BD%A9%E8%A1%A3%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用罩衣·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5031,7 +5031,7 @@
           "equipmentId": "equipment-g-7-9",
           "name": "M.I.警用手环",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%89%8B%E7%8E%AF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用手环.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5088,7 +5088,7 @@
           "equipmentId": "equipment-g-8-0",
           "name": "M.I.警用手环·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%89%8B%E7%8E%AF%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用手环·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5145,7 +5145,7 @@
           "equipmentId": "equipment-g-8-1",
           "name": "M.I.警用手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5202,7 +5202,7 @@
           "equipmentId": "equipment-g-8-2",
           "name": "M.I.警用手套·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E6%89%8B%E5%A5%97%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用手套·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5259,7 +5259,7 @@
           "equipmentId": "equipment-g-8-3",
           "name": "M.I.警用刺刃",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E5%88%BA%E5%88%83.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用刺刃.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5316,7 +5316,7 @@
           "equipmentId": "equipment-g-8-4",
           "name": "M.I.警用刺刃·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E5%88%BA%E5%88%83%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用刺刃·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5373,7 +5373,7 @@
           "equipmentId": "equipment-g-8-5",
           "name": "M.I.警用工具组",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E5%B7%A5%E5%85%B7%E7%BB%84.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用工具组.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5430,7 +5430,7 @@
           "equipmentId": "equipment-g-8-6",
           "name": "M.I.警用瞄具",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E7%9E%84%E5%85%B7.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用瞄具.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5487,7 +5487,7 @@
           "equipmentId": "equipment-g-8-7",
           "name": "M.I.警用瞄具·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E7%9E%84%E5%85%B7%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用瞄具·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5544,7 +5544,7 @@
           "equipmentId": "equipment-g-8-8",
           "name": "M.I.警用臂环",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/M.I.%E8%AD%A6%E7%94%A8%E8%87%82%E7%8E%AF.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/M.I.警用臂环.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5651,7 +5651,7 @@
           "equipmentId": "equipment-g-8-9",
           "name": "50式应龙轻甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E8%BD%BB%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙轻甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5708,7 +5708,7 @@
           "equipmentId": "equipment-g-9-0",
           "name": "50式应龙重甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%87%8D%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙重甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5765,7 +5765,7 @@
           "equipmentId": "equipment-g-9-1",
           "name": "50式应龙重甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%87%8D%E7%94%B2%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙重甲·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5822,7 +5822,7 @@
           "equipmentId": "equipment-g-9-2",
           "name": "50式应龙重甲·贰型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%87%8D%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙重甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5879,7 +5879,7 @@
           "equipmentId": "equipment-g-9-3",
           "name": "50式应龙护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5936,7 +5936,7 @@
           "equipmentId": "equipment-g-9-4",
           "name": "50式应龙护手·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E6%8A%A4%E6%89%8B%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙护手·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -5993,7 +5993,7 @@
           "equipmentId": "equipment-g-9-5",
           "name": "50式应龙短刃·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E7%9F%AD%E5%88%83%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙短刃·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6050,7 +6050,7 @@
           "equipmentId": "equipment-g-9-6",
           "name": "50式应龙短刃",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E7%9F%AD%E5%88%83.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙短刃.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6107,7 +6107,7 @@
           "equipmentId": "equipment-g-9-7",
           "name": "50式应龙雷达",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%9B%B7%E8%BE%BE.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙雷达.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6164,7 +6164,7 @@
           "equipmentId": "equipment-g-9-8",
           "name": "50式应龙雷达·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%9B%B7%E8%BE%BE%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙雷达·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6221,7 +6221,7 @@
           "equipmentId": "equipment-g-9-9",
           "name": "50式应龙雷达·贰型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/50%E5%BC%8F%E5%BA%94%E9%BE%99%E9%9B%B7%E8%BE%BE%C2%B7%E8%B4%B0%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/50式应龙雷达·贰型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6298,7 +6298,7 @@
           "equipmentId": "equipment-g-1-0-4",
           "name": "长息装甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E8%A3%85%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息装甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6355,7 +6355,7 @@
           "equipmentId": "equipment-g-1-0-5",
           "name": "长息护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6412,7 +6412,7 @@
           "equipmentId": "equipment-g-1-0-6",
           "name": "长息护手·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E6%8A%A4%E6%89%8B%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6469,7 +6469,7 @@
           "equipmentId": "equipment-g-1-0-7",
           "name": "长息蓄电核",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E8%93%84%E7%94%B5%E6%A0%B8.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息蓄电核.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6526,7 +6526,7 @@
           "equipmentId": "equipment-g-1-0-8",
           "name": "长息蓄电核·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E8%93%84%E7%94%B5%E6%A0%B8%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息蓄电核·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6583,7 +6583,7 @@
           "equipmentId": "equipment-g-1-0-9",
           "name": "长息辅助臂",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E9%95%BF%E6%81%AF%E8%BE%85%E5%8A%A9%E8%87%82.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/长息辅助臂.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6648,7 +6648,7 @@
           "equipmentId": "equipment-g-1-1-0",
           "name": "纾难重甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E9%87%8D%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难重甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6691,7 +6691,7 @@
           "equipmentId": "equipment-g-1-1-1",
           "name": "纾难护甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E6%8A%A4%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难护甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6734,7 +6734,7 @@
           "equipmentId": "equipment-g-1-1-2",
           "name": "纾难护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6777,7 +6777,7 @@
           "equipmentId": "equipment-g-1-1-3",
           "name": "纾难手套",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E6%89%8B%E5%A5%97.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难手套.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6820,7 +6820,7 @@
           "equipmentId": "equipment-g-1-1-4",
           "name": "纾难识别牌",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E8%AF%86%E5%88%AB%E7%89%8C.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难识别牌.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6863,7 +6863,7 @@
           "equipmentId": "equipment-g-1-1-5",
           "name": "纾难识别牌·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E8%AF%86%E5%88%AB%E7%89%8C%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难识别牌·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6906,7 +6906,7 @@
           "equipmentId": "equipment-g-1-1-6",
           "name": "纾难印章",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E5%8D%B0%E7%AB%A0.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难印章.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -6949,7 +6949,7 @@
           "equipmentId": "equipment-g-1-1-7",
           "name": "纾难印章·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E7%BA%BE%E9%9A%BE%E5%8D%B0%E7%AB%A0%C2%B7%E5%A3%B9%E5%9E%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/纾难印章·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7022,7 +7022,7 @@
           "equipmentId": "equipment-g-1-1-8",
           "name": "清波重甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E9%87%8D%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波重甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7079,7 +7079,7 @@
           "equipmentId": "equipment-g-1-1-9",
           "name": "清波轻甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E8%BD%BB%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波轻甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7136,7 +7136,7 @@
           "equipmentId": "equipment-g-1-2-0",
           "name": "清波手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E6%89%8B%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7193,7 +7193,7 @@
           "equipmentId": "equipment-g-1-2-1",
           "name": "清波护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7250,7 +7250,7 @@
           "equipmentId": "equipment-g-1-2-2",
           "name": "清波定位仪",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E5%AE%9A%E4%BD%8D%E4%BB%AA.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波定位仪.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7307,7 +7307,7 @@
           "equipmentId": "equipment-g-1-2-3",
           "name": "清波竹刃",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E7%AB%B9%E5%88%83.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波竹刃.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7364,7 +7364,7 @@
           "equipmentId": "equipment-g-1-2-4",
           "name": "清波水罐",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E6%B0%B4%E7%BD%90.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波水罐.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7421,7 +7421,7 @@
           "equipmentId": "equipment-g-1-2-2-copy-008",
           "name": "清波定位仪·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%B8%85%E6%B3%A2%E5%AE%9A%E4%BD%8D%E4%BB%AA.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/清波定位仪.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7558,7 +7558,7 @@
           "equipmentId": "equipment-g-1-2-5",
           "name": "壤流轻甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%A3%A4%E6%B5%81%E8%BD%BB%E7%94%B2.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/壤流轻甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7615,7 +7615,7 @@
           "equipmentId": "equipment-g-1-2-6",
           "name": "壤流护手",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%A3%A4%E6%B5%81%E6%8A%A4%E6%89%8B.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/壤流护手.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7672,7 +7672,7 @@
           "equipmentId": "equipment-g-1-2-7",
           "name": "壤流短棍",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E5%A3%A4%E6%B5%81%E7%9F%AD%E6%A3%8D.png",
+          "imgUrl": "assets/images/img-equipment/icon_cn/壤流短棍.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7789,7 +7789,7 @@
           "equipmentId": "equipment-jf-1",
           "name": "旧锋手甲",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E6%89%8B%E7%94%B2.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋手甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7846,7 +7846,7 @@
           "equipmentId": "equipment-jf-2",
           "name": "旧锋手甲·壹型",
           "part": "护手",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E6%89%8B%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋手甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7903,7 +7903,7 @@
           "equipmentId": "equipment-jf-3",
           "name": "旧锋刺刃",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E5%88%BA%E5%88%83.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋刺刃.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -7960,7 +7960,7 @@
           "equipmentId": "equipment-jf-4",
           "name": "旧锋刺刃·壹型",
           "part": "配件",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E5%88%BA%E5%88%83%C2%B7%E5%A3%B9%E5%9E%8B.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋刺刃·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -8017,7 +8017,7 @@
           "equipmentId": "equipment-jf-5",
           "name": "旧锋装甲",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E8%A3%85%E7%94%B2.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋装甲.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",
@@ -8074,7 +8074,7 @@
           "equipmentId": "equipment-jf-6",
           "name": "旧锋装甲·壹型",
           "part": "护甲",
-          "imgUrl": "http://127.0.0.1:31457/user-images/img-equipment/%E6%97%A7%E9%94%8B/%E6%97%A7%E9%94%8B%E8%A3%85%E7%94%B2%C2%B7%E5%A3%B9%E5%9E%8B.webp",
+          "imgUrl": "assets/images/img-equipment/icon_cn/旧锋装甲·壹型.png",
           "fixedStat": {
             "label": "防御力",
             "typeKey": "defense",

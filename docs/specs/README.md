@@ -4,9 +4,9 @@
 
 ## 数据、排轴与工作台
 
-- [SQLite 数据管理与 Release](./data-management-sqlite-release/spec.md)
+- [Web 数据生命周期](../architecture/data-lifecycle.md)
 - [Timeline 数据生命周期](./timeline-data-lifecycle-phase5/spec.md)
-- [Timeline Worktree](./ai-timeline-worktree/spec.md)
+- [Timeline Worktree · Web 合同](./ai-timeline-worktree/spec.md)
 - [主界面](./main-workbench/spec.md)
 - [主界面下一阶段](./main-workbench-next-phase/spec.md)
 - [主界面 Buff 计层](./main-workbench-buff-countable-phase/spec.md)
@@ -32,10 +32,9 @@
 4. [保存与导入导出 Phase 4](./sheet-equipment-save-import-export-phase4/spec.md)
 5. [武器与装备 Buff 编辑器统一](./weapon-equipment-buff-editor-unification/spec.md)
 
-## Shell
+## 图片
 
-- [Shell 图片更新](./shell-image-update/spec.md)
-- [图片管理架构](./image-manager/architecture.md)
+- [浏览器图片管理架构](./image-manager/architecture.md)
 
 ## 目录内文件约定
 

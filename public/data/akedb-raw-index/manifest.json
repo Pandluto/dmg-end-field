@@ -1,7 +1,6 @@
 {
   "generatedAt": "2026-06-18T05:47:33.896Z",
-  "sourceRoot": "C:\\Users\\zsk86\\Desktop\\AKEDatabase-main\\public\\Json",
-  "sourceHandover": "C:\\Users\\zsk86\\Desktop\\AKEDatabase-main\\public\\Json\\DATA_HANDOVER.md",
+  "source": "AKEDatabase raw SkillData/BuffData export",
   "outputs": {
     "skills": "skills.json",
     "buffs": "buffs.json",

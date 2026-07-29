@@ -28,8 +28,6 @@ jobs:
           cache: npm
 
       - name: Install locked dependencies
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
         run: npm ci
 
       - name: Run deterministic quality gate

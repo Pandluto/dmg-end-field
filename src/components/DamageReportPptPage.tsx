@@ -149,7 +149,7 @@ function getCharacterReport(
 
 function resolveStoredImageUrl(path?: string): string {
   if (!path) return '';
-  if (/^(?:https?:)?\/\//i.test(path) && !/^http:\/\/127\.0\.0\.1:31457\//i.test(path)) return path;
+  if (/^(?:https?:)?\/\//i.test(path)) return path;
   if (/^[A-Za-z]:[\\/]/.test(path)) return path;
   return normalizeAssetUrl(path);
 }

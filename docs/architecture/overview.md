@@ -1,37 +1,45 @@
-# 架构总览
+# Web LTS 1.8 架构总览
 
-[← 返回项目入口](../../README.md)
+## 产品形态
 
-1.8 LTS 是一个本地优先的伤害计算与排轴工作台。React 负责业务界面，Electron 提供桌面窗口与受控本地桥接，SQLite 保存排轴文档、快照和 Work Node；角色、武器、装备与 Buff 的当前投影保留在浏览器存储中。
+1.8 LTS 是一个静态部署、离线优先的桌面浏览器应用。React 负责界面与业务编排；SQLite WASM 通过 OPFS 保存用户数据库；Cache Storage 与 Service Worker 保存经过校验的官方资料。仓库不再包含桌面壳、本地 HTTP 服务、Agent、MCP 或云端账号系统。
 
 ```mermaid
 flowchart LR
-  User["用户"] --> UI["React / Vite 工作台"]
-  UI --> Bridge["Electron 本地桥接\n127.0.0.1:31457"]
-  Bridge --> Repo["Timeline Repository\nSQLite"]
-  Bridge --> Data["数据包与图片管理"]
-  UI --> Storage["localStorage / sessionStorage\n当前资料投影"]
-  Repo --> Archive["本地 / 共享排轴存档"]
-  Data --> Package["Local Data / Share Data"]
+  User["桌面浏览器用户"] --> Gate["30 天本地访问门禁"]
+  Gate --> Lease["单写入标签页租约"]
+  Lease --> UI["React 工作台"]
+  UI --> DB["SQLite WASM + OPFS"]
+  UI --> Cache["Cache Storage"]
+  SW["PWA Service Worker"] --> Cache
+  Packages["同源 JSON / 图片包"] --> Verify["大小 + SHA-256"]
+  Verify --> Cache
 ```
 
-## 稳定边界
+## 启动顺序
 
-- SQLite 是当前排轴、快照、节点树和 checkout 的事实源。
-- 浏览器存储保存当前已应用的业务资料投影；完整数据包只有经用户明确“应用数据”后才改变投影。
-- 网络下载只进入 Share Data，不自动覆盖 Local Data、浏览器状态或当前 SQLite 工作区。
-- 本地/共享排轴存档转换为新的 SQLite 工作区后才能使用，不直接覆盖当前页面。
-- 图片资源、完整数据包和应用安装包是三条独立发布链。
+1. 检查 30 天访问凭据；未通过时只渲染门禁。
+2. 申请 Web Locks/BroadcastChannel 写入租约；未持有时不打开写数据库。
+3. 初始化 SQLite WASM、OPFS VFS、表结构和持久存储适配层。
+4. 恢复当前用户工作区与自定义图片 BLOB。
+5. 检查官方 JSON 包和图片包；缺失时进入首次下载页。
+6. 加载开始页、排轴工作区、数据工作区或设置路由。
 
-1.8 LTS 不包含 DEF OpenCode、Harness、AI CLI 或 MCP 服务。历史持久化键中的 `def.*` 和 Work Node API 中的 `ai-timeline-*` 名称为兼容既有用户数据而保留，不代表仍内置 Agent 运行时。
+## 页面架构
 
-## 目录责任
+| 路由区域 | 责任 |
+| --- | --- |
+| 首次进入 | 密码、资料下载确认、校验进度 |
+| 开始页 | 工作区概览、最近方案与快捷入口 |
+| 排轴工作区 | 选人、角色配置、时间轴、Buff、计算、报告与 Work Node |
+| 数据工作区 | 干员、武器、装备、Buff 和图片资料维护 |
+| 设置 | 存储占用、门禁有效期、数据库导入导出、资料包删除 |
 
-```text
-src/             React 页面、领域逻辑、计算器与浏览器桥接
-electron/        桌面主进程、SQLite、数据与图片服务
-scripts/         构建、数据处理、合同与 smoke 脚本
-public/data/     内建产品资料
-public/shell/    桌面 Shell 页面
-docs/            当前架构、指南、仍有效规格与维护记录
-```
+路由使用 hash，静态服务器无需配置 SPA 回退。界面只面向桌面尺寸，不承诺手机布局。
+
+## 依赖方向
+
+- React 页面只调用浏览器平台层、领域服务和 repository，不接触文件系统或进程 API。
+- Timeline repository 与 Work Node 事务在浏览器 SQLite 中完成，不依赖 UI 状态作为事实源。
+- 官方资源和用户数据分开保存；重装资料包不会覆盖私人排轴或自定义图片。
+- 导入导出是跨浏览器、跨设备流转用户数据的唯一显式边界。

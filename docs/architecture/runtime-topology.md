@@ -1,24 +1,27 @@
 # 运行拓扑
 
-## 开发态
+## 本地开发
 
 ```mermaid
 flowchart LR
-  Command["npm run electron:dev"] --> Vite["Vite\n127.0.0.1:3030"]
-  Command --> Electron["Electron main"]
-  Electron --> Bridge["本地桥接\n127.0.0.1:31457"]
-  Browser["浏览器工作台"] --> Vite
-  Browser --> Bridge
-  Bridge --> SQLite["user.sqlite / timeline repository"]
+  Command["npm run dev"] --> Prepare["准备官方图片 sidecar"]
+  Prepare --> Vite["Vite · 127.0.0.1:3030"]
+  Browser["Chrome / Edge"] --> Vite
+  Browser --> OPFS["浏览器配置内 OPFS"]
+  Browser --> Cache["浏览器 Cache Storage"]
 ```
 
-| 端口 | 所有者 | 用途 |
-| --- | --- | --- |
-| `3030` | Vite | 开发页面与 Shell 静态资源 |
-| `31457` | Electron | 本地数据、图片、Shell 控制与生产 Web 托管 |
+唯一固定端口是 `3030`。没有 Electron 进程、loopback bridge、sidecar API 或额外业务端口。
 
-浏览器访问受保护的 `/local-data/*` 路由时必须携带 Electron 启动时注入的 renderer capability，并满足受信任 Origin/Referer 约束。
+## 本地生产预览
 
-## 发布态
+```bash
+npm run build:local
+npm run preview
+```
 
-安装包携带 `dist/`、`electron/`、`package.json`，以及数据包和图片发布所需的两个独立 builder 模块。程序资源位于 asar；SQLite、数据包、图片更新、日志与 capability 文件写入 userData/runtime。发布态不启动额外的 Agent、OpenCode、AI REST 或 MCP 子进程。
+`build:local` 会把静态应用、WebAssembly、JSON 资料、图片清单和图片压缩包放入 `dist/`。`preview` 仅绑定 `127.0.0.1`，不会上传或发布内容。
+
+## 静态部署
+
+`dist/` 可放到支持 HTTPS 与正确 MIME 类型的静态服务器。应用使用 hash 路由，不要求服务端 rewrite；服务器应允许 `.wasm`、`.json` 和 `.zip` 下载。真实访问控制必须由静态站点前置网关实现。

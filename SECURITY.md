@@ -2,21 +2,22 @@
 
 ## Reporting
 
-Please use GitHub private vulnerability reporting for this repository. Do not open a public issue containing local bridge capabilities, user data or a working local exploit.
+Please use GitHub private vulnerability reporting. Include the affected version or commit, browser, minimal reproduction, impact, and whether the report concerns the access gate, browser database, package verification, import/export, or cross-tab writer lease.
 
-Open the repository **Security → Advisories → Report a vulnerability** flow. Private vulnerability reporting is enabled; if GitHub is temporarily unavailable, contact the maintainer at `190052366@qq.com` without attaching live credentials or raw private transcripts.
-
-Include the affected version/commit, platform, minimal reproduction, impact and whether the report involves the loopback bridge, Work Node persistence, data packages or packaged application.
+If GitHub is unavailable, contact `190052366@qq.com` without attaching live credentials or private user exports.
 
 ## Supported versions
 
-Security fixes target `main` and the latest published release. Older development snapshots are not maintained as separate security branches.
+Security fixes target `main` and the latest published Web LTS release. Older experimental branches are not maintained as separate security releases.
 
 ## Security assumptions
 
-- Local services bind to loopback and are not designed for LAN/public exposure.
-- Observation APIs and mutation APIs require the local authorization boundary; localhost alone is not authentication.
-- Checkout and restore operations must retain capability binding, revision/CAS protection and postcondition checks.
-- CI release artifacts are unsigned drafts unless the release notes explicitly state signing/notarization status.
+- Private timelines and custom assets remain in the browser profile unless the user explicitly exports them.
+- SQLite WASM/OPFS and Cache Storage inherit the browser profile’s confidentiality and deletion model.
+- The 30-day `zmd` client-side gate is a local deployment convenience. Its verifier is shipped to the browser and it is not strong authentication.
+- A public or shared deployment that needs real access control must add HTTPS and server-side authentication before the static app.
+- Resource packages are accepted only after their declared size and SHA-256 hashes match.
+- Only one tab holds the writer lease. Takeover is explicit, but a malicious same-origin script is outside that boundary.
+- Imported JSON, SQLite backups and images are untrusted inputs and must remain schema-, path- and size-validated.
 
-See the full [security boundary and known-risk record](./docs/architecture/security-boundaries.md).
+See [security boundaries](./docs/architecture/security-boundaries.md) for the full model.

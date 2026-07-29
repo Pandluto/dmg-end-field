@@ -1,43 +1,57 @@
 <p align="center">
-  <img src="electron/assets/icon.png" width="112" alt="终末地伤害工作台图标" />
+  <img src="public/app-icon.svg" width="112" alt="终末地伤害工作台图标" />
 </p>
 
-<h1 align="center">终末地伤害工作台</h1>
+<h1 align="center">终末地伤害工作台 · Web LTS 1.8</h1>
 
-<p align="center">为《明日方舟：终末地》配装、排轴、伤害计算与本地资料维护打造的桌面工作台。</p>
-
-<p align="center"><a href="https://pandluto.github.io/dmg-end-field/"><strong>查看项目展示页：实机功能与架构</strong></a></p>
+<p align="center">在浏览器里完成配装、排轴、Buff 管理、伤害计算与方案恢复。</p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Desktop-Electron-47848F?style=flat-square" alt="Electron 桌面壳" />
-  <img src="https://img.shields.io/badge/Timeline_Repository-SQLite-003B57?style=flat-square" alt="排轴 SQLite Repository" />
-  <img src="https://img.shields.io/badge/Web_UI-React%20%2B%20Vite-646CFF?style=flat-square" alt="React 与 Vite" />
+  <img src="https://img.shields.io/badge/Runtime-Web%20PWA-4B8B3B?style=flat-square" alt="Web PWA" />
+  <img src="https://img.shields.io/badge/Local_Data-SQLite%20WASM%20%2B%20OPFS-003B57?style=flat-square" alt="SQLite WASM 与 OPFS" />
+  <img src="https://img.shields.io/badge/UI-React%20%2B%20Vite-646CFF?style=flat-square" alt="React 与 Vite" />
 </p>
 
-> 这不是自动战斗脚本。它把角色、武器、装备、Buff、技能按键、时间轴和伤害结果组织成可保存、可回看、可分享的本地方案。
+> 这不是自动战斗脚本。它把角色、武器、装备、Buff、时间轴和伤害结果组织成可保存、可回看、可分享的浏览器本地方案。
 
-## 为什么做这个？
+## 1.8 LTS 的边界
 
-从一次试配开始，换一件装备、改一次技能，整套排轴都得重算。真正花时间的往往不是按下计算，而是反复找资料、填配置、记住改动、比较两种思路，以及在改坏后找回原来的方案。
+- 只提供桌面浏览器 Web 应用，不再包含 Electron、DEF/OpenCode、MCP 或本地桥接服务。
+- 私人排轴、快照、Work Node、配置和自定义图片写入当前浏览器的 SQLite WASM/OPFS 数据库，不上传云端。
+- 官方 JSON 与图片资料在首次确认后下载，经过 SHA-256 校验后进入浏览器 Cache Storage。
+- 一个浏览器配置中只允许一个标签页写入；其他标签页显示占用状态并可显式接管。
+- 访问门禁保存在当前浏览器 30 天。它用于本地部署访问拦截，不替代服务端身份认证。
+- 不读取或迁移旧桌面 SQLite；需要保留的数据应通过 Web LTS 自身的导入/导出能力流转。
 
-终末地伤害工作台想把这些试错留成可继续推演的过程，而不是一次算完就消失的数字。SQLite 工作区、快照和 Work Node 让不同方案可以并行保存、比较和恢复。
+## 本地启动
 
-## 数据边界
+需要 Node.js 24 和 npm 11：
 
-- 排轴、快照、Work Node 与本地资料保存在本机；项目不提供云端排轴同步。
-- 完整数据包分为 Local Data 与 Share Data；网络下载只写入 Share Data。只有你明确“应用数据”后，资料才会投影到浏览器数据，包内排轴会导入共享存档；本地/共享存档需转换为新的 SQLite 工作区才可使用。
-- 伤害结果基于当前本地资料、队伍配置与计算规则。游戏版本、资料或配置变化后，应重新核验结果。
+```bash
+npm ci
+npm run dev
+```
 
-## 从这里继续
+第一次执行 `npm run dev` 会准备约 31 MB 的官方图片压缩包，然后在
+`http://127.0.0.1:3030` 启动站点。首次进入页面输入部署密码并确认下载资料。
 
-| 想了解什么 | 从这里开始 |
-| --- | --- |
-| 想先看排轴、报告与功能展示 | [项目展示页](https://pandluto.github.io/dmg-end-field/) |
-| 它如何把桌面界面、本地数据与版本恢复接在一起 | [架构总览](docs/architecture/overview.md) |
-| 如何安装依赖、启动开发环境和打包 | [开发与启动](docs/guides/development.md) |
-| 核心技术为什么是这些，而不是一串泛泛的框架名 | [技术栈与技术选择](docs/technology-stack.md) |
-| 如何使用打包版完成配置、排轴与资料维护 | [使用指南](docs/guides/quick-start.md) |
-| 数据包、排轴存档和 SQLite 工作区如何分工 | [数据管理规格](docs/specs/data-management-sqlite-release/spec.md) |
+生产式本地预览：
+
+```bash
+npm run build:local
+npm run preview
+```
+
+`build:local` 生成包含图片压缩包的自包含 `dist/`。当前分支只做本地部署，不执行 GitHub Pages 发布。
+
+## 文档
+
+- [快速上手](docs/guides/quick-start.md)
+- [开发与验证](docs/guides/development.md)
+- [架构总览](docs/architecture/overview.md)
+- [数据生命周期](docs/architecture/data-lifecycle.md)
+- [安全边界](docs/architecture/security-boundaries.md)
+- [技术栈](docs/technology-stack.md)
 
 ## 说明
 

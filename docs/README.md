@@ -13,6 +13,7 @@
 - [测试方法](./testing/README.md)
 - [1.8 LTS 首轮文档清理记录](./maintenance/1.8-lts-initial-document-cleanup.md)
 - [1.8 LTS 第二轮运行时清理记录](./maintenance/1.8-lts-runtime-cleanup.md)
+- [1.8 LTS Web 收口记录](./maintenance/1.8-lts-web-finalization.md)
 
 ## 保留规则
 

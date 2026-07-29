@@ -1,16 +1,17 @@
 # 验证矩阵
 
-| 层级 | 命令 | CI | 证明什么 |
+| 层级 | 命令或操作 | CI | 证明什么 |
 | --- | --- | --- | --- |
-| 仓库契约 | `npm run check:repo` | 是 | 锁文件、打包输入、路径、JS 语法与已删除运行时不会回流 |
+| 仓库契约 | `npm run check:repo` | 是 | 已删除运行时不回流、manifest/hash/路径/文档链接有效 |
 | 依赖审计 | `npm run audit:dependencies` | 是 | 无 high/critical 已知漏洞 |
 | 类型检查 | `npm run typecheck` | 是 | TypeScript 合同可编译 |
-| 单元/合同 | `npm test` | 是 | 计算、存储与领域逻辑 |
-| Web 构建 | `npm run build:web` | 是 | 前端生产构建 |
-| Work Node / SQLite | `npm run smoke:work-node-sqlite` | 否 | 节点、备份恢复与迁移 |
-| 数据管理 | `npm run smoke:data-management` | 否 | user.sqlite、完整数据包与存档 |
-| 数据 Release | `npm run smoke:data-release-builder` | 否 | manifest、ZIP 与 hash |
-| 下载/应用边界 | `npm run smoke:local-data-archive-flow` | 否 | Share Data、显式应用与工作区转换 |
-| Electron UI | `npm run smoke:operator-config` | 否 | 真实桌面配置主链 |
+| 单元/合同 | `npm test` | 是 | 计算、选择策略、Timeline session 与 checkout 逻辑 |
+| Timeline bundle | `npm run smoke:timeline-bundle` | 是 | 分享范围、hash、节点关系与本地路径过滤 |
+| Web/PWA 构建 | `npm run build:web` | 是 | 静态应用、Worker、WASM 和 Service Worker 可构建 |
+| 自包含本地包 | `npm run build:local` | Release/人工 | 31 MB 图片 sidecar 存在且 hash 匹配 |
+| 首次安装 | 真实 Chromium | 否 | 密码、确认、99+559 文件、进度与页面放行 |
+| 数据持久化 | 真实 Chromium | 否 | 刷新后工作区、快照、配置和图片仍存在 |
+| 单写入 | 两个真实标签页 | 否 | 第二页阻止写入，接管后旧页让出 |
+| PWA/离线 | production preview | 否 | Service Worker 控制后离线壳与已装资源可读 |
 
-`npm run check` 是合并门。涉及 SQLite、数据包、图片或桌面桥接的改动，还应执行对应 focused smoke；CI 绿灯不替代真实桌面验收。
+`npm run check` 是合并门，但不能替代真实浏览器验收。涉及 OPFS、Cache Storage、Service Worker、文件选择器或多标签页的改动必须补做对应人工或浏览器自动化检查。

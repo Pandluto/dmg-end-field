@@ -21,7 +21,6 @@ export interface ImageManagerCapabilities {
   canManageRoots?: boolean;
   primaryRoot?: string;
   rootsConfigPath?: string;
-  isElectron: boolean;
   isWritable: boolean;
   backendLabel: string;
   transportKind: 'browser-sqlite';
@@ -37,7 +36,6 @@ const BROWSER_CAPABILITIES: ImageManagerCapabilities = {
   canDeleteDir: true,
   canReveal: false,
   canManageRoots: false,
-  isElectron: false,
   isWritable: true,
   backendLabel: '浏览器 SQLite · 可管理',
   transportKind: 'browser-sqlite',
@@ -155,9 +153,7 @@ function rowToEntry(row: ImageRow): ImageAssetEntry {
     ext: String(row.extension || fileParts(fileName).ext),
     relativePath,
     source: 'user',
-    canonicalPath: kind === 'file'
-      ? `user-images/${relativePath.replace(/^assets\/images\//, '')}`
-      : undefined,
+    canonicalPath: kind === 'file' ? relativePath : undefined,
     rootId: 'browser-sqlite',
     rootLabel: '浏览器自定义图片',
     rootPriority: 100,
@@ -242,10 +238,9 @@ export async function hydrateBrowserImageAssets(): Promise<void> {
   return hydrationPromise;
 }
 
-function resolveLegacyUserImagePath(relativePath: string): string {
+function resolveLogicalImagePath(relativePath: string): string {
   const normalized = normalizeSlashes(relativePath)
-    .replace(/^user-images\//, '')
-    .replace(/^data\/images\//, '');
+    .replace(/^user-images\//, '');
   if (normalized.startsWith('img-equipment/') && !normalized.startsWith('img-equipment/icon_cn/')) {
     return `assets/images/img-equipment/icon_cn/${normalized.slice('img-equipment/'.length)}`;
   }
@@ -257,9 +252,9 @@ function resolveLegacyUserImagePath(relativePath: string): string {
 }
 
 /**
- * Resolve every browser-era, desktop-era and current image reference without
- * contacting localhost. User BLOBs become object URLs; release images retain
- * their canonical same-origin path and are fulfilled by the image pack cache.
+ * Resolve browser image references. User BLOBs become object URLs; release
+ * images retain their canonical same-origin path and are fulfilled by the
+ * image pack cache.
  */
 export function resolveBrowserImageUrl(path?: string | null): string | null {
   if (!path) return null;
@@ -267,9 +262,7 @@ export function resolveBrowserImageUrl(path?: string | null): string | null {
   let normalized = path;
   try {
     const url = new URL(path, window.location.href);
-    if (url.hostname === '127.0.0.1' && url.port === '31457') {
-      normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    } else if (/^https?:/i.test(path) && url.origin !== window.location.origin) {
+    if (/^https?:/i.test(path) && url.origin !== window.location.origin) {
       return path;
     } else {
       normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
@@ -279,8 +272,7 @@ export function resolveBrowserImageUrl(path?: string | null): string | null {
   }
   normalized = normalizeSlashes(normalized);
   const relativePath = normalized.startsWith('user-images/')
-    || normalized.startsWith('data/images/')
-    ? resolveLegacyUserImagePath(normalized)
+    ? resolveLogicalImagePath(normalized)
     : normalized.startsWith('assets/')
       ? normalized
       : staticPathByFileName.get(normalized.split('/').pop() || '') || normalized;

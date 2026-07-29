@@ -65,8 +65,6 @@
   flex-shrink: 0;
 }
 
-.image-manager-mode-electron-writable { background: var(--excel-green-main, #217346); }
-.image-manager-mode-electron-readonly { background: #d4a017; }
 .image-manager-mode-browser-readonly { background: #8e908c; }
 .image-manager-mode-browser-backend { background: #4a90d9; }
 

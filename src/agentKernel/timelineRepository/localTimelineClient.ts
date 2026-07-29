@@ -66,7 +66,7 @@ export function formatTimelineOperationError(error: unknown): string {
  *
  * The public shape intentionally stays stable for the Workbench while all
  * operations execute against the browser-owned SQLite database. There is no
- * localhost service, Electron preload, or legacy SQLite migration fallback.
+ * native bridge, server-side process, or legacy database migration fallback.
  */
 export function createTimelineRepositoryClient() {
   return {
