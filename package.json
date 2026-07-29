@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.8.2",
   "author": "SailStellar <190052366@qq.com>",
-  "description": "终末地伤害工作台的桌面壳",
+  "description": "终末地配装、排轴与伤害计算的离线优先 Web 工作台",
   "type": "module",
   "main": "electron/main.cjs",
   "packageManager": "npm@11.13.0",
@@ -19,14 +19,15 @@
     "smoke:data-catalog": "node scripts/data-catalog-build-smoke.mjs",
     "smoke:data-release-builder": "node scripts/data-release-builder-smoke.mjs",
     "smoke:local-data-archive-flow": "node scripts/local-data-archive-flow-smoke.mjs",
-    "dev": "npm run data:catalog && vite --host 127.0.0.1 --port 3030",
+    "dev": "npm run data:web-manifest && vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
     "test": "node scripts/run-ts-test.mjs",
     "test:numeric": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts",
     "typecheck": "tsc --noEmit",
     "data:catalog": "node scripts/build-data-catalog.mjs",
+    "data:web-manifest": "node scripts/build-web-data-manifest.mjs",
     "data:release": "node scripts/build-data-release-package.mjs",
-    "build:web": "npm run data:catalog && vite build",
+    "build:web": "npm run data:web-manifest && vite build",
     "check:repo": "node scripts/repository-check.mjs",
     "audit:dependencies": "npm audit --audit-level=high",
     "check": "npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run build:web",
@@ -41,6 +42,7 @@
     "electron:build:mac:dir": "npm run build && electron-builder --mac dir --publish never"
   },
   "dependencies": {
+    "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
     "exceljs": "^4.4.0",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
@@ -59,6 +61,7 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5.0.0",
     "vite": "^7.3.6",
+    "vite-plugin-pwa": "^1.3.0",
     "wait-on": "^8.0.3"
   },
   "overrides": {

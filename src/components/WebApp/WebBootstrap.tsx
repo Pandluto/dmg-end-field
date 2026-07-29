@@ -1,0 +1,138 @@
+import { useCallback, useEffect, useState } from 'react';
+import App from '../../App';
+import { AppProvider } from '../../context/AppContext';
+import { readAccessLeaseStatus } from '../../platform/auth/accessLease';
+import {
+  requestPersistentBrowserStorage,
+  webDatabase,
+} from '../../platform/database/webDatabase';
+import {
+  readInstalledResourcePackage,
+  type InstalledResourcePackage,
+} from '../../platform/resources/resourcePackage';
+import { workspaceLease } from '../../platform/runtime/workspaceLease';
+import {
+  bootstrapPersistentStorage,
+  flushPersistentStorage,
+} from '../../platform/storage/persistentStorage';
+import { bootstrapUserWorkspaceBridge, flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
+import { AccessGate } from './AccessGate';
+import { RuntimeFailurePage } from './RuntimeFailurePage';
+import { SecondaryTabPage } from './SecondaryTabPage';
+import { WelcomePage } from './WelcomePage';
+import './web-app.css';
+
+type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
+
+export function WebBootstrap() {
+  const [phase, setPhase] = useState<BootstrapPhase>('checking-access');
+  const [failure, setFailure] = useState('');
+  const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
+
+  const initializeWorkspace = useCallback(async () => {
+    setPhase('starting');
+    setFailure('');
+    try {
+      const role = await workspaceLease.start();
+      if (role !== 'writer') {
+        setPhase('secondary');
+        return;
+      }
+      await webDatabase.initialize();
+      await bootstrapPersistentStorage();
+      await bootstrapUserWorkspaceBridge();
+      void requestPersistentBrowserStorage();
+      const installed = await readInstalledResourcePackage();
+      setInstalledPackage(installed);
+      setPhase(installed ? 'ready' : 'onboarding');
+      if (installed && (window.location.hash === '' || window.location.hash === '#/')) {
+        navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+      }
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+      setPhase('failed');
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void readAccessLeaseStatus().then((status) => {
+      if (cancelled) return;
+      if (!status.granted) {
+        setPhase('locked');
+        return;
+      }
+      void initializeWorkspace();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [initializeWorkspace]);
+
+  useEffect(() => {
+    const handleReleaseRequest = async () => {
+      try {
+        await Promise.all([flushPersistentStorage(), flushUserWorkspaceState()]);
+        await webDatabase.close();
+      } finally {
+        workspaceLease.release();
+        setPhase('secondary');
+      }
+    };
+    window.addEventListener('dmg-workspace-release-requested', handleReleaseRequest);
+    return () => {
+      window.removeEventListener('dmg-workspace-release-requested', handleReleaseRequest);
+    };
+  }, []);
+
+  useEffect(() => {
+    const flushOnHide = () => {
+      if (document.visibilityState === 'hidden') void flushPersistentStorage();
+    };
+    document.addEventListener('visibilitychange', flushOnHide);
+    return () => document.removeEventListener('visibilitychange', flushOnHide);
+  }, []);
+
+  if (phase === 'checking-access' || phase === 'starting') {
+    return (
+      <main className="web-entry-screen">
+        <div className="boot-indicator">
+          <span />
+          <p>{phase === 'checking-access' ? '检查访问状态' : '正在打开浏览器工作区'}</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (phase === 'locked') {
+    return <AccessGate onUnlocked={() => void initializeWorkspace()} />;
+  }
+
+  if (phase === 'secondary') {
+    return <SecondaryTabPage onControlAcquired={() => void initializeWorkspace()} />;
+  }
+
+  if (phase === 'failed') {
+    return <RuntimeFailurePage error={failure} />;
+  }
+
+  if (phase === 'onboarding') {
+    return (
+      <WelcomePage
+        onInstalled={(resourcePackage) => {
+          setInstalledPackage(resourcePackage);
+          navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+          setPhase('ready');
+        }}
+      />
+    );
+  }
+
+  return (
+    <AppProvider>
+      <App key={installedPackage?.version || 'web-lts'} />
+    </AppProvider>
+  );
+}
+

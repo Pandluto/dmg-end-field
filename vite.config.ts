@@ -1,6 +1,7 @@
 import { createLogger, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { VitePWA } from 'vite-plugin-pwa'
 
 const logger = createLogger()
 const loggerWarn = logger.warn
@@ -17,9 +18,6 @@ logger.warn = (message, options) => {
 }
 
 logger.info = (message, options) => {
-  if (/\[vite\]\s+page reload electron\/main\.cjs/.test(message)) {
-    return
-  }
   loggerInfo(message, options)
 }
 
@@ -29,24 +27,70 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['app-icon.svg'],
+      manifest: {
+        name: '终末地伤害工作台',
+        short_name: '伤害工作台',
+        description: '离线优先的终末地配装、排轴与伤害计算工作台',
+        theme_color: '#07100f',
+        background_color: '#07100f',
+        display: 'standalone',
+        start_url: './#/timeline',
+        icons: [
+          {
+            src: 'app-icon.svg',
+            sizes: 'any',
+            type: 'image/svg+xml',
+            purpose: 'any maskable',
+          },
+        ],
+      },
+      workbox: {
+        cleanupOutdatedCaches: true,
+        globPatterns: ['**/*.{js,css,html,svg,ico,woff2,wasm}'],
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        navigateFallback: 'index.html',
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/data/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'dmg-resource-pack-v1',
+              expiration: {
+                maxEntries: 240,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+            },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/assets/images/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'dmg-image-pack-v1',
+              expiration: {
+                maxEntries: 1200,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+            },
+          },
+        ],
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module',
+      },
+    }),
   ],
   optimizeDeps: {
     entries: ['index.html'],
+    exclude: ['@sqlite.org/sqlite-wasm'],
   },
   server: {
     port: 3030,
-    proxy: {
-      '/data-management': 'http://127.0.0.1:31457',
-      '/api/main-workbench': 'http://127.0.0.1:31457',
-      '/api/ai-timeline-worknodes': 'http://127.0.0.1:31457',
-      '/api/timeline-': 'http://127.0.0.1:31457',
-      '/local-data': 'http://127.0.0.1:31457',
-      '/current-data': 'http://127.0.0.1:31457',
-      '/assets': 'http://127.0.0.1:31457',
-      '/user-images': 'http://127.0.0.1:31457',
-    },
     watch: {
-      ignored: ['**/data/localdata/**', '**/.dbg/**', '**/agent/vendor/**'],
+      ignored: ['**/data/localdata/**', '**/.dbg/**'],
     },
   },
 })

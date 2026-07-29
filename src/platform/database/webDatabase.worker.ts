@@ -1,0 +1,259 @@
+/// <reference lib="webworker" />
+
+import sqlite3InitModule, {
+  type Database,
+  type SAHPoolUtil,
+  type SqlValue,
+} from '@sqlite.org/sqlite-wasm';
+
+type SqlStatement = {
+  sql: string;
+  bind?: SqlValue[];
+};
+
+type DatabaseRequest =
+  | { id: number; operation: 'initialize' }
+  | { id: number; operation: 'query'; statement: SqlStatement }
+  | { id: number; operation: 'execute'; statement: SqlStatement }
+  | { id: number; operation: 'batch'; statements: SqlStatement[] }
+  | { id: number; operation: 'export' }
+  | { id: number; operation: 'close' };
+
+type DatabaseResponse =
+  | { id: number; ok: true; result?: unknown }
+  | { id: number; ok: false; error: { message: string; stack?: string } };
+
+const DATABASE_FILENAME = '/dmg-end-field-web-lts-1.8.sqlite3';
+const VFS_NAME = 'dmg-end-field-opfs-sahpool';
+const VFS_DIRECTORY = '.dmg-end-field-opfs-sahpool';
+
+let database: Database | null = null;
+let pool: SAHPoolUtil | null = null;
+let sqliteVersion = '';
+
+function requireDatabase(): Database {
+  if (!database) throw new Error('Web database has not been initialized.');
+  return database;
+}
+
+function runStatement(statement: SqlStatement, collectRows: boolean): Record<string, SqlValue>[] {
+  const db = requireDatabase();
+  const prepared = db.prepare(statement.sql);
+  try {
+    if (statement.bind?.length) prepared.bind(statement.bind);
+    const rows: Record<string, SqlValue>[] = [];
+    while (prepared.step()) {
+      if (collectRows) rows.push(prepared.get({}));
+    }
+    return rows;
+  } finally {
+    prepared.finalize();
+  }
+}
+
+function migrateSchema(): void {
+  const db = requireDatabase();
+  db.exec(`
+    PRAGMA foreign_keys = ON;
+    PRAGMA journal_mode = DELETE;
+    PRAGMA synchronous = FULL;
+    PRAGMA temp_store = MEMORY;
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS kv_store (
+      scope TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value TEXT,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (scope, key)
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS data_packages (
+      package_id TEXT PRIMARY KEY,
+      version TEXT NOT NULL,
+      manifest_json TEXT NOT NULL,
+      installed_at INTEGER NOT NULL,
+      verified_at INTEGER NOT NULL,
+      byte_size INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS timeline_documents (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      is_temporary INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS timeline_snapshots (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      archived INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_snapshots_document
+      ON timeline_snapshots(timeline_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS timeline_work_nodes (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      parent_node_id TEXT,
+      branch_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      description TEXT NOT NULL,
+      status TEXT NOT NULL,
+      approval_policy TEXT NOT NULL,
+      risk_flags_json TEXT NOT NULL,
+      logs_json TEXT NOT NULL,
+      base_payload_json TEXT NOT NULL,
+      working_payload_json TEXT NOT NULL,
+      content_revision INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_work_nodes_document
+      ON timeline_work_nodes(timeline_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS timeline_work_node_commits (
+      id TEXT PRIMARY KEY,
+      node_id TEXT NOT NULL REFERENCES timeline_work_nodes(id) ON DELETE CASCADE,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      branch_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      summary_json TEXT NOT NULL,
+      risk_flags_json TEXT NOT NULL,
+      approval_json TEXT NOT NULL,
+      checkout_applied INTEGER NOT NULL,
+      checkout_json TEXT,
+      base_payload_json TEXT NOT NULL,
+      applied_payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_commits_document
+      ON timeline_work_node_commits(timeline_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS timeline_checkout_refs (
+      timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      target_type TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS timeline_audit_events (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      event_type TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_audit_document
+      ON timeline_audit_events(timeline_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS image_assets (
+      relative_path TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      base_name TEXT NOT NULL,
+      extension TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      content BLOB,
+      source TEXT NOT NULL,
+      writable INTEGER NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+
+    INSERT INTO app_meta(key, value, updated_at)
+    VALUES ('schema_version', '1', unixepoch('subsec') * 1000)
+    ON CONFLICT(key) DO NOTHING;
+  `);
+}
+
+async function initialize(): Promise<Record<string, unknown>> {
+  if (database && pool) {
+    return {
+      sqliteVersion,
+      filename: DATABASE_FILENAME,
+      vfs: pool.vfsName,
+      persistent: true,
+    };
+  }
+  const sqlite3 = await sqlite3InitModule();
+  sqliteVersion = sqlite3.version.libVersion;
+  pool = await sqlite3.installOpfsSAHPoolVfs({
+    name: VFS_NAME,
+    directory: VFS_DIRECTORY,
+    initialCapacity: 8,
+  });
+  database = new pool.OpfsSAHPoolDb(DATABASE_FILENAME);
+  migrateSchema();
+  return {
+    sqliteVersion,
+    filename: DATABASE_FILENAME,
+    vfs: pool.vfsName,
+    persistent: true,
+  };
+}
+
+async function handleRequest(request: DatabaseRequest): Promise<unknown> {
+  switch (request.operation) {
+    case 'initialize':
+      return initialize();
+    case 'query':
+      return runStatement(request.statement, true);
+    case 'execute':
+      runStatement(request.statement, false);
+      return { changes: requireDatabase().changes(true) };
+    case 'batch':
+      return requireDatabase().transaction(() => {
+        for (const statement of request.statements) runStatement(statement, false);
+        return { changes: requireDatabase().changes(true) };
+      });
+    case 'export': {
+      requireDatabase().exec('PRAGMA optimize;');
+      if (!pool) throw new Error('OPFS pool is unavailable.');
+      return pool.exportFile(DATABASE_FILENAME);
+    }
+    case 'close':
+      database?.close();
+      database = null;
+      pool?.pauseVfs();
+      pool = null;
+      return { closed: true };
+  }
+}
+
+const workerScope = self as DedicatedWorkerGlobalScope;
+let requestChain = Promise.resolve();
+
+workerScope.addEventListener('message', (event: MessageEvent<DatabaseRequest>) => {
+  const request = event.data;
+  requestChain = requestChain
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        const result = await handleRequest(request);
+        const response: DatabaseResponse = { id: request.id, ok: true, result };
+        if (result instanceof Uint8Array) {
+          workerScope.postMessage(response, [result.buffer]);
+        } else {
+          workerScope.postMessage(response);
+        }
+      } catch (error) {
+        const candidate = error instanceof Error ? error : new Error(String(error));
+        const response: DatabaseResponse = {
+          id: request.id,
+          ok: false,
+          error: { message: candidate.message, stack: candidate.stack },
+        };
+        workerScope.postMessage(response);
+      }
+    });
+});

@@ -1,9 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import App from './App'
-import { AppProvider } from './context/AppContext'
-import { bootstrapLocalDataBridge } from './utils/localDataBridge'
-import { bootstrapUserWorkspaceBridge } from './utils/userWorkspaceBridge'
+import { WebBootstrap } from './components/WebApp/WebBootstrap'
 
 // Refreshing the browser must not be blocked by a stale workbench unload guard.
 // Keep the original handler here for a deliberate future re-enable.
@@ -13,19 +10,8 @@ import { bootstrapUserWorkspaceBridge } from './utils/userWorkspaceBridge'
 //   return event.returnValue
 // }
 
-async function bootstrap() {
-  await bootstrapUserWorkspaceBridge();
-  const { shouldRender } = await bootstrapLocalDataBridge();
-  if (!shouldRender) {
-    return;
-  }
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <AppProvider>
-        <App />
-      </AppProvider>
-    </React.StrictMode>,
-  )
-}
-
-bootstrap();
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <WebBootstrap />
+  </React.StrictMode>,
+)
