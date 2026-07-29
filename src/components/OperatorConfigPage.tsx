@@ -4,6 +4,7 @@ import './OperatorConfigPage.css';
 import { useAppContext } from '../context/AppContext';
 import { STORAGE_KEYS } from '../constants/storage-keys';
 import { adaptRuntimeTemplateToLegacyCharacter, loadLocalOperatorCharacters } from '../core/services/localOperatorAdapter';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
 import type { ConfigSnapshot, EquipmentPieceInput, EquipmentSetBuffInput, OperatorPanelInput } from '../core/calculators/operatorPanelCalculator';
 import type { Character, HitSkillType } from '../types';
@@ -320,7 +321,7 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return fallback;
   }
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;
@@ -1858,7 +1859,7 @@ export function OperatorConfigPage() {
   const handleSelectWeapon = React.useCallback((weaponName: string) => {
     const payload = weaponLibrary[weaponName];
     if (!payload) {
-      setWeaponLibraryError(`未在 localStorage 中找到武器：${weaponName}`);
+      setWeaponLibraryError(`未在浏览器 SQLite 中找到武器：${weaponName}`);
       return;
     }
     updateCurrentConfig((prev) => ({

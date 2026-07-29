@@ -6,6 +6,7 @@ import {
   normalizeOperatorDraft,
 } from './operatorTemplateAdapter';
 import { normalizeAssetUrl } from '../../utils/assetResolver';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 
 export const LOCAL_OPERATOR_LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
 
@@ -18,7 +19,7 @@ export function isLocalOperatorLibraryStorageKey(key: string | null): boolean {
 // ============================================================================
 
 /**
- * 从 localStorage 加载本地角色草稿 Map
+ * 从浏览器 SQLite 加载本地角色草稿 Map
  * @returns Record<characterId, OperatorDraft>
  */
 export function loadLocalOperatorDraftMap(): Record<string, OperatorDraft> {
@@ -26,7 +27,7 @@ export function loadLocalOperatorDraftMap(): Record<string, OperatorDraft> {
     return {};
   }
 
-  const raw = window.localStorage.getItem(LOCAL_OPERATOR_LIBRARY_STORAGE_KEY);
+  const raw = persistentLocalStorage.getItem(LOCAL_OPERATOR_LIBRARY_STORAGE_KEY);
   if (!raw) {
     return {};
   }

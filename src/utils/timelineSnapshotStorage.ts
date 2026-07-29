@@ -28,6 +28,7 @@ import {
   normalizeStoredBuffList,
   normalizeStoredOperatorConfigPageCache,
 } from '../core/services/buffStorageNormalization';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 
 export interface TimelineSnapshotPayload {
   selectedCharacters: string[];
@@ -89,7 +90,7 @@ interface TimelineSnapshotArchive {
 }
 
 function canUseLocalStorage(): boolean {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  return typeof window !== 'undefined';
 }
 
 function readArchive(): TimelineSnapshotArchive {
@@ -100,7 +101,7 @@ function readArchive(): TimelineSnapshotArchive {
     };
   }
 
-  const raw = window.localStorage.getItem(STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE);
+  const raw = persistentLocalStorage.getItem(STORAGE_KEYS.TIMELINE_SNAPSHOT_ARCHIVE);
   if (!raw) {
     return {
       version: 'v1',

@@ -1,13 +1,14 @@
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import { diffTimelinePayloads, summarizeTimelinePayload } from './diff';
 import type { AiTimelineCommit, AiTimelineWorktree, AiTimelineWorktreeArchive } from './types';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 
 export const AI_TIMELINE_WORKTREE_ARCHIVE_KEY = 'def.ai-timeline.worktree-archive.v1';
 const WORKTREE_LIMIT = 20;
 const COMMIT_LIMIT = 100;
 
 function canUseLocalStorage() {
-  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+  return typeof window !== 'undefined';
 }
 
 function clonePayload(payload: TimelineSnapshotPayload): TimelineSnapshotPayload {
@@ -20,7 +21,7 @@ function emptyArchive(): AiTimelineWorktreeArchive {
 
 export function readAiTimelineWorktreeArchive(): AiTimelineWorktreeArchive {
   if (!canUseLocalStorage()) return emptyArchive();
-  const raw = window.localStorage.getItem(AI_TIMELINE_WORKTREE_ARCHIVE_KEY);
+  const raw = persistentLocalStorage.getItem(AI_TIMELINE_WORKTREE_ARCHIVE_KEY);
   if (!raw) return emptyArchive();
   try {
     const parsed = JSON.parse(raw) as Partial<AiTimelineWorktreeArchive>;
@@ -36,7 +37,7 @@ export function readAiTimelineWorktreeArchive(): AiTimelineWorktreeArchive {
 
 export function writeAiTimelineWorktreeArchive(archive: AiTimelineWorktreeArchive) {
   if (!canUseLocalStorage()) return;
-  window.localStorage.setItem(AI_TIMELINE_WORKTREE_ARCHIVE_KEY, JSON.stringify({
+  persistentLocalStorage.setItem(AI_TIMELINE_WORKTREE_ARCHIVE_KEY, JSON.stringify({
     version: 'v1',
     worktrees: archive.worktrees.slice(0, WORKTREE_LIMIT),
     commits: archive.commits.slice(0, COMMIT_LIMIT),

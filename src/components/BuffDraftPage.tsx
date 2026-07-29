@@ -8,6 +8,7 @@ import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
 import { getMultiplierSupportedBuffTypes, isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
 import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -870,7 +871,7 @@ function loadDraftFromStorage() {
   if (typeof window === 'undefined') {
     return createDefaultBuffDraft();
   }
-  const raw = window.localStorage.getItem(BUFF_DRAFT_STORAGE_KEY);
+  const raw = persistentLocalStorage.getItem(BUFF_DRAFT_STORAGE_KEY);
   if (!raw) {
     return createDefaultBuffDraft();
   }
@@ -886,7 +887,7 @@ function loadLocalBuffLibrary() {
     return {} as Record<string, BuffDraft>;
   }
 
-  const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+  const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
   if (!raw) {
     return {} as Record<string, BuffDraft>;
   }
@@ -1100,7 +1101,7 @@ function readBuffUndoSnapshots(): BuffUndoSnapshot[] {
     return [];
   }
   try {
-    const raw = window.localStorage.getItem(BUFF_UNDO_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_UNDO_STORAGE_KEY);
     if (!raw) {
       return [];
     }
@@ -1115,7 +1116,7 @@ function writeBuffUndoSnapshots(snapshots: BuffUndoSnapshot[]): void {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(BUFF_UNDO_STORAGE_KEY, JSON.stringify(snapshots));
+  persistentLocalStorage.setItem(BUFF_UNDO_STORAGE_KEY, JSON.stringify(snapshots));
 }
 
 function captureBuffUndoSnapshot(
@@ -1132,8 +1133,8 @@ function captureBuffUndoSnapshot(
   }
 
   const localEntries: Array<[string, string | null]> = [
-    [BUFF_DRAFT_STORAGE_KEY, window.localStorage.getItem(BUFF_DRAFT_STORAGE_KEY)],
-    [BUFF_LIBRARY_STORAGE_KEY, window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY)],
+    [BUFF_DRAFT_STORAGE_KEY, persistentLocalStorage.getItem(BUFF_DRAFT_STORAGE_KEY)],
+    [BUFF_LIBRARY_STORAGE_KEY, persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY)],
   ];
 
   const snapshot: BuffUndoSnapshot = {
@@ -1163,10 +1164,10 @@ function restoreBuffUndoSnapshot(snapshotId: string): BuffUndoSnapshot | null {
 
   target.localEntries.forEach(([key, value]) => {
     if (value == null) {
-      window.localStorage.removeItem(key);
+      persistentLocalStorage.removeItem(key);
       return;
     }
-    window.localStorage.setItem(key, value);
+    persistentLocalStorage.setItem(key, value);
   });
 
   writeBuffUndoSnapshots(snapshots.filter((item) => item.id !== snapshotId));
@@ -1641,7 +1642,7 @@ export function BuffDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const localIds: string[] = [];
     if (raw) {
       try {
@@ -1847,7 +1848,7 @@ export function BuffDraftPage() {
   }, [syncUndoSnapshots]);
 
   const handleCreateNewDraft = () => {
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     const nextDraftId = getNextDraftId(Object.keys(library));
     const nextDraft = createEmptyBuffDraft(nextDraftId);
@@ -1859,7 +1860,7 @@ export function BuffDraftPage() {
   };
 
   const persistDraftToLibrary = (allowOverwrite: boolean) => {
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     const existingIds = Object.keys(library);
     const nextDraftId = orderedDraft.id.trim() || getNextDraftId(existingIds);
@@ -1872,8 +1873,8 @@ export function BuffDraftPage() {
       id: nextDraftId,
     });
     library[nextDraft.id] = nextDraft;
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
-    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
+    persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     if (nextDraft.id !== orderedDraft.id) {
       setDraft(nextDraft);
     }
@@ -1910,7 +1911,7 @@ export function BuffDraftPage() {
       return {} as Record<string, BuffDraft>;
     }
 
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     if (!raw) {
       return {} as Record<string, BuffDraft>;
     }
@@ -2029,7 +2030,7 @@ export function BuffDraftPage() {
       ...pendingImportShare.payload,
     });
     const nextIds = Object.keys(nextLibrary);
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalDraftIds(nextIds);
     setSelectedLocalDraftId((prev) => prev && nextLibrary[prev] ? prev : (Object.keys(pendingImportShare.payload)[0] ?? nextIds[0] ?? ''));
     setIsShareModalOpen(false);
@@ -2045,7 +2046,7 @@ export function BuffDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     if (!raw) {
       setMessages((prev) => ['[ERR] 本地没有可导入数据', ...prev].slice(0, 12));
       return;
@@ -2064,7 +2065,7 @@ export function BuffDraftPage() {
   };
 
   const handleSaveAsNewDraft = () => {
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     const nextDraftId = getNextDraftId(Object.keys(library));
     const nextDraft = normalizeBuffDraft({
@@ -2072,8 +2073,8 @@ export function BuffDraftPage() {
       id: nextDraftId,
     });
     library[nextDraftId] = nextDraft;
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
-    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
+    persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     setDraft(nextDraft);
     setLocalDraftIds(Object.keys(library));
     setSelectedLocalDraftId(nextDraftId);
@@ -2085,7 +2086,7 @@ export function BuffDraftPage() {
       setMessages((prev) => ['[ERR] 当前没有选中的本地组', ...prev].slice(0, 12));
       return;
     }
-    const raw = window.localStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, BuffDraft>) : {};
     if (!library[selectedLocalDraftId]) {
       setMessages((prev) => ['[ERR] 选中的本地组不存在', ...prev].slice(0, 12));
@@ -2093,7 +2094,7 @@ export function BuffDraftPage() {
     }
     withUndo(`删除本地组 · ${selectedLocalDraftId}`, () => {
       delete library[selectedLocalDraftId];
-      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
+      persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeBuffDraftLibrary(library)));
       const remainingIds = Object.keys(library);
       const nextSelectedId = remainingIds[0] || '';
       setLocalDraftIds(remainingIds);
@@ -2105,7 +2106,7 @@ export function BuffDraftPage() {
         setDraft(nextDraft);
         setSelectedItemKey(nextItemKey);
         setSelectedEffectKey(nextEffectKey);
-        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+        persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
       }
       setMessages((prev) => [`[OK] 已删除本地组：${selectedLocalDraftId}`, ...prev].slice(0, 12));
     });
@@ -3250,7 +3251,7 @@ export function BuffDraftSheetPage() {
       ...loadLocalBuffLibrary(),
       ...pendingImportShare.payload,
     });
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalLibrary(nextLibrary);
     applyExplorerDefaultCollapse(nextLibrary);
     const nextSelectedId = selectedLocalDraftId && nextLibrary[selectedLocalDraftId]
@@ -3788,8 +3789,8 @@ export function BuffDraftSheetPage() {
     nextLibrary[nextDraftId] = nextDraft;
 
     const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
-    window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+    persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     setDraft(nextDraft);
     setLocalLibrary(normalizedLibrary);
     setSelectedLocalDraftId(nextDraftId);
@@ -3852,13 +3853,13 @@ export function BuffDraftSheetPage() {
 
   const persistLibraryState = useCallback((nextLibrary: Record<string, BuffDraft>, nextSelectedId?: string) => {
     const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-    window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
     setLocalLibrary(normalizedLibrary);
     if (nextSelectedId) {
       setSelectedLocalDraftId(nextSelectedId);
       if (normalizedLibrary[nextSelectedId]) {
         setDraft(normalizedLibrary[nextSelectedId]);
-        window.localStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(normalizedLibrary[nextSelectedId]));
+        persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(normalizedLibrary[nextSelectedId]));
       }
     }
   }, []);
@@ -3982,7 +3983,7 @@ export function BuffDraftSheetPage() {
       delete nextLibrary[draftId];
       const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
       const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-      window.localStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+      persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
       setLocalLibrary(normalizedLibrary);
       setSelectedLocalDraftId(nextSelectedId);
       if (nextSelectedId && normalizedLibrary[nextSelectedId]) {

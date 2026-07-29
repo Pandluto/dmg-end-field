@@ -14,6 +14,7 @@ import type { CharacterConfigJson, OperatorConfigPageCache } from '../../types/s
 import type { EquipmentConfig } from '../../utils/equipmentParser';
 import { isPercentField } from '../../utils/equipmentParser';
 import { resolvePublicPath } from '../../utils/assetResolver';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 import { getCharacterConfigMap } from '../../utils/storage';
 import { normalizeGameKnowledgeText, resolveGameGearSetAlias } from '../../utils/gameKnowledge';
 import { getOperatorConfigPageCache, setOperatorConfigPageCache } from '../repositories';
@@ -159,7 +160,7 @@ export interface OperatorConfigSnapshotRefreshResult {
 function readLocalStorageJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     return raw ? (JSON.parse(raw) as T) : fallback;
   } catch {
     return fallback;

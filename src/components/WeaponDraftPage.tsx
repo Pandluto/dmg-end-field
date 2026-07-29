@@ -4,6 +4,7 @@ import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -652,7 +653,7 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return fallback;
   }
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     if (!raw) {
       return fallback;
     }
@@ -666,7 +667,7 @@ function writeLocalStorageJson<T>(key: string, value: T) {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(key, JSON.stringify(value));
+  persistentLocalStorage.setItem(key, JSON.stringify(value));
 }
 
 function loadLocalWeaponLibrary() {
@@ -2697,7 +2698,7 @@ export function WeaponDraftSheetPage() {
       // Reorder drafts in library
       const nextLibrary = moveRecordEntry(localLibrary, source.draftId, target.draftId);
       setLocalLibrary(nextLibrary);
-      window.localStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      persistentLocalStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     } else if (source.kind === 'skill' && target.kind === 'skill' && source.draftId === target.draftId) {
       // Reorder skills within a draft (SKILL_KEYS is fixed order, so we need to reorder effectTypes instead)
       const targetDraft = localLibrary[source.draftId] || draft;
@@ -2705,7 +2706,7 @@ export function WeaponDraftSheetPage() {
       // Skills are fixed (skill1, skill2, skill3), so we reorder their effectTypes
       // This is a simplified implementation
       setDraft(nextDraft);
-      window.localStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+      persistentLocalStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
     } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value') {
       // effects record 的插入顺序即显示顺序，拖拽直接移动 entry
       const targetDraft = localLibrary[source.draftId] || draft;
@@ -2725,7 +2726,7 @@ export function WeaponDraftSheetPage() {
       }
       const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
       setLocalLibrary(nextLibrary);
-      window.localStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      persistentLocalStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     }
   }, [draft, isValidExplorerDropTarget, localLibrary]);
 

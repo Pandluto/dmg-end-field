@@ -19,6 +19,7 @@ import {
 } from '../calculators/buffCalculator';
 import type { ResistanceZoneResult } from '../calculators/buffCalculator';
 import type { BuffContribution, ZoneCalculationResult } from '../calculators/buffZoneCalculator';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 
 export interface DamageReportBuffRow {
   id: string;
@@ -190,7 +191,7 @@ function resolveLocalLibraryTraceId(buff: SkillButtonBuff): string | null {
   }
 
   try {
-    const raw = window.localStorage.getItem(LOCAL_BUFF_LIBRARY_KEY);
+    const raw = persistentLocalStorage.getItem(LOCAL_BUFF_LIBRARY_KEY);
     if (!raw) {
       return null;
     }

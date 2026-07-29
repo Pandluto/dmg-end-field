@@ -13,6 +13,10 @@ import { WeaponDraftSheetPage, isWeaponSheetPath } from './components/WeaponDraf
 import { EquipmentSheetPage, isEquipmentSheetPath } from './components/EquipmentSheetPage';
 import { ImageManagerPage, isImageManagerPath } from './components/ImageManagerPage';
 import { OperatorConfigPage } from './components/OperatorConfigPage';
+import { AppShell } from './components/WebApp/AppShell';
+import { DataWorkspacePage } from './components/WebApp/DataWorkspacePage';
+import { SettingsPage } from './components/WebApp/SettingsPage';
+import { StartPage } from './components/WebApp/StartPage';
 import {
   APP_ROUTE_PATHS,
   getCurrentAppPath,
@@ -46,43 +50,37 @@ function App() {
     };
   }, []);
 
-  if (isDraftPath(currentPath)) {
-    return <OperatorDraftPage />;
+  let page: React.ReactNode;
+  if (currentPath === APP_ROUTE_PATHS.root || currentPath === APP_ROUTE_PATHS.welcome) {
+    page = <StartPage />;
+  } else if (currentPath === APP_ROUTE_PATHS.dataWorkspace) {
+    page = <DataWorkspacePage />;
+  } else if (currentPath === APP_ROUTE_PATHS.settings) {
+    page = <SettingsPage />;
+  } else if (isDraftPath(currentPath)) {
+    page = <OperatorDraftPage />;
+  } else if (isBuffSheetPath(currentPath)) {
+    page = <BuffDraftSheetPage />;
+  } else if (isWeaponSheetPath(currentPath)) {
+    page = <WeaponDraftSheetPage />;
+  } else if (isEquipmentSheetPath(currentPath)) {
+    page = <EquipmentSheetPage />;
+  } else if (isDamageSheetPath(currentPath)) {
+    page = <DamageSheetPage />;
+  } else if (isDamageReportPptPath(currentPath)) {
+    page = <DamageReportPptPage />;
+  } else if (isImageManagerPath(currentPath)) {
+    page = <ImageManagerPage />;
+  } else if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
+    page = <OperatorConfigPage />;
+  } else {
+    const activeSkillButtonId = getTimelineSkillDetailButtonId(currentPath);
+    page = <WorkbenchFrame activeSkillButtonId={activeSkillButtonId} />;
   }
-
-  if (isBuffSheetPath(currentPath)) {
-    return <BuffDraftSheetPage />;
-  }
-
-  if (isWeaponSheetPath(currentPath)) {
-    return <WeaponDraftSheetPage />;
-  }
-
-  if (isEquipmentSheetPath(currentPath)) {
-    return <EquipmentSheetPage />;
-  }
-
-  if (isDamageSheetPath(currentPath)) {
-    return <DamageSheetPage />;
-  }
-
-  if (isDamageReportPptPath(currentPath)) {
-    return <DamageReportPptPage />;
-  }
-
-  if (isImageManagerPath(currentPath)) {
-    return <ImageManagerPage />;
-  }
-
-  if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
-    return <OperatorConfigPage />;
-  }
-
-  const activeSkillButtonId = getTimelineSkillDetailButtonId(currentPath);
 
   return (
     <div className="app">
-      <WorkbenchFrame activeSkillButtonId={activeSkillButtonId} />
+      <AppShell currentPath={currentPath}>{page}</AppShell>
     </div>
   );
 }

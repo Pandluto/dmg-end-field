@@ -4,6 +4,7 @@ import './OperatorDraftPage.css';
 import assetPathsRaw from '../data/operatorAssetPaths.txt?raw';
 import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearch';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -529,7 +530,7 @@ function loadDraftFromStorage() {
     return createDefaultDraft();
   }
 
-  const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
+  const raw = persistentLocalStorage.getItem(DRAFT_STORAGE_KEY);
   if (!raw) {
     return createDefaultDraft();
   }
@@ -773,7 +774,7 @@ export function OperatorDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
     const localDraftIdsFromStorage: string[] = [];
     const localDraftNamesFromStorage: Record<string, string> = {};
     if (raw) {
@@ -982,7 +983,7 @@ export function OperatorDraftPage() {
   };
 
   const persistDraftToLibrary = (allowOverwrite: boolean) => {
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
     const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
     if (!orderedDraft.id.trim()) {
       setMessages((prev) => ['[ERR] 干员 ID 不能为空', ...prev].slice(0, 12));
@@ -997,9 +998,9 @@ export function OperatorDraftPage() {
       setIsOverwriteDraftModalOpen(true);
       return false;
     }
-    window.localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
+    persistentLocalStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
     library[orderedDraft.id] = orderedDraft;
-    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
+    persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
     setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
     setLocalDraftNames((prev) => ({ ...prev, [orderedDraft.id]: orderedDraft.name }));
     setSelectedLocalDraftId('');
@@ -1061,7 +1062,7 @@ export function OperatorDraftPage() {
       return {} as Record<string, OperatorDraft>;
     }
 
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
     if (!raw) {
       return {} as Record<string, OperatorDraft>;
     }
@@ -1234,7 +1235,7 @@ export function OperatorDraftPage() {
       ...pendingImportShare.payload,
     };
     const nextIds = Object.keys(nextLibrary);
-    window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalDraftIds(nextIds);
     setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, nextLibrary[draftId]?.name || ''])));
     setSelectedLocalDraftId('');
@@ -1252,7 +1253,7 @@ export function OperatorDraftPage() {
     if (typeof window === 'undefined') {
       return;
     }
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
     if (!raw) {
       setMessages((prev) => ['[ERR] 本地没有可导入数据', ...prev].slice(0, 12));
       return;
@@ -1284,7 +1285,7 @@ export function OperatorDraftPage() {
       return;
     }
 
-    const raw = window.localStorage.getItem(LIBRARY_STORAGE_KEY);
+    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
     if (!raw) {
       setMessages((prev) => ['[ERR] 本地没有可删除数据', ...prev].slice(0, 12));
       setIsDeleteLocalDraftModalOpen(false);
@@ -1300,7 +1301,7 @@ export function OperatorDraftPage() {
         return;
       }
       delete parsed[deleteId];
-      window.localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
+      persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
       const nextIds = Object.keys(parsed);
       setLocalDraftIds(nextIds);
       setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, parsed[draftId]?.name || ''])));

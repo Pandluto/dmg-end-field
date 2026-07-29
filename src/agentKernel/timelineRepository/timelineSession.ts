@@ -2,6 +2,7 @@ import { DEFAULT_TIMELINE_ID } from '../../core/domain/timeline';
 import type { TimelineCheckoutRef, TimelineDocument } from '../../core/domain/timeline';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import { createTimelineRepositoryClient } from './localTimelineClient';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 
 const ACTIVE_TIMELINE_DOCUMENT_KEY = 'dmg.active-timeline-document-id';
 
@@ -40,12 +41,12 @@ export type TimelineSessionSnapshot = {
 
 function readPersistedTimelineId(): string {
   if (typeof window === 'undefined') return DEFAULT_TIMELINE_ID;
-  return readTimelineIdFromStorages(window.sessionStorage, window.localStorage);
+  return readTimelineIdFromStorages(window.sessionStorage, persistentLocalStorage);
 }
 
 function persistTimelineId(timelineId: string): void {
   if (typeof window === 'undefined') return;
-  persistTimelineIdToStorages(timelineId, window.sessionStorage, window.localStorage);
+  persistTimelineIdToStorages(timelineId, window.sessionStorage, persistentLocalStorage);
 }
 
 let snapshot: TimelineSessionSnapshot = {

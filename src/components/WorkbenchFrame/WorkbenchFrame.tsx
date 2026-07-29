@@ -1,17 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
+import { safeSessionStorage } from '../../utils/storage';
+import { STORAGE_KEYS } from '../../constants/storage-keys';
+import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
+import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
 import { SelectionPanel } from '../SelectionPanel';
 import { CanvasBoard } from '../CanvasBoard';
 import { BuffBatchEditWorkbench } from '../BuffBatchEditWorkbench';
-import { setSelectedSkillButton } from '../../hooks/useSkillButtonBuffs';
-import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
-import { STORAGE_KEYS } from '../../constants/storage-keys';
-import { safeSessionStorage } from '../../utils/storage';
-import {
-  getLocalBridgeHealth,
-  requestCloseShell,
-  requestOpenShell,
-} from '../../utils/localBridge';
 import './WorkbenchFrame.css';
 
 export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel' | 'buffBatchEdit';
@@ -23,10 +18,9 @@ interface WorkbenchFrameProps {
 export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFrameProps) {
   const { state, dispatch } = useAppContext();
   const { currentView, selectedCharacters } = state;
-  const [isDrawerOpen, setIsDrawerOpen] = useState(true);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
   const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
-  const [shellStatus, setShellStatus] = useState<'checking' | 'offline' | 'hidden' | 'visible' | 'opening' | 'closing'>('checking');
   const previousActiveSkillButtonIdRef = useRef<string | null>(activeSkillButtonId);
 
   const canAccessCanvas = selectedCharacters.length > 0;
@@ -35,53 +29,44 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
   useEffect(() => {
     const previousActiveSkillButtonId = previousActiveSkillButtonIdRef.current;
     previousActiveSkillButtonIdRef.current = activeSkillButtonId;
-
     if (activeSkillButtonId) {
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
       setWorkbenchMode('timeline');
       setForceShowToolPanel(true);
       return;
     }
-
     if (previousActiveSkillButtonId) {
       setForceShowToolPanel(false);
       setWorkbenchMode('timeline');
     }
   }, [activeSkillButtonId, dispatch]);
 
-  const closeDrawer = useCallback(() => {
-    setIsDrawerOpen(false);
-  }, []);
-
-  const toggleDrawer = useCallback(() => {
-    setIsDrawerOpen(prev => !prev);
-  }, []);
+  useEffect(() => {
+    if (currentView === 'canvas' && workbenchMode === 'selection') {
+      setWorkbenchMode('timeline');
+    }
+  }, [currentView, workbenchMode]);
 
   const handleModeClick = useCallback((mode: WorkbenchMode) => {
-    if (mode !== 'selection' && selectedCharacters.length === 0) {
-      return;
-    }
-
+    if (mode !== 'selection' && selectedCharacters.length === 0) return;
     if (mode === 'selection') {
       dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId: null });
       setSelectedSkillButton(null);
       dispatch({ type: 'SET_VIEW', view: 'selection' });
       setWorkbenchMode('selection');
       setForceShowToolPanel(false);
-      closeDrawer();
+      setIsDrawerOpen(false);
       return;
     }
-
     dispatch({ type: 'SET_VIEW', view: 'canvas' });
     setWorkbenchMode(mode);
     setForceShowToolPanel(false);
   }, [dispatch, selectedCharacters.length]);
 
-  const handleOperatorConfigClick = useCallback(() => {
-    if (selectedCharacters.length === 0) return;
-    const characterId = selectedCharacters[0]?.id;
-    if (characterId) {
-      safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
+  const openOperatorConfig = useCallback((characterId?: string) => {
+    const targetId = characterId || selectedCharacters[0]?.id;
+    if (targetId) {
+      safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, targetId);
     }
     navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
   }, [selectedCharacters]);
@@ -95,159 +80,69 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     setWorkbenchMode('timeline');
   }, []);
 
-  const openOperatorConfig = useCallback((characterId: string) => {
-    safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
-    setForceShowToolPanel(false);
-    setWorkbenchMode('timeline');
-    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
-  }, []);
-
-  const shouldShowToolPanel = (
-    workbenchMode === 'toolPanel' ||
-    forceShowToolPanel
-  );
-
-  const getModeLabel = () => {
-    switch (workbenchMode) {
-      case 'selection':
-        return '选人';
-      case 'timeline':
-        return '排轴';
-      case 'toolPanel':
-        return '侧边栏';
-      case 'buffBatchEdit':
-        return '批量Buff';
-      default:
-        return '选人';
-    }
-  };
+  const modeLabel = workbenchMode === 'buffBatchEdit'
+    ? '批量 Buff'
+    : workbenchMode === 'toolPanel'
+      ? '侧边栏'
+      : workbenchMode === 'timeline'
+        ? '时间轴'
+        : '选择队伍';
 
   const workbenchControl = (
-    <button className="workbench-top-trigger" type="button" onClick={toggleDrawer}>
-      <span className="workbench-trigger-text">{getModeLabel()}</span>
-      <span className="workbench-trigger-divider">|</span>
-      <span className="workbench-trigger-status">已选 {selectedCharacters.length}/4</span>
+    <button
+      className="workbench-top-trigger"
+      type="button"
+      onClick={() => setIsDrawerOpen((open) => !open)}
+    >
+      <span className="workbench-trigger-text">{modeLabel}</span>
+      <span className="workbench-trigger-divider">·</span>
+      <span className="workbench-trigger-status">{selectedCharacters.length}/4</span>
     </button>
   );
-  const handleOpenOperatorDraft = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.draft);
-  }, []);
 
-  const handleOpenBuffSheet = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.buffSheet);
-  }, []);
-
-  const handleOpenWeaponSheet = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.weaponSheet);
-  }, []);
-
-  const handleOpenEquipmentSheet = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.equipmentSheet);
-  }, []);
-
-  const handleOpenOperatorConfig = useCallback(() => {
-    const characterId = selectedCharacters[0]?.id;
-    if (characterId) {
-      safeSessionStorage.setItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER, characterId);
-    }
-    navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
-  }, [selectedCharacters]);
-
-  const handleOpenImageManager = useCallback(() => {
-    navigateToAppPath(APP_ROUTE_PATHS.imageManager);
-  }, []);
-
-  const syncLocalBridgeStatus = useCallback(async () => {
-    try {
-      const health = await getLocalBridgeHealth();
-      if (!health.shell.running || health.shell.state === 'missing') {
-        setShellStatus('hidden');
-      } else {
-        setShellStatus(health.shell.state === 'visible' ? 'visible' : 'hidden');
-      }
-    } catch {
-      setShellStatus('offline');
-    }
-  }, []);
-
-  const handleToggleShell = useCallback(async () => {
-    if (shellStatus === 'visible') {
-      setShellStatus('closing');
-      try {
-        await requestCloseShell();
-        setShellStatus('hidden');
-      } catch {
-        setShellStatus('offline');
-      }
-      return;
-    }
-
-    setShellStatus('opening');
-    try {
-      const shell = await requestOpenShell();
-      setShellStatus(shell.state === 'visible' ? 'visible' : 'hidden');
-    } catch {
-      setShellStatus('offline');
-    }
-  }, [shellStatus]);
-
-  const bottomNavControls = (
+  const workspaceActions = (
     <div className="workbench-bottom-actions">
-      <button className="workbench-top-trigger workbench-bottom-nav-button is-active" type="button">
-        <span className="workbench-trigger-text">主界面</span>
+      <button
+        className={`workbench-top-trigger workbench-bottom-nav-button ${isSelectionActive ? 'is-active' : ''}`}
+        type="button"
+        onClick={() => handleModeClick('selection')}
+      >
+        <span className="workbench-trigger-text">队伍</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorDraft}>
-        <span className="workbench-trigger-text">编辑干员</span>
+      <button
+        className={`workbench-top-trigger workbench-bottom-nav-button ${workbenchMode === 'timeline' && !isSelectionActive ? 'is-active' : ''}`}
+        type="button"
+        disabled={!canAccessCanvas}
+        onClick={() => handleModeClick('timeline')}
+      >
+        <span className="workbench-trigger-text">排轴</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenBuffSheet}>
-        <span className="workbench-trigger-text">编辑BUFF</span>
-      </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenWeaponSheet}>
-        <span className="workbench-trigger-text">编辑武器</span>
+      <button
+        className={`workbench-top-trigger workbench-bottom-nav-button ${workbenchMode === 'buffBatchEdit' ? 'is-active' : ''}`}
+        type="button"
+        disabled={!canAccessCanvas}
+        onClick={() => handleModeClick('buffBatchEdit')}
+      >
+        <span className="workbench-trigger-text">批量 Buff</span>
       </button>
       <button
         className="workbench-top-trigger workbench-bottom-nav-button"
         type="button"
-        onClick={handleOpenEquipmentSheet}
-        disabled
-        title="编辑装备暂未开放"
+        disabled={!canAccessCanvas}
+        onClick={() => openOperatorConfig()}
       >
-        <span className="workbench-trigger-text">编辑装备</span>
+        <span className="workbench-trigger-text">干员配置</span>
       </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenOperatorConfig}>
-        <span className="workbench-trigger-text">角色配置</span>
-      </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button" type="button" onClick={handleOpenImageManager}>
-        <span className="workbench-trigger-text">图片管理</span>
-      </button>
-      <button className="workbench-top-trigger workbench-bottom-nav-button workbench-shell-button" type="button" onClick={handleToggleShell}>
-        <span className="workbench-trigger-text">{shellStatus === 'visible' ? '收起Shell' : '打开Shell'}</span>
-        <span className="workbench-trigger-divider">|</span>
-        <span className="workbench-trigger-status">
-          {shellStatus === 'checking' && '检测中'}
-          {shellStatus === 'offline' && 'Shell 未启动'}
-          {shellStatus === 'hidden' && '后台待命'}
-          {shellStatus === 'visible' && '已打开'}
-          {shellStatus === 'opening' && '打开中'}
-          {shellStatus === 'closing' && '收起中'}
-        </span>
+      <button
+        className="workbench-top-trigger workbench-bottom-nav-button"
+        type="button"
+        disabled={!canAccessCanvas}
+        onClick={() => navigateToAppPath(APP_ROUTE_PATHS.damageSheet)}
+      >
+        <span className="workbench-trigger-text">伤害表</span>
       </button>
     </div>
   );
-
-  useEffect(() => {
-    if (currentView === 'canvas' && workbenchMode === 'selection') {
-      setWorkbenchMode('timeline');
-    }
-  }, [currentView, workbenchMode]);
-
-  useEffect(() => {
-    syncLocalBridgeStatus();
-    const timer = window.setInterval(syncLocalBridgeStatus, 5000);
-    return () => {
-      window.clearInterval(timer);
-    };
-  }, [syncLocalBridgeStatus]);
 
   return (
     <div className={`workbench-frame ${isDrawerOpen ? 'has-top-zone' : ''}`}>
@@ -257,35 +152,38 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             className={`workbench-drawer-tab ${isSelectionActive ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('selection')}
-            disabled
-            title="选人入口暂时关闭"
           >
-            选人
+            选择队伍
           </button>
           <button
-            className={`workbench-drawer-tab ${workbenchMode === 'timeline' ? 'is-active' : ''}`}
+            className={`workbench-drawer-tab ${workbenchMode === 'timeline' && !isSelectionActive ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('timeline')}
             disabled={!canAccessCanvas}
-            title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            排轴
+            时间轴
+          </button>
+          <button
+            className={`workbench-drawer-tab ${workbenchMode === 'toolPanel' ? 'is-active' : ''}`}
+            type="button"
+            onClick={() => handleModeClick('toolPanel')}
+            disabled={!canAccessCanvas}
+          >
+            计算侧栏
           </button>
           <button
             className={`workbench-drawer-tab ${workbenchMode === 'buffBatchEdit' ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('buffBatchEdit')}
             disabled={!canAccessCanvas}
-            title={!canAccessCanvas ? '请先选择干员' : ''}
           >
-            BUFF批量操作
+            批量 Buff
           </button>
           <button
             className="workbench-drawer-tab"
             type="button"
-            onClick={handleOperatorConfigClick}
+            onClick={() => openOperatorConfig()}
             disabled={!canAccessCanvas}
-            title={!canAccessCanvas ? '请先选择干员' : ''}
           >
             干员配置
           </button>
@@ -300,7 +198,7 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             </div>
             <div className="workbench-selection-bottom-bar">
               {workbenchControl}
-              {bottomNavControls}
+              {workspaceActions}
             </div>
           </div>
         )}
@@ -308,7 +206,7 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
           <BuffBatchEditWorkbench
             selectedCharacters={selectedCharacters}
             workbenchControl={workbenchControl}
-            bottomRightControl={bottomNavControls}
+            bottomRightControl={workspaceActions}
             isWorkbenchTopZoneOpen={isDrawerOpen}
           />
         )}
@@ -316,12 +214,12 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
           <CanvasBoard
             activeSkillButtonId={activeSkillButtonId}
             workbenchMode={workbenchMode}
-            isToolPanelVisible={shouldShowToolPanel}
+            isToolPanelVisible={workbenchMode === 'toolPanel' || forceShowToolPanel}
             onSkillButtonModalOpen={handleSkillButtonModalOpen}
             onSkillButtonModalClose={handleSkillButtonModalClose}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
-            bottomRightControl={bottomNavControls}
+            bottomRightControl={workspaceActions}
             isWorkbenchTopZoneOpen={isDrawerOpen}
           />
         )}

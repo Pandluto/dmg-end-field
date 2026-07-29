@@ -30,7 +30,7 @@ const ELEMENT_COLORS: Record<string, string> = {
 
 export function SelectionPanel() {
   const { state, dispatch } = useAppContext();
-  const { selectedCharacters } = state;
+  const { selectedCharacters, loadedCharacters } = state;
   const { activeTimelineId, activeTimelineIsTemporary } = useTimelineSession();
   const [localCharacters, setLocalCharacters] = useState<Character[]>([]);
   const [draftCharacterIds, setDraftCharacterIds] = useState<string[]>([]);
@@ -62,35 +62,40 @@ export function SelectionPanel() {
 
   useEffect(() => {
     setDraftCharacterIds(
-      selectedCharacters
-        .filter((character) => character.librarySource === 'local')
-        .map((character) => character.id)
-        .slice(0, 4)
+      selectedCharacters.map((character) => character.id).slice(0, 4)
     );
   }, [selectedCharacters]);
 
-  const localCharacterMap = useMemo(() => {
+  const availableCharacters = useMemo(() => {
     const nextMap = new Map<string, Character>();
+    loadedCharacters.forEach((character) => {
+      nextMap.set(character.id, character);
+    });
     localCharacters.forEach((character) => {
       nextMap.set(character.id, character);
     });
-    return nextMap;
-  }, [localCharacters]);
+    return [...nextMap.values()];
+  }, [loadedCharacters, localCharacters]);
+
+  const availableCharacterMap = useMemo(
+    () => new Map(availableCharacters.map((character) => [character.id, character])),
+    [availableCharacters],
+  );
 
   const draftCharacters = useMemo(
     () =>
       draftCharacterIds
-        .map((characterId) => localCharacterMap.get(characterId))
+        .map((characterId) => availableCharacterMap.get(characterId))
         .filter((character): character is Character => Boolean(character)),
-    [draftCharacterIds, localCharacterMap]
+    [availableCharacterMap, draftCharacterIds]
   );
 
   const filteredCharacters = useMemo(() => {
     const keyword = query.trim().toLowerCase();
     if (!keyword) {
-      return localCharacters;
+      return availableCharacters;
     }
-    return localCharacters.filter((character) => {
+    return availableCharacters.filter((character) => {
       const fields = [
         character.name,
         character.id,
@@ -100,7 +105,7 @@ export function SelectionPanel() {
       ];
       return fields.some((field) => String(field || '').toLowerCase().includes(keyword));
     });
-  }, [localCharacters, query]);
+  }, [availableCharacters, query]);
 
   const isSelected = (characterId: string) => draftCharacterIds.includes(characterId);
   const isFull = draftCharacterIds.length >= 4;
@@ -170,7 +175,7 @@ export function SelectionPanel() {
       <section className="selection-shell">
         <header className="selection-header">
           <div>
-            <h1 className="selection-title">选择本地干员</h1>
+            <h1 className="selection-title">选择干员</h1>
             <p className="selection-subtitle">已选 {draftCharacterIds.length}/4</p>
           </div>
           <div className="selection-header-actions">
@@ -235,12 +240,12 @@ export function SelectionPanel() {
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="搜索名称 / 职业 / 属性"
               />
-              <span>{filteredCharacters.length} / {localCharacters.length}</span>
+              <span>{filteredCharacters.length} / {availableCharacters.length}</span>
             </div>
 
-            {localCharacters.length === 0 ? (
+            {availableCharacters.length === 0 ? (
               <div className="selection-empty">
-                <strong>本地干员库为空</strong>
+                <strong>干员资料尚未载入</strong>
                 <button type="button" className="selection-ghost-button" onClick={openOperatorDraft}>
                   新建干员
                 </button>

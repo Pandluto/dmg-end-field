@@ -2,6 +2,7 @@ import type { ConfigSnapshot, WeaponSkillDetail } from '../calculators/operatorP
 import type { BuffData, BuffEffectKind, BuffExtraHitConfig, BuffMultiplier, CandidateBuff } from '../domain/buff';
 import { getCandidateBuffList, getOperatorConfigPageCache, setCandidateBuffList } from '../repositories';
 import { resolvePublicPath } from '../../utils/assetResolver';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 import { normalizeExtraHitConfig } from './buffExtraHit';
 import { normalizeStoredBuffDefinition } from './buffStorageNormalization';
 
@@ -59,7 +60,7 @@ function normalizeBuffTypeKey(typeKey: string): string {
 
 function readLocalStorageJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
-  const raw = window.localStorage.getItem(key);
+  const raw = persistentLocalStorage.getItem(key);
   if (!raw) return fallback;
   try {
     return JSON.parse(raw) as T;

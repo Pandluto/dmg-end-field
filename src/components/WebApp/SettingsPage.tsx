@@ -1,0 +1,181 @@
+import { useEffect, useState } from 'react';
+import { clearAccessLease, readAccessLeaseStatus } from '../../platform/auth/accessLease';
+import {
+  readBrowserStorageEstimate,
+  requestPersistentBrowserStorage,
+  webDatabase,
+  type WebDatabaseInfo,
+} from '../../platform/database/webDatabase';
+import {
+  readInstalledResourcePackage,
+  removeDefaultResourcePackage,
+  type InstalledResourcePackage,
+} from '../../platform/resources/resourcePackage';
+import { workspaceLease } from '../../platform/runtime/workspaceLease';
+import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
+
+type StorageOverview = {
+  usage: number;
+  quota: number;
+  persisted: boolean;
+};
+
+function formatBytes(value: number): string {
+  if (!value) return '0 B';
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  return `${(value / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function formatDate(value: number | null): string {
+  if (!value) return '—';
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(value);
+}
+
+export function SettingsPage() {
+  const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
+  const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
+  const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
+  const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
+  const [message, setMessage] = useState('');
+
+  const refresh = async () => {
+    const [nextStorage, installed, lease] = await Promise.all([
+      readBrowserStorageEstimate(),
+      readInstalledResourcePackage(),
+      readAccessLeaseStatus(),
+    ]);
+    setStorage(nextStorage);
+    setResourcePackage(installed);
+    setLeaseExpiresAt(lease.expiresAt);
+  };
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  const handlePersist = async () => {
+    const persisted = await requestPersistentBrowserStorage();
+    setMessage(persisted ? '浏览器已经授予持久存储。' : '浏览器暂未授予持久存储，请保留定期备份。');
+    await refresh();
+  };
+
+  const handleExport = async () => {
+    setMessage('正在整理数据库备份…');
+    await flushPersistentStorage();
+    const bytes = await webDatabase.exportFile();
+    const exportedBytes = new Uint8Array(bytes.byteLength);
+    exportedBytes.set(bytes);
+    const blob = new Blob([exportedBytes.buffer], { type: 'application/vnd.sqlite3' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `dmg-web-lts-backup-${new Date().toISOString().slice(0, 10)}.sqlite3`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMessage('数据库备份已导出。');
+  };
+
+  const handleRemovePackage = async () => {
+    if (!window.confirm('移除基础资料包？私人排轴不会删除，重新进入时需要再次下载资料。')) return;
+    await removeDefaultResourcePackage();
+    window.location.reload();
+  };
+
+  const handleLock = async () => {
+    await flushPersistentStorage();
+    clearAccessLease();
+    await webDatabase.close();
+    workspaceLease.release();
+    window.location.reload();
+  };
+
+  return (
+    <div className="settings-page">
+      {message && <div className="settings-message">{message}</div>}
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <p>STORAGE</p>
+            <h2>浏览器存储</h2>
+          </div>
+          <span className={storage.persisted ? 'settings-state is-good' : 'settings-state'}>
+            {storage.persisted ? '已持久化' : '尽力保存'}
+          </span>
+        </div>
+        <div className="settings-card-grid">
+          <article className="settings-card">
+            <span>SQLite 运行时</span>
+            <strong>{databaseInfo?.sqliteVersion || '—'}</strong>
+            <small>{databaseInfo?.vfs || 'OPFS 初始化中'}</small>
+          </article>
+          <article className="settings-card">
+            <span>当前用量</span>
+            <strong>{formatBytes(storage.usage)}</strong>
+            <small>可用配额 {formatBytes(storage.quota)}</small>
+          </article>
+          <article className="settings-card">
+            <span>基础资料包</span>
+            <strong>{resourcePackage?.version || '—'}</strong>
+            <small>{resourcePackage?.manifest.files.length || 0} 个文件</small>
+          </article>
+        </div>
+        <div className="settings-action-row">
+          <div>
+            <strong>防止浏览器自动回收数据</strong>
+            <span>向浏览器申请把本工作台标记为持久存储。</span>
+          </div>
+          <button type="button" onClick={handlePersist}>申请持久存储</button>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <p>BACKUP</p>
+            <h2>备份与资料</h2>
+          </div>
+        </div>
+        <div className="settings-action-row">
+          <div>
+            <strong>导出完整 Web LTS 数据库</strong>
+            <span>包含私人排轴、快照、工作节点、配置和浏览器本地编辑数据。</span>
+          </div>
+          <button className="dashboard-primary-button" type="button" onClick={handleExport}>导出 SQLite 备份</button>
+        </div>
+        <div className="settings-action-row">
+          <div>
+            <strong>移除官方基础资料</strong>
+            <span>不会删除私人数据；下次启动会重新询问是否下载。</span>
+          </div>
+          <button type="button" onClick={handleRemovePackage}>移除资料包</button>
+        </div>
+      </section>
+
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <p>ACCESS</p>
+            <h2>访问门禁</h2>
+          </div>
+        </div>
+        <div className="settings-action-row">
+          <div>
+            <strong>本浏览器放行至 {formatDate(leaseExpiresAt)}</strong>
+            <span>门禁有效期为首次正确输入密码后的 30 天。</span>
+          </div>
+          <button className="danger-button" type="button" onClick={handleLock}>立即锁定</button>
+        </div>
+        <p className="settings-security-note">
+          当前是本地部署的纯前端门禁，用来过滤无效访问，不等同于服务器身份认证。
+        </p>
+      </section>
+    </div>
+  );
+}

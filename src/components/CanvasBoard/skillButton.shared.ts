@@ -7,6 +7,7 @@ import type {
 } from '../../core/calculators/skillDamage.types';
 import { getCandidateBuffList } from '../../core/repositories';
 import type { PersistedAnomalyCard, SkillButtonBuff } from '../../types/storage';
+import { persistentLocalStorage } from '../../platform/storage/persistentStorage';
 
 export type AnomalyCardKind = 'state' | 'damage';
 export type AnomalyCategory = 'magic' | 'physical';
@@ -311,7 +312,7 @@ export function readLocalBuffSearchEntries(): LocalBuffSearchResult[] {
     return [];
   }
   try {
-    const raw = window.localStorage.getItem(LOCAL_BUFF_LIBRARY_KEY);
+    const raw = persistentLocalStorage.getItem(LOCAL_BUFF_LIBRARY_KEY);
     if (!raw) {
       return [];
     }

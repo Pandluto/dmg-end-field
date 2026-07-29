@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { pinyin } from 'pinyin-pro';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
   buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
@@ -450,7 +451,7 @@ function readLocalStorageJson<T>(key: string, fallback: T): T {
     return fallback;
   }
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     return raw ? JSON.parse(raw) as T : fallback;
   } catch {
     return fallback;
@@ -461,7 +462,7 @@ function writeLocalStorageJson<T>(key: string, value: T) {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(key, JSON.stringify(value));
+  persistentLocalStorage.setItem(key, JSON.stringify(value));
 }
 
 function normalizePart(value: unknown): EquipmentPart {
@@ -1469,7 +1470,7 @@ export function EquipmentSheetPage() {
         setLibrary(nextLibrary);
         setIsDirty(false);
         if (shouldUseCached) {
-          setMessage('已从 localStorage 加载浏览器保存的装备库。');
+          setMessage('已从浏览器 SQLite 加载装备库。');
           return;
         }
         setMessage(fileLibrary.migration?.reviewRequired ? '装备库已加载。迁移数据需要人工复核 typeKey 映射。' : '装备库已加载。');
@@ -1480,7 +1481,7 @@ export function EquipmentSheetPage() {
         if (Object.keys(cached.gearSets).length > 0) {
           setLibrary(cached);
           setIsDirty(false);
-          setMessage(`读取本地 JSON 失败，已使用 localStorage：${error instanceof Error ? error.message : String(error)}`);
+          setMessage(`读取内置资料失败，已使用浏览器 SQLite：${error instanceof Error ? error.message : String(error)}`);
         } else {
           setLibrary(createEmptyLibrary());
           setMessage(`读取装备库失败，已创建空库：${error instanceof Error ? error.message : String(error)}`);
@@ -2399,7 +2400,7 @@ export function EquipmentSheetPage() {
       setLibrary(nextLibrary);
       setIsDirty(false);
       setIsSaveConfirmModalOpen(false);
-      setMessage(`浏览器环境已保存到 localStorage 装备库。${warning}`);
+      setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
       return;
     }
     const result = await writeEquipmentLibraryToFile(nextLibrary);

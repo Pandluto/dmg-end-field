@@ -9,6 +9,7 @@ import {
 } from '../core/calculators/gridSnapLayout';
 import { resolveRuntimeTemplateSkill } from '../core/services/skillDamageTemplateResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { normalizeAssetUrl, resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
 import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
@@ -161,7 +162,7 @@ function resolveWeaponImageUrl(weaponName?: string): string {
 function readLocalStorageJson<T>(key: string, fallback: T): T {
   if (typeof window === 'undefined') return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     return raw ? JSON.parse(raw) as T : fallback;
   } catch {
     return fallback;

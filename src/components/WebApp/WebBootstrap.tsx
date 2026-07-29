@@ -47,7 +47,7 @@ export function WebBootstrap() {
       setInstalledPackage(installed);
       setPhase(installed ? 'ready' : 'onboarding');
       if (installed && (window.location.hash === '' || window.location.hash === '#/')) {
-        navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+        navigateToAppPath(APP_ROUTE_PATHS.welcome);
       }
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
@@ -122,7 +122,7 @@ export function WebBootstrap() {
       <WelcomePage
         onInstalled={(resourcePackage) => {
           setInstalledPackage(resourcePackage);
-          navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+          navigateToAppPath(APP_ROUTE_PATHS.welcome);
           setPhase('ready');
         }}
       />
@@ -135,4 +135,3 @@ export function WebBootstrap() {
     </AppProvider>
   );
 }
-

@@ -12,6 +12,7 @@ import {
   getUserWorkspaceStorageEntries,
 } from '../utils/userWorkspaceBridge';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { getAllBuffList, getBuffById, getSkillButtonById, getSkillButtonTable, loadTimelineData, upsertSkillButton } from '../core/repositories';
 import { buildAnomalyStateDerivedBuffs, buildAnomalyStateSnapshotBuffs } from '../core/services/anomalyStateBuffs';
 import { getAnomalyStateSnapshotsByIds } from '../core/services/anomalyStateSnapshotStorage';
@@ -1411,7 +1412,7 @@ function readUndoSnapshots(): UndoSnapshot[] {
     return [];
   }
   try {
-    const raw = window.localStorage.getItem(DAMAGE_SHEET_UNDO_KEY);
+    const raw = persistentLocalStorage.getItem(DAMAGE_SHEET_UNDO_KEY);
     if (!raw) {
       return [];
     }
@@ -1426,7 +1427,7 @@ function writeUndoSnapshots(snapshots: UndoSnapshot[]): void {
   if (typeof window === 'undefined') {
     return;
   }
-  window.localStorage.setItem(DAMAGE_SHEET_UNDO_KEY, JSON.stringify(snapshots));
+  persistentLocalStorage.setItem(DAMAGE_SHEET_UNDO_KEY, JSON.stringify(snapshots));
 }
 
 function captureSessionSnapshot(label: string): void {

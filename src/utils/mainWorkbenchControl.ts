@@ -2,6 +2,7 @@ import type { Character, SkillButtonType } from '../types';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
 import type { SkillButtonBuff } from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
+import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
@@ -416,11 +417,11 @@ export interface MainWorkbenchSnapshot {
 }
 
 function canUseLocalStorage(): boolean {
-  return typeof window !== 'undefined' && Boolean(window.localStorage);
+  return typeof window !== 'undefined';
 }
 
 // The renderer command bridge must keep working when unrelated persisted app data
-// fills localStorage. localStorage is only a recovery mirror for this transient state;
+// changes. Browser SQLite is only a recovery mirror for this transient state;
 // the in-page copy is authoritative after the first write.
 const memoryJsonStorage = new Map<string, unknown>();
 
@@ -430,7 +431,7 @@ function readJsonStorage<T>(key: string, fallback: T): T {
   }
   if (!canUseLocalStorage()) return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
+    const raw = persistentLocalStorage.getItem(key);
     if (!raw) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -442,9 +443,9 @@ function writeJsonStorage(key: string, value: unknown): void {
   memoryJsonStorage.set(key, value);
   if (!canUseLocalStorage()) return;
   try {
-    window.localStorage.setItem(key, JSON.stringify(value));
+    persistentLocalStorage.setItem(key, JSON.stringify(value));
   } catch (error) {
-    console.warn(`[mainWorkbenchControl] 写入 localStorage 失败: ${key}`, error);
+    console.warn(`[mainWorkbenchControl] 写入浏览器 SQLite 失败: ${key}`, error);
   }
 }
 
