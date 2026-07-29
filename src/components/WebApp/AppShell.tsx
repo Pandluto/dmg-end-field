@@ -81,6 +81,14 @@ function NavGlyph({ name }: { name: NavKey }) {
   );
 }
 
+function BrandLogo() {
+  return (
+    <span className="web-shell-brand-mark" aria-hidden="true">
+      <img src="./app-icon.png" alt="" />
+    </span>
+  );
+}
+
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const launcherRef = useRef<HTMLDivElement | null>(null);
@@ -134,13 +142,13 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
-            <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+            <BrandLogo />
           </button>
 
           {menuOpen && (
             <div className="web-shell-popover">
               <div className="web-shell-popover-heading">
-                <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+                <BrandLogo />
                 <span>
                   <strong>终末地伤害工作台</strong>
                   <small>Web LTS 1.8</small>
@@ -191,7 +199,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
           >
             <header className="web-shell-window-bar">
               <div className="web-shell-window-identity">
-                <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+                <BrandLogo />
                 <span>
                   <strong>{meta.title}</strong>
                   <small>{meta.description}</small>

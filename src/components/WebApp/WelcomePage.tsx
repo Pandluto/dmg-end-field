@@ -61,6 +61,9 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
     <main className="web-entry-screen onboarding-screen">
       <section className="onboarding-card">
         <div className="onboarding-copy">
+          <div className="brand-mark onboarding-brand-mark" aria-hidden="true">
+            <img src="./app-icon.png" alt="" />
+          </div>
           <p className="eyebrow">第一次使用</p>
           <h1>先把基础资料装进浏览器</h1>
           <p>

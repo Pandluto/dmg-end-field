@@ -30,7 +30,7 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [
-        'app-icon.svg',
+        'app-icon.png',
         'web-data-manifest.json',
         'web-image-manifest.json',
       ],
@@ -38,15 +38,16 @@ export default defineConfig({
         name: '终末地伤害工作台',
         short_name: '伤害工作台',
         description: '离线优先的终末地配装、排轴与伤害计算工作台',
-        theme_color: '#07100f',
-        background_color: '#07100f',
+        lang: 'zh-CN',
+        theme_color: '#e9ecea',
+        background_color: '#e9ecea',
         display: 'standalone',
         start_url: './#/welcome',
         icons: [
           {
-            src: 'app-icon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
+            src: 'app-icon.png',
+            sizes: '736x736',
+            type: 'image/png',
             purpose: 'any maskable',
           },
         ],

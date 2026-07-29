@@ -35,7 +35,7 @@
 
 .web-shell-menu-button {
   display: grid;
-  width: 38px;
+  width: 54px;
   height: 38px;
   min-height: 0;
   place-items: center;
@@ -61,27 +61,22 @@
 }
 
 .web-shell-brand-mark {
-  display: flex;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  border-radius: 7px;
-  background: #173d32;
-}
-
-.web-shell-brand-mark i {
   display: block;
-  width: 2px;
-  border-radius: 99px;
-  background: #d8ff6a;
+  width: 42px;
+  height: 30px;
+  flex: 0 0 42px;
+  overflow: hidden;
+  border: 1px solid rgba(60, 60, 67, 0.12);
+  border-radius: 6px;
+  background: #fff;
 }
 
-.web-shell-brand-mark i:nth-child(1) { height: 7px; opacity: 0.62; }
-.web-shell-brand-mark i:nth-child(2) { height: 14px; }
-.web-shell-brand-mark i:nth-child(3) { height: 10px; opacity: 0.8; }
+.web-shell-brand-mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
 .web-shell-popover {
   position: absolute;
@@ -270,9 +265,9 @@
 }
 
 .web-shell-window-identity .web-shell-brand-mark {
-  width: 27px;
-  height: 27px;
-  flex-basis: 27px;
+  width: 42px;
+  height: 30px;
+  flex-basis: 42px;
 }
 
 .web-shell-window-tabs {

@@ -32,9 +32,7 @@ export function AccessGate({ onUnlocked }: AccessGateProps) {
     <main className="web-entry-screen">
       <section className="access-card">
         <div className="brand-mark" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+          <img src="./app-icon.png" alt="" />
         </div>
         <p className="eyebrow">WEB LTS 1.8</p>
         <h1>终末地伤害工作台</h1>
@@ -67,4 +65,3 @@ export function AccessGate({ onUnlocked }: AccessGateProps) {
     </main>
   );
 }
-
