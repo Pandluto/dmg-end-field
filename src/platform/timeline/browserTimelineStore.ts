@@ -30,6 +30,11 @@ import {
   type SqlPrimitive,
   type SqlStatement,
 } from '../database/webDatabase';
+import {
+  normalizeCompatibleTimelinePayload,
+  TimelinePayloadCompatibilityError,
+  type TimelinePayloadCompatibilityRepair,
+} from './timelinePayloadCompatibility';
 
 type Row = Record<string, SqlPrimitive>;
 
@@ -173,6 +178,115 @@ const WORK_NODE_STATUSES = new Set<AiTimelineWorkNodeStatus>([
 
 function fail(code: string, status: number, message: string, details?: unknown): never {
   throw new BrowserTimelineStoreError(message, status, code, details);
+}
+
+function compatiblePayload(
+  payload: unknown,
+  context: string,
+): {
+  payload: TimelineSnapshotPayload;
+  changed: boolean;
+  repairs: TimelinePayloadCompatibilityRepair[];
+} {
+  try {
+    return normalizeCompatibleTimelinePayload(payload);
+  } catch (error) {
+    if (error instanceof TimelinePayloadCompatibilityError) {
+      fail(
+        'invalid-compatible-timeline-payload',
+        400,
+        `${context} 无法转换为可保存的排轴：${error.message}`,
+        { context, issues: error.issues },
+      );
+    }
+    throw error;
+  }
+}
+
+function canonicalizeBrowserTimelineBundle(
+  bundle: BrowserTimelineBundle,
+  context: string,
+): {
+  bundle: BrowserTimelineBundle;
+  changed: boolean;
+  repairs: TimelinePayloadCompatibilityRepair[];
+} {
+  let changed = false;
+  const repairs: TimelinePayloadCompatibilityRepair[] = [];
+  const normalize = (payload: unknown, payloadContext: string): TimelineSnapshotPayload => {
+    const result = compatiblePayload(payload, `${context} / ${payloadContext}`);
+    changed ||= result.changed;
+    repairs.push(...result.repairs);
+    return result.payload;
+  };
+  const snapshots = bundle.snapshots.map((snapshot) => {
+    if (!snapshot.payload) {
+      fail(
+        'timeline-archive-snapshot-has-no-payload',
+        400,
+        `${context} / 快照 ${snapshot.label || snapshot.id} 缺少 payload。`,
+      );
+    }
+    return {
+      ...snapshot,
+      payload: normalize(snapshot.payload, `快照 ${snapshot.label || snapshot.id}`),
+    };
+  });
+  const workNodes = bundle.workNodes.map((node) => {
+    const basePayload = normalize(node.basePayload, `工作节点 ${node.label || node.id} base`);
+    const workingPayload = normalize(node.workingPayload, `工作节点 ${node.label || node.id} working`);
+    return {
+      ...node,
+      basePayload,
+      workingPayload,
+      baseSummary: summarizeTimelinePayload(basePayload),
+      workingSummary: summarizeTimelinePayload(workingPayload),
+    };
+  });
+  const commits = bundle.commits.map((commit) => ({
+    ...commit,
+    basePayload: normalize(commit.basePayload, `提交 ${commit.label || commit.id} base`),
+    appliedPayload: normalize(commit.appliedPayload, `提交 ${commit.label || commit.id} applied`),
+  }));
+  return {
+    bundle: { ...bundle, snapshots, workNodes, commits },
+    changed,
+    repairs,
+  };
+}
+
+function canonicalizeImportDocumentBundle(
+  input: ImportDocumentBundleInput,
+): {
+  input: ImportDocumentBundleInput;
+  repairs: TimelinePayloadCompatibilityRepair[];
+} {
+  const repairs: TimelinePayloadCompatibilityRepair[] = [];
+  const normalize = (payload: unknown, context: string): TimelineSnapshotPayload => {
+    const result = compatiblePayload(payload, context);
+    repairs.push(...result.repairs);
+    return result.payload;
+  };
+  return {
+    input: {
+      ...input,
+      snapshots: input.snapshots.map((snapshot) => ({
+        ...snapshot,
+        payload: normalize(snapshot.payload, `SQLite 导入快照 ${snapshot.label || snapshot.id}`),
+      })),
+      workNodes: input.workNodes?.map((node) => ({
+        ...node,
+        basePayload: normalize(node.basePayload, `SQLite 导入工作节点 ${node.label || node.id} base`),
+        workingPayload: normalize(node.workingPayload, `SQLite 导入工作节点 ${node.label || node.id} working`),
+      })),
+      commits: input.commits?.map((commit) => ({
+        ...commit,
+        basePayload: normalize(commit.basePayload, `SQLite 导入提交 ${commit.label || commit.id} base`),
+        appliedPayload: normalize(commit.appliedPayload, `SQLite 导入提交 ${commit.label || commit.id} applied`),
+      })),
+    },
+    repairs,
+  };
 }
 
 function textValue(value: SqlPrimitive | undefined, fallback = ''): string {
@@ -459,6 +573,8 @@ export async function saveSnapshot(input: {
       'Timeline snapshot requires id, timelineId, and label.',
     );
   }
+  const compatible = compatiblePayload(input.payload, `保存快照 ${input.label || input.id}`);
+  input = { ...input, payload: compatible.payload };
   await requireDocument(input.timelineId);
   const createdAt = input.createdAt ?? Date.now();
   const payloadJson = serialize(input.payload);
@@ -685,6 +801,7 @@ export async function importDocumentBundle(
       'Timeline document bundle requires a document and at least one snapshot.',
     );
   }
+  input = canonicalizeImportDocumentBundle(input).input;
   const createdAt = input.document.createdAt ?? Date.now();
   const snapshotRows = await Promise.all(input.snapshots.map(async (snapshot) => ({
     ...snapshot,
@@ -1613,7 +1730,11 @@ function archiveFromRow(row: Row): BrowserTimelineArchiveSummary {
 async function readArchive(
   library: TimelineArchiveLibrary,
   archiveId: string,
-): Promise<{ summary: BrowserTimelineArchiveSummary; bundle: BrowserTimelineBundle }> {
+): Promise<{
+  summary: BrowserTimelineArchiveSummary;
+  bundle: BrowserTimelineBundle;
+  compatibility: TimelinePayloadCompatibilityRepair[];
+}> {
   const rows = await webDatabase.query<Row>(
     'SELECT * FROM timeline_archives WHERE archive_id = ? AND library = ?',
     [archiveId, library],
@@ -1633,7 +1754,15 @@ async function readArchive(
       `Timeline archive payload is invalid: ${archiveId}`,
     );
   }
-  return { summary: archiveFromRow(rows[0]), bundle };
+  const canonical = canonicalizeBrowserTimelineBundle(
+    bundle,
+    `存档 ${textValue(rows[0].label, archiveId)}`,
+  );
+  return {
+    summary: archiveFromRow(rows[0]),
+    bundle: canonical.bundle,
+    compatibility: canonical.repairs,
+  };
 }
 
 async function storeArchive(input: {
@@ -1643,6 +1772,8 @@ async function storeArchive(input: {
   archiveId?: string;
   createdAt?: string;
 }): Promise<BrowserTimelineArchiveSummary> {
+  const canonical = canonicalizeBrowserTimelineBundle(input.bundle, `存档 ${input.label}`);
+  input = { ...input, bundle: canonical.bundle };
   const resolved = resolveBundlePayload(input.bundle);
   if (!resolved.payload) {
     fail(
@@ -1790,8 +1921,20 @@ export async function importLegacyTimelineArchive(
   reused: boolean;
   archive: BrowserTimelineArchiveSummary;
 }> {
-  const bundle = legacyTimelineArchiveToBundle(archive);
-  const payloadHash = await hashPayload(archive.payload);
+  const canonical = canonicalizeBrowserTimelineBundle(
+    legacyTimelineArchiveToBundle(archive),
+    `旧存档 ${archive.label}`,
+  );
+  const bundle = canonical.bundle;
+  const resolved = resolveBundlePayload(bundle);
+  if (!resolved.payload) {
+    fail(
+      'timeline-archive-has-no-payload',
+      409,
+      'Timeline archive requires at least one checkout payload.',
+    );
+  }
+  const payloadHash = await hashPayload(resolved.payload);
   const existingByHash = await webDatabase.query<Row>(
     'SELECT * FROM timeline_archives WHERE payload_hash = ? AND library = ? LIMIT 1',
     [payloadHash, library],
@@ -1906,11 +2049,80 @@ export async function listSqliteWorkspaces(): Promise<BrowserTimelineSqliteWorks
   }));
 }
 
+async function persistCanonicalBundlePayloads(
+  bundle: BrowserTimelineBundle,
+  repairs: TimelinePayloadCompatibilityRepair[],
+  updatedAt: number,
+): Promise<void> {
+  const snapshotRows = await Promise.all(bundle.snapshots.map(async (snapshot) => ({
+    id: snapshot.id,
+    payload: snapshot.payload!,
+    payloadHash: await hashPayload(snapshot.payload),
+  })));
+  const statements: SqlStatement[] = snapshotRows.map((snapshot) => ({
+    sql: `
+      UPDATE timeline_snapshots
+      SET payload_json = ?, payload_hash = ?
+      WHERE id = ? AND timeline_id = ?
+    `,
+    bind: [
+      serialize(snapshot.payload),
+      snapshot.payloadHash,
+      snapshot.id,
+      bundle.document.id,
+    ],
+  }));
+  bundle.workNodes.forEach((node) => {
+    statements.push({
+      sql: `
+        UPDATE timeline_work_nodes
+        SET base_payload_json = ?, working_payload_json = ?
+        WHERE id = ? AND timeline_id = ?
+      `,
+      bind: [
+        serialize(node.basePayload),
+        serialize(node.workingPayload),
+        node.id,
+        bundle.document.id,
+      ],
+    });
+  });
+  bundle.commits.forEach((commit) => {
+    statements.push({
+      sql: `
+        UPDATE timeline_work_node_commits
+        SET base_payload_json = ?, applied_payload_json = ?
+        WHERE id = ? AND timeline_id = ?
+      `,
+      bind: [
+        serialize(commit.basePayload),
+        serialize(commit.appliedPayload),
+        commit.id,
+        bundle.document.id,
+      ],
+    });
+  });
+  statements.push(auditStatement({
+    timelineId: bundle.document.id,
+    eventType: 'timeline.compatibility-repaired',
+    subjectType: 'checkout',
+    subjectId: bundle.checkoutRef?.targetId || bundle.snapshots[0]?.id || bundle.document.id,
+    details: { repairs },
+    createdAt: updatedAt,
+  }));
+  await webDatabase.batch(statements);
+}
+
 export async function applySqliteWorkspace(
   timelineId: string,
   updatedAt = Date.now(),
 ): Promise<TimelineWorkspaceApplyResult> {
-  const bundle = await exportDocumentBundle(timelineId);
+  const exportedBundle = await exportDocumentBundle(timelineId);
+  const canonical = canonicalizeBrowserTimelineBundle(
+    exportedBundle,
+    `SQLite 工作区 ${exportedBundle.document.label}`,
+  );
+  const bundle = canonical.bundle;
   const resolved = resolveBundlePayload(bundle);
   if (!resolved.payload || !resolved.checkoutRef) {
     fail(
@@ -1918,6 +2130,9 @@ export async function applySqliteWorkspace(
       409,
       'This timeline workspace has no payload to apply.',
     );
+  }
+  if (canonical.changed) {
+    await persistCanonicalBundlePayloads(bundle, canonical.repairs, updatedAt);
   }
   const checkoutRef = await setCheckoutRef({
     ...resolved.checkoutRef,
@@ -2104,7 +2319,11 @@ export async function importPortableTimelineBundle(input: {
   reused: boolean;
   archive: BrowserTimelineArchiveSummary;
 }> {
-  const bundle = portableBundleToRepositoryBundle(input.bundle as TimelineBundleV2);
+  const canonical = canonicalizeBrowserTimelineBundle(
+    portableBundleToRepositoryBundle(input.bundle as TimelineBundleV2),
+    `导入文件 ${input.sourceName || '排轴 JSON'}`,
+  );
+  const bundle = canonical.bundle;
   const resolved = resolveBundlePayload(bundle);
   if (!resolved.payload) {
     fail(
@@ -2186,7 +2405,7 @@ export async function convertTimelineArchive(input: {
   totalNodeCount: number;
   compatibility: Array<{ code: string; message: string }>;
 }> {
-  const { bundle } = await readArchive(input.source, input.archiveId);
+  const { bundle, compatibility } = await readArchive(input.source, input.archiveId);
   const resolved = resolveBundlePayload(bundle);
   if (!resolved.payload) {
     fail(
@@ -2280,6 +2499,8 @@ export async function convertTimelineArchive(input: {
     rootNodeId: workNodes.find((node) => !node.parentNodeId)?.id || '',
     importedNodeCount: workNodes.length,
     totalNodeCount: workNodes.length,
-    compatibility: [],
+    compatibility: [...new Map(
+      compatibility.map((repair) => [`${repair.code}\u0000${repair.message}`, repair]),
+    ).values()],
   };
 }

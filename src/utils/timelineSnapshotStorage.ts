@@ -196,7 +196,7 @@ function isValidTimelineSnapshotPayload(value: unknown): value is TimelineSnapsh
   );
 }
 
-function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSnapshotPayload {
+export function normalizeSnapshotPayload(payload: TimelineSnapshotPayload): TimelineSnapshotPayload {
   return {
     selectedCharacters: payload.selectedCharacters,
     timelineData: payload.timelineData,

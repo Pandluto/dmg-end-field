@@ -18,6 +18,18 @@ const sectionPrefixes = {
   equipments: ['def.equipment-sheet.'],
   buffs: ['def.buff-editor.', 'def.buff-sheet.'],
 };
+const timelineSnapshotArchiveKey = 'def.timeline.snapshot-archive.v1';
+const workspaceStorageKeys = {
+  selectedCharacters: 'def.selected-characters.v1',
+  timelineData: 'def.timeline.data.v1',
+  skillButtonTable: 'def.skill-button.v1',
+  allBuffList: 'def.all-buff-list.v1',
+  anomalyStateSnapshots: 'def.anomaly-state-snapshot-archive.v1',
+  characterInputMap: 'def.operator-config.character-input-map.v3',
+  characterComputedMap: 'def.operator-runtime.character-computed-map.v3',
+  characterDisplayCacheMap: 'def.operator-ui.character-display-cache.v3',
+  operatorConfigPageCache: 'def.operator-config.page-cache.v1',
+};
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -33,6 +45,25 @@ function countRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? Object.keys(value).length
     : 0;
+}
+
+function storedValue(record, key, fallback) {
+  const value = record?.[key];
+  if (value === undefined || value === null) return fallback;
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function recordValue(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function arrayValue(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 const imageManifest = readJson(imageManifestPath);
@@ -96,6 +127,11 @@ function normalizeImagePath(value) {
       .replace(/^\/+/, '');
   } catch {
     // Relative paths are normalized below.
+  }
+  try {
+    normalized = decodeURIComponent(normalized);
+  } catch {
+    // Keep malformed legacy escaping intact so the resolver can report it.
   }
 
   let candidates = [];
@@ -177,6 +213,89 @@ const local = normalizeWebValues(Object.fromEntries(
   Object.entries(source.storage.local)
     .filter(([key]) => isIndependentLibraryKey(key)),
 ));
+const sourceSnapshotArchive = recordValue(storedValue(
+  source.storage.local,
+  timelineSnapshotArchiveKey,
+  {},
+));
+const sourceSnapshots = arrayValue(sourceSnapshotArchive.snapshots);
+const timelineArchives = sourceSnapshots.flatMap((value, index) => {
+  const snapshot = recordValue(value);
+  const payload = recordValue(snapshot.payload);
+  if (Object.keys(payload).length === 0) return [];
+  const createdAt = Number(snapshot.createdAt) || Date.parse(source.createdAt) || Date.now();
+  return [{
+    type: 'dmg.timeline-archive.v1',
+    archiveVersion: 1,
+    source: 'shared',
+    archiveId: `web-lts-1.8-shared-${String(index + 1).padStart(2, '0')}`,
+    label: String(snapshot.label || `共享排轴 ${index + 1}`),
+    createdAt: new Date(createdAt).toISOString(),
+    payload: normalizeWebValues(payload),
+  }];
+});
+const session = recordValue(source.storage.session);
+const hasCurrentWorkspace = Object.values(workspaceStorageKeys).some((key) => (
+  Object.prototype.hasOwnProperty.call(session, key)
+));
+if (hasCurrentWorkspace) {
+  const anomalyArchive = recordValue(storedValue(
+    session,
+    workspaceStorageKeys.anomalyStateSnapshots,
+    {},
+  ));
+  timelineArchives.unshift({
+    type: 'dmg.timeline-archive.v1',
+    archiveVersion: 1,
+    source: 'shared',
+    archiveId: 'web-lts-1.8-shared-current',
+    label: 'Web LTS 1.8 基础数据（当前态）',
+    createdAt: source.createdAt || source.exportedAt,
+    payload: normalizeWebValues({
+      selectedCharacters: arrayValue(storedValue(
+        session,
+        workspaceStorageKeys.selectedCharacters,
+        [],
+      )),
+      timelineData: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.timelineData,
+        { staffLines: [] },
+      )),
+      skillButtonTable: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.skillButtonTable,
+        {},
+      )),
+      allBuffList: arrayValue(storedValue(
+        session,
+        workspaceStorageKeys.allBuffList,
+        [],
+      )),
+      anomalyStateSnapshots: arrayValue(anomalyArchive.snapshots),
+      characterInputMap: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.characterInputMap,
+        {},
+      )),
+      characterComputedMap: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.characterComputedMap,
+        {},
+      )),
+      characterDisplayCacheMap: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.characterDisplayCacheMap,
+        {},
+      )),
+      operatorConfigPageCache: recordValue(storedValue(
+        session,
+        workspaceStorageKeys.operatorConfigPageCache,
+        {},
+      )),
+    }),
+  });
+}
 
 const operatorCount = countRecord(local['def.operator-editor.library.v1']);
 const weaponCount = countRecord(local['def.weapon-sheet.library.v1']);
@@ -185,7 +304,7 @@ if (operatorCount < 30 || weaponCount < 75) {
     `默认 Web 数据源不完整：干员 ${operatorCount}，武器 ${weaponCount}`,
   );
 }
-const normalizedImageReferences = collectImageReferences(local);
+const normalizedImageReferences = collectImageReferences({ local, timelineArchives });
 const invalidImageReferences = normalizedImageReferences.filter(
   (reference) => !reference.startsWith('assets/images/') || !availableImages.has(reference),
 );
@@ -201,14 +320,15 @@ const archive = {
   schemaVersion: 1,
   id: 'web-lts-1.8-default-data',
   name: 'Web LTS 1.8 基础数据',
-  description: '从 7-18 Share Data 提取的干员、武器、装备与 Buff 本地库；不包含私人排轴或会话。',
+  description: '从 7-18 Share Data 整理的干员、武器、装备、Buff 本地库与共享排轴。',
   createdAt: source.createdAt || source.exportedAt,
   exportedAt: source.exportedAt || source.createdAt,
-  sections: ['operators', 'weapons', 'equipments', 'buffs'],
+  sections: ['operators', 'weapons', 'equipments', 'buffs', 'timeline'],
   storage: {
     local,
     session: {},
   },
+  timelineArchives,
   source: {
     archiveId: source.id,
     fileName: path.basename(sourcePath),
@@ -219,6 +339,7 @@ fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 fs.writeFileSync(outputPath, `${JSON.stringify(archive)}\n`);
 console.log(
   `Web default data package: ${operatorCount} operators, ${weaponCount} weapons, `
-  + `${Object.keys(local).length} storage keys, ${normalizedImageUrlCount} image URLs normalized, `
+  + `${timelineArchives.length} shared timelines, ${Object.keys(local).length} storage keys, `
+  + `${normalizedImageUrlCount} image URLs normalized, `
   + `${new Set(normalizedImageReferences).size} unique image files verified.`,
 );

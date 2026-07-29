@@ -48,7 +48,17 @@ async function sha256(buffer: ArrayBuffer): Promise<string> {
 }
 
 export async function fetchResourcePackageManifest(): Promise<ResourcePackageManifest> {
-  const response = await fetch(resolvePublicPath(MANIFEST_PATH), { cache: 'no-store' });
+  const manifestUrl = resolvePublicPath(MANIFEST_PATH);
+  const freshUrl = `${manifestUrl}${manifestUrl.includes('?') ? '&' : '?'}install=${Date.now()}`;
+  let response: Response;
+  try {
+    // The PWA precache can still answer a no-store request with an older
+    // manifest. A unique URL forces an online install to read one coherent
+    // manifest/file generation; the stable URL remains the offline fallback.
+    response = await fetch(freshUrl, { cache: 'no-store' });
+  } catch {
+    response = await fetch(manifestUrl);
+  }
   if (!response.ok) throw new Error(`资源清单加载失败：HTTP ${response.status}`);
   const manifest = await response.json() as ResourcePackageManifest;
   if (
@@ -99,7 +109,16 @@ export async function installDefaultResourcePackage(
   for (let index = 0; index < manifest.files.length; index += 1) {
     const entry = manifest.files[index];
     const url = resolvePublicPath(entry.path);
-    const response = await fetch(url, { cache: 'no-store' });
+    const versionedUrl = `${url}${url.includes('?') ? '&' : '?'}sha256=${entry.sha256}`;
+    let response: Response;
+    try {
+      // Workbox uses the complete URL as its CacheFirst key. The content hash
+      // prevents a stale previous release from being compared with a newer
+      // manifest while still allowing a verified offline reinstall.
+      response = await fetch(versionedUrl, { cache: 'no-store' });
+    } catch {
+      response = await fetch(url);
+    }
     if (!response.ok) {
       throw new Error(`资源下载失败：${entry.path}（HTTP ${response.status}）`);
     }
@@ -154,4 +173,3 @@ export async function removeDefaultResourcePackage(): Promise<void> {
   await caches.delete(RESOURCE_CACHE_NAME);
   await webDatabase.execute('DELETE FROM data_packages WHERE package_id = ?', [DEFAULT_PACKAGE_ID]);
 }
-
