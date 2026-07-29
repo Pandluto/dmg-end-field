@@ -51,12 +51,16 @@ function App() {
   }, []);
 
   let page: React.ReactNode;
+  let overlay: React.ReactNode = null;
   if (currentPath === APP_ROUTE_PATHS.root || currentPath === APP_ROUTE_PATHS.welcome) {
-    page = <StartPage />;
+    page = <WorkbenchFrame />;
+    overlay = <StartPage />;
   } else if (currentPath === APP_ROUTE_PATHS.dataWorkspace) {
-    page = <DataWorkspacePage />;
+    page = <WorkbenchFrame />;
+    overlay = <DataWorkspacePage />;
   } else if (currentPath === APP_ROUTE_PATHS.settings) {
-    page = <SettingsPage />;
+    page = <WorkbenchFrame />;
+    overlay = <SettingsPage />;
   } else if (isDraftPath(currentPath)) {
     page = <OperatorDraftPage />;
   } else if (isBuffSheetPath(currentPath)) {
@@ -80,7 +84,7 @@ function App() {
 
   return (
     <div className="app">
-      <AppShell currentPath={currentPath}>{page}</AppShell>
+      <AppShell currentPath={currentPath} overlay={overlay}>{page}</AppShell>
     </div>
   );
 }

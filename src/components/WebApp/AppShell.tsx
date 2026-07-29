@@ -1,4 +1,9 @@
-import type { ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -7,11 +12,11 @@ type NavKey = 'start' | 'timeline' | 'data' | 'settings';
 interface AppShellProps {
   currentPath: string;
   children: ReactNode;
+  overlay?: ReactNode;
 }
 
 type SectionMeta = {
   key: NavKey;
-  eyebrow: string;
   title: string;
   description: string;
 };
@@ -20,32 +25,28 @@ function sectionMeta(path: string): SectionMeta {
   if (path === APP_ROUTE_PATHS.settings) {
     return {
       key: 'settings',
-      eyebrow: 'SYSTEM',
       title: '设置',
-      description: '浏览器存储、备份与访问状态',
+      description: '存储、备份与访问',
     };
   }
   if (path === APP_ROUTE_PATHS.welcome || path === APP_ROUTE_PATHS.root) {
     return {
       key: 'start',
-      eyebrow: 'WEB LTS 1.8',
       title: '开始',
-      description: '本地工作区概览',
+      description: '本地工作区',
     };
   }
   if (path.startsWith('/data')) {
     return {
       key: 'data',
-      eyebrow: 'LIBRARY',
-      title: '数据工作区',
-      description: '管理资料、编辑库与图片资源',
+      title: '数据',
+      description: '资料与资源',
     };
   }
   return {
     key: 'timeline',
-    eyebrow: 'WORKSPACE',
-    title: '排轴工作区',
-    description: '队伍配置、时间轴与伤害推演',
+    title: '工作区',
+    description: '排轴与计算',
   };
 }
 
@@ -80,72 +81,151 @@ function NavGlyph({ name }: { name: NavKey }) {
   );
 }
 
-export function AppShell({ currentPath, children }: AppShellProps) {
+export function AppShell({ currentPath, children, overlay }: AppShellProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const launcherRef = useRef<HTMLDivElement | null>(null);
   const meta = sectionMeta(currentPath);
   const navItems: Array<{ key: NavKey; label: string; path: string }> = [
     { key: 'start', label: '开始', path: APP_ROUTE_PATHS.welcome },
-    { key: 'timeline', label: '排轴工作区', path: APP_ROUTE_PATHS.timelineWorkspace },
-    { key: 'data', label: '数据工作区', path: APP_ROUTE_PATHS.dataWorkspace },
+    { key: 'timeline', label: '工作区', path: APP_ROUTE_PATHS.timelineWorkspace },
+    { key: 'data', label: '数据', path: APP_ROUTE_PATHS.dataWorkspace },
     { key: 'settings', label: '设置', path: APP_ROUTE_PATHS.settings },
   ];
+  const windowNavItems = navItems.filter((item) => item.key !== 'timeline');
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [currentPath]);
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!launcherRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (menuOpen) {
+        setMenuOpen(false);
+        return;
+      }
+      if (overlay) {
+        navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpen, overlay]);
 
   return (
-    <div className="web-app-shell">
-      <aside className="web-shell-sidebar">
-        <button
-          className="web-shell-brand"
-          type="button"
-          onClick={() => navigateToAppPath(APP_ROUTE_PATHS.welcome)}
-          aria-label="返回开始页"
-        >
-          <span className="web-shell-brand-mark"><i /><i /><i /></span>
-          <span>
-            <strong>终末地</strong>
-            <small>伤害工作台</small>
-          </span>
-        </button>
+    <div className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
+      <main className="web-shell-content">{children}</main>
 
-        <nav className="web-shell-nav" aria-label="主要导航">
-          <p>工作台</p>
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              className={meta.key === item.key ? 'is-active' : ''}
-              type="button"
-              onClick={() => navigateToAppPath(item.path)}
-            >
-              <span className="web-shell-nav-icon"><NavGlyph name={item.key} /></span>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
+      {!overlay && (
+        <div className="web-shell-launcher" ref={launcherRef}>
+          <button
+            className="web-shell-menu-button"
+            type="button"
+            aria-label="打开工作台菜单"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+          </button>
 
-        <div className="web-shell-local-state">
-          <span className="local-state-dot" />
-          <div>
-            <strong>仅保存在此浏览器</strong>
-            <small>SQLite · OPFS</small>
-          </div>
-        </div>
-      </aside>
+          {menuOpen && (
+            <div className="web-shell-popover">
+              <div className="web-shell-popover-heading">
+                <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+                <span>
+                  <strong>终末地伤害工作台</strong>
+                  <small>Web LTS 1.8</small>
+                </span>
+              </div>
 
-      <section className="web-shell-stage">
-        <header className="web-shell-header">
-          <div>
-            <p>{meta.eyebrow}</p>
-            <div className="web-shell-title-line">
-              <h1>{meta.title}</h1>
-              <span>{meta.description}</span>
+              <nav className="web-shell-nav" aria-label="工作台导航">
+                {navItems.map((item) => (
+                  <button
+                    key={item.key}
+                    className={meta.key === item.key ? 'is-active' : ''}
+                    type="button"
+                    onClick={() => navigateToAppPath(item.path)}
+                  >
+                    <span className="web-shell-nav-icon"><NavGlyph name={item.key} /></span>
+                    <span>{item.label}</span>
+                    {meta.key === item.key && <span className="web-shell-nav-check">✓</span>}
+                  </button>
+                ))}
+              </nav>
+
+              <div className="web-shell-local-state">
+                <span className="local-state-dot" />
+                <div>
+                  <strong>此浏览器</strong>
+                  <small>SQLite · OPFS · 离线可用</small>
+                </div>
+              </div>
             </div>
-          </div>
-          <div className="web-shell-badges">
-            <span><i /> 离线可用</span>
-            <span>v1.8 LTS</span>
-          </div>
-        </header>
-        <main className="web-shell-content">{children}</main>
-      </section>
+          )}
+        </div>
+      )}
+
+      {overlay && (
+        <div
+          className="web-shell-overlay"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace);
+            }
+          }}
+        >
+          <section
+            className={`web-shell-window is-${meta.key}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={meta.title}
+          >
+            <header className="web-shell-window-bar">
+              <div className="web-shell-window-identity">
+                <span className="web-shell-brand-mark" aria-hidden="true"><i /><i /><i /></span>
+                <span>
+                  <strong>{meta.title}</strong>
+                  <small>{meta.description}</small>
+                </span>
+              </div>
+
+              <nav className="web-shell-window-tabs" aria-label="面板导航">
+                {windowNavItems.map((item) => (
+                  <button
+                    key={item.key}
+                    className={meta.key === item.key ? 'is-active' : ''}
+                    type="button"
+                    onClick={() => navigateToAppPath(item.path)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </nav>
+
+              <button
+                className="web-shell-window-close"
+                type="button"
+                aria-label="关闭面板并返回工作区"
+                onClick={() => navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace)}
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path d="m6 6 8 8M14 6l-8 8" />
+                </svg>
+              </button>
+            </header>
+            <div className="web-shell-window-content">{overlay}</div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
-

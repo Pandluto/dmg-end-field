@@ -113,7 +113,7 @@ export function SettingsPage() {
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
-            <p>STORAGE</p>
+            <p>存储</p>
             <h2>浏览器存储</h2>
           </div>
           <span className={storage.persisted ? 'settings-state is-good' : 'settings-state'}>
@@ -154,7 +154,7 @@ export function SettingsPage() {
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
-            <p>BACKUP</p>
+            <p>备份</p>
             <h2>备份与资料</h2>
           </div>
         </div>
@@ -177,7 +177,7 @@ export function SettingsPage() {
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
-            <p>ACCESS</p>
+            <p>访问</p>
             <h2>访问门禁</h2>
           </div>
         </div>

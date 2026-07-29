@@ -98,7 +98,7 @@ export function DataWorkspacePage() {
     <div className="data-workspace-page">
       <section className="data-package-panel">
         <div className="data-package-main">
-          <p className="dashboard-kicker">RESOURCE PACKAGE</p>
+          <p className="dashboard-kicker">资料包</p>
           <h2>基础资料包</h2>
           <p>
             下载内容经过 SHA-256 校验后进入浏览器缓存。重新安装只更新官方资料，
@@ -148,7 +148,7 @@ export function DataWorkspacePage() {
       <section className="data-tool-section">
         <div className="section-heading">
           <div>
-            <p>EDITORS</p>
+            <p>编辑器</p>
             <h3>资料与资源</h3>
           </div>
           <span>所有编辑结果只保存在当前浏览器</span>

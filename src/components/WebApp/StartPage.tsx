@@ -54,11 +54,12 @@ export function StartPage() {
     <div className="web-dashboard-page">
       <section className="dashboard-hero">
         <div>
-          <p className="dashboard-kicker">LOCAL FIRST · NO ACCOUNT</p>
-          <h2>把一次计算，留成可以继续推演的方案。</h2>
+          <p className="dashboard-kicker">最近工作</p>
+          <h2>{overview.latestLabel === '尚无排轴' ? '建立第一份排轴' : overview.latestLabel}</h2>
           <p>
-            角色配置、时间轴、Buff 和结果都保存在浏览器 SQLite 中。
-            进入排轴工作区继续当前方案，或前往数据工作区维护资料。
+            {overview.latestUpdatedAt
+              ? `上次编辑于 ${formatDate(overview.latestUpdatedAt)}。排轴、配置与快照都保存在此浏览器。`
+              : '从选择队伍开始建立排轴。配置、时间轴与快照只保存在此浏览器。'}
           </p>
           <div className="dashboard-actions">
             <button
@@ -76,8 +77,7 @@ export function StartPage() {
         <div className="dashboard-signal" aria-hidden="true">
           <span className="signal-ring ring-one" />
           <span className="signal-ring ring-two" />
-          <span className="signal-ring ring-three" />
-          <span className="signal-core">1.8</span>
+          <span className="signal-core"><strong>1.8</strong><small>LTS</small></span>
         </div>
       </section>
 
@@ -107,8 +107,8 @@ export function StartPage() {
       <section className="dashboard-workflow">
         <div className="section-heading">
           <div>
-            <p>QUICK START</p>
-            <h3>从这里继续</h3>
+            <p>快捷入口</p>
+            <h3>新建与管理</h3>
           </div>
         </div>
         <div className="workflow-grid">
@@ -132,4 +132,3 @@ export function StartPage() {
     </div>
   );
 }
-
