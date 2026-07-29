@@ -6,6 +6,12 @@ import {
   exportLegacyTimelineArchives,
   type LegacyTimelineArchive,
 } from '../timeline/browserTimelineStore';
+import {
+  canonicalizeWebImageReferences,
+  exportWebImageAssets,
+  importWebImageAssets,
+  type PortableWebImageAsset,
+} from '../resources/webImageLibrary';
 import { webDatabase, type SqlPrimitive } from '../database/webDatabase';
 import {
   persistentLocalStorage,
@@ -36,6 +42,7 @@ export type LocalDataArchive = {
     session: Record<string, unknown>;
   };
   timelineArchives?: LegacyTimelineArchive[];
+  imageAssets?: PortableWebImageAsset[];
   dataVersion?: string;
   source?: unknown;
 };
@@ -60,6 +67,8 @@ export type LocalDataPackageSummary = {
   updatedAt: number;
   byteSize: number;
   timelineArchiveCount: number;
+  imageAssetCount: number;
+  imageAssetBytes: number;
   counts: LocalDataLibraryCounts;
   active: boolean;
 };
@@ -71,6 +80,8 @@ export type LocalDataApplyResult = {
   removedKeys: number;
   importedTimelineArchives: number;
   reusedTimelineArchives: number;
+  importedImageAssets: number;
+  importedImageBytes: number;
   counts: LocalDataLibraryCounts;
 };
 
@@ -185,6 +196,40 @@ function normalizeSections(value: unknown): LocalDataSection[] {
   return sections.length > 0 ? [...new Set(sections)] : ['all'];
 }
 
+function normalizePortableImageAssets(value: unknown): PortableWebImageAsset[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new Error('数据包 imageAssets 必须是数组。');
+  }
+  const assets = value.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      throw new Error(`数据包第 ${index + 1} 张图片无效。`);
+    }
+    const candidate = item as Partial<PortableWebImageAsset>;
+    if (
+      typeof candidate.relativePath !== 'string'
+      || typeof candidate.mimeType !== 'string'
+      || !Number.isSafeInteger(candidate.sizeBytes)
+      || Number(candidate.sizeBytes) < 0
+      || !Number.isFinite(candidate.updatedAt)
+      || typeof candidate.sha256 !== 'string'
+      || !/^[a-f0-9]{64}$/i.test(candidate.sha256)
+      || typeof candidate.contentBase64 !== 'string'
+    ) {
+      throw new Error(`数据包第 ${index + 1} 张图片字段无效。`);
+    }
+    return {
+      relativePath: candidate.relativePath,
+      mimeType: candidate.mimeType,
+      sizeBytes: Number(candidate.sizeBytes),
+      updatedAt: Number(candidate.updatedAt),
+      sha256: candidate.sha256.toLowerCase(),
+      contentBase64: candidate.contentBase64,
+    };
+  });
+  return assets.length > 0 ? assets : undefined;
+}
+
 export function normalizeLocalDataArchive(value: unknown): LocalDataArchive {
   if (
     !value
@@ -204,6 +249,7 @@ export function normalizeLocalDataArchive(value: unknown): LocalDataArchive {
   if (timelineArchives !== undefined && !Array.isArray(timelineArchives)) {
     throw new Error('数据包 timelineArchives 必须是数组。');
   }
+  const imageAssets = normalizePortableImageAssets(candidate.imageAssets);
   return {
     ...cloneJson(candidate),
     type: 'def.localdata.archive.v1',
@@ -221,6 +267,7 @@ export function normalizeLocalDataArchive(value: unknown): LocalDataArchive {
     ...(timelineArchives ? {
       timelineArchives: cloneJson(timelineArchives),
     } : {}),
+    ...(imageAssets ? { imageAssets } : {}),
   };
 }
 
@@ -317,6 +364,11 @@ async function rowToSummary(
     updatedAt: Number(row.updated_at),
     byteSize: Number(row.byte_size),
     timelineArchiveCount: archive.timelineArchives?.length || 0,
+    imageAssetCount: archive.imageAssets?.length || 0,
+    imageAssetBytes: (archive.imageAssets || []).reduce(
+      (total, asset) => total + asset.sizeBytes,
+      0,
+    ),
     counts: summarizeLocalDataArchive(archive),
     active: currentActiveKey === activePackageKey(
       row.storage_scope === 'local' ? 'local' : 'share',
@@ -631,8 +683,12 @@ export async function createCurrentLocalDataArchive(input: {
   const local = Object.fromEntries(
     persistentLocalStorage.entries()
       .filter(([key]) => key.startsWith('def.'))
-      .map(([key, value]) => [key, parseStoredValue(value)]),
+      .map(([key, value]) => [
+        key,
+        canonicalizeWebImageReferences(parseStoredValue(value)),
+      ]),
   );
+  const imageAssets = await exportWebImageAssets();
   return {
     type: 'def.localdata.archive.v1',
     schemaVersion: 1,
@@ -644,6 +700,7 @@ export async function createCurrentLocalDataArchive(input: {
     sections: ['all'],
     storage: { local, session: {} },
     timelineArchives: await exportLegacyTimelineArchives('shared'),
+    ...(imageAssets.length > 0 ? { imageAssets } : {}),
   };
 }
 
@@ -665,7 +722,9 @@ async function replaceIndependentLibraries(
   archive: LocalDataArchive,
 ): Promise<{ writtenKeys: number; removedKeys: number }> {
   const sections = normalizeSections(archive.sections);
-  const nextValues = independentLocalValues(archive.storage.local, sections);
+  const nextValues = canonicalizeWebImageReferences(
+    independentLocalValues(archive.storage.local, sections),
+  );
   const previousValues = new Map<string, string>();
   const managedKeys = persistentLocalStorage.entries()
     .map(([key]) => key)
@@ -701,6 +760,24 @@ async function replaceIndependentLibraries(
   };
 }
 
+export async function normalizeAppliedLocalDataImagePaths(): Promise<{
+  updatedKeys: number;
+}> {
+  const updates = persistentLocalStorage.entries()
+    .filter(([key]) => shouldIncludeLocalKey(key, ['all']))
+    .flatMap(([key, storedValue]) => {
+      const current = parseStoredValue(storedValue);
+      const normalized = canonicalizeWebImageReferences(current);
+      const nextValue = stringifyStoredValue(normalized);
+      return nextValue === storedValue ? [] : [[key, nextValue] as const];
+    });
+  if (updates.length === 0) return { updatedKeys: 0 };
+  updates.forEach(([key, value]) => persistentLocalStorage.setItem(key, value));
+  await flushPersistentStorage();
+  window.dispatchEvent(new CustomEvent(LOCAL_LIBRARY_CHANGED_EVENT));
+  return { updatedKeys: updates.length };
+}
+
 export async function applyLocalDataPackage(input: {
   scope: LocalDataScope;
   packageId: string;
@@ -716,6 +793,7 @@ export async function applyLocalDataPackage(input: {
       description: `应用 ${archive.name} 前自动保存`,
     });
   }
+  const imageResult = await importWebImageAssets(archive.imageAssets || []);
   const timelineResult = await importArchiveTimelineContent(archive);
   const storageResult = await replaceIndependentLibraries(archive);
   await writeActivePackageKey(input.scope, input.packageId);
@@ -729,6 +807,8 @@ export async function applyLocalDataPackage(input: {
     removedKeys: storageResult.removedKeys,
     importedTimelineArchives: timelineResult.imported,
     reusedTimelineArchives: timelineResult.reused,
+    importedImageAssets: imageResult.imported,
+    importedImageBytes: imageResult.totalBytes,
     counts: readAppliedLocalDataCounts(),
   };
 }

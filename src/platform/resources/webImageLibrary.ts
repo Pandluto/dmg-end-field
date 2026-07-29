@@ -1,15 +1,27 @@
-import type { ImageAssetEntry } from '../components/ImageManager/types';
-import { webDatabase, type SqlPrimitive, type SqlStatement } from '../platform/database/webDatabase';
+import type { ImageAssetEntry } from '../../components/ImageManager/types';
+import { webDatabase, type SqlPrimitive, type SqlStatement } from '../database/webDatabase';
 import {
   validateManagedDirPath,
   validateManagedFilePath,
-  toUserImageRelPath,
-} from './imageFileService';
+} from '../../utils/imageFileService';
+import {
+  createWebImagePathIndex,
+  type WebImageIndexedPath,
+} from './webImagePathIndex';
 
-type CapListener = (caps: ImageManagerCapabilities) => void;
+type CapListener = (caps: WebImageLibraryCapabilities) => void;
 type ImageRow = Record<string, SqlPrimitive>;
 
-export interface ImageManagerCapabilities {
+export type PortableWebImageAsset = {
+  relativePath: string;
+  mimeType: string;
+  sizeBytes: number;
+  updatedAt: number;
+  sha256: string;
+  contentBase64: string;
+};
+
+export interface WebImageLibraryCapabilities {
   canList: boolean;
   canImport: boolean;
   canRename: boolean;
@@ -26,7 +38,7 @@ export interface ImageManagerCapabilities {
   transportKind: 'browser-sqlite';
 }
 
-const BROWSER_CAPABILITIES: ImageManagerCapabilities = {
+const WEB_CAPABILITIES: WebImageLibraryCapabilities = {
   canList: true,
   canImport: true,
   canRename: true,
@@ -59,18 +71,12 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
-const LEGACY_DESKTOP_IMAGE_HOSTS = new Set([
-  '127.0.0.1:31457',
-  'localhost:31457',
-]);
-
-let currentCapabilities = BROWSER_CAPABILITIES;
+let currentCapabilities = WEB_CAPABILITIES;
 let builtinManifest: ImageAssetEntry[] | null = null;
-let hydrationPromise: Promise<void> | null = null;
+let initializationPromise: Promise<void> | null = null;
 const capabilityListeners = new Set<CapListener>();
 const objectUrlByPath = new Map<string, string>();
-const staticPathByFileName = new Map<string, string>();
-const userPathByFileName = new Map<string, string>();
+let pathIndex = createWebImagePathIndex([]);
 
 function notifyCapabilityListeners(): void {
   capabilityListeners.forEach((listener) => listener(currentCapabilities));
@@ -125,6 +131,29 @@ function toBytes(value: SqlPrimitive | undefined): Uint8Array | null {
   return null;
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function base64ToBytes(value: string): Uint8Array {
+  const binary = atob(value);
+  return Uint8Array.from(binary, (character) => character.charCodeAt(0));
+}
+
+async function sha256Bytes(bytes: Uint8Array): Promise<string> {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const digest = await crypto.subtle.digest('SHA-256', copy.buffer);
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function revokeObjectUrl(relativePath: string): void {
   const previous = objectUrlByPath.get(relativePath);
   if (!previous) return;
@@ -141,8 +170,6 @@ function registerObjectUrl(
   const bytes = new Uint8Array(content);
   const url = URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
   objectUrlByPath.set(relativePath, url);
-  const fileName = relativePath.split('/').pop();
-  if (fileName) userPathByFileName.set(fileName, relativePath);
   return url;
 }
 
@@ -198,15 +225,6 @@ async function loadBuiltinManifest(): Promise<ImageAssetEntry[]> {
       };
     })
     : [];
-  staticPathByFileName.clear();
-  for (const entry of builtinManifest) {
-    if (entry.kind === 'dir') continue;
-    const existing = staticPathByFileName.get(entry.fileName);
-    const preferred = !existing
-      || entry.relativePath.includes('/icon_cn/')
-      || entry.source === 'release';
-    if (preferred) staticPathByFileName.set(entry.fileName, entry.relativePath);
-  }
   return builtinManifest;
 }
 
@@ -218,7 +236,6 @@ async function loadUserRows(): Promise<ImageRow[]> {
 
 function hydrateRows(rows: ImageRow[]): void {
   const present = new Set<string>();
-  userPathByFileName.clear();
   for (const row of rows) {
     const relativePath = String(row.relative_path || '');
     if (!relativePath || String(row.mime_type || '') === 'inode/directory') continue;
@@ -229,67 +246,160 @@ function hydrateRows(rows: ImageRow[]): void {
   for (const path of [...objectUrlByPath.keys()]) {
     if (!present.has(path)) revokeObjectUrl(path);
   }
+  const indexedPaths: WebImageIndexedPath[] = [
+    ...(builtinManifest || [])
+      .filter((entry) => entry.kind !== 'dir')
+      .map((entry) => ({
+        relativePath: entry.relativePath,
+        source: 'release' as const,
+      })),
+    ...rows
+      .filter((row) => String(row.mime_type || '') !== 'inode/directory')
+      .map((row) => ({
+        relativePath: String(row.relative_path || ''),
+        source: 'user' as const,
+      })),
+  ];
+  pathIndex = createWebImagePathIndex(indexedPaths);
 }
 
-export async function hydrateBrowserImageAssets(): Promise<void> {
-  if (hydrationPromise) return hydrationPromise;
-  hydrationPromise = Promise.all([loadBuiltinManifest(), loadUserRows()])
+export async function initializeWebImageLibrary(): Promise<void> {
+  if (initializationPromise) return initializationPromise;
+  initializationPromise = Promise.all([loadBuiltinManifest(), loadUserRows()])
     .then(([, rows]) => {
       hydrateRows(rows);
     })
     .finally(() => {
-      hydrationPromise = null;
+      initializationPromise = null;
     });
-  return hydrationPromise;
-}
-
-function resolveLogicalImagePath(relativePath: string): string {
-  const normalized = normalizeSlashes(relativePath)
-    .replace(/^user-images\//, '');
-  if (normalized.startsWith('img-equipment/') && !normalized.startsWith('img-equipment/icon_cn/')) {
-    return `assets/images/img-equipment/icon_cn/${normalized.slice('img-equipment/'.length)}`;
-  }
-  if (normalized.startsWith('images/')) return `assets/images/${normalized}`;
-  if (normalized.includes('/')) return `assets/images/${normalized}`;
-  return userPathByFileName.get(normalized)
-    || staticPathByFileName.get(normalized)
-    || `assets/images/${normalized}`;
+  return initializationPromise;
 }
 
 /**
- * Resolve browser image references. User BLOBs become object URLs; release
- * images retain their canonical same-origin path and are fulfilled by the
- * image pack cache.
+ * Canonicalize a stored image reference against the installed Web image
+ * library. Historical desktop formats are accepted only at this boundary;
+ * business data is persisted with the matched assets/images path.
  */
-export function resolveBrowserImageUrl(path?: string | null): string | null {
+export function canonicalizeWebImageReference(path?: string | null): string | null {
   if (!path) return null;
-  if (/^(?:data|blob):/i.test(path)) return path;
-  let normalized = path;
-  try {
-    const url = new URL(path, window.location.href);
-    const isLegacyDesktopImage = LEGACY_DESKTOP_IMAGE_HOSTS.has(url.host);
-    if (
-      /^https?:/i.test(path)
-      && url.origin !== window.location.origin
-      && !isLegacyDesktopImage
-    ) {
-      return path;
-    } else {
-      normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
-    }
-  } catch {
-    normalized = path;
-  }
-  normalized = normalizeSlashes(normalized);
-  const relativePath = normalized.startsWith('user-images/')
-    ? resolveLogicalImagePath(normalized)
-    : normalized.startsWith('assets/')
-      ? normalized
-      : staticPathByFileName.get(normalized.split('/').pop() || '') || normalized;
-  return objectUrlByPath.get(relativePath) || staticAssetUrl(relativePath);
+  return pathIndex.resolve(path, window.location.origin)?.canonicalPath || path;
 }
 
-export function getCapabilities(): ImageManagerCapabilities {
+export function canonicalizeWebImageReferences<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => canonicalizeWebImageReferences(item)) as T;
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .map(([key, child]) => [key, canonicalizeWebImageReferences(child)]),
+    ) as T;
+  }
+  if (typeof value === 'string') {
+    return (canonicalizeWebImageReference(value) || value) as T;
+  }
+  return value;
+}
+
+/**
+ * Resolve a Web image-library reference. Custom SQLite BLOBs become object
+ * URLs; release images use the same-origin URL fulfilled by the image cache.
+ */
+export function resolveWebImageUrl(path?: string | null): string | null {
+  if (!path) return null;
+  if (/^(?:data|blob):/i.test(path)) return path;
+  const canonical = canonicalizeWebImageReference(path);
+  if (!canonical) return null;
+  if (/^(?:data|blob):/i.test(canonical)) return canonical;
+  if (/^https?:/i.test(canonical)) return canonical;
+  const normalized = normalizeSlashes(canonical);
+  return objectUrlByPath.get(normalized) || staticAssetUrl(normalized);
+}
+
+export async function exportWebImageAssets(): Promise<PortableWebImageAsset[]> {
+  const rows = await webDatabase.query<ImageRow>(
+    `
+      SELECT * FROM image_assets
+      WHERE source = 'user' AND writable = 1
+        AND mime_type != 'inode/directory' AND content IS NOT NULL
+      ORDER BY relative_path ASC
+    `,
+  );
+  const assets: PortableWebImageAsset[] = [];
+  for (const row of rows) {
+    const relativePath = String(row.relative_path || '');
+    const validated = validateManagedFilePath(relativePath);
+    const bytes = toBytes(row.content);
+    if (!validated.ok || !bytes) continue;
+    assets.push({
+      relativePath: validated.normalized,
+      mimeType: String(row.mime_type || 'application/octet-stream'),
+      sizeBytes: bytes.byteLength,
+      updatedAt: Number(row.updated_at || 0),
+      sha256: await sha256Bytes(bytes),
+      contentBase64: bytesToBase64(bytes),
+    });
+  }
+  return assets;
+}
+
+export async function importWebImageAssets(
+  assets: PortableWebImageAsset[],
+): Promise<{ imported: number; totalBytes: number }> {
+  if (!assets.length) return { imported: 0, totalBytes: 0 };
+  const statements: SqlStatement[] = [];
+  let totalBytes = 0;
+  for (const asset of assets) {
+    const validated = validateManagedFilePath(asset.relativePath);
+    if (!validated.ok) throw new Error(`数据包图片路径无效：${asset.relativePath}`);
+    const fileName = validated.normalized.split('/').pop() || '';
+    const { baseName, ext } = fileParts(fileName);
+    if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+      throw new Error(`数据包图片格式无效：${fileName}`);
+    }
+    const content = base64ToBytes(asset.contentBase64);
+    if (content.byteLength !== asset.sizeBytes) {
+      throw new Error(`数据包图片体积不符：${asset.relativePath}`);
+    }
+    if (await sha256Bytes(content) !== asset.sha256) {
+      throw new Error(`数据包图片校验失败：${asset.relativePath}`);
+    }
+    totalBytes += content.byteLength;
+    statements.push({
+      sql: `
+        INSERT INTO image_assets(
+          relative_path, file_name, base_name, extension, mime_type, content,
+          source, writable, size_bytes, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'user', 1, ?, ?)
+        ON CONFLICT(relative_path) DO UPDATE SET
+          file_name = excluded.file_name,
+          base_name = excluded.base_name,
+          extension = excluded.extension,
+          mime_type = excluded.mime_type,
+          content = excluded.content,
+          source = excluded.source,
+          writable = excluded.writable,
+          size_bytes = excluded.size_bytes,
+          updated_at = excluded.updated_at
+      `,
+      bind: [
+        validated.normalized,
+        fileName,
+        baseName,
+        ext,
+        asset.mimeType || MIME_BY_EXTENSION[ext] || 'application/octet-stream',
+        content,
+        content.byteLength,
+        Number(asset.updatedAt) || Date.now(),
+      ],
+    });
+  }
+  await webDatabase.batch(statements);
+  hydrateRows(await loadUserRows());
+  return { imported: statements.length, totalBytes };
+}
+
+export function getCapabilities(): WebImageLibraryCapabilities {
   return currentCapabilities;
 }
 
@@ -298,20 +408,18 @@ export function subscribeCapabilities(listener: CapListener): () => void {
   return () => capabilityListeners.delete(listener);
 }
 
-export async function refreshCapabilities(): Promise<ImageManagerCapabilities> {
+export async function refreshCapabilities(): Promise<WebImageLibraryCapabilities> {
   await webDatabase.initialize();
-  currentCapabilities = BROWSER_CAPABILITIES;
+  currentCapabilities = WEB_CAPABILITIES;
   notifyCapabilityListeners();
   return currentCapabilities;
 }
 
-export function getUserImageUrl(entry: ImageAssetEntry): string | null {
-  const rel = toUserImageRelPath(entry);
+export function getWebImageUrl(entry: ImageAssetEntry): string | null {
   if (entry.source === 'user') {
-    return objectUrlByPath.get(entry.relativePath)
-      || (rel ? objectUrlByPath.get(`assets/images/${rel}`) || null : null);
+    return objectUrlByPath.get(entry.relativePath) || null;
   }
-  return resolveBrowserImageUrl(entry.relativePath || entry.canonicalPath);
+  return resolveWebImageUrl(entry.relativePath || entry.canonicalPath);
 }
 
 async function pickBrowserFiles(): Promise<File[] | null> {
@@ -385,7 +493,7 @@ function fileUpsertStatement(
   };
 }
 
-export const imageBridge = {
+export const webImageLibrary = {
   getCapabilities,
   subscribeCapabilities,
   refreshCapabilities,
@@ -423,13 +531,7 @@ export const imageBridge = {
         };
       }));
       await webDatabase.batch(prepared.map((item) => item.statement));
-      for (const item of prepared) {
-        registerObjectUrl(
-          item.relativePath,
-          item.file.type || MIME_BY_EXTENSION[fileParts(item.file.name).ext],
-          item.content,
-        );
-      }
+      hydrateRows(await loadUserRows());
       return { ok: true, imported: prepared.map((item) => item.file.name) };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -478,13 +580,6 @@ export const imageBridge = {
           lockedFiles,
         };
       }
-      const rows = await webDatabase.query<ImageRow>(
-        `
-          SELECT relative_path FROM image_assets
-          WHERE relative_path = ? OR relative_path LIKE ? ESCAPE '\\'
-        `,
-        [prefix, `${prefix.replace(/[%_\\]/g, '\\$&')}/%`],
-      );
       await webDatabase.execute(
         `
           DELETE FROM image_assets
@@ -492,7 +587,7 @@ export const imageBridge = {
         `,
         [prefix, `${prefix.replace(/[%_\\]/g, '\\$&')}/%`],
       );
-      rows.forEach((row) => revokeObjectUrl(String(row.relative_path || '')));
+      hydrateRows(await loadUserRows());
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -524,9 +619,7 @@ export const imageBridge = {
         `,
         [newPath, fileName, baseName, ext, Date.now(), validated.normalized],
       );
-      const content = toBytes(rows[0].content);
-      revokeObjectUrl(validated.normalized);
-      if (content) registerObjectUrl(newPath, String(rows[0].mime_type || ''), content);
+      hydrateRows(await loadUserRows());
       return { ok: true };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
@@ -583,7 +676,7 @@ export const imageBridge = {
       [validated.normalized],
     );
     if (!result.changes) return { ok: false, error: '只能删除浏览器中导入的图片' };
-    revokeObjectUrl(validated.normalized);
+    hydrateRows(await loadUserRows());
     return { ok: true };
   },
 
@@ -600,4 +693,4 @@ export const imageBridge = {
   },
 };
 
-export { isManagedDir, normalizeDir } from './imageFileService';
+export { isManagedDir, normalizeDir } from '../../utils/imageFileService';

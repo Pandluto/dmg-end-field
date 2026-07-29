@@ -20,10 +20,11 @@ import {
   flushPersistentStorage,
 } from '../../platform/storage/persistentStorage';
 import { bootstrapUserWorkspaceBridge, flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
-import { hydrateBrowserImageAssets } from '../../utils/imageBridge';
+import { initializeWebImageLibrary } from '../../platform/resources/webImageLibrary';
 import {
   applyDefaultLocalDataPackage,
   hasAnyAppliedIndependentLibraries,
+  normalizeAppliedLocalDataImagePaths,
 } from '../../platform/data/localDataPackages';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
@@ -52,7 +53,8 @@ export function WebBootstrap() {
       await webDatabase.initialize();
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
-      await hydrateBrowserImageAssets();
+      await initializeWebImageLibrary();
+      await normalizeAppliedLocalDataImagePaths();
       void requestPersistentBrowserStorage();
       const [installed, imagePackage] = await Promise.all([
         readInstalledResourcePackage(),

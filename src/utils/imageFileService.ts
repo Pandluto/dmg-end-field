@@ -166,9 +166,12 @@ export function validateManagedFilePath(filePath: string): PathResult {
   if (!filePath || typeof filePath !== 'string') {
     return { ok: false, error: '缺少文件路径' };
   }
-  const normalized = filePath.replace(/\\/g, '/');
+  const normalized = filePath.replace(/\\/g, '/').replace(/\/+/g, '/');
   if (!normalized.startsWith(`${MANAGED_REL}/`)) {
     return { ok: false, error: '非管理目录文件' };
+  }
+  if (normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..')) {
+    return { ok: false, error: '文件路径无效' };
   }
   return { ok: true, normalized };
 }

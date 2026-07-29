@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getCapabilities, subscribeCapabilities, refreshCapabilities } from '../../utils/imageBridge';
-import type { ImageManagerCapabilities } from '../../utils/imageBridge';
+import {
+  getCapabilities,
+  subscribeCapabilities,
+  refreshCapabilities,
+  type WebImageLibraryCapabilities,
+} from '../../platform/resources/webImageLibrary';
 
-const CAP_LABELS: { key: keyof ImageManagerCapabilities; label: string }[] = [
+const CAP_LABELS: { key: keyof WebImageLibraryCapabilities; label: string }[] = [
   { key: 'canList', label: '列举' },
   { key: 'canImport', label: '导入' },
   { key: 'canRename', label: '重命名' },

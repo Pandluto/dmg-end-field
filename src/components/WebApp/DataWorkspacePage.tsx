@@ -59,6 +59,11 @@ export function DataWorkspacePage() {
   const [installing, setInstalling] = useState(false);
   const [dataBusy, setDataBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [saveDialogScope, setSaveDialogScope] = useState<LocalDataScope | null>(null);
+  const [savePackageName, setSavePackageName] = useState('');
+  const [confirmation, setConfirmation] = useState<
+    'restore-default' | 'apply-package' | 'delete-package' | null
+  >(null);
   const localImportRef = useRef<HTMLInputElement>(null);
   const shareImportRef = useRef<HTMLInputElement>(null);
 
@@ -112,7 +117,7 @@ export function DataWorkspacePage() {
       setInstalled(next);
       setImages(nextImages);
       await refreshPackages();
-      setMessage('完整数据包已下载到 Share Data；图片包已经校验。');
+      setMessage('基础资料已下载到 Share Data；Web 图片包已经校验。');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -121,9 +126,6 @@ export function DataWorkspacePage() {
   };
 
   const restoreDefault = async () => {
-    if (!window.confirm(
-      '一键还原会先把当前四类资料保存为 Local Data 备份，再应用 Web LTS 基础数据。当前 SQLite 排轴不会被覆盖。继续吗？',
-    )) return;
     setDataBusy(true);
     setMessage('正在备份并还原完整数据…');
     try {
@@ -141,9 +143,6 @@ export function DataWorkspacePage() {
 
   const applySelectedPackage = async () => {
     if (!selectedPackage) return;
-    if (!window.confirm(
-      `应用“${selectedPackage.name}”？系统会先保存 Local Data 备份，只替换干员、武器、装备与 Buff；SQLite 排轴保持不变。`,
-    )) return;
     setDataBusy(true);
     setMessage('正在应用数据包…');
     try {
@@ -154,7 +153,8 @@ export function DataWorkspacePage() {
       });
       setMessage(
         `已应用 ${result.counts.operators} 位干员、${result.counts.weapons} 件武器；`
-        + `导入 ${result.importedTimelineArchives} 份共享存档。正在刷新工作台。`,
+        + `导入 ${result.importedTimelineArchives} 份共享存档、`
+        + `${result.importedImageAssets} 张自定义图片。正在刷新工作台。`,
       );
       window.setTimeout(() => window.location.reload(), 500);
     } catch (error) {
@@ -163,18 +163,26 @@ export function DataWorkspacePage() {
     }
   };
 
-  const saveCurrent = async (scope: LocalDataScope) => {
-    const defaultName = `${scope === 'local' ? '本地' : '共享'}数据 ${new Date().toLocaleDateString('zh-CN')}`;
-    const name = window.prompt('数据包名称', defaultName);
-    if (name === null) return;
+  const openSaveDialog = (scope: LocalDataScope) => {
+    setSavePackageName(
+      `${scope === 'local' ? '本地' : '共享'}数据 ${new Date().toLocaleDateString('zh-CN')}`,
+    );
+    setSaveDialogScope(scope);
+  };
+
+  const saveCurrent = async (scope: LocalDataScope, name: string) => {
     setDataBusy(true);
-    setMessage('正在整理当前资料与共享存档…');
+    setMessage('正在整理当前资料、共享存档与自定义图片…');
     try {
       const summary = await saveCurrentLocalDataPackage(scope, { name });
       setPackageScope(scope);
       await refreshPackages();
       setSelectedPackageKey(packageKey(summary));
-      setMessage(`已保存到 ${scope === 'local' ? 'Local Data' : 'Share Data'}：${summary.name}`);
+      setSaveDialogScope(null);
+      setMessage(
+        `已保存到 ${scope === 'local' ? 'Local Data' : 'Share Data'}：${summary.name}；`
+        + `包含 ${summary.imageAssetCount} 张自定义图片。`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -191,7 +199,10 @@ export function DataWorkspacePage() {
       setPackageScope(scope);
       await refreshPackages();
       setSelectedPackageKey(packageKey(result.summary));
-      setMessage(`${result.reused ? '已存在相同数据包' : '导入完成'}：${result.summary.name}`);
+      setMessage(
+        `${result.reused ? '已存在相同数据包' : '导入完成'}：${result.summary.name}；`
+        + `包含 ${result.summary.imageAssetCount} 张自定义图片。`,
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -220,9 +231,6 @@ export function DataWorkspacePage() {
 
   const deleteSelected = async () => {
     if (!selectedPackage) return;
-    if (!window.confirm(
-      `删除数据包“${selectedPackage.name}”？已经应用的资料和独立排轴存档不会删除。`,
-    )) return;
     setDataBusy(true);
     try {
       await deleteLocalDataPackage(selectedPackage.scope, selectedPackage.packageId);
@@ -232,6 +240,18 @@ export function DataWorkspacePage() {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
       setDataBusy(false);
+    }
+  };
+
+  const runConfirmedAction = () => {
+    const action = confirmation;
+    setConfirmation(null);
+    if (action === 'restore-default') {
+      void restoreDefault();
+    } else if (action === 'apply-package') {
+      void applySelectedPackage();
+    } else if (action === 'delete-package') {
+      void deleteSelected();
     }
   };
 
@@ -266,7 +286,7 @@ export function DataWorkspacePage() {
     },
     {
       title: '图片资源',
-      description: '导入并建立浏览器内的一对一图片映射。',
+      description: '管理 Web 图片包索引与浏览器 SQLite 自定义图片。',
       meta: 'Asset Library',
       path: APP_ROUTE_PATHS.imageManager,
       accent: 'violet',
@@ -282,13 +302,18 @@ export function DataWorkspacePage() {
           <h2>完整数据与图片包</h2>
           <p>
             完整数据包下载后进入 Share Data；只有“应用数据”才会替换浏览器中的
-            干员、武器、装备与 Buff。本地 SQLite 排轴始终独立保存。
+            干员、武器、装备与 Buff。基础图片由 Web 图片包提供，自定义图片随
+            Local Data / Share Data 保存；SQLite 排轴始终独立。
           </p>
           <div className="data-package-actions">
             <button className="dashboard-primary-button" type="button" onClick={install} disabled={installing || dataBusy}>
               {installing ? '正在校验…' : updateAvailable ? '下载可用更新' : '重新校验并下载'}
             </button>
-            <button type="button" onClick={restoreDefault} disabled={installing || dataBusy}>
+            <button
+              type="button"
+              onClick={() => setConfirmation('restore-default')}
+              disabled={installing || dataBusy}
+            >
               一键还原完整数据
             </button>
           </div>
@@ -333,7 +358,7 @@ export function DataWorkspacePage() {
             <p>完整数据包</p>
             <h3>Local Data / Share Data</h3>
           </div>
-          <span>应用前自动备份；不覆盖 SQLite 排轴</span>
+          <span>资料、共享存档和自定义图片一起保存；不覆盖 SQLite 排轴</span>
         </div>
         <div className="data-library-toolbar">
           <div className="data-library-tabs">
@@ -350,7 +375,7 @@ export function DataWorkspacePage() {
             ))}
           </div>
           <div className="data-library-actions">
-            <button type="button" disabled={dataBusy} onClick={() => void saveCurrent(packageScope)}>
+            <button type="button" disabled={dataBusy} onClick={() => openSaveDialog(packageScope)}>
               保存当前数据
             </button>
             <button
@@ -399,7 +424,10 @@ export function DataWorkspacePage() {
                 <span>
                   {item.counts.operators} 干员 · {item.counts.weapons} 武器 · {item.counts.equipments} 装备
                 </span>
-                <span>{item.timelineArchiveCount} 份排轴存档 · {formatBytes(item.byteSize)}</span>
+                <span>
+                  {item.timelineArchiveCount} 份排轴存档 · {item.imageAssetCount} 张自定义图片
+                  {' · '}{formatBytes(item.byteSize)}
+                </span>
               </button>
             ))}
           </div>
@@ -414,14 +442,27 @@ export function DataWorkspacePage() {
                   <div><dt>武器</dt><dd>{selectedPackage.counts.weapons}</dd></div>
                   <div><dt>装备</dt><dd>{selectedPackage.counts.equipments}</dd></div>
                   <div><dt>Buff 组</dt><dd>{selectedPackage.counts.buffGroups}</dd></div>
+                  <div><dt>自定义图片</dt><dd>{selectedPackage.imageAssetCount}</dd></div>
+                  <div><dt>图片体积</dt><dd>{formatBytes(selectedPackage.imageAssetBytes)}</dd></div>
                 </dl>
                 <span>{selectedPackage.description || selectedPackage.sourceName || selectedPackage.packageId}</span>
                 <div className="data-library-inspector-actions">
-                  <button className="dashboard-primary-button" type="button" disabled={dataBusy} onClick={applySelectedPackage}>
+                  <button
+                    className="dashboard-primary-button"
+                    type="button"
+                    disabled={dataBusy}
+                    onClick={() => setConfirmation('apply-package')}
+                  >
                     应用数据
                   </button>
                   <button type="button" disabled={dataBusy} onClick={() => void exportSelected()}>导出</button>
-                  <button type="button" disabled={dataBusy} onClick={() => void deleteSelected()}>删除</button>
+                  <button
+                    type="button"
+                    disabled={dataBusy}
+                    onClick={() => setConfirmation('delete-package')}
+                  >
+                    删除
+                  </button>
                 </div>
               </>
             ) : (
@@ -458,6 +499,85 @@ export function DataWorkspacePage() {
           ))}
         </div>
       </section>
+      {saveDialogScope && (
+        <div className="data-save-dialog-backdrop" role="presentation">
+          <form
+            className="data-save-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="data-save-dialog-title"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void saveCurrent(saveDialogScope, savePackageName);
+            }}
+          >
+            <p>{saveDialogScope === 'local' ? 'Local Data' : 'Share Data'}</p>
+            <h3 id="data-save-dialog-title">保存当前完整数据</h3>
+            <span>干员、武器、装备、Buff、共享排轴存档和自定义图片会一起保存。</span>
+            <label>
+              数据包名称
+              <input
+                autoFocus
+                value={savePackageName}
+                onChange={(event) => setSavePackageName(event.target.value)}
+                placeholder="输入数据包名称"
+              />
+            </label>
+            <div>
+              <button
+                type="button"
+                disabled={dataBusy}
+                onClick={() => setSaveDialogScope(null)}
+              >
+                取消
+              </button>
+              <button
+                className="dashboard-primary-button"
+                type="submit"
+                disabled={dataBusy || !savePackageName.trim()}
+              >
+                {dataBusy ? '正在保存…' : '保存数据包'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+      {confirmation && (
+        <div className="data-save-dialog-backdrop" role="presentation">
+          <div
+            className="data-save-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="data-confirm-dialog-title"
+          >
+            <p>确认操作</p>
+            <h3 id="data-confirm-dialog-title">
+              {confirmation === 'restore-default'
+                ? '还原 Web LTS 基础数据'
+                : confirmation === 'apply-package'
+                  ? `应用“${selectedPackage?.name || ''}”`
+                  : `删除“${selectedPackage?.name || ''}”`}
+            </h3>
+            <span>
+              {confirmation === 'restore-default'
+                ? '当前资料会先保存为 Local Data 备份，再应用基础数据；SQLite 排轴不会被覆盖。'
+                : confirmation === 'apply-package'
+                  ? '系统会先保存 Local Data 备份，再恢复资料、共享存档和包内自定义图片；SQLite 排轴保持不变。'
+                  : '只删除这个数据包；已经应用的资料、自定义图片和独立排轴不会删除。'}
+            </span>
+            <div>
+              <button type="button" onClick={() => setConfirmation(null)}>取消</button>
+              <button
+                className={confirmation === 'delete-package' ? 'data-dialog-danger-button' : 'dashboard-primary-button'}
+                type="button"
+                onClick={runConfirmedAction}
+              >
+                {confirmation === 'delete-package' ? '删除数据包' : '确认继续'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

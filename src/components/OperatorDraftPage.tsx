@@ -12,7 +12,7 @@ import {
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
 import { normalizeAssetUrl } from '../utils/assetResolver';
-import { imageBridge } from '../utils/imageBridge';
+import { webImageLibrary } from '../platform/resources/webImageLibrary';
 import { toUserImageRelPath } from '../utils/imageFileService';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
@@ -747,7 +747,7 @@ export function OperatorDraftPage() {
 
     const loadUserAssetOptions = async () => {
       try {
-        const assets = await imageBridge.listAssets();
+        const assets = await webImageLibrary.listAssets();
         if (!isMounted) return;
         const paths = assets
           .map((asset) => {

@@ -220,8 +220,8 @@
     },
     {
       "path": "data/default-local-data.json",
-      "sha256": "4d40d2892fe4980c0f7dcd1f28cae3b7366b924e0f4c468ed493c4e945b0388f",
-      "size": 1092021
+      "sha256": "7d95d36bd8905fb3e173f7eaad5b0868cbd70b11db000a384ce7c27b59dae90d",
+      "size": 1094115
     },
     {
       "path": "data/equipments/equipments.json",
@@ -504,6 +504,6 @@
       "size": 5705
     }
   ],
-  "totalBytes": 3845770,
-  "generatedAt": "2026-07-29T17:12:03.422Z"
+  "totalBytes": 3847864,
+  "generatedAt": "2026-07-29T17:22:14.511Z"
 }

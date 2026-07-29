@@ -1,6 +1,6 @@
 import type { SkillType } from '../types';
 import { SKILL_NAMES } from '../types';
-import { resolveBrowserImageUrl } from './imageBridge';
+import { resolveWebImageUrl } from '../platform/resources/webImageLibrary';
 
 function isExternalUrl(path: string): boolean {
   return /^(?:[a-z]+:)?\/\//i.test(path) || /^(?:data|blob|file):/i.test(path);
@@ -26,7 +26,7 @@ export function resolvePublicPath(path: string): string {
 
 export function normalizeAssetUrl(path?: string | null): string {
   if (!path) return '';
-  return resolveBrowserImageUrl(path) || (isExternalUrl(path) ? path : resolvePublicPath(path));
+  return resolveWebImageUrl(path) || (isExternalUrl(path) ? path : resolvePublicPath(path));
 }
 
 /**

@@ -2,14 +2,14 @@ import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { resolvePublicPath } from '../utils/assetResolver';
 import {
-  imageBridge,
+  webImageLibrary,
   getCapabilities,
   subscribeCapabilities,
   refreshCapabilities,
   isManagedDir,
   normalizeDir,
-  getUserImageUrl,
-} from '../utils/imageBridge';
+  getWebImageUrl,
+} from '../platform/resources/webImageLibrary';
 import {
   MANAGED_ROOT,
   toManagedRelative,
@@ -75,7 +75,7 @@ function writeImageManagerSessionState(state: ImageManagerSessionState): void {
 // ── UI presentation helpers (belongs to interaction layer) ──
 
 function buildAssetUrl(entry: ImageAssetEntry): string {
-  const userUrl = getUserImageUrl(entry);
+  const userUrl = getWebImageUrl(entry);
   if (userUrl) return userUrl;
   const isFileProtocol = window.location.protocol === 'file:';
   const path = isFileProtocol
@@ -262,7 +262,7 @@ export function ImageManagerPage() {
   const loadAssets = useCallback(async () => {
     setLoading(true);
     try {
-      const list = await imageBridge.listAssets();
+      const list = await webImageLibrary.listAssets();
       const sorted = [...list].sort((a, b) =>
         a.fileName.localeCompare(b.fileName, undefined, { numeric: true }),
       );
@@ -443,7 +443,7 @@ export function ImageManagerPage() {
   const handleImport = useCallback(async () => {
     if (!caps.canImport) { flash('当前环境不支持导入'); return; }
     const writeDir = normalizeDir(browseDir);
-    await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
+    await runWriteOp('导入', () => webImageLibrary.importToDir(toManagedRelative(writeDir)), () => {
       expandPathChain(writeDir);
     });
   }, [browseDir, caps.canImport, expandPathChain, flash]);
@@ -454,7 +454,7 @@ export function ImageManagerPage() {
     if (!caps.canImport) { flash('当前环境不支持导入'); setCtxMenu(null); return; }
     setCtxMenu(null);
     const writeDir = dir;
-    await runWriteOp('导入', () => imageBridge.importToDir(toManagedRelative(writeDir)), () => {
+    await runWriteOp('导入', () => webImageLibrary.importToDir(toManagedRelative(writeDir)), () => {
       expandPathChain(writeDir);
     });
   }, [caps.canImport, expandPathChain, flash]);
@@ -480,7 +480,7 @@ export function ImageManagerPage() {
     const ext = oldRelativePath.split('/').pop()!.match(/\.[^.]+$/)?.[0] || '';
     const newFullName = `${renameValue.trim()}${ext}`;
 
-    await runWriteOp('重命名', () => imageBridge.renameFile(oldRelativePath, newFullName), () => {
+    await runWriteOp('重命名', () => webImageLibrary.renameFile(oldRelativePath, newFullName), () => {
       setIsRenaming(false); setRenameTarget(null);
       const newPath = `${oldRelativePath.replace(/\/[^/]+$/, '')}/${newFullName}`;
       if (selectedAssetPath === oldRelativePath) setSelectedAssetPath(newPath);
@@ -517,7 +517,7 @@ export function ImageManagerPage() {
     const newName = renameValue.trim();
     const oldFrontend = norm;
 
-    await runWriteOp('重命名目录', () => imageBridge.renameDirectory(dirPath, newName), (result) => {
+    await runWriteOp('重命名目录', () => webImageLibrary.renameDirectory(dirPath, newName), (result) => {
       setIsRenaming(false); setRenameTarget(null);
       if (!result.newPath) return;
       const newFrontend = fromManagedRelative(result.newPath);
@@ -550,7 +550,7 @@ export function ImageManagerPage() {
     const target = confirmDelete;
     if (!target || target.kind !== 'file' || !caps.canDeleteFile) { setConfirmDelete(null); return; }
     const delPath = target.relativePath;
-    await runWriteOp('删除', () => imageBridge.deleteFile(delPath), () => {
+    await runWriteOp('删除', () => webImageLibrary.deleteFile(delPath), () => {
       setConfirmDelete(null);
       if (selectedAssetPath === delPath) setSelectedAssetPath(null);
       if (previewAssetPath === delPath) setPreviewAssetPath(null);
@@ -578,7 +578,7 @@ export function ImageManagerPage() {
     const parentBackend = toManagedRelative(writeDir);
     if (parentBackend === undefined && writeDir !== MANAGED_ROOT) { setIsCreatingFolder(false); return; }
 
-    await runWriteOp('创建文件夹', () => imageBridge.createDirectory(folderName.trim(), parentBackend), (result) => {
+    await runWriteOp('创建文件夹', () => webImageLibrary.createDirectory(folderName.trim(), parentBackend), (result) => {
       setIsCreatingFolder(false); setFolderName('');
       const newDir = fromManagedRelative(result.createdPath || undefined);
       expandPathChain(writeDir);
@@ -611,7 +611,7 @@ export function ImageManagerPage() {
 
     setLoading(true);
     try {
-      const result = await imageBridge.deleteDirectory(backendPath);
+      const result = await webImageLibrary.deleteDirectory(backendPath);
       if (result.ok) {
         flash('删除目录成功');
         await loadAssets();
@@ -644,10 +644,10 @@ export function ImageManagerPage() {
   const handleReveal = useCallback(async (target: CtxTarget) => {
     setCtxMenu(null);
     if (target.kind === 'dir') {
-      const result = await imageBridge.revealDirectory(normalizeDir(target.dir));
+      const result = await webImageLibrary.revealDirectory(normalizeDir(target.dir));
       if (!result.ok) flash(result.error || '打开目录失败');
     } else {
-      const result = await imageBridge.revealFile(target.relativePath);
+      const result = await webImageLibrary.revealFile(target.relativePath);
       if (!result.ok) flash(result.error || '显示文件失败');
     }
   }, [flash]);

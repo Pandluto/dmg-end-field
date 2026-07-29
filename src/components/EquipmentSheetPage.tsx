@@ -9,7 +9,7 @@ import {
   parseDraftLibraryShareFile,
   type DraftLibraryShareFile,
 } from '../utils/draftShare';
-import { imageBridge, getUserImageUrl } from '../utils/imageBridge';
+import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
@@ -483,7 +483,7 @@ function normalizeNumber(value: unknown, fallback = 0): number {
 }
 
 function buildEquipmentImageAssetUrl(entry: ImageAssetEntry) {
-  const userUrl = getUserImageUrl(entry);
+  const userUrl = getWebImageUrl(entry);
   if (userUrl) return userUrl;
   const isFileProtocol = window.location.protocol === 'file:';
   const path = isFileProtocol
@@ -1479,7 +1479,7 @@ export function EquipmentSheetPage() {
     let cancelled = false;
     setImageAssetsLoading(true);
     setImageAssetsError('');
-    imageBridge.listAssets()
+    webImageLibrary.listAssets()
       .then((assets) => {
         if (cancelled) return;
         setImageAssets(assets);
