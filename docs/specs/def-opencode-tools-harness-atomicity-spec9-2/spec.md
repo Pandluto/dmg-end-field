@@ -2,7 +2,15 @@
 
 ## 状态
 
-规格重新整理，等待实施。
+实现完成，最终验收未闭环（状态校准：2026-07-29）。
+
+- Task 1—14 已实现并提交；
+- Task 15 部分完成：自动合同、五业务只读黑盒、真实 Workbench 可见性，以及
+  Selection 非空换人和反向恢复已通过；
+- 其余业务 mutation、approval 拒绝、跨业务计划和真实 Session 热重载 UI
+  矩阵尚未完成；
+- 当前验收位置和证据以 [`tasks.md`](./tasks.md#task-15合同热重载黑盒与真实-ui-验证)
+  与 [`verification.md`](./verification.md) 为准。
 
 ## 一、本轮只完成三件事
 
