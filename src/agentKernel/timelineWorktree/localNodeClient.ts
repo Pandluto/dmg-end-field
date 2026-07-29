@@ -1,4 +1,18 @@
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
+import {
+  commitWorkNode,
+  createWorkNode,
+  deleteWorkNode,
+  diffWorkNode,
+  getWorkNode,
+  listAllWorkNodeCommits,
+  listAllWorkNodes,
+  listWorkNodeHeads,
+  markWorkNodeCheckoutApplied,
+  markWorkNodeRollbackApplied,
+  updateWorkNode,
+} from '../../platform/timeline/browserTimelineStore';
+import { webDatabase } from '../../platform/database/webDatabase';
 import type {
   AiTimelineApproval,
   AiTimelineApprovalPolicy,
@@ -11,23 +25,8 @@ import type {
   AiTimelineWorkNodeStatus,
   TimelinePayloadDiff,
 } from './types';
-import { withWorkbenchRendererCapability } from '../../utils/workbenchRendererCapability';
 
-const DEFAULT_BRIDGE_BASE_URL = 'http://127.0.0.1:31457';
-const DEFAULT_REST_BASE_URL = DEFAULT_BRIDGE_BASE_URL;
-const LIST_CACHE_TTL_MS = 1500;
-
-let listRequestInFlight: Promise<AiTimelineWorkNodeListResponse> | null = null;
-let listCachedResponse: AiTimelineWorkNodeListResponse | null = null;
-let listCachedAt = 0;
-let listCacheGeneration = 0;
-
-class AiTimelineWorkNodeRequestError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string, readonly details?: unknown) {
-    super(message);
-    this.name = 'AiTimelineWorkNodeRequestError';
-  }
-}
+const BROWSER_REPOSITORY_PATH = 'browser-sqlite://timeline-work-nodes';
 
 export type AiTimelineWorkNodeHead = {
   nodeId: string;
@@ -88,8 +87,6 @@ export type UpdateAiTimelineWorkNodeInput = {
   label?: string;
   description?: string;
   workingPayload?: TimelineSnapshotPayload;
-  // Replacing the entire working payload is guarded by the persisted content
-  // revision; labels/status/log lifecycle changes do not require this CAS.
   expectedContentRevision?: number;
   status?: AiTimelineWorkNodeStatus;
   riskFlags?: AiTimelineRiskFlag[];
@@ -115,497 +112,141 @@ export type MarkAiTimelineWorkNodeRollbackAppliedInput = {
   rationale?: string;
 };
 
-async function readJsonResponse<T>(response: Response): Promise<T> {
-  const payload = await response.json();
-  if (!response.ok || !payload?.ok) {
-    const message = payload?.error?.message || `AI timeline work node request failed: ${response.status}`;
-    throw new AiTimelineWorkNodeRequestError(
-      message,
-      response.status,
-      payload?.error?.code || 'ai-worknode-request-failed',
-      payload?.error?.details,
-    );
-  }
-  return payload as T;
-}
-
-function buildUrl(baseUrl: string, pathname: string) {
-  return `${baseUrl.replace(/\/$/, '')}${pathname}`;
-}
-
-function isFetchTransportError(error: unknown): boolean {
-  if (error instanceof TypeError) return true;
-  if (!(error instanceof Error)) return false;
-  return /failed to fetch|networkerror|load failed|connection/i.test(error.message);
-}
-
-function getDesktopRuntime() {
-  return typeof window !== 'undefined' ? window.desktopRuntime : undefined;
-}
-
-function readDesktopResult<T extends { ok: boolean; error?: string }>(payload: T | undefined): T {
-  if (!payload?.ok) {
-    throw new Error(payload?.error || 'Desktop AI timeline work node request failed.');
-  }
-  return payload;
-}
-
-async function postJson<T>(baseUrl: string, pathname: string, body: unknown): Promise<T> {
-  const url = buildUrl(baseUrl, pathname);
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json' }),
-    body: JSON.stringify(body),
-  });
-  return readJsonResponse<T>(response);
-}
-
-function toWorkNodeListItem(value: unknown): AiTimelineWorkNodeListItem {
-  const node = value as AiTimelineWorkNode;
+function toNodeListItem(node: AiTimelineWorkNode): AiTimelineWorkNodeListItem {
   const { basePayload: _basePayload, workingPayload: _workingPayload, ...item } = node;
-  return item as AiTimelineWorkNodeListItem;
+  return item;
 }
 
-function toWorkNodeCommitListItem(value: unknown): AiTimelineWorkNodeCommitListItem {
-  const commit = value as AiTimelineWorkNodeCommit;
+function toCommitListItem(
+  commit: AiTimelineWorkNodeCommit,
+): AiTimelineWorkNodeCommitListItem {
   const { basePayload: _basePayload, appliedPayload: _appliedPayload, ...item } = commit;
-  return item as AiTimelineWorkNodeCommitListItem;
+  return item;
 }
 
-function toListResponse(input: {
-  path?: string;
-  archive?: {
-    nodes?: unknown[];
-    commits?: unknown[];
-    heads?: Record<string, AiTimelineWorkNodeHead>;
-    headNodeId?: string;
-    revision?: number;
-  };
-}): AiTimelineWorkNodeListResponse {
+async function buildListResponse(): Promise<AiTimelineWorkNodeListResponse> {
+  const [nodes, commits, headState] = await Promise.all([
+    listAllWorkNodes(),
+    listAllWorkNodeCommits(),
+    listWorkNodeHeads(),
+  ]);
   return {
     ok: true,
     protocolVersion: 1,
-    path: input.path || '',
-    nodes: (input.archive?.nodes || []).map(toWorkNodeListItem),
-    commits: (input.archive?.commits || []).map(toWorkNodeCommitListItem),
-    heads: input.archive?.heads || {},
-    headNodeId: input.archive?.headNodeId || '',
-    revision: Number(input.archive?.revision || 0),
+    path: BROWSER_REPOSITORY_PATH,
+    nodes: nodes.map(toNodeListItem),
+    commits: commits.map(toCommitListItem),
+    ...headState,
   };
 }
 
-function cacheListResponse(response: AiTimelineWorkNodeListResponse) {
-  listCachedResponse = response;
-  listCachedAt = Date.now();
-  return response;
+export async function probeAiTimelineWorkNodeRuntime(
+  _baseUrl?: string,
+  _timeoutMs?: number,
+): Promise<void> {
+  await webDatabase.initialize();
 }
 
-function invalidateListCache() {
-  listCacheGeneration += 1;
-  listCachedResponse = null;
-  listCachedAt = 0;
-  listRequestInFlight = null;
-}
-
-async function getBridgeJson<T>(pathname: string): Promise<T | null> {
-  try {
-    const url = buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname);
-    const response = await fetch(url, {
-      cache: 'no-store',
-      headers: withWorkbenchRendererCapability(url),
-    });
-    // In browser development the DEF shell owns 31457 while Electron is not
-    // running. Its unrelated 404 must fall through to the REST compatibility
-    // transport instead of making a real Work Node checkout fail.
-    if (response.status === 404) return null;
-    return await readJsonResponse<T>(response);
-  } catch (error) {
-    if (isFetchTransportError(error)) return null;
-    throw error;
-  }
-}
-
-async function postBridgeJson<T>(pathname: string, body: unknown): Promise<T | null> {
-  try {
-    const url = buildUrl(DEFAULT_BRIDGE_BASE_URL, pathname);
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: withWorkbenchRendererCapability(url, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify(body),
-    });
-    if (response.status === 404) return null;
-    return await readJsonResponse<T>(response);
-  } catch (error) {
-    if (isFetchTransportError(error)) return null;
-    throw error;
-  }
-}
-
-export async function probeAiTimelineWorkNodeRuntime(baseUrl = DEFAULT_REST_BASE_URL, timeoutMs = 3500): Promise<void> {
-  const desktopRuntime = getDesktopRuntime();
-  if (desktopRuntime?.listAiTimelineWorkNodes) return;
-  const bridgeProbe = await getBridgeJson<{ ok: true }>('/local-data/ai-timeline-worknodes');
-  if (bridgeProbe) return;
-  const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const url = buildUrl(baseUrl, '/api/ai-timeline-worknodes');
-    const response = await fetch(url, {
-      cache: 'no-store',
-      headers: withWorkbenchRendererCapability(url),
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`AI timeline work node runtime probe failed: ${response.status}`);
-    }
-  } catch (error) {
-    const errorName = typeof error === 'object' && error && 'name' in error
-      ? String((error as { name?: unknown }).name)
-      : '';
-    if (errorName === 'AbortError') {
-      throw new Error('AI timeline work node runtime probe timed out.');
-    }
-    throw error;
-  } finally {
-    globalThis.clearTimeout(timeoutId);
-  }
-}
-
-export function createAiTimelineWorkNodeClient(baseUrl = DEFAULT_REST_BASE_URL) {
+/**
+ * Browser-native Work Node client.
+ *
+ * The optional base URL remains accepted so older callers keep compiling, but
+ * the Web LTS never performs a localhost or Electron transport request.
+ */
+export function createAiTimelineWorkNodeClient(_baseUrl?: string) {
   return {
-    async list(): Promise<AiTimelineWorkNodeListResponse> {
-      if (listCachedResponse && Date.now() - listCachedAt < LIST_CACHE_TTL_MS) {
-        return listCachedResponse;
-      }
-      if (listRequestInFlight) return listRequestInFlight;
-
-      const generation = listCacheGeneration;
-      const request = (async () => {
-        const desktopRuntime = getDesktopRuntime();
-        if (desktopRuntime?.listAiTimelineWorkNodes) {
-          const result = readDesktopResult(await desktopRuntime.listAiTimelineWorkNodes());
-          return toListResponse(result);
-        }
-        const bridgeResult = await getBridgeJson<{
-          ok: true;
-          path?: string;
-          archive?: {
-            nodes?: unknown[];
-            commits?: unknown[];
-            heads?: Record<string, AiTimelineWorkNodeHead>;
-            headNodeId?: string;
-            revision?: number;
-          };
-        }>('/local-data/ai-timeline-worknodes');
-        if (bridgeResult) {
-          return toListResponse(bridgeResult);
-        }
-        const url = buildUrl(baseUrl, '/api/ai-timeline-worknodes');
-        const response = await fetch(url, {
-          headers: withWorkbenchRendererCapability(url),
-        });
-        const result = await readJsonResponse<{
-          ok: true;
-          path?: string;
-          archive?: { nodes?: unknown[]; commits?: unknown[] };
-          nodes?: unknown[];
-          commits?: unknown[];
-          heads?: Record<string, AiTimelineWorkNodeHead>;
-          headNodeId?: string;
-          revision?: number;
-        }>(response);
-        return toListResponse({
-          path: result.path,
-          archive: result.archive || {
-            nodes: result.nodes,
-            commits: result.commits,
-            heads: result.heads,
-            headNodeId: result.headNodeId,
-            revision: result.revision,
-          },
-        });
-      })().then((response) => generation === listCacheGeneration ? cacheListResponse(response) : response).finally(() => {
-        if (listRequestInFlight === request) listRequestInFlight = null;
-      });
-      listRequestInFlight = request;
-      return request;
-    },
+    list: buildListResponse,
 
     async get(id: string): Promise<AiTimelineWorkNodeResponse> {
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.readAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.readAiTimelineWorkNode({ id }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-        };
-      }
-      const bridgeResult = await getBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}`);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-        };
-      }
-      const url = buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}`);
-      const response = await fetch(url, {
-        headers: withWorkbenchRendererCapability(url),
-      });
-      return readJsonResponse<AiTimelineWorkNodeResponse>(response);
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        node: await getWorkNode(id),
+      };
     },
 
     async delete(id: string): Promise<AiTimelineWorkNodeListResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.deleteAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.deleteAiTimelineWorkNode({ id }));
-        return toListResponse(result);
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        archive?: {
-          nodes?: unknown[];
-          commits?: unknown[];
-          heads?: Record<string, AiTimelineWorkNodeHead>;
-          headNodeId?: string;
-          revision?: number;
-        };
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`, {});
-      if (bridgeResult) {
-        return toListResponse(bridgeResult);
-      }
-      const result = await postJson<{
-        ok: true;
-        path?: string;
-        archive?: { nodes?: unknown[]; commits?: unknown[] };
-        nodes?: unknown[];
-        commits?: unknown[];
-        heads?: Record<string, AiTimelineWorkNodeHead>;
-        headNodeId?: string;
-        revision?: number;
-      }>(
-        baseUrl,
-        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/delete`,
-        {},
-      );
-      return toListResponse({
-        path: result.path,
-        archive: result.archive || {
-          nodes: result.nodes,
-          commits: result.commits,
-          heads: result.heads,
-          headNodeId: result.headNodeId,
-          revision: result.revision,
-        },
-      });
+      await deleteWorkNode(id);
+      return buildListResponse();
     },
 
     async diff(id: string): Promise<AiTimelineWorkNodeDiffResponse> {
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.diffAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.diffAiTimelineWorkNode({ id }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          nodeId: String(result.nodeId || id),
-          // Electron may still return the legacy alias while old databases are
-          // supported, but renderer domain objects only expose timelineId.
-          timelineId: String(result.timelineId || result.saveId || ''),
-          branchId: String(result.branchId || ''),
-          status: (result.status || 'open') as AiTimelineWorkNodeStatus,
-          diff: result.diff as TimelinePayloadDiff,
-          riskFlags: (result.riskFlags || []) as AiTimelineRiskFlag[],
-          readyToCheckout: Boolean(result.readyToCheckout),
-          checkoutDecision: result.checkoutDecision as AiTimelineCheckoutDecision,
-        };
-      }
-      const bridgeResult = await getBridgeJson<AiTimelineWorkNodeDiffResponse>(
-        `/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`,
-      );
-      if (bridgeResult) return bridgeResult;
-      const url = buildUrl(baseUrl, `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/diff`);
-      const response = await fetch(url, {
-        headers: withWorkbenchRendererCapability(url),
-      });
-      return readJsonResponse<AiTimelineWorkNodeDiffResponse>(response);
+      const result = await diffWorkNode(id);
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        nodeId: result.node.id,
+        timelineId: result.node.timelineId,
+        branchId: result.node.branchId,
+        status: result.node.status,
+        diff: result.diff,
+        riskFlags: result.riskFlags,
+        readyToCheckout: result.readyToCheckout,
+        checkoutDecision: result.checkoutDecision,
+      };
     },
 
-    async create(input: CreateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.createAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.createAiTimelineWorkNode(input));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-        };
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-      }>('/local-data/ai-timeline-worknodes/create', input);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-        };
-      }
-      return postJson<AiTimelineWorkNodeResponse>(baseUrl, '/api/ai-timeline-worknodes/create', input);
+    async create(
+      input: CreateAiTimelineWorkNodeInput,
+    ): Promise<AiTimelineWorkNodeResponse> {
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        node: await createWorkNode(input),
+      };
     },
 
-    async update(id: string, input: UpdateAiTimelineWorkNodeInput): Promise<AiTimelineWorkNodeResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.updateAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.updateAiTimelineWorkNode({ id, ...input }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-        };
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/update`, input);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-        };
-      }
-      return postJson<AiTimelineWorkNodeResponse>(
-        baseUrl,
-        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/update`,
-        input,
-      );
+    async update(
+      id: string,
+      input: UpdateAiTimelineWorkNodeInput,
+    ): Promise<AiTimelineWorkNodeResponse> {
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        node: await updateWorkNode(id, input),
+      };
     },
 
-    async commit(id: string, input: CommitAiTimelineWorkNodeInput = {}): Promise<AiTimelineWorkNodeCommitResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.commitAiTimelineWorkNode) {
-        const result = readDesktopResult(await desktopRuntime.commitAiTimelineWorkNode({ id, ...input }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-          commit: result.commit as AiTimelineWorkNodeCommit,
-        };
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-        commit?: unknown;
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/commit`, input);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-          commit: bridgeResult.commit as AiTimelineWorkNodeCommit,
-        };
-      }
-      return postJson<AiTimelineWorkNodeCommitResponse>(
-        baseUrl,
-        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/commit`,
-        input,
-      );
+    async commit(
+      id: string,
+      input: CommitAiTimelineWorkNodeInput = {},
+    ): Promise<AiTimelineWorkNodeCommitResponse> {
+      const result = await commitWorkNode(id, input);
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        ...result,
+      };
     },
 
     async markCheckoutApplied(
       id: string,
       input: MarkAiTimelineWorkNodeCheckoutAppliedInput = {},
     ): Promise<AiTimelineWorkNodeCommitResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.markAiTimelineWorkNodeCheckoutApplied) {
-        const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeCheckoutApplied({ id, ...input }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-          commit: result.commit as AiTimelineWorkNodeCommit,
-        };
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-        commit?: unknown;
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`, input);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-          commit: bridgeResult.commit as AiTimelineWorkNodeCommit,
-        };
-      }
-      return postJson<AiTimelineWorkNodeCommitResponse>(
-        baseUrl,
-        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/checkout-applied`,
-        input,
-      );
+      const result = await markWorkNodeCheckoutApplied(id, input);
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        ...result,
+      };
     },
 
     async markRollbackApplied(
       id: string,
       input: MarkAiTimelineWorkNodeRollbackAppliedInput = {},
     ): Promise<AiTimelineWorkNodeResponse> {
-      invalidateListCache();
-      const desktopRuntime = getDesktopRuntime();
-      if (desktopRuntime?.markAiTimelineWorkNodeRollbackApplied) {
-        const result = readDesktopResult(await desktopRuntime.markAiTimelineWorkNodeRollbackApplied({ id, ...input }));
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: result.path || '',
-          node: result.node as AiTimelineWorkNode,
-        };
-      }
-      const bridgeResult = await postBridgeJson<{
-        ok: true;
-        path?: string;
-        node?: unknown;
-      }>(`/local-data/ai-timeline-worknodes/${encodeURIComponent(id)}/rollback-applied`, input);
-      if (bridgeResult) {
-        return {
-          ok: true,
-          protocolVersion: 1,
-          path: bridgeResult.path || '',
-          node: bridgeResult.node as AiTimelineWorkNode,
-        };
-      }
-      return postJson<AiTimelineWorkNodeResponse>(
-        baseUrl,
-        `/api/ai-timeline-worknodes/${encodeURIComponent(id)}/rollback-applied`,
-        input,
-      );
+      return {
+        ok: true,
+        protocolVersion: 1,
+        path: BROWSER_REPOSITORY_PATH,
+        node: await markWorkNodeRollbackApplied(id, input),
+      };
     },
   };
 }

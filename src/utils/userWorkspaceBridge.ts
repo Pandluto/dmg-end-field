@@ -60,7 +60,7 @@ export function removeUserWorkspaceStorageItem(key: string): boolean {
   return true;
 }
 
-function valuesFromTimelinePayload(payload: Record<string, unknown>): Record<string, string> {
+export function valuesFromTimelinePayload(payload: Record<string, unknown>): Record<string, string> {
   const json = (key: string, fallback: unknown) =>
     JSON.stringify(payload[key] === undefined ? fallback : payload[key]);
   const anomalies = Array.isArray(payload.anomalyStateSnapshots) ? payload.anomalyStateSnapshots : [];
@@ -84,6 +84,22 @@ function valuesFromTimelinePayload(payload: Record<string, unknown>): Record<str
   };
 }
 
+export async function replaceUserWorkspaceWithTimelinePayload(
+  payload: Record<string, unknown>,
+  updatedAt = Date.now(),
+): Promise<{ values: Record<string, string | null>; updatedAt: number }> {
+  const values = valuesFromTimelinePayload(payload);
+  for (const key of MANAGED_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(values, key)) {
+      persistentWorkspaceStorage.setItem(key, values[key]);
+    } else {
+      persistentWorkspaceStorage.removeItem(key);
+    }
+  }
+  await persistentWorkspaceStorage.flush();
+  return { values, updatedAt };
+}
+
 export async function restoreUserWorkspaceSnapshot(input: {
   timelineId: string;
   snapshotId: string;
@@ -96,9 +112,7 @@ export async function restoreUserWorkspaceSnapshot(input: {
   const row = rows[0];
   if (!row) throw new Error('找不到需要恢复的排轴快照。');
   const payload = JSON.parse(String(row.payload_json)) as Record<string, unknown>;
-  for (const [key, value] of Object.entries(valuesFromTimelinePayload(payload))) {
-    persistentWorkspaceStorage.setItem(key, value);
-  }
+  await replaceUserWorkspaceWithTimelinePayload(payload, input.updatedAt);
   const checkoutRef = {
     timelineId: input.timelineId,
     targetType: 'snapshot',
@@ -121,7 +135,6 @@ export async function restoreUserWorkspaceSnapshot(input: {
       checkoutRef.updatedAt,
     ],
   );
-  await persistentWorkspaceStorage.flush();
   return { payload, checkoutRef };
 }
 

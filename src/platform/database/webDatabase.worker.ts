@@ -140,6 +140,19 @@ function migrateSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_timeline_commits_document
       ON timeline_work_node_commits(timeline_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS timeline_work_node_patches (
+      id TEXT PRIMARY KEY,
+      timeline_id TEXT NOT NULL REFERENCES timeline_documents(id) ON DELETE CASCADE,
+      node_id TEXT NOT NULL REFERENCES timeline_work_nodes(id) ON DELETE CASCADE,
+      patch_json TEXT NOT NULL,
+      validation_json TEXT NOT NULL,
+      diff_summary_json TEXT NOT NULL,
+      risk_flags_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_patches_node
+      ON timeline_work_node_patches(node_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS timeline_checkout_refs (
       timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
       target_type TEXT NOT NULL,
@@ -157,6 +170,19 @@ function migrateSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_timeline_audit_document
       ON timeline_audit_events(timeline_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS timeline_archives (
+      archive_id TEXT PRIMARY KEY,
+      library TEXT NOT NULL CHECK(library IN ('local', 'shared')),
+      label TEXT NOT NULL,
+      bundle_json TEXT NOT NULL,
+      payload_hash TEXT,
+      summary_json TEXT NOT NULL,
+      node_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_timeline_archives_library
+      ON timeline_archives(library, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS image_assets (
       relative_path TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,
@@ -171,8 +197,10 @@ function migrateSchema(): void {
     ) STRICT;
 
     INSERT INTO app_meta(key, value, updated_at)
-    VALUES ('schema_version', '1', unixepoch('subsec') * 1000)
-    ON CONFLICT(key) DO NOTHING;
+    VALUES ('schema_version', '2', unixepoch('subsec') * 1000)
+    ON CONFLICT(key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at;
   `);
 }
 
@@ -210,11 +238,15 @@ async function handleRequest(request: DatabaseRequest): Promise<unknown> {
       return runStatement(request.statement, true);
     case 'execute':
       runStatement(request.statement, false);
-      return { changes: requireDatabase().changes(true) };
+      return { changes: requireDatabase().changes(false) };
     case 'batch':
       return requireDatabase().transaction(() => {
-        for (const statement of request.statements) runStatement(statement, false);
-        return { changes: requireDatabase().changes(true) };
+        let changes = 0;
+        for (const statement of request.statements) {
+          runStatement(statement, false);
+          changes += requireDatabase().changes(false);
+        }
+        return { changes };
       });
     case 'export': {
       requireDatabase().exec('PRAGMA optimize;');
