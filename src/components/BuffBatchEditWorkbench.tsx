@@ -336,7 +336,7 @@ function compareBuffBySource(a: SkillButtonBuff, b: SkillButtonBuff): number {
 }
 
 function resolveWeaponImageUrl(weaponName: string): string {
-  return `http://127.0.0.1:31457/user-images/${encodeURIComponent(`${weaponName}.png`)}`;
+  return normalizeAssetUrl(`user-images/${weaponName}.png`);
 }
 
 function getCharacterWeaponName(character: Character, inputMap: ReturnType<typeof getCharacterInputMap>): string {

@@ -1,6 +1,8 @@
 node_modules
 dist
 dev-dist
+public/packages/*.zip
+public/packages/*.partial
 public/data/catalog.sqlite
 release
 release-latest/

@@ -909,28 +909,11 @@ function readCachedEquipmentLibrary(): EquipmentLibrary {
 }
 
 async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
-  const bridge = window.desktopRuntime?.readEquipmentLibrary;
-  if (bridge) {
-    const result = await bridge();
-    if (result.ok) {
-      return normalizeEquipmentLibrary(result.data);
-    }
-    throw new Error(result.error || '读取装备库失败');
-  }
   const response = await fetch(resolvePublicPath(EQUIPMENT_LIBRARY_PATH), { cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`读取装备库失败：HTTP ${response.status}`);
   }
   return normalizeEquipmentLibrary(await response.json());
-}
-
-async function writeEquipmentLibraryToFile(library: EquipmentLibrary): Promise<{ ok: boolean; error?: string }> {
-  const bridge = window.desktopRuntime?.writeEquipmentLibrary;
-  if (!bridge) {
-    return { ok: false, error: '当前 Web 环境无法直接写入本地 JSON，请通过导出 JSON 手动更新文件。' };
-  }
-  const result = await bridge({ ...library, updatedAt: new Date().toISOString() });
-  return result.ok ? { ok: true } : { ok: false, error: result.error || '写入装备库失败' };
 }
 
 function createEmptyLibrary(): EquipmentLibrary {
@@ -1465,7 +1448,7 @@ export function EquipmentSheetPage() {
         if (cancelled) return;
         const cached = readCachedEquipmentLibrary();
         const hasCachedData = Object.keys(cached.gearSets).length > 0;
-        const shouldUseCached = !window.desktopRuntime?.readEquipmentLibrary && hasCachedData;
+        const shouldUseCached = hasCachedData;
         const nextLibrary = shouldUseCached ? cached : fileLibrary;
         setLibrary(nextLibrary);
         setIsDirty(false);
@@ -2394,24 +2377,12 @@ export function EquipmentSheetPage() {
     if (committedLibrary !== library) {
       setLibrary(committedLibrary);
     }
-    if (!window.desktopRuntime?.writeEquipmentLibrary) {
-      writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
-      writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
-      setLibrary(nextLibrary);
-      setIsDirty(false);
-      setIsSaveConfirmModalOpen(false);
-      setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
-      return;
-    }
-    const result = await writeEquipmentLibraryToFile(nextLibrary);
-    if (result.ok) {
-      writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
-      writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
-      setLibrary(nextLibrary);
-      setIsDirty(false);
-      setIsSaveConfirmModalOpen(false);
-    }
-    setMessage(result.ok ? `已保存到本地 JSON。缓存已同步更新。${warning}` : `${result.error}${warning}`);
+    writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
+    writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
+    setLibrary(nextLibrary);
+    setIsDirty(false);
+    setIsSaveConfirmModalOpen(false);
+    setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
   }, [buildLibraryWithCommittedFormulaInput, library]);
 
   const handleSave = useCallback(() => {

@@ -1,13 +1,27 @@
 import { useMemo, useState } from 'react';
 import {
   installDefaultResourcePackage,
+  readInstalledResourcePackage,
   type InstalledResourcePackage,
   type ResourceInstallProgress,
 } from '../../platform/resources/resourcePackage';
+import {
+  installDefaultImagePackage,
+  readInstalledImagePackage,
+  type ImageInstallProgress,
+  type InstalledImagePackage,
+} from '../../platform/resources/imagePackage';
 
 interface WelcomePageProps {
-  onInstalled: (resourcePackage: InstalledResourcePackage) => void;
+  onInstalled: (
+    resourcePackage: InstalledResourcePackage,
+    imagePackage: InstalledImagePackage,
+  ) => void;
 }
+
+type CombinedProgress =
+  | ({ packageLabel: '基础数据' } & ResourceInstallProgress)
+  | ({ packageLabel: '图片资源' } & ImageInstallProgress);
 
 function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`;
@@ -15,7 +29,7 @@ function formatBytes(value: number): string {
 }
 
 export function WelcomePage({ onInstalled }: WelcomePageProps) {
-  const [progress, setProgress] = useState<ResourceInstallProgress | null>(null);
+  const [progress, setProgress] = useState<CombinedProgress | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [error, setError] = useState('');
   const percentage = useMemo(() => {
@@ -27,8 +41,15 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
     setIsInstalling(true);
     setError('');
     try {
-      const installed = await installDefaultResourcePackage(setProgress);
-      onInstalled(installed);
+      const installed = await readInstalledResourcePackage()
+        || await installDefaultResourcePackage((next) => {
+          setProgress({ ...next, packageLabel: '基础数据' });
+        });
+      const images = await readInstalledImagePackage()
+        || await installDefaultImagePackage((next) => {
+          setProgress({ ...next, packageLabel: '图片资源' });
+        });
+      onInstalled(installed, images);
     } catch (installError) {
       setError(installError instanceof Error ? installError.message : String(installError));
     } finally {
@@ -43,7 +64,7 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
           <p className="eyebrow">第一次使用</p>
           <h1>先把基础资料装进浏览器</h1>
           <p>
-            程序本体已经准备好。角色、武器、装备与 Buff 资料会在你确认后下载，
+            程序本体已经准备好。角色、武器、装备、Buff 与图片资料会在你确认后下载，
             校验完成后保存在这个浏览器中，之后可离线使用。
           </p>
           <div className="onboarding-points">
@@ -70,11 +91,12 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
             <span>角色与技能</span>
             <span>武器与装备</span>
             <span>Buff 原始索引</span>
+            <span>559 个图片资源</span>
           </div>
           {progress && (
             <div className="install-progress">
               <div className="progress-meta">
-                <span>{percentage}%</span>
+                <span>{progress.packageLabel} · {percentage}%</span>
                 <span>{formatBytes(progress.downloadedBytes)} / {formatBytes(progress.totalBytes)}</span>
               </div>
               <div className="progress-track"><span style={{ width: `${percentage}%` }} /></div>
@@ -83,7 +105,7 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
           )}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-action" type="button" onClick={handleInstall} disabled={isInstalling}>
-            {isInstalling ? '下载并校验中…' : '下载资料并开始'}
+            {isInstalling ? '下载并校验中…' : '下载完整资料并开始'}
           </button>
           <p className="install-footnote">本轮不会读取或迁移任何旧桌面 SQLite。</p>
         </div>
@@ -91,4 +113,3 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
     </main>
   );
 }
-

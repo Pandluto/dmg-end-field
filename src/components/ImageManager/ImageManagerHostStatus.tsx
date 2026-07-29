@@ -13,11 +13,7 @@ const CAP_LABELS: { key: keyof ImageManagerCapabilities; label: string }[] = [
 ];
 
 const MODE_LABELS: Record<string, string> = {
-  '桌面端 · 可管理': '桌面可写',
-  '桌面端 · 受限': '桌面只读',
-  '网页端 · 可管理': '网页可写',
-  '网页端 · 受限': '网页受限',
-  '浏览器端 · 只读预览': '浏览器只读',
+  '浏览器 SQLite · 可管理': '浏览器可写',
 };
 
 export function ImageManagerHostStatus() {
@@ -30,9 +26,7 @@ export function ImageManagerHostStatus() {
     return unsubscribe;
   }, []);
 
-  const modeClass = caps.transportKind === 'electron'
-    ? (caps.isWritable ? 'electron-writable' : 'electron-readonly')
-    : (caps.transportKind === 'web-bridge' ? 'browser-backend' : 'browser-readonly');
+  const modeClass = caps.isWritable ? 'browser-backend' : 'browser-readonly';
 
   return (
     <div className="image-manager-host-status">

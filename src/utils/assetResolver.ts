@@ -1,80 +1,9 @@
 import type { SkillType } from '../types';
 import { SKILL_NAMES } from '../types';
-
-const USER_IMAGE_ORIGIN = 'http://127.0.0.1:31457';
-const DESKTOP_ASSET_ORIGIN = 'http://127.0.0.1:31457';
+import { resolveBrowserImageUrl } from './imageBridge';
 
 function isExternalUrl(path: string): boolean {
   return /^(?:[a-z]+:)?\/\//i.test(path) || /^(?:data|blob|file):/i.test(path);
-}
-
-function resolveUserImagePath(path: string): string | null {
-  const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  const userImagePrefixes = ['user-images/', 'data/images/'];
-  const matchedPrefix = userImagePrefixes.find((prefix) => normalized.startsWith(prefix));
-  if (!matchedPrefix) {
-    return null;
-  }
-
-  let relPath = normalized.slice(matchedPrefix.length);
-  if (relPath.startsWith('images/')) {
-    relPath = relPath.slice('images/'.length);
-  }
-  if (!relPath || /(^|\/)\.\.(\/|$)/.test(relPath)) {
-    return null;
-  }
-  const encodedRel = relPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  if (!encodedRel) {
-    return null;
-  }
-  return `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}`;
-}
-
-function isImagePath(path: string): boolean {
-  return /\.(?:png|jpe?g|webp|gif|svg|ico)(?:[?#].*)?$/i.test(path);
-}
-
-function resolveGenericBridgeImagePath(path: string): string | null {
-  const normalized = path
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '')
-    .split(/[?#]/, 1)[0];
-  if (!normalized || !isImagePath(normalized) || /(^|\/)\.\.(\/|$)/.test(normalized)) {
-    return null;
-  }
-  if (normalized.startsWith('assets/')) {
-    return null;
-  }
-  const relPath = normalized.startsWith('public/')
-    ? normalized.slice('public/'.length)
-    : normalized;
-  const encodedRel = relPath.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  return encodedRel ? `${USER_IMAGE_ORIGIN}/user-images/${encodedRel}` : null;
-}
-
-function encodePathSegments(path: string): string {
-  return path
-    .split('/')
-    .filter(Boolean)
-    .map((segment) => {
-      try {
-        return encodeURIComponent(decodeURIComponent(segment));
-      } catch {
-        return encodeURIComponent(segment);
-      }
-    })
-    .join('/');
-}
-
-function resolveDesktopAssetPath(path: string): string | null {
-  const normalized = path.replace(/\\/g, '/').replace(/^\/+/, '');
-  if (!normalized.startsWith('assets/')) {
-    return null;
-  }
-  if (/(^|\/)\.\.(\/|$)/.test(normalized)) {
-    return null;
-  }
-  return `${DESKTOP_ASSET_ORIGIN}/${encodePathSegments(normalized)}`;
 }
 
 export function resolvePublicPath(path: string): string {
@@ -84,11 +13,6 @@ export function resolvePublicPath(path: string): string {
 
   if (isExternalUrl(path)) {
     return path;
-  }
-
-  const desktopAssetPath = resolveDesktopAssetPath(path);
-  if (desktopAssetPath) {
-    return desktopAssetPath;
   }
 
   const normalizedPath = path
@@ -102,8 +26,7 @@ export function resolvePublicPath(path: string): string {
 
 export function normalizeAssetUrl(path?: string | null): string {
   if (!path) return '';
-  if (isExternalUrl(path)) return path;
-  return resolveUserImagePath(path) ?? resolveDesktopAssetPath(path) ?? resolveGenericBridgeImagePath(path) ?? resolvePublicPath(path);
+  return resolveBrowserImageUrl(path) || (isExternalUrl(path) ? path : resolvePublicPath(path));
 }
 
 /**

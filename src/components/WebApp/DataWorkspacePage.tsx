@@ -7,6 +7,12 @@ import {
   type ResourceInstallProgress,
   type ResourcePackageManifest,
 } from '../../platform/resources/resourcePackage';
+import {
+  installDefaultImagePackage,
+  readInstalledImagePackage,
+  type ImageInstallProgress,
+  type InstalledImagePackage,
+} from '../../platform/resources/imagePackage';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 
 function formatBytes(value: number): string {
@@ -18,11 +24,14 @@ export function DataWorkspacePage() {
   const [installed, setInstalled] = useState<InstalledResourcePackage | null>(null);
   const [available, setAvailable] = useState<ResourcePackageManifest | null>(null);
   const [progress, setProgress] = useState<ResourceInstallProgress | null>(null);
+  const [imageProgress, setImageProgress] = useState<ImageInstallProgress | null>(null);
+  const [images, setImages] = useState<InstalledImagePackage | null>(null);
   const [installing, setInstalling] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     void readInstalledResourcePackage().then(setInstalled);
+    void readInstalledImagePackage().then(setImages);
     void fetchResourcePackageManifest().then(setAvailable).catch(() => undefined);
   }, []);
 
@@ -36,8 +45,10 @@ export function DataWorkspacePage() {
     setMessage('');
     try {
       const next = await installDefaultResourcePackage(setProgress);
+      const nextImages = await installDefaultImagePackage(setImageProgress);
       setInstalled(next);
-      setMessage('基础资料包已经下载并通过校验。');
+      setImages(nextImages);
+      setMessage('基础数据与图片包已经下载并通过校验。');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -104,6 +115,15 @@ export function DataWorkspacePage() {
               <span style={{ width: `${Math.round(progress.completed / progress.total * 100)}%` }} />
             </div>
           )}
+          {imageProgress && (
+            <div className="inline-package-progress" title={imageProgress.currentPath}>
+              <span style={{
+                width: `${imageProgress.stage === 'downloading'
+                  ? Math.round(imageProgress.downloadedBytes / imageProgress.totalBytes * 100)
+                  : Math.round(imageProgress.completed / imageProgress.total * 100)}%`,
+              }} />
+            </div>
+          )}
         </div>
         <dl className="data-package-facts">
           <div>
@@ -112,11 +132,11 @@ export function DataWorkspacePage() {
           </div>
           <div>
             <dt>文件数量</dt>
-            <dd>{installed?.manifest.files.length || 0}</dd>
+            <dd>{(installed?.manifest.files.length || 0) + (images?.manifest.files.length || 0)}</dd>
           </div>
           <div>
             <dt>校验体积</dt>
-            <dd>{formatBytes(installed?.byteSize || 0)}</dd>
+            <dd>{formatBytes((installed?.byteSize || 0) + (images?.byteSize || 0))}</dd>
           </div>
           <div>
             <dt>存储位置</dt>
@@ -155,4 +175,3 @@ export function DataWorkspacePage() {
     </div>
   );
 }
-

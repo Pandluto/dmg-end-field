@@ -11,6 +11,11 @@ import {
   removeDefaultResourcePackage,
   type InstalledResourcePackage,
 } from '../../platform/resources/resourcePackage';
+import {
+  readInstalledImagePackage,
+  removeDefaultImagePackage,
+  type InstalledImagePackage,
+} from '../../platform/resources/imagePackage';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 
@@ -42,17 +47,20 @@ export function SettingsPage() {
   const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
   const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
   const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
+  const [imagePackage, setImagePackage] = useState<InstalledImagePackage | null>(null);
   const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
   const [message, setMessage] = useState('');
 
   const refresh = async () => {
-    const [nextStorage, installed, lease] = await Promise.all([
+    const [nextStorage, installed, images, lease] = await Promise.all([
       readBrowserStorageEstimate(),
       readInstalledResourcePackage(),
+      readInstalledImagePackage(),
       readAccessLeaseStatus(),
     ]);
     setStorage(nextStorage);
     setResourcePackage(installed);
+    setImagePackage(images);
     setLeaseExpiresAt(lease.expiresAt);
   };
 
@@ -84,7 +92,10 @@ export function SettingsPage() {
 
   const handleRemovePackage = async () => {
     if (!window.confirm('移除基础资料包？私人排轴不会删除，重新进入时需要再次下载资料。')) return;
-    await removeDefaultResourcePackage();
+    await Promise.all([
+      removeDefaultResourcePackage(),
+      removeDefaultImagePackage(),
+    ]);
     window.location.reload();
   };
 
@@ -125,6 +136,11 @@ export function SettingsPage() {
             <strong>{resourcePackage?.version || '—'}</strong>
             <small>{resourcePackage?.manifest.files.length || 0} 个文件</small>
           </article>
+          <article className="settings-card">
+            <span>图片资源包</span>
+            <strong>{imagePackage?.version || '—'}</strong>
+            <small>{imagePackage?.manifest.files.length || 0} 个文件</small>
+          </article>
         </div>
         <div className="settings-action-row">
           <div>
@@ -145,7 +161,7 @@ export function SettingsPage() {
         <div className="settings-action-row">
           <div>
             <strong>导出完整 Web LTS 数据库</strong>
-            <span>包含私人排轴、快照、工作节点、配置和浏览器本地编辑数据。</span>
+            <span>包含私人排轴、快照、工作节点、配置和自定义图片；官方资料包可重新下载。</span>
           </div>
           <button className="dashboard-primary-button" type="button" onClick={handleExport}>导出 SQLite 备份</button>
         </div>

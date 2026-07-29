@@ -300,7 +300,7 @@ const EQUIPMENT_SLOT_METAS = [
 
 function resolveStoredImageUrl(path?: string): string {
   if (!path) return '';
-  if (/^(?:https?:)?\/\//i.test(path)) return path;
+  if (/^(?:https?:)?\/\//i.test(path) && !/^http:\/\/127\.0\.0\.1:31457\//i.test(path)) return path;
   if (/^[A-Za-z]:[\\/]/.test(path)) {
     return path;
   }
@@ -309,7 +309,7 @@ function resolveStoredImageUrl(path?: string): string {
 
 function resolveWeaponImageUrl(weaponName?: string): string {
   if (!weaponName) return '';
-  return `http://127.0.0.1:31457/user-images/${encodeURIComponent(`${weaponName}.png`)}`;
+  return normalizeAssetUrl(`user-images/${weaponName}.png`);
 }
 
 function normalizeWeaponType(value: unknown): string {

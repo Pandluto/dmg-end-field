@@ -21,6 +21,8 @@
     "smoke:local-data-archive-flow": "node scripts/local-data-archive-flow-smoke.mjs",
     "dev": "npm run data:web-manifest && vite --host 127.0.0.1 --port 3030",
     "assets:release": "node scripts/build-image-release-manifest.mjs",
+    "assets:web-manifest": "node scripts/build-web-image-manifest.mjs",
+    "assets:web-prepare": "node scripts/prepare-web-image-package.mjs",
     "test": "node scripts/run-ts-test.mjs",
     "test:numeric": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts",
     "typecheck": "tsc --noEmit",
@@ -44,6 +46,7 @@
   "dependencies": {
     "@sqlite.org/sqlite-wasm": "^3.53.0-build1",
     "exceljs": "^4.4.0",
+    "fflate": "^0.8.3",
     "fuse.js": "^7.3.0",
     "pinyin-pro": "^3.28.1",
     "react": "^18.2.0",

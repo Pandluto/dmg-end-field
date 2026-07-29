@@ -1,36 +1,13 @@
-// ── ImageManager Communication Layer ──
-// Unified entry point for desktop IPC and browser bridge HTTP transport.
-// Does NOT contain path rules, file-system logic, or page state.
-// Path semantics belong to imageFileService.ts.
-
 import type { ImageAssetEntry } from '../components/ImageManager/types';
+import { webDatabase, type SqlPrimitive, type SqlStatement } from '../platform/database/webDatabase';
 import {
   validateManagedDirPath,
   validateManagedFilePath,
   toUserImageRelPath,
 } from './imageFileService';
 
-const BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
-const BRIDGE_TIMEOUT_MS = 15000;
-const CAPABILITY_TIMEOUT_MS = 2500;
-
 type CapListener = (caps: ImageManagerCapabilities) => void;
-
-interface BridgeCapabilityPayload {
-  canList: boolean;
-  canImport: boolean;
-  canRename: boolean;
-  canRenameDir: boolean;
-  canDeleteFile: boolean;
-  canCreateDir: boolean;
-  canDeleteDir: boolean;
-  canReveal: boolean;
-  canManageRoots?: boolean;
-  primaryRoot?: string;
-  rootsConfigPath?: string;
-  backendLabel?: string;
-  transportKind?: ImageManagerCapabilities['transportKind'];
-}
+type ImageRow = Record<string, SqlPrimitive>;
 
 export interface ImageManagerCapabilities {
   canList: boolean;
@@ -47,209 +24,267 @@ export interface ImageManagerCapabilities {
   isElectron: boolean;
   isWritable: boolean;
   backendLabel: string;
-  transportKind: 'electron' | 'web-bridge' | 'browser-readonly';
+  transportKind: 'browser-sqlite';
 }
 
-function hasHostMethod(name: string): boolean {
-  const rt = window.desktopRuntime;
-  if (!rt) return false;
-  return typeof (rt as unknown as Record<string, unknown>)[name] === 'function';
-}
+const BROWSER_CAPABILITIES: ImageManagerCapabilities = {
+  canList: true,
+  canImport: true,
+  canRename: true,
+  canRenameDir: true,
+  canDeleteFile: true,
+  canCreateDir: true,
+  canDeleteDir: true,
+  canReveal: false,
+  canManageRoots: false,
+  isElectron: false,
+  isWritable: true,
+  backendLabel: '浏览器 SQLite · 可管理',
+  transportKind: 'browser-sqlite',
+};
 
-function buildCapabilities(
-  partial: Omit<ImageManagerCapabilities, 'isWritable'>,
-): ImageManagerCapabilities {
-  const isWritable = partial.canImport
-    && partial.canRename
-    && partial.canRenameDir
-    && partial.canDeleteFile
-    && partial.canCreateDir
-    && partial.canDeleteDir;
-  return {
-    ...partial,
-    isWritable,
-  };
-}
+const ALLOWED_IMAGE_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.webp',
+  '.gif',
+  '.svg',
+]);
 
-function getDesktopCapabilities(): ImageManagerCapabilities {
-  const canList = hasHostMethod('listImageAssets');
-  const canImport = hasHostMethod('importImageAssetsToDir');
-  const canRename = hasHostMethod('renameImageAsset');
-  const canRenameDir = hasHostMethod('renameImageDirectory');
-  const canDeleteFile = hasHostMethod('deleteImageAsset');
-  const canCreateDir = hasHostMethod('createImageDirectory');
-  const canDeleteDir = hasHostMethod('deleteImageDirectory');
-  const canReveal = hasHostMethod('revealInExplorer');
-  const isWritable = canImport && canRename && canRenameDir && canDeleteFile && canCreateDir && canDeleteDir;
+const MIME_BY_EXTENSION: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+};
 
-  return {
-    canList,
-    canImport,
-    canRename,
-    canRenameDir,
-    canDeleteFile,
-    canCreateDir,
-    canDeleteDir,
-    canReveal,
-    isElectron: true,
-    isWritable,
-    backendLabel: isWritable ? '桌面端 · 可管理' : '桌面端 · 受限',
-    transportKind: 'electron',
-  };
-}
-
-function getBrowserReadonlyCapabilities(): ImageManagerCapabilities {
-  return buildCapabilities({
-    canList: true,
-    canImport: false,
-    canRename: false,
-    canRenameDir: false,
-    canDeleteFile: false,
-    canCreateDir: false,
-    canDeleteDir: false,
-    canReveal: false,
-    isElectron: false,
-    backendLabel: '浏览器端 · 只读预览',
-    transportKind: 'browser-readonly',
-  });
-}
-
-function getWebBridgeCapabilities(payload: BridgeCapabilityPayload): ImageManagerCapabilities {
-  return buildCapabilities({
-    canList: Boolean(payload.canList),
-    canImport: Boolean(payload.canImport),
-    canRename: Boolean(payload.canRename),
-    canRenameDir: Boolean(payload.canRenameDir),
-    canDeleteFile: Boolean(payload.canDeleteFile),
-    canCreateDir: Boolean(payload.canCreateDir),
-    canDeleteDir: Boolean(payload.canDeleteDir),
-    canReveal: Boolean(payload.canReveal),
-    canManageRoots: Boolean(payload.canManageRoots),
-    primaryRoot: payload.primaryRoot,
-    rootsConfigPath: payload.rootsConfigPath,
-    isElectron: false,
-    backendLabel: payload.backendLabel || '网页端 · 远程管理',
-    transportKind: payload.transportKind || 'web-bridge',
-  });
-}
-
-let currentCapabilities = hasHostMethod('listImageAssets')
-  ? getDesktopCapabilities()
-  : getBrowserReadonlyCapabilities();
-
+let currentCapabilities = BROWSER_CAPABILITIES;
+let builtinManifest: ImageAssetEntry[] | null = null;
+let hydrationPromise: Promise<void> | null = null;
 const capabilityListeners = new Set<CapListener>();
-let capabilityRefreshPromise: Promise<ImageManagerCapabilities> | null = null;
+const objectUrlByPath = new Map<string, string>();
+const staticPathByFileName = new Map<string, string>();
+const userPathByFileName = new Map<string, string>();
 
-function notifyCapabilityListeners() {
-  for (const listener of capabilityListeners) {
-    listener(currentCapabilities);
+function notifyCapabilityListeners(): void {
+  capabilityListeners.forEach((listener) => listener(currentCapabilities));
+}
+
+function normalizeSlashes(value: string): string {
+  return value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/');
+}
+
+function normalizeBaseUrl(): string {
+  const base = import.meta.env.BASE_URL || '/';
+  return base.endsWith('/') ? base : `${base}/`;
+}
+
+function staticAssetUrl(relativePath: string): string {
+  return `${normalizeBaseUrl()}${normalizeSlashes(relativePath)}`;
+}
+
+function fileParts(fileName: string): { baseName: string; ext: string } {
+  const dot = fileName.lastIndexOf('.');
+  if (dot <= 0) return { baseName: fileName, ext: '' };
+  return {
+    baseName: fileName.slice(0, dot),
+    ext: fileName.slice(dot).toLowerCase(),
+  };
+}
+
+function validateName(value: string, kind: 'file' | 'directory'): string {
+  const name = value.trim();
+  if (!name || name === '.' || name === '..' || /[\\/\0]/.test(name)) {
+    throw new Error(`${kind === 'file' ? '文件' : '目录'}名称无效`);
+  }
+  return name;
+}
+
+function normalizeManagedSubdirectory(value?: string): string {
+  if (!value) return '';
+  const normalized = normalizeSlashes(value).replace(/\/+$/, '');
+  if (
+    !normalized
+    || normalized === '.'
+    || normalized.split('/').some((segment) => !segment || segment === '.' || segment === '..')
+  ) {
+    throw new Error('目标目录无效');
+  }
+  return normalized;
+}
+
+function toBytes(value: SqlPrimitive | undefined): Uint8Array | null {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return null;
+}
+
+function revokeObjectUrl(relativePath: string): void {
+  const previous = objectUrlByPath.get(relativePath);
+  if (!previous) return;
+  URL.revokeObjectURL(previous);
+  objectUrlByPath.delete(relativePath);
+}
+
+function registerObjectUrl(
+  relativePath: string,
+  mimeType: string,
+  content: Uint8Array,
+): string {
+  revokeObjectUrl(relativePath);
+  const bytes = new Uint8Array(content);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
+  objectUrlByPath.set(relativePath, url);
+  const fileName = relativePath.split('/').pop();
+  if (fileName) userPathByFileName.set(fileName, relativePath);
+  return url;
+}
+
+function rowToEntry(row: ImageRow): ImageAssetEntry {
+  const relativePath = String(row.relative_path || '');
+  const fileName = String(row.file_name || relativePath.split('/').pop() || '');
+  const mimeType = String(row.mime_type || '');
+  const kind = mimeType === 'inode/directory' ? 'dir' : 'file';
+  return {
+    kind,
+    fileName,
+    baseName: String(row.base_name || fileParts(fileName).baseName),
+    ext: String(row.extension || fileParts(fileName).ext),
+    relativePath,
+    source: 'user',
+    canonicalPath: kind === 'file'
+      ? `user-images/${relativePath.replace(/^assets\/images\//, '')}`
+      : undefined,
+    rootId: 'browser-sqlite',
+    rootLabel: '浏览器自定义图片',
+    rootPriority: 100,
+    writable: true,
+    sizeBytes: Number(row.size_bytes || 0),
+    updatedAt: Number(row.updated_at || 0),
+  };
+}
+
+async function loadBuiltinManifest(): Promise<ImageAssetEntry[]> {
+  if (builtinManifest) return builtinManifest;
+  const response = await fetch(staticAssetUrl('web-image-manifest.json'), {
+    cache: 'no-store',
+  });
+  if (!response.ok) throw new Error(`图片索引加载失败：HTTP ${response.status}`);
+  const payload = await response.json() as {
+    generatedAt?: string;
+    files?: Array<{ path: string; size: number }>;
+  };
+  const updatedAt = Date.parse(payload.generatedAt || '') || 0;
+  builtinManifest = Array.isArray(payload.files)
+    ? payload.files.map((entry) => {
+      const fileName = entry.path.split('/').pop() || entry.path;
+      const { baseName, ext } = fileParts(fileName);
+      return {
+        fileName,
+        baseName,
+        ext,
+        relativePath: entry.path,
+        sizeBytes: entry.size,
+        updatedAt,
+        writable: false,
+        source: 'release',
+        rootId: 'release',
+        rootLabel: '官方图片包',
+        rootPriority: -1,
+      };
+    })
+    : [];
+  staticPathByFileName.clear();
+  for (const entry of builtinManifest) {
+    if (entry.kind === 'dir') continue;
+    const existing = staticPathByFileName.get(entry.fileName);
+    const preferred = !existing
+      || entry.relativePath.includes('/icon_cn/')
+      || entry.source === 'release';
+    if (preferred) staticPathByFileName.set(entry.fileName, entry.relativePath);
+  }
+  return builtinManifest;
+}
+
+async function loadUserRows(): Promise<ImageRow[]> {
+  return webDatabase.query<ImageRow>(
+    'SELECT * FROM image_assets ORDER BY relative_path ASC',
+  );
+}
+
+function hydrateRows(rows: ImageRow[]): void {
+  const present = new Set<string>();
+  userPathByFileName.clear();
+  for (const row of rows) {
+    const relativePath = String(row.relative_path || '');
+    if (!relativePath || String(row.mime_type || '') === 'inode/directory') continue;
+    present.add(relativePath);
+    const content = toBytes(row.content);
+    if (content) registerObjectUrl(relativePath, String(row.mime_type || ''), content);
+  }
+  for (const path of [...objectUrlByPath.keys()]) {
+    if (!present.has(path)) revokeObjectUrl(path);
   }
 }
 
-function setCapabilities(next: ImageManagerCapabilities): ImageManagerCapabilities {
-  currentCapabilities = next;
-  notifyCapabilityListeners();
-  return currentCapabilities;
-}
-
-function isDesktopTransport(): boolean {
-  return hasHostMethod('listImageAssets');
-}
-
-async function fetchBridgeJson<T>(
-  pathname: string,
-  init?: RequestInit,
-  timeoutMs = BRIDGE_TIMEOUT_MS,
-): Promise<T> {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${BRIDGE_ORIGIN}${pathname}`, {
-      ...init,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(init?.headers || {}),
-      },
-      signal: controller.signal,
+export async function hydrateBrowserImageAssets(): Promise<void> {
+  if (hydrationPromise) return hydrationPromise;
+  hydrationPromise = Promise.all([loadBuiltinManifest(), loadUserRows()])
+    .then(([, rows]) => {
+      hydrateRows(rows);
+    })
+    .finally(() => {
+      hydrationPromise = null;
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(
-        typeof (data as { error?: unknown }).error === 'string'
-          ? (data as { error: string }).error
-          : `HTTP ${response.status}`,
-      );
+  return hydrationPromise;
+}
+
+function resolveLegacyUserImagePath(relativePath: string): string {
+  const normalized = normalizeSlashes(relativePath)
+    .replace(/^user-images\//, '')
+    .replace(/^data\/images\//, '');
+  if (normalized.startsWith('img-equipment/') && !normalized.startsWith('img-equipment/icon_cn/')) {
+    return `assets/images/img-equipment/icon_cn/${normalized.slice('img-equipment/'.length)}`;
+  }
+  if (normalized.startsWith('images/')) return `assets/images/${normalized}`;
+  if (normalized.includes('/')) return `assets/images/${normalized}`;
+  return userPathByFileName.get(normalized)
+    || staticPathByFileName.get(normalized)
+    || `assets/images/${normalized}`;
+}
+
+/**
+ * Resolve every browser-era, desktop-era and current image reference without
+ * contacting localhost. User BLOBs become object URLs; release images retain
+ * their canonical same-origin path and are fulfilled by the image pack cache.
+ */
+export function resolveBrowserImageUrl(path?: string | null): string | null {
+  if (!path) return null;
+  if (/^(?:data|blob):/i.test(path)) return path;
+  let normalized = path;
+  try {
+    const url = new URL(path, window.location.href);
+    if (url.hostname === '127.0.0.1' && url.port === '31457') {
+      normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
+    } else if (/^https?:/i.test(path) && url.origin !== window.location.origin) {
+      return path;
+    } else {
+      normalized = decodeURIComponent(url.pathname.replace(/^\/+/, ''));
     }
-    return data as T;
-  } finally {
-    window.clearTimeout(timer);
+  } catch {
+    normalized = path;
   }
-}
-
-async function readFileAsBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error || new Error(`读取文件失败: ${file.name}`));
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      const [, base64 = ''] = result.split(',', 2);
-      resolve(base64);
-    };
-    reader.readAsDataURL(file);
-  });
-}
-
-async function pickBrowserImportItems(): Promise<{ fileName: string; data: string }[] | null> {
-  if (typeof document === 'undefined') return null;
-
-  const files = await new Promise<File[] | null>((resolve) => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.accept = '.png,.jpg,.jpeg,.webp,.gif,.svg';
-    input.style.position = 'fixed';
-    input.style.left = '-9999px';
-    input.style.top = '-9999px';
-
-    let settled = false;
-    const finish = (picked: File[] | null) => {
-      if (settled) return;
-      settled = true;
-      window.removeEventListener('focus', handleFocus, true);
-      input.remove();
-      resolve(picked);
-    };
-    const handleFocus = () => {
-      window.setTimeout(() => {
-        if (!settled) finish(null);
-      }, 300);
-    };
-
-    input.addEventListener('change', () => {
-      const picked = input.files ? Array.from(input.files) : [];
-      finish(picked.length > 0 ? picked : null);
-    }, { once: true });
-
-    window.addEventListener('focus', handleFocus, true);
-    document.body.appendChild(input);
-    input.click();
-  });
-
-  if (!files || files.length === 0) return null;
-
-  const items = await Promise.all(files.map(async (file) => ({
-    fileName: file.name,
-    data: await readFileAsBase64(file),
-  })));
-  return items;
-}
-
-function requireCapability(cap: keyof ImageManagerCapabilities): { ok: true } | { ok: false; error: string } {
-  const caps = getCapabilities();
-  if (!caps[cap]) {
-    return { ok: false, error: '当前环境不支持此操作' };
-  }
-  return { ok: true };
+  normalized = normalizeSlashes(normalized);
+  const relativePath = normalized.startsWith('user-images/')
+    || normalized.startsWith('data/images/')
+    ? resolveLegacyUserImagePath(normalized)
+    : normalized.startsWith('assets/')
+      ? normalized
+      : staticPathByFileName.get(normalized.split('/').pop() || '') || normalized;
+  return objectUrlByPath.get(relativePath) || staticAssetUrl(relativePath);
 }
 
 export function getCapabilities(): ImageManagerCapabilities {
@@ -258,46 +293,94 @@ export function getCapabilities(): ImageManagerCapabilities {
 
 export function subscribeCapabilities(listener: CapListener): () => void {
   capabilityListeners.add(listener);
-  return () => {
-    capabilityListeners.delete(listener);
-  };
+  return () => capabilityListeners.delete(listener);
 }
 
 export async function refreshCapabilities(): Promise<ImageManagerCapabilities> {
-  if (isDesktopTransport()) {
-    return setCapabilities(getDesktopCapabilities());
-  }
-
-  if (capabilityRefreshPromise) return capabilityRefreshPromise;
-
-  capabilityRefreshPromise = (async () => {
-    try {
-      const response = await fetchBridgeJson<{ ok: boolean; capabilities: BridgeCapabilityPayload }>(
-        '/image-assets/capabilities',
-        { method: 'GET' },
-        CAPABILITY_TIMEOUT_MS,
-      );
-      if (!response.ok) {
-        return setCapabilities(getBrowserReadonlyCapabilities());
-      }
-      return setCapabilities(getWebBridgeCapabilities(response.capabilities));
-    } catch {
-      return setCapabilities(getBrowserReadonlyCapabilities());
-    } finally {
-      capabilityRefreshPromise = null;
-    }
-  })();
-
-  return capabilityRefreshPromise;
+  await webDatabase.initialize();
+  currentCapabilities = BROWSER_CAPABILITIES;
+  notifyCapabilityListeners();
+  return currentCapabilities;
 }
 
-/** Build a URL for a user image served by the Electron bridge HTTP server. */
 export function getUserImageUrl(entry: ImageAssetEntry): string | null {
   const rel = toUserImageRelPath(entry);
-  if (!rel) return null;
-  const encodedRel = rel.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-  if (!encodedRel) return null;
-  return `${BRIDGE_ORIGIN}/user-images/${encodedRel}`;
+  if (entry.source === 'user') {
+    return objectUrlByPath.get(entry.relativePath)
+      || (rel ? objectUrlByPath.get(`assets/images/${rel}`) || null : null);
+  }
+  return resolveBrowserImageUrl(entry.relativePath || entry.canonicalPath);
+}
+
+async function pickBrowserFiles(): Promise<File[] | null> {
+  if (typeof document === 'undefined') return null;
+  return new Promise<File[] | null>((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = '.png,.jpg,.jpeg,.webp,.gif,.svg';
+    input.hidden = true;
+    let settled = false;
+    const finish = (value: File[] | null) => {
+      if (settled) return;
+      settled = true;
+      window.removeEventListener('focus', handleFocus, true);
+      input.remove();
+      resolve(value);
+    };
+    const handleFocus = () => {
+      window.setTimeout(() => {
+        if (!settled) finish(null);
+      }, 300);
+    };
+    input.addEventListener('change', () => {
+      const files = input.files ? Array.from(input.files) : [];
+      finish(files.length ? files : null);
+    }, { once: true });
+    window.addEventListener('focus', handleFocus, true);
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
+function fileUpsertStatement(
+  relativePath: string,
+  file: File,
+  content: Uint8Array,
+  updatedAt: number,
+): SqlStatement {
+  const { baseName, ext } = fileParts(file.name);
+  if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) {
+    throw new Error(`不支持的图片格式：${file.name}`);
+  }
+  return {
+    sql: `
+      INSERT INTO image_assets(
+        relative_path, file_name, base_name, extension, mime_type, content,
+        source, writable, size_bytes, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'user', 1, ?, ?)
+      ON CONFLICT(relative_path) DO UPDATE SET
+        file_name = excluded.file_name,
+        base_name = excluded.base_name,
+        extension = excluded.extension,
+        mime_type = excluded.mime_type,
+        content = excluded.content,
+        source = excluded.source,
+        writable = excluded.writable,
+        size_bytes = excluded.size_bytes,
+        updated_at = excluded.updated_at
+    `,
+    bind: [
+      relativePath,
+      file.name,
+      baseName,
+      ext,
+      file.type || MIME_BY_EXTENSION[ext] || 'application/octet-stream',
+      content,
+      content.byteLength,
+      updatedAt,
+    ],
+  };
 }
 
 export const imageBridge = {
@@ -306,172 +389,212 @@ export const imageBridge = {
   refreshCapabilities,
 
   async listAssets(): Promise<ImageAssetEntry[]> {
-    if (isDesktopTransport()) {
-      const list = await window.desktopRuntime!.listImageAssets!();
-      setCapabilities(getDesktopCapabilities());
-      return list;
-    }
+    const [builtin, rows] = await Promise.all([loadBuiltinManifest(), loadUserRows()]);
+    hydrateRows(rows);
+    const merged = new Map<string, ImageAssetEntry>();
+    builtin.forEach((entry) => merged.set(entry.relativePath, {
+      ...entry,
+      writable: false,
+      source: entry.source === 'user' ? 'release' : entry.source,
+    }));
+    rows.map(rowToEntry).forEach((entry) => merged.set(entry.relativePath, entry));
+    return [...merged.values()];
+  },
 
+  async importToDir(
+    targetDir?: string,
+  ): Promise<{ ok: boolean; error?: string; imported?: string[] }> {
     try {
-      const response = await fetchBridgeJson<{ ok: boolean; items: ImageAssetEntry[] }>('/image-assets/list', { method: 'GET' });
-      void refreshCapabilities();
-      return response.items;
-    } catch {
-      setCapabilities(getBrowserReadonlyCapabilities());
-      const { resolvePublicPath } = await import('./assetResolver');
-      // Legacy browser fallback endpoint. Although the path is assets/images/_manifest.json,
-      // the manifest may contain the full builtin asset image set.
-      const url = resolvePublicPath('assets/images/_manifest.json');
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return res.json();
+      const files = await pickBrowserFiles();
+      if (!files) return { ok: false, error: '已取消' };
+      const directory = normalizeManagedSubdirectory(targetDir);
+      const updatedAt = Date.now();
+      const prepared = await Promise.all(files.map(async (file) => {
+        validateName(file.name, 'file');
+        const content = new Uint8Array(await file.arrayBuffer());
+        const relativePath = `assets/images/${directory ? `${directory}/` : ''}${file.name}`;
+        return {
+          file,
+          content,
+          relativePath,
+          statement: fileUpsertStatement(relativePath, file, content, updatedAt),
+        };
+      }));
+      await webDatabase.batch(prepared.map((item) => item.statement));
+      for (const item of prepared) {
+        registerObjectUrl(
+          item.relativePath,
+          item.file.type || MIME_BY_EXTENSION[fileParts(item.file.name).ext],
+          item.content,
+        );
+      }
+      return { ok: true, imported: prepared.map((item) => item.file.name) };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
   },
 
-  async importToDir(targetDir?: string): Promise<{ ok: boolean; error?: string; imported?: string[] }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.importImageAssetsToDir!({ targetDir });
-      setCapabilities(getDesktopCapabilities());
-      return result;
+  async createDirectory(
+    dirName: string,
+    parentDir?: string,
+  ): Promise<{ ok: boolean; error?: string; createdPath?: string }> {
+    try {
+      const name = validateName(dirName, 'directory');
+      const parent = normalizeManagedSubdirectory(parentDir);
+      const createdPath = parent ? `${parent}/${name}` : name;
+      const relativePath = `assets/images/${createdPath}`;
+      await webDatabase.execute(
+        `
+          INSERT INTO image_assets(
+            relative_path, file_name, base_name, extension, mime_type, content,
+            source, writable, size_bytes, updated_at
+          ) VALUES (?, ?, ?, '', 'inode/directory', NULL, 'user', 1, 0, ?)
+          ON CONFLICT(relative_path) DO NOTHING
+        `,
+        [relativePath, name, name, Date.now()],
+      );
+      return { ok: true, createdPath };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-
-    const cap = requireCapability('canImport');
-    if (!cap.ok) return cap;
-
-    const items = await pickBrowserImportItems();
-    if (!items) return { ok: false, error: '已取消' };
-
-    const response = await fetchBridgeJson<{ ok: boolean; error?: string; results?: { fileName: string; ok: boolean; error?: string }[] }>(
-      '/image-assets/import-from-browser',
-      {
-        method: 'POST',
-        body: JSON.stringify({ items, targetDir }),
-      },
-    );
-
-    return {
-      ok: response.ok,
-      error: response.error,
-      imported: response.results?.filter((item) => item.ok).map((item) => item.fileName),
-    };
   },
 
-  async createDirectory(dirName: string, parentDir?: string): Promise<{ ok: boolean; error?: string; createdPath?: string }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.createImageDirectory!({ dirName, parentDir });
-      setCapabilities(getDesktopCapabilities());
-      return result;
+  async deleteDirectory(
+    relativePath: string,
+  ): Promise<{ ok: boolean; error?: string; lockedFiles?: string[] }> {
+    try {
+      const directory = normalizeManagedSubdirectory(relativePath);
+      const prefix = `assets/images/${directory}`;
+      const builtin = await loadBuiltinManifest();
+      const lockedFiles = builtin
+        .filter((entry) => entry.relativePath === prefix || entry.relativePath.startsWith(`${prefix}/`))
+        .map((entry) => entry.relativePath);
+      if (lockedFiles.length) {
+        return {
+          ok: false,
+          error: '目录中包含基础资料图片，不能删除整个目录。',
+          lockedFiles,
+        };
+      }
+      const rows = await webDatabase.query<ImageRow>(
+        `
+          SELECT relative_path FROM image_assets
+          WHERE relative_path = ? OR relative_path LIKE ? ESCAPE '\\'
+        `,
+        [prefix, `${prefix.replace(/[%_\\]/g, '\\$&')}/%`],
+      );
+      await webDatabase.execute(
+        `
+          DELETE FROM image_assets
+          WHERE relative_path = ? OR relative_path LIKE ? ESCAPE '\\'
+        `,
+        [prefix, `${prefix.replace(/[%_\\]/g, '\\$&')}/%`],
+      );
+      rows.forEach((row) => revokeObjectUrl(String(row.relative_path || '')));
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-
-    const cap = requireCapability('canCreateDir');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/create-directory', {
-      method: 'POST',
-      body: JSON.stringify({ dirName, parentDir }),
-    });
   },
 
-  async deleteDirectory(relativePath: string): Promise<{ ok: boolean; error?: string; lockedFiles?: string[] }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.deleteImageDirectory!({ relativePath });
-      setCapabilities(getDesktopCapabilities());
-      return result;
+  async renameFile(
+    relativePath: string,
+    newName: string,
+  ): Promise<{ ok: boolean; error?: string }> {
+    try {
+      const validated = validateManagedFilePath(relativePath);
+      if (!validated.ok) return validated;
+      const fileName = validateName(newName, 'file');
+      const { baseName, ext } = fileParts(fileName);
+      if (!ALLOWED_IMAGE_EXTENSIONS.has(ext)) throw new Error('重命名后必须保留支持的图片扩展名');
+      const slash = validated.normalized.lastIndexOf('/');
+      const newPath = `${validated.normalized.slice(0, slash + 1)}${fileName}`;
+      const rows = await webDatabase.query<ImageRow>(
+        'SELECT * FROM image_assets WHERE relative_path = ? AND writable = 1',
+        [validated.normalized],
+      );
+      if (!rows[0]) throw new Error('只能重命名浏览器中导入的图片');
+      await webDatabase.execute(
+        `
+          UPDATE image_assets SET
+            relative_path = ?, file_name = ?, base_name = ?, extension = ?, updated_at = ?
+          WHERE relative_path = ? AND writable = 1
+        `,
+        [newPath, fileName, baseName, ext, Date.now(), validated.normalized],
+      );
+      const content = toBytes(rows[0].content);
+      revokeObjectUrl(validated.normalized);
+      if (content) registerObjectUrl(newPath, String(rows[0].mime_type || ''), content);
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-
-    const cap = requireCapability('canDeleteDir');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/delete-directory', {
-      method: 'POST',
-      body: JSON.stringify({ relativePath }),
-    });
   },
 
-  async renameFile(relativePath: string, newName: string): Promise<{ ok: boolean; error?: string }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.renameImageAsset!({ relativePath, newName });
-      setCapabilities(getDesktopCapabilities());
-      return result;
+  async renameDirectory(
+    dirPath: string,
+    newName: string,
+  ): Promise<{ ok: boolean; error?: string; newPath?: string }> {
+    try {
+      const directory = normalizeManagedSubdirectory(dirPath);
+      const name = validateName(newName, 'directory');
+      const parts = directory.split('/');
+      parts[parts.length - 1] = name;
+      const newDirectory = parts.join('/');
+      const oldPrefix = `assets/images/${directory}`;
+      const newPrefix = `assets/images/${newDirectory}`;
+      const rows = await webDatabase.query<ImageRow>(
+        `
+          SELECT * FROM image_assets
+          WHERE relative_path = ? OR relative_path LIKE ? ESCAPE '\\'
+          ORDER BY LENGTH(relative_path) ASC
+        `,
+        [oldPrefix, `${oldPrefix.replace(/[%_\\]/g, '\\$&')}/%`],
+      );
+      if (!rows.length) throw new Error('只能重命名浏览器中创建的目录');
+      const statements = rows.map<SqlStatement>((row) => {
+        const oldPath = String(row.relative_path || '');
+        const nextPath = `${newPrefix}${oldPath.slice(oldPrefix.length)}`;
+        const nextFileName = nextPath.split('/').pop() || '';
+        return {
+          sql: `
+            UPDATE image_assets
+            SET relative_path = ?, file_name = ?, updated_at = ?
+            WHERE relative_path = ? AND writable = 1
+          `,
+          bind: [nextPath, nextFileName, Date.now(), oldPath],
+        };
+      });
+      await webDatabase.batch(statements);
+      hydrateRows(await loadUserRows());
+      return { ok: true, newPath: newDirectory };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
-
-    const cap = requireCapability('canRename');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/rename-file', {
-      method: 'POST',
-      body: JSON.stringify({ relativePath, newName }),
-    });
-  },
-
-  async renameDirectory(dirPath: string, newName: string): Promise<{ ok: boolean; error?: string; newPath?: string }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.renameImageDirectory!({ dirPath, newName });
-      setCapabilities(getDesktopCapabilities());
-      return result;
-    }
-
-    const cap = requireCapability('canRenameDir');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/rename-directory', {
-      method: 'POST',
-      body: JSON.stringify({ dirPath, newName }),
-    });
   },
 
   async deleteFile(relativePath: string): Promise<{ ok: boolean; error?: string }> {
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.deleteImageAsset!({ relativePath });
-      setCapabilities(getDesktopCapabilities());
-      return result;
-    }
-
-    const cap = requireCapability('canDeleteFile');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/delete-file', {
-      method: 'POST',
-      body: JSON.stringify({ relativePath }),
-    });
+    const validated = validateManagedFilePath(relativePath);
+    if (!validated.ok) return validated;
+    const result = await webDatabase.execute(
+      'DELETE FROM image_assets WHERE relative_path = ? AND writable = 1',
+      [validated.normalized],
+    );
+    if (!result.changes) return { ok: false, error: '只能删除浏览器中导入的图片' };
+    revokeObjectUrl(validated.normalized);
+    return { ok: true };
   },
 
   async revealFile(relativePath: string): Promise<{ ok: boolean; error?: string }> {
     const validated = validateManagedFilePath(relativePath);
     if (!validated.ok) return validated;
-
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.revealInExplorer!({ kind: 'file', relativePath: validated.normalized });
-      setCapabilities(getDesktopCapabilities());
-      return result;
-    }
-
-    const cap = requireCapability('canReveal');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/reveal-file', {
-      method: 'POST',
-      body: JSON.stringify({ relativePath: validated.normalized }),
-    });
+    return { ok: false, error: '浏览器没有“在访达中显示”能力，可复制图片路径。' };
   },
 
   async revealDirectory(dirPath: string): Promise<{ ok: boolean; error?: string }> {
     const validated = validateManagedDirPath(dirPath);
     if (!validated.ok) return validated;
-
-    if (isDesktopTransport()) {
-      const result = await window.desktopRuntime!.revealInExplorer!({ kind: 'dir', dirPath: validated.normalized });
-      setCapabilities(getDesktopCapabilities());
-      return result;
-    }
-
-    const cap = requireCapability('canReveal');
-    if (!cap.ok) return cap;
-
-    return fetchBridgeJson('/image-assets/reveal-directory', {
-      method: 'POST',
-      body: JSON.stringify({ dirPath: validated.normalized }),
-    });
+    return { ok: false, error: '浏览器没有“在访达中显示”能力。' };
   },
 };
 

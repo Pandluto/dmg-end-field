@@ -10,12 +10,17 @@ import {
   readInstalledResourcePackage,
   type InstalledResourcePackage,
 } from '../../platform/resources/resourcePackage';
+import {
+  readInstalledImagePackage,
+  type InstalledImagePackage,
+} from '../../platform/resources/imagePackage';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import {
   bootstrapPersistentStorage,
   flushPersistentStorage,
 } from '../../platform/storage/persistentStorage';
 import { bootstrapUserWorkspaceBridge, flushUserWorkspaceState } from '../../utils/userWorkspaceBridge';
+import { hydrateBrowserImageAssets } from '../../utils/imageBridge';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -29,6 +34,7 @@ export function WebBootstrap() {
   const [phase, setPhase] = useState<BootstrapPhase>('checking-access');
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
+  const [installedImagePackage, setInstalledImagePackage] = useState<InstalledImagePackage | null>(null);
 
   const initializeWorkspace = useCallback(async () => {
     setPhase('starting');
@@ -42,11 +48,17 @@ export function WebBootstrap() {
       await webDatabase.initialize();
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
+      await hydrateBrowserImageAssets();
       void requestPersistentBrowserStorage();
-      const installed = await readInstalledResourcePackage();
+      const [installed, imagePackage] = await Promise.all([
+        readInstalledResourcePackage(),
+        readInstalledImagePackage(),
+      ]);
       setInstalledPackage(installed);
-      setPhase(installed ? 'ready' : 'onboarding');
-      if (installed && (window.location.hash === '' || window.location.hash === '#/')) {
+      setInstalledImagePackage(imagePackage);
+      const complete = Boolean(installed && imagePackage);
+      setPhase(complete ? 'ready' : 'onboarding');
+      if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
       }
     } catch (error) {
@@ -120,8 +132,9 @@ export function WebBootstrap() {
   if (phase === 'onboarding') {
     return (
       <WelcomePage
-        onInstalled={(resourcePackage) => {
+        onInstalled={(resourcePackage, imagePackage) => {
           setInstalledPackage(resourcePackage);
+          setInstalledImagePackage(imagePackage);
           navigateToAppPath(APP_ROUTE_PATHS.welcome);
           setPhase('ready');
         }}
@@ -131,7 +144,7 @@ export function WebBootstrap() {
 
   return (
     <AppProvider>
-      <App key={installedPackage?.version || 'web-lts'} />
+      <App key={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
     </AppProvider>
   );
 }

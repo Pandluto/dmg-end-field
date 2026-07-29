@@ -149,14 +149,14 @@ function getCharacterReport(
 
 function resolveStoredImageUrl(path?: string): string {
   if (!path) return '';
-  if (/^(?:https?:)?\/\//i.test(path)) return path;
+  if (/^(?:https?:)?\/\//i.test(path) && !/^http:\/\/127\.0\.0\.1:31457\//i.test(path)) return path;
   if (/^[A-Za-z]:[\\/]/.test(path)) return path;
   return normalizeAssetUrl(path);
 }
 
 function resolveWeaponImageUrl(weaponName?: string): string {
   if (!weaponName) return '';
-  return `http://127.0.0.1:31457/user-images/${encodeURIComponent(`${weaponName}.png`)}`;
+  return normalizeAssetUrl(`user-images/${weaponName}.png`);
 }
 
 function readLocalStorageJson<T>(key: string, fallback: T): T {

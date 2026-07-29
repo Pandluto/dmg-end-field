@@ -29,7 +29,11 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['app-icon.svg'],
+      includeAssets: [
+        'app-icon.svg',
+        'web-data-manifest.json',
+        'web-image-manifest.json',
+      ],
       manifest: {
         name: '终末地伤害工作台',
         short_name: '伤害工作台',
@@ -37,7 +41,7 @@ export default defineConfig({
         theme_color: '#07100f',
         background_color: '#07100f',
         display: 'standalone',
-        start_url: './#/timeline',
+        start_url: './#/welcome',
         icons: [
           {
             src: 'app-icon.svg',
