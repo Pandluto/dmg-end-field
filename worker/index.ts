@@ -12,6 +12,8 @@ export default {
     const mustRevalidate = (
       request.mode === 'navigate'
       || acceptsHtml
+      || url.pathname === '/'
+      || url.pathname === '/index.html'
       || url.pathname === '/sw.js'
       || url.pathname === '/manifest.webmanifest'
     )
