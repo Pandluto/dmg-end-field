@@ -22,9 +22,9 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
   {
     id: 'apple-midnight',
     label: '深色',
-    description: '柔和石墨灰层级与清晰边界',
+    description: '近黑画布、悬浮材质与蓝色交互',
     colorScheme: 'dark',
-    browserColor: '#292a2e',
+    browserColor: '#0e0f11',
   },
   {
     id: 'apple-warm',

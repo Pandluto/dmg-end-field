@@ -33,61 +33,61 @@
 :root[data-theme="apple-midnight"] {
   color-scheme: dark;
 
-  --theme-bg-window: #292a2e;
-  --theme-bg-content: #2f3035;
-  --theme-bg-nav: rgba(55, 56, 62, 0.94);
-  --theme-bg-card: rgba(61, 62, 69, 0.97);
-  --theme-bg-grid-area: #303136;
-  --theme-bg-grid-header: rgba(255, 255, 255, 0.055);
-  --theme-bg-workspace-panel: rgba(56, 57, 64, 0.97);
-  --theme-bg-hover: rgba(255, 255, 255, 0.075);
-  --theme-bg-active: rgba(10, 132, 255, 0.18);
+  --theme-bg-window: #0e0f11;
+  --theme-bg-content: #151619;
+  --theme-bg-nav: rgba(29, 30, 34, 0.94);
+  --theme-bg-card: rgba(34, 35, 40, 0.98);
+  --theme-bg-grid-area: #121316;
+  --theme-bg-grid-header: rgba(255, 255, 255, 0.035);
+  --theme-bg-workspace-panel: rgba(25, 26, 30, 0.98);
+  --theme-bg-hover: rgba(255, 255, 255, 0.065);
+  --theme-bg-active: rgba(10, 132, 255, 0.2);
 
   --theme-text-title: #f5f5f7;
-  --theme-text-body: #dedee5;
-  --theme-text-muted: #b0b0b8;
-  --theme-text-placeholder: #85858e;
+  --theme-text-body: #d1d1d6;
+  --theme-text-muted: #98989f;
+  --theme-text-placeholder: #6e6e76;
 
-  --theme-border-subtle: rgba(255, 255, 255, 0.08);
-  --theme-border-grid: rgba(255, 255, 255, 0.1);
-  --theme-border-default: rgba(255, 255, 255, 0.15);
-  --theme-border-medium: rgba(41, 151, 255, 0.3);
-  --theme-border-strong: rgba(255, 255, 255, 0.24);
+  --theme-border-subtle: rgba(255, 255, 255, 0.05);
+  --theme-border-grid: rgba(255, 255, 255, 0.065);
+  --theme-border-default: rgba(255, 255, 255, 0.1);
+  --theme-border-medium: rgba(64, 156, 255, 0.34);
+  --theme-border-strong: rgba(255, 255, 255, 0.17);
 
   --theme-accent-main: #0a84ff;
-  --theme-accent-strong: #2997ff;
+  --theme-accent-strong: #409cff;
   --theme-accent-bright: #64d2ff;
   --theme-accent-lime: #30d158;
-  --theme-accent-soft: rgba(10, 132, 255, 0.15);
+  --theme-accent-soft: rgba(10, 132, 255, 0.16);
   --theme-accent-hover: #2997ff;
 
   --theme-shadow-panel:
-    0 1px 2px rgba(0, 0, 0, 0.3),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.045);
-  --theme-shadow-hover: 0 10px 28px rgba(0, 0, 0, 0.28);
-  --theme-focus-ring: 0 0 0 3px rgba(41, 151, 255, 0.28);
+    0 1px 3px rgba(0, 0, 0, 0.42),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.04);
+  --theme-shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.38);
+  --theme-focus-ring: 0 0 0 3px rgba(64, 156, 255, 0.3);
 
-  --theme-radius-control: 10px;
-  --theme-radius-panel: 16px;
+  --theme-radius-control: 9px;
+  --theme-radius-panel: 14px;
   --theme-radius-switch: 999px;
 
-  --theme-main-stat-bg: rgba(255, 214, 10, 0.14);
-  --theme-sub-stat-bg: rgba(255, 255, 255, 0.075);
+  --theme-main-stat-bg: rgba(255, 214, 10, 0.13);
+  --theme-sub-stat-bg: rgba(142, 142, 147, 0.12);
 
-  --theme-surface-solid: #484950;
-  --theme-surface-raised: rgba(66, 67, 74, 0.98);
-  --theme-surface-regular: rgba(59, 60, 66, 0.97);
-  --theme-surface-muted: #34353a;
-  --theme-control-bg: rgba(76, 77, 85, 0.96);
-  --theme-fill-subtle: rgba(255, 255, 255, 0.055);
-  --theme-fill-hover: rgba(255, 255, 255, 0.09);
-  --theme-fill-pressed: rgba(255, 255, 255, 0.14);
-  --theme-line-soft: rgba(255, 255, 255, 0.08);
-  --theme-line-regular: rgba(255, 255, 255, 0.15);
-  --theme-line-strong: rgba(255, 255, 255, 0.24);
-  --theme-graphic-line: #a7a7ae;
-  --theme-graphic-line-strong: #d1d1d6;
-  --theme-overlay-bg: rgba(21, 22, 26, 0.46);
+  --theme-surface-solid: #24252a;
+  --theme-surface-raised: rgba(40, 41, 47, 0.98);
+  --theme-surface-regular: rgba(32, 33, 38, 0.98);
+  --theme-surface-muted: #1b1c20;
+  --theme-control-bg: rgba(45, 46, 52, 0.98);
+  --theme-fill-subtle: rgba(255, 255, 255, 0.045);
+  --theme-fill-hover: rgba(255, 255, 255, 0.075);
+  --theme-fill-pressed: rgba(255, 255, 255, 0.12);
+  --theme-line-soft: rgba(255, 255, 255, 0.055);
+  --theme-line-regular: rgba(255, 255, 255, 0.105);
+  --theme-line-strong: rgba(255, 255, 255, 0.17);
+  --theme-graphic-line: #7c7c84;
+  --theme-graphic-line-strong: #b8b8c0;
+  --theme-overlay-bg: rgba(0, 0, 0, 0.58);
   --theme-text-on-accent: #ffffff;
   --theme-danger: #ff6961;
   --theme-danger-soft: rgba(255, 69, 58, 0.16);
@@ -96,24 +96,24 @@
   --theme-warning: #ffd60a;
   --theme-warning-soft: rgba(255, 214, 10, 0.14);
   --theme-shadow-window:
-    0 38px 112px rgba(0, 0, 0, 0.46),
-    0 10px 30px rgba(0, 0, 0, 0.32),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.07);
+    0 42px 120px rgba(0, 0, 0, 0.58),
+    0 12px 36px rgba(0, 0, 0, 0.42),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.055);
   --theme-shadow-float:
-    0 24px 64px rgba(0, 0, 0, 0.38),
-    0 2px 10px rgba(0, 0, 0, 0.26);
+    0 26px 72px rgba(0, 0, 0, 0.5),
+    0 3px 12px rgba(0, 0, 0, 0.32);
 
-  --excel-green-muted: rgba(41, 151, 255, 0.34);
-  --excel-gray-2: #3b3c42;
-  --excel-gray-3: #4c4d55;
-  --excel-gray-4: #85858e;
+  --excel-green-muted: rgba(64, 156, 255, 0.36);
+  --excel-gray-2: #202126;
+  --excel-gray-3: #2d2e34;
+  --excel-gray-4: #6e6e76;
   --ide-warning: var(--theme-warning);
   --ide-danger: var(--theme-danger);
   --ide-success: var(--theme-success-soft);
-  --ide-acrylic-bg: rgba(66, 67, 74, 0.94);
-  --ide-acrylic-bg-strong: rgba(61, 62, 69, 0.98);
-  --ide-acrylic-border: rgba(255, 255, 255, 0.09);
-  --ide-acrylic-highlight: rgba(255, 255, 255, 0.075);
+  --ide-acrylic-bg: rgba(35, 36, 41, 0.92);
+  --ide-acrylic-bg-strong: rgba(40, 41, 47, 0.98);
+  --ide-acrylic-border: rgba(255, 255, 255, 0.065);
+  --ide-acrylic-highlight: rgba(255, 255, 255, 0.05);
 }
 
 :root[data-theme="apple-warm"] {
@@ -391,14 +391,14 @@
 
 /* Web entry, app launcher and floating windows */
 :root[data-theme="apple-midnight"] {
-  --web-bg: #292a2e;
-  --web-panel: rgba(66, 67, 74, 0.98);
-  --web-panel-strong: #484950;
-  --web-line: rgba(255, 255, 255, 0.11);
-  --web-line-strong: rgba(255, 255, 255, 0.22);
+  --web-bg: #0e0f11;
+  --web-panel: rgba(40, 41, 47, 0.98);
+  --web-panel-strong: #24252a;
+  --web-line: rgba(255, 255, 255, 0.075);
+  --web-line-strong: rgba(255, 255, 255, 0.16);
   --web-text: #f5f5f7;
-  --web-muted: #b0b0b8;
-  --web-faint: #85858e;
+  --web-muted: #98989f;
+  --web-faint: #6e6e76;
   --web-accent: #0a84ff;
   --web-accent-strong: #0071e3;
   --web-danger: #ff6961;
