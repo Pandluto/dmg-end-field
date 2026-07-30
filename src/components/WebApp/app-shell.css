@@ -200,8 +200,16 @@
   height: 7px;
   flex: 0 0 7px;
   border-radius: 50%;
+}
+
+.local-state-dot.is-online {
   background: #36a269;
   box-shadow: 0 0 0 3px rgba(54, 162, 105, 0.11);
+}
+
+.local-state-dot.is-offline {
+  background: #8e8e93;
+  box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.11);
 }
 
 .web-shell-local-state div {

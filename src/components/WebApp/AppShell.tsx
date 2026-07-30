@@ -129,6 +129,9 @@ function BrandLogo() {
 
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(
+    () => typeof navigator === 'undefined' || navigator.onLine,
+  );
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -184,6 +187,19 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   useEffect(() => {
     setMenuOpen(false);
   }, [currentPath]);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    setIsOnline(navigator.onLine);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -337,11 +353,14 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 ))}
               </nav>
 
-              <div className="web-shell-local-state">
-                <span className="local-state-dot" />
+              <div className="web-shell-local-state" role="status" aria-live="polite">
+                <span
+                  className={`local-state-dot ${isOnline ? 'is-online' : 'is-offline'}`}
+                  aria-hidden="true"
+                />
                 <div>
-                  <strong>此浏览器</strong>
-                  <small>SQLite · OPFS · 离线可用</small>
+                  <strong>{isOnline ? '在线版本' : '离线版本'}</strong>
+                  <small>{isOnline ? '已连接网络' : '本地资源运行中'}</small>
                 </div>
               </div>
             </div>
