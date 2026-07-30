@@ -1,7 +1,7 @@
 export const APP_THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
 export const APP_THEME_CHANGE_EVENT = 'dmg-theme-change';
 
-export type AppThemeId = 'office-excel' | 'apple-midnight' | 'apple-warm';
+export type AppThemeId = 'office-excel' | 'apple-midnight' | 'apple-warm' | 'lieflat-mono';
 
 export type AppThemeOption = {
   id: AppThemeId;
@@ -32,6 +32,13 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '柔和纸感与暖铜强调色',
     colorScheme: 'light',
     browserColor: '#ebe4d9',
+  },
+  {
+    id: 'lieflat-mono',
+    label: '纸墨 Mono',
+    description: '纸灰、炭墨与编辑式发丝线',
+    colorScheme: 'light',
+    browserColor: '#f0efeb',
   },
 ] as const;
 

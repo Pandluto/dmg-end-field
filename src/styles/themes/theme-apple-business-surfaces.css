@@ -1,5 +1,5 @@
 /*
- * Complete business-surface bridge for the two Apple themes.
+ * Complete business-surface bridge for the alternate application themes.
  *
  * The legacy workbench contains several self-contained editors whose original
  * CSS intentionally hard-codes a white Office palette. This layer maps those
@@ -8,7 +8,7 @@
  */
 
 /* Skill detail, Buff list and the adjacent "add Buff" workbench. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-modal-overlay,
   .skill-button-inline-buff-search-mask
 ) {
@@ -16,11 +16,11 @@
   backdrop-filter: blur(18px) saturate(0.92);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-button-modal-pair.is-buff-search-open::after {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .skill-button-modal-pair.is-buff-search-open::after {
   background: var(--theme-line-regular);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-modal,
   .skill-button-inline-buff-search.is-workbench-mode,
   .skill-button-inline-buff-search.is-anomaly-mode
@@ -33,7 +33,7 @@
   backdrop-filter: blur(24px) saturate(1.08);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-button-modal :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .skill-button-modal :where(
   .modal-header,
   .skill-button-buff-section,
   .skill-damage-expanded
@@ -41,7 +41,7 @@
   border-color: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .modal-title,
   .skill-button-modal h4,
   .skill-button-buff-section h5,
@@ -60,7 +60,7 @@
   border-color: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-modal-info,
   .skill-info-snapshot-content,
   .skill-button-resistance-field,
@@ -85,7 +85,7 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-info-snapshot-empty,
   .skill-button-buff-empty,
   .skill-damage-empty,
@@ -104,7 +104,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .lock-control,
   .skill-button-modal .modal-close-btn,
   .skill-button-resistance-toggle,
@@ -126,7 +126,7 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .lock-control,
   .skill-button-modal .modal-close-btn,
   .skill-button-resistance-toggle,
@@ -144,7 +144,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .lock-control.is-locked,
   .anomaly-category-tab.is-active,
   .anomaly-strip-button.is-active,
@@ -157,7 +157,7 @@
   box-shadow: inset 0 0 0 0.5px var(--theme-border-medium);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-resistance-field input,
   .skill-button-inline-buff-search-input
 ) {
@@ -167,7 +167,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-level-badge,
   .anomaly-summary-kind,
   .anomaly-item-tag,
@@ -179,7 +179,7 @@
   background: var(--theme-fill-subtle);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-damage-hit-card:hover,
   .skill-damage-hit-row:hover,
   .skill-button-buff-item:hover,
@@ -191,7 +191,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-damage-hit-card.selected,
   .buff-tag-selectable.is-selected
 ) {
@@ -201,12 +201,12 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-damage-hit-card.is-disabled {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .skill-damage-hit-card.is-disabled {
   color: var(--theme-text-muted);
   background: var(--theme-fill-subtle);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .hit-name,
   .formula-zone-total,
   .damage-line,
@@ -217,7 +217,7 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-menu {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .anomaly-select-menu {
   color: var(--theme-text-body);
   border-color: var(--theme-line-regular);
   border-radius: 10px;
@@ -225,17 +225,17 @@
   box-shadow: var(--theme-shadow-float);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-option {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .anomaly-select-option {
   color: var(--theme-text-body);
   background: transparent;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-option:hover {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .anomaly-select-option:hover {
   color: var(--theme-text-title);
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-buff-workbench-main,
   .skill-button-buff-resource-rail,
   .skill-button-local-buff-panel
@@ -243,7 +243,7 @@
   color: var(--theme-text-body);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-inline-buff-search-mode,
   .operator-buff-character-filter,
   .operator-buff-group-filters button,
@@ -257,7 +257,7 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-inline-buff-search-mode,
   .operator-buff-character-filter,
   .operator-buff-group-filters button,
@@ -268,7 +268,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-inline-buff-search-mode.is-active,
   .operator-buff-character-filter.is-active,
   .operator-buff-group-filters button.is-active
@@ -280,16 +280,16 @@
 }
 
 /* Full-page timeline detail opened by double-clicking a skill button. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-layer {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-detail-layer {
   color: var(--theme-text-body);
   background: var(--theme-bg-content);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-canvas {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-detail-canvas {
   color: var(--theme-text-body);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-heading strong,
   .timeline-detail-card h3,
   .timeline-buff-main strong,
@@ -303,7 +303,7 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-heading span,
   .timeline-detail-hit em,
   .timeline-detail-hit small,
@@ -324,7 +324,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-utility-panel,
   .timeline-detail-card,
   .timeline-tuning-card,
@@ -340,7 +340,7 @@
   box-shadow: var(--theme-shadow-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-heading button,
   .timeline-detail-expand-all-button,
   .timeline-tuning-card button,
@@ -360,7 +360,7 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-heading button,
   .timeline-detail-expand-all-button,
   .timeline-tuning-card button,
@@ -375,7 +375,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-heading button.is-active,
   .timeline-detail-expand-all-button.is-active,
   .timeline-tuning-list button.is-active,
@@ -386,7 +386,7 @@
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-hit,
   .timeline-buff-row,
   .timeline-tuning-inline-item,
@@ -399,7 +399,7 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-hit:hover,
   .timeline-buff-row:hover
 ) {
@@ -407,13 +407,13 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-hit.is-selected {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-detail-hit.is-selected {
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-soft);
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-hit.is-disabled,
   .timeline-buff-row.is-disabled,
   .timeline-tuning-inline-item:not(.is-active)
@@ -422,7 +422,7 @@
   background: var(--theme-fill-subtle);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-resistance-fields input,
   .timeline-buff-list-head select,
   .timeline-tuning-inline-stack
@@ -433,24 +433,24 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-buff-stack,
   .timeline-calculation-detail > header
 ) {
   border-color: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-buff-stack span {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-buff-stack span {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-tuning-inline-actions button.is-danger {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-tuning-inline-actions button.is-danger {
   color: var(--theme-danger);
   border-color: color-mix(in srgb, var(--theme-danger) 30%, transparent);
   background: var(--theme-danger-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-detail-canvas,
   .timeline-detail-hit-list,
   .timeline-detail-middle,
@@ -462,23 +462,23 @@
   scrollbar-color: var(--theme-line-strong) transparent;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node rect {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-calculation-zone-node rect {
   fill: var(--theme-surface-muted);
   stroke: var(--theme-line-regular);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node:hover rect,
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node:focus rect {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-calculation-zone-node:hover rect,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-calculation-zone-node:focus rect {
   fill: var(--theme-fill-hover);
   stroke: var(--theme-line-strong);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node.is-selected rect {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .timeline-calculation-zone-node.is-selected rect {
   fill: var(--theme-accent-soft);
   stroke: var(--theme-accent-main);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .zone-node-label,
   .zone-node-value,
   .zone-node-order
@@ -486,7 +486,7 @@
   fill: var(--theme-text-body);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .zone-node-link,
   .zone-node-arrow
 ) {
@@ -494,7 +494,7 @@
 }
 
 /* Batch Buff workbench and all of its add/remove candidate surfaces. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-layout,
   .buff-edit-canvas,
   .buff-edit-left-zone,
@@ -504,12 +504,12 @@
   background: var(--theme-bg-grid-area);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-mask {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-edit-mask {
   background: var(--theme-fill-subtle);
   backdrop-filter: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-right-zone,
   .buff-edit-right-panel,
   .buff-edit-right-placeholder,
@@ -525,11 +525,11 @@
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-right-zone {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-edit-right-zone {
   border: 1px solid var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-right-head h3,
   .buff-edit-right-section h4,
   .buff-edit-candidate-head h4,
@@ -546,7 +546,7 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-right-head span,
   .buff-edit-candidate-head span,
   .buff-edit-candidate-empty,
@@ -564,7 +564,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-secondary-button,
   .buff-edit-box-select-button,
   .buff-edit-clear-selection-button,
@@ -586,7 +586,7 @@
   box-shadow: var(--theme-shadow-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-secondary-button,
   .buff-edit-box-select-button,
   .buff-edit-clear-selection-button,
@@ -606,7 +606,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-secondary-button.is-active,
   .buff-edit-box-select-button.is-active,
   .buff-edit-filter-button.is-active,
@@ -621,7 +621,7 @@
   box-shadow: inset 0 0 0 0.5px var(--theme-border-medium);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-candidate-search-input,
   .buff-batch-edit-workbench .skill-button-inline-buff-search-input
 ) {
@@ -631,7 +631,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-candidate-result,
   .buff-edit-buff-card,
   .buff-edit-buff-card.is-white,
@@ -651,7 +651,7 @@
  * Rounded Apple surfaces use the whole perimeter for emphasis.
  * Keep the legacy left rail only on square, spreadsheet-style rows.
  */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-anomaly-summary-card.is-state,
   .skill-button-anomaly-summary-card.is-damage,
   .skill-damage-hit-card-anomaly,
@@ -664,7 +664,7 @@
   border-left-width: 1px;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-candidate-result,
   .buff-edit-buff-card,
   .buff-batch-edit-workbench .skill-button-inline-buff-search-item,
@@ -674,24 +674,24 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-edit-buff-card.is-selected {
   color: var(--theme-text-title);
   border: 1px solid var(--theme-border-medium);
   background: var(--theme-accent-soft);
   box-shadow: none;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-add-intent {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-edit-buff-card.is-selected.is-add-intent {
   border-color: var(--theme-success);
   background: var(--theme-success-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-remove-intent {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-edit-buff-card.is-selected.is-remove-intent {
   border-color: var(--theme-danger);
   background: var(--theme-danger-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-clear-selection-button.is-cancel-remove,
   .buff-edit-add-button.is-confirm-add,
   .buff-edit-mode-button.is-confirm-edit
@@ -701,7 +701,7 @@
   background: var(--theme-success);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-edit-clear-selection-button.is-cancel-add,
   .buff-edit-remove-button.is-confirm-remove
 ) {
@@ -710,31 +710,31 @@
   background: var(--theme-danger);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .skill-button-base {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-batch-edit-workbench .skill-button-base {
   color: var(--theme-text-title);
   border-color: var(--theme-line-strong);
   background: var(--theme-surface-solid);
   box-shadow: var(--theme-shadow-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .skill-button-orb {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-batch-edit-workbench .skill-button-orb {
   border-color: var(--theme-line-strong);
   background: var(--skill-button-element-color);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-base,
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-orb {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-base,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-orb {
   border-color: var(--theme-text-muted);
   box-shadow: 0 0 0 2px var(--theme-fill-hover);
 }
 
 /* Buff effect editor drawer used by operator and Buff data editors. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-mask {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-mask {
   background: var(--theme-overlay-bg);
   backdrop-filter: blur(12px);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer {
   color: var(--theme-text-body);
   border-color: var(--theme-line-regular);
   border-radius: var(--theme-radius-panel);
@@ -742,7 +742,7 @@
   box-shadow: var(--theme-shadow-window);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-editor-drawer-header,
   .buff-editor-drawer-levels,
   .buff-editor-drawer footer
@@ -752,11 +752,11 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-header strong {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-header strong {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-editor-drawer-header span,
   .buff-editor-drawer-header small,
   .buff-editor-drawer-grid label
@@ -764,7 +764,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-editor-drawer-header button,
   .buff-editor-drawer-levels button
 ) {
@@ -774,26 +774,26 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-levels button.is-active {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-levels button.is-active {
   color: var(--theme-text-title);
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-body section {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-body section {
   border-color: var(--theme-line-soft);
   border-radius: 10px;
   background: var(--theme-surface-regular);
   overflow: hidden;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-body h4 {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-body h4 {
   color: var(--theme-text-title);
   border-color: var(--theme-line-soft);
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-grid :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-grid :where(
   input,
   select,
   textarea
@@ -804,14 +804,14 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-readonly {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer-readonly {
   color: var(--theme-text-body);
   border-color: var(--theme-line-soft);
   border-radius: 7px;
   background: var(--theme-fill-subtle);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer footer button {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-editor-drawer footer button {
   color: var(--theme-text-on-accent);
   border-color: var(--theme-accent-main);
   border-radius: 8px;
@@ -819,12 +819,12 @@
 }
 
 /* Operator/Buff editors and spreadsheet-like data workspaces. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page {
   color: var(--theme-text-body);
   background: var(--theme-bg-content);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-command-panel,
   .operator-draft-nav-panel,
   .operator-draft-basic-panel,
@@ -844,7 +844,7 @@
   box-shadow: var(--theme-shadow-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-section-header,
   .operator-draft-inline-actions,
   .operator-draft-buff-actions,
@@ -855,7 +855,7 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-command-input,
   .operator-draft-reference-box select,
   .operator-draft-reference-box textarea,
@@ -878,7 +878,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-ghost-button,
   .operator-draft-chip,
   .operator-draft-skill-filter,
@@ -891,7 +891,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-run-button,
   .operator-draft-copy-button
 ) {
@@ -901,7 +901,7 @@
   background: var(--theme-accent-main);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-skill-item,
   .operator-draft-hit-item,
   .operator-draft-attribute-cell,
@@ -916,7 +916,7 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-skill-item.is-active,
   .operator-draft-hit-item.is-active,
   .operator-draft-buff-item.is-active,
@@ -931,7 +931,7 @@
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-avatar,
   .operator-draft-avatar-fallback,
   .operator-draft-skill-icon,
@@ -943,7 +943,7 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-markdown-body code,
   .operator-draft-hit-badge,
   .operator-draft-skill-filter strong,
@@ -953,7 +953,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-section-header,
   .operator-draft-skill-hero,
   .operator-draft-skill-filters,
@@ -965,7 +965,7 @@
   border-color: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-latest-message,
   .operator-draft-context p,
   .operator-draft-markdown-body p,
@@ -987,7 +987,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page :where(
   .operator-draft-buff-multiplier-toggle,
   .operator-draft-buff-unit-lock,
   .operator-draft-buff-summary
@@ -997,11 +997,11 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page .operator-draft-buff-summary strong {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-draft-page .operator-draft-buff-summary strong {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .operator-draft-modal-overlay,
   .buff-draft-modal-mask,
   .buff-sheet-share-modal-mask
@@ -1010,7 +1010,7 @@
   backdrop-filter: blur(14px);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-undo-menu,
   .buff-draft-modal,
   .buff-sheet-share-modal,
@@ -1025,7 +1025,7 @@
   box-shadow: var(--theme-shadow-float);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-undo-item,
   .buff-sheet-context-menu-item,
   .damage-sheet-undo-item
@@ -1036,7 +1036,7 @@
   background: transparent;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-undo-item,
   .buff-sheet-context-menu-item,
   .damage-sheet-undo-item
@@ -1046,7 +1046,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-quick-text,
   .buff-draft-value-editor small,
   .buff-draft-undo-item span,
@@ -1056,14 +1056,14 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-quick-text strong,
   .buff-sheet-share-import-title
 ) {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-draft-type-picker input,
   .buff-draft-type-picker select,
   .buff-sheet-search-input,
@@ -1077,7 +1077,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-sheet-explorer-row,
   .buff-sheet-explorer-child,
   .buff-sheet-explorer-effect,
@@ -1090,7 +1090,7 @@
   background: transparent;
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-sheet-explorer-row:hover,
   .buff-sheet-explorer-child:hover,
   .buff-sheet-explorer-effect:hover,
@@ -1105,7 +1105,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-sheet-tool-button,
   .buff-sheet-share-modal-tab,
   .buff-sheet-share-modal-close,
@@ -1117,7 +1117,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-sheet-tool-button:hover,
   .buff-sheet-tool-button.is-active,
   .buff-sheet-share-modal-tab:hover,
@@ -1130,13 +1130,13 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-sheet-share-action.is-primary {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .buff-sheet-share-action.is-primary {
   color: var(--theme-text-on-accent);
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-main);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .buff-sheet-share-modal-header,
   .damage-sheet-topbar,
   .damage-sheet-ribbon,
@@ -1147,7 +1147,7 @@
   background: var(--theme-bg-workspace-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-sheet-ribbon-card,
   .damage-sheet-formula-bar,
   .damage-sheet-formula-address,
@@ -1162,7 +1162,7 @@
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-sheet-back-button,
   .damage-sheet-action-button,
   .damage-sheet-sheet-tab,
@@ -1173,7 +1173,7 @@
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-sheet-excel-scroll,
   .damage-sheet-excel-cell
 ) {
@@ -1182,43 +1182,43 @@
   background: var(--theme-bg-grid-area);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row-number {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-row-number {
   color: var(--theme-text-muted);
   border-color: var(--theme-border-grid);
   background: var(--theme-bg-workspace-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-group .damage-sheet-excel-cell {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-row.is-group .damage-sheet-excel-cell {
   color: var(--theme-text-title);
   background: var(--theme-bg-nav);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-header .damage-sheet-excel-cell {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-row.is-header .damage-sheet-excel-cell {
   color: var(--theme-text-title);
   background: var(--theme-surface-regular);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-character .damage-sheet-excel-cell {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-row.is-character .damage-sheet-excel-cell {
   color: var(--theme-text-title);
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-button .damage-sheet-excel-cell {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-row.is-button .damage-sheet-excel-cell {
   color: var(--theme-text-title);
   background: var(--theme-bg-workspace-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell:hover {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-cell:hover {
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-active {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-cell.is-active {
   color: var(--theme-text-title);
   background: var(--theme-accent-soft);
   box-shadow: inset 0 0 0 2px var(--theme-accent-main);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-sheet-excel-cell.is-buff-linked,
   .damage-sheet-excel-cell.is-buff-linked-muted
 )::before {
@@ -1226,12 +1226,12 @@
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-buff-linked-muted::before {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-cell.is-buff-linked-muted::before {
   border-color: var(--theme-line-regular);
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-buff-linked-muted::after {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .damage-sheet-excel-cell.is-buff-linked-muted::after {
   background: repeating-linear-gradient(
     135deg,
     transparent 0 6px,
@@ -1239,7 +1239,7 @@
   );
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-skill :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-skill :where(
   .damage-sheet-excel-row-number,
   .damage-sheet-excel-cell
 ) {
@@ -1247,7 +1247,7 @@
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-weapon :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-weapon :where(
   .damage-sheet-excel-row-number,
   .damage-sheet-excel-cell
 ) {
@@ -1255,7 +1255,7 @@
   background: var(--theme-bg-workspace-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row:is(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .weapon-sheet-page .damage-sheet-excel-row:is(
   .weapon-sheet-row-level,
   .weapon-sheet-row-effect,
   .weapon-sheet-row-growth
@@ -1267,7 +1267,7 @@
   background: var(--theme-bg-grid-area);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .image-manager-grid-item,
   .image-manager-grid-info,
   .image-manager-preview-image,
@@ -1281,14 +1281,14 @@
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .image-manager-grid-name,
   .image-manager-preview-meta dd
 ) {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .image-manager-grid-info,
   .image-manager-preview-index,
   .image-manager-preview-meta dt,
@@ -1299,142 +1299,142 @@
 }
 
 /* Keep exported slide content stable; theme only the surrounding presentation UI. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-page {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .report-ppt-page {
   color: var(--theme-text-body);
   background: var(--theme-bg-content);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .report-ppt-toolbar {
   color: var(--theme-text-body);
   border-color: var(--theme-line-soft);
   background: var(--theme-bg-nav);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar button {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .report-ppt-toolbar button {
   color: var(--theme-text-body);
   border-color: var(--theme-line-regular);
   border-radius: 8px;
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar button:hover {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .report-ppt-toolbar button:hover {
   color: var(--theme-text-title);
   border-color: var(--theme-line-strong);
   background: var(--theme-fill-hover);
 }
 
 /* Graphite-specific restraint: neutral structure, blue only for real selection. */
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .dashboard-actions > button:not(.dashboard-primary-button) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .dashboard-actions > button:not(.dashboard-primary-button) {
   color: var(--theme-text-title);
   border-color: var(--theme-line-regular);
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .workflow-grid {
   border-color: var(--theme-line-soft);
   background: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid > button {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .workflow-grid > button {
   color: var(--theme-text-body);
   border-color: var(--theme-line-soft);
   background: var(--theme-surface-regular);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid > button:hover:not(:disabled) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .workflow-grid > button:hover:not(:disabled) {
   color: var(--theme-text-title);
   border-color: var(--theme-line-regular);
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid strong {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .workflow-grid strong {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid small {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .workflow-grid small {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-package-facts {
   color: var(--theme-text-body);
   border-color: var(--theme-line-soft);
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts div {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-package-facts div {
   border-color: var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts dt {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-package-facts dt {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts dd {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-package-facts dd {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-actions > button:not(.dashboard-primary-button) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-package-actions > button:not(.dashboard-primary-button) {
   color: var(--theme-text-title);
   border-color: var(--theme-line-regular);
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-tabs {
   border-color: var(--theme-line-soft);
   background: var(--theme-fill-subtle);
   box-shadow: inset 0 0 0 0.5px var(--theme-line-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs button {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-tabs button {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs button.is-active {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-tabs button.is-active {
   color: var(--theme-text-title);
   border-color: var(--theme-line-soft);
   background: var(--theme-surface-raised);
   box-shadow: var(--theme-shadow-panel);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-list > button {
   color: var(--theme-text-body);
   border-color: transparent;
   background: var(--theme-surface-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button:hover:not(:disabled) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-list > button:hover:not(:disabled) {
   color: var(--theme-text-title);
   border-color: var(--theme-line-regular);
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button.is-selected {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-list > button.is-selected {
   color: var(--theme-text-title);
   border-color: var(--theme-border-medium);
   background: var(--theme-accent-soft);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dl div {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-inspector dl div {
   color: var(--theme-text-body);
   border: 0.5px solid var(--theme-line-soft);
   background: var(--theme-control-bg);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dt {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-inspector dt {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dd {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-library-inspector dd {
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-tool-card:hover:not(:disabled) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .data-tool-card:hover:not(:disabled) {
   color: var(--theme-text-title);
   border-color: var(--theme-line-regular);
   background: var(--theme-fill-hover);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-base,
   .skill-button-orb,
   .dragging-skill-button-base,
@@ -1449,7 +1449,7 @@
   border-color: var(--theme-graphic-line);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .skill-button-type,
   .skill-button-name,
   .skill-button-inspect-damage,
@@ -1464,7 +1464,7 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .sandbox-character-count,
   .sandbox-skill-name,
   .sandbox-skill-hit-count
@@ -1472,7 +1472,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .canvas-skill-button:hover .skill-button-base,
   .canvas-skill-button:hover .skill-button-orb,
   .canvas-skill-button.selected .skill-button-base,
@@ -1481,15 +1481,15 @@
   border-color: var(--theme-graphic-line-strong);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .work-node-tree-connectors line {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .work-node-tree-connectors line {
   stroke: var(--theme-graphic-line);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .work-node-tree-connectors .is-path {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .work-node-tree-connectors .is-path {
   stroke: var(--theme-accent-main);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
   .config-weapon-config-text,
   .config-weapon-config-text-3,
   .config-weapon-config-button-row,
@@ -1516,7 +1516,7 @@
   border-color: var(--theme-line-strong);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
   .config-weapon-choose-meta-line,
   .config-weapon-choose-content-button,
   .config-weapon-config-value,
@@ -1541,21 +1541,21 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
   .operator-config-page-equip-button-textdiv.is-disabled,
   .operator-config-page-equip-set-empty
 ) {
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
   .operator-config-page-track-hex-svg polygon,
   .operator-config-page-weapon-star-svg polygon
 ) {
   stroke: var(--theme-graphic-line);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-report-modal-head h3,
   .report-sheet-sidebar-card h4,
   .report-sheet-empty h3,
@@ -1570,7 +1570,7 @@
   color: var(--theme-text-title);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .damage-report-modal-head p,
   .report-sheet-summary,
   .report-sheet-sidebar-card p,
@@ -1584,7 +1584,7 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
   .timeline-snapshot-name-input,
   .batch-resistance-fields input
 ) {
@@ -1661,7 +1661,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
     .skill-button-modal-overlay,
     .skill-button-inline-buff-search-mask,
     .timeline-detail-layer,

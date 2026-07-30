@@ -1,0 +1,1213 @@
+/*
+ * Lieflat Charts inspired application theme.
+ *
+ * This is an original UI translation of the skill's Mono grammar: paper grey,
+ * charcoal ink, a restrained luminance ladder, hairline dividers, editorial
+ * typography and solid surfaces. No template code or chart implementation is
+ * bundled into the application.
+ */
+
+:root[data-theme="lieflat-mono"] {
+  color-scheme: light;
+
+  --theme-bg-window: #deddd6;
+  --theme-bg-content: #f0efeb;
+  --theme-bg-nav: #d8d7d1;
+  --theme-bg-card: #f0efeb;
+  --theme-bg-grid-area: #f0efeb;
+  --theme-bg-grid-header: #deddd6;
+  --theme-bg-workspace-panel: #d8d7d1;
+  --theme-bg-hover: #deddd6;
+  --theme-bg-active: #c6c5bf;
+
+  --theme-text-title: #1c1c1a;
+  --theme-text-body: #4a4944;
+  --theme-text-muted: #6a6963;
+  --theme-text-placeholder: #8f8e88;
+
+  --theme-border-subtle: #deddd6;
+  --theme-border-grid: #c6c5bf;
+  --theme-border-default: #b0afa9;
+  --theme-border-medium: #6a6963;
+  --theme-border-strong: #1c1c1a;
+
+  --theme-accent-main: #1c1c1a;
+  --theme-accent-strong: #1c1c1a;
+  --theme-accent-bright: #4a4944;
+  --theme-accent-lime: #8f8e88;
+  --theme-accent-soft: #d8d7d1;
+  --theme-accent-hover: #4a4944;
+
+  --theme-shadow-panel: none;
+  --theme-shadow-hover: none;
+  --theme-focus-ring: 0 0 0 2px #6a6963;
+  --theme-transition: 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+
+  --theme-radius-control: 12px;
+  --theme-radius-panel: 24px;
+  --theme-radius-switch: 999px;
+
+  --theme-main-stat-bg: #c6c5bf;
+  --theme-sub-stat-bg: #deddd6;
+
+  --theme-surface-solid: #f0efeb;
+  --theme-surface-raised: #f0efeb;
+  --theme-surface-regular: #f0efeb;
+  --theme-surface-muted: #deddd6;
+  --theme-control-bg: #f0efeb;
+  --theme-fill-subtle: #deddd6;
+  --theme-fill-hover: #d8d7d1;
+  --theme-fill-pressed: #c6c5bf;
+  --theme-line-soft: #deddd6;
+  --theme-line-regular: #c6c5bf;
+  --theme-line-strong: #8f8e88;
+  --theme-graphic-line: #4a4944;
+  --theme-graphic-line-strong: #1c1c1a;
+  --theme-overlay-bg: rgba(28, 28, 26, 0.34);
+  --theme-text-on-accent: #f0efeb;
+  --theme-danger: #1c1c1a;
+  --theme-danger-soft: #d8d7d1;
+  --theme-success: #4a4944;
+  --theme-success-soft: #deddd6;
+  --theme-warning: #6a6963;
+  --theme-warning-soft: #deddd6;
+  --theme-shadow-window: none;
+  --theme-shadow-float: none;
+
+  --excel-green-muted: #8f8e88;
+  --excel-gray-2: #deddd6;
+  --excel-gray-3: #c6c5bf;
+  --excel-gray-4: #8f8e88;
+  --ide-warning: var(--theme-warning);
+  --ide-danger: var(--theme-danger);
+  --ide-success: var(--theme-success-soft);
+  --ide-acrylic-bg: #f0efeb;
+  --ide-acrylic-bg-strong: #f0efeb;
+  --ide-acrylic-border: #c6c5bf;
+  --ide-acrylic-highlight: #f0efeb;
+
+  --web-bg: #deddd6;
+  --web-panel: #f0efeb;
+  --web-panel-strong: #f0efeb;
+  --web-line: #c6c5bf;
+  --web-line-strong: #8f8e88;
+  --web-text: #1c1c1a;
+  --web-muted: #6a6963;
+  --web-faint: #8f8e88;
+  --web-accent: #1c1c1a;
+  --web-accent-strong: #4a4944;
+  --web-danger: #1c1c1a;
+  --web-shadow: none;
+
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --border-width: 0.5px;
+}
+
+:root[data-theme="lieflat-mono"] .web-app-shell {
+  --shell-accent: #1c1c1a;
+  --shell-accent-hover: #4a4944;
+  --shell-accent-soft: #d8d7d1;
+  --shell-text: #1c1c1a;
+  --shell-muted: #6a6963;
+  --shell-faint: #8f8e88;
+  --shell-border: #c6c5bf;
+  --shell-border-strong: #8f8e88;
+  --shell-surface: #f0efeb;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="lieflat-mono"] #root *,
+:root[data-theme="lieflat-mono"] #root *::before,
+:root[data-theme="lieflat-mono"] #root *::after {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+}
+
+.theme-option.is-lieflat-mono .theme-option-preview {
+  border-color: #8f8e88;
+  background: #deddd6;
+  box-shadow: none;
+}
+
+.theme-option.is-lieflat-mono .theme-option-sidebar {
+  border-right: 0.5px solid #8f8e88;
+  background: #c6c5bf;
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas {
+  background: #f0efeb;
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas span {
+  height: 2px;
+  border-radius: 0;
+  background: #8f8e88;
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas span:first-child {
+  width: 78%;
+  height: 5px;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .web-shell-menu-button,
+  .web-shell-popover,
+  .web-shell-window,
+  .web-shell-window-bar,
+  .skill-button-modal,
+  .skill-button-inline-buff-search,
+  .timeline-detail-card,
+  .timeline-detail-utility-panel,
+  .buff-editor-drawer,
+  .damage-report-modal,
+  .timeline-snapshot-modal
+) {
+  backdrop-filter: none;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-hero,
+  .data-package-panel,
+  .data-tool-card,
+  .data-library-section,
+  .data-library-inspector,
+  .settings-section,
+  .web-shell-popover,
+  .web-shell-window,
+  .selection-roster,
+  .selection-library,
+  .workbench-drawer,
+  .tool-panel,
+  .timeline-detail-card,
+  .timeline-detail-utility-panel,
+  .skill-button-modal,
+  .skill-button-inline-buff-search,
+  .buff-editor-drawer,
+  .damage-report-modal,
+  .timeline-snapshot-modal
+) {
+  border-radius: 24px;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-hero h2,
+  .data-package-panel h2,
+  .settings-section-heading h2,
+  .selection-header h1,
+  .modal-title,
+  .timeline-detail-heading strong,
+  .timeline-detail-card h3
+) {
+  color: #1c1c1a;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-stat-grid strong,
+  .settings-card strong,
+  .timeline-detail-hit strong,
+  .timeline-summary-card strong,
+  .timeline-calculation-summary strong,
+  .damage-line strong
+) {
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-kicker,
+  .section-heading p,
+  .settings-section-heading p,
+  .src,
+  .work-node-tree-source,
+  .local-buff-search-item-source,
+  .buff-card-source
+) {
+  color: #8f8e88;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .web-shell-nav button.is-active,
+  .web-shell-window-tabs button.is-active,
+  .workbench-drawer-tab.is-active,
+  .tool-panel-tab.is-active,
+  .anomaly-category-tab.is-active,
+  .anomaly-strip-button.is-active,
+  .anomaly-item-button.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active,
+  .workbench-bottom-nav-button.is-active
+) {
+  color: #f0efeb;
+  border-color: #1c1c1a;
+  border-radius: 12px;
+  background: #1c1c1a;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skew-panel,
+  .skew-panel-bottom
+) {
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-grid-header-bg,
+  .canvas-grid-background
+) {
+  background-image: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .dashboard-hero {
+  border: 0;
+  border-radius: 24px;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .signal-halo {
+  border: 0.5px dashed #8f8e88;
+  border-radius: 42px;
+  background: transparent;
+  transform: rotate(4deg);
+}
+
+:root[data-theme="lieflat-mono"] .signal-halo::before,
+:root[data-theme="lieflat-mono"] .signal-halo::after {
+  content: "";
+  position: absolute;
+  border: 0.5px solid #c6c5bf;
+  background: transparent;
+}
+
+:root[data-theme="lieflat-mono"] .signal-halo::before {
+  inset: 15px;
+  border-radius: 31px;
+  transform: rotate(-9deg);
+}
+
+:root[data-theme="lieflat-mono"] .signal-halo::after {
+  inset: 31px;
+  border-style: dashed;
+  border-radius: 22px;
+  transform: rotate(7deg);
+}
+
+:root[data-theme="lieflat-mono"] .signal-core {
+  border: 0.5px solid #8f8e88;
+  border-radius: 25px;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .signal-version {
+  color: #4a4944;
+  border: 0.5px dashed #8f8e88;
+  background: #f0efeb;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-stat-grid,
+  .workflow-grid,
+  .data-tool-grid
+) {
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .workflow-grid .workflow-icon {
+  color: #f0efeb;
+  border: 0;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .workflow-grid button:nth-child(2) .workflow-icon {
+  background: #4a4944;
+}
+
+:root[data-theme="lieflat-mono"] .workflow-grid button:nth-child(3) .workflow-icon {
+  background: #8f8e88;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .data-workspace-message,
+  .settings-message
+) {
+  color: #4a4944;
+  border: 0.5px dashed #8f8e88;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .theme-option.is-selected {
+  outline: 1px solid #1c1c1a;
+  outline-offset: 2px;
+}
+
+:root[data-theme="lieflat-mono"] .damage-sheet-excel-cell.is-active {
+  outline: 2px solid #1c1c1a;
+  outline-offset: -2px;
+}
+
+:root[data-theme="lieflat-mono"] .damage-sheet-sheet-tab.is-active {
+  border-bottom: 2px solid #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .buff-edit-selection-counter {
+  color: #f0efeb;
+  border-color: #1c1c1a;
+  background: #1c1c1a;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .data-tool-card::before {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .data-tool-index {
+  color: #f0efeb;
+  background: #4a4944;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .operator-draft-page label,
+:root[data-theme="lieflat-mono"] .image-manager-stat-readonly {
+  color: #6a6963;
+}
+
+:root[data-theme="lieflat-mono"] .image-manager-host-status-dot {
+  background: #4a4944;
+}
+
+:root[data-theme="lieflat-mono"] .weapon-sheet-image-slot-square {
+  background: #deddd6;
+  background-image: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .image-manager-table-thumb-box,
+  .image-manager-grid-thumb,
+  .image-manager-preview-image
+) {
+  border-color: #8f8e88;
+  background: #4a4944;
+  background-image: none;
+}
+
+:root[data-theme="lieflat-mono"] .selection-element-pill {
+  border-color: #8f8e88 !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-equip-button,
+  .operator-config-page-track-badge-btn,
+  .operator-config-page-track-hex-svg,
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box,
+  .operator-config-page-equip-circle-fallback,
+  .config-weapon-choose-img-fallback,
+  .config-weapon-config-button,
+  .config-avatar-item
+) {
+  color: #1c1c1a;
+  border-color: #8f8e88;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
+  fill: #d8d7d1 !important;
+  stroke: #4a4944 !important;
+  filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon {
+  fill: #c6c5bf !important;
+  stroke: #4a4944 !important;
+  filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+).is-active polygon {
+  fill: #f0efeb !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) {
+  display: none;
+}
+
+/*
+ * Potential is a single six-step progress value, so the Mono treatment follows
+ * Basics F11 Tick Gauge. F1 Rung Bars would imply a free magnitude and L15
+ * Ballot Tally would imply 100 independent units. Main/sub ability is
+ * categorical, not quantitative, so it borrows only editorial rule weights:
+ * no invented bar length or fake comparison chart.
+ */
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+) {
+  overflow: hidden;
+  border: 0.5px solid #8f8e88;
+  border-radius: 14px;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+):hover {
+  background: #d8d7d1 !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge {
+  position: absolute;
+  inset: 7px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 5px;
+  align-content: center;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-value {
+  color: #1c1c1a;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-track {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 3px;
+  min-height: 18px;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-track i {
+  flex: 1 1 0;
+  height: 10px;
+  border-top: 0.5px solid #b0afa9;
+  border-bottom: 0.5px solid #b0afa9;
+  background: #c6c5bf;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-track i:nth-child(2n) {
+  height: 14px;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-track i:nth-child(3n) {
+  height: 18px;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-potential-gauge-track i.is-active {
+  border-color: #1c1c1a;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-track-slot,
+  .operator-config-page-level-slot
+) {
+  border: 0.5px solid #b0afa9;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-track-slot,
+  .operator-config-page-level-slot
+).is-active {
+  border-color: #1c1c1a;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-track-slot,
+  .operator-config-page-level-slot
+).is-disabled {
+  border-style: dashed;
+  border-color: #c6c5bf;
+  background: #deddd6;
+  opacity: 0.56;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-badge-btn:not(.is-active) .operator-config-page-track-hex-svg polygon {
+  fill: #deddd6 !important;
+  stroke: #b0afa9 !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-badge-btn.is-active .operator-config-page-track-hex-svg polygon {
+  fill: #1c1c1a !important;
+  stroke: #1c1c1a !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+) {
+  position: relative;
+  overflow: hidden;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-main {
+  border: 0.5px solid #1c1c1a !important;
+  border-top-width: 3px !important;
+  background: #c6c5bf !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-sub {
+  border: 0.5px dashed #8f8e88 !important;
+  border-top-width: 1px !important;
+  background: #f0efeb !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-main::after,
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-sub::after {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  color: #6a6963;
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.1em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-main::after {
+  content: "MAIN";
+  color: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item,
+  .config-data-item
+).is-sub::after {
+  content: "SUB";
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item.is-main .operator-config-page-stat-value,
+  .config-data-item.is-main .config-data-value
+) {
+  color: #1c1c1a;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-stat-item.is-sub .operator-config-page-stat-value,
+  .config-data-item.is-sub .config-data-value
+) {
+  color: #4a4944;
+  font-weight: 700;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-input-layer {
+  gap: 4px;
+  padding: 5px;
+  border: 0;
+  border-radius: 12px;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row {
+  gap: 4px;
+  padding: 3px 4px;
+  border: 0.5px solid #c6c5bf;
+  border-radius: 6px;
+  background: #f0efeb;
+  box-sizing: border-box;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:first-child {
+  border-top: 2px solid #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:last-child {
+  border-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:first-child .operator-config-page-favor-label {
+  color: #1c1c1a;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:last-child .operator-config-page-favor-label {
+  color: #6a6963;
+  font-weight: 600;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-input {
+  border: 0;
+  border-bottom: 0.5px solid #8f8e88;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 800;
+  text-align: right;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-page {
+  color: #4a4944;
+  background: #deddd6;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar {
+  color: #4a4944;
+  border-bottom: 0.5px solid #c6c5bf;
+  background: #d8d7d1;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar button {
+  color: #f0efeb;
+  border: 0;
+  border-radius: 10px;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar button:hover {
+  color: #f0efeb;
+  background: #4a4944;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar strong {
+  color: #1c1c1a;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar span {
+  color: #8f8e88;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-scroll {
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
+  position: relative;
+  padding: 26px 28px 34px;
+  border: 0;
+  border-radius: 24px;
+  background: #f0efeb;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-inner::after {
+  content: "DMG END FIELD · DAMAGE LEDGER · LOCAL REPORT";
+  position: absolute;
+  right: 28px;
+  bottom: 13px;
+  color: #b0afa9;
+  font-size: 7px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.14em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head {
+  height: 38px;
+  align-items: center;
+  margin-bottom: 14px;
+  border-bottom: 0.5px solid #c6c5bf;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head span {
+  padding: 3px 9px;
+  color: #8f8e88;
+  border: 0.5px dashed #b0afa9;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head h1 {
+  color: #1c1c1a;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-team-list {
+  gap: 8px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-operator-row {
+  gap: 6px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 18px;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-avatar-frame,
+  .report-ppt-weapon-block,
+  .report-ppt-equipment-block,
+  .report-ppt-skill-levels,
+  .report-ppt-equipment-icon
+) {
+  border: 0.5px solid #c6c5bf;
+  border-radius: 12px;
+  background: #f0efeb;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-avatar-frame {
+  background: #d8d7d1;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-operator-main,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name
+) {
+  color: #1c1c1a;
+  border-top: 0.5px solid #c6c5bf;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-operator-main h2,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name,
+  .report-ppt-level-row strong
+) {
+  color: #1c1c1a;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-operator-level,
+  .report-ppt-weapon-level
+) {
+  color: #f0efeb;
+  border: 0;
+  border-radius: 5px;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-star-wrap::before,
+:root[data-theme="lieflat-mono"] .report-ppt-potential-star {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-star polygon {
+  fill: #c6c5bf !important;
+  filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-star-wrap {
+  left: 5px;
+  top: 5px;
+  width: 54px;
+  height: 34px;
+  border-radius: 7px;
+  background: #f0efeb;
+  z-index: 5;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge {
+  position: absolute;
+  inset: 5px 6px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 5px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-value {
+  color: #1c1c1a;
+  font-size: 7px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 18px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-track i {
+  width: 2px;
+  height: 7px;
+  background: #c6c5bf;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-track i:nth-child(2n) {
+  height: 11px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-track i:nth-child(3n) {
+  height: 15px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-gauge-track i.is-active {
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-equipment-set-name {
+  color: #4a4944;
+  border-bottom: 0.5px solid #c6c5bf;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i {
+  border: 0.5px solid #b0afa9;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i.is-active {
+  border-color: #1c1c1a;
+  background: #1c1c1a;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-skill-levels {
+  gap: 3px;
+  padding: 4px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-skill-levels span {
+  color: #4a4944;
+  border: 0.5px solid #c6c5bf;
+  border-radius: 5px;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-skill-levels strong {
+  color: #1c1c1a;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-timeline-page {
+  gap: 18px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-group {
+  gap: 10px;
+  padding: 14px;
+  border: 0;
+  border-radius: 24px;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-group h2 {
+  color: #1c1c1a;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-track {
+  overflow: visible;
+  border: 0;
+  border-bottom: 0.5px solid #8f8e88;
+  background: #f0efeb;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-ticks {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  pointer-events: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-ticks i {
+  align-self: end;
+  height: 8px;
+  border-left: 0.5px solid #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-ticks i:nth-child(5n + 1) {
+  height: 14px;
+  border-color: #b0afa9;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-label img {
+  border: 0.5px solid #8f8e88;
+  border-radius: 50%;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-orb {
+  border: 0.5px solid #1c1c1a;
+  background: #d8d7d1;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
+  color: #1c1c1a;
+  border: 0.5px solid #8f8e88;
+  border-radius: 6px;
+  background: #f0efeb;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-weight: 600;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr);
+  gap: 18px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card {
+  position: relative;
+  padding: 18px 18px 30px;
+  border: 0;
+  border-radius: 24px;
+  background: #deddd6;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card.is-placeholder {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card::after {
+  position: absolute;
+  left: 18px;
+  bottom: 11px;
+  color: #b0afa9;
+  font-size: 7px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child::after {
+  content: "TICK DONUT · MONO-BASIC F4 · DAMAGE SHARE";
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:nth-child(2)::after {
+  content: "HAIRLINE LINE · MONO-BASIC F2 · ACTION SEQUENCE";
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-title--legacy {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-title--mono {
+  display: block;
+  margin: 0;
+  color: #1c1c1a;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-sub {
+  display: block;
+  margin: 4px 0 10px;
+  color: #8f8e88;
+  font-size: 9px;
+  font-weight: 500;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie-layout {
+  height: calc(100% - 48px);
+  grid-template-columns: minmax(0, 1fr) 180px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut-total {
+  fill: #1c1c1a;
+  font-size: 23px;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut-unit {
+  fill: #8f8e88;
+  font-size: 6px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row {
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 8px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row span {
+  width: 14px;
+  height: 1px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(1) span {
+  background: #1c1c1a !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(2) span {
+  background: #4a4944 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(3) span {
+  background: #8f8e88 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(4) span {
+  background: #b0afa9 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row strong {
+  color: #1c1c1a;
+  font-weight: 700;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row em {
+  color: #6a6963;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-total {
+  color: #1c1c1a;
+  border-top: 0.5px solid #b0afa9;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line {
+  height: calc(100% - 48px);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-event-floor {
+  display: inline;
+  stroke: #c6c5bf;
+  stroke-width: 0.35;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-axis {
+  stroke: #b0afa9 !important;
+  stroke-width: 0.45 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-series {
+  stroke: #1c1c1a !important;
+  stroke-width: 0.7 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-point {
+  fill: #1c1c1a !important;
+  stroke: #1c1c1a !important;
+  stroke-width: 0.45 !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-point.is-dot {
+  fill: #f0efeb !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-label {
+  fill: #4a4944;
+  font-size: 3.2px;
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-source {
+  display: block;
+  fill: #b0afa9;
+  font-size: 2.2px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button
+),
+:root[data-theme="lieflat-mono"] .buff-batch-edit-workbench .skill-button-orb {
+  color: #1c1c1a;
+  border-color: #4a4944;
+  background: #d8d7d1;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb .skill-icon,
+  .dragging-skill-button-orb img,
+  .sandbox-skill-button img
+) {
+  filter: grayscale(1) brightness(0.3) contrast(1.2);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  button,
+  input,
+  textarea,
+  select
+):focus-visible {
+  outline: 1px solid #1c1c1a;
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .web-shell-overlay {
+  background: rgba(28, 28, 26, 0.34);
+  backdrop-filter: none;
+}
+
+:root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button:hover:not(:disabled) {
+  color: #1c1c1a !important;
+  border-color: #8f8e88 !important;
+  background: #deddd6 !important;
+  background-color: #deddd6 !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button.is-active {
+  color: #f0efeb !important;
+  border-color: #1c1c1a !important;
+  background: #1c1c1a !important;
+  background-color: #1c1c1a !important;
+  box-shadow: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="lieflat-mono"] *,
+  :root[data-theme="lieflat-mono"] *::before,
+  :root[data-theme="lieflat-mono"] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
