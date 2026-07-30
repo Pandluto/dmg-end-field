@@ -36,10 +36,10 @@
   --theme-bg-window: #0e0f11;
   --theme-bg-content: #151619;
   --theme-bg-nav: rgba(29, 30, 34, 0.94);
-  --theme-bg-card: rgba(34, 35, 40, 0.98);
+  --theme-bg-card: rgba(28, 29, 34, 0.98);
   --theme-bg-grid-area: #121316;
   --theme-bg-grid-header: rgba(255, 255, 255, 0.035);
-  --theme-bg-workspace-panel: rgba(25, 26, 30, 0.98);
+  --theme-bg-workspace-panel: rgba(22, 23, 27, 0.98);
   --theme-bg-hover: rgba(255, 255, 255, 0.065);
   --theme-bg-active: rgba(10, 132, 255, 0.2);
 
@@ -48,11 +48,11 @@
   --theme-text-muted: #98989f;
   --theme-text-placeholder: #6e6e76;
 
-  --theme-border-subtle: rgba(255, 255, 255, 0.05);
-  --theme-border-grid: rgba(255, 255, 255, 0.065);
-  --theme-border-default: rgba(255, 255, 255, 0.1);
+  --theme-border-subtle: rgba(255, 255, 255, 0.075);
+  --theme-border-grid: rgba(255, 255, 255, 0.11);
+  --theme-border-default: rgba(255, 255, 255, 0.16);
   --theme-border-medium: rgba(64, 156, 255, 0.34);
-  --theme-border-strong: rgba(255, 255, 255, 0.17);
+  --theme-border-strong: rgba(255, 255, 255, 0.28);
 
   --theme-accent-main: #0a84ff;
   --theme-accent-strong: #409cff;
@@ -74,11 +74,11 @@
   --theme-main-stat-bg: rgba(255, 214, 10, 0.13);
   --theme-sub-stat-bg: rgba(142, 142, 147, 0.12);
 
-  --theme-surface-solid: #24252a;
-  --theme-surface-raised: rgba(40, 41, 47, 0.98);
-  --theme-surface-regular: rgba(32, 33, 38, 0.98);
-  --theme-surface-muted: #1b1c20;
-  --theme-control-bg: rgba(45, 46, 52, 0.98);
+  --theme-surface-solid: #202126;
+  --theme-surface-raised: rgba(36, 37, 42, 0.98);
+  --theme-surface-regular: rgba(27, 28, 32, 0.98);
+  --theme-surface-muted: #17181c;
+  --theme-control-bg: rgba(34, 35, 40, 0.98);
   --theme-fill-subtle: rgba(255, 255, 255, 0.045);
   --theme-fill-hover: rgba(255, 255, 255, 0.075);
   --theme-fill-pressed: rgba(255, 255, 255, 0.12);
