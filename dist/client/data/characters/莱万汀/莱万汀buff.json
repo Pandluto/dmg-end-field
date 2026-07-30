@@ -1,0 +1,20 @@
+{
+  "name": "莱万汀",
+  "buffList": [
+    "无视灼热抗性-莱万汀-天赋"
+  ],
+  "buffs": [
+    {
+      "displayName": "无视灼热抗性-莱万汀-天赋",
+      "name": "灼心",
+      "source": "talent",
+      "sourceName": "天赋-灼心",
+      "type": "ignoreFireResAtMaxStacks",
+      "value": 20,
+      "level": "breakthrough3",
+      "description": "主控重击或处决命中后吸收周围敌人灼热附着，每层灼热附着获得1层熔火，最多4层。达到4层时无视敌人灼热抗性，持续20秒；附近敌人被击败时也会吸收其灼热附着。",
+      "condition": "熔火达到4层时",
+      "duration": 20
+    }
+  ]
+}

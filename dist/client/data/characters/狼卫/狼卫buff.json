@@ -1,0 +1,42 @@
+{
+  "name": "狼卫",
+  "buffList": [
+    "灼热伤害加成-狼卫-天赋",
+    "力量属性提升-狼卫-潜能",
+    "敏捷属性提升-狼卫-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "灼热伤害加成-狼卫-天赋",
+      "name": "灼热獠牙",
+      "source": "talent",
+      "sourceName": "天赋-灼热獠牙",
+      "type": "fireDmgBonus",
+      "value": 0.3,
+      "level": "breakthrough2",
+      "description": "每次施加燃烧后获得灼热獠牙状态，期间提升自身灼热伤害。",
+      "condition": "每次施加燃烧后",
+      "duration": 10
+    },
+    {
+      "displayName": "力量属性提升-狼卫-潜能",
+      "name": "独狼",
+      "source": "potential",
+      "sourceName": "潜能1-独狼",
+      "type": "strengthBoost",
+      "value": 15,
+      "level": "potentials-1",
+      "description": "力量+15，敏捷+15。"
+    },
+    {
+      "displayName": "敏捷属性提升-狼卫-潜能",
+      "name": "独狼",
+      "source": "potential",
+      "sourceName": "潜能1-独狼",
+      "type": "agilityBoost",
+      "value": 15,
+      "level": "potentials-1",
+      "description": "力量+15，敏捷+15。"
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "name": "阿列什",
+  "buffList": [
+    "力量属性提升-阿列什-潜能",
+    "智识属性提升-阿列什-潜能",
+    "攻击力百分比提升-阿列什-潜能",
+    "伤害倍率乘倍-阿列什-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "力量属性提升-阿列什-潜能",
+      "name": "沉心静气",
+      "source": "potential",
+      "sourceName": "潜能2-沉心静气",
+      "type": "strengthBoost",
+      "value": 15,
+      "level": "potentials-2",
+      "description": "力量+15，智识+15。"
+    },
+    {
+      "displayName": "智识属性提升-阿列什-潜能",
+      "name": "沉心静气",
+      "source": "potential",
+      "sourceName": "潜能2-沉心静气",
+      "type": "intelligenceBoost",
+      "value": 15,
+      "level": "potentials-2",
+      "description": "力量+15，智识+15。"
+    },
+    {
+      "displayName": "攻击力百分比提升-阿列什-潜能",
+      "name": "愿者上钩",
+      "source": "potential",
+      "sourceName": "潜能3-愿者上钩",
+      "type": "atkPercentBoost",
+      "value": 0.15,
+      "level": "potentials-3",
+      "description": "连携技“凿孔底钓术”成功钓起珍鳞后，全队攻击力+15%，持续10秒（不可叠加）。",
+      "condition": "钓起珍鳞后"
+    },
+    {
+      "displayName": "伤害倍率乘倍-阿列什-潜能",
+      "name": "特大鳞讯",
+      "source": "potential",
+      "sourceName": "潜能5-特大鳞讯",
+      "type": "multiplierMultiplier",
+      "value": 1.5,
+      "level": "potentials-5",
+      "description": "终结技“大鳞，上钩！”命中生命值低于50%的目标时，伤害倍率提升至1.5倍。",
+      "condition": "命中生命值低于50%目标"
+    }
+  ]
+}

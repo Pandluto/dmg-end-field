@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#e9ecea" />
+    <meta name="description" content="离线优先的终末地配装、排轴与伤害计算工作台" />
+    <link rel="icon" href="./app-icon.png" type="image/png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>终末地伤害工作台</title>
+    <script>
+      (() => {
+        const themeKey = 'dmg.appearance.theme.v1';
+        const themes = {
+          'office-excel': { scheme: 'light', color: '#e9ecea' },
+          'apple-midnight': { scheme: 'dark', color: '#292a2e' },
+          'apple-warm': { scheme: 'light', color: '#ebe4d9' },
+        };
+        let theme = 'office-excel';
+        try {
+          const stored = localStorage.getItem(themeKey);
+          if (stored && themes[stored]) theme = stored;
+        } catch {
+          // Keep the current white theme when local storage is unavailable.
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = themes[theme].scheme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themes[theme].color);
+      })();
+    </script>
+    <script>
+      (() => {
+        if (!('serviceWorker' in navigator)) return;
+
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        let reloadingForUpdate = false;
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloadingForUpdate) return;
+          reloadingForUpdate = true;
+          window.location.reload();
+        });
+
+        void navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        }).then(async (registration) => {
+          await registration.update();
+          registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+        }).catch(() => undefined);
+      })();
+    </script>
+    <script>
+      (() => {
+        const recoveryKey = 'dmg.sw-startup-recovery.v1';
+        const recoveryParam = '__sw_recovery';
+        let moduleReady = false;
+        let recoveryRunning = false;
+
+        const readRecoveryAttempt = () => {
+          try {
+            return Number(sessionStorage.getItem(recoveryKey) || '0');
+          } catch {
+            return 0;
+          }
+        };
+
+        const writeRecoveryAttempt = (value) => {
+          try {
+            sessionStorage.setItem(recoveryKey, String(value));
+          } catch {
+            // The recovery still works when session storage is unavailable.
+          }
+        };
+
+        const showRecovery = () => {
+          const root = document.getElementById('root');
+          if (!root || moduleReady) return;
+          root.innerHTML = `
+            <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#eef1ef;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC',sans-serif">
+              <section style="width:min(420px,100%);padding:28px;border:1px solid rgba(0,0,0,.08);border-radius:24px;background:rgba(255,255,255,.82);box-shadow:0 18px 60px rgba(18,26,22,.12);backdrop-filter:blur(24px)">
+                <p style="margin:0 0 8px;color:#6e746f;font-size:13px">启动保护</p>
+                <h1 style="margin:0 0 12px;font-size:24px">页面缓存需要修复</h1>
+                <p style="margin:0 0 20px;color:#5f655f;line-height:1.6">工作台没有删除本地数据。点击后只会更新页面运行缓存，再重新进入。</p>
+                <button id="dmg-startup-recover" type="button" style="width:100%;padding:12px 16px;border:0;border-radius:14px;background:#1d1d1f;color:#fff;font:inherit;cursor:pointer">修复并重新加载</button>
+              </section>
+            </main>
+          `;
+          document.getElementById('dmg-startup-recover')?.addEventListener('click', () => {
+            void recoverStartup(true);
+          });
+        };
+
+        const recoverStartup = async (manual = false) => {
+          if ((moduleReady && !manual) || recoveryRunning) return;
+          const attempt = readRecoveryAttempt();
+          if (attempt >= 1 && !manual) {
+            showRecovery();
+            return;
+          }
+          recoveryRunning = true;
+          writeRecoveryAttempt(attempt + 1);
+          try {
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              if (!registrations.length && !navigator.serviceWorker.controller) {
+                showRecovery();
+                recoveryRunning = false;
+                return;
+              }
+              await Promise.all(registrations.map((registration) => registration.unregister()));
+            }
+          } finally {
+            const target = new URL(window.location.href);
+            target.searchParams.set(recoveryParam, String(Date.now()));
+            window.location.replace(target.href);
+          }
+        };
+
+        const shouldRecover = (event) => {
+          if (moduleReady) return false;
+          const message = String(event?.reason?.message || event?.message || '');
+          const filename = String(event?.filename || '');
+          return (
+            /requested module|module script|dynamically imported module|does not provide an export|loading chunk|unexpected token/i.test(message)
+            || (filename && filename.startsWith(window.location.origin))
+          );
+        };
+
+        window.__DMG_MARK_MODULE_READY__ = () => {
+          moduleReady = true;
+          try {
+            sessionStorage.removeItem(recoveryKey);
+          } catch {
+            // No-op when session storage is unavailable.
+          }
+          const target = new URL(window.location.href);
+          if (target.searchParams.delete(recoveryParam)) {
+            window.history.replaceState(
+              window.history.state,
+              '',
+              `${target.pathname}${target.search}${target.hash}`,
+            );
+          }
+        };
+        window.__DMG_RECOVER_STARTUP__ = () => recoverStartup(true);
+        window.addEventListener('error', (event) => {
+          if (shouldRecover(event)) void recoverStartup();
+        });
+        window.addEventListener('unhandledrejection', (event) => {
+          if (shouldRecover(event)) void recoverStartup();
+        });
+        window.setTimeout(() => {
+          if (!moduleReady) showRecovery();
+        }, 15000);
+      })();
+    </script>
+    <script type="module" crossorigin src="/assets/index-tLsZtu1-.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-Bir-3hwE.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>

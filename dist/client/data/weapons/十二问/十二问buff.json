@@ -1,0 +1,55 @@
+{
+  "name": "十二问",
+  "buffList": [
+    "攻击力提升-十二问-消耗法术异常-4-1层",
+    "攻击力提升-十二问-消耗法术异常-4-2层",
+    "攻击力提升-十二问-消耗法术异常-9-1层",
+    "攻击力提升-十二问-消耗法术异常-9-2层"
+  ],
+  "buffs": [
+    {
+      "displayName": "攻击力提升-十二问-消耗法术异常-4-1层",
+      "name": "附术·竭心诘问",
+      "source": "skill",
+      "sourceName": "skill3-附术·竭心诘问",
+      "type": "atkPercentBoost",
+      "value": 8,
+      "level": "4",
+      "description": "副能力 +8.0% 。 装备者 消耗 法术异常 后，攻击力 +12.0% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间。",
+      "condition": "消耗法术异常后触发；同名效果最多叠加2层"
+    },
+    {
+      "displayName": "攻击力提升-十二问-消耗法术异常-4-2层",
+      "name": "附术·竭心诘问",
+      "source": "skill",
+      "sourceName": "skill3-附术·竭心诘问",
+      "type": "atkPercentBoost",
+      "value": 16,
+      "level": "4",
+      "description": "副能力 +8.0% 。 装备者 消耗 法术异常 后，攻击力 +12.0% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间。",
+      "condition": "消耗法术异常后触发；同名效果最多叠加2层"
+    },
+    {
+      "displayName": "攻击力提升-十二问-消耗法术异常-9-1层",
+      "name": "附术·竭心诘问",
+      "source": "skill",
+      "sourceName": "skill3-附术·竭心诘问",
+      "type": "atkPercentBoost",
+      "value": 14,
+      "level": "9",
+      "description": "副能力 +14.0% 。 装备者 消耗 法术异常 后，攻击力 +21.0% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间。",
+      "condition": "消耗法术异常后触发；同名效果最多叠加2层"
+    },
+    {
+      "displayName": "攻击力提升-十二问-消耗法术异常-9-2层",
+      "name": "附术·竭心诘问",
+      "source": "skill",
+      "sourceName": "skill3-附术·竭心诘问",
+      "type": "atkPercentBoost",
+      "value": 28,
+      "level": "9",
+      "description": "副能力 +14.0% 。 装备者 消耗 法术异常 后，攻击力 +21.0% ，持续20秒。 同名效果最多叠加2层，每层单独计算持续时间。",
+      "condition": "消耗法术异常后触发；同名效果最多叠加2层"
+    }
+  ]
+}
