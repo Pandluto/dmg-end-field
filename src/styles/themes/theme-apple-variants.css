@@ -85,8 +85,8 @@
   --theme-line-soft: rgba(255, 255, 255, 0.055);
   --theme-line-regular: rgba(255, 255, 255, 0.105);
   --theme-line-strong: rgba(255, 255, 255, 0.17);
-  --theme-graphic-line: #7c7c84;
-  --theme-graphic-line-strong: #b8b8c0;
+  --theme-graphic-line: rgba(255, 255, 255, 0.28);
+  --theme-graphic-line-strong: rgba(255, 255, 255, 0.56);
   --theme-overlay-bg: rgba(0, 0, 0, 0.58);
   --theme-text-on-accent: #ffffff;
   --theme-danger: #ff6961;

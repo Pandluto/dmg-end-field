@@ -1778,6 +1778,76 @@
     0 1px 2px rgba(0, 0, 0, 0.28);
 }
 
+:root[data-theme="apple-midnight"] :is(
+  .skill-button-base,
+  .dragging-skill-button-base
+),
+:root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-base {
+  color: var(--theme-text-title);
+  border-color: var(--theme-graphic-line);
+  background: #1f2024;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .skill-button-type,
+  .skill-button-name,
+  .skill-button-inspect-damage,
+  .dragging-skill-button-base span
+) {
+  color: var(--theme-text-title);
+  text-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .skill-button-inspect-damage {
+  border-top-color: var(--theme-line-regular);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb
+),
+:root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-orb {
+  color: var(--theme-text-title);
+  border-color: var(--theme-graphic-line);
+  background: color-mix(
+    in srgb,
+    var(--skill-button-element-color, #54545a) 50%,
+    var(--theme-bg-content)
+  );
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .skill-button-orb .skill-label,
+  .dragging-skill-button-orb span
+) {
+  color: var(--theme-text-title);
+  text-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-base {
+  border-color: var(--theme-graphic-line-strong);
+  background: var(--theme-surface-solid);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-orb {
+  border-color: var(--theme-graphic-line-strong);
+  background: color-mix(
+    in srgb,
+    var(--skill-button-element-color, #54545a) 58%,
+    var(--theme-bg-content)
+  );
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .canvas-skill-button.selected :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: var(--theme-accent-bright);
+  box-shadow: 0 0 0 2px var(--theme-accent-soft);
+}
+
 :root[data-theme="apple-midnight"] .timeline-tuning-inline-item.is-active > button:first-child {
   color: var(--theme-text-body);
 }
@@ -1793,6 +1863,12 @@
 :root[data-theme="apple-midnight"] .timeline-tuning-inline-item:not(.is-active) > button:first-child,
 :root[data-theme="apple-midnight"] .timeline-tuning-inline-item:not(.is-active) .timeline-tuning-inline-stack {
   color: var(--theme-text-placeholder);
+}
+
+:root[data-theme="apple-midnight"] .timeline-calculation-buffs > p {
+  color: var(--theme-text-muted);
+  border: 1px solid var(--theme-line-soft);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 :root[data-theme="apple-midnight"] :is(
@@ -1914,11 +1990,27 @@
 }
 
 :root[data-theme="apple-midnight"] :is(
+  .report-ppt-avatar-frame,
   .report-ppt-weapon-image,
   .report-ppt-equipment-icon
 ) {
   border-color: var(--theme-line-regular);
   background: var(--theme-surface-solid);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .report-ppt-avatar-frame,
+  .report-ppt-weapon-image-frame,
+  .report-ppt-weapon-image,
+  .report-ppt-equipment-icon,
+  .report-ppt-axis-label,
+  .report-ppt-axis-button-orb
+)::after {
+  color: var(--theme-text-muted);
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-toolbar span {
+  color: var(--theme-text-muted);
 }
 
 :root[data-theme="apple-midnight"] .report-ppt-skill-levels span {
