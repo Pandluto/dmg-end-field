@@ -209,7 +209,7 @@
   grid-column: 2;
   grid-row: 2;
   display: grid;
-  grid-template-rows: minmax(210px, 1fr) auto;
+  grid-template-rows: clamp(340px, 66vh, 700px) auto;
   align-content: start;
   gap: 16px;
   padding: 14px 0;
@@ -331,6 +331,8 @@
   gap: 6px;
   flex: 1;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #bfc5c1 transparent;
   padding-right: 5px;
@@ -361,6 +363,7 @@
 
 .timeline-buff-row {
   position: relative;
+  flex: 0 0 auto;
   display: flex;
   align-items: stretch;
   min-height: 34px;
