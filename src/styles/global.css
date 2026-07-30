@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "./themes/theme-contract.css";
 @import "./themes/theme-office-excel.css";
+@import "./themes/theme-apple-variants.css";
 
 html,
 body,

@@ -9,6 +9,26 @@
     <title>终末地伤害工作台</title>
     <script>
       (() => {
+        const themeKey = 'dmg.appearance.theme.v1';
+        const themes = {
+          'office-excel': { scheme: 'light', color: '#e9ecea' },
+          'apple-midnight': { scheme: 'dark', color: '#0b0b0d' },
+          'apple-warm': { scheme: 'light', color: '#ebe4d9' },
+        };
+        let theme = 'office-excel';
+        try {
+          const stored = localStorage.getItem(themeKey);
+          if (stored && themes[stored]) theme = stored;
+        } catch {
+          // Keep the current white theme when local storage is unavailable.
+        }
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = themes[theme].scheme;
+        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themes[theme].color);
+      })();
+    </script>
+    <script>
+      (() => {
         const recoveryKey = 'dmg.sw-startup-recovery.v1';
         const recoveryParam = '__sw_recovery';
         let moduleReady = false;

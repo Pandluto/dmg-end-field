@@ -1,0 +1,1442 @@
+:root {
+  --theme-surface-solid: #ffffff;
+  --theme-surface-raised: rgba(255, 255, 255, 0.96);
+  --theme-surface-regular: rgba(255, 255, 255, 0.9);
+  --theme-surface-muted: #f5f5f7;
+  --theme-control-bg: rgba(255, 255, 255, 0.92);
+  --theme-fill-subtle: rgba(118, 118, 128, 0.08);
+  --theme-fill-hover: rgba(118, 118, 128, 0.12);
+  --theme-fill-pressed: rgba(118, 118, 128, 0.18);
+  --theme-line-soft: rgba(60, 60, 67, 0.1);
+  --theme-line-regular: rgba(60, 60, 67, 0.18);
+  --theme-line-strong: rgba(60, 60, 67, 0.3);
+  --theme-overlay-bg: rgba(28, 28, 30, 0.2);
+  --theme-text-on-accent: #ffffff;
+  --theme-accent-hover: #0068d9;
+  --theme-danger: #d70015;
+  --theme-danger-soft: rgba(255, 59, 48, 0.09);
+  --theme-success: #248a3d;
+  --theme-success-soft: rgba(52, 199, 89, 0.1);
+  --theme-warning: #9a6700;
+  --theme-warning-soft: rgba(255, 159, 10, 0.12);
+  --theme-shadow-window:
+    0 36px 110px rgba(0, 0, 0, 0.2),
+    0 10px 34px rgba(0, 0, 0, 0.1),
+    0 1px 3px rgba(0, 0, 0, 0.08);
+  --theme-shadow-float:
+    0 22px 68px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="apple-midnight"] {
+  color-scheme: dark;
+
+  --theme-bg-window: #0b0b0d;
+  --theme-bg-content: #111113;
+  --theme-bg-nav: rgba(24, 24, 27, 0.88);
+  --theme-bg-card: rgba(29, 29, 32, 0.94);
+  --theme-bg-grid-area: #121214;
+  --theme-bg-grid-header: rgba(10, 132, 255, 0.14);
+  --theme-bg-workspace-panel: rgba(20, 20, 23, 0.92);
+  --theme-bg-hover: rgba(255, 255, 255, 0.075);
+  --theme-bg-active: rgba(10, 132, 255, 0.2);
+
+  --theme-text-title: #f5f5f7;
+  --theme-text-body: #d1d1d6;
+  --theme-text-muted: #98989d;
+  --theme-text-placeholder: #6f6f76;
+
+  --theme-border-subtle: rgba(235, 235, 245, 0.09);
+  --theme-border-grid: rgba(235, 235, 245, 0.1);
+  --theme-border-default: rgba(235, 235, 245, 0.14);
+  --theme-border-medium: rgba(64, 156, 255, 0.44);
+  --theme-border-strong: #0a84ff;
+
+  --theme-accent-main: #0a84ff;
+  --theme-accent-strong: #409cff;
+  --theme-accent-bright: #64d2ff;
+  --theme-accent-lime: #30d158;
+  --theme-accent-soft: rgba(10, 132, 255, 0.18);
+  --theme-accent-hover: #0071e3;
+
+  --theme-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.42);
+  --theme-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.36);
+  --theme-focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.3);
+
+  --theme-radius-control: 10px;
+  --theme-radius-panel: 16px;
+  --theme-radius-switch: 999px;
+
+  --theme-main-stat-bg: rgba(255, 214, 10, 0.18);
+  --theme-sub-stat-bg: rgba(235, 235, 245, 0.1);
+
+  --theme-surface-solid: #1c1c1f;
+  --theme-surface-raised: rgba(38, 38, 42, 0.97);
+  --theme-surface-regular: rgba(29, 29, 32, 0.94);
+  --theme-surface-muted: #161619;
+  --theme-control-bg: rgba(44, 44, 48, 0.9);
+  --theme-fill-subtle: rgba(255, 255, 255, 0.055);
+  --theme-fill-hover: rgba(255, 255, 255, 0.09);
+  --theme-fill-pressed: rgba(255, 255, 255, 0.14);
+  --theme-line-soft: rgba(235, 235, 245, 0.08);
+  --theme-line-regular: rgba(235, 235, 245, 0.14);
+  --theme-line-strong: rgba(235, 235, 245, 0.24);
+  --theme-overlay-bg: rgba(0, 0, 0, 0.56);
+  --theme-text-on-accent: #ffffff;
+  --theme-danger: #ff6961;
+  --theme-danger-soft: rgba(255, 69, 58, 0.16);
+  --theme-success: #32d74b;
+  --theme-success-soft: rgba(48, 209, 88, 0.14);
+  --theme-warning: #ffd60a;
+  --theme-warning-soft: rgba(255, 214, 10, 0.14);
+  --theme-shadow-window:
+    0 42px 130px rgba(0, 0, 0, 0.62),
+    0 12px 38px rgba(0, 0, 0, 0.42),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+  --theme-shadow-float:
+    0 28px 80px rgba(0, 0, 0, 0.52),
+    0 2px 10px rgba(0, 0, 0, 0.38);
+
+  --excel-green-muted: rgba(64, 156, 255, 0.48);
+  --excel-gray-2: #222226;
+  --excel-gray-3: #303036;
+  --excel-gray-4: #6f6f76;
+  --ide-warning: var(--theme-warning);
+  --ide-danger: var(--theme-danger);
+  --ide-success: var(--theme-success-soft);
+  --ide-acrylic-bg: rgba(35, 35, 39, 0.9);
+  --ide-acrylic-bg-strong: rgba(29, 29, 33, 0.97);
+  --ide-acrylic-border: rgba(255, 255, 255, 0.1);
+  --ide-acrylic-highlight: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-warm"] {
+  color-scheme: light;
+
+  --theme-bg-window: #e9e2d8;
+  --theme-bg-content: #f1ebe2;
+  --theme-bg-nav: rgba(246, 240, 232, 0.9);
+  --theme-bg-card: rgba(252, 248, 241, 0.95);
+  --theme-bg-grid-area: #f8f3eb;
+  --theme-bg-grid-header: rgba(169, 98, 48, 0.12);
+  --theme-bg-workspace-panel: rgba(237, 229, 217, 0.92);
+  --theme-bg-hover: rgba(145, 89, 48, 0.085);
+  --theme-bg-active: rgba(165, 94, 45, 0.14);
+
+  --theme-text-title: #2b251f;
+  --theme-text-body: #4a4037;
+  --theme-text-muted: #766a5e;
+  --theme-text-placeholder: #9a8e82;
+
+  --theme-border-subtle: rgba(83, 65, 50, 0.1);
+  --theme-border-grid: rgba(83, 65, 50, 0.12);
+  --theme-border-default: rgba(83, 65, 50, 0.18);
+  --theme-border-medium: rgba(165, 94, 45, 0.4);
+  --theme-border-strong: #a55e2d;
+
+  --theme-accent-main: #a55e2d;
+  --theme-accent-strong: #7d421e;
+  --theme-accent-bright: #d18b55;
+  --theme-accent-lime: #b58b4a;
+  --theme-accent-soft: rgba(165, 94, 45, 0.12);
+  --theme-accent-hover: #8c4c24;
+
+  --theme-shadow-panel: 0 1px 2px rgba(69, 49, 34, 0.08);
+  --theme-shadow-hover: 0 8px 24px rgba(69, 49, 34, 0.13);
+  --theme-focus-ring: 0 0 0 3px rgba(165, 94, 45, 0.2);
+
+  --theme-radius-control: 10px;
+  --theme-radius-panel: 16px;
+  --theme-radius-switch: 999px;
+
+  --theme-main-stat-bg: rgba(214, 164, 78, 0.22);
+  --theme-sub-stat-bg: rgba(104, 86, 69, 0.11);
+
+  --theme-surface-solid: #fcf8f1;
+  --theme-surface-raised: rgba(255, 252, 247, 0.98);
+  --theme-surface-regular: rgba(250, 245, 237, 0.94);
+  --theme-surface-muted: #eee6db;
+  --theme-control-bg: rgba(255, 252, 247, 0.92);
+  --theme-fill-subtle: rgba(94, 72, 53, 0.055);
+  --theme-fill-hover: rgba(94, 72, 53, 0.09);
+  --theme-fill-pressed: rgba(94, 72, 53, 0.14);
+  --theme-line-soft: rgba(83, 65, 50, 0.09);
+  --theme-line-regular: rgba(83, 65, 50, 0.17);
+  --theme-line-strong: rgba(83, 65, 50, 0.28);
+  --theme-overlay-bg: rgba(55, 43, 33, 0.26);
+  --theme-text-on-accent: #ffffff;
+  --theme-danger: #b33b32;
+  --theme-danger-soft: rgba(179, 59, 50, 0.09);
+  --theme-success: #4e7c58;
+  --theme-success-soft: rgba(78, 124, 88, 0.11);
+  --theme-warning: #986515;
+  --theme-warning-soft: rgba(152, 101, 21, 0.1);
+  --theme-shadow-window:
+    0 38px 112px rgba(78, 56, 38, 0.2),
+    0 10px 32px rgba(78, 56, 38, 0.12),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.78);
+  --theme-shadow-float:
+    0 24px 72px rgba(78, 56, 38, 0.18),
+    0 2px 8px rgba(78, 56, 38, 0.1);
+
+  --excel-green-muted: rgba(165, 94, 45, 0.44);
+  --excel-gray-2: #f0e8dc;
+  --excel-gray-3: #ded3c4;
+  --excel-gray-4: #a99989;
+  --ide-warning: var(--theme-warning);
+  --ide-danger: var(--theme-danger);
+  --ide-success: var(--theme-success-soft);
+  --ide-acrylic-bg: rgba(252, 248, 241, 0.9);
+  --ide-acrylic-bg-strong: rgba(255, 252, 247, 0.97);
+  --ide-acrylic-border: rgba(255, 255, 255, 0.78);
+  --ide-acrylic-highlight: rgba(255, 255, 255, 0.74);
+}
+
+/* Theme picker */
+.theme-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.theme-option {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 74px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 12px;
+  min-height: 78px;
+  padding: 10px 11px;
+  border: 0.5px solid var(--shell-border, var(--theme-line-regular));
+  border-radius: 14px;
+  color: var(--shell-text, var(--theme-text-title));
+  text-align: left;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: none;
+}
+
+.theme-option:hover:not(:disabled) {
+  color: var(--shell-text, var(--theme-text-title));
+  border-color: var(--shell-border-strong, var(--theme-line-strong));
+  background: rgba(255, 255, 255, 0.74);
+  transform: translateY(-1px);
+}
+
+.theme-option.is-selected {
+  border-color: var(--shell-accent, var(--theme-accent-main));
+  background: var(--shell-accent-soft, var(--theme-accent-soft));
+  box-shadow: 0 0 0 1px var(--shell-accent, var(--theme-accent-main));
+}
+
+.theme-option-preview {
+  display: grid;
+  width: 74px;
+  height: 52px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  overflow: hidden;
+  border: 0.5px solid rgba(60, 60, 67, 0.2);
+  border-radius: 9px;
+  background: #f2f2f7;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.theme-option-sidebar {
+  background: #e4e5ea;
+}
+
+.theme-option-canvas {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 7px;
+  background: #ffffff;
+}
+
+.theme-option-canvas span {
+  height: 4px;
+  border-radius: 999px;
+  background: #d7d7dc;
+}
+
+.theme-option-canvas span:first-child {
+  width: 72%;
+  background: #007aff;
+}
+
+.theme-option.is-apple-midnight .theme-option-preview {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: #0b0b0d;
+}
+
+.theme-option.is-apple-midnight .theme-option-sidebar {
+  background: #1c1c1f;
+}
+
+.theme-option.is-apple-midnight .theme-option-canvas {
+  background: #121214;
+}
+
+.theme-option.is-apple-midnight .theme-option-canvas span {
+  background: #38383d;
+}
+
+.theme-option.is-apple-midnight .theme-option-canvas span:first-child {
+  background: #0a84ff;
+}
+
+.theme-option.is-apple-warm .theme-option-preview {
+  border-color: rgba(83, 65, 50, 0.18);
+  background: #e9e2d8;
+}
+
+.theme-option.is-apple-warm .theme-option-sidebar {
+  background: #ded3c5;
+}
+
+.theme-option.is-apple-warm .theme-option-canvas {
+  background: #fcf8f1;
+}
+
+.theme-option.is-apple-warm .theme-option-canvas span {
+  background: #ddd2c4;
+}
+
+.theme-option.is-apple-warm .theme-option-canvas span:first-child {
+  background: #a55e2d;
+}
+
+.theme-option-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.theme-option-copy strong {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.theme-option-copy small {
+  overflow: hidden;
+  color: var(--shell-muted, var(--theme-text-muted));
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.theme-option-check {
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border-radius: 50%;
+  color: transparent;
+  font-size: 11px;
+  background: var(--theme-fill-subtle);
+}
+
+.theme-option.is-selected .theme-option-check {
+  color: var(--theme-text-on-accent);
+  background: var(--shell-accent, var(--theme-accent-main));
+}
+
+/* Shared behavior for the two new Apple themes. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) body {
+  color: var(--theme-text-title);
+  background: var(--theme-bg-window);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) body,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .app,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-app-shell {
+  transition:
+    color 180ms ease,
+    background-color 180ms ease;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root {
+  scrollbar-color: var(--theme-line-strong) transparent;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root textarea,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root select {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background-color: var(--theme-control-bg);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root input::placeholder,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root textarea::placeholder {
+  color: var(--theme-text-placeholder);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root input[type="checkbox"],
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root input[type="radio"],
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) #root input[type="range"] {
+  accent-color: var(--theme-accent-main);
+}
+
+/* Web entry, app launcher and floating windows */
+:root[data-theme="apple-midnight"] {
+  --web-bg: #0b0b0d;
+  --web-panel: rgba(29, 29, 33, 0.96);
+  --web-panel-strong: #1c1c1f;
+  --web-line: rgba(235, 235, 245, 0.11);
+  --web-line-strong: rgba(235, 235, 245, 0.2);
+  --web-text: #f5f5f7;
+  --web-muted: #98989d;
+  --web-faint: #6f6f76;
+  --web-accent: #0a84ff;
+  --web-accent-strong: #0071e3;
+  --web-danger: #ff6961;
+  --web-shadow: var(--theme-shadow-window);
+}
+
+:root[data-theme="apple-warm"] {
+  --web-bg: #e9e2d8;
+  --web-panel: rgba(252, 248, 241, 0.96);
+  --web-panel-strong: #fcf8f1;
+  --web-line: rgba(83, 65, 50, 0.12);
+  --web-line-strong: rgba(83, 65, 50, 0.22);
+  --web-text: #2b251f;
+  --web-muted: #766a5e;
+  --web-faint: #9a8e82;
+  --web-accent: #a55e2d;
+  --web-accent-strong: #8c4c24;
+  --web-danger: #b33b32;
+  --web-shadow: var(--theme-shadow-window);
+}
+
+:root[data-theme="apple-midnight"] .web-app-shell,
+:root[data-theme="apple-warm"] .web-app-shell {
+  --shell-accent: var(--theme-accent-main);
+  --shell-accent-hover: var(--theme-accent-hover);
+  --shell-accent-soft: var(--theme-accent-soft);
+  --shell-text: var(--theme-text-title);
+  --shell-muted: var(--theme-text-muted);
+  --shell-faint: var(--theme-text-placeholder);
+  --shell-border: var(--theme-line-soft);
+  --shell-border-strong: var(--theme-line-regular);
+  --shell-surface: var(--theme-surface-raised);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .access-card,
+  .secondary-tab-card,
+  .onboarding-card
+) {
+  color: var(--web-text);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-window);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .install-panel,
+  .onboarding-points div
+) {
+  color: var(--web-text);
+  background: var(--theme-surface-muted);
+  box-shadow: inset 0 0 0 0.5px var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .onboarding-points {
+  background: var(--theme-line-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .brand-mark,
+  .web-shell-brand-mark
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-solid);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-menu-button {
+  border-color: var(--theme-line-regular);
+  color: var(--shell-text);
+  background: var(--theme-surface-regular);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.18),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-menu-button:hover:not(:disabled),
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-menu-button[aria-expanded="true"] {
+  border-color: var(--theme-line-strong);
+  background: var(--theme-surface-raised);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-popover {
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-nav button {
+  color: var(--theme-text-body);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-nav button:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-nav button.is-active {
+  color: var(--theme-text-on-accent);
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-overlay {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: blur(20px) saturate(0.88);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-window);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-bar {
+  border-bottom-color: var(--theme-line-soft);
+  background: var(--theme-bg-nav);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-content {
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-tabs {
+  background: var(--theme-fill-hover);
+  box-shadow: inset 0 0 0 0.5px var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-tabs button {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-tabs button.is-active {
+  color: var(--theme-text-title);
+  background: var(--theme-surface-raised);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.16),
+    inset 0 0 0 0.5px var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-shell-window-close {
+  color: var(--theme-text-muted);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .dashboard-hero,
+  .data-package-panel,
+  .data-tool-card,
+  .data-library-section,
+  .data-library-inspector,
+  .settings-section
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-regular);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .dashboard-stat-grid,
+  .workflow-grid,
+  .data-library-list,
+  .settings-card-grid
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .dashboard-stat-grid > div,
+  .workflow-grid > div,
+  .data-library-card,
+  .settings-card
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .dashboard-actions button:not(.dashboard-primary-button),
+  .data-package-actions button:not(.dashboard-primary-button),
+  .data-library-actions button,
+  .data-library-inspector-actions button,
+  .settings-action-row button,
+  .data-save-dialog button
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-control-bg);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .dashboard-actions button:not(.dashboard-primary-button),
+  .data-package-actions button:not(.dashboard-primary-button),
+  .data-library-actions button,
+  .data-library-inspector-actions button,
+  .settings-action-row button,
+  .data-save-dialog button
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .dashboard-primary-button {
+  color: var(--theme-text-on-accent);
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .dashboard-primary-button:hover:not(:disabled) {
+  color: var(--theme-text-on-accent);
+  background: var(--theme-accent-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-save-dialog-backdrop {
+  background: var(--theme-overlay-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-save-dialog {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .data-workspace-message,
+  .settings-message
+) {
+  color: var(--theme-success);
+  background: var(--theme-success-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .settings-state {
+  color: var(--theme-warning);
+  background: var(--theme-warning-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .settings-state.is-good {
+  color: var(--theme-success);
+  background: var(--theme-success-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .settings-action-row {
+  border-top-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .settings-action-row .danger-button {
+  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-danger) 26%, transparent);
+  background: var(--theme-danger-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .settings-security-note {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .theme-option {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .theme-option:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .theme-option.is-selected {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+}
+
+/* Original selection workspace */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-header {
+  border-bottom-color: var(--theme-line-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .selection-roster,
+  .selection-library
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-panel);
+  background: var(--theme-surface-regular);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .selection-section-header button,
+  .selection-ghost-button,
+  .selection-slot-remove,
+  .selection-confirm-button
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .selection-section-header button,
+  .selection-ghost-button,
+  .selection-slot-remove,
+  .selection-confirm-button
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-confirm-button {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .selection-slot,
+  .selection-character-card,
+  .selection-empty
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-slot.is-filled {
+  background: var(--theme-surface-solid);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-character-card:hover:not(:disabled) {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-character-card.is-selected {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 4px 0 0 var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .selection-character-avatar,
+  .selection-element-pill
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-solid);
+}
+
+/* Timeline, tool panel and skill surfaces */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workbench-frame {
+  color: var(--theme-text-title);
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workbench-top-zone {
+  border-bottom-color: var(--theme-line-soft);
+  background: var(--theme-bg-nav);
+  box-shadow: var(--theme-shadow-panel);
+  backdrop-filter: blur(26px) saturate(1.3);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .workbench-drawer-tab,
+  .workbench-top-trigger
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .workbench-drawer-tab,
+  .workbench-top-trigger
+):hover:not(:disabled) {
+  color: var(--theme-accent-strong);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-bg-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workbench-drawer-tab.is-active {
+  color: var(--theme-accent-strong);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 0 -2px 0 var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .tool-panel,
+  .tool-panel-content,
+  .tab-content-report,
+  .buff-list
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .tool-panel-tabs,
+  .report-toolbar,
+  .damage-input-section
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-bg-nav);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .tool-panel-tab:hover {
+  color: var(--theme-accent-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .tool-panel-tab.is-active {
+  color: var(--theme-accent-strong);
+  border-bottom-color: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-input,
+  .damage-search-drawer,
+  .damage-search-option,
+  .buff-item,
+  .buff-detail-modal,
+  .report-page-tab,
+  .report-text-panel
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-solid);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-search-option,
+  .buff-item
+) {
+  border-bottom-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-search-option,
+  .buff-item
+):hover {
+  color: var(--theme-accent-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .canvas-container,
+  .canvas-grid-background,
+  .canvas-area
+) {
+  color: var(--theme-text-title);
+  background-color: var(--theme-bg-grid-area);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .canvas-container.is-dragging-active .canvas-grid-background {
+  --grid-line-color: var(--theme-line-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-sandbox,
+  .sandbox-character,
+  .sandbox-skill-item,
+  .sandbox-skill-item--local
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-surface-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .sandbox-character--hoverable:hover,
+  .sandbox-character--hoverable:focus-within,
+  .sandbox-skill-item:hover
+) {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .sandbox-reserved-action,
+  .sandbox-expand-indicator
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .sandbox-character-name,
+  .sandbox-skill-tag
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .sandbox-character-count,
+  .sandbox-skill-name,
+  .sandbox-skill-hit-count
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .sandbox-avatar-config-popover {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 12px;
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-base,
+  .dragging-skill-button-base,
+  .dragging-skill-button-orb
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-surface-solid);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-base,
+  .dragging-skill-button-base,
+  .dragging-skill-button-orb
+) span {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-modal-overlay,
+  .damage-report-modal-overlay,
+  .timeline-snapshot-modal-overlay,
+  .work-node-modal-overlay
+) {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: blur(12px) saturate(0.9);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-modal,
+  .damage-report-modal,
+  .timeline-snapshot-modal,
+  .timeline-snapshot-confirm-modal,
+  .timeline-snapshot-share-modal,
+  .work-node-modal
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-panel);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-window);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-buff-item,
+  .skill-damage-hit-row,
+  .skill-damage-total,
+  .skill-damage-formula,
+  .skill-damage-hit-detail,
+  .report-sheet-sidebar-card,
+  .report-sheet-table-shell,
+  .timeline-snapshot-item,
+  .timeline-snapshot-hover-card,
+  .timeline-snapshot-confirm-body
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-sheet-table thead th {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-solid);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-sheet-table td {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-sheet-table tbody tr:hover {
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-sheet-table tbody tr.is-selected {
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-context-menu,
+  .context-menu-submenu
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  border-radius: 10px;
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .context-menu-item,
+  .context-menu-submenu .context-menu-item
+) {
+  color: var(--theme-text-body);
+  text-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .context-menu-item,
+  .context-menu-submenu .context-menu-item
+):hover {
+  color: var(--theme-text-title);
+  background: var(--theme-fill-hover);
+  filter: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-inline-buff-search-mode,
+  .operator-buff-character-filter,
+  .operator-buff-group-filters button,
+  .skill-button-inline-buff-search-item,
+  .skill-button-inline-buff-search-empty
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 9px;
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-inline-buff-search-mode.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active,
+  .skill-button-inline-buff-search-item:hover
+) {
+  color: var(--theme-accent-strong);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+}
+
+/* Data editors and original utility pages */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .operator-draft-page,
+  .buff-draft-page,
+  .operator-config-page-root,
+  .damage-sheet-page,
+  .damage-report-page,
+  .equipment-sheet-page,
+  .image-manager-page
+) {
+  color: var(--theme-text-body);
+  background-color: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  [class*="operator-draft-"][class*="panel"],
+  [class*="operator-draft-"][class*="section"],
+  [class*="operator-draft-"][class*="modal"],
+  [class*="operator-draft-"][class*="library"],
+  [class*="buff-draft-"][class*="panel"],
+  [class*="buff-draft-"][class*="section"],
+  [class*="buff-draft-"][class*="modal"],
+  [class*="damage-sheet-"][class*="panel"],
+  [class*="damage-report-"][class*="panel"],
+  [class*="equipment-sheet-"][class*="panel"],
+  [class*="image-manager-"][class*="panel"],
+  [class*="image-manager-"][class*="modal"],
+  [class*="image-manager-"][class*="sidebar"]
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  background-color: var(--theme-surface-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  [class*="operator-draft-"][class*="card"],
+  [class*="operator-draft-"][class*="item"],
+  [class*="operator-draft-"][class*="row"],
+  [class*="buff-draft-"][class*="card"],
+  [class*="buff-draft-"][class*="item"],
+  [class*="buff-draft-"][class*="row"],
+  [class*="image-manager-"][class*="item"],
+  [class*="image-manager-"][class*="grid"]
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background-color: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  [class*="operator-draft-"][class*="title"],
+  [class*="operator-draft-"][class*="name"],
+  [class*="buff-draft-"][class*="title"],
+  [class*="buff-draft-"][class*="name"],
+  [class*="damage-sheet-"][class*="title"],
+  [class*="damage-report-"][class*="title"],
+  [class*="equipment-sheet-"][class*="title"],
+  [class*="image-manager-"][class*="title"],
+  [class*="image-manager-"][class*="name"]
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  [class*="operator-draft-"][class*="toolbar"],
+  [class*="buff-draft-"][class*="toolbar"],
+  [class*="damage-sheet-"][class*="toolbar"],
+  [class*="damage-report-"][class*="toolbar"],
+  [class*="equipment-sheet-"][class*="toolbar"],
+  [class*="image-manager-"][class*="toolbar"],
+  .image-manager-ribbon
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background-color: var(--theme-bg-nav);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root {
+  --operator-config-ink: var(--theme-text-title);
+  --operator-config-muted: var(--theme-text-muted);
+  --operator-config-line: var(--theme-line-regular);
+  --operator-config-line-soft: var(--theme-line-soft);
+  --operator-config-blue: var(--theme-accent-main);
+  --operator-config-blue-soft: var(--theme-accent-soft);
+  --operator-config-paper: var(--theme-surface-solid);
+  --operator-config-paper-blue: var(--theme-surface-muted);
+  --operator-config-page-panel-bg: var(--theme-bg-workspace-panel);
+  color: var(--theme-text-body);
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .operator-config-page-panel,
+  .operator-config-page-picker-modal,
+  .operator-config-page-panel-detail-modal,
+  .operator-config-page-skill-modal
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-panel);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .operator-config-page-section,
+  .config-data-section,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .config-cti-strip,
+  .config-weapon-potential-box,
+  .config-weapon-drawer,
+  .config-weapon-data-drawer,
+  .config-cti-drawer,
+  .config-weapon-config
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 12px;
+  background: var(--theme-surface-regular);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-panel-header,
+  .operator-config-page-equip-visual-top,
+  .operator-config-page-equip-visual-bottom
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-panel-back-btn,
+  .config-equip-sync-btn,
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-cti-input,
+  .config-weapon-option
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-control-bg);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-panel-back-btn,
+  .config-equip-sync-btn,
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-weapon-option
+):hover,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-weapon-option
+).is-open,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root .config-weapon-option.is-selected {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase,
+  .config-weapon-choose-detail-textarea,
+  .config-weapon-choose-img-area,
+  .config-weapon-choose-img-square,
+  .config-weapon-config-text,
+  .config-weapon-config-text-3,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-input-layer,
+  .operator-config-page-stat-item,
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-circle,
+  .operator-config-page-equip-tooltip
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 10px;
+  background: var(--theme-control-bg);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 999px;
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 999px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-current {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-main);
+  box-shadow: 0 0 0 2px var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-lit {
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-dim {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot,
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 10px;
+  background: var(--theme-control-bg);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root .operator-config-page-equip-button-group {
+  border-radius: 10px;
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root .operator-config-page-equip-visual-top::after {
+  border-color: var(--theme-line-strong);
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root .config-avatar-image,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root .config-avatar-item.is-active::after {
+  border-color: var(--theme-line-strong);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .operator-config-page-section-title,
+  .operator-config-page-panel .config-data-title,
+  .operator-config-page-panel .config-equip-box-title,
+  .operator-config-page-panel .config-data-value,
+  .operator-config-page-panel .config-skill-key,
+  .operator-config-page-panel .config-skill-name,
+  .operator-config-page-panel .config-talent-name,
+  .operator-config-page-track-key,
+  .operator-config-page-track-label,
+  .operator-config-page-track-sublabel,
+  .operator-config-page-stat-label,
+  .operator-config-page-stat-value,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-label,
+  .config-weapon-choose-name,
+  .config-weapon-config-value,
+  .operator-config-page-equip-set-title
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .operator-config-page-favor-input,
+  .operator-config-page-track-detail-button,
+  .operator-config-page-dot-detail-button,
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot,
+  .operator-config-page-picker-close,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal-close,
+  .operator-config-page-picker-option
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-batch-edit-workbench,
+  .buff-edit-panel,
+  .buff-edit-selected-button-card,
+  .buff-edit-buff-card,
+  .buff-batch-edit-workbench .anomaly-board-card,
+  .buff-batch-edit-workbench .anomaly-strip-button,
+  .buff-batch-edit-workbench .anomaly-chip,
+  .buff-batch-edit-workbench .anomaly-apply-btn,
+  .buff-batch-edit-workbench .anomaly-select-trigger
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-control);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-buff-card-title,
+  .buff-batch-edit-workbench .anomaly-board-card-title
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .image-manager-ctx-menu {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 10px;
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .image-manager-ctx-menu button {
+  color: var(--theme-text-body);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .image-manager-ctx-menu button:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .canvas-grid-group
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 14px;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .canvas-bottom-zone {
+  border-top-color: var(--theme-line-soft);
+  background: var(--theme-bg-workspace-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .btn-back,
+  .btn-save,
+  .btn-calculate,
+  .btn-add-group,
+  .btn-remove-group
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .btn-back,
+  .btn-save,
+  .btn-calculate,
+  .btn-add-group,
+  .btn-remove-group
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) body,
+  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .app,
+  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .web-app-shell,
+  .theme-option {
+    transition: none;
+  }
+}

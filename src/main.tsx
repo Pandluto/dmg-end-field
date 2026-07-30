@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { WebBootstrap } from './components/WebApp/WebBootstrap'
+import { initializeAppTheme } from './platform/theme/appTheme'
 
 declare global {
   interface Window {
@@ -16,6 +17,8 @@ declare global {
 //   event.returnValue = '确定要离开当前页面吗？'
 //   return event.returnValue
 // }
+
+initializeAppTheme()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

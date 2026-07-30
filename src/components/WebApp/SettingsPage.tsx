@@ -18,6 +18,13 @@ import {
 } from '../../platform/resources/imagePackage';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
+import {
+  APP_THEME_OPTIONS,
+  readAppTheme,
+  setAppTheme,
+  subscribeAppTheme,
+  type AppThemeId,
+} from '../../platform/theme/appTheme';
 
 type StorageOverview = {
   usage: number;
@@ -50,6 +57,7 @@ export function SettingsPage() {
   const [imagePackage, setImagePackage] = useState<InstalledImagePackage | null>(null);
   const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
   const [message, setMessage] = useState('');
+  const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
 
   const refresh = async () => {
     const [nextStorage, installed, images, lease] = await Promise.all([
@@ -67,6 +75,12 @@ export function SettingsPage() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => subscribeAppTheme(setTheme), []);
+
+  const handleThemeChange = (nextTheme: AppThemeId) => {
+    setTheme(setAppTheme(nextTheme));
+  };
 
   const handlePersist = async () => {
     const persisted = await requestPersistentBrowserStorage();
@@ -110,6 +124,41 @@ export function SettingsPage() {
   return (
     <div className="settings-page">
       {message && <div className="settings-message">{message}</div>}
+      <section className="settings-section settings-appearance-section">
+        <div className="settings-section-heading">
+          <div>
+            <p>外观</p>
+            <h2>界面主题</h2>
+          </div>
+          <span className="settings-state is-good">即时生效</span>
+        </div>
+        <div className="theme-picker" role="radiogroup" aria-label="界面主题">
+          {APP_THEME_OPTIONS.map((option) => (
+            <button
+              key={option.id}
+              className={`theme-option is-${option.id}${theme === option.id ? ' is-selected' : ''}`}
+              type="button"
+              role="radio"
+              aria-checked={theme === option.id}
+              onClick={() => handleThemeChange(option.id)}
+            >
+              <span className="theme-option-preview" aria-hidden="true">
+                <span className="theme-option-sidebar" />
+                <span className="theme-option-canvas">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              </span>
+              <span className="theme-option-copy">
+                <strong>{option.label}</strong>
+                <small>{option.description}</small>
+              </span>
+              <span className="theme-option-check" aria-hidden="true">✓</span>
+            </button>
+          ))}
+        </div>
+      </section>
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
