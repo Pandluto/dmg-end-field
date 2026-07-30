@@ -75,12 +75,23 @@ function getPotentialStarSegmentFill(segmentId: number, count: number): string {
   return '#C7C7C7';
 }
 
+function getPotentialStarSegmentState(segmentId: number, count: number) {
+  if (count === 6) return 'max';
+  if (segmentId === count) return 'current';
+  if (segmentId < count) return 'complete';
+  return 'inactive';
+}
+
 function ReportPotentialStar({ count, potential }: { count?: number; potential?: string }) {
   const resolvedCount = typeof count === 'number'
     ? Math.min(6, Math.max(1, count))
     : parsePotentialToCount(potential ?? '0潜');
   return (
-    <span className={`report-ppt-potential-star-wrap${resolvedCount === 6 ? ' is-max' : ''}`} aria-hidden="true">
+    <span
+      className={`report-ppt-potential-star-wrap${resolvedCount === 6 ? ' is-max' : ''}`}
+      data-potential-count={resolvedCount}
+      aria-hidden="true"
+    >
       <svg
         className="report-ppt-potential-star"
         viewBox="-24 -26 126 122"
@@ -91,6 +102,7 @@ function ReportPotentialStar({ count, potential }: { count?: number; potential?:
             key={segment.id}
             points="5,42 82,42 102,53 25,53"
             fill={getPotentialStarSegmentFill(segment.id, resolvedCount)}
+            data-potential-state={getPotentialStarSegmentState(segment.id, resolvedCount)}
             transform={segment.transform}
           />
         ))}
@@ -356,85 +368,74 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
 
 /*
  * Lieflat Charts template record:
- * - Share: Basics F4 Tick Donut. L14 Hundred Field and L5 Radial Convergence
- *   were rejected because this is a compact aggregate composition, not a set
- *   of individual records or relationships.
+ * - Share: a single-encoding solid pie translated from the sector geometry of
+ *   Glance G13. F4 was rejected after visual acceptance because its 100 hairline
+ *   ticks obscured a 93% leader; G2 would distort this highly uneven series;
+ *   full G13 would require a second intensity metric that this report does not
+ *   own. Angle alone therefore remains the honest encoding.
  * - Sequence: Basics F3 Hairline Area. F2 is intentionally sparser, while L3
  *   is designed for a much longer annotated series. The existing cumulative
  *   damage meaning remains unchanged; only its rendering gains hairline fill.
  */
-const REPORT_MONO_SHADES = ['#57544e', '#7b776f', '#a19d94', '#c5c1b8'] as const;
+const REPORT_MONO_SHADES = ['#3f3d38', '#747068', '#aaa69d', '#d5d1c8'] as const;
 
-function allocateHundredTicks(rows: ReturnType<typeof buildCharacterDamageRows>, total: number): number[] {
-  const exact = rows.map((row) => (row.expected / total) * 100);
-  const ticks = exact.map(Math.floor);
-  let remainder = 100 - ticks.reduce((sum, value) => sum + value, 0);
-  const priority = exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
-
-  for (let index = 0; index < priority.length && remainder > 0; index += 1, remainder -= 1) {
-    ticks[priority[index].index] += 1;
-  }
-
-  return ticks;
-}
-
-function deterministicTickLength(index: number, seriesIndex: number): number {
-  const jitter = Math.abs((((index + 1) * 73856093) ^ ((seriesIndex + 2) * 19349663)) % 1000) / 1000;
-  return 10 + jitter * 6;
-}
-
-function polarPoint(cx: number, cy: number, radius: number, degrees: number): [number, number] {
-  const radians = (degrees * Math.PI) / 180;
+function piePoint(cx: number, cy: number, radius: number, ratio: number): [number, number] {
+  const radians = ratio * Math.PI * 2 - Math.PI / 2;
   return [
     cx + radius * Math.cos(radians),
     cy + radius * Math.sin(radians),
   ];
 }
 
-function TickDonutChart({
+function SolidPieChart({
   rows,
   total,
 }: {
   rows: ReturnType<typeof buildCharacterDamageRows>;
   total: number;
 }) {
-  const tickCounts = allocateHundredTicks(rows, total);
-  const units = tickCounts.flatMap((count, seriesIndex) => (
-    Array.from({ length: count }, () => seriesIndex)
-  ));
-  const cx = 120;
-  const cy = 120;
-  const innerRadius = 67;
+  const cx = 110;
+  const cy = 110;
+  const radius = 76;
+  let offset = 0;
 
   return (
-    <svg className="report-ppt-tick-donut" viewBox="0 0 240 240" aria-label="干员伤害占比，一根刻线约等于百分之一">
-      {units.map((seriesIndex, index) => {
-        const angle = index * 3.6 - 90;
-        const [x1, y1] = polarPoint(cx, cy, innerRadius, angle);
-        const [x2, y2] = polarPoint(cx, cy, innerRadius + deterministicTickLength(index, seriesIndex), angle);
-        const row = rows[seriesIndex];
+    <svg className="report-ppt-solid-pie" viewBox="0 0 220 220" aria-label="干员伤害占比灰阶饼图">
+      <circle className="report-ppt-solid-pie-guide" cx={cx} cy={cy} r={radius + 10} />
+      {rows.map((row, index) => {
+        const share = row.expected / total;
+        const start = offset;
+        const end = offset + share;
+        offset = end;
+        if (share >= 0.999999) {
+          return (
+            <circle
+              key={row.id}
+              className="report-ppt-solid-pie-slice"
+              cx={cx}
+              cy={cy}
+              r={radius}
+              fill={REPORT_MONO_SHADES[index % REPORT_MONO_SHADES.length]}
+            >
+              <title>{row.name} · {formatPercent(share)}</title>
+            </circle>
+          );
+        }
+        const [startX, startY] = piePoint(cx, cy, radius, start);
+        const [endX, endY] = piePoint(cx, cy, radius, end);
+        const largeArc = share > 0.5 ? 1 : 0;
         return (
-          <line
-            key={`${row.id}-${index}`}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke={REPORT_MONO_SHADES[seriesIndex % REPORT_MONO_SHADES.length]}
-            strokeWidth="1"
+          <path
+            key={row.id}
+            className="report-ppt-solid-pie-slice"
+            d={`M ${cx} ${cy} L ${startX} ${startY} A ${radius} ${radius} 0 ${largeArc} 1 ${endX} ${endY} Z`}
+            fill={REPORT_MONO_SHADES[index % REPORT_MONO_SHADES.length]}
           >
-            <title>{row.name} · {formatPercent(row.expected / total)}</title>
-          </line>
+            <title>{row.name} · {formatPercent(share)}</title>
+          </path>
         );
       })}
-      {Array.from({ length: 10 }, (_, index) => {
-        const [x, y] = polarPoint(cx, cy, innerRadius - 6, index * 36 - 90);
-        return <circle key={index} cx={x} cy={y} r="1" />;
-      })}
-      <text x={cx} y={cy - 2} className="report-ppt-tick-donut-total" textAnchor="middle">100</text>
-      <text x={cx} y={cy + 14} className="report-ppt-tick-donut-unit" textAnchor="middle">TICKS · ONE ≈ 1%</text>
+      <circle className="report-ppt-solid-pie-pin" cx={cx} cy={cy} r="2.4" />
     </svg>
   );
 }
@@ -473,7 +474,7 @@ function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> 
             return circle;
           })}
         </svg>
-        <TickDonutChart rows={rows} total={total} />
+        <SolidPieChart rows={rows} total={total} />
       </div>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
