@@ -47,8 +47,8 @@
   --theme-radius-panel: 24px;
   --theme-radius-switch: 999px;
 
-  --theme-main-stat-bg: #67635b;
-  --theme-sub-stat-bg: #c9c5bc;
+  --theme-main-stat-bg: #d9d5cc;
+  --theme-sub-stat-bg: #e8e5de;
 
   --theme-surface-solid: #f5f3ef;
   --theme-surface-raised: #f7f5f1;
@@ -301,168 +301,11 @@
   filter: none !important;
 }
 
-:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-stat-item.is-main {
-  color: #f7f5f1;
-  border-color: #57544e;
-  background: #67635b;
-}
-
-:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-stat-item.is-main :is(
-  .operator-config-page-stat-label,
-  .operator-config-page-stat-value
-) {
-  color: #f7f5f1;
-}
-
-:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-stat-item.is-sub {
-  color: #3b3934;
-  border-color: #98938a;
-  background: #c9c5bc;
-}
-
-:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-stat-item.is-sub :is(
-  .operator-config-page-stat-label,
-  .operator-config-page-stat-value
-) {
-  color: #3b3934;
-}
-
-:root[data-theme="lieflat-mono"] .config-data-item.is-main {
-  color: #f7f5f1;
-  border-color: #57544e;
-  background: #67635b !important;
-}
-
-:root[data-theme="lieflat-mono"] .config-data-item.is-main :is(
-  .config-data-label,
-  .config-data-value
-) {
-  color: #f7f5f1;
-}
-
-:root[data-theme="lieflat-mono"] .config-data-item.is-sub {
-  color: #3b3934;
-  border-color: #98938a;
-  background: #c9c5bc !important;
-}
-
-:root[data-theme="lieflat-mono"] .config-data-item.is-sub :is(
-  .config-data-label,
-  .config-data-value
-) {
-  color: #3b3934;
-}
-
-:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box
-) {
-  border-color: #918c82;
-  background: #d5d1c8;
-}
-
-:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box
-):is(:hover, :active, :focus, :focus-visible) {
-  background: #c5c1b8 !important;
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box,
-  .report-ppt-potential-star-wrap
-) svg polygon[data-potential-state="zero"],
-:root[data-theme="lieflat-mono"] :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box,
-  .report-ppt-potential-star-wrap
-) svg polygon[data-potential-state="inactive"] {
-  fill: #d5d1c8 !important;
-  stroke: #aaa69d !important;
-  stroke-width: 0.45px;
-  filter: none !important;
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box,
-  .report-ppt-potential-star-wrap
-) svg polygon[data-potential-state="complete"] {
-  fill: #858077 !important;
-  stroke: #67635b !important;
-  stroke-width: 0.45px;
-  filter: none !important;
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box,
-  .report-ppt-potential-star-wrap
-) svg polygon[data-potential-state="current"] {
-  fill: #3f3d38 !important;
-  stroke: #f3f1ec !important;
-  stroke-width: 0.65px;
-  filter:
-    drop-shadow(0 0 2px rgba(247, 245, 241, 0.96))
-    drop-shadow(0 0 6px rgba(87, 84, 78, 0.64)) !important;
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .operator-config-page-level-badge-box,
-  .operator-config-page-weapon-star-square-box,
-  .report-ppt-potential-star-wrap
-) svg polygon[data-potential-state="max"] {
-  fill: #f0efeb !important;
-  stroke: #747068 !important;
-  stroke-width: 0.55px;
-  filter:
-    drop-shadow(0 0 2px rgba(247, 245, 241, 1))
-    drop-shadow(0 0 8px rgba(63, 61, 56, 0.62)) !important;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-potential-star-wrap::before {
-  background: rgba(63, 61, 56, 0.56);
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i {
-  border-color: #747068;
-  background: #d5d1c8;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i.is-active {
-  border-color: #3f3d38;
-  background: #67635b;
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .report-ppt-avatar,
-  .report-ppt-weapon-image img,
-  .report-ppt-equipment-icon img,
-  .report-ppt-axis-label img
-) {
-  filter: grayscale(1) saturate(0) contrast(1.1) brightness(0.94);
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-axis-button-orb img {
-  filter: grayscale(1) saturate(0) contrast(1.34) brightness(0.38);
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-axis-button-orb {
-  border-color: #747068;
-  background: #d5d1c8;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
-  color: #3b3934;
-  border-color: #918c82;
-  background: #f7f5f1;
-}
-
 /*
- * Report charts use the Lieflat grammar only inside the report. The share pie
- * translates G13 sector geometry to a single honest angle encoding; the
- * sequence keeps the real Basics F3 hairline structure.
+ * Report charts use the real Lieflat Basics templates only inside the report:
+ * F4 Tick Donut for the 100% composition and F3 Hairline Area for the existing
+ * cumulative sequence. Potential stars and other semantic widgets stay owned
+ * by their original component CSS.
  */
 :root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
   color: #5c5953;
@@ -480,31 +323,35 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 18px;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card {
   position: relative;
-  padding: 14px 14px 26px;
+  padding: 18px 18px 30px;
   border: 0.5px solid #cbc7be;
   border-radius: 20px;
   background: #f3f1ec;
 }
 
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card.is-placeholder {
+  display: none;
+}
+
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card::after {
   position: absolute;
-  left: 14px;
-  bottom: 9px;
+  left: 18px;
+  bottom: 11px;
   color: #a19d94;
-  font-size: 6px;
+  font-size: 7px;
   font-weight: 600;
   line-height: 1;
   letter-spacing: 0.12em;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child::after {
-  content: "SOLID PIE · G13 SECTOR GRAMMAR · DAMAGE SHARE";
+  content: "TICK DONUT · BASICS F4 · DAMAGE SHARE";
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:nth-child(2)::after {
@@ -512,66 +359,47 @@
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card h2 {
-  margin-bottom: 6px;
   color: #3b3934;
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   letter-spacing: -0.02em;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie-layout {
-  height: calc(100% - 20px);
-  grid-template-columns: minmax(0, 1fr) 104px;
-  gap: 6px;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-share-visual {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: center;
+  height: calc(100% - 30px);
+  grid-template-columns: minmax(0, 1fr) 180px;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie {
   display: none;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-solid-pie {
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut {
   display: block;
   width: 100%;
   height: 100%;
-  max-width: 172px;
-  max-height: 154px;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-solid-pie-guide {
-  fill: none;
-  stroke: #cbc7be;
-  stroke-width: 0.7px;
-  stroke-dasharray: 1 5;
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut circle {
+  fill: #c5c1b8;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-solid-pie-slice {
-  stroke: #f7f5f1;
-  stroke-width: 2px;
-  stroke-linejoin: round;
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut-total {
+  fill: #4b4842;
+  font-size: 23px;
+  font-weight: 800;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-solid-pie-pin {
-  fill: #f7f5f1;
-  stroke: #918c82;
-  stroke-width: 0.7px;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-chart-legend {
-  gap: 5px;
+:root[data-theme="lieflat-mono"] .report-ppt-tick-donut-unit {
+  fill: #918c82;
+  font-size: 6px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row {
   grid-template-columns: 14px minmax(0, 1fr);
-  gap: 5px;
-  font-size: 9px;
-  line-height: 1.05;
+  gap: 8px;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row span {
@@ -580,19 +408,19 @@
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(1) span {
-  background: #3f3d38 !important;
+  background: #57544e !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(2) span {
-  background: #747068 !important;
+  background: #7b776f !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(3) span {
-  background: #aaa69d !important;
+  background: #a19d94 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(4) span {
-  background: #d5d1c8 !important;
+  background: #c5c1b8 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row strong,
@@ -603,19 +431,14 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row em {
   color: #7d7971;
-  font-size: 7.5px;
-  white-space: nowrap;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-total {
-  margin-top: 0;
-  padding-top: 5px;
   border-top: 0.5px solid #cbc7be;
-  font-size: 9px;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line {
-  height: calc(100% - 20px);
+  height: calc(100% - 30px);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line-hairlines {
@@ -669,7 +492,7 @@
   .dragging-skill-button-orb img,
   .sandbox-skill-button img
 ) {
-  filter: grayscale(1) brightness(0.32) contrast(1.28);
+  filter: grayscale(1) brightness(0.5) contrast(1.08);
 }
 
 :root[data-theme="lieflat-mono"] :is(

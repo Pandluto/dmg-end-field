@@ -1272,14 +1272,6 @@ function getWeaponStarSegmentFill(segmentId: number, count: number) {
   return '#C7C7C7';
 }
 
-function getWeaponStarSegmentState(segmentId: number, count: number) {
-  if (count === 0) return 'zero';
-  if (count === 6) return 'max';
-  if (segmentId === count) return 'current';
-  if (segmentId < count) return 'complete';
-  return 'inactive';
-}
-
 function WeaponStarGlyph({
   className,
   count = 0,
@@ -1297,7 +1289,6 @@ function WeaponStarGlyph({
           key={segment.id}
           points={points}
           fill={getWeaponStarSegmentFill(segment.id, count)}
-          data-potential-state={getWeaponStarSegmentState(segment.id, count)}
           transform={segment.transform}
         />
       ))}
@@ -2237,7 +2228,6 @@ export function OperatorConfigPage() {
                           <button
                             type="button"
                             className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}
-                            data-potential-count={characterPotentialCount}
                             aria-label={`角色五角星计数器，当前 ${characterPotentialCount}`}
                             aria-pressed={characterPotentialCount > 0}
                             onClick={(event) => {
@@ -2321,7 +2311,6 @@ export function OperatorConfigPage() {
                       <button
                         type="button"
                         className={`operator-config-page-weapon-star-square-box${weaponPotentialCount === 0 ? ' is-zero' : ''}${weaponPotentialCount > 0 ? ' is-active' : ''}${weaponPotentialCount === 6 ? ' is-max' : ''}`}
-                        data-potential-count={weaponPotentialCount}
                         aria-label={`武器星形计数器，当前 ${weaponPotentialCount}`}
                         aria-pressed={weaponPotentialCount > 0}
                         onClick={(event) => {

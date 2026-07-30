@@ -697,7 +697,7 @@
   transform: rotate(-90deg);
 }
 
-.report-ppt-solid-pie,
+.report-ppt-tick-donut,
 .report-ppt-line-hairlines {
   display: none;
 }
