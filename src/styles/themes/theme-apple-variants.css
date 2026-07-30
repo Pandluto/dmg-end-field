@@ -10,6 +10,8 @@
   --theme-line-soft: rgba(60, 60, 67, 0.1);
   --theme-line-regular: rgba(60, 60, 67, 0.18);
   --theme-line-strong: rgba(60, 60, 67, 0.3);
+  --theme-graphic-line: rgba(0, 0, 0, 0.58);
+  --theme-graphic-line-strong: rgba(0, 0, 0, 0.78);
   --theme-overlay-bg: rgba(28, 28, 30, 0.2);
   --theme-text-on-accent: #ffffff;
   --theme-accent-hover: #0068d9;
@@ -31,57 +33,61 @@
 :root[data-theme="apple-midnight"] {
   color-scheme: dark;
 
-  --theme-bg-window: #0b0b0d;
-  --theme-bg-content: #111113;
-  --theme-bg-nav: rgba(24, 24, 27, 0.88);
-  --theme-bg-card: rgba(29, 29, 32, 0.94);
-  --theme-bg-grid-area: #121214;
-  --theme-bg-grid-header: rgba(10, 132, 255, 0.14);
-  --theme-bg-workspace-panel: rgba(20, 20, 23, 0.92);
+  --theme-bg-window: #292a2e;
+  --theme-bg-content: #2f3035;
+  --theme-bg-nav: rgba(55, 56, 62, 0.94);
+  --theme-bg-card: rgba(61, 62, 69, 0.97);
+  --theme-bg-grid-area: #303136;
+  --theme-bg-grid-header: rgba(255, 255, 255, 0.055);
+  --theme-bg-workspace-panel: rgba(56, 57, 64, 0.97);
   --theme-bg-hover: rgba(255, 255, 255, 0.075);
-  --theme-bg-active: rgba(10, 132, 255, 0.2);
+  --theme-bg-active: rgba(10, 132, 255, 0.18);
 
   --theme-text-title: #f5f5f7;
-  --theme-text-body: #d1d1d6;
-  --theme-text-muted: #98989d;
-  --theme-text-placeholder: #6f6f76;
+  --theme-text-body: #dedee5;
+  --theme-text-muted: #b0b0b8;
+  --theme-text-placeholder: #85858e;
 
-  --theme-border-subtle: rgba(235, 235, 245, 0.09);
-  --theme-border-grid: rgba(235, 235, 245, 0.1);
-  --theme-border-default: rgba(235, 235, 245, 0.14);
-  --theme-border-medium: rgba(64, 156, 255, 0.44);
-  --theme-border-strong: #0a84ff;
+  --theme-border-subtle: rgba(255, 255, 255, 0.08);
+  --theme-border-grid: rgba(255, 255, 255, 0.1);
+  --theme-border-default: rgba(255, 255, 255, 0.15);
+  --theme-border-medium: rgba(41, 151, 255, 0.3);
+  --theme-border-strong: rgba(255, 255, 255, 0.24);
 
   --theme-accent-main: #0a84ff;
-  --theme-accent-strong: #409cff;
+  --theme-accent-strong: #2997ff;
   --theme-accent-bright: #64d2ff;
   --theme-accent-lime: #30d158;
-  --theme-accent-soft: rgba(10, 132, 255, 0.18);
-  --theme-accent-hover: #0071e3;
+  --theme-accent-soft: rgba(10, 132, 255, 0.15);
+  --theme-accent-hover: #2997ff;
 
-  --theme-shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.42);
-  --theme-shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.36);
-  --theme-focus-ring: 0 0 0 3px rgba(10, 132, 255, 0.3);
+  --theme-shadow-panel:
+    0 1px 2px rgba(0, 0, 0, 0.3),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.045);
+  --theme-shadow-hover: 0 10px 28px rgba(0, 0, 0, 0.28);
+  --theme-focus-ring: 0 0 0 3px rgba(41, 151, 255, 0.28);
 
   --theme-radius-control: 10px;
   --theme-radius-panel: 16px;
   --theme-radius-switch: 999px;
 
-  --theme-main-stat-bg: rgba(255, 214, 10, 0.18);
-  --theme-sub-stat-bg: rgba(235, 235, 245, 0.1);
+  --theme-main-stat-bg: rgba(255, 214, 10, 0.14);
+  --theme-sub-stat-bg: rgba(255, 255, 255, 0.075);
 
-  --theme-surface-solid: #1c1c1f;
-  --theme-surface-raised: rgba(38, 38, 42, 0.97);
-  --theme-surface-regular: rgba(29, 29, 32, 0.94);
-  --theme-surface-muted: #161619;
-  --theme-control-bg: rgba(44, 44, 48, 0.9);
+  --theme-surface-solid: #484950;
+  --theme-surface-raised: rgba(66, 67, 74, 0.98);
+  --theme-surface-regular: rgba(59, 60, 66, 0.97);
+  --theme-surface-muted: #34353a;
+  --theme-control-bg: rgba(76, 77, 85, 0.96);
   --theme-fill-subtle: rgba(255, 255, 255, 0.055);
   --theme-fill-hover: rgba(255, 255, 255, 0.09);
   --theme-fill-pressed: rgba(255, 255, 255, 0.14);
-  --theme-line-soft: rgba(235, 235, 245, 0.08);
-  --theme-line-regular: rgba(235, 235, 245, 0.14);
-  --theme-line-strong: rgba(235, 235, 245, 0.24);
-  --theme-overlay-bg: rgba(0, 0, 0, 0.56);
+  --theme-line-soft: rgba(255, 255, 255, 0.08);
+  --theme-line-regular: rgba(255, 255, 255, 0.15);
+  --theme-line-strong: rgba(255, 255, 255, 0.24);
+  --theme-graphic-line: #a7a7ae;
+  --theme-graphic-line-strong: #d1d1d6;
+  --theme-overlay-bg: rgba(21, 22, 26, 0.46);
   --theme-text-on-accent: #ffffff;
   --theme-danger: #ff6961;
   --theme-danger-soft: rgba(255, 69, 58, 0.16);
@@ -90,24 +96,24 @@
   --theme-warning: #ffd60a;
   --theme-warning-soft: rgba(255, 214, 10, 0.14);
   --theme-shadow-window:
-    0 42px 130px rgba(0, 0, 0, 0.62),
-    0 12px 38px rgba(0, 0, 0, 0.42),
-    inset 0 0.5px 0 rgba(255, 255, 255, 0.08);
+    0 38px 112px rgba(0, 0, 0, 0.46),
+    0 10px 30px rgba(0, 0, 0, 0.32),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.07);
   --theme-shadow-float:
-    0 28px 80px rgba(0, 0, 0, 0.52),
-    0 2px 10px rgba(0, 0, 0, 0.38);
+    0 24px 64px rgba(0, 0, 0, 0.38),
+    0 2px 10px rgba(0, 0, 0, 0.26);
 
-  --excel-green-muted: rgba(64, 156, 255, 0.48);
-  --excel-gray-2: #222226;
-  --excel-gray-3: #303036;
-  --excel-gray-4: #6f6f76;
+  --excel-green-muted: rgba(41, 151, 255, 0.34);
+  --excel-gray-2: #3b3c42;
+  --excel-gray-3: #4c4d55;
+  --excel-gray-4: #85858e;
   --ide-warning: var(--theme-warning);
   --ide-danger: var(--theme-danger);
   --ide-success: var(--theme-success-soft);
-  --ide-acrylic-bg: rgba(35, 35, 39, 0.9);
-  --ide-acrylic-bg-strong: rgba(29, 29, 33, 0.97);
-  --ide-acrylic-border: rgba(255, 255, 255, 0.1);
-  --ide-acrylic-highlight: rgba(255, 255, 255, 0.08);
+  --ide-acrylic-bg: rgba(66, 67, 74, 0.94);
+  --ide-acrylic-bg-strong: rgba(61, 62, 69, 0.98);
+  --ide-acrylic-border: rgba(255, 255, 255, 0.09);
+  --ide-acrylic-highlight: rgba(255, 255, 255, 0.075);
 }
 
 :root[data-theme="apple-warm"] {
@@ -163,6 +169,8 @@
   --theme-line-soft: rgba(83, 65, 50, 0.09);
   --theme-line-regular: rgba(83, 65, 50, 0.17);
   --theme-line-strong: rgba(83, 65, 50, 0.28);
+  --theme-graphic-line: rgba(43, 37, 31, 0.56);
+  --theme-graphic-line-strong: rgba(43, 37, 31, 0.78);
   --theme-overlay-bg: rgba(55, 43, 33, 0.26);
   --theme-text-on-accent: #ffffff;
   --theme-danger: #b33b32;
@@ -383,14 +391,14 @@
 
 /* Web entry, app launcher and floating windows */
 :root[data-theme="apple-midnight"] {
-  --web-bg: #0b0b0d;
-  --web-panel: rgba(29, 29, 33, 0.96);
-  --web-panel-strong: #1c1c1f;
-  --web-line: rgba(235, 235, 245, 0.11);
-  --web-line-strong: rgba(235, 235, 245, 0.2);
+  --web-bg: #292a2e;
+  --web-panel: rgba(66, 67, 74, 0.98);
+  --web-panel-strong: #484950;
+  --web-line: rgba(255, 255, 255, 0.11);
+  --web-line-strong: rgba(255, 255, 255, 0.22);
   --web-text: #f5f5f7;
-  --web-muted: #98989d;
-  --web-faint: #6f6f76;
+  --web-muted: #b0b0b8;
+  --web-faint: #85858e;
   --web-accent: #0a84ff;
   --web-accent-strong: #0071e3;
   --web-danger: #ff6961;

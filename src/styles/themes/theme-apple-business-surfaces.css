@@ -1,0 +1,1653 @@
+/*
+ * Complete business-surface bridge for the two Apple themes.
+ *
+ * The legacy workbench contains several self-contained editors whose original
+ * CSS intentionally hard-codes a white Office palette. This layer maps those
+ * business surfaces to the shared theme contract without changing the default
+ * white theme or their layout and interaction model.
+ */
+
+/* Skill detail, Buff list and the adjacent "add Buff" workbench. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-modal-overlay,
+  .skill-button-inline-buff-search-mask
+) {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: blur(18px) saturate(0.92);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-button-modal-pair.is-buff-search-open::after {
+  background: var(--theme-line-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-modal,
+  .skill-button-inline-buff-search.is-workbench-mode,
+  .skill-button-inline-buff-search.is-anomaly-mode
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-panel);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-window);
+  backdrop-filter: blur(24px) saturate(1.08);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-button-modal :where(
+  .modal-header,
+  .skill-button-buff-section,
+  .skill-damage-expanded
+) {
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .modal-title,
+  .skill-button-modal h4,
+  .skill-button-buff-section h5,
+  .skill-damage-title,
+  .skill-damage-expand-title,
+  .formula-section-title,
+  .skill-damage-hit-detail .hit-detail-title,
+  .skill-button-inline-buff-search-head h5,
+  .local-buff-search-item-head strong,
+  .anomaly-summary-title,
+  .anomaly-config-title,
+  .skill-anomaly-board-title,
+  .anomaly-board-card-title
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-modal-info,
+  .skill-info-snapshot-content,
+  .skill-button-resistance-field,
+  .skill-button-anomaly-summary-card,
+  .skill-anomaly-config-card,
+  .skill-anomaly-board,
+  .anomaly-inline-panel,
+  .anomaly-live-preview,
+  .skill-damage-hit-card,
+  .skill-damage-hit-row,
+  .skill-damage-total,
+  .skill-damage-formula,
+  .skill-damage-hit-detail,
+  .skill-button-buff-item,
+  .selected-buff-card,
+  .nearby-buff-card
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 10px;
+  background: var(--theme-surface-muted);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-info-snapshot-empty,
+  .skill-button-buff-empty,
+  .skill-damage-empty,
+  .no-buff,
+  .buff-section-tip,
+  .skill-damage-formula p,
+  .skill-damage-hit-detail p,
+  .skill-button-inline-buff-search-head span,
+  .skill-button-inline-buff-search-item p,
+  .local-buff-search-item-head span,
+  .local-buff-search-item-source,
+  .buff-card-source,
+  .anomaly-config-subtitle,
+  .anomaly-live-line
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .lock-control,
+  .skill-button-modal .modal-close-btn,
+  .skill-button-resistance-toggle,
+  .skill-damage-expand-btn,
+  .hit-toggle-btn,
+  .anomaly-category-tab,
+  .anomaly-strip-button,
+  .anomaly-item-button,
+  .anomaly-select-trigger,
+  .anomaly-apply-btn,
+  .anomaly-chip,
+  .anomaly-board-card-delete-btn,
+  .selected-buff-card-remove
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .lock-control,
+  .skill-button-modal .modal-close-btn,
+  .skill-button-resistance-toggle,
+  .skill-damage-expand-btn,
+  .hit-toggle-btn,
+  .anomaly-category-tab,
+  .anomaly-strip-button,
+  .anomaly-item-button,
+  .anomaly-select-trigger,
+  .anomaly-apply-btn,
+  .anomaly-chip
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .lock-control.is-locked,
+  .anomaly-category-tab.is-active,
+  .anomaly-strip-button.is-active,
+  .anomaly-item-button.is-active,
+  .anomaly-chip.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 0 0 0 0.5px var(--theme-border-medium);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-resistance-field input,
+  .skill-button-inline-buff-search-input
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-level-badge,
+  .anomaly-summary-kind,
+  .anomaly-item-tag,
+  .buff-tag
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 999px;
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-damage-hit-card:hover,
+  .skill-damage-hit-row:hover,
+  .skill-button-buff-item:hover,
+  .selected-buff-card:hover,
+  .nearby-buff-card:hover
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-damage-hit-card.selected,
+  .buff-tag-selectable.is-selected
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 3px 0 0 var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-damage-hit-card.is-disabled {
+  color: var(--theme-text-muted);
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .hit-name,
+  .formula-zone-total,
+  .damage-line,
+  .hit-value.expected,
+  .hit-value.crit,
+  .hit-value.non-crit
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-menu {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 10px;
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-option {
+  color: var(--theme-text-body);
+  background: transparent;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .anomaly-select-option:hover {
+  color: var(--theme-text-title);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-buff-workbench-main,
+  .skill-button-buff-resource-rail,
+  .skill-button-local-buff-panel
+) {
+  color: var(--theme-text-body);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-inline-buff-search-mode,
+  .operator-buff-character-filter,
+  .operator-buff-group-filters button,
+  .skill-button-inline-buff-search-item,
+  .skill-button-inline-buff-search-empty
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 9px;
+  background: var(--theme-surface-muted);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-inline-buff-search-mode,
+  .operator-buff-character-filter,
+  .operator-buff-group-filters button,
+  .skill-button-inline-buff-search-item
+):hover {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-inline-buff-search-mode.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+  box-shadow: none;
+}
+
+/* Full-page timeline detail opened by double-clicking a skill button. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-layer {
+  color: var(--theme-text-body);
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-canvas {
+  color: var(--theme-text-body);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-heading strong,
+  .timeline-detail-card h3,
+  .timeline-buff-main strong,
+  .timeline-summary-formula-parts strong,
+  .timeline-calculation-summary > strong,
+  .timeline-calculation-detail > header strong,
+  .timeline-calculation-detail-rows strong,
+  .timeline-calculation-buff-row strong,
+  .timeline-info-card pre
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-heading span,
+  .timeline-detail-hit em,
+  .timeline-detail-hit small,
+  .timeline-resistance-fields label,
+  .timeline-buff-main span,
+  .timeline-status-list small,
+  .timeline-tuning-card p,
+  .timeline-summary-card small,
+  .timeline-summary-formula-parts span,
+  .timeline-calculation-summary > span,
+  .timeline-calculation-detail > header span,
+  .timeline-calculation-detail-rows span,
+  .timeline-calculation-buffs > span,
+  .timeline-calculation-buff-row small,
+  .timeline-calculation-buff-row em,
+  .timeline-detail-empty
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-utility-panel,
+  .timeline-detail-card,
+  .timeline-tuning-card,
+  .timeline-calculation-summary,
+  .timeline-calculation-detail,
+  .timeline-summary-formula-parts,
+  .timeline-calculation-buff-row
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 12px;
+  background: var(--theme-surface-regular);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-heading button,
+  .timeline-detail-expand-all-button,
+  .timeline-tuning-card button,
+  .timeline-calculation-card button,
+  .timeline-buff-bulk-actions button,
+  .timeline-status-list button,
+  .timeline-tuning-list button,
+  .timeline-tuning-inline-actions button,
+  .timeline-buff-stack button,
+  .timeline-buff-delete,
+  .timeline-calculation-inline-toggle
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-heading button,
+  .timeline-detail-expand-all-button,
+  .timeline-tuning-card button,
+  .timeline-calculation-card button,
+  .timeline-buff-bulk-actions button,
+  .timeline-status-list button,
+  .timeline-tuning-list button,
+  .timeline-tuning-inline-actions button
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-heading button.is-active,
+  .timeline-detail-expand-all-button.is-active,
+  .timeline-tuning-list button.is-active,
+  .timeline-tuning-inline-actions button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-hit,
+  .timeline-buff-row,
+  .timeline-tuning-inline-item,
+  .timeline-summary-formula-parts > div,
+  .timeline-calculation-detail-rows > div
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 9px;
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-hit:hover,
+  .timeline-buff-row:hover
+) {
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-hit.is-selected {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 3px 0 0 var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-hit.is-disabled,
+  .timeline-buff-row.is-disabled,
+  .timeline-tuning-inline-item:not(.is-active)
+) {
+  color: var(--theme-text-muted);
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-resistance-fields input,
+  .timeline-buff-list-head select,
+  .timeline-tuning-inline-stack
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-buff-stack,
+  .timeline-calculation-detail > header
+) {
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-buff-stack span {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-tuning-inline-actions button.is-danger {
+  color: var(--theme-danger);
+  border-color: color-mix(in srgb, var(--theme-danger) 30%, transparent);
+  background: var(--theme-danger-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-detail-canvas,
+  .timeline-detail-hit-list,
+  .timeline-detail-middle,
+  .timeline-detail-right-column,
+  .timeline-calculation-detail,
+  .timeline-calculation-zone-scroll
+) {
+  scrollbar-color: var(--theme-line-strong) transparent;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node rect {
+  fill: var(--theme-surface-muted);
+  stroke: var(--theme-line-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node:hover rect,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node:focus rect {
+  fill: var(--theme-fill-hover);
+  stroke: var(--theme-line-strong);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-calculation-zone-node.is-selected rect {
+  fill: var(--theme-accent-soft);
+  stroke: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+) {
+  fill: var(--theme-text-body);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .zone-node-link,
+  .zone-node-arrow
+) {
+  stroke: var(--theme-line-strong);
+}
+
+/* Batch Buff workbench and all of its add/remove candidate surfaces. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-layout,
+  .buff-edit-canvas,
+  .buff-edit-left-zone,
+  .buff-batch-edit-workbench
+) {
+  color: var(--theme-text-body);
+  background: var(--theme-bg-grid-area);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-mask {
+  background: var(--theme-fill-subtle);
+  backdrop-filter: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-right-zone,
+  .buff-edit-right-panel,
+  .buff-edit-right-placeholder,
+  .buff-edit-candidate-section,
+  .buff-edit-candidate-adder,
+  .buff-batch-edit-workbench .skill-anomaly-config,
+  .buff-batch-edit-workbench .skill-anomaly-board
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 12px;
+  background: var(--theme-surface-regular);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-right-head h3,
+  .buff-edit-right-section h4,
+  .buff-edit-candidate-head h4,
+  .buff-edit-candidate-adder-head strong,
+  .buff-edit-candidate-result strong,
+  .buff-edit-buff-card-title,
+  .buff-edit-selected-button-card strong,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-head h5,
+  .buff-batch-edit-workbench .local-buff-search-item-head strong,
+  .buff-batch-edit-workbench .skill-anomaly-board-title,
+  .buff-batch-edit-workbench .anomaly-config-title,
+  .buff-batch-edit-workbench .anomaly-board-card-title
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-right-head span,
+  .buff-edit-candidate-head span,
+  .buff-edit-candidate-empty,
+  .buff-edit-candidate-result span,
+  .buff-edit-buff-card span,
+  .buff-edit-selected-button-card span,
+  .buff-edit-right-empty,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-head span,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-item p,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-empty,
+  .buff-batch-edit-workbench .skill-button-buff-empty,
+  .buff-batch-edit-workbench .anomaly-config-subtitle,
+  .buff-batch-edit-workbench .anomaly-live-line
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-secondary-button,
+  .buff-edit-box-select-button,
+  .buff-edit-clear-selection-button,
+  .buff-edit-filter-button,
+  .buff-edit-mode-button,
+  .buff-edit-add-button,
+  .buff-edit-remove-button,
+  .buff-edit-candidate-adder-head button,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-mode,
+  .buff-batch-edit-workbench .anomaly-strip-button,
+  .buff-batch-edit-workbench .anomaly-chip,
+  .buff-batch-edit-workbench .anomaly-apply-btn,
+  .buff-batch-edit-workbench .anomaly-select-trigger
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 9px;
+  background: var(--theme-control-bg);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-secondary-button,
+  .buff-edit-box-select-button,
+  .buff-edit-clear-selection-button,
+  .buff-edit-filter-button,
+  .buff-edit-mode-button,
+  .buff-edit-add-button,
+  .buff-edit-remove-button,
+  .buff-edit-candidate-adder-head button,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-mode,
+  .buff-batch-edit-workbench .anomaly-strip-button,
+  .buff-batch-edit-workbench .anomaly-chip,
+  .buff-batch-edit-workbench .anomaly-apply-btn,
+  .buff-batch-edit-workbench .anomaly-select-trigger
+):hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-secondary-button.is-active,
+  .buff-edit-box-select-button.is-active,
+  .buff-edit-filter-button.is-active,
+  .buff-edit-mode-button.is-active,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-mode.is-active,
+  .buff-batch-edit-workbench .anomaly-strip-button.is-active,
+  .buff-batch-edit-workbench .anomaly-chip.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 0 0 0 0.5px var(--theme-border-medium);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-candidate-search-input,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-input
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-candidate-result,
+  .buff-edit-buff-card,
+  .buff-edit-buff-card.is-white,
+  .buff-edit-buff-card.is-gray,
+  .buff-edit-selected-button-card,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-item,
+  .buff-batch-edit-workbench .anomaly-board-card
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 9px;
+  background: var(--theme-surface-muted);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-candidate-result,
+  .buff-edit-buff-card,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-item,
+  .buff-batch-edit-workbench .anomaly-board-card
+):hover:not(:disabled) {
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  border-left: 3px solid var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-add-intent {
+  border-color: var(--theme-success);
+  border-left-color: var(--theme-success);
+  background: var(--theme-success-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-remove-intent {
+  border-color: var(--theme-danger);
+  border-left-color: var(--theme-danger);
+  background: var(--theme-danger-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-clear-selection-button.is-cancel-remove,
+  .buff-edit-add-button.is-confirm-add,
+  .buff-edit-mode-button.is-confirm-edit
+) {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-success);
+  background: var(--theme-success);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-edit-clear-selection-button.is-cancel-add,
+  .buff-edit-remove-button.is-confirm-remove
+) {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-danger);
+  background: var(--theme-danger);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .skill-button-base {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-surface-solid);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .skill-button-orb {
+  border-color: var(--theme-line-strong);
+  background: var(--skill-button-element-color);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-base,
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-batch-edit-workbench .canvas-skill-button:hover .skill-button-orb {
+  border-color: var(--theme-text-muted);
+  box-shadow: 0 0 0 2px var(--theme-fill-hover);
+}
+
+/* Buff effect editor drawer used by operator and Buff data editors. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-mask {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: blur(12px);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: var(--theme-radius-panel);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-window);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-editor-drawer-header,
+  .buff-editor-drawer-levels,
+  .buff-editor-drawer footer
+) {
+  color: var(--theme-text-muted);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-header strong {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-editor-drawer-header span,
+  .buff-editor-drawer-header small,
+  .buff-editor-drawer-grid label
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-editor-drawer-header button,
+  .buff-editor-drawer-levels button
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-levels button.is-active {
+  color: var(--theme-text-title);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-body section {
+  border-color: var(--theme-line-soft);
+  border-radius: 10px;
+  background: var(--theme-surface-regular);
+  overflow: hidden;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-body h4 {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-grid :where(
+  input,
+  select,
+  textarea
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 7px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer-readonly {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 7px;
+  background: var(--theme-fill-subtle);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-editor-drawer footer button {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-accent-main);
+  border-radius: 8px;
+  background: var(--theme-accent-main);
+}
+
+/* Operator/Buff editors and spreadsheet-like data workspaces. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page {
+  color: var(--theme-text-body);
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-command-panel,
+  .operator-draft-nav-panel,
+  .operator-draft-basic-panel,
+  .operator-draft-skill-list,
+  .operator-draft-skill-detail,
+  .operator-draft-hit-detail,
+  .operator-draft-buff-panel,
+  .operator-draft-json-panel,
+  .operator-draft-history-side,
+  .operator-draft-markdown-panel,
+  .operator-draft-modal
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 10px;
+  background: var(--theme-surface-regular);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-section-header,
+  .operator-draft-inline-actions,
+  .operator-draft-buff-actions,
+  .operator-draft-skill-filters,
+  .operator-draft-buff-tabs
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-command-input,
+  .operator-draft-reference-box select,
+  .operator-draft-reference-box textarea,
+  .operator-draft-basic-grid input,
+  .operator-draft-basic-grid select,
+  .operator-draft-skill-form input,
+  .operator-draft-skill-form select,
+  .operator-draft-hit-detail-card input,
+  .operator-draft-hit-detail-card select,
+  .operator-draft-buff-form input,
+  .operator-draft-buff-form select,
+  .operator-draft-buff-form textarea,
+  .extra-hit-config-bar input,
+  .extra-hit-config-bar select,
+  .operator-draft-share-textarea
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 7px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-ghost-button,
+  .operator-draft-chip,
+  .operator-draft-skill-filter,
+  .operator-draft-buff-tab,
+  .operator-draft-share-tab
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-run-button,
+  .operator-draft-copy-button
+) {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-accent-main);
+  border-radius: 8px;
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-skill-item,
+  .operator-draft-hit-item,
+  .operator-draft-attribute-cell,
+  .operator-draft-buff-item,
+  .operator-draft-local-library-item,
+  .operator-draft-searchable-option,
+  .extra-hit-config-bar
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 8px;
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-skill-item.is-active,
+  .operator-draft-hit-item.is-active,
+  .operator-draft-buff-item.is-active,
+  .operator-draft-local-library-item.is-active,
+  .operator-draft-searchable-option.is-active,
+  .operator-draft-skill-filter.is-active,
+  .operator-draft-buff-tab.is-active,
+  .operator-draft-share-tab.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-avatar,
+  .operator-draft-avatar-fallback,
+  .operator-draft-skill-icon,
+  .operator-draft-skill-icon-fallback,
+  .operator-draft-skill-hero-icon
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-markdown-body code,
+  .operator-draft-hit-badge,
+  .operator-draft-skill-filter strong,
+  .operator-draft-buff-tab strong
+) {
+  color: var(--theme-text-body);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-section-header,
+  .operator-draft-skill-hero,
+  .operator-draft-skill-filters,
+  .operator-draft-buff-tabs,
+  .operator-draft-buff-actions,
+  .operator-draft-buff-list,
+  .operator-draft-buff-summary
+) {
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-latest-message,
+  .operator-draft-context p,
+  .operator-draft-markdown-body p,
+  .operator-draft-markdown-body li,
+  .operator-draft-section-header span,
+  .operator-draft-basic-grid label,
+  .operator-draft-skill-form label,
+  .operator-draft-hit-detail-card label,
+  .operator-draft-skill-meta span,
+  .operator-draft-inline-actions,
+  .operator-draft-hit-item span,
+  .operator-draft-empty,
+  .operator-draft-skill-filter-note,
+  .operator-draft-buff-item span,
+  .operator-draft-buff-form label,
+  .operator-draft-buff-summary span,
+  .operator-draft-buff-summary p
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page :where(
+  .operator-draft-buff-multiplier-toggle,
+  .operator-draft-buff-unit-lock,
+  .operator-draft-buff-summary
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-draft-page .operator-draft-buff-summary strong {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .operator-draft-modal-overlay,
+  .buff-draft-modal-mask,
+  .buff-sheet-share-modal-mask
+) {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: blur(14px);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-undo-menu,
+  .buff-draft-modal,
+  .buff-sheet-share-modal,
+  .buff-sheet-context-menu,
+  .damage-sheet-undo-menu,
+  .damage-sheet-context-menu
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 12px;
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-float);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-undo-item,
+  .buff-sheet-context-menu-item,
+  .damage-sheet-undo-item
+) {
+  color: var(--theme-text-body);
+  border-color: transparent;
+  border-radius: 7px;
+  background: transparent;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-undo-item,
+  .buff-sheet-context-menu-item,
+  .damage-sheet-undo-item
+):hover {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-quick-text,
+  .buff-draft-value-editor small,
+  .buff-draft-undo-item span,
+  .buff-sheet-share-modal-copyhint,
+  .buff-sheet-share-import-meta
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-quick-text strong,
+  .buff-sheet-share-import-title
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-draft-type-picker input,
+  .buff-draft-type-picker select,
+  .buff-sheet-search-input,
+  .buff-sheet-formula-input,
+  .buff-sheet-share-textarea,
+  .weapon-sheet-inline-input
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  border-radius: 7px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-sheet-explorer-row,
+  .buff-sheet-explorer-child,
+  .buff-sheet-explorer-effect,
+  .weapon-sheet-image-option,
+  .weapon-sheet-growth-inline-item
+) {
+  color: var(--theme-text-body);
+  border-color: transparent;
+  border-radius: 7px;
+  background: transparent;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-sheet-explorer-row:hover,
+  .buff-sheet-explorer-child:hover,
+  .buff-sheet-explorer-effect:hover,
+  .buff-sheet-explorer-row.is-active,
+  .buff-sheet-explorer-child.is-active,
+  .buff-sheet-explorer-effect.is-active,
+  .weapon-sheet-image-option:hover,
+  .weapon-sheet-image-option.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-sheet-tool-button,
+  .buff-sheet-share-modal-tab,
+  .buff-sheet-share-modal-close,
+  .buff-sheet-share-action
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-sheet-tool-button:hover,
+  .buff-sheet-tool-button.is-active,
+  .buff-sheet-share-modal-tab:hover,
+  .buff-sheet-share-modal-tab.is-active,
+  .buff-sheet-share-modal-close:hover,
+  .buff-sheet-share-action:hover
+) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-sheet-share-action.is-primary {
+  color: var(--theme-text-on-accent);
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .buff-sheet-share-modal-header,
+  .damage-sheet-topbar,
+  .damage-sheet-ribbon,
+  .damage-sheet-workspace-footer,
+  .damage-sheet-sidebar
+) {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-bg-workspace-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-sheet-ribbon-card,
+  .damage-sheet-formula-bar,
+  .damage-sheet-formula-address,
+  .damage-sheet-back-button,
+  .damage-sheet-action-button,
+  .damage-sheet-sheet-tab,
+  .damage-sheet-mini-tab
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-sheet-back-button,
+  .damage-sheet-action-button,
+  .damage-sheet-sheet-tab,
+  .damage-sheet-mini-tab
+):hover {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-sheet-excel-scroll,
+  .damage-sheet-excel-cell
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-border-grid);
+  background: var(--theme-bg-grid-area);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row-number {
+  color: var(--theme-text-muted);
+  border-color: var(--theme-border-grid);
+  background: var(--theme-bg-workspace-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-group .damage-sheet-excel-cell {
+  color: var(--theme-text-title);
+  background: var(--theme-bg-nav);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-header .damage-sheet-excel-cell {
+  color: var(--theme-text-title);
+  background: var(--theme-surface-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-character .damage-sheet-excel-cell {
+  color: var(--theme-text-title);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-row.is-button .damage-sheet-excel-cell {
+  color: var(--theme-text-title);
+  background: var(--theme-bg-workspace-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell:hover {
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-active {
+  color: var(--theme-text-title);
+  background: var(--theme-accent-soft);
+  box-shadow: inset 0 0 0 2px var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-sheet-excel-cell.is-buff-linked,
+  .damage-sheet-excel-cell.is-buff-linked-muted
+)::before {
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-buff-linked-muted::before {
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .damage-sheet-excel-cell.is-buff-linked-muted::after {
+  background: repeating-linear-gradient(
+    135deg,
+    transparent 0 6px,
+    var(--theme-fill-subtle) 6px 12px
+  );
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-skill :where(
+  .damage-sheet-excel-row-number,
+  .damage-sheet-excel-cell
+) {
+  color: var(--theme-text-title);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-weapon :where(
+  .damage-sheet-excel-row-number,
+  .damage-sheet-excel-cell
+) {
+  color: var(--theme-text-title);
+  background: var(--theme-bg-workspace-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .weapon-sheet-page .damage-sheet-excel-row:is(
+  .weapon-sheet-row-level,
+  .weapon-sheet-row-effect,
+  .weapon-sheet-row-growth
+) :where(
+  .damage-sheet-excel-row-number,
+  .damage-sheet-excel-cell
+) {
+  color: var(--theme-text-body);
+  background: var(--theme-bg-grid-area);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .image-manager-grid-item,
+  .image-manager-grid-info,
+  .image-manager-preview-image,
+  .image-manager-preview-fallback,
+  .image-manager-preview-meta,
+  .image-manager-preview-actions
+) {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  border-radius: 9px;
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .image-manager-grid-name,
+  .image-manager-preview-meta dd
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .image-manager-grid-info,
+  .image-manager-preview-index,
+  .image-manager-preview-meta dt,
+  .image-manager-preview-path,
+  .image-manager-empty
+) {
+  color: var(--theme-text-muted);
+}
+
+/* Keep exported slide content stable; theme only the surrounding presentation UI. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-page {
+  color: var(--theme-text-body);
+  background: var(--theme-bg-content);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-bg-nav);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar button {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .report-ppt-toolbar button:hover {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+/* Graphite-specific restraint: neutral structure, blue only for real selection. */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .dashboard-actions > button:not(.dashboard-primary-button) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid > button {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-regular);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid > button:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid strong {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .workflow-grid small {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts {
+  color: var(--theme-text-body);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts div {
+  border-color: var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts dt {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-facts dd {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-package-actions > button:not(.dashboard-primary-button) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs {
+  border-color: var(--theme-line-soft);
+  background: var(--theme-fill-subtle);
+  box-shadow: inset 0 0 0 0.5px var(--theme-line-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs button {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-tabs button.is-active {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-soft);
+  background: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button {
+  color: var(--theme-text-body);
+  border-color: transparent;
+  background: var(--theme-surface-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-list > button.is-selected {
+  color: var(--theme-text-title);
+  border-color: var(--theme-border-medium);
+  background: var(--theme-accent-soft);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dl div {
+  color: var(--theme-text-body);
+  border: 0.5px solid var(--theme-line-soft);
+  background: var(--theme-control-bg);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dt {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-library-inspector dd {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .data-tool-card:hover:not(:disabled) {
+  color: var(--theme-text-title);
+  border-color: var(--theme-line-regular);
+  background: var(--theme-fill-hover);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-base,
+  .skill-button-orb,
+  .dragging-skill-button-base,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button,
+  .sandbox-characters::before,
+  .sandbox-characters-extra-spacer,
+  .canvas-left-top-spacer,
+  .canvas-staff-avatar,
+  .canvas-staff-avatar-placeholder
+) {
+  border-color: var(--theme-graphic-line);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-type,
+  .skill-button-name,
+  .skill-button-inspect-damage,
+  .dragging-skill-button-base span,
+  .sandbox-pager-button,
+  .sandbox-reserved-action,
+  .sandbox-avatar-config-popover,
+  .sandbox-character-name,
+  .sandbox-expand-indicator,
+  .sandbox-skill-tag
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .sandbox-character-count,
+  .sandbox-skill-name,
+  .sandbox-skill-hit-count
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .canvas-skill-button:hover .skill-button-base,
+  .canvas-skill-button:hover .skill-button-orb,
+  .canvas-skill-button.selected .skill-button-base,
+  .canvas-skill-button.selected .skill-button-orb
+) {
+  border-color: var(--theme-graphic-line-strong);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .work-node-tree-connectors line {
+  stroke: var(--theme-graphic-line);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .work-node-tree-connectors .is-path {
+  stroke: var(--theme-accent-main);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-config-text,
+  .config-weapon-config-text-3,
+  .config-weapon-config-button-row,
+  .config-weapon-config-button,
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-tooltip,
+  .operator-config-page-equip-button-row,
+  .operator-config-page-equip-button,
+  .operator-config-page-equip-circle,
+  .operator-config-page-stat-item,
+  .operator-config-page-favor-input-layer,
+  .operator-config-page-favor-input,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-skill-card-group,
+  .operator-config-page-skill-card-icon,
+  .operator-config-page-skill-card-icon-fallback,
+  .operator-config-page-picker-modal,
+  .operator-config-page-picker-close,
+  .operator-config-page-picker-option,
+  .operator-config-page-panel-detail-modal,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal
+) {
+  border-color: var(--theme-line-strong);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .config-weapon-choose-meta-line,
+  .config-weapon-choose-content-button,
+  .config-weapon-config-value,
+  .config-weapon-config-summary,
+  .config-weapon-config-summary-line,
+  .operator-config-page-equip-set-title,
+  .operator-config-page-panel-title-button,
+  .operator-config-page-stat-label,
+  .operator-config-page-stat-value,
+  .operator-config-page-track-heading,
+  .operator-config-page-track-key,
+  .operator-config-page-track-label,
+  .operator-config-page-skill-modal-title,
+  .operator-config-page-skill-card-meta strong,
+  .operator-config-page-skill-hit-card,
+  .operator-config-page-picker-title,
+  .operator-config-page-picker-option-fallback,
+  .operator-config-page-picker-option-name,
+  .operator-config-page-panel-detail-title,
+  .operator-config-page-panel-detail-content
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .operator-config-page-equip-button-textdiv.is-disabled,
+  .operator-config-page-equip-set-empty
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
+  .operator-config-page-track-hex-svg polygon,
+  .operator-config-page-weapon-star-svg polygon
+) {
+  stroke: var(--theme-graphic-line);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-report-modal-head h3,
+  .report-sheet-sidebar-card h4,
+  .report-sheet-empty h3,
+  .timeline-snapshot-modal-head h3,
+  .timeline-snapshot-form-label,
+  .timeline-snapshot-item-main strong,
+  .timeline-snapshot-hover-card,
+  .timeline-snapshot-confirm-body strong,
+  .batch-resistance-fields label,
+  .batch-resistance-fields input
+) {
+  color: var(--theme-text-title);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .damage-report-modal-head p,
+  .report-sheet-summary,
+  .report-sheet-sidebar-card p,
+  .report-sheet-empty p,
+  .timeline-snapshot-modal-head p,
+  .timeline-snapshot-empty,
+  .timeline-snapshot-item-main span,
+  .timeline-snapshot-hover-section,
+  .timeline-snapshot-confirm-body span
+) {
+  color: var(--theme-text-muted);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .timeline-snapshot-name-input,
+  .batch-resistance-fields input
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 8px;
+  background: var(--theme-control-bg);
+}
+
+:root[data-theme="apple-midnight"] .theme-option.is-apple-midnight .theme-option-preview {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #292a2e;
+}
+
+:root[data-theme="apple-midnight"] .theme-option.is-apple-midnight .theme-option-sidebar {
+  background: #414249;
+}
+
+:root[data-theme="apple-midnight"] .theme-option.is-apple-midnight .theme-option-canvas {
+  background: #303136;
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .canvas-grid-group,
+  .buff-edit-canvas .canvas-grid-group
+) {
+  border-color: var(--theme-line-strong);
+  outline-color: var(--theme-line-strong);
+  background: rgba(255, 255, 255, 0.012);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .skill-button-base,
+  .skill-button-orb,
+  .dragging-skill-button-base,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button,
+  .canvas-staff-avatar,
+  .canvas-staff-avatar-placeholder
+) {
+  border-color: var(--theme-graphic-line);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .tool-panel,
+  .tool-panel-content,
+  .buff-edit-right-zone
+) {
+  background: #3b3c42;
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .skill-button-orb .skill-label,
+  .dragging-skill-button-orb span
+) {
+  color: rgba(20, 20, 24, 0.88);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-lit {
+  border-color: var(--theme-line-strong);
+  background: var(--theme-fill-hover);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-current {
+  border-color: var(--theme-accent-main);
+  background: var(--theme-accent-main);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+    .skill-button-modal-overlay,
+    .skill-button-inline-buff-search-mask,
+    .timeline-detail-layer,
+    .buff-editor-drawer-mask
+  ) {
+    backdrop-filter: none;
+  }
+}
