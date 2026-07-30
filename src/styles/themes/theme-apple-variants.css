@@ -742,7 +742,7 @@
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .selection-character-card.is-selected {
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-soft);
-  box-shadow: inset 4px 0 0 var(--theme-accent-main);
+  box-shadow: none;
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(

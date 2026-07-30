@@ -769,7 +769,7 @@
 }
 
 .data-library-list > button.is-active {
-  box-shadow: inset 3px 0 0 var(--shell-accent);
+  box-shadow: none;
 }
 
 .data-library-card-head {

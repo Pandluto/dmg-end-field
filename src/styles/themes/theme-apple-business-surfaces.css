@@ -198,7 +198,7 @@
   color: var(--theme-text-title);
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-soft);
-  box-shadow: inset 3px 0 0 var(--theme-accent-main);
+  box-shadow: none;
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .skill-damage-hit-card.is-disabled {
@@ -410,7 +410,7 @@
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .timeline-detail-hit.is-selected {
   border-color: var(--theme-accent-main);
   background: var(--theme-accent-soft);
-  box-shadow: inset 3px 0 0 var(--theme-accent-main);
+  box-shadow: none;
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
@@ -522,6 +522,10 @@
   border-radius: 12px;
   background: var(--theme-surface-regular);
   box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-right-zone {
+  border: 1px solid var(--theme-line-soft);
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
@@ -642,6 +646,23 @@
   box-shadow: none;
 }
 
+/*
+ * Rounded Apple surfaces use the whole perimeter for emphasis.
+ * Keep the legacy left rail only on square, spreadsheet-style rows.
+ */
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
+  .skill-button-anomaly-summary-card.is-state,
+  .skill-button-anomaly-summary-card.is-damage,
+  .skill-damage-hit-card-anomaly,
+  .skill-damage-hit-detail-anomaly,
+  .buff-edit-candidate-result,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-item,
+  .buff-batch-edit-workbench .anomaly-board-card.is-state,
+  .buff-batch-edit-workbench .anomaly-board-card.is-damage
+) {
+  border-left-width: 1px;
+}
+
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) :where(
   .buff-edit-candidate-result,
   .buff-edit-buff-card,
@@ -654,21 +675,18 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected {
   color: var(--theme-text-title);
-  border-color: var(--theme-border-medium);
-  border-left: 3px solid var(--theme-accent-main);
+  border: 1px solid var(--theme-border-medium);
   background: var(--theme-accent-soft);
   box-shadow: none;
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-add-intent {
   border-color: var(--theme-success);
-  border-left-color: var(--theme-success);
   background: var(--theme-success-soft);
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .buff-edit-buff-card.is-selected.is-remove-intent {
   border-color: var(--theme-danger);
-  border-left-color: var(--theme-danger);
   background: var(--theme-danger-soft);
 }
 
