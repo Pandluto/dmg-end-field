@@ -2115,85 +2115,78 @@
   }
 }
 
-/*
- * Keep global navigation discoverable without covering the active workspace.
- * The launcher rests as a narrow edge handle and only enters the canvas when
- * the user deliberately hovers, focuses, or opens it.
- */
+/* The launcher is fully visible and draggable; its position resets on reload. */
 .web-shell-launcher {
-  top: 50%;
+  top: 0;
   left: 0;
-  transform: translate(calc(-100% + 12px), -50%);
-  transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
   will-change: transform;
-}
-
-.web-shell-launcher:hover,
-.web-shell-launcher:focus-within,
-.web-shell-launcher.is-open {
-  transform: translate(8px, -50%);
 }
 
 .web-shell-menu-button {
   position: relative;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-.web-shell-menu-button::after {
-  content: "›";
-  position: absolute;
-  top: 50%;
-  right: 1px;
-  width: 10px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-  color: var(--shell-muted);
-  background: color-mix(in srgb, var(--shell-surface) 88%, transparent);
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  opacity: 0.82;
+.web-shell-menu-button .web-shell-brand-mark,
+.web-shell-menu-button .web-shell-brand-mark img {
   pointer-events: none;
-  transform: translateY(-50%);
-  transition:
-    opacity 120ms ease,
-    transform 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
-.web-shell-launcher:hover .web-shell-menu-button::after,
-.web-shell-launcher:focus-within .web-shell-menu-button::after,
-.web-shell-launcher.is-open .web-shell-menu-button::after {
-  opacity: 0;
-  transform: translate(4px, -50%);
+.web-shell-launcher.is-dragging {
+  z-index: 6300;
+}
+
+.web-shell-launcher.is-dragging .web-shell-menu-button {
+  cursor: grabbing;
+  opacity: 1;
+  transform: scale(0.97);
 }
 
 .web-shell-popover {
   top: 50%;
   left: 52px;
+  right: auto;
+  bottom: auto;
   max-height: min(520px, calc(100vh - 32px));
   overflow-y: auto;
   transform: translateY(-50%);
   transform-origin: left center;
-  animation: shell-edge-popover-in 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: shell-floating-popover-in 140ms ease-out;
 }
 
-@keyframes shell-edge-popover-in {
+.web-shell-launcher.opens-left .web-shell-popover {
+  right: 52px;
+  left: auto;
+  transform-origin: right center;
+}
+
+.web-shell-launcher.align-top .web-shell-popover {
+  top: 0;
+  bottom: auto;
+  transform: none;
+}
+
+.web-shell-launcher.align-bottom .web-shell-popover {
+  top: auto;
+  bottom: 0;
+  transform: none;
+}
+
+@keyframes shell-floating-popover-in {
   from {
     opacity: 0;
-    transform: translate(-6px, -50%) scale(0.97);
   }
   to {
     opacity: 1;
-    transform: translate(0, -50%) scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .web-shell-launcher {
-    transition: none;
-  }
-
   .web-shell-popover {
     animation: none;
   }

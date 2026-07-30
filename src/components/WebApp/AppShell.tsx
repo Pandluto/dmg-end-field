@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
@@ -20,6 +21,43 @@ type SectionMeta = {
   title: string;
   description: string;
 };
+
+type LauncherPosition = {
+  x: number;
+  y: number;
+};
+
+type LauncherDragState = {
+  pointerId: number;
+  target: HTMLButtonElement;
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+  moved: boolean;
+};
+
+const LAUNCHER_SIZE = 44;
+const LAUNCHER_MARGIN = 8;
+const LAUNCHER_DRAG_THRESHOLD = 4;
+const LAUNCHER_DEFAULT_POSITION: LauncherPosition = { x: 10, y: 10 };
+
+function clampLauncherPosition(
+  position: LauncherPosition,
+  viewportWidth: number,
+  viewportHeight: number,
+): LauncherPosition {
+  return {
+    x: Math.min(
+      Math.max(position.x, LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportWidth - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+    ),
+    y: Math.min(
+      Math.max(position.y, LAUNCHER_MARGIN),
+      Math.max(LAUNCHER_MARGIN, viewportHeight - LAUNCHER_SIZE - LAUNCHER_MARGIN),
+    ),
+  };
+}
 
 function sectionMeta(path: string): SectionMeta {
   if (path === APP_ROUTE_PATHS.settings) {
@@ -84,14 +122,20 @@ function NavGlyph({ name }: { name: NavKey }) {
 function BrandLogo() {
   return (
     <span className="web-shell-brand-mark" aria-hidden="true">
-      <img src="./app-icon.png" alt="" />
+      <img src="./app-icon.png" alt="" draggable={false} />
     </span>
   );
 }
 
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
+    () => ({ ...LAUNCHER_DEFAULT_POSITION }),
+  );
+  const [isLauncherDragging, setIsLauncherDragging] = useState(false);
   const launcherRef = useRef<HTMLDivElement | null>(null);
+  const launcherDragRef = useRef<LauncherDragState | null>(null);
+  const suppressLauncherClickRef = useRef(false);
   const meta = sectionMeta(currentPath);
   const navItems: Array<{ key: NavKey; label: string; path: string }> = [
     { key: 'start', label: '开始', path: APP_ROUTE_PATHS.welcome },
@@ -100,11 +144,118 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     { key: 'settings', label: '设置', path: APP_ROUTE_PATHS.settings },
   ];
   const windowNavItems = navItems.filter((item) => item.key !== 'timeline');
-  const showWorkspaceLauncher = !overlay && currentPath === APP_ROUTE_PATHS.timelineWorkspace;
+  const showLauncher = !overlay;
+  const viewportWidth = typeof window === 'undefined' ? 1280 : window.innerWidth;
+  const viewportHeight = typeof window === 'undefined' ? 720 : window.innerHeight;
+  const launcherOpensLeft = launcherPosition.x + 320 > viewportWidth - LAUNCHER_MARGIN;
+  const launcherVerticalAlignment = launcherPosition.y < 156
+    ? 'top'
+    : launcherPosition.y + 200 > viewportHeight
+      ? 'bottom'
+      : 'center';
+
+  const handleLauncherPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    suppressLauncherClickRef.current = false;
+    launcherDragRef.current = {
+      pointerId: event.pointerId,
+      target: event.currentTarget,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: launcherPosition.x,
+      originY: launcherPosition.y,
+      moved: false,
+    };
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Window-level listeners keep dragging available without pointer capture.
+    }
+  };
+
+  const handleLauncherClick = () => {
+    if (suppressLauncherClickRef.current) {
+      suppressLauncherClickRef.current = false;
+      return;
+    }
+    setMenuOpen((open) => !open);
+  };
 
   useEffect(() => {
     setMenuOpen(false);
   }, [currentPath]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const dragState = launcherDragRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - dragState.startX;
+      const deltaY = event.clientY - dragState.startY;
+      if (!dragState.moved && Math.hypot(deltaX, deltaY) < LAUNCHER_DRAG_THRESHOLD) {
+        return;
+      }
+
+      if (!dragState.moved) {
+        dragState.moved = true;
+        setIsLauncherDragging(true);
+        setMenuOpen(false);
+      }
+
+      event.preventDefault();
+      setLauncherPosition(clampLauncherPosition(
+        {
+          x: dragState.originX + deltaX,
+          y: dragState.originY + deltaY,
+        },
+        window.innerWidth,
+        window.innerHeight,
+      ));
+    };
+
+    const finishLauncherDrag = (event: PointerEvent, cancelled = false) => {
+      const dragState = launcherDragRef.current;
+      if (!dragState || dragState.pointerId !== event.pointerId) return;
+
+      if (!cancelled && dragState.moved) {
+        suppressLauncherClickRef.current = true;
+      }
+      launcherDragRef.current = null;
+      setIsLauncherDragging(false);
+
+      try {
+        if (dragState.target.hasPointerCapture(event.pointerId)) {
+          dragState.target.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // The pointer may already have been released by the browser.
+      }
+    };
+
+    const handlePointerUp = (event: PointerEvent) => finishLauncherDrag(event);
+    const handlePointerCancel = (event: PointerEvent) => finishLauncherDrag(event, true);
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerCancel);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerCancel);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setLauncherPosition((current) => clampLauncherPosition(
+        current,
+        window.innerWidth,
+        window.innerHeight,
+      ));
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handlePointerDown = (event: PointerEvent) => {
@@ -134,14 +285,29 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     <div className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
       <main className="web-shell-content">{children}</main>
 
-      {showWorkspaceLauncher && (
-        <div className={`web-shell-launcher${menuOpen ? ' is-open' : ''}`} ref={launcherRef}>
+      {showLauncher && (
+        <div
+          className={[
+            'web-shell-launcher',
+            menuOpen ? 'is-open' : '',
+            isLauncherDragging ? 'is-dragging' : '',
+            launcherOpensLeft ? 'opens-left' : 'opens-right',
+            `align-${launcherVerticalAlignment}`,
+          ].filter(Boolean).join(' ')}
+          ref={launcherRef}
+          style={{
+            transform: `translate3d(${launcherPosition.x}px, ${launcherPosition.y}px, 0)`,
+          }}
+        >
           <button
             className="web-shell-menu-button"
             type="button"
             aria-label={menuOpen ? '关闭工作台菜单' : '打开工作台菜单'}
             aria-expanded={menuOpen}
-            onClick={() => setMenuOpen((open) => !open)}
+            title="拖动移动，点击打开菜单"
+            onPointerDown={handleLauncherPointerDown}
+            onClick={handleLauncherClick}
+            onDragStart={(event) => event.preventDefault()}
           >
             <BrandLogo />
           </button>
