@@ -1613,9 +1613,13 @@
   .canvas-grid-group,
   .buff-edit-canvas .canvas-grid-group
 ) {
-  border-color: var(--theme-line-regular);
-  outline-color: var(--theme-line-soft);
+  border-color: var(--theme-line-strong);
+  outline-color: var(--theme-line-regular);
   background: rgba(255, 255, 255, 0.008);
+}
+
+:root[data-theme="apple-midnight"] .canvas-staff-line {
+  background: var(--theme-line-regular);
 }
 
 :root[data-theme="apple-midnight"] :where(
@@ -1628,6 +1632,65 @@
   .canvas-staff-avatar-placeholder
 ) {
   border-color: var(--theme-graphic-line);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character {
+  border-color: var(--theme-line-strong);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character--expanded .sandbox-character-header {
+  border-bottom-color: var(--theme-line-regular);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-avatar {
+  box-shadow: inset 0 0 0 1px var(--theme-graphic-line);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-avatar:hover {
+  box-shadow: inset 0 0 0 1px var(--theme-graphic-line-strong);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-skill-button {
+  border-color: var(--theme-graphic-line);
+  background: #292a2f !important;
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-skill-button:hover {
+  border-color: var(--theme-graphic-line-strong);
+  background: #34353b !important;
+  box-shadow: 0 0 0 1px var(--theme-line-soft);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .sandbox-skill-button .skill-icon,
+  .skill-button-orb .skill-icon
+) {
+  opacity: 0.9;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .sandbox-skill-tag,
+  .sandbox-skill-name,
+  .sandbox-skill-hit-count
+) {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-skill-tag {
+  color: var(--theme-text-body);
+  font-weight: 600;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-skill-name {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.15;
 }
 
 :root[data-theme="apple-midnight"] :where(
@@ -1794,11 +1857,32 @@
   .skill-button-inspect-damage,
   .dragging-skill-button-base span
 ) {
-  color: var(--theme-text-title);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
   text-shadow: none;
 }
 
+:root[data-theme="apple-midnight"] :is(
+  .skill-button-type,
+  .dragging-skill-button-base span
+) {
+  color: var(--theme-text-title);
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+:root[data-theme="apple-midnight"] .skill-button-name {
+  color: var(--theme-text-body);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
 :root[data-theme="apple-midnight"] .skill-button-inspect-damage {
+  color: var(--theme-text-body);
+  font-weight: 400;
   border-top-color: var(--theme-line-regular);
 }
 
@@ -1809,11 +1893,7 @@
 :root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-orb {
   color: var(--theme-text-title);
   border-color: var(--theme-graphic-line);
-  background: color-mix(
-    in srgb,
-    var(--skill-button-element-color, #54545a) 50%,
-    var(--theme-bg-content)
-  );
+  background: #292a2f;
 }
 
 :root[data-theme="apple-midnight"] :is(
@@ -1821,6 +1901,9 @@
   .dragging-skill-button-orb span
 ) {
   color: var(--theme-text-title);
+  font-weight: 600;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
   text-shadow: none;
 }
 
@@ -1832,11 +1915,7 @@
 
 :root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-orb {
   border-color: var(--theme-graphic-line-strong);
-  background: color-mix(
-    in srgb,
-    var(--skill-button-element-color, #54545a) 58%,
-    var(--theme-bg-content)
-  );
+  background: #34353b;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
