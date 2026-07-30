@@ -354,91 +354,6 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
     .sort((a, b) => b.expected - a.expected);
 }
 
-/*
- * Lieflat Charts template record:
- * - Share: Basics F4 Tick Donut. L14 Hundred Field and L5 Radial Convergence
- *   were rejected because this is a compact aggregate composition, not a set
- *   of individual records or relationships.
- * - Sequence: Basics F3 Hairline Area. F2 is intentionally sparser, while L3
- *   is designed for a much longer annotated series. The existing cumulative
- *   damage meaning remains unchanged; only its rendering gains hairline fill.
- */
-const REPORT_MONO_SHADES = ['#57544e', '#7b776f', '#a19d94', '#c5c1b8'] as const;
-
-function allocateHundredTicks(rows: ReturnType<typeof buildCharacterDamageRows>, total: number): number[] {
-  const exact = rows.map((row) => (row.expected / total) * 100);
-  const ticks = exact.map(Math.floor);
-  let remainder = 100 - ticks.reduce((sum, value) => sum + value, 0);
-  const priority = exact
-    .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
-    .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
-
-  for (let index = 0; index < priority.length && remainder > 0; index += 1, remainder -= 1) {
-    ticks[priority[index].index] += 1;
-  }
-
-  return ticks;
-}
-
-function deterministicTickLength(index: number, seriesIndex: number): number {
-  const jitter = Math.abs((((index + 1) * 73856093) ^ ((seriesIndex + 2) * 19349663)) % 1000) / 1000;
-  return 10 + jitter * 6;
-}
-
-function polarPoint(cx: number, cy: number, radius: number, degrees: number): [number, number] {
-  const radians = (degrees * Math.PI) / 180;
-  return [
-    cx + radius * Math.cos(radians),
-    cy + radius * Math.sin(radians),
-  ];
-}
-
-function TickDonutChart({
-  rows,
-  total,
-}: {
-  rows: ReturnType<typeof buildCharacterDamageRows>;
-  total: number;
-}) {
-  const tickCounts = allocateHundredTicks(rows, total);
-  const units = tickCounts.flatMap((count, seriesIndex) => (
-    Array.from({ length: count }, () => seriesIndex)
-  ));
-  const cx = 120;
-  const cy = 120;
-  const innerRadius = 67;
-
-  return (
-    <svg className="report-ppt-tick-donut" viewBox="0 0 240 240" aria-label="干员伤害占比，一根刻线约等于百分之一">
-      {units.map((seriesIndex, index) => {
-        const angle = index * 3.6 - 90;
-        const [x1, y1] = polarPoint(cx, cy, innerRadius, angle);
-        const [x2, y2] = polarPoint(cx, cy, innerRadius + deterministicTickLength(index, seriesIndex), angle);
-        const row = rows[seriesIndex];
-        return (
-          <line
-            key={`${row.id}-${index}`}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke={REPORT_MONO_SHADES[seriesIndex % REPORT_MONO_SHADES.length]}
-            strokeWidth="1"
-          >
-            <title>{row.name} · {formatPercent(row.expected / total)}</title>
-          </line>
-        );
-      })}
-      {Array.from({ length: 10 }, (_, index) => {
-        const [x, y] = polarPoint(cx, cy, innerRadius - 6, index * 36 - 90);
-        return <circle key={index} cx={x} cy={y} r="1" />;
-      })}
-      <text x={cx} y={cy - 2} className="report-ppt-tick-donut-total" textAnchor="middle">100</text>
-      <text x={cx} y={cy + 14} className="report-ppt-tick-donut-unit" textAnchor="middle">TICKS · ONE ≈ 1%</text>
-    </svg>
-  );
-}
-
 function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
   const total = rows.reduce((sum, row) => sum + row.expected, 0);
   const colors = ['#111111', '#565656', '#9a9a9a', '#d2d2d2'];
@@ -450,31 +365,28 @@ function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> 
 
   return (
     <div className="report-ppt-pie-layout">
-      <div className="report-ppt-share-visual">
-        <svg className="report-ppt-pie" viewBox="0 0 42 42" aria-label="干员伤害占比">
-          <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
-          {rows.map((row, index) => {
-            const share = row.expected / total;
-            const dash = `${share * 100} ${100 - share * 100}`;
-            const circle = (
-              <circle
-                key={row.id}
-                cx="21"
-                cy="21"
-                r="15.915"
-                fill="transparent"
-                stroke={colors[index % colors.length]}
-                strokeWidth="8"
-                strokeDasharray={dash}
-                strokeDashoffset={-offset}
-              />
-            );
-            offset += share * 100;
-            return circle;
-          })}
-        </svg>
-        <TickDonutChart rows={rows} total={total} />
-      </div>
+      <svg className="report-ppt-pie" viewBox="0 0 42 42" aria-label="干员伤害占比">
+        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
+        {rows.map((row, index) => {
+          const share = row.expected / total;
+          const dash = `${share * 100} ${100 - share * 100}`;
+          const circle = (
+            <circle
+              key={row.id}
+              cx="21"
+              cy="21"
+              r="15.915"
+              fill="transparent"
+              stroke={colors[index % colors.length]}
+              strokeWidth="8"
+              strokeDasharray={dash}
+              strokeDashoffset={-offset}
+            />
+          );
+          offset += share * 100;
+          return circle;
+        })}
+      </svg>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
           <div key={row.id} className="report-ppt-legend-row">
@@ -512,32 +424,12 @@ function LineChart({ buttons }: { buttons: DamageReportButtonRow[] }) {
 
   return (
     <svg className="report-ppt-line" viewBox="0 0 100 100" aria-label="伤害过程折线图">
-      <g className="report-ppt-line-hairlines" aria-hidden="true">
-        {points.map((point, index) => {
-          const x = points.length <= 1 ? 8 : 8 + (point.x / (points.length - 1)) * 84;
-          const y = 86 - (point.y / maxY) * 68;
-          return <line key={index} x1={x} y1="86" x2={x} y2={y} />;
-        })}
-      </g>
-      <path className="report-ppt-line-axis" d="M 8 12 V 86 H 94" fill="none" stroke="rgba(0,0,0,0.34)" strokeWidth="0.8" />
-      <path className="report-ppt-line-series" d={path} fill="none" stroke="#111111" strokeWidth="1.4" />
-      {points.map((point, index) => {
+      <path d="M 8 12 V 86 H 94" fill="none" stroke="rgba(0,0,0,0.34)" strokeWidth="0.8" />
+      <path d={path} fill="none" stroke="#111111" strokeWidth="1.4" />
+      {points.map((point) => {
         const x = points.length <= 1 ? 8 : 8 + (point.x / (points.length - 1)) * 84;
         const y = 86 - (point.y / maxY) * 68;
-        return (
-          <circle
-            key={`${point.label}-${index}`}
-            className="report-ppt-line-point"
-            cx={x}
-            cy={y}
-            r="1.7"
-            fill="#ffffff"
-            stroke="#111111"
-            strokeWidth="0.8"
-          >
-            <title>{point.label} · 累计 {formatInteger(point.y)}</title>
-          </circle>
-        );
+        return <circle key={point.label} cx={x} cy={y} r="1.7" fill="#ffffff" stroke="#111111" strokeWidth="0.8" />;
       })}
       <text x="8" y="9" className="report-ppt-line-label">累计总伤 {formatInteger(runningTotal)}</text>
       <text x="94" y="94" className="report-ppt-line-label" textAnchor="end">{points.length} 次按钮</text>

@@ -686,20 +686,10 @@
   gap: 12px;
 }
 
-.report-ppt-share-visual {
-  min-height: 0;
-  height: 100%;
-}
-
 .report-ppt-pie {
   width: 100%;
   max-height: 100%;
   transform: rotate(-90deg);
-}
-
-.report-ppt-tick-donut,
-.report-ppt-line-hairlines {
-  display: none;
 }
 
 .report-ppt-chart-legend {

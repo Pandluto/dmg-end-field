@@ -35,10 +35,10 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
   },
   {
     id: 'lieflat-mono',
-    label: '纸墨 Mono',
-    description: '纸灰、炭墨与编辑式发丝线',
+    label: '纸墨',
+    description: '纸面、墨线与克制的矿物色',
     colorScheme: 'light',
-    browserColor: '#f0efeb',
+    browserColor: '#e8e2d6',
   },
 ] as const;
 
