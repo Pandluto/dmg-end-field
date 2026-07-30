@@ -56,8 +56,26 @@ export default defineConfig(async () => {
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2,wasm}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        navigateFallback: 'index.html',
+        navigateFallback: null,
         runtimeCaching: [
+          {
+            urlPattern: ({ request }) => request.mode === 'navigate',
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'dmg-app-shell-v2',
+              networkTimeoutSeconds: 4,
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              precacheFallback: {
+                fallbackURL: 'index.html',
+              },
+              expiration: {
+                maxEntries: 4,
+                maxAgeSeconds: 60 * 60 * 24 * 30,
+              },
+            },
+          },
           {
             urlPattern: ({ url, sameOrigin }) => (
               sameOrigin

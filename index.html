@@ -29,6 +29,26 @@
     </script>
     <script>
       (() => {
+        if (!('serviceWorker' in navigator)) return;
+
+        const hadController = Boolean(navigator.serviceWorker.controller);
+        let reloadingForUpdate = false;
+
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!hadController || reloadingForUpdate) return;
+          reloadingForUpdate = true;
+          window.location.reload();
+        });
+
+        window.addEventListener('load', () => {
+          void navigator.serviceWorker.getRegistration()
+            .then((registration) => registration?.update())
+            .catch(() => undefined);
+        });
+      })();
+    </script>
+    <script>
+      (() => {
         const recoveryKey = 'dmg.sw-startup-recovery.v1';
         const recoveryParam = '__sw_recovery';
         let moduleReady = false;
