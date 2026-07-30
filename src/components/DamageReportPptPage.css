@@ -177,10 +177,6 @@
   z-index: 1;
 }
 
-.report-ppt-potential-gauge {
-  display: none;
-}
-
 .report-ppt-potential-star-wrap.is-max polygon {
   filter:
     drop-shadow(0 0 3px rgba(255, 240, 0, 0.95))
@@ -702,11 +698,7 @@
 }
 
 .report-ppt-tick-donut,
-.report-ppt-chart-title--mono,
-.report-ppt-chart-sub,
-.report-ppt-axis-ticks,
-.report-ppt-line-event-floor,
-.report-ppt-line-source {
+.report-ppt-line-hairlines {
   display: none;
 }
 

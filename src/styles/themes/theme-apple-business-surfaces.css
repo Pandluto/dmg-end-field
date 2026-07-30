@@ -1548,10 +1548,13 @@
   color: var(--theme-text-muted);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
-  .operator-config-page-track-hex-svg polygon,
-  .operator-config-page-weapon-star-svg polygon
-) {
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root
+  .operator-config-page-track-hex-svg polygon {
+  stroke: var(--theme-graphic-line);
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root
+  .operator-config-page-weapon-star-svg polygon {
   stroke: var(--theme-graphic-line);
 }
 

@@ -80,11 +80,7 @@ function ReportPotentialStar({ count, potential }: { count?: number; potential?:
     ? Math.min(6, Math.max(1, count))
     : parsePotentialToCount(potential ?? '0潜');
   return (
-    <span
-      className={`report-ppt-potential-star-wrap${resolvedCount === 6 ? ' is-max' : ''}`}
-      data-potential-count={resolvedCount}
-      aria-hidden="true"
-    >
+    <span className={`report-ppt-potential-star-wrap${resolvedCount === 6 ? ' is-max' : ''}`} aria-hidden="true">
       <svg
         className="report-ppt-potential-star"
         viewBox="-24 -26 126 122"
@@ -99,14 +95,6 @@ function ReportPotentialStar({ count, potential }: { count?: number; potential?:
           />
         ))}
       </svg>
-      <span className="report-ppt-potential-gauge">
-        <span className="report-ppt-potential-gauge-value">{resolvedCount - 1} 潜</span>
-        <span className="report-ppt-potential-gauge-track">
-          {Array.from({ length: 6 }, (_, index) => (
-            <i key={index} className={index < resolvedCount ? 'is-active' : undefined} />
-          ))}
-        </span>
-      </span>
     </span>
   );
 }
@@ -367,14 +355,15 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
 }
 
 /*
- * Lieflat template record:
- * - Damage share uses Basics F4 Tick Donut (`basics-gallery.html`, “Where the traffic comes from”).
- *   L14 Hundred Field was rejected because a 93% leader makes its clusters collide; L5 Radial
- *   Convergence was rejected because this report has aggregates, not individual relationships.
- * - Damage sequence uses Basics F2 Hairline Line (`basics-gallery.html`, “Thirty days of sign-ups”).
- *   F3 Hairline Area would imply filled duration, while L3 Barcode Lollipop targets longer series.
+ * Lieflat Charts template record:
+ * - Share: Basics F4 Tick Donut. L14 Hundred Field and L5 Radial Convergence
+ *   were rejected because this is a compact aggregate composition, not a set
+ *   of individual records or relationships.
+ * - Sequence: Basics F3 Hairline Area. F2 is intentionally sparser, while L3
+ *   is designed for a much longer annotated series. The existing cumulative
+ *   damage meaning remains unchanged; only its rendering gains hairline fill.
  */
-const REPORT_MONO_LADDER = ['#1c1c1a', '#4a4944', '#8f8e88', '#b0afa9'] as const;
+const REPORT_MONO_SHADES = ['#57544e', '#7b776f', '#a19d94', '#c5c1b8'] as const;
 
 function allocateHundredTicks(rows: ReturnType<typeof buildCharacterDamageRows>, total: number): number[] {
   const exact = rows.map((row) => (row.expected / total) * 100);
@@ -383,14 +372,17 @@ function allocateHundredTicks(rows: ReturnType<typeof buildCharacterDamageRows>,
   const priority = exact
     .map((value, index) => ({ index, fraction: value - Math.floor(value) }))
     .sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+
   for (let index = 0; index < priority.length && remainder > 0; index += 1, remainder -= 1) {
     ticks[priority[index].index] += 1;
   }
+
   return ticks;
 }
 
-function deterministicTickJitter(index: number, seriesIndex: number): number {
-  return Math.abs((((index + 1) * 73856093) ^ ((seriesIndex + 2) * 19349663)) % 1000) / 1000;
+function deterministicTickLength(index: number, seriesIndex: number): number {
+  const jitter = Math.abs((((index + 1) * 73856093) ^ ((seriesIndex + 2) * 19349663)) % 1000) / 1000;
+  return 10 + jitter * 6;
 }
 
 function polarPoint(cx: number, cy: number, radius: number, degrees: number): [number, number] {
@@ -414,37 +406,35 @@ function TickDonutChart({
   ));
   const cx = 120;
   const cy = 120;
-  const innerRadius = 66;
+  const innerRadius = 67;
 
   return (
-    <svg className="report-ppt-tick-donut" viewBox="0 0 240 240" aria-label="干员伤害占比，一刻度约等于百分之一">
+    <svg className="report-ppt-tick-donut" viewBox="0 0 240 240" aria-label="干员伤害占比，一根刻线约等于百分之一">
       {units.map((seriesIndex, index) => {
         const angle = index * 3.6 - 90;
-        const length = 10 + deterministicTickJitter(index, seriesIndex) * 7;
         const [x1, y1] = polarPoint(cx, cy, innerRadius, angle);
-        const [x2, y2] = polarPoint(cx, cy, innerRadius + length, angle);
+        const [x2, y2] = polarPoint(cx, cy, innerRadius + deterministicTickLength(index, seriesIndex), angle);
         const row = rows[seriesIndex];
         return (
           <line
             key={`${row.id}-${index}`}
-            className="report-ppt-tick-donut-mark"
             x1={x1}
             y1={y1}
             x2={x2}
             y2={y2}
-            stroke={REPORT_MONO_LADDER[seriesIndex % REPORT_MONO_LADDER.length]}
-            strokeWidth="1.2"
+            stroke={REPORT_MONO_SHADES[seriesIndex % REPORT_MONO_SHADES.length]}
+            strokeWidth="1"
           >
-            <title>{row.name} · 约 {formatPercent(row.expected / total)}</title>
+            <title>{row.name} · {formatPercent(row.expected / total)}</title>
           </line>
         );
       })}
       {Array.from({ length: 10 }, (_, index) => {
-        const [x, y] = polarPoint(cx, cy, innerRadius - 7, index * 36 - 90);
-        return <circle key={index} cx={x} cy={y} r="1.2" fill="#c6c5bf" />;
+        const [x, y] = polarPoint(cx, cy, innerRadius - 6, index * 36 - 90);
+        return <circle key={index} cx={x} cy={y} r="1" />;
       })}
       <text x={cx} y={cy - 2} className="report-ppt-tick-donut-total" textAnchor="middle">100</text>
-      <text x={cx} y={cy + 14} className="report-ppt-tick-donut-unit" textAnchor="middle">TICKS · 1 ≈ 1%</text>
+      <text x={cx} y={cy + 14} className="report-ppt-tick-donut-unit" textAnchor="middle">TICKS · ONE ≈ 1%</text>
     </svg>
   );
 }
@@ -507,7 +497,6 @@ function LineChart({ buttons }: { buttons: DamageReportButtonRow[] }) {
       x: index,
       y: runningTotal,
       label: `${button.orderLabel} ${button.characterName}`,
-      skillType: button.skillType,
     };
   });
   const maxY = Math.max(...points.map((point) => point.y), 1);
@@ -523,10 +512,11 @@ function LineChart({ buttons }: { buttons: DamageReportButtonRow[] }) {
 
   return (
     <svg className="report-ppt-line" viewBox="0 0 100 100" aria-label="伤害过程折线图">
-      <g className="report-ppt-line-event-floor" aria-hidden="true">
+      <g className="report-ppt-line-hairlines" aria-hidden="true">
         {points.map((point, index) => {
           const x = points.length <= 1 ? 8 : 8 + (point.x / (points.length - 1)) * 84;
-          return <line key={index} x1={x} y1="86" x2={x} y2={index % 5 === 4 ? '82.5' : '84'} />;
+          const y = 86 - (point.y / maxY) * 68;
+          return <line key={index} x1={x} y1="86" x2={x} y2={y} />;
         })}
       </g>
       <path className="report-ppt-line-axis" d="M 8 12 V 86 H 94" fill="none" stroke="rgba(0,0,0,0.34)" strokeWidth="0.8" />
@@ -537,7 +527,7 @@ function LineChart({ buttons }: { buttons: DamageReportButtonRow[] }) {
         return (
           <circle
             key={`${point.label}-${index}`}
-            className={`report-ppt-line-point${point.skillType === 'Dot' ? ' is-dot' : ''}`}
+            className="report-ppt-line-point"
             cx={x}
             cy={y}
             r="1.7"
@@ -551,7 +541,6 @@ function LineChart({ buttons }: { buttons: DamageReportButtonRow[] }) {
       })}
       <text x="8" y="9" className="report-ppt-line-label">累计总伤 {formatInteger(runningTotal)}</text>
       <text x="94" y="94" className="report-ppt-line-label" textAnchor="end">{points.length} 次按钮</text>
-      <text x="8" y="94" className="report-ppt-line-source">ONE DOT = ONE ACTION · HOLLOW = DOT</text>
     </svg>
   );
 }
@@ -728,9 +717,6 @@ function TimelineGroupSlide({
                         ) : null}
                       </div>
                       <div className="report-ppt-axis-track">
-                        <span className="report-ppt-axis-ticks" aria-hidden="true">
-                          {Array.from({ length: GRID_NODE_COUNT }, (_, index) => <i key={index} />)}
-                        </span>
                         {buttons.map((button) => {
                           const buttonCharacter = characterByName.get(button.characterName);
                           const skillIconUrl = resolveTimelineSkillIcon(button, buttonCharacter);
@@ -776,9 +762,6 @@ function ChartSlide({
   snapshot: ReturnType<typeof buildDamageReportSnapshot>;
 }) {
   const rows = buildCharacterDamageRows(snapshot.buttons);
-  const total = rows.reduce((sum, row) => sum + row.expected, 0);
-  const leader = rows[0];
-  const leaderShare = leader && total > 0 ? formatPercent(leader.expected / total) : '0.0%';
 
   return (
     <section className="report-ppt-slide">
@@ -789,19 +772,11 @@ function ChartSlide({
         </header>
         <div className="report-ppt-chart-grid">
           <article className="report-ppt-chart-card">
-            <h2 className="report-ppt-chart-title report-ppt-chart-title--legacy">图 1 / 干员伤害占比</h2>
-            <h2 className="report-ppt-chart-title report-ppt-chart-title--mono">
-              {leader ? `${leader.name} 承担 ${leaderShare} 总伤` : '当前轴尚无伤害'}
-            </h2>
-            <p className="report-ppt-chart-sub">一刻度约等于 1% · 明度对应伤害贡献 · 顺时针读取</p>
+            <h2>图 1 / 干员伤害占比</h2>
             <PieChart rows={rows} />
           </article>
           <article className="report-ppt-chart-card">
-            <h2 className="report-ppt-chart-title report-ppt-chart-title--legacy">图 2 / 伤害过程时序</h2>
-            <h2 className="report-ppt-chart-title report-ppt-chart-title--mono">
-              {snapshot.buttons.length} 次行动累积 {formatInteger(snapshot.totalExpected)} 伤害
-            </h2>
-            <p className="report-ppt-chart-sub">一点对应一次行动 · 空心点为持续伤害 · 发丝线保留完整过程</p>
+            <h2>图 2 / 伤害过程时序</h2>
             <LineChart buttons={snapshot.buttons} />
           </article>
           <article className="report-ppt-chart-card is-placeholder">

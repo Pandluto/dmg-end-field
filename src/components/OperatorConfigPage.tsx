@@ -1296,20 +1296,6 @@ function WeaponStarGlyph({
   );
 }
 
-function PotentialTickGauge({ count }: { count: number }) {
-  const resolvedCount = Math.min(6, Math.max(1, count));
-  return (
-    <span className="operator-config-page-potential-gauge" aria-hidden="true">
-      <span className="operator-config-page-potential-gauge-value">{resolvedCount - 1} 潜</span>
-      <span className="operator-config-page-potential-gauge-track">
-        {Array.from({ length: 6 }, (_, index) => (
-          <i key={index} className={index < resolvedCount ? 'is-active' : undefined} />
-        ))}
-      </span>
-    </span>
-  );
-}
-
 function SkillTrackRow({ skillKey, label, stage, onChange, onOpenDetails }: SkillTrackRowProps) {
   const currentStage = stage;
   const currentLevelLabel = formatSkillStage(currentStage);
@@ -2242,7 +2228,6 @@ export function OperatorConfigPage() {
                           <button
                             type="button"
                             className={`operator-config-page-level-badge-box${characterPotentialCount > 0 ? ' is-active' : ''}${characterPotentialCount === 6 ? ' is-max' : ''}`}
-                            data-potential-count={characterPotentialCount}
                             aria-label={`角色五角星计数器，当前 ${characterPotentialCount}`}
                             aria-pressed={characterPotentialCount > 0}
                             onClick={(event) => {
@@ -2264,7 +2249,6 @@ export function OperatorConfigPage() {
                               count={characterPotentialCount}
                               viewBox="-24 -26 126 122"
                             />
-                            <PotentialTickGauge count={characterPotentialCount} />
                           </button>
                         </div>
                         <div className="operator-config-page-role-meta">
@@ -2327,7 +2311,6 @@ export function OperatorConfigPage() {
                       <button
                         type="button"
                         className={`operator-config-page-weapon-star-square-box${weaponPotentialCount === 0 ? ' is-zero' : ''}${weaponPotentialCount > 0 ? ' is-active' : ''}${weaponPotentialCount === 6 ? ' is-max' : ''}`}
-                        data-potential-count={weaponPotentialCount}
                         aria-label={`武器星形计数器，当前 ${weaponPotentialCount}`}
                         aria-pressed={weaponPotentialCount > 0}
                         onClick={(event) => {
@@ -2354,7 +2337,6 @@ export function OperatorConfigPage() {
                           count={weaponPotentialCount}
                           viewBox="-24 -26 126 122"
                         />
-                        <PotentialTickGauge count={weaponPotentialCount} />
                       </button>
                     </div>
                     {/*config-weapon-config 相对位置就应该在这里，不允许改 */}

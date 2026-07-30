@@ -1288,7 +1288,15 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) .operator-config-page-root :where(
   .operator-config-page-level-slot,
-  .operator-config-page-track-slot,
+  .operator-config-page-track-slot
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 10px;
+  background: var(--theme-control-bg);
+  box-shadow: none;
+}
+
+:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"]) .operator-config-page-root :where(
   .operator-config-page-level-badge-box,
   .operator-config-page-weapon-star-square-box
 ) {

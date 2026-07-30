@@ -959,10 +959,6 @@
   transition: fill 0.15s ease, filter 0.15s ease;
 }
 
-.operator-config-page-potential-gauge {
-  display: none;
-}
-
 .operator-config-page-level-badge-box.is-max .operator-config-page-level-badge-svg polygon {
   filter: drop-shadow(0 0 3px rgba(255, 240, 0, 0.95)) drop-shadow(0 0 7px rgba(255, 245, 157, 0.85));
 }
