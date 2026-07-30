@@ -2812,14 +2812,50 @@
       {
         "path": "packages/assets-v1.7.3-full.zip.part-001",
         "fileName": "assets-v1.7.3-full.zip.part-001",
-        "sha256": "8d6a9c4e07a1a21a451d571b666e6fc7776ae94d9daa34fff9bb5b2633e1e64b",
-        "size": 16777216
+        "sha256": "a85b87c806133da96f6dfab3b2b556b32018ab468516067224eff92d22085384",
+        "size": 4194304
       },
       {
         "path": "packages/assets-v1.7.3-full.zip.part-002",
         "fileName": "assets-v1.7.3-full.zip.part-002",
-        "sha256": "a43f34675cada213e30c45254ed2292ecfb95f81499b693a829e930d467f4d55",
-        "size": 14252901
+        "sha256": "d44dd42b4a4b95aa1b0ffa339415db5b7e468f5d20d7da5b602a23df8f4bb4c0",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-003",
+        "fileName": "assets-v1.7.3-full.zip.part-003",
+        "sha256": "a51808dc0a22463addd6665d18ad15352b2c88cd9ce79bdfb17570dd3d080671",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-004",
+        "fileName": "assets-v1.7.3-full.zip.part-004",
+        "sha256": "94c8826cc48b1e5b6b5cd6af585bfb1ed5ee82a60e917a2054078656b3c0ede0",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-005",
+        "fileName": "assets-v1.7.3-full.zip.part-005",
+        "sha256": "4bfa30ffd3abb57425285d55703d474fccb0e0d55ac8aa7c6c77010ca38ebe26",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-006",
+        "fileName": "assets-v1.7.3-full.zip.part-006",
+        "sha256": "4437979dfa1114883ae9a58d4fb6d04638d174a1f9cd3a238ab1f34d51b26d27",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-007",
+        "fileName": "assets-v1.7.3-full.zip.part-007",
+        "sha256": "bed5bd0482d59ba07c29cef2b4d8ffc3a8880a0790764134452814ea401a4919",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-008",
+        "fileName": "assets-v1.7.3-full.zip.part-008",
+        "sha256": "21685e3c64c0a232a10b346404079f633185a743ac834b6a7235995480a94ee2",
+        "size": 1669989
       }
     ]
   }

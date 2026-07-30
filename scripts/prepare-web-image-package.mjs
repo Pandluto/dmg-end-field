@@ -11,7 +11,7 @@ const packageDirectory = path.join(projectRoot, 'public', 'packages');
 const cacheDirectory = path.join(projectRoot, '.runtime', 'web-image-packages');
 const targetPath = path.join(cacheDirectory, manifest.archive.fileName);
 const partialPath = `${targetPath}.partial`;
-const partSize = 16 * 1024 * 1024;
+const partSize = 4 * 1024 * 1024;
 
 function hashFile(filePath) {
   const hash = crypto.createHash('sha256');
