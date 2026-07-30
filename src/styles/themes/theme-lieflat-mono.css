@@ -456,6 +456,7 @@
 
 :root[data-theme="lieflat-mono"] :is(
   .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
   .operator-config-page-weapon-star-svg
 ) polygon[fill="#FFF000"] {
   fill: var(--ink-seal) !important;
@@ -463,6 +464,7 @@
 
 :root[data-theme="lieflat-mono"] :is(
   .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
   .operator-config-page-weapon-star-svg
 ) polygon[fill="#FFFFFF"] {
   fill: var(--ink-ochre-soft) !important;
@@ -470,17 +472,22 @@
 
 :root[data-theme="lieflat-mono"] :is(
   .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
   .operator-config-page-weapon-star-svg
 ) polygon[fill="#C7C7C7"] {
   fill: #c5beb1 !important;
 }
 
-:root[data-theme="lieflat-mono"] .operator-config-page-weapon-star-svg polygon[fill="#FFF59D"] {
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF59D"] {
   fill: var(--theme-fill-subtle) !important;
 }
 
 :root[data-theme="lieflat-mono"] :is(
   .report-ppt-potential-star-wrap.is-max,
+  .operator-config-page-level-badge-box.is-max,
   .operator-config-page-weapon-star-square-box.is-max
 ) polygon {
   filter:
@@ -867,9 +874,19 @@
   background: var(--theme-surface-muted);
 }
 
-:root[data-theme="lieflat-mono"] .operator-config-page-weapon-star-square-box {
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+) {
   border-color: var(--theme-line-regular);
   background: var(--ink-paper-deep);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+):is(:hover, :active, :focus, :focus-visible) {
+  background: var(--theme-fill-hover) !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-potential-star-wrap::before {
