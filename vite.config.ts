@@ -54,6 +54,7 @@ export default defineConfig(async () => {
       },
       workbox: {
         cleanupOutdatedCaches: true,
+        importScripts: ['sw-client-migration.js'],
         globPatterns: ['**/*.{js,css,html,svg,ico,woff2,wasm}'],
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         navigateFallback: null,

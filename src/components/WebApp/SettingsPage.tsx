@@ -16,6 +16,7 @@ import {
   removeDefaultImagePackage,
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
+import { reloadLatestPageVersion } from '../../platform/runtime/serviceWorkerRuntime';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
@@ -58,6 +59,7 @@ export function SettingsPage() {
   const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
+  const [updatingPage, setUpdatingPage] = useState(false);
 
   const refresh = async () => {
     const [nextStorage, installed, images, lease] = await Promise.all([
@@ -86,6 +88,17 @@ export function SettingsPage() {
     const persisted = await requestPersistentBrowserStorage();
     setMessage(persisted ? '浏览器已经授予持久存储。' : '浏览器暂未授予持久存储，请保留定期备份。');
     await refresh();
+  };
+
+  const handlePageUpdate = async () => {
+    setUpdatingPage(true);
+    setMessage('正在连接更新服务并解除旧页面缓存…');
+    try {
+      await reloadLatestPageVersion();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      setUpdatingPage(false);
+    }
   };
 
   const handleExport = async () => {
@@ -123,7 +136,11 @@ export function SettingsPage() {
 
   return (
     <div className="settings-page">
-      {message && <div className="settings-message">{message}</div>}
+      {message && (
+        <div className="settings-message" role="status" aria-live="polite">
+          {message}
+        </div>
+      )}
       <section className="settings-section settings-appearance-section">
         <div className="settings-section-heading">
           <div>
@@ -157,6 +174,29 @@ export function SettingsPage() {
               <span className="theme-option-check" aria-hidden="true">✓</span>
             </button>
           ))}
+        </div>
+      </section>
+      <section className="settings-section">
+        <div className="settings-section-heading">
+          <div>
+            <p>更新</p>
+            <h2>页面缓存与版本</h2>
+          </div>
+          <span className="settings-state is-good">不影响本地数据</span>
+        </div>
+        <div className="settings-action-row">
+          <div>
+            <strong>载入服务器上的最新页面</strong>
+            <span>解除旧版页面缓存并重新载入；不会删除 SQLite、排轴、资源包、图片或设置。</span>
+          </div>
+          <button
+            className="dashboard-primary-button"
+            type="button"
+            disabled={updatingPage}
+            onClick={handlePageUpdate}
+          >
+            {updatingPage ? '正在更新…' : '更新并重新载入'}
+          </button>
         </div>
       </section>
       <section className="settings-section">

@@ -1,4 +1,5 @@
 const CONTROLLER_RELOAD_KEY = 'dmg.sw-controller-reload.v1';
+const PAGE_UPDATE_PARAM = '__sw_recovery';
 const READY_TIMEOUT_MS = 8_000;
 const CONTROL_TIMEOUT_MS = 4_000;
 
@@ -75,4 +76,26 @@ export async function ensureImageServiceWorkerController(): Promise<void> {
   }
 
   throw new Error('图片缓存服务未能接管页面，请使用“修复并重新加载”。');
+}
+
+export async function reloadLatestPageVersion(): Promise<void> {
+  if (!navigator.onLine) {
+    throw new Error('当前处于离线状态，连接网络后再更新页面。');
+  }
+
+  const serviceWorkerUrl = new URL('/sw.js', window.location.origin);
+  serviceWorkerUrl.searchParams.set('update', String(Date.now()));
+  const response = await fetch(serviceWorkerUrl, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error(`无法访问页面更新服务（HTTP ${response.status}）。`);
+  }
+
+  if ('serviceWorker' in navigator) {
+    const registrations = await navigator.serviceWorker.getRegistrations();
+    await Promise.all(registrations.map((registration) => registration.unregister()));
+  }
+
+  const target = new URL(window.location.href);
+  target.searchParams.set(PAGE_UPDATE_PARAM, String(Date.now()));
+  window.location.replace(target.href);
 }
