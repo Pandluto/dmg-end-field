@@ -59,7 +59,11 @@ export default defineConfig({
         navigateFallback: 'index.html',
         runtimeCaching: [
           {
-            urlPattern: ({ url }) => url.pathname.includes('/data/'),
+            urlPattern: ({ url, sameOrigin }) => (
+              sameOrigin
+              && url.pathname.includes('/data/')
+              && !url.pathname.includes('/src/')
+            ),
             handler: 'CacheFirst',
             options: {
               cacheName: 'dmg-resource-pack-v1',
@@ -81,6 +85,10 @@ export default defineConfig({
             },
           },
         ],
+      },
+      devOptions: {
+        enabled: true,
+        type: 'module',
       },
     }),
   ],

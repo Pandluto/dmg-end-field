@@ -26,6 +26,7 @@ import {
   hasAnyAppliedIndependentLibraries,
   normalizeAppliedLocalDataImagePaths,
 } from '../../platform/data/localDataPackages';
+import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -63,6 +64,7 @@ export function WebBootstrap() {
       setInstalledPackage(installed);
       setInstalledImagePackage(imagePackage);
       const complete = Boolean(installed && imagePackage);
+      if (imagePackage) await ensureImageServiceWorkerController();
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
@@ -70,6 +72,24 @@ export function WebBootstrap() {
       if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
       }
+    } catch (error) {
+      setFailure(error instanceof Error ? error.message : String(error));
+      setPhase('failed');
+    }
+  }, []);
+
+  const handleInstalled = useCallback(async (
+    resourcePackage: InstalledResourcePackage,
+    imagePackage: InstalledImagePackage,
+  ) => {
+    setPhase('starting');
+    setFailure('');
+    try {
+      await ensureImageServiceWorkerController();
+      setInstalledPackage(resourcePackage);
+      setInstalledImagePackage(imagePackage);
+      navigateToAppPath(APP_ROUTE_PATHS.welcome);
+      setPhase('ready');
     } catch (error) {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
@@ -142,10 +162,7 @@ export function WebBootstrap() {
     return (
       <WelcomePage
         onInstalled={(resourcePackage, imagePackage) => {
-          setInstalledPackage(resourcePackage);
-          setInstalledImagePackage(imagePackage);
-          navigateToAppPath(APP_ROUTE_PATHS.welcome);
-          setPhase('ready');
+          void handleInstalled(resourcePackage, imagePackage);
         }}
       />
     );
