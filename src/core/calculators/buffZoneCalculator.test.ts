@@ -113,6 +113,35 @@ assertClose(allZoneMultiplierResult.damageBonus.finalValue, 1.24, 'damage bonus 
 assertClose(allZoneMultiplierResult.fragile.finalValue, 1.24, 'fragile multiplier should not scale the base 1');
 assertClose(allZoneMultiplierResult.amplify.finalValue, 1.24, 'amplify multiplier should not scale the base 1');
 
+const skillMultiplierOnlyResult = calculateHitBuffZones({
+  ...baseInput,
+  baseSkillMultiplier: 3.3,
+  buffs: [
+    buff('skill-multiplier', 'multiplierBonus', undefined, { multiplier: { coefficient: 1.2 } }),
+  ],
+});
+
+assertClose(
+  skillMultiplierOnlyResult.skillMultiplier.finalValue,
+  3.96,
+  'skill multiplier should scale the base skill multiplier even when additive total is zero'
+);
+
+const skillMultiplierWithBonusResult = calculateHitBuffZones({
+  ...baseInput,
+  baseSkillMultiplier: 3.3,
+  buffs: [
+    buff('skill-additive', 'multiplierBonus', 0.4),
+    buff('skill-multiplier', 'multiplierBonus', undefined, { multiplier: { coefficient: 1.2 } }),
+  ],
+});
+
+assertClose(
+  skillMultiplierWithBonusResult.skillMultiplier.finalValue,
+  4.44,
+  'skill multiplier should scale the base multiplier and additive bonuses together'
+);
+
 assertClose(
   calculateHitBuffZones({
     ...baseInput,
