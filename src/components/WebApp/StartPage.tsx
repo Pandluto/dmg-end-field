@@ -13,6 +13,33 @@ type TimelineOverview = {
   latestUpdatedAt: number;
 };
 
+type StartActionGlyphName = 'timeline' | 'operator' | 'data';
+
+function StartActionGlyph({ name }: { name: StartActionGlyphName }) {
+  if (name === 'timeline') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M5 6.5h14M5 12h10M5 17.5h7" />
+        <circle cx="18" cy="12" r="2" />
+      </svg>
+    );
+  }
+  if (name === 'operator') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.25" />
+        <path d="M5.5 19c.8-3.5 3-5.25 6.5-5.25S17.7 15.5 18.5 19" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <ellipse cx="12" cy="6.5" rx="6.5" ry="2.75" />
+      <path d="M5.5 6.5V12c0 1.5 2.9 2.75 6.5 2.75s6.5-1.25 6.5-2.75V6.5M5.5 12v5.5c0 1.5 2.9 2.75 6.5 2.75s6.5-1.25 6.5-2.75V12" />
+    </svg>
+  );
+}
+
 function formatDate(value: number): string {
   if (!value) return '尚未建立';
   return new Intl.DateTimeFormat('zh-CN', {
@@ -75,9 +102,9 @@ export function StartPage() {
           </div>
         </div>
         <div className="dashboard-signal" aria-hidden="true">
-          <span className="signal-ring ring-one" />
-          <span className="signal-ring ring-two" />
-          <span className="signal-core"><strong>1.8</strong><small>LTS</small></span>
+          <span className="signal-halo" />
+          <span className="signal-core"><img src="./app-icon.png" alt="" /></span>
+          <span className="signal-version">Web LTS 1.8</span>
         </div>
       </section>
 
@@ -113,19 +140,28 @@ export function StartPage() {
         </div>
         <div className="workflow-grid">
           <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.timelineWorkspace)}>
-            <span>01</span>
-            <strong>选择队伍并排轴</strong>
-            <small>配置四人队伍、技能节点与 Buff</small>
+            <span className="workflow-icon"><StartActionGlyph name="timeline" /></span>
+            <span className="workflow-copy">
+              <strong>选择队伍并排轴</strong>
+              <small>配置四人队伍、技能节点与 Buff</small>
+            </span>
+            <span className="workflow-chevron" aria-hidden="true">›</span>
           </button>
           <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.operatorConfig)}>
-            <span>02</span>
-            <strong>调整干员配置</strong>
-            <small>武器、装备、潜能与技能等级</small>
+            <span className="workflow-icon"><StartActionGlyph name="operator" /></span>
+            <span className="workflow-copy">
+              <strong>调整干员配置</strong>
+              <small>武器、装备、潜能与技能等级</small>
+            </span>
+            <span className="workflow-chevron" aria-hidden="true">›</span>
           </button>
           <button type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.dataWorkspace)}>
-            <span>03</span>
-            <strong>维护资料库</strong>
-            <small>数据包、编辑器与图片资源</small>
+            <span className="workflow-icon"><StartActionGlyph name="data" /></span>
+            <span className="workflow-copy">
+              <strong>维护资料库</strong>
+              <small>数据包、编辑器与图片资源</small>
+            </span>
+            <span className="workflow-chevron" aria-hidden="true">›</span>
           </button>
         </div>
       </section>

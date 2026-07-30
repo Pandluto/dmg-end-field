@@ -47,6 +47,48 @@ function packageKey(item: Pick<LocalDataPackageSummary, 'scope' | 'packageId'>):
   return `${item.scope}:${item.packageId}`;
 }
 
+type DataToolGlyphName = 'operator' | 'buff' | 'weapon' | 'equipment' | 'image';
+
+function DataToolGlyph({ name }: { name: DataToolGlyphName }) {
+  if (name === 'operator') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="8" r="3.25" />
+        <path d="M5.5 19c.8-3.5 3-5.25 6.5-5.25s5.7 1.75 6.5 5.25" />
+      </svg>
+    );
+  }
+  if (name === 'buff') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m12 3 1.35 4.15L17.5 8.5l-4.15 1.35L12 14l-1.35-4.15L6.5 8.5l4.15-1.35L12 3ZM18.25 14l.7 2.05L21 16.75l-2.05.7-.7 2.05-.7-2.05-2.05-.7 2.05-.7.7-2.05Z" />
+      </svg>
+    );
+  }
+  if (name === 'weapon') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m6 18 11.5-11.5M14.5 5.5l4-1-1 4M4.5 15.5l4 4M3.5 20.5l3-3" />
+      </svg>
+    );
+  }
+  if (name === 'equipment') {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 3.5 19 6v5.2c0 4.2-2.35 7.25-7 9.3-4.65-2.05-7-5.1-7-9.3V6l7-2.5Z" />
+        <path d="m8.5 12 2.2 2.2 4.8-5" />
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="5" width="16" height="14" rx="2.5" />
+      <circle cx="9" cy="10" r="1.5" />
+      <path d="m6.5 17 4.25-4 2.75 2.5 2-2 2.5 3.5" />
+    </svg>
+  );
+}
+
 export function DataWorkspacePage() {
   const [installed, setInstalled] = useState<InstalledResourcePackage | null>(null);
   const [available, setAvailable] = useState<ResourcePackageManifest | null>(null);
@@ -262,6 +304,7 @@ export function DataWorkspacePage() {
       meta: 'Operator Studio',
       path: APP_ROUTE_PATHS.draft,
       accent: 'green',
+      icon: 'operator',
     },
     {
       title: 'Buff 资料',
@@ -269,6 +312,7 @@ export function DataWorkspacePage() {
       meta: 'Buff Library',
       path: APP_ROUTE_PATHS.buffSheet,
       accent: 'lime',
+      icon: 'buff',
     },
     {
       title: '武器资料',
@@ -276,6 +320,7 @@ export function DataWorkspacePage() {
       meta: 'Weapon Sheet',
       path: APP_ROUTE_PATHS.weaponSheet,
       accent: 'amber',
+      icon: 'weapon',
     },
     {
       title: '装备资料',
@@ -283,6 +328,7 @@ export function DataWorkspacePage() {
       meta: 'Equipment Sheet',
       path: APP_ROUTE_PATHS.equipmentSheet,
       accent: 'blue',
+      icon: 'equipment',
     },
     {
       title: '图片资源',
@@ -290,6 +336,7 @@ export function DataWorkspacePage() {
       meta: 'Asset Library',
       path: APP_ROUTE_PATHS.imageManager,
       accent: 'violet',
+      icon: 'image',
     },
   ] as const;
 
@@ -298,13 +345,19 @@ export function DataWorkspacePage() {
       {message && <div className="data-workspace-message">{message}</div>}
       <section className="data-package-panel">
         <div className="data-package-main">
-          <p className="dashboard-kicker">资料下载</p>
-          <h2>完整数据与图片包</h2>
-          <p>
-            完整数据包下载后进入 Share Data；只有“应用数据”才会替换浏览器中的
-            干员、武器、装备与 Buff。基础图片由 Web 图片包提供，自定义图片随
-            Local Data / Share Data 保存；SQLite 排轴始终独立。
-          </p>
+          <div className="data-package-intro">
+            <span className="data-package-icon" aria-hidden="true">
+              <img src="./app-icon.png" alt="" />
+            </span>
+            <div>
+              <p className="dashboard-kicker">Web LTS 资源</p>
+              <h2>完整数据与图片包</h2>
+              <p>
+                下载内容会进入 Share Data；应用后才会替换浏览器中的干员、武器、
+                装备与 Buff。自定义图片随数据包保存，SQLite 排轴始终独立。
+              </p>
+            </div>
+          </div>
           <div className="data-package-actions">
             <button className="dashboard-primary-button" type="button" onClick={install} disabled={installing || dataBusy}>
               {installing ? '正在校验…' : updateAvailable ? '下载可用更新' : '重新校验并下载'}
@@ -481,20 +534,20 @@ export function DataWorkspacePage() {
           <span>编辑结果保存在浏览器 SQLite，可再保存为完整数据包</span>
         </div>
         <div className="data-tool-grid">
-          {tools.map((tool, index) => (
+          {tools.map((tool) => (
             <button
               key={tool.path}
               className={`data-tool-card accent-${tool.accent}`}
               type="button"
               onClick={() => navigateToAppPath(tool.path)}
             >
-              <span className="data-tool-index">{String(index + 1).padStart(2, '0')}</span>
+              <span className="data-tool-index"><DataToolGlyph name={tool.icon} /></span>
               <span className="data-tool-copy">
                 <small>{tool.meta}</small>
                 <strong>{tool.title}</strong>
                 <span>{tool.description}</span>
               </span>
-              <span className="data-tool-arrow">↗</span>
+              <span className="data-tool-arrow">›</span>
             </button>
           ))}
         </div>
