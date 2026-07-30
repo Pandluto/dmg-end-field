@@ -100,6 +100,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     { key: 'settings', label: '设置', path: APP_ROUTE_PATHS.settings },
   ];
   const windowNavItems = navItems.filter((item) => item.key !== 'timeline');
+  const showWorkspaceLauncher = !overlay && currentPath === APP_ROUTE_PATHS.timelineWorkspace;
 
   useEffect(() => {
     setMenuOpen(false);
@@ -133,12 +134,12 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     <div className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
       <main className="web-shell-content">{children}</main>
 
-      {!overlay && (
-        <div className="web-shell-launcher" ref={launcherRef}>
+      {showWorkspaceLauncher && (
+        <div className={`web-shell-launcher${menuOpen ? ' is-open' : ''}`} ref={launcherRef}>
           <button
             className="web-shell-menu-button"
             type="button"
-            aria-label="打开工作台菜单"
+            aria-label={menuOpen ? '关闭工作台菜单' : '打开工作台菜单'}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
