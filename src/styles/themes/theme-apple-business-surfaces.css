@@ -1919,8 +1919,22 @@
 ),
 :root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-base {
   color: var(--theme-text-title);
-  border-color: var(--theme-graphic-line);
-  background: #1f2024;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.13) 0%,
+      rgba(255, 255, 255, 0.04) 42%,
+      rgba(255, 255, 255, 0.018) 100%
+    ),
+    rgba(28, 29, 34, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.17),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.035),
+    0 6px 18px rgba(0, 0, 0, 0.26);
+  -webkit-backdrop-filter: blur(18px) saturate(1.28);
+  backdrop-filter: blur(18px) saturate(1.28);
 }
 
 :root[data-theme="apple-midnight"] :is(
@@ -1964,8 +1978,9 @@
 ),
 :root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-orb {
   color: var(--theme-text-title);
-  border-color: var(--theme-graphic-line);
+  border: 0;
   background: #292a2f;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme="apple-midnight"] :is(
@@ -1980,23 +1995,65 @@
 }
 
 :root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-base {
-  border-color: var(--theme-graphic-line-strong);
-  background: var(--theme-surface-solid);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.34);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.18) 0%,
+      rgba(255, 255, 255, 0.065) 46%,
+      rgba(255, 255, 255, 0.025) 100%
+    ),
+    rgba(38, 39, 45, 0.68);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.23),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.045),
+    0 8px 22px rgba(0, 0, 0, 0.32);
 }
 
 :root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-orb {
-  border-color: var(--theme-graphic-line-strong);
+  border: 0;
   background: #34353b;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.34);
 }
 
-:root[data-theme="apple-midnight"] .canvas-skill-button.selected :is(
-  .skill-button-base,
-  .skill-button-orb
-) {
+:root[data-theme="apple-midnight"] .canvas-skill-button.selected .skill-button-base {
   border-color: var(--theme-accent-bright);
-  box-shadow: 0 0 0 2px var(--theme-accent-soft);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(100, 210, 255, 0.19) 0%,
+      rgba(10, 132, 255, 0.085) 45%,
+      rgba(255, 255, 255, 0.02) 100%
+    ),
+    rgba(28, 35, 45, 0.68);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.23),
+    0 0 0 2px var(--theme-accent-soft),
+    0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="apple-midnight"] .canvas-skill-button.selected .skill-button-orb {
+  border: 0;
+  filter: brightness(1.12);
+  box-shadow:
+    0 0 16px rgba(10, 132, 255, 0.24),
+    0 5px 15px rgba(0, 0, 0, 0.34);
+}
+
+:root[data-theme="apple-midnight"] .canvas-skill-button.dragging .skill-button-orb {
+  border: 0;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="apple-midnight"] :is(
+    .skill-button-base,
+    .dragging-skill-button-base
+  ),
+  :root[data-theme="apple-midnight"] .buff-batch-edit-workbench .skill-button-base {
+    background: #25262b;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 :root[data-theme="apple-midnight"] .timeline-tuning-inline-item.is-active > button:first-child {
