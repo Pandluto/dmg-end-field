@@ -2807,6 +2807,20 @@
     "fileName": "assets-v1.7.3-full.zip",
     "sha256": "99ffd2062bf94485520276c75b64c7695cdaacc72b2d324d414954554e28e148",
     "size": 31030117,
-    "sourceUrl": "https://github.com/Pandluto/dmg-end-field/releases/download/v1.7.3/assets-v1.7.3-full.zip"
+    "sourceUrl": "https://github.com/Pandluto/dmg-end-field/releases/download/v1.7.3/assets-v1.7.3-full.zip",
+    "parts": [
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-001",
+        "fileName": "assets-v1.7.3-full.zip.part-001",
+        "sha256": "8d6a9c4e07a1a21a451d571b666e6fc7776ae94d9daa34fff9bb5b2633e1e64b",
+        "size": 16777216
+      },
+      {
+        "path": "packages/assets-v1.7.3-full.zip.part-002",
+        "fileName": "assets-v1.7.3-full.zip.part-002",
+        "sha256": "a43f34675cada213e30c45254ed2292ecfb95f81499b693a829e930d467f4d55",
+        "size": 14252901
+      }
+    ]
   }
 }

@@ -176,6 +176,29 @@ if (
   ) {
     fail('web image archive descriptor is invalid');
   }
+  if (imageManifest.archive.parts !== undefined) {
+    if (!Array.isArray(imageManifest.archive.parts) || imageManifest.archive.parts.length === 0) {
+      fail('web image archive parts are invalid');
+    } else {
+      let partBytes = 0;
+      for (const part of imageManifest.archive.parts) {
+        if (
+          !isPortableRelativePath(part.path)
+          || !part.path.startsWith('packages/')
+          || !/^[a-f0-9]{64}$/.test(part.sha256)
+          || !Number.isSafeInteger(part.size)
+          || part.size <= 0
+          || part.size > 25 * 1024 * 1024
+        ) {
+          fail(`invalid web image archive part: ${part.path}`);
+        }
+        partBytes += Number(part.size || 0);
+      }
+      if (partBytes !== imageManifest.archive.size) {
+        fail('web image archive parts totalBytes mismatch');
+      }
+    }
+  }
 
   const browserIndex = readJson('public/assets/images/_manifest.json');
   const indexedPaths = new Set(browserIndex.map((entry) => entry.relativePath));

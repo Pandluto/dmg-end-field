@@ -20,6 +20,12 @@ export type ImagePackageManifest = {
     sha256: string;
     size: number;
     sourceUrl: string;
+    parts?: Array<{
+      path: string;
+      fileName: string;
+      sha256: string;
+      size: number;
+    }>;
   };
 };
 
@@ -65,7 +71,10 @@ function mimeType(path: string): string {
 
 async function readResponseBytes(
   response: Response,
-  totalBytes: number,
+  expectedBytes: number,
+  downloadedBefore: number,
+  totalDownloadBytes: number,
+  currentPath: string,
   onProgress?: (progress: ImageInstallProgress) => void,
 ): Promise<Uint8Array> {
   if (!response.body) return new Uint8Array(await response.arrayBuffer());
@@ -82,10 +91,13 @@ async function readResponseBytes(
       stage: 'downloading',
       completed: 0,
       total: 1,
-      downloadedBytes: received,
-      totalBytes,
-      currentPath: '正在下载图片压缩包',
+      downloadedBytes: downloadedBefore + received,
+      totalBytes: totalDownloadBytes,
+      currentPath,
     });
+  }
+  if (received !== expectedBytes) {
+    throw new Error(`图片包分片体积不符：${received} != ${expectedBytes}`);
   }
   const bytes = new Uint8Array(received);
   let offset = 0;
@@ -94,6 +106,56 @@ async function readResponseBytes(
     offset += chunk.byteLength;
   }
   return bytes;
+}
+
+async function downloadArchive(
+  manifest: ImagePackageManifest,
+  onProgress?: (progress: ImageInstallProgress) => void,
+): Promise<Uint8Array> {
+  const parts = manifest.archive.parts?.length
+    ? manifest.archive.parts
+    : [{
+      path: manifest.archive.path,
+      fileName: manifest.archive.fileName,
+      sha256: manifest.archive.sha256,
+      size: manifest.archive.size,
+    }];
+  const archive = new Uint8Array(manifest.archive.size);
+  let offset = 0;
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const response = await fetch(resolvePublicPath(part.path), { cache: 'no-store' });
+    if (!response.ok) {
+      throw new Error(
+        `图片包分片尚未部署到站点（${part.fileName}，HTTP ${response.status}）。`
+        + '请先运行 npm run assets:web-prepare。',
+      );
+    }
+    const bytes = await readResponseBytes(
+      response,
+      part.size,
+      offset,
+      manifest.archive.size,
+      parts.length > 1
+        ? `正在下载图片压缩包（${index + 1}/${parts.length}）`
+        : '正在下载图片压缩包',
+      onProgress,
+    );
+    if (await sha256(bytes) !== part.sha256) {
+      throw new Error(`图片包分片 SHA-256 校验失败：${part.fileName}`);
+    }
+    archive.set(bytes, offset);
+    offset += bytes.byteLength;
+  }
+
+  if (offset !== manifest.archive.size) {
+    throw new Error(`图片包体积不符：${offset} != ${manifest.archive.size}`);
+  }
+  if (await sha256(archive) !== manifest.archive.sha256) {
+    throw new Error('图片压缩包 SHA-256 校验失败。');
+  }
+  return archive;
 }
 
 function unzipArchive(archive: Uint8Array): Promise<Record<string, Uint8Array>> {
@@ -119,6 +181,13 @@ export async function fetchImagePackageManifest(): Promise<ImagePackageManifest>
     || manifest.packageId !== IMAGE_PACKAGE_ID
     || !Array.isArray(manifest.files)
     || !manifest.archive?.path
+    || (
+      manifest.archive.parts !== undefined
+      && (
+        !Array.isArray(manifest.archive.parts)
+        || manifest.archive.parts.length === 0
+      )
+    )
   ) {
     throw new Error('图片包清单格式无效。');
   }
@@ -160,22 +229,7 @@ export async function installDefaultImagePackage(
   onProgress?: (progress: ImageInstallProgress) => void,
 ): Promise<InstalledImagePackage> {
   const manifest = await fetchImagePackageManifest();
-  const archiveResponse = await fetch(resolvePublicPath(manifest.archive.path), {
-    cache: 'no-store',
-  });
-  if (!archiveResponse.ok) {
-    throw new Error(
-      `图片包尚未部署到本地站点（HTTP ${archiveResponse.status}）。`
-      + '请先运行 npm run assets:web-prepare。',
-    );
-  }
-  const archive = await readResponseBytes(archiveResponse, manifest.archive.size, onProgress);
-  if (archive.byteLength !== manifest.archive.size) {
-    throw new Error(`图片包体积不符：${archive.byteLength} != ${manifest.archive.size}`);
-  }
-  if (await sha256(archive) !== manifest.archive.sha256) {
-    throw new Error('图片压缩包 SHA-256 校验失败。');
-  }
+  const archive = await downloadArchive(manifest, onProgress);
   onProgress?.({
     stage: 'extracting',
     completed: 0,

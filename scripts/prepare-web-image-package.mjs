@@ -7,8 +7,11 @@ import { fileURLToPath } from 'node:url';
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = path.join(projectRoot, 'public', 'web-image-manifest.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-const targetPath = path.join(projectRoot, 'public', manifest.archive.path);
+const packageDirectory = path.join(projectRoot, 'public', 'packages');
+const cacheDirectory = path.join(projectRoot, '.runtime', 'web-image-packages');
+const targetPath = path.join(cacheDirectory, manifest.archive.fileName);
 const partialPath = `${targetPath}.partial`;
+const partSize = 16 * 1024 * 1024;
 
 function hashFile(filePath) {
   const hash = crypto.createHash('sha256');
@@ -16,33 +19,67 @@ function hashFile(filePath) {
   return hash.digest('hex');
 }
 
-if (fs.existsSync(targetPath) && hashFile(targetPath) === manifest.archive.sha256) {
-  console.log(`Web image package already prepared: ${targetPath}`);
-  process.exit(0);
-}
-
-fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-fs.rmSync(partialPath, { force: true });
-
-const response = await fetch(manifest.archive.sourceUrl, { redirect: 'follow' });
-if (!response.ok || !response.body) {
-  throw new Error(`下载图片包失败：HTTP ${response.status}`);
-}
-
-const output = fs.createWriteStream(partialPath, { flags: 'wx' });
-await new Promise((resolve, reject) => {
-  Readable.fromWeb(response.body).pipe(output).once('finish', resolve).once('error', reject);
-});
-
-const actualSize = fs.statSync(partialPath).size;
-if (actualSize !== manifest.archive.size) {
+if (!fs.existsSync(targetPath) || hashFile(targetPath) !== manifest.archive.sha256) {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
   fs.rmSync(partialPath, { force: true });
-  throw new Error(`图片包体积不符：${actualSize} != ${manifest.archive.size}`);
+
+  const legacyPath = path.join(projectRoot, 'public', manifest.archive.path);
+  if (fs.existsSync(legacyPath) && hashFile(legacyPath) === manifest.archive.sha256) {
+    fs.copyFileSync(legacyPath, targetPath);
+  } else {
+    const response = await fetch(manifest.archive.sourceUrl, { redirect: 'follow' });
+    if (!response.ok || !response.body) {
+      throw new Error(`下载图片包失败：HTTP ${response.status}`);
+    }
+
+    const output = fs.createWriteStream(partialPath, { flags: 'wx' });
+    await new Promise((resolve, reject) => {
+      Readable.fromWeb(response.body).pipe(output).once('finish', resolve).once('error', reject);
+    });
+
+    const actualSize = fs.statSync(partialPath).size;
+    if (actualSize !== manifest.archive.size) {
+      fs.rmSync(partialPath, { force: true });
+      throw new Error(`图片包体积不符：${actualSize} != ${manifest.archive.size}`);
+    }
+    const actualHash = hashFile(partialPath);
+    if (actualHash !== manifest.archive.sha256) {
+      fs.rmSync(partialPath, { force: true });
+      throw new Error(`图片包 SHA-256 不符：${actualHash}`);
+    }
+    fs.renameSync(partialPath, targetPath);
+  }
 }
-const actualHash = hashFile(partialPath);
-if (actualHash !== manifest.archive.sha256) {
-  fs.rmSync(partialPath, { force: true });
-  throw new Error(`图片包 SHA-256 不符：${actualHash}`);
+
+fs.mkdirSync(packageDirectory, { recursive: true });
+for (const name of fs.readdirSync(packageDirectory)) {
+  if (name.startsWith(`${manifest.archive.fileName}.part-`)) {
+    fs.rmSync(path.join(packageDirectory, name), { force: true });
+  }
 }
-fs.renameSync(partialPath, targetPath);
-console.log(`Web image package prepared: ${targetPath} (${actualSize} bytes)`);
+
+const archive = fs.readFileSync(targetPath);
+const parts = [];
+for (let offset = 0, index = 0; offset < archive.length; offset += partSize, index += 1) {
+  const bytes = archive.subarray(offset, Math.min(offset + partSize, archive.length));
+  const fileName = `${manifest.archive.fileName}.part-${String(index + 1).padStart(3, '0')}`;
+  const outputPath = path.join(packageDirectory, fileName);
+  fs.writeFileSync(outputPath, bytes);
+  parts.push({
+    path: `packages/${fileName}`,
+    fileName,
+    sha256: crypto.createHash('sha256').update(bytes).digest('hex'),
+    size: bytes.byteLength,
+  });
+}
+
+manifest.archive.parts = parts;
+fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+
+const legacyPath = path.join(projectRoot, 'public', manifest.archive.path);
+if (legacyPath !== targetPath) fs.rmSync(legacyPath, { force: true });
+
+console.log(
+  `Web image package prepared: ${parts.length} parts, `
+  + `${archive.byteLength} bytes (${parts.map((part) => part.size).join(' + ')}).`,
+);

@@ -23,6 +23,7 @@
     "data:web-manifest": "npm run data:web-package && node scripts/build-web-data-manifest.mjs",
     "build:web": "npm run data:web-manifest && vite build",
     "build:local": "npm run assets:web-prepare && npm run build:web",
+    "build:sites": "node scripts/clean-sites-build.mjs && npm run assets:web-prepare && npm run data:web-manifest && SITES_BUILD=1 vite build",
     "check:repo": "node scripts/repository-check.mjs",
     "audit:dependencies": "npm audit --audit-level=high",
     "check": "npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run smoke:timeline-bundle && npm run build:web",
@@ -41,6 +42,7 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "1.48.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -48,7 +50,8 @@
     "tailwindcss": "^4.2.2",
     "typescript": "^5.0.0",
     "vite": "^7.3.6",
-    "vite-plugin-pwa": "^1.3.0"
+    "vite-plugin-pwa": "^1.3.0",
+    "wrangler": "4.115.0"
   },
   "overrides": {
     "brace-expansion": "5.0.8"

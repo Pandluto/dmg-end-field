@@ -3,6 +3,7 @@ dist
 dev-dist
 public/packages/*.zip
 public/packages/*.partial
+public/packages/*.part-*
 public/data/catalog.sqlite
 release
 release-latest/
@@ -15,6 +16,8 @@ release-latest/
 .codex-temp-*
 .runtime/
 .runtime-assets/
+.wrangler/
+.dev.vars*
 .dbg/
 test-results/
 .env
