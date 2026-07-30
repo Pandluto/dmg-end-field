@@ -1,7 +1,6 @@
 import { createLogger, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
 import { sites } from './build/sites-vite-plugin'
 
 const logger = createLogger()
@@ -27,89 +26,6 @@ export default defineConfig(async () => {
   const plugins = [
     react(),
     tailwindcss(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: [
-        'app-icon.png',
-        'web-data-manifest.json',
-        'web-image-manifest.json',
-      ],
-      manifest: {
-        name: '终末地伤害工作台',
-        short_name: '伤害工作台',
-        description: '离线优先的终末地配装、排轴与伤害计算工作台',
-        lang: 'zh-CN',
-        theme_color: '#e9ecea',
-        background_color: '#e9ecea',
-        display: 'standalone',
-        start_url: './#/welcome',
-        icons: [
-          {
-            src: 'app-icon.png',
-            sizes: '736x736',
-            type: 'image/png',
-            purpose: 'any maskable',
-          },
-        ],
-      },
-      workbox: {
-        cleanupOutdatedCaches: true,
-        importScripts: ['sw-client-migration.js'],
-        globPatterns: ['**/*.{js,css,html,svg,ico,woff2,wasm}'],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        navigateFallback: null,
-        runtimeCaching: [
-          {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'dmg-app-shell-v2',
-              networkTimeoutSeconds: 4,
-              cacheableResponse: {
-                statuses: [0, 200],
-              },
-              precacheFallback: {
-                fallbackURL: 'index.html',
-              },
-              expiration: {
-                maxEntries: 4,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
-              },
-            },
-          },
-          {
-            urlPattern: ({ url, sameOrigin }) => (
-              sameOrigin
-              && url.pathname.includes('/data/')
-              && !url.pathname.includes('/src/')
-            ),
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'dmg-resource-pack-v1',
-              expiration: {
-                maxEntries: 240,
-                maxAgeSeconds: 60 * 60 * 24 * 365,
-              },
-            },
-          },
-          {
-            urlPattern: ({ url }) => url.pathname.includes('/assets/images/'),
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'dmg-image-pack-v1',
-              expiration: {
-                maxEntries: 1200,
-                maxAgeSeconds: 60 * 60 * 24 * 365,
-              },
-            },
-          },
-        ],
-      },
-      devOptions: {
-        enabled: !sitesBuild,
-        type: 'module',
-      },
-    }),
   ]
 
   if (sitesBuild) {

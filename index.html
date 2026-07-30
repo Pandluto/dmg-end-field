@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#e9ecea" />
     <meta name="description" content="离线优先的终末地配装、排轴与伤害计算工作台" />
     <link rel="icon" href="./app-icon.png" type="image/png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>终末地伤害工作台</title>
     <script>
       (() => {
@@ -40,11 +41,13 @@
           window.location.reload();
         });
 
-        window.addEventListener('load', () => {
-          void navigator.serviceWorker.getRegistration()
-            .then((registration) => registration?.update())
-            .catch(() => undefined);
-        });
+        void navigator.serviceWorker.register('/sw.js', {
+          scope: '/',
+          updateViaCache: 'none',
+        }).then(async (registration) => {
+          await registration.update();
+          registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+        }).catch(() => undefined);
       })();
     </script>
     <script>
