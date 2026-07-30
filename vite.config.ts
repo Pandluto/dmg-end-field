@@ -1,6 +1,7 @@
 import { createLogger, defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import { serviceWorker } from './build/service-worker-vite-plugin'
 import { sites } from './build/sites-vite-plugin'
 
 const logger = createLogger()
@@ -26,6 +27,7 @@ export default defineConfig(async () => {
   const plugins = [
     react(),
     tailwindcss(),
+    serviceWorker({ emitStaticAsset: !sitesBuild }),
   ]
 
   if (sitesBuild) {

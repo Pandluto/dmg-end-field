@@ -1,3 +1,4 @@
+// dmg-service-worker: dynamic-v1
 const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
 const LEGACY_PAGE_CACHE_PREFIXES = [
