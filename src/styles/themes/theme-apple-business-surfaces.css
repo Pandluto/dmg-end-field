@@ -1533,19 +1533,19 @@
 
 :root[data-theme="lieflat-mono"] .work-node-tree-panel {
   --work-node-tree-canvas: #eee9df;
-  --work-node-tree-grid: rgba(81, 76, 67, 0.095);
+  --work-node-tree-grid: rgba(166, 109, 92, 0.11);
   --work-node-tree-card: rgba(251, 249, 243, 0.98);
   --work-node-tree-card-hover: #fffdf8;
   --work-node-tree-card-active: #fffdf8;
   --work-node-tree-floating: rgba(251, 249, 243, 0.98);
-  --work-node-tree-chip: rgba(81, 76, 67, 0.055);
+  --work-node-tree-chip: rgba(166, 109, 92, 0.065);
   --work-node-tree-chip-strong: rgba(156, 70, 59, 0.1);
-  --work-node-tree-line: rgba(81, 76, 67, 0.27);
-  --work-node-tree-line-strong: rgba(38, 35, 30, 0.62);
-  --work-node-tree-path: var(--ink-seal);
+  --work-node-tree-line: var(--ink-outline-soft);
+  --work-node-tree-line-strong: var(--ink-outline-structural);
+  --work-node-tree-path: var(--ink-outline-selected);
   --work-node-tree-path-soft: rgba(156, 70, 59, 0.48);
   --work-node-tree-shadow: 0 12px 28px rgba(38, 35, 30, 0.12);
-  --work-node-tree-action-hover: var(--ink-charcoal);
+  --work-node-tree-action-hover: var(--ink-outline-selected);
   --work-node-tree-action-hover-text: var(--ink-paper-hi);
   --work-node-tree-card-radius: 4px 15px 4px 4px;
   --work-node-tree-control-radius: 4px 9px 4px 4px;

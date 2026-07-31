@@ -16,8 +16,6 @@
   --ink-charcoal: #26231e;
   --ink-body: #4b473f;
   --ink-muted: #746e63;
-  --ink-rule: #aaa294;
-  --ink-rule-soft: #d7d0c3;
   --ink-seal: #9c463b;
   --ink-seal-strong: #763129;
   --ink-seal-soft: #f1ded8;
@@ -25,6 +23,19 @@
   --ink-ochre-soft: #ead8ad;
   --ink-jade: #647c72;
   --ink-jade-soft: #cfddd7;
+  /*
+   * Contour hierarchy, derived from the selected Work Node record boundary.
+   * Deep umber belongs to selected/committed state; progressively quieter
+   * paper-browns separate structure, controls, framed media and fine rules.
+   */
+  --ink-outline-selected: var(--ink-seal);
+  --ink-outline-structural: #a66d5c;
+  --ink-outline-control: #b58c7a;
+  --ink-outline-frame: #c7aa9a;
+  --ink-outline-soft: #dac9be;
+  --ink-outline-faint: #e8ddd6;
+  --ink-rule: var(--ink-outline-control);
+  --ink-rule-soft: var(--ink-outline-soft);
 
   --theme-bg-window: var(--ink-paper-deep);
   --theme-bg-content: var(--ink-paper);
@@ -41,11 +52,11 @@
   --theme-text-muted: var(--ink-muted);
   --theme-text-placeholder: #9a9285;
 
-  --theme-border-subtle: #ded8cd;
-  --theme-border-grid: #cfc7b9;
-  --theme-border-default: #bcb3a4;
-  --theme-border-medium: #8f8779;
-  --theme-border-strong: #514c43;
+  --theme-border-subtle: var(--ink-outline-faint);
+  --theme-border-grid: var(--ink-outline-soft);
+  --theme-border-default: var(--ink-outline-frame);
+  --theme-border-medium: var(--ink-outline-control);
+  --theme-border-strong: var(--ink-outline-structural);
 
   --theme-accent-main: var(--ink-seal);
   --theme-accent-strong: var(--ink-seal-strong);
@@ -74,11 +85,11 @@
   --theme-fill-subtle: #ebe5da;
   --theme-fill-hover: #e4ddd1;
   --theme-fill-pressed: #d8d0c3;
-  --theme-line-soft: var(--ink-rule-soft);
-  --theme-line-regular: #beb5a7;
-  --theme-line-strong: #827a6d;
-  --theme-graphic-line: #5d584f;
-  --theme-graphic-line-strong: var(--ink-charcoal);
+  --theme-line-soft: var(--ink-outline-soft);
+  --theme-line-regular: var(--ink-outline-frame);
+  --theme-line-strong: var(--ink-outline-structural);
+  --theme-graphic-line: var(--ink-outline-control);
+  --theme-graphic-line-strong: var(--ink-outline-selected);
   --theme-overlay-bg: rgba(38, 35, 30, 0.34);
   --theme-text-on-accent: #fffaf1;
   --theme-danger: #9c463b;
@@ -99,14 +110,14 @@
   --ide-success: var(--theme-success-soft);
   --ide-acrylic-bg: rgba(251, 249, 243, 0.96);
   --ide-acrylic-bg-strong: var(--ink-paper-hi);
-  --ide-acrylic-border: #c7beaf;
+  --ide-acrylic-border: var(--ink-outline-frame);
   --ide-acrylic-highlight: #fffdf8;
 
   --web-bg: var(--ink-paper-deep);
   --web-panel: var(--ink-paper-hi);
   --web-panel-strong: #fffdf8;
-  --web-line: #c4bbad;
-  --web-line-strong: #857d70;
+  --web-line: var(--ink-outline-frame);
+  --web-line-strong: var(--ink-outline-structural);
   --web-text: var(--ink-charcoal);
   --web-muted: var(--ink-muted);
   --web-faint: #9b9387;
@@ -126,8 +137,8 @@
   --shell-text: var(--ink-charcoal);
   --shell-muted: var(--ink-muted);
   --shell-faint: #9b9387;
-  --shell-border: #c4bbad;
-  --shell-border-strong: #857d70;
+  --shell-border: var(--ink-outline-frame);
+  --shell-border-strong: var(--ink-outline-structural);
   --shell-surface: var(--ink-paper-hi);
   font-family: var(--font-family);
 }
@@ -140,13 +151,13 @@
 }
 
 .theme-option.is-lieflat-mono .theme-option-preview {
-  border-color: #857d70;
+  border-color: var(--ink-outline-structural);
   background: var(--ink-paper-deep);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
 }
 
 .theme-option.is-lieflat-mono .theme-option-sidebar {
-  border-right: 1px dashed #857d70;
+  border-right: 1px dashed var(--ink-outline-structural);
   background: #ded6c8;
 }
 
@@ -159,7 +170,7 @@
   border-radius: 0;
   background: repeating-linear-gradient(
     90deg,
-    #857d70 0 5px,
+    var(--ink-outline-structural) 0 5px,
     transparent 5px 8px
   );
 }
@@ -172,11 +183,11 @@
 
 :root[data-theme="lieflat-mono"] .theme-option.is-selected {
   color: #40594f;
-  border-color: var(--ink-jade);
+  border-color: var(--ink-outline-selected);
   background: var(--ink-jade-soft);
   box-shadow:
     inset 0 0 0 1px var(--ink-paper-hi),
-    0 0 0 1px var(--ink-jade);
+    0 0 0 1px color-mix(in srgb, var(--ink-outline-selected) 54%, transparent);
 }
 
 :root[data-theme="lieflat-mono"] .theme-option.is-selected .theme-option-check {
@@ -282,12 +293,12 @@
   .workbench-bottom-nav-button.is-active
 ) {
   color: #40594f;
-  border-color: var(--ink-jade);
+  border-color: var(--ink-outline-selected);
   border-radius: 6px 12px 6px 6px;
   background: var(--ink-jade-soft);
   box-shadow:
     inset 0 0 0 1px var(--ink-paper-hi),
-    inset 0 0 0 2px rgba(100, 124, 114, 0.38);
+    inset 0 0 0 2px color-mix(in srgb, var(--ink-outline-selected) 34%, transparent);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -299,7 +310,7 @@
 
 :root[data-theme="lieflat-mono"] .buff-edit-selection-counter {
   color: #40594f;
-  border-color: var(--ink-jade);
+  border-color: var(--ink-outline-selected);
   background: var(--ink-jade-soft);
   box-shadow: inset 0 0 0 1px var(--ink-paper-hi);
 }
@@ -338,13 +349,13 @@
   .config-avatar-item
 ) {
   color: var(--ink-charcoal);
-  border-color: var(--theme-line-strong);
+  border-color: var(--ink-outline-control);
   box-shadow: none;
 }
 
 :root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
   fill: var(--theme-fill-subtle) !important;
-  stroke: var(--ink-rule) !important;
+  stroke: var(--ink-outline-control) !important;
   filter: none !important;
 }
 
@@ -374,14 +385,14 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-toolbar button {
   color: var(--ink-charcoal);
-  border-color: var(--ink-paper-hi);
+  border-color: var(--ink-outline-soft);
   border-radius: 3px;
   background: var(--ink-paper-hi);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-toolbar button:hover {
   color: var(--ink-charcoal);
-  border-color: var(--ink-rule-soft);
+  border-color: var(--ink-outline-control);
   background: var(--ink-paper-deep);
 }
 
@@ -397,7 +408,7 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
   color: var(--ink-body);
-  border: 1px solid var(--ink-charcoal);
+  border: 1px solid var(--ink-outline-structural);
   background-color: var(--ink-paper-hi);
   background-image:
     repeating-linear-gradient(
@@ -409,7 +420,7 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-slide-head {
   align-items: center;
-  border-color: var(--ink-charcoal);
+  border-color: var(--ink-outline-structural);
   border-bottom-style: solid;
 }
 
@@ -435,7 +446,7 @@
   .report-ppt-operator-row,
   .report-ppt-axis-group
 ) {
-  border-color: var(--ink-charcoal);
+  border-color: var(--ink-outline-structural);
   background: rgba(251, 249, 243, 0.94);
   box-shadow: none;
 }
@@ -494,7 +505,7 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
   color: var(--ink-charcoal);
-  border-color: var(--ink-charcoal);
+  border-color: var(--ink-outline-control);
   background: var(--ink-paper-hi);
 }
 
@@ -515,7 +526,7 @@
   right: 14px;
   bottom: 9px;
   height: 1px;
-  background: var(--ink-rule-soft);
+  background: var(--ink-outline-soft);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-pie-layout {
@@ -572,7 +583,7 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card.is-placeholder {
   color: var(--ink-muted);
-  border: 1px dashed var(--ink-rule);
+  border: 1px dashed var(--ink-outline-control);
   background: rgba(251, 249, 243, 0.42);
 }
 
@@ -630,18 +641,18 @@
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line path:first-of-type {
-  stroke: var(--ink-rule-soft) !important;
+  stroke: var(--ink-outline-soft) !important;
   stroke-dasharray: 1.2 1.8 0.25 1.8;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line path:last-of-type {
-  stroke: var(--ink-charcoal) !important;
+  stroke: var(--ink-outline-selected) !important;
   stroke-width: 1.05;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line circle {
   fill: var(--ink-paper-hi) !important;
-  stroke: var(--ink-charcoal) !important;
+  stroke: var(--ink-outline-structural) !important;
   stroke-width: 0.7;
 }
 
@@ -708,11 +719,11 @@
 ),
 :root[data-theme="lieflat-mono"] .buff-batch-edit-workbench .skill-button-orb {
   color: var(--ink-charcoal);
-  border-color: color-mix(in srgb, var(--skill-button-element-color, var(--ink-rule)) 54%, var(--ink-charcoal));
+  border-color: var(--ink-outline-control);
   background: color-mix(in srgb, var(--skill-button-element-color, var(--ink-paper-deep)) 28%, var(--ink-paper-hi));
   box-shadow:
     0 0 0 2px var(--ink-paper-hi),
-    0 0 0 3px rgba(81, 76, 67, 0.54);
+    0 0 0 3px var(--ink-outline-soft);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -743,7 +754,7 @@
 
 :root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button:hover:not(:disabled) {
   color: #40594f !important;
-  border-color: var(--ink-jade) !important;
+  border-color: var(--ink-outline-structural) !important;
   background: var(--ink-jade-soft) !important;
   background-color: var(--ink-jade-soft) !important;
   box-shadow: inset 0 0 0 1px var(--ink-paper-hi) !important;
@@ -751,7 +762,7 @@
 
 :root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button.is-active {
   color: #40594f !important;
-  border-color: var(--ink-jade) !important;
+  border-color: var(--ink-outline-selected) !important;
   border-style: double !important;
   background: var(--ink-jade-soft) !important;
   background-color: var(--ink-jade-soft) !important;
@@ -777,7 +788,7 @@
 }
 
 :root[data-theme="lieflat-mono"] {
-  scrollbar-color: var(--ink-rule) transparent;
+  scrollbar-color: var(--ink-outline-control) transparent;
 }
 
 /* Direct manipulation stays quiet and directional. */
@@ -840,24 +851,24 @@
   background: var(--ink-charcoal);
 }
 
-/* Rules: ledger workspace, dashed sections, double selected boundaries. */
+/* Rules: ledger workspace, brown structural dividers, quiet paper grids. */
 :root[data-theme="lieflat-mono"] .canvas-container {
   background-color: var(--ink-paper);
   background-image:
-    linear-gradient(rgba(81, 76, 67, 0.075) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(81, 76, 67, 0.075) 1px, transparent 1px);
+    linear-gradient(rgba(166, 109, 92, 0.085) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(166, 109, 92, 0.085) 1px, transparent 1px);
   background-position: -1px -1px;
   background-size: 28px 28px;
 }
 
 :root[data-theme="lieflat-mono"] .canvas-grid-group {
-  border: 1px solid var(--ink-charcoal);
+  border: 1px solid var(--ink-outline-structural);
   outline: 0;
   background: rgba(251, 249, 243, 0.94);
 }
 
 :root[data-theme="lieflat-mono"] .canvas-grid-background {
-  --grid-line-color: rgba(81, 76, 67, 0.2);
+  --grid-line-color: rgba(166, 109, 92, 0.22);
   background-color: transparent;
   background-image:
     linear-gradient(var(--grid-line-color) 1px, transparent 1px),
@@ -872,6 +883,36 @@
 
 :root[data-theme="lieflat-mono"] .canvas-container.is-dragging-active .canvas-grid-background {
   --grid-line-color: rgba(100, 124, 114, 0.7);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-right-zone.is-tool-panel,
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.buff-edit-right-zone
+) {
+  border-left-color: var(--ink-outline-structural);
+  box-shadow: -1px 0 0 rgba(251, 249, 243, 0.72);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-bottom-zone {
+  border-top: 1px solid var(--ink-outline-structural);
+  box-shadow: inset 0 1px 0 rgba(251, 249, 243, 0.68);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-left-top-spacer {
+  border-color: var(--ink-outline-structural);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-staff-line {
+  background: var(--ink-outline-soft);
+}
+
+:root[data-theme="lieflat-mono"] .damage-sheet-sidebar {
+  border-right-color: var(--ink-outline-structural);
+}
+
+:root[data-theme="lieflat-mono"] .damage-sheet-workspace-footer {
+  border-top-color: var(--ink-outline-structural);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -915,11 +956,11 @@
   .operator-draft-searchable-option.is-active
 ) {
   color: var(--ink-charcoal);
-  border-color: var(--ink-jade) !important;
+  border-color: var(--ink-outline-selected) !important;
   background: var(--ink-jade-soft) !important;
   box-shadow:
     inset 0 0 0 1px var(--ink-paper-hi),
-    0 0 0 1px var(--ink-jade) !important;
+    0 0 0 1px color-mix(in srgb, var(--ink-outline-selected) 58%, transparent) !important;
 }
 
 :root[data-theme="lieflat-mono"] .selection-character-card {
@@ -938,7 +979,7 @@
   background: linear-gradient(
     225deg,
     var(--ink-paper-hi) 0 44%,
-    var(--ink-jade) 45% 54%,
+    var(--ink-outline-selected) 45% 54%,
     transparent 55%
   );
 }
@@ -965,9 +1006,9 @@
 :root[data-theme="lieflat-mono"] .report-sheet-table tbody tr.is-selected > *,
 :root[data-theme="lieflat-mono"] .damage-sheet-excel-cell.is-active {
   color: var(--ink-charcoal);
-  border-color: var(--ink-jade);
+  border-color: var(--ink-outline-selected);
   background: var(--ink-jade-soft);
-  box-shadow: inset 0 0 0 1px var(--ink-jade);
+  box-shadow: inset 0 0 0 1px var(--ink-outline-selected);
 }
 
 /* Add/remove intent keeps its own semantic colour. */
@@ -1127,15 +1168,19 @@
 :root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-image {
   position: relative;
   z-index: 2;
-  border-color: var(--theme-line-strong);
+  border: 1px solid var(--ink-outline-frame);
   filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item:hover .config-avatar-image {
+  border-color: var(--ink-outline-structural);
 }
 
 :root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item.is-active .config-avatar-image {
   box-shadow:
     0 0 0 2px var(--ink-paper-hi),
-    0 0 0 4px var(--ink-jade),
-    0 0 0 7px rgba(100, 124, 114, 0.22);
+    0 0 0 4px var(--ink-outline-selected),
+    0 0 0 7px color-mix(in srgb, var(--ink-outline-selected) 20%, transparent);
 }
 
 :root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item.is-active::after {
@@ -1145,7 +1190,7 @@
   width: calc(100% + 14px);
   height: calc(100% + 14px);
   z-index: 0;
-  border: 1px dotted var(--ink-charcoal);
+  border: 1px dotted var(--ink-outline-structural);
   border-radius: 50% !important;
   background: transparent;
   transform: translate(-50%, -50%);
@@ -1193,6 +1238,115 @@
 ) {
   border-color: var(--theme-line-regular);
   border-bottom-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] .timeline-calculation-buffs > p {
+  color: var(--ink-muted);
+  border-color: var(--ink-outline-soft);
+  background: rgba(251, 249, 243, 0.74);
+}
+
+/*
+ * Component contour depth:
+ * - skill bodies use the control rule;
+ * - circular orbs and portraits use a quieter framed-media rule;
+ * - hover rises to the structural rule;
+ * - selected controls close with the same deep record boundary as Work Nodes.
+ */
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-base,
+  .dragging-skill-button-base
+) {
+  border-color: var(--ink-outline-control);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button
+) {
+  border-color: var(--ink-outline-frame);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-skill-button:hover .skill-button-base,
+  .canvas-skill-button:hover .skill-button-orb,
+  .sandbox-skill-button:hover
+) {
+  border-color: var(--ink-outline-structural);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-skill-button.selected:not(
+  .is-add-owned,
+  .is-add-target,
+  .is-remove-target,
+  .is-edit-add-target,
+  .is-edit-remove-target,
+  .is-edit-mixed-target
+) :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: var(--ink-outline-selected);
+  box-shadow:
+    0 0 0 1px var(--ink-paper-hi),
+    0 0 0 2px color-mix(in srgb, var(--ink-outline-selected) 34%, transparent);
+}
+
+:root[data-theme="lieflat-mono"] .skill-button-inspect-damage {
+  border-top-color: var(--ink-outline-soft);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-staff-avatar,
+  .canvas-staff-avatar-placeholder,
+  .selection-character-avatar,
+  .report-ppt-avatar
+) {
+  border-color: var(--ink-outline-frame);
+}
+
+:root[data-theme="lieflat-mono"] .sandbox-avatar {
+  box-shadow: inset 0 0 0 1px var(--ink-outline-frame);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .sandbox-avatar:hover,
+  .sandbox-avatar-preview-anchor:hover .sandbox-avatar
+) {
+  box-shadow:
+    inset 0 0 0 1px var(--ink-outline-structural),
+    0 0 0 1px var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card.is-selected .selection-character-avatar {
+  border-color: var(--ink-outline-selected);
+  box-shadow: inset 0 0 0 1px var(--ink-outline-soft);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .config-weapon-config-text,
+  .config-weapon-config-text-3,
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-tooltip,
+  .operator-config-page-equip-button-row,
+  .operator-config-page-stat-item,
+  .operator-config-page-favor-input-layer,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-skill-card-group
+) {
+  border-color: var(--ink-outline-control);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-equip-circle,
+  .operator-config-page-skill-card-icon,
+  .operator-config-page-skill-card-icon-fallback,
+  .config-weapon-choose-img-area,
+  .config-weapon-choose-img-square
+) {
+  border-color: var(--ink-outline-frame);
 }
 
 :root[data-theme="lieflat-mono"] :is(
