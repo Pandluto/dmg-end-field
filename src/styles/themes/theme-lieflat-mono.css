@@ -1390,6 +1390,20 @@
   color: var(--ink-outline-selected);
 }
 
+/* The report preview reuses the real skill-button classes and contour grammar. */
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button:not(.is-dot) .skill-button-composite-outline {
+  display: block;
+  color: var(--ink-skill-outline);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button:not(.is-dot) :is(
+  .report-ppt-axis-button-body,
+  .report-ppt-axis-button-orb
+) {
+  border-color: transparent;
+  box-shadow: none;
+}
+
 /* Skill artwork keeps its alpha geometry and is filled with copper red. */
 :root[data-theme="lieflat-mono"] :is(
   .skill-button-orb,
@@ -1409,6 +1423,10 @@
   mask-repeat: no-repeat;
   -webkit-mask-size: cover;
   mask-size: cover;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-orb.has-skill-icon-mask::after {
+  display: block;
 }
 
 :root[data-theme="lieflat-mono"] :is(

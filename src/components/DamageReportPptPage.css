@@ -598,7 +598,14 @@
   height: 28px;
 }
 
-.report-ppt-axis-button-orb {
+.report-ppt-axis-button-outline.skill-button-composite-outline {
+  left: -2px;
+  top: -6px;
+  width: 77px;
+  height: 40px;
+}
+
+.report-ppt-axis-button-orb.skill-button-orb {
   position: absolute;
   left: 0;
   top: -4px;
@@ -616,7 +623,7 @@
   font-weight: 800;
 }
 
-.report-ppt-axis-button-orb img {
+.report-ppt-axis-button-orb.skill-button-orb .skill-icon {
   width: 100%;
   height: 100%;
   display: block;
@@ -634,14 +641,17 @@
   justify-content: center;
 }
 
-.report-ppt-axis-button-body {
+.report-ppt-axis-button-body.skill-button-base {
   position: absolute;
   left: 18px;
   top: 2px;
   width: 55px;
   height: 28px;
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
+  gap: 0;
   padding-left: 20px;
   padding-right: 0;
   box-sizing: border-box;
@@ -654,6 +664,19 @@
   line-height: 1;
   transform: translateY(-2px);
   overflow: hidden;
+}
+
+.report-ppt-axis-button-body .skill-button-name {
+  display: block;
+  width: 100%;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-shadow: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .report-ppt-chart-grid {

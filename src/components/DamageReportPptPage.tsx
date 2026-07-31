@@ -1,4 +1,4 @@
-import { useMemo, type SyntheticEvent } from 'react';
+import { useMemo, type CSSProperties, type SyntheticEvent } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { buildDamageReportSnapshot, DamageReportButtonRow, DamageReportCharacterRow } from '../core/services/damageReportService';
 import { loadTimelineData } from '../core/repositories';
@@ -10,15 +10,23 @@ import {
 import { resolveRuntimeTemplateSkill } from '../core/services/skillDamageTemplateResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
-import { normalizeAssetUrl, resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
+import {
+  getElementBackgroundColor,
+  normalizeAssetUrl,
+  resolveAvatarUrl,
+  resolveSkillIconUrl,
+} from '../utils/assetResolver';
 import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
+import './CanvasBoard/SkillButton.css';
 import './DamageReportPptPage.css';
 
 const REPORT_PPT_PATH = APP_ROUTE_PATHS.damageReportPpt;
 const SLIDE_GROUPS_PER_PAGE = 2;
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
+const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
   A: '重击',
   B: '战技',
@@ -42,6 +50,26 @@ type RawWeaponLibrary = Record<string, {
   name?: string;
   imgUrl?: string;
 }>;
+
+type ReportEquipmentPiece = ConfigSnapshot['equipment']['pieces'][number];
+
+interface ReportEquipmentImageItem {
+  equipmentId: string;
+  name: string;
+  part: string;
+  imgUrl: string;
+}
+
+interface RawReportEquipmentLibrary {
+  gearSets?: Record<string, {
+    equipments?: Record<string, {
+      equipmentId?: string;
+      name?: string;
+      part?: string;
+      imgUrl?: string;
+    }>;
+  }>;
+}
 
 const REPORT_POTENTIAL_STAR_SEGMENTS = [
   { id: 4, transform: undefined },
@@ -188,10 +216,67 @@ function loadReportWeaponLibrary(): ReportWeaponLibrary {
   return normalizeWeaponLibrary(readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}));
 }
 
+function normalizeReportEquipmentImages(raw: unknown): ReportEquipmentImageItem[] {
+  const source = raw && typeof raw === 'object' ? raw as RawReportEquipmentLibrary : {};
+  return Object.values(source.gearSets ?? {}).flatMap((gearSet) => (
+    Object.entries(gearSet?.equipments ?? {}).flatMap(([fallbackId, rawEquipment]) => {
+      const equipmentId = String(rawEquipment?.equipmentId || fallbackId).trim();
+      const name = String(rawEquipment?.name || equipmentId).trim();
+      if (!equipmentId && !name) return [];
+      return [{
+        equipmentId,
+        name,
+        part: String(rawEquipment?.part || '').trim(),
+        imgUrl: String(rawEquipment?.imgUrl || '').trim(),
+      }];
+    })
+  ));
+}
+
+function loadReportEquipmentImages(): ReportEquipmentImageItem[] {
+  const libraryImages = normalizeReportEquipmentImages(
+    readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, {})
+  );
+  if (libraryImages.length > 0) return libraryImages;
+  return normalizeReportEquipmentImages(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, {}));
+}
+
+function findReportEquipmentImage(
+  piece: ReportEquipmentPiece,
+  equipmentImages: ReportEquipmentImageItem[]
+): ReportEquipmentImageItem | null {
+  return equipmentImages.find((item) => item.equipmentId === piece.equipmentId)
+    ?? equipmentImages.find((item) => item.name === piece.name && (!piece.part || item.part === piece.part))
+    ?? equipmentImages.find((item) => item.name === piece.name)
+    ?? null;
+}
+
+function getEquipmentImageUrls(
+  piece: ReportEquipmentPiece,
+  equipmentImages: ReportEquipmentImageItem[]
+): string[] {
+  const libraryItem = findReportEquipmentImage(piece, equipmentImages);
+  const canonicalUrl = piece.name
+    ? normalizeAssetUrl(`assets/images/img-equipment/icon_cn/${piece.name}.png`)
+    : '';
+  return [libraryItem?.imgUrl, piece.imgUrl, canonicalUrl]
+    .map((path) => resolveStoredImageUrl(path))
+    .filter((url, index, urls): url is string => Boolean(url) && urls.indexOf(url) === index);
+}
+
 function handleReportImageError(fallbackText: string) {
   return (event: SyntheticEvent<HTMLImageElement>) => {
     const target = event.currentTarget;
-    const fallback = target.dataset.fallbackSrc;
+    let fallback = target.dataset.fallbackSrc;
+    if (!fallback && target.dataset.fallbackSrcs) {
+      try {
+        const fallbackSources = JSON.parse(target.dataset.fallbackSrcs) as string[];
+        fallback = fallbackSources.shift();
+        target.dataset.fallbackSrcs = JSON.stringify(fallbackSources);
+      } catch {
+        target.dataset.fallbackSrcs = '';
+      }
+    }
     if (fallback && target.src !== fallback) {
       target.src = fallback;
       target.dataset.fallbackSrc = '';
@@ -509,10 +594,12 @@ function TeamSlide({
   characters,
   reportCharacters,
   weaponLibrary,
+  equipmentImages,
 }: {
   characters: ReportOperator[];
   reportCharacters: DamageReportCharacterRow[];
   weaponLibrary: ReportWeaponLibrary;
+  equipmentImages: ReportEquipmentImageItem[];
 }) {
   const displayCharacters = characters.length > 0
     ? characters.slice(0, 4)
@@ -591,13 +678,15 @@ function TeamSlide({
                     ) : (
                       equipmentPieces.map((piece) => {
                         const levels = piece.effects.map((effect) => Number(effect.level) || 0);
+                        const equipmentImageUrls = getEquipmentImageUrls(piece, equipmentImages);
                         return (
                         <div key={`${character.id}-${piece.slotKey}`} className="report-ppt-weapon-equipment-item" title={piece.name}>
                           <div className="report-ppt-equipment-image-frame">
                             <div className="report-ppt-equipment-icon">
-                              {piece.imgUrl ? (
+                              {equipmentImageUrls[0] ? (
                                 <img
-                                  src={resolveStoredImageUrl(piece.imgUrl)}
+                                  src={equipmentImageUrls[0]}
+                                  data-fallback-srcs={JSON.stringify(equipmentImageUrls.slice(1))}
                                   alt={piece.name}
                                   onError={handleReportImageError(piece.part || piece.name.slice(0, 2))}
                                 />
@@ -682,22 +771,44 @@ function TimelineGroupSlide({
                           const skillIconUrl = resolveTimelineSkillIcon(button, buttonCharacter);
                           const isDotButton = button.skillType === 'Dot';
                           const browseModeLabel = BROWSE_MODE_SKILL_LABELS[button.skillType] ?? button.skillType;
+                          const hasThemedSkillIcon = Boolean(skillIconUrl && !isDotButton);
                           return (
                             <div
                               key={button.id}
                               className={`report-ppt-axis-button${isDotButton ? ' is-dot' : ''}`}
-                              style={{ left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%` }}
+                              style={{
+                                left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%`,
+                                '--skill-button-size': '36px',
+                                '--skill-button-radius': '18px',
+                                '--skill-button-element-color': getElementBackgroundColor(buttonCharacter?.element ?? character?.element ?? ''),
+                                '--skill-icon-mask': hasThemedSkillIcon ? `url(${JSON.stringify(skillIconUrl)})` : 'none',
+                              } as CSSProperties}
                               title={`${button.characterName} ${button.skillDisplayName ?? button.skillType}`}
                             >
-                              <span className="report-ppt-axis-button-orb">
+                              {!isDotButton ? (
+                                <svg
+                                  className="report-ppt-axis-button-outline skill-button-composite-outline"
+                                  viewBox="-2 -6 77 40"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M 18 -4 A 18 18 0 0 1 29.314 0 L 73 0 L 73 28 L 29.314 28 A 18 18 0 1 1 18 -4 Z" />
+                                </svg>
+                              ) : null}
+                              <span className={`report-ppt-axis-button-orb skill-button-orb${hasThemedSkillIcon ? ' has-skill-icon-mask' : ''}`}>
                                 <img
+                                  className="skill-icon"
                                   src={skillIconUrl}
                                   data-fallback-src={resolveSkillIconUrl(button.characterName, button.skillType)}
                                   alt=""
-                                  onError={handleReportImageError(button.skillType)}
+                                  onError={(event) => {
+                                    event.currentTarget.parentElement?.classList.remove('has-skill-icon-mask');
+                                    handleReportImageError(button.skillType)(event);
+                                  }}
                                 />
                               </span>
-                              <span className="report-ppt-axis-button-body">{browseModeLabel}</span>
+                              <span className="report-ppt-axis-button-body skill-button-base">
+                                <span className="skill-button-name">{browseModeLabel}</span>
+                              </span>
                             </div>
                           );
                         })}
@@ -756,6 +867,7 @@ export function DamageReportPptPage() {
   const snapshot = useMemo(() => buildDamageReportSnapshot(), []);
   const timelineData = useMemo(() => loadTimelineData(), []);
   const weaponLibrary = useMemo(() => loadReportWeaponLibrary(), []);
+  const equipmentImages = useMemo(() => loadReportEquipmentImages(), []);
   const reportOperators = useMemo(
     () => buildReportOperators(state.selectedCharacters, state.loadedCharacters, snapshot.characters),
     [state.loadedCharacters, state.selectedCharacters, snapshot.characters]
@@ -775,7 +887,12 @@ export function DamageReportPptPage() {
         </div>
       </div>
       <div className="report-ppt-scroll">
-        <TeamSlide characters={reportOperators} reportCharacters={snapshot.characters} weaponLibrary={weaponLibrary} />
+        <TeamSlide
+          characters={reportOperators}
+          reportCharacters={snapshot.characters}
+          weaponLibrary={weaponLibrary}
+          equipmentImages={equipmentImages}
+        />
         {timelinePages.map((groupIndices, index) => (
           <TimelineGroupSlide
             key={`timeline-page-${index}`}
