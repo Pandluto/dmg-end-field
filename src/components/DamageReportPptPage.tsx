@@ -487,9 +487,10 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
   const gapAngle = Math.min(8, slotAngle * 0.12);
   const labelRadius = 30;
   const petals = rows.map((row, index) => {
-    const centerAngle = -90 + index * slotAngle;
-    const startAngle = centerAngle - slotAngle / 2 + gapAngle / 2;
-    const endAngle = centerAngle + slotAngle / 2 - gapAngle / 2;
+    const slotStartAngle = -180 + index * slotAngle;
+    const centerAngle = slotStartAngle + slotAngle / 2;
+    const startAngle = slotStartAngle + gapAngle / 2;
+    const endAngle = slotStartAngle + slotAngle - gapAngle / 2;
     const valueRadius = maxRadius * Math.sqrt(Math.max(row.expected, 0) / maxExpected);
     const labelPoint = getPolarPoint(center, center, labelRadius, centerAngle);
 
@@ -506,40 +507,48 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
 
   return (
     <div className="report-ppt-pie-layout">
-      <svg className="report-ppt-pie report-ppt-petal-rose" viewBox="0 0 100 100" role="img" aria-label="干员伤害占比扇瓣图">
-        <title>干员伤害占比，扇瓣面积与伤害成正比</title>
-        {petals.map(({ row, startAngle, endAngle }) => (
-          <path
-            key={`base-${row.id}`}
-            className="report-ppt-petal-base"
-            d={getRoundedPetalPath(center, center, maxRadius, startAngle, endAngle)}
-          />
-        ))}
-        {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
-          <path
-            key={`value-${row.id}`}
-            className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
-            d={getRoundedPetalPath(center, center, valueRadius, startAngle, endAngle)}
-          />
-        ))}
-        <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />
-        {petals.map(({ row, labelPoint, isLabelOnValue }) => (
-          <text
-            key={`label-${row.id}`}
-            className={`report-ppt-petal-label${isLabelOnValue ? ' is-on-value' : ''}`}
-            x={labelPoint.x}
-            y={labelPoint.y - 1.5}
-            textAnchor="middle"
-          >
-            <tspan className="report-ppt-petal-label-value" x={labelPoint.x} dy="0">
-              {formatPercent(row.expected / total)}
-            </tspan>
-            <tspan className="report-ppt-petal-label-name" x={labelPoint.x} dy="5">
-              {row.name}
-            </tspan>
-          </text>
-        ))}
-      </svg>
+      <div className="report-ppt-pie-stage">
+        <svg
+          className="report-ppt-pie report-ppt-petal-rose"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="干员伤害占比扇瓣图"
+        >
+          <title>干员伤害占比，扇瓣面积与伤害成正比</title>
+          {petals.map(({ row, startAngle, endAngle }) => (
+            <path
+              key={`base-${row.id}`}
+              className="report-ppt-petal-base"
+              d={getRoundedPetalPath(center, center, maxRadius, startAngle, endAngle)}
+            />
+          ))}
+          {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
+            <path
+              key={`value-${row.id}`}
+              className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
+              d={getRoundedPetalPath(center, center, valueRadius, startAngle, endAngle)}
+            />
+          ))}
+          <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />
+          {petals.map(({ row, labelPoint, isLabelOnValue }) => (
+            <text
+              key={`label-${row.id}`}
+              className={`report-ppt-petal-label${isLabelOnValue ? ' is-on-value' : ''}`}
+              x={labelPoint.x}
+              y={labelPoint.y - 1.5}
+              textAnchor="middle"
+            >
+              <tspan className="report-ppt-petal-label-value" x={labelPoint.x} dy="0">
+                {formatPercent(row.expected / total)}
+              </tspan>
+              <tspan className="report-ppt-petal-label-name" x={labelPoint.x} dy="5">
+                {row.name}
+              </tspan>
+            </text>
+          ))}
+        </svg>
+      </div>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
           <div key={row.id} className="report-ppt-legend-row">
