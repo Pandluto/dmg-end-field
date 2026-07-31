@@ -1274,10 +1274,21 @@
 
 :root[data-theme="lieflat-mono"] :is(
   .canvas-skill-button:hover .skill-button-base,
-  .canvas-skill-button:hover .skill-button-orb,
-  .sandbox-skill-button:hover
+  .canvas-skill-button:hover .skill-button-orb
 ) {
   border-color: var(--ink-outline-structural);
+}
+
+/* The skill candidates in the right rail are the actual draggable controls. */
+:root[data-theme="lieflat-mono"] :is(
+  .sandbox-skill-button,
+  .sandbox-skill-button:hover,
+  .sandbox-skill-button:active
+) {
+  border-color: var(--ink-skill-outline);
+  box-shadow:
+    0 0 0 1px var(--ink-paper-hi),
+    0 0 0 2px var(--ink-skill-outline);
 }
 
 :root[data-theme="lieflat-mono"] .canvas-skill-button.selected:not(
