@@ -1,0 +1,1011 @@
+/*
+ * Paper Ink / 纸墨
+ *
+ * A light ink-on-paper application theme. Neutral paper and charcoal carry
+ * the shell; mineral ochre, slate jade and seal red own real semantic states.
+ * Product artwork keeps its original colour. Existing SVG geometry stays
+ * untouched and is recoloured only through theme selectors.
+ */
+
+:root[data-theme="lieflat-mono"] {
+  color-scheme: light;
+
+  --ink-paper-hi: #fbf9f3;
+  --ink-paper: #f3f0e7;
+  --ink-paper-deep: #e8e2d6;
+  --ink-charcoal: #26231e;
+  --ink-body: #4b473f;
+  --ink-muted: #746e63;
+  --ink-rule: #aaa294;
+  --ink-rule-soft: #d7d0c3;
+  --ink-seal: #9c463b;
+  --ink-seal-strong: #763129;
+  --ink-seal-soft: #f1ded8;
+  --ink-ochre: #b08a4f;
+  --ink-ochre-soft: #ead8ad;
+  --ink-jade: #647c72;
+  --ink-jade-soft: #cfddd7;
+
+  --theme-bg-window: var(--ink-paper-deep);
+  --theme-bg-content: var(--ink-paper);
+  --theme-bg-nav: #e3dccf;
+  --theme-bg-card: var(--ink-paper-hi);
+  --theme-bg-grid-area: #f7f4ed;
+  --theme-bg-grid-header: #e9e2d6;
+  --theme-bg-workspace-panel: #e7e0d4;
+  --theme-bg-hover: #ece6db;
+  --theme-bg-active: var(--ink-seal-soft);
+
+  --theme-text-title: var(--ink-charcoal);
+  --theme-text-body: var(--ink-body);
+  --theme-text-muted: var(--ink-muted);
+  --theme-text-placeholder: #9a9285;
+
+  --theme-border-subtle: #ded8cd;
+  --theme-border-grid: #cfc7b9;
+  --theme-border-default: #bcb3a4;
+  --theme-border-medium: #8f8779;
+  --theme-border-strong: #514c43;
+
+  --theme-accent-main: var(--ink-seal);
+  --theme-accent-strong: var(--ink-seal-strong);
+  --theme-accent-bright: #b95c50;
+  --theme-accent-lime: var(--ink-ochre);
+  --theme-accent-soft: var(--ink-seal-soft);
+  --theme-accent-hover: #873a31;
+
+  --theme-shadow-panel: 0 1px 0 rgba(38, 35, 30, 0.04), 0 10px 28px rgba(38, 35, 30, 0.045);
+  --theme-shadow-hover: 0 1px 0 rgba(38, 35, 30, 0.06), 0 12px 30px rgba(38, 35, 30, 0.07);
+  --theme-focus-ring: 0 0 0 2px var(--ink-paper-hi), 0 0 0 4px var(--ink-seal);
+  --theme-transition: 190ms cubic-bezier(0.2, 0.72, 0.3, 1);
+
+  --theme-radius-control: 8px;
+  --theme-radius-panel: 16px;
+  --theme-radius-switch: 999px;
+
+  --theme-main-stat-bg: var(--ink-ochre-soft);
+  --theme-sub-stat-bg: var(--ink-jade-soft);
+
+  --theme-surface-solid: var(--ink-paper-hi);
+  --theme-surface-raised: rgba(251, 249, 243, 0.97);
+  --theme-surface-regular: #f6f3ec;
+  --theme-surface-muted: #ece6da;
+  --theme-control-bg: #faf7f0;
+  --theme-fill-subtle: #ebe5da;
+  --theme-fill-hover: #e4ddd1;
+  --theme-fill-pressed: #d8d0c3;
+  --theme-line-soft: var(--ink-rule-soft);
+  --theme-line-regular: #beb5a7;
+  --theme-line-strong: #827a6d;
+  --theme-graphic-line: #5d584f;
+  --theme-graphic-line-strong: var(--ink-charcoal);
+  --theme-overlay-bg: rgba(38, 35, 30, 0.34);
+  --theme-text-on-accent: #fffaf1;
+  --theme-danger: #9c463b;
+  --theme-danger-soft: #f1ded8;
+  --theme-success: var(--ink-jade);
+  --theme-success-soft: var(--ink-jade-soft);
+  --theme-warning: #9a733c;
+  --theme-warning-soft: #eee0bc;
+  --theme-shadow-window: 0 24px 70px rgba(38, 35, 30, 0.18);
+  --theme-shadow-float: 0 14px 38px rgba(38, 35, 30, 0.16);
+
+  --excel-green-muted: #8a8173;
+  --excel-gray-2: #e9e3d8;
+  --excel-gray-3: #d2cabd;
+  --excel-gray-4: #8e8678;
+  --ide-warning: var(--theme-warning);
+  --ide-danger: var(--theme-danger);
+  --ide-success: var(--theme-success-soft);
+  --ide-acrylic-bg: rgba(251, 249, 243, 0.96);
+  --ide-acrylic-bg-strong: var(--ink-paper-hi);
+  --ide-acrylic-border: #c7beaf;
+  --ide-acrylic-highlight: #fffdf8;
+
+  --web-bg: var(--ink-paper-deep);
+  --web-panel: var(--ink-paper-hi);
+  --web-panel-strong: #fffdf8;
+  --web-line: #c4bbad;
+  --web-line-strong: #857d70;
+  --web-text: var(--ink-charcoal);
+  --web-muted: var(--ink-muted);
+  --web-faint: #9b9387;
+  --web-accent: var(--ink-seal);
+  --web-accent-strong: var(--ink-seal-strong);
+  --web-danger: #9c463b;
+  --web-shadow: var(--theme-shadow-panel);
+
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --border-width: 1px;
+}
+
+:root[data-theme="lieflat-mono"] .web-app-shell {
+  --shell-accent: var(--ink-seal);
+  --shell-accent-hover: var(--ink-seal-strong);
+  --shell-accent-soft: var(--ink-seal-soft);
+  --shell-text: var(--ink-charcoal);
+  --shell-muted: var(--ink-muted);
+  --shell-faint: #9b9387;
+  --shell-border: #c4bbad;
+  --shell-border-strong: #857d70;
+  --shell-surface: var(--ink-paper-hi);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.theme-option.is-lieflat-mono .theme-option-preview {
+  border-color: #857d70;
+  background: var(--ink-paper-deep);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+}
+
+.theme-option.is-lieflat-mono .theme-option-sidebar {
+  border-right: 1px dashed #857d70;
+  background: #ded6c8;
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas {
+  background: var(--ink-paper-hi);
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas span {
+  height: 1px;
+  border-radius: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    #857d70 0 5px,
+    transparent 5px 8px
+  );
+}
+
+.theme-option.is-lieflat-mono .theme-option-canvas span:first-child {
+  width: 78%;
+  height: 4px;
+  background: var(--ink-seal);
+}
+
+:root[data-theme="lieflat-mono"] .theme-option.is-selected {
+  color: #40594f;
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+  box-shadow:
+    inset 0 0 0 1px var(--ink-paper-hi),
+    0 0 0 1px var(--ink-jade);
+}
+
+:root[data-theme="lieflat-mono"] .theme-option.is-selected .theme-option-check {
+  color: #fffdf8;
+  border-color: var(--ink-jade);
+  background: var(--ink-jade);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .web-shell-menu-button,
+  .web-shell-popover,
+  .web-shell-window,
+  .web-shell-window-bar,
+  .skill-button-modal,
+  .skill-button-inline-buff-search,
+  .timeline-detail-card,
+  .timeline-detail-utility-panel,
+  .buff-editor-drawer,
+  .damage-report-modal,
+  .timeline-snapshot-modal
+) {
+  backdrop-filter: none;
+  box-shadow: var(--theme-shadow-window);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-hero,
+  .data-package-panel,
+  .data-tool-card,
+  .data-library-section,
+  .data-library-inspector,
+  .settings-section,
+  .web-shell-popover,
+  .web-shell-window,
+  .selection-roster,
+  .selection-library,
+  .workbench-drawer,
+  .tool-panel,
+  .timeline-detail-card,
+  .timeline-detail-utility-panel,
+  .skill-button-modal,
+  .skill-button-inline-buff-search,
+  .buff-editor-drawer,
+  .damage-report-modal,
+  .timeline-snapshot-modal
+) {
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 5px 18px 5px 5px;
+  background-color: var(--theme-surface-raised);
+  box-shadow: var(--theme-shadow-panel);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-hero h2,
+  .data-package-panel h2,
+  .settings-section-heading h2,
+  .selection-header h1,
+  .modal-title,
+  .timeline-detail-heading strong,
+  .timeline-detail-card h3
+) {
+  color: var(--ink-charcoal);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-stat-grid strong,
+  .settings-card strong,
+  .timeline-detail-hit strong,
+  .timeline-summary-card strong,
+  .timeline-calculation-summary strong,
+  .damage-line strong
+) {
+  font-weight: 800;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .dashboard-kicker,
+  .section-heading p,
+  .settings-section-heading p,
+  .src,
+  .work-node-tree-source,
+  .local-buff-search-item-source,
+  .buff-card-source
+) {
+  color: var(--ink-muted);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .web-shell-nav button.is-active,
+  .web-shell-window-tabs button.is-active,
+  .workbench-drawer-tab.is-active,
+  .tool-panel-tab.is-active,
+  .anomaly-category-tab.is-active,
+  .anomaly-strip-button.is-active,
+  .anomaly-item-button.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active,
+  .workbench-bottom-nav-button.is-active
+) {
+  color: #40594f;
+  border-color: var(--ink-jade);
+  border-radius: 6px 12px 6px 6px;
+  background: var(--ink-jade-soft);
+  box-shadow:
+    inset 0 0 0 1px var(--ink-paper-hi),
+    inset 0 0 0 2px rgba(100, 124, 114, 0.38);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skew-panel,
+  .skew-panel-bottom
+) {
+  background: var(--ink-paper-deep);
+}
+
+:root[data-theme="lieflat-mono"] .buff-edit-selection-counter {
+  color: #40594f;
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+  box-shadow: inset 0 0 0 1px var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .data-tool-card::before {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .data-tool-index {
+  color: #fffaf1;
+  background: var(--ink-charcoal);
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .operator-draft-page label,
+:root[data-theme="lieflat-mono"] .image-manager-stat-readonly {
+  color: #7d7971;
+}
+
+:root[data-theme="lieflat-mono"] .image-manager-host-status-dot {
+  background: var(--ink-jade);
+}
+
+:root[data-theme="lieflat-mono"] .selection-element-pill {
+  color: var(--ink-body);
+  background: rgba(251, 249, 243, 0.84) !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-equip-button,
+  .operator-config-page-track-badge-btn,
+  .operator-config-page-track-hex-svg,
+  .operator-config-page-equip-circle-fallback,
+  .config-weapon-choose-img-fallback,
+  .config-weapon-config-button,
+  .config-avatar-item
+) {
+  color: var(--ink-charcoal);
+  border-color: var(--theme-line-strong);
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
+  fill: var(--theme-fill-subtle) !important;
+  stroke: var(--ink-rule) !important;
+  filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .operator-config-page-track-badge-btn.is-active .operator-config-page-track-hex-svg polygon {
+  fill: var(--ink-jade-soft) !important;
+  stroke: var(--ink-jade) !important;
+}
+
+/*
+ * Report geometry is product-owned. The theme only recolours the existing
+ * circles, paths, points and potential-star layers.
+ */
+:root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
+  color: var(--ink-body);
+  border-color: var(--theme-line-regular);
+  background: var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head {
+  border-color: var(--ink-rule);
+  border-bottom-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head :is(span, h1),
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card h2 {
+  color: var(--ink-charcoal);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card {
+  border-color: var(--theme-line-regular);
+  border-style: solid;
+  border-radius: 4px 16px 4px 4px;
+  background: var(--theme-surface-regular);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie circle:first-child {
+  stroke: var(--theme-line-soft) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(2) {
+  stroke: var(--ink-charcoal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(3) {
+  stroke: var(--ink-seal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(4) {
+  stroke: var(--ink-jade) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(5) {
+  stroke: var(--ink-ochre) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(1) span {
+  background: var(--ink-charcoal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(2) span {
+  background: var(--ink-seal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(3) span {
+  background: var(--ink-jade) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(4) span {
+  background: var(--ink-ochre) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row strong,
+:root[data-theme="lieflat-mono"] .report-ppt-chart-total {
+  color: var(--ink-charcoal);
+  font-weight: 700;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-legend-row em {
+  color: var(--ink-muted);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-total {
+  border-top-color: var(--ink-rule);
+  border-top-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line path:first-of-type {
+  stroke: var(--ink-rule) !important;
+  stroke-dasharray: 1.2 1.8 0.25 1.8;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line path:last-of-type {
+  stroke: var(--ink-charcoal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line circle {
+  fill: var(--ink-paper-hi) !important;
+  stroke: var(--ink-seal) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-line-label {
+  fill: var(--ink-muted);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-avatar,
+  .report-ppt-weapon-image img,
+  .report-ppt-equipment-icon img,
+  .report-ppt-axis-label img
+) {
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF000"] {
+  fill: var(--ink-seal) !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFFFFF"] {
+  fill: var(--ink-ochre-soft) !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-potential-star,
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#C7C7C7"] {
+  fill: #c5beb1 !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF59D"] {
+  fill: var(--theme-fill-subtle) !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-potential-star-wrap.is-max,
+  .operator-config-page-level-badge-box.is-max,
+  .operator-config-page-weapon-star-square-box.is-max
+) polygon {
+  filter:
+    drop-shadow(0 0 2px rgba(176, 138, 79, 0.72))
+    drop-shadow(0 0 6px rgba(176, 138, 79, 0.32)) !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button
+),
+:root[data-theme="lieflat-mono"] .buff-batch-edit-workbench .skill-button-orb {
+  color: var(--ink-charcoal);
+  border-color: color-mix(in srgb, var(--skill-button-element-color, var(--ink-rule)) 54%, var(--ink-charcoal));
+  background: color-mix(in srgb, var(--skill-button-element-color, var(--ink-paper-deep)) 28%, var(--ink-paper-hi));
+  box-shadow:
+    0 0 0 2px var(--ink-paper-hi),
+    0 0 0 3px rgba(81, 76, 67, 0.54);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb .skill-icon,
+  .dragging-skill-button-orb img,
+  .sandbox-skill-button img
+) {
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  button,
+  input,
+  textarea,
+  select
+):focus-visible {
+  outline: 2px solid var(--ink-seal);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .web-shell-overlay {
+  background: var(--theme-overlay-bg);
+  backdrop-filter: none;
+}
+
+:root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button:hover:not(:disabled) {
+  color: #40594f !important;
+  border-color: var(--ink-jade) !important;
+  background: var(--ink-jade-soft) !important;
+  background-color: var(--ink-jade-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--ink-paper-hi) !important;
+}
+
+:root[data-theme="lieflat-mono"] .workbench-bottom-actions .workbench-bottom-nav-button.is-active {
+  color: #40594f !important;
+  border-color: var(--ink-jade) !important;
+  border-style: double !important;
+  background: var(--ink-jade-soft) !important;
+  background-color: var(--ink-jade-soft) !important;
+  box-shadow: inset 0 0 0 1px var(--ink-paper-hi) !important;
+}
+
+/* Paper field and unfiltered product artwork. */
+:root[data-theme="lieflat-mono"] body,
+:root[data-theme="lieflat-mono"] .app,
+:root[data-theme="lieflat-mono"] .web-app-shell,
+:root[data-theme="lieflat-mono"] .workbench-frame {
+  background-color: var(--ink-paper-deep);
+  background-image:
+    linear-gradient(90deg, rgba(74, 66, 54, 0.018) 1px, transparent 1px),
+    linear-gradient(rgba(74, 66, 54, 0.014) 1px, transparent 1px);
+  background-size: 31px 100%, 100% 29px;
+}
+
+:root[data-theme="lieflat-mono"] img {
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="lieflat-mono"] {
+  scrollbar-color: var(--ink-rule) transparent;
+}
+
+/* Direct manipulation stays quiet and directional. */
+:root[data-theme="lieflat-mono"] button {
+  transition:
+    color var(--theme-transition),
+    border-color var(--theme-transition),
+    background-color var(--theme-transition),
+    box-shadow var(--theme-transition),
+    translate var(--theme-transition);
+}
+
+:root[data-theme="lieflat-mono"] button:active:not(:disabled) {
+  translate: 0 1px;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="range"]
+) {
+  accent-color: var(--ink-jade);
+}
+
+/* Primary commitments use a folded paper block; selection never borrows it. */
+:root[data-theme="lieflat-mono"] :is(
+  .toolbar-right .btn-save:first-child,
+  .buff-sheet-share-action.is-primary,
+  .anomaly-apply-btn,
+  .operator-draft-run-button,
+  .buff-editor-drawer footer button:last-child
+) {
+  color: #fffaf1 !important;
+  border-color: var(--ink-seal-strong) !important;
+  border-radius: 3px !important;
+  background: var(--ink-seal) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 2px 0 var(--ink-seal-strong) !important;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .toolbar-right .btn-save:first-child,
+  .buff-sheet-share-action.is-primary,
+  .anomaly-apply-btn,
+  .operator-draft-run-button,
+  .buff-editor-drawer footer button:last-child
+):hover:not(:disabled) {
+  background: var(--ink-seal-strong) !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .btn-calculate,
+  .damage-sheet-action-button,
+  .web-shell-menu-button
+) {
+  color: var(--ink-paper-hi);
+  border-color: var(--ink-charcoal);
+  background: var(--ink-charcoal);
+}
+
+/* Rules: dotted workspace, dashed sections, double selected boundaries. */
+:root[data-theme="lieflat-mono"] .canvas-grid-group {
+  border: 1px solid var(--ink-charcoal);
+  outline: 0;
+  background: rgba(251, 249, 243, 0.58);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-grid-background {
+  --grid-line-color: rgba(100, 92, 80, 0.34);
+  background-color: transparent;
+  background-image:
+    radial-gradient(circle at 4px 100%, var(--grid-line-color) 0 0.8px, transparent 1px),
+    radial-gradient(circle at 100% 4px, var(--grid-line-color) 0 0.8px, transparent 1px);
+  background-position:
+    0 0,
+    var(--grid-first-column-width) 0;
+  background-size:
+    8px var(--grid-row-height),
+    var(--grid-column-width) 8px;
+}
+
+:root[data-theme="lieflat-mono"] .canvas-container.is-dragging-active .canvas-grid-background {
+  --grid-line-color: rgba(100, 124, 114, 0.7);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .modal-header,
+  .skill-button-buff-section,
+  .timeline-detail-heading,
+  .timeline-detail-card > h3,
+  .operator-config-page-section-heading,
+  .operator-config-page-section-title,
+  .buff-editor-drawer-header,
+  .damage-sheet-topbar,
+  .damage-sheet-ribbon
+) {
+  border-color: var(--ink-rule);
+  border-bottom-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .damage-sheet-excel-cell,
+  .damage-sheet-excel-row-number,
+  .report-sheet-table th,
+  .report-sheet-table td
+) {
+  border-color: var(--theme-border-grid);
+  border-style: dotted;
+}
+
+/* Selected records: full boundary, quiet jade fill, no rounded-card side bar. */
+:root[data-theme="lieflat-mono"] :is(
+  .selection-character-card.is-selected,
+  .data-library-list > button.is-selected,
+  .image-manager-grid-item.is-selected,
+  .timeline-detail-hit.is-selected,
+  .skill-damage-hit-card.selected,
+  .buff-tag-selectable.is-selected,
+  .buff-edit-buff-card.is-selected,
+  .operator-draft-skill-item.is-active,
+  .operator-draft-hit-item.is-active,
+  .operator-draft-buff-item.is-active,
+  .operator-draft-local-library-item.is-active,
+  .operator-draft-searchable-option.is-active
+) {
+  color: var(--ink-charcoal);
+  border-color: var(--ink-jade) !important;
+  background: var(--ink-jade-soft) !important;
+  box-shadow:
+    inset 0 0 0 1px var(--ink-paper-hi),
+    0 0 0 1px var(--ink-jade) !important;
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card {
+  position: relative;
+  border-radius: 4px 14px 4px 4px;
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card.is-selected::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  background: linear-gradient(
+    225deg,
+    var(--ink-paper-hi) 0 44%,
+    var(--ink-jade) 45% 54%,
+    transparent 55%
+  );
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card:disabled {
+  opacity: 1;
+  color: var(--ink-muted);
+  border-style: dotted;
+  background: var(--theme-fill-subtle);
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card:disabled :is(
+  .selection-character-main,
+  .selection-element-pill
+) {
+  opacity: 0.54;
+}
+
+:root[data-theme="lieflat-mono"] .selection-character-card:disabled .selection-character-avatar-image {
+  filter: none !important;
+  opacity: 1;
+}
+
+:root[data-theme="lieflat-mono"] .report-sheet-table tbody tr.is-selected > *,
+:root[data-theme="lieflat-mono"] .damage-sheet-excel-cell.is-active {
+  color: var(--ink-charcoal);
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+  box-shadow: inset 0 0 0 1px var(--ink-jade);
+}
+
+/* Add/remove intent keeps its own semantic colour. */
+:root[data-theme="lieflat-mono"] .buff-edit-buff-card.is-selected.is-add-intent {
+  border-color: var(--ink-jade) !important;
+  background: var(--ink-jade-soft) !important;
+}
+
+:root[data-theme="lieflat-mono"] .buff-edit-buff-card.is-selected.is-remove-intent,
+:root[data-theme="lieflat-mono"] :is(
+  .buff-edit-remove-button.is-confirm-remove,
+  .buff-edit-clear-selection-button.is-cancel-add
+) {
+  color: var(--ink-seal-strong) !important;
+  border-color: var(--ink-seal) !important;
+  background: var(--ink-seal-soft) !important;
+}
+
+/* Main/sub attributes keep a permanent, non-interchangeable colour contract. */
+:root[data-theme="lieflat-mono"] :is(
+  .config-data-item.is-main,
+  .operator-config-page-stat-item.is-main
+) {
+  color: #4f3b1f;
+  border-color: #a68149 !important;
+  background: var(--ink-ochre-soft) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 251, 237, 0.7);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .config-data-item.is-sub,
+  .operator-config-page-stat-item.is-sub
+) {
+  color: #334b42;
+  border-color: var(--ink-jade) !important;
+  background: var(--ink-jade-soft) !important;
+  box-shadow: inset 0 0 0 1px rgba(247, 253, 249, 0.72);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row {
+  border: 1px dotted var(--ink-rule);
+  border-radius: 4px 10px 4px 4px;
+  overflow: hidden;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:first-child {
+  border-color: #a68149;
+  background: var(--ink-ochre-soft);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:last-child {
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:first-child .operator-config-page-favor-label {
+  color: #5c4626;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-favor-row:last-child .operator-config-page-favor-label {
+  color: #40594f;
+}
+
+/* Configuration progress: ochre levels, jade mastery, seal-red current step. */
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-track-slot,
+  .operator-config-page-level-slot
+) {
+  border-color: var(--ink-rule);
+  background: var(--ink-paper-hi);
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-track-slot.is-active {
+  border-color: #a68149;
+  background: var(--ink-ochre-soft);
+  box-shadow: inset 0 -2px 0 var(--ink-ochre);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-level-slot.is-active {
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+  box-shadow: inset 0 -2px 0 var(--ink-jade);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-level-slot.is-disabled {
+  border-style: dotted;
+  background: var(--theme-fill-subtle);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-weapon-config-button.is-current {
+  border-color: var(--ink-seal-strong);
+  background: var(--ink-seal);
+  box-shadow: 0 0 0 2px var(--ink-seal-soft);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-weapon-config-button.is-lit {
+  border-color: #9a7b48;
+  background: var(--ink-ochre-soft);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-weapon-config-button.is-dim {
+  border-color: var(--ink-rule);
+  background: #c9c2b6;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root :is(
+  .operator-config-page-equip-button,
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot,
+  .config-weapon-config-button
+).is-current {
+  border-color: var(--ink-seal);
+  background: var(--ink-seal);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-weapon-star-showcase {
+  border-color: var(--theme-line-regular);
+  background: var(--theme-surface-muted);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+) {
+  border-color: var(--theme-line-regular);
+  background: var(--ink-paper-deep);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+):is(:hover, :active, :focus, :focus-visible) {
+  background: var(--theme-fill-hover) !important;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-potential-star-wrap::before {
+  background: rgba(251, 249, 243, 0.88);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i {
+  border-color: var(--ink-rule);
+  background: var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-level-capsule i.is-active {
+  border-color: #9a7b48;
+  background: var(--ink-ochre-soft);
+}
+
+/* Selected operator: concentric record ring plus one small index mark. */
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item {
+  isolation: isolate;
+  overflow: visible !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-image {
+  position: relative;
+  z-index: 2;
+  border-color: var(--theme-line-strong);
+  filter: none !important;
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item.is-active .config-avatar-image {
+  box-shadow:
+    0 0 0 2px var(--ink-paper-hi),
+    0 0 0 4px var(--ink-jade),
+    0 0 0 7px rgba(100, 124, 114, 0.22);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item.is-active::after {
+  content: "";
+  left: 50%;
+  top: 50%;
+  width: calc(100% + 14px);
+  height: calc(100% + 14px);
+  z-index: 0;
+  border: 1px dotted var(--ink-charcoal);
+  border-radius: 50% !important;
+  background: transparent;
+  transform: translate(-50%, -50%);
+}
+
+:root[data-theme="lieflat-mono"] .operator-config-page-root .config-avatar-item.is-active::before {
+  content: "";
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  z-index: 3;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ink-paper-hi);
+  background: var(--ink-ochre);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
+/* Dense editors use paper leaves instead of nested rounded cards. */
+:root[data-theme="lieflat-mono"] :is(
+  .operator-config-page-section,
+  .config-data-section,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .timeline-tuning-card,
+  .timeline-summary-card,
+  .timeline-calculation-summary,
+  .buff-edit-buff-card,
+  .skill-button-inline-buff-search-item,
+  .anomaly-board-card
+) {
+  border-color: var(--theme-line-regular);
+  border-radius: 4px 12px 4px 4px;
+  background: var(--theme-surface-regular);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .timeline-buff-row,
+  .timeline-tuning-inline-item,
+  .selected-buff-card,
+  .nearby-buff-card
+) {
+  border-color: var(--theme-line-regular);
+  border-bottom-style: dashed;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .timeline-tuning-inline-actions button.is-active,
+  .buff-editor-drawer-levels button.is-active,
+  .skill-button-inline-buff-search-mode.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active
+) {
+  color: #40594f;
+  border-color: var(--ink-jade);
+  background: var(--ink-jade-soft);
+  box-shadow: inset 0 0 0 1px var(--ink-paper-hi);
+}
+
+/* The theme option itself previews the semantic accents, not a gray ladder. */
+:root[data-theme="lieflat-mono"] ::selection {
+  color: var(--ink-charcoal);
+  background: var(--ink-ochre-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="lieflat-mono"] *,
+  :root[data-theme="lieflat-mono"] *::before,
+  :root[data-theme="lieflat-mono"] *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
