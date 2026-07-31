@@ -115,7 +115,7 @@
   --web-danger: #9c463b;
   --web-shadow: var(--theme-shadow-panel);
 
-  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-family: "Songti SC", "STSong", "Noto Serif CJK SC", "Source Han Serif SC", "SimSong", serif;
   --border-width: 1px;
 }
 
@@ -129,7 +129,14 @@
   --shell-border: #c4bbad;
   --shell-border-strong: #857d70;
   --shell-surface: var(--ink-paper-hi);
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-family);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-page,
+  .report-ppt-axis-label
+) {
+  font-family: var(--font-family);
 }
 
 .theme-option.is-lieflat-mono .theme-option-preview {
@@ -347,100 +354,299 @@
 }
 
 /*
- * Report geometry is product-owned. The theme only recolours the existing
- * circles, paths, points and potential-star layers.
+ * Report data and SVG geometry stay product-owned. The theme gives the
+ * surrounding slide, cards and existing marks a stronger editorial skin.
  */
-:root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
+:root[data-theme="lieflat-mono"] .report-ppt-page {
   color: var(--ink-body);
-  border-color: var(--theme-line-regular);
+  background-color: var(--ink-paper-deep);
+  background-image:
+    linear-gradient(rgba(81, 76, 67, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(81, 76, 67, 0.07) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar {
+  color: var(--ink-paper-hi);
+  border-bottom: 0;
+  background: var(--ink-charcoal);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar button {
+  color: var(--ink-charcoal);
+  border-color: var(--ink-paper-hi);
+  border-radius: 3px;
   background: var(--ink-paper-hi);
 }
 
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar button:hover {
+  color: var(--ink-charcoal);
+  border-color: var(--ink-rule-soft);
+  background: var(--ink-paper-deep);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar strong {
+  color: var(--ink-paper-hi);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-toolbar span {
+  color: #b8b3aa;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-inner {
+  color: var(--ink-body);
+  border: 1px solid var(--ink-charcoal);
+  background-color: var(--ink-paper-hi);
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 27px,
+      rgba(81, 76, 67, 0.055) 27px 28px
+    );
+}
+
 :root[data-theme="lieflat-mono"] .report-ppt-slide-head {
+  align-items: center;
+  border-color: var(--ink-charcoal);
+  border-bottom-style: solid;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head span {
+  width: 30px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 30px;
+  color: var(--ink-paper-hi);
+  background: var(--ink-charcoal);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-slide-head h1,
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card h2 {
+  color: var(--ink-charcoal);
+  letter-spacing: 0.055em;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-operator-row,
+  .report-ppt-axis-group
+) {
+  border-color: var(--ink-charcoal);
+  background: rgba(251, 249, 243, 0.94);
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-weapon-block,
+  .report-ppt-equipment-block,
+  .report-ppt-skill-levels,
+  .report-ppt-equipment-icon,
+  .report-ppt-axis-track
+) {
   border-color: var(--ink-rule);
+  background-color: rgba(251, 249, 243, 0.92);
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-operator-main,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name
+) {
+  color: var(--ink-charcoal);
+  background: rgba(251, 249, 243, 0.9);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-weapon-image,
+  .report-ppt-equipment-icon
+) {
+  background: var(--ink-paper-deep);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-skill-levels span {
+  color: var(--ink-body);
+  border-color: var(--ink-rule-soft);
+  border-style: dotted;
+  background: rgba(81, 76, 67, 0.04);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-equipment-set-name {
+  color: var(--ink-body);
+  border-bottom-color: var(--ink-rule);
   border-bottom-style: dashed;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-slide-head :is(span, h1),
-:root[data-theme="lieflat-mono"] .report-ppt-chart-card h2 {
+:root[data-theme="lieflat-mono"] .report-ppt-axis-track {
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(100% / 15 - 1px),
+      rgba(81, 76, 67, 0.13) calc(100% / 15 - 1px),
+      rgba(81, 76, 67, 0.13) calc(100% / 15)
+    );
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
   color: var(--ink-charcoal);
+  border-color: var(--ink-charcoal);
+  background: var(--ink-paper-hi);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card {
-  border-color: var(--theme-line-regular);
-  border-style: solid;
-  border-radius: 4px 16px 4px 4px;
-  background: var(--theme-surface-regular);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62);
+  position: relative;
+  padding: 12px 14px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--ink-paper-deep);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:not(.is-placeholder)::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 9px;
+  height: 1px;
+  background: var(--ink-rule-soft);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-pie-layout {
+  height: calc(100% - 20px);
+  grid-template-columns: minmax(0, 1fr) 184px;
+  gap: 8px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-pie {
+  width: 78%;
+  justify-self: center;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-chart-legend {
+  gap: 5px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-legend-row {
+  row-gap: 1px;
+  font-size: 10.5px;
+  line-height: 1.1;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-legend-row :is(strong, em) {
+  line-height: 1.1;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-chart-total {
+  padding-top: 5px;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child {
+  color: var(--ink-paper-hi);
+  background: var(--ink-charcoal);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child h2 {
+  color: var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child::after {
+  display: none;
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:nth-child(2) {
+  background-color: var(--ink-paper-hi);
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent 0 17px,
+      rgba(81, 76, 67, 0.055) 17px 18px
+    );
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card.is-placeholder {
+  color: var(--ink-muted);
+  border: 1px dashed var(--ink-rule);
+  background: rgba(251, 249, 243, 0.42);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie circle:first-child {
-  stroke: var(--theme-line-soft) !important;
+  stroke: rgba(251, 249, 243, 0.12) !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(2) {
-  stroke: var(--ink-charcoal) !important;
+  stroke: var(--ink-paper-hi) !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(3) {
-  stroke: var(--ink-seal) !important;
+  stroke: #b8b7b1 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(4) {
-  stroke: var(--ink-jade) !important;
+  stroke: #7c7b76 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(5) {
-  stroke: var(--ink-ochre) !important;
+  stroke: #52514d !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(1) span {
-  background: var(--ink-charcoal) !important;
+  background: var(--ink-paper-hi) !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(2) span {
-  background: var(--ink-seal) !important;
+  background: #b8b7b1 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(3) span {
-  background: var(--ink-jade) !important;
+  background: #7c7b76 !important;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(4) span {
-  background: var(--ink-ochre) !important;
+  background: #52514d !important;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row strong,
-:root[data-theme="lieflat-mono"] .report-ppt-chart-total {
-  color: var(--ink-charcoal);
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child :is(
+  .report-ppt-legend-row strong,
+  .report-ppt-chart-total
+) {
+  color: var(--ink-paper-hi);
   font-weight: 700;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row em {
-  color: var(--ink-muted);
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-legend-row em {
+  color: #b8b7b1;
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-chart-total {
-  border-top-color: var(--ink-rule);
+:root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-chart-total {
+  border-top-color: #55554f;
   border-top-style: dashed;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line path:first-of-type {
-  stroke: var(--ink-rule) !important;
+  stroke: var(--ink-rule-soft) !important;
   stroke-dasharray: 1.2 1.8 0.25 1.8;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line path:last-of-type {
   stroke: var(--ink-charcoal) !important;
+  stroke-width: 1.05;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line circle {
   fill: var(--ink-paper-hi) !important;
-  stroke: var(--ink-seal) !important;
+  stroke: var(--ink-charcoal) !important;
+  stroke-width: 0.7;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-line-label {
-  fill: var(--ink-muted);
+  fill: var(--ink-body);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -634,25 +840,34 @@
   background: var(--ink-charcoal);
 }
 
-/* Rules: dotted workspace, dashed sections, double selected boundaries. */
+/* Rules: ledger workspace, dashed sections, double selected boundaries. */
+:root[data-theme="lieflat-mono"] .canvas-container {
+  background-color: var(--ink-paper);
+  background-image:
+    linear-gradient(rgba(81, 76, 67, 0.075) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(81, 76, 67, 0.075) 1px, transparent 1px);
+  background-position: -1px -1px;
+  background-size: 28px 28px;
+}
+
 :root[data-theme="lieflat-mono"] .canvas-grid-group {
   border: 1px solid var(--ink-charcoal);
   outline: 0;
-  background: rgba(251, 249, 243, 0.58);
+  background: rgba(251, 249, 243, 0.94);
 }
 
 :root[data-theme="lieflat-mono"] .canvas-grid-background {
-  --grid-line-color: rgba(100, 92, 80, 0.34);
+  --grid-line-color: rgba(81, 76, 67, 0.2);
   background-color: transparent;
   background-image:
-    radial-gradient(circle at 4px 100%, var(--grid-line-color) 0 0.8px, transparent 1px),
-    radial-gradient(circle at 100% 4px, var(--grid-line-color) 0 0.8px, transparent 1px);
+    linear-gradient(var(--grid-line-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line-color) 1px, transparent 1px);
   background-position:
-    0 0,
+    0 var(--grid-row-height),
     var(--grid-first-column-width) 0;
   background-size:
-    8px var(--grid-row-height),
-    var(--grid-column-width) 8px;
+    100% var(--grid-row-height),
+    var(--grid-column-width) 100%;
 }
 
 :root[data-theme="lieflat-mono"] .canvas-container.is-dragging-active .canvas-grid-background {
