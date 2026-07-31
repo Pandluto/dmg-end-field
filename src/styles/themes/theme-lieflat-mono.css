@@ -23,6 +23,7 @@
   --ink-ochre-soft: #ead8ad;
   --ink-jade: #647c72;
   --ink-jade-soft: #cfddd7;
+  --ink-indigo: #4e6389;
   /*
    * Contour hierarchy, derived from the selected Work Node record boundary.
    * Deep umber belongs to selected/committed state; progressively quieter
@@ -638,19 +639,19 @@
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-0 {
-  color: var(--ink-outline-structural);
+  color: var(--ink-seal);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-1 {
-  color: var(--ink-jade);
+  color: #3f7569;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-2 {
-  color: var(--ink-ochre);
+  color: #b97818;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-3 {
-  color: var(--ink-seal);
+  color: var(--ink-indigo);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-pie-guide-dot {
