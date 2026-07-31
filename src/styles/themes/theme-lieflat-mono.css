@@ -34,6 +34,7 @@
   --ink-outline-frame: #c7aa9a;
   --ink-outline-soft: #dac9be;
   --ink-outline-faint: #e8ddd6;
+  --ink-skill-outline: #c1877e;
   --ink-rule: var(--ink-outline-control);
   --ink-rule-soft: var(--ink-outline-soft);
 
@@ -503,9 +504,12 @@
     );
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-axis-button-body {
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-axis-button-body,
+  .report-ppt-axis-button-orb
+) {
   color: var(--ink-charcoal);
-  border-color: var(--ink-outline-control);
+  border-color: var(--ink-skill-outline);
   background: var(--ink-paper-hi);
 }
 
@@ -719,7 +723,7 @@
 ),
 :root[data-theme="lieflat-mono"] .buff-batch-edit-workbench .skill-button-orb {
   color: var(--ink-charcoal);
-  border-color: var(--ink-outline-control);
+  border-color: var(--ink-skill-outline);
   background: color-mix(in srgb, var(--skill-button-element-color, var(--ink-paper-deep)) 28%, var(--ink-paper-hi));
   box-shadow:
     0 0 0 2px var(--ink-paper-hi),
@@ -1257,7 +1261,7 @@
   .skill-button-base,
   .dragging-skill-button-base
 ) {
-  border-color: var(--ink-outline-control);
+  border-color: var(--ink-skill-outline);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -1265,7 +1269,7 @@
   .dragging-skill-button-orb,
   .sandbox-skill-button
 ) {
-  border-color: var(--ink-outline-frame);
+  border-color: var(--ink-skill-outline);
 }
 
 :root[data-theme="lieflat-mono"] :is(
