@@ -45,6 +45,7 @@ export function DraggingOverlay({ draggingState, mousePosition, buttonSize }: Dr
   return (
     <div
       className="dragging-skill-button-preview"
+      data-skill-type={draggingState.skillType}
       style={{
         left: mousePosition.x - radius - visualOffsetX,
         top: mousePosition.y - radius - visualOffsetY,

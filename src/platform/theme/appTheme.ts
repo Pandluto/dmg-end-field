@@ -1,7 +1,12 @@
 export const APP_THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
 export const APP_THEME_CHANGE_EVENT = 'dmg-theme-change';
 
-export type AppThemeId = 'office-excel' | 'apple-midnight' | 'apple-warm' | 'lieflat-mono';
+export type AppThemeId =
+  | 'office-excel'
+  | 'apple-midnight'
+  | 'apple-warm'
+  | 'lieflat-mono'
+  | 'liquid-tide';
 
 export type AppThemeOption = {
   id: AppThemeId;
@@ -39,6 +44,13 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '纸面、墨线与克制的矿物色',
     colorScheme: 'light',
     browserColor: '#e8e2d6',
+  },
+  {
+    id: 'liquid-tide',
+    label: '潮汐玻璃',
+    description: '连续海彩图景与液态玻璃控件',
+    colorScheme: 'light',
+    browserColor: '#a8b6dc',
   },
 ] as const;
 

@@ -802,6 +802,7 @@ function TimelineGroupSlide({
                             <div
                               key={button.id}
                               className={`report-ppt-axis-button${isDotButton ? ' is-dot' : ''}`}
+                              data-skill-type={button.skillType}
                               style={{
                                 left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%`,
                                 '--skill-button-size': '36px',

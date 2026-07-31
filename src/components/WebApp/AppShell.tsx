@@ -127,6 +127,81 @@ function BrandLogo() {
   );
 }
 
+function LiquidTideFilterDefs() {
+  return (
+    <svg
+      className="liquid-tide-filter-defs"
+      width="0"
+      height="0"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <filter
+          id="liquid-tide-refraction"
+          x="-12%"
+          y="-20%"
+          width="124%"
+          height="140%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.011 0.024"
+            numOctaves="1"
+            seed="23"
+            result="liquidTideNoise"
+          />
+          <feGaussianBlur in="liquidTideNoise" stdDeviation="0.7" result="liquidTideSoftNoise" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="liquidTideSoftNoise"
+            scale="4.5"
+            xChannelSelector="R"
+            yChannelSelector="B"
+            result="liquidTideRefracted"
+          />
+          <feColorMatrix
+            in="liquidTideRefracted"
+            type="saturate"
+            values="1.08"
+          />
+        </filter>
+        <filter
+          id="liquid-tide-lens"
+          x="-18%"
+          y="-18%"
+          width="136%"
+          height="136%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency="0.008 0.018"
+            numOctaves="1"
+            seed="31"
+            result="liquidTideLensNoise"
+          />
+          <feGaussianBlur in="liquidTideLensNoise" stdDeviation="0.85" result="liquidTideLensMap" />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="liquidTideLensMap"
+            scale="7"
+            xChannelSelector="R"
+            yChannelSelector="B"
+            result="liquidTideLensRefracted"
+          />
+          <feColorMatrix
+            in="liquidTideLensRefracted"
+            type="saturate"
+            values="1.12"
+          />
+        </filter>
+      </defs>
+    </svg>
+  );
+}
+
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(
@@ -299,6 +374,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
 
   return (
     <div className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
+      <LiquidTideFilterDefs />
       <main className="web-shell-content">{children}</main>
 
       {showLauncher && (

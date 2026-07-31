@@ -432,6 +432,8 @@ function BuffEditSkillButton({
   const skillType = getButtonSkillType(button);
   const displayName = button.skillDisplayName || skillType;
   const skillIconUrl = button.skillIconUrl || resolveSkillIconUrl(button.characterName, skillType);
+  const normalizedSkillIconUrl = skillIconUrl ? normalizeAssetUrl(skillIconUrl) : '';
+  const hasVisibleSkillIcon = Boolean(normalizedSkillIconUrl && !iconLoadFailed);
 
   const handleIconLoad = () => {
     setIconLoadFailed(false);
@@ -444,6 +446,7 @@ function BuffEditSkillButton({
   return (
     <div
       className={`canvas-skill-button buff-edit-skill-button${isSelected ? ' selected' : ''}${isAddOwned || isRemoveOwned ? ' is-add-owned' : ''}${isAddTarget ? ' is-add-target' : ''}${isRemoveTarget ? ' is-remove-target' : ''}${isEditAddTarget ? ' is-edit-add-target' : ''}${isEditRemoveTarget ? ' is-edit-remove-target' : ''}${isEditAddTarget && isEditRemoveTarget ? ' is-edit-mixed-target' : ''}`}
+      data-skill-type={skillType}
       style={{
         left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
         top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
@@ -460,18 +463,24 @@ function BuffEditSkillButton({
         <div className="skill-button-base">
           <span className="skill-button-name">{skillType} {displayName}</span>
         </div>
-        <div className="skill-button-orb" title={`${button.characterName} - ${displayName}`}>
-          {skillIconUrl && !iconLoadFailed ? (
+        <div
+          className={`skill-button-orb${hasVisibleSkillIcon ? ' has-skill-icon-mask' : ''}`}
+          title={`${button.characterName} - ${displayName}`}
+          style={{
+            '--skill-icon-mask': hasVisibleSkillIcon ? `url(${JSON.stringify(normalizedSkillIconUrl)})` : 'none',
+          } as CSSProperties}
+        >
+          {hasVisibleSkillIcon ? (
             <img
               className="skill-icon"
-              key={normalizeAssetUrl(skillIconUrl)}
-              src={normalizeAssetUrl(skillIconUrl)}
+              key={normalizedSkillIconUrl}
+              src={normalizedSkillIconUrl}
               alt={displayName}
               onLoad={handleIconLoad}
               onError={handleIconError}
             />
           ) : null}
-          <span className={`skill-label ${!iconLoadFailed && skillIconUrl ? 'hidden' : ''}`}>{skillType}</span>
+          <span className={`skill-label ${hasVisibleSkillIcon ? 'hidden' : ''}`}>{skillType}</span>
         </div>
       </div>
       {pendingAddCount > 0 ? (
