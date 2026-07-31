@@ -765,8 +765,8 @@
   border-color: var(--ink-skill-outline);
   background: color-mix(in srgb, var(--skill-button-element-color, var(--ink-paper-deep)) 28%, var(--ink-paper-hi));
   box-shadow:
-    0 0 0 2px var(--ink-paper-hi),
-    0 0 0 3px var(--ink-outline-soft);
+    0 0 0 1px var(--ink-paper-hi),
+    0 0 0 3px var(--ink-skill-outline);
 }
 
 :root[data-theme="lieflat-mono"] :is(
@@ -1318,6 +1318,12 @@
   border-color: var(--ink-outline-structural);
 }
 
+:root[data-theme="lieflat-mono"] .canvas-skill-button:hover .skill-button-orb {
+  box-shadow:
+    0 0 0 1px var(--ink-paper-hi),
+    0 0 0 3px var(--ink-outline-structural);
+}
+
 /* The skill candidates in the right rail are the actual draggable controls. */
 :root[data-theme="lieflat-mono"] :is(
   .sandbox-skill-button,
@@ -1327,7 +1333,7 @@
   border-color: var(--ink-skill-outline);
   box-shadow:
     0 0 0 1px var(--ink-paper-hi),
-    0 0 0 2px var(--ink-skill-outline);
+    0 0 0 3px var(--ink-skill-outline);
 }
 
 :root[data-theme="lieflat-mono"] .canvas-skill-button.selected:not(
@@ -1344,7 +1350,7 @@
   border-color: var(--ink-outline-selected);
   box-shadow:
     0 0 0 1px var(--ink-paper-hi),
-    0 0 0 2px color-mix(in srgb, var(--ink-outline-selected) 34%, transparent);
+    0 0 0 3px var(--ink-outline-selected);
 }
 
 :root[data-theme="lieflat-mono"] .skill-button-inspect-damage {
