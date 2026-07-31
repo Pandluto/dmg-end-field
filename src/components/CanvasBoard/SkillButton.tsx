@@ -235,6 +235,7 @@ export function SkillButtonComponent({
   const radius = size / 2;
   const baseWidth = 80;
   const baseHeight = 30;
+  const baseCornerRadius = 11;
   const visualOffsetX = 40;
   const visualOffsetY = 15;
   const hitWidth = radius + baseWidth;
@@ -246,6 +247,18 @@ export function SkillButtonComponent({
     `A ${radius} ${radius} 0 0 1 ${radius} 0`,
     `L ${baseWidth} 0`,
     `L ${baseWidth} ${baseHeight}`,
+    `L 0 ${baseHeight}`,
+    `L 0 ${radius}`,
+    `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
+    'Z',
+  ].join(' ');
+  const liquidGlassCompositeOutlinePath = [
+    `M 0 ${-radius}`,
+    `A ${radius} ${radius} 0 0 1 ${radius} 0`,
+    `L ${baseWidth - baseCornerRadius} 0`,
+    `Q ${baseWidth} 0 ${baseWidth} ${baseCornerRadius}`,
+    `L ${baseWidth} ${baseHeight - baseCornerRadius}`,
+    `Q ${baseWidth} ${baseHeight} ${baseWidth - baseCornerRadius} ${baseHeight}`,
     `L 0 ${baseHeight}`,
     `L 0 ${radius}`,
     `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
@@ -1612,7 +1625,8 @@ export function SkillButtonComponent({
               }}
               aria-hidden="true"
             >
-              <path d={compositeOutlinePath} />
+              <path className="skill-button-composite-outline-default-path" d={compositeOutlinePath} />
+              <path className="skill-button-composite-outline-liquid-path" d={liquidGlassCompositeOutlinePath} />
             </svg>
           ) : null}
           <div className="skill-button-base">

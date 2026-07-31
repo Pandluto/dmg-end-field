@@ -61,6 +61,10 @@
   vector-effect: non-scaling-stroke;
 }
 
+.skill-button-composite-outline-liquid-path {
+  display: none;
+}
+
 .skill-button-base {
   position: absolute;
   left: 0;

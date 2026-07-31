@@ -1744,18 +1744,35 @@
   opacity: 1;
   filter: none;
   mix-blend-mode: normal;
+  -webkit-clip-path: var(--liquid-glass-composite-clip, none);
+  clip-path: var(--liquid-glass-composite-clip, none);
 }
 
 :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button :is(
   .skill-button-base,
   .skill-button-orb
 ) {
-  background: rgba(20, 28, 54, 0.055) !important;
+  border-color: transparent !important;
+  background: transparent !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.88),
-    inset -1px -1px 0 rgba(54, 67, 122, 0.13);
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline {
+  display: block;
+  color: rgba(255, 255, 255, 0.9);
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.42))
+    drop-shadow(0 5px 11px rgba(35, 47, 94, 0.18));
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-default-path {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-path {
+  display: block;
 }
 
 @supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
@@ -1771,6 +1788,15 @@
   .workbench-bottom-nav-button.is-active
 ) {
   filter: brightness(1.08) saturate(1.08);
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 :root[data-theme="liquid-tide"] :is(
