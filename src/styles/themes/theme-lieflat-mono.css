@@ -131,6 +131,59 @@
   --border-width: 1px;
 }
 
+/*
+ * Application-wide typography ownership.
+ *
+ * Several business surfaces historically declared PingFang/SF Pro on their
+ * own roots.  Keep the paper theme's Song typeface stable across route pages,
+ * portal dialogs and the controls they render instead of relying on accidental
+ * inheritance from the main timeline.
+ */
+:root[data-theme="lieflat-mono"] :is(
+  body,
+  .web-app,
+  .web-app-shell,
+  .operator-config-page-root,
+  .damage-sheet-page,
+  .report-ppt-page,
+  .timeline-detail-layer,
+  .damage-report-modal,
+  .timeline-snapshot-modal,
+  .timeline-snapshot-confirm-modal,
+  .skill-button-modal,
+  .work-node-modal
+) {
+  font-family: var(--font-family);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  button,
+  input,
+  textarea,
+  select,
+  option,
+  optgroup,
+  table,
+  thead,
+  tbody,
+  tfoot,
+  tr,
+  th,
+  td,
+  svg text
+) {
+  font-family: var(--font-family);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .report-ppt-axis-label,
+  .report-ppt-axis-button-body,
+  .canvas-skill-button.is-browse-mode .skill-button-name,
+  .skill-button-inspect-damage
+) {
+  font-family: var(--font-family);
+}
+
 :root[data-theme="lieflat-mono"] .web-app-shell {
   --shell-accent: var(--ink-seal);
   --shell-accent-hover: var(--ink-seal-strong);
@@ -141,14 +194,6 @@
   --shell-border: var(--ink-outline-frame);
   --shell-border-strong: var(--ink-outline-structural);
   --shell-surface: var(--ink-paper-hi);
-  font-family: var(--font-family);
-}
-
-:root[data-theme="lieflat-mono"] :is(
-  .report-ppt-page,
-  .report-ppt-axis-label
-) {
-  font-family: var(--font-family);
 }
 
 .theme-option.is-lieflat-mono .theme-option-preview {
