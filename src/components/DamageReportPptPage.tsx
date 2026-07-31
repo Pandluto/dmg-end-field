@@ -466,9 +466,9 @@ function getRoundedSectorPath(
     ].join(' ');
   }
 
-  const cornerRadius = Math.min(2.5, radius * 0.18);
+  const cornerRadius = Math.min(4, radius * 0.22);
   const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
-  const innerRadius = Math.min(2.2, radius * 0.2);
+  const innerRadius = Math.min(3.2, radius * 0.24);
   const innerStart = getPolarPoint(cx, cy, innerRadius, startAngle);
   const innerEnd = getPolarPoint(cx, cy, innerRadius, endAngle);
   const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
@@ -498,11 +498,11 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
   }
 
   const center = 50;
-  const maxRadius = 46;
+  const maxRadius = 48;
   const maxExpected = Math.max(...rows.map((row) => row.expected), 1);
   const slotAngle = 360 / rows.length;
   const gapAngle = Math.min(2.4, slotAngle * 0.025);
-  const labelRadius = 32;
+  const labelRadius = 34;
   const petals = rows.map((row, index) => {
     const slotStartAngle = -180 + index * slotAngle;
     const centerAngle = slotStartAngle + slotAngle / 2;
