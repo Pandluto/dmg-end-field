@@ -447,7 +447,7 @@ function getPolarPoint(cx: number, cy: number, radius: number, angle: number) {
   };
 }
 
-function getJoinedSectorPath(
+function getRoundedSectorPath(
   cx: number,
   cy: number,
   radius: number,
@@ -455,10 +455,8 @@ function getJoinedSectorPath(
   endAngle: number,
 ) {
   const angleSpan = endAngle - startAngle;
-  const outerStart = getPolarPoint(cx, cy, radius, startAngle);
-  const outerEnd = getPolarPoint(cx, cy, radius, endAngle);
-
   if (angleSpan >= 359.999) {
+    const outerStart = getPolarPoint(cx, cy, radius, startAngle);
     const opposite = getPolarPoint(cx, cy, radius, startAngle + 180);
     return [
       `M ${outerStart.x} ${outerStart.y}`,
@@ -468,10 +466,26 @@ function getJoinedSectorPath(
     ].join(' ');
   }
 
+  const cornerRadius = Math.min(2.5, radius * 0.18);
+  const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
+  const innerRadius = Math.min(2.2, radius * 0.2);
+  const innerStart = getPolarPoint(cx, cy, innerRadius, startAngle);
+  const innerEnd = getPolarPoint(cx, cy, innerRadius, endAngle);
+  const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
+  const outerStartControl = getPolarPoint(cx, cy, radius, startAngle);
+  const outerStart = getPolarPoint(cx, cy, radius, startAngle + cornerAngle);
+  const outerEnd = getPolarPoint(cx, cy, radius, endAngle - cornerAngle);
+  const outerEndControl = getPolarPoint(cx, cy, radius, endAngle);
+  const radialEnd = getPolarPoint(cx, cy, radius - cornerRadius, endAngle);
+
   return [
-    `M ${cx} ${cy}`,
-    `L ${outerStart.x} ${outerStart.y}`,
+    `M ${innerStart.x} ${innerStart.y}`,
+    `L ${radialStart.x} ${radialStart.y}`,
+    `Q ${outerStartControl.x} ${outerStartControl.y} ${outerStart.x} ${outerStart.y}`,
     `A ${radius} ${radius} 0 ${angleSpan > 180 ? 1 : 0} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `Q ${outerEndControl.x} ${outerEndControl.y} ${radialEnd.x} ${radialEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `Q ${cx} ${cy} ${innerStart.x} ${innerStart.y}`,
     'Z',
   ].join(' ');
 }
@@ -487,12 +501,13 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
   const maxRadius = 46;
   const maxExpected = Math.max(...rows.map((row) => row.expected), 1);
   const slotAngle = 360 / rows.length;
+  const gapAngle = Math.min(2.4, slotAngle * 0.025);
   const labelRadius = 32;
   const petals = rows.map((row, index) => {
     const slotStartAngle = -180 + index * slotAngle;
     const centerAngle = slotStartAngle + slotAngle / 2;
-    const startAngle = slotStartAngle;
-    const endAngle = slotStartAngle + slotAngle;
+    const startAngle = slotStartAngle + gapAngle / 2;
+    const endAngle = slotStartAngle + slotAngle - gapAngle / 2;
     const valueRadius = maxRadius * Math.sqrt(Math.max(row.expected, 0) / maxExpected);
     const labelPoint = getPolarPoint(center, center, labelRadius, centerAngle);
 
@@ -522,14 +537,14 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
             <path
               key={`base-${row.id}`}
               className="report-ppt-petal-base"
-              d={getJoinedSectorPath(center, center, maxRadius, startAngle, endAngle)}
+              d={getRoundedSectorPath(center, center, maxRadius, startAngle, endAngle)}
             />
           ))}
           {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
             <path
               key={`value-${row.id}`}
               className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
-              d={getJoinedSectorPath(center, center, valueRadius, startAngle, endAngle)}
+              d={getRoundedSectorPath(center, center, valueRadius, startAngle, endAngle)}
             />
           ))}
           <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />
