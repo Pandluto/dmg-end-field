@@ -28,6 +28,7 @@
   --liquid-tide-glass-dense: rgba(248, 250, 255, 0.72);
   --liquid-tide-glass-deep: rgba(45, 59, 116, 0.3);
   --liquid-tide-glass-deeper: rgba(35, 48, 99, 0.42);
+  --liquid-skill-shade: rgba(20, 28, 54, 0.1);
   --liquid-tide-pink: #d986ad;
   --liquid-tide-rose: #ec9bb7;
   --liquid-tide-lilac: #9c91d9;
@@ -1649,6 +1650,7 @@
 ) {
   border-color: var(--liquid-skill-edge, rgba(255, 255, 255, 0.68));
   background:
+    linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
     linear-gradient(145deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.14)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
     rgba(255, 255, 255, 0.025) !important;
   box-shadow:
@@ -1678,6 +1680,18 @@
   border-color: var(--liquid-skill-edge) !important;
 }
 
+/* A quiet dark veil separates the skill glass from bright artwork beneath it. */
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button .skill-button-base,
+  .dragging-skill-button-base,
+  .report-ppt-axis-button-body
+) {
+  background:
+    linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
+    linear-gradient(135deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.12)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
+    rgba(255, 255, 255, 0.025) !important;
+}
+
 @supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
   :root[data-theme="liquid-tide"] :is(
     .skill-button-orb,
@@ -1685,6 +1699,7 @@
     .report-ppt-axis-button-orb
   ).has-skill-icon-mask::before {
     background:
+      linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
       linear-gradient(145deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.15)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
       rgba(255, 255, 255, 0.02);
     -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
