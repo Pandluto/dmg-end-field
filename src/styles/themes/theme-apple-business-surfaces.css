@@ -2634,24 +2634,42 @@
   background: var(--theme-control-bg);
 }
 
-:root[data-theme="apple-midnight"] .report-ppt-pie circle:first-child {
-  stroke: var(--theme-line-soft) !important;
+:root[data-theme="apple-midnight"] .report-ppt-petal-base {
+  fill: var(--theme-fill-subtle);
+  stroke: var(--theme-line-regular);
 }
 
-:root[data-theme="apple-midnight"] .report-ppt-pie circle:nth-child(2) {
-  stroke: #f5f5f7 !important;
+:root[data-theme="apple-midnight"] .report-ppt-petal-value {
+  stroke: var(--theme-surface-regular);
 }
 
-:root[data-theme="apple-midnight"] .report-ppt-pie circle:nth-child(3) {
-  stroke: #8e8e93 !important;
+:root[data-theme="apple-midnight"] .report-ppt-petal-hub {
+  fill: var(--theme-surface-solid);
+  stroke: var(--theme-line-regular);
 }
 
-:root[data-theme="apple-midnight"] .report-ppt-pie circle:nth-child(4) {
-  stroke: #5a5a60 !important;
+:root[data-theme="apple-midnight"] .report-ppt-petal-label {
+  fill: var(--theme-text-title);
 }
 
-:root[data-theme="apple-midnight"] .report-ppt-pie circle:nth-child(5) {
-  stroke: #35363c !important;
+:root[data-theme="apple-midnight"] .report-ppt-petal-label.is-on-value {
+  fill: #111111;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-share-color.is-segment-0 {
+  color: #f5f5f7;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-share-color.is-segment-1 {
+  color: #8e8e93;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-share-color.is-segment-2 {
+  color: #5a5a60;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-share-color.is-segment-3 {
+  color: #35363c;
 }
 
 :root[data-theme="apple-midnight"] .report-ppt-legend-row:nth-child(1) span {

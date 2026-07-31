@@ -654,16 +654,26 @@
   color: var(--ink-indigo);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie-guide-dot {
-  fill: var(--ink-outline-frame);
+:root[data-theme="lieflat-mono"] .report-ppt-petal-base {
+  fill: var(--ink-paper-deep);
+  stroke: var(--ink-outline-soft);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie-total {
+:root[data-theme="lieflat-mono"] .report-ppt-petal-value {
+  stroke: var(--ink-paper-hi);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-petal-hub {
   fill: var(--ink-charcoal);
+  stroke: var(--ink-paper-hi);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie-caption {
-  fill: var(--ink-muted);
+:root[data-theme="lieflat-mono"] .report-ppt-petal-label {
+  fill: var(--ink-body);
+}
+
+:root[data-theme="lieflat-mono"] .report-ppt-petal-label.is-on-value {
+  fill: var(--ink-paper-hi);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child :is(

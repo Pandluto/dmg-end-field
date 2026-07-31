@@ -354,64 +354,106 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
     .sort((a, b) => b.expected - a.expected);
 }
 
-function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
+function getPolarPoint(cx: number, cy: number, radius: number, angle: number) {
+  const radians = angle * (Math.PI / 180);
+  return {
+    x: cx + Math.cos(radians) * radius,
+    y: cy + Math.sin(radians) * radius,
+  };
+}
+
+function getRoundedPetalPath(
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+) {
+  const cornerRadius = Math.min(4, radius * 0.2);
+  const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
+  const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
+  const outerStartControl = getPolarPoint(cx, cy, radius, startAngle);
+  const outerStart = getPolarPoint(cx, cy, radius, startAngle + cornerAngle);
+  const outerEnd = getPolarPoint(cx, cy, radius, endAngle - cornerAngle);
+  const outerEndControl = getPolarPoint(cx, cy, radius, endAngle);
+  const radialEnd = getPolarPoint(cx, cy, radius - cornerRadius, endAngle);
+
+  return [
+    `M ${cx} ${cy}`,
+    `L ${radialStart.x} ${radialStart.y}`,
+    `Q ${outerStartControl.x} ${outerStartControl.y} ${outerStart.x} ${outerStart.y}`,
+    `A ${radius} ${radius} 0 0 1 ${outerEnd.x} ${outerEnd.y}`,
+    `Q ${outerEndControl.x} ${outerEndControl.y} ${radialEnd.x} ${radialEnd.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
   const total = rows.reduce((sum, row) => sum + row.expected, 0);
 
   if (total <= 0) {
     return <div className="report-ppt-empty-chart">暂无伤害数据</div>;
   }
 
-  const rawTickCounts = rows.map((row) => (row.expected / total) * 100);
-  const tickCounts = rawTickCounts.map(Math.floor);
-  const remainderOrder = rawTickCounts
-    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
-    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
-  const remainingTicks = 100 - tickCounts.reduce((sum, value) => sum + value, 0);
+  const center = 50;
+  const maxRadius = 42;
+  const maxExpected = Math.max(...rows.map((row) => row.expected), 1);
+  const slotAngle = 360 / rows.length;
+  const gapAngle = Math.min(8, slotAngle * 0.12);
+  const labelRadius = 30;
+  const petals = rows.map((row, index) => {
+    const centerAngle = -90 + index * slotAngle;
+    const startAngle = centerAngle - slotAngle / 2 + gapAngle / 2;
+    const endAngle = centerAngle + slotAngle / 2 - gapAngle / 2;
+    const valueRadius = maxRadius * Math.sqrt(Math.max(row.expected, 0) / maxExpected);
+    const labelPoint = getPolarPoint(center, center, labelRadius, centerAngle);
 
-  for (let index = 0; index < remainingTicks; index += 1) {
-    tickCounts[remainderOrder[index % remainderOrder.length].index] += 1;
-  }
-
-  const tickOwners = tickCounts.flatMap((count, rowIndex) => Array.from({ length: count }, () => rowIndex));
+    return {
+      row,
+      index,
+      startAngle,
+      endAngle,
+      valueRadius,
+      labelPoint,
+      isLabelOnValue: valueRadius >= labelRadius + 4,
+    };
+  });
 
   return (
     <div className="report-ppt-pie-layout">
-      <svg className="report-ppt-pie" viewBox="0 0 100 100" role="img" aria-label="干员伤害占比，环上每格代表百分之一">
-        <title>干员伤害占比，每一根刻度代表百分之一</title>
-        {tickOwners.map((rowIndex, tickIndex) => {
-          const angle = (tickIndex * 3.6 - 90) * (Math.PI / 180);
-          const innerRadius = 31.5;
-          const outerRadius = 38 + ((tickIndex * 17 + rowIndex * 7) % 5) * 0.65;
-          const x1 = 50 + Math.cos(angle) * innerRadius;
-          const y1 = 50 + Math.sin(angle) * innerRadius;
-          const x2 = 50 + Math.cos(angle) * outerRadius;
-          const y2 = 50 + Math.sin(angle) * outerRadius;
-
-          return (
-            <line
-              key={`${tickIndex}-${rowIndex}`}
-              className={`report-ppt-pie-tick report-ppt-share-color is-segment-${rowIndex % 4}`}
-              x1={x1}
-              y1={y1}
-              x2={x2}
-              y2={y2}
-            />
-          );
-        })}
-        {Array.from({ length: 10 }, (_, index) => {
-          const angle = (index * 36 - 90) * (Math.PI / 180);
-          return (
-            <circle
-              key={index}
-              className="report-ppt-pie-guide-dot"
-              cx={50 + Math.cos(angle) * 27.5}
-              cy={50 + Math.sin(angle) * 27.5}
-              r="0.65"
-            />
-          );
-        })}
-        <text className="report-ppt-pie-total" x="50" y="49" textAnchor="middle">100</text>
-        <text className="report-ppt-pie-caption" x="50" y="57" textAnchor="middle">格 · 每格 1%</text>
+      <svg className="report-ppt-pie report-ppt-petal-rose" viewBox="0 0 100 100" role="img" aria-label="干员伤害占比扇瓣图">
+        <title>干员伤害占比，扇瓣面积与伤害成正比</title>
+        {petals.map(({ row, startAngle, endAngle }) => (
+          <path
+            key={`base-${row.id}`}
+            className="report-ppt-petal-base"
+            d={getRoundedPetalPath(center, center, maxRadius, startAngle, endAngle)}
+          />
+        ))}
+        {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
+          <path
+            key={`value-${row.id}`}
+            className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
+            d={getRoundedPetalPath(center, center, valueRadius, startAngle, endAngle)}
+          />
+        ))}
+        <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />
+        {petals.map(({ row, labelPoint, isLabelOnValue }) => (
+          <text
+            key={`label-${row.id}`}
+            className={`report-ppt-petal-label${isLabelOnValue ? ' is-on-value' : ''}`}
+            x={labelPoint.x}
+            y={labelPoint.y - 1.5}
+            textAnchor="middle"
+          >
+            <tspan className="report-ppt-petal-label-value" x={labelPoint.x} dy="0">
+              {formatPercent(row.expected / total)}
+            </tspan>
+            <tspan className="report-ppt-petal-label-name" x={labelPoint.x} dy="5">
+              {row.name}
+            </tspan>
+          </text>
+        ))}
       </svg>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
@@ -691,7 +733,7 @@ function ChartSlide({
         <div className="report-ppt-chart-grid">
           <article className="report-ppt-chart-card">
             <h2>图 1 / 干员伤害占比</h2>
-            <PieChart rows={rows} />
+            <PetalRoseChart rows={rows} />
           </article>
           <article className="report-ppt-chart-card">
             <h2>图 2 / 伤害过程时序</h2>
