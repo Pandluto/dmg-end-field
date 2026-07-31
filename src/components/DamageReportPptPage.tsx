@@ -447,28 +447,31 @@ function getPolarPoint(cx: number, cy: number, radius: number, angle: number) {
   };
 }
 
-function getRoundedPetalPath(
+function getJoinedSectorPath(
   cx: number,
   cy: number,
   radius: number,
   startAngle: number,
   endAngle: number,
 ) {
-  const cornerRadius = Math.min(4, radius * 0.2);
-  const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
-  const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
-  const outerStartControl = getPolarPoint(cx, cy, radius, startAngle);
-  const outerStart = getPolarPoint(cx, cy, radius, startAngle + cornerAngle);
-  const outerEnd = getPolarPoint(cx, cy, radius, endAngle - cornerAngle);
-  const outerEndControl = getPolarPoint(cx, cy, radius, endAngle);
-  const radialEnd = getPolarPoint(cx, cy, radius - cornerRadius, endAngle);
+  const angleSpan = endAngle - startAngle;
+  const outerStart = getPolarPoint(cx, cy, radius, startAngle);
+  const outerEnd = getPolarPoint(cx, cy, radius, endAngle);
+
+  if (angleSpan >= 359.999) {
+    const opposite = getPolarPoint(cx, cy, radius, startAngle + 180);
+    return [
+      `M ${outerStart.x} ${outerStart.y}`,
+      `A ${radius} ${radius} 0 1 1 ${opposite.x} ${opposite.y}`,
+      `A ${radius} ${radius} 0 1 1 ${outerStart.x} ${outerStart.y}`,
+      'Z',
+    ].join(' ');
+  }
 
   return [
     `M ${cx} ${cy}`,
-    `L ${radialStart.x} ${radialStart.y}`,
-    `Q ${outerStartControl.x} ${outerStartControl.y} ${outerStart.x} ${outerStart.y}`,
-    `A ${radius} ${radius} 0 0 1 ${outerEnd.x} ${outerEnd.y}`,
-    `Q ${outerEndControl.x} ${outerEndControl.y} ${radialEnd.x} ${radialEnd.y}`,
+    `L ${outerStart.x} ${outerStart.y}`,
+    `A ${radius} ${radius} 0 ${angleSpan > 180 ? 1 : 0} 1 ${outerEnd.x} ${outerEnd.y}`,
     'Z',
   ].join(' ');
 }
@@ -481,16 +484,15 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
   }
 
   const center = 50;
-  const maxRadius = 42;
+  const maxRadius = 46;
   const maxExpected = Math.max(...rows.map((row) => row.expected), 1);
   const slotAngle = 360 / rows.length;
-  const gapAngle = Math.min(8, slotAngle * 0.12);
-  const labelRadius = 30;
+  const labelRadius = 32;
   const petals = rows.map((row, index) => {
     const slotStartAngle = -180 + index * slotAngle;
     const centerAngle = slotStartAngle + slotAngle / 2;
-    const startAngle = slotStartAngle + gapAngle / 2;
-    const endAngle = slotStartAngle + slotAngle - gapAngle / 2;
+    const startAngle = slotStartAngle;
+    const endAngle = slotStartAngle + slotAngle;
     const valueRadius = maxRadius * Math.sqrt(Math.max(row.expected, 0) / maxExpected);
     const labelPoint = getPolarPoint(center, center, labelRadius, centerAngle);
 
@@ -520,14 +522,14 @@ function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamage
             <path
               key={`base-${row.id}`}
               className="report-ppt-petal-base"
-              d={getRoundedPetalPath(center, center, maxRadius, startAngle, endAngle)}
+              d={getJoinedSectorPath(center, center, maxRadius, startAngle, endAngle)}
             />
           ))}
           {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
             <path
               key={`value-${row.id}`}
               className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
-              d={getRoundedPetalPath(center, center, valueRadius, startAngle, endAngle)}
+              d={getJoinedSectorPath(center, center, valueRadius, startAngle, endAngle)}
             />
           ))}
           <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />

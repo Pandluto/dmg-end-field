@@ -587,8 +587,8 @@
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-pie {
   width: 100%;
-  max-width: 184px;
-  max-height: 184px;
+  max-width: 200px;
+  max-height: 200px;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-chart-legend {
