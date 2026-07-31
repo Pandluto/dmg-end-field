@@ -239,6 +239,18 @@ export function SkillButtonComponent({
   const visualOffsetY = 15;
   const hitWidth = radius + baseWidth;
   const hitHeight = Math.max(size, radius + baseHeight);
+  const outlinePadding = 4;
+  const compositeOutlineViewBox = `${-radius - outlinePadding} ${-radius - outlinePadding} ${baseWidth + radius + outlinePadding * 2} ${baseHeight + radius + outlinePadding * 2}`;
+  const compositeOutlinePath = [
+    `M 0 ${-radius}`,
+    `A ${radius} ${radius} 0 0 1 ${radius} 0`,
+    `L ${baseWidth} 0`,
+    `L ${baseWidth} ${baseHeight}`,
+    `L 0 ${baseHeight}`,
+    `L 0 ${radius}`,
+    `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
+    'Z',
+  ].join(' ');
   const shouldRenderContextMenu = !isBrowseMode && contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
 
   const isModalOpen = isDetailRouteActive;
@@ -1563,6 +1575,9 @@ export function SkillButtonComponent({
     setIconLoadFailed(true);
   };
 
+  const normalizedSkillIconUrl = skillIconUrl ? normalizeAssetUrl(skillIconUrl) : '';
+  const hasVisibleSkillIcon = Boolean(skillIconUrl && !iconLoadFailed && !(isBrowseMode && isDotButton));
+
   return (
     <>
       <div
@@ -1583,6 +1598,21 @@ export function SkillButtonComponent({
         onContextMenu={isBrowseMode ? (event) => event.preventDefault() : onContextMenu}
       >
         <div className="skill-button-anchor">
+          {!isInspectMode && !(isBrowseMode && isDotButton) ? (
+            <svg
+              className="skill-button-composite-outline"
+              viewBox={compositeOutlineViewBox}
+              style={{
+                left: -radius - outlinePadding,
+                top: -radius - outlinePadding,
+                width: baseWidth + radius + outlinePadding * 2,
+                height: baseHeight + radius + outlinePadding * 2,
+              }}
+              aria-hidden="true"
+            >
+              <path d={compositeOutlinePath} />
+            </svg>
+          ) : null}
           <div className="skill-button-base">
             <span className="skill-button-name">{isBrowseMode ? browseModeDisplayName : `${skillType} ${displayName}`}</span>
             {isLocked ? <span className="skill-button-lock">锁</span> : null}
@@ -1593,20 +1623,26 @@ export function SkillButtonComponent({
               </span>
             ) : null}
           </div>
-          <div className="skill-button-orb" title={`${characterName} - ${displayName}`}>
+          <div
+            className={`skill-button-orb${hasVisibleSkillIcon ? ' has-skill-icon-mask' : ''}`}
+            title={`${characterName} - ${displayName}`}
+            style={{
+              '--skill-icon-mask': hasVisibleSkillIcon ? `url(${JSON.stringify(normalizedSkillIconUrl)})` : 'none',
+            } as CSSProperties}
+          >
             {/* skillIconUrl 有值且未失败时渲染图标 */}
-            {skillIconUrl && !iconLoadFailed && !(isBrowseMode && isDotButton) ? (
+            {hasVisibleSkillIcon ? (
               <img
                 className="skill-icon"
-                key={normalizeAssetUrl(skillIconUrl)}
-                src={normalizeAssetUrl(skillIconUrl)}
+                key={normalizedSkillIconUrl}
+                src={normalizedSkillIconUrl}
                 alt={displayName}
                 onLoad={handleIconLoad}
                 onError={handleIconError}
               />
             ) : null}
             {/* 兜底文字：图标加载失败或无图标时显示 */}
-            <span className={`skill-label ${!iconLoadFailed && skillIconUrl && !(isBrowseMode && isDotButton) ? 'hidden' : ''}`}>{isBrowseMode && isDotButton ? '~' : skillType}</span>
+            <span className={`skill-label ${hasVisibleSkillIcon ? 'hidden' : ''}`}>{isBrowseMode && isDotButton ? '~' : skillType}</span>
           </div>
         </div>
       </div>

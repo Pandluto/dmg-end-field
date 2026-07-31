@@ -29,6 +29,18 @@ export function DraggingOverlay({ draggingState, mousePosition, buttonSize }: Dr
   const baseHeight = 30;
   const visualOffsetX = 40;
   const visualOffsetY = 15;
+  const outlinePadding = 4;
+  const compositeOutlineViewBox = `${-radius - outlinePadding} ${-radius - outlinePadding} ${baseWidth + radius + outlinePadding * 2} ${baseHeight + radius + outlinePadding * 2}`;
+  const compositeOutlinePath = [
+    `M 0 ${-radius}`,
+    `A ${radius} ${radius} 0 0 1 ${radius} 0`,
+    `L ${baseWidth} 0`,
+    `L ${baseWidth} ${baseHeight}`,
+    `L 0 ${baseHeight}`,
+    `L 0 ${radius}`,
+    `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
+    'Z',
+  ].join(' ');
 
   return (
     <div
@@ -43,6 +55,19 @@ export function DraggingOverlay({ draggingState, mousePosition, buttonSize }: Dr
       } as CSSProperties}
     >
       <div className="dragging-skill-button-anchor">
+        <svg
+          className="skill-button-composite-outline"
+          viewBox={compositeOutlineViewBox}
+          style={{
+            left: -radius - outlinePadding,
+            top: -radius - outlinePadding,
+            width: baseWidth + radius + outlinePadding * 2,
+            height: baseHeight + radius + outlinePadding * 2,
+          }}
+          aria-hidden="true"
+        >
+          <path d={compositeOutlinePath} />
+        </svg>
         <div className="dragging-skill-button-base">
           <span>{draggingState.skillType}</span>
         </div>

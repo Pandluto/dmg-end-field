@@ -44,6 +44,23 @@
   pointer-events: none;
 }
 
+.skill-button-composite-outline {
+  position: absolute;
+  display: none;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 4;
+}
+
+.skill-button-composite-outline path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
 .skill-button-base {
   position: absolute;
   left: 0;

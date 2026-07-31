@@ -346,8 +346,13 @@ export function SkillSandbox({
                   className={`sandbox-skill-item ${isLocalCharacter ? 'sandbox-skill-item--local' : ''}`}
                 >
                   <div
-                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}`}
-                    style={{ backgroundColor: getElementBackgroundColor(character.element) }}
+                    className={`sandbox-skill-button skill-${sandboxSkill.buttonType.toLowerCase()}${sandboxSkill.iconUrl ? ' has-skill-icon-mask' : ''}`}
+                    style={{
+                      backgroundColor: getElementBackgroundColor(character.element),
+                      '--skill-icon-mask': sandboxSkill.iconUrl
+                        ? `url(${JSON.stringify(normalizeAssetUrl(sandboxSkill.iconUrl))})`
+                        : 'none',
+                    } as React.CSSProperties}
                     onMouseDown={(e) => {
                       if (isBrowseMode) {
                         e.preventDefault();
@@ -365,6 +370,7 @@ export function SkillSandbox({
                         alt={sandboxSkill.displayName}
                         onError={(e) => {
                           (e.target as HTMLImageElement).style.display = 'none';
+                          e.currentTarget.parentElement?.classList.remove('has-skill-icon-mask');
                         }}
                       />
                     ) : null}

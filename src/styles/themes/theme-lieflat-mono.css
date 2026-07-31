@@ -1363,6 +1363,69 @@
     0 0 0 3px var(--ink-outline-selected);
 }
 
+/* One continuous contour follows the circle/body union on the main timeline. */
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-container:not(.buff-edit-canvas) .canvas-skill-button:not(.is-browse-dot):not(.is-inspect-mode),
+  .dragging-skill-button-preview
+) .skill-button-composite-outline {
+  display: block;
+  color: var(--ink-skill-outline);
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .canvas-container:not(.buff-edit-canvas) .canvas-skill-button:not(.is-browse-dot):not(.is-inspect-mode) .skill-button-base,
+  .canvas-container:not(.buff-edit-canvas) .canvas-skill-button:not(.is-browse-dot):not(.is-inspect-mode) .skill-button-orb,
+  .dragging-skill-button-preview .dragging-skill-button-base,
+  .dragging-skill-button-preview .dragging-skill-button-orb
+) {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="lieflat-mono"] .canvas-container:not(.buff-edit-canvas) .canvas-skill-button:hover .skill-button-composite-outline {
+  color: var(--ink-outline-structural);
+}
+
+:root[data-theme="lieflat-mono"] .canvas-container:not(.buff-edit-canvas) .canvas-skill-button.selected .skill-button-composite-outline {
+  color: var(--ink-outline-selected);
+}
+
+/* Skill artwork keeps its alpha geometry and is filled with copper red. */
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb,
+  .sandbox-skill-button
+).has-skill-icon-mask::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: var(--ink-skill-outline);
+  -webkit-mask-image: var(--skill-icon-mask);
+  mask-image: var(--skill-icon-mask);
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: cover;
+  mask-size: cover;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb,
+  .sandbox-skill-button
+).has-skill-icon-mask .skill-icon {
+  opacity: 0 !important;
+}
+
+:root[data-theme="lieflat-mono"] :is(
+  .skill-button-orb .skill-label,
+  .sandbox-skill-button .skill-label,
+  .dragging-skill-button-orb span
+) {
+  color: var(--ink-skill-outline);
+}
+
 :root[data-theme="lieflat-mono"] .skill-button-inspect-damage {
   border-top-color: var(--ink-outline-soft);
 }
