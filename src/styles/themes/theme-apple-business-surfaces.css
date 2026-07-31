@@ -3084,6 +3084,421 @@
   mix-blend-mode: normal;
 }
 
+/*
+ * Apple Midnight — secondary surface synchronization.
+ *
+ * The timeline workbench supplies the quiet glass hierarchy; operator
+ * configuration supplies the monochrome state grammar:
+ * recessed -> white outline -> solid white.  Keep native artwork and true
+ * success/danger feedback in colour, but never spend colour on routine UI.
+ */
+:root[data-theme="apple-midnight"] {
+  --midnight-state-solid: #f5f5f7;
+  --midnight-state-on-solid: #17181b;
+  --midnight-state-line-strong: rgba(255, 255, 255, 0.82);
+  --midnight-state-line: rgba(255, 255, 255, 0.42);
+  --midnight-state-line-soft: rgba(255, 255, 255, 0.16);
+  --midnight-state-fill: rgba(255, 255, 255, 0.1);
+  --midnight-state-fill-hover: rgba(255, 255, 255, 0.07);
+}
+
+/* Start, data and settings: monochrome chrome around content that stays real. */
+:root[data-theme="apple-midnight"] :where(
+  .dashboard-kicker,
+  .section-heading p,
+  .settings-section-heading p,
+  .data-library-inspector > p
+) {
+  color: #c7c7cc;
+}
+
+:root[data-theme="apple-midnight"] .dashboard-primary-button {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 22px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="apple-midnight"] .dashboard-primary-button:hover:not(:disabled) {
+  color: #000000;
+  border-color: #ffffff;
+  background: #ffffff;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.24),
+    0 10px 26px rgba(0, 0, 0, 0.28);
+}
+
+:root[data-theme="apple-midnight"] .dashboard-primary-button:active:not(:disabled) {
+  color: #0f1012;
+  background: #dedee3;
+}
+
+:root[data-theme="apple-midnight"] .signal-halo {
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow:
+    0 0 0 18px rgba(255, 255, 255, 0.026),
+    0 0 0 36px rgba(255, 255, 255, 0.012);
+}
+
+:root[data-theme="apple-midnight"] .workflow-grid > button .workflow-icon,
+:root[data-theme="apple-midnight"] .workflow-grid > button:nth-child(n) .workflow-icon,
+:root[data-theme="apple-midnight"] .data-tool-index {
+  color: #d1d1d6;
+  border-color: var(--midnight-state-line-soft);
+  background: rgba(255, 255, 255, 0.065);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .workflow-grid > button,
+  .data-tool-card
+):hover:not(:disabled) :where(
+  .workflow-icon,
+  .data-tool-index
+) {
+  color: #ffffff;
+  border-color: var(--midnight-state-line);
+  background: var(--midnight-state-fill);
+}
+
+:root[data-theme="apple-midnight"] .data-library-list > button.is-selected,
+:root[data-theme="apple-midnight"] .theme-option.is-selected {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+:root[data-theme="apple-midnight"] .theme-option.is-selected .theme-option-check {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+}
+
+/*
+ * Theme swatches are content, not chrome.  Never flatten the preview palette
+ * or colour-grade package/operator/weapon/equipment imagery.
+ */
+:root[data-theme="apple-midnight"] :where(
+  .theme-option-preview,
+  .data-package-icon img,
+  .selection-character-avatar-image,
+  .operator-draft-avatar,
+  .operator-draft-skill-icon,
+  .operator-draft-skill-hero-icon,
+  .weapon-sheet-image-option-thumb img,
+  .image-manager-grid-thumb img,
+  .image-manager-preview-image img,
+  .report-ppt-avatar-frame img,
+  .report-ppt-weapon-image img,
+  .report-ppt-equipment-icon img
+) {
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+/* Team selection: the selected rounded card uses its whole perimeter. */
+:root[data-theme="apple-midnight"] .selection-confirm-button {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="apple-midnight"] .selection-confirm-button:hover:not(:disabled) {
+  color: #000000;
+  border-color: #ffffff;
+  background: #ffffff;
+}
+
+:root[data-theme="apple-midnight"] .selection-character-card.is-selected {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  border-left-width: 1px;
+  background: var(--midnight-state-fill);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 8px 22px rgba(0, 0, 0, 0.14);
+}
+
+:root[data-theme="apple-midnight"] .selection-character-card.is-selected .selection-character-avatar {
+  border-color: var(--midnight-state-line-strong);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+}
+
+/* Batch Buff: ordinary mode/selection is neutral; add/remove keeps meaning. */
+:root[data-theme="apple-midnight"] .buff-edit-selection-counter {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .buff-edit-secondary-button.is-active,
+  .buff-edit-box-select-button.is-active,
+  .buff-edit-filter-button.is-active,
+  .buff-edit-mode-button.is-active,
+  .buff-batch-edit-workbench .skill-button-inline-buff-search-mode.is-active,
+  .buff-batch-edit-workbench .anomaly-strip-button.is-active,
+  .buff-batch-edit-workbench .anomaly-chip.is-active,
+  .buff-editor-drawer-levels button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.09);
+}
+
+:root[data-theme="apple-midnight"] .buff-edit-buff-card.is-selected {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  border-left-width: 1px;
+  background: var(--midnight-state-fill);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .buff-edit-buff-card.is-selected.is-add-intent {
+  border: 1px solid color-mix(in srgb, var(--theme-success) 72%, white);
+  border-left-width: 1px;
+  background: var(--theme-success-soft);
+}
+
+:root[data-theme="apple-midnight"] .buff-edit-buff-card.is-selected.is-remove-intent {
+  border: 1px solid color-mix(in srgb, var(--theme-danger) 74%, white);
+  border-left-width: 1px;
+  background: var(--theme-danger-soft);
+}
+
+:root[data-theme="apple-midnight"] .buff-batch-edit-workbench .canvas-skill-button.selected :where(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: #ffffff;
+  box-shadow:
+    0 0 0 2px #16171a,
+    0 0 0 3px rgba(255, 255, 255, 0.76);
+}
+
+:root[data-theme="apple-midnight"] .buff-editor-drawer footer button:not(.is-danger) {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+}
+
+/* Skill detail: no blue rail on a rounded row; SVG nodes use the same state. */
+:root[data-theme="apple-midnight"] :where(
+  .timeline-detail-heading button.is-active,
+  .timeline-detail-expand-all-button.is-active,
+  .timeline-tuning-list button.is-active,
+  .timeline-tuning-inline-actions button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+}
+
+:root[data-theme="apple-midnight"] .timeline-detail-hit.is-selected {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  border-left-width: 1px;
+  background: var(--midnight-state-fill);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .timeline-calculation-zone-node.is-selected rect {
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: rgba(255, 255, 255, 0.9);
+}
+
+:root[data-theme="apple-midnight"] .timeline-calculation-zone-node.is-selected :where(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+) {
+  fill: #ffffff;
+}
+
+/* Shared skill/Buff dialogs inherit the same rounded-card selection grammar. */
+:root[data-theme="apple-midnight"] :where(
+  .lock-control.is-locked,
+  .anomaly-category-tab.is-active,
+  .anomaly-strip-button.is-active,
+  .anomaly-item-button.is-active,
+  .anomaly-chip.is-active,
+  .skill-button-inline-buff-search-mode.is-active,
+  .operator-buff-character-filter.is-active,
+  .operator-buff-group-filters button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .skill-damage-hit-card.selected,
+  .buff-tag-selectable.is-selected
+) {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  border-left-width: 1px;
+  background: var(--midnight-state-fill);
+  box-shadow: none;
+}
+
+/* Dense data editors: white perimeter for selection, white fill for commit. */
+:root[data-theme="apple-midnight"] .operator-draft-page :where(
+  .operator-draft-skill-item.is-active,
+  .operator-draft-hit-item.is-active,
+  .operator-draft-buff-item.is-active,
+  .operator-draft-local-library-item.is-active,
+  .operator-draft-searchable-option.is-active,
+  .operator-draft-skill-filter.is-active,
+  .operator-draft-buff-tab.is-active,
+  .operator-draft-share-tab.is-active,
+  .operator-draft-history-footer .operator-draft-ghost-button.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .operator-draft-page :where(
+  .operator-draft-run-button,
+  .operator-draft-copy-button:not(.operator-draft-danger-button)
+) {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .buff-sheet-explorer-row.is-active,
+  .buff-sheet-explorer-child.is-active,
+  .buff-sheet-explorer-effect.is-active,
+  .weapon-sheet-image-option.is-active,
+  .weapon-sheet-growth-inline-item.is-active,
+  .buff-sheet-tool-button.is-active,
+  .buff-sheet-share-modal-tab.is-active
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .weapon-sheet-growth-inline-item.is-active::after {
+  background: var(--midnight-state-solid);
+}
+
+:root[data-theme="apple-midnight"] .buff-sheet-share-action.is-primary {
+  color: var(--midnight-state-on-solid);
+  border-color: var(--midnight-state-solid);
+  background: var(--midnight-state-solid);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .damage-sheet-sheet-tab.is-active,
+  .damage-sheet-mini-tab.is-active,
+  .damage-sheet-buff-tag.is-active,
+  .damage-sheet-buff-tag.is-selected
+) {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .damage-sheet-excel-cell.is-active {
+  color: var(--theme-text-title);
+  background: rgba(255, 255, 255, 0.095);
+  box-shadow: inset 0 0 0 2px var(--midnight-state-line-strong);
+}
+
+:root[data-theme="apple-midnight"] .damage-sheet-formula-label {
+  color: #c7c7cc;
+}
+
+:root[data-theme="apple-midnight"] .damage-sheet-excel-row.is-character .damage-sheet-excel-cell {
+  color: var(--theme-text-title);
+  background: rgba(255, 255, 255, 0.075);
+}
+
+:root[data-theme="apple-midnight"] :where(
+  .damage-sheet-excel-cell.is-buff-linked,
+  .damage-sheet-excel-cell.is-buff-linked-muted
+)::before {
+  border-color: var(--midnight-state-line);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .weapon-sheet-page .damage-sheet-excel-row.weapon-sheet-row-skill :where(
+  .damage-sheet-excel-row-number,
+  .damage-sheet-excel-cell
+) {
+  color: var(--theme-text-title);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+:root[data-theme="apple-midnight"] .image-manager-asset-table tr.is-selected td {
+  color: var(--theme-text-title);
+  border-color: var(--midnight-state-line);
+  background: rgba(255, 255, 255, 0.095);
+}
+
+:root[data-theme="apple-midnight"] .image-manager-grid-item.is-selected {
+  color: var(--theme-text-title);
+  border: 1px solid var(--midnight-state-line-strong);
+  background: var(--midnight-state-fill);
+  box-shadow:
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.08),
+    0 8px 22px rgba(0, 0, 0, 0.15);
+}
+
+/* PPT/report output mirrors the operator configuration state hierarchy. */
+:root[data-theme="apple-midnight"] .report-ppt-potential-star-wrap::before {
+  background: rgba(255, 255, 255, 0.075);
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-potential-star polygon[fill="#FFF000"] {
+  fill: #f5f5f7 !important;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-potential-star polygon[fill="#FFFFFF"] {
+  fill: #c7c7cc !important;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-potential-star polygon[fill="#C7C7C7"] {
+  fill: #45464d !important;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-potential-star-wrap.is-max polygon {
+  filter:
+    drop-shadow(0 0 2px rgba(255, 255, 255, 0.78))
+    drop-shadow(0 0 7px rgba(255, 255, 255, 0.24)) !important;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-level-capsule i {
+  border-color: var(--midnight-state-line-soft);
+  background: #303137;
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-level-capsule i.is-active {
+  border-color: #ffffff;
+  background: #f5f5f7;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="apple-midnight"] .report-ppt-line circle {
+  fill: #1b1c20 !important;
+  stroke: #f5f5f7 !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
     .skill-button-modal-overlay,
