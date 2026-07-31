@@ -61,6 +61,7 @@
   vector-effect: non-scaling-stroke;
 }
 
+.skill-button-composite-outline-liquid-depth-path,
 .skill-button-composite-outline-liquid-path {
   display: none;
 }

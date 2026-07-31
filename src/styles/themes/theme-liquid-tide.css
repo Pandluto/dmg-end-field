@@ -1761,18 +1761,29 @@
 
 :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline {
   display: block;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(102, 116, 166, 0.42);
   filter:
-    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.42))
-    drop-shadow(0 5px 11px rgba(35, 47, 94, 0.18));
+    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.24))
+    drop-shadow(0 2px 4px rgba(35, 47, 94, 0.12));
 }
 
 :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-default-path {
   display: none;
 }
 
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-depth-path,
 :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-path {
   display: block;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-depth-path {
+  stroke: rgba(91, 105, 158, 0.34);
+  stroke-width: 2.4;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-path {
+  stroke-width: 1.15;
+  opacity: 0.94;
 }
 
 @supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
@@ -1797,6 +1808,17 @@
   border-color: transparent !important;
   background: transparent !important;
   box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) .skill-button-composite-outline {
+  filter:
+    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.36))
+    drop-shadow(0 3px 6px rgba(35, 47, 94, 0.16));
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) .skill-button-composite-outline-liquid-path {
+  stroke-width: 1.4;
+  opacity: 1;
 }
 
 :root[data-theme="liquid-tide"] :is(

@@ -264,6 +264,7 @@ export function SkillButtonComponent({
     `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
     'Z',
   ].join(' ');
+  const liquidGlassOutlineGradientId = `liquid-glass-outline-${button.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   const shouldRenderContextMenu = !isBrowseMode && contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
 
   const isModalOpen = isDetailRouteActive;
@@ -1625,8 +1626,28 @@ export function SkillButtonComponent({
               }}
               aria-hidden="true"
             >
+              <defs>
+                <linearGradient
+                  id={liquidGlassOutlineGradientId}
+                  x1={-radius}
+                  y1={-radius}
+                  x2={baseWidth}
+                  y2={baseHeight}
+                  gradientUnits="userSpaceOnUse"
+                >
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.98" />
+                  <stop offset="34%" stopColor="#f7fbff" stopOpacity="0.74" />
+                  <stop offset="66%" stopColor="#d3ddf7" stopOpacity="0.42" />
+                  <stop offset="100%" stopColor="#6976aa" stopOpacity="0.48" />
+                </linearGradient>
+              </defs>
               <path className="skill-button-composite-outline-default-path" d={compositeOutlinePath} />
-              <path className="skill-button-composite-outline-liquid-path" d={liquidGlassCompositeOutlinePath} />
+              <path className="skill-button-composite-outline-liquid-depth-path" d={liquidGlassCompositeOutlinePath} />
+              <path
+                className="skill-button-composite-outline-liquid-path"
+                d={liquidGlassCompositeOutlinePath}
+                style={{ stroke: `url(#${liquidGlassOutlineGradientId})` }}
+              />
             </svg>
           ) : null}
           <div className="skill-button-base">

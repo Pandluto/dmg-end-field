@@ -14,8 +14,9 @@ const LIQUID_TIDE_SKILL_GLASS_DEFAULTS: Partial<GlassConfig> = {
   specular: 0.08,
   fresnel: 0.24,
   distortion: 0.012,
-  cornerRadius: 18,
-  zRadius: 14,
+  // Keep the shader's optical corner aligned with the 11px body outline.
+  cornerRadius: 11,
+  zRadius: 11,
   opacity: 0.9,
   saturation: 0.08,
   tintStrength: 0.035,
