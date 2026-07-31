@@ -608,16 +608,17 @@
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child {
-  color: var(--ink-paper-hi);
-  background: var(--ink-charcoal);
+  color: var(--ink-body);
+  border: 1px solid var(--ink-outline-soft);
+  background: var(--ink-paper-hi);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child h2 {
-  color: var(--ink-paper-hi);
+  color: var(--ink-charcoal);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child::after {
-  display: none;
+  background: var(--ink-outline-faint);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:nth-child(2) {
@@ -636,56 +637,48 @@
   background: rgba(251, 249, 243, 0.42);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie circle:first-child {
-  stroke: rgba(251, 249, 243, 0.12) !important;
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-0 {
+  color: var(--ink-outline-structural);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(2) {
-  stroke: var(--ink-paper-hi) !important;
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-1 {
+  color: var(--ink-jade);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(3) {
-  stroke: #b8b7b1 !important;
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-2 {
+  color: var(--ink-ochre);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(4) {
-  stroke: #7c7b76 !important;
+:root[data-theme="lieflat-mono"] .report-ppt-share-color.is-segment-3 {
+  color: var(--ink-seal);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-pie circle:nth-child(5) {
-  stroke: #52514d !important;
+:root[data-theme="lieflat-mono"] .report-ppt-pie-guide-dot {
+  fill: var(--ink-outline-frame);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(1) span {
-  background: var(--ink-paper-hi) !important;
+:root[data-theme="lieflat-mono"] .report-ppt-pie-total {
+  fill: var(--ink-charcoal);
 }
 
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(2) span {
-  background: #b8b7b1 !important;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(3) span {
-  background: #7c7b76 !important;
-}
-
-:root[data-theme="lieflat-mono"] .report-ppt-legend-row:nth-child(4) span {
-  background: #52514d !important;
+:root[data-theme="lieflat-mono"] .report-ppt-pie-caption {
+  fill: var(--ink-muted);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child :is(
   .report-ppt-legend-row strong,
   .report-ppt-chart-total
 ) {
-  color: var(--ink-paper-hi);
+  color: var(--ink-charcoal);
   font-weight: 700;
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-legend-row em {
-  color: #b8b7b1;
+  color: var(--ink-muted);
 }
 
 :root[data-theme="lieflat-mono"] .report-ppt-chart-card:first-child .report-ppt-chart-total {
-  border-top-color: #55554f;
+  border-top-color: var(--ink-outline-frame);
   border-top-style: dashed;
 }
 

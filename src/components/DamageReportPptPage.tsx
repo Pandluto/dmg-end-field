@@ -356,41 +356,67 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
 
 function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
   const total = rows.reduce((sum, row) => sum + row.expected, 0);
-  const colors = ['#111111', '#565656', '#9a9a9a', '#d2d2d2'];
-  let offset = 0;
 
   if (total <= 0) {
     return <div className="report-ppt-empty-chart">暂无伤害数据</div>;
   }
 
+  const rawTickCounts = rows.map((row) => (row.expected / total) * 100);
+  const tickCounts = rawTickCounts.map(Math.floor);
+  const remainderOrder = rawTickCounts
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  const remainingTicks = 100 - tickCounts.reduce((sum, value) => sum + value, 0);
+
+  for (let index = 0; index < remainingTicks; index += 1) {
+    tickCounts[remainderOrder[index % remainderOrder.length].index] += 1;
+  }
+
+  const tickOwners = tickCounts.flatMap((count, rowIndex) => Array.from({ length: count }, () => rowIndex));
+
   return (
     <div className="report-ppt-pie-layout">
-      <svg className="report-ppt-pie" viewBox="0 0 42 42" aria-label="干员伤害占比">
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
-        {rows.map((row, index) => {
-          const share = row.expected / total;
-          const dash = `${share * 100} ${100 - share * 100}`;
-          const circle = (
-            <circle
-              key={row.id}
-              cx="21"
-              cy="21"
-              r="15.915"
-              fill="transparent"
-              stroke={colors[index % colors.length]}
-              strokeWidth="8"
-              strokeDasharray={dash}
-              strokeDashoffset={-offset}
+      <svg className="report-ppt-pie" viewBox="0 0 100 100" role="img" aria-label="干员伤害占比，环上每格代表百分之一">
+        <title>干员伤害占比，每一根刻度代表百分之一</title>
+        {tickOwners.map((rowIndex, tickIndex) => {
+          const angle = (tickIndex * 3.6 - 90) * (Math.PI / 180);
+          const innerRadius = 31.5;
+          const outerRadius = 38 + ((tickIndex * 17 + rowIndex * 7) % 5) * 0.65;
+          const x1 = 50 + Math.cos(angle) * innerRadius;
+          const y1 = 50 + Math.sin(angle) * innerRadius;
+          const x2 = 50 + Math.cos(angle) * outerRadius;
+          const y2 = 50 + Math.sin(angle) * outerRadius;
+
+          return (
+            <line
+              key={`${tickIndex}-${rowIndex}`}
+              className={`report-ppt-pie-tick report-ppt-share-color is-segment-${rowIndex % 4}`}
+              x1={x1}
+              y1={y1}
+              x2={x2}
+              y2={y2}
             />
           );
-          offset += share * 100;
-          return circle;
         })}
+        {Array.from({ length: 10 }, (_, index) => {
+          const angle = (index * 36 - 90) * (Math.PI / 180);
+          return (
+            <circle
+              key={index}
+              className="report-ppt-pie-guide-dot"
+              cx={50 + Math.cos(angle) * 27.5}
+              cy={50 + Math.sin(angle) * 27.5}
+              r="0.65"
+            />
+          );
+        })}
+        <text className="report-ppt-pie-total" x="50" y="49" textAnchor="middle">100</text>
+        <text className="report-ppt-pie-caption" x="50" y="57" textAnchor="middle">格 · 每格 1%</text>
       </svg>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
           <div key={row.id} className="report-ppt-legend-row">
-            <span style={{ background: colors[index % colors.length] }} />
+            <span className={`report-ppt-share-color is-segment-${index % 4}`} />
             <strong>{row.name}</strong>
             <em>{formatInteger(row.expected)} / {formatPercent(row.expected / total)}</em>
           </div>
