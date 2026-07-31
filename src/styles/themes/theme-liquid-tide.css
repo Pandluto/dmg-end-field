@@ -8,6 +8,11 @@
  * Authored operator, weapon, equipment and skill artwork is never filtered.
  */
 
+.liquid-tide-capture-image,
+.liquid-tide-capture-overlay {
+  display: none;
+}
+
 :root[data-theme="liquid-tide"] {
   color-scheme: light;
 
@@ -195,6 +200,39 @@
   .buff-edit-canvas
 ) {
   background-color: transparent;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container {
+  isolation: isolate;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-image,
+:root[data-theme="liquid-tide"] .liquid-tide-capture-overlay {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  user-select: none;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-image {
+  z-index: 0;
+  object-fit: cover;
+  object-position: center center;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-overlay {
+  z-index: 1;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(255, 235, 247, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 47, 98, 0.02), rgba(31, 46, 92, 0.08)),
+    linear-gradient(112deg, rgba(35, 55, 110, 0.14), rgba(255, 228, 243, 0.025) 46%, rgba(60, 88, 151, 0.12));
+}
+
+:root[data-theme="liquid-tide"] .canvas-grid-shell {
+  z-index: 2;
 }
 
 :root[data-theme="liquid-tide"] .web-app-shell {
@@ -1403,18 +1441,9 @@
 }
 
 /*
- * Refraction pass: Liquid Glass is clear and bends the backdrop. Frosted
+ * LiquidGlass pass: WebGL owns refraction on timeline skill controls. Frosted
  * material remains reserved for one outer text rail; nested panes stay clear.
  */
-.liquid-tide-filter-defs {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-  pointer-events: none;
-}
 
 /* The score canvas is the illustration itself, not a frosted card. */
 :root[data-theme="liquid-tide"] :is(
@@ -1496,8 +1525,8 @@
     inset 1px 1px 0 rgba(255, 255, 255, 0.92),
     inset -1px -1px 0 rgba(57, 70, 126, 0.12),
     0 7px 18px rgba(35, 47, 94, 0.12);
-  -webkit-backdrop-filter: saturate(1.14) brightness(1.04);
-  backdrop-filter: url("#liquid-tide-refraction") saturate(1.14) brightness(1.04);
+  -webkit-backdrop-filter: blur(14px) saturate(1.14) brightness(1.04);
+  backdrop-filter: blur(14px) saturate(1.14) brightness(1.04);
 }
 
 :root[data-theme="liquid-tide"] .selection-confirm-button {
@@ -1591,7 +1620,7 @@
     inset -1px -1px 0 rgba(57, 70, 126, 0.13),
     0 7px 18px rgba(35, 47, 94, 0.13);
   -webkit-backdrop-filter: blur(20px) saturate(1.14) brightness(1.04);
-  backdrop-filter: url("#liquid-tide-refraction") blur(20px) saturate(1.14) brightness(1.04);
+  backdrop-filter: blur(20px) saturate(1.14) brightness(1.04);
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -1611,8 +1640,8 @@
     inset 1px 1px 0 rgba(255, 255, 255, 0.9),
     inset -1px -1px 0 rgba(57, 70, 126, 0.13),
     0 7px 18px rgba(35, 47, 94, 0.13) !important;
-  -webkit-backdrop-filter: saturate(1.14) brightness(1.04) !important;
-  backdrop-filter: url("#liquid-tide-refraction") saturate(1.14) brightness(1.04) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.14) brightness(1.04) !important;
+  backdrop-filter: blur(14px) saturate(1.14) brightness(1.04) !important;
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -1658,7 +1687,7 @@
     inset -1px -1px 0 rgba(54, 67, 122, 0.15),
     0 7px 18px rgba(35, 47, 94, 0.15);
   -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
-  backdrop-filter: url("#liquid-tide-lens") blur(22px) saturate(1.18) brightness(1.05);
+  backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
 }
 
 /* The rounded circle and rounded body already carry the glass edge. */
@@ -1703,7 +1732,35 @@
       linear-gradient(145deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.15)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
       rgba(255, 255, 255, 0.02);
     -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
-    backdrop-filter: url("#liquid-tide-lens") blur(22px) saturate(1.18) brightness(1.05);
+    backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+  }
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button {
+  isolation: isolate;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button > canvas {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  background: rgba(20, 28, 54, 0.055) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.88),
+    inset -1px -1px 0 rgba(54, 67, 122, 0.13);
+}
+
+@supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
+  :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-orb.has-skill-icon-mask::before {
+    display: none;
   }
 }
 

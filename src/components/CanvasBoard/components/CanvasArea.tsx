@@ -1,4 +1,4 @@
-import { forwardRef } from 'react';
+import { forwardRef, useCallback, useMemo, useRef, type MutableRefObject } from 'react';
 import type { MouseEvent } from 'react';
 import { Character, SkillButton, CanvasConfig, SkillButtonSkillChangePayload, SkillButtonSkillOption } from '../../../types';
 import { SkillButtonComponent } from '../SkillButton';
@@ -11,6 +11,7 @@ import {
   GRID_NODE_COUNT,
 } from '../../../core/calculators/gridSnapLayout';
 import { normalizeAssetUrl } from '../../../utils/assetResolver';
+import { useLiquidTideGlass } from '../../../platform/theme/useLiquidTideGlass';
 
 interface CanvasAreaProps {
   activeSkillButtonId?: string | null;
@@ -66,6 +67,47 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   isDragDisabled = false,
   resistanceRevision = 0,
 }, canvasRef) => {
+  const localCanvasRef = useRef<HTMLDivElement | null>(null);
+  const setCanvasRef = useCallback((node: HTMLDivElement | null) => {
+    localCanvasRef.current = node;
+    if (typeof canvasRef === 'function') {
+      canvasRef(node);
+    } else if (canvasRef) {
+      (canvasRef as MutableRefObject<HTMLDivElement | null>).current = node;
+    }
+  }, [canvasRef]);
+
+  const glassElementSignature = useMemo(
+    () => [
+      isBrowseMode ? 'browse' : 'edit',
+      isInspectMode ? 'inspect' : 'normal',
+      ...skillButtons.map((button) => `${button.id}:${button.skillType}`),
+    ].join('|'),
+    [isBrowseMode, isInspectMode, skillButtons],
+  );
+  const glassRenderSignature = useMemo(
+    () => [
+      activeSkillButtonId ?? '',
+      isDraggingActive ? 'dragging' : 'still',
+      isBrowseMode ? 'browse' : 'edit',
+      isInspectMode ? 'inspect' : 'normal',
+      ...skillButtons.map((button) => [
+        button.id,
+        button.position.x,
+        button.position.y,
+        button.skillType,
+        button.skillDisplayName ?? '',
+        button.skillIconUrl ?? '',
+      ].join(':')),
+    ].join('|'),
+    [activeSkillButtonId, isBrowseMode, isDraggingActive, isInspectMode, skillButtons],
+  );
+
+  useLiquidTideGlass(localCanvasRef, {
+    elementSignature: glassElementSignature,
+    renderSignature: glassRenderSignature,
+  });
+
   const renderSkillButtons = () => {
     return skillButtons
       .map((button) => (
@@ -171,10 +213,19 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   return (
     <div className="canvas-area">
       <div
-        ref={canvasRef}
+        ref={setCanvasRef}
         className={`canvas-container${isDraggingActive ? ' is-dragging-active' : ''}`}
         onClick={onCanvasPlaceCopy}
       >
+        <img
+          className="liquid-tide-capture-image"
+          src="/assets/themes/liquid-tide/anmi-anniversary.jpg"
+          alt=""
+          aria-hidden="true"
+          crossOrigin="anonymous"
+          draggable={false}
+        />
+        <div className="liquid-tide-capture-overlay" aria-hidden="true" />
         <div className="canvas-grid-shell">
           <div className="canvas-grid-stack">
             <div className="canvas-left-top-spacer" aria-hidden="true" />

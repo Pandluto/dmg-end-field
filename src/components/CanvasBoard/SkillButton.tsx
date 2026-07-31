@@ -1582,6 +1582,7 @@ export function SkillButtonComponent({
     <>
       <div
         className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''} ${isBrowseMode ? 'is-browse-mode' : ''} ${isBrowseMode && isDotButton ? 'is-browse-dot' : ''} ${isInspectMode ? 'is-inspect-mode' : ''} ${isDragDisabled ? 'is-drag-disabled' : ''}`}
+        data-liquid-glass-skill="true"
         data-skill-button-id={button.id}
         data-skill-type={skillType}
         aria-disabled={isDragDisabled}
