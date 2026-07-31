@@ -2644,6 +2644,446 @@
   backdrop-filter: blur(20px);
 }
 
+/*
+ * Apple Midnight — operator configuration
+ *
+ * Configuration state is deliberately monochrome: the same state gets the
+ * same luminance treatment in equipment, skills, character and weapon tracks.
+ * Source artwork keeps its native colour.
+ */
+:root[data-theme="apple-midnight"] .operator-config-page-root {
+  --operator-config-ink: #f5f5f7;
+  --operator-config-muted: #98989f;
+  --operator-config-line: rgba(255, 255, 255, 0.28);
+  --operator-config-line-soft: rgba(255, 255, 255, 0.1);
+  --operator-config-blue: #f5f5f7;
+  --operator-config-blue-soft: rgba(255, 255, 255, 0.14);
+  --operator-config-paper: #17181b;
+  --operator-config-paper-blue: #141518;
+  --operator-config-page-panel-bg: #0b0c0e;
+  --operator-config-mono-white: #f5f5f7;
+  --operator-config-mono-silver: #c7c7cc;
+  --operator-config-mono-muted: #8e8e93;
+  --operator-config-mono-surface: #17181b;
+  --operator-config-mono-control: #1d1e22;
+  --operator-config-mono-recessed: #111214;
+  --operator-config-mono-line-soft: rgba(255, 255, 255, 0.1);
+  --operator-config-mono-line: rgba(255, 255, 255, 0.3);
+  --operator-config-mono-line-strong: rgba(255, 255, 255, 0.82);
+  color: var(--operator-config-mono-silver);
+  background: #0b0c0e;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-panel {
+  border: 1px solid var(--operator-config-mono-line);
+  background: rgba(17, 18, 21, 0.98);
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-panel-header,
+  .operator-config-page-equip-visual-top,
+  .operator-config-page-equip-visual-bottom
+) {
+  border-color: var(--operator-config-mono-line-soft);
+  background: #131417;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-section,
+  .config-data-section,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .config-cti-strip,
+  .config-weapon-potential-box,
+  .config-weapon-drawer,
+  .config-weapon-data-drawer,
+  .config-cti-drawer,
+  .config-weapon-config
+) {
+  color: var(--operator-config-mono-silver);
+  border-color: var(--operator-config-mono-line-soft);
+  background: var(--operator-config-mono-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase,
+  .config-weapon-choose-detail-textarea,
+  .config-weapon-choose-img-area,
+  .config-weapon-choose-img-square,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-circle,
+  .operator-config-page-equip-tooltip
+) {
+  color: var(--operator-config-mono-silver);
+  border-color: var(--operator-config-mono-line);
+  background: var(--operator-config-mono-control);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-equip-visual-top::after {
+  border: 1px dashed var(--operator-config-mono-line);
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-section-title,
+  .config-data-title,
+  .config-equip-box-title,
+  .config-data-value,
+  .config-skill-key,
+  .config-skill-name,
+  .config-talent-name,
+  .operator-config-page-track-key,
+  .operator-config-page-track-label,
+  .operator-config-page-stat-value,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-label,
+  .config-weapon-choose-name,
+  .config-weapon-config-value,
+  .operator-config-page-equip-set-title
+) {
+  color: var(--operator-config-mono-white);
+  text-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-data-label,
+  .config-equip-item-label,
+  .config-talent-desc,
+  .config-weapon-choose-detail,
+  .config-weapon-config-summary,
+  .config-weapon-config-summary-line,
+  .operator-config-page-track-sublabel,
+  .operator-config-page-stat-label,
+  .operator-config-page-equip-set-empty
+) {
+  color: var(--operator-config-mono-muted);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-panel-back-btn,
+  .config-equip-sync-btn,
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-cti-input,
+  .config-weapon-option,
+  .operator-config-page-track-detail-button,
+  .operator-config-page-dot-detail-button
+) {
+  color: var(--operator-config-mono-silver);
+  border-color: var(--operator-config-mono-line);
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-panel-back-btn,
+  .config-equip-sync-btn,
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-weapon-option,
+  .operator-config-page-track-detail-button,
+  .operator-config-page-dot-detail-button
+):hover,
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-equip-copy-btn,
+  .config-weapon-trigger,
+  .config-weapon-data-trigger,
+  .config-weapon-option
+).is-open,
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-weapon-option.is-selected {
+  color: var(--operator-config-mono-white);
+  border-color: var(--operator-config-mono-line-strong);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Main and secondary attributes share one colour; hierarchy comes from weight. */
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-stat-item {
+  box-sizing: border-box;
+  color: var(--operator-config-mono-silver);
+  border: 1px solid var(--operator-config-mono-line-soft);
+  background: var(--operator-config-mono-control);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-stat-item.is-main,
+  .config-data-item.is-main
+) {
+  border: 2px solid var(--operator-config-mono-line-strong) !important;
+  background: var(--operator-config-mono-control) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-stat-item.is-sub,
+  .config-data-item.is-sub
+) {
+  border: 1px solid rgba(255, 255, 255, 0.42) !important;
+  background: var(--operator-config-mono-control) !important;
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-favor-input-layer {
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--operator-config-mono-line-soft);
+  background: var(--operator-config-mono-recessed);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-favor-row {
+  min-height: 20px;
+  padding: 1px 3px;
+  box-sizing: border-box;
+  border-radius: 6px;
+  background: var(--operator-config-mono-control);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-favor-row:first-child {
+  border: 2px solid var(--operator-config-mono-line-strong);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-favor-row:last-child {
+  border: 1px solid rgba(255, 255, 255, 0.42);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-favor-input {
+  color: var(--operator-config-mono-white);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/*
+ * Shared state grammar:
+ * dim = recessed, lit = clear outline, current/active = solid white.
+ */
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+) {
+  border-color: var(--operator-config-mono-line);
+  background: var(--operator-config-mono-recessed);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button,
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+) {
+  border-color: var(--operator-config-mono-line);
+  background: var(--operator-config-mono-recessed);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-dim {
+  border-color: var(--operator-config-mono-line-soft);
+  background: #0d0e10;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-lit {
+  border-color: var(--operator-config-mono-line-strong);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-current {
+  border-color: #ffffff;
+  background: var(--operator-config-mono-white);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-weapon-config-button.is-potential-derived:not(.is-current) {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: #0d0e10;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active {
+  border-color: #ffffff;
+  background: var(--operator-config-mono-white);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(255, 255, 255, 0.08);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-level-slot.is-disabled {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.24);
+  background: #0d0e10;
+  opacity: 0.72;
+}
+
+/* Keep SVG geometry; only replace the legacy blue/yellow material colours. */
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-track-hex-svg g {
+  filter: none !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
+  fill: var(--operator-config-mono-recessed) !important;
+  stroke: rgba(255, 255, 255, 0.42) !important;
+  stroke-width: 1;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .operator-config-page-track-badge-btn.is-active .operator-config-page-track-hex-svg polygon {
+  fill: var(--operator-config-mono-white) !important;
+  stroke: #ffffff !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+) {
+  border-color: var(--operator-config-mono-line);
+  background: var(--operator-config-mono-recessed);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-box,
+  .operator-config-page-weapon-star-square-box
+):hover {
+  border-color: var(--operator-config-mono-line-strong);
+  background: var(--operator-config-mono-control) !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon {
+  stroke: rgba(255, 255, 255, 0.36);
+  stroke-width: 0.75;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF000"] {
+  fill: #ffffff !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFFFFF"] {
+  fill: var(--operator-config-mono-white) !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#C7C7C7"] {
+  fill: #36373c !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF59D"] {
+  fill: #26272c !important;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .operator-config-page-level-badge-box.is-max,
+  .operator-config-page-weapon-star-square-box.is-max
+) polygon {
+  filter:
+    drop-shadow(0 0 2px rgba(255, 255, 255, 0.78))
+    drop-shadow(0 0 8px rgba(255, 255, 255, 0.2)) !important;
+}
+
+/* Character selector: native-colour portraits inside a neutral selection ring. */
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-side-rail {
+  --config-indicator-color: transparent;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-strip {
+  padding: 10px 8px;
+  border: 1px solid var(--operator-config-mono-line-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.025);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 12px 30px rgba(0, 0, 0, 0.18);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-item {
+  isolation: isolate;
+  overflow: visible !important;
+  background: transparent;
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-image {
+  position: relative;
+  z-index: 2;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-item:hover .config-avatar-image {
+  border-color: rgba(255, 255, 255, 0.62);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-item.is-active .config-avatar-image {
+  border: 2px solid #ffffff;
+  box-shadow:
+    0 0 0 3px #15161a,
+    0 0 0 4px rgba(255, 255, 255, 0.72),
+    0 7px 18px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-theme="apple-midnight"] .operator-config-page-root .config-avatar-item.is-active::after {
+  content: "";
+  left: 50%;
+  top: 50%;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  z-index: 0;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 50% !important;
+  background: transparent;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+}
+
+/* Never colour-grade operator, weapon or equipment artwork. */
+:root[data-theme="apple-midnight"] .operator-config-page-root :where(
+  .config-avatar-image,
+  .config-weapon-choose-img,
+  .operator-config-page-equip-circle img,
+  .operator-config-page-picker-option-image
+) {
+  filter: none !important;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"]) :where(
     .skill-button-modal-overlay,
