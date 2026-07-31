@@ -1921,20 +1921,12 @@
   color: var(--theme-text-title);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 10px;
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.13) 0%,
-      rgba(255, 255, 255, 0.04) 42%,
-      rgba(255, 255, 255, 0.018) 100%
-    ),
-    rgba(28, 29, 34, 0.62);
+  background: rgba(42, 43, 49, 0.78);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.17),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.035),
-    0 6px 18px rgba(0, 0, 0, 0.26);
-  -webkit-backdrop-filter: blur(18px) saturate(1.28);
-  backdrop-filter: blur(18px) saturate(1.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 5px 14px rgba(0, 0, 0, 0.24);
+  -webkit-backdrop-filter: blur(18px) saturate(1.08);
+  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 :root[data-theme="apple-midnight"] :is(
@@ -1996,18 +1988,10 @@
 
 :root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-base {
   border-color: rgba(255, 255, 255, 0.34);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.18) 0%,
-      rgba(255, 255, 255, 0.065) 46%,
-      rgba(255, 255, 255, 0.025) 100%
-    ),
-    rgba(38, 39, 45, 0.68);
+  background: rgba(52, 53, 59, 0.84);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.23),
-    inset 0 -1px 0 rgba(255, 255, 255, 0.045),
-    0 8px 22px rgba(0, 0, 0, 0.32);
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 7px 18px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme="apple-midnight"] .canvas-skill-button:hover .skill-button-orb {
@@ -2018,26 +2002,17 @@
 
 :root[data-theme="apple-midnight"] .canvas-skill-button.selected .skill-button-base {
   border-color: var(--theme-accent-bright);
-  background:
-    linear-gradient(
-      180deg,
-      rgba(100, 210, 255, 0.19) 0%,
-      rgba(10, 132, 255, 0.085) 45%,
-      rgba(255, 255, 255, 0.02) 100%
-    ),
-    rgba(28, 35, 45, 0.68);
+  background: rgba(36, 49, 63, 0.9);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.23),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
     0 0 0 2px var(--theme-accent-soft),
-    0 8px 24px rgba(0, 0, 0, 0.3);
+    0 7px 18px rgba(0, 0, 0, 0.3);
 }
 
 :root[data-theme="apple-midnight"] .canvas-skill-button.selected .skill-button-orb {
   border: 0;
-  filter: brightness(1.12);
-  box-shadow:
-    0 0 16px rgba(10, 132, 255, 0.24),
-    0 5px 15px rgba(0, 0, 0, 0.34);
+  filter: brightness(1.08);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.34);
 }
 
 :root[data-theme="apple-midnight"] .canvas-skill-button.dragging .skill-button-orb {
@@ -2343,6 +2318,330 @@
   filter: none !important;
   opacity: 1;
   mix-blend-mode: normal;
+}
+
+/*
+ * Apple Midnight — immersive timeline shell
+ *
+ * The approved direction keeps the business geometry intact while replacing
+ * the legacy edge-to-edge tool panels with quiet, flat Liquid Glass groups.
+ * Surface fills intentionally use one colour per state: grid gradients remain
+ * only where they describe the timeline coordinate system.
+ */
+:root[data-theme="apple-midnight"] .workbench-frame:has(.canvas-board) {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 18px;
+  background: #101114;
+  box-shadow:
+    inset 0 0 0 7px rgba(255, 255, 255, 0.012),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .canvas-board,
+  .canvas-layout,
+  .canvas-left-zone,
+  .canvas-container,
+  .canvas-area
+) {
+  background-color: #101114;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .skew-panel,
+  .skew-panel-bottom
+) {
+  display: none;
+}
+
+:root[data-theme="apple-midnight"] .canvas-left-top-spacer {
+  align-self: flex-end;
+  flex-basis: 38px;
+  width: calc(100% - 88px);
+  height: 38px;
+  margin-right: 0;
+  margin-bottom: 26px;
+  margin-left: auto;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+:root[data-theme="apple-midnight"] .canvas-grid-group {
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  outline: 1px solid rgba(255, 255, 255, 0.045);
+  outline-offset: -2px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.01);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+  overflow: hidden;
+}
+
+:root[data-theme="apple-midnight"] .canvas-staff-line {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+:root[data-theme="apple-midnight"] .canvas-right-zone.is-skill-sandbox {
+  top: 8px;
+  right: 8px;
+  bottom: 72px;
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
+  height: auto;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 16px;
+  background: rgba(23, 24, 28, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 18px 44px rgba(0, 0, 0, 0.22);
+  -webkit-backdrop-filter: blur(24px) saturate(1.04);
+  backdrop-filter: blur(24px) saturate(1.04);
+}
+
+:root[data-theme="apple-midnight"] .canvas-right-zone.is-skill-sandbox .skill-sandbox {
+  height: 100%;
+  padding: 10px 11px;
+  border-radius: 15px;
+  background: transparent;
+}
+
+:root[data-theme="apple-midnight"] .canvas-right-zone.is-skill-sandbox .sandbox-characters {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-characters::before {
+  flex-basis: 36px;
+  height: 36px;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.018);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-characters-extra-spacer {
+  flex-basis: 40px;
+  height: 40px;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.028);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-reserved-action {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--theme-text-body);
+  box-shadow: none;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-reserved-action:hover:not(:disabled) {
+  border: 0;
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--theme-text-title);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .sandbox-reserved-action--inspect.is-active,
+  .sandbox-reserved-action--browse.is-active,
+  .sandbox-reserved-action--refresh.is-loading,
+  .sandbox-reserved-action--refresh.is-loading:disabled
+) {
+  border: 0;
+  background: var(--theme-accent-main);
+  color: var(--theme-text-on-accent);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character {
+  min-height: 62px;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.032);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 8px 22px rgba(0, 0, 0, 0.13);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .sandbox-character--hoverable:hover,
+  .sandbox-character--hoverable:focus-within
+) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.055);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.16);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character-header {
+  min-height: 60px;
+  gap: 9px;
+  padding: 8px 9px;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .sandbox-avatar,
+  .sandbox-avatar-preview-anchor
+) {
+  width: 40px;
+  height: 40px;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-avatar {
+  border-radius: 9px;
+  box-shadow: inset 0 0 0 1px var(--theme-graphic-line);
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character-name {
+  color: var(--theme-text-title);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-character-count {
+  color: var(--theme-text-muted);
+  font-size: 10px;
+}
+
+:root[data-theme="apple-midnight"] .sandbox-expand-indicator {
+  width: 24px;
+  height: 24px;
+  border-color: var(--theme-line-regular);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--theme-text-title);
+}
+
+:root[data-theme="apple-midnight"] .canvas-bottom-zone {
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  width: auto;
+  height: 44px;
+  padding: 0 8px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 16px;
+  background: rgba(24, 25, 29, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.045),
+    0 14px 34px rgba(0, 0, 0, 0.24);
+  -webkit-backdrop-filter: blur(24px) saturate(1.04);
+  backdrop-filter: blur(24px) saturate(1.04);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .canvas-bottom-zone-left,
+  .canvas-bottom-zone-center,
+  .canvas-bottom-zone-right,
+  .toolbar
+) {
+  height: 32px;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .toolbar,
+  .toolbar-right,
+  .workbench-bottom-actions
+) {
+  gap: 5px;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .btn-back,
+  .btn-save,
+  .btn-calculate,
+  .workbench-top-trigger
+) {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  color: var(--theme-text-body);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  line-height: 30px;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .btn-back,
+  .btn-save,
+  .btn-calculate,
+  .workbench-top-trigger
+):hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--theme-text-title);
+}
+
+:root[data-theme="apple-midnight"] .staff-group-controls {
+  height: 32px;
+  gap: 0;
+  padding: 0 2px;
+  border: 1px solid var(--theme-line-regular);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="apple-midnight"] .staff-group-count {
+  min-width: 54px;
+  height: 30px;
+  color: var(--theme-text-title);
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .staff-group-controls .btn-add-group,
+  .staff-group-controls .btn-remove-group
+) {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  flex-basis: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  line-height: 28px;
+}
+
+:root[data-theme="apple-midnight"] :is(
+  .staff-group-controls .btn-add-group,
+  .staff-group-controls .btn-remove-group
+):hover:not(:disabled) {
+  border: 0;
+  background: rgba(255, 255, 255, 0.09);
+}
+
+:root[data-theme="apple-midnight"] .workbench-bottom-actions .workbench-bottom-nav-button.is-active {
+  border-color: rgba(64, 156, 255, 0.72) !important;
+  background: rgba(10, 132, 255, 0.14) !important;
+  color: var(--theme-accent-bright) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 1px rgba(10, 132, 255, 0.08) !important;
+}
+
+:root[data-theme="apple-midnight"] .web-shell-menu-button {
+  width: 52px;
+  height: 52px;
+  border-color: rgba(255, 255, 255, 0.32);
+  border-radius: 15px;
+  background: rgba(31, 32, 37, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.28);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
 }
 
 @media (prefers-reduced-motion: reduce) {
