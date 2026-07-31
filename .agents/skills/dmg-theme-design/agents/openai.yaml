@@ -1,0 +1,4 @@
+interface:
+  display_name: "DMG 主题设计"
+  short_description: "约束 DMG Endfield 主题设计、覆盖范围与视觉验收"
+  default_prompt: "Use $dmg-theme-design to design and implement a complete, consistent theme for this project."
