@@ -12,6 +12,7 @@ import {
 } from './liquidGlassRuntime';
 import {
   persistGlassSnapshot,
+  prewarmRecentPersistentGlassSnapshots,
   readPersistentGlassSnapshot,
 } from './liquidGlassSnapshotStore';
 
@@ -23,6 +24,7 @@ const BACKDROP_ASPECT_RATIO = 16 / 9;
 const STATIC_SNAPSHOT_CACHE_LIMIT = 48;
 const STATIC_SNAPSHOT_MEMORY_LIMIT = 128 * 1024 * 1024;
 const STATIC_SNAPSHOT_VERSION = 7;
+const STATIC_SNAPSHOT_PREWARM_LIMIT = 32;
 const COHORT_COMMIT_DELAY = 72;
 
 type SurfacePreset = 'control' | 'dock' | 'card' | 'popover';
@@ -72,6 +74,8 @@ type StaticSurfaceSnapshot = {
 
 const staticSurfaceSnapshotCache = new Map<string, StaticSurfaceSnapshot>();
 let staticSurfaceSnapshotBytes = 0;
+let staticSurfaceSnapshotPrewarmPromise: Promise<void> | null = null;
+let staticSurfaceSnapshotPrewarmScheduled = false;
 
 function getStaticSnapshotKey(group: ManagedRoot): string | null {
   if (group.targets.length === 0) return null;
@@ -155,6 +159,43 @@ function rememberStaticSnapshot(key: string, snapshot: StaticSurfaceSnapshot): v
     });
     staticSurfaceSnapshotBytes -= oldest?.byteSize ?? 0;
     staticSurfaceSnapshotCache.delete(oldestKey);
+  }
+}
+
+function releaseStaticSnapshot(snapshot: StaticSurfaceSnapshot): void {
+  snapshot.canvases.forEach(({ canvas }) => {
+    canvas.width = 0;
+    canvas.height = 0;
+  });
+}
+
+function scheduleStaticSurfaceSnapshotPrewarm(): void {
+  if (staticSurfaceSnapshotPrewarmPromise || staticSurfaceSnapshotPrewarmScheduled) return;
+  staticSurfaceSnapshotPrewarmScheduled = true;
+  const start = () => {
+    staticSurfaceSnapshotPrewarmScheduled = false;
+    if (staticSurfaceSnapshotPrewarmPromise) return;
+    staticSurfaceSnapshotPrewarmPromise = prewarmRecentPersistentGlassSnapshots(
+      'surface',
+      STATIC_SNAPSHOT_PREWARM_LIMIT,
+      (key) => (
+        key.includes(`\"version\":${STATIC_SNAPSHOT_VERSION}`)
+        && !staticSurfaceSnapshotCache.has(key)
+      ),
+      (key, snapshot) => {
+        if (staticSurfaceSnapshotCache.has(key)) {
+          releaseStaticSnapshot(snapshot);
+          return;
+        }
+        rememberStaticSnapshot(key, snapshot);
+      },
+    ).catch(() => undefined);
+  };
+
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(start, { timeout: 240 });
+  } else {
+    window.setTimeout(start, 96);
   }
 }
 
@@ -570,6 +611,7 @@ export function useLiquidTideSurfaceGlass(
       return undefined;
     }
 
+    scheduleStaticSurfaceSnapshotPrewarm();
     beginCohort();
 
     const markGroupFrozen = (group: ManagedRoot) => {
@@ -1011,7 +1053,13 @@ export function useLiquidTideSurfaceGlass(
       scheduleSettledScan();
     };
 
-    const mutationObserver = new MutationObserver(scheduleSettledScan);
+    const mutationObserver = new MutationObserver(() => {
+      // Cached lenses are cheap to attach, so discover newly committed route
+      // controls on the next frame instead of waiting for the old 80ms quiet
+      // window. Keep the settled pass for late text/geometry corrections.
+      scheduleScan();
+      scheduleSettledScan();
+    });
     mutationObserver.observe(appRoot, {
       attributes: true,
       attributeFilter: ['class'],

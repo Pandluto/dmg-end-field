@@ -165,7 +165,7 @@ async function prunePersistentSnapshots(database: IDBDatabase): Promise<void> {
 export async function readPersistentGlassSnapshot(
   namespace: SnapshotNamespace,
   key: string,
-  expectedCanvasCount: number,
+  expectedCanvasCount?: number,
 ): Promise<HydratedGlassSnapshot | null> {
   try {
     const database = await openDatabase();
@@ -177,7 +177,13 @@ export async function readPersistentGlassSnapshot(
       transaction.objectStore(SNAPSHOT_STORE).get(cacheKey) as IDBRequest<PersistedSnapshot | undefined>,
     );
     await readComplete;
-    if (!record || record.canvases.length !== expectedCanvasCount) return null;
+    if (
+      !record
+      || (
+        typeof expectedCanvasCount === 'number'
+        && record.canvases.length !== expectedCanvasCount
+      )
+    ) return null;
 
     const hydrated = await Promise.all(record.canvases.map(blobToCanvas));
     if (hydrated.some((canvas) => canvas === null)) {
@@ -208,6 +214,41 @@ export async function readPersistentGlassSnapshot(
     };
   } catch {
     return null;
+  }
+}
+
+export async function prewarmRecentPersistentGlassSnapshots(
+  namespace: SnapshotNamespace,
+  maxEntries: number,
+  acceptsKey: (key: string) => boolean,
+  onSnapshot: (key: string, snapshot: HydratedGlassSnapshot) => void,
+): Promise<void> {
+  try {
+    const database = await openDatabase();
+    if (!database || maxEntries <= 0) return;
+    const namespacePrefix = `${namespace}:`;
+    const transaction = database.transaction(METADATA_STORE, 'readonly');
+    const readComplete = transactionComplete(transaction);
+    const metadata = await requestResult(
+      transaction.objectStore(METADATA_STORE).getAll() as IDBRequest<PersistedMetadata[]>,
+    );
+    await readComplete;
+
+    const keys = metadata
+      .filter(({ key }) => key.startsWith(namespacePrefix))
+      .sort((left, right) => right.updatedAt - left.updatedAt)
+      .map(({ key }) => key.slice(namespacePrefix.length))
+      .filter(acceptsKey)
+      .slice(0, maxEntries);
+
+    // Decode sequentially so startup never creates a large transient bitmap
+    // spike. Each decoded entry becomes immediately available to the hooks.
+    for (const key of keys) {
+      const snapshot = await readPersistentGlassSnapshot(namespace, key);
+      if (snapshot) onSnapshot(key, snapshot);
+    }
+  } catch {
+    // Prewarming is opportunistic; exact-key reads remain available on demand.
   }
 }
 
