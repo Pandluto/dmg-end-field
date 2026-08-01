@@ -1,0 +1,3398 @@
+/*
+ * Liquid Tide
+ *
+ * A continuous illustrated backdrop with two material levels:
+ * - quiet translucent panes for timeline/content canvases;
+ * - denser refractive glass for controls, navigation and transient UI.
+ *
+ * Authored operator, weapon, equipment and skill artwork is never filtered.
+ */
+
+.liquid-tide-capture-image,
+.liquid-tide-capture-overlay {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] {
+  color-scheme: light;
+
+  --liquid-tide-background:
+    linear-gradient(112deg, rgba(35, 55, 110, 0.14), rgba(255, 228, 243, 0.025) 46%, rgba(60, 88, 151, 0.12)),
+    url("/assets/themes/liquid-tide/anmi-anniversary.jpg");
+  --liquid-tide-ink: #17203a;
+  --liquid-tide-ink-soft: #46506c;
+  --liquid-tide-ink-faint: #6f7891;
+  --liquid-tide-text-on-frost: #111318;
+  --liquid-tide-on-deep: #f8f9ff;
+  --liquid-tide-on-deep-muted: rgba(244, 247, 255, 0.72);
+  --liquid-tide-line: rgba(255, 255, 255, 0.62);
+  --liquid-tide-line-strong: rgba(255, 255, 255, 0.88);
+  --liquid-tide-line-dark: rgba(44, 59, 108, 0.24);
+  --liquid-tide-glass-clear: rgba(238, 245, 255, 0.2);
+  --liquid-tide-glass-quiet: rgba(230, 238, 255, 0.32);
+  --liquid-tide-glass-regular: rgba(244, 248, 255, 0.52);
+  --liquid-tide-glass-dense: rgba(248, 250, 255, 0.72);
+  --liquid-tide-glass-deep: rgba(45, 59, 116, 0.3);
+  --liquid-tide-glass-deeper: rgba(35, 48, 99, 0.42);
+  --liquid-skill-shade: rgba(20, 28, 54, 0.1);
+  --liquid-tide-pink: #d986ad;
+  --liquid-tide-rose: #ec9bb7;
+  --liquid-tide-lilac: #9c91d9;
+  --liquid-tide-blue: #7599dc;
+  --liquid-tide-cyan: #7bc9e6;
+  --liquid-tide-capsule-current-bg: #d986ad;
+  --liquid-tide-capsule-current-line: rgba(255, 255, 255, 0.92);
+  --liquid-tide-capsule-lit-bg: rgba(156, 174, 224, 0.78);
+  --liquid-tide-capsule-lit-line: rgba(255, 255, 255, 0.78);
+  --liquid-tide-capsule-dim-bg: rgba(75, 91, 144, 0.18);
+  --liquid-tide-capsule-dim-line: rgba(255, 255, 255, 0.34);
+  --liquid-tide-focus: #566dcc;
+  --liquid-tide-bright-text: #f8fbff;
+  --liquid-tide-bright-text-muted: rgba(244, 248, 255, 0.76);
+  --liquid-tide-door: rgba(210, 220, 240, 0.28);
+  --liquid-tide-frame: rgba(246, 250, 255, 0.08);
+  --liquid-tide-content: rgba(248, 251, 255, 0.14);
+
+  --theme-bg-window: rgba(217, 227, 249, 0.14);
+  --theme-bg-content: rgba(234, 241, 255, 0.28);
+  --theme-bg-nav: rgba(244, 248, 255, 0.58);
+  --theme-bg-card: rgba(248, 251, 255, 0.62);
+  --theme-bg-grid-area: rgba(58, 74, 139, 0.22);
+  --theme-bg-grid-header: rgba(225, 235, 255, 0.18);
+  --theme-bg-workspace-panel: rgba(230, 238, 255, 0.32);
+  --theme-bg-hover: rgba(255, 255, 255, 0.46);
+  --theme-bg-active: rgba(112, 137, 214, 0.22);
+
+  --theme-text-title: var(--liquid-tide-ink);
+  --theme-text-body: #313c5b;
+  --theme-text-muted: var(--liquid-tide-ink-soft);
+  --theme-text-placeholder: var(--liquid-tide-ink-faint);
+
+  --theme-border-subtle: rgba(255, 255, 255, 0.34);
+  --theme-border-grid: rgba(255, 255, 255, 0.3);
+  --theme-border-default: rgba(255, 255, 255, 0.58);
+  --theme-border-medium: rgba(88, 109, 184, 0.42);
+  --theme-border-strong: rgba(255, 255, 255, 0.86);
+
+  --theme-accent-main: #6479ce;
+  --theme-accent-strong: #465dae;
+  --theme-accent-bright: #84bfe4;
+  --theme-accent-lime: #d88eb5;
+  --theme-accent-soft: rgba(100, 121, 206, 0.16);
+  --theme-accent-hover: #5268bd;
+
+  --theme-shadow-panel:
+    0 14px 36px rgba(38, 50, 96, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66),
+    inset 0 -1px 0 rgba(66, 78, 132, 0.08);
+  --theme-shadow-hover:
+    0 20px 48px rgba(38, 50, 96, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  --theme-focus-ring:
+    0 0 0 2px rgba(255, 255, 255, 0.78),
+    0 0 0 5px rgba(86, 109, 204, 0.3);
+
+  --theme-radius-control: 12px;
+  --theme-radius-panel: 20px;
+  --theme-radius-switch: 999px;
+
+  --theme-main-stat-bg: rgba(231, 151, 187, 0.2);
+  --theme-sub-stat-bg: rgba(127, 153, 218, 0.16);
+
+  --theme-surface-solid: rgba(248, 251, 255, 0.92);
+  --theme-surface-raised: var(--liquid-tide-glass-dense);
+  --theme-surface-regular: var(--liquid-tide-glass-regular);
+  --theme-surface-muted: rgba(230, 238, 255, 0.38);
+  --theme-control-bg: rgba(250, 252, 255, 0.66);
+  --theme-fill-subtle: rgba(97, 117, 184, 0.08);
+  --theme-fill-hover: rgba(255, 255, 255, 0.45);
+  --theme-fill-pressed: rgba(95, 116, 188, 0.18);
+  --theme-line-soft: rgba(255, 255, 255, 0.38);
+  --theme-line-regular: rgba(255, 255, 255, 0.62);
+  --theme-line-strong: rgba(255, 255, 255, 0.86);
+  --theme-graphic-line: rgba(255, 255, 255, 0.7);
+  --theme-graphic-line-strong: rgba(255, 255, 255, 0.94);
+  --theme-overlay-bg: rgba(32, 45, 90, 0.28);
+  --theme-text-on-accent: #ffffff;
+  --theme-danger: #c94c63;
+  --theme-danger-soft: rgba(201, 76, 99, 0.12);
+  --theme-success: #3e866c;
+  --theme-success-soft: rgba(62, 134, 108, 0.12);
+  --theme-warning: #9a6a26;
+  --theme-warning-soft: rgba(154, 106, 38, 0.12);
+  --theme-shadow-window:
+    0 38px 110px rgba(32, 43, 88, 0.26),
+    0 12px 34px rgba(45, 56, 104, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  --theme-shadow-float:
+    0 28px 72px rgba(32, 43, 88, 0.22),
+    0 4px 16px rgba(45, 56, 104, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+
+  --web-bg: transparent;
+  --web-panel: var(--liquid-tide-glass-dense);
+  --web-panel-strong: rgba(250, 252, 255, 0.82);
+  --web-line: rgba(255, 255, 255, 0.48);
+  --web-line-strong: rgba(255, 255, 255, 0.76);
+  --web-text: var(--liquid-tide-ink);
+  --web-muted: var(--liquid-tide-ink-soft);
+  --web-faint: var(--liquid-tide-ink-faint);
+  --web-accent: var(--theme-accent-main);
+  --web-accent-strong: var(--theme-accent-strong);
+  --web-danger: var(--theme-danger);
+  --web-shadow: var(--theme-shadow-window);
+
+  --excel-green-muted: rgba(100, 121, 206, 0.34);
+  --excel-gray-2: rgba(237, 242, 254, 0.54);
+  --excel-gray-3: rgba(214, 224, 246, 0.58);
+  --excel-gray-4: #8994af;
+  --ide-warning: var(--theme-warning);
+  --ide-danger: var(--theme-danger);
+  --ide-success: var(--theme-success-soft);
+  --ide-acrylic-bg: rgba(244, 248, 255, 0.54);
+  --ide-acrylic-bg-strong: rgba(249, 251, 255, 0.76);
+  --ide-acrylic-border: rgba(255, 255, 255, 0.66);
+  --ide-acrylic-highlight: rgba(255, 255, 255, 0.82);
+}
+
+/* Theme picker swatch remains illustrative even when another theme is active. */
+.theme-option.is-liquid-tide .theme-option-preview {
+  border-color: rgba(255, 255, 255, 0.76);
+  background:
+    linear-gradient(145deg, rgba(117, 153, 220, 0.72), rgba(236, 155, 183, 0.64)),
+    #c9d6f0;
+  box-shadow:
+    0 5px 14px rgba(63, 78, 134, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.theme-option.is-liquid-tide .theme-option-sidebar {
+  border-right: 1px solid rgba(255, 255, 255, 0.6);
+  background: rgba(244, 248, 255, 0.42);
+  backdrop-filter: blur(6px);
+}
+
+.theme-option.is-liquid-tide .theme-option-canvas {
+  background: rgba(71, 86, 150, 0.22);
+}
+
+.theme-option.is-liquid-tide .theme-option-canvas span {
+  background: rgba(255, 255, 255, 0.66);
+}
+
+.theme-option.is-liquid-tide .theme-option-canvas span:first-child {
+  background: linear-gradient(90deg, #e591b3, #829fe2);
+}
+
+/* One continuous image plane. */
+:root[data-theme="liquid-tide"] body,
+:root[data-theme="liquid-tide"] .web-entry-screen {
+  background-color: #b9c8e6;
+  background-image: var(--liquid-tide-background);
+  background-position: center center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .app,
+  .web-app-shell,
+  .web-shell-content,
+  .workbench-frame,
+  .workbench-content,
+  .canvas-board,
+  .canvas-layout,
+  .canvas-left-zone,
+  .canvas-container,
+  .canvas-area,
+  .selection-workbench-layout,
+  .buff-batch-edit-workbench,
+  .buff-edit-layout,
+  .buff-edit-canvas
+) {
+  background-color: transparent;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container {
+  isolation: isolate;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-image,
+:root[data-theme="liquid-tide"] .liquid-tide-capture-overlay {
+  position: fixed;
+  inset: 0;
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  user-select: none;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-image {
+  z-index: 0;
+  object-fit: cover;
+  object-position: center center;
+}
+
+:root[data-theme="liquid-tide"] .liquid-tide-capture-overlay {
+  z-index: 1;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(255, 235, 247, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 47, 98, 0.02), rgba(31, 46, 92, 0.08)),
+    linear-gradient(112deg, rgba(35, 55, 110, 0.14), rgba(255, 228, 243, 0.025) 46%, rgba(60, 88, 151, 0.12));
+}
+
+:root[data-theme="liquid-tide"] .canvas-grid-shell {
+  z-index: 2;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell {
+  --shell-accent: var(--theme-accent-main);
+  --shell-accent-hover: var(--theme-accent-hover);
+  --shell-accent-soft: var(--theme-accent-soft);
+  --shell-text: var(--theme-text-title);
+  --shell-muted: var(--theme-text-muted);
+  --shell-faint: var(--theme-text-placeholder);
+  --shell-border: rgba(255, 255, 255, 0.42);
+  --shell-border-strong: rgba(255, 255, 255, 0.7);
+  --shell-surface: rgba(244, 248, 255, 0.64);
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 76% 18%, rgba(255, 235, 247, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(30, 47, 98, 0.02), rgba(31, 46, 92, 0.08));
+}
+
+:root[data-theme="liquid-tide"] .web-shell-content,
+:root[data-theme="liquid-tide"] .web-shell-launcher {
+  z-index: 1;
+}
+
+:root[data-theme="liquid-tide"] .web-entry-screen::before {
+  background:
+    radial-gradient(circle at 72% 28%, rgba(255, 239, 249, 0.12), transparent 35%),
+    linear-gradient(116deg, rgba(34, 50, 104, 0.1), transparent 44%);
+}
+
+/* Refractive control glass. */
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-menu-button,
+  .web-shell-popover,
+  .web-shell-window,
+  .access-card,
+  .secondary-tab-card,
+  .onboarding-card,
+  .data-save-dialog,
+  .skill-button-context-menu,
+  .context-menu-submenu,
+  .damage-search-drawer,
+  .buff-detail-modal,
+  .timeline-snapshot-modal,
+  .work-node-modal,
+  .damage-report-modal,
+  .skill-button-modal,
+  .operator-config-page-picker-modal,
+  .operator-config-page-panel-detail-modal,
+  .operator-config-page-skill-modal,
+  .buff-editor-drawer
+) {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(245, 249, 255, 0.64);
+  box-shadow:
+    0 28px 72px rgba(35, 46, 91, 0.22),
+    0 4px 16px rgba(45, 57, 107, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    inset 0 -1px 0 rgba(71, 86, 143, 0.1);
+  -webkit-backdrop-filter: blur(26px) saturate(1.35);
+  backdrop-filter: blur(26px) saturate(1.35);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-menu-button,
+  .web-shell-window-close,
+  .modal-close-btn,
+  .operator-config-page-picker-close,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal-close
+) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(250, 252, 255, 0.58);
+  box-shadow:
+    0 8px 24px rgba(39, 52, 101, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-menu-button,
+  .web-shell-window-close,
+  .modal-close-btn,
+  .operator-config-page-picker-close,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal-close
+):hover:not(:disabled) {
+  color: #202b4c;
+  border-color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow:
+    0 12px 30px rgba(39, 52, 101, 0.17),
+    inset 0 1px 0 #ffffff;
+  transform: translateY(-1px);
+}
+
+:root[data-theme="liquid-tide"] .web-shell-overlay {
+  background: rgba(35, 48, 99, 0.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.08);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-modal-overlay,
+  .damage-report-modal-overlay,
+  .timeline-snapshot-modal-overlay,
+  .work-node-modal-overlay,
+  .data-save-dialog-backdrop,
+  .buff-editor-drawer-mask,
+  .skill-button-inline-buff-search-mask,
+  .config-panel-overlay
+) {
+  background: rgba(27, 39, 83, 0.26);
+  -webkit-backdrop-filter: blur(12px) saturate(1.1);
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+
+/* Start, data and settings windows: readable glass, artwork stays visible around them. */
+:root[data-theme="liquid-tide"] :is(
+  .dashboard-hero,
+  .dashboard-stat-grid > article,
+  .dashboard-workflow,
+  .data-package-panel,
+  .data-library-section,
+  .data-tool-section,
+  .settings-section,
+  .settings-card,
+  .data-library-inspector,
+  .data-library-list,
+  .install-panel
+) {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: rgba(244, 248, 255, 0.52);
+  box-shadow:
+    0 18px 48px rgba(39, 51, 98, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(66, 79, 134, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(1.22);
+  backdrop-filter: blur(18px) saturate(1.22);
+}
+
+:root[data-theme="liquid-tide"] .dashboard-primary-button,
+:root[data-theme="liquid-tide"] .selection-confirm-button,
+:root[data-theme="liquid-tide"] .buff-editor-drawer footer button:not(.is-danger),
+:root[data-theme="liquid-tide"] .operator-draft-run-button,
+:root[data-theme="liquid-tide"] .buff-sheet-share-action.is-primary {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.64);
+  background: linear-gradient(135deg, rgba(119, 145, 222, 0.94), rgba(213, 130, 174, 0.9));
+  box-shadow:
+    0 10px 26px rgba(66, 77, 137, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.54);
+}
+
+:root[data-theme="liquid-tide"] .dashboard-primary-button:hover:not(:disabled),
+:root[data-theme="liquid-tide"] .selection-confirm-button:hover:not(:disabled),
+:root[data-theme="liquid-tide"] .buff-editor-drawer footer button:not(.is-danger):hover:not(:disabled),
+:root[data-theme="liquid-tide"] .operator-draft-run-button:hover:not(:disabled),
+:root[data-theme="liquid-tide"] .buff-sheet-share-action.is-primary:hover:not(:disabled) {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.9);
+  background: linear-gradient(135deg, #8099e0, #df8fb4);
+  box-shadow:
+    0 14px 34px rgba(66, 77, 137, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  transform: translateY(-1px);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workflow-grid > button,
+  .data-tool-card,
+  .data-library-list > button,
+  .theme-option,
+  .settings-action-row,
+  .data-package-facts div,
+  .data-library-inspector dl div
+) {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(248, 251, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.68);
+  -webkit-backdrop-filter: blur(12px) saturate(1.18);
+  backdrop-filter: blur(12px) saturate(1.18);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workflow-grid > button,
+  .data-tool-card,
+  .data-library-list > button,
+  .theme-option
+):hover:not(:disabled) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.82);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow:
+    0 12px 28px rgba(47, 60, 112, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  transform: translateY(-1px);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .data-library-list > button.is-selected,
+  .theme-option.is-selected
+) {
+  color: var(--liquid-tide-ink);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: linear-gradient(135deg, rgba(235, 151, 184, 0.2), rgba(117, 153, 220, 0.22));
+  box-shadow:
+    0 12px 28px rgba(47, 60, 112, 0.14),
+    inset 0 0 0 1px rgba(100, 121, 206, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+:root[data-theme="liquid-tide"] .theme-option.is-selected .theme-option-check {
+  color: #ffffff;
+  background: linear-gradient(135deg, var(--liquid-tide-blue), var(--liquid-tide-pink));
+}
+
+/* Main timeline: quiet panes, not a wall of control glass. */
+:root[data-theme="liquid-tide"] .workbench-frame:has(.canvas-board) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="liquid-tide"] :is(.skew-panel, .skew-panel-bottom) {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] .canvas-grid-shell {
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] .canvas-left-top-spacer,
+:root[data-theme="liquid-tide"] .canvas-grid-group {
+  border: 1px solid rgba(255, 255, 255, 0.68);
+  outline: 1px solid rgba(48, 62, 116, 0.12);
+  outline-offset: -2px;
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(119, 142, 210, 0.26), rgba(49, 63, 126, 0.28)),
+    rgba(232, 239, 255, 0.12);
+  box-shadow:
+    0 18px 44px rgba(31, 43, 89, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.66),
+    inset 0 -1px 0 rgba(34, 47, 98, 0.12);
+  -webkit-backdrop-filter: blur(9px) saturate(1.08);
+  backdrop-filter: blur(9px) saturate(1.08);
+  overflow: hidden;
+}
+
+:root[data-theme="liquid-tide"] .canvas-left-top-spacer {
+  border-radius: 14px;
+  background: rgba(221, 232, 255, 0.2);
+}
+
+:root[data-theme="liquid-tide"] .canvas-grid-background {
+  --grid-line-color: rgba(255, 255, 255, 0.075);
+}
+
+:root[data-theme="liquid-tide"] .canvas-container.is-dragging-active .canvas-grid-background {
+  --grid-line-color: rgba(255, 255, 255, 0.2);
+}
+
+:root[data-theme="liquid-tide"] .canvas-staff-line {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 1px 0 rgba(32, 46, 99, 0.12);
+}
+
+:root[data-theme="liquid-tide"] .canvas-damage-node {
+  background: rgba(235, 178, 209, 0.7);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-staff-avatar,
+  .canvas-staff-avatar-placeholder
+) {
+  border: 1px solid rgba(255, 255, 255, 0.84);
+  background: rgba(244, 248, 255, 0.42);
+  box-shadow:
+    0 7px 18px rgba(31, 43, 89, 0.18),
+    inset 0 0 0 1px rgba(68, 82, 139, 0.14);
+}
+
+:root[data-theme="liquid-tide"] .canvas-staff-name {
+  color: var(--liquid-tide-on-deep);
+  font-weight: 650;
+  text-shadow: 0 1px 4px rgba(26, 36, 76, 0.55);
+}
+
+/* Right rail uses denser glass because it carries text and controls. */
+:root[data-theme="liquid-tide"] .canvas-right-zone.is-skill-sandbox,
+:root[data-theme="liquid-tide"] .canvas-right-zone.is-tool-panel,
+:root[data-theme="liquid-tide"] .buff-edit-right-zone {
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 20px;
+  background: rgba(239, 245, 255, 0.5);
+  box-shadow:
+    0 24px 62px rgba(31, 43, 89, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86),
+    inset 0 -1px 0 rgba(45, 58, 111, 0.08);
+  -webkit-backdrop-filter: blur(24px) saturate(1.28);
+  backdrop-filter: blur(24px) saturate(1.28);
+}
+
+:root[data-theme="liquid-tide"] .buff-edit-right-zone {
+  background: rgba(239, 245, 255, 0.2);
+}
+
+:root[data-theme="liquid-tide"] .buff-edit-right-placeholder {
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-sandbox,
+  .tool-panel,
+  .tool-panel-content,
+  .tool-panel-tabs,
+  .tab-content-damage,
+  .tab-content-report
+) {
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] .sandbox-characters::before,
+:root[data-theme="liquid-tide"] .sandbox-characters-extra-spacer,
+:root[data-theme="liquid-tide"] .sandbox-character,
+:root[data-theme="liquid-tide"] .buff-item,
+:root[data-theme="liquid-tide"] .report-text-panel {
+  border-color: rgba(255, 255, 255, 0.58);
+  border-radius: 14px;
+  background: rgba(249, 251, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 9px 24px rgba(45, 58, 108, 0.1);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .sandbox-character--hoverable:hover,
+  .sandbox-character--hoverable:focus-within,
+  .buff-item:hover
+) {
+  border-color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 12px 28px rgba(45, 58, 108, 0.14);
+}
+
+:root[data-theme="liquid-tide"] .sandbox-character--hoverable::before,
+:root[data-theme="liquid-tide"] .sandbox-character--hoverable::after,
+:root[data-theme="liquid-tide"] .buff-item::before {
+  display: none;
+}
+
+/* Skill material palette. Same semantic type, same gradient everywhere. */
+:root[data-theme="liquid-tide"] [data-skill-type="A"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-a {
+  --liquid-skill-from: rgba(242, 157, 184, 0.84);
+  --liquid-skill-to: rgba(202, 127, 171, 0.68);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="B"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-b {
+  --liquid-skill-from: rgba(177, 149, 219, 0.82);
+  --liquid-skill-to: rgba(128, 139, 213, 0.7);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="E"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-e {
+  --liquid-skill-from: rgba(121, 207, 230, 0.82);
+  --liquid-skill-to: rgba(113, 155, 221, 0.7);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="Q"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-q {
+  --liquid-skill-from: rgba(224, 133, 188, 0.84);
+  --liquid-skill-to: rgba(150, 133, 216, 0.72);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="Dot"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-dot {
+  --liquid-skill-from: rgba(127, 178, 230, 0.8);
+  --liquid-skill-to: rgba(109, 126, 196, 0.7);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-base,
+  .dragging-skill-button-base,
+  .report-ppt-axis-button-body
+) {
+  color: var(--liquid-tide-ink);
+  border-color: transparent;
+  border-radius: 0 11px 11px 0;
+  background:
+    linear-gradient(135deg, var(--liquid-skill-from, rgba(226, 235, 255, 0.5)), var(--liquid-skill-to, rgba(235, 195, 220, 0.42))),
+    rgba(247, 250, 255, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    inset 0 -1px 0 rgba(53, 67, 122, 0.1),
+    0 8px 20px rgba(36, 48, 96, 0.13);
+  -webkit-backdrop-filter: blur(16px) saturate(1.28);
+  backdrop-filter: blur(16px) saturate(1.28);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button,
+  .report-ppt-axis-button-orb
+) {
+  color: var(--liquid-tide-ink);
+  border-color: transparent;
+  background:
+    linear-gradient(145deg, var(--liquid-skill-from, rgba(226, 235, 255, 0.64)), var(--liquid-skill-to, rgba(213, 178, 222, 0.56))),
+    rgba(245, 249, 255, 0.38) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.82),
+    inset -1px -1px 0 rgba(55, 68, 123, 0.12),
+    0 8px 20px rgba(36, 48, 96, 0.16);
+  -webkit-backdrop-filter: blur(16px) saturate(1.32);
+  backdrop-filter: blur(16px) saturate(1.32);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-composite-outline,
+  .report-ppt-axis-button-outline
+) {
+  display: block;
+  color: rgba(255, 255, 255, 0.88);
+  filter:
+    drop-shadow(0 1px 0 rgba(255, 255, 255, 0.4))
+    drop-shadow(0 3px 8px rgba(38, 49, 95, 0.18));
+}
+
+:root[data-theme="liquid-tide"] .skill-button-composite-outline path {
+  stroke-width: 1.35;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button:hover,
+  .canvas-skill-button.selected,
+  .report-ppt-axis-button:hover
+) .skill-button-composite-outline {
+  color: #ffffff;
+  filter:
+    drop-shadow(0 0 4px rgba(255, 255, 255, 0.46))
+    drop-shadow(0 8px 18px rgba(39, 51, 99, 0.24));
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button:hover .skill-button-base,
+  .canvas-skill-button:hover .skill-button-orb,
+  .canvas-skill-button.selected .skill-button-base,
+  .canvas-skill-button.selected .skill-button-orb
+) {
+  border-color: transparent;
+  filter: brightness(1.045) saturate(1.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 10px 24px rgba(35, 47, 94, 0.2);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-name,
+  .skill-button-type,
+  .dragging-skill-button-base span,
+  .skill-button-inspect-damage
+) {
+  color: #202944;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+  font-weight: 620;
+  letter-spacing: -0.005em;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.42);
+}
+
+:root[data-theme="liquid-tide"] .skill-button-inspect-damage {
+  border-top-color: rgba(60, 74, 128, 0.13);
+}
+
+/* True knockout: remove the icon silhouette from the orb's glass fill. */
+@supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
+  :root[data-theme="liquid-tide"] :is(
+    .skill-button-orb,
+    .sandbox-skill-button,
+    .report-ppt-axis-button-orb
+  ).has-skill-icon-mask {
+    position: relative;
+    isolation: isolate;
+    background: transparent !important;
+  }
+
+  :root[data-theme="liquid-tide"] :is(
+    .skill-button-orb,
+    .sandbox-skill-button,
+    .report-ppt-axis-button-orb
+  ).has-skill-icon-mask::before {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    content: "";
+    background:
+      linear-gradient(145deg, var(--liquid-skill-from, rgba(226, 235, 255, 0.72)), var(--liquid-skill-to, rgba(213, 178, 222, 0.6))),
+      rgba(245, 249, 255, 0.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.32);
+    backdrop-filter: blur(16px) saturate(1.32);
+    -webkit-mask-image: linear-gradient(#fff 0 0), var(--skill-icon-mask);
+    -webkit-mask-position: center, center;
+    -webkit-mask-repeat: no-repeat, no-repeat;
+    -webkit-mask-size: 100% 100%, 76% 76%;
+    -webkit-mask-composite: xor;
+    mask-image: linear-gradient(#fff 0 0), var(--skill-icon-mask);
+    mask-position: center, center;
+    mask-repeat: no-repeat, no-repeat;
+    mask-size: 100% 100%, 76% 76%;
+    mask-composite: exclude;
+  }
+
+  :root[data-theme="liquid-tide"] :is(
+    .skill-button-orb,
+    .sandbox-skill-button,
+    .report-ppt-axis-button-orb
+  ).has-skill-icon-mask .skill-icon {
+    opacity: 0;
+  }
+}
+
+/* Selection workspace. Selected rounded cards use their whole perimeter. */
+:root[data-theme="liquid-tide"] .selection-panel {
+  color: var(--liquid-tide-ink);
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .selection-roster,
+  .selection-library,
+  .selection-slot,
+  .selection-character-card
+) {
+  border-color: rgba(255, 255, 255, 0.58);
+  border-radius: 16px;
+  background: rgba(245, 249, 255, 0.46);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.74),
+    0 12px 30px rgba(40, 52, 101, 0.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+:root[data-theme="liquid-tide"] .selection-header {
+  border-bottom-color: rgba(255, 255, 255, 0.54);
+}
+
+:root[data-theme="liquid-tide"] .selection-character-card.is-selected {
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  border-left-width: 1px;
+  background: linear-gradient(135deg, rgba(233, 151, 184, 0.23), rgba(117, 153, 220, 0.24));
+  box-shadow:
+    0 14px 32px rgba(40, 52, 101, 0.16),
+    inset 0 0 0 1px rgba(99, 121, 202, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.92);
+}
+
+:root[data-theme="liquid-tide"] .selection-character-card.is-selected .selection-character-avatar {
+  border-color: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    0 0 0 2px rgba(105, 126, 201, 0.2),
+    0 6px 16px rgba(47, 59, 107, 0.16);
+}
+
+/* Bottom navigation stays compact and readable over the illustration. */
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger,
+  .workbench-drawer-tab,
+  .toolbar button,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab
+) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.62);
+  border-radius: 11px;
+  background: rgba(246, 250, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 7px 20px rgba(43, 55, 103, 0.1);
+  -webkit-backdrop-filter: blur(18px) saturate(1.24);
+  backdrop-filter: blur(18px) saturate(1.24);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger,
+  .workbench-drawer-tab,
+  .toolbar button,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab
+):hover:not(:disabled) {
+  color: #202b4c;
+  border-color: rgba(255, 255, 255, 0.88);
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 10px 24px rgba(43, 55, 103, 0.15);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger.is-active,
+  .workbench-drawer-tab.is-active,
+  .tool-panel-tab.is-active,
+  .sandbox-reserved-action.is-active
+) {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.84);
+  background: linear-gradient(135deg, rgba(119, 145, 222, 0.88), rgba(213, 130, 174, 0.82));
+}
+
+/* Skill detail and Buff flows. */
+:root[data-theme="liquid-tide"] .timeline-detail-layer {
+  background:
+    linear-gradient(110deg, rgba(43, 57, 112, 0.18), rgba(213, 144, 180, 0.06)),
+    transparent;
+  -webkit-backdrop-filter: blur(8px) saturate(1.08);
+  backdrop-filter: blur(8px) saturate(1.08);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-heading,
+  .timeline-detail-hit-list,
+  .timeline-detail-card,
+  .timeline-tuning-card,
+  .timeline-calculation-card,
+  .timeline-buff-list-card,
+  .timeline-status-card,
+  .buff-edit-panel,
+  .buff-edit-selected-button-card,
+  .buff-edit-buff-card,
+  .buff-batch-edit-workbench .anomaly-board-card
+) {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(245, 249, 255, 0.64);
+  box-shadow:
+    0 14px 34px rgba(40, 52, 100, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(17px) saturate(1.2);
+  backdrop-filter: blur(17px) saturate(1.2);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-buff-row,
+  .timeline-detail-hit,
+  .timeline-status-list button,
+  .timeline-tuning-list button,
+  .timeline-tuning-inline-item,
+  .skill-button-buff-item,
+  .skill-damage-hit-card,
+  .buff-tag-selectable,
+  .skill-button-inline-buff-search-item
+) {
+  border-color: rgba(255, 255, 255, 0.45);
+  border-radius: 13px;
+  background: rgba(249, 251, 255, 0.36);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.64);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-hit.is-selected,
+  .timeline-tuning-list button.is-active,
+  .timeline-tuning-inline-item.is-active,
+  .skill-damage-hit-card.selected,
+  .buff-tag-selectable.is-selected,
+  .buff-edit-buff-card.is-selected
+) {
+  color: var(--liquid-tide-ink);
+  border: 1px solid rgba(255, 255, 255, 0.94);
+  border-left-width: 1px;
+  background: linear-gradient(135deg, rgba(232, 153, 185, 0.2), rgba(120, 154, 218, 0.22));
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 115, 190, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .buff-edit-buff-card.is-selected.is-add-intent,
+  .buff-edit-add-button.is-confirm-add
+) {
+  border-color: rgba(72, 139, 112, 0.68);
+  background: var(--theme-success-soft);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .buff-edit-buff-card.is-selected.is-remove-intent,
+  .buff-edit-remove-button.is-confirm-remove
+) {
+  border-color: rgba(201, 76, 99, 0.68);
+  background: var(--theme-danger-soft);
+}
+
+:root[data-theme="liquid-tide"] .timeline-buff-rows {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-color: rgba(100, 121, 190, 0.38) transparent;
+}
+
+/* Operator configuration: preserve SVG geometry and authored images. */
+:root[data-theme="liquid-tide"] .operator-config-page-root {
+  --operator-config-ink: var(--liquid-tide-ink);
+  --operator-config-muted: var(--liquid-tide-ink-soft);
+  --operator-config-line: rgba(255, 255, 255, 0.58);
+  --operator-config-line-soft: rgba(255, 255, 255, 0.38);
+  --operator-config-blue: var(--theme-accent-main);
+  --operator-config-blue-soft: var(--theme-accent-soft);
+  --operator-config-paper: rgba(247, 250, 255, 0.58);
+  --operator-config-paper-blue: rgba(226, 235, 255, 0.4);
+  --operator-config-page-panel-bg: rgba(233, 240, 255, 0.32);
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-panel,
+  .operator-config-page-section,
+  .config-data-item,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .operator-config-page-stat-item,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-input-layer
+) {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(245, 249, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 12px 30px rgba(42, 54, 102, 0.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-avatar-item.is-active,
+  .config-weapon-option.is-selected,
+  .operator-config-page-track-badge-btn.is-active,
+  .operator-config-page-dot-detail-button.is-active
+) {
+  border-color: rgba(255, 255, 255, 0.94);
+  background: linear-gradient(135deg, rgba(232, 153, 185, 0.2), rgba(120, 154, 218, 0.22));
+  box-shadow:
+    inset 0 0 0 1px rgba(95, 116, 190, 0.16),
+    0 10px 26px rgba(42, 54, 102, 0.13);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item.is-active::after {
+  border-color: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 0 0 2px rgba(102, 124, 203, 0.2);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-main,
+  .operator-config-page-stat-item.is-main
+) {
+  border-color: rgba(232, 151, 187, 0.5);
+  background: rgba(238, 161, 191, 0.17);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-sub,
+  .operator-config-page-stat-item.is-sub
+) {
+  border-color: rgba(117, 153, 220, 0.42);
+  background: rgba(117, 153, 220, 0.14);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
+  fill: rgba(244, 248, 255, 0.36);
+  stroke: rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-track-badge-btn.is-active .operator-config-page-track-hex-svg polygon {
+  fill: rgba(123, 151, 220, 0.34) !important;
+  stroke: rgba(255, 255, 255, 0.95) !important;
+  filter: drop-shadow(0 0 6px rgba(210, 151, 190, 0.32));
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
+  fill: rgba(244, 248, 255, 0.36) !important;
+  stroke: rgba(255, 255, 255, 0.72) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon {
+  stroke: rgba(255, 255, 255, 0.7);
+  stroke-width: 0.75;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF000"] {
+  fill: #d986ad !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFFFFF"] {
+  fill: #9caee0 !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#C7C7C7"] {
+  fill: rgba(103, 119, 169, 0.38) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-svg,
+  .operator-config-page-weapon-star-svg
+) polygon[fill="#FFF59D"] {
+  fill: rgba(225, 146, 180, 0.2) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-badge-box.is-max,
+  .operator-config-page-weapon-star-square-box.is-max
+) polygon {
+  filter:
+    drop-shadow(0 0 3px rgba(229, 145, 181, 0.76))
+    drop-shadow(0 0 9px rgba(117, 153, 220, 0.34)) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-config-button.is-current {
+  border-color: rgba(255, 255, 255, 0.92);
+  background: #d986ad;
+  box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.16);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-config-button.is-lit {
+  border-color: rgba(255, 255, 255, 0.82);
+  background: #9caee0;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-config-button.is-dim {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(92, 108, 155, 0.32);
+}
+
+/* Work-node graph: glass cards and luminous connectors. */
+:root[data-theme="liquid-tide"] .work-node-tree-panel {
+  border-color: rgba(255, 255, 255, 0.62);
+  background:
+    radial-gradient(circle at 18% 16%, rgba(233, 157, 190, 0.11), transparent 32%),
+    rgba(234, 241, 255, 0.32);
+  box-shadow:
+    0 18px 48px rgba(38, 50, 97, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  backdrop-filter: blur(16px) saturate(1.2);
+}
+
+:root[data-theme="liquid-tide"] .work-node-tree-connectors line {
+  stroke: rgba(255, 255, 255, 0.5);
+}
+
+:root[data-theme="liquid-tide"] .work-node-tree-connectors .is-path {
+  stroke: rgba(128, 151, 218, 0.86);
+  filter: drop-shadow(0 0 4px rgba(131, 152, 218, 0.42));
+}
+
+:root[data-theme="liquid-tide"] .work-node-tree-node {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(246, 250, 255, 0.48);
+  box-shadow:
+    0 12px 28px rgba(38, 50, 97, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+:root[data-theme="liquid-tide"] .work-node-tree-node:is(.is-path, .is-active) {
+  border-color: rgba(255, 255, 255, 0.94);
+  background: linear-gradient(135deg, rgba(232, 153, 185, 0.22), rgba(120, 154, 218, 0.24));
+  box-shadow:
+    0 14px 32px rgba(38, 50, 97, 0.16),
+    inset 0 0 0 1px rgba(97, 118, 194, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+/* Dense data, damage and image pages share one readable material hierarchy. */
+:root[data-theme="liquid-tide"] :is(
+  .operator-draft-page,
+  .buff-draft-page,
+  .buff-sheet-page,
+  .weapon-sheet-page,
+  .equipment-sheet-page,
+  .damage-sheet-page,
+  .image-manager-page,
+  .damage-report-page
+) {
+  color: var(--liquid-tide-ink);
+  background: rgba(228, 236, 253, 0.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.06);
+  backdrop-filter: blur(8px) saturate(1.06);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  [class*="operator-draft-"][class*="panel"],
+  [class*="operator-draft-"][class*="section"],
+  [class*="buff-draft-"][class*="panel"],
+  [class*="buff-draft-"][class*="section"],
+  .buff-sheet-ribbon,
+  .buff-sheet-explorer,
+  .buff-sheet-workspace,
+  .damage-sheet-ribbon,
+  .damage-sheet-formula-bar,
+  .damage-sheet-grid,
+  .image-manager-ribbon,
+  .image-manager-explorer,
+  .image-manager-preview-panel,
+  .image-manager-asset-list
+) {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: rgba(245, 249, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  -webkit-backdrop-filter: blur(16px) saturate(1.18);
+  backdrop-filter: blur(16px) saturate(1.18);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .operator-draft-skill-item.is-active,
+  .operator-draft-hit-item.is-active,
+  .operator-draft-buff-item.is-active,
+  .operator-draft-local-library-item.is-active,
+  .buff-sheet-explorer-row.is-active,
+  .buff-sheet-explorer-child.is-active,
+  .buff-sheet-explorer-effect.is-active,
+  .weapon-sheet-image-option.is-active,
+  .weapon-sheet-growth-inline-item.is-active,
+  .damage-sheet-sheet-tab.is-active,
+  .damage-sheet-mini-tab.is-active,
+  .damage-sheet-buff-tag.is-active,
+  .damage-sheet-buff-tag.is-selected,
+  .image-manager-grid-item.is-selected
+) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.94);
+  background: linear-gradient(135deg, rgba(232, 153, 185, 0.18), rgba(120, 154, 218, 0.2));
+  box-shadow:
+    inset 0 0 0 1px rgba(97, 118, 194, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+/* Spreadsheet-scale text needs a denser pane than the timeline canvas. */
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-topbar,
+  .damage-sheet-sidebar,
+  .damage-sheet-ribbon,
+  .damage-sheet-formula-bar,
+  .damage-sheet-workspace-footer
+) {
+  background: rgba(246, 249, 255, 0.7);
+  -webkit-backdrop-filter: blur(20px) saturate(1.16);
+  backdrop-filter: blur(20px) saturate(1.16);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-shell {
+  border-color: rgba(255, 255, 255, 0.72);
+  background: rgba(242, 247, 255, 0.68);
+  box-shadow:
+    0 16px 42px rgba(35, 48, 95, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  -webkit-backdrop-filter: blur(20px) saturate(1.12);
+  backdrop-filter: blur(20px) saturate(1.12);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-excel-scroll,
+  .damage-sheet-excel-row.is-data .damage-sheet-excel-cell
+) {
+  color: #28334f;
+  border-color: rgba(91, 108, 166, 0.18);
+  background: rgba(247, 250, 255, 0.62);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row.is-data:nth-child(even) .damage-sheet-excel-cell {
+  background: rgba(232, 239, 253, 0.66);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row-number {
+  color: #5c6782;
+  border-color: rgba(91, 108, 166, 0.2);
+  background: rgba(235, 241, 253, 0.72);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row.is-group .damage-sheet-excel-cell {
+  background: rgba(216, 227, 249, 0.82);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row.is-header .damage-sheet-excel-cell {
+  background: rgba(239, 245, 255, 0.9);
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row.is-character .damage-sheet-excel-cell {
+  background: linear-gradient(90deg, rgba(225, 178, 214, 0.72), rgba(194, 210, 246, 0.72));
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-excel-row.is-button .damage-sheet-excel-cell {
+  background: rgba(226, 234, 251, 0.82);
+}
+
+/* PPT output: same theme, quieter opacity for screenshot legibility. */
+:root[data-theme="liquid-tide"] .report-ppt-page {
+  color: var(--liquid-tide-ink);
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-toolbar {
+  border-color: rgba(255, 255, 255, 0.64);
+  background: rgba(245, 249, 255, 0.62);
+  box-shadow:
+    0 14px 34px rgba(38, 50, 97, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  -webkit-backdrop-filter: blur(20px) saturate(1.24);
+  backdrop-filter: blur(20px) saturate(1.24);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-slide-inner {
+  border-color: rgba(255, 255, 255, 0.72);
+  background:
+    linear-gradient(135deg, rgba(247, 250, 255, 0.72), rgba(230, 238, 255, 0.62));
+  box-shadow:
+    0 26px 70px rgba(34, 45, 91, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  -webkit-backdrop-filter: blur(20px) saturate(1.18);
+  backdrop-filter: blur(20px) saturate(1.18);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .report-ppt-operator-row,
+  .report-ppt-weapon-block,
+  .report-ppt-equipment-block,
+  .report-ppt-skill-levels,
+  .report-ppt-axis-group,
+  .report-ppt-axis-track
+) {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: rgba(247, 250, 255, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.74);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .report-ppt-avatar-frame,
+  .report-ppt-weapon-image,
+  .report-ppt-equipment-icon
+) {
+  border-color: rgba(255, 255, 255, 0.62);
+  background-color: rgba(228, 236, 253, 0.42);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .report-ppt-operator-main,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name,
+  .report-ppt-operator-level,
+  .report-ppt-weapon-level
+) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.62);
+  background: rgba(249, 251, 255, 0.7);
+  -webkit-backdrop-filter: blur(9px) saturate(1.15);
+  backdrop-filter: blur(9px) saturate(1.15);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-skill-levels span {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.54);
+  background: rgba(247, 250, 255, 0.38);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-equipment-set-name {
+  color: var(--liquid-tide-ink-soft);
+  border-bottom-color: rgba(255, 255, 255, 0.54);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-axis-label img {
+  border-color: rgba(255, 255, 255, 0.72);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-axis-track {
+  background:
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(100% / 15 - 1px),
+      rgba(255, 255, 255, 0.22) calc(100% / 15 - 1px),
+      rgba(255, 255, 255, 0.22) calc(100% / 15)
+    ),
+    rgba(92, 112, 178, 0.1);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .report-ppt-character-card,
+  .report-ppt-chart-card,
+  .report-ppt-axis-card,
+  .report-ppt-summary-card
+) {
+  border-color: rgba(255, 255, 255, 0.58);
+  background: rgba(248, 251, 255, 0.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.76),
+    0 12px 28px rgba(42, 54, 102, 0.1);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-potential-star polygon[fill="#FFF000"] {
+  fill: #d986ad !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-potential-star polygon[fill="#FFFFFF"] {
+  fill: #9caee0 !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-potential-star polygon[fill="#C7C7C7"] {
+  fill: rgba(107, 122, 167, 0.34) !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-potential-star-wrap.is-max polygon {
+  filter:
+    drop-shadow(0 0 3px rgba(230, 145, 181, 0.72))
+    drop-shadow(0 0 8px rgba(117, 153, 220, 0.32)) !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-level-capsule i {
+  border-color: rgba(255, 255, 255, 0.62);
+  background: rgba(117, 153, 220, 0.16);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-level-capsule i.is-active {
+  border-color: rgba(255, 255, 255, 0.96);
+  background: linear-gradient(135deg, #8ca6e3, #dd91b4);
+  box-shadow: 0 0 0 2px rgba(111, 134, 207, 0.16);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-share-color.is-segment-0 {
+  color: #d884aa;
+  fill: #d884aa;
+  background: #d884aa;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-share-color.is-segment-1 {
+  color: #788fd1;
+  fill: #788fd1;
+  background: #788fd1;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-share-color.is-segment-2 {
+  color: #78bdd9;
+  fill: #78bdd9;
+  background: #78bdd9;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-share-color.is-segment-3 {
+  color: #b095d3;
+  fill: #b095d3;
+  background: #b095d3;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-petal-base {
+  fill: rgba(111, 128, 180, 0.16);
+  stroke: rgba(255, 255, 255, 0.78);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-petal-hub {
+  fill: rgba(71, 87, 147, 0.72);
+  stroke: rgba(255, 255, 255, 0.9);
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-line path:first-of-type {
+  stroke: rgba(81, 97, 151, 0.34) !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-line path:last-of-type {
+  stroke: #718ad2 !important;
+  filter: drop-shadow(0 1px 2px rgba(76, 92, 150, 0.26));
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-line circle {
+  fill: #f7f9ff !important;
+  stroke: #d986ad !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-line-label {
+  fill: var(--liquid-tide-ink-soft);
+}
+
+/*
+ * LiquidGlass pass: WebGL owns refraction on timeline skill controls. Frosted
+ * material remains reserved for one outer text rail; nested panes stay clear.
+ */
+
+/* The score canvas is the illustration itself, not a frosted card. */
+:root[data-theme="liquid-tide"] :is(
+  .canvas-grid-shell,
+  .canvas-grid-stack,
+  .canvas-grid-row,
+  .canvas-grid-group,
+  .canvas-grid-header-bg,
+  .canvas-left-top-spacer,
+  .buff-edit-left-zone,
+  .buff-edit-canvas-area,
+  .buff-edit-canvas,
+  .buff-edit-mask
+) {
+  border-color: transparent;
+  outline: 0;
+  background-color: transparent;
+  background-image: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-grid-group,
+  .canvas-left-top-spacer
+) {
+  border-radius: 0;
+}
+
+:root[data-theme="liquid-tide"] .canvas-grid-background {
+  --grid-line-color: transparent;
+  background-color: transparent;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container.is-dragging-active .canvas-grid-background {
+  --grid-line-color: rgba(255, 255, 255, 0.27);
+}
+
+:root[data-theme="liquid-tide"] .canvas-staff-line {
+  background: rgba(255, 255, 255, 0.46);
+  box-shadow:
+    0 1px 0 rgba(37, 48, 96, 0.16),
+    0 0 8px rgba(230, 239, 255, 0.16);
+}
+
+/* Selection: clear refractive controls on the left, one frosted library on the right. */
+:root[data-theme="liquid-tide"] .selection-roster {
+  border-color: rgba(255, 255, 255, 0.56);
+  background: transparent;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.62),
+    0 12px 30px rgba(35, 47, 94, 0.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="liquid-tide"] .selection-library {
+  border-color: rgba(255, 255, 255, 0.66);
+  background: rgba(239, 245, 255, 0.5);
+  box-shadow:
+    0 20px 52px rgba(31, 43, 89, 0.17),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  -webkit-backdrop-filter: blur(24px) saturate(1.2);
+  backdrop-filter: blur(24px) saturate(1.2);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .selection-slot.is-filled,
+  .selection-confirm-button,
+  .selection-roster .selection-section-header button,
+  .selection-roster .selection-slot-remove
+) {
+  border-color: rgba(255, 255, 255, 0.62);
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.025)),
+    rgba(255, 255, 255, 0.025);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.92),
+    inset -1px -1px 0 rgba(57, 70, 126, 0.12),
+    0 7px 18px rgba(35, 47, 94, 0.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.14) brightness(1.04);
+  backdrop-filter: blur(14px) saturate(1.14) brightness(1.04);
+}
+
+:root[data-theme="liquid-tide"] .selection-confirm-button {
+  background:
+    linear-gradient(135deg, rgba(224, 146, 185, 0.2), rgba(118, 151, 218, 0.16)),
+    rgba(255, 255, 255, 0.035);
+}
+
+:root[data-theme="liquid-tide"] .selection-library :is(
+  .selection-character-card,
+  .selection-toolbar input,
+  .selection-section-header button
+) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="liquid-tide"] .selection-character-card {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+:root[data-theme="liquid-tide"] .selection-character-card:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+:root[data-theme="liquid-tide"] .selection-character-card.is-selected {
+  border-color: rgba(255, 255, 255, 0.94);
+  background: linear-gradient(135deg, rgba(231, 153, 185, 0.2), rgba(118, 151, 218, 0.2));
+}
+
+/* Semantic colour now lives in the refractive rim, not an opaque fill. */
+:root[data-theme="liquid-tide"] [data-skill-type="A"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-a {
+  --liquid-skill-from: rgba(242, 157, 184, 0.15);
+  --liquid-skill-to: rgba(202, 127, 171, 0.035);
+  --liquid-skill-edge: rgba(243, 170, 197, 0.78);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="B"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-b {
+  --liquid-skill-from: rgba(177, 149, 219, 0.15);
+  --liquid-skill-to: rgba(128, 139, 213, 0.035);
+  --liquid-skill-edge: rgba(181, 164, 228, 0.76);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="E"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-e {
+  --liquid-skill-from: rgba(121, 207, 230, 0.15);
+  --liquid-skill-to: rgba(113, 155, 221, 0.035);
+  --liquid-skill-edge: rgba(139, 214, 234, 0.8);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="Q"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-q {
+  --liquid-skill-from: rgba(224, 133, 188, 0.16);
+  --liquid-skill-to: rgba(150, 133, 216, 0.04);
+  --liquid-skill-edge: rgba(229, 155, 202, 0.8);
+}
+
+:root[data-theme="liquid-tide"] [data-skill-type="Dot"],
+:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-dot {
+  --liquid-skill-from: rgba(127, 178, 230, 0.14);
+  --liquid-skill-to: rgba(109, 126, 196, 0.035);
+  --liquid-skill-edge: rgba(148, 193, 235, 0.76);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-base,
+  .dragging-skill-button-base,
+  .report-ppt-axis-button-body,
+  .workbench-top-trigger,
+  .workbench-bottom-nav-button,
+  .btn-back,
+  .btn-save,
+  .btn-calculate,
+  .btn-add-group,
+  .btn-remove-group,
+  .toolbar button,
+  .workbench-drawer-tab,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab,
+  .web-shell-menu-button
+) {
+  border-color: rgba(255, 255, 255, 0.58);
+  background:
+    linear-gradient(135deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.12)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
+    rgba(255, 255, 255, 0.025);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.9),
+    inset -1px -1px 0 rgba(57, 70, 126, 0.13),
+    0 7px 18px rgba(35, 47, 94, 0.13);
+  -webkit-backdrop-filter: blur(20px) saturate(1.14) brightness(1.04);
+  backdrop-filter: blur(20px) saturate(1.14) brightness(1.04);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger,
+  .workbench-bottom-nav-button,
+  .toolbar button,
+  .workbench-drawer-tab,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab
+) {
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.025)),
+    rgba(255, 255, 255, 0.025) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.9),
+    inset -1px -1px 0 rgba(57, 70, 126, 0.13),
+    0 7px 18px rgba(35, 47, 94, 0.13) !important;
+  -webkit-backdrop-filter: blur(14px) saturate(1.14) brightness(1.04) !important;
+  backdrop-filter: blur(14px) saturate(1.14) brightness(1.04) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger,
+  .workbench-bottom-nav-button,
+  .toolbar button,
+  .workbench-drawer-tab,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab
+):hover:not(:disabled),
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger.is-active,
+  .workbench-bottom-nav-button.is-active,
+  .workbench-drawer-tab.is-active,
+  .sandbox-reserved-action.is-active,
+  .tool-panel-tab.is-active
+) {
+  color: var(--liquid-tide-ink) !important;
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  background:
+    linear-gradient(135deg, rgba(224, 146, 185, 0.16), rgba(118, 151, 218, 0.11)),
+    rgba(255, 255, 255, 0.04) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.98),
+    inset -1px -1px 0 rgba(57, 70, 126, 0.15),
+    0 9px 22px rgba(35, 47, 94, 0.17) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button,
+  .report-ppt-axis-button-orb
+) {
+  border-color: var(--liquid-skill-edge, rgba(255, 255, 255, 0.68));
+  background:
+    linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
+    linear-gradient(145deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.14)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
+    rgba(255, 255, 255, 0.025) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.94),
+    inset -1px -1px 0 rgba(54, 67, 122, 0.15),
+    0 7px 18px rgba(35, 47, 94, 0.15);
+  -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+  backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+}
+
+/* The rounded circle and rounded body already carry the glass edge. */
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-composite-outline,
+  .report-ppt-axis-button-outline
+) {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] .buff-edit-skill-button .skill-button-base {
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  background:
+    linear-gradient(135deg, var(--liquid-skill-from), var(--liquid-skill-to)),
+    rgba(255, 255, 255, 0.025) !important;
+}
+
+:root[data-theme="liquid-tide"] .buff-edit-skill-button .skill-button-orb {
+  border-color: var(--liquid-skill-edge) !important;
+}
+
+/* A quiet dark veil separates the skill glass from bright artwork beneath it. */
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button .skill-button-base,
+  .dragging-skill-button-base,
+  .report-ppt-axis-button-body
+) {
+  background:
+    linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
+    linear-gradient(135deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.12)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
+    rgba(255, 255, 255, 0.025) !important;
+}
+
+@supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
+  :root[data-theme="liquid-tide"] :is(
+    .skill-button-orb,
+    .sandbox-skill-button,
+    .report-ppt-axis-button-orb
+  ).has-skill-icon-mask::before {
+    background:
+      linear-gradient(var(--liquid-skill-shade), var(--liquid-skill-shade)),
+      linear-gradient(145deg, var(--liquid-skill-from, rgba(255, 255, 255, 0.15)), var(--liquid-skill-to, rgba(255, 255, 255, 0.025))),
+      rgba(255, 255, 255, 0.02);
+    -webkit-backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+    backdrop-filter: blur(22px) saturate(1.18) brightness(1.05);
+  }
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button {
+  isolation: isolate;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button > canvas {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+  -webkit-clip-path: var(--liquid-glass-composite-clip, none);
+  clip-path: var(--liquid-glass-composite-clip, none);
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline {
+  display: block;
+  color: rgba(102, 116, 166, 0.42);
+  filter:
+    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.24))
+    drop-shadow(0 2px 4px rgba(35, 47, 94, 0.12));
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-default-path {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-depth-path,
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-path {
+  display: block;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-depth-path {
+  stroke: rgba(91, 105, 158, 0.34);
+  stroke-width: 2.4;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-composite-outline-liquid-path {
+  stroke-width: 1.15;
+  opacity: 0.94;
+}
+
+@supports ((-webkit-mask-composite: xor) or (mask-composite: exclude)) {
+  :root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button .skill-button-orb.has-skill-icon-mask::before {
+    display: none;
+  }
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button:hover,
+  .canvas-skill-button.selected,
+  .workbench-top-trigger:hover:not(:disabled),
+  .workbench-bottom-nav-button.is-active
+) {
+  filter: brightness(1.08) saturate(1.08);
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) :is(
+  .skill-button-base,
+  .skill-button-orb
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) .skill-button-composite-outline {
+  filter:
+    drop-shadow(0 1px 1px rgba(255, 255, 255, 0.36))
+    drop-shadow(0 3px 6px rgba(35, 47, 94, 0.16));
+}
+
+:root[data-theme="liquid-tide"] .canvas-container[data-liquid-glass-state="active"] > .canvas-skill-button:is(:hover, .selected) .skill-button-composite-outline-liquid-path {
+  stroke-width: 1.4;
+  opacity: 1;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-skill-button:hover .skill-button-base,
+  .canvas-skill-button:hover .skill-button-orb,
+  .canvas-skill-button.selected .skill-button-base,
+  .canvas-skill-button.selected .skill-button-orb
+) {
+  border-color: var(--liquid-skill-edge, rgba(255, 255, 255, 0.86));
+  background-color: rgba(255, 255, 255, 0.055) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.98),
+    inset -1px -1px 0 rgba(54, 67, 122, 0.16),
+    0 10px 25px rgba(35, 47, 94, 0.2);
+}
+
+/* One frosted parent on the right; its children do not stack more blur. */
+:root[data-theme="liquid-tide"] :is(
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .buff-edit-right-zone
+) {
+  background: rgba(239, 245, 255, 0.52);
+  -webkit-backdrop-filter: blur(24px) saturate(1.22);
+  backdrop-filter: blur(24px) saturate(1.22);
+}
+
+:root[data-theme="liquid-tide"] .canvas-right-zone.buff-edit-right-zone {
+  background: rgba(239, 245, 255, 0.3);
+}
+
+:root[data-theme="liquid-tide"] .buff-edit-right-placeholder {
+  background: transparent;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .buff-edit-right-zone
+) :is(
+  .skill-sandbox,
+  .tool-panel,
+  .tool-panel-content,
+  .tool-panel-tabs,
+  .tab-content-damage,
+  .tab-content-report,
+  .sandbox-character,
+  .sandbox-skill-item,
+  .sandbox-skill-item--local,
+  .buff-item,
+  .buff-edit-panel,
+  .buff-edit-selected-button-card,
+  .buff-edit-buff-card,
+  .anomaly-board-card
+) {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .buff-edit-right-zone
+) :is(
+  .sandbox-character,
+  .sandbox-skill-item,
+  .sandbox-skill-item--local,
+  .buff-item,
+  .buff-edit-buff-card,
+  .anomaly-board-card
+) {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* Never colour-grade authored content. */
+:root[data-theme="liquid-tide"] :is(
+  .theme-option-preview,
+  .brand-mark img,
+  .web-shell-brand-mark img,
+  .selection-character-avatar-image,
+  .sandbox-avatar,
+  .canvas-staff-avatar,
+  .operator-config-page-root img,
+  .operator-draft-avatar,
+  .operator-draft-skill-icon,
+  .operator-draft-skill-hero-icon,
+  .weapon-sheet-image-option-thumb img,
+  .image-manager-grid-thumb img,
+  .image-manager-preview-image img,
+  .report-ppt-avatar-frame img,
+  .report-ppt-weapon-image img,
+  .report-ppt-equipment-icon img
+) {
+  filter: none !important;
+  mix-blend-mode: normal;
+}
+
+/* Skill glyphs sit directly on the clear lens as translucent black ink. */
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-orb,
+  .dragging-skill-button-orb,
+  .sandbox-skill-button,
+  .report-ppt-axis-button-orb
+) .skill-icon {
+  opacity: 0.68 !important;
+  filter: brightness(0) saturate(100%) !important;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="liquid-tide"] :is(button, [role="button"], input, textarea, select):focus-visible {
+  outline: none;
+  box-shadow: var(--theme-focus-ring);
+}
+
+:root[data-theme="liquid-tide"] button:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  :root[data-theme="liquid-tide"] :is(
+    .web-shell-popover,
+    .web-shell-window,
+    .canvas-right-zone.is-skill-sandbox,
+    .canvas-right-zone.is-tool-panel,
+    .timeline-detail-card,
+    .settings-section,
+    .data-library-section,
+    .operator-config-page-panel,
+    .report-ppt-slide-inner
+  ) {
+    background: rgba(242, 247, 255, 0.94);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="liquid-tide"] :is(
+    .web-shell-popover,
+    .web-shell-window,
+    .canvas-right-zone.is-skill-sandbox,
+    .canvas-right-zone.is-tool-panel,
+    .timeline-detail-card,
+    .settings-section,
+    .data-library-section,
+    .operator-config-page-panel,
+    .report-ppt-slide-inner
+  ) {
+    background: rgba(242, 247, 255, 0.92);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="liquid-tide"] *,
+  :root[data-theme="liquid-tide"] *::before,
+  :root[data-theme="liquid-tide"] *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* ========================================================================== */
+/* Liquid Tide material hierarchy v2                                           */
+/*                                                                            */
+/* 1. Shader glass: floating controls and compact action groups.               */
+/* 2. Frosted carrier: one readable pane around dense content.                 */
+/* 3. Clear content: rows, cards, tables and grids never add another blur.      */
+/* ========================================================================== */
+
+.liquid-tide-surface-capture {
+  display: none;
+}
+
+/* Retire every legacy per-component blur before opting the few carriers back in. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell *,
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell *::before,
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell *::after,
+:root[data-theme="liquid-tide"] .timeline-detail-layer,
+:root[data-theme="liquid-tide"] .timeline-detail-layer *,
+:root[data-theme="liquid-tide"] .timeline-detail-layer *::before,
+:root[data-theme="liquid-tide"] .timeline-detail-layer *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-root] {
+  isolation: isolate;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-positioned="true"] {
+  position: relative;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-root] > .liquid-tide-surface-capture {
+  position: absolute;
+  z-index: -3;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  user-select: none;
+  transform: translateZ(0);
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface] {
+  z-index: 1;
+  isolation: isolate;
+  color: var(--liquid-tide-ink);
+  border: 1px solid rgba(255, 255, 255, 0.66) !important;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.22), rgba(223, 232, 252, 0.1)),
+    rgba(232, 240, 255, 0.34) !important;
+  box-shadow:
+    0 10px 28px rgba(34, 47, 94, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(57, 70, 126, 0.1) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="control"] {
+  border-radius: 14px;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] {
+  border-radius: 16px;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="card"] {
+  border-radius: 16px;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="popover"] {
+  border-radius: 22px;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-surface] {
+  border-color: transparent !important;
+  background: rgba(241, 247, 255, 0.18) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.58);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="control"] {
+  background: rgba(241, 247, 255, 0.36) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="control"]:is(
+  .is-active,
+  [aria-selected="true"],
+  [aria-pressed="true"]
+) {
+  color: #263153 !important;
+  background: linear-gradient(135deg, rgba(225, 145, 184, 0.28), rgba(111, 146, 217, 0.24)) !important;
+  outline-color: rgba(255, 255, 255, 0.84);
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="card"] {
+  background: rgba(241, 247, 255, 0.34) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="dock"] {
+  background: rgba(241, 247, 255, 0.3) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-surface] > canvas {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="popover"] {
+  background: rgba(241, 247, 255, 0.42) !important;
+}
+
+/* A dock is one optical object. Its children describe state; they are not panes. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] :is(
+  button,
+  input,
+  select,
+  textarea,
+  [role="button"]
+),
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="popover"] :is(
+  button,
+  input,
+  select,
+  textarea,
+  [role="button"]
+) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] :is(button, [role="button"]),
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="popover"] :is(button, [role="button"]) {
+  border-color: transparent !important;
+  background: transparent !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] :is(button, [role="button"]):hover:not(:disabled),
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="popover"] :is(button, [role="button"]):hover:not(:disabled) {
+  color: var(--liquid-tide-ink) !important;
+  border-color: rgba(255, 255, 255, 0.4) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] :is(
+  button.is-active,
+  [role="button"].is-active,
+  button[aria-pressed="true"]
+) {
+  color: #263153 !important;
+  border-color: rgba(255, 255, 255, 0.56) !important;
+  background: linear-gradient(135deg, rgba(225, 145, 184, 0.22), rgba(111, 146, 217, 0.18)) !important;
+  box-shadow: inset 0 0 0 1px rgba(87, 107, 178, 0.08) !important;
+}
+
+/* Tier 2: the only elements allowed to blur the background. */
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-window,
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .canvas-right-zone.buff-edit-right-zone,
+  .selection-roster,
+  .selection-library,
+  .operator-draft-preview-panel,
+  .image-manager-preview-panel,
+  .image-manager-asset-list
+) {
+  border-color: rgba(255, 255, 255, 0.64) !important;
+  background: rgba(238, 244, 255, 0.64) !important;
+  box-shadow:
+    0 18px 48px rgba(35, 48, 96, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    inset 0 -1px 0 rgba(55, 69, 124, 0.08) !important;
+  -webkit-backdrop-filter: blur(19px) saturate(1.14) !important;
+  backdrop-filter: blur(19px) saturate(1.14) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-detail-layer {
+  background: rgba(214, 222, 239, 0.28) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(24px) saturate(0.82) brightness(1.03) !important;
+}
+
+/* These columns are layout scaffolds, not glass panes. */
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-hit-list,
+  .timeline-detail-middle,
+  .timeline-detail-right-column
+) {
+  border: 1px solid rgba(91, 106, 157, 0.34) !important;
+  border-radius: 16px;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-detail-heading {
+  border: 1px solid rgba(91, 106, 157, 0.3) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-detail-utility-panel .timeline-detail-card {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-detail-utility-panel .timeline-info-card pre {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--liquid-tide-text-on-frost) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-card,
+  .timeline-tuning-card,
+  .timeline-calculation-card,
+  .timeline-buff-list-card,
+  .timeline-status-card
+) {
+  border-color: rgba(255, 255, 255, 0.42) !important;
+  background: rgba(249, 251, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
+}
+
+/*
+ * The page-level door already stabilizes the artwork. Calculation and Buff
+ * content below it are typography and grouping, not additional panes.
+ */
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-right-column > .timeline-detail-card,
+  .timeline-buff-list-card,
+  .timeline-status-card
+) {
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-calculation-summary,
+  .timeline-calculation-detail,
+  .timeline-summary-formula-parts,
+  .timeline-calculation-detail-rows > div,
+  .timeline-calculation-buff-row,
+  .timeline-calculation-buffs > p
+) {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-summary {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(91, 106, 157, 0.28) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-detail {
+  border: 0 !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-calculation-detail-rows > div,
+  .timeline-calculation-buff-row
+) {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(91, 106, 157, 0.2) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-buffs > p {
+  border-color: rgba(91, 106, 157, 0.24) !important;
+}
+
+/*
+ * Text placed directly on the full-page frosted carrier needs ink contrast.
+ * Pale blue/purple hierarchy is reserved for actual refractive controls.
+ */
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-heading strong,
+  .timeline-detail-heading span,
+  .timeline-detail-middle .timeline-buff-list-head h3,
+  .timeline-detail-middle .timeline-buff-main strong,
+  .timeline-detail-middle .timeline-buff-main span,
+  .timeline-detail-middle .timeline-status-card h3,
+  .timeline-detail-middle .timeline-detail-empty,
+  .timeline-detail-right-column h3,
+  .timeline-summary-card p strong,
+  .timeline-summary-card p span,
+  .timeline-summary-formula-parts span,
+  .timeline-summary-formula-parts strong,
+  .timeline-calculation-summary > strong,
+  .timeline-calculation-summary > span,
+  .timeline-calculation-detail > header span,
+  .timeline-calculation-detail > header strong,
+  .timeline-calculation-detail-rows span,
+  .timeline-calculation-detail-rows strong,
+  .timeline-calculation-buffs > span,
+  .timeline-calculation-buffs > p,
+  .timeline-calculation-buff-row strong,
+  .timeline-calculation-buff-row small,
+  .timeline-calculation-buff-row em,
+  .timeline-detail-right-column .timeline-detail-empty
+) {
+  color: var(--liquid-tide-text-on-frost) !important;
+}
+
+/* Preserve the existing SVG geometry; real shader surfaces sit directly below it. */
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-glass {
+  background: rgba(241, 247, 255, 0.26) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .timeline-calculation-zone-glass {
+  border-color: transparent !important;
+  outline: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-glass.is-selected {
+  background: linear-gradient(135deg, rgba(226, 148, 187, 0.28), rgba(112, 148, 219, 0.24)) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node rect {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  pointer-events: all;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:hover rect,
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:focus rect {
+  fill: transparent;
+  stroke: transparent;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node.is-selected rect {
+  fill: transparent;
+  stroke: transparent;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:hover :is(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+),
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:focus :is(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+) {
+  fill: var(--liquid-tide-ink);
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell .web-shell-window {
+  background: rgba(242, 247, 255, 0.84) !important;
+  -webkit-backdrop-filter: blur(23px) saturate(1.12) !important;
+  backdrop-filter: blur(23px) saturate(1.12) !important;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell .config-panel.operator-config-page-panel {
+  border-color: rgba(91, 106, 157, 0.34) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell :is(.selection-roster, .selection-library) {
+  background: rgba(238, 244, 255, 0.7) !important;
+}
+
+:root[data-theme="liquid-tide"]:root :is(
+  .access-card,
+  .secondary-tab-card,
+  .onboarding-card,
+  .data-save-dialog,
+  .skill-button-context-menu,
+  .context-menu-submenu,
+  .damage-search-drawer,
+  .buff-detail-modal,
+  .timeline-snapshot-confirm-modal,
+  .work-node-modal,
+  .damage-report-modal,
+  .skill-button-modal,
+  .operator-config-page-picker-modal,
+  .operator-config-page-panel-detail-modal,
+  .operator-config-page-skill-modal,
+  .buff-editor-drawer
+) {
+  border-color: rgba(255, 255, 255, 0.72) !important;
+  background: rgba(242, 247, 255, 0.78) !important;
+  box-shadow:
+    0 30px 78px rgba(31, 43, 89, 0.23),
+    0 5px 18px rgba(43, 55, 104, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  -webkit-backdrop-filter: blur(21px) saturate(1.2) !important;
+  backdrop-filter: blur(21px) saturate(1.2) !important;
+}
+
+/* The Buff picker is a layout frame. Only its compact mode switch is a lens. */
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-inline-buff-search.is-workbench-mode,
+  .skill-button-inline-buff-search.is-anomaly-mode
+) {
+  border-color: rgba(91, 106, 157, 0.38) !important;
+  background: rgba(245, 249, 255, 0.06) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .skill-button-inline-buff-search-modes {
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
+}
+
+/* Spreadsheet and report canvases use denser, quieter carriers for legibility. */
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-ribbon:not([data-liquid-glass-surface]),
+  .damage-sheet-sidebar,
+  .damage-sheet-excel-shell,
+  .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
+) {
+  border-color: rgba(255, 255, 255, 0.66) !important;
+  background: rgba(242, 247, 255, 0.78) !important;
+  box-shadow:
+    0 12px 34px rgba(35, 48, 95, 0.11),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(1.1) !important;
+  backdrop-filter: blur(13px) saturate(1.1) !important;
+}
+
+:root[data-theme="liquid-tide"] .damage-sheet-topbar {
+  border-color: rgba(255, 255, 255, 0.62) !important;
+  background: rgba(242, 247, 255, 0.7) !important;
+  box-shadow:
+    0 8px 24px rgba(35, 48, 95, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-slide-inner {
+  border-color: rgba(255, 255, 255, 0.74) !important;
+  background: rgba(244, 248, 255, 0.82) !important;
+  box-shadow:
+    0 26px 70px rgba(34, 45, 91, 0.19),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Tier 3: clear nested content. A tint or line may separate it; blur never does. */
+:root[data-theme="liquid-tide"] :is(
+  .dashboard-hero,
+  .dashboard-stat-grid > article,
+  .dashboard-workflow,
+  .data-package-panel,
+  .data-library-section,
+  .data-tool-section,
+  .settings-section,
+  .settings-card,
+  .data-library-inspector,
+  .data-library-list,
+  .install-panel,
+  .workflow-grid > button,
+  .data-tool-card,
+  .data-library-list > button,
+  .theme-option,
+  .settings-action-row,
+  .data-package-facts div,
+  .data-library-inspector dl div
+) {
+  border-color: rgba(255, 255, 255, 0.46) !important;
+  background: rgba(250, 252, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .operator-draft-command-panel,
+  .operator-draft-nav-panel,
+  .operator-draft-basic-panel,
+  .operator-draft-buff-panel
+) {
+  border-color: rgba(255, 255, 255, 0.48) !important;
+  background: rgba(247, 250, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .selection-slot,
+  .selection-character-card
+) {
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  background: rgba(246, 250, 255, 0.15) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.52) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .selection-slot.is-filled,
+  .selection-character-card.is-selected
+) {
+  background: linear-gradient(135deg, rgba(232, 151, 184, 0.2), rgba(117, 153, 220, 0.18)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(94, 115, 190, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-left-top-spacer,
+  .canvas-grid-group,
+  .canvas-grid-shell
+) {
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-left-top-spacer,
+  .canvas-grid-group
+) {
+  border-color: rgba(255, 255, 255, 0.44) !important;
+  outline-color: rgba(48, 62, 116, 0.08);
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .canvas-right-zone.buff-edit-right-zone
+) :is(
+  .skill-sandbox,
+  .tool-panel,
+  .tool-panel-content,
+  .tool-panel-tabs,
+  .tab-content-damage,
+  .tab-content-report,
+  .sandbox-character,
+  .sandbox-skill-item,
+  .sandbox-skill-item--local,
+  .buff-item,
+  .buff-edit-panel,
+  .buff-edit-selected-button-card,
+  .buff-edit-buff-card,
+  .anomaly-board-card
+) {
+  background-color: rgba(255, 255, 255, 0.12) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.38) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-section,
+  .config-data-item,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .operator-config-page-stat-item,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-input-layer
+) {
+  border-color: rgba(255, 255, 255, 0.44) !important;
+  background: rgba(249, 251, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  [class*="operator-draft-"][class*="section"],
+  [class*="buff-draft-"][class*="section"],
+  .damage-sheet-formula-bar,
+  .damage-sheet-grid,
+  .damage-sheet-workspace,
+  .buff-sheet-workspace,
+  .report-ppt-operator-main,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name,
+  .report-ppt-operator-level,
+  .report-ppt-weapon-level,
+  .report-ppt-axis-button-body,
+  .report-ppt-axis-button-orb
+) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .operator-draft-section-header,
+  .operator-draft-section-actions,
+  .operator-draft-inline-actions,
+  .operator-draft-history-footer,
+  .damage-sheet-formula-bar,
+  .report-ppt-operator-main,
+  .report-ppt-weapon-name,
+  .report-ppt-equipment-name,
+  .report-ppt-operator-level,
+  .report-ppt-weapon-level,
+  .report-ppt-axis-button-body,
+  .report-ppt-axis-button-orb
+) {
+  background-color: rgba(250, 252, 255, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
+}
+
+/* Backdrops separate depth with tint only; blur belongs to the carrier above. */
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-overlay,
+  .skill-button-modal-overlay,
+  .damage-report-modal-overlay,
+  .timeline-snapshot-modal-overlay,
+  .work-node-modal-overlay,
+  .data-save-dialog-backdrop,
+  .buff-editor-drawer-mask,
+  .config-panel-overlay,
+  .operator-config-page-picker-backdrop,
+  .operator-config-page-panel-detail-backdrop
+) {
+  background: rgba(27, 39, 83, 0.24) !important;
+}
+
+/* One full-viewport door separates each overlay depth from the content below. */
+:root[data-theme="liquid-tide"] .timeline-detail-layer:has(> .skill-button-inline-buff-search-mask) {
+  background: rgba(28, 40, 83, 0.04) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .skill-button-inline-buff-search-mask {
+  background: rgba(214, 222, 239, 0.34) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(0.8) brightness(1.03) !important;
+  backdrop-filter: blur(28px) saturate(0.8) brightness(1.03) !important;
+}
+
+/* Non-shader controls use a crisp translucent fallback, never faux blur. */
+:root[data-theme="liquid-tide"] :is(
+  .workbench-top-trigger,
+  .workbench-drawer-tab,
+  .toolbar button,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab,
+  .selection-section-header button,
+  .selection-ghost-button,
+  .selection-slot-remove,
+  .modal-close-btn,
+  .operator-config-page-picker-close,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal-close
+):not([data-liquid-glass-surface]) {
+  color: var(--liquid-tide-ink);
+  border-color: rgba(255, 255, 255, 0.54) !important;
+  background: rgba(240, 246, 255, 0.56) !important;
+  box-shadow:
+    0 5px 15px rgba(39, 52, 101, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.68) !important;
+}
+
+/* The unified dock owns the lens; fallback button rules must not split it up. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-preset="dock"] :is(
+  .workbench-top-trigger,
+  .workbench-drawer-tab,
+  .toolbar button,
+  .sandbox-reserved-action,
+  .sandbox-pager-button,
+  .tool-panel-tab,
+  .selection-section-header button,
+  .selection-ghost-button,
+  .selection-slot-remove,
+  .modal-close-btn,
+  .operator-config-page-picker-close,
+  .operator-config-page-panel-detail-close,
+  .operator-config-page-skill-modal-close
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* ========================================================================== */
+/* Liquid Tide route and overlay polish                                        */
+/*                                                                            */
+/* A single page-level door stabilizes the illustration. Structural frames    */
+/* stay clear; only compact navigation and action groups receive shader glass. */
+/* ========================================================================== */
+
+/* Tool rails are clear layout only. Each compact action owns its own lens. */
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-window-tabs,
+  .workbench-drawer-tabs,
+  .canvas-bottom-zone-left,
+  .canvas-bottom-zone-right,
+  .workbench-bottom-actions,
+  .sandbox-characters-extra-spacer,
+  .sandbox-skill-pager,
+  .tool-panel-tabs,
+  .timeline-detail-heading > nav,
+  .timeline-buff-bulk-actions,
+  .timeline-restore-tabs,
+  .timeline-snapshot-form-actions,
+  .skill-button-inline-buff-search-modes,
+  .selection-header-actions,
+  .dashboard-actions,
+  .data-package-actions,
+  .data-library-toolbar,
+  .data-library-inspector-actions,
+  .operator-draft-command-actions,
+  .operator-draft-section-actions,
+  .operator-draft-buff-tabs,
+  .operator-draft-buff-actions,
+  .buff-sheet-ribbon-actions,
+  .operator-draft-modal-actions,
+  .buff-sheet-share-modal-actions,
+  .damage-sheet-topbar-left,
+  .damage-sheet-topbar-right,
+  .damage-sheet-view-group,
+  .image-manager-preview-nav,
+  .image-manager-preview-actions
+) {
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button,
+  .staff-group-count,
+  .workbench-trigger-text
+) {
+  color: var(--liquid-tide-bright-text) !important;
+  text-shadow: 0 1px 3px rgba(15, 23, 52, 0.78);
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button:disabled,
+  .workbench-bottom-nav-button:not(.is-active)
+) {
+  color: var(--liquid-tide-bright-text-muted) !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button:hover:not(:disabled),
+  .workbench-bottom-nav-button.is-active
+) {
+  color: #ffffff !important;
+  text-shadow:
+    0 1px 3px rgba(15, 23, 52, 0.86),
+    0 0 10px rgba(216, 231, 255, 0.26);
+}
+
+/* Snapshot, recovery and report overlays use one full-screen frosted door. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell :is(
+  .timeline-snapshot-modal-overlay,
+  .damage-report-modal-overlay,
+  .work-node-modal-overlay
+) {
+  background: var(--liquid-tide-door) !important;
+  -webkit-backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal,
+  .timeline-snapshot-confirm-modal,
+  .damage-report-modal,
+  .work-node-modal
+) {
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  border-radius: 22px;
+  background: rgba(246, 250, 255, 0.1) !important;
+  box-shadow:
+    0 30px 78px rgba(31, 43, 89, 0.2),
+    inset 0 0 0 1px rgba(74, 91, 146, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal-head,
+  .damage-report-modal-head,
+  .work-node-modal-head
+) {
+  padding: 2px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal-head,
+  .damage-report-modal-head,
+  .work-node-modal-head
+) .modal-close-btn {
+  flex: 0 0 auto;
+  min-width: 52px;
+  white-space: nowrap;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-restore-tabs,
+  .timeline-snapshot-form-actions
+) {
+  width: fit-content;
+  max-width: 100%;
+  gap: 8px;
+  padding: 0;
+  border: 0 !important;
+  border-bottom: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-form-actions {
+  margin-left: auto;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-item {
+  border-color: rgba(255, 255, 255, 0.48) !important;
+  border-radius: 16px;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-confirm-body,
+  .timeline-snapshot-hover-card
+) {
+  border-color: rgba(255, 255, 255, 0.48) !important;
+  border-radius: 16px;
+  background: rgba(248, 251, 255, 0.09) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-item:hover {
+  background: rgba(250, 252, 255, 0.16) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-document-item.is-active {
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  background: linear-gradient(135deg, rgba(229, 150, 187, 0.16), rgba(113, 148, 219, 0.14)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(91, 111, 181, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-name-input,
+  .batch-resistance-fields input
+) {
+  border-color: rgba(255, 255, 255, 0.54) !important;
+  border-radius: 12px;
+  background: rgba(250, 252, 255, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-item-actions button:not([data-liquid-glass-surface]) {
+  border-color: rgba(255, 255, 255, 0.44) !important;
+  border-radius: 10px;
+  background: rgba(250, 252, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+/* Spreadsheet and PPT chrome shows the shader; the data canvas stays readable. */
+:root[data-theme="liquid-tide"] .damage-sheet-topbar {
+  background: rgba(244, 248, 255, 0.18) !important;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.42) !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-toolbar {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.52) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* The draggable global menu resets to the top-left after refresh. */
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-topbar-left > .damage-sheet-back-button,
+  .report-ppt-toolbar > button
+) {
+  margin-left: 52px;
+}
+
+:root[data-theme="liquid-tide"] .operator-draft-command-box > .operator-draft-command-actions:first-child > button:first-child {
+  margin-left: 52px;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-ribbon:not([data-liquid-glass-surface]),
+  .damage-sheet-sidebar,
+  .damage-sheet-excel-shell,
+  .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
+) {
+  background: rgba(242, 247, 255, 0.68) !important;
+}
+
+/* Operator configuration: one door, clear scaffolding, selective shader cards. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root {
+  background: rgba(211, 221, 241, 0.2) !important;
+  -webkit-backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-panel-header {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.48) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Keep the draggable global menu and the page back action as two readable controls. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-panel-back-btn {
+  margin-left: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.62) !important;
+  border-radius: 14px !important;
+  background: rgba(235, 243, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-panel-back-btn {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.12) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.64);
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-section,
+  .operator-config-page-section
+) {
+  border-color: rgba(255, 255, 255, 0.46) !important;
+  border-radius: 18px;
+  background: var(--liquid-tide-frame) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(73, 90, 145, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-equip-visual-top,
+  .operator-config-page-equip-visual-bottom,
+  .config-weapon-config
+) {
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .operator-config-page-stat-item,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-input-layer,
+  .config-weapon-config-text,
+  .config-weapon-config-text-3
+) {
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  border-radius: 12px;
+  background: rgba(248, 251, 255, 0.09) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+  .operator-config-page-equip-circle,
+  .operator-config-page-equip-button-row,
+  .config-weapon-choose-img-square,
+  .operator-config-page-weapon-star-square-box,
+  .operator-config-page-level-badge-box,
+  .operator-config-page-level-track,
+  .config-weapon-config-button-row
+) {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.58);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+/* The active switcher parallelogram is the lens; the round portrait remains authored artwork. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item,
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item.is-active {
+  isolation: isolate;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item.is-active::after {
+  content: none !important;
+  display: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-indicator-glass {
+  position: absolute;
+  inset: 0 auto auto 50%;
+  z-index: 0;
+  display: block;
+  width: var(--config-indicator-width);
+  height: 50px;
+  border: 1px solid rgba(67, 84, 148, 0.72) !important;
+  border-radius: 4px;
+  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
+  transform: translate(-50%, 0);
+  background: rgba(235, 243, 255, 0.12) !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-avatar-indicator-glass {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.1) !important;
+  outline: 1px solid rgba(58, 74, 136, 0.84);
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-image {
+  position: relative;
+  z-index: 2;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-visual-top::after {
+  display: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-stage-glass {
+  position: absolute;
+  inset: 35px 14px 14px;
+  z-index: 0;
+  border: 1px solid rgba(255, 255, 255, 0.46) !important;
+  border-radius: 20px;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(73, 90, 145, 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  pointer-events: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle {
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 14px;
+  background: rgba(244, 248, 255, 0.08) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-circle {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.68) !important;
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle-image {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+/* Equipment follows the weapon hierarchy: clear carrier, liquid image and capsule windows. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
+  border: 0 !important;
+  border-radius: 11px;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-button-text,
+  .operator-config-page-equip-button-text-head,
+  .operator-config-page-equip-button-text-tail
+) {
+  color: var(--liquid-tide-ink) !important;
+  text-shadow: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-textdiv.is-disabled {
+  color: rgba(44, 53, 82, 0.58) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-button-row:not([data-liquid-glass-surface])
+) {
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  background: rgba(248, 251, 255, 0.09) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-textdiv {
+  border-radius: 7px;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase
+) :is(
+  .config-weapon-choose-img-area,
+  .config-weapon-choose-detail-textarea,
+  .config-weapon-choose-img-square,
+  .operator-config-page-weapon-star-square-box
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Weapon content already sits on the page frost: frames stay clear, only glyph windows refract. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase,
+  .config-weapon-config
+) {
+  border: 1px solid rgba(255, 255, 255, 0.46) !important;
+  border-radius: 16px;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(73, 90, 145, 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Match the potential window: the weapon artwork reaches the carrier's top and bottom edges. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img-area {
+  align-self: stretch;
+  margin-top: 0;
+  margin-bottom: 0;
+  border: 0 !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-showcase :is(
+  .config-weapon-choose-content-area,
+  .config-weapon-choose-detail-textarea
+) {
+  border-color: transparent !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-showcase :is(
+  .config-weapon-choose-name,
+  .config-weapon-choose-meta-line
+) {
+  color: var(--liquid-tide-ink) !important;
+  text-shadow: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img-square {
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 14px;
+  background: rgba(244, 248, 255, 0.08) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-weapon-star-square-box,
+  .operator-config-page-level-badge-box
+) {
+  border-radius: 14px;
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+  .config-weapon-choose-img-square,
+  .operator-config-page-weapon-star-square-box,
+  .operator-config-page-level-badge-box
+) {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.68) !important;
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+/* Weapon and equipment capsules share one current / lit / dim palette. */
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-current {
+  border-color: var(--liquid-tide-capsule-current-line) !important;
+  background: var(--liquid-tide-capsule-current-bg) !important;
+  box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-lit {
+  border-color: var(--liquid-tide-capsule-lit-line) !important;
+  background: var(--liquid-tide-capsule-lit-bg) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-dim {
+  border-color: var(--liquid-tide-capsule-dim-line) !important;
+  background: var(--liquid-tide-capsule-dim-bg) !important;
+}
+
+/* Skill and role progression are horizontal capsules with the same three states. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-level-track {
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 16px;
+  background: rgba(235, 243, 255, 0.12) !important;
+  box-sizing: border-box;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-level-track {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.1) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.62);
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+) {
+  border-color: var(--liquid-tide-capsule-dim-line) !important;
+  border-radius: 999px;
+  background: var(--liquid-tide-capsule-dim-bg) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active {
+  border-color: var(--liquid-tide-capsule-lit-line) !important;
+  background: var(--liquid-tide-capsule-lit-bg) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active:not(:has(~ :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active)) {
+  border-color: var(--liquid-tide-capsule-current-line) !important;
+  background: var(--liquid-tide-capsule-current-bg) !important;
+  box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+):focus-visible {
+  box-shadow: var(--theme-focus-ring) !important;
+}
+
+/* Main and sub abilities keep their semantic distinction without another blur layer. */
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-main,
+  .operator-config-page-stat-item.is-main,
+  .operator-config-page-favor-row:first-child .operator-config-page-favor-input
+) {
+  border: 2px solid rgba(217, 134, 173, 0.92) !important;
+  background: rgba(232, 151, 187, 0.15) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-sub,
+  .operator-config-page-stat-item.is-sub,
+  .operator-config-page-favor-row:last-child .operator-config-page-favor-input
+) {
+  border: 2px solid rgba(117, 153, 220, 0.88) !important;
+  background: rgba(117, 153, 220, 0.13) !important;
+}
+
+/* CTI is a compact search control, not a full-width liquid shelf. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-strip {
+  min-height: 36px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  outline: 0;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .config-cti-input {
+  flex: 0 1 400px;
+  width: min(400px, 34vw) !important;
+  max-width: 400px;
+  height: 32px;
+  min-height: 32px;
+  padding: 4px 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 14px !important;
+  background: rgba(238, 244, 255, 0.58) !important;
+  box-shadow:
+    0 6px 16px rgba(31, 45, 91, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
+  backdrop-filter: blur(13px) saturate(1.05) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-drawer {
+  right: auto;
+  width: min(400px, 34vw);
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 14px !important;
+  background: rgba(238, 244, 255, 0.84) !important;
+  box-shadow: 0 18px 36px rgba(31, 45, 91, 0.18) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.04) !important;
+  backdrop-filter: blur(18px) saturate(1.04) !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root[data-theme="liquid-tide"] [data-liquid-glass-surface-root] > .liquid-tide-surface-capture {
+    display: none;
+  }
+
+  :root[data-theme="liquid-tide"] [data-liquid-glass-surface] {
+    background: rgba(242, 247, 255, 0.92) !important;
+  }
+
+  :root[data-theme="liquid-tide"] :is(
+    .timeline-detail-layer,
+    .skill-button-inline-buff-search-mask,
+    .timeline-snapshot-modal-overlay,
+    .damage-report-modal-overlay,
+    .work-node-modal-overlay,
+    .operator-config-page-root
+  ) {
+    background: rgba(229, 235, 248, 0.94) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
+    .config-cti-input,
+    .config-cti-drawer
+  ) {
+    background: rgba(238, 244, 255, 0.94) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+}

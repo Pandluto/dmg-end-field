@@ -968,6 +968,11 @@
   z-index: -1;
 }
 
+/* Theme-specific indicator surfaces stay opt-in so legacy themes keep the pseudo-element. */
+.config-avatar-indicator-glass {
+  display: none;
+}
+
 /* 澶村儚鍥剧墖鏈綋锛氫繚鐣欒交寰偓鍋滄斁澶у弽棣?*/
 .config-avatar-image {
   width: 100%;

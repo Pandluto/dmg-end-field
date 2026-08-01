@@ -598,7 +598,14 @@
   height: 28px;
 }
 
-.report-ppt-axis-button-orb {
+.report-ppt-axis-button-outline.skill-button-composite-outline {
+  left: -2px;
+  top: -6px;
+  width: 77px;
+  height: 40px;
+}
+
+.report-ppt-axis-button-orb.skill-button-orb {
   position: absolute;
   left: 0;
   top: -4px;
@@ -616,7 +623,7 @@
   font-weight: 800;
 }
 
-.report-ppt-axis-button-orb img {
+.report-ppt-axis-button-orb.skill-button-orb .skill-icon {
   width: 100%;
   height: 100%;
   display: block;
@@ -634,14 +641,17 @@
   justify-content: center;
 }
 
-.report-ppt-axis-button-body {
+.report-ppt-axis-button-body.skill-button-base {
   position: absolute;
   left: 18px;
   top: 2px;
   width: 55px;
   height: 28px;
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
+  gap: 0;
   padding-left: 20px;
   padding-right: 0;
   box-sizing: border-box;
@@ -654,6 +664,19 @@
   line-height: 1;
   transform: translateY(-2px);
   overflow: hidden;
+}
+
+.report-ppt-axis-button-body .skill-button-name {
+  display: block;
+  width: 100%;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-shadow: none;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .report-ppt-chart-grid {
@@ -678,18 +701,104 @@
   line-height: 1;
 }
 
+.report-ppt-chart-card:first-child {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.report-ppt-chart-card:first-child h2 {
+  margin-bottom: 6px;
+}
+
 .report-ppt-pie-layout {
-  height: calc(100% - 24px);
+  min-height: 0;
+  height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 210px;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
+  padding-bottom: 0;
+  box-sizing: border-box;
+  transform: translateY(-2px);
+}
+
+.report-ppt-pie-stage {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
 }
 
 .report-ppt-pie {
   width: 100%;
+  height: 100%;
+  max-width: 216px;
   max-height: 100%;
-  transform: rotate(-90deg);
+  display: block;
+  overflow: hidden;
+}
+
+.report-ppt-pie-layout .report-ppt-chart-legend {
+  align-self: center;
+}
+
+.report-ppt-petal-base {
+  fill: #ecebe6;
+  stroke: #d8d7d1;
+  stroke-width: 1.4;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.report-ppt-petal-value {
+  fill: currentColor;
+  stroke: #ffffff;
+  stroke-width: 1.7;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.report-ppt-petal-hub {
+  fill: #111111;
+  stroke: #ffffff;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.report-ppt-petal-label {
+  fill: #111111;
+  pointer-events: none;
+}
+
+.report-ppt-petal-label.is-on-value {
+  fill: #ffffff;
+}
+
+.report-ppt-petal-label-value {
+  font-size: 5px;
+  font-weight: 800;
+}
+
+.report-ppt-petal-label-name {
+  font-size: 3.6px;
+  font-weight: 600;
+}
+
+.report-ppt-share-color.is-segment-0 {
+  color: #1c1c1a;
+}
+
+.report-ppt-share-color.is-segment-1 {
+  color: #55554f;
+}
+
+.report-ppt-share-color.is-segment-2 {
+  color: #8f8e88;
+}
+
+.report-ppt-share-color.is-segment-3 {
+  color: #b0afa9;
 }
 
 .report-ppt-chart-legend {
@@ -709,6 +818,7 @@
 .report-ppt-legend-row span {
   width: 10px;
   height: 10px;
+  background: currentColor;
 }
 
 .report-ppt-legend-row strong {

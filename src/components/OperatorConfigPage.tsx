@@ -1934,6 +1934,7 @@ export function OperatorConfigPage() {
                   <h4 className="config-data-title">装备</h4>
                   <div className="operator-config-page-equip-visual">
                     <div className="operator-config-page-equip-visual-top" aria-hidden="true">
+                      <div className="operator-config-page-equip-stage-glass" />
                       <div className="operator-config-page-equip-circles">
                         {EQUIPMENT_SLOT_METAS.map((slotMeta) => {
                           const equipmentPiece = currentConfig?.equipment[slotMeta.slotKey];
@@ -2512,6 +2513,9 @@ export function OperatorConfigPage() {
                       ensureCharacterConfig(character.id, character);
                     }}
                   >
+                    {activeCharacterId === character.id ? (
+                      <span className="config-avatar-indicator-glass" aria-hidden="true" />
+                    ) : null}
                     {character.avatarUrl ? (
                       <img
                         className="config-avatar-image"

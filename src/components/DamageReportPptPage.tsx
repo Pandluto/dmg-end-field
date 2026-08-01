@@ -1,4 +1,4 @@
-import { useMemo, type SyntheticEvent } from 'react';
+import { useMemo, type CSSProperties, type SyntheticEvent } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { buildDamageReportSnapshot, DamageReportButtonRow, DamageReportCharacterRow } from '../core/services/damageReportService';
 import { loadTimelineData } from '../core/repositories';
@@ -10,15 +10,23 @@ import {
 import { resolveRuntimeTemplateSkill } from '../core/services/skillDamageTemplateResolver';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
-import { normalizeAssetUrl, resolveAvatarUrl, resolveSkillIconUrl } from '../utils/assetResolver';
+import {
+  getElementBackgroundColor,
+  normalizeAssetUrl,
+  resolveAvatarUrl,
+  resolveSkillIconUrl,
+} from '../utils/assetResolver';
 import { getSelectedCharacterIds } from '../utils/storage';
 import type { Character, SkillButtonData, TimelineData } from '../types';
 import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
+import './CanvasBoard/SkillButton.css';
 import './DamageReportPptPage.css';
 
 const REPORT_PPT_PATH = APP_ROUTE_PATHS.damageReportPpt;
 const SLIDE_GROUPS_PER_PAGE = 2;
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
+const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
+const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
 const BROWSE_MODE_SKILL_LABELS: Record<string, string> = {
   A: '重击',
   B: '战技',
@@ -42,6 +50,26 @@ type RawWeaponLibrary = Record<string, {
   name?: string;
   imgUrl?: string;
 }>;
+
+type ReportEquipmentPiece = ConfigSnapshot['equipment']['pieces'][number];
+
+interface ReportEquipmentImageItem {
+  equipmentId: string;
+  name: string;
+  part: string;
+  imgUrl: string;
+}
+
+interface RawReportEquipmentLibrary {
+  gearSets?: Record<string, {
+    equipments?: Record<string, {
+      equipmentId?: string;
+      name?: string;
+      part?: string;
+      imgUrl?: string;
+    }>;
+  }>;
+}
 
 const REPORT_POTENTIAL_STAR_SEGMENTS = [
   { id: 4, transform: undefined },
@@ -188,10 +216,67 @@ function loadReportWeaponLibrary(): ReportWeaponLibrary {
   return normalizeWeaponLibrary(readLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, {}));
 }
 
+function normalizeReportEquipmentImages(raw: unknown): ReportEquipmentImageItem[] {
+  const source = raw && typeof raw === 'object' ? raw as RawReportEquipmentLibrary : {};
+  return Object.values(source.gearSets ?? {}).flatMap((gearSet) => (
+    Object.entries(gearSet?.equipments ?? {}).flatMap(([fallbackId, rawEquipment]) => {
+      const equipmentId = String(rawEquipment?.equipmentId || fallbackId).trim();
+      const name = String(rawEquipment?.name || equipmentId).trim();
+      if (!equipmentId && !name) return [];
+      return [{
+        equipmentId,
+        name,
+        part: String(rawEquipment?.part || '').trim(),
+        imgUrl: String(rawEquipment?.imgUrl || '').trim(),
+      }];
+    })
+  ));
+}
+
+function loadReportEquipmentImages(): ReportEquipmentImageItem[] {
+  const libraryImages = normalizeReportEquipmentImages(
+    readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, {})
+  );
+  if (libraryImages.length > 0) return libraryImages;
+  return normalizeReportEquipmentImages(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, {}));
+}
+
+function findReportEquipmentImage(
+  piece: ReportEquipmentPiece,
+  equipmentImages: ReportEquipmentImageItem[]
+): ReportEquipmentImageItem | null {
+  return equipmentImages.find((item) => item.equipmentId === piece.equipmentId)
+    ?? equipmentImages.find((item) => item.name === piece.name && (!piece.part || item.part === piece.part))
+    ?? equipmentImages.find((item) => item.name === piece.name)
+    ?? null;
+}
+
+function getEquipmentImageUrls(
+  piece: ReportEquipmentPiece,
+  equipmentImages: ReportEquipmentImageItem[]
+): string[] {
+  const libraryItem = findReportEquipmentImage(piece, equipmentImages);
+  const canonicalUrl = piece.name
+    ? normalizeAssetUrl(`assets/images/img-equipment/icon_cn/${piece.name}.png`)
+    : '';
+  return [libraryItem?.imgUrl, piece.imgUrl, canonicalUrl]
+    .map((path) => resolveStoredImageUrl(path))
+    .filter((url, index, urls): url is string => Boolean(url) && urls.indexOf(url) === index);
+}
+
 function handleReportImageError(fallbackText: string) {
   return (event: SyntheticEvent<HTMLImageElement>) => {
     const target = event.currentTarget;
-    const fallback = target.dataset.fallbackSrc;
+    let fallback = target.dataset.fallbackSrc;
+    if (!fallback && target.dataset.fallbackSrcs) {
+      try {
+        const fallbackSources = JSON.parse(target.dataset.fallbackSrcs) as string[];
+        fallback = fallbackSources.shift();
+        target.dataset.fallbackSrcs = JSON.stringify(fallbackSources);
+      } catch {
+        target.dataset.fallbackSrcs = '';
+      }
+    }
     if (fallback && target.src !== fallback) {
       target.src = fallback;
       target.dataset.fallbackSrc = '';
@@ -354,43 +439,137 @@ function buildCharacterDamageRows(buttons: DamageReportButtonRow[]) {
     .sort((a, b) => b.expected - a.expected);
 }
 
-function PieChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
+function getPolarPoint(cx: number, cy: number, radius: number, angle: number) {
+  const radians = angle * (Math.PI / 180);
+  return {
+    x: cx + Math.cos(radians) * radius,
+    y: cy + Math.sin(radians) * radius,
+  };
+}
+
+function getRoundedSectorPath(
+  cx: number,
+  cy: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+) {
+  const angleSpan = endAngle - startAngle;
+  if (angleSpan >= 359.999) {
+    const outerStart = getPolarPoint(cx, cy, radius, startAngle);
+    const opposite = getPolarPoint(cx, cy, radius, startAngle + 180);
+    return [
+      `M ${outerStart.x} ${outerStart.y}`,
+      `A ${radius} ${radius} 0 1 1 ${opposite.x} ${opposite.y}`,
+      `A ${radius} ${radius} 0 1 1 ${outerStart.x} ${outerStart.y}`,
+      'Z',
+    ].join(' ');
+  }
+
+  const cornerRadius = Math.min(4, radius * 0.22);
+  const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
+  const innerRadius = Math.min(3.2, radius * 0.24);
+  const innerStart = getPolarPoint(cx, cy, innerRadius, startAngle);
+  const innerEnd = getPolarPoint(cx, cy, innerRadius, endAngle);
+  const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
+  const outerStartControl = getPolarPoint(cx, cy, radius, startAngle);
+  const outerStart = getPolarPoint(cx, cy, radius, startAngle + cornerAngle);
+  const outerEnd = getPolarPoint(cx, cy, radius, endAngle - cornerAngle);
+  const outerEndControl = getPolarPoint(cx, cy, radius, endAngle);
+  const radialEnd = getPolarPoint(cx, cy, radius - cornerRadius, endAngle);
+
+  return [
+    `M ${innerStart.x} ${innerStart.y}`,
+    `L ${radialStart.x} ${radialStart.y}`,
+    `Q ${outerStartControl.x} ${outerStartControl.y} ${outerStart.x} ${outerStart.y}`,
+    `A ${radius} ${radius} 0 ${angleSpan > 180 ? 1 : 0} 1 ${outerEnd.x} ${outerEnd.y}`,
+    `Q ${outerEndControl.x} ${outerEndControl.y} ${radialEnd.x} ${radialEnd.y}`,
+    `L ${innerEnd.x} ${innerEnd.y}`,
+    `Q ${cx} ${cy} ${innerStart.x} ${innerStart.y}`,
+    'Z',
+  ].join(' ');
+}
+
+function PetalRoseChart({ rows }: { rows: ReturnType<typeof buildCharacterDamageRows> }) {
   const total = rows.reduce((sum, row) => sum + row.expected, 0);
-  const colors = ['#111111', '#565656', '#9a9a9a', '#d2d2d2'];
-  let offset = 0;
 
   if (total <= 0) {
     return <div className="report-ppt-empty-chart">暂无伤害数据</div>;
   }
 
+  const center = 50;
+  const maxRadius = 48;
+  const maxExpected = Math.max(...rows.map((row) => row.expected), 1);
+  const slotAngle = 360 / rows.length;
+  const gapAngle = Math.min(2.4, slotAngle * 0.025);
+  const labelRadius = 34;
+  const petals = rows.map((row, index) => {
+    const slotStartAngle = -180 + index * slotAngle;
+    const centerAngle = slotStartAngle + slotAngle / 2;
+    const startAngle = slotStartAngle + gapAngle / 2;
+    const endAngle = slotStartAngle + slotAngle - gapAngle / 2;
+    const valueRadius = maxRadius * Math.sqrt(Math.max(row.expected, 0) / maxExpected);
+    const labelPoint = getPolarPoint(center, center, labelRadius, centerAngle);
+
+    return {
+      row,
+      index,
+      startAngle,
+      endAngle,
+      valueRadius,
+      labelPoint,
+      isLabelOnValue: valueRadius >= labelRadius + 4,
+    };
+  });
+
   return (
     <div className="report-ppt-pie-layout">
-      <svg className="report-ppt-pie" viewBox="0 0 42 42" aria-label="干员伤害占比">
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="rgba(0,0,0,0.08)" strokeWidth="8" />
-        {rows.map((row, index) => {
-          const share = row.expected / total;
-          const dash = `${share * 100} ${100 - share * 100}`;
-          const circle = (
-            <circle
-              key={row.id}
-              cx="21"
-              cy="21"
-              r="15.915"
-              fill="transparent"
-              stroke={colors[index % colors.length]}
-              strokeWidth="8"
-              strokeDasharray={dash}
-              strokeDashoffset={-offset}
+      <div className="report-ppt-pie-stage">
+        <svg
+          className="report-ppt-pie report-ppt-petal-rose"
+          viewBox="0 0 100 100"
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label="干员伤害占比扇瓣图"
+        >
+          <title>干员伤害占比，扇瓣面积与伤害成正比</title>
+          {petals.map(({ row, startAngle, endAngle }) => (
+            <path
+              key={`base-${row.id}`}
+              className="report-ppt-petal-base"
+              d={getRoundedSectorPath(center, center, maxRadius, startAngle, endAngle)}
             />
-          );
-          offset += share * 100;
-          return circle;
-        })}
-      </svg>
+          ))}
+          {petals.filter(({ valueRadius }) => valueRadius > 0).map(({ row, index, startAngle, endAngle, valueRadius }) => (
+            <path
+              key={`value-${row.id}`}
+              className={`report-ppt-petal-value report-ppt-share-color is-segment-${index % 4}`}
+              d={getRoundedSectorPath(center, center, valueRadius, startAngle, endAngle)}
+            />
+          ))}
+          <circle className="report-ppt-petal-hub" cx={center} cy={center} r="2.2" />
+          {petals.map(({ row, labelPoint, isLabelOnValue }) => (
+            <text
+              key={`label-${row.id}`}
+              className={`report-ppt-petal-label${isLabelOnValue ? ' is-on-value' : ''}`}
+              x={labelPoint.x}
+              y={labelPoint.y - 1.5}
+              textAnchor="middle"
+            >
+              <tspan className="report-ppt-petal-label-value" x={labelPoint.x} dy="0">
+                {formatPercent(row.expected / total)}
+              </tspan>
+              <tspan className="report-ppt-petal-label-name" x={labelPoint.x} dy="5">
+                {row.name}
+              </tspan>
+            </text>
+          ))}
+        </svg>
+      </div>
       <div className="report-ppt-chart-legend">
         {rows.map((row, index) => (
           <div key={row.id} className="report-ppt-legend-row">
-            <span style={{ background: colors[index % colors.length] }} />
+            <span className={`report-ppt-share-color is-segment-${index % 4}`} />
             <strong>{row.name}</strong>
             <em>{formatInteger(row.expected)} / {formatPercent(row.expected / total)}</em>
           </div>
@@ -441,10 +620,12 @@ function TeamSlide({
   characters,
   reportCharacters,
   weaponLibrary,
+  equipmentImages,
 }: {
   characters: ReportOperator[];
   reportCharacters: DamageReportCharacterRow[];
   weaponLibrary: ReportWeaponLibrary;
+  equipmentImages: ReportEquipmentImageItem[];
 }) {
   const displayCharacters = characters.length > 0
     ? characters.slice(0, 4)
@@ -523,13 +704,15 @@ function TeamSlide({
                     ) : (
                       equipmentPieces.map((piece) => {
                         const levels = piece.effects.map((effect) => Number(effect.level) || 0);
+                        const equipmentImageUrls = getEquipmentImageUrls(piece, equipmentImages);
                         return (
                         <div key={`${character.id}-${piece.slotKey}`} className="report-ppt-weapon-equipment-item" title={piece.name}>
                           <div className="report-ppt-equipment-image-frame">
                             <div className="report-ppt-equipment-icon">
-                              {piece.imgUrl ? (
+                              {equipmentImageUrls[0] ? (
                                 <img
-                                  src={resolveStoredImageUrl(piece.imgUrl)}
+                                  src={equipmentImageUrls[0]}
+                                  data-fallback-srcs={JSON.stringify(equipmentImageUrls.slice(1))}
                                   alt={piece.name}
                                   onError={handleReportImageError(piece.part || piece.name.slice(0, 2))}
                                 />
@@ -614,22 +797,45 @@ function TimelineGroupSlide({
                           const skillIconUrl = resolveTimelineSkillIcon(button, buttonCharacter);
                           const isDotButton = button.skillType === 'Dot';
                           const browseModeLabel = BROWSE_MODE_SKILL_LABELS[button.skillType] ?? button.skillType;
+                          const hasThemedSkillIcon = Boolean(skillIconUrl && !isDotButton);
                           return (
                             <div
                               key={button.id}
                               className={`report-ppt-axis-button${isDotButton ? ' is-dot' : ''}`}
-                              style={{ left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%` }}
+                              data-skill-type={button.skillType}
+                              style={{
+                                left: `${(getButtonLocalNodeIndex(button) / GRID_NODE_COUNT) * 100}%`,
+                                '--skill-button-size': '36px',
+                                '--skill-button-radius': '18px',
+                                '--skill-button-element-color': getElementBackgroundColor(buttonCharacter?.element ?? character?.element ?? ''),
+                                '--skill-icon-mask': hasThemedSkillIcon ? `url(${JSON.stringify(skillIconUrl)})` : 'none',
+                              } as CSSProperties}
                               title={`${button.characterName} ${button.skillDisplayName ?? button.skillType}`}
                             >
-                              <span className="report-ppt-axis-button-orb">
+                              {!isDotButton ? (
+                                <svg
+                                  className="report-ppt-axis-button-outline skill-button-composite-outline"
+                                  viewBox="-2 -6 77 40"
+                                  aria-hidden="true"
+                                >
+                                  <path d="M 18 -4 A 18 18 0 0 1 29.314 0 L 73 0 L 73 28 L 29.314 28 A 18 18 0 1 1 18 -4 Z" />
+                                </svg>
+                              ) : null}
+                              <span className={`report-ppt-axis-button-orb skill-button-orb${hasThemedSkillIcon ? ' has-skill-icon-mask' : ''}`}>
                                 <img
+                                  className="skill-icon"
                                   src={skillIconUrl}
                                   data-fallback-src={resolveSkillIconUrl(button.characterName, button.skillType)}
                                   alt=""
-                                  onError={handleReportImageError(button.skillType)}
+                                  onError={(event) => {
+                                    event.currentTarget.parentElement?.classList.remove('has-skill-icon-mask');
+                                    handleReportImageError(button.skillType)(event);
+                                  }}
                                 />
                               </span>
-                              <span className="report-ppt-axis-button-body">{browseModeLabel}</span>
+                              <span className="report-ppt-axis-button-body skill-button-base">
+                                <span className="skill-button-name">{browseModeLabel}</span>
+                              </span>
                             </div>
                           );
                         })}
@@ -665,7 +871,7 @@ function ChartSlide({
         <div className="report-ppt-chart-grid">
           <article className="report-ppt-chart-card">
             <h2>图 1 / 干员伤害占比</h2>
-            <PieChart rows={rows} />
+            <PetalRoseChart rows={rows} />
           </article>
           <article className="report-ppt-chart-card">
             <h2>图 2 / 伤害过程时序</h2>
@@ -688,6 +894,7 @@ export function DamageReportPptPage() {
   const snapshot = useMemo(() => buildDamageReportSnapshot(), []);
   const timelineData = useMemo(() => loadTimelineData(), []);
   const weaponLibrary = useMemo(() => loadReportWeaponLibrary(), []);
+  const equipmentImages = useMemo(() => loadReportEquipmentImages(), []);
   const reportOperators = useMemo(
     () => buildReportOperators(state.selectedCharacters, state.loadedCharacters, snapshot.characters),
     [state.loadedCharacters, state.selectedCharacters, snapshot.characters]
@@ -707,7 +914,12 @@ export function DamageReportPptPage() {
         </div>
       </div>
       <div className="report-ppt-scroll">
-        <TeamSlide characters={reportOperators} reportCharacters={snapshot.characters} weaponLibrary={weaponLibrary} />
+        <TeamSlide
+          characters={reportOperators}
+          reportCharacters={snapshot.characters}
+          weaponLibrary={weaponLibrary}
+          equipmentImages={equipmentImages}
+        />
         {timelinePages.map((groupIndices, index) => (
           <TimelineGroupSlide
             key={`timeline-page-${index}`}

@@ -10,6 +10,7 @@
 - [安全边界](./security-boundaries.md)：客户端门禁、同源存储、导入与包完整性。
 - [验证矩阵](./verification-matrix.md)：哪些检查在 CI、构建或真实浏览器验收中执行。
 - [CI/CD](./ci-cd.md)：质量门、自包含 Web 包和 Draft Release。
+- [潮汐玻璃材质系统](./liquid-tide-material-system.md)：真实液态玻璃、单层阅读承载与全路由覆盖边界。
 
 ## 架构决策
 

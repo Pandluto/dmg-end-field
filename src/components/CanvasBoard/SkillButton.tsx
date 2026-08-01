@@ -235,10 +235,36 @@ export function SkillButtonComponent({
   const radius = size / 2;
   const baseWidth = 80;
   const baseHeight = 30;
+  const baseCornerRadius = 11;
   const visualOffsetX = 40;
   const visualOffsetY = 15;
   const hitWidth = radius + baseWidth;
   const hitHeight = Math.max(size, radius + baseHeight);
+  const outlinePadding = 4;
+  const compositeOutlineViewBox = `${-radius - outlinePadding} ${-radius - outlinePadding} ${baseWidth + radius + outlinePadding * 2} ${baseHeight + radius + outlinePadding * 2}`;
+  const compositeOutlinePath = [
+    `M 0 ${-radius}`,
+    `A ${radius} ${radius} 0 0 1 ${radius} 0`,
+    `L ${baseWidth} 0`,
+    `L ${baseWidth} ${baseHeight}`,
+    `L 0 ${baseHeight}`,
+    `L 0 ${radius}`,
+    `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
+    'Z',
+  ].join(' ');
+  const liquidGlassCompositeOutlinePath = [
+    `M 0 ${-radius}`,
+    `A ${radius} ${radius} 0 0 1 ${radius} 0`,
+    `L ${baseWidth - baseCornerRadius} 0`,
+    `Q ${baseWidth} 0 ${baseWidth} ${baseCornerRadius}`,
+    `L ${baseWidth} ${baseHeight - baseCornerRadius}`,
+    `Q ${baseWidth} ${baseHeight} ${baseWidth - baseCornerRadius} ${baseHeight}`,
+    `L 0 ${baseHeight}`,
+    `L 0 ${radius}`,
+    `A ${radius} ${radius} 0 1 1 0 ${-radius}`,
+    'Z',
+  ].join(' ');
+  const liquidGlassOutlineGradientId = `liquid-glass-outline-${button.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
   const shouldRenderContextMenu = !isBrowseMode && contextMenuState?.buttonId === button.id && typeof document !== 'undefined';
 
   const isModalOpen = isDetailRouteActive;
@@ -1563,11 +1589,16 @@ export function SkillButtonComponent({
     setIconLoadFailed(true);
   };
 
+  const normalizedSkillIconUrl = skillIconUrl ? normalizeAssetUrl(skillIconUrl) : '';
+  const hasVisibleSkillIcon = Boolean(skillIconUrl && !iconLoadFailed && !(isBrowseMode && isDotButton));
+
   return (
     <>
       <div
         className={`canvas-skill-button ${isSelected ? 'selected' : ''} ${isDragging ? 'dragging' : ''} ${isLocked ? 'locked' : ''} ${isBrowseMode ? 'is-browse-mode' : ''} ${isBrowseMode && isDotButton ? 'is-browse-dot' : ''} ${isInspectMode ? 'is-inspect-mode' : ''} ${isDragDisabled ? 'is-drag-disabled' : ''}`}
+        data-liquid-glass-skill="true"
         data-skill-button-id={button.id}
+        data-skill-type={skillType}
         aria-disabled={isDragDisabled}
         style={{
           left: position.x - radius - visualOffsetX,
@@ -1583,6 +1614,42 @@ export function SkillButtonComponent({
         onContextMenu={isBrowseMode ? (event) => event.preventDefault() : onContextMenu}
       >
         <div className="skill-button-anchor">
+          {!isInspectMode && !(isBrowseMode && isDotButton) ? (
+            <svg
+              className="skill-button-composite-outline"
+              viewBox={compositeOutlineViewBox}
+              style={{
+                left: -radius - outlinePadding,
+                top: -radius - outlinePadding,
+                width: baseWidth + radius + outlinePadding * 2,
+                height: baseHeight + radius + outlinePadding * 2,
+              }}
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient
+                  id={liquidGlassOutlineGradientId}
+                  x1={-radius}
+                  y1={-radius}
+                  x2={baseWidth}
+                  y2={baseHeight}
+                  gradientUnits="userSpaceOnUse"
+                >
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0.98" />
+                  <stop offset="34%" stopColor="#f7fbff" stopOpacity="0.74" />
+                  <stop offset="66%" stopColor="#d3ddf7" stopOpacity="0.42" />
+                  <stop offset="100%" stopColor="#6976aa" stopOpacity="0.48" />
+                </linearGradient>
+              </defs>
+              <path className="skill-button-composite-outline-default-path" d={compositeOutlinePath} />
+              <path className="skill-button-composite-outline-liquid-depth-path" d={liquidGlassCompositeOutlinePath} />
+              <path
+                className="skill-button-composite-outline-liquid-path"
+                d={liquidGlassCompositeOutlinePath}
+                style={{ stroke: `url(#${liquidGlassOutlineGradientId})` }}
+              />
+            </svg>
+          ) : null}
           <div className="skill-button-base">
             <span className="skill-button-name">{isBrowseMode ? browseModeDisplayName : `${skillType} ${displayName}`}</span>
             {isLocked ? <span className="skill-button-lock">锁</span> : null}
@@ -1593,20 +1660,26 @@ export function SkillButtonComponent({
               </span>
             ) : null}
           </div>
-          <div className="skill-button-orb" title={`${characterName} - ${displayName}`}>
+          <div
+            className={`skill-button-orb${hasVisibleSkillIcon ? ' has-skill-icon-mask' : ''}`}
+            title={`${characterName} - ${displayName}`}
+            style={{
+              '--skill-icon-mask': hasVisibleSkillIcon ? `url(${JSON.stringify(normalizedSkillIconUrl)})` : 'none',
+            } as CSSProperties}
+          >
             {/* skillIconUrl 有值且未失败时渲染图标 */}
-            {skillIconUrl && !iconLoadFailed && !(isBrowseMode && isDotButton) ? (
+            {hasVisibleSkillIcon ? (
               <img
                 className="skill-icon"
-                key={normalizeAssetUrl(skillIconUrl)}
-                src={normalizeAssetUrl(skillIconUrl)}
+                key={normalizedSkillIconUrl}
+                src={normalizedSkillIconUrl}
                 alt={displayName}
                 onLoad={handleIconLoad}
                 onError={handleIconError}
               />
             ) : null}
             {/* 兜底文字：图标加载失败或无图标时显示 */}
-            <span className={`skill-label ${!iconLoadFailed && skillIconUrl && !(isBrowseMode && isDotButton) ? 'hidden' : ''}`}>{isBrowseMode && isDotButton ? '~' : skillType}</span>
+            <span className={`skill-label ${hasVisibleSkillIcon ? 'hidden' : ''}`}>{isBrowseMode && isDotButton ? '~' : skillType}</span>
           </div>
         </div>
       </div>

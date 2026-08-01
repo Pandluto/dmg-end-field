@@ -926,6 +926,7 @@
 }
 
 .timeline-calculation-zone-scroll {
+  position: relative;
   min-width: 0;
   min-height: 0;
   width: 126px;
@@ -936,7 +937,25 @@
   scrollbar-color: #bfc5c1 transparent;
 }
 
+.timeline-calculation-zone-glass-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 116px;
+  pointer-events: none;
+}
+
+.timeline-calculation-zone-glass {
+  position: absolute;
+  left: 8px;
+  width: 100px;
+  height: 38px;
+  border-radius: 12px;
+}
+
 .timeline-calculation-zone-map {
+  position: relative;
+  z-index: 2;
   display: block;
   width: 116px;
   min-height: 0;
