@@ -2910,7 +2910,8 @@
 }
 
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
-  .operator-config-page-equip-stage-glass,
+  .operator-config-page-equip-circle,
+  .operator-config-page-equip-button-row,
   .config-weapon-choose-img-square,
   .operator-config-page-weapon-star-square-box,
   .operator-config-page-level-badge-box,
@@ -2931,35 +2932,45 @@
   position: absolute;
   inset: 35px 14px 14px;
   z-index: 0;
+  border: 1px solid rgba(255, 255, 255, 0.46) !important;
   border-radius: 20px;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(73, 90, 145, 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
   pointer-events: none;
 }
 
-:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-stage-glass {
-  background: rgba(235, 243, 255, 0.1) !important;
-  outline-color: rgba(255, 255, 255, 0.68);
-}
-
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle {
-  border-color: rgba(255, 255, 255, 0.68) !important;
-  background: rgba(244, 248, 255, 0.14) !important;
-  box-shadow:
-    0 8px 18px rgba(28, 42, 86, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.58) !important;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 14px;
+  background: rgba(244, 248, 255, 0.08) !important;
+  box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
 
-/* Equipment hierarchy: clear outer frame, one liquid stage, one frosted value card. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-circle {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.68) !important;
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle-image {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
+/* Equipment follows the weapon hierarchy: clear carrier, liquid image and capsule windows. */
 :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
-  border: 1px solid rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.46);
   border-radius: 11px;
-  background: rgba(238, 244, 255, 0.58) !important;
-  box-shadow:
-    0 6px 15px rgba(31, 45, 91, 0.13),
-    inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
-  -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
-  backdrop-filter: blur(13px) saturate(1.05) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(73, 90, 145, 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
@@ -2978,11 +2989,17 @@
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
   .operator-config-page-equip-button-textdiv,
-  .operator-config-page-equip-button-row
+  .operator-config-page-equip-button-row:not([data-liquid-glass-surface])
 ) {
-  border-color: transparent !important;
-  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  background: rgba(248, 251, 255, 0.09) !important;
   box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-textdiv {
+  border-radius: 7px;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root :is(
@@ -3078,19 +3095,37 @@
   box-shadow: none !important;
 }
 
-/* Preserve the three weapon-potential states inside their shared glass rail. */
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-current {
+/* Weapon and equipment capsules share one current / lit / dim palette. */
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-current {
   border-color: rgba(255, 255, 255, 0.92) !important;
   background: #d986ad !important;
   box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
 }
 
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-lit {
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-lit {
   border-color: rgba(255, 255, 255, 0.78) !important;
   background: rgba(156, 174, 224, 0.78) !important;
 }
 
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-dim {
+:root[data-theme="liquid-tide"] :is(
+  .config-weapon-config-button-row,
+  .operator-config-page-equip-button-row
+)[data-liquid-glass-surface] :is(
+  .config-weapon-config-button,
+  .operator-config-page-equip-button
+).is-dim {
   border-color: rgba(255, 255, 255, 0.34) !important;
   background: rgba(75, 91, 144, 0.18) !important;
 }
@@ -3159,7 +3194,6 @@
   }
 
   :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
-    .operator-config-page-equip-button-group,
     .config-cti-input,
     .config-cti-drawer
   ) {
