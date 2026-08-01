@@ -6,6 +6,9 @@ import { destroyLiquidGlass } from './liquidGlassLifecycle';
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_GLASS_SELECTOR = '[data-liquid-glass-skill="true"]';
 const LIQUID_TIDE_GLASS_CLIP_PROPERTY = '--liquid-glass-composite-clip';
+const LIQUID_TIDE_GLASS_BACKDROP = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
+const SKILL_SNAPSHOT_CACHE_LIMIT = 6;
+const SKILL_SNAPSHOT_VERSION = 1;
 
 const LIQUID_TIDE_SKILL_GLASS_DEFAULTS: Partial<GlassConfig> = {
   blurAmount: 0.28,
@@ -34,6 +37,100 @@ type LiquidTideGlassOptions = {
   elementSignature: string;
   renderSignature: string;
 };
+
+type SkillGlassSnapshot = {
+  canvases: Array<{
+    canvas: HTMLCanvasElement;
+    cssText: string;
+  }>;
+};
+
+const skillGlassSnapshotCache = new Map<string, SkillGlassSnapshot>();
+
+function copySkillGlassCanvas(
+  source: HTMLCanvasElement,
+  cacheState: 'record' | 'hit',
+): HTMLCanvasElement | null {
+  if (source.width <= 0 || source.height <= 0) return null;
+
+  const copy = document.createElement('canvas');
+  copy.width = source.width;
+  copy.height = source.height;
+  copy.style.cssText = source.style.cssText;
+  copy.dataset.liquidGlassSnapshot = cacheState;
+  copy.setAttribute('aria-hidden', 'true');
+  const context = copy.getContext('2d');
+  if (!context) return null;
+
+  try {
+    context.drawImage(source, 0, 0);
+  } catch {
+    return null;
+  }
+  return copy;
+}
+
+function rememberSkillGlassSnapshot(key: string, snapshot: SkillGlassSnapshot): void {
+  const previous = skillGlassSnapshotCache.get(key);
+  previous?.canvases.forEach(({ canvas }) => {
+    canvas.width = 0;
+    canvas.height = 0;
+  });
+  skillGlassSnapshotCache.delete(key);
+  skillGlassSnapshotCache.set(key, snapshot);
+  while (skillGlassSnapshotCache.size > SKILL_SNAPSHOT_CACHE_LIMIT) {
+    const oldestKey = skillGlassSnapshotCache.keys().next().value;
+    if (typeof oldestKey !== 'string') break;
+    skillGlassSnapshotCache.get(oldestKey)?.canvases.forEach(({ canvas }) => {
+      canvas.width = 0;
+      canvas.height = 0;
+    });
+    skillGlassSnapshotCache.delete(oldestKey);
+  }
+}
+
+function getSkillGlassSnapshotKey(
+  root: HTMLElement,
+  elements: readonly HTMLElement[],
+  elementSignature: string,
+): string | null {
+  if (elements.length === 0 || elements.some((element) => element.classList.contains('dragging'))) {
+    return null;
+  }
+
+  const roundHalfPixel = (value: number) => Math.round(value * 2) / 2;
+  const rootRect = root.getBoundingClientRect();
+  if (rootRect.width <= 1 || rootRect.height <= 1) return null;
+  const targets = elements.map((element) => {
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1) return null;
+    return {
+      id: element.dataset.skillButtonId ?? '',
+      skillType: element.dataset.skillType ?? '',
+      rect: [
+        roundHalfPixel(rect.left),
+        roundHalfPixel(rect.top),
+        roundHalfPixel(rect.width),
+        roundHalfPixel(rect.height),
+      ],
+    };
+  });
+  if (targets.some((target) => target === null)) return null;
+
+  return JSON.stringify({
+    version: SKILL_SNAPSHOT_VERSION,
+    backdrop: LIQUID_TIDE_GLASS_BACKDROP,
+    viewport: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1],
+    root: [
+      roundHalfPixel(rootRect.left),
+      roundHalfPixel(rootRect.top),
+      roundHalfPixel(rootRect.width),
+      roundHalfPixel(rootRect.height),
+    ],
+    elementSignature,
+    targets,
+  });
+}
 
 function supportsWebGl(): boolean {
   try {
@@ -134,6 +231,10 @@ export function useLiquidTideGlass(
   { elementSignature, renderSignature }: LiquidTideGlassOptions,
 ): void {
   const instanceRef = useRef<LiquidGlassInstance | null>(null);
+  const queueSnapshotRef = useRef<(() => void) | null>(null);
+  const restoredSnapshotKeyRef = useRef<string | null>(null);
+  const cacheRefreshPendingRef = useRef(false);
+  const [rendererRevision, setRendererRevision] = useState(0);
   const [theme, setTheme] = useState(readAppTheme);
 
   useEffect(() => subscribeAppTheme(setTheme), []);
@@ -143,21 +244,93 @@ export function useLiquidTideGlass(
     let cancelled = false;
     let createdInstance: LiquidGlassInstance | null = null;
     let glassElements: HTMLElement[] = [];
+    let restoredCanvases: HTMLCanvasElement[] = [];
     let resizeFrameId = 0;
+    let snapshotTimerId = 0;
+    let snapshotRevision = 0;
 
     destroyLiquidGlass(instanceRef.current);
     instanceRef.current = null;
+    queueSnapshotRef.current = null;
+    restoredSnapshotKeyRef.current = null;
+    cacheRefreshPendingRef.current = false;
 
     if (!root || theme !== LIQUID_TIDE_THEME_ID) {
       root?.removeAttribute('data-liquid-glass-engine');
       root?.removeAttribute('data-liquid-glass-state');
+      root?.removeAttribute('data-liquid-glass-cache');
       return undefined;
     }
 
-    const markAfterScroll = () => instanceRef.current?.markChanged();
+    const requestLiveRenderer = () => {
+      if (restoredSnapshotKeyRef.current === null || cacheRefreshPendingRef.current) return;
+      cacheRefreshPendingRef.current = true;
+      restoredSnapshotKeyRef.current = null;
+      setRendererRevision((revision) => revision + 1);
+    };
+
+    const queueSnapshot = () => {
+      const instance = createdInstance;
+      const initialKey = instance
+        ? getSkillGlassSnapshotKey(root, glassElements, elementSignature)
+        : null;
+      if (!instance || !initialKey) return;
+
+      const revision = ++snapshotRevision;
+      window.clearTimeout(snapshotTimerId);
+      snapshotTimerId = window.setTimeout(() => {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (
+            cancelled
+            || revision !== snapshotRevision
+            || createdInstance !== instance
+          ) return;
+
+          const sources = glassElements.map((element) => instance.glassCanvases.get(element) ?? null);
+          const copies = sources.map((source) => (
+            source ? copySkillGlassCanvas(source, 'record') : null
+          ));
+          const finalKey = getSkillGlassSnapshotKey(
+            root,
+            glassElements,
+            elementSignature,
+          );
+          if (
+            sources.some((source) => source === null)
+            || copies.some((copy) => copy === null)
+            || finalKey !== initialKey
+          ) return;
+
+          rememberSkillGlassSnapshot(finalKey, {
+            canvases: copies.map((canvas, index) => ({
+              canvas: canvas as HTMLCanvasElement,
+              cssText: (sources[index] as HTMLCanvasElement).style.cssText,
+            })),
+          });
+          root.dataset.liquidGlassCache = 'recorded';
+        }));
+      }, 120);
+    };
+
+    const markAfterScroll = () => {
+      if (restoredSnapshotKeyRef.current !== null) {
+        requestLiveRenderer();
+        return;
+      }
+      instanceRef.current?.markChanged();
+      queueSnapshot();
+    };
     const syncAfterResize = () => {
+      if (restoredSnapshotKeyRef.current !== null) {
+        requestLiveRenderer();
+        return;
+      }
       cancelAnimationFrame(resizeFrameId);
-      resizeFrameId = requestAnimationFrame(() => syncCompositeGlassClips(glassElements));
+      resizeFrameId = requestAnimationFrame(() => {
+        syncCompositeGlassClips(glassElements);
+        instanceRef.current?.markChanged();
+        queueSnapshot();
+      });
     };
     root.addEventListener('scroll', markAfterScroll, { passive: true });
     window.addEventListener('resize', syncAfterResize);
@@ -178,6 +351,32 @@ export function useLiquidTideGlass(
           return;
         }
 
+        const snapshotKey = getSkillGlassSnapshotKey(
+          root,
+          glassElements,
+          elementSignature,
+        );
+        const snapshot = snapshotKey ? skillGlassSnapshotCache.get(snapshotKey) : null;
+        if (snapshot && snapshot.canvases.length === glassElements.length) {
+          const outputs = snapshot.canvases.map(({ canvas, cssText }) => {
+            const output = copySkillGlassCanvas(canvas, 'hit');
+            if (output) output.style.cssText = cssText;
+            return output;
+          });
+          if (outputs.every((output) => output !== null)) {
+            restoredCanvases = outputs as HTMLCanvasElement[];
+            restoredCanvases.forEach((output, index) => {
+              glassElements[index]?.insertBefore(output, glassElements[index]?.firstChild ?? null);
+            });
+            restoredSnapshotKeyRef.current = snapshotKey;
+            root.dataset.liquidGlassState = 'active';
+            root.dataset.liquidGlassCache = 'hit';
+            syncCompositeGlassClips(glassElements);
+            return;
+          }
+          outputs.forEach((output) => output?.remove());
+        }
+
         const { LiquidGlass } = await import('@ybouane/liquidglass');
         const instance = await LiquidGlass.init({
           root,
@@ -195,6 +394,8 @@ export function useLiquidTideGlass(
         root.dataset.liquidGlassState = 'active';
         syncCompositeGlassClips(glassElements);
         instance.markChanged();
+        queueSnapshotRef.current = queueSnapshot;
+        queueSnapshot();
       } catch (error) {
         if (cancelled) return;
         root.dataset.liquidGlassState = 'fallback';
@@ -206,24 +407,43 @@ export function useLiquidTideGlass(
 
     return () => {
       cancelled = true;
+      snapshotRevision += 1;
       cancelAnimationFrame(resizeFrameId);
+      window.clearTimeout(snapshotTimerId);
       root.removeEventListener('scroll', markAfterScroll);
       window.removeEventListener('resize', syncAfterResize);
       clearCompositeGlassClips(glassElements);
+      restoredCanvases.forEach((canvas) => canvas.remove());
       destroyLiquidGlass(createdInstance);
       if (instanceRef.current === createdInstance) instanceRef.current = null;
+      if (queueSnapshotRef.current === queueSnapshot) queueSnapshotRef.current = null;
+      restoredSnapshotKeyRef.current = null;
       root.removeAttribute('data-liquid-glass-engine');
       root.removeAttribute('data-liquid-glass-state');
+      root.removeAttribute('data-liquid-glass-cache');
     };
-  }, [elementSignature, rootRef, theme]);
+  }, [elementSignature, rendererRevision, rootRef, theme]);
 
   useEffect(() => {
     if (theme !== LIQUID_TIDE_THEME_ID) return;
     const frameId = requestAnimationFrame(() => {
       const root = rootRef.current;
-      if (root) syncCompositeGlassClips(getGlassElements(root));
+      if (!root) return;
+      const elements = getGlassElements(root);
+      syncCompositeGlassClips(elements);
+      const restoredKey = restoredSnapshotKeyRef.current;
+      if (restoredKey !== null) {
+        const currentKey = getSkillGlassSnapshotKey(root, elements, elementSignature);
+        if (currentKey !== restoredKey && !cacheRefreshPendingRef.current) {
+          cacheRefreshPendingRef.current = true;
+          restoredSnapshotKeyRef.current = null;
+          setRendererRevision((revision) => revision + 1);
+        }
+        return;
+      }
       instanceRef.current?.markChanged();
+      queueSnapshotRef.current?.();
     });
     return () => cancelAnimationFrame(frameId);
-  }, [renderSignature, theme]);
+  }, [elementSignature, renderSignature, theme]);
 }

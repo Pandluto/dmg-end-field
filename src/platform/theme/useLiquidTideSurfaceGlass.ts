@@ -8,9 +8,9 @@ const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jp
 const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
 const BACKDROP_ASPECT_RATIO = 16 / 9;
-const STATIC_SNAPSHOT_SELECTOR = '.config-avatar-indicator-glass';
-const STATIC_SNAPSHOT_CACHE_LIMIT = 8;
-const STATIC_SNAPSHOT_VERSION = 1;
+const STATIC_SNAPSHOT_SCOPE_SELECTOR = '.operator-config-page-root, .workbench-frame';
+const STATIC_SNAPSHOT_CACHE_LIMIT = 48;
+const STATIC_SNAPSHOT_VERSION = 3;
 
 type SurfacePreset = 'control' | 'dock' | 'card' | 'popover';
 
@@ -50,38 +50,62 @@ type ManagedRoot = {
 };
 
 type StaticSurfaceSnapshot = {
-  canvas: HTMLCanvasElement;
-  cssText: string;
+  canvases: Array<{
+    canvas: HTMLCanvasElement;
+    cssText: string;
+  }>;
 };
 
 const staticSurfaceSnapshotCache = new Map<string, StaticSurfaceSnapshot>();
 
 function getStaticSnapshotKey(group: ManagedRoot): string | null {
-  if (group.targets.length !== 1 || !group.targets[0]?.matches(STATIC_SNAPSHOT_SELECTOR)) {
+  if (
+    group.targets.length === 0
+    || group.visibilityAnchors.some(Boolean)
+    || group.targets.some((target) => !target.closest(STATIC_SNAPSHOT_SCOPE_SELECTOR))
+  ) {
     return null;
   }
 
-  const target = group.targets[0];
-  const rect = target.getBoundingClientRect();
-  if (rect.width <= 1 || rect.height <= 1) return null;
-
-  const style = window.getComputedStyle(target);
   const roundHalfPixel = (value: number) => Math.round(value * 2) / 2;
+  const rootRect = group.root.getBoundingClientRect();
+  if (rootRect.width <= 1 || rootRect.height <= 1) return null;
+
+  const targets = group.targets.map((target, index) => {
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 1 || rect.height <= 1) return null;
+    const style = window.getComputedStyle(target);
+    return {
+      identity: target.dataset.skillButtonId
+        ?? target.getAttribute('aria-label')
+        ?? Array.from(target.classList)
+          .filter((className) => className !== 'liquid-glass-button')
+          .join(' '),
+      rect: [
+        roundHalfPixel(rect.left),
+        roundHalfPixel(rect.top),
+        roundHalfPixel(rect.width),
+        roundHalfPixel(rect.height),
+      ],
+      preset: group.presets[index],
+      config: target.dataset.config ?? '',
+      clipPath: style.clipPath,
+      borderRadius: style.borderRadius,
+    };
+  });
+  if (targets.some((target) => target === null)) return null;
+
   return JSON.stringify({
     version: STATIC_SNAPSHOT_VERSION,
     backdrop: LIQUID_TIDE_BACKDROP_SRC,
     viewport: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1],
-    rect: [
-      roundHalfPixel(rect.left),
-      roundHalfPixel(rect.top),
-      roundHalfPixel(rect.width),
-      roundHalfPixel(rect.height),
+    root: [
+      roundHalfPixel(rootRect.left),
+      roundHalfPixel(rootRect.top),
+      roundHalfPixel(rootRect.width),
+      roundHalfPixel(rootRect.height),
     ],
-    preset: group.presets[0],
-    config: target.dataset.config ?? '',
-    clipPath: style.clipPath,
-    borderRadius: style.borderRadius,
-    owner: target.parentElement?.getAttribute('aria-label') ?? '',
+    targets,
   });
 }
 
@@ -106,11 +130,20 @@ function copySurfaceCanvas(source: HTMLCanvasElement, cacheState: 'record' | 'hi
 }
 
 function rememberStaticSnapshot(key: string, snapshot: StaticSurfaceSnapshot): void {
+  const previous = staticSurfaceSnapshotCache.get(key);
+  previous?.canvases.forEach(({ canvas }) => {
+    canvas.width = 0;
+    canvas.height = 0;
+  });
   staticSurfaceSnapshotCache.delete(key);
   staticSurfaceSnapshotCache.set(key, snapshot);
   while (staticSurfaceSnapshotCache.size > STATIC_SNAPSHOT_CACHE_LIMIT) {
     const oldestKey = staticSurfaceSnapshotCache.keys().next().value;
     if (typeof oldestKey !== 'string') break;
+    staticSurfaceSnapshotCache.get(oldestKey)?.canvases.forEach(({ canvas }) => {
+      canvas.width = 0;
+      canvas.height = 0;
+    });
     staticSurfaceSnapshotCache.delete(oldestKey);
   }
 }
@@ -514,8 +547,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
     const queueStaticSnapshot = (group: ManagedRoot) => {
       const initialKey = getStaticSnapshotKey(group);
       const instance = group.instance;
-      const target = group.targets[0];
-      if (!initialKey || !instance || !target) return;
+      if (!initialKey || !instance) return;
 
       const revision = ++group.staticSnapshotRevision;
       void (async () => {
@@ -529,14 +561,22 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           || group.instance !== instance
         ) return;
 
-        const source = instance.glassCanvases.get(target);
-        const snapshotCanvas = source ? copySurfaceCanvas(source, 'record') : null;
+        const sources = group.targets.map((target) => instance.glassCanvases.get(target) ?? null);
+        const snapshotCanvases = sources.map((source) => (
+          source ? copySurfaceCanvas(source, 'record') : null
+        ));
         const finalKey = getStaticSnapshotKey(group);
-        if (!source || !snapshotCanvas || finalKey !== initialKey) return;
+        if (
+          sources.some((source) => source === null)
+          || snapshotCanvases.some((canvas) => canvas === null)
+          || finalKey !== initialKey
+        ) return;
 
         rememberStaticSnapshot(finalKey, {
-          canvas: snapshotCanvas,
-          cssText: source.style.cssText,
+          canvases: snapshotCanvases.map((canvas, index) => ({
+            canvas: canvas as HTMLCanvasElement,
+            cssText: (sources[index] as HTMLCanvasElement).style.cssText,
+          })),
         });
         group.staticSnapshotKey = finalKey;
         group.root.dataset.liquidGlassSurfaceCache = 'recorded';
@@ -547,14 +587,23 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       const key = getStaticSnapshotKey(group);
       if (!key) return false;
       const snapshot = staticSurfaceSnapshotCache.get(key);
-      const target = group.targets[0];
-      if (!snapshot || !target) return false;
+      if (!snapshot || snapshot.canvases.length !== group.targets.length) return false;
 
-      const output = copySurfaceCanvas(snapshot.canvas, 'hit');
-      if (!output) return false;
-      output.style.cssText = snapshot.cssText;
-      target.insertBefore(output, target.firstChild);
-      group.cachedOutputCanvases.push(output);
+      const outputs = snapshot.canvases.map(({ canvas, cssText }) => {
+        const output = copySurfaceCanvas(canvas, 'hit');
+        if (output) output.style.cssText = cssText;
+        return output;
+      });
+      if (outputs.some((output) => output === null)) {
+        outputs.forEach((output) => output?.remove());
+        return false;
+      }
+      const restoredOutputs = outputs as HTMLCanvasElement[];
+      restoredOutputs.forEach((output, index) => {
+        const target = group.targets[index];
+        if (target) target.insertBefore(output, target.firstChild);
+      });
+      group.cachedOutputCanvases.push(...restoredOutputs);
       group.staticSnapshotKey = key;
       group.root.dataset.liquidGlassSurfaceState = 'active';
       group.root.dataset.liquidGlassSurfaceCache = 'hit';
