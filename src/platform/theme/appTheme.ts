@@ -1,4 +1,7 @@
-import { applyLiquidGlassQuality } from './liquidGlassRuntime';
+import {
+  applyLiquidGlassQuality,
+  prewarmLiquidGlassRuntime,
+} from './liquidGlassRuntime';
 
 export const APP_THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
 export const APP_THEME_CHANGE_EVENT = 'dmg-theme-change';
@@ -81,6 +84,9 @@ export function applyAppTheme(theme: AppThemeId): AppThemeId {
   const option = themeOption(theme);
   document.documentElement.dataset.theme = option.id;
   applyLiquidGlassQuality(option.id === 'liquid-tide');
+  if (option.id === 'liquid-tide') {
+    void prewarmLiquidGlassRuntime().catch(() => undefined);
+  }
   document.documentElement.style.colorScheme = option.colorScheme;
   document
     .querySelector<HTMLMetaElement>('meta[name="theme-color"]')

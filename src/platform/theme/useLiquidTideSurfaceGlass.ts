@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
 import { readAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
@@ -6,18 +6,24 @@ import {
   enqueueLiquidGlassRender,
   getCanvasMemoryBytes,
   getLiquidGlassRenderDpr,
+  loadLiquidGlassRenderer,
   supportsEfficientWebGl,
   waitForStableLiquidGlass,
 } from './liquidGlassRuntime';
+import {
+  persistGlassSnapshot,
+  readPersistentGlassSnapshot,
+} from './liquidGlassSnapshotStore';
 
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
 const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
 const BACKDROP_ASPECT_RATIO = 16 / 9;
-const STATIC_SNAPSHOT_CACHE_LIMIT = 24;
-const STATIC_SNAPSHOT_MEMORY_LIMIT = 64 * 1024 * 1024;
-const STATIC_SNAPSHOT_VERSION = 5;
+const STATIC_SNAPSHOT_CACHE_LIMIT = 48;
+const STATIC_SNAPSHOT_MEMORY_LIMIT = 128 * 1024 * 1024;
+const STATIC_SNAPSHOT_VERSION = 7;
+const COHORT_COMMIT_DELAY = 72;
 
 type SurfacePreset = 'control' | 'dock' | 'card' | 'popover';
 
@@ -88,7 +94,6 @@ function getStaticSnapshotKey(group: ManagedRoot): string | null {
       preset: group.presets[index],
       config: target.dataset.config ?? '',
       clipPath: style.clipPath,
-      borderRadius: style.borderRadius,
     };
   });
   if (targets.some((target) => target === null)) return null;
@@ -390,10 +395,7 @@ function isPersistentVisibilityAnchor(target: EventTarget | null): boolean {
 
 function getSurfaceConfig(element: HTMLElement, preset: SurfacePreset): Partial<GlassConfig> {
   const base = PRESET_CONFIGS[preset];
-  const cssRadius = Number.parseFloat(window.getComputedStyle(element).borderTopLeftRadius);
-  const cornerRadius = Number.isFinite(cssRadius) && cssRadius > 0
-    ? cssRadius
-    : base.cornerRadius;
+  const cornerRadius = base.cornerRadius;
 
   return {
     ...base,
@@ -414,26 +416,6 @@ function sameTargets(
       && group.presets[index] === targets[index]?.preset
       && group.visibilityAnchors[index] === targets[index]?.visibilityAnchor
     ));
-}
-
-async function waitForTargetAssets(targets: readonly HTMLElement[]): Promise<void> {
-  if (document.fonts) await document.fonts.ready;
-
-  const images = targets.flatMap((target) => Array.from(target.querySelectorAll('img')));
-  await Promise.all(images.map(async (image) => {
-    if (!image.complete) {
-      await new Promise<void>((resolve) => {
-        const finish = () => resolve();
-        image.addEventListener('load', finish, { once: true });
-        image.addEventListener('error', finish, { once: true });
-      });
-    }
-    try {
-      await image.decode();
-    } catch {
-      // Optional artwork failures should not disable all interactive glass.
-    }
-  }));
 }
 
 function syncCapture(group: ManagedRoot): void {
@@ -498,14 +480,17 @@ function createCapture(root: HTMLElement, index: number): HTMLCanvasElement {
   return capture;
 }
 
-export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): void {
+export function useLiquidTideSurfaceGlass(
+  rootRef: RefObject<HTMLDivElement>,
+  activationKey = '',
+): void {
   const [theme, setTheme] = useState(readAppTheme);
   const managedRootsRef = useRef(new Map<HTMLElement, ManagedRoot>());
   const storedAttributesRef = useRef(new Map<HTMLElement, StoredAttributes>());
 
   useEffect(() => subscribeAppTheme(setTheme), []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const appRoot = rootRef.current;
     const managedRoots = managedRootsRef.current;
     const storedAttributes = storedAttributesRef.current;
@@ -515,6 +500,31 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
     let settledScanTimerId = 0;
     let settledGeometryTimerId = 0;
     let settledGeometryRequiresScan = false;
+    let cohortCommitTimerId = 0;
+
+    const beginCohort = () => {
+      window.clearTimeout(cohortCommitTimerId);
+      appRoot?.setAttribute('data-liquid-glass-cohort-state', 'warming');
+    };
+
+    const isGroupSettled = (group: ManagedRoot): boolean => {
+      const state = group.root.dataset.liquidGlassSurfaceState;
+      if (state === 'fallback') return true;
+      return state === 'active'
+        && group.instance === null
+        && group.cachedOutputCanvases.length === group.targets.length;
+    };
+
+    const scheduleCohortCommit = (delayMs = COHORT_COMMIT_DELAY) => {
+      window.clearTimeout(cohortCommitTimerId);
+      cohortCommitTimerId = window.setTimeout(() => {
+        if (cancelled || !appRoot) return;
+        const groups = Array.from(managedRoots.values()).filter((group) => !group.disposed);
+        if (groups.every(isGroupSettled)) {
+          appRoot.dataset.liquidGlassCohortState = 'ready';
+        }
+      }, delayMs);
+    };
 
     const restoreTarget = (element: HTMLElement) => {
       const stored = storedAttributes.get(element);
@@ -545,6 +555,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       group.root.removeAttribute('data-liquid-glass-surface-state');
       group.root.removeAttribute('data-liquid-glass-surface-positioned');
       group.root.removeAttribute('data-liquid-glass-surface-cache');
+      group.root.removeAttribute('data-liquid-glass-capture-mode');
     };
 
     const disposeAll = () => {
@@ -555,8 +566,11 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
     if (!appRoot || theme !== LIQUID_TIDE_THEME_ID) {
       disposeAll();
+      appRoot?.removeAttribute('data-liquid-glass-cohort-state');
       return undefined;
     }
+
+    beginCohort();
 
     const markGroupFrozen = (group: ManagedRoot) => {
       group.targets.forEach((target) => {
@@ -620,6 +634,14 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           cssText: (sources[index] as HTMLCanvasElement).style.cssText,
         })),
       });
+      persistGlassSnapshot(
+        'surface',
+        finalKey,
+        storedCanvases.map((canvas, index) => ({
+          canvas,
+          cssText: (sources[index] as HTMLCanvasElement).style.cssText,
+        })),
+      );
 
       destroyLiquidGlass(instance);
       if (group.instance === instance) group.instance = null;
@@ -636,10 +658,14 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       group.staticSnapshotKey = finalKey;
       group.root.dataset.liquidGlassSurfaceState = 'active';
       group.root.dataset.liquidGlassSurfaceCache = 'recorded';
+      scheduleCohortCommit();
       return true;
     };
 
-    const restoreStaticSnapshot = (group: ManagedRoot): boolean => {
+    const restoreStaticSnapshot = (
+      group: ManagedRoot,
+      cacheState: 'memory-hit' | 'persistent-hit' = 'memory-hit',
+    ): boolean => {
       const key = getStaticSnapshotKey(group);
       if (!key) return false;
       const snapshot = staticSurfaceSnapshotCache.get(key);
@@ -669,8 +695,49 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       markGroupFrozen(group);
       group.staticSnapshotKey = key;
       group.root.dataset.liquidGlassSurfaceState = 'active';
-      group.root.dataset.liquidGlassSurfaceCache = 'hit';
+      group.root.dataset.liquidGlassSurfaceCache = cacheState;
+      scheduleCohortCommit(0);
       return true;
+    };
+
+    const restorePersistentStaticSnapshot = async (group: ManagedRoot): Promise<boolean> => {
+      const key = getStaticSnapshotKey(group);
+      if (!key) return false;
+      const snapshot = await readPersistentGlassSnapshot(
+        'surface',
+        key,
+        group.targets.length,
+      );
+      if (
+        !snapshot
+        || cancelled
+        || group.disposed
+        || !group.root.isConnected
+        || getStaticSnapshotKey(group) !== key
+      ) {
+        snapshot?.canvases.forEach(({ canvas }) => {
+          canvas.width = 0;
+          canvas.height = 0;
+        });
+        return false;
+      }
+
+      rememberStaticSnapshot(key, snapshot);
+      return restoreStaticSnapshot(group, 'persistent-hit');
+    };
+
+    const restoreCachedStaticSnapshot = async (group: ManagedRoot): Promise<boolean> => {
+      if (restoreStaticSnapshot(group)) return true;
+      if (await restorePersistentStaticSnapshot(group)) return true;
+
+      // Detail/config routes often commit their final text metrics one frame
+      // after the shell. Probe the finished geometry once more before paying
+      // for WebGL; fixed controls then hit the snapshot made on the last visit.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 32));
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      if (cancelled || group.disposed || !group.root.isConnected) return false;
+      if (restoreStaticSnapshot(group)) return true;
+      return restorePersistentStaticSnapshot(group);
     };
 
     const scheduleGeometrySync = () => {
@@ -701,10 +768,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
     const initializeGroup = async (group: ManagedRoot) => {
       try {
-        const [, backdropImage] = await Promise.all([
-          waitForTargetAssets(group.targets),
-          loadBackdropImage(),
-        ]);
+        const backdropImage = await loadBackdropImage();
         if (!await supportsEfficientWebGl()) throw new Error('Efficient WebGL is unavailable');
         if (cancelled || group.disposed || !group.root.isConnected) return;
         group.backdropImage = backdropImage;
@@ -714,7 +778,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
           if (cancelled || group.disposed || !group.root.isConnected) return;
 
-          const { LiquidGlass } = await import('@ybouane/liquidglass');
+          const { LiquidGlass } = await loadLiquidGlassRenderer();
           const instance = await LiquidGlass.init({
             root: group.root,
             glassElements: group.targets,
@@ -727,7 +791,6 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           }
 
           group.instance = instance;
-          group.root.dataset.liquidGlassSurfaceState = 'active';
           syncCapture(group);
           instance.markChanged();
 
@@ -743,6 +806,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           if (!cancelled && !group.disposed) {
             group.root.dataset.liquidGlassSurfaceState = 'fallback';
             group.root.dataset.liquidGlassSurfaceCache = 'unstable';
+            scheduleCohortCommit();
           }
         });
       } catch (error) {
@@ -750,11 +814,14 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
         destroyLiquidGlass(group.instance);
         group.instance = null;
         group.root.dataset.liquidGlassSurfaceState = 'fallback';
+        group.root.dataset.liquidGlassSurfaceCache = 'unstable';
+        scheduleCohortCommit();
         console.warn('[LiquidTide] Surface glass initialization failed; using solid fallback.', error);
       }
     };
 
     const createGroup = (root: HTMLElement, targets: readonly SurfaceTarget[]) => {
+      beginCohort();
       if (window.getComputedStyle(root).position === 'static') {
         root.dataset.liquidGlassSurfacePositioned = 'true';
       }
@@ -776,6 +843,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
       root.dataset.liquidGlassSurfaceRoot = '@ybouane/liquidglass';
       root.dataset.liquidGlassSurfaceState = 'loading';
+      root.dataset.liquidGlassCaptureMode = 'backdrop-only';
       targets.forEach(({ element, preset }) => {
         element.dataset.config = JSON.stringify(getSurfaceConfig(element, preset));
       });
@@ -787,9 +855,12 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       }
 
       managedRoots.set(root, group);
-      if (!restoreStaticSnapshot(group)) {
-        void initializeGroup(group);
-      }
+      void restoreCachedStaticSnapshot(group).then((restored) => {
+        if (!restored && !cancelled && !group.disposed) {
+          return initializeGroup(group);
+        }
+        return undefined;
+      });
     };
 
     const scan = () => {
@@ -862,6 +933,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
       managedRoots.forEach((group, root) => {
         if (!selectedRoots.has(root)) {
+          beginCohort();
           disposeGroup(group);
           managedRoots.delete(root);
         }
@@ -895,6 +967,9 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
         }
         createGroup(root, targets);
       });
+
+      const hasPendingGroup = Array.from(managedRoots.values()).some((group) => !isGroupSettled(group));
+      scheduleCohortCommit(hasPendingGroup ? COHORT_COMMIT_DELAY : 0);
     };
 
     const scheduleScan = () => {
@@ -956,6 +1031,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       cancelAnimationFrame(geometryFrameId);
       window.clearTimeout(settledScanTimerId);
       window.clearTimeout(settledGeometryTimerId);
+      window.clearTimeout(cohortCommitTimerId);
       mutationObserver.disconnect();
       window.removeEventListener('resize', handleResize);
       window.removeEventListener('scroll', handleScroll, true);
@@ -963,6 +1039,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       appRoot.removeEventListener('transitionend', handleLayoutSettled);
       appRoot.removeEventListener('animationend', handleLayoutSettled);
       disposeAll();
+      appRoot.removeAttribute('data-liquid-glass-cohort-state');
     };
-  }, [rootRef, theme]);
+  }, [activationKey, rootRef, theme]);
 }

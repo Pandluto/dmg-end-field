@@ -1,5 +1,5 @@
 diff --git a/node_modules/@ybouane/liquidglass/dist/index.js b/node_modules/@ybouane/liquidglass/dist/index.js
-index 10897f2..f498523 100644
+index 10897f2..8747d1f 100644
 --- a/node_modules/@ybouane/liquidglass/dist/index.js
 +++ b/node_modules/@ybouane/liquidglass/dist/index.js
 @@ -23,6 +23,10 @@ var DEFAULTS = {
@@ -70,7 +70,27 @@ index 10897f2..f498523 100644
      const elementBox = this._getPixelRect(
        element.getBoundingClientRect(),
        rootRect,
-@@ -2302,7 +2315,7 @@ var LiquidGlass = class _LiquidGlass {
+@@ -2136,6 +2149,11 @@ var LiquidGlass = class _LiquidGlass {
+    * the next render-loop tick picks them up.
+    */
+   async _captureGlassContent(targets = null) {
++    if (this.root.dataset.liquidGlassCaptureMode === "backdrop-only") {
++      this._glassContentDirty.clear();
++      this._glassContentImages.clear();
++      return;
++    }
+     if (this._capturingGlassContent) return;
+     this._capturingGlassContent = true;
+     try {
+@@ -2164,6 +2182,7 @@ var LiquidGlass = class _LiquidGlass {
+    * ~one or two frames while the async captures resolve.
+    */
+   async _prewarmStaticCaptures() {
++    if (this.root.dataset.liquidGlassCaptureMode === "backdrop-only") return;
+     for (const child of this._sortedChildren) {
+       if (this.glassSet.has(child)) continue;
+       const tag = child.tagName;
+@@ -2302,7 +2321,7 @@ var LiquidGlass = class _LiquidGlass {
    // Resize
    // ────────────────────────────────────────────
    _handleResize() {
@@ -79,7 +99,7 @@ index 10897f2..f498523 100644
      const rect = this.root.getBoundingClientRect();
      this.capture.resize(dpr);
      this.renderer.resize(Math.round(rect.width * dpr), Math.round(rect.height * dpr));
-@@ -2316,7 +2329,7 @@ var LiquidGlass = class _LiquidGlass {
+@@ -2316,7 +2335,7 @@ var LiquidGlass = class _LiquidGlass {
    _updateGlassCanvasSize(el) {
      const canvas = this.glassCanvases.get(el);
      if (!canvas) return;
@@ -88,7 +108,7 @@ index 10897f2..f498523 100644
      const elW = Math.round(el.offsetWidth);
      const elH = Math.round(el.offsetHeight);
      const padW = SHADOW_PAD * 2;
-@@ -2470,7 +2483,7 @@ var LiquidGlass = class _LiquidGlass {
+@@ -2470,7 +2489,7 @@ var LiquidGlass = class _LiquidGlass {
      this._rafId = requestAnimationFrame(() => this._renderLoop());
    }
    _renderFrame() {
@@ -138,7 +158,7 @@ index 47ded66..06419d0 100644
  				gl.viewport(0, 0, bw, bh);
  				gl.bindTexture(gl.TEXTURE_2D, fboSet.blurA.tex);
 diff --git a/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts b/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
-index eb224d2..01700c2 100644
+index eb224d2..4be498c 100644
 --- a/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
 +++ b/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
 @@ -68,12 +68,25 @@ interface SampleRect {
@@ -185,7 +205,27 @@ index eb224d2..01700c2 100644
  		const elementBox = this._getPixelRect(
  			element.getBoundingClientRect(), rootRect, dpr,
  			this.glassSet.has(element) ? SHADOW_PAD : 0,
-@@ -734,7 +747,7 @@ export class LiquidGlass {
+@@ -542,6 +555,11 @@ export class LiquidGlass {
+ 	private async _captureGlassContent(
+ 		targets: Set<HTMLElement> | null = null,
+ 	): Promise<void> {
++		if (this.root.dataset.liquidGlassCaptureMode === 'backdrop-only') {
++			this._glassContentDirty.clear();
++			this._glassContentImages.clear();
++			return;
++		}
+ 		if (this._capturingGlassContent) return;
+ 		this._capturingGlassContent = true;
+ 		try {
+@@ -571,6 +589,7 @@ export class LiquidGlass {
+ 	 * ~one or two frames while the async captures resolve.
+ 	 */
+ 	private async _prewarmStaticCaptures(): Promise<void> {
++		if (this.root.dataset.liquidGlassCaptureMode === 'backdrop-only') return;
+ 		for (const child of this._sortedChildren) {
+ 			if (this.glassSet.has(child)) continue;
+ 			const tag = child.tagName;
+@@ -734,7 +753,7 @@ export class LiquidGlass {
  	// ────────────────────────────────────────────
  
  	private _handleResize(): void {
@@ -194,7 +234,7 @@ index eb224d2..01700c2 100644
  		const rect = this.root.getBoundingClientRect();
  
  		this.capture.resize(dpr);
-@@ -754,7 +767,7 @@ export class LiquidGlass {
+@@ -754,7 +773,7 @@ export class LiquidGlass {
  	private _updateGlassCanvasSize(el: HTMLElement): void {
  		const canvas = this.glassCanvases.get(el);
  		if (!canvas) return;
@@ -203,7 +243,7 @@ index eb224d2..01700c2 100644
  		// Use offsetWidth/Height — the CSS box size before transforms.
  		// This prevents button hover scale from inflating the canvas.
  		const elW = Math.round(el.offsetWidth);
-@@ -970,7 +983,7 @@ export class LiquidGlass {
+@@ -970,7 +989,7 @@ export class LiquidGlass {
  	}
  
  	private _renderFrame(): void {

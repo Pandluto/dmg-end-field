@@ -3,7 +3,9 @@ export type LiquidGlassQuality = 'full' | 'balanced' | 'compatibility';
 const LIQUID_GLASS_QUALITY_DATASET_KEY = 'liquidGlassQuality';
 
 let webGlSupportPromise: Promise<boolean> | null = null;
-let renderQueue: Promise<void> = Promise.resolve();
+let liquidGlassModulePromise: Promise<typeof import('@ybouane/liquidglass')> | null = null;
+const pendingRenderTasks: Array<() => Promise<void>> = [];
+let activeRenderTasks = 0;
 
 function prefersReducedTransparency(): boolean {
   return typeof window !== 'undefined'
@@ -90,14 +92,66 @@ export function supportsEfficientWebGl(): Promise<boolean> {
 }
 
 /**
- * The third-party renderer owns one WebGL context per instance. Serialising
- * initialisation keeps route transitions below the browser's global context
- * limit while each fixed lens is rendered and frozen.
+ * Load the shader package before a route transition needs it. Theme startup
+ * calls this eagerly, while individual hooks reuse the same promise.
+ */
+export function loadLiquidGlassRenderer(): Promise<typeof import('@ybouane/liquidglass')> {
+  if (!liquidGlassModulePromise) {
+    liquidGlassModulePromise = import('@ybouane/liquidglass').catch((error) => {
+      liquidGlassModulePromise = null;
+      throw error;
+    });
+  }
+  return liquidGlassModulePromise;
+}
+
+export async function prewarmLiquidGlassRuntime(): Promise<boolean> {
+  if (!await supportsEfficientWebGl()) return false;
+  await loadLiquidGlassRenderer();
+  return true;
+}
+
+function getRenderConcurrency(): number {
+  const appliedQuality = typeof document === 'undefined'
+    ? null
+    : document.documentElement.dataset[LIQUID_GLASS_QUALITY_DATASET_KEY];
+  const quality = appliedQuality === 'full'
+    || appliedQuality === 'balanced'
+    || appliedQuality === 'compatibility'
+    ? appliedQuality
+    : readLiquidGlassQuality();
+  return quality === 'full' ? 4 : quality === 'balanced' ? 2 : 1;
+}
+
+function drainRenderQueue(): void {
+  const concurrency = getRenderConcurrency();
+  while (activeRenderTasks < concurrency && pendingRenderTasks.length > 0) {
+    const run = pendingRenderTasks.shift();
+    if (!run) return;
+    activeRenderTasks += 1;
+    void run().finally(() => {
+      activeRenderTasks -= 1;
+      drainRenderQueue();
+    });
+  }
+}
+
+/**
+ * The third-party renderer owns one WebGL context per instance. A small
+ * quality-aware pool lets one route warm several independent controls in the
+ * same visual wave without approaching the browser's global context limit.
  */
 export function enqueueLiquidGlassRender<T>(task: () => Promise<T>): Promise<T> {
-  const result = renderQueue.then(task, task);
-  renderQueue = result.then(() => undefined, () => undefined);
-  return result;
+  return new Promise<T>((resolve, reject) => {
+    pendingRenderTasks.push(async () => {
+      try {
+        resolve(await task());
+      } catch (error) {
+        reject(error);
+      }
+    });
+    drainRenderQueue();
+  });
 }
 
 export function getLiquidGlassRenderDpr(): number {
@@ -116,8 +170,12 @@ export function getCanvasMemoryBytes(canvas: HTMLCanvasElement): number {
   return canvas.width * canvas.height * 4;
 }
 
-export async function waitForStableLiquidGlass(delayMs = 96): Promise<void> {
-  await new Promise<void>((resolve) => window.setTimeout(resolve, delayMs));
+export async function waitForStableLiquidGlass(delayMs?: number): Promise<void> {
+  const quality = typeof document === 'undefined'
+    ? 'balanced'
+    : document.documentElement.dataset[LIQUID_GLASS_QUALITY_DATASET_KEY];
+  const settleDelay = delayMs ?? (quality === 'full' ? 48 : 36);
+  await new Promise<void>((resolve) => window.setTimeout(resolve, settleDelay));
   await new Promise<void>((resolve) => requestAnimationFrame(() => {
     requestAnimationFrame(() => resolve());
   }));

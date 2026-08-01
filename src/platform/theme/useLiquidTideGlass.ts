@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
 import { readAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
@@ -6,16 +6,21 @@ import {
   enqueueLiquidGlassRender,
   getCanvasMemoryBytes,
   getLiquidGlassRenderDpr,
+  loadLiquidGlassRenderer,
   supportsEfficientWebGl,
   waitForStableLiquidGlass,
 } from './liquidGlassRuntime';
+import {
+  persistGlassSnapshot,
+  readPersistentGlassSnapshot,
+} from './liquidGlassSnapshotStore';
 
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_GLASS_SELECTOR = '[data-liquid-glass-skill="true"]';
 const LIQUID_TIDE_GLASS_CLIP_PROPERTY = '--liquid-glass-composite-clip';
 const LIQUID_TIDE_GLASS_BACKDROP = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
-const SKILL_SNAPSHOT_CACHE_LIMIT = 4;
-const SKILL_SNAPSHOT_MEMORY_LIMIT = 32 * 1024 * 1024;
+const SKILL_SNAPSHOT_CACHE_LIMIT = 8;
+const SKILL_SNAPSHOT_MEMORY_LIMIT = 64 * 1024 * 1024;
 const SKILL_SNAPSHOT_VERSION = 2;
 
 const LIQUID_TIDE_SKILL_GLASS_DEFAULTS: Partial<GlassConfig> = {
@@ -247,7 +252,7 @@ export function useLiquidTideGlass(
 
   useEffect(() => subscribeAppTheme(setTheme), []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current;
     let cancelled = false;
     let createdInstance: LiquidGlassInstance | null = null;
@@ -339,6 +344,14 @@ export function useLiquidTideGlass(
           cssText: (sources[index] as HTMLCanvasElement).style.cssText,
         })),
       });
+      persistGlassSnapshot(
+        'skill',
+        finalKey,
+        cachedCanvases.map((canvas, index) => ({
+          canvas,
+          cssText: (sources[index] as HTMLCanvasElement).style.cssText,
+        })),
+      );
 
       destroyLiquidGlass(instance);
       if (instanceRef.current === instance) instanceRef.current = null;
@@ -390,10 +403,6 @@ export function useLiquidTideGlass(
 
     const initialize = async () => {
       try {
-        await waitForCaptureAssets(root);
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        if (cancelled) return;
-
         glassElements = getGlassElements(root);
         if (!glassElements.length) {
           root.dataset.liquidGlassState = 'idle';
@@ -405,10 +414,14 @@ export function useLiquidTideGlass(
           glassElements,
           elementSignature,
         );
-        const snapshot = snapshotKey ? skillGlassSnapshotCache.get(snapshotKey) : null;
-        if (snapshotKey && snapshot && snapshot.canvases.length === glassElements.length) {
-          skillGlassSnapshotCache.delete(snapshotKey);
-          skillGlassSnapshotCache.set(snapshotKey, snapshot);
+        const restoreSnapshot = (
+          key: string,
+          snapshot: SkillGlassSnapshot,
+          cacheState: 'memory-hit' | 'persistent-hit',
+        ): boolean => {
+          if (snapshot.canvases.length !== glassElements.length) return false;
+          skillGlassSnapshotCache.delete(key);
+          skillGlassSnapshotCache.set(key, snapshot);
           const outputs = snapshot.canvases.map(({ canvas, cssText }) => {
             const output = copySkillGlassCanvas(canvas, 'hit');
             if (output) output.style.cssText = cssText;
@@ -419,20 +432,57 @@ export function useLiquidTideGlass(
             restoredCanvases.forEach((output, index) => {
               glassElements[index]?.insertBefore(output, glassElements[index]?.firstChild ?? null);
             });
-            restoredSnapshotKeyRef.current = snapshotKey;
+            restoredSnapshotKeyRef.current = key;
             root.dataset.liquidGlassState = 'active';
-            root.dataset.liquidGlassCache = 'hit';
+            root.dataset.liquidGlassCache = cacheState;
             syncCompositeGlassClips(glassElements);
             markElementsFrozen();
-            return;
+            return true;
           }
           outputs.forEach((output) => output?.remove());
+          return false;
+        };
+
+        const snapshot = snapshotKey ? skillGlassSnapshotCache.get(snapshotKey) : null;
+        if (snapshotKey && snapshot && restoreSnapshot(snapshotKey, snapshot, 'memory-hit')) return;
+
+        if (snapshotKey) {
+          const persistentSnapshot = await readPersistentGlassSnapshot(
+            'skill',
+            snapshotKey,
+            glassElements.length,
+          );
+          if (
+            persistentSnapshot
+            && !cancelled
+            && getSkillGlassSnapshotKey(root, glassElements, elementSignature) === snapshotKey
+          ) {
+            rememberSkillGlassSnapshot(snapshotKey, persistentSnapshot);
+            if (restoreSnapshot(snapshotKey, persistentSnapshot, 'persistent-hit')) return;
+          } else {
+            persistentSnapshot?.canvases.forEach(({ canvas }) => {
+              canvas.width = 0;
+              canvas.height = 0;
+            });
+          }
+        }
+
+        // Cached optical frames do not depend on foreground image decoding.
+        // Try them during the layout phase, and only wait for DOM assets when
+        // a genuinely new shader render is required.
+        await waitForCaptureAssets(root);
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (cancelled) return;
+        glassElements = getGlassElements(root);
+        if (!glassElements.length) {
+          root.dataset.liquidGlassState = 'idle';
+          return;
         }
 
         if (!await supportsEfficientWebGl()) throw new Error('Efficient WebGL is unavailable');
         await enqueueLiquidGlassRender(async () => {
           if (cancelled) return;
-          const { LiquidGlass } = await import('@ybouane/liquidglass');
+          const { LiquidGlass } = await loadLiquidGlassRenderer();
           const instance = await LiquidGlass.init({
             root,
             glassElements,

@@ -2111,6 +2111,29 @@
   opacity: 1;
   filter: none;
   mix-blend-mode: normal;
+  transition: opacity 90ms ease-out;
+}
+
+/* Route surfaces warm behind one stable optical placeholder, then publish
+   their frozen shader frames as a single cohort. This prevents independent
+   parent groups from visibly appearing in a queue. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-cohort-state="warming"] [data-liquid-glass-surface] {
+  border-color: transparent !important;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.3), transparent 44%),
+    linear-gradient(145deg, rgba(247, 250, 255, 0.2), rgba(213, 225, 250, 0.08)),
+    rgba(235, 243, 255, 0.14) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.6);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-cohort-state="warming"] [data-liquid-glass-surface] > canvas {
+  opacity: 0 !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-cohort-state="ready"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-surface] > canvas {
+  opacity: 1;
 }
 
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="popover"] {

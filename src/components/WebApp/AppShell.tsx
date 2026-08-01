@@ -159,7 +159,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       ? 'bottom'
       : 'center';
 
-  useLiquidTideSurfaceGlass(shellRef);
+  useLiquidTideSurfaceGlass(shellRef, currentPath);
 
   const handleLauncherPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
