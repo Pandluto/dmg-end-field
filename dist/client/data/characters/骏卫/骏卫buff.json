@@ -1,0 +1,55 @@
+{
+  "name": "骏卫",
+  "buffList": [
+    "攻击力百分比提升-骏卫-天赋-满层",
+    "源石技艺强度提升-骏卫-天赋-满层",
+    "意志属性提升-骏卫-潜能",
+    "物理伤害加成-骏卫-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "攻击力百分比提升-骏卫-天赋-满层",
+      "name": "活着的旗帜",
+      "source": "talent",
+      "sourceName": "天赋-活着的旗帜",
+      "type": "atkPercentBoost",
+      "value": 0.24,
+      "level": "breakthrough2",
+      "description": "通过自身技能累计恢复指定技力后，获得可叠加的士气激昂（每层独立计时）。",
+      "condition": "士气激昂满层(3层)",
+      "duration": 20
+    },
+    {
+      "displayName": "源石技艺强度提升-骏卫-天赋-满层",
+      "name": "活着的旗帜",
+      "source": "talent",
+      "sourceName": "天赋-活着的旗帜",
+      "type": "sourceSkillBoost",
+      "value": 24,
+      "level": "breakthrough2",
+      "description": "通过自身技能累计恢复指定技力后，获得可叠加的士气激昂（每层独立计时）。",
+      "condition": "士气激昂满层(3层)",
+      "duration": 20
+    },
+    {
+      "displayName": "意志属性提升-骏卫-潜能",
+      "name": "“行军”",
+      "source": "potential",
+      "sourceName": "潜能2-“行军”",
+      "type": "willBoost",
+      "value": 20,
+      "level": "potentials-2",
+      "description": "意志+20，造成的物理伤害+10%。"
+    },
+    {
+      "displayName": "物理伤害加成-骏卫-潜能",
+      "name": "“行军”",
+      "source": "potential",
+      "sourceName": "潜能2-“行军”",
+      "type": "physicalDmgBonus",
+      "value": 0.1,
+      "level": "potentials-2",
+      "description": "意志+20，造成的物理伤害+10%。"
+    }
+  ]
+}

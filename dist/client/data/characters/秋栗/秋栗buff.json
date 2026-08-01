@@ -1,0 +1,31 @@
+{
+  "name": "秋栗",
+  "buffList": [
+    "连击增伤-秋栗-天赋",
+    "攻击力百分比提升-秋栗-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "连击增伤-秋栗-天赋",
+      "name": "心流时间",
+      "source": "talent",
+      "sourceName": "天赋-心流时间",
+      "type": "comboDamageBonus",
+      "value": 0.3,
+      "level": "breakthrough3",
+      "description": "施放终结技小队，集结！期间获得连击。",
+      "condition": "施放终结技“小队，集结！”期间"
+    },
+    {
+      "displayName": "攻击力百分比提升-秋栗-潜能",
+      "name": "全力协作",
+      "source": "potential",
+      "sourceName": "潜能3-全力协作",
+      "type": "atkPercentBoost",
+      "value": 0.1,
+      "level": "potentials-3",
+      "description": "施放终结技小队，集结！期间，全队攻击力+10%。",
+      "condition": "施放终结技“小队，集结！”期间"
+    }
+  ]
+}

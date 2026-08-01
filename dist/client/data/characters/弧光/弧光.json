@@ -1,0 +1,521 @@
+{
+  "name": "弧光",
+  "nameEn": "Arclight",
+  "rarity": 5,
+  "profession": "先锋",
+  "weapon": "单手剑",
+  "element": "electric",
+  "mainStat": "敏捷",
+  "subStat": "智识",
+  "tags": [
+    "回能",
+    "导电联动"
+  ],
+  "position": [
+    "回能支援"
+  ],
+  "attributes": {
+    "level1": {
+      "strength": 14,
+      "agility": 14,
+      "intelligence": 12,
+      "will": 10,
+      "atk": 30,
+      "hp": 500
+    },
+    "level20": {
+      "strength": 33,
+      "agility": 42,
+      "intelligence": 36,
+      "will": 29,
+      "atk": 89,
+      "hp": 1566
+    },
+    "level40": {
+      "strength": 54,
+      "agility": 71,
+      "intelligence": 61,
+      "will": 49,
+      "atk": 151,
+      "hp": 2689
+    },
+    "level60": {
+      "strength": 75,
+      "agility": 101,
+      "intelligence": 86,
+      "will": 69,
+      "atk": 213,
+      "hp": 3811
+    },
+    "level80": {
+      "strength": 96,
+      "agility": 130,
+      "intelligence": 111,
+      "will": 89,
+      "atk": 275,
+      "hp": 4934
+    },
+    "level90": {
+      "strength": 107,
+      "agility": 145,
+      "intelligence": 123,
+      "will": 100,
+      "atk": 306,
+      "hp": 5495
+    }
+  },
+  "talents": [
+    {
+      "name": "荒野游人",
+      "description": "战技成功触发3次额外效果后，按智识提升全队电磁伤害，持续15秒，不可叠加。",
+      "levels": {
+        "breakthrough1": {
+          "triggerCount": 3,
+          "electricDmgBonusPerIntelligence": 0.0005,
+          "duration": 15
+        },
+        "breakthrough2": {
+          "triggerCount": 3,
+          "electricDmgBonusPerIntelligence": 0.0008,
+          "duration": 15
+        }
+      }
+    },
+    {
+      "name": "众生智慧",
+      "description": "被施加法术附着时有概率忽略该效果。",
+      "levels": {
+        "breakthrough2": {
+          "ignoreAttachmentChance": 0.3
+        },
+        "breakthrough3": {
+          "ignoreAttachmentChance": 0.5
+        }
+      }
+    }
+  ],
+  "potentials": [
+    {
+      "id": 1,
+      "name": "风暴中的孩子",
+      "description": "战技疾风迅雷成功触发额外效果后额外恢复10点技力。"
+    },
+    {
+      "id": 2,
+      "name": "速战速决",
+      "description": "敏捷+15，智识+15。",
+      "stats": {
+        "agility": 15,
+        "intelligence": 15
+      }
+    },
+    {
+      "id": 3,
+      "name": "“歌谣”",
+      "description": "天赋荒野游人效果加强：伤害提升效果提高至原本1.3倍。"
+    },
+    {
+      "id": 4,
+      "name": "师者教诲",
+      "description": "终结技轰雷掣电所需终结技能量-15%。"
+    },
+    {
+      "id": 5,
+      "name": "荒野的徒从",
+      "description": "天赋荒野游人触发所需次数降低至2次。"
+    }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "循迹逐猎",
+      "type": "普通攻击",
+      "description": "至多5段物理伤害，主控重击16点失衡；可下落与处决攻击。",
+      "multipliers": {
+        "1": {
+          "hit1": 0.1,
+          "hit2": 0.13,
+          "hit3": 0.26,
+          "hit4": 0.36,
+          "hit5": 0.48,
+          "execute": 4.0,
+          "plunge": 0.8
+        },
+        "2": {
+          "hit1": 0.11,
+          "hit2": 0.14,
+          "hit3": 0.29,
+          "hit4": 0.4,
+          "hit5": 0.52,
+          "execute": 4.4,
+          "plunge": 0.88
+        },
+        "3": {
+          "hit1": 0.12,
+          "hit2": 0.15,
+          "hit3": 0.31,
+          "hit4": 0.43,
+          "hit5": 0.57,
+          "execute": 4.8,
+          "plunge": 0.96
+        },
+        "4": {
+          "hit1": 0.13,
+          "hit2": 0.16,
+          "hit3": 0.34,
+          "hit4": 0.47,
+          "hit5": 0.62,
+          "execute": 5.2,
+          "plunge": 1.04
+        },
+        "5": {
+          "hit1": 0.14,
+          "hit2": 0.18,
+          "hit3": 0.36,
+          "hit4": 0.5,
+          "hit5": 0.67,
+          "execute": 5.6,
+          "plunge": 1.12
+        },
+        "6": {
+          "hit1": 0.15,
+          "hit2": 0.19,
+          "hit3": 0.39,
+          "hit4": 0.54,
+          "hit5": 0.71,
+          "execute": 6.0,
+          "plunge": 1.2
+        },
+        "7": {
+          "hit1": 0.16,
+          "hit2": 0.2,
+          "hit3": 0.42,
+          "hit4": 0.58,
+          "hit5": 0.76,
+          "execute": 6.4,
+          "plunge": 1.28
+        },
+        "8": {
+          "hit1": 0.17,
+          "hit2": 0.21,
+          "hit3": 0.44,
+          "hit4": 0.61,
+          "hit5": 0.81,
+          "execute": 6.8,
+          "plunge": 1.36
+        },
+        "9": {
+          "hit1": 0.18,
+          "hit2": 0.23,
+          "hit3": 0.47,
+          "hit4": 0.65,
+          "hit5": 0.86,
+          "execute": 7.2,
+          "plunge": 1.44
+        },
+        "M1": {
+          "hit1": 0.19,
+          "hit2": 0.24,
+          "hit3": 0.5,
+          "hit4": 0.69,
+          "hit5": 0.91,
+          "execute": 7.7,
+          "plunge": 1.54
+        },
+        "M2": {
+          "hit1": 0.21,
+          "hit2": 0.26,
+          "hit3": 0.54,
+          "hit4": 0.75,
+          "hit5": 0.99,
+          "execute": 8.3,
+          "plunge": 1.66
+        },
+        "M3": {
+          "hit1": 0.23,
+          "hit2": 0.28,
+          "hit3": 0.59,
+          "hit4": 0.81,
+          "hit5": 1.07,
+          "execute": 9.0,
+          "plunge": 1.8
+        }
+      },
+      "imbalanceValue": 16
+    },
+    "skill": {
+      "name": "疾风迅雷",
+      "type": "战技",
+      "description": "突进造成2段物理伤害；若目标处于导电则消耗并追加电磁伤害，同时恢复技力。",
+      "multipliers": {
+        "1": {
+          "hit1Damage": 0.45,
+          "hit2Damage": 0.45,
+          "hit2Imbalance": 5,
+          "extraDamage": 1.8,
+          "extraImbalance": 5,
+          "energyRestore": 30
+        },
+        "2": {
+          "hit1Damage": 0.5,
+          "hit2Damage": 0.5,
+          "hit2Imbalance": 5,
+          "extraDamage": 1.98,
+          "extraImbalance": 5,
+          "energyRestore": 30
+        },
+        "3": {
+          "hit1Damage": 0.54,
+          "hit2Damage": 0.54,
+          "hit2Imbalance": 5,
+          "extraDamage": 2.16,
+          "extraImbalance": 5,
+          "energyRestore": 30
+        },
+        "4": {
+          "hit1Damage": 0.59,
+          "hit2Damage": 0.59,
+          "hit2Imbalance": 5,
+          "extraDamage": 2.34,
+          "extraImbalance": 5,
+          "energyRestore": 30
+        },
+        "5": {
+          "hit1Damage": 0.63,
+          "hit2Damage": 0.63,
+          "hit2Imbalance": 5,
+          "extraDamage": 2.52,
+          "extraImbalance": 5,
+          "energyRestore": 30
+        },
+        "6": {
+          "hit1Damage": 0.68,
+          "hit2Damage": 0.68,
+          "hit2Imbalance": 5,
+          "extraDamage": 2.7,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "7": {
+          "hit1Damage": 0.72,
+          "hit2Damage": 0.72,
+          "hit2Imbalance": 5,
+          "extraDamage": 2.88,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "8": {
+          "hit1Damage": 0.77,
+          "hit2Damage": 0.77,
+          "hit2Imbalance": 5,
+          "extraDamage": 3.06,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "9": {
+          "hit1Damage": 0.81,
+          "hit2Damage": 0.81,
+          "hit2Imbalance": 5,
+          "extraDamage": 3.24,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "M1": {
+          "hit1Damage": 0.87,
+          "hit2Damage": 0.87,
+          "hit2Imbalance": 5,
+          "extraDamage": 3.47,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "M2": {
+          "hit1Damage": 0.93,
+          "hit2Damage": 0.93,
+          "hit2Imbalance": 5,
+          "extraDamage": 3.74,
+          "extraImbalance": 5,
+          "energyRestore": 35
+        },
+        "M3": {
+          "hit1Damage": 1.01,
+          "hit2Damage": 1.01,
+          "hit2Imbalance": 5,
+          "extraDamage": 4.05,
+          "extraImbalance": 5,
+          "energyRestore": 40
+        }
+      },
+      "imbalanceValue": 5
+    },
+    "chainSkill": {
+      "name": "鸣雷",
+      "type": "连携技",
+      "description": "敌人进入导电或导电被消耗后可发动，造成物理伤害并恢复技力。",
+      "multipliers": {
+        "1": {
+          "cooldown": 3,
+          "damage": 1.55,
+          "energyRestore": 8,
+          "imbalance": 5
+        },
+        "2": {
+          "cooldown": 3,
+          "damage": 1.71,
+          "energyRestore": 8,
+          "imbalance": 5
+        },
+        "3": {
+          "cooldown": 3,
+          "damage": 1.86,
+          "energyRestore": 8,
+          "imbalance": 5
+        },
+        "4": {
+          "cooldown": 3,
+          "damage": 2.02,
+          "energyRestore": 8,
+          "imbalance": 5
+        },
+        "5": {
+          "cooldown": 3,
+          "damage": 2.18,
+          "energyRestore": 8,
+          "imbalance": 5
+        },
+        "6": {
+          "cooldown": 3,
+          "damage": 2.33,
+          "energyRestore": 9,
+          "imbalance": 5
+        },
+        "7": {
+          "cooldown": 3,
+          "damage": 2.49,
+          "energyRestore": 9,
+          "imbalance": 5
+        },
+        "8": {
+          "cooldown": 3,
+          "damage": 2.64,
+          "energyRestore": 9,
+          "imbalance": 5
+        },
+        "9": {
+          "cooldown": 3,
+          "damage": 2.8,
+          "energyRestore": 9,
+          "imbalance": 5
+        },
+        "M1": {
+          "cooldown": 3,
+          "damage": 2.99,
+          "energyRestore": 10,
+          "imbalance": 5
+        },
+        "M2": {
+          "cooldown": 3,
+          "damage": 3.22,
+          "energyRestore": 10,
+          "imbalance": 5
+        },
+        "M3": {
+          "cooldown": 3,
+          "damage": 3.5,
+          "energyRestore": 10,
+          "imbalance": 5
+        }
+      },
+      "imbalanceValue": 5
+    },
+    "ultimate": {
+      "name": "轰雷掣电",
+      "type": "终结技",
+      "description": "冲刺造成电磁伤害并施加电磁附着，随后引爆电弧再次造成电磁伤害，满足条件时消耗附着并强制导电。",
+      "multipliers": {
+        "1": {
+          "energy": 90,
+          "hit1Damage": 1.56,
+          "hit1Imbalance": 7,
+          "hit2Damage": 2.44,
+          "hit2Imbalance": 7
+        },
+        "2": {
+          "energy": 90,
+          "hit1Damage": 1.71,
+          "hit1Imbalance": 7,
+          "hit2Damage": 2.69,
+          "hit2Imbalance": 7
+        },
+        "3": {
+          "energy": 90,
+          "hit1Damage": 1.87,
+          "hit1Imbalance": 7,
+          "hit2Damage": 2.93,
+          "hit2Imbalance": 7
+        },
+        "4": {
+          "energy": 90,
+          "hit1Damage": 2.02,
+          "hit1Imbalance": 7,
+          "hit2Damage": 3.18,
+          "hit2Imbalance": 7
+        },
+        "5": {
+          "energy": 90,
+          "hit1Damage": 2.18,
+          "hit1Imbalance": 7,
+          "hit2Damage": 3.42,
+          "hit2Imbalance": 7
+        },
+        "6": {
+          "energy": 90,
+          "hit1Damage": 2.34,
+          "hit1Imbalance": 7,
+          "hit2Damage": 3.67,
+          "hit2Imbalance": 7
+        },
+        "7": {
+          "energy": 90,
+          "hit1Damage": 2.49,
+          "hit1Imbalance": 7,
+          "hit2Damage": 3.91,
+          "hit2Imbalance": 7
+        },
+        "8": {
+          "energy": 90,
+          "hit1Damage": 2.65,
+          "hit1Imbalance": 7,
+          "hit2Damage": 4.15,
+          "hit2Imbalance": 7
+        },
+        "9": {
+          "energy": 90,
+          "hit1Damage": 2.8,
+          "hit1Imbalance": 7,
+          "hit2Damage": 4.4,
+          "hit2Imbalance": 7
+        },
+        "M1": {
+          "energy": 90,
+          "hit1Damage": 3.0,
+          "hit1Imbalance": 10,
+          "hit2Damage": 4.7,
+          "hit2Imbalance": 10
+        },
+        "M2": {
+          "energy": 90,
+          "hit1Damage": 3.23,
+          "hit1Imbalance": 10,
+          "hit2Damage": 5.07,
+          "hit2Imbalance": 10
+        },
+        "M3": {
+          "energy": 90,
+          "hit1Damage": 3.5,
+          "hit1Imbalance": 10,
+          "hit2Damage": 5.5,
+          "hit2Imbalance": 10
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "name": "安塔尔",
+  "nameEn": "Antal",
+  "rarity": 4,
+  "profession": "辅助",
+  "weapon": "法术单元",
+  "element": "electric",
+  "mainStat": "智识",
+  "subStat": "力量",
+  "tags": ["控制", "增益", "支援"],
+  "position": ["增益支援"],
+  "attributes": {
+    "level1": { "strength": 15, "agility": 9, "intelligence": 15, "will": 9, "atk": 30, "hp": 500 },
+    "level20": { "strength": 40, "agility": 25, "intelligence": 47, "will": 25, "atk": 87, "hp": 1566 },
+    "level40": { "strength": 65, "agility": 43, "intelligence": 81, "will": 41, "atk": 147, "hp": 2689 },
+    "level60": { "strength": 91, "agility": 60, "intelligence": 114, "will": 58, "atk": 207, "hp": 3811 },
+    "level80": { "strength": 116, "agility": 78, "intelligence": 148, "will": 74, "atk": 267, "hp": 4934 },
+    "level90": { "strength": 129, "agility": 86, "intelligence": 165, "will": 82, "atk": 297, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "即兴发挥",
+      "description": "队伍中处于增幅状态的干员造成技能伤害后，安塔尔为其回复生命值，每个干员每30秒最多触发1次。",
+      "levels": {
+        "breakthrough1": { "baseHeal": 72, "healByStrength": 0.6, "cooldownPerAlly": 30 },
+        "breakthrough2": { "baseHeal": 108, "healByStrength": 0.9, "cooldownPerAlly": 30 }
+      }
+    },
+    {
+      "name": "下意识",
+      "description": "有30%概率免疫物理伤害，并回复自身生命值。",
+      "levels": {
+        "breakthrough2": { "procChance": 0.3, "physicalDamageImmunity": true, "baseHeal": 27, "healByStrength": 0.23 },
+        "breakthrough3": { "procChance": 0.3, "physicalDamageImmunity": true, "baseHeal": 45, "healByStrength": 0.38 }
+      }
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "术法天分", "description": "终结技超频时刻提供的电磁增幅和灼热增幅效果提高至原本的1.1倍。" },
+    { "id": 2, "name": "自动化改良", "description": "终结技超频时刻所需终结技能量-10%。" },
+    { "id": 3, "name": "源石理论应用", "description": "被聚焦的敌人在聚焦期间被击败时，返还15点技力。" },
+    { "id": 4, "name": "奶奶的叮嘱", "description": "智识+10，最大生命值+10%。", "stats": { "intelligence": 10 } },
+    { "id": 5, "name": "高规格技术测试", "description": "聚焦同一目标20秒后，电磁脆弱和灼热脆弱效果提高4%。" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "交换电流",
+      "type": "普通攻击",
+      "description": "至多4段电磁伤害，主控重击15点失衡；可下落与处决攻击。",
+      "multipliers": {
+        "1": { "hit1": 0.23, "hit2": 0.28, "hit3": 0.34, "hit4": 0.51, "execute": 4.00, "plunge": 0.80 },
+        "2": { "hit1": 0.25, "hit2": 0.31, "hit3": 0.37, "hit4": 0.56, "execute": 4.40, "plunge": 0.88 },
+        "3": { "hit1": 0.28, "hit2": 0.34, "hit3": 0.41, "hit4": 0.61, "execute": 4.80, "plunge": 0.96 },
+        "4": { "hit1": 0.30, "hit2": 0.36, "hit3": 0.44, "hit4": 0.66, "execute": 5.20, "plunge": 1.04 },
+        "5": { "hit1": 0.32, "hit2": 0.39, "hit3": 0.48, "hit4": 0.71, "execute": 5.60, "plunge": 1.12 },
+        "6": { "hit1": 0.35, "hit2": 0.42, "hit3": 0.51, "hit4": 0.77, "execute": 6.00, "plunge": 1.20 },
+        "7": { "hit1": 0.37, "hit2": 0.45, "hit3": 0.54, "hit4": 0.82, "execute": 6.40, "plunge": 1.28 },
+        "8": { "hit1": 0.39, "hit2": 0.48, "hit3": 0.58, "hit4": 0.87, "execute": 6.80, "plunge": 1.36 },
+        "9": { "hit1": 0.41, "hit2": 0.50, "hit3": 0.61, "hit4": 0.92, "execute": 7.20, "plunge": 1.44 },
+        "M1": { "hit1": 0.44, "hit2": 0.54, "hit3": 0.65, "hit4": 0.98, "execute": 7.70, "plunge": 1.54 },
+        "M2": { "hit1": 0.48, "hit2": 0.58, "hit3": 0.71, "hit4": 1.06, "execute": 8.30, "plunge": 1.66 },
+        "M3": { "hit1": 0.52, "hit2": 0.63, "hit3": 0.77, "hit4": 1.15, "execute": 9.00, "plunge": 1.80 }
+      },
+      "imbalanceValue": 15
+    },
+    "skill": {
+      "name": "指定研究对象",
+      "type": "战技",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "multipliers": {
+        "1": { "damage": 0.89, "duration": 60, "electricVulnerability": 0.05, "fireVulnerability": 0.05 },
+        "2": { "damage": 0.98, "duration": 60, "electricVulnerability": 0.05, "fireVulnerability": 0.05 },
+        "3": { "damage": 1.07, "duration": 60, "electricVulnerability": 0.06, "fireVulnerability": 0.06 },
+        "4": { "damage": 1.16, "duration": 60, "electricVulnerability": 0.06, "fireVulnerability": 0.06 },
+        "5": { "damage": 1.24, "duration": 60, "electricVulnerability": 0.07, "fireVulnerability": 0.07 },
+        "6": { "damage": 1.33, "duration": 60, "electricVulnerability": 0.07, "fireVulnerability": 0.07 },
+        "7": { "damage": 1.42, "duration": 60, "electricVulnerability": 0.08, "fireVulnerability": 0.08 },
+        "8": { "damage": 1.51, "duration": 60, "electricVulnerability": 0.08, "fireVulnerability": 0.08 },
+        "9": { "damage": 1.60, "duration": 60, "electricVulnerability": 0.08, "fireVulnerability": 0.08 },
+        "M1": { "damage": 1.71, "duration": 60, "electricVulnerability": 0.09, "fireVulnerability": 0.09 },
+        "M2": { "damage": 1.85, "duration": 60, "electricVulnerability": 0.09, "fireVulnerability": 0.09 },
+        "M3": { "damage": 2.00, "duration": 60, "electricVulnerability": 0.10, "fireVulnerability": 0.10 }
+      }
+    },
+    "chainSkill": {
+      "name": "磁暴试验场",
+      "type": "连携技",
+      "description": "被聚焦目标进入物理异常或法术附着时可发动，触发能量爆炸并重新施加对应状态。",
+      "multipliers": {
+        "1": { "cooldown": 25, "damage": 1.51, "imbalance": 10 },
+        "2": { "cooldown": 25, "damage": 1.66, "imbalance": 10 },
+        "3": { "cooldown": 25, "damage": 1.81, "imbalance": 10 },
+        "4": { "cooldown": 25, "damage": 1.96, "imbalance": 10 },
+        "5": { "cooldown": 25, "damage": 2.11, "imbalance": 10 },
+        "6": { "cooldown": 25, "damage": 2.27, "imbalance": 10 },
+        "7": { "cooldown": 25, "damage": 2.42, "imbalance": 10 },
+        "8": { "cooldown": 25, "damage": 2.57, "imbalance": 10 },
+        "9": { "cooldown": 25, "damage": 2.72, "imbalance": 10 },
+        "M1": { "cooldown": 25, "damage": 2.91, "imbalance": 10 },
+        "M2": { "cooldown": 25, "damage": 3.13, "imbalance": 10 },
+        "M3": { "cooldown": 24, "damage": 3.40, "imbalance": 10 }
+      }
+    },
+    "ultimate": {
+      "name": "超频时刻",
+      "type": "终结技",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "multipliers": {
+        "1": { "energy": 100, "electricAmplify": 0.08, "fireAmplify": 0.08, "duration": 12 },
+        "2": { "energy": 100, "electricAmplify": 0.09, "fireAmplify": 0.09, "duration": 12 },
+        "3": { "energy": 100, "electricAmplify": 0.10, "fireAmplify": 0.10, "duration": 12 },
+        "4": { "energy": 100, "electricAmplify": 0.11, "fireAmplify": 0.11, "duration": 12 },
+        "5": { "energy": 100, "electricAmplify": 0.12, "fireAmplify": 0.12, "duration": 12 },
+        "6": { "energy": 100, "electricAmplify": 0.13, "fireAmplify": 0.13, "duration": 12 },
+        "7": { "energy": 100, "electricAmplify": 0.14, "fireAmplify": 0.14, "duration": 12 },
+        "8": { "energy": 100, "electricAmplify": 0.15, "fireAmplify": 0.15, "duration": 12 },
+        "9": { "energy": 100, "electricAmplify": 0.16, "fireAmplify": 0.16, "duration": 12 },
+        "M1": { "energy": 100, "electricAmplify": 0.17, "fireAmplify": 0.17, "duration": 12 },
+        "M2": { "energy": 100, "electricAmplify": 0.18, "fireAmplify": 0.18, "duration": 12 },
+        "M3": { "energy": 100, "electricAmplify": 0.20, "fireAmplify": 0.20, "duration": 12 }
+      }
+    }
+  }
+}

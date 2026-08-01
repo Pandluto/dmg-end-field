@@ -1,0 +1,125 @@
+{
+  "name": "骏卫",
+  "nameEn": "Pogranichnik",
+  "rarity": 6,
+  "profession": "先锋",
+  "weapon": "单手剑",
+  "element": "physical",
+  "mainStat": "意志",
+  "subStat": "敏捷",
+  "tags": ["回能", "破防联动", "团队增益"],
+  "position": ["回能支援", "输出"],
+  "attributes": {
+    "level1": { "strength": 12, "agility": 13, "intelligence": 10, "will": 20, "atk": 30, "hp": 500 },
+    "level20": { "strength": 31, "agility": 34, "intelligence": 28, "will": 52, "atk": 92, "hp": 1566 },
+    "level40": { "strength": 51, "agility": 55, "intelligence": 48, "will": 87, "atk": 157, "hp": 2689 },
+    "level60": { "strength": 71, "agility": 77, "intelligence": 67, "will": 121, "atk": 223, "hp": 3811 },
+    "level80": { "strength": 91, "agility": 99, "intelligence": 87, "will": 156, "atk": 288, "hp": 4934 },
+    "level90": { "strength": 101, "agility": 110, "intelligence": 97, "will": 173, "atk": 321, "hp": 5495 }
+  },
+  "talents": [
+    {
+      "name": "活着的旗帜",
+      "description": "通过自身技能累计恢复指定技力后，获得可叠加的士气激昂（每层独立计时）。",
+      "levels": {
+        "breakthrough1": { "energyNeededPerStack": 80, "atkPercentPerStack": 0.04, "artsPowerPerStack": 4, "duration": 20, "maxStacks": 3 },
+        "breakthrough2": { "energyNeededPerStack": 80, "atkPercentPerStack": 0.08, "artsPowerPerStack": 8, "duration": 20, "maxStacks": 3 }
+      }
+    },
+    {
+      "name": "战术教导",
+      "description": "任意干员触发终结技后续效果时，也会获得士气激昂。",
+      "levels": {
+        "breakthrough2": { "grantedDuration": 5 },
+        "breakthrough3": { "grantedDuration": 10 }
+      }
+    }
+  ],
+  "potentials": [
+    { "id": 1, "name": "阵线扫荡", "description": "战技粉碎阵线命中至少两个敌人时返还15点技力。" },
+    { "id": 2, "name": "“行军”", "description": "意志+20，造成的物理伤害+10%。", "stats": { "will": 20, "physicalDmgBonus": 0.10 } },
+    { "id": 3, "name": "战旗飘扬时", "description": "天赋活着的旗帜强化：触发所需技力降低至60点，自身最大叠加层数+2。" },
+    { "id": 4, "name": "塔卫二之盾", "description": "终结技盾卫旗队，上前所需终结技能量-15%。" },
+    { "id": 5, "name": "新铸剑锋", "description": "连携技盈月邀击冷却-2秒，技力恢复量变为1.2倍。" }
+  ],
+  "skills": {
+    "normalAttack": {
+      "name": "全面攻势",
+      "type": "普通攻击",
+      "description": "至多5段物理伤害，主控重击18点失衡；可下落与处决攻击。",
+      "multipliers": {
+        "1": { "hit1": 0.23, "hit2": 0.28, "hit3": 0.33, "hit4": 0.38, "hit5": 0.43, "execute": 4.00, "plunge": 0.80 },
+        "2": { "hit1": 0.25, "hit2": 0.31, "hit3": 0.36, "hit4": 0.42, "hit5": 0.47, "execute": 4.40, "plunge": 0.88 },
+        "3": { "hit1": 0.28, "hit2": 0.34, "hit3": 0.40, "hit4": 0.46, "hit5": 0.52, "execute": 4.80, "plunge": 0.96 },
+        "4": { "hit1": 0.30, "hit2": 0.36, "hit3": 0.43, "hit4": 0.50, "hit5": 0.56, "execute": 5.20, "plunge": 1.04 },
+        "5": { "hit1": 0.32, "hit2": 0.39, "hit3": 0.46, "hit4": 0.53, "hit5": 0.60, "execute": 5.60, "plunge": 1.12 },
+        "6": { "hit1": 0.35, "hit2": 0.42, "hit3": 0.50, "hit4": 0.57, "hit5": 0.65, "execute": 6.00, "plunge": 1.20 },
+        "7": { "hit1": 0.37, "hit2": 0.45, "hit3": 0.53, "hit4": 0.61, "hit5": 0.69, "execute": 6.40, "plunge": 1.28 },
+        "8": { "hit1": 0.39, "hit2": 0.48, "hit3": 0.56, "hit4": 0.65, "hit5": 0.73, "execute": 6.80, "plunge": 1.36 },
+        "9": { "hit1": 0.41, "hit2": 0.50, "hit3": 0.59, "hit4": 0.69, "hit5": 0.77, "execute": 7.20, "plunge": 1.44 },
+        "M1": { "hit1": 0.44, "hit2": 0.54, "hit3": 0.64, "hit4": 0.73, "hit5": 0.83, "execute": 7.70, "plunge": 1.54 },
+        "M2": { "hit1": 0.48, "hit2": 0.58, "hit3": 0.68, "hit4": 0.79, "hit5": 0.89, "execute": 8.30, "plunge": 1.66 },
+        "M3": { "hit1": 0.52, "hit2": 0.63, "hit3": 0.74, "hit4": 0.86, "hit5": 0.97, "execute": 9.00, "plunge": 1.80 }
+      },
+      "imbalanceValue": 18
+    },
+    "skill": {
+      "name": "粉碎阵线",
+      "type": "战技",
+      "description": "前方两段斩击并施加碎甲，按消耗破防层数恢复技力（命中多目标仅恢复1次）。",
+      "multipliers": {
+        "1": { "hit1Damage": 0.86, "hit1Imbalance": 5, "hit2Damage": 1.06, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "2": { "hit1Damage": 0.94, "hit1Imbalance": 5, "hit2Damage": 1.16, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "3": { "hit1Damage": 1.03, "hit1Imbalance": 5, "hit2Damage": 1.27, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "4": { "hit1Damage": 1.11, "hit1Imbalance": 5, "hit2Damage": 1.37, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "5": { "hit1Damage": 1.20, "hit1Imbalance": 5, "hit2Damage": 1.48, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "6": { "hit1Damage": 1.28, "hit1Imbalance": 5, "hit2Damage": 1.58, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "7": { "hit1Damage": 1.37, "hit1Imbalance": 5, "hit2Damage": 1.69, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "8": { "hit1Damage": 1.45, "hit1Imbalance": 5, "hit2Damage": 1.80, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "9": { "hit1Damage": 1.54, "hit1Imbalance": 5, "hit2Damage": 1.90, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 10, "energyOnConsume3": 20, "energyOnConsume4": 30 },
+        "M1": { "hit1Damage": 1.65, "hit1Imbalance": 5, "hit2Damage": 2.03, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 15, "energyOnConsume3": 25, "energyOnConsume4": 35 },
+        "M2": { "hit1Damage": 1.77, "hit1Imbalance": 5, "hit2Damage": 2.19, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 15, "energyOnConsume3": 25, "energyOnConsume4": 35 },
+        "M3": { "hit1Damage": 1.92, "hit1Imbalance": 5, "hit2Damage": 2.38, "hit2Imbalance": 5, "energyOnConsume1": 5, "energyOnConsume2": 15, "energyOnConsume3": 25, "energyOnConsume4": 35 }
+      },
+      "imbalanceValue": 5
+    },
+    "chainSkill": {
+      "name": "盈月邀击",
+      "type": "连携技",
+      "description": "根据消耗最高破防层数发动最多3段斩击并恢复技力；消耗4层时第3段强化。",
+      "multipliers": {
+        "1": { "cooldown": 18, "hit1Damage": 0.42, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.54, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.66, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.32, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "2": { "cooldown": 18, "hit1Damage": 0.46, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.59, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.73, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.45, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "3": { "cooldown": 18, "hit1Damage": 0.50, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.65, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.79, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.58, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "4": { "cooldown": 18, "hit1Damage": 0.55, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.70, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.86, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.72, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "5": { "cooldown": 18, "hit1Damage": 0.59, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.76, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.92, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.85, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "6": { "cooldown": 18, "hit1Damage": 0.63, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.81, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 0.99, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 1.98, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "7": { "cooldown": 18, "hit1Damage": 0.67, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.86, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.06, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.11, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "8": { "cooldown": 18, "hit1Damage": 0.71, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.92, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.12, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.24, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "9": { "cooldown": 18, "hit1Damage": 0.76, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 0.97, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.19, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.38, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "M1": { "cooldown": 18, "hit1Damage": 0.81, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 1.04, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.27, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.54, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "M2": { "cooldown": 18, "hit1Damage": 0.87, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 1.12, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.37, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.74, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 },
+        "M3": { "cooldown": 17, "hit1Damage": 0.95, "hit1Imbalance": 3, "hit1EnergyRestore": 5, "hit2Damage": 1.22, "hit2Imbalance": 3, "hit2EnergyRestore": 7, "hit3Damage": 1.49, "hit3Imbalance": 4, "hit3EnergyRestore": 13, "enhancedHit3Damage": 2.97, "enhancedHit3Imbalance": 9, "enhancedHit3EnergyRestore": 23 }
+      }
+    },
+    "ultimate": {
+      "name": "盾卫旗队，上前",
+      "type": "终结技",
+      "description": "召唤盾卫进军并生成5点铁誓；后续可消耗铁誓触发袭扰，最后一点触发决胜。",
+      "multipliers": {
+        "1": { "energy": 90, "oathDuration": 30, "marchDamage": 1.33, "marchImbalance": 10, "harassDamage": 0.45, "harassEnergyRestore": 7.5, "finisherDamage": 2.00, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "2": { "energy": 90, "oathDuration": 30, "marchDamage": 1.47, "marchImbalance": 10, "harassDamage": 0.49, "harassEnergyRestore": 7.5, "finisherDamage": 2.20, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "3": { "energy": 90, "oathDuration": 30, "marchDamage": 1.60, "marchImbalance": 10, "harassDamage": 0.53, "harassEnergyRestore": 7.5, "finisherDamage": 2.40, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "4": { "energy": 90, "oathDuration": 30, "marchDamage": 1.73, "marchImbalance": 10, "harassDamage": 0.58, "harassEnergyRestore": 7.5, "finisherDamage": 2.60, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "5": { "energy": 90, "oathDuration": 30, "marchDamage": 1.86, "marchImbalance": 10, "harassDamage": 0.62, "harassEnergyRestore": 7.5, "finisherDamage": 2.80, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "6": { "energy": 90, "oathDuration": 30, "marchDamage": 2.00, "marchImbalance": 10, "harassDamage": 0.67, "harassEnergyRestore": 7.5, "finisherDamage": 3.00, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "7": { "energy": 90, "oathDuration": 30, "marchDamage": 2.13, "marchImbalance": 10, "harassDamage": 0.71, "harassEnergyRestore": 7.5, "finisherDamage": 3.20, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "8": { "energy": 90, "oathDuration": 30, "marchDamage": 2.26, "marchImbalance": 10, "harassDamage": 0.76, "harassEnergyRestore": 7.5, "finisherDamage": 3.40, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "9": { "energy": 90, "oathDuration": 30, "marchDamage": 2.40, "marchImbalance": 10, "harassDamage": 0.80, "harassEnergyRestore": 7.5, "finisherDamage": 3.60, "finisherImbalance": 15, "finisherEnergyRestore": 30 },
+        "M1": { "energy": 90, "oathDuration": 30, "marchDamage": 2.56, "marchImbalance": 10, "harassDamage": 0.86, "harassEnergyRestore": 10, "finisherDamage": 3.85, "finisherImbalance": 15, "finisherEnergyRestore": 40 },
+        "M2": { "energy": 90, "oathDuration": 30, "marchDamage": 2.76, "marchImbalance": 10, "harassDamage": 0.92, "harassEnergyRestore": 10, "finisherDamage": 4.15, "finisherImbalance": 15, "finisherEnergyRestore": 40 },
+        "M3": { "energy": 90, "oathDuration": 30, "marchDamage": 3.00, "marchImbalance": 10, "harassDamage": 1.00, "harassEnergyRestore": 10, "finisherDamage": 4.50, "finisherImbalance": 15, "finisherEnergyRestore": 40 }
+      }
+    }
+  }
+}

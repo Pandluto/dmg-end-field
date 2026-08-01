@@ -1,0 +1,31 @@
+{
+  "name": "熔铸火焰",
+  "buffList": [
+    "普通攻击伤害加成-熔铸火焰-终结技-4",
+    "普通攻击伤害加成-熔铸火焰-终结技-9"
+  ],
+  "buffs": [
+    {
+      "displayName": "普通攻击伤害加成-熔铸火焰-终结技-4",
+      "name": "夜幕·嘶鸣烈火",
+      "source": "skill",
+      "sourceName": "skill3-夜幕·嘶鸣烈火",
+      "type": "normalAttackDmgBonus",
+      "value": 1.2,
+      "level": "4",
+      "description": "灼热伤害+25.6%。装备者施放终结技时，获得普通攻击伤害+120.0%，持续20秒。同名效果无法叠加。",
+      "condition": "施放终结技时触发"
+    },
+    {
+      "displayName": "普通攻击伤害加成-熔铸火焰-终结技-9",
+      "name": "夜幕·嘶鸣烈火",
+      "source": "skill",
+      "sourceName": "skill3-夜幕·嘶鸣烈火",
+      "type": "normalAttackDmgBonus",
+      "value": 2.1,
+      "level": "9",
+      "description": "灼热伤害+44.8%。装备者施放终结技时，获得普通攻击伤害+210.0%，持续20秒。同名效果无法叠加。",
+      "condition": "施放终结技时触发"
+    }
+  ]
+}

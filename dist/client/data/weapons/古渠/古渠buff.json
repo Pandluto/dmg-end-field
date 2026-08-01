@@ -1,0 +1,31 @@
+{
+  "name": "古渠",
+  "buffList": [
+    "物理伤害加成-古渠-消耗破防-4",
+    "物理伤害加成-古渠-消耗破防-9"
+  ],
+  "buffs": [
+    {
+      "displayName": "物理伤害加成-古渠-消耗破防-4",
+      "name": "残暴·千秋旧土",
+      "source": "skill",
+      "sourceName": "skill3-残暴·千秋旧土",
+      "type": "physicalDmgBonus",
+      "value": 0.08,
+      "level": "4",
+      "description": "源石技艺强度 +16 。 装备者 消耗 破防 层数后，物理伤害 +[8.0%×消耗层数] ，持续20秒。 同名效果无法叠加。",
+      "condition": "消耗破防层数后触发；总增益随消耗层数变化；同名效果无法叠加"
+    },
+    {
+      "displayName": "物理伤害加成-古渠-消耗破防-9",
+      "name": "残暴·千秋旧土",
+      "source": "skill",
+      "sourceName": "skill3-残暴·千秋旧土",
+      "type": "physicalDmgBonus",
+      "value": 0.14,
+      "level": "9",
+      "description": "源石技艺强度 +28 。 装备者 消耗 破防 层数后，物理伤害 +[14.0%×消耗层数] ，持续20秒。 同名效果无法叠加。",
+      "condition": "消耗破防层数后触发；总增益随消耗层数变化；同名效果无法叠加"
+    }
+  ]
+}

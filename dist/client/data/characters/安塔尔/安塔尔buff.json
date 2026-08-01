@@ -1,0 +1,146 @@
+{
+  "name": "安塔尔",
+  "buffList": [
+    "电磁脆弱-安塔尔-战技",
+    "灼热脆弱-安塔尔-战技",
+    "电磁脆弱-安塔尔-战技-M3",
+    "灼热脆弱-安塔尔-战技-M3",
+    "电磁增幅-安塔尔-终结技",
+    "灼热增幅-安塔尔-终结技",
+    "电磁增幅-安塔尔-终结技-M3",
+    "灼热增幅-安塔尔-终结技-M3",
+    "智识属性提升-安塔尔-潜能",
+    "电磁脆弱-安塔尔-潜能",
+    "灼热脆弱-安塔尔-潜能"
+  ],
+  "buffs": [
+    {
+      "displayName": "电磁脆弱-安塔尔-战技",
+      "name": "指定研究对象",
+      "source": "skill",
+      "sourceName": "战技-指定研究对象",
+      "type": "electricVulnerability",
+      "value": 0.08,
+      "level": "9",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "condition": "被聚焦目标",
+      "duration": 60
+    },
+    {
+      "displayName": "灼热脆弱-安塔尔-战技",
+      "name": "指定研究对象",
+      "source": "skill",
+      "sourceName": "战技-指定研究对象",
+      "type": "fireVulnerability",
+      "value": 0.08,
+      "level": "9",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "condition": "被聚焦目标",
+      "duration": 60
+    },
+    {
+      "displayName": "电磁脆弱-安塔尔-战技-M3",
+      "name": "指定研究对象",
+      "source": "skill",
+      "sourceName": "战技-指定研究对象",
+      "type": "electricVulnerability",
+      "value": 0.10,
+      "level": "M3",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "condition": "被聚焦目标",
+      "duration": 60
+    },
+    {
+      "displayName": "灼热脆弱-安塔尔-战技-M3",
+      "name": "指定研究对象",
+      "source": "skill",
+      "sourceName": "战技-指定研究对象",
+      "type": "fireVulnerability",
+      "value": 0.10,
+      "level": "M3",
+      "description": "施加长时间聚焦并造成电磁伤害，被聚焦目标同时受到电磁脆弱和灼热脆弱。",
+      "condition": "被聚焦目标",
+      "duration": 60
+    },
+    {
+      "displayName": "电磁增幅-安塔尔-终结技",
+      "name": "超频时刻",
+      "source": "skill",
+      "sourceName": "终结技-超频时刻",
+      "type": "electricAmplify",
+      "value": 0.16,
+      "level": "9",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "condition": "施放终结技“超频时刻”后",
+      "duration": 12
+    },
+    {
+      "displayName": "灼热增幅-安塔尔-终结技",
+      "name": "超频时刻",
+      "source": "skill",
+      "sourceName": "终结技-超频时刻",
+      "type": "fireAmplify",
+      "value": 0.16,
+      "level": "9",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "condition": "施放终结技“超频时刻”后",
+      "duration": 12
+    },
+    {
+      "displayName": "电磁增幅-安塔尔-终结技-M3",
+      "name": "超频时刻",
+      "source": "skill",
+      "sourceName": "终结技-超频时刻",
+      "type": "electricAmplify",
+      "value": 0.20,
+      "level": "M3",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "condition": "施放终结技“超频时刻”后",
+      "duration": 12
+    },
+    {
+      "displayName": "灼热增幅-安塔尔-终结技-M3",
+      "name": "超频时刻",
+      "source": "skill",
+      "sourceName": "终结技-超频时刻",
+      "type": "fireAmplify",
+      "value": 0.20,
+      "level": "M3",
+      "description": "对全队施加电磁增幅与灼热增幅。",
+      "condition": "施放终结技“超频时刻”后",
+      "duration": 12
+    },
+    {
+      "displayName": "智识属性提升-安塔尔-潜能",
+      "name": "奶奶的叮嘱",
+      "source": "potential",
+      "sourceName": "潜能4-奶奶的叮嘱",
+      "type": "intelligenceBoost",
+      "value": 10,
+      "level": "potentials-4",
+      "description": "智识+10，最大生命值+10%。"
+    },
+    {
+      "displayName": "电磁脆弱-安塔尔-潜能",
+      "name": "高规格技术测试",
+      "source": "potential",
+      "sourceName": "潜能5-高规格技术测试",
+      "type": "electricVulnerability",
+      "value": 0.04,
+      "level": "potentials-5",
+      "description": "聚焦同一目标20秒后，电磁脆弱和灼热脆弱效果提高4%。",
+      "condition": "聚焦同一目标20秒后"
+    },
+    {
+      "displayName": "灼热脆弱-安塔尔-潜能",
+      "name": "高规格技术测试",
+      "source": "potential",
+      "sourceName": "潜能5-高规格技术测试",
+      "type": "fireVulnerability",
+      "value": 0.04,
+      "level": "potentials-5",
+      "description": "聚焦同一目标20秒后，电磁脆弱和灼热脆弱效果提高4%。",
+      "condition": "聚焦同一目标20秒后"
+    }
+  ]
+}
