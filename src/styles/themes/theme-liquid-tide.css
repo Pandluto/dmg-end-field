@@ -3022,6 +3022,15 @@
   outline-offset: -1px;
 }
 
+/* Twelve equipment tracks are separate lenses on one compact shared renderer. */
+:root[data-theme="liquid-tide"] .operator-config-page-equip-button-groups[data-liquid-glass-surface-state="active"] .operator-config-page-equip-button-row {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.58);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle-image {
   opacity: 1;
   filter: none;

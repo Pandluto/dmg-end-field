@@ -114,7 +114,12 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.config-panel-back-btn', preset: 'control', priority: 0 },
   { selector: '.config-avatar-indicator-glass', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-equip-circle', preset: 'card', priority: 1 },
-  { selector: '.operator-config-page-equip-button-row', preset: 'dock', priority: 2 },
+  {
+    selector: '.operator-config-page-equip-button-row',
+    preset: 'dock',
+    priority: 2,
+    managedRootSelector: '.operator-config-page-equip-button-groups',
+  },
   { selector: '.config-weapon-choose-img-square', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-weapon-star-square-box', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-level-badge-box', preset: 'card', priority: 1 },
