@@ -2999,6 +2999,44 @@
   box-shadow: none !important;
 }
 
+/* Keep the weapon artwork clear; all text over the liquid card gets one reading frost. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .config-weapon-choose-showcase :is(
+  .config-weapon-choose-content-area,
+  .config-weapon-choose-detail-textarea
+) {
+  border: 1px solid rgba(255, 255, 255, 0.72) !important;
+  border-radius: 12px;
+  background: rgba(238, 244, 255, 0.58) !important;
+  box-shadow:
+    0 6px 15px rgba(31, 45, 91, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
+  backdrop-filter: blur(13px) saturate(1.05) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-showcase :is(
+  .config-weapon-choose-name,
+  .config-weapon-choose-meta-line
+) {
+  color: var(--liquid-tide-ink) !important;
+  text-shadow: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img-square {
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 12px;
+  background: rgba(244, 248, 255, 0.08) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img {
+  opacity: 1;
+  filter: none;
+  mix-blend-mode: normal;
+}
+
 :root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-strip[data-liquid-glass-surface] :is(
   input,
   .config-weapon-option
@@ -3047,7 +3085,11 @@
     backdrop-filter: none !important;
   }
 
-  :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
+  :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
+    .operator-config-page-equip-button-group,
+    .config-weapon-choose-content-area,
+    .config-weapon-choose-detail-textarea
+  ) {
     background: rgba(238, 244, 255, 0.94) !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
