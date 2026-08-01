@@ -15,12 +15,14 @@ type SurfaceRule = {
   selector: string;
   preset: SurfacePreset;
   priority: number;
+  visibilityAnchor?: string;
 };
 
 type SurfaceTarget = {
   element: HTMLElement;
   preset: SurfacePreset;
   priority: number;
+  visibilityAnchor: HTMLElement | null;
 };
 
 type StoredAttributes = {
@@ -38,6 +40,7 @@ type ManagedRoot = {
   resizeObserver: ResizeObserver | null;
   root: HTMLElement;
   targets: HTMLElement[];
+  visibilityAnchors: Array<HTMLElement | null>;
 };
 
 let backdropImagePromise: Promise<HTMLImageElement> | null = null;
@@ -84,7 +87,12 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.timeline-detail-expand-all-button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-utility-panel', preset: 'popover', priority: 0 },
   { selector: '.timeline-buff-bulk-actions', preset: 'dock', priority: 1 },
-  { selector: '.timeline-calculation-zone-glass', preset: 'control', priority: 0 },
+  {
+    selector: '.timeline-calculation-zone-glass',
+    preset: 'control',
+    priority: 0,
+    visibilityAnchor: '.timeline-calculation-zone-scroll',
+  },
   { selector: '.skill-button-inline-buff-search-modes', preset: 'dock', priority: 1 },
 
   { selector: '.selection-header > .selection-header-actions', preset: 'dock', priority: 1 },
@@ -236,6 +244,32 @@ function isRendered(element: HTMLElement): boolean {
     && style.visibility !== 'hidden';
 }
 
+function isTargetInRenderArea(
+  element: HTMLElement,
+  visibilityAnchor: HTMLElement | null,
+): boolean {
+  const rect = element.getBoundingClientRect();
+  const anchorRect = visibilityAnchor?.getBoundingClientRect();
+  const overscan = CAPTURE_OVERSCAN * 2;
+  const left = Math.max(0, anchorRect?.left ?? 0) - overscan;
+  const top = Math.max(0, anchorRect?.top ?? 0) - overscan;
+  const right = Math.min(window.innerWidth, anchorRect?.right ?? window.innerWidth) + overscan;
+  const bottom = Math.min(window.innerHeight, anchorRect?.bottom ?? window.innerHeight) + overscan;
+  return rect.width > 1
+    && rect.height > 1
+    && rect.right > left
+    && rect.bottom > top
+    && rect.left < right
+    && rect.top < bottom;
+}
+
+function isPersistentVisibilityAnchor(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement
+    && SURFACE_RULES.some(({ visibilityAnchor }) => (
+      visibilityAnchor ? target.matches(visibilityAnchor) : false
+    ));
+}
+
 function getSurfaceConfig(element: HTMLElement, preset: SurfacePreset): Partial<GlassConfig> {
   const base = PRESET_CONFIGS[preset];
   const cssRadius = Number.parseFloat(window.getComputedStyle(element).borderTopLeftRadius);
@@ -260,6 +294,7 @@ function sameTargets(
     && group.targets.every((target, index) => (
       target === targets[index]?.element
       && group.presets[index] === targets[index]?.preset
+      && group.visibilityAnchors[index] === targets[index]?.visibilityAnchor
     ));
 }
 
@@ -398,7 +433,12 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       geometryFrameId = requestAnimationFrame(() => {
         managedRoots.forEach((group) => {
           syncCapture(group);
-          group.captures.forEach((capture) => group.instance?.markChanged(capture));
+          group.captures.forEach((capture, index) => {
+            const target = group.targets[index];
+            if (target && isTargetInRenderArea(target, group.visibilityAnchors[index] ?? null)) {
+              group.instance?.markChanged(capture);
+            }
+          });
         });
       });
     };
@@ -452,6 +492,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
         resizeObserver: null,
         root,
         targets: targets.map((target) => target.element),
+        visibilityAnchors: targets.map((target) => target.visibilityAnchor),
       };
 
       root.dataset.liquidGlassSurfaceRoot = '@ybouane/liquidglass';
@@ -477,8 +518,20 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       const byElement = new Map<HTMLElement, SurfaceTarget>();
       SURFACE_RULES.forEach((rule) => {
         appRoot.querySelectorAll<HTMLElement>(rule.selector).forEach((element) => {
-          if (!byElement.has(element) && element.parentElement && isRendered(element)) {
-            byElement.set(element, { element, preset: rule.preset, priority: rule.priority });
+          const visibilityAnchor = rule.visibilityAnchor
+            ? element.closest<HTMLElement>(rule.visibilityAnchor)
+            : null;
+          if (
+            !byElement.has(element)
+            && element.parentElement
+            && isRendered(visibilityAnchor ?? element)
+          ) {
+            byElement.set(element, {
+              element,
+              preset: rule.preset,
+              priority: rule.priority,
+              visibilityAnchor,
+            });
           }
         });
       });
@@ -561,9 +614,9 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
     const handlePointerMove = (event: PointerEvent) => {
       if (event.buttons !== 0) scheduleGeometrySync();
     };
-    const handleScroll = () => {
+    const handleScroll = (event: Event) => {
       scheduleGeometrySync();
-      scheduleScan();
+      if (!isPersistentVisibilityAnchor(event.target)) scheduleScan();
     };
 
     const mutationObserver = new MutationObserver(scheduleScan);
