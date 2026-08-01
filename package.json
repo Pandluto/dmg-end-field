@@ -11,6 +11,7 @@
     "npm": ">=11 <12"
   },
   "scripts": {
+    "postinstall": "patch-package --error-on-fail",
     "smoke:timeline-bundle": "node scripts/timeline-bundle-v2-smoke.mjs",
     "dev": "npm run assets:web-prepare && npm run data:web-manifest && vite --host 127.0.0.1 --port 3030",
     "assets:web-manifest": "node scripts/build-web-image-manifest.mjs",

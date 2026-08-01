@@ -2,13 +2,21 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
 import { readAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
+import {
+  enqueueLiquidGlassRender,
+  getCanvasMemoryBytes,
+  getLiquidGlassRenderDpr,
+  supportsEfficientWebGl,
+  waitForStableLiquidGlass,
+} from './liquidGlassRuntime';
 
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_GLASS_SELECTOR = '[data-liquid-glass-skill="true"]';
 const LIQUID_TIDE_GLASS_CLIP_PROPERTY = '--liquid-glass-composite-clip';
 const LIQUID_TIDE_GLASS_BACKDROP = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
-const SKILL_SNAPSHOT_CACHE_LIMIT = 6;
-const SKILL_SNAPSHOT_VERSION = 1;
+const SKILL_SNAPSHOT_CACHE_LIMIT = 4;
+const SKILL_SNAPSHOT_MEMORY_LIMIT = 32 * 1024 * 1024;
+const SKILL_SNAPSHOT_VERSION = 2;
 
 const LIQUID_TIDE_SKILL_GLASS_DEFAULTS: Partial<GlassConfig> = {
   blurAmount: 0.28,
@@ -39,6 +47,7 @@ type LiquidTideGlassOptions = {
 };
 
 type SkillGlassSnapshot = {
+  byteSize: number;
   canvases: Array<{
     canvas: HTMLCanvasElement;
     cssText: string;
@@ -46,6 +55,7 @@ type SkillGlassSnapshot = {
 };
 
 const skillGlassSnapshotCache = new Map<string, SkillGlassSnapshot>();
+let skillGlassSnapshotBytes = 0;
 
 function copySkillGlassCanvas(
   source: HTMLCanvasElement,
@@ -76,15 +86,22 @@ function rememberSkillGlassSnapshot(key: string, snapshot: SkillGlassSnapshot): 
     canvas.width = 0;
     canvas.height = 0;
   });
+  skillGlassSnapshotBytes -= previous?.byteSize ?? 0;
   skillGlassSnapshotCache.delete(key);
   skillGlassSnapshotCache.set(key, snapshot);
-  while (skillGlassSnapshotCache.size > SKILL_SNAPSHOT_CACHE_LIMIT) {
+  skillGlassSnapshotBytes += snapshot.byteSize;
+  while (
+    skillGlassSnapshotCache.size > SKILL_SNAPSHOT_CACHE_LIMIT
+    || skillGlassSnapshotBytes > SKILL_SNAPSHOT_MEMORY_LIMIT
+  ) {
     const oldestKey = skillGlassSnapshotCache.keys().next().value;
     if (typeof oldestKey !== 'string') break;
-    skillGlassSnapshotCache.get(oldestKey)?.canvases.forEach(({ canvas }) => {
+    const oldest = skillGlassSnapshotCache.get(oldestKey);
+    oldest?.canvases.forEach(({ canvas }) => {
       canvas.width = 0;
       canvas.height = 0;
     });
+    skillGlassSnapshotBytes -= oldest?.byteSize ?? 0;
     skillGlassSnapshotCache.delete(oldestKey);
   }
 }
@@ -120,7 +137,7 @@ function getSkillGlassSnapshotKey(
   return JSON.stringify({
     version: SKILL_SNAPSHOT_VERSION,
     backdrop: LIQUID_TIDE_GLASS_BACKDROP,
-    viewport: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1],
+    viewport: [window.innerWidth, window.innerHeight, getLiquidGlassRenderDpr()],
     root: [
       roundHalfPixel(rootRect.left),
       roundHalfPixel(rootRect.top),
@@ -130,15 +147,6 @@ function getSkillGlassSnapshotKey(
     elementSignature,
     targets,
   });
-}
-
-function supportsWebGl(): boolean {
-  try {
-    const canvas = document.createElement('canvas');
-    return Boolean(canvas.getContext('webgl') || canvas.getContext('experimental-webgl'));
-  } catch {
-    return false;
-  }
 }
 
 async function waitForCaptureAssets(root: HTMLElement): Promise<void> {
@@ -247,6 +255,7 @@ export function useLiquidTideGlass(
     let restoredCanvases: HTMLCanvasElement[] = [];
     let resizeFrameId = 0;
     let snapshotTimerId = 0;
+    let geometryTimerId = 0;
     let snapshotRevision = 0;
 
     destroyLiquidGlass(instanceRef.current);
@@ -269,78 +278,118 @@ export function useLiquidTideGlass(
       setRendererRevision((revision) => revision + 1);
     };
 
+    const markElementsFrozen = () => {
+      glassElements.forEach((element) => {
+        element.dataset.liquidGlassFrozen = 'true';
+        element.dataset.liquidGlassFrozenOverflow = 'true';
+        if (window.getComputedStyle(element).position === 'static') {
+          element.dataset.liquidGlassFrozenPositioned = 'true';
+        }
+      });
+    };
+
+    const freezeSnapshot = async (
+      instance: LiquidGlassInstance,
+      revision: number,
+    ): Promise<boolean> => {
+      const initialKey = getSkillGlassSnapshotKey(root, glassElements, elementSignature);
+      if (!initialKey || createdInstance !== instance) return false;
+
+      await waitForStableLiquidGlass();
+      if (
+        cancelled
+        || revision !== snapshotRevision
+        || createdInstance !== instance
+        || instanceRef.current !== instance
+      ) return false;
+
+      const sources = glassElements.map((element) => instance.glassCanvases.get(element) ?? null);
+      const storedCanvases = sources.map((source) => (
+        source ? copySkillGlassCanvas(source, 'record') : null
+      ));
+      const finalKey = getSkillGlassSnapshotKey(root, glassElements, elementSignature);
+      if (
+        sources.some((source) => source === null)
+        || storedCanvases.some((canvas) => canvas === null)
+        || finalKey !== initialKey
+      ) {
+        storedCanvases.forEach((canvas) => {
+          if (!canvas) return;
+          canvas.width = 0;
+          canvas.height = 0;
+        });
+        return false;
+      }
+
+      const cachedCanvases = storedCanvases as HTMLCanvasElement[];
+      const outputs = cachedCanvases.map((canvas) => copySkillGlassCanvas(canvas, 'record'));
+      if (outputs.some((output) => output === null)) {
+        cachedCanvases.forEach((canvas) => {
+          canvas.width = 0;
+          canvas.height = 0;
+        });
+        outputs.forEach((output) => output?.remove());
+        return false;
+      }
+
+      rememberSkillGlassSnapshot(finalKey, {
+        byteSize: cachedCanvases.reduce((total, canvas) => total + getCanvasMemoryBytes(canvas), 0),
+        canvases: cachedCanvases.map((canvas, index) => ({
+          canvas,
+          cssText: (sources[index] as HTMLCanvasElement).style.cssText,
+        })),
+      });
+
+      destroyLiquidGlass(instance);
+      if (instanceRef.current === instance) instanceRef.current = null;
+      restoredCanvases = outputs as HTMLCanvasElement[];
+      restoredCanvases.forEach((output, index) => {
+        glassElements[index]?.insertBefore(output, glassElements[index]?.firstChild ?? null);
+      });
+      markElementsFrozen();
+      restoredSnapshotKeyRef.current = finalKey;
+      queueSnapshotRef.current = null;
+      root.dataset.liquidGlassState = 'active';
+      root.dataset.liquidGlassCache = 'recorded';
+      return true;
+    };
+
     const queueSnapshot = () => {
       const instance = createdInstance;
-      const initialKey = instance
-        ? getSkillGlassSnapshotKey(root, glassElements, elementSignature)
-        : null;
-      if (!instance || !initialKey) return;
-
+      if (!instance || instanceRef.current !== instance) return;
       const revision = ++snapshotRevision;
       window.clearTimeout(snapshotTimerId);
       snapshotTimerId = window.setTimeout(() => {
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          if (
-            cancelled
-            || revision !== snapshotRevision
-            || createdInstance !== instance
-          ) return;
-
-          const sources = glassElements.map((element) => instance.glassCanvases.get(element) ?? null);
-          const copies = sources.map((source) => (
-            source ? copySkillGlassCanvas(source, 'record') : null
-          ));
-          const finalKey = getSkillGlassSnapshotKey(
-            root,
-            glassElements,
-            elementSignature,
-          );
-          if (
-            sources.some((source) => source === null)
-            || copies.some((copy) => copy === null)
-            || finalKey !== initialKey
-          ) return;
-
-          rememberSkillGlassSnapshot(finalKey, {
-            canvases: copies.map((canvas, index) => ({
-              canvas: canvas as HTMLCanvasElement,
-              cssText: (sources[index] as HTMLCanvasElement).style.cssText,
-            })),
-          });
-          root.dataset.liquidGlassCache = 'recorded';
-        }));
-      }, 120);
+        void freezeSnapshot(instance, revision);
+      }, 80);
     };
 
-    const markAfterScroll = () => {
-      if (restoredSnapshotKeyRef.current !== null) {
-        requestLiveRenderer();
-        return;
-      }
-      instanceRef.current?.markChanged();
-      queueSnapshot();
-    };
-    const syncAfterResize = () => {
-      if (restoredSnapshotKeyRef.current !== null) {
-        requestLiveRenderer();
-        return;
-      }
-      cancelAnimationFrame(resizeFrameId);
-      resizeFrameId = requestAnimationFrame(() => {
+    const scheduleGeometryRefresh = () => {
+      snapshotRevision += 1;
+      window.clearTimeout(geometryTimerId);
+      geometryTimerId = window.setTimeout(() => {
+        if (restoredSnapshotKeyRef.current !== null) {
+          requestLiveRenderer();
+          return;
+        }
         syncCompositeGlassClips(glassElements);
         instanceRef.current?.markChanged();
         queueSnapshot();
+      }, 140);
+    };
+    const syncAfterResize = () => {
+      cancelAnimationFrame(resizeFrameId);
+      resizeFrameId = requestAnimationFrame(() => {
+        scheduleGeometryRefresh();
       });
     };
-    root.addEventListener('scroll', markAfterScroll, { passive: true });
+    root.addEventListener('scroll', scheduleGeometryRefresh, { passive: true });
     window.addEventListener('resize', syncAfterResize);
     root.dataset.liquidGlassEngine = '@ybouane/liquidglass';
     root.dataset.liquidGlassState = 'loading';
 
     const initialize = async () => {
       try {
-        if (!supportsWebGl()) throw new Error('WebGL is unavailable');
-
         await waitForCaptureAssets(root);
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         if (cancelled) return;
@@ -357,7 +406,9 @@ export function useLiquidTideGlass(
           elementSignature,
         );
         const snapshot = snapshotKey ? skillGlassSnapshotCache.get(snapshotKey) : null;
-        if (snapshot && snapshot.canvases.length === glassElements.length) {
+        if (snapshotKey && snapshot && snapshot.canvases.length === glassElements.length) {
+          skillGlassSnapshotCache.delete(snapshotKey);
+          skillGlassSnapshotCache.set(snapshotKey, snapshot);
           const outputs = snapshot.canvases.map(({ canvas, cssText }) => {
             const output = copySkillGlassCanvas(canvas, 'hit');
             if (output) output.style.cssText = cssText;
@@ -372,32 +423,53 @@ export function useLiquidTideGlass(
             root.dataset.liquidGlassState = 'active';
             root.dataset.liquidGlassCache = 'hit';
             syncCompositeGlassClips(glassElements);
+            markElementsFrozen();
             return;
           }
           outputs.forEach((output) => output?.remove());
         }
 
-        const { LiquidGlass } = await import('@ybouane/liquidglass');
-        const instance = await LiquidGlass.init({
-          root,
-          glassElements,
-          defaults: LIQUID_TIDE_SKILL_GLASS_DEFAULTS,
-        });
+        if (!await supportsEfficientWebGl()) throw new Error('Efficient WebGL is unavailable');
+        await enqueueLiquidGlassRender(async () => {
+          if (cancelled) return;
+          const { LiquidGlass } = await import('@ybouane/liquidglass');
+          const instance = await LiquidGlass.init({
+            root,
+            glassElements,
+            defaults: LIQUID_TIDE_SKILL_GLASS_DEFAULTS,
+          });
 
-        if (cancelled) {
+          if (cancelled) {
+            destroyLiquidGlass(instance);
+            return;
+          }
+
+          createdInstance = instance;
+          instanceRef.current = instance;
+          root.dataset.liquidGlassState = 'active';
+          syncCompositeGlassClips(glassElements);
+          instance.markChanged();
+          queueSnapshotRef.current = queueSnapshot;
+
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const revision = ++snapshotRevision;
+            if (await freezeSnapshot(instance, revision)) return;
+            if (cancelled || createdInstance !== instance || instanceRef.current !== instance) return;
+            if (glassElements.some((element) => element.classList.contains('dragging'))) return;
+            instance.markChanged();
+          }
+
           destroyLiquidGlass(instance);
-          return;
-        }
-
-        createdInstance = instance;
-        instanceRef.current = instance;
-        root.dataset.liquidGlassState = 'active';
-        syncCompositeGlassClips(glassElements);
-        instance.markChanged();
-        queueSnapshotRef.current = queueSnapshot;
-        queueSnapshot();
+          if (instanceRef.current === instance) instanceRef.current = null;
+          if (!cancelled) {
+            root.dataset.liquidGlassState = 'fallback';
+            root.dataset.liquidGlassCache = 'unstable';
+          }
+        });
       } catch (error) {
         if (cancelled) return;
+        destroyLiquidGlass(createdInstance);
+        if (instanceRef.current === createdInstance) instanceRef.current = null;
         root.dataset.liquidGlassState = 'fallback';
         console.warn('[LiquidTide] LiquidGlass initialization failed; using CSS fallback.', error);
       }
@@ -410,9 +482,15 @@ export function useLiquidTideGlass(
       snapshotRevision += 1;
       cancelAnimationFrame(resizeFrameId);
       window.clearTimeout(snapshotTimerId);
-      root.removeEventListener('scroll', markAfterScroll);
+      window.clearTimeout(geometryTimerId);
+      root.removeEventListener('scroll', scheduleGeometryRefresh);
       window.removeEventListener('resize', syncAfterResize);
       clearCompositeGlassClips(glassElements);
+      glassElements.forEach((element) => {
+        element.removeAttribute('data-liquid-glass-frozen');
+        element.removeAttribute('data-liquid-glass-frozen-positioned');
+        element.removeAttribute('data-liquid-glass-frozen-overflow');
+      });
       restoredCanvases.forEach((canvas) => canvas.remove());
       destroyLiquidGlass(createdInstance);
       if (instanceRef.current === createdInstance) instanceRef.current = null;

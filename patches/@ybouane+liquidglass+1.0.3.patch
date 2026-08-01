@@ -1,0 +1,214 @@
+diff --git a/node_modules/@ybouane/liquidglass/dist/index.js b/node_modules/@ybouane/liquidglass/dist/index.js
+index 10897f2..f498523 100644
+--- a/node_modules/@ybouane/liquidglass/dist/index.js
++++ b/node_modules/@ybouane/liquidglass/dist/index.js
+@@ -23,6 +23,10 @@ var DEFAULTS = {
+ var BLUR_ITERATIONS = 6;
+ var SHADOW_PAD = 20;
+ 
++function getBlurIterations() {
++  return document.documentElement.dataset.liquidGlassQuality === "balanced" ? 3 : BLUR_ITERATIONS;
++}
++
+ // node_modules/html-to-image/es/util.js
+ function resolveUrl(url, baseUrl) {
+   if (url.match(/^[a-z]+:\/\//i)) {
+@@ -1450,7 +1454,7 @@ var GlassRenderer = class {
+       alpha: true,
+       premultipliedAlpha: false,
+       antialias: false,
+-      preserveDrawingBuffer: true
++      preserveDrawingBuffer: false
+     });
+     if (!gl) {
+       throw new Error("LiquidGlass: WebGL is not supported in this browser.");
+@@ -1579,7 +1583,8 @@ var GlassRenderer = class {
+       const spread = blurAmount * 2.5;
+       gl.useProgram(this.blurP);
+       gl.uniform1i(this.blurU.u_tex, 0);
+-      for (let i = 0; i < BLUR_ITERATIONS; i++) {
++      const blurIterations = getBlurIterations();
++      for (let i = 0; i < blurIterations; i++) {
+         gl.bindFramebuffer(gl.FRAMEBUFFER, fboSet.blurB.fbo);
+         gl.viewport(0, 0, bw, bh);
+         gl.bindTexture(gl.TEXTURE_2D, fboSet.blurA.tex);
+@@ -1759,11 +1764,19 @@ var GlassRenderer = class {
+ // src/LiquidGlass.ts
+ var BUTTON_CLASS = "liquid-glass-button";
+ var STYLE_ID = "liquid-glass-button-styles";
++var DEFAULT_RENDER_DPR_CAP = 2;
++var BALANCED_RENDER_DPR_CAP = 1.25;
+ var BUTTON_CSS = `
+ .${BUTTON_CLASS} {
+ 	cursor: pointer;
+ }
+ `;
++function getRenderDpr() {
++  const ratio = window.devicePixelRatio || 1;
++  const quality = document.documentElement.dataset.liquidGlassQuality;
++  const cap = quality === "compatibility" ? 1 : quality === "balanced" ? BALANCED_RENDER_DPR_CAP : DEFAULT_RENDER_DPR_CAP;
++  return Math.max(1, Math.min(ratio, cap));
++}
+ var LiquidGlass = class _LiquidGlass {
+   // ────────────────────────────────────────────
+   // Constructor (prefer LiquidGlass.init)
+@@ -2007,7 +2020,7 @@ var LiquidGlass = class _LiquidGlass {
+       this._glassDirty.add(element);
+     }
+     const rootRect = this.root.getBoundingClientRect();
+-    const dpr = window.devicePixelRatio || 1;
++    const dpr = getRenderDpr();
+     const elementDOMRect = rectOverride ?? element.getBoundingClientRect();
+     const elementBox = this._getPixelRect(
+       elementDOMRect,
+@@ -2044,7 +2057,7 @@ var LiquidGlass = class _LiquidGlass {
+    */
+   _markGlassesIntersecting(element) {
+     const rootRect = this.root.getBoundingClientRect();
+-    const dpr = window.devicePixelRatio || 1;
++    const dpr = getRenderDpr();
+     const elementBox = this._getPixelRect(
+       element.getBoundingClientRect(),
+       rootRect,
+@@ -2302,7 +2315,7 @@ var LiquidGlass = class _LiquidGlass {
+   // Resize
+   // ────────────────────────────────────────────
+   _handleResize() {
+-    const dpr = window.devicePixelRatio || 1;
++    const dpr = getRenderDpr();
+     const rect = this.root.getBoundingClientRect();
+     this.capture.resize(dpr);
+     this.renderer.resize(Math.round(rect.width * dpr), Math.round(rect.height * dpr));
+@@ -2316,7 +2329,7 @@ var LiquidGlass = class _LiquidGlass {
+   _updateGlassCanvasSize(el) {
+     const canvas = this.glassCanvases.get(el);
+     if (!canvas) return;
+-    const dpr = window.devicePixelRatio || 1;
++    const dpr = getRenderDpr();
+     const elW = Math.round(el.offsetWidth);
+     const elH = Math.round(el.offsetHeight);
+     const padW = SHADOW_PAD * 2;
+@@ -2470,7 +2483,7 @@ var LiquidGlass = class _LiquidGlass {
+     this._rafId = requestAnimationFrame(() => this._renderLoop());
+   }
+   _renderFrame() {
+-    const dpr = window.devicePixelRatio || 1;
++    const dpr = getRenderDpr();
+     const rootRect = this.root.getBoundingClientRect();
+     const isDragging = this._drag.active;
+     if (this._userMarkedChanged.size > 0) {
+diff --git a/node_modules/@ybouane/liquidglass/src/GlassRenderer.ts b/node_modules/@ybouane/liquidglass/src/GlassRenderer.ts
+index 47ded66..06419d0 100644
+--- a/node_modules/@ybouane/liquidglass/src/GlassRenderer.ts
++++ b/node_modules/@ybouane/liquidglass/src/GlassRenderer.ts
+@@ -26,6 +26,12 @@ interface FBOSet {
+ 
+ type UniformMap = Record<string, WebGLUniformLocation | null>;
+ 
++function getBlurIterations(): number {
++	return document.documentElement.dataset.liquidGlassQuality === 'balanced'
++		? 3
++		: BLUR_ITERATIONS;
++}
++
+ export class GlassRenderer {
+ 	readonly canvas: HTMLCanvasElement;
+ 	readonly gl: WebGLRenderingContext;
+@@ -66,7 +72,9 @@ export class GlassRenderer {
+ 			alpha: true,
+ 			premultipliedAlpha: false,
+ 			antialias: false,
+-			preserveDrawingBuffer: true,
++			// The output is copied synchronously after each draw, so retaining
++			// the default framebuffer across compositor frames only adds cost.
++			preserveDrawingBuffer: false,
+ 		});
+ 
+ 		if (!gl) {
+@@ -208,9 +216,10 @@ export class GlassRenderer {
+ 		// Multi-pass Gaussian blur (skip entirely when not needed)
+ 		if (blurAmount > 0) {
+ 			const spread = blurAmount * 2.5;
++			const blurIterations = getBlurIterations();
+ 			gl.useProgram(this.blurP);
+ 			gl.uniform1i(this.blurU.u_tex, 0);
+-			for (let i = 0; i < BLUR_ITERATIONS; i++) {
++			for (let i = 0; i < blurIterations; i++) {
+ 				gl.bindFramebuffer(gl.FRAMEBUFFER, fboSet.blurB.fbo);
+ 				gl.viewport(0, 0, bw, bh);
+ 				gl.bindTexture(gl.TEXTURE_2D, fboSet.blurA.tex);
+diff --git a/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts b/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
+index eb224d2..01700c2 100644
+--- a/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
++++ b/node_modules/@ybouane/liquidglass/src/LiquidGlass.ts
+@@ -68,12 +68,25 @@ interface SampleRect {
+ 
+ const BUTTON_CLASS = 'liquid-glass-button';
+ const STYLE_ID = 'liquid-glass-button-styles';
++const DEFAULT_RENDER_DPR_CAP = 2;
++const BALANCED_RENDER_DPR_CAP = 1.25;
+ const BUTTON_CSS = `
+ .${BUTTON_CLASS} {
+ 	cursor: pointer;
+ }
+ `;
+ 
++function getRenderDpr(): number {
++	const ratio = window.devicePixelRatio || 1;
++	const quality = document.documentElement.dataset.liquidGlassQuality;
++	const cap = quality === 'compatibility'
++		? 1
++		: quality === 'balanced'
++			? BALANCED_RENDER_DPR_CAP
++			: DEFAULT_RENDER_DPR_CAP;
++	return Math.max(1, Math.min(ratio, cap));
++}
++
+ interface ButtonState {
+ 	hover: boolean;
+ 	pressed: boolean;
+@@ -418,7 +431,7 @@ export class LiquidGlass {
+ 		//    They read element via _composeSceneForGlass (either as a
+ 		//    non-glass contributor or via _drawPriorGlassToScene).
+ 		const rootRect = this.root.getBoundingClientRect();
+-		const dpr = window.devicePixelRatio || 1;
++		const dpr = getRenderDpr();
+ 		const elementDOMRect = rectOverride ?? element.getBoundingClientRect();
+ 		// Pad by SHADOW_PAD when the element itself is a glass — its
+ 		// rendered output extends that far past its CSS box. For non-
+@@ -456,7 +469,7 @@ export class LiquidGlass {
+ 	 */
+ 	private _markGlassesIntersecting(element: HTMLElement): void {
+ 		const rootRect = this.root.getBoundingClientRect();
+-		const dpr = window.devicePixelRatio || 1;
++		const dpr = getRenderDpr();
+ 		const elementBox = this._getPixelRect(
+ 			element.getBoundingClientRect(), rootRect, dpr,
+ 			this.glassSet.has(element) ? SHADOW_PAD : 0,
+@@ -734,7 +747,7 @@ export class LiquidGlass {
+ 	// ────────────────────────────────────────────
+ 
+ 	private _handleResize(): void {
+-		const dpr = window.devicePixelRatio || 1;
++		const dpr = getRenderDpr();
+ 		const rect = this.root.getBoundingClientRect();
+ 
+ 		this.capture.resize(dpr);
+@@ -754,7 +767,7 @@ export class LiquidGlass {
+ 	private _updateGlassCanvasSize(el: HTMLElement): void {
+ 		const canvas = this.glassCanvases.get(el);
+ 		if (!canvas) return;
+-		const dpr = window.devicePixelRatio || 1;
++		const dpr = getRenderDpr();
+ 		// Use offsetWidth/Height — the CSS box size before transforms.
+ 		// This prevents button hover scale from inflating the canvas.
+ 		const elW = Math.round(el.offsetWidth);
+@@ -970,7 +983,7 @@ export class LiquidGlass {
+ 	}
+ 
+ 	private _renderFrame(): void {
+-		const dpr = window.devicePixelRatio || 1;
++		const dpr = getRenderDpr();
+ 		const rootRect = this.root.getBoundingClientRect();
+ 		const isDragging = this._drag.active;
+ 

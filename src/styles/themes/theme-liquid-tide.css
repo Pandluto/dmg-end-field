@@ -2025,6 +2025,16 @@
   position: relative;
 }
 
+/* Frozen shader canvases keep the same containing block and paint overflow
+   that the live renderer used before releasing its WebGL context. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-frozen-positioned="true"] {
+  position: relative !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-frozen-overflow="true"] {
+  overflow: visible !important;
+}
+
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-root] > .liquid-tide-surface-capture {
   position: absolute;
   z-index: -3;
@@ -3363,6 +3373,75 @@
   box-shadow: 0 18px 36px rgba(31, 45, 91, 0.18) !important;
   -webkit-backdrop-filter: blur(18px) saturate(1.04) !important;
   backdrop-filter: blur(18px) saturate(1.04) !important;
+}
+
+/* Windows and lower-throughput GPUs use the same hierarchy with a smaller
+   live sampling radius. Shader lenses remain genuine and are frozen after
+   their stable frame; only large reading carriers become less expensive. */
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="balanced"] :is(
+  .web-shell-window,
+  .canvas-right-zone.is-skill-sandbox,
+  .canvas-right-zone.is-tool-panel,
+  .canvas-right-zone.buff-edit-right-zone,
+  .selection-roster,
+  .selection-library,
+  .operator-draft-preview-panel,
+  .image-manager-preview-panel,
+  .image-manager-asset-list,
+  .access-card,
+  .secondary-tab-card,
+  .onboarding-card,
+  .data-save-dialog,
+  .skill-button-context-menu,
+  .context-menu-submenu,
+  .damage-search-drawer,
+  .buff-detail-modal,
+  .timeline-snapshot-confirm-modal,
+  .work-node-modal,
+  .damage-report-modal,
+  .skill-button-modal,
+  .operator-config-page-picker-modal,
+  .operator-config-page-panel-detail-modal,
+  .operator-config-page-skill-modal,
+  .buff-editor-drawer
+) {
+  -webkit-backdrop-filter: blur(12px) saturate(1.1) !important;
+  backdrop-filter: blur(12px) saturate(1.1) !important;
+}
+
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="balanced"] :is(
+  .timeline-detail-layer:not(:has(> .skill-button-inline-buff-search-mask)),
+  .skill-button-inline-buff-search-mask,
+  .timeline-snapshot-modal-overlay,
+  .damage-report-modal-overlay,
+  .work-node-modal-overlay,
+  .operator-config-page-root
+) {
+  -webkit-backdrop-filter: blur(15px) saturate(0.88) brightness(1.02) !important;
+  backdrop-filter: blur(15px) saturate(0.88) brightness(1.02) !important;
+}
+
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="balanced"] :is(
+  .damage-sheet-ribbon:not([data-liquid-glass-surface]),
+  .damage-sheet-sidebar,
+  .damage-sheet-excel-shell,
+  .damage-sheet-workspace-footer:not([data-liquid-glass-surface]),
+  .config-cti-input,
+  .config-cti-drawer
+) {
+  -webkit-backdrop-filter: blur(8px) saturate(1.04) !important;
+  backdrop-filter: blur(8px) saturate(1.04) !important;
+}
+
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .web-app-shell *,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .web-app-shell *::before,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .web-app-shell *::after,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .timeline-detail-layer,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .timeline-detail-layer *,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .timeline-detail-layer *::before,
+:root:root[data-theme="liquid-tide"][data-liquid-glass-quality="compatibility"] .timeline-detail-layer *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 @media (prefers-reduced-transparency: reduce) {
