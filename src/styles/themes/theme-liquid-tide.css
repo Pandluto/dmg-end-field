@@ -3160,6 +3160,15 @@
   box-shadow: none !important;
 }
 
+/* The three weapon tracks share one renderer root but keep three equal lenses. */
+:root[data-theme="liquid-tide"] .config-weapon-config[data-liquid-glass-surface-state="active"] .config-weapon-config-button-row {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.58);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
 /* Weapon and equipment capsules share one current / lit / dim palette. */
 :root[data-theme="liquid-tide"] :is(
   .config-weapon-config-button-row,
