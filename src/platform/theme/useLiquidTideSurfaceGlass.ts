@@ -8,6 +8,9 @@ const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jp
 const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
 const BACKDROP_ASPECT_RATIO = 16 / 9;
+const STATIC_SNAPSHOT_SELECTOR = '.config-avatar-indicator-glass';
+const STATIC_SNAPSHOT_CACHE_LIMIT = 8;
+const STATIC_SNAPSHOT_VERSION = 1;
 
 type SurfacePreset = 'control' | 'dock' | 'card' | 'popover';
 
@@ -34,14 +37,83 @@ type StoredAttributes = {
 type ManagedRoot = {
   backdropImage: HTMLImageElement | null;
   captures: HTMLCanvasElement[];
+  cachedOutputCanvases: HTMLCanvasElement[];
   disposed: boolean;
   instance: LiquidGlassInstance | null;
   presets: SurfacePreset[];
   resizeObserver: ResizeObserver | null;
   root: HTMLElement;
+  staticSnapshotKey: string | null;
+  staticSnapshotRevision: number;
   targets: HTMLElement[];
   visibilityAnchors: Array<HTMLElement | null>;
 };
+
+type StaticSurfaceSnapshot = {
+  canvas: HTMLCanvasElement;
+  cssText: string;
+};
+
+const staticSurfaceSnapshotCache = new Map<string, StaticSurfaceSnapshot>();
+
+function getStaticSnapshotKey(group: ManagedRoot): string | null {
+  if (group.targets.length !== 1 || !group.targets[0]?.matches(STATIC_SNAPSHOT_SELECTOR)) {
+    return null;
+  }
+
+  const target = group.targets[0];
+  const rect = target.getBoundingClientRect();
+  if (rect.width <= 1 || rect.height <= 1) return null;
+
+  const style = window.getComputedStyle(target);
+  const roundHalfPixel = (value: number) => Math.round(value * 2) / 2;
+  return JSON.stringify({
+    version: STATIC_SNAPSHOT_VERSION,
+    backdrop: LIQUID_TIDE_BACKDROP_SRC,
+    viewport: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1],
+    rect: [
+      roundHalfPixel(rect.left),
+      roundHalfPixel(rect.top),
+      roundHalfPixel(rect.width),
+      roundHalfPixel(rect.height),
+    ],
+    preset: group.presets[0],
+    config: target.dataset.config ?? '',
+    clipPath: style.clipPath,
+    borderRadius: style.borderRadius,
+    owner: target.parentElement?.getAttribute('aria-label') ?? '',
+  });
+}
+
+function copySurfaceCanvas(source: HTMLCanvasElement, cacheState: 'record' | 'hit'): HTMLCanvasElement | null {
+  if (source.width <= 0 || source.height <= 0) return null;
+
+  const copy = document.createElement('canvas');
+  copy.width = source.width;
+  copy.height = source.height;
+  copy.style.cssText = source.style.cssText;
+  copy.dataset.liquidGlassSnapshot = cacheState;
+  copy.setAttribute('aria-hidden', 'true');
+  const context = copy.getContext('2d');
+  if (!context) return null;
+
+  try {
+    context.drawImage(source, 0, 0);
+  } catch {
+    return null;
+  }
+  return copy;
+}
+
+function rememberStaticSnapshot(key: string, snapshot: StaticSurfaceSnapshot): void {
+  staticSurfaceSnapshotCache.delete(key);
+  staticSurfaceSnapshotCache.set(key, snapshot);
+  while (staticSurfaceSnapshotCache.size > STATIC_SNAPSHOT_CACHE_LIMIT) {
+    const oldestKey = staticSurfaceSnapshotCache.keys().next().value;
+    if (typeof oldestKey !== 'string') break;
+    staticSurfaceSnapshotCache.delete(oldestKey);
+  }
+}
 
 let backdropImagePromise: Promise<HTMLImageElement> | null = null;
 
@@ -417,12 +489,15 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
     const disposeGroup = (group: ManagedRoot) => {
       group.disposed = true;
+      group.staticSnapshotRevision += 1;
       group.resizeObserver?.disconnect();
       destroyLiquidGlass(group.instance);
       group.captures.forEach((capture) => capture.remove());
+      group.cachedOutputCanvases.forEach((canvas) => canvas.remove());
       group.root.removeAttribute('data-liquid-glass-surface-root');
       group.root.removeAttribute('data-liquid-glass-surface-state');
       group.root.removeAttribute('data-liquid-glass-surface-positioned');
+      group.root.removeAttribute('data-liquid-glass-surface-cache');
     };
 
     const disposeAll = () => {
@@ -436,10 +511,70 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       return undefined;
     }
 
+    const queueStaticSnapshot = (group: ManagedRoot) => {
+      const initialKey = getStaticSnapshotKey(group);
+      const instance = group.instance;
+      const target = group.targets[0];
+      if (!initialKey || !instance || !target) return;
+
+      const revision = ++group.staticSnapshotRevision;
+      void (async () => {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve());
+        }));
+        if (
+          cancelled
+          || group.disposed
+          || group.staticSnapshotRevision !== revision
+          || group.instance !== instance
+        ) return;
+
+        const source = instance.glassCanvases.get(target);
+        const snapshotCanvas = source ? copySurfaceCanvas(source, 'record') : null;
+        const finalKey = getStaticSnapshotKey(group);
+        if (!source || !snapshotCanvas || finalKey !== initialKey) return;
+
+        rememberStaticSnapshot(finalKey, {
+          canvas: snapshotCanvas,
+          cssText: source.style.cssText,
+        });
+        group.staticSnapshotKey = finalKey;
+        group.root.dataset.liquidGlassSurfaceCache = 'recorded';
+      })();
+    };
+
+    const restoreStaticSnapshot = (group: ManagedRoot): boolean => {
+      const key = getStaticSnapshotKey(group);
+      if (!key) return false;
+      const snapshot = staticSurfaceSnapshotCache.get(key);
+      const target = group.targets[0];
+      if (!snapshot || !target) return false;
+
+      const output = copySurfaceCanvas(snapshot.canvas, 'hit');
+      if (!output) return false;
+      output.style.cssText = snapshot.cssText;
+      target.insertBefore(output, target.firstChild);
+      group.cachedOutputCanvases.push(output);
+      group.staticSnapshotKey = key;
+      group.root.dataset.liquidGlassSurfaceState = 'active';
+      group.root.dataset.liquidGlassSurfaceCache = 'hit';
+      return true;
+    };
+
     const scheduleGeometrySync = () => {
       cancelAnimationFrame(geometryFrameId);
       geometryFrameId = requestAnimationFrame(() => {
-        managedRoots.forEach((group) => {
+        let requiresScan = false;
+        managedRoots.forEach((group, root) => {
+          const currentSnapshotKey = getStaticSnapshotKey(group);
+          if (currentSnapshotKey && currentSnapshotKey === group.staticSnapshotKey) return;
+          if (group.cachedOutputCanvases.length > 0) {
+            disposeGroup(group);
+            managedRoots.delete(root);
+            requiresScan = true;
+            return;
+          }
+
           syncCapture(group);
           group.captures.forEach((capture, index) => {
             const target = group.targets[index];
@@ -447,7 +582,12 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
               group.instance?.markChanged(capture);
             }
           });
+          if (currentSnapshotKey) {
+            group.staticSnapshotKey = null;
+            queueStaticSnapshot(group);
+          }
         });
+        if (requiresScan) scheduleScan();
       });
     };
 
@@ -479,6 +619,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
         group.root.dataset.liquidGlassSurfaceState = 'active';
         syncCapture(group);
         instance.markChanged();
+        queueStaticSnapshot(group);
       } catch (error) {
         if (cancelled || group.disposed) return;
         group.root.dataset.liquidGlassSurfaceState = 'fallback';
@@ -494,11 +635,14 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       const group: ManagedRoot = {
         backdropImage: null,
         captures,
+        cachedOutputCanvases: [],
         disposed: false,
         instance: null,
         presets: targets.map((target) => target.preset),
         resizeObserver: null,
         root,
+        staticSnapshotKey: null,
+        staticSnapshotRevision: 0,
         targets: targets.map((target) => target.element),
         visibilityAnchors: targets.map((target) => target.visibilityAnchor),
       };
@@ -508,7 +652,6 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       targets.forEach(({ element, preset }) => {
         element.dataset.config = JSON.stringify(getSurfaceConfig(element, preset));
       });
-      syncCapture(group);
 
       if (typeof ResizeObserver !== 'undefined') {
         group.resizeObserver = new ResizeObserver(scheduleGeometrySync);
@@ -517,7 +660,9 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       }
 
       managedRoots.set(root, group);
-      void initializeGroup(group);
+      if (!restoreStaticSnapshot(group)) {
+        void initializeGroup(group);
+      }
     };
 
     const scan = () => {
@@ -602,8 +747,22 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
           && sameTargets(existing, targets)
           && existing.captures.every((capture) => capture.isConnected)
         ) {
+          const currentSnapshotKey = getStaticSnapshotKey(existing);
+          if (currentSnapshotKey && currentSnapshotKey === existing.staticSnapshotKey) {
+            return;
+          }
+          if (existing.cachedOutputCanvases.length > 0) {
+            disposeGroup(existing);
+            managedRoots.delete(root);
+            createGroup(root, targets);
+            return;
+          }
           syncCapture(existing);
           existing.instance?.markChanged();
+          if (currentSnapshotKey) {
+            existing.staticSnapshotKey = null;
+            queueStaticSnapshot(existing);
+          }
           return;
         }
         if (existing) {

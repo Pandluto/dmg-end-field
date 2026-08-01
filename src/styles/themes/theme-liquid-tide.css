@@ -2968,7 +2968,7 @@
   display: block;
   width: var(--config-indicator-width);
   height: 50px;
-  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border: 1px solid rgba(67, 84, 148, 0.72) !important;
   border-radius: 4px;
   clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
   transform: translate(-50%, 0);
@@ -2980,7 +2980,7 @@
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-avatar-indicator-glass {
   border-color: transparent !important;
   background: rgba(235, 243, 255, 0.1) !important;
-  outline: 1px solid rgba(255, 255, 255, 0.72);
+  outline: 1px solid rgba(58, 74, 136, 0.84);
   outline-offset: -1px;
 }
 
