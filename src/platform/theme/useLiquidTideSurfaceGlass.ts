@@ -87,6 +87,8 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.timeline-detail-expand-all-button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-utility-panel', preset: 'popover', priority: 0 },
   { selector: '.timeline-buff-bulk-actions', preset: 'dock', priority: 1 },
+  { selector: '.timeline-restore-tabs', preset: 'dock', priority: 0 },
+  { selector: '.timeline-snapshot-form-actions', preset: 'dock', priority: 0 },
   {
     selector: '.timeline-calculation-zone-glass',
     preset: 'control',
@@ -110,6 +112,11 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.config-panel-back-btn', preset: 'control', priority: 0 },
   { selector: '.config-avatar-strip', preset: 'dock', priority: 1 },
   { selector: '.config-cti-strip', preset: 'dock', priority: 2 },
+  { selector: '.operator-config-page-equip-circle', preset: 'card', priority: 1 },
+  { selector: '.operator-config-page-equip-button-group', preset: 'card', priority: 1 },
+  { selector: '.config-weapon-choose-showcase', preset: 'card', priority: 1 },
+  { selector: '.operator-config-page-weapon-star-showcase', preset: 'card', priority: 1 },
+  { selector: '.config-weapon-config-button-row', preset: 'dock', priority: 2 },
 
   { selector: '.operator-draft-command-actions', preset: 'dock', priority: 1 },
   { selector: '.operator-draft-section-actions', preset: 'dock', priority: 2 },

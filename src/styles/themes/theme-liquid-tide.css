@@ -41,6 +41,11 @@
   --liquid-tide-blue: #7599dc;
   --liquid-tide-cyan: #7bc9e6;
   --liquid-tide-focus: #566dcc;
+  --liquid-tide-bright-text: #f8fbff;
+  --liquid-tide-bright-text-muted: rgba(244, 248, 255, 0.76);
+  --liquid-tide-door: rgba(210, 220, 240, 0.28);
+  --liquid-tide-frame: rgba(246, 250, 255, 0.08);
+  --liquid-tide-content: rgba(248, 251, 255, 0.14);
 
   --theme-bg-window: rgba(217, 227, 249, 0.14);
   --theme-bg-content: rgba(234, 241, 255, 0.28);
@@ -2659,6 +2664,329 @@
   backdrop-filter: none !important;
 }
 
+/* ========================================================================== */
+/* Liquid Tide route and overlay polish                                        */
+/*                                                                            */
+/* A single page-level door stabilizes the illustration. Structural frames    */
+/* stay clear; only compact navigation and action groups receive shader glass. */
+/* ========================================================================== */
+
+/* The lower workbench sits over the darkest part of the artwork. */
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+  .canvas-bottom-zone-left,
+  .canvas-bottom-zone-right
+) {
+  background:
+    linear-gradient(180deg, rgba(18, 27, 58, 0.17), rgba(24, 35, 74, 0.09)) !important;
+  outline-color: rgba(255, 255, 255, 0.54);
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button,
+  .staff-group-count,
+  .workbench-trigger-text
+) {
+  color: var(--liquid-tide-bright-text) !important;
+  text-shadow: 0 1px 3px rgba(15, 23, 52, 0.78);
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button:disabled,
+  .workbench-bottom-nav-button:not(.is-active)
+) {
+  color: var(--liquid-tide-bright-text-muted) !important;
+}
+
+:root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
+  button:hover:not(:disabled),
+  .workbench-bottom-nav-button.is-active
+) {
+  color: #ffffff !important;
+  text-shadow:
+    0 1px 3px rgba(15, 23, 52, 0.86),
+    0 0 10px rgba(216, 231, 255, 0.26);
+}
+
+/* Snapshot, recovery and report overlays use one full-screen frosted door. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell :is(
+  .timeline-snapshot-modal-overlay,
+  .damage-report-modal-overlay,
+  .work-node-modal-overlay
+) {
+  background: var(--liquid-tide-door) !important;
+  -webkit-backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal,
+  .timeline-snapshot-confirm-modal,
+  .damage-report-modal,
+  .work-node-modal
+) {
+  border-color: rgba(255, 255, 255, 0.7) !important;
+  border-radius: 22px;
+  background: rgba(246, 250, 255, 0.1) !important;
+  box-shadow:
+    0 30px 78px rgba(31, 43, 89, 0.2),
+    inset 0 0 0 1px rgba(74, 91, 146, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal-head,
+  .damage-report-modal-head,
+  .work-node-modal-head
+) {
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.48);
+  border-radius: 16px;
+  background: rgba(246, 250, 255, 0.16) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-modal-head,
+  .damage-report-modal-head,
+  .work-node-modal-head
+) .modal-close-btn {
+  flex: 0 0 auto;
+  min-width: 52px;
+  white-space: nowrap;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+  .timeline-snapshot-modal-head,
+  .damage-report-modal-head,
+  .work-node-modal-head,
+  .timeline-restore-tabs,
+  .timeline-snapshot-form-actions,
+  .damage-sheet-topbar-left,
+  .damage-sheet-topbar-right,
+  .report-ppt-toolbar
+) {
+  border-color: transparent !important;
+  background: rgba(237, 244, 255, 0.1) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.64);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-restore-tabs,
+  .timeline-snapshot-form-actions
+) {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px;
+  border-bottom: 0 !important;
+  border-radius: 16px;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-form-actions {
+  margin-left: auto;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-item,
+  .timeline-snapshot-confirm-body,
+  .timeline-snapshot-hover-card
+) {
+  border-color: rgba(255, 255, 255, 0.48) !important;
+  border-radius: 16px;
+  background: rgba(248, 251, 255, 0.09) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-item:hover {
+  background: rgba(250, 252, 255, 0.16) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-document-item.is-active {
+  border-color: rgba(255, 255, 255, 0.9) !important;
+  background: linear-gradient(135deg, rgba(229, 150, 187, 0.16), rgba(113, 148, 219, 0.14)) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(91, 111, 181, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.7) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-snapshot-name-input,
+  .batch-resistance-fields input
+) {
+  border-color: rgba(255, 255, 255, 0.54) !important;
+  border-radius: 12px;
+  background: rgba(250, 252, 255, 0.2) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-snapshot-item-actions button {
+  border-color: rgba(255, 255, 255, 0.44) !important;
+  border-radius: 10px;
+  background: rgba(250, 252, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+/* Spreadsheet and PPT chrome shows the shader; the data canvas stays readable. */
+:root[data-theme="liquid-tide"] .damage-sheet-topbar {
+  background: rgba(244, 248, 255, 0.18) !important;
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.42) !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-ribbon:not([data-liquid-glass-surface]),
+  .damage-sheet-sidebar,
+  .damage-sheet-excel-shell,
+  .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
+) {
+  background: rgba(242, 247, 255, 0.68) !important;
+}
+
+/* Operator configuration: one door, clear scaffolding, selective shader cards. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root {
+  background: rgba(211, 221, 241, 0.2) !important;
+  -webkit-backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(27px) saturate(0.82) brightness(1.03) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-panel-header {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.48) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-section,
+  .operator-config-page-section
+) {
+  border-color: rgba(255, 255, 255, 0.46) !important;
+  border-radius: 18px;
+  background: var(--liquid-tide-frame) !important;
+  box-shadow:
+    inset 0 0 0 1px rgba(73, 90, 145, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.48) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-equip-visual-top,
+  .operator-config-page-equip-visual-bottom,
+  .config-weapon-config
+) {
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item,
+  .config-skill-card,
+  .config-equip-values-box,
+  .config-equip-set-box,
+  .config-equip-set-sub-box,
+  .operator-config-page-stat-item,
+  .operator-config-page-role-meta-box,
+  .operator-config-page-favor-input-layer,
+  .config-weapon-config-text,
+  .config-weapon-config-text-3
+) {
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  border-radius: 12px;
+  background: rgba(248, 251, 255, 0.09) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+  .operator-config-page-equip-circle,
+  .operator-config-page-equip-button-group,
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase,
+  .config-weapon-config-button-row,
+  .config-cti-strip
+) {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.58);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-button-group {
+  background: rgba(24, 35, 75, 0.13) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-button-group :is(
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-button-text,
+  .operator-config-page-equip-button-text-head,
+  .operator-config-page-equip-button-text-tail
+) {
+  color: var(--liquid-tide-bright-text) !important;
+  text-shadow: 0 1px 3px rgba(14, 22, 52, 0.82);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
+  .operator-config-page-equip-button-textdiv,
+  .operator-config-page-equip-button-row
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase
+) :is(
+  .config-weapon-choose-img-area,
+  .config-weapon-choose-detail-textarea,
+  .config-weapon-choose-img-square,
+  .operator-config-page-weapon-star-square-box
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-strip[data-liquid-glass-surface] :is(
+  input,
+  .config-weapon-option
+) {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* Preserve the three weapon-potential states inside their shared glass rail. */
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-current {
+  border-color: rgba(255, 255, 255, 0.92) !important;
+  background: #d986ad !important;
+  box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
+}
+
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-lit {
+  border-color: rgba(255, 255, 255, 0.78) !important;
+  background: rgba(156, 174, 224, 0.78) !important;
+}
+
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-dim {
+  border-color: rgba(255, 255, 255, 0.34) !important;
+  background: rgba(75, 91, 144, 0.18) !important;
+}
+
 @media (prefers-reduced-transparency: reduce) {
   :root[data-theme="liquid-tide"] [data-liquid-glass-surface-root] > .liquid-tide-surface-capture {
     display: none;
@@ -2670,7 +2998,11 @@
 
   :root[data-theme="liquid-tide"] :is(
     .timeline-detail-layer,
-    .skill-button-inline-buff-search-mask
+    .skill-button-inline-buff-search-mask,
+    .timeline-snapshot-modal-overlay,
+    .damage-report-modal-overlay,
+    .work-node-modal-overlay,
+    .operator-config-page-root
   ) {
     background: rgba(229, 235, 248, 0.94) !important;
     -webkit-backdrop-filter: none !important;
