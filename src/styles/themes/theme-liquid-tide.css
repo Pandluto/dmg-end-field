@@ -22,6 +22,7 @@
   --liquid-tide-ink: #17203a;
   --liquid-tide-ink-soft: #46506c;
   --liquid-tide-ink-faint: #6f7891;
+  --liquid-tide-text-on-frost: #111318;
   --liquid-tide-on-deep: #f8f9ff;
   --liquid-tide-on-deep-muted: rgba(244, 247, 255, 0.72);
   --liquid-tide-line: rgba(255, 255, 255, 0.62);
@@ -2177,6 +2178,18 @@
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28) !important;
 }
 
+:root[data-theme="liquid-tide"] .timeline-detail-utility-panel .timeline-detail-card {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-detail-utility-panel .timeline-info-card pre {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--liquid-tide-text-on-frost) !important;
+}
+
 :root[data-theme="liquid-tide"] :is(
   .timeline-detail-card,
   .timeline-tuning-card,
@@ -2238,6 +2251,39 @@
 
 :root[data-theme="liquid-tide"] .timeline-calculation-buffs > p {
   border-color: rgba(91, 106, 157, 0.24) !important;
+}
+
+/*
+ * Text placed directly on the full-page frosted carrier needs ink contrast.
+ * Pale blue/purple hierarchy is reserved for actual refractive controls.
+ */
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-heading strong,
+  .timeline-detail-heading span,
+  .timeline-detail-middle .timeline-buff-list-head h3,
+  .timeline-detail-middle .timeline-buff-main strong,
+  .timeline-detail-middle .timeline-buff-main span,
+  .timeline-detail-middle .timeline-status-card h3,
+  .timeline-detail-middle .timeline-detail-empty,
+  .timeline-detail-right-column h3,
+  .timeline-summary-card p strong,
+  .timeline-summary-card p span,
+  .timeline-summary-formula-parts span,
+  .timeline-summary-formula-parts strong,
+  .timeline-calculation-summary > strong,
+  .timeline-calculation-summary > span,
+  .timeline-calculation-detail > header span,
+  .timeline-calculation-detail > header strong,
+  .timeline-calculation-detail-rows span,
+  .timeline-calculation-detail-rows strong,
+  .timeline-calculation-buffs > span,
+  .timeline-calculation-buffs > p,
+  .timeline-calculation-buff-row strong,
+  .timeline-calculation-buff-row small,
+  .timeline-calculation-buff-row em,
+  .timeline-detail-right-column .timeline-detail-empty
+) {
+  color: var(--liquid-tide-text-on-frost) !important;
 }
 
 /* Preserve the existing SVG geometry; real shader surfaces sit directly below it. */
