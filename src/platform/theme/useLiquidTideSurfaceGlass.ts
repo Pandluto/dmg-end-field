@@ -175,42 +175,49 @@ function loadBackdropImage(): Promise<HTMLImageElement> {
 const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.web-shell-menu-button', preset: 'control', priority: 0 },
   { selector: '.web-shell-popover', preset: 'popover', priority: 0 },
-  { selector: '.web-shell-window-bar > .web-shell-window-tabs', preset: 'dock', priority: 0 },
+  { selector: '.web-shell-window-tabs > button', preset: 'control', priority: 0 },
   { selector: '.web-shell-window-bar > .web-shell-window-close', preset: 'control', priority: 0 },
 
-  { selector: '.workbench-top-zone > .workbench-drawer-tabs', preset: 'dock', priority: 0 },
-  { selector: '.canvas-bottom-zone > .canvas-bottom-zone-left', preset: 'dock', priority: 0 },
-  { selector: '.canvas-bottom-zone > .canvas-bottom-zone-right', preset: 'dock', priority: 0 },
+  { selector: '.workbench-drawer-tabs > button', preset: 'control', priority: 0 },
+  { selector: '.canvas-bottom-zone-left > .workbench-top-trigger', preset: 'control', priority: 0 },
+  { selector: '.canvas-bottom-zone-left > .toolbar > .btn-back', preset: 'control', priority: 0 },
+  { selector: '.canvas-bottom-zone-left .staff-group-controls > button', preset: 'control', priority: 0 },
+  { selector: '.canvas-bottom-zone-left .toolbar-right > button', preset: 'control', priority: 0 },
+  { selector: '.canvas-bottom-zone-right > .workbench-bottom-actions > button', preset: 'control', priority: 0 },
   { selector: '.workbench-selection-bottom-bar > .workbench-top-trigger', preset: 'control', priority: 0 },
-  { selector: '.workbench-selection-bottom-bar > .workbench-bottom-actions', preset: 'dock', priority: 0 },
+  { selector: '.workbench-selection-bottom-bar > .workbench-bottom-actions > button', preset: 'control', priority: 0 },
   { selector: '.buff-edit-tool-layer > button', preset: 'control', priority: 0 },
   { selector: '.buff-edit-secondary-button-layer > button', preset: 'control', priority: 1 },
-  { selector: '.sandbox-characters-extra-spacer', preset: 'dock', priority: 1 },
-  { selector: '.sandbox-skill-pager', preset: 'dock', priority: 2 },
-  { selector: '.tool-panel-tabs', preset: 'dock', priority: 1 },
-  { selector: '.timeline-detail-heading > nav', preset: 'dock', priority: 0 },
+  { selector: '.sandbox-characters-extra-spacer > button', preset: 'control', priority: 1 },
+  { selector: '.sandbox-skill-pager > button', preset: 'control', priority: 2 },
+  { selector: '.tool-panel-tabs > button', preset: 'control', priority: 1 },
+  { selector: '.timeline-detail-heading > nav > button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-expand-all-button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-utility-panel', preset: 'popover', priority: 0 },
-  { selector: '.timeline-buff-bulk-actions', preset: 'dock', priority: 1 },
-  { selector: '.timeline-restore-tabs', preset: 'dock', priority: 0 },
-  { selector: '.timeline-snapshot-form-actions', preset: 'dock', priority: 0 },
+  { selector: '.timeline-buff-bulk-actions > button', preset: 'control', priority: 1 },
+  { selector: '.timeline-tuning-inline-actions > button', preset: 'control', priority: 1 },
+  { selector: '.timeline-calculation-inline-toggle', preset: 'control', priority: 1 },
+  { selector: '.timeline-restore-tabs > button', preset: 'control', priority: 0 },
+  { selector: '.timeline-snapshot-form-actions > button', preset: 'control', priority: 0 },
+  { selector: '.timeline-snapshot-item-actions > button', preset: 'control', priority: 1 },
   {
     selector: '.timeline-calculation-zone-glass',
     preset: 'control',
     priority: 0,
     visibilityAnchor: '.timeline-calculation-zone-scroll',
   },
-  { selector: '.skill-button-inline-buff-search-modes', preset: 'dock', priority: 1 },
+  { selector: '.skill-button-inline-buff-search-modes > button', preset: 'control', priority: 1 },
 
-  { selector: '.selection-header > .selection-header-actions', preset: 'dock', priority: 1 },
+  { selector: '.selection-header-actions > button', preset: 'control', priority: 1 },
+  { selector: '.selection-section-header > button', preset: 'control', priority: 1 },
   { selector: '.selection-roster > .selection-confirm-button', preset: 'control', priority: 1 },
-  { selector: '.selection-slots > .selection-slot.is-filled', preset: 'card', priority: 2 },
-  { selector: '.selection-library > .selection-toolbar', preset: 'dock', priority: 2 },
+  { selector: '.selection-slot > .selection-slot-remove', preset: 'control', priority: 2 },
 
-  { selector: '.dashboard-actions', preset: 'dock', priority: 1 },
-  { selector: '.data-package-actions', preset: 'dock', priority: 1 },
-  { selector: '.data-library-toolbar', preset: 'dock', priority: 1 },
-  { selector: '.data-library-inspector-actions', preset: 'dock', priority: 2 },
+  { selector: '.dashboard-actions > button', preset: 'control', priority: 1 },
+  { selector: '.data-package-actions > button', preset: 'control', priority: 1 },
+  { selector: '.data-library-tabs > button', preset: 'control', priority: 1 },
+  { selector: '.data-library-actions > button', preset: 'control', priority: 1 },
+  { selector: '.data-library-inspector-actions > button', preset: 'control', priority: 2 },
   { selector: '.settings-action-row > button', preset: 'control', priority: 2 },
   { selector: '.theme-option', preset: 'card', priority: 2 },
 
@@ -224,28 +231,30 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.operator-config-page-level-track', preset: 'dock', priority: 1 },
   { selector: '.config-weapon-config-button-row', preset: 'dock', priority: 2 },
 
-  { selector: '.operator-draft-command-actions', preset: 'dock', priority: 1 },
-  { selector: '.operator-draft-section-actions', preset: 'dock', priority: 2 },
-  { selector: '.operator-draft-buff-tabs', preset: 'dock', priority: 2 },
-  { selector: '.operator-draft-buff-actions', preset: 'dock', priority: 2 },
-  { selector: '.buff-sheet-ribbon-actions', preset: 'dock', priority: 1 },
-  { selector: '.operator-draft-modal-actions', preset: 'dock', priority: 1 },
-  { selector: '.buff-sheet-share-modal-actions', preset: 'dock', priority: 1 },
+  { selector: '.operator-draft-command-actions > button', preset: 'control', priority: 1 },
+  { selector: '.operator-draft-section-actions > button', preset: 'control', priority: 2 },
+  { selector: '.operator-draft-buff-tabs > button', preset: 'control', priority: 2 },
+  { selector: '.operator-draft-buff-actions > button', preset: 'control', priority: 2 },
+  { selector: '.buff-sheet-ribbon-actions > button', preset: 'control', priority: 1 },
+  { selector: '.operator-draft-modal-actions > button', preset: 'control', priority: 1 },
+  { selector: '.buff-sheet-share-modal-actions > button', preset: 'control', priority: 1 },
 
-  { selector: '.damage-sheet-topbar-left', preset: 'dock', priority: 0 },
-  { selector: '.damage-sheet-topbar-right', preset: 'dock', priority: 0 },
-  { selector: '.damage-sheet-workspace-footer', preset: 'dock', priority: 1 },
-  { selector: '.report-ppt-toolbar', preset: 'dock', priority: 0 },
-  { selector: '.image-manager-preview-nav', preset: 'dock', priority: 1 },
-  { selector: '.image-manager-preview-actions', preset: 'dock', priority: 1 },
+  { selector: '.damage-sheet-topbar-left > .damage-sheet-back-button', preset: 'control', priority: 0 },
+  { selector: '.damage-sheet-undo-wrap > button', preset: 'control', priority: 0 },
+  { selector: '.damage-sheet-topbar-right > .damage-sheet-action-button', preset: 'control', priority: 0 },
+  { selector: '.damage-sheet-sidebar > .damage-sheet-sheet-tab', preset: 'control', priority: 1 },
+  { selector: '.damage-sheet-view-group > button', preset: 'control', priority: 1 },
+  { selector: '.report-ppt-toolbar > button', preset: 'control', priority: 0 },
+  { selector: '.image-manager-preview-nav > button', preset: 'control', priority: 1 },
+  { selector: '.image-manager-preview-actions > button', preset: 'control', priority: 1 },
 
-  { selector: '.timeline-snapshot-modal-head', preset: 'dock', priority: 0 },
-  { selector: '.damage-report-modal-head', preset: 'dock', priority: 0 },
-  { selector: '.work-node-modal-head', preset: 'dock', priority: 0 },
-  { selector: '.skill-button-modal .modal-header', preset: 'dock', priority: 0 },
-  { selector: '.operator-config-page-picker-header', preset: 'dock', priority: 0 },
-  { selector: '.operator-config-page-panel-detail-header', preset: 'dock', priority: 0 },
-  { selector: '.operator-config-page-skill-modal-header', preset: 'dock', priority: 0 },
+  { selector: '.timeline-snapshot-modal-head > .modal-close-btn', preset: 'control', priority: 0 },
+  { selector: '.damage-report-modal-head > .modal-close-btn', preset: 'control', priority: 0 },
+  { selector: '.work-node-modal-head button', preset: 'control', priority: 0 },
+  { selector: '.skill-button-modal .modal-header > button', preset: 'control', priority: 0 },
+  { selector: '.operator-config-page-picker-header > button', preset: 'control', priority: 0 },
+  { selector: '.operator-config-page-panel-detail-header > button', preset: 'control', priority: 0 },
+  { selector: '.operator-config-page-skill-modal-header > button', preset: 'control', priority: 0 },
 ] as const;
 
 const PRESET_CONFIGS: Record<SurfacePreset, Partial<GlassConfig>> = {
@@ -507,6 +516,7 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
     let cancelled = false;
     let scanFrameId = 0;
     let geometryFrameId = 0;
+    let settledScanTimerId = 0;
 
     const restoreTarget = (element: HTMLElement) => {
       const stored = storedAttributes.get(element);
@@ -827,6 +837,12 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       scanFrameId = requestAnimationFrame(scan);
     };
 
+    const scheduleSettledScan = () => {
+      scheduleScan();
+      window.clearTimeout(settledScanTimerId);
+      settledScanTimerId = window.setTimeout(scheduleScan, 360);
+    };
+
     const handlePointerMove = (event: PointerEvent) => {
       if (event.buttons !== 0) scheduleGeometrySync();
     };
@@ -834,8 +850,21 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       scheduleGeometrySync();
       if (!isPersistentVisibilityAnchor(event.target)) scheduleScan();
     };
+    const handleLayoutSettled = (event: Event) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      if (!event.target.matches([
+        '.workbench-top-zone',
+        '.buff-edit-tool-layer',
+        '.buff-edit-secondary-button-layer',
+        '.selection-workbench-layout',
+        '.timeline-detail-layer',
+        '.web-shell-window',
+        '.operator-config-page-root',
+      ].join(', '))) return;
+      scheduleSettledScan();
+    };
 
-    const mutationObserver = new MutationObserver(scheduleScan);
+    const mutationObserver = new MutationObserver(scheduleSettledScan);
     mutationObserver.observe(appRoot, {
       attributes: true,
       attributeFilter: ['class'],
@@ -846,17 +875,22 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', scheduleGeometrySync);
-    scan();
+    appRoot.addEventListener('transitionend', handleLayoutSettled);
+    appRoot.addEventListener('animationend', handleLayoutSettled);
+    scheduleSettledScan();
 
     return () => {
       cancelled = true;
       cancelAnimationFrame(scanFrameId);
       cancelAnimationFrame(geometryFrameId);
+      window.clearTimeout(settledScanTimerId);
       mutationObserver.disconnect();
       window.removeEventListener('resize', scheduleGeometrySync);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', scheduleGeometrySync);
+      appRoot.removeEventListener('transitionend', handleLayoutSettled);
+      appRoot.removeEventListener('animationend', handleLayoutSettled);
       disposeAll();
     };
   }, [rootRef, theme]);

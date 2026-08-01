@@ -2079,6 +2079,16 @@
   background: rgba(241, 247, 255, 0.36) !important;
 }
 
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="control"]:is(
+  .is-active,
+  [aria-selected="true"],
+  [aria-pressed="true"]
+) {
+  color: #263153 !important;
+  background: linear-gradient(135deg, rgba(225, 145, 184, 0.28), rgba(111, 146, 217, 0.24)) !important;
+  outline-color: rgba(255, 255, 255, 0.84);
+}
+
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > [data-liquid-glass-preset="card"] {
   background: rgba(241, 247, 255, 0.34) !important;
 }
@@ -2677,14 +2687,43 @@
 /* stay clear; only compact navigation and action groups receive shader glass. */
 /* ========================================================================== */
 
-/* The lower workbench sits over the darkest part of the artwork. */
-:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
+/* Tool rails are clear layout only. Each compact action owns its own lens. */
+:root[data-theme="liquid-tide"] :is(
+  .web-shell-window-tabs,
+  .workbench-drawer-tabs,
   .canvas-bottom-zone-left,
-  .canvas-bottom-zone-right
+  .canvas-bottom-zone-right,
+  .workbench-bottom-actions,
+  .sandbox-characters-extra-spacer,
+  .sandbox-skill-pager,
+  .tool-panel-tabs,
+  .timeline-detail-heading > nav,
+  .timeline-buff-bulk-actions,
+  .timeline-restore-tabs,
+  .timeline-snapshot-form-actions,
+  .skill-button-inline-buff-search-modes,
+  .selection-header-actions,
+  .dashboard-actions,
+  .data-package-actions,
+  .data-library-toolbar,
+  .data-library-inspector-actions,
+  .operator-draft-command-actions,
+  .operator-draft-section-actions,
+  .operator-draft-buff-tabs,
+  .operator-draft-buff-actions,
+  .buff-sheet-ribbon-actions,
+  .operator-draft-modal-actions,
+  .buff-sheet-share-modal-actions,
+  .damage-sheet-topbar-left,
+  .damage-sheet-topbar-right,
+  .damage-sheet-view-group,
+  .image-manager-preview-nav,
+  .image-manager-preview-actions
 ) {
-  background:
-    linear-gradient(180deg, rgba(18, 27, 58, 0.17), rgba(24, 35, 74, 0.09)) !important;
-  outline-color: rgba(255, 255, 255, 0.54);
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .canvas-bottom-zone :is(
@@ -2746,11 +2785,11 @@
   .damage-report-modal-head,
   .work-node-modal-head
 ) {
-  padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.48);
-  border-radius: 16px;
-  background: rgba(246, 250, 255, 0.16) !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
+  padding: 2px;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -2765,40 +2804,35 @@
   white-space: nowrap;
 }
 
-:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
-  .timeline-snapshot-modal-head,
-  .damage-report-modal-head,
-  .work-node-modal-head,
-  .timeline-restore-tabs,
-  .timeline-snapshot-form-actions,
-  .damage-sheet-topbar-left,
-  .damage-sheet-topbar-right,
-  .report-ppt-toolbar
-) {
-  border-color: transparent !important;
-  background: rgba(237, 244, 255, 0.1) !important;
-  outline: 1px solid rgba(255, 255, 255, 0.64);
-  outline-offset: -1px;
-  box-shadow: none !important;
-}
-
 :root[data-theme="liquid-tide"] :is(
   .timeline-restore-tabs,
   .timeline-snapshot-form-actions
 ) {
   width: fit-content;
   max-width: 100%;
-  padding: 4px;
+  gap: 8px;
+  padding: 0;
+  border: 0 !important;
   border-bottom: 0 !important;
-  border-radius: 16px;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
 }
 
 :root[data-theme="liquid-tide"] .timeline-snapshot-form-actions {
   margin-left: auto;
 }
 
+:root[data-theme="liquid-tide"] .timeline-snapshot-item {
+  border-color: rgba(255, 255, 255, 0.48) !important;
+  border-radius: 16px;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 :root[data-theme="liquid-tide"] :is(
-  .timeline-snapshot-item,
   .timeline-snapshot-confirm-body,
   .timeline-snapshot-hover-card
 ) {
@@ -2832,7 +2866,7 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5) !important;
 }
 
-:root[data-theme="liquid-tide"] .timeline-snapshot-item-actions button {
+:root[data-theme="liquid-tide"] .timeline-snapshot-item-actions button:not([data-liquid-glass-surface]) {
   border-color: rgba(255, 255, 255, 0.44) !important;
   border-radius: 10px;
   background: rgba(250, 252, 255, 0.14) !important;
@@ -2843,6 +2877,28 @@
 :root[data-theme="liquid-tide"] .damage-sheet-topbar {
   background: rgba(244, 248, 255, 0.18) !important;
   box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.42) !important;
+}
+
+:root[data-theme="liquid-tide"] .report-ppt-toolbar {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.52) !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* The draggable global menu resets to the top-left after refresh. */
+:root[data-theme="liquid-tide"] :is(
+  .damage-sheet-topbar-left > .damage-sheet-back-button,
+  .report-ppt-toolbar > button
+) {
+  margin-left: 52px;
+}
+
+:root[data-theme="liquid-tide"] .operator-draft-command-box > .operator-draft-command-actions:first-child > button:first-child {
+  margin-left: 52px;
 }
 
 :root[data-theme="liquid-tide"] :is(
