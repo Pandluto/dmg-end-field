@@ -40,6 +40,12 @@
   --liquid-tide-lilac: #9c91d9;
   --liquid-tide-blue: #7599dc;
   --liquid-tide-cyan: #7bc9e6;
+  --liquid-tide-capsule-current-bg: #d986ad;
+  --liquid-tide-capsule-current-line: rgba(255, 255, 255, 0.92);
+  --liquid-tide-capsule-lit-bg: rgba(156, 174, 224, 0.78);
+  --liquid-tide-capsule-lit-line: rgba(255, 255, 255, 0.78);
+  --liquid-tide-capsule-dim-bg: rgba(75, 91, 144, 0.18);
+  --liquid-tide-capsule-dim-line: rgba(255, 255, 255, 0.34);
   --liquid-tide-focus: #566dcc;
   --liquid-tide-bright-text: #f8fbff;
   --liquid-tide-bright-text-muted: rgba(244, 248, 255, 0.76);
@@ -2965,10 +2971,10 @@
 
 /* Equipment follows the weapon hierarchy: clear carrier, liquid image and capsule windows. */
 :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
-  border: 1px solid rgba(255, 255, 255, 0.46);
+  border: 0 !important;
   border-radius: 11px;
   background: transparent !important;
-  box-shadow: inset 0 0 0 1px rgba(73, 90, 145, 0.08) !important;
+  box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -3103,8 +3109,8 @@
   .config-weapon-config-button,
   .operator-config-page-equip-button
 ).is-current {
-  border-color: rgba(255, 255, 255, 0.92) !important;
-  background: #d986ad !important;
+  border-color: var(--liquid-tide-capsule-current-line) !important;
+  background: var(--liquid-tide-capsule-current-bg) !important;
   box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
 }
 
@@ -3115,8 +3121,8 @@
   .config-weapon-config-button,
   .operator-config-page-equip-button
 ).is-lit {
-  border-color: rgba(255, 255, 255, 0.78) !important;
-  background: rgba(156, 174, 224, 0.78) !important;
+  border-color: var(--liquid-tide-capsule-lit-line) !important;
+  background: var(--liquid-tide-capsule-lit-bg) !important;
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -3126,8 +3132,46 @@
   .config-weapon-config-button,
   .operator-config-page-equip-button
 ).is-dim {
-  border-color: rgba(255, 255, 255, 0.34) !important;
-  background: rgba(75, 91, 144, 0.18) !important;
+  border-color: var(--liquid-tide-capsule-dim-line) !important;
+  background: var(--liquid-tide-capsule-dim-bg) !important;
+}
+
+/* Skill and role progression are horizontal capsules with the same three states. */
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+) {
+  border-color: var(--liquid-tide-capsule-dim-line) !important;
+  border-radius: 999px;
+  background: var(--liquid-tide-capsule-dim-bg) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active {
+  border-color: var(--liquid-tide-capsule-lit-line) !important;
+  background: var(--liquid-tide-capsule-lit-bg) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active:not(:has(~ :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+).is-active)) {
+  border-color: var(--liquid-tide-capsule-current-line) !important;
+  background: var(--liquid-tide-capsule-current-bg) !important;
+  box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .operator-config-page-level-slot,
+  .operator-config-page-track-slot
+):focus-visible {
+  box-shadow: var(--theme-focus-ring) !important;
 }
 
 /* CTI is a compact search control, not a full-width liquid shelf. */
