@@ -290,8 +290,7 @@
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
   .operator-config-page-skill-modal,
-  .buff-editor-drawer,
-  .skill-button-inline-buff-search
+  .buff-editor-drawer
 ) {
   border-color: rgba(255, 255, 255, 0.72);
   background: rgba(245, 249, 255, 0.64);
@@ -2138,10 +2137,6 @@
   .canvas-right-zone.buff-edit-right-zone,
   .selection-roster,
   .selection-library,
-  .timeline-detail-hit-list,
-  .timeline-detail-middle,
-  .timeline-detail-right-column,
-  .config-panel.operator-config-page-panel,
   .operator-draft-preview-panel,
   .image-manager-preview-panel,
   .image-manager-asset-list
@@ -2157,24 +2152,27 @@
 }
 
 :root[data-theme="liquid-tide"] .timeline-detail-layer {
-  background: rgba(28, 40, 83, 0.1) !important;
+  background: rgba(28, 40, 83, 0.06) !important;
 }
 
+/* These columns are layout scaffolds, not glass panes. */
 :root[data-theme="liquid-tide"] :is(
   .timeline-detail-hit-list,
   .timeline-detail-middle,
   .timeline-detail-right-column
 ) {
-  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border: 1px solid rgba(91, 106, 157, 0.34) !important;
   border-radius: 16px;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .timeline-detail-heading {
-  border: 1px solid rgba(255, 255, 255, 0.7) !important;
-  background: rgba(242, 247, 255, 0.78) !important;
-  box-shadow:
-    0 12px 34px rgba(35, 48, 96, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.86) !important;
+  border: 1px solid rgba(91, 106, 157, 0.3) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28) !important;
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -2196,9 +2194,11 @@
 }
 
 :root[data-theme="liquid-tide"] .web-app-shell .config-panel.operator-config-page-panel {
-  background: rgba(240, 246, 255, 0.76) !important;
-  -webkit-backdrop-filter: blur(21px) saturate(1.12) !important;
-  backdrop-filter: blur(21px) saturate(1.12) !important;
+  border-color: rgba(91, 106, 157, 0.34) !important;
+  background: transparent !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.34) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .web-app-shell :is(.selection-roster, .selection-library) {
@@ -2221,8 +2221,7 @@
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
   .operator-config-page-skill-modal,
-  .buff-editor-drawer,
-  .skill-button-inline-buff-search
+  .buff-editor-drawer
 ) {
   border-color: rgba(255, 255, 255, 0.72) !important;
   background: rgba(242, 247, 255, 0.78) !important;
@@ -2232,6 +2231,24 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.9) !important;
   -webkit-backdrop-filter: blur(21px) saturate(1.2) !important;
   backdrop-filter: blur(21px) saturate(1.2) !important;
+}
+
+/* The Buff picker is a layout frame. Only its compact mode switch is a lens. */
+:root[data-theme="liquid-tide"] :is(
+  .skill-button-inline-buff-search.is-workbench-mode,
+  .skill-button-inline-buff-search.is-anomaly-mode
+) {
+  border-color: rgba(91, 106, 157, 0.38) !important;
+  background: rgba(245, 249, 255, 0.06) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .skill-button-inline-buff-search-modes {
+  width: fit-content;
+  max-width: 100%;
+  align-self: flex-start;
 }
 
 /* Spreadsheet and report canvases use denser, quieter carriers for legibility. */
