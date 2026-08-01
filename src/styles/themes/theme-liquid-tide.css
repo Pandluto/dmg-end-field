@@ -2911,10 +2911,7 @@
 
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
   .operator-config-page-equip-stage-glass,
-  .config-weapon-choose-showcase,
-  .operator-config-page-weapon-star-showcase,
-  .config-weapon-config-button-row,
-  .config-cti-strip
+  .config-weapon-choose-img-square
 ) {
   border-color: transparent !important;
   background: rgba(235, 243, 255, 0.08) !important;
@@ -2999,19 +2996,32 @@
   box-shadow: none !important;
 }
 
-/* Keep the weapon artwork clear; all text over the liquid card gets one reading frost. */
-:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .config-weapon-choose-showcase :is(
-  .config-weapon-choose-content-area,
-  .config-weapon-choose-detail-textarea
+/* Weapon hierarchy: frosted cards, with real liquid reserved for the artwork window. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
+  .config-weapon-choose-showcase,
+  .operator-config-page-weapon-star-showcase,
+  .config-weapon-config
 ) {
   border: 1px solid rgba(255, 255, 255, 0.72) !important;
-  border-radius: 12px;
-  background: rgba(238, 244, 255, 0.58) !important;
+  border-radius: 16px;
+  background: rgba(238, 244, 255, 0.48) !important;
   box-shadow:
-    0 6px 15px rgba(31, 45, 91, 0.12),
+    0 9px 24px rgba(31, 45, 91, 0.12),
     inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
   -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
   backdrop-filter: blur(13px) saturate(1.05) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-showcase :is(
+  .config-weapon-choose-content-area,
+  .config-weapon-choose-detail-textarea
+) {
+  border-color: transparent !important;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-showcase :is(
@@ -3031,36 +3041,84 @@
   backdrop-filter: none !important;
 }
 
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-weapon-choose-img-square {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.08) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.68);
+  outline-offset: -1px;
+  box-shadow: none !important;
+}
+
 :root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-choose-img {
   opacity: 1;
   filter: none;
   mix-blend-mode: normal;
 }
 
-:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-strip[data-liquid-glass-surface] :is(
-  input,
-  .config-weapon-option
-) {
-  border-color: transparent !important;
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-weapon-config-button-row {
+  border-color: rgba(255, 255, 255, 0.46) !important;
   background: transparent !important;
   box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
 }
 
-/* Preserve the three weapon-potential states inside their shared glass rail. */
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-current {
+/* Preserve the three weapon-potential states inside the frosted configuration card. */
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row .config-weapon-config-button.is-current {
   border-color: rgba(255, 255, 255, 0.92) !important;
   background: #d986ad !important;
   box-shadow: 0 0 0 2px rgba(217, 134, 173, 0.14) !important;
 }
 
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-lit {
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row .config-weapon-config-button.is-lit {
   border-color: rgba(255, 255, 255, 0.78) !important;
   background: rgba(156, 174, 224, 0.78) !important;
 }
 
-:root[data-theme="liquid-tide"] .config-weapon-config-button-row[data-liquid-glass-surface] .config-weapon-config-button.is-dim {
+:root[data-theme="liquid-tide"] .config-weapon-config-button-row .config-weapon-config-button.is-dim {
   border-color: rgba(255, 255, 255, 0.34) !important;
   background: rgba(75, 91, 144, 0.18) !important;
+}
+
+/* CTI is a compact search control, not a full-width white glass shelf. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-strip {
+  min-height: 36px;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  outline: 0;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .config-cti-input {
+  flex: 0 1 400px;
+  width: min(400px, 34vw) !important;
+  max-width: 400px;
+  height: 32px;
+  min-height: 32px;
+  padding: 4px 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 14px !important;
+  background: rgba(238, 244, 255, 0.58) !important;
+  box-shadow:
+    0 6px 16px rgba(31, 45, 91, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
+  backdrop-filter: blur(13px) saturate(1.05) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-cti-drawer {
+  right: auto;
+  width: min(400px, 34vw);
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 14px !important;
+  background: rgba(238, 244, 255, 0.84) !important;
+  box-shadow: 0 18px 36px rgba(31, 45, 91, 0.18) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.04) !important;
+  backdrop-filter: blur(18px) saturate(1.04) !important;
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -3087,8 +3145,11 @@
 
   :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root :is(
     .operator-config-page-equip-button-group,
-    .config-weapon-choose-content-area,
-    .config-weapon-choose-detail-textarea
+    .config-weapon-choose-showcase,
+    .operator-config-page-weapon-star-showcase,
+    .config-weapon-config,
+    .config-cti-input,
+    .config-cti-drawer
   ) {
     background: rgba(238, 244, 255, 0.94) !important;
     -webkit-backdrop-filter: none !important;
