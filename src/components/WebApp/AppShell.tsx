@@ -5,6 +5,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { useLiquidTideSurfaceGlass } from '../../platform/theme/useLiquidTideSurfaceGlass';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -136,6 +137,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
   const [isLauncherDragging, setIsLauncherDragging] = useState(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const launcherRef = useRef<HTMLDivElement | null>(null);
   const launcherDragRef = useRef<LauncherDragState | null>(null);
   const suppressLauncherClickRef = useRef(false);
@@ -156,6 +158,8 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     : launcherPosition.y + 200 > viewportHeight
       ? 'bottom'
       : 'center';
+
+  useLiquidTideSurfaceGlass(shellRef);
 
   const handleLauncherPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -298,7 +302,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   }, [menuOpen, overlay]);
 
   return (
-    <div className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
+    <div ref={shellRef} className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
       <main className="web-shell-content">{children}</main>
 
       {showLauncher && (

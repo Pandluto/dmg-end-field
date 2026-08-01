@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
 import { readAppTheme, subscribeAppTheme } from './appTheme';
+import { destroyLiquidGlass } from './liquidGlassLifecycle';
 
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_GLASS_SELECTOR = '[data-liquid-glass-skill="true"]';
@@ -144,7 +145,7 @@ export function useLiquidTideGlass(
     let glassElements: HTMLElement[] = [];
     let resizeFrameId = 0;
 
-    instanceRef.current?.destroy();
+    destroyLiquidGlass(instanceRef.current);
     instanceRef.current = null;
 
     if (!root || theme !== LIQUID_TIDE_THEME_ID) {
@@ -185,7 +186,7 @@ export function useLiquidTideGlass(
         });
 
         if (cancelled) {
-          instance.destroy();
+          destroyLiquidGlass(instance);
           return;
         }
 
@@ -209,7 +210,7 @@ export function useLiquidTideGlass(
       root.removeEventListener('scroll', markAfterScroll);
       window.removeEventListener('resize', syncAfterResize);
       clearCompositeGlassClips(glassElements);
-      if (createdInstance) createdInstance.destroy();
+      destroyLiquidGlass(createdInstance);
       if (instanceRef.current === createdInstance) instanceRef.current = null;
       root.removeAttribute('data-liquid-glass-engine');
       root.removeAttribute('data-liquid-glass-state');

@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 import type { AppliedBuffTagViewModel, FormulaViewModel } from '../../core/calculators/skillDamage.types';
 import { getBuffTypeRegistryEntry } from '../../core/domain/buffTypeRegistry';
+import { useLiquidTideSurfaceGlass } from '../../platform/theme/useLiquidTideSurfaceGlass';
 import { TimelineBuffListPanel } from './TimelineBuffListPanel';
 import { TimelineHitTuningPanel } from './TimelineHitTuningPanel';
 import { TimelineInfoPanel } from './TimelineInfoPanel';
@@ -347,6 +348,7 @@ export function TimelineSkillDetailWorkbench({
   formula,
   infoLines,
 }: TimelineSkillDetailWorkbenchProps) {
+  const detailRootRef = useRef<HTMLDivElement | null>(null);
   const [utilityPanel, setUtilityPanel] = useState<'resistance' | 'info' | null>(null);
   const [isAllTuningExpanded, setIsAllTuningExpanded] = useState(false);
   const [activeCalculationSection, setActiveCalculationSection] = useState<CalculationSectionKey>('attack');
@@ -397,6 +399,8 @@ export function TimelineSkillDetailWorkbench({
   })();
   const calculationSvgHeight = Math.max(calculationSections.length * 50, 50);
 
+  useLiquidTideSurfaceGlass(detailRootRef);
+
   useEffect(() => {
     if (buffSourceFilter === 'all') {
       return;
@@ -430,7 +434,7 @@ export function TimelineSkillDetailWorkbench({
   }, [onClose]);
 
   return createPortal(
-    <div className="timeline-detail-layer" role="dialog" aria-modal="true" aria-label="技能排轴详情">
+    <div ref={detailRootRef} className="timeline-detail-layer" role="dialog" aria-modal="true" aria-label="技能排轴详情">
       {searchLayer}
       <main className="timeline-detail-canvas">
         <button
