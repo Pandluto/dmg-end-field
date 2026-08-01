@@ -5,7 +5,7 @@ import { destroyLiquidGlass } from './liquidGlassLifecycle';
 
 const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
-const MAX_MANAGED_ROOTS = 12;
+const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
 const BACKDROP_ASPECT_RATIO = 16 / 9;
 
@@ -15,13 +15,11 @@ type SurfaceRule = {
   selector: string;
   preset: SurfacePreset;
   priority: number;
-  managedRootSelector?: string;
   visibilityAnchor?: string;
 };
 
 type SurfaceTarget = {
   element: HTMLElement;
-  managedRoot: HTMLElement;
   preset: SurfacePreset;
   priority: number;
   visibilityAnchor: HTMLElement | null;
@@ -114,22 +112,12 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.config-panel-back-btn', preset: 'control', priority: 0 },
   { selector: '.config-avatar-indicator-glass', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-equip-circle', preset: 'card', priority: 1 },
-  {
-    selector: '.operator-config-page-equip-button-row',
-    preset: 'dock',
-    priority: 2,
-    managedRootSelector: '.operator-config-page-equip-button-groups',
-  },
+  { selector: '.operator-config-page-equip-button-row', preset: 'dock', priority: 2 },
   { selector: '.config-weapon-choose-img-square', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-weapon-star-square-box', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-level-badge-box', preset: 'card', priority: 1 },
   { selector: '.operator-config-page-level-track', preset: 'dock', priority: 1 },
-  {
-    selector: '.config-weapon-config-button-row',
-    preset: 'dock',
-    priority: 2,
-    managedRootSelector: '.config-weapon-config',
-  },
+  { selector: '.config-weapon-config-button-row', preset: 'dock', priority: 2 },
 
   { selector: '.operator-draft-command-actions', preset: 'dock', priority: 1 },
   { selector: '.operator-draft-section-actions', preset: 'dock', priority: 2 },
@@ -538,20 +526,16 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
       const byElement = new Map<HTMLElement, SurfaceTarget>();
       SURFACE_RULES.forEach((rule) => {
         appRoot.querySelectorAll<HTMLElement>(rule.selector).forEach((element) => {
-          const managedRoot = rule.managedRootSelector
-            ? element.closest<HTMLElement>(rule.managedRootSelector)
-            : element.parentElement;
           const visibilityAnchor = rule.visibilityAnchor
             ? element.closest<HTMLElement>(rule.visibilityAnchor)
             : null;
           if (
             !byElement.has(element)
-            && managedRoot
+            && element.parentElement
             && isRendered(visibilityAnchor ?? element)
           ) {
             byElement.set(element, {
               element,
-              managedRoot,
               preset: rule.preset,
               priority: rule.priority,
               visibilityAnchor,
@@ -589,9 +573,11 @@ export function useLiquidTideSurfaceGlass(rootRef: RefObject<HTMLDivElement>): v
 
       const groupedTargets = new Map<HTMLElement, SurfaceTarget[]>();
       candidates.forEach((target) => {
-        const list = groupedTargets.get(target.managedRoot) ?? [];
+        const parent = target.element.parentElement;
+        if (!parent) return;
+        const list = groupedTargets.get(parent) ?? [];
         list.push(target);
-        groupedTargets.set(target.managedRoot, list);
+        groupedTargets.set(parent, list);
       });
 
       const selectedGroups = Array.from(groupedTargets.entries())

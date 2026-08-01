@@ -3022,15 +3022,6 @@
   outline-offset: -1px;
 }
 
-/* Twelve equipment tracks are separate lenses on one compact shared renderer. */
-:root[data-theme="liquid-tide"] .operator-config-page-equip-button-groups[data-liquid-glass-surface-state="active"] .operator-config-page-equip-button-row {
-  border-color: transparent !important;
-  background: rgba(235, 243, 255, 0.08) !important;
-  outline: 1px solid rgba(255, 255, 255, 0.58);
-  outline-offset: -1px;
-  box-shadow: none !important;
-}
-
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle-image {
   opacity: 1;
   filter: none;
@@ -3165,15 +3156,6 @@
   border-color: transparent !important;
   background: rgba(235, 243, 255, 0.08) !important;
   outline: 1px solid rgba(255, 255, 255, 0.68) !important;
-  outline-offset: -1px;
-  box-shadow: none !important;
-}
-
-/* The three weapon tracks share one renderer root but keep three equal lenses. */
-:root[data-theme="liquid-tide"] .config-weapon-config[data-liquid-glass-surface-state="active"] .config-weapon-config-button-row {
-  border-color: transparent !important;
-  background: rgba(235, 243, 255, 0.08) !important;
-  outline: 1px solid rgba(255, 255, 255, 0.58);
   outline-offset: -1px;
   box-shadow: none !important;
 }
