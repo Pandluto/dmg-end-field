@@ -2513,6 +2513,9 @@ export function OperatorConfigPage() {
                       ensureCharacterConfig(character.id, character);
                     }}
                   >
+                    {activeCharacterId === character.id ? (
+                      <span className="config-avatar-indicator-glass" aria-hidden="true" />
+                    ) : null}
                     {character.avatarUrl ? (
                       <img
                         className="config-avatar-image"

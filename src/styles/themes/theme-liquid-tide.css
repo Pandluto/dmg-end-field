@@ -2869,6 +2869,22 @@
   box-shadow: none !important;
 }
 
+/* Keep the draggable global menu and the page back action as two readable controls. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-panel-back-btn {
+  margin-left: 40px;
+  border: 1px solid rgba(255, 255, 255, 0.62) !important;
+  border-radius: 14px !important;
+  background: rgba(235, 243, 255, 0.14) !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-panel-back-btn {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.12) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.64);
+  outline-offset: -1px;
+}
+
 :root[data-theme="liquid-tide"] .operator-config-page-root :is(
   .config-data-section,
   .operator-config-page-section
@@ -2921,6 +2937,7 @@
   .config-weapon-choose-img-square,
   .operator-config-page-weapon-star-square-box,
   .operator-config-page-level-badge-box,
+  .operator-config-page-level-track,
   .config-weapon-config-button-row
 ) {
   border-color: transparent !important;
@@ -2928,6 +2945,48 @@
   outline: 1px solid rgba(255, 255, 255, 0.58);
   outline-offset: -1px;
   box-shadow: none !important;
+}
+
+/* The active switcher parallelogram is the lens; the round portrait remains authored artwork. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item,
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item.is-active {
+  isolation: isolate;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-item.is-active::after {
+  content: none !important;
+  display: none !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-indicator-glass {
+  position: absolute;
+  inset: 0 auto auto 50%;
+  z-index: 0;
+  display: block;
+  width: var(--config-indicator-width);
+  height: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.68) !important;
+  border-radius: 4px;
+  clip-path: polygon(18% 0, 100% 0, 82% 100%, 0 100%);
+  transform: translate(-50%, 0);
+  background: rgba(235, 243, 255, 0.12) !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .config-avatar-indicator-glass {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.1) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.72);
+  outline-offset: -1px;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .config-avatar-image {
+  position: relative;
+  z-index: 2;
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-visual-top::after {
@@ -3137,6 +3196,22 @@
 }
 
 /* Skill and role progression are horizontal capsules with the same three states. */
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-level-track {
+  padding: 5px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  border-radius: 16px;
+  background: rgba(235, 243, 255, 0.12) !important;
+  box-sizing: border-box;
+  box-shadow: none !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-level-track {
+  border-color: transparent !important;
+  background: rgba(235, 243, 255, 0.1) !important;
+  outline: 1px solid rgba(255, 255, 255, 0.62);
+  outline-offset: -1px;
+}
+
 :root[data-theme="liquid-tide"] .operator-config-page-root :is(
   .operator-config-page-level-slot,
   .operator-config-page-track-slot
@@ -3172,6 +3247,25 @@
   .operator-config-page-track-slot
 ):focus-visible {
   box-shadow: var(--theme-focus-ring) !important;
+}
+
+/* Main and sub abilities keep their semantic distinction without another blur layer. */
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-main,
+  .operator-config-page-stat-item.is-main,
+  .operator-config-page-favor-row:first-child .operator-config-page-favor-input
+) {
+  border: 2px solid rgba(217, 134, 173, 0.92) !important;
+  background: rgba(232, 151, 187, 0.15) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root :is(
+  .config-data-item.is-sub,
+  .operator-config-page-stat-item.is-sub,
+  .operator-config-page-favor-row:last-child .operator-config-page-favor-input
+) {
+  border: 2px solid rgba(117, 153, 220, 0.88) !important;
+  background: rgba(117, 153, 220, 0.13) !important;
 }
 
 /* CTI is a compact search control, not a full-width liquid shelf. */
