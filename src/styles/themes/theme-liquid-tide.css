@@ -2152,7 +2152,9 @@
 }
 
 :root[data-theme="liquid-tide"] .timeline-detail-layer {
-  background: rgba(28, 40, 83, 0.06) !important;
+  background: rgba(214, 222, 239, 0.28) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(0.82) brightness(1.03) !important;
+  backdrop-filter: blur(24px) saturate(0.82) brightness(1.03) !important;
 }
 
 /* These columns are layout scaffolds, not glass panes. */
@@ -2448,12 +2450,24 @@
   .work-node-modal-overlay,
   .data-save-dialog-backdrop,
   .buff-editor-drawer-mask,
-  .skill-button-inline-buff-search-mask,
   .config-panel-overlay,
   .operator-config-page-picker-backdrop,
   .operator-config-page-panel-detail-backdrop
 ) {
   background: rgba(27, 39, 83, 0.24) !important;
+}
+
+/* One full-viewport door separates each overlay depth from the content below. */
+:root[data-theme="liquid-tide"] .timeline-detail-layer:has(> .skill-button-inline-buff-search-mask) {
+  background: rgba(28, 40, 83, 0.04) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .skill-button-inline-buff-search-mask {
+  background: rgba(214, 222, 239, 0.34) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(0.8) brightness(1.03) !important;
+  backdrop-filter: blur(28px) saturate(0.8) brightness(1.03) !important;
 }
 
 /* Non-shader controls use a crisp translucent fallback, never faux blur. */
@@ -2510,5 +2524,14 @@
 
   :root[data-theme="liquid-tide"] [data-liquid-glass-surface] {
     background: rgba(242, 247, 255, 0.92) !important;
+  }
+
+  :root[data-theme="liquid-tide"] :is(
+    .timeline-detail-layer,
+    .skill-button-inline-buff-search-mask
+  ) {
+    background: rgba(229, 235, 248, 0.94) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
   }
 }
