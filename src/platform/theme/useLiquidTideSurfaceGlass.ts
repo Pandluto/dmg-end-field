@@ -83,6 +83,7 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.timeline-detail-heading > nav', preset: 'dock', priority: 0 },
   { selector: '.timeline-detail-expand-all-button', preset: 'control', priority: 0 },
   { selector: '.timeline-buff-bulk-actions', preset: 'dock', priority: 1 },
+  { selector: '.timeline-calculation-zone-glass', preset: 'control', priority: 0 },
   { selector: '.skill-button-inline-buff-search-modes', preset: 'dock', priority: 1 },
 
   { selector: '.selection-header > .selection-header-actions', preset: 'dock', priority: 1 },

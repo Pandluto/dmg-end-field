@@ -2189,6 +2189,83 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46) !important;
 }
 
+/*
+ * The page-level door already stabilizes the artwork. Calculation and Buff
+ * content below it are typography and grouping, not additional panes.
+ */
+:root[data-theme="liquid-tide"] :is(
+  .timeline-detail-right-column > .timeline-detail-card,
+  .timeline-buff-list-card,
+  .timeline-status-card
+) {
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-calculation-summary,
+  .timeline-calculation-detail,
+  .timeline-summary-formula-parts,
+  .timeline-calculation-detail-rows > div,
+  .timeline-calculation-buff-row,
+  .timeline-calculation-buffs > p
+) {
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-summary {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(91, 106, 157, 0.28) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-detail {
+  border: 0 !important;
+}
+
+:root[data-theme="liquid-tide"] :is(
+  .timeline-calculation-detail-rows > div,
+  .timeline-calculation-buff-row
+) {
+  border: 0 !important;
+  border-bottom: 1px solid rgba(91, 106, 157, 0.2) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-buffs > p {
+  border-color: rgba(91, 106, 157, 0.24) !important;
+}
+
+/* Preserve the existing SVG geometry; real shader surfaces sit directly below it. */
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-glass {
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  background: rgba(241, 247, 255, 0.26) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-glass.is-selected {
+  background: linear-gradient(135deg, rgba(226, 148, 187, 0.28), rgba(112, 148, 219, 0.24)) !important;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node rect {
+  fill: rgba(244, 248, 255, 0.06);
+  stroke: rgba(255, 255, 255, 0.52);
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:hover rect,
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:focus rect {
+  fill: rgba(255, 255, 255, 0.12);
+  stroke: rgba(255, 255, 255, 0.82);
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node.is-selected rect {
+  fill: rgba(241, 247, 255, 0.12);
+  stroke: rgba(255, 255, 255, 0.9);
+}
+
 :root[data-theme="liquid-tide"] .web-app-shell .web-shell-window {
   background: rgba(242, 247, 255, 0.84) !important;
   -webkit-backdrop-filter: blur(23px) saturate(1.12) !important;

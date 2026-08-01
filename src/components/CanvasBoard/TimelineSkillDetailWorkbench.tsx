@@ -652,6 +652,19 @@ export function TimelineSkillDetailWorkbench({
                     ) : null}
                   </article>
                   <div className="timeline-calculation-zone-scroll">
+                    <div
+                      className="timeline-calculation-zone-glass-layer"
+                      style={{ height: calculationSvgHeight }}
+                      aria-hidden="true"
+                    >
+                      {calculationSections.map((section, index) => (
+                        <div
+                          key={section.key}
+                          className={`timeline-calculation-zone-glass${section.key === selectedCalculationSection?.key ? ' is-selected' : ''}`}
+                          style={{ top: index * 50 + 5 }}
+                        />
+                      ))}
+                    </div>
                     <svg
                       className="timeline-calculation-zone-map"
                       viewBox={`0 0 116 ${calculationSvgHeight}`}
