@@ -2910,8 +2910,7 @@
 }
 
 :root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > :is(
-  .operator-config-page-equip-circle,
-  .operator-config-page-equip-button-group,
+  .operator-config-page-equip-stage-glass,
   .config-weapon-choose-showcase,
   .operator-config-page-weapon-star-showcase,
   .config-weapon-config-button-row,
@@ -2924,18 +2923,57 @@
   box-shadow: none !important;
 }
 
-:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-button-group {
-  background: rgba(24, 35, 75, 0.13) !important;
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-visual-top::after {
+  display: none;
 }
 
-:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-button-group :is(
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-stage-glass {
+  position: absolute;
+  inset: 35px 14px 14px;
+  z-index: 0;
+  border-radius: 20px;
+  pointer-events: none;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .operator-config-page-equip-stage-glass {
+  background: rgba(235, 243, 255, 0.1) !important;
+  outline-color: rgba(255, 255, 255, 0.68);
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-circle {
+  border-color: rgba(255, 255, 255, 0.68) !important;
+  background: rgba(244, 248, 255, 0.14) !important;
+  box-shadow:
+    0 8px 18px rgba(28, 42, 86, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.58) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Equipment hierarchy: clear outer frame, one liquid stage, one frosted value card. */
+:root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 11px;
+  background: rgba(238, 244, 255, 0.58) !important;
+  box-shadow:
+    0 6px 15px rgba(31, 45, 91, 0.13),
+    inset 0 1px 0 rgba(255, 255, 255, 0.74) !important;
+  -webkit-backdrop-filter: blur(13px) saturate(1.05) !important;
+  backdrop-filter: blur(13px) saturate(1.05) !important;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
   .operator-config-page-equip-button-textdiv,
   .operator-config-page-equip-button-text,
   .operator-config-page-equip-button-text-head,
   .operator-config-page-equip-button-text-tail
 ) {
-  color: var(--liquid-tide-bright-text) !important;
-  text-shadow: 0 1px 3px rgba(14, 22, 52, 0.82);
+  color: var(--liquid-tide-ink) !important;
+  text-shadow: none;
+}
+
+:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-textdiv.is-disabled {
+  color: rgba(44, 53, 82, 0.58) !important;
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-equip-button-group :is(
@@ -3005,6 +3043,12 @@
     .operator-config-page-root
   ) {
     background: rgba(229, 235, 248, 0.94) !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell .operator-config-page-root .operator-config-page-equip-button-group {
+    background: rgba(238, 244, 255, 0.94) !important;
     -webkit-backdrop-filter: none !important;
     backdrop-filter: none !important;
   }
