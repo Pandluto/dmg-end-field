@@ -107,6 +107,9 @@ interface CalculationSection {
   buffs: AppliedBuffTagViewModel[];
 }
 
+const CALCULATION_ZONE_MAX_SCROLL_PX_PER_SECOND = 960;
+const CALCULATION_ZONE_WHEEL_LINE_HEIGHT = 16;
+
 function readFormulaResult(formulaText: string): string {
   const match = formulaText.match(/=\s*(-?\d+(?:\.\d+)?%?)(?:\s|$|\()/);
   return match?.[1] ?? '—';
@@ -349,6 +352,10 @@ export function TimelineSkillDetailWorkbench({
   infoLines,
 }: TimelineSkillDetailWorkbenchProps) {
   const detailRootRef = useRef<HTMLDivElement | null>(null);
+  const calculationZoneScrollRef = useRef<HTMLDivElement | null>(null);
+  const calculationZoneScrollFrameRef = useRef<number | null>(null);
+  const calculationZoneScrollLastFrameRef = useRef<number | null>(null);
+  const calculationZoneScrollTargetRef = useRef(0);
   const [utilityPanel, setUtilityPanel] = useState<'resistance' | 'info' | null>(null);
   const [isAllTuningExpanded, setIsAllTuningExpanded] = useState(false);
   const [activeCalculationSection, setActiveCalculationSection] = useState<CalculationSectionKey>('attack');
@@ -400,6 +407,98 @@ export function TimelineSkillDetailWorkbench({
   const calculationSvgHeight = Math.max(calculationSections.length * 50, 50);
 
   useLiquidTideSurfaceGlass(detailRootRef);
+
+  useEffect(() => {
+    const scrollElement = calculationZoneScrollRef.current;
+    if (!scrollElement) return undefined;
+    const isLiquidTideActive = () => document.documentElement.dataset.theme === 'liquid-tide';
+
+    const cancelLimitedScroll = () => {
+      if (calculationZoneScrollFrameRef.current !== null) {
+        cancelAnimationFrame(calculationZoneScrollFrameRef.current);
+        calculationZoneScrollFrameRef.current = null;
+      }
+      calculationZoneScrollLastFrameRef.current = null;
+      calculationZoneScrollTargetRef.current = scrollElement.scrollTop;
+    };
+
+    const stepLimitedScroll = (timestamp: number) => {
+      if (!isLiquidTideActive()) {
+        calculationZoneScrollFrameRef.current = null;
+        calculationZoneScrollLastFrameRef.current = null;
+        calculationZoneScrollTargetRef.current = scrollElement.scrollTop;
+        return;
+      }
+      const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+      const target = Math.min(Math.max(calculationZoneScrollTargetRef.current, 0), maxScrollTop);
+      calculationZoneScrollTargetRef.current = target;
+      const remaining = target - scrollElement.scrollTop;
+
+      if (Math.abs(remaining) <= 0.5) {
+        scrollElement.scrollTop = target;
+        calculationZoneScrollFrameRef.current = null;
+        calculationZoneScrollLastFrameRef.current = null;
+        return;
+      }
+
+      const elapsedMs = calculationZoneScrollLastFrameRef.current === null
+        ? 1000 / 60
+        : Math.min(Math.max(timestamp - calculationZoneScrollLastFrameRef.current, 1000 / 120), 1000 / 30);
+      calculationZoneScrollLastFrameRef.current = timestamp;
+      const maxStep = CALCULATION_ZONE_MAX_SCROLL_PX_PER_SECOND * elapsedMs / 1000;
+      scrollElement.scrollTop += Math.sign(remaining) * Math.min(
+        Math.abs(remaining),
+        maxStep,
+      );
+      calculationZoneScrollFrameRef.current = requestAnimationFrame(stepLimitedScroll);
+    };
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!isLiquidTideActive() || event.ctrlKey || Math.abs(event.deltaY) < 0.01) return;
+
+      const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? CALCULATION_ZONE_WHEEL_LINE_HEIGHT
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? scrollElement.clientHeight
+          : 1;
+      const delta = event.deltaY * deltaMultiplier;
+      const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+      const baseTarget = calculationZoneScrollFrameRef.current === null
+        ? scrollElement.scrollTop
+        : calculationZoneScrollTargetRef.current;
+      const nextTarget = Math.min(Math.max(baseTarget + delta, 0), maxScrollTop);
+
+      if (Math.abs(nextTarget - baseTarget) <= 0.5) {
+        if (calculationZoneScrollFrameRef.current !== null) event.preventDefault();
+        return;
+      }
+
+      event.preventDefault();
+      calculationZoneScrollTargetRef.current = nextTarget;
+      if (calculationZoneScrollFrameRef.current === null) {
+        calculationZoneScrollLastFrameRef.current = null;
+        calculationZoneScrollFrameRef.current = requestAnimationFrame(stepLimitedScroll);
+      }
+    };
+
+    const handleNativeScroll = () => {
+      if (calculationZoneScrollFrameRef.current === null) {
+        calculationZoneScrollTargetRef.current = scrollElement.scrollTop;
+      }
+    };
+
+    scrollElement.addEventListener('wheel', handleWheel, { passive: false });
+    scrollElement.addEventListener('pointerdown', cancelLimitedScroll);
+    scrollElement.addEventListener('scroll', handleNativeScroll, { passive: true });
+    calculationZoneScrollTargetRef.current = scrollElement.scrollTop;
+
+    return () => {
+      scrollElement.removeEventListener('wheel', handleWheel);
+      scrollElement.removeEventListener('pointerdown', cancelLimitedScroll);
+      scrollElement.removeEventListener('scroll', handleNativeScroll);
+      cancelLimitedScroll();
+    };
+  }, [calculationSections.length]);
 
   useEffect(() => {
     if (buffSourceFilter === 'all') {
@@ -651,7 +750,7 @@ export function TimelineSkillDetailWorkbench({
                       </>
                     ) : null}
                   </article>
-                  <div className="timeline-calculation-zone-scroll">
+                  <div ref={calculationZoneScrollRef} className="timeline-calculation-zone-scroll">
                     <div
                       className="timeline-calculation-zone-glass-layer"
                       style={{ height: calculationSvgHeight }}

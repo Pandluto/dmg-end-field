@@ -2242,8 +2242,12 @@
 
 /* Preserve the existing SVG geometry; real shader surfaces sit directly below it. */
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-glass {
-  border-color: rgba(255, 255, 255, 0.58) !important;
   background: rgba(241, 247, 255, 0.26) !important;
+}
+
+:root[data-theme="liquid-tide"] [data-liquid-glass-surface-state="active"] > .timeline-calculation-zone-glass {
+  border-color: transparent !important;
+  outline: none !important;
 }
 
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-glass.is-selected {
@@ -2251,19 +2255,34 @@
 }
 
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-node rect {
-  fill: rgba(244, 248, 255, 0.06);
-  stroke: rgba(255, 255, 255, 0.52);
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 0;
+  pointer-events: all;
 }
 
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-node:hover rect,
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-node:focus rect {
-  fill: rgba(255, 255, 255, 0.12);
-  stroke: rgba(255, 255, 255, 0.82);
+  fill: transparent;
+  stroke: transparent;
 }
 
 :root[data-theme="liquid-tide"] .timeline-calculation-zone-node.is-selected rect {
-  fill: rgba(241, 247, 255, 0.12);
-  stroke: rgba(255, 255, 255, 0.9);
+  fill: transparent;
+  stroke: transparent;
+}
+
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:hover :is(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+),
+:root[data-theme="liquid-tide"] .timeline-calculation-zone-node:focus :is(
+  .zone-node-label,
+  .zone-node-value,
+  .zone-node-order
+) {
+  fill: var(--liquid-tide-ink);
 }
 
 :root[data-theme="liquid-tide"] .web-app-shell .web-shell-window {
