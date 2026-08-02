@@ -330,8 +330,8 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       'First Weapon Effect',
     ]);
 
-    // Current page writes the selected draft after its 400ms debounce, then SQLite batches for 60ms.
-    await page.waitForTimeout(600);
+    // SQLite-backed storage batches writes after 60ms; no page-level draft debounce should be required.
+    await page.waitForTimeout(120);
     await page.reload();
     await importedWeaponRow.locator('.buff-sheet-explorer-toggle').click();
     await importedSkill3Row.locator('.buff-sheet-explorer-toggle').click();

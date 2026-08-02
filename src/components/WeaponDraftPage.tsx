@@ -1218,6 +1218,7 @@ export function WeaponDraftSheetPage() {
       };
       if (targetDraft.id === draft.id) {
         setDraft(nextDraft);
+        weaponDraftRepository.saveDraft(nextDraft);
       }
       const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
       setLocalLibrary(nextLibrary);
