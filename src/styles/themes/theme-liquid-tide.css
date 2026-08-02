@@ -1143,7 +1143,6 @@
 /* Dense data, damage and image pages share one readable material hierarchy. */
 :root[data-theme="liquid-tide"] :is(
   .operator-draft-page,
-  .buff-draft-page,
   .buff-sheet-page,
   .weapon-sheet-page,
   .equipment-sheet-page,

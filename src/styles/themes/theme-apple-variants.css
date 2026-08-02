@@ -1054,7 +1054,6 @@
 /* Data editors and original utility pages */
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .operator-draft-page,
-  .buff-draft-page,
   .operator-config-page-root,
   .damage-sheet-page,
   .damage-report-page,
