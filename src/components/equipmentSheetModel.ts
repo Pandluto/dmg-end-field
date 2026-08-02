@@ -248,6 +248,10 @@ export const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSI
           : '计层额外伤害段 · countable extraHit',
 }));
 
+export function getEquipmentBuffBusinessType(buff: EquipmentThreePieceBuff | undefined) {
+  return buff ? buffModel.deriveOperatorBuffBusinessType(equipmentBuffToDrawer(buff)) : 'passive';
+}
+
 export const DEFAULT_FIXED_STAT_BY_PART: Record<EquipmentPart, EquipmentFixedStat> = {
   '护甲': { label: '防御力', typeKey: 'defense', value: 56, unit: 'flat', raw: '防御力：+56' },
   '护手': { label: '防御力', typeKey: 'defense', value: 42, unit: 'flat', raw: '防御力：+42' },

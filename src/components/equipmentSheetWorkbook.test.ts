@@ -9,7 +9,7 @@ import {
   getWorkbookRowClassName,
   type EquipmentRow,
   type EquipmentWorkbookRow,
-} from './EquipmentSheetPage';
+} from './equipmentSheetWorkbook';
 import type {
   EquipmentEffect,
   EquipmentEffectId,
