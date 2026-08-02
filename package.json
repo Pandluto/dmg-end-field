@@ -26,8 +26,9 @@
     "build:local": "npm run assets:web-prepare && npm run build:web",
     "build:sites": "node scripts/clean-sites-build.mjs && npm run assets:web-prepare && npm run data:web-manifest && SITES_BUILD=1 vite build && node scripts/build-atomic-service-worker.mjs dist/client",
     "check:repo": "node scripts/repository-check.mjs",
+    "check:offline-shell": "node scripts/check-atomic-service-worker.mjs dist",
     "audit:dependencies": "npm audit --audit-level=high",
-    "check": "npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run smoke:timeline-bundle && npm run build:web",
+    "check": "npm run check:repo && npm run audit:dependencies && npm run typecheck && npm test && npm run smoke:timeline-bundle && npm run build:web && npm run check:offline-shell",
     "release:verify": "node scripts/check-release-version.mjs",
     "build": "npm run typecheck && npm run build:web",
     "preview": "vite preview --host 127.0.0.1"
