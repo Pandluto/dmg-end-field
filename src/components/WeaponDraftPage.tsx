@@ -68,14 +68,14 @@ interface WeaponImageOption {
   searchText: string;
 }
 
-interface WeaponSheetColumn {
+export interface WeaponSheetColumn {
   key: 'name' | 'idText' | 'slot' | 'level' | 'effectKey' | 'valueText' | 'description';
   title: string;
   width: number;
   align?: 'left' | 'center' | 'right';
 }
 
-interface WeaponWorkbookCell {
+export interface WeaponWorkbookCell {
   key: string;
   address: string;
   value: string;
@@ -85,7 +85,7 @@ interface WeaponWorkbookCell {
   sourceRowKey: string;
 }
 
-interface WeaponWorkbookRow {
+export interface WeaponWorkbookRow {
   key: string;
   rowNumber: number;
   kind: WeaponSheetRow['kind'];
@@ -195,7 +195,7 @@ function loadDraftFromStorage() {
   return normalizeWeaponDraft(raw);
 }
 
-function buildWeaponSheetColumns(): WeaponSheetColumn[] {
+export function buildWeaponSheetColumns(): WeaponSheetColumn[] {
   return [
     { key: 'name', title: '名称', width: 220 },
     { key: 'idText', title: 'ID', width: 120 },
@@ -271,7 +271,7 @@ function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLInputElement>,
   }
 }
 
-function columnIndexToLabel(index: number) {
+export function columnIndexToLabel(index: number) {
   let current = index + 1;
   let label = '';
   while (current > 0) {
@@ -282,7 +282,7 @@ function columnIndexToLabel(index: number) {
   return label;
 }
 
-function buildWeaponWorkbookRows(draft: WeaponDraft, rows: WeaponSheetRow[], columns: WeaponSheetColumn[]): WeaponWorkbookRow[] {
+export function buildWeaponWorkbookRows(draft: WeaponDraft, rows: WeaponSheetRow[], columns: WeaponSheetColumn[]): WeaponWorkbookRow[] {
   return rows.map((row, rowIndex) => ({
     key: row.key,
     rowNumber: rowIndex + 1,
