@@ -202,6 +202,59 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(savedEntry).toBeVisible();
     await page.reload();
     await expect(savedEntry).toBeVisible();
+
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    const shareModal = page.locator('.buff-sheet-share-modal');
+    const sharePreview = shareModal.locator('.buff-sheet-share-textarea.is-preview');
+    const shareText = await sharePreview.inputValue();
+    const parsedShare = JSON.parse(shareText) as {
+      type: string;
+      exportedAt: number;
+      label: string;
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(parsedShare.type).toBe('weapon-library-share.v1');
+    expect(parsedShare.label).toBe('Slim E2E Weapon');
+    const sourceDraft = Object.values(parsedShare.payload).find((value) => value.name === 'Slim E2E Weapon');
+    expect(sourceDraft).toBeTruthy();
+
+    await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
+    const downloadPromise = page.waitForEvent('download');
+    await shareModal.getByRole('button', { name: '导出文件', exact: true }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.json$/);
+
+    await shareModal.locator('.buff-sheet-share-modal-tab').filter({ hasText: '导入' }).click();
+    const importText = shareModal.locator('.buff-sheet-share-textarea:not(.is-preview)');
+    await importText.fill(JSON.stringify({ type: 'not-a-weapon-share', payload: {} }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText(
+      '导入失败：文件不是有效的武器库分享 JSON。',
+      { exact: true },
+    )).toBeVisible();
+
+    await importText.fill(JSON.stringify({
+      type: 'weapon-library-share.v1',
+      exportedAt: Date.now(),
+      label: 'Slim E2E Weapon Import',
+      payload: {
+        'slim-imported-weapon': {
+          ...sourceDraft,
+          id: 'ignored-inner-id',
+          name: 'Slim Imported Weapon',
+        },
+      },
+    }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText('名称：Slim E2E Weapon Import', { exact: true })).toBeVisible();
+    await expect(shareModal.getByText('武器数：1', { exact: true })).toBeVisible();
+    await shareModal.getByRole('button', { name: '确认导入', exact: true }).click();
+
+    const importedEntry = page.locator('.buff-sheet-explorer-label').filter({ hasText: 'Slim Imported Weapon' });
+    await expect(importedEntry).toBeVisible();
+    await page.reload();
+    await expect(importedEntry).toBeVisible();
   });
 
   await test.step('Equipment draft saves through browser storage and survives reload', async () => {
