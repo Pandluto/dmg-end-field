@@ -379,15 +379,45 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
   });
 
   await test.step('Equipment draft saves through browser storage and survives reload', async () => {
+    const userImageFileName = 'slim-equipment-user-image.png';
+    const userImageRelativePath = `assets/images/${userImageFileName}`;
+    await openRoute(page, '/data/images', '图片资源管理');
+    const imageFileChooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: '导入', exact: true }).click();
+    const imageFileChooser = await imageFileChooserPromise;
+    await imageFileChooser.setFiles({
+      name: userImageFileName,
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.getByRole('status')).toHaveText('导入成功');
+    await expect(page.getByText(userImageFileName, { exact: true })).toBeVisible();
+
     await openRoute(page, '/data/equipments', 'Sheet-Equipment');
     await page.getByRole('button', { name: '新建', exact: true }).click();
     const name = page.locator('input[value="新建装备"]');
     await expect(name).toHaveCount(1);
     await name.fill('Slim E2E Equipment');
+    const createdWorkbookRow = page
+      .locator('input[value="Slim E2E Equipment"]')
+      .locator('xpath=ancestor::*[@data-equipment-row-key]');
+    await createdWorkbookRow.locator('.is-col-description').click();
+    const equipmentImageSearch = page.getByPlaceholder('搜索图片：文件名 / baseName / 路径 / URL');
+    await equipmentImageSearch.click();
+    await equipmentImageSearch.fill(userImageFileName);
+    const userImageOption = page.locator('.weapon-sheet-image-option').filter({
+      hasText: userImageFileName,
+    });
+    await expect(userImageOption).toHaveCount(1);
+    await userImageOption.click();
+    await expect(page.locator('.weapon-sheet-image-preview')).toBeVisible();
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('heading', { name: '确认保存装备库', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '确认保存', exact: true }).click();
-    await expect(page.getByText('已保存到浏览器 SQLite 装备库。', { exact: false })).toBeVisible();
+    await expect(page.locator('.equipment-sheet-save-status')).toHaveText('已保存');
     const savedEntry = page.locator('.buff-sheet-explorer-label').filter({
       hasText: 'Slim E2E Equipment',
     });
@@ -397,6 +427,8 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await page.getByRole('button', { name: /^\[\+\] 潮涌 \d+$/ }).click();
     await expect(savedEntry).toBeVisible();
     await savedEntry.click();
+    await expect(page.locator('.weapon-sheet-image-slot')).not.toHaveClass(/is-broken/);
+    await expect(page.locator('.weapon-sheet-image-preview')).toHaveAttribute('src', /^blob:/);
 
     await page.getByRole('button', { name: '导出', exact: true }).click();
     const shareModal = page.locator('.buff-sheet-share-modal');
@@ -418,6 +450,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       sourceGearSet.equipments as Record<string, Record<string, unknown>>,
     ).find((equipment) => equipment.name === 'Slim E2E Equipment');
     if (!sourceEquipment) throw new Error('Exported Equipment item is missing from share preview.');
+    expect(sourceEquipment.imgUrl).toBe(userImageRelativePath);
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
@@ -496,7 +529,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('heading', { name: '确认保存装备库', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '确认保存', exact: true }).click();
-    await expect(page.getByText('已保存到浏览器 SQLite 装备库。', { exact: false })).toBeVisible();
+    await expect(page.locator('.equipment-sheet-save-status')).toHaveText('已保存');
     await page.reload();
     await expect(importedSetRow).toHaveCount(1);
     await importedSetRow.locator('.buff-sheet-explorer-toggle').click();

@@ -3,7 +3,11 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
-import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageLibrary';
+import {
+  canonicalizeWebImageReference,
+  getWebImageUrl,
+  webImageLibrary,
+} from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import {
@@ -806,11 +810,11 @@ export function EquipmentSheetPage() {
     return true;
   }, [formulaBinding, mutateLibrary]);
 
-  const handleSelectEquipmentImage = useCallback((displayUrl: string) => {
+  const handleSelectEquipmentImage = useCallback((option: EquipmentImageOption) => {
     if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
-    applyFormulaValue(displayUrl);
-    setFormulaInput(displayUrl);
-    setEquipmentImageQuery(displayUrl);
+    applyFormulaValue(option.relativePath);
+    setFormulaInput(option.relativePath);
+    setEquipmentImageQuery(option.relativePath);
     setIsEquipmentImageDrawerOpen(false);
   }, [applyFormulaValue, formulaBinding]);
 
@@ -1124,6 +1128,7 @@ export function EquipmentSheetPage() {
     if (formulaBinding.control === 'image-search-select') {
       const clearLabel = selectedWorkbookRow?.sourceRow.kind === 'set' ? '清空套装配图' : '清空装备配图';
       const clearHint = selectedWorkbookRow?.sourceRow.kind === 'set' ? '移除当前套装 imgUrl' : '移除当前装备 imgUrl';
+      const canonicalImageReference = canonicalizeWebImageReference(formulaBinding.value);
       return (
         <div className="weapon-sheet-image-formula-editor" ref={equipmentImageFormulaRef}>
           <input
@@ -1162,9 +1167,9 @@ export function EquipmentSheetPage() {
                     <button
                       key={option.key}
                       type="button"
-                      className={`weapon-sheet-image-option${formulaBinding.value === option.displayUrl ? ' is-active' : ''}`}
+                      className={`weapon-sheet-image-option${canonicalImageReference === option.relativePath || formulaBinding.value === option.displayUrl ? ' is-active' : ''}`}
                       onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => handleSelectEquipmentImage(option.displayUrl)}
+                      onClick={() => handleSelectEquipmentImage(option)}
                     >
                       <span className="weapon-sheet-image-option-thumb">
                         <img src={option.displayUrl} alt={option.fileName} />
