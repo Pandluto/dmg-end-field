@@ -63,6 +63,24 @@ export default defineConfig(async () => {
       entries: ['index.html'],
       exclude: ['@sqlite.org/sqlite-wasm'],
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            const normalizedId = id.replaceAll('\\', '/')
+            if (
+              normalizedId.includes('/node_modules/@ybouane/liquidglass/')
+              || normalizedId.includes('/src/platform/theme/LiquidTideEffects')
+              || normalizedId.includes('/src/platform/theme/useLiquidTide')
+              || normalizedId.includes('/src/platform/theme/liquidGlass')
+            ) {
+              return 'theme-liquid-runtime'
+            }
+            return undefined
+          },
+        },
+      },
+    },
     server: {
       port: 3030,
       watch: {

@@ -11,7 +11,7 @@ import {
   GRID_NODE_COUNT,
 } from '../../../core/calculators/gridSnapLayout';
 import { normalizeAssetUrl } from '../../../utils/assetResolver';
-import { useLiquidTideGlass } from '../../../platform/theme/useLiquidTideGlass';
+import { OptionalLiquidTideCanvasEffects } from '../../../platform/theme/OptionalLiquidTideEffects';
 
 interface CanvasAreaProps {
   activeSkillButtonId?: string | null;
@@ -102,11 +102,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
     ].join('|'),
     [activeSkillButtonId, isBrowseMode, isDraggingActive, isInspectMode, skillButtons],
   );
-
-  useLiquidTideGlass(localCanvasRef, {
-    elementSignature: glassElementSignature,
-    renderSignature: glassRenderSignature,
-  });
 
   const renderSkillButtons = () => {
     return skillButtons
@@ -217,6 +212,11 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
         className={`canvas-container${isDraggingActive ? ' is-dragging-active' : ''}`}
         onClick={onCanvasPlaceCopy}
       >
+        <OptionalLiquidTideCanvasEffects
+          rootRef={localCanvasRef}
+          elementSignature={glassElementSignature}
+          renderSignature={glassRenderSignature}
+        />
         <img
           className="liquid-tide-capture-image"
           src="/assets/themes/liquid-tide/anmi-anniversary.jpg"

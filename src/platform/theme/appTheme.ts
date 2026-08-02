@@ -1,7 +1,4 @@
-import {
-  applyLiquidGlassQuality,
-  prewarmLiquidGlassRuntime,
-} from './liquidGlassRuntime';
+import { ensureAppThemeAssets } from './themeAssets';
 
 export const APP_THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
 export const APP_THEME_CHANGE_EVENT = 'dmg-theme-change';
@@ -19,6 +16,7 @@ export type AppThemeOption = {
   description: string;
   colorScheme: 'light' | 'dark';
   browserColor: string;
+  delivery: 'bundled' | 'on-demand';
 };
 
 export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
@@ -28,6 +26,7 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '保留当前工作台配色',
     colorScheme: 'light',
     browserColor: '#e9ecea',
+    delivery: 'bundled',
   },
   {
     id: 'apple-midnight',
@@ -35,6 +34,7 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '近黑画布、悬浮材质与蓝色交互',
     colorScheme: 'dark',
     browserColor: '#0e0f11',
+    delivery: 'on-demand',
   },
   {
     id: 'apple-warm',
@@ -42,6 +42,7 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '柔和纸感与暖铜强调色',
     colorScheme: 'light',
     browserColor: '#ebe4d9',
+    delivery: 'on-demand',
   },
   {
     id: 'lieflat-mono',
@@ -49,6 +50,7 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '纸面、墨线与克制的矿物色',
     colorScheme: 'light',
     browserColor: '#e8e2d6',
+    delivery: 'on-demand',
   },
   {
     id: 'liquid-tide',
@@ -56,6 +58,7 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
     description: '连续海彩图景与液态玻璃控件',
     colorScheme: 'light',
     browserColor: '#a8b6dc',
+    delivery: 'on-demand',
   },
 ] as const;
 
@@ -83,9 +86,8 @@ export function applyAppTheme(theme: AppThemeId): AppThemeId {
   if (typeof document === 'undefined') return theme;
   const option = themeOption(theme);
   document.documentElement.dataset.theme = option.id;
-  applyLiquidGlassQuality(option.id === 'liquid-tide');
-  if (option.id === 'liquid-tide') {
-    void prewarmLiquidGlassRuntime().catch(() => undefined);
+  if (option.id !== 'liquid-tide') {
+    delete document.documentElement.dataset.liquidGlassQuality;
   }
   document.documentElement.style.colorScheme = option.colorScheme;
   document
@@ -97,7 +99,16 @@ export function applyAppTheme(theme: AppThemeId): AppThemeId {
   return option.id;
 }
 
-export function setAppTheme(theme: AppThemeId): AppThemeId {
+async function prepareThemeRuntime(theme: AppThemeId): Promise<void> {
+  await ensureAppThemeAssets(theme);
+  if (theme === 'liquid-tide') {
+    const runtime = await import('./liquidGlassRuntime');
+    runtime.applyLiquidGlassQuality(true);
+  }
+}
+
+export async function setAppTheme(theme: AppThemeId): Promise<AppThemeId> {
+  await prepareThemeRuntime(theme);
   const applied = applyAppTheme(theme);
   try {
     window.localStorage.setItem(APP_THEME_STORAGE_KEY, applied);
@@ -107,12 +118,27 @@ export function setAppTheme(theme: AppThemeId): AppThemeId {
   return applied;
 }
 
-export function initializeAppTheme(): AppThemeId {
-  const activeTheme = applyAppTheme(readAppTheme());
+export async function initializeAppTheme(): Promise<AppThemeId> {
+  const requestedTheme = readAppTheme();
+  let activeTheme: AppThemeId;
+  try {
+    await prepareThemeRuntime(requestedTheme);
+    activeTheme = applyAppTheme(requestedTheme);
+  } catch {
+    activeTheme = applyAppTheme(DEFAULT_APP_THEME);
+    try {
+      window.localStorage.setItem(APP_THEME_STORAGE_KEY, activeTheme);
+    } catch {
+      // Continue with the bundled theme when storage is unavailable.
+    }
+  }
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (event) => {
       if (event.key !== APP_THEME_STORAGE_KEY) return;
-      applyAppTheme(isAppThemeId(event.newValue) ? event.newValue : DEFAULT_APP_THEME);
+      const nextTheme = isAppThemeId(event.newValue) ? event.newValue : DEFAULT_APP_THEME;
+      void prepareThemeRuntime(nextTheme)
+        .then(() => applyAppTheme(nextTheme))
+        .catch(() => applyAppTheme(DEFAULT_APP_THEME));
     });
   }
   return activeTheme;

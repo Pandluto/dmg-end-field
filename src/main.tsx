@@ -18,12 +18,16 @@ declare global {
 //   return event.returnValue
 // }
 
-initializeAppTheme()
+async function bootstrap() {
+  await initializeAppTheme()
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <WebBootstrap />
-  </React.StrictMode>,
-)
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <WebBootstrap />
+    </React.StrictMode>,
+  )
 
-window.__DMG_MARK_MODULE_READY__?.()
+  window.__DMG_MARK_MODULE_READY__?.()
+}
+
+void bootstrap()

@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 import type { AppliedBuffTagViewModel, FormulaViewModel } from '../../core/calculators/skillDamage.types';
 import { getBuffTypeRegistryEntry } from '../../core/domain/buffTypeRegistry';
-import { useLiquidTideSurfaceGlass } from '../../platform/theme/useLiquidTideSurfaceGlass';
+import { OptionalLiquidTideSurfaceEffects } from '../../platform/theme/OptionalLiquidTideEffects';
 import { TimelineBuffListPanel } from './TimelineBuffListPanel';
 import { TimelineHitTuningPanel } from './TimelineHitTuningPanel';
 import { TimelineInfoPanel } from './TimelineInfoPanel';
@@ -399,8 +399,6 @@ export function TimelineSkillDetailWorkbench({
   })();
   const calculationSvgHeight = Math.max(calculationSections.length * 50, 50);
 
-  useLiquidTideSurfaceGlass(detailRootRef);
-
   useEffect(() => {
     if (buffSourceFilter === 'all') {
       return;
@@ -435,6 +433,7 @@ export function TimelineSkillDetailWorkbench({
 
   return createPortal(
     <div ref={detailRootRef} className="timeline-detail-layer" role="dialog" aria-modal="true" aria-label="技能排轴详情">
+      <OptionalLiquidTideSurfaceEffects rootRef={detailRootRef} />
       {searchLayer}
       <main className="timeline-detail-canvas">
         <button

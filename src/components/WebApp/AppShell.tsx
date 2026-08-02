@@ -5,7 +5,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import { useLiquidTideSurfaceGlass } from '../../platform/theme/useLiquidTideSurfaceGlass';
+import { OptionalLiquidTideSurfaceEffects } from '../../platform/theme/OptionalLiquidTideEffects';
+import {
+  readOfflineAvailability,
+  type OfflineAvailability,
+} from '../../platform/runtime/serviceWorkerRuntime';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -133,6 +137,10 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
   );
+  const [offlineAvailability, setOfflineAvailability] = useState<OfflineAvailability>({
+    supported: true,
+    ready: false,
+  });
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -158,8 +166,6 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     : launcherPosition.y + 200 > viewportHeight
       ? 'bottom'
       : 'center';
-
-  useLiquidTideSurfaceGlass(shellRef, currentPath);
 
   const handleLauncherPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -193,15 +199,27 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   }, [currentPath]);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const refreshOfflineAvailability = () => {
+      void readOfflineAvailability().then(setOfflineAvailability);
+    };
+    const handleOnline = () => {
+      setIsOnline(true);
+      refreshOfflineAvailability();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+      refreshOfflineAvailability();
+    };
 
     setIsOnline(navigator.onLine);
+    refreshOfflineAvailability();
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
+    navigator.serviceWorker?.addEventListener('controllerchange', refreshOfflineAvailability);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      navigator.serviceWorker?.removeEventListener('controllerchange', refreshOfflineAvailability);
     };
   }, []);
 
@@ -303,6 +321,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
 
   return (
     <div ref={shellRef} className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
+      <OptionalLiquidTideSurfaceEffects rootRef={shellRef} activationKey={currentPath} />
       <main className="web-shell-content">{children}</main>
 
       {showLauncher && (
@@ -363,8 +382,14 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                   aria-hidden="true"
                 />
                 <div>
-                  <strong>{isOnline ? '在线版本' : '离线版本'}</strong>
-                  <small>{isOnline ? '已连接网络' : '本地资源运行中'}</small>
+                  <strong>{isOnline ? '当前联网' : '当前离线'}</strong>
+                  <small>
+                    {offlineAvailability.ready
+                      ? '离线工作区已就绪'
+                      : offlineAvailability.supported
+                        ? '正在准备离线工作区'
+                        : '此环境仅支持在线使用'}
+                  </small>
                 </div>
               </div>
             </div>

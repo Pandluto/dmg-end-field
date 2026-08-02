@@ -59,6 +59,7 @@ export function SettingsPage() {
   const [leaseExpiresAt, setLeaseExpiresAt] = useState<number | null>(null);
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
+  const [loadingTheme, setLoadingTheme] = useState<AppThemeId | null>(null);
   const [updatingPage, setUpdatingPage] = useState(false);
 
   const refresh = async () => {
@@ -80,8 +81,23 @@ export function SettingsPage() {
 
   useEffect(() => subscribeAppTheme(setTheme), []);
 
-  const handleThemeChange = (nextTheme: AppThemeId) => {
-    setTheme(setAppTheme(nextTheme));
+  const handleThemeChange = async (nextTheme: AppThemeId) => {
+    if (nextTheme === theme || loadingTheme) return;
+    setLoadingTheme(nextTheme);
+    setMessage(
+      APP_THEME_OPTIONS.find((option) => option.id === nextTheme)?.delivery === 'on-demand'
+        ? '正在下载并安装主题包…'
+        : '正在切换主题…',
+    );
+    try {
+      const applied = await setAppTheme(nextTheme);
+      setTheme(applied);
+      setMessage('主题已经切换；下载过的主题可在离线时继续使用。');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setLoadingTheme(null);
+    }
   };
 
   const handlePersist = async () => {
@@ -92,7 +108,7 @@ export function SettingsPage() {
 
   const handlePageUpdate = async () => {
     setUpdatingPage(true);
-    setMessage('正在连接更新服务并解除旧页面缓存…');
+    setMessage('正在下载并校验完整的新版本…');
     try {
       await reloadLatestPageVersion();
     } catch (error) {
@@ -157,7 +173,8 @@ export function SettingsPage() {
               type="button"
               role="radio"
               aria-checked={theme === option.id}
-              onClick={() => handleThemeChange(option.id)}
+              disabled={loadingTheme !== null}
+              onClick={() => void handleThemeChange(option.id)}
             >
               <span className="theme-option-preview" aria-hidden="true">
                 <span className="theme-option-sidebar" />
@@ -170,6 +187,15 @@ export function SettingsPage() {
               <span className="theme-option-copy">
                 <strong>{option.label}</strong>
                 <small>{option.description}</small>
+                <em>
+                  {loadingTheme === option.id
+                    ? '正在安装…'
+                    : option.delivery === 'bundled'
+                      ? '随工作台内置'
+                      : theme === option.id
+                        ? '已安装 · 离线可用'
+                        : '选择时按需载入'}
+                </em>
               </span>
               <span className="theme-option-check" aria-hidden="true">✓</span>
             </button>
@@ -187,7 +213,7 @@ export function SettingsPage() {
         <div className="settings-action-row">
           <div>
             <strong>载入服务器上的最新页面</strong>
-            <span>解除旧版页面缓存并重新载入；不会删除 SQLite、排轴、资源包、图片或设置。</span>
+            <span>完整下载并校验后才切换版本；不会删除 SQLite、排轴、资源包、图片或设置。</span>
           </div>
           <button
             className="dashboard-primary-button"
