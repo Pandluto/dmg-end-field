@@ -26,6 +26,7 @@ const draft = normalizeWeaponDraft({
     },
     skill3: {
       name: '武器特效',
+      levels: { 1: { value: 1 } },
       effects: {
         fixed: {
           name: '固定效果',
@@ -134,6 +135,11 @@ assert.equal(fixedSkillEffectName.control, 'select');
 assert.equal(fixedSkillEffectName.value, '敏捷提升');
 assert.equal(fixedSkillEffectName.apply(draft, '意志提升').skills.skill1.statType, '意志提升');
 
+const skill3ValueName = binding('effect-skill3-value', 'name');
+assert.equal(skill3ValueName.readOnly, true);
+assert.equal(skill3ValueName.value, 'value');
+assert.equal(skill3ValueName.apply(draft, 'ignored'), draft);
+
 const effectName = binding('effect-skill3-effect-fixed', 'name');
 assert.equal(effectName.value, '固定效果');
 assert.equal(effectName.apply(draft, '  新效果  ').skills.skill3.effects.fixed.name, '新效果');
@@ -158,7 +164,7 @@ assert.equal(extraHitType.apply(draft, 'ignored'), draft);
 
 const effectId = binding('effect-skill3-effect-fixed', 'idText');
 assert.equal(effectId.readOnly, true);
-assert.equal(effectId.value, 'skill3-effect1');
+assert.equal(effectId.value, 'skill3-effect2');
 const effectDescription = binding('effect-skill3-effect-fixed', 'description');
 assert.equal(effectDescription.readOnly, true);
 assert.equal(effectDescription.value, '');

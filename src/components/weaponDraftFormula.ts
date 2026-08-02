@@ -201,17 +201,25 @@ export function buildWeaponFormulaBinding(
               }),
             };
           }
+          if (bucket === 'value') {
+            return {
+              key: `${skillKey}:effect-name`,
+              focusId: 'effect-name',
+              inputMode: 'text',
+              value: selectedWorkbookSummary.title,
+              placeholder: '效果名称',
+              readOnly: true,
+              apply: (baseDraft) => baseDraft,
+            };
+          }
           return {
             key: `${skillKey}:effect-name`,
             focusId: 'effect-name',
             inputMode: 'text',
             value: draft.skills[skillKey].effects[sourceEffectKey].name,
             placeholder: '效果名称',
-            readOnly: bucket === 'value',
+            readOnly: false,
             apply: (baseDraft, rawInput) => {
-              if (bucket === 'value') {
-                return baseDraft;
-              }
               const trimmed = rawInput.trim();
               if (!trimmed) {
                 return baseDraft;
