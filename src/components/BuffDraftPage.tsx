@@ -290,7 +290,7 @@ function restoreBuffUndoSnapshot(snapshotId: string): BuffUndoSnapshot | null {
   return target;
 }
 
-interface BuffSheetColumn {
+export interface BuffSheetColumn {
   key: string;
   title: string;
   width: number;
@@ -305,7 +305,7 @@ interface BuffWorkbookMergeInfo {
   hidden: boolean;
 }
 
-interface BuffWorkbookCellView {
+export interface BuffWorkbookCellView {
   key: string;
   address: string;
   value: string;
@@ -318,7 +318,7 @@ interface BuffWorkbookCellView {
   columnKey?: string;
 }
 
-interface BuffWorkbookRowView {
+export interface BuffWorkbookRowView {
   key: string;
   rowNumber: number;
   kind: BuffWorkbookCellView['kind'];
@@ -368,7 +368,7 @@ function renderBuffWorkbookCellContent(cell: BuffWorkbookCellView, sourceRow?: B
   return cell.value;
 }
 
-function buildBuffSheetColumns(): BuffSheetColumn[] {
+export function buildBuffSheetColumns(): BuffSheetColumn[] {
   return [
     { key: 'name', title: '名称', width: 200, group: '索引' },
     { key: 'idText', title: 'ID', width: 110, group: '索引' },
@@ -383,7 +383,7 @@ function buildBuffSheetColumns(): BuffSheetColumn[] {
   ];
 }
 
-function buildBuffColumnGroups(columns: BuffSheetColumn[]): Array<{ group: string; width: number; count: number }> {
+export function buildBuffColumnGroups(columns: BuffSheetColumn[]): Array<{ group: string; width: number; count: number }> {
   const groups: Array<{ group: string; width: number; count: number }> = [];
   columns.forEach((column) => {
     const existing = groups[groups.length - 1];
@@ -443,7 +443,7 @@ function mapBuffWorkbookAlignment(value: ExcelJS.Alignment['horizontal'] | undef
   return 'left';
 }
 
-function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetColumn[]): BuffWorkbookRowView[] {
+export function buildBuffWorkbookView(rows: BuffSheetRow[], columns: BuffSheetColumn[]): BuffWorkbookRowView[] {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('Sheet-Buff');
   const mergeMap: Record<string, BuffWorkbookMergeInfo> = {};
