@@ -48,6 +48,7 @@ export default defineConfig(async () => {
             '/index.html',
             '/sw.js',
             '/manifest.webmanifest',
+            '/packages/*',
           ],
         },
       },
