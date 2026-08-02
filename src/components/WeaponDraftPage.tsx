@@ -58,11 +58,11 @@ import {
   type WeaponSheetColumn,
   type WeaponWorkbookRow,
 } from './weaponDraftWorkbook';
+import { createWeaponDraftRepository } from './weaponDraftPersistence';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
-const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
-const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const WEAPON_LIBRARY_SHARE_TYPE = 'weapon-library-share.v1';
+const weaponDraftRepository = createWeaponDraftRepository(persistentLocalStorage);
 
 interface WeaponImageOption {
   key: string;
@@ -137,43 +137,6 @@ type WeaponSheetContextMenuAction = {
 
 function isWeaponSheetPath(pathname: string) {
   return pathname === WEAPON_SHEET_PAGE_PATH;
-}
-
-function readLocalStorageJson<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-  try {
-    const raw = persistentLocalStorage.getItem(key);
-    if (!raw) {
-      return fallback;
-    }
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeLocalStorageJson<T>(key: string, value: T) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  persistentLocalStorage.setItem(key, JSON.stringify(value));
-}
-
-function loadLocalWeaponLibrary() {
-  const raw = readLocalStorageJson<Record<string, RawWeaponDraft>>(WEAPON_LIBRARY_STORAGE_KEY, {});
-  return Object.fromEntries(
-    Object.entries(raw).map(([draftId, draftValue]) => [draftId, normalizeWeaponDraft({ ...draftValue, id: draftId })]),
-  ) as Record<string, WeaponDraft>;
-}
-
-function loadDraftFromStorage() {
-  const raw = readLocalStorageJson<RawWeaponDraft | null>(WEAPON_DRAFT_STORAGE_KEY, null);
-  if (!raw) {
-    return createEmptyWeaponDraft();
-  }
-  return normalizeWeaponDraft(raw);
 }
 
 function buildWeaponImageAssetUrl(entry: ImageAssetEntry) {
@@ -259,8 +222,8 @@ function getWeaponWorkbookRowClassName(row: WeaponWorkbookRow) {
 export { isWeaponSheetPath };
 
 export function WeaponDraftSheetPage() {
-  const [draft, setDraft] = useState<WeaponDraft>(() => loadDraftFromStorage());
-  const [localLibrary, setLocalLibrary] = useState<Record<string, WeaponDraft>>(() => loadLocalWeaponLibrary());
+  const [draft, setDraft] = useState<WeaponDraft>(() => weaponDraftRepository.loadDraft());
+  const [localLibrary, setLocalLibrary] = useState<Record<string, WeaponDraft>>(() => weaponDraftRepository.loadLibrary());
   const [imageAssets, setImageAssets] = useState<ImageAssetEntry[]>([]);
   const [imageAssetsLoading, setImageAssetsLoading] = useState(false);
   const [imageAssetsError, setImageAssetsError] = useState('');
@@ -845,8 +808,8 @@ export function WeaponDraftSheetPage() {
   }, [formulaBinding, formulaInput]);
 
   const persistLibraryState = useCallback((nextLibrary: Record<string, WeaponDraft>, nextDraft: WeaponDraft, nextSelectedId: string) => {
-    writeLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, nextLibrary);
-    writeLocalStorageJson(WEAPON_DRAFT_STORAGE_KEY, nextDraft);
+    weaponDraftRepository.saveLibrary(nextLibrary);
+    weaponDraftRepository.saveDraft(nextDraft);
     setLocalLibrary(nextLibrary);
     setDraft(nextDraft);
     setSelectedLocalDraftId(nextSelectedId);
@@ -854,7 +817,7 @@ export function WeaponDraftSheetPage() {
 
   const persistDraftToLibrary = useCallback((allowOverwrite: boolean) => {
     const nextDraft = commitFormulaInput(draft);
-    const library = loadLocalWeaponLibrary();
+    const library = weaponDraftRepository.loadLibrary();
     const nextDraftId = nextDraft.id.trim() || buildNextCustomWeaponId(Object.keys(library));
 
     if (library[nextDraftId] && !allowOverwrite) {
@@ -902,7 +865,7 @@ export function WeaponDraftSheetPage() {
   // Auto-persist draft on changes (debounced)
   useEffect(() => {
     const timer = setTimeout(() => {
-      writeLocalStorageJson(WEAPON_DRAFT_STORAGE_KEY, draft);
+      weaponDraftRepository.saveDraft(draft);
     }, 400);
     return () => clearTimeout(timer);
   }, [draft]);
@@ -1102,7 +1065,7 @@ export function WeaponDraftSheetPage() {
     if (draftId === selectedLocalDraftId || options?.selectAfter) {
       persistLibraryState(nextLibrary, nextDraft, draftId);
     } else {
-      writeLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, nextLibrary);
+      weaponDraftRepository.saveLibrary(nextLibrary);
       setLocalLibrary(nextLibrary);
     }
     if (options?.focusRowKey) {
@@ -1177,7 +1140,7 @@ export function WeaponDraftSheetPage() {
       setPendingFocusRowKey(`weapon-${nextDraft.id}`);
       return;
     }
-    writeLocalStorageJson(WEAPON_LIBRARY_STORAGE_KEY, nextLibrary);
+    weaponDraftRepository.saveLibrary(nextLibrary);
     setLocalLibrary(nextLibrary);
   }, [localLibrary, persistLibraryState, selectedLocalDraftId]);
 
@@ -1672,7 +1635,7 @@ export function WeaponDraftSheetPage() {
       // Reorder drafts in library
       const nextLibrary = moveRecordEntry(localLibrary, source.draftId, target.draftId);
       setLocalLibrary(nextLibrary);
-      persistentLocalStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      weaponDraftRepository.saveLibrary(nextLibrary);
     } else if (source.kind === 'skill' && target.kind === 'skill' && source.draftId === target.draftId) {
       // Reorder skills within a draft (SKILL_KEYS is fixed order, so we need to reorder effectTypes instead)
       const targetDraft = localLibrary[source.draftId] || draft;
@@ -1680,7 +1643,7 @@ export function WeaponDraftSheetPage() {
       // Skills are fixed (skill1, skill2, skill3), so we reorder their effectTypes
       // This is a simplified implementation
       setDraft(nextDraft);
-      persistentLocalStorage.setItem(WEAPON_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+      weaponDraftRepository.saveDraft(nextDraft);
     } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value') {
       // effects record 的插入顺序即显示顺序，拖拽直接移动 entry
       const targetDraft = localLibrary[source.draftId] || draft;
@@ -1700,7 +1663,7 @@ export function WeaponDraftSheetPage() {
       }
       const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
       setLocalLibrary(nextLibrary);
-      persistentLocalStorage.setItem(WEAPON_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+      weaponDraftRepository.saveLibrary(nextLibrary);
     }
   }, [draft, isValidExplorerDropTarget, localLibrary]);
 
