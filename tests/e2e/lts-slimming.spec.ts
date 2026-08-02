@@ -68,6 +68,26 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ page }) => {
     await expect(savedEntry).toBeVisible();
     await page.reload();
     await expect(savedEntry).toBeVisible();
+
+    const savedGroupRow = page.locator('.buff-sheet-explorer-row').filter({ hasText: 'Slim E2E Buff' });
+    await savedGroupRow.locator('.buff-sheet-explorer-toggle').click();
+    await savedGroupRow.click({ button: 'right' });
+    await page.getByRole('button', { name: '新建项', exact: true }).click();
+
+    const createdItem = page.locator('.buff-sheet-explorer-child').filter({ hasText: '自定义项 01' });
+    await expect(createdItem).toBeVisible();
+    await createdItem.click({ button: 'right' });
+    await page.getByRole('button', { name: '删除项', exact: true }).click();
+    await expect(createdItem).toHaveCount(0);
+
+    await page.getByRole('button', { name: '撤回', exact: true }).click();
+    await page.locator('.damage-sheet-undo-item').filter({ hasText: '删除自定义项 · item-1' }).click();
+    await savedGroupRow.locator('.buff-sheet-explorer-toggle').click();
+    await expect(createdItem).toBeVisible();
+
+    await page.reload();
+    await savedGroupRow.locator('.buff-sheet-explorer-toggle').click();
+    await expect(createdItem).toBeVisible();
   });
 
   await test.step('Weapon draft saves through browser storage and survives reload', async () => {

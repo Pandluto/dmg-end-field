@@ -60,6 +60,13 @@ import {
 } from './buffDraftModel';
 import { createBuffFormulaTextBinding } from './buffDraftFormula';
 import {
+  BUFF_DRAFT_STORAGE_KEY,
+  BUFF_LIBRARY_STORAGE_KEY,
+  createBuffUndoRepository,
+  formatBuffUndoLabel,
+  type BuffUndoSnapshot,
+} from './buffDraftUndo';
+import {
   buildBuffSheetColumns,
   buildBuffWorkbookView,
   type BuffWorkbookCellView,
@@ -93,22 +100,8 @@ export {
 } from './buffDraftWorkbook';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
-const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
-const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
 const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';
-const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
-const BUFF_UNDO_LIMIT = 8;
-
-interface BuffUndoSnapshot {
-  id: string;
-  createdAt: number;
-  label: string;
-  selectedDraftId?: string;
-  draftState?: BuffDraft;
-  selectedItemKey?: string | null;
-  selectedEffectKey?: string | null;
-  localEntries: Array<[string, string | null]>;
-}
+const buffUndoRepository = createBuffUndoRepository(persistentLocalStorage);
 
 function isBuffSheetPath(pathname: string) {
   return pathname === BUFF_SHEET_PAGE_PATH;
@@ -219,91 +212,6 @@ function renderBuffSheetMenuIcon(icon: BuffSheetContextMenuAction['icon']) {
   }
 }
 
-function formatBuffUndoLabel(timestamp: number): string {
-  const date = new Date(timestamp);
-  const pad = (value: number) => String(value).padStart(2, '0');
-  const milliseconds = String(date.getMilliseconds()).padStart(3, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${milliseconds}`;
-}
-
-function readBuffUndoSnapshots(): BuffUndoSnapshot[] {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-  try {
-    const raw = persistentLocalStorage.getItem(BUFF_UNDO_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
-    const parsed = JSON.parse(raw) as BuffUndoSnapshot[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeBuffUndoSnapshots(snapshots: BuffUndoSnapshot[]): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  persistentLocalStorage.setItem(BUFF_UNDO_STORAGE_KEY, JSON.stringify(snapshots));
-}
-
-function captureBuffUndoSnapshot(
-  label: string,
-  options?: {
-    selectedDraftId?: string;
-    draftState?: BuffDraft;
-    selectedItemKey?: string | null;
-    selectedEffectKey?: string | null;
-  },
-): void {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const localEntries: Array<[string, string | null]> = [
-    [BUFF_DRAFT_STORAGE_KEY, persistentLocalStorage.getItem(BUFF_DRAFT_STORAGE_KEY)],
-    [BUFF_LIBRARY_STORAGE_KEY, persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY)],
-  ];
-
-  const snapshot: BuffUndoSnapshot = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    createdAt: Date.now(),
-    label,
-    selectedDraftId: options?.selectedDraftId,
-    draftState: options?.draftState ? cloneValue(options.draftState) : undefined,
-    selectedItemKey: options?.selectedItemKey,
-    selectedEffectKey: options?.selectedEffectKey,
-    localEntries,
-  };
-
-  writeBuffUndoSnapshots([snapshot, ...readBuffUndoSnapshots()].slice(0, BUFF_UNDO_LIMIT));
-}
-
-function restoreBuffUndoSnapshot(snapshotId: string): BuffUndoSnapshot | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const snapshots = readBuffUndoSnapshots();
-  const target = snapshots.find((item) => item.id === snapshotId);
-  if (!target) {
-    return null;
-  }
-
-  target.localEntries.forEach(([key, value]) => {
-    if (value == null) {
-      persistentLocalStorage.removeItem(key);
-      return;
-    }
-    persistentLocalStorage.setItem(key, value);
-  });
-
-  writeBuffUndoSnapshots(snapshots.filter((item) => item.id !== snapshotId));
-  return target;
-}
-
 type FormulaFocusSnapshot = {
   focusId: string;
   selectionStart?: number | null;
@@ -381,11 +289,11 @@ export function BuffDraftSheetPage() {
   }, [getItemCollapseKey]);
 
   const syncUndoSnapshots = useCallback(() => {
-    setUndoSnapshots(readBuffUndoSnapshots());
+    setUndoSnapshots(buffUndoRepository.readSnapshots());
   }, []);
 
   const withUndo = useCallback((label: string, fn: () => void) => {
-    captureBuffUndoSnapshot(label, {
+    buffUndoRepository.captureSnapshot(label, {
       selectedDraftId: selectedLocalDraftId || draft.id || undefined,
     });
     fn();
@@ -393,7 +301,7 @@ export function BuffDraftSheetPage() {
   }, [draft.id, selectedLocalDraftId, syncUndoSnapshots]);
 
   const handleRestoreUndoSnapshot = useCallback((snapshotId: string) => {
-    const restored = restoreBuffUndoSnapshot(snapshotId);
+    const restored = buffUndoRepository.restoreSnapshot(snapshotId);
     if (!restored) {
       return;
     }
