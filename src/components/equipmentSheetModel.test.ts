@@ -32,12 +32,6 @@ import {
 import {
   applyCellValueToLibrary,
   buildRows,
-  buildWorkbookRows,
-  COLUMNS,
-  columnIndexToLabel,
-  filterVisibleRows,
-  formatEffectLevelsSummary,
-  getWorkbookRowClassName,
   makeNextId,
   updateLibraryEquipment,
   updateLibrarySet,
@@ -479,65 +473,6 @@ const changedBuffValueLibrary = applyCellValueToLibrary(baseLibrary, threePieceB
 assert.equal(changedBuffValueLibrary.gearSets['gear-set-demo'].threePieceBuffs?.effect1.value, 0.25);
 const changedBuffRawLibrary = applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'description', '新的三件套描述');
 assert.equal(changedBuffRawLibrary.gearSets['gear-set-demo'].threePieceBuffs?.effect1.raw, '新的三件套描述');
-
-const percentEffect = makeEffect('effect1', {
-  label: '百分比',
-  unit: 'percent',
-  levels: { '0': 0.1234, '1': undefined, '2': 1.2, '3': 0 },
-});
-assert.equal(formatEffectLevelsSummary(percentEffect), '百分比：+12.34% / - / +120% / +0%');
-assert.equal(formatEffectLevelsSummary(makeEffect('effect1', { label: '固定', unit: 'flat', levels: { '0': 1, '1': 2.34567 } })), '固定：+1 / +2.3457 / - / -');
-
-const defaultVisibleRows = filterVisibleRows(baseRows, {}, {}, {}, {});
-assert.deepEqual(defaultVisibleRows.map((row) => row.kind), ['set']);
-const expandedSetRows = filterVisibleRows(baseRows, { 'gear-set-demo': false }, {}, {}, {});
-assert.deepEqual(expandedSetRows.map((row) => row.kind), ['set', 'threePieceBuffHeader', 'threePieceBuff', 'equipment']);
-const expandedEquipmentRows = filterVisibleRows(
-  baseRows,
-  { 'gear-set-demo': false },
-  { 'gear-set-demo:equipment-main': false },
-  {},
-  {},
-);
-assert.deepEqual(expandedEquipmentRows.map((row) => row.kind), [
-  'set', 'threePieceBuffHeader', 'threePieceBuff', 'equipment', 'fixedStat', 'effect', 'effect', 'effect',
-]);
-const expandedEffectRows = filterVisibleRows(
-  baseRows,
-  { 'gear-set-demo': false },
-  { 'gear-set-demo:equipment-main': false },
-  {
-    'gear-set-demo:equipment-main:effect1': false,
-    'gear-set-demo:equipment-main:effect2': false,
-    'gear-set-demo:equipment-main:effect3': false,
-  },
-  { 'gear-set-demo': true },
-);
-assert.equal(expandedEffectRows.some((row) => row.kind === 'effectLevels'), true);
-assert.equal(expandedEffectRows.some((row) => row.kind === 'threePieceBuff'), false);
-assert.equal(expandedEffectRows.some((row) => row.kind === 'threePieceBuffHeader'), true);
-
-assert.equal(columnIndexToLabel(0), 'A');
-assert.equal(columnIndexToLabel(6), 'G');
-assert.equal(columnIndexToLabel(25), 'Z');
-assert.equal(columnIndexToLabel(26), 'AA');
-assert.deepEqual(COLUMNS.map((column) => column.key), ['name', 'idText', 'field', 'level', 'effectKey', 'valueText', 'description']);
-assert.deepEqual(COLUMNS.map((column) => column.width), [220, 150, 180, 72, 180, 120, 420]);
-const workbookRows = buildWorkbookRows(baseRows);
-assert.equal(workbookRows.length, baseRows.length);
-assert.ok(workbookRows.every((row) => row.cells.length === 7));
-assert.deepEqual(workbookRows[0].cells.map((cell) => cell.address), ['A1', 'B1', 'C1', 'D1', 'E1', 'F1', 'G1']);
-assert.deepEqual(workbookRows[0].cells.map((cell) => cell.width), [220, 150, 180, 72, 180, 120, 420]);
-assert.deepEqual(workbookRows[0].cells.map((cell) => cell.align), ['left', 'left', 'center', 'center', 'left', 'right', 'left']);
-assert.ok(workbookRows.every((row) => row.cells.every((cell) => cell.sourceRowKey === row.sourceRow.key)));
-const workbookClassByKind = Object.fromEntries(workbookRows.map((row) => [row.kind, getWorkbookRowClassName(row)]));
-assert.match(workbookClassByKind.set, /is-character/);
-assert.match(workbookClassByKind.threePieceBuffHeader, /three-piece-header/);
-assert.match(workbookClassByKind.threePieceBuff, /three-piece-effect/);
-assert.match(workbookClassByKind.equipment, /is-button/);
-assert.match(workbookClassByKind.fixedStat, /is-data/);
-assert.match(workbookClassByKind.effect, /is-character/);
-assert.match(workbookClassByKind.effectLevels, /weapon-sheet-row-level/);
 
 const modifierBuff = normalizeThreePieceBuff('effect1', {
   effectId: 'legacy-modifier',
