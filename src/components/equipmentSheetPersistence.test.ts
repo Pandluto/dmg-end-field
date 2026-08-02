@@ -194,6 +194,39 @@ resolveDeferredFlush?.();
 await deferredSave;
 assert.equal(deferredSaveResolved, true);
 
+let resolveRevisionFlush: (() => void) | undefined;
+const revisionFlush = new Promise<void>((resolve) => {
+  resolveRevisionFlush = resolve;
+});
+const revisionStorage = new MemoryStorage();
+revisionStorage.flushImplementation = () => revisionFlush;
+const revisionRepository = createEquipmentLibraryRepository(revisionStorage);
+let currentLibraryDuringSave = savedLibrary;
+const revisionSave = revisionRepository.saveLibraryRevision(
+  savedLibrary,
+  () => currentLibraryDuringSave,
+);
+await Promise.resolve();
+currentLibraryDuringSave = {
+  ...savedLibrary,
+  updatedAt: 'edited-during-flush',
+};
+resolveRevisionFlush?.();
+assert.equal(
+  await revisionSave,
+  'superseded',
+  'a durable save must report edits that replaced its snapshot during flush',
+);
+assert.equal(currentLibraryDuringSave.updatedAt, 'edited-during-flush');
+
+const currentRevisionStorage = new MemoryStorage();
+const currentRevisionRepository = createEquipmentLibraryRepository(currentRevisionStorage);
+assert.equal(
+  await currentRevisionRepository.saveLibraryRevision(savedLibrary, () => savedLibrary),
+  'current',
+  'an unchanged snapshot may be marked clean after durable flush',
+);
+
 const flushFailure = new Error('flush failed');
 const rejectedFlushStorage = new MemoryStorage();
 rejectedFlushStorage.flushImplementation = async () => {

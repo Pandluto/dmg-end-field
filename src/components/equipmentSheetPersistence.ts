@@ -12,6 +12,8 @@ export interface EquipmentLibraryStorage {
   flush(): Promise<void>;
 }
 
+export type EquipmentLibrarySaveRevision = 'current' | 'superseded';
+
 function loadNormalizedLibrary(storage: EquipmentLibraryStorage, key: string): EquipmentLibrary {
   try {
     const serialized = storage.getItem(key);
@@ -42,9 +44,18 @@ export function createEquipmentLibraryRepository(storage: EquipmentLibraryStorag
     await storage.flush();
   };
 
+  const saveLibraryRevision = async (
+    library: EquipmentLibrary,
+    getCurrentLibrary: () => EquipmentLibrary,
+  ): Promise<EquipmentLibrarySaveRevision> => {
+    await saveLibrary(library);
+    return getCurrentLibrary() === library ? 'current' : 'superseded';
+  };
+
   return {
     loadCachedLibrary,
     saveLibrary,
+    saveLibraryRevision,
   };
 }
 

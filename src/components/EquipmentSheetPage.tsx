@@ -881,9 +881,19 @@ export function EquipmentSheetPage() {
     const emptyBuffSets = getGearSets(committedLibrary).filter((gearSet) => !gearSet.buffId?.trim()).length;
     const nextLibrary = { ...committedLibrary, updatedAt: new Date().toISOString() };
     const warning = emptyBuffSets > 0 ? ` ${emptyBuffSets} 个套装 buffId 为空，请后续补齐。` : '';
+    replaceLibrary(nextLibrary);
+    setIsDirty(true);
     try {
-      await equipmentLibraryRepository.saveLibrary(nextLibrary);
-      replaceLibrary(nextLibrary);
+      const revision = await equipmentLibraryRepository.saveLibraryRevision(
+        nextLibrary,
+        () => libraryRef.current,
+      );
+      if (revision === 'superseded') {
+        setIsDirty(true);
+        setIsSaveConfirmModalOpen(false);
+        setMessage('已保存开始时的版本；保存期间有新修改，当前仍未保存。');
+        return;
+      }
       setIsDirty(false);
       setIsSaveConfirmModalOpen(false);
       setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
