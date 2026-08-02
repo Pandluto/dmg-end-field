@@ -58,19 +58,37 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
   });
 
   await test.step('Buff draft saves through browser storage and survives reload', async () => {
+    const initialBuffName = 'Slim E2E Buff';
+    const overwrittenBuffName = 'slim e2e buff';
     await openRoute(page, '/data/buffs', 'Sheet-Buff');
     await page.getByRole('button', { name: '新建', exact: true }).click();
     const name = page.getByRole('textbox', { name: '组名称', exact: true });
     await expect(name).toHaveValue('新建 Buff 组');
-    await name.fill('Slim E2E Buff');
+    await name.fill(initialBuffName);
     await page.getByRole('button', { name: '保存', exact: true }).click();
-    const savedEntry = page.locator('.buff-sheet-explorer-label').filter({ hasText: 'Slim E2E Buff' });
+    const initialSavedEntry = page.locator('.buff-sheet-explorer-label').filter({ hasText: initialBuffName });
+    await expect(initialSavedEntry).toHaveCount(1);
+    await expect(initialSavedEntry).toBeVisible();
+    await page.reload();
+    await expect(initialSavedEntry).toBeVisible();
+
+    const groupWorkbookRow = page.locator('.damage-sheet-excel-row.is-character').filter({ hasText: initialBuffName });
+    await expect(groupWorkbookRow).toHaveCount(1);
+    await groupWorkbookRow.locator('.damage-sheet-excel-cell').first().click();
+    const formulaNameInput = page.getByRole('textbox', { name: '组名称', exact: true });
+    await formulaNameInput.fill(overwrittenBuffName);
+    await expect(formulaNameInput).toBeFocused();
+    await formulaNameInput.press('ControlOrMeta+S');
+    await expect(page.getByRole('heading', { name: '确认覆盖本地 Buff 组', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '确认覆盖', exact: true }).click();
+
+    const savedEntry = page.locator('.buff-sheet-explorer-label').filter({ hasText: overwrittenBuffName });
     await expect(savedEntry).toHaveCount(1);
     await expect(savedEntry).toBeVisible();
     await page.reload();
     await expect(savedEntry).toBeVisible();
 
-    const savedGroupRow = page.locator('.buff-sheet-explorer-row').filter({ hasText: 'Slim E2E Buff' });
+    const savedGroupRow = page.locator('.buff-sheet-explorer-row').filter({ hasText: overwrittenBuffName });
     await savedGroupRow.locator('.buff-sheet-explorer-toggle').click();
     await savedGroupRow.click({ button: 'right' });
     await page.getByRole('button', { name: '新建项', exact: true }).click();
@@ -101,7 +119,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       payload: Record<string, Record<string, unknown>>;
     };
     expect(parsedShare.type).toBe('buff-library-share.v1');
-    const sourceDraft = Object.values(parsedShare.payload).find((value) => value.name === 'Slim E2E Buff');
+    const sourceDraft = Object.values(parsedShare.payload).find((value) => value.name === overwrittenBuffName);
     expect(sourceDraft).toBeTruthy();
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
@@ -164,12 +182,12 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
 
     const groupLabels = page.locator('.buff-sheet-explorer-row .buff-sheet-explorer-label');
     let reorderedLabels = await groupLabels.allTextContents();
-    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf('Slim E2E Buff'));
+    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf(overwrittenBuffName));
     await page.reload();
     await expect(importedEntry).toBeVisible();
     await expect(savedEntry).toBeVisible();
     reorderedLabels = await groupLabels.allTextContents();
-    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf('Slim E2E Buff'));
+    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf(overwrittenBuffName));
   });
 
   await test.step('Weapon draft saves through browser storage and survives reload', async () => {

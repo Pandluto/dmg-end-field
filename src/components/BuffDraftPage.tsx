@@ -21,7 +21,6 @@ import {
   applyBuffType,
   applyDrawerEffectToBuffSheet,
   buffSheetEffectToDrawer,
-  buildBuffDraftIdFromName,
   buildBuffSheetRows,
   buildCollapsedDraftState,
   buildCollapsedItemState,
@@ -44,9 +43,8 @@ import {
   setBuffMultiplierCoefficient,
   setBuffMultiplierEnabled,
   type BuffDraft,
-  type BuffEffectDraft,
   type BuffExplorerDragNode,
-  type BuffItemDraft,
+  type BuffEffectDraft,
   type BuffSheetRow,
 } from './buffDraftModel';
 import {
@@ -75,32 +73,6 @@ import {
   type BuffWorkbookSelection,
 } from './buffDraftWorkbook';
 import { useBuffExplorerDrag } from './useBuffExplorerDrag';
-
-export {
-  applyBuffCategory,
-  applyBuffEffectKind,
-  applyBuffType,
-  buildBuffDraftIdFromName,
-  buildBuffSheetRows,
-  createDefaultBuffEffect,
-  getNextDraftId,
-  normalizeBuffDraft,
-  parseImportedBuffDraft,
-  reorderDraftStructure,
-  setBuffMaxStacks,
-  setBuffMultiplierCoefficient,
-  setBuffMultiplierEnabled,
-  type BuffDraft,
-} from './buffDraftModel';
-
-export {
-  buildBuffColumnGroups,
-  buildBuffSheetColumns,
-  buildBuffWorkbookView,
-  type BuffSheetColumn,
-  type BuffWorkbookCellView,
-  type BuffWorkbookRowView,
-} from './buffDraftWorkbook';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const buffDraftRepository = createBuffDraftRepository(persistentLocalStorage);
@@ -673,33 +645,6 @@ export function BuffDraftSheetPage() {
     setEffectValueInput(String(selectedEffect.value ?? 0));
   }, [selectedEffect?.effectKind, selectedEffect?.id, selectedEffect?.multiplier, selectedEffect?.value]);
 
-  const updateDraftField = useCallback(<K extends keyof BuffDraft>(field: K, value: BuffDraft[K]) => {
-    setDraft((prev) => {
-      if (field === 'name') {
-        const nextName = String(value);
-        return {
-          ...prev,
-          name: nextName,
-          id: buildBuffDraftIdFromName(nextName) || prev.id,
-        };
-      }
-      return { ...prev, [field]: value };
-    });
-  }, []);
-
-  const updateSelectedItem = useCallback((updater: (item: BuffItemDraft) => BuffItemDraft) => {
-    if (!selectedItemKey) {
-      return;
-    }
-    setDraft((prev) => ({
-      ...prev,
-      items: {
-        ...prev.items,
-        [selectedItemKey]: updater(prev.items[selectedItemKey]),
-      },
-    }));
-  }, [selectedItemKey]);
-
   const updateSelectedEffect = useCallback((updater: (effect: BuffEffectDraft) => BuffEffectDraft) => {
     if (!selectedItemKey || !selectedEffectKey) {
       return;
@@ -724,23 +669,11 @@ export function BuffDraftSheetPage() {
       selectedWorkbookSummary,
       selectedWorkbookCell,
       draft,
-      selectedItem,
-      selectedEffect,
-      updateDraftField,
-      updateSelectedItem,
-      updateSelectedEffect,
     });
   }, [
-    draft.description,
-    draft.id,
-    draft.name,
-    selectedEffect,
-    selectedItem,
-    selectedWorkbookCell?.columnKey,
+    draft,
+    selectedWorkbookCell,
     selectedWorkbookSummary,
-    updateDraftField,
-    updateSelectedEffect,
-    updateSelectedItem,
   ]);
 
   useEffect(() => {
@@ -785,83 +718,12 @@ export function BuffDraftSheetPage() {
     setEffectValueInput(String(parsed));
   }, [effectValueInput, selectedEffect, updateSelectedEffect]);
 
-  const buildDraftWithFormulaTextInput = useCallback((baseDraft: BuffDraft) => {
+  const applyFormulaTextInput = useCallback((baseDraft: BuffDraft) => {
     if (!formulaTextBinding || formulaTextInput === formulaTextBinding.value) {
       return baseDraft;
     }
-
-    if (selectedWorkbookSummary?.kind === 'group') {
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return { ...baseDraft, id: formulaTextInput };
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return { ...baseDraft, description: formulaTextInput };
-      }
-      return {
-        ...baseDraft,
-        name: formulaTextInput,
-        id: buildBuffDraftIdFromName(formulaTextInput) || baseDraft.id,
-      };
-    }
-
-    if (selectedWorkbookSummary?.kind === 'item' && selectedItemKey) {
-      const targetItem = baseDraft.items[selectedItemKey];
-      if (!targetItem) {
-        return baseDraft;
-      }
-
-      const nextItem = selectedWorkbookCell?.columnKey === 'idText'
-        ? { ...targetItem, id: formulaTextInput }
-        : selectedWorkbookCell?.columnKey === 'description'
-          ? { ...targetItem, description: formulaTextInput }
-          : { ...targetItem, name: formulaTextInput };
-
-      return {
-        ...baseDraft,
-        items: {
-          ...baseDraft.items,
-          [selectedItemKey]: nextItem,
-        },
-      };
-    }
-
-    if (selectedWorkbookSummary?.kind === 'effect' && selectedItemKey && selectedEffectKey) {
-      const targetItem = baseDraft.items[selectedItemKey];
-      const targetEffect = targetItem?.effects[selectedEffectKey];
-      if (!targetItem || !targetEffect) {
-        return baseDraft;
-      }
-
-      const nextEffect = selectedWorkbookCell?.columnKey === 'condition'
-        ? { ...targetEffect, condition: formulaTextInput }
-        : selectedWorkbookCell?.columnKey === 'description'
-          ? { ...targetEffect, description: formulaTextInput }
-          : { ...targetEffect, displayName: formulaTextInput };
-
-      return {
-        ...baseDraft,
-        items: {
-          ...baseDraft.items,
-          [selectedItemKey]: {
-            ...targetItem,
-            effects: {
-              ...targetItem.effects,
-              [selectedEffectKey]: nextEffect,
-            },
-          },
-        },
-      };
-    }
-
-    return baseDraft;
-  }, [
-    formulaTextBinding,
-    formulaTextInput,
-    selectedEffectKey,
-    selectedItemKey,
-    selectedWorkbookCell?.columnKey,
-    selectedWorkbookSummary,
-  ]);
+    return formulaTextBinding.apply(baseDraft, formulaTextInput);
+  }, [formulaTextBinding, formulaTextInput]);
 
   const persistDraftToLibrary = useCallback((allowOverwrite: boolean, focusRowKey?: string | null, draftOverride?: BuffDraft) => {
     const library = buffDraftRepository.loadLibrary();
@@ -898,7 +760,7 @@ export function BuffDraftSheetPage() {
     const formulaField = activeElement instanceof HTMLElement
       ? activeElement.closest<HTMLElement>('[data-formula-focus-id]')
       : null;
-    const nextDraft = buildDraftWithFormulaTextInput(draft);
+    const nextDraft = applyFormulaTextInput(draft);
     if (formulaField && formulaBarRef.current?.contains(formulaField)) {
       const selectionCapable = formulaField as HTMLInputElement;
       pendingFormulaFocusRef.current = {
@@ -912,15 +774,15 @@ export function BuffDraftSheetPage() {
       setDraft(nextDraft);
     }
     persistDraftToLibrary(!isOverwriteProtectionEnabled, selectedWorkbookCell?.sourceRowKey ?? null, nextDraft);
-  }, [buildDraftWithFormulaTextInput, draft, isOverwriteProtectionEnabled, persistDraftToLibrary, selectedWorkbookCell]);
+  }, [applyFormulaTextInput, draft, isOverwriteProtectionEnabled, persistDraftToLibrary, selectedWorkbookCell]);
 
   const handleConfirmOverwriteDraft = useCallback(() => {
-    const nextDraft = buildDraftWithFormulaTextInput(draft);
+    const nextDraft = applyFormulaTextInput(draft);
     if (nextDraft !== draft) {
       setDraft(nextDraft);
     }
     persistDraftToLibrary(true, selectedWorkbookCell?.sourceRowKey ?? null, nextDraft);
-  }, [buildDraftWithFormulaTextInput, draft, persistDraftToLibrary, selectedWorkbookCell]);
+  }, [applyFormulaTextInput, draft, persistDraftToLibrary, selectedWorkbookCell]);
 
   const handleCreateNewDraft = useCallback(() => {
     const nextDraftId = getNextDraftId(Object.keys(localLibrary));
@@ -1218,10 +1080,10 @@ export function BuffDraftSheetPage() {
       if (!formulaTextBinding) {
         return;
       }
-      if (formulaTextInput === formulaTextBinding.value) {
-        return;
+      const nextDraft = applyFormulaTextInput(draft);
+      if (nextDraft !== draft) {
+        setDraft(nextDraft);
       }
-      formulaTextBinding.commit(formulaTextInput);
     };
 
     const handleFormulaTextInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {

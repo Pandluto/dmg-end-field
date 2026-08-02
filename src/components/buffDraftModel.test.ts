@@ -14,7 +14,7 @@ import {
   setBuffMultiplierCoefficient,
   setBuffMultiplierEnabled,
   type BuffDraft,
-} from './BuffDraftPage';
+} from './buffDraftModel';
 
 const legacyDraft = normalizeBuffDraft({
   id: ' legacy-buff ',

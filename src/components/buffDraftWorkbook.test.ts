@@ -3,7 +3,7 @@ import {
   buildBuffColumnGroups,
   buildBuffSheetColumns,
   buildBuffWorkbookView,
-} from './BuffDraftPage';
+} from './buffDraftWorkbook';
 import type { BuffSheetRow } from './buffDraftModel';
 
 const columns = buildBuffSheetColumns();

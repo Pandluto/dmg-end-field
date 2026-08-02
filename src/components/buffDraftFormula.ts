@@ -1,9 +1,8 @@
 import type {
   BuffDraft,
-  BuffEffectDraft,
-  BuffItemDraft,
   BuffSheetRow,
 } from './buffDraftModel';
+import { buildBuffDraftIdFromName } from './buffDraftModel';
 
 export type BuffFormulaTextCell = {
   columnKey?: string;
@@ -14,29 +13,19 @@ export type BuffFormulaTextBinding = {
   focusId: string;
   value: string;
   placeholder: string;
-  commit: (nextValue: string) => void;
+  apply: (draft: BuffDraft, nextValue: string) => BuffDraft;
 };
 
 export type BuffFormulaTextBindingContext = {
   selectedWorkbookSummary: BuffSheetRow | null | undefined;
   selectedWorkbookCell: BuffFormulaTextCell | null | undefined;
   draft: BuffDraft;
-  selectedItem: BuffItemDraft | null | undefined;
-  selectedEffect: BuffEffectDraft | null | undefined;
-  updateDraftField: <K extends keyof BuffDraft>(field: K, value: BuffDraft[K]) => void;
-  updateSelectedItem: (updater: (item: BuffItemDraft) => BuffItemDraft) => void;
-  updateSelectedEffect: (updater: (effect: BuffEffectDraft) => BuffEffectDraft) => void;
 };
 
 export function createBuffFormulaTextBinding({
   selectedWorkbookSummary,
   selectedWorkbookCell,
   draft,
-  selectedItem,
-  selectedEffect,
-  updateDraftField,
-  updateSelectedItem,
-  updateSelectedEffect,
 }: BuffFormulaTextBindingContext): BuffFormulaTextBinding | null {
   if (!selectedWorkbookSummary) {
     return null;
@@ -49,7 +38,9 @@ export function createBuffFormulaTextBinding({
         focusId: 'group-id',
         value: draft.id,
         placeholder: '组 ID',
-        commit: (nextValue: string) => updateDraftField('id', nextValue),
+        apply: (baseDraft, nextValue) => baseDraft.id === nextValue
+          ? baseDraft
+          : { ...baseDraft, id: nextValue },
       };
     }
     if (selectedWorkbookCell?.columnKey === 'description') {
@@ -58,7 +49,9 @@ export function createBuffFormulaTextBinding({
         focusId: 'group-description',
         value: draft.description,
         placeholder: '组描述',
-        commit: (nextValue: string) => updateDraftField('description', nextValue),
+        apply: (baseDraft, nextValue) => baseDraft.description === nextValue
+          ? baseDraft
+          : { ...baseDraft, description: nextValue },
       };
     }
     return {
@@ -66,18 +59,44 @@ export function createBuffFormulaTextBinding({
       focusId: 'group-name',
       value: draft.name,
       placeholder: '组名称',
-      commit: (nextValue: string) => updateDraftField('name', nextValue),
+      apply: (baseDraft, nextValue) => {
+        const nextId = buildBuffDraftIdFromName(nextValue) || baseDraft.id;
+        if (baseDraft.name === nextValue && baseDraft.id === nextId) {
+          return baseDraft;
+        }
+        return {
+          ...baseDraft,
+          name: nextValue,
+          id: nextId,
+        };
+      },
     };
   }
 
-  if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
+  if (selectedWorkbookSummary.kind === 'item') {
+    const selectedItem = draft.items[selectedWorkbookSummary.itemKey];
+    if (!selectedItem) {
+      return null;
+    }
     if (selectedWorkbookCell?.columnKey === 'idText') {
       return {
         key: `item:${selectedItem.id}:id`,
         focusId: 'item-id',
         value: selectedItem.id,
         placeholder: '项 ID',
-        commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, id: nextValue })),
+        apply: (baseDraft, nextValue) => {
+          const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+          if (!item || item.id === nextValue) {
+            return baseDraft;
+          }
+          return {
+            ...baseDraft,
+            items: {
+              ...baseDraft.items,
+              [selectedWorkbookSummary.itemKey]: { ...item, id: nextValue },
+            },
+          };
+        },
       };
     }
     if (selectedWorkbookCell?.columnKey === 'description') {
@@ -86,7 +105,19 @@ export function createBuffFormulaTextBinding({
         focusId: 'item-description',
         value: selectedItem.description,
         placeholder: '项描述',
-        commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, description: nextValue })),
+        apply: (baseDraft, nextValue) => {
+          const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+          if (!item || item.description === nextValue) {
+            return baseDraft;
+          }
+          return {
+            ...baseDraft,
+            items: {
+              ...baseDraft.items,
+              [selectedWorkbookSummary.itemKey]: { ...item, description: nextValue },
+            },
+          };
+        },
       };
     }
     return {
@@ -94,11 +125,28 @@ export function createBuffFormulaTextBinding({
       focusId: 'item-name',
       value: selectedItem.name,
       placeholder: '项名称',
-      commit: (nextValue: string) => updateSelectedItem((prev) => ({ ...prev, name: nextValue })),
+      apply: (baseDraft, nextValue) => {
+        const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+        if (!item || item.name === nextValue) {
+          return baseDraft;
+        }
+        return {
+          ...baseDraft,
+          items: {
+            ...baseDraft.items,
+            [selectedWorkbookSummary.itemKey]: { ...item, name: nextValue },
+          },
+        };
+      },
     };
   }
 
-  if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
+  if (selectedWorkbookSummary.kind === 'effect') {
+    const selectedItem = draft.items[selectedWorkbookSummary.itemKey];
+    const selectedEffect = selectedItem?.effects[selectedWorkbookSummary.effectKey];
+    if (!selectedEffect) {
+      return null;
+    }
     switch (selectedWorkbookCell?.columnKey) {
       case 'condition':
         return {
@@ -106,7 +154,26 @@ export function createBuffFormulaTextBinding({
           focusId: 'effect-condition',
           value: selectedEffect.condition || '',
           placeholder: '条件',
-          commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, condition: nextValue })),
+          apply: (baseDraft, nextValue) => {
+            const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+            const effect = item?.effects[selectedWorkbookSummary.effectKey];
+            if (!item || !effect || effect.condition === nextValue) {
+              return baseDraft;
+            }
+            return {
+              ...baseDraft,
+              items: {
+                ...baseDraft.items,
+                [selectedWorkbookSummary.itemKey]: {
+                  ...item,
+                  effects: {
+                    ...item.effects,
+                    [selectedWorkbookSummary.effectKey]: { ...effect, condition: nextValue },
+                  },
+                },
+              },
+            };
+          },
         };
       case 'description':
         return {
@@ -114,7 +181,26 @@ export function createBuffFormulaTextBinding({
           focusId: 'effect-description',
           value: selectedEffect.description || '',
           placeholder: '描述',
-          commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, description: nextValue })),
+          apply: (baseDraft, nextValue) => {
+            const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+            const effect = item?.effects[selectedWorkbookSummary.effectKey];
+            if (!item || !effect || effect.description === nextValue) {
+              return baseDraft;
+            }
+            return {
+              ...baseDraft,
+              items: {
+                ...baseDraft.items,
+                [selectedWorkbookSummary.itemKey]: {
+                  ...item,
+                  effects: {
+                    ...item.effects,
+                    [selectedWorkbookSummary.effectKey]: { ...effect, description: nextValue },
+                  },
+                },
+              },
+            };
+          },
         };
       default:
         return {
@@ -122,7 +208,26 @@ export function createBuffFormulaTextBinding({
           focusId: 'effect-display-name',
           value: selectedEffect.displayName,
           placeholder: '效果名称',
-          commit: (nextValue: string) => updateSelectedEffect((prev) => ({ ...prev, displayName: nextValue })),
+          apply: (baseDraft, nextValue) => {
+            const item = baseDraft.items[selectedWorkbookSummary.itemKey];
+            const effect = item?.effects[selectedWorkbookSummary.effectKey];
+            if (!item || !effect || effect.displayName === nextValue) {
+              return baseDraft;
+            }
+            return {
+              ...baseDraft,
+              items: {
+                ...baseDraft.items,
+                [selectedWorkbookSummary.itemKey]: {
+                  ...item,
+                  effects: {
+                    ...item.effects,
+                    [selectedWorkbookSummary.effectKey]: { ...effect, displayName: nextValue },
+                  },
+                },
+              },
+            };
+          },
         };
     }
   }
