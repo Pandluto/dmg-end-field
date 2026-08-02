@@ -1,24 +1,15 @@
 import assert from 'node:assert/strict';
 import {
-  applyCellValueToLibrary,
   applyEffectValueCatalogForPart,
-  buildRows,
-  buildWorkbookRows,
-  COLUMNS,
-  columnIndexToLabel,
   createEmptyLibrary,
   drawerEffectToEquipmentBuff,
   equipmentBuffToDrawer,
-  filterVisibleRows,
-  formatEffectLevelsSummary,
   getEffectEntries,
   getEquipmentEffectShape,
   getEquipmentEffectShapeFromCount,
   getEquipmentEffectTypeOptions,
   getEquipmentEffectValuePreset,
   getSortedEquipments,
-  getWorkbookRowClassName,
-  makeNextId,
   makeValueCatalogKey,
   normalizeCategory,
   normalizeEnglishId,
@@ -32,13 +23,24 @@ import {
   parseLevelValuesFromRaw,
   shouldStoreEquipmentEffectAsDecimal,
   slugifyIdPart,
-  updateLibraryEquipment,
-  updateLibrarySet,
   type EquipmentEffect,
   type EquipmentEffectId,
   type EquipmentGearSet,
   type EquipmentItem,
   type EquipmentLibrary,
+} from './equipmentSheetModel';
+import {
+  applyCellValueToLibrary,
+  buildRows,
+  buildWorkbookRows,
+  COLUMNS,
+  columnIndexToLabel,
+  filterVisibleRows,
+  formatEffectLevelsSummary,
+  getWorkbookRowClassName,
+  makeNextId,
+  updateLibraryEquipment,
+  updateLibrarySet,
   type EquipmentRow,
 } from './EquipmentSheetPage';
 
@@ -156,6 +158,8 @@ assert.equal(shouldStoreEquipmentEffectAsDecimal('sourceSkillBoost', 'percent'),
 assert.equal(normalizeLegacyPercentValue('physicalDmgBonus', 'percent', 0.12), 0.12);
 assert.equal(normalizeLegacyPercentValue('physicalDmgBonus', 'percent', 12, '物理伤害：+12%'), 0.12);
 assert.equal(normalizeLegacyPercentValue('physicalDmgBonus', 'percent', 0.12, '物理伤害：+12%'), 0.12);
+assert.equal(normalizeLegacyPercentValue('physicalDmgBonus', 'percent', 2, '物理伤害：+2'), 2, 'percent without raw % keeps the current value');
+assert.equal(normalizeLegacyPercentValue('physicalDmgBonus', 'percent', 2, '伤害：+20%'), 0.02, 'stale raw percent applies the current heuristic');
 assert.equal(normalizeLegacyPercentValue('strengthBoost', 'percent', 12, '力量：+12%'), 12);
 assert.equal(normalizeLegacyPercentValue('sourceSkillBoost', 'percent', 0.12, '源石技艺强度：+12%'), 0.12);
 assert.deepEqual(
