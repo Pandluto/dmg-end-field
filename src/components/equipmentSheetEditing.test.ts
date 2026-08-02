@@ -4,7 +4,7 @@ import {
   makeNextId,
   updateLibraryEquipment,
   updateLibrarySet,
-} from './EquipmentSheetPage';
+} from './equipmentSheetEditing';
 import {
   type EquipmentEffect,
   type EquipmentEffectId,
