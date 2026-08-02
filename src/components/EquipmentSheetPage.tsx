@@ -50,6 +50,10 @@ import {
   type EquipmentEditingResult,
 } from './equipmentSheetEditing';
 import {
+  buildEquipmentFormulaBinding,
+  type EquipmentFormulaBinding,
+} from './equipmentSheetFormula';
+import {
   buildRows,
   buildWorkbookRows,
   COLUMNS,
@@ -76,17 +80,6 @@ type EquipmentSelection = {
   address: string;
   sourceRowKey: string;
   columnKey: EquipmentSheetColumn['key'];
-};
-
-type EquipmentFormulaBinding = {
-  key: string;
-  value: string;
-  inputMode: 'text' | 'number';
-  readOnly?: boolean;
-  control?: 'input' | 'select' | 'search-select' | 'image-search-select';
-  options?: Array<{ value: string; label: string }>;
-  placeholder?: string;
-  commit: (rawValue: string) => void;
 };
 
 interface EquipmentImageOption {
@@ -811,160 +804,38 @@ export function EquipmentSheetPage() {
     () => selectedWorkbookRow?.cells.find((cell) => cell.columnKey === selectedCell?.columnKey) ?? null,
     [selectedCell?.columnKey, selectedWorkbookRow],
   );
-  const formulaBinding = useMemo<EquipmentFormulaBinding | null>(() => {
-    if (!selectedWorkbookRow || !selectedWorkbookCell) {
-      return null;
-    }
-    const row = selectedWorkbookRow.sourceRow;
-    const columnKey = selectedWorkbookCell.columnKey;
-    if (row.kind === 'effectLevels') {
-      const levelKey = selectedCell?.address?.replace(/^Lv/, '') as EquipmentLevelKey;
-      if (!LEVEL_KEYS.includes(levelKey)) {
-        return null;
-      }
-      const effect = library.gearSets[row.gearSetId]?.equipments[row.equipmentId]?.effects[row.effectId];
-      return {
-        key: `${row.key}:${levelKey}`,
-        value: effect?.levels[levelKey] == null ? '' : String(effect.levels[levelKey]),
-        inputMode: 'number',
-        placeholder: `Lv${levelKey}`,
-        commit: (value) => updateCellValue(row, columnKey, `${levelKey}:${value}`),
-      };
-    }
-    const editable =
-      (row.kind === 'set' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'threePieceBuffHeader' && false)
-      || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
-      || (row.kind === 'equipment' && ['name', 'field', 'description'].includes(columnKey))
-      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'effect' && ['name', 'field', 'effectKey'].includes(columnKey));
-    if (!editable) {
-      return {
-        key: `${row.key}:${columnKey}:readonly`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        readOnly: true,
-        commit: () => undefined,
-      };
-    }
-    if ((row.kind === 'set' || row.kind === 'equipment') && columnKey === 'description') {
-      const value = row.kind === 'set'
-        ? library.gearSets[row.gearSetId]?.imgUrl ?? ''
-        : library.gearSets[row.gearSetId]?.equipments[row.equipmentId]?.imgUrl ?? '';
-      return {
-        key: `${row.key}:imgUrl`,
-        value,
-        inputMode: 'text',
-        control: 'image-search-select',
-        placeholder: row.kind === 'set' ? '搜索套装配图' : '搜索装备配图',
-        commit: (nextValue) => updateCellValue(row, columnKey, nextValue),
-      };
-    }
-    if (row.kind === 'equipment' && columnKey === 'field') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'select',
-        options: EQUIPMENT_PARTS.map((part) => ({ value: part, label: part })),
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'threePieceBuff' && columnKey === 'field') {
-      const selectedBuff = library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId];
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: getEquipmentBuffBusinessType(selectedBuff),
-        inputMode: 'text',
-        control: 'select',
-        options: EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'fixedStat' && columnKey === 'effectKey') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'select',
-        options: [
-          { value: 'defense', label: '防御力 · defense' },
-          { value: 'hp', label: '生命 · hp' },
-          { value: 'flatAtk', label: '固定攻击力 · flatAtk' },
-        ],
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if (row.kind === 'effect' && columnKey === 'field') {
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: row.field === '能力值' ? 'ability' : 'buff',
-        inputMode: 'text',
-        control: 'select',
-        options: [
-          { value: 'ability', label: '能力值' },
-          { value: 'buff', label: 'Buff类型' },
-        ],
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    if ((row.kind === 'effect' || row.kind === 'threePieceBuff') && columnKey === 'effectKey') {
-      if (row.kind === 'threePieceBuff' && library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind === 'extraHit') {
-        return {
-          key: `${row.key}:${columnKey}:extra-hit-types`,
-          value: selectedWorkbookCell.value,
-          inputMode: 'text',
-          readOnly: true,
-          commit: () => undefined,
-        };
-      }
-      const effectOptions = row.kind === 'effect'
-        ? (() => {
-            const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
-            const effect = equipment?.effects[row.effectId];
-            return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, row.effectId, effect.category, getEquipmentEffectShape(equipment)).map((typeKey) => ({
-                  value: typeKey,
-                  label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-                }))
-              : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
-          })()
-        : BUFF_TYPE_OPTIONS.map((typeKey) => ({ value: typeKey, label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}` }));
-      return {
-        key: `${row.key}:${columnKey}`,
-        value: selectedWorkbookCell.value,
-        inputMode: 'text',
-        control: 'search-select',
-        options: effectOptions,
-        commit: (value) => updateCellValue(row, columnKey, value),
-      };
-    }
-    return {
-      key: `${row.key}:${columnKey}`,
-      value: selectedWorkbookCell.value,
-      inputMode: columnKey === 'valueText' ? 'number' : 'text',
-      commit: (value) => updateCellValue(row, columnKey, value),
-    };
-  }, [library.gearSets, selectedCell?.address, selectedWorkbookCell, selectedWorkbookRow, updateCellValue]);
+  const formulaBinding = useMemo<EquipmentFormulaBinding | null>(() => buildEquipmentFormulaBinding(
+    library,
+    selectedCell && selectedWorkbookCell
+      ? { ...selectedCell, value: selectedWorkbookCell.value }
+      : null,
+    selectedWorkbookRow?.sourceRow,
+  ), [library, selectedCell, selectedWorkbookCell, selectedWorkbookRow]);
 
   const hasUnsavedChanges = isDirty
     || Boolean(formulaBinding && !formulaBinding.readOnly && formulaInput !== formulaBinding.value);
 
+  const applyFormulaValue = useCallback((rawValue: string) => {
+    if (!formulaBinding || formulaBinding.readOnly) return false;
+    mutateLibrary((current) => formulaBinding.apply(current, rawValue));
+    return true;
+  }, [formulaBinding, mutateLibrary]);
+
   const handleSelectEquipmentImage = useCallback((displayUrl: string) => {
     if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
-    formulaBinding.commit(displayUrl);
+    applyFormulaValue(displayUrl);
     setFormulaInput(displayUrl);
     setEquipmentImageQuery(displayUrl);
     setIsEquipmentImageDrawerOpen(false);
-  }, [formulaBinding]);
+  }, [applyFormulaValue, formulaBinding]);
 
   const handleClearEquipmentImage = useCallback(() => {
     if (!formulaBinding || formulaBinding.control !== 'image-search-select') return;
-    formulaBinding.commit('');
+    applyFormulaValue('');
     setFormulaInput('');
     setEquipmentImageQuery('');
     setIsEquipmentImageDrawerOpen(false);
-  }, [formulaBinding]);
+  }, [applyFormulaValue, formulaBinding]);
 
   useEffect(() => {
     setFormulaInput(formulaBinding?.value ?? '');
@@ -1003,25 +874,18 @@ export function EquipmentSheetPage() {
   }, [previewImageMeta.imgUrl]);
 
   const buildLibraryWithCommittedFormulaInput = useCallback((baseLibrary: EquipmentLibrary) => {
-    if (!formulaBinding || formulaBinding.readOnly || formulaInput === formulaBinding.value || !selectedWorkbookRow || !selectedCell) {
+    if (!formulaBinding || formulaBinding.readOnly || formulaInput === formulaBinding.value) {
       return baseLibrary;
     }
-    const row = selectedWorkbookRow.sourceRow;
-    if (row.kind === 'effectLevels') {
-      const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
-      return LEVEL_KEYS.includes(levelKey)
-        ? applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, `${levelKey}:${formulaInput}`)
-        : baseLibrary;
-    }
-    return applyCellValueToLibrary(baseLibrary, row, selectedCell.columnKey, formulaInput);
-  }, [formulaBinding, formulaInput, selectedCell, selectedWorkbookRow]);
+    return formulaBinding.apply(baseLibrary, formulaInput);
+  }, [formulaBinding, formulaInput]);
 
   const commitFormulaInput = useCallback(() => {
     if (!formulaBinding || formulaBinding.readOnly) {
       return;
     }
-    formulaBinding.commit(formulaInput);
-  }, [formulaBinding, formulaInput]);
+    applyFormulaValue(formulaInput);
+  }, [applyFormulaValue, formulaBinding, formulaInput]);
 
   const performSave = useCallback(async () => {
     const committedLibrary = buildLibraryWithCommittedFormulaInput(libraryRef.current);
@@ -1251,7 +1115,7 @@ export function EquipmentSheetPage() {
         <select
           className="buff-sheet-formula-input is-select"
           value={formulaBinding.value}
-          onChange={(event) => formulaBinding.commit(event.target.value)}
+          onChange={(event) => applyFormulaValue(event.target.value)}
         >
           {(formulaBinding.options ?? []).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
@@ -1274,7 +1138,7 @@ export function EquipmentSheetPage() {
           <select
             className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
             value={formulaBinding.value}
-            onChange={(event) => formulaBinding.commit(event.target.value)}
+            onChange={(event) => applyFormulaValue(event.target.value)}
           >
             <option value="">未映射</option>
             {searchOptions.map((option) => (
