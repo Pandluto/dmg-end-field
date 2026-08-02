@@ -42,7 +42,6 @@ import {
   normalizeBuffDraftLibrary,
   parseImportedBuffDraft,
   reorderDraftStructure,
-  reorderRecordEntries,
   setBuffMaxStacks,
   setBuffMultiplierCoefficient,
   setBuffMultiplierEnabled,
@@ -53,6 +52,13 @@ import {
   type BuffItemDraft,
   type BuffSheetRow,
 } from './buffDraftModel';
+import {
+  canStartBuffExplorerDrag,
+  getBuffExplorerDragNodeKey as getExplorerDragNodeKey,
+  getBuffExplorerDragNodeLabel,
+  isValidBuffExplorerDropTarget,
+  reorderBuffExplorerLibrary,
+} from './buffExplorerDragPolicy';
 import { createBuffFormulaTextBinding } from './buffDraftFormula';
 import {
   buildBuffDraftLibraryShareFile,
@@ -1180,33 +1186,8 @@ export function BuffDraftSheetPage() {
     });
   }, [draft.id, openContextMenu]);
 
-  const getExplorerDragNodeKey = useCallback((node: BuffExplorerDragNode) => {
-    if (node.kind === 'draft') {
-      return `draft:${node.draftId}`;
-    }
-    if (node.kind === 'item') {
-      return `item:${node.draftId}:${node.itemKey}`;
-    }
-    return `effect:${node.draftId}:${node.itemKey}:${node.effectKey}`;
-  }, []);
-
   const getExplorerDragNodeLabel = useCallback((node: BuffExplorerDragNode) => {
-    const targetDraft = localLibrary[node.draftId];
-    if (!targetDraft) {
-      return node.draftId;
-    }
-    if (node.kind === 'draft') {
-      return targetDraft.name || node.draftId;
-    }
-    const targetItem = targetDraft.items[node.itemKey];
-    if (!targetItem) {
-      return node.itemKey;
-    }
-    if (node.kind === 'item') {
-      return targetItem.name || node.itemKey;
-    }
-    const targetEffect = targetItem.effects[node.effectKey];
-    return targetEffect?.displayName || node.effectKey;
+    return getBuffExplorerDragNodeLabel(localLibrary, node);
   }, [localLibrary]);
 
   const clearPendingExplorerDrag = useCallback(() => {
@@ -1225,37 +1206,32 @@ export function BuffDraftSheetPage() {
     return true;
   }, []);
 
+  const explorerDragPolicyState = useMemo(() => ({
+    filterKeyword,
+    collapsedDraftIds,
+    collapsedItems,
+    getItemCollapseKey,
+  }), [collapsedDraftIds, collapsedItems, filterKeyword, getItemCollapseKey]);
+
   const canStartExplorerDrag = useCallback((node: BuffExplorerDragNode) => {
-    if (filterKeyword.trim()) {
-      return false;
-    }
-    if (node.kind === 'draft') {
-      return Boolean(collapsedDraftIds[node.draftId]);
-    }
-    if (node.kind === 'item') {
-      return Boolean(collapsedItems[getItemCollapseKey(node.draftId, node.itemKey)]);
-    }
-    return true;
-  }, [collapsedDraftIds, collapsedItems, filterKeyword, getItemCollapseKey]);
+    return canStartBuffExplorerDrag(node, explorerDragPolicyState);
+  }, [explorerDragPolicyState]);
 
   const isValidExplorerDropTarget = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode | null) => {
-    if (!target || source.kind !== target.kind) {
-      return false;
+    return isValidBuffExplorerDropTarget(source, target, explorerDragPolicyState);
+  }, [explorerDragPolicyState]);
+
+  const applyExplorerReorder = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode) => {
+    if (!isValidExplorerDropTarget(source, target)) {
+      return;
     }
-    if (getExplorerDragNodeKey(source) === getExplorerDragNodeKey(target)) {
-      return false;
+    const result = reorderBuffExplorerLibrary(localLibrary, source, target);
+    if (!result) {
+      return;
     }
-    if (target.kind === 'draft') {
-      return canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (target.kind === 'item') {
-      return source.draftId === target.draftId && canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (source.kind !== 'effect') {
-      return false;
-    }
-    return source.draftId === target.draftId && source.itemKey === target.itemKey;
-  }, [canStartExplorerDrag, getExplorerDragNodeKey]);
+    persistLibraryState(result.nextLibrary, selectedLocalDraftId || source.draftId);
+    setPendingFocusRowKey(result.focusRowKey);
+  }, [isValidExplorerDropTarget, localLibrary, persistLibraryState, selectedLocalDraftId]);
 
   const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): BuffExplorerDragNode | null => {
     const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-buff-drag-kind]') : null;
@@ -1283,49 +1259,6 @@ export function BuffDraftSheetPage() {
     }
     return { kind: 'effect', draftId, itemKey, effectKey };
   }, []);
-
-  const applyExplorerReorder = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode) => {
-    if (!isValidExplorerDropTarget(source, target)) {
-      return;
-    }
-
-    if (source.kind === 'draft' && target.kind === 'draft') {
-      const nextLibrary = reorderRecordEntries(localLibrary, source.draftId, target.draftId);
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`group-${source.draftId}`);
-      return;
-    }
-
-    if (source.kind === 'item' && target.kind === 'item') {
-      const targetDraft = localLibrary[source.draftId];
-      if (!targetDraft) {
-        return;
-      }
-      const nextDraft = cloneValue(targetDraft);
-      nextDraft.items = reorderRecordEntries(nextDraft.items, source.itemKey, target.itemKey);
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`item-${source.itemKey}`);
-      return;
-    }
-
-    if (source.kind === 'effect' && target.kind === 'effect') {
-      const targetDraft = localLibrary[source.draftId];
-      const targetItem = targetDraft?.items[source.itemKey];
-      if (!targetDraft || !targetItem) {
-        return;
-      }
-      const nextDraft = cloneValue(targetDraft);
-      nextDraft.items[source.itemKey].effects = reorderRecordEntries(
-        nextDraft.items[source.itemKey].effects,
-        source.effectKey,
-        target.effectKey,
-      );
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      persistLibraryState(nextLibrary, selectedLocalDraftId || source.draftId);
-      setPendingFocusRowKey(`effect-${source.itemKey}-${source.effectKey}`);
-    }
-  }, [isValidExplorerDropTarget, localLibrary, persistLibraryState, selectedLocalDraftId]);
 
   const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: BuffExplorerDragNode) => {
     if (event.button !== 0 || !canStartExplorerDrag(source)) {
