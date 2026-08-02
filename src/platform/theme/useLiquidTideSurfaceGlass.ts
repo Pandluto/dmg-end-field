@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
-import { readAppTheme, subscribeAppTheme } from './appTheme';
+import { readAppliedAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
 import {
   enqueueLiquidGlassRender,
@@ -526,7 +526,7 @@ export function useLiquidTideSurfaceGlass(
   rootRef: RefObject<HTMLDivElement>,
   activationKey = '',
 ): void {
-  const [theme, setTheme] = useState(readAppTheme);
+  const [theme, setTheme] = useState(readAppliedAppTheme);
   const managedRootsRef = useRef(new Map<HTMLElement, ManagedRoot>());
   const storedAttributesRef = useRef(new Map<HTMLElement, StoredAttributes>());
 

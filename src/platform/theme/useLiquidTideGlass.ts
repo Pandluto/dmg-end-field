@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
-import { readAppTheme, subscribeAppTheme } from './appTheme';
+import { readAppliedAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
 import {
   enqueueLiquidGlassRender,
@@ -248,7 +248,7 @@ export function useLiquidTideGlass(
   const restoredSnapshotKeyRef = useRef<string | null>(null);
   const cacheRefreshPendingRef = useRef(false);
   const [rendererRevision, setRendererRevision] = useState(0);
-  const [theme, setTheme] = useState(readAppTheme);
+  const [theme, setTheme] = useState(readAppliedAppTheme);
 
   useEffect(() => subscribeAppTheme(setTheme), []);
 
