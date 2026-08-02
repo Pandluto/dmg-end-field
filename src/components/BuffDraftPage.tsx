@@ -50,7 +50,7 @@ interface BuffUndoSnapshot {
   localEntries: Array<[string, string | null]>;
 }
 
-interface BuffEffectDraft extends CandidateBuff {
+export interface BuffEffectDraft extends CandidateBuff {
   id: string;
 }
 
@@ -94,7 +94,7 @@ function applyDrawerEffectToBuffSheet(effect: BuffEffectDraft, nextEffect: Opera
   };
 }
 
-interface BuffItemDraft {
+export interface BuffItemDraft {
   id: string;
   name: string;
   sourceName: string;
@@ -102,7 +102,7 @@ interface BuffItemDraft {
   effects: Record<string, BuffEffectDraft>;
 }
 
-interface BuffDraft {
+export interface BuffDraft {
   id: string;
   name: string;
   sourceName: string;
@@ -136,7 +136,7 @@ function createDefaultBuffName(buffKey: string) {
   return `custom_buff_${pad3(getNumericIndex(buffKey, 'buff'))}`;
 }
 
-function createDefaultBuffEffect(buffKey = 'buff-1', sourceName = '本地自定义'): BuffEffectDraft {
+export function createDefaultBuffEffect(buffKey = 'buff-1', sourceName = '本地自定义'): BuffEffectDraft {
   return {
     id: buffKey,
     displayName: createDefaultBuffDisplayName(buffKey),
@@ -192,7 +192,7 @@ function createEmptyBuffDraft(nextId = 'custom-buff-001'): BuffDraft {
   };
 }
 
-function getNextDraftId(existingIds: string[]) {
+export function getNextDraftId(existingIds: string[]) {
   let index = 1;
   while (existingIds.includes(`custom-buff-${pad3(index)}`)) {
     index += 1;
@@ -200,7 +200,7 @@ function getNextDraftId(existingIds: string[]) {
   return `custom-buff-${pad3(index)}`;
 }
 
-function buildBuffDraftIdFromName(name: string) {
+export function buildBuffDraftIdFromName(name: string) {
   const trimmedName = name.trim();
   if (!trimmedName) {
     return '';
@@ -293,9 +293,8 @@ function sanitizeExplicitEffectDisplayName(displayName: string, typeLabel: strin
   }
 
   const escapedTypeLabel = escapeRegExp(typeLabel);
-  const repeatedTokenPattern = String.raw`(\d+(?:\.\d+)?(?:%|x)?)(?:\1)+`;
   const naturalSentencePattern = new RegExp(`(^|[，,：:、\\s])((?:\\d+(?:\\.\\d+)?(?:%|x)?)+)(${escapedTypeLabel})(?=\\s*[+\\-]\\d)`);
-  const repeatedBeforeTypePattern = new RegExp(`(^|[，,：:、\\s])(${repeatedTokenPattern})(${escapedTypeLabel})`);
+  const repeatedBeforeTypePattern = new RegExp(`(^|[，,：:、\\s])(\\d+(?:\\.\\d+)?(?:%|x)?)(?:\\2)+(${escapedTypeLabel})`);
 
   const normalizedNaturalSentence = displayName.replace(naturalSentencePattern, '$1$3');
   return normalizedNaturalSentence.replace(repeatedBeforeTypePattern, '$1$3');
@@ -356,7 +355,7 @@ function formatBuffEffectValueText(effect: Partial<BuffEffectDraft>) {
   return formatBuffNumericValue(effect.type, effect.value);
 }
 
-function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind): BuffEffectDraft {
+export function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind): BuffEffectDraft {
   if (nextKind === 'extraHit') {
     const category = normalizeBuffCategory(effect.category) === 'countable' ? 'countable' : 'passive';
     return {
@@ -377,7 +376,7 @@ function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffectKind):
   };
 }
 
-function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDraft {
+export function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDraft {
   const normalizedType = normalizeLegacyBuffType(nextType);
   return {
     ...effect,
@@ -386,7 +385,7 @@ function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDra
   };
 }
 
-function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
+export function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
   const category = getBuffEffectMultiplier(effect)
     ? 'condition'
     : effect.effectKind === 'extraHit' && nextCategory === 'condition'
@@ -401,7 +400,7 @@ function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory):
   };
 }
 
-function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): BuffEffectDraft {
+export function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): BuffEffectDraft {
   if (!enabled) {
     const { multiplier: _multiplier, ...rest } = effect;
     return rest;
@@ -420,14 +419,14 @@ function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): Bu
   };
 }
 
-function setBuffMultiplierCoefficient(effect: BuffEffectDraft, coefficient: number): BuffEffectDraft {
+export function setBuffMultiplierCoefficient(effect: BuffEffectDraft, coefficient: number): BuffEffectDraft {
   return {
     ...effect,
     multiplier: { coefficient: Number.isFinite(coefficient) && coefficient > 0 ? coefficient : 1 },
   };
 }
 
-function setBuffMaxStacks(effect: BuffEffectDraft, maxStacks: number): BuffEffectDraft {
+export function setBuffMaxStacks(effect: BuffEffectDraft, maxStacks: number): BuffEffectDraft {
   return {
     ...effect,
     maxStacks: Math.max(1, Math.floor(Number.isFinite(maxStacks) ? maxStacks : 1)),
@@ -525,7 +524,7 @@ function normalizeItem(
   return normalizedItem;
 }
 
-function normalizeBuffDraft(value: Partial<BuffDraft> & { buffs?: Record<string, Partial<BuffEffectDraft>> }) {
+export function normalizeBuffDraft(value: Partial<BuffDraft> & { buffs?: Record<string, Partial<BuffEffectDraft>> }) {
   const normalizedDraft: BuffDraft = {
     id: value.id?.trim() || 'custom-buff-001',
     name: value.name?.trim() || '本地 Buff 草稿',
@@ -572,7 +571,7 @@ function normalizeBuffDraftLibrary(library: Record<string, BuffDraft>): Record<s
   );
 }
 
-function reorderDraftStructure(draft: BuffDraft) {
+export function reorderDraftStructure(draft: BuffDraft) {
   const reorderedItems: Record<string, BuffItemDraft> = {};
 
   Object.values(draft.items).forEach((item, itemIndex) => {
@@ -606,7 +605,7 @@ function reorderDraftStructure(draft: BuffDraft) {
   };
 }
 
-function parseImportedBuffDraft(rawText: string) {
+export function parseImportedBuffDraft(rawText: string) {
   const parsed = JSON.parse(rawText) as Partial<BuffDraft> & { buffs?: Record<string, Partial<BuffEffectDraft>> };
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('JSON 根节点必须是对象');
@@ -658,7 +657,7 @@ async function copyText(text: string) {
   }
 }
 
-type BuffSheetRow =
+export type BuffSheetRow =
   | {
       kind: 'group';
       key: string;
@@ -867,7 +866,7 @@ function restoreBuffUndoSnapshot(snapshotId: string): BuffUndoSnapshot | null {
   return target;
 }
 
-function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
+export function buildBuffSheetRows(draft: BuffDraft): BuffSheetRow[] {
   const rows: BuffSheetRow[] = [
     {
       kind: 'group',
