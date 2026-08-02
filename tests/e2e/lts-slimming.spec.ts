@@ -329,18 +329,39 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     const sourceBox = await secondEffectRow.boundingBox();
     const targetBox = await firstEffectRow.boundingBox();
     if (!sourceBox || !targetBox) throw new Error('Weapon effects are not available for drag reorder test.');
-    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
-    await page.mouse.down();
-    await page.waitForTimeout(260);
-    await expect(page.locator('.buff-sheet-drag-preview')).toContainText('Second Weapon Effect');
-    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 5 });
-    await expect(firstEffectRow).toHaveClass(/is-drag-target/);
-    await page.mouse.up();
-    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
-
     const importedEffectLabels = page.locator(
       '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="effect"] .buff-sheet-explorer-label',
     );
+    const startTargetedEffectDrag = async () => {
+      await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+      await page.mouse.down();
+      await page.waitForTimeout(260);
+      await expect(page.locator('.buff-sheet-drag-preview')).toContainText('Second Weapon Effect');
+      await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 5 });
+      await expect(firstEffectRow).toHaveClass(/is-drag-target/);
+    };
+
+    await startTargetedEffectDrag();
+    await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointercancel')));
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+    await page.mouse.up();
+    expect(await importedEffectLabels.allTextContents()).toEqual([
+      'First Weapon Effect',
+      'Second Weapon Effect',
+    ]);
+
+    await startTargetedEffectDrag();
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+    await page.mouse.up();
+    expect(await importedEffectLabels.allTextContents()).toEqual([
+      'First Weapon Effect',
+      'Second Weapon Effect',
+    ]);
+
+    await startTargetedEffectDrag();
+    await page.mouse.up();
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
     expect(await importedEffectLabels.allTextContents()).toEqual([
       'Second Weapon Effect',
       'First Weapon Effect',

@@ -167,7 +167,7 @@ export function useWeaponExplorerDrag({
       });
     };
 
-    const finalizeDrag = () => {
+    const commitDrag = () => {
       clearPendingExplorerDrag();
       setDragState((previousState) => {
         if (previousState?.over) {
@@ -177,15 +177,20 @@ export function useWeaponExplorerDrag({
       });
     };
 
+    const cancelDrag = () => {
+      clearPendingExplorerDrag();
+      setDragState(null);
+    };
+
     window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', finalizeDrag, true);
-    window.addEventListener('pointercancel', finalizeDrag, true);
-    window.addEventListener('blur', finalizeDrag);
+    window.addEventListener('pointerup', commitDrag, true);
+    window.addEventListener('pointercancel', cancelDrag, true);
+    window.addEventListener('blur', cancelDrag);
     return () => {
       window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', finalizeDrag, true);
-      window.removeEventListener('pointercancel', finalizeDrag, true);
-      window.removeEventListener('blur', finalizeDrag);
+      window.removeEventListener('pointerup', commitDrag, true);
+      window.removeEventListener('pointercancel', cancelDrag, true);
+      window.removeEventListener('blur', cancelDrag);
     };
   }, [clearPendingExplorerDrag, dragState, isValidExplorerDropTarget, onReorder, resolveExplorerDragNodeFromElement]);
 
