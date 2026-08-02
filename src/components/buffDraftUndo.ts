@@ -1,13 +1,15 @@
 import { cloneValue, type BuffDraft } from './buffDraftModel';
+import {
+  BUFF_DRAFT_STORAGE_KEY,
+  BUFF_LIBRARY_STORAGE_KEY,
+  type BuffDraftStorage,
+} from './buffDraftPersistence';
 
-export const BUFF_DRAFT_STORAGE_KEY = 'def.buff-editor.draft.v1';
-export const BUFF_LIBRARY_STORAGE_KEY = 'def.buff-editor.library.v1';
+export { BUFF_DRAFT_STORAGE_KEY, BUFF_LIBRARY_STORAGE_KEY } from './buffDraftPersistence';
 export const BUFF_UNDO_STORAGE_KEY = 'def.buff-editor.undo.v1';
 export const BUFF_UNDO_LIMIT = 8;
 
-export interface BuffUndoStorage {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
+export interface BuffUndoStorage extends BuffDraftStorage {
   removeItem(key: string): void;
 }
 

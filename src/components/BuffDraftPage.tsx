@@ -26,7 +26,6 @@ import {
   buildCollapsedDraftState,
   buildCollapsedItemState,
   cloneValue,
-  createDefaultBuffDraft,
   createDefaultBuffEffect,
   createDefaultBuffItem,
   createDefaultBuffName,
@@ -40,7 +39,6 @@ import {
   normalizeBuffCategory,
   normalizeBuffDraft,
   normalizeBuffDraftLibrary,
-  parseImportedBuffDraft,
   reorderDraftStructure,
   setBuffMaxStacks,
   setBuffMultiplierCoefficient,
@@ -57,6 +55,7 @@ import {
   reorderBuffExplorerLibrary,
 } from './buffExplorerDragPolicy';
 import { createBuffFormulaTextBinding } from './buffDraftFormula';
+import { createBuffDraftRepository } from './buffDraftPersistence';
 import {
   buildBuffDraftLibraryShareFile,
   mergeBuffDraftLibraryShare,
@@ -65,8 +64,6 @@ import {
   type BuffDraftLibraryShareFile,
 } from './buffDraftShare';
 import {
-  BUFF_DRAFT_STORAGE_KEY,
-  BUFF_LIBRARY_STORAGE_KEY,
   createBuffUndoRepository,
   formatBuffUndoLabel,
   type BuffUndoSnapshot,
@@ -106,45 +103,11 @@ export {
 } from './buffDraftWorkbook';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
+const buffDraftRepository = createBuffDraftRepository(persistentLocalStorage);
 const buffUndoRepository = createBuffUndoRepository(persistentLocalStorage);
 
 function isBuffSheetPath(pathname: string) {
   return pathname === BUFF_SHEET_PAGE_PATH;
-}
-
-function loadDraftFromStorage() {
-  if (typeof window === 'undefined') {
-    return createDefaultBuffDraft();
-  }
-  const raw = persistentLocalStorage.getItem(BUFF_DRAFT_STORAGE_KEY);
-  if (!raw) {
-    return createDefaultBuffDraft();
-  }
-  try {
-    return parseImportedBuffDraft(raw);
-  } catch {
-    return createDefaultBuffDraft();
-  }
-}
-
-function loadLocalBuffLibrary() {
-  if (typeof window === 'undefined') {
-    return {} as Record<string, BuffDraft>;
-  }
-
-  const raw = persistentLocalStorage.getItem(BUFF_LIBRARY_STORAGE_KEY);
-  if (!raw) {
-    return {} as Record<string, BuffDraft>;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as Record<string, Partial<BuffDraft> & { buffs?: Record<string, Partial<BuffEffectDraft>> }>;
-    return Object.fromEntries(
-      Object.entries(parsed).map(([draftId, draftValue]) => [draftId, normalizeBuffDraft(draftValue)])
-    );
-  } catch {
-    return {} as Record<string, BuffDraft>;
-  }
 }
 
 async function copyText(text: string) {
@@ -255,7 +218,7 @@ function renderBuffWorkbookCellContent(cell: BuffWorkbookCellView, sourceRow?: B
 export { isBuffSheetPath };
 
 export function BuffDraftSheetPage() {
-  const [draft, setDraft] = useState<BuffDraft>(() => loadDraftFromStorage());
+  const [draft, setDraft] = useState<BuffDraft>(() => buffDraftRepository.loadDraft());
   const [localLibrary, setLocalLibrary] = useState<Record<string, BuffDraft>>({});
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
   const [undoSnapshots, setUndoSnapshots] = useState<BuffUndoSnapshot[]>([]);
@@ -307,8 +270,8 @@ export function BuffDraftSheetPage() {
       return;
     }
 
-    const nextLibrary = loadLocalBuffLibrary();
-    const nextDraftFromStorage = loadDraftFromStorage();
+    const nextLibrary = buffDraftRepository.loadLibrary();
+    const nextDraftFromStorage = buffDraftRepository.loadDraft();
     const nextSelectedId = restored.selectedDraftId && nextLibrary[restored.selectedDraftId]
       ? restored.selectedDraftId
       : (Object.keys(nextLibrary)[0] ?? nextDraftFromStorage.id);
@@ -329,7 +292,7 @@ export function BuffDraftSheetPage() {
 
   const refreshLocalLibrary = useCallback(() => {
     const nextLibrary = {
-      ...loadLocalBuffLibrary(),
+      ...buffDraftRepository.loadLibrary(),
       [draft.id]: normalizeBuffDraft(draft),
     };
     setLocalLibrary(nextLibrary);
@@ -460,7 +423,7 @@ export function BuffDraftSheetPage() {
       return;
     }
     const nextLibrary = mergeBuffDraftLibraryShare(localLibrary, pendingImportShare);
-    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
+    buffDraftRepository.saveLibrary(nextLibrary);
     setLocalLibrary(nextLibrary);
     applyExplorerDefaultCollapse(nextLibrary);
     const nextSelectedId = resolveBuffDraftShareSelection(
@@ -481,7 +444,7 @@ export function BuffDraftSheetPage() {
 
   useEffect(() => {
     const nextLibrary = {
-      ...loadLocalBuffLibrary(),
+      ...buffDraftRepository.loadLibrary(),
       [draft.id]: normalizeBuffDraft(draft),
     };
     setLocalLibrary(nextLibrary);
@@ -901,7 +864,7 @@ export function BuffDraftSheetPage() {
   ]);
 
   const persistDraftToLibrary = useCallback((allowOverwrite: boolean, focusRowKey?: string | null, draftOverride?: BuffDraft) => {
-    const library = loadLocalBuffLibrary();
+    const library = buffDraftRepository.loadLibrary();
     const existingIds = Object.keys(library);
     const workingDraft = draftOverride ?? draft;
     const nextDraftId = workingDraft.id.trim() || getNextDraftId(existingIds);
@@ -920,8 +883,8 @@ export function BuffDraftSheetPage() {
     nextLibrary[nextDraftId] = nextDraft;
 
     const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
-    persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(nextDraft));
+    buffDraftRepository.saveLibrary(normalizedLibrary);
+    buffDraftRepository.saveDraft(nextDraft);
     setDraft(nextDraft);
     setLocalLibrary(normalizedLibrary);
     setSelectedLocalDraftId(nextDraftId);
@@ -984,13 +947,13 @@ export function BuffDraftSheetPage() {
 
   const persistLibraryState = useCallback((nextLibrary: Record<string, BuffDraft>, nextSelectedId?: string) => {
     const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-    persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+    buffDraftRepository.saveLibrary(normalizedLibrary);
     setLocalLibrary(normalizedLibrary);
     if (nextSelectedId) {
       setSelectedLocalDraftId(nextSelectedId);
       if (normalizedLibrary[nextSelectedId]) {
         setDraft(normalizedLibrary[nextSelectedId]);
-        persistentLocalStorage.setItem(BUFF_DRAFT_STORAGE_KEY, JSON.stringify(normalizedLibrary[nextSelectedId]));
+        buffDraftRepository.saveDraft(normalizedLibrary[nextSelectedId]);
       }
     }
   }, []);
@@ -1114,7 +1077,7 @@ export function BuffDraftSheetPage() {
       delete nextLibrary[draftId];
       const nextSelectedId = Object.keys(nextLibrary)[0] ?? '';
       const normalizedLibrary = normalizeBuffDraftLibrary(nextLibrary);
-      persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(normalizedLibrary));
+      buffDraftRepository.saveLibrary(normalizedLibrary);
       setLocalLibrary(normalizedLibrary);
       setSelectedLocalDraftId(nextSelectedId);
       if (nextSelectedId && normalizedLibrary[nextSelectedId]) {
