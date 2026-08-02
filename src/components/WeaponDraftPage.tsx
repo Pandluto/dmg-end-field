@@ -36,9 +36,9 @@ const WEAPON_DRAFT_STORAGE_KEY = 'def.weapon-sheet.draft.v1';
 const WEAPON_LIBRARY_STORAGE_KEY = 'def.weapon-sheet.library.v1';
 const WEAPON_LIBRARY_SHARE_TYPE = 'weapon-library-share.v1';
 
-type WeaponEffectBucket = 'value' | 'effect';
+export type WeaponEffectBucket = 'value' | 'effect';
 
-interface WeaponEffectData {
+export interface WeaponEffectData {
   schemaVersion?: 2;
   effectId?: string;
   name: string;
@@ -56,14 +56,14 @@ interface WeaponEffectData {
   extraHitConfig?: BuffExtraHitConfig;
 }
 
-interface RawWeaponLevelData {
+export interface RawWeaponLevelData {
   value?: number;
   description?: string;
   passive?: Record<string, number>;
   effects?: Record<string, number>;
 }
 
-interface RawWeaponSkillData {
+export interface RawWeaponSkillData {
   name?: string;
   statType?: string;
   effects?: Record<string, Partial<WeaponEffectData>>;
@@ -74,7 +74,7 @@ interface RawWeaponSkillData {
   levels?: Record<string, RawWeaponLevelData>;
 }
 
-interface RawWeaponDraft {
+export interface RawWeaponDraft {
   id?: string;
   name?: string;
   rarity?: number;
@@ -85,19 +85,19 @@ interface RawWeaponDraft {
   skills?: Record<string, RawWeaponSkillData>;
 }
 
-interface WeaponLevelData {
+export interface WeaponLevelData {
   value?: number;
   description: string;
 }
 
-interface WeaponSkillData {
+export interface WeaponSkillData {
   name: string;
   statType: string;
   effects: Record<string, WeaponEffectData>;
   levels: Record<string, WeaponLevelData>;
 }
 
-interface WeaponDraft {
+export interface WeaponDraft {
   id: string;
   name: string;
   rarity: number;
@@ -118,7 +118,7 @@ interface WeaponImageOption {
   searchText: string;
 }
 
-type WeaponSheetRow =
+export type WeaponSheetRow =
   | {
       kind: 'weapon';
       key: string;
@@ -281,7 +281,7 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function buildWeaponIdFromName(name: string) {
+export function buildWeaponIdFromName(name: string) {
   const trimmedName = name.trim();
   if (!trimmedName) {
     return '';
@@ -296,14 +296,14 @@ function buildWeaponIdFromName(name: string) {
   return normalized;
 }
 
-function createEmptyWeaponLevelData(): WeaponLevelData {
+export function createEmptyWeaponLevelData(): WeaponLevelData {
   return {
     value: undefined,
     description: '',
   };
 }
 
-function createEmptyWeaponSkillData(skillKey: WeaponSkillKey): WeaponSkillData {
+export function createEmptyWeaponSkillData(skillKey: WeaponSkillKey): WeaponSkillData {
   return {
     name: formatSkillDefaultName(skillKey),
     statType: '',
@@ -317,7 +317,7 @@ function createEmptyWeaponSkillData(skillKey: WeaponSkillKey): WeaponSkillData {
   };
 }
 
-function createEmptyWeaponDraft(nextId = 'custom-weapon-001'): WeaponDraft {
+export function createEmptyWeaponDraft(nextId = 'custom-weapon-001'): WeaponDraft {
   return {
     id: nextId,
     name: '新建武器',
@@ -334,7 +334,7 @@ function createEmptyWeaponDraft(nextId = 'custom-weapon-001'): WeaponDraft {
   };
 }
 
-function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefined): WeaponDraft {
+export function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefined): WeaponDraft {
   const fallbackId = buildWeaponIdFromName(raw?.name?.trim() || '') || 'custom-weapon-001';
   const nextDraft: WeaponDraft = {
     id: typeof raw?.id === 'string' && raw.id.trim() ? raw.id.trim() : fallbackId,
@@ -444,7 +444,7 @@ function normalizeWeaponDraft(raw: RawWeaponDraft | WeaponDraft | null | undefin
   return nextDraft;
 }
 
-function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData, levelKey: string): buffModel.OperatorBuffEffect {
+export function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData, levelKey: string): buffModel.OperatorBuffEffect {
   const normalized = buffModel.normalizeBuffEffect(effectKey, effect);
   const levelValue = effect.levels[levelKey];
   const businessType = buffModel.deriveOperatorBuffBusinessType(normalized);
@@ -476,7 +476,7 @@ function projectWeaponEffectForLevel(effectKey: string, effect: WeaponEffectData
   return { ...normalized, value: levelValue };
 }
 
-function applyWeaponDrawerEffect(effect: WeaponEffectData, levelKey: string, next: buffModel.OperatorBuffEffect): WeaponEffectData {
+export function applyWeaponDrawerEffect(effect: WeaponEffectData, levelKey: string, next: buffModel.OperatorBuffEffect): WeaponEffectData {
   const businessType = buffModel.deriveOperatorBuffBusinessType(next);
   const nextLevelValue = next.effectKind === 'extraHit'
     ? next.extraHitConfig?.baseMultiplier
@@ -496,7 +496,7 @@ function applyWeaponDrawerEffect(effect: WeaponEffectData, levelKey: string, nex
   };
 }
 
-function buildNextCustomWeaponId(existingIds: string[]) {
+export function buildNextCustomWeaponId(existingIds: string[]) {
   let index = 1;
   while (existingIds.includes(`custom-weapon-${String(index).padStart(3, '0')}`)) {
     index += 1;
@@ -553,13 +553,13 @@ function buildWeaponSheetColumns(): WeaponSheetColumn[] {
   ];
 }
 
-function formatSkillDefaultName(skillKey: WeaponSkillKey) {
+export function formatSkillDefaultName(skillKey: WeaponSkillKey) {
   if (skillKey === 'skill1') return '能力值';
   if (skillKey === 'skill2') return '属性';
   return '特效';
 }
 
-function getSkillAutoBuffType(skillKey: WeaponSkillKey, statType: string) {
+export function getSkillAutoBuffType(skillKey: WeaponSkillKey, statType: string) {
   const trimmed = statType.trim();
   if (!trimmed) {
     return '';
@@ -697,7 +697,7 @@ function getEffectCategory(skillKey: WeaponSkillKey, skill: WeaponSkillData, eff
   return effect ? buffModel.deriveOperatorBuffBusinessType(buffModel.normalizeBuffEffect(effectKey, effect)) : 'condition';
 }
 
-function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
+export function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
   const nextGrowth = { ...attackGrowth };
   const start = nextGrowth['1'];
   const end = nextGrowth['90'];
@@ -714,24 +714,24 @@ function autoFillAttackGrowthMilestones(attackGrowth: Record<string, number>) {
   return nextGrowth;
 }
 
-function applyAttackGrowthInterpolation(draft: WeaponDraft) {
+export function applyAttackGrowthInterpolation(draft: WeaponDraft) {
   return {
     ...draft,
     attackGrowth: autoFillAttackGrowthMilestones(draft.attackGrowth),
   };
 }
 
-function getWeaponLevelCoordinate(levelKey: string): number {
+export function getWeaponLevelCoordinate(levelKey: string): number {
   const level = Number(levelKey);
   if (level >= 9) return 9;
   return Math.max(0, level - 1);
 }
 
-function roundLevelValue(value: number): number {
+export function roundLevelValue(value: number): number {
   return Math.round(value * 10000) / 10000;
 }
 
-function interpolateWeaponLevelValues(sourceLevels: Record<string, number | undefined>): Record<string, number> | null {
+export function interpolateWeaponLevelValues(sourceLevels: Record<string, number | undefined>): Record<string, number> | null {
   const anchors = LEVEL_KEYS
     .map((levelKey) => ({ levelKey, coordinate: getWeaponLevelCoordinate(levelKey), value: sourceLevels[levelKey] }))
     .filter((entry): entry is { levelKey: string; coordinate: number; value: number } => (
@@ -752,7 +752,7 @@ function interpolateWeaponLevelValues(sourceLevels: Record<string, number | unde
   );
 }
 
-function applyEffectLevelsInterpolation(
+export function applyEffectLevelsInterpolation(
   draft: WeaponDraft,
   skillKey: WeaponSkillKey,
   bucket: WeaponEffectBucket,
@@ -817,7 +817,7 @@ function buildWeaponEffectIdText(
   return `${skillKey}-effect${effectIndex}`;
 }
 
-function parseInlineLevelAddress(address?: string | null) {
+export function parseInlineLevelAddress(address?: string | null) {
   if (!address) {
     return '';
   }
@@ -864,7 +864,7 @@ function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLInputElement>,
   }
 }
 
-function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
+export function buildWeaponSheetRows(draft: WeaponDraft): WeaponSheetRow[] {
   const rows: WeaponSheetRow[] = [
     {
       kind: 'weapon',
@@ -1081,7 +1081,7 @@ function buildWeaponWorkbookRows(draft: WeaponDraft, rows: WeaponSheetRow[], col
   }));
 }
 
-function moveRecordEntry<T>(record: Record<string, T>, fromKey: string, toKey: string) {
+export function moveRecordEntry<T>(record: Record<string, T>, fromKey: string, toKey: string) {
   const entries = Object.entries(record);
   const fromIndex = entries.findIndex(([key]) => key === fromKey);
   const toIndex = entries.findIndex(([key]) => key === toKey);
@@ -1094,7 +1094,7 @@ function moveRecordEntry<T>(record: Record<string, T>, fromKey: string, toKey: s
   return Object.fromEntries(nextEntries) as Record<string, T>;
 }
 
-function reorderWeaponDraft(draft: WeaponDraft): WeaponDraft {
+export function reorderWeaponDraft(draft: WeaponDraft): WeaponDraft {
   const nextSkills: Record<string, WeaponSkillData> = {};
   SKILL_KEYS.forEach((skillKey) => {
     const skill = draft.skills[skillKey];
