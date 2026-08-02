@@ -4,12 +4,7 @@ import './OperatorDraftPage.css';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
+import { buildDraftLibraryShareFileName } from '../utils/draftShare';
 import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
@@ -46,7 +41,6 @@ import {
   parseInlineLevelAddress,
   projectWeaponEffectForLevel,
   reorderWeaponDraft,
-  type RawWeaponDraft,
   type WeaponDraft,
   type WeaponEffectBucket,
   type WeaponSheetRow,
@@ -59,9 +53,15 @@ import {
   type WeaponWorkbookRow,
 } from './weaponDraftWorkbook';
 import { createWeaponDraftRepository } from './weaponDraftPersistence';
+import {
+  buildWeaponDraftLibraryShareFile,
+  mergeWeaponDraftLibraryShare,
+  parseWeaponDraftLibraryShare,
+  resolveWeaponDraftShareSelection,
+  type WeaponDraftLibraryShareFile,
+} from './weaponDraftShare';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
-const WEAPON_LIBRARY_SHARE_TYPE = 'weapon-library-share.v1';
 const weaponDraftRepository = createWeaponDraftRepository(persistentLocalStorage);
 
 interface WeaponImageOption {
@@ -244,8 +244,7 @@ export function WeaponDraftSheetPage() {
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
   const [shareImportError, setShareImportError] = useState('');
-  const [shareDraftName] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<WeaponDraft> | null>(null);
+  const [pendingImportShare, setPendingImportShare] = useState<WeaponDraftLibraryShareFile | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
@@ -1217,28 +1216,11 @@ export function WeaponDraftSheetPage() {
     setIsWeaponImageDrawerOpen(false);
   }, []);
 
-  const currentShareFile = useMemo(() => {
-    // 根据导出范围生成 payload
-    let payload: Record<string, WeaponDraft>;
-    let label: string;
-    if (exportScope === 'current') {
-      // 导出当前：payload 只包含当前 draft
-      payload = draft.id ? { [draft.id]: draft } : {};
-      label = draft.name || 'weapon';
-    } else {
-      // 导出全部：payload 为整个 localLibrary，当前 draft 覆盖同 id 条目
-      payload = { ...localLibrary };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-      label = shareDraftName || draft.name || 'weapon-library';
-    }
-    return buildDraftLibraryShareFile(
-      WEAPON_LIBRARY_SHARE_TYPE,
-      payload,
-      label,
-    );
-  }, [draft, exportScope, localLibrary, shareDraftName]);
+  const currentShareFile = useMemo(() => buildWeaponDraftLibraryShareFile({
+    draft,
+    library: localLibrary,
+    scope: exportScope,
+  }), [draft, exportScope, localLibrary]);
 
   const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
@@ -1273,25 +1255,14 @@ export function WeaponDraftSheetPage() {
   }, [currentShareText]);
 
   const prepareImportShare = useCallback((rawText: string) => {
-    const parsed = parseDraftLibraryShareFile(rawText, WEAPON_LIBRARY_SHARE_TYPE);
-    if (!parsed) {
+    const result = parseWeaponDraftLibraryShare(rawText);
+    if (!result.ok) {
       setPendingImportShare(null);
-      setShareImportError('导入失败：文件不是有效的武器库分享 JSON。');
-      return;
-    }
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsed.payload).map(([draftId, draftValue]) => [draftId, normalizeWeaponDraft({ ...(draftValue as RawWeaponDraft), id: draftId })]),
-    ) as Record<string, WeaponDraft>;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效武器。');
+      setShareImportError(result.error);
       return;
     }
     setShareImportError('');
-    setPendingImportShare({
-      ...parsed,
-      payload: normalizedPayload,
-    } as DraftLibraryShareFile<WeaponDraft>);
+    setPendingImportShare(result.shareFile);
   }, []);
 
   const handleExportLocalLibrary = useCallback(() => {
@@ -1334,15 +1305,16 @@ export function WeaponDraftSheetPage() {
     if (!pendingImportShare) {
       return;
     }
-    const nextLibrary = {
-      ...localLibrary,
-      ...pendingImportShare.payload,
-    };
-    const nextDraftId = Object.keys(pendingImportShare.payload)[0] ?? '';
+    const nextLibrary = mergeWeaponDraftLibraryShare(localLibrary, pendingImportShare);
+    const nextDraftId = resolveWeaponDraftShareSelection(
+      pendingImportShare.payload,
+      selectedLocalDraftId,
+      draft.id,
+    );
     const nextDraft = nextDraftId && nextLibrary[nextDraftId]
       ? nextLibrary[nextDraftId]
       : draft;
-    persistLibraryState(nextLibrary, nextDraft, nextDraftId || selectedLocalDraftId || draft.id);
+    persistLibraryState(nextLibrary, nextDraft, nextDraftId);
     setPendingImportShare(null);
     setShareImportText('');
     setShareImportError('');
