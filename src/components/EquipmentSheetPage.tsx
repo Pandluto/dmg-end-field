@@ -1239,7 +1239,7 @@ export function EquipmentSheetPage() {
       || (sourceRow.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(cell.columnKey))
       || (sourceRow.kind === 'equipment' && ['name', 'field', 'description'].includes(cell.columnKey))
       || (sourceRow.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey', 'description'].includes(cell.columnKey));
+      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey'].includes(cell.columnKey));
     if (!editable) {
       return cell.value;
     }

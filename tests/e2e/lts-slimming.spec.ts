@@ -450,6 +450,17 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
               ...sourceEquipment,
               equipmentId: 'equipment-slim-imported',
               name: 'Slim Imported Equipment',
+              effects: {
+                effect1: {
+                  effectId: 'effect1',
+                  label: 'Slim Effect Summary',
+                  typeKey: 'physicalDmgBonus',
+                  category: 'buff',
+                  levels: { '0': 0.1, '1': 0.2, '2': 0.3, '3': 0.4 },
+                  unit: 'percent',
+                  raw: '物理伤害：+10%/+20%/+30%/+40%',
+                },
+              },
             },
           },
         },
@@ -479,6 +490,11 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await importedSetRow.locator('.buff-sheet-explorer-toggle').click();
     await expect(importedEntry).toBeVisible();
     await importedEntry.click();
+
+    const effectSummaryCell = page.locator('[data-equipment-row-key^="effect-"] .is-col-description').first();
+    await expect(effectSummaryCell).toBeVisible();
+    await expect(effectSummaryCell.locator('input, select')).toHaveCount(0);
+    await expect(effectSummaryCell).toContainText('/');
 
     const importedWorkbookRow = page
       .locator('input[value="Slim Imported Equipment"]')
