@@ -107,6 +107,7 @@ function hasOwn(record: object, key: string): boolean {
 export function reorderWeaponExplorerLibrary(
   library: Record<string, WeaponDraft>,
   currentDraft: WeaponDraft | null | undefined,
+  activeDraftKey: string,
   source: WeaponExplorerDragNode,
   target: WeaponExplorerDragNode | null,
 ): WeaponExplorerReorderResult | null {
@@ -115,8 +116,8 @@ export function reorderWeaponExplorerLibrary(
     return null;
   }
 
-  const targetDraft = library[source.draftId]
-    ?? (currentDraft?.id === source.draftId ? currentDraft : null);
+  const shouldUpdateCurrentDraft = Boolean(currentDraft && activeDraftKey === source.draftId);
+  const targetDraft = shouldUpdateCurrentDraft ? currentDraft : library[source.draftId];
   if (!targetDraft) {
     return null;
   }
@@ -145,6 +146,6 @@ export function reorderWeaponExplorerLibrary(
       [source.draftId]: nextDraft,
     },
     nextDraft,
-    shouldUpdateCurrentDraft: currentDraft?.id === source.draftId,
+    shouldUpdateCurrentDraft,
   };
 }

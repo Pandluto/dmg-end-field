@@ -159,6 +159,7 @@ assert.equal(
 
 const libraryBefore = JSON.parse(JSON.stringify(library)) as Record<string, WeaponDraft>;
 const currentDraft = createDraft('draft-a', '当前编辑副本');
+currentDraft.id = 'unsaved-edited-id';
 currentDraft.skills.skill3.effects = {
   third: currentDraft.skills.skill3.effects.third,
   first: currentDraft.skills.skill3.effects.first,
@@ -166,26 +167,30 @@ currentDraft.skills.skill3.effects = {
 };
 const currentDraftBefore = JSON.parse(JSON.stringify(currentDraft)) as WeaponDraft;
 
-const reorderedFromAfter = reorderWeaponExplorerLibrary(library, currentDraft, secondEffectNode, firstEffectNode);
+const reorderedFromAfter = reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', secondEffectNode, firstEffectNode);
 assert.ok(reorderedFromAfter);
-assert.deepEqual(Object.keys(reorderedFromAfter.nextDraft.skills.skill3.effects), ['second', 'first', 'third']);
-assert.equal(reorderedFromAfter.nextDraft.name, '武器 A', 'library draft wins over currentDraft');
+assert.deepEqual(Object.keys(reorderedFromAfter.nextDraft.skills.skill3.effects), ['third', 'second', 'first']);
+assert.equal(
+  reorderedFromAfter.nextDraft.name,
+  '当前编辑副本',
+  'active draft key must select the unsaved current draft even after its id changes',
+);
 assert.equal(reorderedFromAfter.shouldUpdateCurrentDraft, true);
 assert.strictEqual(reorderedFromAfter.nextLibrary['draft-a'], reorderedFromAfter.nextDraft);
-assert.notStrictEqual(reorderedFromAfter.nextDraft, draftA);
-assert.notStrictEqual(reorderedFromAfter.nextDraft.skills.skill3, draftA.skills.skill3);
-assert.notStrictEqual(reorderedFromAfter.nextDraft.skills.skill3.effects, draftA.skills.skill3.effects);
+assert.notStrictEqual(reorderedFromAfter.nextDraft, currentDraft);
+assert.notStrictEqual(reorderedFromAfter.nextDraft.skills.skill3, currentDraft.skills.skill3);
+assert.notStrictEqual(reorderedFromAfter.nextDraft.skills.skill3.effects, currentDraft.skills.skill3.effects);
 assert.deepEqual(library, libraryBefore, 'library draft reorder must not mutate the source');
-assert.deepEqual(currentDraft, currentDraftBefore, 'current draft must not mutate when library wins');
+assert.deepEqual(currentDraft, currentDraftBefore, 'active current draft reorder must not mutate the source');
 
-const reorderedFromBefore = reorderWeaponExplorerLibrary(library, currentDraft, firstEffectNode, {
+const reorderedFromBefore = reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', firstEffectNode, {
   ...firstEffectNode,
   effectKey: 'third',
 });
 assert.ok(reorderedFromBefore);
 assert.deepEqual(
   Object.keys(reorderedFromBefore.nextDraft.skills.skill3.effects),
-  ['second', 'third', 'first'],
+  ['first', 'third', 'second'],
   'moveRecordEntry target-index semantics are preserved',
 );
 
@@ -193,6 +198,7 @@ const libraryWithoutDraftA: Record<string, WeaponDraft> = { 'draft-b': draftB };
 const fallbackReorder = reorderWeaponExplorerLibrary(
   libraryWithoutDraftA,
   currentDraft,
+  'draft-a',
   secondEffectNode,
   firstEffectNode,
 );
@@ -208,35 +214,36 @@ const notSelectedDraft = createDraft('draft-other', '另一个当前编辑副本
 const libraryPriorityWithoutCurrent = reorderWeaponExplorerLibrary(
   library,
   notSelectedDraft,
+  'draft-other',
   secondEffectNode,
   firstEffectNode,
 );
 assert.ok(libraryPriorityWithoutCurrent);
 assert.equal(libraryPriorityWithoutCurrent.shouldUpdateCurrentDraft, false);
 
-assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, firstEffectNode, null), null);
+assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', firstEffectNode, null), null);
 assert.equal(
-  reorderWeaponExplorerLibrary(library, currentDraft, firstEffectNode, {
+  reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', firstEffectNode, {
     ...secondEffectNode,
     effectKey: 'missing-effect',
   }),
   null,
 );
 assert.equal(
-  reorderWeaponExplorerLibrary(library, currentDraft, {
+  reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', {
     ...firstEffectNode,
     effectKey: 'missing-effect',
   }, secondEffectNode),
   null,
 );
-assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, draftNode, otherDraftNode), null);
-assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, firstEffectNode, valueNode), null);
+assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', draftNode, otherDraftNode), null);
+assert.equal(reorderWeaponExplorerLibrary(library, currentDraft, 'draft-a', firstEffectNode, valueNode), null);
 assert.equal(
-  reorderWeaponExplorerLibrary({}, null, firstEffectNode, secondEffectNode),
+  reorderWeaponExplorerLibrary({}, null, 'draft-a', firstEffectNode, secondEffectNode),
   null,
 );
 assert.equal(
-  reorderWeaponExplorerLibrary({}, createDraft('draft-other', '不匹配'), firstEffectNode, secondEffectNode),
+  reorderWeaponExplorerLibrary({}, createDraft('draft-other', '不匹配'), 'draft-other', firstEffectNode, secondEffectNode),
   null,
 );
 

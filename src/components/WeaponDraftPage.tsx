@@ -1134,7 +1134,7 @@ export function WeaponDraftSheetPage() {
       return;
     }
 
-    const result = reorderWeaponExplorerLibrary(localLibrary, draft, source, target);
+    const result = reorderWeaponExplorerLibrary(localLibrary, draft, activeDraftId, source, target);
     if (!result) {
       return;
     }
@@ -1144,7 +1144,7 @@ export function WeaponDraftSheetPage() {
     }
     setLocalLibrary(result.nextLibrary);
     weaponDraftRepository.saveLibrary(result.nextLibrary);
-  }, [draft, isValidExplorerDropTarget, localLibrary]);
+  }, [activeDraftId, draft, isValidExplorerDropTarget, localLibrary]);
 
   const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: WeaponExplorerDragNode) => {
     if (event.button !== 0 || !canStartExplorerDrag(source)) {
