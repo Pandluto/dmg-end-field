@@ -12,13 +12,10 @@ import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageL
 import type { ImageAssetEntry } from './ImageManager/types';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import {
-  applyEffectValueCatalogForPart,
   BUFF_TYPE_LABELS,
   BUFF_TYPE_OPTIONS,
   createEmptyLibrary,
-  DEFAULT_FIXED_STAT_BY_PART,
   drawerEffectToEquipmentBuff,
-  EFFECT_IDS,
   EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
   EQUIPMENT_PARTS,
   equipmentBuffToDrawer,
@@ -27,7 +24,6 @@ import {
   getEquipments,
   getEquipmentEffectShape,
   getEquipmentEffectTypeOptions,
-  getEquipmentEffectValuePreset,
   getGearSets,
   getSortedEquipments,
   LEVEL_KEYS,
@@ -38,10 +34,20 @@ import {
   type EquipmentLibrary,
 } from './equipmentSheetModel';
 import {
+  addEquipmentFixedStat,
   applyCellValueToLibrary,
-  makeNextId,
-  updateLibraryEquipment,
+  applyEquipmentEffectValueMapping,
+  createEquipmentEffect,
+  createEquipmentGearSet,
+  createEquipmentItem,
+  createEquipmentThreePieceEffect,
+  deleteEquipmentNode,
+  duplicateEquipmentEffect,
+  duplicateEquipmentItem,
+  duplicateEquipmentThreePieceEffect,
+  normalizeEquipmentLibraryOrder,
   updateLibrarySet,
+  type EquipmentEditingResult,
 } from './equipmentSheetEditing';
 import {
   buildRows,
@@ -232,7 +238,8 @@ export {
 };
 
 export function EquipmentSheetPage() {
-  const [library, setLibrary] = useState<EquipmentLibrary>(() => normalizeEquipmentLibrary(EMPTY_LIBRARY));
+  const [library, setLibraryState] = useState<EquipmentLibrary>(() => normalizeEquipmentLibrary(EMPTY_LIBRARY));
+  const libraryRef = useRef(library);
   const [selectedRowKey, setSelectedRowKey] = useState('');
   const [selectedCell, setSelectedCell] = useState<EquipmentSelection | null>(null);
   const [filterKeyword, setFilterKeyword] = useState('');
@@ -266,6 +273,11 @@ export function EquipmentSheetPage() {
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const equipmentImageFormulaRef = useRef<HTMLDivElement>(null);
 
+  const replaceLibrary = useCallback((nextLibrary: EquipmentLibrary) => {
+    libraryRef.current = nextLibrary;
+    setLibraryState(nextLibrary);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     readEquipmentLibraryFromFile()
@@ -275,7 +287,7 @@ export function EquipmentSheetPage() {
         const hasCachedData = Object.keys(cached.gearSets).length > 0;
         const shouldUseCached = hasCachedData;
         const nextLibrary = shouldUseCached ? cached : fileLibrary;
-        setLibrary(nextLibrary);
+        replaceLibrary(nextLibrary);
         setIsDirty(false);
         if (shouldUseCached) {
           setMessage('已从浏览器 SQLite 加载装备库。');
@@ -287,18 +299,18 @@ export function EquipmentSheetPage() {
         if (cancelled) return;
         const cached = readCachedEquipmentLibrary();
         if (Object.keys(cached.gearSets).length > 0) {
-          setLibrary(cached);
+          replaceLibrary(cached);
           setIsDirty(false);
           setMessage(`读取内置资料失败，已使用浏览器 SQLite：${error instanceof Error ? error.message : String(error)}`);
         } else {
-          setLibrary(createEmptyLibrary());
+          replaceLibrary(createEmptyLibrary());
           setMessage(`读取装备库失败，已创建空库：${error instanceof Error ? error.message : String(error)}`);
         }
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [replaceLibrary]);
 
   useEffect(() => {
     let cancelled = false;
@@ -424,11 +436,27 @@ export function EquipmentSheetPage() {
   }, [selectedRow, visibleRows]);
 
   const mutateLibrary = useCallback((updater: (prev: EquipmentLibrary) => EquipmentLibrary) => {
-    setLibrary((prev) => {
-      const next = { ...updater(prev), updatedAt: new Date().toISOString() };
-      setIsDirty(true);
-      return next;
-    });
+    const next = { ...updater(libraryRef.current), updatedAt: new Date().toISOString() };
+    libraryRef.current = next;
+    setLibraryState(next);
+    setIsDirty(true);
+    return next;
+  }, []);
+
+  const commitEditingTransaction = useCallback((transaction: (current: EquipmentLibrary) => EquipmentEditingResult) => {
+    const result = transaction(libraryRef.current);
+    if (!result.changed) return false;
+    const nextLibrary = { ...result.library, updatedAt: new Date().toISOString() };
+    libraryRef.current = nextLibrary;
+    setLibraryState(nextLibrary);
+    setIsDirty(true);
+    return { ...result, library: nextLibrary };
+  }, []);
+
+  const selectEditingRow = useCallback((rowKey: string | undefined) => {
+    if (!rowKey) return;
+    setSelectedRowKey(rowKey);
+    setSelectedCell(null);
   }, []);
 
   const openEquipmentBuffDrawer = useCallback((gearSetId: string, effectId: string) => {
@@ -436,237 +464,70 @@ export function EquipmentSheetPage() {
   }, []);
 
   const createThreePieceEffectInSet = useCallback((gearSetId: string) => {
-    let nextEffectId = 'effect1';
-    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
-      const current = gearSet.threePieceBuffs || {};
-      let index = 1;
-      while (current[`effect${index}`]) {
-        index += 1;
-      }
-      nextEffectId = `effect${index}`;
-      return {
-        ...gearSet,
-        threePieceBuffs: {
-          ...current,
-          [nextEffectId]: {
-            effectId: nextEffectId,
-            name: '新建效果',
-            category: '',
-            typeKey: '',
-            value: 0,
-            unit: 'percent',
-            raw: '',
-          },
-        },
-      };
-    }));
+    const result = commitEditingTransaction((current) => createEquipmentThreePieceEffect(current, gearSetId));
+    if (!result || !result.effectId) return;
     setActiveGearSetId(gearSetId);
     setActiveEquipmentId(null);
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
     setCollapsedThreePieceBuffIds((prev) => ({ ...prev, [gearSetId]: false }));
-    setSelectedRowKey(`three-piece-buff-${gearSetId}-${nextEffectId}`);
-    setBuffDrawerTarget({ gearSetId, effectId: nextEffectId });
-  }, [mutateLibrary]);
+    selectEditingRow(result.selectedRowKey);
+    setBuffDrawerTarget({ gearSetId, effectId: result.effectId });
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const duplicateThreePieceEffect = useCallback((gearSetId: string, effectId: string) => {
-    let nextEffectId = 'effect1';
-    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
-      const source = gearSet.threePieceBuffs?.[effectId];
-      if (!source) return gearSet;
-      const current = gearSet.threePieceBuffs || {};
-      let index = 1;
-      while (current[`effect${index}`]) {
-        index += 1;
-      }
-      nextEffectId = `effect${index}`;
-      return {
-        ...gearSet,
-        threePieceBuffs: {
-          ...current,
-          [nextEffectId]: {
-            ...JSON.parse(JSON.stringify(source)),
-            effectId: nextEffectId,
-            name: `${source.name} 副本`,
-          },
-        },
-      };
-    }));
+    const result = commitEditingTransaction((current) => duplicateEquipmentThreePieceEffect(current, gearSetId, effectId));
+    if (!result || !result.effectId) return;
     setActiveGearSetId(gearSetId);
     setActiveEquipmentId(null);
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
     setCollapsedThreePieceBuffIds((prev) => ({ ...prev, [gearSetId]: false }));
-    setSelectedRowKey(`three-piece-buff-${gearSetId}-${nextEffectId}`);
-    setBuffDrawerTarget({ gearSetId, effectId: nextEffectId });
-  }, [mutateLibrary]);
-
-  const handleCreateNew = useCallback(() => {
-    if (selectedRow?.kind === 'threePieceBuffHeader' || selectedRow?.kind === 'threePieceBuff') {
-      createThreePieceEffectInSet(selectedRow.gearSetId);
-      return;
-    }
-    if (selectedRow?.kind === 'set') {
-      const gearSet = library.gearSets[selectedRow.gearSetId];
-      if (!gearSet) return;
-      const equipmentId = makeNextId('equipment', Object.keys(gearSet.equipments));
-      mutateLibrary((prev) => updateLibrarySet(prev, selectedRow.gearSetId, (target) => ({
-        ...target,
-        equipments: {
-          ...target.equipments,
-          [equipmentId]: {
-            equipmentId,
-            name: '新建装备',
-            part: '护甲',
-            imgUrl: '',
-            fixedStat: DEFAULT_FIXED_STAT_BY_PART['护甲'],
-            effects: {},
-          },
-        },
-      })));
-      setActiveGearSetId(selectedRow.gearSetId);
-      setActiveEquipmentId(equipmentId);
-      setCollapsedGearSetIds((prev) => ({ ...prev, [selectedRow.gearSetId]: false }));
-      setSelectedRowKey(`equipment-${selectedRow.gearSetId}-${equipmentId}`);
-      return;
-    }
-    if (selectedRow?.kind === 'equipment' || selectedRow?.kind === 'fixedStat' || selectedRow?.kind === 'effect' || selectedRow?.kind === 'effectLevels') {
-      const gearSetId = selectedRow.gearSetId;
-      const equipmentId = selectedRow.equipmentId;
-      mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => {
-        const freeEffectId = EFFECT_IDS.find((effectId) => !equipment.effects[effectId]);
-        if (!freeEffectId) return equipment;
-        return {
-          ...equipment,
-          effects: {
-            ...equipment.effects,
-            [freeEffectId]: {
-              effectId: freeEffectId,
-              label: '新建增益',
-              typeKey: '',
-              category: 'buff',
-              unit: 'flat',
-              levels: {},
-            },
-          },
-        };
-      }));
-      setActiveGearSetId(gearSetId);
-      setActiveEquipmentId(equipmentId);
-      setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
-      setCollapsedEquipmentIds((prev) => ({ ...prev, [`${gearSetId}:${equipmentId}`]: false }));
-      return;
-    }
-    const gearSetId = makeNextId('gear-set', Object.keys(library.gearSets));
-    mutateLibrary((prev) => ({
-      ...prev,
-      gearSets: {
-        ...prev.gearSets,
-        [gearSetId]: {
-          gearSetId,
-          name: '新建套装',
-          buffId: '',
-          imgUrl: '',
-          threePieceBuffs: {},
-          equipments: {},
-        },
-      },
-    }));
-    setActiveGearSetId(gearSetId);
-    setActiveEquipmentId(null);
-    setSelectedRowKey(`set-${gearSetId}`);
-  }, [createThreePieceEffectInSet, library.gearSets, mutateLibrary, selectedRow]);
+    selectEditingRow(result.selectedRowKey);
+    setBuffDrawerTarget({ gearSetId, effectId: result.effectId });
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const createGearSet = useCallback(() => {
-    const gearSetId = makeNextId('gear-set', Object.keys(library.gearSets));
-    mutateLibrary((prev) => ({
-      ...prev,
-      gearSets: {
-        ...prev.gearSets,
-        [gearSetId]: {
-          gearSetId,
-          name: '新建套装',
-          buffId: '',
-          imgUrl: '',
-          threePieceBuffs: {},
-          equipments: {},
-        },
-      },
-    }));
-    setActiveGearSetId(gearSetId);
+    const result = commitEditingTransaction(createEquipmentGearSet);
+    if (!result || !result.gearSetId) return;
+    setActiveGearSetId(result.gearSetId);
     setActiveEquipmentId(null);
-    setSelectedRowKey(`set-${gearSetId}`);
-  }, [library.gearSets, mutateLibrary]);
+    selectEditingRow(result.selectedRowKey);
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const createEquipmentInSet = useCallback((gearSetId: string) => {
-    const gearSet = library.gearSets[gearSetId];
-    if (!gearSet) return;
-    const equipmentId = makeNextId('equipment', Object.keys(gearSet.equipments));
-    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (target) => ({
-      ...target,
-      equipments: {
-        ...target.equipments,
-        [equipmentId]: {
-          equipmentId,
-          name: '新建装备',
-          part: '护甲',
-          imgUrl: '',
-          fixedStat: DEFAULT_FIXED_STAT_BY_PART['护甲'],
-          effects: {},
-        },
-      },
-    })));
+    const result = commitEditingTransaction((current) => createEquipmentItem(current, gearSetId));
+    if (!result || !result.equipmentId) return;
     setActiveGearSetId(gearSetId);
-    setActiveEquipmentId(equipmentId);
+    setActiveEquipmentId(result.equipmentId);
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
-    setSelectedRowKey(`equipment-${gearSetId}-${equipmentId}`);
-  }, [library.gearSets, mutateLibrary]);
+    selectEditingRow(result.selectedRowKey);
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const createEffectInEquipment = useCallback((gearSetId: string, equipmentId: string) => {
-    let nextEffectId: EquipmentEffectId | null = null;
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => {
-      const freeEffectId = EFFECT_IDS.find((effectId) => !equipment.effects[effectId]);
-      if (!freeEffectId) return equipment;
-      nextEffectId = freeEffectId;
-      return {
-        ...equipment,
-        effects: {
-          ...equipment.effects,
-          [freeEffectId]: {
-            effectId: freeEffectId,
-            label: '新建增益',
-            typeKey: '',
-            category: 'buff',
-            unit: 'flat',
-            levels: {},
-          },
-        },
-      };
-    }));
+    const result = commitEditingTransaction((current) => createEquipmentEffect(current, gearSetId, equipmentId));
+    if (!result) return;
     setActiveGearSetId(gearSetId);
     setActiveEquipmentId(equipmentId);
     setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
     setCollapsedEquipmentIds((prev) => ({ ...prev, [`${gearSetId}:${equipmentId}`]: false }));
-    if (nextEffectId) {
-      setSelectedRowKey(`effect-${gearSetId}-${equipmentId}-${nextEffectId}`);
+    selectEditingRow(result.selectedRowKey);
+  }, [commitEditingTransaction, selectEditingRow]);
+
+  const handleCreateNew = useCallback(() => {
+    if (selectedRow?.kind === 'threePieceBuffHeader' || selectedRow?.kind === 'threePieceBuff') {
+      createThreePieceEffectInSet(selectedRow.gearSetId);
+    } else if (selectedRow?.kind === 'set') {
+      createEquipmentInSet(selectedRow.gearSetId);
+    } else if (selectedRow?.kind === 'equipment' || selectedRow?.kind === 'fixedStat' || selectedRow?.kind === 'effect' || selectedRow?.kind === 'effectLevels') {
+      createEffectInEquipment(selectedRow.gearSetId, selectedRow.equipmentId);
+    } else {
+      createGearSet();
     }
-  }, [mutateLibrary]);
+  }, [createEffectInEquipment, createEquipmentInSet, createGearSet, createThreePieceEffectInSet, selectedRow]);
 
   const handleNormalize = useCallback(() => {
-    mutateLibrary((prev) => ({
-      ...prev,
-      gearSets: Object.fromEntries(
-        getGearSets(prev)
-          .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
-          .map((gearSet) => [gearSet.gearSetId, {
-            ...gearSet,
-            equipments: Object.fromEntries(getSortedEquipments(gearSet).map((equipment) => [equipment.equipmentId, {
-              ...equipment,
-              effects: Object.fromEntries(getEffectEntries(equipment).map(([effectId, effect]) => [effectId, effect])),
-            }])),
-          }])
-      ),
-    }));
+    commitEditingTransaction(normalizeEquipmentLibraryOrder);
     setMessage('已整理：套装按名称，装备按护甲/护手/配件，effect 按 effect1-3。');
-  }, [mutateLibrary]);
+  }, [commitEditingTransaction]);
 
   const openContextMenu = useCallback((event: ReactMouseEvent, state: EquipmentContextMenuState) => {
     event.preventDefault();
@@ -782,82 +643,64 @@ export function EquipmentSheetPage() {
   }, [library.gearSets]);
 
   const addFixedStat = useCallback((gearSetId: string, equipmentId: string) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => equipment.fixedStat ? equipment : {
-      ...equipment,
-      fixedStat: DEFAULT_FIXED_STAT_BY_PART[equipment.part],
-    }));
-  }, [mutateLibrary]);
+    commitEditingTransaction((current) => addEquipmentFixedStat(current, gearSetId, equipmentId));
+  }, [commitEditingTransaction]);
 
   const deleteNode = useCallback((state: EquipmentContextMenuState) => {
+    let transaction: ((current: EquipmentLibrary) => EquipmentEditingResult) | null = null;
     if (state.target === 'set' && state.gearSetId) {
-      mutateLibrary((prev) => {
-        const nextGearSets = { ...prev.gearSets };
-        delete nextGearSets[state.gearSetId!];
-        return { ...prev, gearSets: nextGearSets };
+      transaction = (current) => deleteEquipmentNode(current, { kind: 'set', gearSetId: state.gearSetId! });
+    } else if (state.target === 'equipment' && state.gearSetId && state.equipmentId) {
+      transaction = (current) => deleteEquipmentNode(current, {
+        kind: 'equipment',
+        gearSetId: state.gearSetId!,
+        equipmentId: state.equipmentId!,
+      });
+    } else if (state.target === 'fixedStat' && state.gearSetId && state.equipmentId) {
+      transaction = (current) => deleteEquipmentNode(current, {
+        kind: 'fixedStat',
+        gearSetId: state.gearSetId!,
+        equipmentId: state.equipmentId!,
+      });
+    } else if (state.target === 'effect' && state.gearSetId && state.equipmentId && state.effectId) {
+      transaction = (current) => deleteEquipmentNode(current, {
+        kind: 'effect',
+        gearSetId: state.gearSetId!,
+        equipmentId: state.equipmentId!,
+        effectId: state.effectId as EquipmentEffectId,
+      });
+    } else if (state.target === 'threePieceBuff' && state.gearSetId && state.effectId) {
+      transaction = (current) => deleteEquipmentNode(current, {
+        kind: 'threePieceBuff',
+        gearSetId: state.gearSetId!,
+        effectId: state.effectId!,
       });
     }
-    if (state.target === 'equipment' && state.gearSetId && state.equipmentId) {
-      mutateLibrary((prev) => updateLibrarySet(prev, state.gearSetId!, (gearSet) => {
-        const nextEquipments = { ...gearSet.equipments };
-        delete nextEquipments[state.equipmentId!];
-        return { ...gearSet, equipments: nextEquipments };
-      }));
-    }
-    if (state.target === 'fixedStat' && state.gearSetId && state.equipmentId) {
-      mutateLibrary((prev) => updateLibraryEquipment(prev, state.gearSetId!, state.equipmentId!, (equipment) => {
-        const { fixedStat: _fixedStat, ...rest } = equipment;
-        return rest;
-      }));
-    }
-    if (state.target === 'effect' && state.gearSetId && state.equipmentId && state.effectId) {
-      const effectId = state.effectId as EquipmentEffectId;
-      mutateLibrary((prev) => updateLibraryEquipment(prev, state.gearSetId!, state.equipmentId!, (equipment) => {
-        const nextEffects = { ...equipment.effects };
-        delete nextEffects[effectId];
-        return { ...equipment, effects: nextEffects };
-      }));
-    }
-    if (state.target === 'threePieceBuff' && state.gearSetId) {
-      const effectId = state.effectId!;
-      mutateLibrary((prev) => updateLibrarySet(prev, state.gearSetId!, (gearSet) => {
-        const nextThreePieceBuffs = { ...(gearSet.threePieceBuffs || {}) };
-        delete nextThreePieceBuffs[effectId];
-        return { ...gearSet, threePieceBuffs: nextThreePieceBuffs };
-      }));
-      setSelectedRowKey(`three-piece-buff-header-${state.gearSetId}`);
+    if (transaction) {
+      const result = commitEditingTransaction(transaction);
+      if (result) selectEditingRow(result.selectedRowKey);
     }
     closeContextMenu();
-  }, [closeContextMenu, mutateLibrary]);
+  }, [closeContextMenu, commitEditingTransaction, selectEditingRow]);
 
   const duplicateEquipment = useCallback((gearSetId: string, equipmentId: string) => {
-    mutateLibrary((prev) => updateLibrarySet(prev, gearSetId, (gearSet) => {
-      const source = gearSet.equipments[equipmentId];
-      if (!source) return gearSet;
-      const nextId = makeNextId(`${equipmentId}-copy`, Object.keys(gearSet.equipments));
-      return {
-        ...gearSet,
-        equipments: {
-          ...gearSet.equipments,
-          [nextId]: { ...JSON.parse(JSON.stringify(source)), equipmentId: nextId, name: `${source.name} 副本` },
-        },
-      };
-    }));
-  }, [mutateLibrary]);
+    const result = commitEditingTransaction((current) => duplicateEquipmentItem(current, gearSetId, equipmentId));
+    if (!result || !result.equipmentId) return;
+    setActiveGearSetId(gearSetId);
+    setActiveEquipmentId(result.equipmentId);
+    setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
+    selectEditingRow(result.selectedRowKey);
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const duplicateEffect = useCallback((gearSetId: string, equipmentId: string, effectId: EquipmentEffectId) => {
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (equipment) => {
-      const freeEffectId = EFFECT_IDS.find((candidate) => !equipment.effects[candidate]);
-      const source = equipment.effects[effectId];
-      if (!freeEffectId || !source) return equipment;
-      return {
-        ...equipment,
-        effects: {
-          ...equipment.effects,
-          [freeEffectId]: { ...JSON.parse(JSON.stringify(source)), effectId: freeEffectId, label: `${source.label} 副本` },
-        },
-      };
-    }));
-  }, [mutateLibrary]);
+    const result = commitEditingTransaction((current) => duplicateEquipmentEffect(current, gearSetId, equipmentId, effectId));
+    if (!result) return;
+    setActiveGearSetId(gearSetId);
+    setActiveEquipmentId(equipmentId);
+    setCollapsedGearSetIds((prev) => ({ ...prev, [gearSetId]: false }));
+    setCollapsedEquipmentIds((prev) => ({ ...prev, [`${gearSetId}:${equipmentId}`]: false }));
+    selectEditingRow(result.selectedRowKey);
+  }, [commitEditingTransaction, selectEditingRow]);
 
   const copyJsonToClipboard = useCallback(async (value: unknown) => {
     const text = JSON.stringify(value, null, 2);
@@ -866,27 +709,13 @@ export function EquipmentSheetPage() {
   }, []);
 
   const applyEffectValueMapping = useCallback((gearSetId: string, equipmentId: string, effectId: EquipmentEffectId) => {
-    const equipment = library.gearSets[gearSetId]?.equipments[equipmentId];
-    const effect = equipment?.effects[effectId];
-    if (!equipment || !effect) return;
-    const shape = getEquipmentEffectShape(equipment);
-    if (!getEquipmentEffectValuePreset(equipment.part, effectId, effect.typeKey, shape)) {
+    const result = commitEditingTransaction((current) => applyEquipmentEffectValueMapping(current, gearSetId, equipmentId, effectId));
+    if (!result) {
       setMessage('当前词条没有可用的数值映射。');
       return;
     }
-    mutateLibrary((prev) => updateLibraryEquipment(prev, gearSetId, equipmentId, (current) => {
-      const currentEffect = current.effects[effectId];
-      if (!currentEffect) return current;
-      return {
-        ...current,
-        effects: {
-          ...current.effects,
-          [effectId]: applyEffectValueCatalogForPart(currentEffect, current.part, getEquipmentEffectShape(current)),
-        },
-      };
-    }));
     setMessage('已按数值映射填充 Lv0–Lv3。');
-  }, [library.gearSets, mutateLibrary]);
+  }, [commitEditingTransaction]);
 
   const buildContextMenuActions = useCallback((state: EquipmentContextMenuState): EquipmentContextMenuAction[] => {
     const actions: EquipmentContextMenuAction[] = [];
@@ -1195,20 +1024,17 @@ export function EquipmentSheetPage() {
   }, [formulaBinding, formulaInput]);
 
   const performSave = useCallback(async () => {
-    const committedLibrary = buildLibraryWithCommittedFormulaInput(library);
+    const committedLibrary = buildLibraryWithCommittedFormulaInput(libraryRef.current);
     const emptyBuffSets = getGearSets(committedLibrary).filter((gearSet) => !gearSet.buffId?.trim()).length;
     const nextLibrary = { ...committedLibrary, updatedAt: new Date().toISOString() };
     const warning = emptyBuffSets > 0 ? ` ${emptyBuffSets} 个套装 buffId 为空，请后续补齐。` : '';
-    if (committedLibrary !== library) {
-      setLibrary(committedLibrary);
-    }
     writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
     writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
-    setLibrary(nextLibrary);
+    replaceLibrary(nextLibrary);
     setIsDirty(false);
     setIsSaveConfirmModalOpen(false);
     setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
-  }, [buildLibraryWithCommittedFormulaInput, library]);
+  }, [buildLibraryWithCommittedFormulaInput, replaceLibrary]);
 
   const handleSave = useCallback(() => {
     if (isOverwriteProtectionEnabled) {

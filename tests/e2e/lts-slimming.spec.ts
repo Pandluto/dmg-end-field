@@ -478,6 +478,21 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(importedSetRow).toHaveCount(1);
     await importedSetRow.locator('.buff-sheet-explorer-toggle').click();
     await expect(importedEntry).toBeVisible();
+    await importedEntry.click();
+
+    const importedWorkbookRow = page
+      .locator('input[value="Slim Imported Equipment"]')
+      .locator('xpath=ancestor::*[@data-equipment-row-key]');
+    await expect(importedWorkbookRow).toBeVisible();
+    await importedWorkbookRow.locator('.is-col-name').click();
+    await expect(page.locator('.damage-sheet-formula-address')).not.toHaveText('-');
+    await importedWorkbookRow.click({ button: 'right' });
+    await page.getByRole('button', { name: '复制装备', exact: true }).click();
+    await expect(page.locator('.damage-sheet-formula-address')).toHaveText('-');
+    await expect(page
+      .locator('input[value="Slim Imported Equipment 副本"]')
+      .locator('xpath=ancestor::*[@data-equipment-row-key]'))
+      .toHaveClass(/is-active/);
   });
 
   await test.step('Operator draft saves through browser storage and survives reload', async () => {

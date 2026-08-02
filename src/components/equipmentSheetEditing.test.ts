@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import {
+  addEquipmentFixedStat,
   applyCellValueToLibrary,
+  applyEquipmentEffectValueMapping,
+  createEquipmentEffect,
+  createEquipmentGearSet,
+  createEquipmentItem,
+  createEquipmentThreePieceEffect,
+  deleteEquipmentNode,
+  duplicateEquipmentEffect,
+  duplicateEquipmentItem,
+  duplicateEquipmentThreePieceEffect,
   makeNextId,
+  normalizeEquipmentLibraryOrder,
   updateLibraryEquipment,
   updateLibrarySet,
 } from './equipmentSheetEditing';
@@ -218,5 +229,173 @@ assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'valueText'
 assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'description', '新的三件套描述').gearSets['gear-set-demo'].threePieceBuffs?.effect1.raw, '新的三件套描述');
 
 assert.deepEqual(baseLibrary, baseSnapshot, 'cell editing transactions must not mutate the source library');
+
+const createdSet = createEquipmentGearSet(baseLibrary);
+assert.equal(createdSet.changed, true);
+assert.equal(createdSet.gearSetId, 'gear-set-002');
+assert.equal(createdSet.selectedRowKey, 'set-gear-set-002');
+assert.equal(createdSet.library.gearSets['gear-set-002'].name, '新建套装');
+
+const createdEquipment = createEquipmentItem(baseLibrary, 'gear-set-demo');
+assert.equal(createdEquipment.changed, true);
+assert.equal(createdEquipment.equipmentId, 'equipment-002');
+assert.equal(createdEquipment.selectedRowKey, 'equipment-gear-set-demo-equipment-002');
+assert.deepEqual(createdEquipment.library.gearSets['gear-set-demo'].equipments['equipment-002'].fixedStat, {
+  label: '防御力',
+  typeKey: 'defense',
+  value: 56,
+  unit: 'flat',
+  raw: '防御力：+56',
+});
+assert.deepEqual(createEquipmentItem(baseLibrary, 'missing'), { library: baseLibrary, changed: false });
+const createdEquipmentAgain = createEquipmentItem(createdEquipment.library, 'gear-set-demo');
+assert.equal(createdEquipmentAgain.equipmentId, 'equipment-003');
+assert.ok(createdEquipmentAgain.library.gearSets['gear-set-demo'].equipments['equipment-002']);
+assert.ok(createdEquipmentAgain.library.gearSets['gear-set-demo'].equipments['equipment-003']);
+
+const libraryWithEffectGap = makeLibrary({
+  equipments: {
+    'equipment-main': makeEquipment({
+      effects: {
+        effect1: makeEffect('effect1'),
+        effect3: makeEffect('effect3'),
+      },
+    }),
+  },
+});
+const createdEffect = createEquipmentEffect(libraryWithEffectGap, 'gear-set-demo', 'equipment-main');
+assert.equal(createdEffect.changed, true);
+assert.equal(createdEffect.effectId, 'effect2');
+assert.equal(createdEffect.selectedRowKey, 'effect-gear-set-demo-equipment-main-effect2');
+assert.equal(createdEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2?.label, '新建增益');
+const fullEffectResult = createEquipmentEffect(baseLibrary, 'gear-set-demo', 'equipment-main');
+assert.deepEqual(fullEffectResult, { library: baseLibrary, changed: false });
+
+const createdThreePiece = createEquipmentThreePieceEffect(baseLibrary, 'gear-set-demo');
+assert.equal(createdThreePiece.changed, true);
+assert.equal(createdThreePiece.effectId, 'effect2');
+assert.equal(createdThreePiece.selectedRowKey, 'three-piece-buff-gear-set-demo-effect2');
+assert.equal(createdThreePiece.library.gearSets['gear-set-demo'].threePieceBuffs?.effect2.name, '新建效果');
+
+const duplicatedThreePiece = duplicateEquipmentThreePieceEffect(baseLibrary, 'gear-set-demo', 'effect1');
+assert.equal(duplicatedThreePiece.changed, true);
+assert.equal(duplicatedThreePiece.effectId, 'effect2');
+assert.equal(duplicatedThreePiece.library.gearSets['gear-set-demo'].threePieceBuffs?.effect2.name, '三件套增益 副本');
+assert.notStrictEqual(
+  duplicatedThreePiece.library.gearSets['gear-set-demo'].threePieceBuffs?.effect2,
+  baseLibrary.gearSets['gear-set-demo'].threePieceBuffs?.effect1,
+);
+
+const duplicatedEquipment = duplicateEquipmentItem(baseLibrary, 'gear-set-demo', 'equipment-main');
+assert.equal(duplicatedEquipment.changed, true);
+assert.equal(duplicatedEquipment.equipmentId, 'equipment-main-copy-002');
+assert.equal(duplicatedEquipment.library.gearSets['gear-set-demo'].equipments['equipment-main-copy-002'].name, '主装备 副本');
+assert.notStrictEqual(
+  duplicatedEquipment.library.gearSets['gear-set-demo'].equipments['equipment-main-copy-002'].effects,
+  baseLibrary.gearSets['gear-set-demo'].equipments['equipment-main'].effects,
+);
+
+const duplicatedEffect = duplicateEquipmentEffect(libraryWithEffectGap, 'gear-set-demo', 'equipment-main', 'effect1');
+assert.equal(duplicatedEffect.changed, true);
+assert.equal(duplicatedEffect.effectId, 'effect2');
+assert.equal(duplicatedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2?.label, '效果 effect1 副本');
+assert.notStrictEqual(
+  duplicatedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2?.levels,
+  libraryWithEffectGap.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect1?.levels,
+);
+
+const libraryWithoutFixed = makeLibrary({
+  equipments: {
+    'equipment-main': makeEquipment({ fixedStat: undefined }),
+  },
+});
+const addedFixed = addEquipmentFixedStat(libraryWithoutFixed, 'gear-set-demo', 'equipment-main');
+assert.equal(addedFixed.changed, true);
+assert.equal(addedFixed.selectedRowKey, 'fixed-gear-set-demo-equipment-main');
+assert.equal(addedFixed.library.gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.value, 56);
+assert.deepEqual(addEquipmentFixedStat(baseLibrary, 'gear-set-demo', 'equipment-main'), { library: baseLibrary, changed: false });
+
+const deletedEffect = deleteEquipmentNode(baseLibrary, {
+  kind: 'effect',
+  gearSetId: 'gear-set-demo',
+  equipmentId: 'equipment-main',
+  effectId: 'effect2',
+});
+assert.equal(deletedEffect.changed, true);
+assert.equal(deletedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2, undefined);
+const deletedFixed = deleteEquipmentNode(baseLibrary, {
+  kind: 'fixedStat',
+  gearSetId: 'gear-set-demo',
+  equipmentId: 'equipment-main',
+});
+assert.equal(deletedFixed.library.gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat, undefined);
+const deletedThreePiece = deleteEquipmentNode(baseLibrary, {
+  kind: 'threePieceBuff',
+  gearSetId: 'gear-set-demo',
+  effectId: 'effect1',
+});
+assert.equal(deletedThreePiece.selectedRowKey, 'three-piece-buff-header-gear-set-demo');
+assert.equal(deletedThreePiece.library.gearSets['gear-set-demo'].threePieceBuffs?.effect1, undefined);
+const deletedEquipment = deleteEquipmentNode(baseLibrary, {
+  kind: 'equipment',
+  gearSetId: 'gear-set-demo',
+  equipmentId: 'equipment-main',
+});
+assert.equal(deletedEquipment.library.gearSets['gear-set-demo'].equipments['equipment-main'], undefined);
+const deletedSet = deleteEquipmentNode(baseLibrary, { kind: 'set', gearSetId: 'gear-set-demo' });
+assert.equal(deletedSet.library.gearSets['gear-set-demo'], undefined);
+assert.deepEqual(deleteEquipmentNode(baseLibrary, { kind: 'set', gearSetId: 'missing' }), { library: baseLibrary, changed: false });
+
+const unorderedLibrary: EquipmentLibrary = {
+  gearSets: {
+    z: {
+      gearSetId: 'z',
+      name: '乙套装',
+      equipments: {
+        c: makeEquipment({ equipmentId: 'c', name: 'C', part: '配件', effects: { effect3: makeEffect('effect3'), effect1: makeEffect('effect1') } }),
+        a: makeEquipment({ equipmentId: 'a', name: 'A', part: '护甲', effects: {} }),
+      },
+    },
+    a: { gearSetId: 'a', name: '甲套装', equipments: {} },
+  },
+};
+const normalizedOrder = normalizeEquipmentLibraryOrder(unorderedLibrary);
+assert.deepEqual(Object.keys(normalizedOrder.library.gearSets), ['a', 'z']);
+assert.deepEqual(Object.keys(normalizedOrder.library.gearSets.z.equipments), ['a', 'c']);
+assert.deepEqual(Object.keys(normalizedOrder.library.gearSets.z.equipments.c.effects), ['effect1', 'effect3']);
+
+const mappingLibrary = makeLibrary({
+  equipments: {
+    'equipment-main': makeEquipment({
+      part: '配件',
+      effects: {
+        effect1: makeEffect('effect1', {
+          label: '保留自定义标签',
+          typeKey: 'strengthBoost',
+          category: 'buff',
+          unit: 'flat',
+          raw: '',
+          levels: { '0': 901, '1': 902, '2': 903, '3': 904 },
+        }),
+        effect2: makeEffect('effect2', { label: '其他词条' }),
+      },
+    }),
+  },
+});
+const mappedEffect = applyEquipmentEffectValueMapping(mappingLibrary, 'gear-set-demo', 'equipment-main', 'effect1');
+assert.equal(mappedEffect.changed, true);
+assert.equal(mappedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect1?.label, '保留自定义标签');
+assert.notDeepEqual(mappedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect1?.levels, { '0': 901, '1': 902, '2': 903, '3': 904 });
+assert.deepEqual(
+  mappedEffect.library.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2,
+  mappingLibrary.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2,
+);
+assert.deepEqual(
+  applyEquipmentEffectValueMapping(mappingLibrary, 'gear-set-demo', 'equipment-main', 'effect3'),
+  { library: mappingLibrary, changed: false },
+);
+
+assert.deepEqual(baseLibrary, baseSnapshot, 'CRUD transactions must not mutate the source library');
+assert.deepEqual(libraryWithEffectGap.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect2, undefined);
 
 console.log('Equipment sheet editing characterization contract: PASS');
