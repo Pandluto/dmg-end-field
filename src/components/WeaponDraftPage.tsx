@@ -29,7 +29,6 @@ import {
   cloneValue,
   createEmptyWeaponDraft,
   getBuffTypeDisplayLabel,
-  moveRecordEntry,
   normalizeWeaponDraft,
   projectWeaponEffectForLevel,
   reorderWeaponDraft,
@@ -55,6 +54,15 @@ import {
   buildWeaponFormulaBinding,
   type WeaponWorkbookSelection,
 } from './weaponDraftFormula';
+import {
+  canStartWeaponExplorerDrag,
+  getWeaponExplorerDragNodeKey as getExplorerDragNodeKey,
+  getWeaponExplorerDragNodeLabel,
+  isValidWeaponExplorerDropTarget,
+  reorderWeaponExplorerLibrary,
+  type WeaponExplorerDragNode,
+  type WeaponExplorerDragPolicyState,
+} from './weaponExplorerDragPolicy';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const weaponDraftRepository = createWeaponDraftRepository(persistentLocalStorage);
@@ -68,24 +76,6 @@ interface WeaponImageOption {
   displayUrl: string;
   searchText: string;
 }
-
-type WeaponExplorerDragNode =
-  | {
-      kind: 'draft';
-      draftId: string;
-    }
-  | {
-      kind: 'skill';
-      draftId: string;
-      skillKey: WeaponSkillKey;
-    }
-  | {
-      kind: 'effect';
-      draftId: string;
-      skillKey: WeaponSkillKey;
-      bucket: WeaponEffectBucket;
-      effectKey: string;
-    };
 
 type WeaponExplorerDragState = {
   source: WeaponExplorerDragNode;
@@ -1087,35 +1077,12 @@ export function WeaponDraftSheetPage() {
   }, [explorerEntries, filterKeyword]);
 
   // Explorer drag helpers
-  const getExplorerDragNodeKey = useCallback((node: WeaponExplorerDragNode) => {
-    if (node.kind === 'draft') {
-      return `draft:${node.draftId}`;
-    }
-    if (node.kind === 'skill') {
-      return `skill:${node.draftId}:${node.skillKey}`;
-    }
-    return `effect:${node.draftId}:${node.skillKey}:${node.bucket}:${node.effectKey}`;
-  }, []);
+  const explorerDragPolicyState = useMemo<WeaponExplorerDragPolicyState>(() => ({
+    filterKeyword,
+  }), [filterKeyword]);
 
   const getExplorerDragNodeLabel = useCallback((node: WeaponExplorerDragNode) => {
-    const targetDraft = localLibrary[node.draftId];
-    if (!targetDraft) {
-      return node.draftId;
-    }
-    if (node.kind === 'draft') {
-      return targetDraft.name || node.draftId;
-    }
-    if (node.kind === 'skill') {
-      return targetDraft.skills[node.skillKey]?.name || node.skillKey;
-    }
-    const skill = targetDraft.skills[node.skillKey];
-    if (!skill) {
-      return node.effectKey;
-    }
-    if (node.bucket === 'value') {
-      return node.effectKey;
-    }
-    return skill.effects[node.effectKey]?.name || node.effectKey;
+    return getWeaponExplorerDragNodeLabel(localLibrary, node);
   }, [localLibrary]);
 
   const clearPendingExplorerDrag = useCallback(() => {
@@ -1127,35 +1094,12 @@ export function WeaponDraftSheetPage() {
   }, []);
 
   const canStartExplorerDrag = useCallback((node: WeaponExplorerDragNode) => {
-    if (filterKeyword.trim()) {
-      return false;
-    }
-    // 只允许 skill3 的 effect 拖拽
-    if (node.kind === 'effect') {
-      return node.skillKey === 'skill3' && node.bucket === 'effect';
-    }
-    // draft 和 skill 不允许拖拽
-    return false;
-  }, [filterKeyword]);
+    return canStartWeaponExplorerDrag(node, explorerDragPolicyState);
+  }, [explorerDragPolicyState]);
 
   const isValidExplorerDropTarget = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode | null) => {
-    if (!target || source.kind !== target.kind) {
-      return false;
-    }
-    if (getExplorerDragNodeKey(source) === getExplorerDragNodeKey(target)) {
-      return false;
-    }
-    if (target.kind === 'draft') {
-      return canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (target.kind === 'skill') {
-      return source.draftId === target.draftId && canStartExplorerDrag(source) && canStartExplorerDrag(target);
-    }
-    if (source.kind !== 'effect') {
-      return false;
-    }
-    return source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value';
-  }, [canStartExplorerDrag, getExplorerDragNodeKey]);
+    return isValidWeaponExplorerDropTarget(source, target, explorerDragPolicyState);
+  }, [explorerDragPolicyState]);
 
   const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): WeaponExplorerDragNode | null => {
     const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-weapon-drag-kind]') : null;
@@ -1190,41 +1134,16 @@ export function WeaponDraftSheetPage() {
       return;
     }
 
-    if (source.kind === 'draft' && target.kind === 'draft') {
-      // Reorder drafts in library
-      const nextLibrary = moveRecordEntry(localLibrary, source.draftId, target.draftId);
-      setLocalLibrary(nextLibrary);
-      weaponDraftRepository.saveLibrary(nextLibrary);
-    } else if (source.kind === 'skill' && target.kind === 'skill' && source.draftId === target.draftId) {
-      // Reorder skills within a draft (SKILL_KEYS is fixed order, so we need to reorder effectTypes instead)
-      const targetDraft = localLibrary[source.draftId] || draft;
-      const nextDraft = { ...targetDraft };
-      // Skills are fixed (skill1, skill2, skill3), so we reorder their effectTypes
-      // This is a simplified implementation
-      setDraft(nextDraft);
-      weaponDraftRepository.saveDraft(nextDraft);
-    } else if (source.kind === 'effect' && target.kind === 'effect' && source.draftId === target.draftId && source.skillKey === target.skillKey && source.bucket === target.bucket && source.bucket !== 'value') {
-      // effects record 的插入顺序即显示顺序，拖拽直接移动 entry
-      const targetDraft = localLibrary[source.draftId] || draft;
-      const nextEffects = moveRecordEntry(targetDraft.skills[source.skillKey].effects, source.effectKey, target.effectKey);
-      const nextDraft: WeaponDraft = {
-        ...targetDraft,
-        skills: {
-          ...targetDraft.skills,
-          [source.skillKey]: {
-            ...targetDraft.skills[source.skillKey],
-            effects: nextEffects,
-          },
-        },
-      };
-      if (targetDraft.id === draft.id) {
-        setDraft(nextDraft);
-        weaponDraftRepository.saveDraft(nextDraft);
-      }
-      const nextLibrary = { ...localLibrary, [source.draftId]: nextDraft };
-      setLocalLibrary(nextLibrary);
-      weaponDraftRepository.saveLibrary(nextLibrary);
+    const result = reorderWeaponExplorerLibrary(localLibrary, draft, source, target);
+    if (!result) {
+      return;
     }
+    if (result.shouldUpdateCurrentDraft) {
+      setDraft(result.nextDraft);
+      weaponDraftRepository.saveDraft(result.nextDraft);
+    }
+    setLocalLibrary(result.nextLibrary);
+    weaponDraftRepository.saveLibrary(result.nextLibrary);
   }, [draft, isValidExplorerDropTarget, localLibrary]);
 
   const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: WeaponExplorerDragNode) => {
