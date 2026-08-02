@@ -21,10 +21,10 @@ const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jp
 const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
 const BACKDROP_ASPECT_RATIO = 16 / 9;
-const STATIC_SNAPSHOT_CACHE_LIMIT = 48;
-const STATIC_SNAPSHOT_MEMORY_LIMIT = 128 * 1024 * 1024;
+const STATIC_SNAPSHOT_CACHE_LIMIT = 24;
+const STATIC_SNAPSHOT_MEMORY_LIMIT = 64 * 1024 * 1024;
 const STATIC_SNAPSHOT_VERSION = 7;
-const STATIC_SNAPSHOT_PREWARM_LIMIT = 32;
+const STATIC_SNAPSHOT_PREWARM_LIMIT = 8;
 const COHORT_COMMIT_DELAY = 72;
 
 type SurfacePreset = 'control' | 'dock' | 'card' | 'popover';
@@ -307,6 +307,7 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.operator-config-page-panel-detail-header > button', preset: 'control', priority: 0 },
   { selector: '.operator-config-page-skill-modal-header > button', preset: 'control', priority: 0 },
 ] as const;
+const SURFACE_SELECTOR = SURFACE_RULES.map(({ selector }) => selector).join(', ');
 
 const PRESET_CONFIGS: Record<SurfacePreset, Partial<GlassConfig>> = {
   control: {
@@ -909,24 +910,20 @@ export function useLiquidTideSurfaceGlass(
       if (cancelled) return;
 
       const byElement = new Map<HTMLElement, SurfaceTarget>();
-      SURFACE_RULES.forEach((rule) => {
-        appRoot.querySelectorAll<HTMLElement>(rule.selector).forEach((element) => {
-          const visibilityAnchor = rule.visibilityAnchor
-            ? element.closest<HTMLElement>(rule.visibilityAnchor)
-            : null;
-          if (
-            !byElement.has(element)
-            && element.parentElement
-            && isRendered(visibilityAnchor ?? element)
-          ) {
-            byElement.set(element, {
-              element,
-              preset: rule.preset,
-              priority: rule.priority,
-              visibilityAnchor,
-            });
-          }
-        });
+      appRoot.querySelectorAll<HTMLElement>(SURFACE_SELECTOR).forEach((element) => {
+        const rule = SURFACE_RULES.find(({ selector }) => element.matches(selector));
+        if (!rule) return;
+        const visibilityAnchor = rule.visibilityAnchor
+          ? element.closest<HTMLElement>(rule.visibilityAnchor)
+          : null;
+        if (element.parentElement && isRendered(visibilityAnchor ?? element)) {
+          byElement.set(element, {
+            element,
+            preset: rule.preset,
+            priority: rule.priority,
+            visibilityAnchor,
+          });
+        }
       });
 
       const candidateElements = new Set(byElement.keys());
@@ -1053,12 +1050,19 @@ export function useLiquidTideSurfaceGlass(
       scheduleSettledScan();
     };
 
-    const mutationObserver = new MutationObserver(() => {
-      // Cached lenses are cheap to attach, so discover newly committed route
-      // controls on the next frame instead of waiting for the old 80ms quiet
-      // window. Keep the settled pass for late text/geometry corrections.
+    const mutationObserver = new MutationObserver((records) => {
+      const candidateTreeChanged = records.some((record) => {
+        if (record.type === 'attributes') {
+          return !(record.target instanceof HTMLCanvasElement);
+        }
+        return [...record.addedNodes, ...record.removedNodes].some((node) => (
+          !(node instanceof HTMLCanvasElement)
+        ));
+      });
+      if (!candidateTreeChanged) return;
+      // React commits are already batched; one next-frame discovery pass is
+      // enough. Transition/animation completion owns the late geometry pass.
       scheduleScan();
-      scheduleSettledScan();
     });
     mutationObserver.observe(appRoot, {
       attributes: true,

@@ -25,6 +25,21 @@
   overflow: hidden;
 }
 
+.workbench-idle-backdrop {
+  width: 100%;
+  height: 100%;
+  background-color: var(--ide-bg-app);
+  background-image:
+    linear-gradient(var(--theme-border-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--theme-border-grid) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.72;
+}
+
+:root[data-theme="liquid-tide"] .workbench-idle-backdrop {
+  background: transparent;
+}
+
 /* Immersive launcher: it floats over the original workspace and never changes layout. */
 .web-shell-launcher {
   position: absolute;

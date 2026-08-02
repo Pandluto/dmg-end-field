@@ -66,6 +66,7 @@ export default defineConfig(async () => {
     build: {
       rollupOptions: {
         output: {
+          onlyExplicitManualChunks: true,
           manualChunks(id) {
             const normalizedId = id.replaceAll('\\', '/')
             if (
