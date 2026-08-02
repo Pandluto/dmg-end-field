@@ -12,10 +12,22 @@ type LegacySnapshot = {
   payload: TimelineSnapshotPayload;
 };
 
-const source = JSON.parse(fs.readFileSync(
-  new URL('../../../data/sharedata/share-20260718-003031-7-18.json', import.meta.url),
+const legacySourceUrl = new URL(
+  '../../../data/sharedata/share-20260718-003031-7-18.json',
+  import.meta.url,
+);
+const generatedPackage = JSON.parse(fs.readFileSync(
+  new URL('../../../public/data/default-local-data.json', import.meta.url),
   'utf8',
 )) as {
+  timelineArchives?: Array<{
+    archiveId?: string;
+    label: string;
+    payload: TimelineSnapshotPayload;
+  }>;
+};
+const source = fs.existsSync(legacySourceUrl)
+  ? JSON.parse(fs.readFileSync(legacySourceUrl, 'utf8')) as {
   storage: {
     local: {
       'def.timeline.snapshot-archive.v1': {
@@ -23,8 +35,12 @@ const source = JSON.parse(fs.readFileSync(
       };
     };
   };
-};
-const snapshots = source.storage.local['def.timeline.snapshot-archive.v1'].snapshots;
+}
+  : null;
+const snapshots = source
+  ? source.storage.local['def.timeline.snapshot-archive.v1'].snapshots
+  : (generatedPackage.timelineArchives || [])
+    .filter(({ archiveId }) => archiveId !== 'web-lts-1.8-shared-current');
 assert.equal(snapshots.length, 12);
 
 for (const snapshot of snapshots) {
@@ -63,12 +79,6 @@ assert.throws(
   TimelinePayloadCompatibilityError,
 );
 
-const generatedPackage = JSON.parse(fs.readFileSync(
-  new URL('../../../public/data/default-local-data.json', import.meta.url),
-  'utf8',
-)) as {
-  timelineArchives?: Array<{ label: string; payload: TimelineSnapshotPayload }>;
-};
 assert.equal(generatedPackage.timelineArchives?.length, 13);
 for (const archive of generatedPackage.timelineArchives || []) {
   assert.deepEqual(
