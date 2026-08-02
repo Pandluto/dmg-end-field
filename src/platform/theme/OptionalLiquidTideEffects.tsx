@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type RefObject } from 'react';
-import { readAppTheme, subscribeAppTheme } from './appTheme';
+import { readAppliedAppTheme, subscribeAppTheme } from './appTheme';
 
 const LazySurfaceEffects = lazy(async () => {
   const module = await import('./LiquidTideEffects');
@@ -12,7 +12,7 @@ const LazyCanvasEffects = lazy(async () => {
 });
 
 function useLiquidTideSelected(): boolean {
-  const [theme, setTheme] = useState(readAppTheme);
+  const [theme, setTheme] = useState(readAppliedAppTheme);
   useEffect(() => subscribeAppTheme(setTheme), []);
   return theme === 'liquid-tide';
 }

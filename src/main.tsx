@@ -18,16 +18,14 @@ declare global {
 //   return event.returnValue
 // }
 
-async function bootstrap() {
-  await initializeAppTheme()
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <WebBootstrap />
+  </React.StrictMode>,
+)
 
-  ReactDOM.createRoot(document.getElementById('root')!).render(
-    <React.StrictMode>
-      <WebBootstrap />
-    </React.StrictMode>,
-  )
-
-  window.__DMG_MARK_MODULE_READY__?.()
-}
-
-void bootstrap()
+// The bundled application shell is usable without an optional theme package.
+// Mark it ready before loading the selected theme so a slow theme download or
+// renderer warm-up can never strand the browser on an empty root element.
+window.__DMG_MARK_MODULE_READY__?.()
+void initializeAppTheme().catch(() => undefined)

@@ -10,24 +10,11 @@
     <title>终末地伤害工作台</title>
     <script>
       (() => {
-        const themeKey = 'dmg.appearance.theme.v1';
-        const themes = {
-          'office-excel': { scheme: 'light', color: '#e9ecea' },
-          'apple-midnight': { scheme: 'dark', color: '#0e0f11' },
-          'apple-warm': { scheme: 'light', color: '#ebe4d9' },
-          'lieflat-mono': { scheme: 'light', color: '#e8e2d6' },
-          'liquid-tide': { scheme: 'light', color: '#a8b6dc' },
-        };
-        let theme = 'office-excel';
-        try {
-          const stored = localStorage.getItem(themeKey);
-          if (stored && themes[stored]) theme = stored;
-        } catch {
-          // Keep the current white theme when local storage is unavailable.
-        }
-        document.documentElement.dataset.theme = theme;
-        document.documentElement.style.colorScheme = themes[theme].scheme;
-        document.querySelector('meta[name="theme-color"]')?.setAttribute('content', themes[theme].color);
+        // Optional themes are installed by the application after its core UI
+        // has mounted. Starting from the bundled theme keeps a missing or slow
+        // theme package from leaving the browser on a background-only page.
+        document.documentElement.dataset.theme = 'office-excel';
+        document.documentElement.style.colorScheme = 'light';
       })();
     </script>
     <script>

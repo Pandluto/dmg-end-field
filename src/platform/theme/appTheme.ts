@@ -63,6 +63,8 @@ export const APP_THEME_OPTIONS: readonly AppThemeOption[] = [
 ] as const;
 
 export const DEFAULT_APP_THEME: AppThemeId = 'office-excel';
+let themeRequestVersion = 0;
+let storageSyncInstalled = false;
 
 function isAppThemeId(value: unknown): value is AppThemeId {
   return APP_THEME_OPTIONS.some((option) => option.id === value);
@@ -80,6 +82,12 @@ export function readAppTheme(): AppThemeId {
   } catch {
     return DEFAULT_APP_THEME;
   }
+}
+
+export function readAppliedAppTheme(): AppThemeId {
+  if (typeof document === 'undefined') return DEFAULT_APP_THEME;
+  const applied = document.documentElement.dataset.theme;
+  return isAppThemeId(applied) ? applied : DEFAULT_APP_THEME;
 }
 
 export function applyAppTheme(theme: AppThemeId): AppThemeId {
@@ -108,40 +116,78 @@ async function prepareThemeRuntime(theme: AppThemeId): Promise<void> {
 }
 
 export async function setAppTheme(theme: AppThemeId): Promise<AppThemeId> {
-  await prepareThemeRuntime(theme);
-  const applied = applyAppTheme(theme);
-  try {
-    window.localStorage.setItem(APP_THEME_STORAGE_KEY, applied);
-  } catch {
-    // The active document can still use the theme when storage is unavailable.
+  const requestVersion = ++themeRequestVersion;
+  if (typeof document !== 'undefined') {
+    document.documentElement.dataset.themePending = theme;
   }
-  return applied;
+  try {
+    await prepareThemeRuntime(theme);
+    if (requestVersion !== themeRequestVersion) return readAppliedAppTheme();
+    const applied = applyAppTheme(theme);
+    try {
+      window.localStorage.setItem(APP_THEME_STORAGE_KEY, applied);
+    } catch {
+      // The active document can still use the theme when storage is unavailable.
+    }
+    return applied;
+  } finally {
+    if (
+      requestVersion === themeRequestVersion
+      && document.documentElement.dataset.themePending === theme
+    ) {
+      delete document.documentElement.dataset.themePending;
+    }
+  }
+}
+
+function installThemeStorageSync(): void {
+  if (typeof window === 'undefined' || storageSyncInstalled) return;
+  storageSyncInstalled = true;
+  window.addEventListener('storage', (event) => {
+    if (event.key !== APP_THEME_STORAGE_KEY) return;
+    const nextTheme = isAppThemeId(event.newValue) ? event.newValue : DEFAULT_APP_THEME;
+    const requestVersion = ++themeRequestVersion;
+    void prepareThemeRuntime(nextTheme)
+      .then(() => {
+        if (requestVersion === themeRequestVersion) applyAppTheme(nextTheme);
+      })
+      .catch(() => {
+        if (requestVersion === themeRequestVersion) applyAppTheme(DEFAULT_APP_THEME);
+      });
+  });
 }
 
 export async function initializeAppTheme(): Promise<AppThemeId> {
+  installThemeStorageSync();
   const requestedTheme = readAppTheme();
-  let activeTheme: AppThemeId;
+  const requestVersion = themeRequestVersion;
+  if (requestedTheme === DEFAULT_APP_THEME) {
+    return applyAppTheme(DEFAULT_APP_THEME);
+  }
+  document.documentElement.dataset.themePending = requestedTheme;
   try {
     await prepareThemeRuntime(requestedTheme);
-    activeTheme = applyAppTheme(requestedTheme);
+    if (requestVersion !== themeRequestVersion || readAppTheme() !== requestedTheme) {
+      return readAppliedAppTheme();
+    }
+    return applyAppTheme(requestedTheme);
   } catch {
-    activeTheme = applyAppTheme(DEFAULT_APP_THEME);
+    if (requestVersion !== themeRequestVersion) return readAppliedAppTheme();
+    const activeTheme = applyAppTheme(DEFAULT_APP_THEME);
     try {
       window.localStorage.setItem(APP_THEME_STORAGE_KEY, activeTheme);
     } catch {
       // Continue with the bundled theme when storage is unavailable.
     }
+    return activeTheme;
+  } finally {
+    if (
+      requestVersion === themeRequestVersion
+      && document.documentElement.dataset.themePending === requestedTheme
+    ) {
+      delete document.documentElement.dataset.themePending;
+    }
   }
-  if (typeof window !== 'undefined') {
-    window.addEventListener('storage', (event) => {
-      if (event.key !== APP_THEME_STORAGE_KEY) return;
-      const nextTheme = isAppThemeId(event.newValue) ? event.newValue : DEFAULT_APP_THEME;
-      void prepareThemeRuntime(nextTheme)
-        .then(() => applyAppTheme(nextTheme))
-        .catch(() => applyAppTheme(DEFAULT_APP_THEME));
-    });
-  }
-  return activeTheme;
 }
 
 export function subscribeAppTheme(listener: (theme: AppThemeId) => void): () => void {

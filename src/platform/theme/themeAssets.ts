@@ -1,8 +1,26 @@
 import type { AppThemeId } from './appTheme';
 
 const LIQUID_TIDE_BACKDROP = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
+const THEME_LOAD_TIMEOUT_MS = 20_000;
 const loadedThemes = new Set<AppThemeId>(['office-excel']);
 const pendingThemes = new Map<AppThemeId, Promise<void>>();
+
+async function withThemeLoadTimeout(
+  theme: AppThemeId,
+  task: Promise<void>,
+): Promise<void> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new Error(`主题包 ${theme} 下载超时。`));
+    }, THEME_LOAD_TIMEOUT_MS);
+  });
+  try {
+    await Promise.race([task, timeout]);
+  } finally {
+    if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+  }
+}
 
 async function loadAlternateThemeFoundation(): Promise<void> {
   await import('../../styles/themes/theme-apple-variants.css');
@@ -22,17 +40,18 @@ async function loadThemeFiles(theme: AppThemeId): Promise<void> {
   }
 
   await loadAlternateThemeFoundation();
-  const [, runtime, response] = await Promise.all([
+  const [, runtime, , response] = await Promise.all([
     import('../../styles/themes/theme-liquid-tide.css'),
     import('./liquidGlassRuntime'),
-    fetch(LIQUID_TIDE_BACKDROP, { cache: 'force-cache' }),
     import('./LiquidTideEffects'),
+    fetch(LIQUID_TIDE_BACKDROP, { cache: 'force-cache' }),
   ]);
   if (!response.ok) {
     throw new Error(`主题背景下载失败（HTTP ${response.status}）。`);
   }
-  await response.blob();
-  await runtime.prewarmLiquidGlassRuntime();
+  // The service worker finishes writing the response before resolving this
+  // fetch. Renderer warm-up is opportunistic and must not delay theme use.
+  void runtime.prewarmLiquidGlassRuntime().catch(() => undefined);
 }
 
 export function isAppThemeBundled(theme: AppThemeId): boolean {
@@ -48,7 +67,7 @@ export async function ensureAppThemeAssets(theme: AppThemeId): Promise<void> {
   const existing = pendingThemes.get(theme);
   if (existing) return existing;
 
-  const pending = loadThemeFiles(theme)
+  const pending = withThemeLoadTimeout(theme, loadThemeFiles(theme))
     .then(() => {
       loadedThemes.add(theme);
     })

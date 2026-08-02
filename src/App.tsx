@@ -3,7 +3,15 @@
  * 路由页面按需执行；常用模块在浏览器空闲时依次抢跑，避免首次点击等待。
  */
 
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useEffect,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from 'react';
 import { AppShell } from './components/WebApp/AppShell';
 import { DataWorkspacePage } from './components/WebApp/DataWorkspacePage';
 import { SettingsPage } from './components/WebApp/SettingsPage';
@@ -88,6 +96,48 @@ function PageLoadingFallback() {
   );
 }
 
+function PageLoadFailure({ message }: { message: string }) {
+  const handleRecover = () => {
+    if (window.__DMG_RECOVER_STARTUP__) {
+      window.__DMG_RECOVER_STARTUP__();
+      return;
+    }
+    window.location.reload();
+  };
+
+  return (
+    <main className="web-entry-screen app-route-loading" role="alert">
+      <div className="boot-indicator">
+        <p>工作区模块没有完整载入</p>
+        <small>{message}</small>
+        <button type="button" onClick={handleRecover}>检查并重新载入</button>
+      </div>
+    </main>
+  );
+}
+
+class RouteLoadBoundary extends Component<
+  { children: ReactNode },
+  { message: string | null }
+> {
+  state = { message: null as string | null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('Route module failed to render.', error, info);
+  }
+
+  render() {
+    if (this.state.message) return <PageLoadFailure message={this.state.message} />;
+    return this.props.children;
+  }
+}
+
 function IdleWorkbenchBackdrop() {
   return <div className="workbench-idle-backdrop" aria-hidden="true" />;
 }
@@ -125,7 +175,7 @@ function App() {
     let cancelled = false;
     let idleHandle: number | null = null;
     let timerHandle: number | null = null;
-    let preloadIndex = 0;
+    let preloadIndex = 1;
 
     const scheduleNext = () => {
       if (cancelled || preloadIndex >= routePreloaders.length) return;
@@ -145,7 +195,9 @@ function App() {
       }
     };
 
-    scheduleNext();
+    // The timeline is the primary interaction target. Start its module fetch
+    // immediately; secondary pages can continue to use idle-time preloading.
+    void loadWorkbenchFrame().catch(() => undefined).finally(scheduleNext);
     return () => {
       cancelled = true;
       const cancelIdle = (window as unknown as {
@@ -189,7 +241,9 @@ function App() {
   return (
     <div className="app">
       <AppShell currentPath={currentPath} overlay={overlay}>
-        <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
+        <RouteLoadBoundary key={currentPath}>
+          <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
+        </RouteLoadBoundary>
       </AppShell>
     </div>
   );
