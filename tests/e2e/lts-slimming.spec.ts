@@ -297,8 +297,24 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     const secondEffectRow = page.locator(
       '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="effect"][data-weapon-effect-key="second"]',
     );
+    const mainValueRow = page.locator(
+      '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="value"][data-weapon-effect-key="value"]',
+    );
     await expect(firstEffectRow).toContainText('First Weapon Effect');
     await expect(secondEffectRow).toContainText('Second Weapon Effect');
+    await expect(mainValueRow).toContainText('value');
+    await expect(mainValueRow).not.toHaveClass(/is-draggable/);
+    await mainValueRow.scrollIntoViewIfNeeded();
+    const mainValueBox = await mainValueRow.boundingBox();
+    if (!mainValueBox) throw new Error('Weapon main value is not available for drag guard test.');
+    await page.mouse.move(
+      mainValueBox.x + mainValueBox.width / 2,
+      mainValueBox.y + mainValueBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.waitForTimeout(260);
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+    await page.mouse.up();
     await secondEffectRow.scrollIntoViewIfNeeded();
 
     const cancelBox = await firstEffectRow.boundingBox();

@@ -1112,9 +1112,10 @@ export function WeaponDraftSheetPage() {
     if (!skill) {
       return node.effectKey;
     }
-    //这里对了
-    return skill.effects[node.effectKey].name;
-    
+    if (node.bucket === 'value') {
+      return node.effectKey;
+    }
+    return skill.effects[node.effectKey]?.name || node.effectKey;
   }, [localLibrary]);
 
   const clearPendingExplorerDrag = useCallback(() => {
@@ -1131,7 +1132,7 @@ export function WeaponDraftSheetPage() {
     }
     // 只允许 skill3 的 effect 拖拽
     if (node.kind === 'effect') {
-      return node.skillKey === 'skill3';
+      return node.skillKey === 'skill3' && node.bucket === 'effect';
     }
     // draft 和 skill 不允许拖拽
     return false;
