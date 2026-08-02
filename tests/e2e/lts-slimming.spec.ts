@@ -139,6 +139,37 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(importedEntry).toBeVisible();
     await page.reload();
     await expect(importedEntry).toBeVisible();
+
+    const importedGroupRow = page.locator('.buff-sheet-explorer-row').filter({ hasText: 'Slim Imported Buff' });
+    const cancelBox = await savedGroupRow.boundingBox();
+    if (!cancelBox) throw new Error('Saved Buff group is not available for drag cancellation test.');
+    await page.mouse.move(cancelBox.x + cancelBox.width / 2, cancelBox.y + cancelBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(cancelBox.x + cancelBox.width / 2 + 12, cancelBox.y + cancelBox.height / 2);
+    await page.waitForTimeout(260);
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+    await page.mouse.up();
+
+    const sourceBox = await importedGroupRow.boundingBox();
+    const targetBox = await savedGroupRow.boundingBox();
+    if (!sourceBox || !targetBox) throw new Error('Buff groups are not available for drag reorder test.');
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(260);
+    await expect(page.locator('.buff-sheet-drag-preview')).toBeVisible();
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 5 });
+    await expect(savedGroupRow).toHaveClass(/is-drag-target/);
+    await page.mouse.up();
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+
+    const groupLabels = page.locator('.buff-sheet-explorer-row .buff-sheet-explorer-label');
+    let reorderedLabels = await groupLabels.allTextContents();
+    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf('Slim E2E Buff'));
+    await page.reload();
+    await expect(importedEntry).toBeVisible();
+    await expect(savedEntry).toBeVisible();
+    reorderedLabels = await groupLabels.allTextContents();
+    expect(reorderedLabels.indexOf('Slim Imported Buff')).toBeLessThan(reorderedLabels.indexOf('Slim E2E Buff'));
   });
 
   await test.step('Weapon draft saves through browser storage and survives reload', async () => {
