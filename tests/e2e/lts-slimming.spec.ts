@@ -396,6 +396,88 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await page.reload();
     await page.getByRole('button', { name: /^\[\+\] 潮涌 \d+$/ }).click();
     await expect(savedEntry).toBeVisible();
+    await savedEntry.click();
+
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    const shareModal = page.locator('.buff-sheet-share-modal');
+    const sharePreview = shareModal.locator('.buff-sheet-share-textarea.is-preview');
+    const shareText = await sharePreview.inputValue();
+    const parsedShare = JSON.parse(shareText) as {
+      type: string;
+      exportedAt: number;
+      label: string;
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(parsedShare.type).toBe('equipment-library-share.v1');
+    const sourceGearSet = Object.values(parsedShare.payload).find((value) => {
+      const equipments = value.equipments as Record<string, Record<string, unknown>> | undefined;
+      return Object.values(equipments ?? {}).some((equipment) => equipment.name === 'Slim E2E Equipment');
+    });
+    if (!sourceGearSet) throw new Error('Exported Equipment gear set is missing from share preview.');
+    const sourceEquipment = Object.values(
+      sourceGearSet.equipments as Record<string, Record<string, unknown>>,
+    ).find((equipment) => equipment.name === 'Slim E2E Equipment');
+    if (!sourceEquipment) throw new Error('Exported Equipment item is missing from share preview.');
+
+    await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
+    const downloadPromise = page.waitForEvent('download');
+    await shareModal.getByRole('button', { name: '导出文件', exact: true }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.json$/);
+    expect(await download.failure()).toBeNull();
+
+    await shareModal.locator('.buff-sheet-share-modal-tab').filter({ hasText: '导入' }).click();
+    const importText = shareModal.locator('.buff-sheet-share-textarea:not(.is-preview)');
+    await importText.fill(JSON.stringify({ type: 'not-an-equipment-share', payload: {} }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText(
+      '导入失败：文件不是有效的装备库分享 JSON。',
+      { exact: true },
+    )).toBeVisible();
+
+    await importText.fill(JSON.stringify({
+      type: 'equipment-library-share.v1',
+      exportedAt: Date.now(),
+      label: 'Slim E2E Equipment Import',
+      payload: {
+        'gear-set-slim-imported': {
+          ...sourceGearSet,
+          gearSetId: 'gear-set-slim-imported',
+          name: 'Slim Imported Equipment Set',
+          equipments: {
+            'equipment-slim-imported': {
+              ...sourceEquipment,
+              equipmentId: 'equipment-slim-imported',
+              name: 'Slim Imported Equipment',
+            },
+          },
+        },
+      },
+    }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText('名称：Slim E2E Equipment Import', { exact: true })).toBeVisible();
+    await expect(shareModal.getByText('套装数：1', { exact: true })).toBeVisible();
+    await shareModal.getByRole('button', { name: '确认导入', exact: true }).click();
+
+    const importedSetRow = page.locator('.buff-sheet-explorer-row').filter({
+      hasText: 'Slim Imported Equipment Set',
+    });
+    const importedEntry = page.locator('.buff-sheet-explorer-label').filter({
+      hasText: /^Slim Imported Equipment$/,
+    });
+    await expect(importedSetRow).toHaveCount(1);
+    await importedSetRow.locator('.buff-sheet-explorer-toggle').click();
+    await expect(importedEntry).toBeVisible();
+
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByRole('heading', { name: '确认保存装备库', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '确认保存', exact: true }).click();
+    await expect(page.getByText('已保存到浏览器 SQLite 装备库。', { exact: false })).toBeVisible();
+    await page.reload();
+    await expect(importedSetRow).toHaveCount(1);
+    await importedSetRow.locator('.buff-sheet-explorer-toggle').click();
+    await expect(importedEntry).toBeVisible();
   });
 
   await test.step('Operator draft saves through browser storage and survives reload', async () => {
