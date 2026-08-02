@@ -2,12 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
+import { buildDraftLibraryShareFileName } from '../utils/draftShare';
 import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
@@ -55,6 +50,12 @@ import {
 } from './equipmentSheetFormula';
 import { createEquipmentLibraryRepository } from './equipmentSheetPersistence';
 import {
+  buildEquipmentLibraryShareFile,
+  mergeEquipmentLibraryShare,
+  parseEquipmentLibraryShare,
+  type EquipmentLibraryShareFile,
+} from './equipmentSheetShare';
+import {
   buildRows,
   buildWorkbookRows,
   COLUMNS,
@@ -72,7 +73,6 @@ import './DamageSheetPage.css';
 import './EquipmentSheetPage.css';
 
 const EQUIPMENT_SHEET_PAGE_PATH = APP_ROUTE_PATHS.equipmentSheet;
-const EQUIPMENT_LIBRARY_SHARE_TYPE = 'equipment-library-share.v1';
 const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
 const equipmentLibraryRepository = createEquipmentLibraryRepository(persistentLocalStorage);
 
@@ -233,7 +233,7 @@ export function EquipmentSheetPage() {
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
   const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<EquipmentGearSet> | null>(null);
+  const [pendingImportShare, setPendingImportShare] = useState<EquipmentLibraryShareFile | null>(null);
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
@@ -376,12 +376,11 @@ export function EquipmentSheetPage() {
     if (!keyword) return equipmentImageOptions;
     return equipmentImageOptions.filter((option) => option.searchText.includes(keyword));
   }, [equipmentImageOptions, equipmentImageQuery]);
-  const currentShareFile = useMemo(() => {
-    const payload = exportScope === 'current' && selectedRow?.gearSetId && library.gearSets[selectedRow.gearSetId]
-      ? { [selectedRow.gearSetId]: library.gearSets[selectedRow.gearSetId] }
-      : library.gearSets;
-    return buildDraftLibraryShareFile(EQUIPMENT_LIBRARY_SHARE_TYPE, payload, exportScope === 'current' ? selectedRow?.title : 'equipment-library');
-  }, [exportScope, library.gearSets, selectedRow]);
+  const currentShareFile = useMemo(() => buildEquipmentLibraryShareFile({
+    library,
+    scope: exportScope,
+    selectedGearSetId: selectedRow?.gearSetId,
+  }), [exportScope, library, selectedRow?.gearSetId]);
   const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
   useEffect(() => {
@@ -702,7 +701,20 @@ export function EquipmentSheetPage() {
           icon: collapsedGearSetIds[state.gearSetId] === false ? 'collapse' : 'expand',
           onClick: () => setCollapsedGearSetIds((prev) => ({ ...prev, [state.gearSetId!]: prev[state.gearSetId!] === false })),
         },
-        { key: 'export-set', label: '导出当前套装', icon: 'open', onClick: () => gearSet && downloadJson(`${gearSet.gearSetId}.json`, JSON.stringify(buildDraftLibraryShareFile(EQUIPMENT_LIBRARY_SHARE_TYPE, { [gearSet.gearSetId]: gearSet }, gearSet.name), null, 2)) },
+        {
+          key: 'export-set',
+          label: '导出当前套装',
+          icon: 'open',
+          onClick: () => {
+            if (!gearSet) return;
+            const shareFile = buildEquipmentLibraryShareFile({
+              library,
+              scope: 'current',
+              selectedGearSetId: gearSet.gearSetId,
+            });
+            downloadJson(`${gearSet.gearSetId}.json`, JSON.stringify(shareFile, null, 2));
+          },
+        },
         { key: 'delete-set', label: '删除套装', icon: 'delete', onClick: () => deleteNode(state) },
       );
     }
@@ -1021,25 +1033,14 @@ export function EquipmentSheetPage() {
   }, [currentShareText]);
 
   const prepareImportShare = useCallback((rawText: string) => {
-    const parsed = parseDraftLibraryShareFile(rawText, EQUIPMENT_LIBRARY_SHARE_TYPE);
-    if (!parsed) {
+    const result = parseEquipmentLibraryShare(rawText);
+    if (!result.ok) {
       setPendingImportShare(null);
-      setShareImportError('导入失败：文件不是有效的装备库分享 JSON。');
-      return;
-    }
-    const normalizedPayload = normalizeEquipmentLibrary({
-      gearSets: parsed.payload,
-    }).gearSets;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效套装。');
+      setShareImportError(result.error);
       return;
     }
     setShareImportError('');
-    setPendingImportShare({
-      ...parsed,
-      payload: normalizedPayload,
-    } as DraftLibraryShareFile<EquipmentGearSet>);
+    setPendingImportShare(result.shareFile);
   }, []);
 
   const handleExportLocalLibrary = useCallback(() => {
@@ -1070,13 +1071,7 @@ export function EquipmentSheetPage() {
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) return;
-    mutateLibrary((prev) => normalizeEquipmentLibrary({
-      ...prev,
-      gearSets: {
-        ...prev.gearSets,
-        ...pendingImportShare.payload,
-      },
-    }));
+    mutateLibrary((prev) => mergeEquipmentLibraryShare(prev, pendingImportShare));
     setMessage(`已导入 ${Object.keys(pendingImportShare.payload).length} 个套装。`);
     closeShareModal();
   }, [closeShareModal, mutateLibrary, pendingImportShare]);

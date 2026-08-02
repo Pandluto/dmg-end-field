@@ -438,6 +438,18 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
 
     await importText.fill(JSON.stringify({
       type: 'equipment-library-share.v1',
+      payload: {
+        broken: null,
+      },
+    }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText(
+      'JSON 中没有可导入的有效套装。',
+      { exact: true },
+    )).toBeVisible();
+
+    await importText.fill(JSON.stringify({
+      type: 'equipment-library-share.v1',
       exportedAt: Date.now(),
       label: 'Slim E2E Equipment Import',
       payload: {
@@ -495,6 +507,18 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(effectSummaryCell).toBeVisible();
     await expect(effectSummaryCell.locator('input, select')).toHaveCount(0);
     await expect(effectSummaryCell).toContainText('/');
+    await effectSummaryCell.click();
+
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    const selectedEffectShare = JSON.parse(await page
+      .locator('.buff-sheet-share-modal .buff-sheet-share-textarea.is-preview')
+      .inputValue()) as {
+        label: string;
+        payload: Record<string, unknown>;
+      };
+    expect(selectedEffectShare.label).toBe('Slim Imported Equipment Set');
+    expect(Object.keys(selectedEffectShare.payload)).toEqual(['gear-set-slim-imported']);
+    await page.getByRole('button', { name: '关闭', exact: true }).click();
 
     const importedWorkbookRow = page
       .locator('input[value="Slim Imported Equipment"]')
