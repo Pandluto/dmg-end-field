@@ -3,7 +3,7 @@ import {
   buildWeaponSheetColumns,
   buildWeaponWorkbookRows,
   columnIndexToLabel,
-} from './WeaponDraftPage';
+} from './weaponDraftWorkbook';
 import { buildWeaponSheetRows, normalizeWeaponDraft } from './weaponDraftModel';
 
 const columns = buildWeaponSheetColumns();
