@@ -48,15 +48,12 @@ import {
   type BuffDraft,
   type BuffEffectDraft,
   type BuffExplorerDragNode,
-  type BuffExplorerDragState,
   type BuffItemDraft,
   type BuffSheetRow,
 } from './buffDraftModel';
 import {
-  canStartBuffExplorerDrag,
   getBuffExplorerDragNodeKey as getExplorerDragNodeKey,
   getBuffExplorerDragNodeLabel,
-  isValidBuffExplorerDropTarget,
   reorderBuffExplorerLibrary,
 } from './buffExplorerDragPolicy';
 import { createBuffFormulaTextBinding } from './buffDraftFormula';
@@ -80,6 +77,7 @@ import {
   type BuffWorkbookCellView,
   type BuffWorkbookSelection,
 } from './buffDraftWorkbook';
+import { useBuffExplorerDrag } from './useBuffExplorerDrag';
 
 export {
   applyBuffCategory,
@@ -278,13 +276,9 @@ export function BuffDraftSheetPage() {
   const [shareImportError, setShareImportError] = useState('');
   const [pendingImportShare, setPendingImportShare] = useState<BuffDraftLibraryShareFile | null>(null);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
-  const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ itemKey: string; effectKey: string } | null>(null);
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
-  const dragHoldTimerRef = useRef<number | null>(null);
-  const pendingDragSourceRef = useRef<{ source: BuffExplorerDragNode; x: number; y: number } | null>(null);
-  const suppressExplorerClickRef = useRef(false);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLDivElement>(null);
   const pendingFormulaFocusRef = useRef<FormulaFocusSnapshot | null>(null);
@@ -1190,22 +1184,6 @@ export function BuffDraftSheetPage() {
     return getBuffExplorerDragNodeLabel(localLibrary, node);
   }, [localLibrary]);
 
-  const clearPendingExplorerDrag = useCallback(() => {
-    if (dragHoldTimerRef.current !== null) {
-      window.clearTimeout(dragHoldTimerRef.current);
-      dragHoldTimerRef.current = null;
-    }
-    pendingDragSourceRef.current = null;
-  }, []);
-
-  const consumeSuppressedExplorerClick = useCallback(() => {
-    if (!suppressExplorerClickRef.current) {
-      return false;
-    }
-    suppressExplorerClickRef.current = false;
-    return true;
-  }, []);
-
   const explorerDragPolicyState = useMemo(() => ({
     filterKeyword,
     collapsedDraftIds,
@@ -1213,75 +1191,26 @@ export function BuffDraftSheetPage() {
     getItemCollapseKey,
   }), [collapsedDraftIds, collapsedItems, filterKeyword, getItemCollapseKey]);
 
-  const canStartExplorerDrag = useCallback((node: BuffExplorerDragNode) => {
-    return canStartBuffExplorerDrag(node, explorerDragPolicyState);
-  }, [explorerDragPolicyState]);
-
-  const isValidExplorerDropTarget = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode | null) => {
-    return isValidBuffExplorerDropTarget(source, target, explorerDragPolicyState);
-  }, [explorerDragPolicyState]);
-
   const applyExplorerReorder = useCallback((source: BuffExplorerDragNode, target: BuffExplorerDragNode) => {
-    if (!isValidExplorerDropTarget(source, target)) {
-      return;
-    }
     const result = reorderBuffExplorerLibrary(localLibrary, source, target);
     if (!result) {
       return;
     }
     persistLibraryState(result.nextLibrary, selectedLocalDraftId || source.draftId);
     setPendingFocusRowKey(result.focusRowKey);
-  }, [isValidExplorerDropTarget, localLibrary, persistLibraryState, selectedLocalDraftId]);
+  }, [localLibrary, persistLibraryState, selectedLocalDraftId]);
 
-  const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): BuffExplorerDragNode | null => {
-    const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-buff-drag-kind]') : null;
-    if (!row) {
-      return null;
-    }
-    const kind = row.dataset.buffDragKind;
-    const draftId = row.dataset.buffDraftId;
-    if (!kind || !draftId) {
-      return null;
-    }
-    if (kind === 'draft') {
-      return { kind: 'draft', draftId };
-    }
-    const itemKey = row.dataset.buffItemKey;
-    if (!itemKey) {
-      return null;
-    }
-    if (kind === 'item') {
-      return { kind: 'item', draftId, itemKey };
-    }
-    const effectKey = row.dataset.buffEffectKey;
-    if (!effectKey) {
-      return null;
-    }
-    return { kind: 'effect', draftId, itemKey, effectKey };
-  }, []);
-
-  const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: BuffExplorerDragNode) => {
-    if (event.button !== 0 || !canStartExplorerDrag(source)) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.buff-sheet-explorer-toggle')) {
-      return;
-    }
-    clearPendingExplorerDrag();
-    pendingDragSourceRef.current = {
-      source,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    dragHoldTimerRef.current = window.setTimeout(() => {
-      suppressExplorerClickRef.current = true;
-      setContextMenu(null);
-      setDragState({ source, over: null, x: event.clientX, y: event.clientY });
-      pendingDragSourceRef.current = null;
-      dragHoldTimerRef.current = null;
-    }, 220);
-  }, [canStartExplorerDrag, clearPendingExplorerDrag]);
+  const handleExplorerDragStart = useCallback(() => setContextMenu(null), []);
+  const {
+    dragState,
+    consumeSuppressedExplorerClick,
+    canStartExplorerDrag,
+    handleExplorerPointerDown,
+  } = useBuffExplorerDrag({
+    policyState: explorerDragPolicyState,
+    onReorder: applyExplorerReorder,
+    onDragStart: handleExplorerDragStart,
+  });
 
   useEffect(() => {
     if (!contextMenu) {
@@ -1302,61 +1231,6 @@ export function BuffDraftSheetPage() {
       window.removeEventListener('scroll', handlePointerDown, true);
     };
   }, [contextMenu]);
-
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const pending = pendingDragSourceRef.current;
-      if (pending) {
-        const distance = Math.hypot(event.clientX - pending.x, event.clientY - pending.y);
-        if (distance > 6) {
-          clearPendingExplorerDrag();
-        }
-      }
-      if (!dragState) {
-        return;
-      }
-      event.preventDefault();
-      const hoveredNode = resolveExplorerDragNodeFromElement(document.elementFromPoint(event.clientX, event.clientY));
-      setDragState((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const nextOver = isValidExplorerDropTarget(prev.source, hoveredNode) ? hoveredNode : null;
-        const previousOverKey = prev.over ? getExplorerDragNodeKey(prev.over) : '';
-        const nextOverKey = nextOver ? getExplorerDragNodeKey(nextOver) : '';
-        if (previousOverKey === nextOverKey && prev.x === event.clientX && prev.y === event.clientY) {
-          return prev;
-        }
-        return {
-          ...prev,
-          over: nextOver,
-          x: event.clientX,
-          y: event.clientY,
-        };
-      });
-    };
-
-    const finalizeDrag = () => {
-      clearPendingExplorerDrag();
-      setDragState((prev) => {
-        if (prev?.over) {
-          applyExplorerReorder(prev.source, prev.over);
-        }
-        return null;
-      });
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', finalizeDrag, true);
-    window.addEventListener('pointercancel', finalizeDrag, true);
-    window.addEventListener('blur', finalizeDrag);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', finalizeDrag, true);
-      window.removeEventListener('pointercancel', finalizeDrag, true);
-      window.removeEventListener('blur', finalizeDrag);
-    };
-  }, [applyExplorerReorder, clearPendingExplorerDrag, dragState, getExplorerDragNodeKey, isValidExplorerDropTarget, resolveExplorerDragNodeFromElement]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
