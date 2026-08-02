@@ -8,11 +8,6 @@
  * Authored operator, weapon, equipment and skill artwork is never filtered.
  */
 
-.liquid-tide-capture-image,
-.liquid-tide-capture-overlay {
-  display: none;
-}
-
 :root[data-theme="liquid-tide"] {
   color-scheme: light;
 

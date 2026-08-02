@@ -1110,6 +1110,17 @@
   -ms-overflow-style: none;
 }
 
+/*
+ * The tide backdrop nodes stay mounted so the optional theme can activate
+ * without rebuilding the timeline. Keep them out of normal layout before the
+ * on-demand tide stylesheet has loaded; otherwise the raw 1920px image pushes
+ * the grid and skill controls off-canvas in every bundled theme.
+ */
+.liquid-tide-capture-image,
+.liquid-tide-capture-overlay {
+  display: none;
+}
+
 .canvas-container::-webkit-scrollbar {
   display: none;
 }
