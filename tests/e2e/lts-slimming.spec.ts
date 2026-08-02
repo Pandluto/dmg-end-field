@@ -216,7 +216,9 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     expect(parsedShare.type).toBe('weapon-library-share.v1');
     expect(parsedShare.label).toBe('Slim E2E Weapon');
     const sourceDraft = Object.values(parsedShare.payload).find((value) => value.name === 'Slim E2E Weapon');
-    expect(sourceDraft).toBeTruthy();
+    if (!sourceDraft) throw new Error('Exported Weapon draft is missing from share preview.');
+    const sourceSkills = sourceDraft.skills as Record<string, Record<string, unknown>>;
+    const sourceSkill3 = sourceSkills.skill3;
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
@@ -243,6 +245,30 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
           ...sourceDraft,
           id: 'ignored-inner-id',
           name: 'Slim Imported Weapon',
+          skills: {
+            ...sourceSkills,
+            skill3: {
+              ...sourceSkill3,
+              levels: {
+                ...(sourceSkill3.levels as Record<string, unknown>),
+                1: { value: 10, description: 'Main value fixture' },
+              },
+              effects: {
+                first: {
+                  name: 'First Weapon Effect',
+                  type: 'physicalDmgBonus',
+                  category: 'passive',
+                  levels: { 1: 10, 9: 90 },
+                },
+                second: {
+                  name: 'Second Weapon Effect',
+                  type: 'magicDmgBonus',
+                  category: 'condition',
+                  levels: { 1: 20, 9: 100 },
+                },
+              },
+            },
+          },
         },
       },
     }));
@@ -255,6 +281,64 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(importedEntry).toBeVisible();
     await page.reload();
     await expect(importedEntry).toBeVisible();
+
+    const importedWeaponRow = page.locator(
+      '[data-weapon-drag-kind="draft"][data-weapon-draft-id="slim-imported-weapon"]',
+    );
+    await importedWeaponRow.locator('.buff-sheet-explorer-toggle').click();
+    const importedSkill3Row = page.locator(
+      '[data-weapon-drag-kind="skill"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"]',
+    );
+    await importedSkill3Row.locator('.buff-sheet-explorer-toggle').click();
+
+    const firstEffectRow = page.locator(
+      '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="effect"][data-weapon-effect-key="first"]',
+    );
+    const secondEffectRow = page.locator(
+      '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="effect"][data-weapon-effect-key="second"]',
+    );
+    await expect(firstEffectRow).toContainText('First Weapon Effect');
+    await expect(secondEffectRow).toContainText('Second Weapon Effect');
+    await secondEffectRow.scrollIntoViewIfNeeded();
+
+    const cancelBox = await firstEffectRow.boundingBox();
+    if (!cancelBox) throw new Error('Weapon effect is not available for drag cancellation test.');
+    await page.mouse.move(cancelBox.x + cancelBox.width / 2, cancelBox.y + cancelBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(cancelBox.x + cancelBox.width / 2 + 12, cancelBox.y + cancelBox.height / 2);
+    await page.waitForTimeout(260);
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+    await page.mouse.up();
+
+    const sourceBox = await secondEffectRow.boundingBox();
+    const targetBox = await firstEffectRow.boundingBox();
+    if (!sourceBox || !targetBox) throw new Error('Weapon effects are not available for drag reorder test.');
+    await page.mouse.move(sourceBox.x + sourceBox.width / 2, sourceBox.y + sourceBox.height / 2);
+    await page.mouse.down();
+    await page.waitForTimeout(260);
+    await expect(page.locator('.buff-sheet-drag-preview')).toContainText('Second Weapon Effect');
+    await page.mouse.move(targetBox.x + targetBox.width / 2, targetBox.y + targetBox.height / 2, { steps: 5 });
+    await expect(firstEffectRow).toHaveClass(/is-drag-target/);
+    await page.mouse.up();
+    await expect(page.locator('.buff-sheet-drag-preview')).toHaveCount(0);
+
+    const importedEffectLabels = page.locator(
+      '[data-weapon-drag-kind="effect"][data-weapon-draft-id="slim-imported-weapon"][data-weapon-skill-key="skill3"][data-weapon-bucket="effect"] .buff-sheet-explorer-label',
+    );
+    expect(await importedEffectLabels.allTextContents()).toEqual([
+      'Second Weapon Effect',
+      'First Weapon Effect',
+    ]);
+
+    // Current page writes the selected draft after its 400ms debounce, then SQLite batches for 60ms.
+    await page.waitForTimeout(600);
+    await page.reload();
+    await importedWeaponRow.locator('.buff-sheet-explorer-toggle').click();
+    await importedSkill3Row.locator('.buff-sheet-explorer-toggle').click();
+    expect(await importedEffectLabels.allTextContents()).toEqual([
+      'Second Weapon Effect',
+      'First Weapon Effect',
+    ]);
   });
 
   await test.step('Equipment draft saves through browser storage and survives reload', async () => {
