@@ -42,7 +42,9 @@ liquidThemeAssets.forEach((file) => {
   assert.equal(appShellFiles.includes(`/assets/${file}`), false, `${file} must remain on demand.`);
 });
 
-const entryMatch = indexHtml.match(/<script type="module"[^>]*src="\.\/assets\/([^"]+\.js)"/);
+const entryMatch = indexHtml.match(
+  /<script type="module"[^>]*src="(?:\.\/|\/)assets\/([^"]+\.js)"/,
+);
 assert.ok(entryMatch, 'Built index.html must reference a JavaScript entry.');
 const entryBytes = fs.readFileSync(path.join(outputDirectory, 'assets', entryMatch[1]));
 const entryGzipBytes = zlib.gzipSync(entryBytes).byteLength;
