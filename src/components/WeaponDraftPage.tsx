@@ -24,7 +24,6 @@ import {
   buildNextCustomWeaponId,
   buildSearchIndex,
   buildWeaponEffectLevelsRowKey,
-  buildWeaponEffectRowKey,
   buildWeaponSheetRows,
   cloneValue,
   createEmptyWeaponDraft,
@@ -54,6 +53,12 @@ import {
   buildWeaponFormulaBinding,
   type WeaponWorkbookSelection,
 } from './weaponDraftFormula';
+import {
+  createWeaponEffect,
+  deleteWeaponEffect,
+  duplicateWeaponEffect,
+  resolveWeaponDraftForEdit,
+} from './weaponDraftEditing';
 import {
   getWeaponExplorerDragNodeKey as getExplorerDragNodeKey,
   getWeaponExplorerDragNodeLabel,
@@ -613,19 +618,28 @@ export function WeaponDraftSheetPage() {
 
   const updateLibraryDraft = useCallback((
     draftId: string,
-    updater: (baseDraft: WeaponDraft) => WeaponDraft,
+    updater: (baseDraft: WeaponDraft) => WeaponDraft | null,
     options?: { focusRowKey?: string; selectAfter?: boolean },
   ) => {
-    const baseDraft = draftId === selectedLocalDraftId ? commitFormulaInput(draft) : cloneValue(localLibrary[draftId]);
+    const currentDraft = draftId === activeDraftId ? commitFormulaInput(draft) : draft;
+    const baseDraft = resolveWeaponDraftForEdit({
+      library: localLibrary,
+      currentDraft,
+      activeDraftKey: activeDraftId,
+    }, draftId);
     if (!baseDraft) {
-      return;
+      return null;
     }
-    const nextDraft = normalizeWeaponDraft(updater(cloneValue(baseDraft)));
+    const updatedDraft = updater(baseDraft);
+    if (!updatedDraft) {
+      return null;
+    }
+    const nextDraft = normalizeWeaponDraft(updatedDraft);
     const nextLibrary = {
       ...localLibrary,
       [draftId]: nextDraft,
     };
-    if (draftId === selectedLocalDraftId || options?.selectAfter) {
+    if (draftId === activeDraftId || options?.selectAfter) {
       persistLibraryState(nextLibrary, nextDraft, draftId);
     } else {
       weaponDraftRepository.saveLibrary(nextLibrary);
@@ -634,7 +648,8 @@ export function WeaponDraftSheetPage() {
     if (options?.focusRowKey) {
       setPendingFocusRowKey(options.focusRowKey);
     }
-  }, [commitFormulaInput, draft, localLibrary, persistLibraryState, selectedLocalDraftId]);
+    return nextDraft;
+  }, [activeDraftId, commitFormulaInput, draft, localLibrary, persistLibraryState]);
 
   const handleAutoFillAttackGrowth = useCallback((draftId: string) => {
     updateLibraryDraft(draftId, (baseDraft) => applyAttackGrowthInterpolation(baseDraft), {
@@ -651,43 +666,23 @@ export function WeaponDraftSheetPage() {
   }, [updateLibraryDraft]);
 
   const handleCreateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey) => {
-    let createdEffectKey = 'effect1';
-    updateLibraryDraft(draftId, (baseDraft) => {
-      let effectIndex = 1;
-      while (baseDraft.skills[skillKey].effects[`effect${effectIndex}`]) {
-        effectIndex += 1;
+    let createdEffectKey = '';
+    let focusRowKey = '';
+    const nextDraft = updateLibraryDraft(draftId, (baseDraft) => {
+      const result = createWeaponEffect(baseDraft, skillKey);
+      if (!result) {
+        return null;
       }
-      const effectKey = `effect${effectIndex}`;
-      createdEffectKey = effectKey;
-      const nextEffects = { ...baseDraft.skills[skillKey].effects };
-      const levels: Record<string, number> = {};
-      LEVEL_KEYS.forEach((levelKey) => { levels[levelKey] = 0; });
-      nextEffects[effectKey] = {
-        schemaVersion: 2,
-        effectId: effectKey,
-        name: effectKey,
-        type: '',
-        category: 'condition',
-        levels,
-        valueMode: 'fixed',
-        effectKind: 'modifier',
-      };
-      return {
-        ...baseDraft,
-        skills: {
-          ...baseDraft.skills,
-          [skillKey]: {
-            ...baseDraft.skills[skillKey],
-            effects: nextEffects,
-          },
-        },
-      };
-    }, {
-      selectAfter: true,
-      focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', `effect${Object.keys((localLibrary[draftId] ?? draft).skills[skillKey].effects).length + 1}`),
-    });
+      createdEffectKey = result.effectKey;
+      focusRowKey = result.focusRowKey;
+      return result.nextDraft;
+    }, { selectAfter: true });
+    if (!nextDraft || !createdEffectKey) {
+      return;
+    }
+    setPendingFocusRowKey(focusRowKey);
     if (skillKey === 'skill3') setBuffDrawerTarget({ skillKey, effectKey: createdEffectKey, levelKey: '9' });
-  }, [draft, localLibrary, updateLibraryDraft]);
+  }, [updateLibraryDraft]);
 
   const handleDeleteDraftGroup = useCallback((draftId: string) => {
     if (!localLibrary[draftId]) {
@@ -708,65 +703,32 @@ export function WeaponDraftSheetPage() {
   }, [localLibrary, persistLibraryState, selectedLocalDraftId]);
 
   const handleDeleteDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => {
-    updateLibraryDraft(draftId, (baseDraft) => {
-      if (bucket === 'value') {
-        const nextLevels = { ...baseDraft.skills[skillKey].levels };
-        LEVEL_KEYS.forEach((levelKey) => {
-          nextLevels[levelKey] = { ...nextLevels[levelKey], value: undefined };
-        });
-        return {
-          ...baseDraft,
-          skills: {
-            ...baseDraft.skills,
-            [skillKey]: { ...baseDraft.skills[skillKey], levels: nextLevels },
-          },
-        };
-      }
-      const nextEffects = { ...baseDraft.skills[skillKey].effects };
-      delete nextEffects[effectKey];
-      return {
-        ...baseDraft,
-        skills: {
-          ...baseDraft.skills,
-          [skillKey]: { ...baseDraft.skills[skillKey], effects: nextEffects },
-        },
-      };
-    }, {
+    updateLibraryDraft(draftId, (baseDraft) => (
+      deleteWeaponEffect(baseDraft, skillKey, bucket, effectKey)?.nextDraft ?? null
+    ), {
       selectAfter: true,
       focusRowKey: `skill-${skillKey}`,
     });
   }, [updateLibraryDraft]);
 
   const handleDuplicateDraftEffect = useCallback((draftId: string, skillKey: WeaponSkillKey, bucket: WeaponEffectBucket, effectKey: string) => {
-    const currentSkill = draft.skills[skillKey];
-    if (bucket === 'value') {
-      // value 效果不可复制
+    let duplicatedEffectKey = '';
+    let focusRowKey = '';
+    const nextDraft = updateLibraryDraft(draftId, (baseDraft) => {
+      const result = duplicateWeaponEffect(baseDraft, skillKey, bucket, effectKey);
+      if (!result) {
+        return null;
+      }
+      duplicatedEffectKey = result.effectKey;
+      focusRowKey = result.focusRowKey;
+      return result.nextDraft;
+    }, { selectAfter: true });
+    if (!nextDraft || !duplicatedEffectKey) {
       return;
     }
-    let effectIndex = 1;
-    while (currentSkill.effects[`effect${effectIndex}`]) {
-      effectIndex += 1;
-    }
-    const newEffectKey = `effect${effectIndex}`;
-    const sourceEffect = currentSkill.effects[effectKey];
-    if (!sourceEffect) return;
-
-    updateLibraryDraft(draftId, (baseDraft) => {
-      const nextEffects = { ...baseDraft.skills[skillKey].effects };
-      nextEffects[newEffectKey] = { ...sourceEffect };
-      return {
-        ...baseDraft,
-        skills: {
-          ...baseDraft.skills,
-          [skillKey]: { ...baseDraft.skills[skillKey], effects: nextEffects },
-        },
-      };
-    }, {
-      selectAfter: true,
-      focusRowKey: buildWeaponEffectRowKey(skillKey, 'effect', newEffectKey),
-    });
-    if (skillKey === 'skill3') setBuffDrawerTarget({ skillKey, effectKey: newEffectKey, levelKey: '9' });
-  }, [draft, updateLibraryDraft]);
+    setPendingFocusRowKey(focusRowKey);
+    if (skillKey === 'skill3') setBuffDrawerTarget({ skillKey, effectKey: duplicatedEffectKey, levelKey: '9' });
+  }, [updateLibraryDraft]);
 
   const handleSelectWeaponImage = useCallback((displayUrl: string) => {
     setDraft((prev) => normalizeWeaponDraft({ ...prev, imgUrl: displayUrl }));
