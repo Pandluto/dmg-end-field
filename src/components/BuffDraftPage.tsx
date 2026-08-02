@@ -4,12 +4,7 @@ import './BuffDraftPage.css';
 import type { BuffCategory, BuffEffectKind } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
-import {
-  buildDraftLibraryShareFile,
-  buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
-} from '../utils/draftShare';
+import { buildDraftLibraryShareFileName } from '../utils/draftShare';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import {
   BUFF_CATEGORY_LABELS,
@@ -60,6 +55,13 @@ import {
 } from './buffDraftModel';
 import { createBuffFormulaTextBinding } from './buffDraftFormula';
 import {
+  buildBuffDraftLibraryShareFile,
+  mergeBuffDraftLibraryShare,
+  parseBuffDraftLibraryShare,
+  resolveBuffDraftShareSelection,
+  type BuffDraftLibraryShareFile,
+} from './buffDraftShare';
+import {
   BUFF_DRAFT_STORAGE_KEY,
   BUFF_LIBRARY_STORAGE_KEY,
   createBuffUndoRepository,
@@ -100,7 +102,6 @@ export {
 } from './buffDraftWorkbook';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
-const BUFF_LIBRARY_SHARE_TYPE = 'buff-library-share.v1';
 const buffUndoRepository = createBuffUndoRepository(persistentLocalStorage);
 
 function isBuffSheetPath(pathname: string) {
@@ -269,7 +270,7 @@ export function BuffDraftSheetPage() {
   const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
   const [shareImportText, setShareImportText] = useState('');
   const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<BuffDraft> | null>(null);
+  const [pendingImportShare, setPendingImportShare] = useState<BuffDraftLibraryShareFile | null>(null);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
   const [dragState, setDragState] = useState<BuffExplorerDragState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ itemKey: string; effectKey: string } | null>(null);
@@ -370,7 +371,7 @@ export function BuffDraftSheetPage() {
     }));
   }, [getItemCollapseKey, localLibrary]);
 
-  const downloadSheetShareFile = useCallback((shareFile: DraftLibraryShareFile<BuffDraft>) => {
+  const downloadSheetShareFile = useCallback((shareFile: BuffDraftLibraryShareFile) => {
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
     });
@@ -382,11 +383,10 @@ export function BuffDraftSheetPage() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const currentSheetShareFile = useMemo(() => buildDraftLibraryShareFile(
-    BUFF_LIBRARY_SHARE_TYPE,
-    loadLocalBuffLibrary(),
+  const currentSheetShareFile = useMemo(() => buildBuffDraftLibraryShareFile(
+    localLibrary,
     draft.name || selectedLocalDraftId || 'buff-library',
-  ), [draft.name, selectedLocalDraftId]);
+  ), [draft.name, localLibrary, selectedLocalDraftId]);
   const currentSheetShareText = useMemo(() => JSON.stringify(currentSheetShareFile, null, 2), [currentSheetShareFile]);
 
   const openSheetShareModal = useCallback((mode: 'export' | 'import') => {
@@ -405,50 +405,30 @@ export function BuffDraftSheetPage() {
   }, []);
 
   const handleExportSheetLibraryShare = useCallback(() => {
-    const library = loadLocalBuffLibrary();
-    const draftCount = Object.keys(library).length;
+    const draftCount = Object.keys(localLibrary).length;
     if (draftCount === 0) {
       return;
     }
-    const shareFile = buildDraftLibraryShareFile(
-      BUFF_LIBRARY_SHARE_TYPE,
-      library,
+    const shareFile = buildBuffDraftLibraryShareFile(
+      localLibrary,
       draft.name || selectedLocalDraftId || 'buff-library',
     );
     downloadSheetShareFile(shareFile);
-  }, [downloadSheetShareFile, draft.name, selectedLocalDraftId]);
+  }, [downloadSheetShareFile, draft.name, localLibrary, selectedLocalDraftId]);
 
   const handleOpenSheetShareImportPicker = useCallback(() => {
     shareImportInputRef.current?.click();
   }, []);
 
   const prepareSheetImportShare = useCallback((rawText: string) => {
-    const parsedShare = parseDraftLibraryShareFile(rawText, BUFF_LIBRARY_SHARE_TYPE);
-    if (!parsedShare) {
+    const parsedShare = parseBuffDraftLibraryShare(rawText);
+    if (!parsedShare.ok) {
       setPendingImportShare(null);
-      setShareImportError('JSON 无效，或不是 Buff 分享文件。');
-      return;
-    }
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
-        try {
-          const normalizedDraft = parseImportedBuffDraft(JSON.stringify(value));
-          return [[draftId, normalizedDraft] as const];
-        } catch {
-          return [];
-        }
-      }),
-    ) as Record<string, BuffDraft>;
-    if (Object.keys(normalizedPayload).length === 0) {
-      setPendingImportShare(null);
-      setShareImportError('JSON 中没有可导入的有效 Buff 分组。');
+      setShareImportError(parsedShare.error);
       return;
     }
     setShareImportError('');
-    setPendingImportShare({
-      ...parsedShare,
-      payload: normalizedPayload,
-    });
+    setPendingImportShare(parsedShare.shareFile);
   }, []);
 
   const handleSheetShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -479,16 +459,15 @@ export function BuffDraftSheetPage() {
     if (!pendingImportShare) {
       return;
     }
-    const nextLibrary = normalizeBuffDraftLibrary({
-      ...loadLocalBuffLibrary(),
-      ...pendingImportShare.payload,
-    });
+    const nextLibrary = mergeBuffDraftLibraryShare(localLibrary, pendingImportShare);
     persistentLocalStorage.setItem(BUFF_LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalLibrary(nextLibrary);
     applyExplorerDefaultCollapse(nextLibrary);
-    const nextSelectedId = selectedLocalDraftId && nextLibrary[selectedLocalDraftId]
-      ? selectedLocalDraftId
-      : (Object.keys(pendingImportShare.payload)[0] ?? Object.keys(nextLibrary)[0] ?? '');
+    const nextSelectedId = resolveBuffDraftShareSelection(
+      selectedLocalDraftId,
+      nextLibrary,
+      pendingImportShare.payload,
+    );
     if (nextSelectedId && nextLibrary[nextSelectedId]) {
       setSelectedLocalDraftId(nextSelectedId);
       setDraft(nextLibrary[nextSelectedId]);
@@ -498,7 +477,7 @@ export function BuffDraftSheetPage() {
     setShareImportText('');
     setShareImportError('');
     setIsShareModalOpen(false);
-  }, [applyExplorerDefaultCollapse, pendingImportShare, selectedLocalDraftId]);
+  }, [applyExplorerDefaultCollapse, localLibrary, pendingImportShare, selectedLocalDraftId]);
 
   useEffect(() => {
     const nextLibrary = {

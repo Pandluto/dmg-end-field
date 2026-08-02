@@ -9,8 +9,9 @@ async function openRoute(page: Page, path: string, heading: string): Promise<voi
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
-test('v1.8 LTS slimming browser behavior baseline', async ({ page }) => {
+test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) => {
   const browserErrors: string[] = [];
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
@@ -88,6 +89,56 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ page }) => {
     await page.reload();
     await savedGroupRow.locator('.buff-sheet-explorer-toggle').click();
     await expect(createdItem).toBeVisible();
+
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    const shareModal = page.locator('.buff-sheet-share-modal');
+    const sharePreview = shareModal.locator('.buff-sheet-share-textarea.is-preview');
+    const shareText = await sharePreview.inputValue();
+    const parsedShare = JSON.parse(shareText) as {
+      type: string;
+      exportedAt: number;
+      label: string;
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(parsedShare.type).toBe('buff-library-share.v1');
+    const sourceDraft = Object.values(parsedShare.payload).find((value) => value.name === 'Slim E2E Buff');
+    expect(sourceDraft).toBeTruthy();
+
+    await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
+    const downloadPromise = page.waitForEvent('download');
+    await shareModal.getByRole('button', { name: '导出文件', exact: true }).click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.json$/);
+
+    await shareModal.locator('.buff-sheet-share-modal-tab').filter({ hasText: '导入' }).click();
+    const importText = shareModal.locator('.buff-sheet-share-textarea:not(.is-preview)');
+    await importText.fill(JSON.stringify({ type: 'not-a-buff-share', payload: {} }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText('JSON 无效，或不是 Buff 分享文件。', { exact: true })).toBeVisible();
+
+    await importText.fill(JSON.stringify({
+      type: 'buff-library-share.v1',
+      exportedAt: Date.now(),
+      label: 'Slim E2E Import',
+      payload: {
+        'slim-imported': {
+          ...sourceDraft,
+          id: 'slim-imported',
+          name: 'Slim Imported Buff',
+        },
+        invalid: {},
+      },
+    }));
+    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    await expect(shareModal.getByText('名称：Slim E2E Import', { exact: true })).toBeVisible();
+    await expect(shareModal.getByText('分组数：1', { exact: true })).toBeVisible();
+    await shareModal.getByRole('button', { name: '确认导入', exact: true }).click();
+
+    const importedEntry = page.locator('.buff-sheet-explorer-label').filter({ hasText: 'Slim Imported Buff' });
+    await expect(importedEntry).toBeVisible();
+    await page.reload();
+    await expect(importedEntry).toBeVisible();
   });
 
   await test.step('Weapon draft saves through browser storage and survives reload', async () => {
