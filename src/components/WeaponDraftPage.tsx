@@ -55,14 +55,13 @@ import {
   type WeaponWorkbookSelection,
 } from './weaponDraftFormula';
 import {
-  canStartWeaponExplorerDrag,
   getWeaponExplorerDragNodeKey as getExplorerDragNodeKey,
   getWeaponExplorerDragNodeLabel,
-  isValidWeaponExplorerDropTarget,
   reorderWeaponExplorerLibrary,
   type WeaponExplorerDragNode,
   type WeaponExplorerDragPolicyState,
 } from './weaponExplorerDragPolicy';
+import { useWeaponExplorerDrag } from './useWeaponExplorerDrag';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const weaponDraftRepository = createWeaponDraftRepository(persistentLocalStorage);
@@ -76,13 +75,6 @@ interface WeaponImageOption {
   displayUrl: string;
   searchText: string;
 }
-
-type WeaponExplorerDragState = {
-  source: WeaponExplorerDragNode;
-  over: WeaponExplorerDragNode | null;
-  x: number;
-  y: number;
-};
 
 type WeaponSheetContextMenuState = {
   x: number;
@@ -216,13 +208,9 @@ export function WeaponDraftSheetPage() {
   const [shareImportText, setShareImportText] = useState('');
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
-  const [dragState, setDragState] = useState<WeaponExplorerDragState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ skillKey: WeaponSkillKey; effectKey: string; levelKey: string } | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const weaponImageFormulaRef = useRef<HTMLDivElement>(null);
-  const pendingDragSourceRef = useRef<{ source: WeaponExplorerDragNode; x: number; y: number } | null>(null);
-  const dragHoldTimerRef = useRef<number | null>(null);
-  const suppressExplorerClickRef = useRef(false);
 
   useEffect(() => {
     if (!selectedLocalDraftId && draft.id && localLibrary[draft.id]) {
@@ -1085,55 +1073,7 @@ export function WeaponDraftSheetPage() {
     return getWeaponExplorerDragNodeLabel(localLibrary, node);
   }, [localLibrary]);
 
-  const clearPendingExplorerDrag = useCallback(() => {
-    if (dragHoldTimerRef.current !== null) {
-      window.clearTimeout(dragHoldTimerRef.current);
-      dragHoldTimerRef.current = null;
-    }
-    pendingDragSourceRef.current = null;
-  }, []);
-
-  const canStartExplorerDrag = useCallback((node: WeaponExplorerDragNode) => {
-    return canStartWeaponExplorerDrag(node, explorerDragPolicyState);
-  }, [explorerDragPolicyState]);
-
-  const isValidExplorerDropTarget = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode | null) => {
-    return isValidWeaponExplorerDropTarget(source, target, explorerDragPolicyState);
-  }, [explorerDragPolicyState]);
-
-  const resolveExplorerDragNodeFromElement = useCallback((element: Element | null): WeaponExplorerDragNode | null => {
-    const row = element instanceof HTMLElement ? element.closest<HTMLElement>('[data-weapon-drag-kind]') : null;
-    if (!row) {
-      return null;
-    }
-    const kind = row.dataset.weaponDragKind as WeaponExplorerDragNode['kind'] | undefined;
-    const draftId = row.dataset.weaponDraftId;
-    if (!kind || !draftId) {
-      return null;
-    }
-    if (kind === 'draft') {
-      return { kind, draftId };
-    }
-    const skillKey = row.dataset.weaponSkillKey as WeaponSkillKey | undefined;
-    if (!skillKey) {
-      return null;
-    }
-    if (kind === 'skill') {
-      return { kind, draftId, skillKey };
-    }
-    const bucket = row.dataset.weaponBucket as WeaponEffectBucket | undefined;
-    const effectKey = row.dataset.weaponEffectKey;
-    if (!bucket || !effectKey) {
-      return null;
-    }
-    return { kind: 'effect', draftId, skillKey, bucket, effectKey };
-  }, []);
-
   const applyExplorerReorder = useCallback((source: WeaponExplorerDragNode, target: WeaponExplorerDragNode) => {
-    if (!isValidExplorerDropTarget(source, target)) {
-      return;
-    }
-
     const result = reorderWeaponExplorerLibrary(localLibrary, draft, activeDraftId, source, target);
     if (!result) {
       return;
@@ -1144,30 +1084,22 @@ export function WeaponDraftSheetPage() {
     }
     setLocalLibrary(result.nextLibrary);
     weaponDraftRepository.saveLibrary(result.nextLibrary);
-  }, [activeDraftId, draft, isValidExplorerDropTarget, localLibrary]);
+  }, [activeDraftId, draft, localLibrary]);
 
-  const handleExplorerPointerDown = useCallback((event: React.PointerEvent, source: WeaponExplorerDragNode) => {
-    if (event.button !== 0 || !canStartExplorerDrag(source)) {
-      return;
-    }
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.buff-sheet-explorer-toggle')) {
-      return;
-    }
-    clearPendingExplorerDrag();
-    pendingDragSourceRef.current = {
-      source,
-      x: event.clientX,
-      y: event.clientY,
-    };
-    dragHoldTimerRef.current = window.setTimeout(() => {
-      suppressExplorerClickRef.current = true;
-      setContextMenu(null);
-      setDragState({ source, over: null, x: event.clientX, y: event.clientY });
-      pendingDragSourceRef.current = null;
-      dragHoldTimerRef.current = null;
-    }, 220);
-  }, [canStartExplorerDrag, clearPendingExplorerDrag]);
+  const handleExplorerDragStart = useCallback(() => {
+    setContextMenu(null);
+  }, []);
+
+  const {
+    dragState,
+    consumeSuppressedExplorerClick,
+    canStartExplorerDrag,
+    handleExplorerPointerDown,
+  } = useWeaponExplorerDrag({
+    policyState: explorerDragPolicyState,
+    onReorder: applyExplorerReorder,
+    onDragStart: handleExplorerDragStart,
+  });
 
   const formatWeaponExplorerDragKindLabel = (kind: WeaponExplorerDragNode['kind']): string => {
     if (kind === 'draft') {
@@ -1178,62 +1110,6 @@ export function WeaponDraftSheetPage() {
     }
     return '效果';
   };
-
-  // Explorer drag global event listeners
-  useEffect(() => {
-    const handlePointerMove = (event: PointerEvent) => {
-      const pending = pendingDragSourceRef.current;
-      if (pending) {
-        const distance = Math.hypot(event.clientX - pending.x, event.clientY - pending.y);
-        if (distance > 6) {
-          clearPendingExplorerDrag();
-        }
-      }
-      if (!dragState) {
-        return;
-      }
-      event.preventDefault();
-      const hoveredNode = resolveExplorerDragNodeFromElement(document.elementFromPoint(event.clientX, event.clientY));
-      setDragState((prev) => {
-        if (!prev) {
-          return prev;
-        }
-        const nextOver = isValidExplorerDropTarget(prev.source, hoveredNode) ? hoveredNode : null;
-        const previousOverKey = prev.over ? getExplorerDragNodeKey(prev.over) : '';
-        const nextOverKey = nextOver ? getExplorerDragNodeKey(nextOver) : '';
-        if (previousOverKey === nextOverKey && prev.x === event.clientX && prev.y === event.clientY) {
-          return prev;
-        }
-        return {
-          ...prev,
-          over: nextOver,
-          x: event.clientX,
-          y: event.clientY,
-        };
-      });
-    };
-
-    const finalizeDrag = () => {
-      clearPendingExplorerDrag();
-      setDragState((prev) => {
-        if (prev?.over) {
-          applyExplorerReorder(prev.source, prev.over);
-        }
-        return null;
-      });
-    };
-
-    window.addEventListener('pointermove', handlePointerMove, true);
-    window.addEventListener('pointerup', finalizeDrag, true);
-    window.addEventListener('pointercancel', finalizeDrag, true);
-    window.addEventListener('blur', finalizeDrag);
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove, true);
-      window.removeEventListener('pointerup', finalizeDrag, true);
-      window.removeEventListener('pointercancel', finalizeDrag, true);
-      window.removeEventListener('blur', finalizeDrag);
-    };
-  }, [applyExplorerReorder, clearPendingExplorerDrag, dragState, getExplorerDragNodeKey, isValidExplorerDropTarget, resolveExplorerDragNodeFromElement]);
 
   const renderFormulaEditor = () => {
     if (!formulaBinding) {
@@ -1581,8 +1457,7 @@ export function WeaponDraftSheetPage() {
                     data-weapon-draft-id={entry.id}
                     onPointerDown={(event) => handleExplorerPointerDown(event, draftDragNode)}
                     onClick={() => {
-                      if (suppressExplorerClickRef.current) {
-                        suppressExplorerClickRef.current = false;
+                      if (consumeSuppressedExplorerClick()) {
                         return;
                       }
                       handleLoadLocalDraft(entry.id);
@@ -1624,8 +1499,7 @@ export function WeaponDraftSheetPage() {
                               data-weapon-skill-key={skillKey}
                               onPointerDown={(event) => handleExplorerPointerDown(event, skillDragNode)}
                               onClick={() => {
-                                if (suppressExplorerClickRef.current) {
-                                  suppressExplorerClickRef.current = false;
+                                if (consumeSuppressedExplorerClick()) {
                                   return;
                                 }
                                 handleLoadLocalDraft(entry.id);
@@ -1668,8 +1542,7 @@ export function WeaponDraftSheetPage() {
                                         data-weapon-effect-key={row.sourceEffectKey}
                                         onPointerDown={(event) => handleExplorerPointerDown(event, effectDragNode)}
                                         onClick={() => {
-                                          if (suppressExplorerClickRef.current) {
-                                            suppressExplorerClickRef.current = false;
+                                          if (consumeSuppressedExplorerClick()) {
                                             return;
                                           }
                                           handleLoadLocalDraft(entry.id);
