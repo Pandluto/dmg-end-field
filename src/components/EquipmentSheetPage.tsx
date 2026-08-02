@@ -53,6 +53,7 @@ import {
   buildEquipmentFormulaBinding,
   type EquipmentFormulaBinding,
 } from './equipmentSheetFormula';
+import { createEquipmentLibraryRepository } from './equipmentSheetPersistence';
 import {
   buildRows,
   buildWorkbookRows,
@@ -71,10 +72,9 @@ import './DamageSheetPage.css';
 import './EquipmentSheetPage.css';
 
 const EQUIPMENT_SHEET_PAGE_PATH = APP_ROUTE_PATHS.equipmentSheet;
-const EQUIPMENT_DRAFT_STORAGE_KEY = 'def.equipment-sheet.draft.v1';
-const EQUIPMENT_LIBRARY_STORAGE_KEY = 'def.equipment-sheet.library.v1';
 const EQUIPMENT_LIBRARY_SHARE_TYPE = 'equipment-library-share.v1';
 const EQUIPMENT_LIBRARY_PATH = 'data/equipments/equipments.json';
+const equipmentLibraryRepository = createEquipmentLibraryRepository(persistentLocalStorage);
 
 type EquipmentSelection = {
   address: string;
@@ -125,25 +125,6 @@ function isEquipmentSheetPath(pathname: string) {
   return pathname === EQUIPMENT_SHEET_PAGE_PATH;
 }
 
-function readLocalStorageJson<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') {
-    return fallback;
-  }
-  try {
-    const raw = persistentLocalStorage.getItem(key);
-    return raw ? JSON.parse(raw) as T : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeLocalStorageJson<T>(key: string, value: T) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-  persistentLocalStorage.setItem(key, JSON.stringify(value));
-}
-
 function buildEquipmentImageAssetUrl(entry: ImageAssetEntry) {
   const userUrl = getWebImageUrl(entry);
   if (userUrl) return userUrl;
@@ -173,14 +154,6 @@ function stopEditingKeyPropagation(event: React.KeyboardEvent<HTMLElement>) {
   if (['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Tab', 'Enter', 'Escape'].includes(event.key)) {
     event.stopPropagation();
   }
-}
-
-function readCachedEquipmentLibrary(): EquipmentLibrary {
-  const libraryCache = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, EMPTY_LIBRARY));
-  if (Object.keys(libraryCache.gearSets).length > 0) {
-    return libraryCache;
-  }
-  return normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, EMPTY_LIBRARY));
 }
 
 async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
@@ -276,7 +249,7 @@ export function EquipmentSheetPage() {
     readEquipmentLibraryFromFile()
       .then((fileLibrary) => {
         if (cancelled) return;
-        const cached = readCachedEquipmentLibrary();
+        const cached = equipmentLibraryRepository.loadCachedLibrary();
         const hasCachedData = Object.keys(cached.gearSets).length > 0;
         const shouldUseCached = hasCachedData;
         const nextLibrary = shouldUseCached ? cached : fileLibrary;
@@ -290,7 +263,7 @@ export function EquipmentSheetPage() {
       })
       .catch((error) => {
         if (cancelled) return;
-        const cached = readCachedEquipmentLibrary();
+        const cached = equipmentLibraryRepository.loadCachedLibrary();
         if (Object.keys(cached.gearSets).length > 0) {
           replaceLibrary(cached);
           setIsDirty(false);
@@ -892,12 +865,17 @@ export function EquipmentSheetPage() {
     const emptyBuffSets = getGearSets(committedLibrary).filter((gearSet) => !gearSet.buffId?.trim()).length;
     const nextLibrary = { ...committedLibrary, updatedAt: new Date().toISOString() };
     const warning = emptyBuffSets > 0 ? ` ${emptyBuffSets} 个套装 buffId 为空，请后续补齐。` : '';
-    writeLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, nextLibrary);
-    writeLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, nextLibrary);
-    replaceLibrary(nextLibrary);
-    setIsDirty(false);
-    setIsSaveConfirmModalOpen(false);
-    setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
+    try {
+      await equipmentLibraryRepository.saveLibrary(nextLibrary);
+      replaceLibrary(nextLibrary);
+      setIsDirty(false);
+      setIsSaveConfirmModalOpen(false);
+      setMessage(`已保存到浏览器 SQLite 装备库。${warning}`);
+    } catch (error) {
+      setIsDirty(true);
+      setIsSaveConfirmModalOpen(false);
+      setMessage(`保存失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   }, [buildLibraryWithCommittedFormulaInput, replaceLibrary]);
 
   const handleSave = useCallback(() => {
