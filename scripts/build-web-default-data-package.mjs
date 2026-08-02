@@ -12,6 +12,18 @@ const sourcePath = path.join(
 const outputPath = path.join(repositoryRoot, 'public', 'data', 'default-local-data.json');
 const imageManifestPath = path.join(repositoryRoot, 'public', 'web-image-manifest.json');
 
+if (!fs.existsSync(sourcePath)) {
+  if (!fs.existsSync(outputPath)) {
+    throw new Error(
+      `缺少默认 Web 数据源且没有可复用产物：${path.relative(repositoryRoot, sourcePath)}`,
+    );
+  }
+  console.log(
+    `Default Web data source is not present; reusing tracked ${path.relative(repositoryRoot, outputPath)}.`,
+  );
+  process.exit(0);
+}
+
 const sectionPrefixes = {
   operators: ['def.operator-editor.'],
   weapons: ['def.weapon-sheet.'],

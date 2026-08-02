@@ -13,8 +13,10 @@
         const themeKey = 'dmg.appearance.theme.v1';
         const themes = {
           'office-excel': { scheme: 'light', color: '#e9ecea' },
-          'apple-midnight': { scheme: 'dark', color: '#292a2e' },
+          'apple-midnight': { scheme: 'dark', color: '#0e0f11' },
           'apple-warm': { scheme: 'light', color: '#ebe4d9' },
+          'lieflat-mono': { scheme: 'light', color: '#e8e2d6' },
+          'liquid-tide': { scheme: 'light', color: '#a8b6dc' },
         };
         let theme = 'office-excel';
         try {
@@ -80,9 +82,9 @@
             <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#eef1ef;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC',sans-serif">
               <section style="width:min(420px,100%);padding:28px;border:1px solid rgba(0,0,0,.08);border-radius:24px;background:rgba(255,255,255,.82);box-shadow:0 18px 60px rgba(18,26,22,.12);backdrop-filter:blur(24px)">
                 <p style="margin:0 0 8px;color:#6e746f;font-size:13px">启动保护</p>
-                <h1 style="margin:0 0 12px;font-size:24px">页面缓存需要修复</h1>
-                <p style="margin:0 0 20px;color:#5f655f;line-height:1.6">工作台没有删除本地数据。点击后只会更新页面运行缓存，再重新进入。</p>
-                <button id="dmg-startup-recover" type="button" style="width:100%;padding:12px 16px;border:0;border-radius:14px;background:#1d1d1f;color:#fff;font:inherit;cursor:pointer">修复并重新加载</button>
+                <h1 style="margin:0 0 12px;font-size:24px">启动文件需要恢复</h1>
+                <p style="margin:0 0 20px;color:#5f655f;line-height:1.6">本地数据没有被删除。联网时会原子更新运行文件；离线时会继续尝试已安装的完整版本。</p>
+                <button id="dmg-startup-recover" type="button" style="width:100%;padding:12px 16px;border:0;border-radius:14px;background:#1d1d1f;color:#fff;font:inherit;cursor:pointer">检查并重新载入</button>
               </section>
             </main>
           `;
@@ -102,13 +104,16 @@
           writeRecoveryAttempt(attempt + 1);
           try {
             if ('serviceWorker' in navigator) {
-              const registrations = await navigator.serviceWorker.getRegistrations();
-              if (!registrations.length && !navigator.serviceWorker.controller) {
+              const registration = await navigator.serviceWorker.getRegistration('/');
+              if (!registration && !navigator.serviceWorker.controller) {
                 showRecovery();
                 recoveryRunning = false;
                 return;
               }
-              await Promise.all(registrations.map((registration) => registration.unregister()));
+              if (navigator.onLine && registration) {
+                await registration.update().catch(() => undefined);
+                registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+              }
             }
           } finally {
             const target = new URL(window.location.href);
