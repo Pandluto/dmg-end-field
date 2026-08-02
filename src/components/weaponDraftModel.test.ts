@@ -19,7 +19,7 @@ import {
   reorderWeaponDraft,
   type WeaponDraft,
   type WeaponEffectData,
-} from './WeaponDraftPage';
+} from './weaponDraftModel';
 
 const emptyLevel = createEmptyWeaponLevelData();
 assert.deepEqual(emptyLevel, { value: undefined, description: '' });
