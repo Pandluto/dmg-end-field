@@ -127,6 +127,28 @@ assert.equal(normalizedEquipment.effects.effect1?.effectId, 'effect1');
 assert.equal(normalizedEquipment.effects.effect1?.category, 'buff');
 assert.deepEqual(normalizedEquipment.effects.effect1?.levels, { '0': 12 });
 
+const staleRawCanonicalCache = makeRawLibrary('canonical cache');
+const staleRawCanonicalEffect = staleRawCanonicalCache
+  .gearSets['gear-set-persistence']
+  .equipments['equipment-persistence']
+  .effects.effect1;
+staleRawCanonicalEffect.typeKey = 'physicalDmgBonus';
+staleRawCanonicalEffect.unit = 'percent';
+staleRawCanonicalEffect.raw = '伤害：+20%';
+staleRawCanonicalEffect.levels = { '0': 2 };
+const staleRawCanonicalStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(staleRawCanonicalCache)],
+]);
+const staleRawCanonicalLoaded = createEquipmentLibraryRepository(staleRawCanonicalStorage).loadCachedLibrary();
+assert.equal(
+  staleRawCanonicalLoaded
+    .gearSets['gear-set-persistence']
+    .equipments['equipment-persistence']
+    .effects.effect1?.levels['0'],
+  2,
+  'cached values are already canonical and must not rerun legacy percent migration',
+);
+
 const normalizedEmptyLibrary = normalizeEquipmentLibrary(null);
 for (const invalidDraftValue of [null, '', '   ', 'null', '{malformed']) {
   const emptyStorage = new MemoryStorage();

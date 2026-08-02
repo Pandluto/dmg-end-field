@@ -56,6 +56,7 @@ export interface EquipmentItem {
 }
 
 export interface EquipmentGearSet {
+  schemaVersion?: 2;
   gearSetId: string;
   name: string;
   buffId?: string;
@@ -66,6 +67,7 @@ export interface EquipmentGearSet {
 }
 
 export interface EquipmentLibrary {
+  schemaVersion?: 2;
   updatedAt?: string;
   migration?: {
     source?: string;
@@ -320,7 +322,11 @@ export function normalizeEnglishId(prefix: string, value: unknown, fallbackSourc
   return unique;
 }
 
-export function normalizeThreePieceBuff(effectId: string, raw: Partial<EquipmentThreePieceBuff> | null | undefined): EquipmentThreePieceBuff {
+export function normalizeThreePieceBuff(
+  effectId: string,
+  raw: Partial<EquipmentThreePieceBuff> | null | undefined,
+  valuesAreCanonical = false,
+): EquipmentThreePieceBuff {
   const normalized = buffModel.normalizeBuffEffect(effectId, {
     ...raw,
     type: raw?.typeKey,
@@ -328,13 +334,18 @@ export function normalizeThreePieceBuff(effectId: string, raw: Partial<Equipment
   });
   const unit = normalizeUnit(normalized.unit);
   const typeKey = normalized.type;
+  const preserveCanonicalValue = valuesAreCanonical || raw?.schemaVersion === 2;
   return {
     ...normalized,
     effectId: normalized.effectId,
     name: normalized.name || '新建效果',
     category: normalized.category,
     typeKey,
-    value: normalized.effectKind === 'extraHit' ? 0 : normalizeLegacyPercentValue(typeKey, unit, normalizeNumber(normalized.value), normalized.raw),
+    value: normalized.effectKind === 'extraHit'
+      ? 0
+      : preserveCanonicalValue
+        ? normalizeNumber(normalized.value)
+        : normalizeLegacyPercentValue(typeKey, unit, normalizeNumber(normalized.value), normalized.raw),
     unit,
     description: normalized.description,
     raw: normalized.raw,
@@ -547,9 +558,18 @@ export function applyEffectValueCatalogForPart(effect: EquipmentEffect, part: Eq
   };
 }
 
-export function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
+export interface NormalizeEquipmentLibraryOptions {
+  assumeCanonicalValues?: boolean;
+}
+
+export function normalizeEquipmentLibrary(
+  raw: unknown,
+  options: NormalizeEquipmentLibraryOptions = {},
+): EquipmentLibrary {
   const source = raw as Partial<EquipmentLibrary> | null | undefined;
+  const libraryValuesAreCanonical = options.assumeCanonicalValues === true || source?.schemaVersion === 2;
   const next: EquipmentLibrary = {
+    schemaVersion: 2,
     updatedAt: typeof source?.updatedAt === 'string' ? source.updatedAt : '',
     migration: source?.migration,
     gearSets: {},
@@ -558,8 +578,10 @@ export function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
   const usedGearSetIds = new Set<string>();
   Object.entries(rawGearSets).forEach(([fallbackSetId, rawSet]) => {
     const setValue = rawSet as Partial<EquipmentGearSet>;
+    const setValuesAreCanonical = libraryValuesAreCanonical || setValue.schemaVersion === 2;
     const gearSetId = normalizeEnglishId('gear-set', setValue.gearSetId || fallbackSetId, setValue.name || setValue.gearSetId || fallbackSetId, usedGearSetIds);
     const gearSet: EquipmentGearSet = {
+      schemaVersion: 2,
       gearSetId,
       name: String(setValue.name || gearSetId),
       buffId: String(setValue.buffId || ''),
@@ -571,11 +593,11 @@ export function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
       : {};
     const threePieceBuffs: Record<string, EquipmentThreePieceBuff> = {};
     Object.entries(rawThreePieceBuffs).forEach(([fallbackEffectId, rawBuff]) => {
-      const buff = normalizeThreePieceBuff(fallbackEffectId, rawBuff as Partial<EquipmentThreePieceBuff>);
+      const buff = normalizeThreePieceBuff(fallbackEffectId, rawBuff as Partial<EquipmentThreePieceBuff>, setValuesAreCanonical);
       threePieceBuffs[buff.effectId] = buff;
     });
     if (setValue.threePieceBuff && Object.keys(threePieceBuffs).length === 0) {
-      const buff = normalizeThreePieceBuff('effect1', setValue.threePieceBuff);
+      const buff = normalizeThreePieceBuff('effect1', setValue.threePieceBuff, setValuesAreCanonical);
       threePieceBuffs[buff.effectId] = buff;
     }
     if (Object.keys(threePieceBuffs).length > 0) {
@@ -624,7 +646,9 @@ export function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
             if (rawLevel !== undefined && rawLevel !== null) {
               const parsed = Number(rawLevel);
               if (Number.isFinite(parsed)) {
-                acc[levelKey] = normalizeLegacyPercentValue(typeKey, unit, parsed, effect.raw);
+                acc[levelKey] = setValuesAreCanonical
+                  ? parsed
+                  : normalizeLegacyPercentValue(typeKey, unit, parsed, effect.raw);
               }
             }
             return acc;
@@ -640,9 +664,11 @@ export function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
 
 export function createEmptyLibrary(): EquipmentLibrary {
   return {
+    schemaVersion: 2,
     updatedAt: new Date().toISOString(),
     gearSets: {
       'gear-set-new': {
+        schemaVersion: 2,
         gearSetId: 'gear-set-new',
         name: '新建套装',
         buffId: '',

@@ -18,7 +18,9 @@ function loadNormalizedLibrary(storage: EquipmentLibraryStorage, key: string): E
     if (!serialized?.trim()) {
       return normalizeEquipmentLibrary(null);
     }
-    return normalizeEquipmentLibrary(JSON.parse(serialized) as unknown);
+    return normalizeEquipmentLibrary(JSON.parse(serialized) as unknown, {
+      assumeCanonicalValues: true,
+    });
   } catch {
     return normalizeEquipmentLibrary(null);
   }

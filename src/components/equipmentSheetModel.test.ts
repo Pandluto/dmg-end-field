@@ -243,6 +243,8 @@ const normalizedLibrary = normalizeEquipmentLibrary({
 assert.deepEqual(Object.keys(normalizedLibrary.gearSets), ['gear-set-s-a-m-e-s-e-t', 'gear-set-s-a-m-e-s-e-t-2']);
 const normalizedFirstSet = normalizedLibrary.gearSets['gear-set-s-a-m-e-s-e-t'];
 assert.ok(normalizedFirstSet);
+assert.equal(normalizedLibrary.schemaVersion, 2);
+assert.equal(normalizedFirstSet.schemaVersion, 2);
 assert.deepEqual(Object.keys(normalizedFirstSet.threePieceBuffs || {}), ['legacy-effect']);
 assert.equal(normalizedFirstSet.threePieceBuffs?.['legacy-effect'].category, 'passive');
 assert.equal(normalizedFirstSet.threePieceBuffs?.['legacy-effect'].value, 0.12);
@@ -259,6 +261,22 @@ assert.deepEqual(normalizedFirstEquipment.fixedStat, {
 assert.deepEqual(normalizedFirstEquipment.effects.effect1?.levels, { '0': 0.12, '1': 0.13, '3': 0.15 });
 assert.ok(normalizedFirstSet.equipments['equipment-b-a-d-i-d-2']);
 assert.deepEqual(normalizeEquipmentLibrary(normalizedLibrary), normalizedLibrary, 'equipment normalization must be idempotent');
+
+const editedCanonicalLibrary = structuredClone(normalizedLibrary);
+const editedCanonicalEffect = editedCanonicalLibrary
+  .gearSets['gear-set-s-a-m-e-s-e-t']
+  .equipments['equipment-b-a-d-i-d']
+  .effects.effect1;
+if (!editedCanonicalEffect) throw new Error('canonical percent fixture is missing');
+editedCanonicalEffect.levels['0'] = 2;
+assert.equal(
+  normalizeEquipmentLibrary(editedCanonicalLibrary)
+    .gearSets['gear-set-s-a-m-e-s-e-t']
+    .equipments['equipment-b-a-d-i-d']
+    .effects.effect1?.levels['0'],
+  2,
+  'schema-marked canonical values must survive reload even when legacy raw text is stale',
+);
 
 const customLevelsLibrary = normalizeEquipmentLibrary({
   gearSets: {

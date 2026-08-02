@@ -74,9 +74,11 @@ export function createEquipmentGearSet(library: EquipmentLibrary): EquipmentEdit
   return {
     library: {
       ...library,
+      schemaVersion: 2,
       gearSets: {
         ...library.gearSets,
         [gearSetId]: {
+          schemaVersion: 2,
           gearSetId,
           name: '新建套装',
           buffId: '',

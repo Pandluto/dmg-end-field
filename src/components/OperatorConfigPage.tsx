@@ -82,30 +82,6 @@ interface EquipmentLibrary {
   gearSets: Record<string, EquipmentGearSet>;
 }
 
-const NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS = new Set([
-  'strengthBoost',
-  'agilityBoost',
-  'intelligenceBoost',
-  'willBoost',
-  'flatAtk',
-  'mainStat',
-  'subStat',
-  'sourceSkillBoost',
-]);
-
-function normalizeLegacyEquipmentPercentValue(typeKey: string, unit: 'flat' | 'percent' | string | undefined, value: number, raw?: unknown): number {
-  if (unit !== 'percent' || NON_DECIMAL_EQUIPMENT_EFFECT_TYPE_KEYS.has(typeKey)) return value;
-  const rawText = String(raw || '');
-  if (!rawText.includes('%')) return value;
-  const rawNumbers = (rawText.match(/[+-]?\d+(?:\.\d+)?/g) || []).map(Number).filter(Number.isFinite);
-  const matchesStoredDecimal = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber / 100) < 1e-4);
-  if (matchesStoredDecimal) return value;
-  const matchesLegacyPercent = rawNumbers.some((rawNumber) => Math.abs(value - rawNumber) < 1e-6);
-  if (matchesLegacyPercent) return value / 100;
-  if (Math.abs(value) > 1) return value / 100;
-  return value;
-}
-
 function normalizeEquipmentEffectForOperatorConfig(
   effectId: EquipmentEffectId,
   lastEffectId: EquipmentEffectId | undefined,
@@ -394,7 +370,7 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
           ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
           : normalizeThreePieceBuffCategory(rawBuff.category),
         typeKey,
-        value: effectKind === 'extraHit' ? 0 : normalizeLegacyEquipmentPercentValue(typeKey, unit, rawValue, rawBuff.raw),
+        value: effectKind === 'extraHit' ? 0 : rawValue,
         unit,
         raw: rawBuff.raw,
         description: rawBuff.description,
@@ -436,9 +412,7 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
           category: rawEffect.category === 'ability' ? 'ability' : 'buff',
           levels: Object.fromEntries(Object.entries(rawEffect.levels ?? {}).flatMap(([levelKey, levelValue]) => {
             const parsed = typeof levelValue === 'number' && Number.isFinite(levelValue) ? levelValue : Number(levelValue);
-            return Number.isFinite(parsed)
-              ? [[levelKey, normalizeLegacyEquipmentPercentValue(typeKey, unit, parsed, rawEffect.raw)]]
-              : [];
+            return Number.isFinite(parsed) ? [[levelKey, parsed]] : [];
           })) as Partial<Record<EquipmentLevelKey, number>>,
           unit,
           raw: rawEffect.raw,
@@ -464,6 +438,8 @@ function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
 }
 
 function readEquipmentLibraryFromStorage(): EquipmentLibrary {
+  // Equipment storage keys contain schema-normalized values. Legacy migration
+  // belongs to the Equipment import/file boundary and must not rerun here.
   const library = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, { gearSets: {} }));
   if (Object.keys(library.gearSets).length > 0) {
     return library;

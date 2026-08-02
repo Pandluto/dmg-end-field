@@ -180,6 +180,44 @@ assert.equal(mixedEquipment.effects.effect1?.effectId, 'effect1');
 assert.equal(mixedEquipment.effects.effect1?.category, 'buff');
 assert.deepEqual(mixedEquipment.effects.effect1?.levels, { '0': 12 });
 
+const canonicalShareResult = parseEquipmentLibraryShare(JSON.stringify({
+  type: EQUIPMENT_LIBRARY_SHARE_TYPE,
+  payload: {
+    'gear-set-canonical': {
+      schemaVersion: 2,
+      gearSetId: 'gear-set-canonical',
+      name: 'Canonical 套装',
+      equipments: {
+        'equipment-canonical': {
+          equipmentId: 'equipment-canonical',
+          name: 'Canonical 装备',
+          part: '配件',
+          effects: {
+            effect1: {
+              effectId: 'effect1',
+              label: '自定义百分比',
+              typeKey: 'physicalDmgBonus',
+              category: 'buff',
+              levels: { '0': 2 },
+              unit: 'percent',
+              raw: '伤害：+20%',
+            },
+          },
+        },
+      },
+    },
+  },
+}));
+assert.equal(canonicalShareResult.ok, true);
+if (!canonicalShareResult.ok) throw new Error(canonicalShareResult.error);
+assert.equal(
+  canonicalShareResult.shareFile.payload['gear-set-canonical']
+    .equipments['equipment-canonical']
+    .effects.effect1?.levels['0'],
+  2,
+  'schema-marked shares must not rerun legacy percent migration',
+);
+
 const collisionResult = parseEquipmentLibraryShare(JSON.stringify({
   type: EQUIPMENT_LIBRARY_SHARE_TYPE,
   payload: {
