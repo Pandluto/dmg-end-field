@@ -128,6 +128,7 @@ interface CommonObservation {
       structure: Record<string, number>;
       rootStyle: string[];
       surfaceStyle: string[];
+      liquidSurface: string;
     }>;
   }>;
   timeline: {
@@ -197,12 +198,41 @@ async function observeEditorThemes(
           return [style.display, style.color, style.backgroundColor, style.borderColor, style.borderRadius];
         }),
       ]);
+      let liquidSurface = '';
+      if (theme === 'liquid-tide') {
+        const liquidTarget = route.heading === '基础数据'
+          ? page.locator('.operator-draft-command-actions > button').first()
+          : page.locator('.buff-sheet-ribbon-actions > button').first();
+        await expect(liquidTarget).toHaveAttribute('data-liquid-glass-surface', 'true');
+        await expect(liquidTarget).toHaveAttribute('data-liquid-glass-preset', /^(control|card|dock|popover)$/);
+        liquidSurface = [
+          await liquidTarget.getAttribute('data-liquid-glass-surface'),
+          await liquidTarget.getAttribute('data-liquid-glass-preset'),
+        ].join(':');
+      }
+
+      if (theme === 'apple-midnight' || theme === 'lieflat-mono' || theme === 'liquid-tide') {
+        if (route.heading === '基础数据') {
+          const name = page.locator('.operator-draft-basic-grid').getByLabel('名称', { exact: true });
+          await name.focus();
+          await expect(name).toBeFocused();
+        } else if (route.heading === 'Sheet-Equipment') {
+          const firstRow = page.locator('[data-equipment-row-key]').first();
+          await firstRow.click();
+          await expect(firstRow).toHaveClass(/is-active/);
+        } else {
+          const firstCell = page.locator('.damage-sheet-excel-row:not(.is-header) .damage-sheet-excel-cell').first();
+          await firstCell.click();
+          await expect(page.locator('.damage-sheet-formula-address')).not.toHaveText('-');
+        }
+      }
       routes.push({
         heading: route.heading,
         rootClasses,
         structure,
         rootStyle,
         surfaceStyle,
+        liquidSurface,
       });
     }
     observations.push({ theme, tokens, routes });
