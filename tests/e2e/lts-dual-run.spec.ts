@@ -114,6 +114,7 @@ interface CommonObservation {
   equipment: {
     persisted: boolean;
     shareType: string;
+    selectSignatures: string[];
   };
   operator: {
     persisted: boolean;
@@ -335,6 +336,21 @@ async function observeWeapon(page: Page, baseUrl: string): Promise<CommonObserva
   await page.reload();
   await expect(saved).toBeVisible();
 
+  await saved.click();
+  const weaponRow = page.locator('.weapon-sheet-row-weapon');
+  await weaponRow.locator('.damage-sheet-excel-cell').nth(2).click();
+  const imageSearch = page.getByPlaceholder('搜索图片：文件名 / baseName / 路径 / URL');
+  await imageSearch.click();
+  const firstImageOption = page.locator('.weapon-sheet-image-picker-list .weapon-sheet-image-option').first();
+  await expect(firstImageOption).toBeVisible();
+  await firstImageOption.click();
+  await expect(imageSearch).not.toHaveValue('');
+  await expect(page.locator('.weapon-sheet-image-slot')).toHaveClass(/has-image/);
+  await imageSearch.click();
+  await page.locator('.weapon-sheet-image-option-clear').click();
+  await expect(imageSearch).toHaveValue('');
+  await expect(page.locator('.weapon-sheet-image-slot')).not.toHaveClass(/has-image/);
+
   await page.getByRole('button', { name: '导出', exact: true }).click();
   const preview = page.locator('.buff-sheet-share-textarea.is-preview');
   const share = JSON.parse(await preview.inputValue()) as { type?: string };
@@ -361,6 +377,11 @@ async function observeEquipment(page: Page, baseUrl: string): Promise<CommonObse
   await expect(saved).toBeVisible();
   await saved.click();
   await expect(page.locator(`input[value="${nameValue}"]`)).toHaveCount(1);
+  const selectSignatures = await page.locator('select.weapon-sheet-inline-input').evaluateAll((selects) => selects.map((node) => {
+    const select = node as HTMLSelectElement;
+    return `${select.value}::${Array.from(select.options, (option) => `${option.value}=${option.text}`).join('|')}`;
+  }));
+  expect(selectSignatures.length).toBeGreaterThan(0);
 
   await page.getByRole('button', { name: '导出', exact: true }).click();
   const preview = page.locator('.buff-sheet-share-textarea.is-preview');
@@ -368,6 +389,7 @@ async function observeEquipment(page: Page, baseUrl: string): Promise<CommonObse
   return {
     persisted: true,
     shareType: share.type ?? '',
+    selectSignatures,
   };
 }
 
@@ -379,6 +401,16 @@ async function observeOperator(page: Page, baseUrl: string): Promise<CommonObser
   const basicFields = page.locator('.operator-draft-basic-grid');
   await basicFields.getByLabel('名称', { exact: true }).fill(nameValue);
   await basicFields.getByLabel('ID', { exact: true }).fill(idValue);
+  const profession = basicFields.getByRole('combobox', { name: '职业', exact: true });
+  const weapon = basicFields.getByRole('combobox', { name: '武器', exact: true });
+  const element = basicFields.getByRole('combobox', { name: '元素', exact: true });
+  const mainStat = basicFields.getByRole('combobox', { name: '主属性', exact: true });
+  const subStat = basicFields.getByRole('combobox', { name: '副属性', exact: true });
+  await profession.selectOption('突击');
+  await weapon.selectOption('手铳');
+  await element.selectOption('fire');
+  await mainStat.selectOption('力量');
+  await subStat.selectOption('敏捷');
   await page.getByRole('button', { name: '保存到本地', exact: true }).click();
 
   const drafts = page.getByRole('combobox', { name: '载入本地草稿', exact: true });
@@ -386,6 +418,19 @@ async function observeOperator(page: Page, baseUrl: string): Promise<CommonObser
   await expect(saved).toHaveText(`${idValue} · ${nameValue}`);
   await page.reload();
   await expect(saved).toHaveText(`${idValue} · ${nameValue}`);
+  await expect(profession).toHaveValue('突击');
+  await expect(weapon).toHaveValue('手铳');
+  await expect(element).toHaveValue('fire');
+  await expect(mainStat).toHaveValue('力量');
+  await expect(subStat).toHaveValue('敏捷');
+
+  await page.getByRole('button', { name: '保存到本地', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '覆盖本地干员', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '覆盖本地干员', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '保存到本地', exact: true }).click();
+  await page.getByRole('button', { name: '确认覆盖', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '覆盖本地干员', exact: true })).toHaveCount(0);
 
   await page.getByRole('button', { name: '分享库', exact: true }).click();
   const preview = page.locator('.operator-draft-share-textarea');

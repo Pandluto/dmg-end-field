@@ -7,6 +7,7 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import { WorkbookContextMenu, type WorkbookContextMenuAction } from './WorkbookContextMenu';
 import { WorkbookShareDialog } from './WorkbookShareDialog';
 import { WorkbookToolButton } from './WorkbookToolButton';
 import {
@@ -99,61 +100,6 @@ type BuffSheetContextMenuState = {
   itemKey?: string;
   effectKey?: string;
 };
-
-type BuffSheetContextMenuAction = {
-  key: string;
-  label: string;
-  icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open' | 'copy';
-  onClick: () => void;
-};
-
-function renderBuffSheetMenuIcon(icon: BuffSheetContextMenuAction['icon']) {
-  switch (icon) {
-    case 'new':
-      return <path d="M8 3.25v9.5M3.25 8h9.5" />;
-    case 'delete':
-      return (
-        <>
-          <path d="M4.25 5.25h7.5" />
-          <path d="M6.25 2.75h3.5" />
-          <path d="M5.25 5.25v6.5M8 5.25v6.5M10.75 5.25v6.5" />
-          <path d="M4.75 5.25l.5 7h5.5l.5-7" />
-        </>
-      );
-    case 'collapse':
-      return (
-        <>
-          <path d="M3.25 5.25h9.5" />
-          <path d="M5.75 8h6.5" />
-          <path d="M8.25 10.75h4" />
-        </>
-      );
-    case 'expand':
-      return (
-        <>
-          <path d="M3.25 5.25h9.5" />
-          <path d="M3.25 8h9.5" />
-          <path d="M3.25 10.75h9.5" />
-        </>
-      );
-    case 'open':
-      return (
-        <>
-          <path d="M3.25 4.25h3l1.25 1.5h5.25v6.5H3.25z" />
-          <path d="M7.5 5.75h5.25" />
-        </>
-      );
-    case 'copy':
-      return (
-        <>
-          <path d="M5.25 4.25h5.5v7.5h-5.5z" />
-          <path d="M8.75 4.25V3.25h-4.5v6.5h1" />
-        </>
-      );
-    default:
-      return null;
-  }
-}
 
 type FormulaFocusSnapshot = {
   focusId: string;
@@ -1101,24 +1047,20 @@ export function BuffDraftSheetPage() {
       }
     };
 
-    if (selectedWorkbookSummary.kind === 'group') {
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input data-formula-focus-id="group-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组 ID" />;
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input data-formula-focus-id="group-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组描述" />;
-      }
-      return <input data-formula-focus-id="group-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="组名称" />;
-    }
+    const textInputEditor = formulaTextBinding ? (
+      <input
+        data-formula-focus-id={formulaTextBinding.focusId}
+        className="buff-sheet-formula-input"
+        value={formulaTextInput}
+        onChange={(event) => setFormulaTextInput(event.target.value)}
+        onBlur={commitFormulaTextInput}
+        onKeyDown={handleFormulaTextInputKeyDown}
+        placeholder={formulaTextBinding.placeholder}
+      />
+    ) : null;
 
-    if (selectedWorkbookSummary.kind === 'item' && selectedItem) {
-      if (selectedWorkbookCell?.columnKey === 'idText') {
-        return <input data-formula-focus-id="item-id" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项 ID" />;
-      }
-      if (selectedWorkbookCell?.columnKey === 'description') {
-        return <input data-formula-focus-id="item-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项描述" />;
-      }
-      return <input data-formula-focus-id="item-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="项名称" />;
+    if (selectedWorkbookSummary.kind === 'group' || (selectedWorkbookSummary.kind === 'item' && selectedItem)) {
+      return textInputEditor;
     }
 
     if (selectedWorkbookSummary.kind === 'effect' && selectedEffect) {
@@ -1216,11 +1158,9 @@ export function BuffDraftSheetPage() {
             </div>
           );
         case 'condition':
-          return <input data-formula-focus-id="effect-condition" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="条件" />;
         case 'description':
-          return <input data-formula-focus-id="effect-description" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="描述" />;
         default:
-          return <input data-formula-focus-id="effect-display-name" className="buff-sheet-formula-input" value={formulaTextInput} onChange={(event) => setFormulaTextInput(event.target.value)} onBlur={commitFormulaTextInput} onKeyDown={handleFormulaTextInputKeyDown} placeholder="效果名称" />;
+          return textInputEditor;
       }
     }
 
@@ -1232,7 +1172,7 @@ export function BuffDraftSheetPage() {
   const dragSourceLabel = dragState ? getExplorerDragNodeLabel(dragState.source) : '';
   const dragTargetLabel = dragState?.over ? getExplorerDragNodeLabel(dragState.over) : '';
   const dragTargetKindLabel = dragState?.over ? formatBuffExplorerDragKindLabel(dragState.over.kind) : '';
-  const currentContextMenuActions = useMemo<BuffSheetContextMenuAction[]>(() => {
+  const currentContextMenuActions = useMemo<WorkbookContextMenuAction[]>(() => {
     if (!contextMenu) {
       return [];
     }
@@ -1523,31 +1463,12 @@ export function BuffDraftSheetPage() {
             })}
           </div>
           {contextMenu ? (
-            <div
-              className="buff-sheet-context-menu"
-              style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-              onPointerDown={(event) => event.stopPropagation()}
-              onContextMenu={(event) => event.preventDefault()}
-            >
-              {currentContextMenuActions.map((action) => (
-                <button
-                  key={action.key}
-                  type="button"
-                  className="buff-sheet-context-menu-item"
-                  onClick={() => {
-                    action.onClick();
-                    setContextMenu(null);
-                  }}
-                >
-                  <span className="buff-sheet-context-menu-icon" aria-hidden="true">
-                    <svg className="buff-sheet-context-menu-svg" viewBox="0 0 16 16" focusable="false">
-                      {renderBuffSheetMenuIcon(action.icon)}
-                    </svg>
-                  </span>
-                  <span className="buff-sheet-context-menu-label">{action.label}</span>
-                </button>
-              ))}
-            </div>
+            <WorkbookContextMenu
+              x={contextMenu.x}
+              y={contextMenu.y}
+              actions={currentContextMenuActions}
+              onClose={() => setContextMenu(null)}
+            />
           ) : null}
         </aside>
 

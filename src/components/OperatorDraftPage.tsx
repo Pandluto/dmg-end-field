@@ -26,6 +26,7 @@ import {
   OPERATOR_BUFF_GROUPS,
   PROFESSION_OPTIONS,
   RARITY_OPTIONS,
+  SKILL_BUTTON_TYPES,
   SKILL_LEVEL_KEYS,
   SKILL_TYPE_FILTERS,
   WEAPON_OPTIONS,
@@ -77,6 +78,19 @@ const OPERATOR_DRAFT_NAV_LINKS = [
   { label: '装备', path: APP_ROUTE_PATHS.equipmentSheet },
   { label: 'Buff', path: APP_ROUTE_PATHS.buffSheet },
 ] as const;
+type OperatorBasicSelectFieldKey = 'profession' | 'weapon' | 'element' | 'mainStat' | 'subStat';
+const OPERATOR_BASIC_SELECT_FIELDS: ReadonlyArray<{
+  key: OperatorBasicSelectFieldKey;
+  label: string;
+  options: readonly string[];
+  allowEmpty: boolean;
+}> = [
+  { key: 'profession', label: '职业', options: PROFESSION_OPTIONS, allowEmpty: true },
+  { key: 'weapon', label: '武器', options: WEAPON_OPTIONS, allowEmpty: true },
+  { key: 'element', label: '元素', options: ELEMENT_OPTIONS, allowEmpty: false },
+  { key: 'mainStat', label: '主属性', options: ABILITY_OPTIONS, allowEmpty: true },
+  { key: 'subStat', label: '副属性', options: ABILITY_OPTIONS, allowEmpty: true },
+];
 const ASSET_PATH_OPTIONS = assetPathsRaw
   .split('\n')
   .map((line) => line.trim())
@@ -1044,6 +1058,36 @@ export function OperatorDraftPage() {
     ? skillEntries
     : skillEntries.filter(([, skill]) => getSkillFilterKey(skill) === activeSkillTypeFilter);
   const isSkillDragEnabled = activeSkillTypeFilter === 'all';
+  const renderConfirmationDialog = (
+    title: string,
+    lines: readonly string[],
+    confirmLabel: string,
+    onCancel: () => void,
+    onConfirm: () => Promise<void>,
+  ) => (
+    <div
+      className="operator-draft-modal-overlay"
+      onClick={() => {
+        if (!isPersistencePending) onCancel();
+      }}
+    >
+      <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="operator-draft-section-header"><h3>{title}</h3><span>请确认</span></div>
+        <div className="operator-draft-confirm-body">{lines.map((line) => <p key={line}>{line}</p>)}</div>
+        <div className="operator-draft-modal-actions">
+          <button type="button" className="operator-draft-ghost-button" disabled={isPersistencePending} onClick={onCancel}>取消</button>
+          <button
+            type="button"
+            className="operator-draft-copy-button operator-draft-danger-button"
+            disabled={isPersistencePending}
+            onClick={() => { void onConfirm(); }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <main className="operator-draft-page">
@@ -1191,60 +1235,18 @@ export function OperatorDraftPage() {
                         onChange={(nextValue) => updateOperatorField('avatarUrl', nextValue)}
                       />
                     </label>
-                  <label>
-                    <span>职业</span>
-                    <select value={draft.profession} onChange={(event) => updateOperatorField('profession', event.target.value)}>
-                      <option value="">未设置</option>
-                      {PROFESSION_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>武器</span>
-                    <select value={draft.weapon} onChange={(event) => updateOperatorField('weapon', event.target.value)}>
-                      <option value="">未设置</option>
-                      {WEAPON_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>元素</span>
-                    <select value={draft.element} onChange={(event) => updateOperatorField('element', event.target.value)}>
-                      {ELEMENT_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>主属性</span>
-                    <select value={draft.mainStat} onChange={(event) => updateOperatorField('mainStat', event.target.value)}>
-                      <option value="">未设置</option>
-                      {ABILITY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    <span>副属性</span>
-                    <select value={draft.subStat} onChange={(event) => updateOperatorField('subStat', event.target.value)}>
-                      <option value="">未设置</option>
-                      {ABILITY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {OPERATOR_BASIC_SELECT_FIELDS.map((field) => (
+                    <label key={field.key}>
+                      <span>{field.label}</span>
+                      <select
+                        value={draft[field.key]}
+                        onChange={(event) => updateOperatorField(field.key, event.target.value)}
+                      >
+                        {field.allowEmpty ? <option value="">未设置</option> : null}
+                        {field.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                      </select>
+                    </label>
+                  ))}
                   <label>
                     <span>等级</span>
                     <DeferredNumberInput
@@ -1415,11 +1417,7 @@ export function OperatorDraftPage() {
                             }))
                           }
                         >
-                          <option value="A">A</option>
-                          <option value="B">B</option>
-                          <option value="E">E</option>
-                          <option value="Q">Q</option>
-                          <option value="Dot">Dot</option>
+                          {SKILL_BUTTON_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
                         </select>
                       </label>
                       <label className="is-wide">
@@ -1512,11 +1510,7 @@ export function OperatorDraftPage() {
                           }))
                         }
                       >
-                        <option value="physical">physical</option>
-                        <option value="fire">fire</option>
-                        <option value="ice">ice</option>
-                        <option value="electric">electric</option>
-                        <option value="nature">nature</option>
+                        {ELEMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </label>
                     <label>
@@ -1530,11 +1524,7 @@ export function OperatorDraftPage() {
                           }))
                         }
                       >
-                        <option value="A">A</option>
-                        <option value="B">B</option>
-                        <option value="E">E</option>
-                        <option value="Q">Q</option>
-                        <option value="Dot">Dot</option>
+                        {SKILL_BUTTON_TYPES.map((option) => <option key={option} value={option}>{option}</option>)}
                       </select>
                     </label>
                   </div>
@@ -1772,87 +1762,25 @@ export function OperatorDraftPage() {
           </div>
         </div>
       ) : null}
-      {pendingImportShare ? (
-        <div
-          className="operator-draft-modal-overlay"
-          onClick={() => {
-            if (!isPersistencePending) {
-              handleCancelImportShare();
-            }
-          }}
-        >
-          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="operator-draft-section-header">
-              <h3>确认导入干员分享</h3>
-              <span>请确认</span>
-            </div>
-            <div className="operator-draft-confirm-body">
-              <p>{`即将导入分享「${pendingImportShare.label}」。`}</p>
-              <p>{`本次会写入 ${Object.keys(pendingImportShare.payload).length} 个干员条目，并覆盖本地同 ID 记录。`}</p>
-            </div>
-            <div className="operator-draft-modal-actions">
-              <button
-                type="button"
-                className="operator-draft-ghost-button"
-                disabled={isPersistencePending}
-                onClick={handleCancelImportShare}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="operator-draft-copy-button operator-draft-danger-button"
-                disabled={isPersistencePending}
-                onClick={() => {
-                  void handleConfirmImportShare();
-                }}
-              >
-                确认导入
-              </button>
-            </div>
-          </div>
-        </div>
+      {pendingImportShare ? renderConfirmationDialog(
+        '确认导入干员分享',
+        [
+          `即将导入分享「${pendingImportShare.label}」。`,
+          `本次会写入 ${Object.keys(pendingImportShare.payload).length} 个干员条目，并覆盖本地同 ID 记录。`,
+        ],
+        '确认导入',
+        handleCancelImportShare,
+        handleConfirmImportShare,
       ) : null}
-      {isOverwriteDraftModalOpen ? (
-        <div
-          className="operator-draft-modal-overlay"
-          onClick={() => {
-            if (!isPersistencePending) {
-              setIsOverwriteDraftModalOpen(false);
-            }
-          }}
-        >
-          <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="operator-draft-section-header">
-              <h3>覆盖本地干员</h3>
-              <span>请确认</span>
-            </div>
-            <div className="operator-draft-confirm-body">
-              <p>{`本地库中已存在 ID 为「${orderedDraft.id}」的干员。`}</p>
-              <p>保护开启时，确认后会用当前编辑器内容覆盖本地同 ID 干员。</p>
-            </div>
-            <div className="operator-draft-modal-actions">
-              <button
-                type="button"
-                className="operator-draft-ghost-button"
-                disabled={isPersistencePending}
-                onClick={() => setIsOverwriteDraftModalOpen(false)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className="operator-draft-copy-button operator-draft-danger-button"
-                disabled={isPersistencePending}
-                onClick={() => {
-                  void handleConfirmOverwriteDraft();
-                }}
-              >
-                确认覆盖
-              </button>
-            </div>
-          </div>
-        </div>
+      {isOverwriteDraftModalOpen ? renderConfirmationDialog(
+        '覆盖本地干员',
+        [
+          `本地库中已存在 ID 为「${orderedDraft.id}」的干员。`,
+          '保护开启时，确认后会用当前编辑器内容覆盖本地同 ID 干员。',
+        ],
+        '确认覆盖',
+        () => setIsOverwriteDraftModalOpen(false),
+        handleConfirmOverwriteDraft,
       ) : null}
     </main>
   );

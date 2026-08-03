@@ -10,6 +10,7 @@ import {
 } from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import { WorkbookContextMenu, type WorkbookContextMenuAction } from './WorkbookContextMenu';
 import { WorkbookShareDialog } from './WorkbookShareDialog';
 import { WorkbookToolButton } from './WorkbookToolButton';
 import {
@@ -121,13 +122,6 @@ type EquipmentContextMenuState = {
   effectId?: string;
 };
 
-type EquipmentContextMenuAction = {
-  key: string;
-  label: string;
-  icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
-  onClick: () => void;
-};
-
 const EMPTY_LIBRARY: EquipmentLibrary = {
   updatedAt: '',
   gearSets: {},
@@ -174,29 +168,6 @@ async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
     throw new Error(`读取装备库失败：HTTP ${response.status}`);
   }
   return normalizeEquipmentLibrary(await response.json());
-}
-
-function renderMenuIcon(icon: EquipmentContextMenuAction['icon']) {
-  switch (icon) {
-    case 'new':
-      return <path d="M8 3.25v9.5M3.25 8h9.5" />;
-    case 'delete':
-      return (
-        <>
-          <path d="M4.25 5.25h7.5" />
-          <path d="M6.25 2.75h3.5" />
-          <path d="M5.25 5.25v6.5M8 5.25v6.5M10.75 5.25v6.5" />
-          <path d="M4.75 5.25l.5 7h5.5l.5-7" />
-        </>
-      );
-    case 'collapse':
-      return <path d="M4 8h8" />;
-    case 'expand':
-      return <path d="M8 4v8M4 8h8" />;
-    case 'open':
-    default:
-      return <path d="M5.75 4.25h6v6M11.75 4.25L4.25 11.75" />;
-  }
 }
 
 function downloadJson(fileName: string, content: string) {
@@ -719,8 +690,8 @@ export function EquipmentSheetPage() {
     setMessage('已按数值映射填充 Lv0–Lv3。');
   }, [commitEditingTransaction]);
 
-  const buildContextMenuActions = useCallback((state: EquipmentContextMenuState): EquipmentContextMenuAction[] => {
-    const actions: EquipmentContextMenuAction[] = [];
+  const buildContextMenuActions = useCallback((state: EquipmentContextMenuState): WorkbookContextMenuAction[] => {
+    const actions: WorkbookContextMenuAction[] = [];
     if (state.target === 'blank') {
       actions.push(
         { key: 'new-set', label: '新增套装', icon: 'new', onClick: createGearSet },
@@ -1263,45 +1234,21 @@ export function EquipmentSheetPage() {
     if (!cellPolicy.editable) {
       return cell.value;
     }
+    let selectValue = cell.value;
+    let selectOptions: Array<{ value: string; label: string }> | null = null;
     if (cellPolicy.control === 'select' && sourceRow.kind === 'equipment' && cell.columnKey === 'field') {
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={cell.value}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          {EQUIPMENT_PARTS.map((part) => <option key={part} value={part}>{part}</option>)}
-        </select>
-      );
-    }
-    if (cellPolicy.control === 'select' && sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
+      selectOptions = EQUIPMENT_PARTS.map((part) => ({ value: part, label: part }));
+    } else if (cellPolicy.control === 'select' && sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
       const buff = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId];
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={getEquipmentBuffBusinessType(buff)}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          {EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-      );
-    }
-    if (cellPolicy.control === 'select' && sourceRow.kind === 'effect' && cell.columnKey === 'field') {
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={sourceRow.field === '能力值' ? 'ability' : 'buff'}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          <option value="ability">能力值</option>
-          <option value="buff">Buff类型</option>
-        </select>
-      );
-    }
-    if (cellPolicy.control === 'search-select' && (sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff')) {
+      selectValue = getEquipmentBuffBusinessType(buff);
+      selectOptions = [...EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS];
+    } else if (cellPolicy.control === 'select' && sourceRow.kind === 'effect' && cell.columnKey === 'field') {
+      selectValue = sourceRow.field === '能力值' ? 'ability' : 'buff';
+      selectOptions = [
+        { value: 'ability', label: '能力值' },
+        { value: 'buff', label: 'Buff类型' },
+      ];
+    } else if (cellPolicy.control === 'search-select' && (sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff')) {
       const typeOptions = sourceRow.kind === 'effect'
         ? (() => {
             const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
@@ -1311,29 +1258,29 @@ export function EquipmentSheetPage() {
               : BUFF_TYPE_OPTIONS;
           })()
         : BUFF_TYPE_OPTIONS;
-      return (
-        <select
-          className="weapon-sheet-inline-input"
-          value={cell.value}
-          onKeyDown={stopEditingKeyPropagation}
-          onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
-        >
-          <option value="">未映射</option>
-          {typeOptions.map((typeKey) => <option key={typeKey} value={typeKey}>{`${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`}</option>)}
-        </select>
-      );
+      selectOptions = [
+        { value: '', label: '未映射' },
+        ...typeOptions.map((typeKey) => ({
+          value: typeKey,
+          label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+        })),
+      ];
+    } else if (cellPolicy.control === 'select' && sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {
+      selectOptions = [
+        { value: 'defense', label: '防御力 · defense' },
+        { value: 'hp', label: '生命 · hp' },
+        { value: 'flatAtk', label: '固定攻击力 · flatAtk' },
+      ];
     }
-    if (cellPolicy.control === 'select' && sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {
+    if (selectOptions) {
       return (
         <select
           className="weapon-sheet-inline-input"
-          value={cell.value}
+          value={selectValue}
           onKeyDown={stopEditingKeyPropagation}
           onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}
         >
-          <option value="defense">防御力 · defense</option>
-          <option value="hp">生命 · hp</option>
-          <option value="flatAtk">固定攻击力 · flatAtk</option>
+          {selectOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
       );
     }
@@ -1668,14 +1615,13 @@ export function EquipmentSheetPage() {
       />
 
       {contextMenu ? (
-        <div className="buff-sheet-context-menu" style={{ left: contextMenu.x, top: contextMenu.y }} onClick={(event) => event.stopPropagation()}>
-          {buildContextMenuActions(contextMenu).map((action) => (
-            <button key={action.key} type="button" className="buff-sheet-context-menu-item" onClick={() => { action.onClick(); closeContextMenu(); }}>
-              <svg className="buff-sheet-context-menu-svg" viewBox="0 0 16 16" focusable="false">{renderMenuIcon(action.icon)}</svg>
-              <span>{action.label}</span>
-            </button>
-          ))}
-        </div>
+        <WorkbookContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          actions={buildContextMenuActions(contextMenu)}
+          presentation="equipment"
+          onClose={closeContextMenu}
+        />
       ) : null}
 
       {isSaveConfirmModalOpen ? (

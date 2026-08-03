@@ -10,6 +10,7 @@ import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageL
 import type { ImageAssetEntry } from './ImageManager/types';
 import DeferredNumberInput from './DeferredNumberInput';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import { WorkbookContextMenu, type WorkbookContextMenuAction } from './WorkbookContextMenu';
 import { WorkbookShareDialog } from './WorkbookShareDialog';
 import { WorkbookToolButton } from './WorkbookToolButton';
 import {
@@ -92,13 +93,6 @@ type WeaponSheetContextMenuState = {
   skillKey?: WeaponSkillKey;
   effectKey?: string;
   bucket?: WeaponEffectBucket;
-};
-
-type WeaponSheetContextMenuAction = {
-  key: string;
-  label: string;
-  icon: 'new' | 'delete' | 'collapse' | 'expand' | 'open';
-  onClick: () => void;
 };
 
 function isWeaponSheetPath(pathname: string) {
@@ -922,7 +916,7 @@ export function WeaponDraftSheetPage() {
     });
   }, [activeDraftId, openContextMenu]);
 
-  const currentContextMenuActions = useMemo<WeaponSheetContextMenuAction[]>(() => {
+  const currentContextMenuActions = useMemo<WorkbookContextMenuAction[]>(() => {
     if (!contextMenu) {
       return [];
     }
@@ -1796,59 +1790,12 @@ export function WeaponDraftSheetPage() {
       />
 
       {contextMenu ? (
-        <div
-          className="buff-sheet-context-menu"
-          style={{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onContextMenu={(event) => event.preventDefault()}
-        >
-          {currentContextMenuActions.map((action) => (
-            <button
-              key={action.key}
-              type="button"
-              className="buff-sheet-context-menu-item"
-              onClick={() => {
-                action.onClick();
-                setContextMenu(null);
-              }}
-            >
-              <span className="buff-sheet-context-menu-icon" aria-hidden="true">
-                <svg className="buff-sheet-context-menu-svg" viewBox="0 0 16 16" focusable="false">
-                  {action.icon === 'new' && <path d="M8 3.25v9.5M3.25 8h9.5" />}
-                  {action.icon === 'delete' && (
-                    <>
-                      <path d="M4.25 5.25h7.5" />
-                      <path d="M6.25 2.75h3.5" />
-                      <path d="M5.25 5.25v6.5M8 5.25v6.5M10.75 5.25v6.5" />
-                      <path d="M4.75 5.25l.5 7h5.5l.5-7" />
-                    </>
-                  )}
-                  {action.icon === 'collapse' && (
-                    <>
-                      <path d="M3.25 5.25h9.5" />
-                      <path d="M5.75 8h6.5" />
-                      <path d="M8.25 10.75h4" />
-                    </>
-                  )}
-                  {action.icon === 'expand' && (
-                    <>
-                      <path d="M3.25 5.25h9.5" />
-                      <path d="M3.25 8h9.5" />
-                      <path d="M3.25 10.75h9.5" />
-                    </>
-                  )}
-                  {action.icon === 'open' && (
-                    <>
-                      <path d="M3.25 4.25h3l1.25 1.5h5.25v6.5H3.25z" />
-                      <path d="M7.5 5.75h5.25" />
-                    </>
-                  )}
-                </svg>
-              </span>
-              <span className="buff-sheet-context-menu-label">{action.label}</span>
-            </button>
-          ))}
-        </div>
+        <WorkbookContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          actions={currentContextMenuActions}
+          onClose={() => setContextMenu(null)}
+        />
       ) : null}
 
       {dragState ? (
