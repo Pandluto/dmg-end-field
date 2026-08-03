@@ -28,7 +28,7 @@ import {
   type OperatorBuffEffect,
   type OperatorDraft,
   type SkillDraft,
-} from './OperatorDraftPage';
+} from './operatorDraftPageModel';
 
 function makeHit(overrides: Partial<HitMetaDraft> = {}): HitMetaDraft {
   return {
