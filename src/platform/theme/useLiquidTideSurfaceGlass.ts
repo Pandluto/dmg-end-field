@@ -290,8 +290,6 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.damage-sheet-topbar-left > .damage-sheet-back-button', preset: 'control', priority: 0 },
   { selector: '.damage-sheet-undo-wrap > button', preset: 'control', priority: 0 },
   { selector: '.damage-sheet-topbar-right > .damage-sheet-action-button', preset: 'control', priority: 0 },
-  { selector: '.damage-sheet-sidebar > .damage-sheet-sheet-tab', preset: 'control', priority: 1 },
-  { selector: '.damage-sheet-view-group > button', preset: 'control', priority: 1 },
   { selector: '.report-ppt-toolbar > button', preset: 'control', priority: 0 },
   { selector: '.image-manager-preview-nav > button', preset: 'control', priority: 1 },
   { selector: '.image-manager-preview-actions > button', preset: 'control', priority: 1 },

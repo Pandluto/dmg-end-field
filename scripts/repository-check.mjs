@@ -84,6 +84,29 @@ for (const file of files) {
   }
 }
 
+const retiredSelectorFamilies = [
+  {
+    label: 'legacy SkillButton detail selector',
+    pattern: /\.(?:skill-button-modal(?:-[A-Za-z0-9_-]+)?|skill-damage-[A-Za-z0-9_-]+|skill-info-snapshot-[A-Za-z0-9_-]+)/,
+  },
+  {
+    label: 'retired Damage Sheet selector',
+    pattern: /\.damage-sheet-(?:buff-tag|context-menu|mini-tab|ribbon-card|sheet-tab|view-group|workspace-footer)(?:\b|[\[.:#])/,
+  },
+];
+for (const file of files.filter((candidate) => (
+  candidate.startsWith('src/')
+  && !candidate.includes('.test.')
+  && /\.(?:css|ts|tsx)$/.test(candidate)
+))) {
+  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  for (const retiredSelector of retiredSelectorFamilies) {
+    if (retiredSelector.pattern.test(content)) {
+      fail(`${retiredSelector.label} returned: ${file}`);
+    }
+  }
+}
+
 if (packageJson.packageManager !== 'npm@11.13.0') fail('packageManager must pin npm@11.13.0');
 if (!packageJson.engines?.node?.includes('>=24')) fail('Node.js 24 must be declared in engines');
 if (!packageJson.devDependencies?.vite || !packageJson.devDependencies?.['vite-plugin-pwa']) {

@@ -956,10 +956,6 @@
   border-right-color: var(--ink-outline-structural);
 }
 
-:root[data-theme="lieflat-mono"] .damage-sheet-workspace-footer {
-  border-top-color: var(--ink-outline-structural);
-}
-
 :root[data-theme="lieflat-mono"] :is(
   .modal-header,
   .skill-button-buff-section,
@@ -989,7 +985,6 @@
   .data-library-list > button.is-selected,
   .image-manager-grid-item.is-selected,
   .timeline-detail-hit.is-selected,
-  .skill-damage-hit-card.selected,
   .buff-tag-selectable.is-selected,
   .buff-edit-buff-card.is-selected,
   .operator-draft-skill-item.is-active,

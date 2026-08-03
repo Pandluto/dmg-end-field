@@ -901,10 +901,6 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .skill-button-buff-item,
-  .skill-damage-hit-row,
-  .skill-damage-total,
-  .skill-damage-formula,
-  .skill-damage-hit-detail,
   .timeline-snapshot-item,
   .timeline-snapshot-hover-card,
   .timeline-snapshot-confirm-body

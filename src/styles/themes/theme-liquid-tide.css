@@ -814,7 +814,6 @@
   .timeline-tuning-list button,
   .timeline-tuning-inline-item,
   .skill-button-buff-item,
-  .skill-damage-hit-card,
   .buff-tag-selectable,
   .skill-button-inline-buff-search-item
 ) {
@@ -828,7 +827,6 @@
   .timeline-detail-hit.is-selected,
   .timeline-tuning-list button.is-active,
   .timeline-tuning-inline-item.is-active,
-  .skill-damage-hit-card.selected,
   .buff-tag-selectable.is-selected,
   .buff-edit-buff-card.is-selected
 ) {
@@ -1091,10 +1089,6 @@
   .buff-sheet-explorer-effect.is-active,
   .weapon-sheet-image-option.is-active,
   .weapon-sheet-growth-inline-item.is-active,
-  .damage-sheet-sheet-tab.is-active,
-  .damage-sheet-mini-tab.is-active,
-  .damage-sheet-buff-tag.is-active,
-  .damage-sheet-buff-tag.is-selected,
   .image-manager-grid-item.is-selected
 ) {
   color: var(--liquid-tide-ink);
@@ -1110,8 +1104,7 @@
   .damage-sheet-topbar,
   .damage-sheet-sidebar,
   .damage-sheet-ribbon,
-  .damage-sheet-formula-bar,
-  .damage-sheet-workspace-footer
+  .damage-sheet-formula-bar
 ) {
   background: rgba(246, 249, 255, 0.7);
   -webkit-backdrop-filter: blur(20px) saturate(1.16);
@@ -2303,8 +2296,7 @@
 :root[data-theme="liquid-tide"] :is(
   .damage-sheet-ribbon:not([data-liquid-glass-surface]),
   .damage-sheet-sidebar,
-  .damage-sheet-excel-shell,
-  .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
+  .damage-sheet-excel-shell
 ) {
   border-color: rgba(255, 255, 255, 0.66) !important;
   box-shadow:
@@ -2582,7 +2574,6 @@
   .buff-sheet-share-modal-actions,
   .damage-sheet-topbar-left,
   .damage-sheet-topbar-right,
-  .damage-sheet-view-group,
   .image-manager-preview-nav,
   .image-manager-preview-actions
 ) {
@@ -2763,8 +2754,7 @@
 :root[data-theme="liquid-tide"] :is(
   .damage-sheet-ribbon:not([data-liquid-glass-surface]),
   .damage-sheet-sidebar,
-  .damage-sheet-excel-shell,
-  .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
+  .damage-sheet-excel-shell
 ) {
   background: rgba(242, 247, 255, 0.68) !important;
 }
@@ -3268,7 +3258,6 @@
   .damage-sheet-ribbon:not([data-liquid-glass-surface]),
   .damage-sheet-sidebar,
   .damage-sheet-excel-shell,
-  .damage-sheet-workspace-footer:not([data-liquid-glass-surface]),
   .config-cti-input,
   .config-cti-drawer
 ) {
