@@ -22,7 +22,7 @@ import {
   normalizeRect,
   projectVisualSkillButtons,
   sortButtons,
-} from './BuffBatchEditWorkbench';
+} from './buffBatchEditModel';
 
 function button(overrides: Partial<PersistedSkillButton> = {}): PersistedSkillButton {
   return {
