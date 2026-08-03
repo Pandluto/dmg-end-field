@@ -38,7 +38,7 @@ import { STORAGE_KEYS } from '../constants/storage-keys';
 import { getElementBackgroundColor, normalizeAssetUrl, resolveSkillIconUrl } from '../utils/assetResolver';
 import { safeSessionStorage } from '../utils/storage';
 import type { Character, SkillButtonData, SkillType, TimelineData } from '../types';
-import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
+import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff, SkillButtonTable } from '../types/storage';
 import { WorkbenchSplitSurface } from './WorkbenchSplitSurface';
 import './CanvasBoard/CanvasBoard.css';
 import './BuffBatchEditWorkbench.css';
@@ -166,15 +166,21 @@ function readTimelineData(): TimelineData | null {
   }
 }
 
-function readVisualSkillButtons(
-  selectedCharacters: Character[],
-  gridContentOffsetX: number | null
-): PersistedSkillButton[] {
-  const table = getSkillButtonTable();
-  const timelineData = readTimelineData();
+interface ProjectVisualSkillButtonsInput {
+  timelineData: TimelineData | null;
+  table: SkillButtonTable;
+  selectedCharacters: Character[];
+  gridContentOffsetX: number | null;
+}
 
-  if (!timelineData?.staffLines?.length) {
-    return Object.values(table).sort(sortButtons);
+export function projectVisualSkillButtons({
+  timelineData,
+  table,
+  selectedCharacters,
+  gridContentOffsetX,
+}: ProjectVisualSkillButtonsInput): PersistedSkillButton[] | null {
+  if (!timelineData) {
+    return null;
   }
 
   const buttons: PersistedSkillButton[] = [];
@@ -246,6 +252,18 @@ function readVisualSkillButtons(
   return buttons.sort(sortButtons);
 }
 
+function readVisualSkillButtons(
+  selectedCharacters: Character[],
+  gridContentOffsetX: number | null
+): PersistedSkillButton[] | null {
+  return projectVisualSkillButtons({
+    timelineData: readTimelineData(),
+    table: getSkillButtonTable(),
+    selectedCharacters,
+    gridContentOffsetX,
+  });
+}
+
 export function sortButtons(a: PersistedSkillButton, b: PersistedSkillButton): number {
   const staffDiff = getButtonStaffGroupIndex(a) - getButtonStaffGroupIndex(b);
   if (staffDiff !== 0) return staffDiff;
@@ -265,7 +283,7 @@ export function getStaffGroupCount(skillButtons: PersistedSkillButton[]): number
   );
 }
 
-function getInitialSkillButtons(selectedCharacters: Character[]): PersistedSkillButton[] {
+function getInitialSkillButtons(selectedCharacters: Character[]): PersistedSkillButton[] | null {
   return readVisualSkillButtons(selectedCharacters, null);
 }
 
@@ -525,7 +543,7 @@ export function BuffBatchEditWorkbench({
   const canvasRef = useRef<HTMLDivElement>(null);
   const [gridContentOffsetX, setGridContentOffsetX] = useState<number | null>(null);
   const [layoutWidth, setLayoutWidth] = useState<number | null>(null);
-  const [visualButtons, setVisualButtons] = useState<PersistedSkillButton[]>(() => getInitialSkillButtons(selectedCharacters));
+  const [visualButtons, setVisualButtons] = useState<PersistedSkillButton[] | null>(() => getInitialSkillButtons(selectedCharacters));
   const candidateSearchInputRef = useRef<HTMLInputElement | null>(null);
   const characterById = useMemo(() => {
     return new Map(selectedCharacters.flatMap((character) => [
@@ -534,7 +552,7 @@ export function BuffBatchEditWorkbench({
     ]));
   }, [selectedCharacters]);
   const skillButtons = useMemo(() => {
-    return visualButtons.length > 0 ? visualButtons : getFallbackSkillButtons();
+    return visualButtons ?? getFallbackSkillButtons();
   }, [visualButtons]);
   const allBuffs = useMemo(() => getAllBuffList(), [buffListVersion]);
   const addModeBuffs = useMemo(() => [...allBuffs, ...candidateAddBuffs], [allBuffs, candidateAddBuffs]);

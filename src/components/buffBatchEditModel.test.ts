@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import type { LocalBuffSearchResult } from './CanvasBoard/skillButton.shared';
+import type { Character, TimelineData } from '../types';
 import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff } from '../types/storage';
 import {
   buffFromSearchResult,
@@ -19,6 +20,7 @@ import {
   getStaffGroupCount,
   intersects,
   normalizeRect,
+  projectVisualSkillButtons,
   sortButtons,
 } from './BuffBatchEditWorkbench';
 
@@ -225,5 +227,69 @@ assert.equal(anomalyCandidate.sourceName, '干员甲');
 assert.equal(anomalyCandidate.condition, '测试条件');
 
 assert.deepEqual(dedupeBuffIds(['a', '', 'b', 'a', 'b', 'c']), ['a', 'b', 'c']);
+
+const authorityTable = {
+  'stale-global-button': button({ id: 'stale-global-button' }),
+};
+const selectedCharacter = {
+  id: 'operator-a',
+  name: '干员甲',
+  element: 'electric',
+} as Character;
+const emptyTimeline: TimelineData = {
+  version: '1.1.0',
+  createdAt: 1,
+  updatedAt: 1,
+  staffLines: [],
+};
+assert.equal(projectVisualSkillButtons({
+  timelineData: null,
+  table: authorityTable,
+  selectedCharacters: [selectedCharacter],
+  gridContentOffsetX: null,
+}), null);
+assert.deepEqual(projectVisualSkillButtons({
+  timelineData: emptyTimeline,
+  table: authorityTable,
+  selectedCharacters: [selectedCharacter],
+  gridContentOffsetX: null,
+}), []);
+
+const projectedTimeline = projectVisualSkillButtons({
+  timelineData: {
+    ...emptyTimeline,
+    staffLines: [{
+      staffIndex: 0,
+      characterName: '干员甲',
+      occupiedNodes: [2],
+      buttons: [{
+        id: 'timeline-button',
+        characterId: 'operator-a',
+        characterName: '干员甲',
+        skillType: 'A',
+        staffIndex: 0,
+        lineIndex: 0,
+        nodeIndex: 2,
+        nodeNumber: 3,
+        position: { x: 10, y: 20 },
+        buffIds: ['timeline-buff'],
+      }],
+    }],
+  },
+  table: {
+    ...authorityTable,
+    'timeline-button': button({
+      id: 'timeline-button',
+      characterId: 'operator-a',
+      selectedBuff: ['persisted-buff'],
+    }),
+  },
+  selectedCharacters: [selectedCharacter],
+  gridContentOffsetX: null,
+});
+assert.ok(projectedTimeline);
+assert.equal(projectedTimeline.length, 1);
+assert.equal(projectedTimeline[0].id, 'timeline-button');
+assert.deepEqual(projectedTimeline[0].selectedBuff, ['persisted-buff']);
 
 console.log('Buff batch current-LTS model characterization contract: PASS');
