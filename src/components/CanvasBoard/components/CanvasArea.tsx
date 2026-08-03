@@ -24,8 +24,6 @@ interface CanvasAreaProps {
   onCanvasClick: () => void;
   onCanvasPlaceCopy: (e: MouseEvent) => void;
   timelineData?: TimelineData;
-  onSkillButtonModalOpen?: () => void;
-  onSkillButtonModalClose?: () => void;
   contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
@@ -53,8 +51,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
   onButtonContextMenu,
   onCanvasPlaceCopy,
   timelineData,
-  onSkillButtonModalOpen,
-  onSkillButtonModalClose,
   contextMenuState,
   onConfirmRemove,
   onCloseContextMenu,
@@ -118,8 +114,6 @@ export const CanvasArea = forwardRef<HTMLDivElement, CanvasAreaProps>(({
           isDragDisabled={isDragDisabled}
           resistanceRevision={resistanceRevision}
           timelineData={timelineData}
-          onModalOpen={onSkillButtonModalOpen}
-          onModalClose={onSkillButtonModalClose}
           contextMenuState={contextMenuState}
           onConfirmRemove={onConfirmRemove}
           onCloseContextMenu={onCloseContextMenu}

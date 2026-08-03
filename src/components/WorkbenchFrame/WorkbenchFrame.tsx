@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAppContext } from '../../context/AppContext';
 import { safeSessionStorage } from '../../utils/storage';
 import { STORAGE_KEYS } from '../../constants/storage-keys';
@@ -9,7 +9,7 @@ import { CanvasBoard } from '../CanvasBoard';
 import { BuffBatchEditWorkbench } from '../BuffBatchEditWorkbench';
 import './WorkbenchFrame.css';
 
-export type WorkbenchMode = 'selection' | 'timeline' | 'toolPanel' | 'buffBatchEdit';
+export type WorkbenchMode = 'selection' | 'timeline' | 'buffBatchEdit';
 
 interface WorkbenchFrameProps {
   activeSkillButtonId?: string | null;
@@ -20,23 +20,13 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
   const { currentView, selectedCharacters } = state;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [workbenchMode, setWorkbenchMode] = useState<WorkbenchMode>('selection');
-  const [forceShowToolPanel, setForceShowToolPanel] = useState(false);
-  const previousActiveSkillButtonIdRef = useRef<string | null>(activeSkillButtonId);
 
   const canAccessCanvas = selectedCharacters.length > 0;
   const isSelectionActive = currentView === 'selection';
 
   useEffect(() => {
-    const previousActiveSkillButtonId = previousActiveSkillButtonIdRef.current;
-    previousActiveSkillButtonIdRef.current = activeSkillButtonId;
     if (activeSkillButtonId) {
       dispatch({ type: 'SET_VIEW', view: 'canvas' });
-      setWorkbenchMode('timeline');
-      setForceShowToolPanel(true);
-      return;
-    }
-    if (previousActiveSkillButtonId) {
-      setForceShowToolPanel(false);
       setWorkbenchMode('timeline');
     }
   }, [activeSkillButtonId, dispatch]);
@@ -54,13 +44,11 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
       setSelectedSkillButton(null);
       dispatch({ type: 'SET_VIEW', view: 'selection' });
       setWorkbenchMode('selection');
-      setForceShowToolPanel(false);
       setIsDrawerOpen(false);
       return;
     }
     dispatch({ type: 'SET_VIEW', view: 'canvas' });
     setWorkbenchMode(mode);
-    setForceShowToolPanel(false);
   }, [dispatch, selectedCharacters.length]);
 
   const openOperatorConfig = useCallback((characterId?: string) => {
@@ -71,22 +59,11 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
     navigateToAppPath(APP_ROUTE_PATHS.operatorConfig);
   }, [selectedCharacters]);
 
-  const handleSkillButtonModalOpen = useCallback(() => {
-    setForceShowToolPanel(true);
-  }, []);
-
-  const handleSkillButtonModalClose = useCallback(() => {
-    setForceShowToolPanel(false);
-    setWorkbenchMode('timeline');
-  }, []);
-
   const modeLabel = workbenchMode === 'buffBatchEdit'
     ? '批量 Buff'
-    : workbenchMode === 'toolPanel'
-      ? '侧边栏'
-      : workbenchMode === 'timeline'
-        ? '时间轴'
-        : '选择队伍';
+    : workbenchMode === 'timeline'
+      ? '时间轴'
+      : '选择队伍';
 
   const workbenchControl = (
     <button
@@ -164,14 +141,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
             时间轴
           </button>
           <button
-            className={`workbench-drawer-tab ${workbenchMode === 'toolPanel' ? 'is-active' : ''}`}
-            type="button"
-            onClick={() => handleModeClick('toolPanel')}
-            disabled={!canAccessCanvas}
-          >
-            计算侧栏
-          </button>
-          <button
             className={`workbench-drawer-tab ${workbenchMode === 'buffBatchEdit' ? 'is-active' : ''}`}
             type="button"
             onClick={() => handleModeClick('buffBatchEdit')}
@@ -213,10 +182,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
         {currentView === 'canvas' && workbenchMode !== 'buffBatchEdit' && (
           <CanvasBoard
             activeSkillButtonId={activeSkillButtonId}
-            workbenchMode={workbenchMode}
-            isToolPanelVisible={workbenchMode === 'toolPanel' || forceShowToolPanel}
-            onSkillButtonModalOpen={handleSkillButtonModalOpen}
-            onSkillButtonModalClose={handleSkillButtonModalClose}
             onOpenOperatorConfig={openOperatorConfig}
             workbenchControl={workbenchControl}
             bottomRightControl={workspaceActions}

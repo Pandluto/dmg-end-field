@@ -12,7 +12,7 @@ export const STORAGE_KEYS = {
   SKILL_BUTTON_TABLE: 'def.skill-button.v1',
   // v2 新缓存模型 - buff-list 总表（已选 Buff 实体，只能由 upsertBuff/removeBuffById 写入）
   ALL_BUFF_LIST: 'def.all-buff-list.v1',
-  // v2 新缓存模型 - 候选 Buff 列表（DamageTab 刷新用，与已选 Buff 实体隔离）
+  // v2 新缓存模型 - 候选 Buff 列表（与已选 Buff 实体隔离）
   CANDIDATE_BUFF_LIST: 'def.candidate-buff-list.v1',
   ANOMALY_STATE_SNAPSHOT_ARCHIVE: 'def.anomaly-state-snapshot-archive.v1',
 
@@ -27,4 +27,3 @@ export const STORAGE_KEYS = {
 } as const;
 
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS];
-

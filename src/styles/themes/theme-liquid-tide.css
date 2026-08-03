@@ -288,11 +288,8 @@
   .data-save-dialog,
   .skill-button-context-menu,
   .context-menu-submenu,
-  .damage-search-drawer,
-  .buff-detail-modal,
   .timeline-snapshot-modal,
   .work-node-modal,
-  .damage-report-modal,
   .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
@@ -353,7 +350,6 @@
 
 :root[data-theme="liquid-tide"] :is(
   .skill-button-modal-overlay,
-  .damage-report-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay,
   .data-save-dialog-backdrop,
@@ -542,7 +538,6 @@
 
 /* Right rail uses denser glass because it carries text and controls. */
 :root[data-theme="liquid-tide"] .canvas-right-zone.is-skill-sandbox,
-:root[data-theme="liquid-tide"] .canvas-right-zone.is-tool-panel,
 :root[data-theme="liquid-tide"] .buff-edit-right-zone {
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 20px;
@@ -563,22 +558,13 @@
   background: transparent;
 }
 
-:root[data-theme="liquid-tide"] :is(
-  .skill-sandbox,
-  .tool-panel,
-  .tool-panel-content,
-  .tool-panel-tabs,
-  .tab-content-damage,
-  .tab-content-report
-) {
+:root[data-theme="liquid-tide"] .skill-sandbox {
   background: transparent;
 }
 
 :root[data-theme="liquid-tide"] .sandbox-characters::before,
 :root[data-theme="liquid-tide"] .sandbox-characters-extra-spacer,
-:root[data-theme="liquid-tide"] .sandbox-character,
-:root[data-theme="liquid-tide"] .buff-item,
-:root[data-theme="liquid-tide"] .report-text-panel {
+:root[data-theme="liquid-tide"] .sandbox-character {
   border-color: rgba(255, 255, 255, 0.58);
   border-radius: 14px;
   background: rgba(249, 251, 255, 0.34);
@@ -589,8 +575,7 @@
 
 :root[data-theme="liquid-tide"] :is(
   .sandbox-character--hoverable:hover,
-  .sandbox-character--hoverable:focus-within,
-  .buff-item:hover
+  .sandbox-character--hoverable:focus-within
 ) {
   border-color: rgba(255, 255, 255, 0.86);
   background: rgba(255, 255, 255, 0.48);
@@ -600,8 +585,7 @@
 }
 
 :root[data-theme="liquid-tide"] .sandbox-character--hoverable::before,
-:root[data-theme="liquid-tide"] .sandbox-character--hoverable::after,
-:root[data-theme="liquid-tide"] .buff-item::before {
+:root[data-theme="liquid-tide"] .sandbox-character--hoverable::after {
   display: none;
 }
 
@@ -827,8 +811,7 @@
   .workbench-drawer-tab,
   .toolbar button,
   .sandbox-reserved-action,
-  .sandbox-pager-button,
-  .tool-panel-tab
+  .sandbox-pager-button
 ) {
   color: var(--liquid-tide-ink);
   border-color: rgba(255, 255, 255, 0.62);
@@ -846,8 +829,7 @@
   .workbench-drawer-tab,
   .toolbar button,
   .sandbox-reserved-action,
-  .sandbox-pager-button,
-  .tool-panel-tab
+  .sandbox-pager-button
 ):hover:not(:disabled) {
   color: #202b4c;
   border-color: rgba(255, 255, 255, 0.88);
@@ -860,7 +842,6 @@
 :root[data-theme="liquid-tide"] :is(
   .workbench-top-trigger.is-active,
   .workbench-drawer-tab.is-active,
-  .tool-panel-tab.is-active,
   .sandbox-reserved-action.is-active
 ) {
   color: #ffffff;
@@ -1147,8 +1128,7 @@
   .weapon-sheet-page,
   .equipment-sheet-page,
   .damage-sheet-page,
-  .image-manager-page,
-  .damage-report-page
+  .image-manager-page
 ) {
   color: var(--liquid-tide-ink);
   background: rgba(228, 236, 253, 0.2);
@@ -1613,7 +1593,6 @@
   .workbench-drawer-tab,
   .sandbox-reserved-action,
   .sandbox-pager-button,
-  .tool-panel-tab,
   .web-shell-menu-button
 ) {
   border-color: rgba(255, 255, 255, 0.58);
@@ -1634,8 +1613,7 @@
   .toolbar button,
   .workbench-drawer-tab,
   .sandbox-reserved-action,
-  .sandbox-pager-button,
-  .tool-panel-tab
+  .sandbox-pager-button
 ) {
   border-color: rgba(255, 255, 255, 0.58) !important;
   background:
@@ -1655,15 +1633,13 @@
   .toolbar button,
   .workbench-drawer-tab,
   .sandbox-reserved-action,
-  .sandbox-pager-button,
-  .tool-panel-tab
+  .sandbox-pager-button
 ):hover:not(:disabled),
 :root[data-theme="liquid-tide"] :is(
   .workbench-top-trigger.is-active,
   .workbench-bottom-nav-button.is-active,
   .workbench-drawer-tab.is-active,
-  .sandbox-reserved-action.is-active,
-  .tool-panel-tab.is-active
+  .sandbox-reserved-action.is-active
 ) {
   color: var(--liquid-tide-ink) !important;
   border-color: rgba(255, 255, 255, 0.9) !important;
@@ -1843,7 +1819,6 @@
 /* One frosted parent on the right; its children do not stack more blur. */
 :root[data-theme="liquid-tide"] :is(
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .buff-edit-right-zone
 ) {
   background: rgba(239, 245, 255, 0.52);
@@ -1861,19 +1836,12 @@
 
 :root[data-theme="liquid-tide"] :is(
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .buff-edit-right-zone
 ) :is(
   .skill-sandbox,
-  .tool-panel,
-  .tool-panel-content,
-  .tool-panel-tabs,
-  .tab-content-damage,
-  .tab-content-report,
   .sandbox-character,
   .sandbox-skill-item,
   .sandbox-skill-item--local,
-  .buff-item,
   .buff-edit-panel,
   .buff-edit-selected-button-card,
   .buff-edit-buff-card,
@@ -1885,13 +1853,11 @@
 
 :root[data-theme="liquid-tide"] :is(
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .buff-edit-right-zone
 ) :is(
   .sandbox-character,
   .sandbox-skill-item,
   .sandbox-skill-item--local,
-  .buff-item,
   .buff-edit-buff-card,
   .anomaly-board-card
 ) {
@@ -1947,7 +1913,6 @@
     .web-shell-popover,
     .web-shell-window,
     .canvas-right-zone.is-skill-sandbox,
-    .canvas-right-zone.is-tool-panel,
     .timeline-detail-card,
     .settings-section,
     .data-library-section,
@@ -1963,7 +1928,6 @@
     .web-shell-popover,
     .web-shell-window,
     .canvas-right-zone.is-skill-sandbox,
-    .canvas-right-zone.is-tool-panel,
     .timeline-detail-card,
     .settings-section,
     .data-library-section,
@@ -2182,7 +2146,6 @@
 :root[data-theme="liquid-tide"] :is(
   .web-shell-window,
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .canvas-right-zone.buff-edit-right-zone,
   .selection-roster,
   .selection-library,
@@ -2404,11 +2367,8 @@
   .data-save-dialog,
   .skill-button-context-menu,
   .context-menu-submenu,
-  .damage-search-drawer,
-  .buff-detail-modal,
   .timeline-snapshot-confirm-modal,
   .work-node-modal,
-  .damage-report-modal,
   .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
@@ -2556,19 +2516,12 @@
 
 :root[data-theme="liquid-tide"] :is(
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .canvas-right-zone.buff-edit-right-zone
 ) :is(
   .skill-sandbox,
-  .tool-panel,
-  .tool-panel-content,
-  .tool-panel-tabs,
-  .tab-content-damage,
-  .tab-content-report,
   .sandbox-character,
   .sandbox-skill-item,
   .sandbox-skill-item--local,
-  .buff-item,
   .buff-edit-panel,
   .buff-edit-selected-button-card,
   .buff-edit-buff-card,
@@ -2635,7 +2588,6 @@
 :root[data-theme="liquid-tide"] :is(
   .web-shell-overlay,
   .skill-button-modal-overlay,
-  .damage-report-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay,
   .data-save-dialog-backdrop,
@@ -2667,7 +2619,6 @@
   .toolbar button,
   .sandbox-reserved-action,
   .sandbox-pager-button,
-  .tool-panel-tab,
   .selection-section-header button,
   .selection-ghost-button,
   .selection-slot-remove,
@@ -2691,7 +2642,6 @@
   .toolbar button,
   .sandbox-reserved-action,
   .sandbox-pager-button,
-  .tool-panel-tab,
   .selection-section-header button,
   .selection-ghost-button,
   .selection-slot-remove,
@@ -2723,7 +2673,6 @@
   .workbench-bottom-actions,
   .sandbox-characters-extra-spacer,
   .sandbox-skill-pager,
-  .tool-panel-tabs,
   .timeline-detail-heading > nav,
   .timeline-buff-bulk-actions,
   .timeline-restore-tabs,
@@ -2782,7 +2731,6 @@
 /* Snapshot, recovery and report overlays use one full-screen frosted door. */
 :root[data-theme="liquid-tide"] .web-app-shell.web-app-shell :is(
   .timeline-snapshot-modal-overlay,
-  .damage-report-modal-overlay,
   .work-node-modal-overlay
 ) {
   background: var(--liquid-tide-door) !important;
@@ -2793,7 +2741,6 @@
 :root[data-theme="liquid-tide"] :is(
   .timeline-snapshot-modal,
   .timeline-snapshot-confirm-modal,
-  .damage-report-modal,
   .work-node-modal
 ) {
   border-color: rgba(255, 255, 255, 0.7) !important;
@@ -2809,7 +2756,6 @@
 
 :root[data-theme="liquid-tide"] :is(
   .timeline-snapshot-modal-head,
-  .damage-report-modal-head,
   .work-node-modal-head
 ) {
   padding: 2px;
@@ -2823,7 +2769,6 @@
 
 :root[data-theme="liquid-tide"] :is(
   .timeline-snapshot-modal-head,
-  .damage-report-modal-head,
   .work-node-modal-head
 ) .modal-close-btn {
   flex: 0 0 auto;
@@ -3398,7 +3343,6 @@
 :root:root[data-theme="liquid-tide"][data-liquid-glass-quality="balanced"] :is(
   .web-shell-window,
   .canvas-right-zone.is-skill-sandbox,
-  .canvas-right-zone.is-tool-panel,
   .canvas-right-zone.buff-edit-right-zone,
   .selection-roster,
   .selection-library,
@@ -3411,11 +3355,8 @@
   .data-save-dialog,
   .skill-button-context-menu,
   .context-menu-submenu,
-  .damage-search-drawer,
-  .buff-detail-modal,
   .timeline-snapshot-confirm-modal,
   .work-node-modal,
-  .damage-report-modal,
   .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
@@ -3430,7 +3371,6 @@
   .timeline-detail-layer:not(:has(> .skill-button-inline-buff-search-mask)),
   .skill-button-inline-buff-search-mask,
   .timeline-snapshot-modal-overlay,
-  .damage-report-modal-overlay,
   .work-node-modal-overlay,
   .operator-config-page-root
 ) {
@@ -3474,7 +3414,6 @@
     .timeline-detail-layer,
     .skill-button-inline-buff-search-mask,
     .timeline-snapshot-modal-overlay,
-    .damage-report-modal-overlay,
     .work-node-modal-overlay,
     .operator-config-page-root
   ) {

@@ -1035,6 +1035,12 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await page.getByRole('button', { name: '开始排轴', exact: true }).click();
     await expect(page.locator('.canvas-container')).toBeVisible();
 
+    const workbenchDrawerTrigger = page.locator('.canvas-bottom-zone-left > .workbench-top-trigger');
+    await workbenchDrawerTrigger.click();
+    await expect(page.locator('.workbench-top-zone')).toHaveClass(/is-open/);
+    await expect(page.getByRole('button', { name: '计算侧栏', exact: true })).toHaveCount(0);
+    await workbenchDrawerTrigger.click();
+
     const wolfHeader = page.locator('.sandbox-character-header').filter({ hasText: '狼卫' });
     await expect(wolfHeader).toHaveCount(1);
     await wolfHeader.click();
@@ -1171,6 +1177,18 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(page.locator('.timeline-summary-card')).toBeVisible();
     await expect(page.getByRole('heading', { name: '计算过程', exact: true })).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
+
+    await page.getByRole('dialog', { name: '技能排轴详情', exact: true })
+      .getByRole('button', { name: '关闭', exact: true })
+      .click();
+    await expect(page).toHaveURL(/#\/timeline$/);
+    await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toHaveCount(0);
+    await expect(page.locator('.canvas-container')).toBeVisible();
+    await expect(page.locator('.skill-sandbox')).toBeVisible();
+
+    await skillButton.dblclick();
+    await expect(page).toHaveURL(new RegExp(`#/timeline/skill/${skillButtonId}$`));
+    await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
 
     await test.step('详情保持打开时会响应外部面板缓存 revision', async () => {
       const expectedSummary = page.locator('.timeline-summary-card strong');

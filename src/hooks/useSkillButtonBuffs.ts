@@ -131,7 +131,7 @@ export function useSkillButtonBuffs() {
 // ===== 独立函数版本，供组件直接调用 =====
 
 /**
- * 设置当前选中的技能按钮 ID（用于 DamageTab 添加 Buff）
+ * 设置当前选中的技能按钮 ID。
  * @param buttonId - 技能按钮 ID，null 表示清除
  */
 export { setSelectedSkillButton };
@@ -150,7 +150,7 @@ export { getSelectedSkillButton };
 export { getBuffsByButtonId as getButtonBuffs };
 
 /**
- * 添加 Buff 到技能按钮（独立函数版本，供 DamageTab 使用）
+ * 添加 Buff 到技能按钮（独立函数版本）。
  * 纯函数实现，不调用任何 Hook
  * @param buttonId - 按钮 ID
  * @param buff - Buff 数据（如果传入的 buff 已有 id，则使用该 id）

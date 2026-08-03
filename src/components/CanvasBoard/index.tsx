@@ -9,8 +9,6 @@ import { useSelectStart } from './hooks/useSelectStart';
 import { useCanvasDrag } from './hooks/useCanvasDrag';
 import { useTimelineData } from '../../hooks/useTimelineData';
 import { CanvasArea } from './components/CanvasArea';
-import { ToolPanel } from '../ToolPanel';
-import { ReportTab } from '../ToolPanel/components/ReportTab';
 import { DraggingOverlay } from './components/DraggingOverlay';
 import { Toolbar } from './components/Toolbar';
 import {
@@ -488,11 +486,7 @@ function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkil
 
 interface CanvasBoardProps {
   activeSkillButtonId?: string | null;
-  workbenchMode?: 'selection' | 'timeline' | 'toolPanel';
-  isToolPanelVisible?: boolean;
   isWorkbenchTopZoneOpen?: boolean;
-  onSkillButtonModalOpen?: () => void;
-  onSkillButtonModalClose?: () => void;
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
   bottomRightControl?: React.ReactNode;
@@ -500,21 +494,15 @@ interface CanvasBoardProps {
 
 export function CanvasBoard({
   activeSkillButtonId = null,
-  workbenchMode: _workbenchMode = 'timeline',
-  isToolPanelVisible = true,
   isWorkbenchTopZoneOpen = false,
-  onSkillButtonModalOpen,
-  onSkillButtonModalClose,
   onOpenOperatorConfig,
   workbenchControl,
   bottomRightControl,
 }: CanvasBoardProps) {
-  const isCandidatePanelEnabled = false;
   const { state, dispatch, refreshSelectedCharacters } = useAppContext();
   const { currentView, selectedCharacters, canvasConfig, skillButtons, loadedCharacters } = state;
   const canvasRef = useRef<HTMLDivElement>(null);
   const [staffCount, setStaffCount] = React.useState(canvasConfig.staffCount);
-  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
   const [isSaveSnapshotModalOpen, setIsSaveSnapshotModalOpen] = useState(false);
   const [isTimelineNameModalOpen, setIsTimelineNameModalOpen] = useState(false);
@@ -4068,20 +4056,8 @@ export function CanvasBoard({
     navigateToAppPath(APP_ROUTE_PATHS.damageReportPpt);
   };
 
-  const handleCloseDamageReport = () => {
-    setIsReportModalOpen(false);
-  };
-
   const handleOpenReportSheet = () => {
     navigateToAppPath(APP_ROUTE_PATHS.damageSheet);
-  };
-
-  const handleSkillButtonModalOpen = () => {
-    onSkillButtonModalOpen?.();
-  };
-
-  const handleSkillButtonModalClose = () => {
-    onSkillButtonModalClose?.();
   };
 
   const handleRefreshAvailableCandidates = async () => {
@@ -4118,9 +4094,7 @@ export function CanvasBoard({
     .filter(Boolean)
     .join(' ');
 
-  const rightWorkbenchContent = isToolPanelVisible && isCandidatePanelEnabled ? (
-    <ToolPanel key={`checkout-${checkoutRenderRevision}`} widthPercent={100} />
-  ) : (
+  const rightWorkbenchContent = (
     <SkillSandbox
       key={`checkout-${checkoutRenderRevision}`}
       selectedCharacters={selectedCharacters}
@@ -4162,8 +4136,6 @@ export function CanvasBoard({
             onCanvasClick={handleCanvasClick}
             onCanvasPlaceCopy={handleCanvasPlaceCopy}
             timelineData={timelineData}
-            onSkillButtonModalOpen={handleSkillButtonModalOpen}
-            onSkillButtonModalClose={handleSkillButtonModalClose}
             contextMenuState={contextMenuState}
             onConfirmRemove={handleConfirmRemoveSkillButton}
             onCloseContextMenu={handleCloseButtonContextMenu}
@@ -4178,7 +4150,7 @@ export function CanvasBoard({
           />
         </div>
 
-        <aside className={`canvas-right-zone ${isToolPanelVisible && isCandidatePanelEnabled ? 'is-tool-panel' : 'is-skill-sandbox'}`}>
+        <aside className="canvas-right-zone is-skill-sandbox">
           {rightWorkbenchContent}
         </aside>
 
@@ -4285,24 +4257,6 @@ export function CanvasBoard({
           </div>
         </div>
       )}
-
-      {isReportModalOpen && (
-        <div className="damage-report-modal-overlay" onClick={handleCloseDamageReport}>
-          <div className="damage-report-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="damage-report-modal-head">
-              <div>
-                <h3>伤害结算报表</h3>
-                <p>独立报表窗口，不占用右侧陈列区</p>
-              </div>
-              <button type="button" className="modal-close-btn" onClick={handleCloseDamageReport}>
-                关闭
-              </button>
-            </div>
-            <ReportTab />
-          </div>
-        </div>
-      )}
-
 
       {isSnapshotModalOpen && (
         <div className="timeline-snapshot-modal-overlay" onClick={handleCloseSnapshotModal}>

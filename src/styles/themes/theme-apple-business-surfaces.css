@@ -1942,9 +1942,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .damage-report-modal-head h3,
-  .report-sheet-sidebar-card h4,
-  .report-sheet-empty h3,
   .timeline-snapshot-modal-head h3,
   .timeline-snapshot-form-label,
   .timeline-snapshot-item-main strong,
@@ -1957,10 +1954,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .damage-report-modal-head p,
-  .report-sheet-summary,
-  .report-sheet-sidebar-card p,
-  .report-sheet-empty p,
   .timeline-snapshot-modal-head p,
   .timeline-snapshot-empty,
   .timeline-snapshot-item-main span,
@@ -2077,8 +2070,6 @@
 }
 
 :root[data-theme="apple-midnight"] :where(
-  .tool-panel,
-  .tool-panel-content,
   .buff-edit-right-zone
 ) {
   background: var(--theme-surface-regular);

@@ -171,8 +171,6 @@ interface SkillButtonProps {
   onMouseDown: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent) => void;
   timelineData?: TimelineData;
-  onModalOpen?: () => void;
-  onModalClose?: () => void;
   contextMenuState?: { buttonId: string; position: { x: number; y: number } } | null;
   onConfirmRemove?: () => void;
   onCloseContextMenu?: () => void;
@@ -200,8 +198,6 @@ export function SkillButtonComponent({
   onMouseDown,
   onContextMenu,
   timelineData,
-  onModalOpen,
-  onModalClose,
   contextMenuState,
   onConfirmRemove,
   onCloseContextMenu,
@@ -466,8 +462,7 @@ export function SkillButtonComponent({
 
   const handleCloseModal = useCallback(() => {
     navigateToAppPath(APP_ROUTE_PATHS.home);
-    onModalClose?.();
-  }, [onModalClose]);
+  }, []);
 
   useEffect(() => {
     if (!isLocalBuffSearchOpen) {
@@ -1493,8 +1488,6 @@ export function SkillButtonComponent({
       clickCountRef.current = 0;
 
       navigateToAppPath(getTimelineSkillDetailPath(button.id));
-      // 通知父组件弹窗已打开（用于强制显示 ToolPanel）
-      onModalOpen?.();
       console.log('双击技能按钮，打开弹窗:', button.id);
 
       // 输出总数据结构到控制台
@@ -1502,7 +1495,7 @@ export function SkillButtonComponent({
         console.log('【排轴数据】当前总数据结构:', timelineData);
       }
     }
-  }, [button.id, isBrowseMode, onModalOpen, timelineData]);
+  }, [button.id, isBrowseMode, timelineData]);
 
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。

@@ -794,65 +794,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .tool-panel,
-  .tool-panel-content,
-  .tab-content-report,
-  .buff-list
-) {
-  color: var(--theme-text-body);
-  border-color: var(--theme-line-soft);
-  background: var(--theme-surface-regular);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .tool-panel-tabs,
-  .report-toolbar,
-  .damage-input-section
-) {
-  border-color: var(--theme-line-soft);
-  background: var(--theme-bg-nav);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .tool-panel-tab:hover {
-  color: var(--theme-accent-strong);
-  background: var(--theme-fill-hover);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .tool-panel-tab.is-active {
-  color: var(--theme-accent-strong);
-  border-bottom-color: var(--theme-accent-main);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .damage-input,
-  .damage-search-drawer,
-  .damage-search-option,
-  .buff-item,
-  .buff-detail-modal,
-  .report-page-tab,
-  .report-text-panel
-) {
-  color: var(--theme-text-body);
-  border-color: var(--theme-line-regular);
-  background: var(--theme-surface-solid);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .damage-search-option,
-  .buff-item
-) {
-  border-bottom-color: var(--theme-line-soft);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .damage-search-option,
-  .buff-item
-):hover {
-  color: var(--theme-accent-strong);
-  background: var(--theme-fill-hover);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .canvas-container,
   .canvas-grid-background,
   .canvas-area
@@ -939,7 +880,6 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .skill-button-modal-overlay,
-  .damage-report-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay
 ) {
@@ -949,7 +889,6 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .skill-button-modal,
-  .damage-report-modal,
   .timeline-snapshot-modal,
   .timeline-snapshot-confirm-modal,
   .timeline-snapshot-share-modal,
@@ -968,8 +907,6 @@
   .skill-damage-total,
   .skill-damage-formula,
   .skill-damage-hit-detail,
-  .report-sheet-sidebar-card,
-  .report-sheet-table-shell,
   .timeline-snapshot-item,
   .timeline-snapshot-hover-card,
   .timeline-snapshot-confirm-body
@@ -978,25 +915,6 @@
   border-color: var(--theme-line-regular);
   border-radius: var(--theme-radius-control);
   background: var(--theme-surface-muted);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .report-sheet-table thead th {
-  color: var(--theme-text-title);
-  border-color: var(--theme-line-regular);
-  background: var(--theme-surface-solid);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .report-sheet-table td {
-  color: var(--theme-text-body);
-  border-color: var(--theme-line-soft);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .report-sheet-table tbody tr:hover {
-  background: var(--theme-fill-hover);
-}
-
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .report-sheet-table tbody tr.is-selected {
-  background: var(--theme-accent-soft);
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
@@ -1056,7 +974,6 @@
   .operator-draft-page,
   .operator-config-page-root,
   .damage-sheet-page,
-  .damage-report-page,
   .equipment-sheet-page,
   .image-manager-page
 ) {

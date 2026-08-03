@@ -241,7 +241,6 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.buff-edit-secondary-button-layer > button', preset: 'control', priority: 1 },
   { selector: '.sandbox-characters-extra-spacer > button', preset: 'control', priority: 1 },
   { selector: '.sandbox-skill-pager > button', preset: 'control', priority: 2 },
-  { selector: '.tool-panel-tabs > button', preset: 'control', priority: 1 },
   { selector: '.timeline-detail-heading > nav > button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-expand-all-button', preset: 'control', priority: 0 },
   { selector: '.timeline-detail-utility-panel', preset: 'popover', priority: 0 },
@@ -300,7 +299,6 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
   { selector: '.image-manager-preview-actions > button', preset: 'control', priority: 1 },
 
   { selector: '.timeline-snapshot-modal-head > .modal-close-btn', preset: 'control', priority: 0 },
-  { selector: '.damage-report-modal-head > .modal-close-btn', preset: 'control', priority: 0 },
   { selector: '.work-node-modal-head button', preset: 'control', priority: 0 },
   { selector: '.skill-button-modal .modal-header > button', preset: 'control', priority: 0 },
   { selector: '.operator-config-page-picker-header > button', preset: 'control', priority: 0 },

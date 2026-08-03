@@ -148,7 +148,6 @@
   .damage-sheet-page,
   .report-ppt-page,
   .timeline-detail-layer,
-  .damage-report-modal,
   .timeline-snapshot-modal,
   .timeline-snapshot-confirm-modal,
   .skill-button-modal,
@@ -253,7 +252,6 @@
   .timeline-detail-card,
   .timeline-detail-utility-panel,
   .buff-editor-drawer,
-  .damage-report-modal,
   .timeline-snapshot-modal
 ) {
   backdrop-filter: none;
@@ -272,13 +270,11 @@
   .selection-roster,
   .selection-library,
   .workbench-drawer,
-  .tool-panel,
   .timeline-detail-card,
   .timeline-detail-utility-panel,
   .skill-button-modal,
   .skill-button-inline-buff-search,
   .buff-editor-drawer,
-  .damage-report-modal,
   .timeline-snapshot-modal
 ) {
   border: 1px solid var(--theme-line-regular);
@@ -331,7 +327,6 @@
   .web-shell-nav button.is-active,
   .web-shell-window-tabs button.is-active,
   .workbench-drawer-tab.is-active,
-  .tool-panel-tab.is-active,
   .anomaly-category-tab.is-active,
   .anomaly-strip-button.is-active,
   .anomaly-item-button.is-active,
@@ -940,7 +935,6 @@
 }
 
 :root[data-theme="lieflat-mono"] :is(
-  .canvas-right-zone.is-tool-panel,
   .canvas-right-zone.is-skill-sandbox,
   .canvas-right-zone.buff-edit-right-zone
 ) {
@@ -986,9 +980,7 @@
 
 :root[data-theme="lieflat-mono"] :is(
   .damage-sheet-excel-cell,
-  .damage-sheet-excel-row-number,
-  .report-sheet-table th,
-  .report-sheet-table td
+  .damage-sheet-excel-row-number
 ) {
   border-color: var(--theme-border-grid);
   border-style: dotted;
@@ -1057,7 +1049,6 @@
   opacity: 1;
 }
 
-:root[data-theme="lieflat-mono"] .report-sheet-table tbody tr.is-selected > *,
 :root[data-theme="lieflat-mono"] .damage-sheet-excel-cell.is-active {
   color: var(--ink-charcoal);
   border-color: var(--ink-outline-selected);
