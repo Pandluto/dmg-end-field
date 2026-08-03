@@ -7,6 +7,76 @@ import {
 
 const LTS_BASE_URL = process.env.LTS_DUAL_BASE_URL || 'http://127.0.0.1:3030';
 const SLIM_BASE_URL = process.env.SLIM_DUAL_BASE_URL || 'http://127.0.0.1:3040';
+const THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
+
+const EDITOR_THEMES = [
+  'office-excel',
+  'apple-midnight',
+  'apple-warm',
+  'lieflat-mono',
+  'liquid-tide',
+] as const;
+
+const EDITOR_THEME_ROUTES = [
+  {
+    path: '/data/buffs',
+    heading: 'Sheet-Buff',
+    rootSelector: '.buff-sheet-page',
+    surfaceSelector: '.damage-sheet-topbar',
+    structure: {
+      '.damage-sheet-topbar': 1,
+      '.damage-sheet-ribbon': 1,
+      '.damage-sheet-formula-bar': 1,
+      '.damage-sheet-workspace': 1,
+      '.buff-sheet-explorer': 1,
+      '.damage-sheet-excel-shell': 1,
+      '.buff-sheet-tool-button': 6,
+    },
+  },
+  {
+    path: '/data/weapons',
+    heading: 'Sheet-Weapon',
+    rootSelector: '.weapon-sheet-page',
+    surfaceSelector: '.damage-sheet-topbar',
+    structure: {
+      '.damage-sheet-topbar': 1,
+      '.damage-sheet-ribbon': 1,
+      '.damage-sheet-formula-bar': 1,
+      '.damage-sheet-workspace': 1,
+      '.buff-sheet-explorer': 1,
+      '.damage-sheet-excel-shell': 1,
+      '.buff-sheet-tool-button': 6,
+    },
+  },
+  {
+    path: '/data/equipments',
+    heading: 'Sheet-Equipment',
+    rootSelector: '.equipment-sheet-page',
+    surfaceSelector: '.damage-sheet-topbar',
+    structure: {
+      '.damage-sheet-topbar': 1,
+      '.damage-sheet-ribbon': 1,
+      '.damage-sheet-formula-bar': 1,
+      '.damage-sheet-workspace': 1,
+      '.buff-sheet-explorer': 1,
+      '.damage-sheet-excel-shell': 1,
+      '.buff-sheet-tool-button': 6,
+    },
+  },
+  {
+    path: '/data/operators',
+    heading: '基础数据',
+    rootSelector: '.operator-draft-page',
+    surfaceSelector: '.operator-draft-column-left > section',
+    structure: {
+      '.operator-draft-workbench': 1,
+      '.operator-draft-column': 4,
+      '.operator-draft-basic-grid': 1,
+      '.operator-draft-skill-list': 1,
+      '.operator-draft-buff-panel': 1,
+    },
+  },
+] as const;
 
 const COMMON_ROUTES = [
   ['/data/operators', '基础数据'],
@@ -49,6 +119,17 @@ interface CommonObservation {
     persisted: boolean;
     shareType: string;
   };
+  themes: Array<{
+    theme: string;
+    tokens: string[];
+    routes: Array<{
+      heading: string;
+      rootClasses: string;
+      structure: Record<string, number>;
+      rootStyle: string[];
+      surfaceStyle: string[];
+    }>;
+  }>;
   timeline: {
     selectedCharacters: number;
     skillButtons: number;
@@ -62,6 +143,77 @@ interface CommonObservation {
     buffBatchSelected: string;
     persistedAfterReload: boolean;
   };
+}
+
+async function observeEditorThemes(
+  page: Page,
+  baseUrl: string,
+): Promise<CommonObservation['themes']> {
+  const observations: CommonObservation['themes'] = [];
+
+  for (const theme of EDITOR_THEMES) {
+    await page.goto(`${baseUrl}/#/data/buffs`);
+    await page.evaluate(({ key, value }) => {
+      window.localStorage.setItem(key, value);
+    }, { key: THEME_STORAGE_KEY, value: theme });
+    await page.reload();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(page.locator('html')).not.toHaveAttribute('data-theme-pending', theme);
+
+    const tokens = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      return [
+        style.getPropertyValue('--theme-bg-window').trim(),
+        style.getPropertyValue('--theme-text-title').trim(),
+        style.getPropertyValue('--theme-accent-main').trim(),
+        style.getPropertyValue('--theme-radius-control').trim(),
+      ];
+    });
+    expect(tokens.every(Boolean), `${theme}: required theme tokens`).toBe(true);
+
+    const routes: CommonObservation['themes'][number]['routes'] = [];
+    for (const route of EDITOR_THEME_ROUTES) {
+      await openRoute(page, baseUrl, route.path, route.heading);
+      const root = page.locator(route.rootSelector);
+      const surface = page.locator(route.surfaceSelector).first();
+      await expect(root).toBeVisible();
+      await expect(surface).toBeVisible();
+
+      const structure: Record<string, number> = {};
+      for (const [selector, expectedCount] of Object.entries(route.structure)) {
+        const count = await page.locator(selector).count();
+        expect(count, `${theme} ${route.heading}: ${selector}`).toBe(expectedCount);
+        structure[selector] = count;
+      }
+
+      const rootClasses = normalizeText(await root.getAttribute('class'));
+      const [rootStyle, surfaceStyle] = await Promise.all([
+        root.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.display, style.color, style.backgroundColor, style.borderRadius];
+        }),
+        surface.evaluate((element) => {
+          const style = getComputedStyle(element);
+          return [style.display, style.color, style.backgroundColor, style.borderColor, style.borderRadius];
+        }),
+      ]);
+      routes.push({
+        heading: route.heading,
+        rootClasses,
+        structure,
+        rootStyle,
+        surfaceStyle,
+      });
+    }
+    observations.push({ theme, tokens, routes });
+  }
+
+  await page.evaluate(({ key }) => {
+    window.localStorage.setItem(key, 'office-excel');
+  }, { key: THEME_STORAGE_KEY });
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'office-excel');
+  return observations;
 }
 
 interface CapabilityObservation {
@@ -360,6 +512,8 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
         routeHeadings.push(heading);
       }
     });
+    const themes = await test.step(`${target.name}: five-theme editor structure`, () =>
+      observeEditorThemes(page, target.baseUrl));
     const legacy = await test.step(`${target.name}: declared legacy capability`, () =>
       observeLegacyDamageSheet(page, target));
     const buff = await test.step(`${target.name}: Buff save/reload/share`, () =>
@@ -381,6 +535,7 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
         weapon,
         equipment,
         operator,
+        themes,
         timeline: timelineResult.timeline,
       },
       capabilities: {

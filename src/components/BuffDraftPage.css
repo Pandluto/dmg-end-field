@@ -1,5 +1,5 @@
 .buff-sheet-page {
-  background: var(--office-bg, #f3f5f7);
+  background: var(--office-window-bg);
 }
 
 /* Buff sheet 专属 workspace 布局 - 两栏：sidebar + 主内容 */
