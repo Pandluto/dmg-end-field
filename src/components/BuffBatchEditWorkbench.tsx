@@ -81,7 +81,7 @@ const BUFF_EDIT_SECONDARY_BUTTON_LEFT_FALLBACK = 1365;
 const columnLabels = Array.from({ length: GRID_NODE_COUNT }, (_, index) => String.fromCharCode(65 + index));
 const rowLabels = Array.from({ length: 8 }, (_, index) => String(index + 1));
 
-interface BoxSelectRect {
+export interface BoxSelectRect {
   startX: number;
   startY: number;
   currentX: number;
@@ -89,11 +89,11 @@ interface BoxSelectRect {
 }
 
 type EditToolMode = 'normal' | 'filter' | 'edit' | 'add' | 'remove';
-type SourceFilter =
+export type SourceFilter =
   | { kind: 'character'; id: string; name: string }
   | { kind: 'weapon'; id: string; name: string }
   | { kind: 'equipment'; id: 'equipment'; name: string };
-type CandidateAdderMode = BuffSourceSearchMode | 'anomaly-state';
+export type CandidateAdderMode = BuffSourceSearchMode | 'anomaly-state';
 
 const CANDIDATE_ADDER_MODE_OPTIONS: Array<{ key: CandidateAdderMode; label: string }> = [
   ...BUFF_SOURCE_SEARCH_MODE_OPTIONS,
@@ -111,12 +111,12 @@ function getCandidateAdderModeLabel(mode: CandidateAdderMode): string {
   return isCandidateSourceMode(mode) ? getBuffSourceSearchModeLabel(mode) : '异常状态区';
 }
 
-function getNextCandidateAdderMode(mode: CandidateAdderMode): CandidateAdderMode {
+export function getNextCandidateAdderMode(mode: CandidateAdderMode): CandidateAdderMode {
   const index = CANDIDATE_ADDER_MODE_OPTIONS.findIndex((option) => option.key === mode);
   return CANDIDATE_ADDER_MODE_OPTIONS[(index + 1) % CANDIDATE_ADDER_MODE_OPTIONS.length].key;
 }
 
-function getButtonLineIndex(button: PersistedSkillButton): number {
+export function getButtonLineIndex(button: PersistedSkillButton): number {
   const legacyLineIndex = (button as PersistedSkillButton & { lineIndex?: number }).lineIndex;
   if (typeof legacyLineIndex === 'number') {
     return legacyLineIndex;
@@ -124,7 +124,7 @@ function getButtonLineIndex(button: PersistedSkillButton): number {
   return Math.max(0, Math.min(LINE_ROW_INDICES.length - 1, button.staffIndex ?? 0));
 }
 
-function getButtonStaffGroupIndex(button: PersistedSkillButton): number {
+export function getButtonStaffGroupIndex(button: PersistedSkillButton): number {
   const legacyLineIndex = (button as PersistedSkillButton & { lineIndex?: number }).lineIndex;
   if (typeof legacyLineIndex === 'number') {
     return Math.max(0, button.staffIndex ?? 0);
@@ -132,13 +132,13 @@ function getButtonStaffGroupIndex(button: PersistedSkillButton): number {
   return Math.max(0, Math.floor((button.nodeIndex ?? 0) / GRID_NODE_COUNT));
 }
 
-function getButtonSkillType(button: PersistedSkillButton): SkillType {
+export function getButtonSkillType(button: PersistedSkillButton): SkillType {
   return ['A', 'B', 'E', 'Q', 'Dot'].includes(button.skillType)
     ? button.skillType as SkillType
     : 'A';
 }
 
-function buildButtonPosition(button: PersistedSkillButton): { x: number; y: number } {
+export function buildButtonPosition(button: PersistedSkillButton): { x: number; y: number } {
   if (
     button.position &&
     Number.isFinite(button.position.x) &&
@@ -246,7 +246,7 @@ function readVisualSkillButtons(
   return buttons.sort(sortButtons);
 }
 
-function sortButtons(a: PersistedSkillButton, b: PersistedSkillButton): number {
+export function sortButtons(a: PersistedSkillButton, b: PersistedSkillButton): number {
   const staffDiff = getButtonStaffGroupIndex(a) - getButtonStaffGroupIndex(b);
   if (staffDiff !== 0) return staffDiff;
   const lineDiff = getButtonLineIndex(a) - getButtonLineIndex(b);
@@ -258,7 +258,7 @@ function readPersistedSkillButtons(): PersistedSkillButton[] {
   return Object.values(getSkillButtonTable()).sort(sortButtons);
 }
 
-function getStaffGroupCount(skillButtons: PersistedSkillButton[]): number {
+export function getStaffGroupCount(skillButtons: PersistedSkillButton[]): number {
   return Math.max(
     1,
     ...skillButtons.map((button) => getButtonStaffGroupIndex(button) + 1)
@@ -279,7 +279,7 @@ function getFallbackSkillButtons(): PersistedSkillButton[] {
   });
 }
 
-function normalizeRect(rect: BoxSelectRect) {
+export function normalizeRect(rect: BoxSelectRect) {
   const left = Math.min(rect.startX, rect.currentX);
   const top = Math.min(rect.startY, rect.currentY);
   const right = Math.max(rect.startX, rect.currentX);
@@ -294,22 +294,22 @@ function normalizeRect(rect: BoxSelectRect) {
   };
 }
 
-function intersects(
+export function intersects(
   a: { left: number; top: number; right: number; bottom: number },
   b: { left: number; top: number; right: number; bottom: number }
 ): boolean {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
 
-function getBuffLabel(buff: SkillButtonBuff): string {
+export function getBuffLabel(buff: SkillButtonBuff): string {
   return buff.displayName?.trim() || buff.name?.trim() || buff.id;
 }
 
-function getBuffSourceLabel(buff: SkillButtonBuff): string {
+export function getBuffSourceLabel(buff: SkillButtonBuff): string {
   return buff.sourceName?.trim() || buff.source?.trim() || '未知来源';
 }
 
-function getBuffValueLine(buff: SkillButtonBuff): string {
+export function getBuffValueLine(buff: SkillButtonBuff): string {
   if (buff.effectKind === 'extraHit') {
     return `额外伤害 · ${((buff.extraHitConfig?.baseMultiplier ?? 0) * 100).toFixed(1)}% · ${buff.extraHitConfig?.damageType || 'physical'} · ${buff.extraHitConfig?.skillType || '空'} · ${buff.extraHitConfig?.cooldownSeconds ?? 0}s CD`;
   }
@@ -317,11 +317,11 @@ function getBuffValueLine(buff: SkillButtonBuff): string {
   return typeof buff.value === 'number' ? `${type} · ${buff.value}` : type;
 }
 
-function getMissingBuffShortId(buffId: string): string {
+export function getMissingBuffShortId(buffId: string): string {
   return buffId.length > 18 ? `${buffId.slice(0, 18)}...` : buffId;
 }
 
-function compareBuffBySource(a: SkillButtonBuff, b: SkillButtonBuff): number {
+export function compareBuffBySource(a: SkillButtonBuff, b: SkillButtonBuff): number {
   const aSourceType = (a.source || a.sourceName || '').trim();
   const bSourceType = (b.source || b.sourceName || '').trim();
   const sourceTypeDiff = aSourceType.localeCompare(bSourceType, 'zh-Hans-CN', { numeric: true });
@@ -344,7 +344,7 @@ function getCharacterWeaponName(character: Character, inputMap: ReturnType<typeo
   return input?.weapon?.name?.trim() || '';
 }
 
-function buffMatchesSourceFilter(buff: SkillButtonBuff, filter: SourceFilter | null): boolean {
+export function buffMatchesSourceFilter(buff: SkillButtonBuff, filter: SourceFilter | null): boolean {
   if (!filter) return true;
 
   const sourceText = [
@@ -364,7 +364,7 @@ function buffMatchesSourceFilter(buff: SkillButtonBuff, filter: SourceFilter | n
   return sourceText.includes(filter.id) || sourceText.includes(filter.name);
 }
 
-function buffFromSearchResult(entry: LocalBuffSearchResult): SkillButtonBuff {
+export function buffFromSearchResult(entry: LocalBuffSearchResult): SkillButtonBuff {
   return {
     id: `candidate-add-${entry.key}`,
     name: entry.name,
@@ -395,7 +395,7 @@ function addDraftBuffToButton(buttonId: string, buff: SkillButtonBuff) {
   return addBuffToButton(buttonId, buffWithoutId);
 }
 
-function candidateBuffFromAnomalyStateSnapshot(snapshot: AnomalyStateSnapshot): SkillButtonBuff | null {
+export function candidateBuffFromAnomalyStateSnapshot(snapshot: AnomalyStateSnapshot): SkillButtonBuff | null {
   const [snapshotBuff] = buildAnomalyStateSnapshotBuffs([snapshot]);
   if (!snapshotBuff) {
     return null;
@@ -409,7 +409,7 @@ function candidateBuffFromAnomalyStateSnapshot(snapshot: AnomalyStateSnapshot): 
   };
 }
 
-function dedupeBuffIds(buffIds: string[]): string[] {
+export function dedupeBuffIds(buffIds: string[]): string[] {
   return Array.from(new Set(buffIds.filter(Boolean)));
 }
 
