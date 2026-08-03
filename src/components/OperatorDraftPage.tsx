@@ -9,7 +9,6 @@ import {
 } from '../utils/draftShare';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import { webImageLibrary } from '../platform/resources/webImageLibrary';
-import { toUserImageRelPath } from '../utils/imageFileService';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
 import {
   createOperatorDraftRepository,
@@ -68,6 +67,7 @@ import {
   resolveOperatorDraftShareSelection,
   type OperatorDraftLibraryShareFile,
 } from './operatorDraftShare';
+import { buildOperatorDraftImagePathOptions } from './operatorDraftImageOptions';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
 const OPERATOR_DRAFT_NAV_LINKS = [
@@ -303,13 +303,7 @@ export function OperatorDraftPage() {
       try {
         const assets = await webImageLibrary.listAssets();
         if (!isMounted) return;
-        const paths = assets
-          .map((asset) => {
-            const relPath = toUserImageRelPath(asset);
-            return relPath ? `user-images/${relPath}` : '';
-          })
-          .filter((path): path is string => Boolean(path));
-        setUserAssetPathOptions(Array.from(new Set(paths)).sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true })));
+        setUserAssetPathOptions(buildOperatorDraftImagePathOptions(assets));
       } catch {
         if (isMounted) {
           setUserAssetPathOptions([]);

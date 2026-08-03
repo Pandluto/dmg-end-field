@@ -674,11 +674,51 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
   });
 
   await test.step('Operator draft saves through browser storage and survives reload', async () => {
+    const operatorImageFileName = 'slim-operator-user-image.png';
+    const operatorImageRelativePath = `assets/images/${operatorImageFileName}`;
+    await openRoute(page, '/data/images', '图片资源管理');
+    const operatorImageFileChooserPromise = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: '导入', exact: true }).click();
+    const operatorImageFileChooser = await operatorImageFileChooserPromise;
+    await operatorImageFileChooser.setFiles({
+      name: operatorImageFileName,
+      mimeType: 'image/png',
+      buffer: Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        'base64',
+      ),
+    });
+    await expect(page.getByRole('status')).toHaveText('导入成功');
+
     await openRoute(page, '/data/operators', '基础数据');
     await page.getByRole('button', { name: '新建', exact: true }).click();
     const basicFields = page.locator('.operator-draft-basic-grid');
     await basicFields.getByLabel('名称', { exact: true }).fill('Slim E2E Operator');
     await basicFields.getByLabel('ID', { exact: true }).fill('slim-e2e-operator');
+
+    const avatarPathInput = page.getByPlaceholder('搜索头像 URL');
+    await avatarPathInput.fill(operatorImageFileName);
+    const avatarPathOption = avatarPathInput
+      .locator('xpath=..')
+      .locator('.operator-draft-searchable-option')
+      .filter({ hasText: operatorImageRelativePath });
+    await expect(avatarPathOption).toHaveCount(1);
+    await avatarPathOption.click();
+    await expect(avatarPathInput).toHaveValue(operatorImageRelativePath);
+    await expect(page.locator('.operator-draft-avatar')).toHaveAttribute('src', /^blob:/);
+
+    await page.getByRole('button', { name: '新增技能', exact: true }).click();
+    const skillIconPathInput = page.getByPlaceholder('搜索技能图标 URL');
+    await skillIconPathInput.fill(operatorImageFileName);
+    const skillIconPathOption = skillIconPathInput
+      .locator('xpath=..')
+      .locator('.operator-draft-searchable-option')
+      .filter({ hasText: operatorImageRelativePath });
+    await expect(skillIconPathOption).toHaveCount(1);
+    await skillIconPathOption.click();
+    await expect(skillIconPathInput).toHaveValue(operatorImageRelativePath);
+    await expect(page.locator('.operator-draft-skill-hero-icon')).toHaveAttribute('src', /^blob:/);
+
     await page.getByRole('button', { name: '保存到本地', exact: true }).click();
 
     const localDrafts = page.getByRole('combobox', { name: '载入本地草稿', exact: true });
@@ -686,6 +726,10 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(savedOption).toHaveText('slim-e2e-operator · Slim E2E Operator');
     await page.reload();
     await expect(savedOption).toHaveText('slim-e2e-operator · Slim E2E Operator');
+    await expect(avatarPathInput).toHaveValue(operatorImageRelativePath);
+    await expect(skillIconPathInput).toHaveValue(operatorImageRelativePath);
+    await expect(page.locator('.operator-draft-avatar')).toHaveAttribute('src', /^blob:/);
+    await expect(page.locator('.operator-draft-skill-hero-icon')).toHaveAttribute('src', /^blob:/);
 
     await page.getByRole('button', { name: '分享库', exact: true }).click();
     const operatorShareModal = page.locator('.operator-draft-share-modal');
@@ -697,6 +741,9 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     expect(currentOperatorShare.type).toBe('operator-library-share.v1');
     const sourceOperatorDraft = currentOperatorShare.payload['slim-e2e-operator'];
     expect(sourceOperatorDraft).toBeTruthy();
+    expect(sourceOperatorDraft.avatarUrl).toBe(operatorImageRelativePath);
+    const sourceOperatorSkills = sourceOperatorDraft.skills as Record<string, Record<string, unknown>>;
+    expect(Object.values(sourceOperatorSkills)[0]?.iconUrl).toBe(operatorImageRelativePath);
 
     const operatorShareFileChooserPromise = page.waitForEvent('filechooser');
     await operatorShareModal.getByRole('button', { name: '导入分享', exact: true }).click();
