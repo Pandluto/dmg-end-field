@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {
   applyBuffCategory,
   applyBuffEffectKind,
-  applyBuffType,
   buildBuffDraftIdFromName,
   buildBuffSheetRows,
   createDefaultBuffEffect,
@@ -12,7 +11,6 @@ import {
   reorderDraftStructure,
   setBuffMaxStacks,
   setBuffMultiplierCoefficient,
-  setBuffMultiplierEnabled,
   type BuffDraft,
 } from './buffDraftModel';
 
@@ -57,7 +55,12 @@ const baseEffect = {
   category: 'countable' as const,
   maxStacks: 4,
 };
-const multiplierEffect = setBuffMultiplierEnabled(baseEffect, true);
+const multiplierEffect = {
+  ...baseEffect,
+  category: 'condition' as const,
+  value: undefined,
+  multiplier: { coefficient: 1 },
+};
 assert.equal(multiplierEffect.effectKind, 'modifier');
 assert.equal(multiplierEffect.type, 'physicalDmgBonus');
 assert.equal(multiplierEffect.category, 'condition');
@@ -67,7 +70,6 @@ assert.deepEqual(multiplierEffect.multiplier, { coefficient: 1 });
 const multiplierCannotBecomeCountable = applyBuffCategory(multiplierEffect, 'countable');
 assert.equal(multiplierCannotBecomeCountable.category, 'condition');
 assert.equal(multiplierCannotBecomeCountable.maxStacks, undefined);
-assert.equal(applyBuffType(multiplierEffect, 'flatAtk').multiplier, undefined);
 assert.deepEqual(setBuffMultiplierCoefficient(multiplierEffect, -3).multiplier, { coefficient: 1 });
 assert.deepEqual(setBuffMultiplierCoefficient(multiplierEffect, 1.75).multiplier, { coefficient: 1.75 });
 assert.equal(setBuffMaxStacks(baseEffect, 3.9).maxStacks, 3);

@@ -257,6 +257,12 @@ assert.deepEqual(workbookRows[0].cells.map(({ address, value, width, align, sour
 ]);
 const effectWorkbookRow = workbookRows.find((row) => row.kind === 'effect' && row.sourceRow.effectId === 'effect1');
 assert.ok(effectWorkbookRow);
+const threePieceWorkbookRow = workbookRows.find((row) => row.kind === 'threePieceBuff');
+assert.ok(threePieceWorkbookRow);
+assert.equal(
+  threePieceWorkbookRow.cells.find((cell) => cell.columnKey === 'effectKey')?.value,
+  '物理伤害加成 · physicalDmgBonus',
+);
 assert.deepEqual(effectWorkbookRow.cells.map(({ address, value, width, align, sourceRowKey }) => ({
   address,
   value,

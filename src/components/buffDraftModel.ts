@@ -184,16 +184,15 @@ export function getBuffTypeDisplayLabel(type?: string) {
   if (!type) {
     return '暂无';
   }
-  const meta = BUFF_TYPE_LABELS[type as keyof typeof BUFF_TYPE_LABELS];
-  return meta ? `${meta.label} · ${type}` : type;
+  const label = BUFF_TYPE_LABELS[type];
+  return label ? `${label} · ${type}` : type;
 }
 
 export function getBuffTypePlainLabel(type?: string) {
   if (!type) {
     return '';
   }
-  const meta = BUFF_TYPE_LABELS[type as keyof typeof BUFF_TYPE_LABELS];
-  return meta?.label || type;
+  return BUFF_TYPE_LABELS[type] || type;
 }
 
 export function normalizeLegacyBuffType(type: unknown) {
@@ -341,15 +340,6 @@ export function applyBuffEffectKind(effect: BuffEffectDraft, nextKind: BuffEffec
   };
 }
 
-export function applyBuffType(effect: BuffEffectDraft, nextType: string): BuffEffectDraft {
-  const normalizedType = normalizeLegacyBuffType(nextType);
-  return {
-    ...effect,
-    type: normalizedType,
-    ...(canUseBuffMultiplier(normalizedType) ? {} : { multiplier: undefined }),
-  };
-}
-
 export function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCategory): BuffEffectDraft {
   const category = getBuffEffectMultiplier(effect)
     ? 'condition'
@@ -362,25 +352,6 @@ export function applyBuffCategory(effect: BuffEffectDraft, nextCategory: BuffCat
     ...(category === 'countable'
       ? { maxStacks: effect.maxStacks ?? 1, multiplier: undefined }
       : { maxStacks: undefined }),
-  };
-}
-
-export function setBuffMultiplierEnabled(effect: BuffEffectDraft, enabled: boolean): BuffEffectDraft {
-  if (!enabled) {
-    const { multiplier: _multiplier, ...rest } = effect;
-    return rest;
-  }
-  const nextType = canUseBuffMultiplier(effect.type)
-    ? effect.type || 'multiplierBonus'
-    : 'multiplierBonus';
-  return {
-    ...effect,
-    effectKind: 'modifier',
-    type: nextType,
-    category: 'condition',
-    value: undefined,
-    multiplier: { coefficient: 1 },
-    extraHitConfig: undefined,
   };
 }
 

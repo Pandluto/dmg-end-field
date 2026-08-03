@@ -99,20 +99,10 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  const threePieceEffectKind = row.kind === 'threePieceBuff'
-    ? library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind
-    : undefined;
-  const cellPolicy = getEquipmentSheetCellPolicy(row.kind, columnKey, {
-    effectKind: threePieceEffectKind,
-  });
+  const cellPolicy = getEquipmentSheetCellPolicy(row.kind, columnKey);
 
   if (!cellPolicy.editable) {
-    const binding = buildReadOnlyBinding(row, columnKey, selectedWorkbookCellValue(row, selectedWorkbookCell, library));
-    return row.kind === 'threePieceBuff'
-      && columnKey === 'effectKey'
-      && threePieceEffectKind === 'extraHit'
-      ? { ...binding, key: `${row.key}:${columnKey}:extra-hit-types` }
-      : binding;
+    return buildReadOnlyBinding(row, columnKey, selectedWorkbookCellValue(row, selectedWorkbookCell, library));
   }
 
   if (cellPolicy.control === 'image-search-select' && (row.kind === 'set' || row.kind === 'equipment')) {
@@ -174,30 +164,20 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if (cellPolicy.control === 'search-select' && (row.kind === 'effect' || row.kind === 'threePieceBuff')) {
-    const effectOptions = row.kind === 'effect'
-      ? (() => {
-          const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
-          const effect = equipment?.effects[row.effectId];
-          return equipment && effect
-            ? getEquipmentEffectTypeOptions(
-                equipment.part,
-                row.effectId,
-                effect.category,
-                getEquipmentEffectShape(equipment),
-              ).map((typeKey) => ({
-                value: typeKey,
-                label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-              }))
-            : BUFF_TYPE_OPTIONS.map((typeKey) => ({
-                value: typeKey,
-                label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-              }));
-        })()
-      : BUFF_TYPE_OPTIONS.map((typeKey) => ({
-          value: typeKey,
-          label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
-        }));
+  if (cellPolicy.control === 'search-select' && row.kind === 'effect') {
+    const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
+    const effect = equipment?.effects[row.effectId];
+    const effectOptions = (equipment && effect
+      ? getEquipmentEffectTypeOptions(
+          equipment.part,
+          row.effectId,
+          effect.category,
+          getEquipmentEffectShape(equipment),
+        )
+      : BUFF_TYPE_OPTIONS).map((typeKey) => ({
+        value: typeKey,
+        label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+      }));
     return {
       key: `${row.key}:${columnKey}`,
       value: selectedWorkbookCellValue(row, selectedWorkbookCell, library),

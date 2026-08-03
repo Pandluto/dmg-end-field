@@ -237,7 +237,7 @@ assert.deepEqual(applyCellValueToLibrary(baseLibrary, effectLevelsRow, 'valueTex
 
 assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'field', 'condition').gearSets['gear-set-demo'].threePieceBuffs?.effect1.category, 'condition');
 assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'name', '条件增益').gearSets['gear-set-demo'].threePieceBuffs?.effect1.name, '条件增益');
-assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'effectKey', 'magicDmgBonus').gearSets['gear-set-demo'].threePieceBuffs?.effect1.typeKey, 'magicDmgBonus');
+assert.strictEqual(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'effectKey', 'magicDmgBonus'), baseLibrary);
 assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'valueText', '0.25').gearSets['gear-set-demo'].threePieceBuffs?.effect1.value, 0.25);
 assert.equal(applyCellValueToLibrary(baseLibrary, threePieceBuffRow, 'description', '新的三件套描述').gearSets['gear-set-demo'].threePieceBuffs?.effect1.raw, '新的三件套描述');
 

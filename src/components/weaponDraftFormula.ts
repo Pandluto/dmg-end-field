@@ -3,7 +3,6 @@ import * as buffModel from './operatorDraftBuffModel';
 import {
   SKILL1_OPTIONS,
   SKILL2_OPTIONS,
-  WEAPON_BUFF_TYPE_OPTIONS,
 } from './weaponDraftCatalog';
 import {
   EFFECT_CATEGORY_OPTIONS,
@@ -30,7 +29,7 @@ export interface WeaponFormulaBinding {
   inputMode: 'text' | 'number';
   value: string;
   placeholder: string;
-  control?: 'input' | 'select' | 'search-select' | 'image-search-select';
+  control?: 'input' | 'select' | 'image-search-select';
   readOnly?: boolean;
   options?: Array<{ value: string; label: string }>;
   onValueChange?: (value: string) => void;
@@ -170,10 +169,6 @@ export function buildWeaponFormulaBinding(
         : skillKey === 'skill2'
           ? SKILL2_OPTIONS.map((value) => ({ value, label: value }))
           : null;
-      const buffTypeOptions = [
-        { value: '', label: '未设置类型' },
-        ...WEAPON_BUFF_TYPE_OPTIONS.map((value) => ({ value, label: getBuffTypeDisplayLabel(value) })),
-      ];
       if (
         selectedWorkbookCell?.columnKey === 'name'
         || selectedWorkbookCell?.columnKey === 'idText'
@@ -322,30 +317,10 @@ export function buildWeaponFormulaBinding(
             key: `${skillKey}:effect:${sourceEffectKey}:buff-type`,
             focusId: 'effect-buff-type',
             inputMode: 'text',
-            control: 'search-select',
-            value: draft.skills[skillKey].effects[sourceEffectKey]?.type ?? '',
+            readOnly: true,
+            value: getBuffTypeDisplayLabel(draft.skills[skillKey].effects[sourceEffectKey]?.type ?? ''),
             placeholder: '',
-            options: buffTypeOptions,
-            apply: (baseDraft, rawInput) => {
-              const trimmed = rawInput.trim();
-              const nextEffects = { ...baseDraft.skills[skillKey].effects };
-              if (nextEffects[sourceEffectKey]) {
-                nextEffects[sourceEffectKey] = {
-                  ...nextEffects[sourceEffectKey],
-                  type: trimmed,
-                };
-              }
-              return {
-                ...baseDraft,
-                skills: {
-                  ...baseDraft.skills,
-                  [skillKey]: {
-                    ...baseDraft.skills[skillKey],
-                    effects: nextEffects,
-                  },
-                },
-              };
-            },
+            apply: (baseDraft) => baseDraft,
           };
         }
         return {

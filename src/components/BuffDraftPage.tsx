@@ -15,15 +15,11 @@ import {
   BUFF_CATEGORY_LABELS,
   BUFF_CATEGORY_OPTIONS,
   BUFF_EFFECT_KIND_OPTIONS,
-  BUFF_TYPE_LABELS,
-  BUFF_TYPE_OPTIONS,
-  MULTIPLIER_SUPPORTED_BUFF_TYPES,
   getEffectKindLabel,
 } from './buffDraftCatalog';
 import {
   applyBuffCategory,
   applyBuffEffectKind,
-  applyBuffType,
   applyDrawerEffectToBuffSheet,
   buffSheetEffectToDrawer,
   buildBuffSheetRows,
@@ -36,7 +32,6 @@ import {
   createEmptyBuffDraft,
   formatBuffExplorerDragKindLabel,
   getBuffEffectMultiplier,
-  getBuffTypeDisplayLabel,
   getNextDraftId,
   getNextEffectKey,
   getNextItemKey,
@@ -46,7 +41,6 @@ import {
   reorderDraftStructure,
   setBuffMaxStacks,
   setBuffMultiplierCoefficient,
-  setBuffMultiplierEnabled,
   type BuffDraft,
   type BuffExplorerDragNode,
   type BuffEffectDraft,
@@ -140,7 +134,6 @@ export function BuffDraftSheetPage() {
   const [undoSnapshots, setUndoSnapshots] = useState<BuffUndoSnapshot[]>([]);
   const [isUndoMenuOpen, setIsUndoMenuOpen] = useState(false);
   const [filterKeyword, setFilterKeyword] = useState('');
-  const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [collapsedItems, setCollapsedItems] = useState<Record<string, boolean>>({});
   const [collapsedDraftIds, setCollapsedDraftIds] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
@@ -507,20 +500,6 @@ export function BuffDraftSheetPage() {
   const drawerEffect = buffDrawerTarget
     ? draft.items[buffDrawerTarget.itemKey]?.effects[buffDrawerTarget.effectKey] ?? null
     : null;
-  const filteredBuffTypeOptions = useMemo(() => {
-    const keyword = buffTypeQuery.trim().toLowerCase();
-    const options = getBuffEffectMultiplier(selectedEffect ?? {})
-      ? BUFF_TYPE_OPTIONS.filter((option) => MULTIPLIER_SUPPORTED_BUFF_TYPES.includes(option))
-      : BUFF_TYPE_OPTIONS;
-    if (!keyword) {
-      return options;
-    }
-    return options.filter((option) => {
-      const meta = BUFF_TYPE_LABELS[option];
-      const haystack = [option, meta.label, ...meta.keywords].join('|').toLowerCase();
-      return haystack.includes(keyword);
-    });
-  }, [buffTypeQuery, selectedEffect]);
 
   useEffect(() => {
     if (!selectedEffect || selectedEffect.effectKind === 'extraHit') {
@@ -1017,41 +996,7 @@ export function BuffDraftSheetPage() {
             </select>
           );
         case 'typeLabel':
-          return (
-            <div className="buff-sheet-formula-type-editor">
-              <input
-                data-formula-focus-id="effect-type-search"
-                className="buff-sheet-formula-input buff-sheet-formula-type-search"
-                value={buffTypeQuery}
-                onChange={(event) => setBuffTypeQuery(event.target.value)}
-                placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
-                disabled={selectedEffect.effectKind === 'extraHit'}
-              />
-              <select
-                data-formula-focus-id="effect-type-select"
-                className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
-                value={selectedEffect.type || ''}
-                onChange={(event) => updateSelectedEffect((prev) => applyBuffType(prev, event.target.value))}
-                disabled={selectedEffect.effectKind === 'extraHit'}
-              >
-                <option value="">暂无类型</option>
-                {filteredBuffTypeOptions.map((option) => (
-                  <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
-                ))}
-              </select>
-              {selectedEffect.effectKind !== 'extraHit' && (
-                <label className="buff-sheet-formula-inline-toggle">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(getBuffEffectMultiplier(selectedEffect))}
-                    disabled={normalizeBuffCategory(selectedEffect.category) === 'countable'}
-                    onChange={(event) => updateSelectedEffect((prev) => setBuffMultiplierEnabled(prev, event.target.checked))}
-                  />
-                  乘算
-                </label>
-              )}
-            </div>
-          );
+          return <div className="damage-sheet-formula-value">{selectedWorkbookSummary.typeLabel}</div>;
         case 'valueText':
           return (
             <input

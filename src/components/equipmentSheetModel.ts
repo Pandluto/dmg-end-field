@@ -237,6 +237,12 @@ export const BUFF_TYPE_LABELS: Record<string, string> = {
   natureResistanceIgnore: '无视自然抗性',
 };
 
+export function getEquipmentBuffTypeDisplayLabel(typeKey: string) {
+  const normalizedTypeKey = typeKey.trim();
+  if (!normalizedTypeKey) return '未映射';
+  return `${BUFF_TYPE_LABELS[normalizedTypeKey] || normalizedTypeKey} · ${normalizedTypeKey}`;
+}
+
 export const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSINESS_TYPES.map((value) => ({
   value,
   label: value === 'passive'

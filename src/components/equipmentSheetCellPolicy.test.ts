@@ -15,7 +15,6 @@ const expected = {
   threePieceBuff: {
     name: ['text', true],
     field: ['select', false],
-    effectKey: ['search-select', true],
     valueText: ['number', true],
     description: ['text', true],
   },
@@ -56,15 +55,5 @@ for (const rowKind of Object.keys(expected) as RowKind[]) {
     }, `${rowKind}.${columnKey} policy drifted`);
   }
 }
-
-assert.deepEqual(
-  getEquipmentSheetCellPolicy('threePieceBuff', 'effectKey', { effectKind: 'extraHit' }),
-  {
-    editable: false,
-    clearable: false,
-    control: 'readonly',
-  },
-  'extra-hit damage/skill summary must be dynamically read-only',
-);
 
 console.log('Equipment sheet cell edit/clear/control policy contract: PASS');

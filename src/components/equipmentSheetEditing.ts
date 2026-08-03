@@ -456,6 +456,7 @@ export function applyCellValueToLibrary(
     }));
   }
   if (row.kind === 'threePieceBuff') {
+    if (columnKey === 'effectKey') return library;
     return updateLibrarySet(library, row.gearSetId, (gearSet) => {
       const current = gearSet.threePieceBuffs?.[row.effectId] || {
         effectId: row.effectId,
@@ -491,7 +492,7 @@ export function applyCellValueToLibrary(
             ...current,
             name: columnKey === 'name' ? rawValue : current.name,
             category: current.category,
-            typeKey: nextEffectKind === 'extraHit' ? '' : columnKey === 'effectKey' ? rawValue : current.typeKey,
+            typeKey: nextEffectKind === 'extraHit' ? '' : current.typeKey,
             value: nextEffectKind === 'extraHit' ? 0 : columnKey === 'valueText' ? normalizeNumber(rawValue, current.value) : current.value,
             raw: columnKey === 'description' ? rawValue : current.raw,
             effectKind: nextEffectKind,
@@ -499,7 +500,6 @@ export function applyCellValueToLibrary(
               ? {
                   extraHitConfig: normalizeExtraHitConfig({
                     ...current.extraHitConfig,
-                    ...(columnKey === 'effectKey' ? { damageType: rawValue } : {}),
                     ...(columnKey === 'valueText' ? { baseMultiplier: normalizeNumber(rawValue, current.extraHitConfig?.baseMultiplier) } : {}),
                   }, `${row.effectId}-extra-hit`),
                 }

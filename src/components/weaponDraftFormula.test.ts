@@ -152,10 +152,10 @@ assert.ok(effectCategory.options?.some((option) => option.value === 'countable')
 assert.equal(effectCategory.apply(draft, 'condition').skills.skill3.effects.fixed.category, 'condition');
 
 const effectType = binding('effect-skill3-effect-fixed', 'effectKey');
-assert.equal(effectType.control, 'search-select');
-assert.equal(effectType.value, 'physicalDmgBonus');
-assert.ok(effectType.options?.some((option) => option.value === 'magicDmgBonus'));
-assert.equal(effectType.apply(draft, ' magicDmgBonus ').skills.skill3.effects.fixed.type, 'magicDmgBonus');
+assert.equal(effectType.control, undefined);
+assert.equal(effectType.readOnly, true);
+assert.equal(effectType.value, '物理伤害加成 · physicalDmgBonus');
+assert.strictEqual(effectType.apply(draft, 'magicDmgBonus'), draft);
 
 const extraHitType = binding('effect-skill3-effect-extra', 'effectKey');
 assert.equal(extraHitType.readOnly, true);

@@ -1,6 +1,7 @@
 import {
   getEffectEntries,
   getEquipmentBuffBusinessType,
+  getEquipmentBuffTypeDisplayLabel,
   getGearSets,
   getSortedEquipments,
   LEVEL_KEYS,
@@ -186,7 +187,7 @@ export function buildRows(library: EquipmentLibrary): EquipmentRow[] {
         level: '3件',
         effectKey: threePieceBuff.effectKind === 'extraHit'
           ? `${threePieceBuff.extraHitConfig?.damageType || 'physical'} / ${threePieceBuff.extraHitConfig?.skillType || '空'}`
-          : threePieceBuff.typeKey,
+          : getEquipmentBuffTypeDisplayLabel(threePieceBuff.typeKey),
         valueText: String(threePieceBuff.effectKind === 'extraHit' ? threePieceBuff.extraHitConfig?.baseMultiplier ?? 1 : threePieceBuff.value),
         description: threePieceBuff.raw || '',
       });

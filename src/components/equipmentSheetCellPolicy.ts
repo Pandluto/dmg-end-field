@@ -17,10 +17,6 @@ export interface EquipmentSheetCellPolicy {
   control: EquipmentSheetCellControl;
 }
 
-export interface EquipmentSheetCellPolicyContext {
-  effectKind?: 'modifier' | 'extraHit';
-}
-
 type RowKind = EquipmentRow['kind'];
 type ColumnKey = EquipmentSheetColumn['key'];
 
@@ -34,7 +30,6 @@ const EDIT_CONTROLS: Record<RowKind, Partial<Record<ColumnKey, EquipmentSheetCel
   threePieceBuff: {
     name: 'text',
     field: 'select',
-    effectKey: 'search-select',
     valueText: 'number',
     description: 'text',
   },
@@ -66,19 +61,7 @@ const NOT_CLEARABLE = new Set<string>([
 export function getEquipmentSheetCellPolicy(
   rowKind: RowKind,
   columnKey: ColumnKey,
-  context: EquipmentSheetCellPolicyContext = {},
 ): EquipmentSheetCellPolicy {
-  if (
-    rowKind === 'threePieceBuff'
-    && columnKey === 'effectKey'
-    && context.effectKind === 'extraHit'
-  ) {
-    return {
-      editable: false,
-      clearable: false,
-      control: 'readonly',
-    };
-  }
   const control = EDIT_CONTROLS[rowKind][columnKey] ?? 'readonly';
   const editable = control !== 'readonly';
   return {

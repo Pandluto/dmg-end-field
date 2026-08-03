@@ -933,13 +933,10 @@ export function EquipmentSheetPage() {
       }
       return;
     }
-    const effectKind = row.kind === 'threePieceBuff'
-      ? library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind
-      : undefined;
-    if (getEquipmentSheetCellPolicy(row.kind, columnKey, { effectKind }).clearable) {
+    if (getEquipmentSheetCellPolicy(row.kind, columnKey).clearable) {
       updateCellValue(row, columnKey, '');
     }
-  }, [library.gearSets, selectedCell, selectedWorkbookRow, updateCellValue]);
+  }, [selectedCell, selectedWorkbookRow, updateCellValue]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -1170,10 +1167,7 @@ export function EquipmentSheetPage() {
 
   const renderEditableCell = (row: EquipmentWorkbookRow, cell: EquipmentWorkbookCell) => {
     const sourceRow = row.sourceRow;
-    const effectKind = sourceRow.kind === 'threePieceBuff'
-      ? library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind
-      : undefined;
-    const cellPolicy = getEquipmentSheetCellPolicy(sourceRow.kind, cell.columnKey, { effectKind });
+    const cellPolicy = getEquipmentSheetCellPolicy(sourceRow.kind, cell.columnKey);
     if (!cellPolicy.editable) {
       return cell.value;
     }
@@ -1191,15 +1185,11 @@ export function EquipmentSheetPage() {
         { value: 'ability', label: '能力值' },
         { value: 'buff', label: 'Buff类型' },
       ];
-    } else if (cellPolicy.control === 'search-select' && (sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff')) {
-      const typeOptions = sourceRow.kind === 'effect'
-        ? (() => {
-            const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
-            const effect = equipment?.effects[sourceRow.effectId];
-            return equipment && effect
-              ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category, getEquipmentEffectShape(equipment))
-              : BUFF_TYPE_OPTIONS;
-          })()
+    } else if (cellPolicy.control === 'search-select' && sourceRow.kind === 'effect') {
+      const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
+      const effect = equipment?.effects[sourceRow.effectId];
+      const typeOptions = equipment && effect
+        ? getEquipmentEffectTypeOptions(equipment.part, sourceRow.effectId, effect.category, getEquipmentEffectShape(equipment))
         : BUFF_TYPE_OPTIONS;
       selectOptions = [
         { value: '', label: '未映射' },

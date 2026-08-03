@@ -18,21 +18,18 @@ import {
   ATTACK_GROWTH_MILESTONE_KEYS,
   LEVEL_KEYS,
   SKILL_KEYS,
-  WEAPON_BUFF_TYPE_OPTIONS,
   type WeaponSkillKey,
 } from './weaponDraftCatalog';
 import {
   applyAttackGrowthInterpolation,
   applyEffectLevelsInterpolation,
   applyWeaponDrawerEffect,
-  buildBuffTypeSearchText,
   buildNextCustomWeaponId,
   buildSearchIndex,
   buildWeaponEffectLevelsRowKey,
   buildWeaponSheetRows,
   cloneValue,
   createEmptyWeaponDraft,
-  getBuffTypeDisplayLabel,
   normalizeWeaponDraft,
   projectWeaponEffectForLevel,
   reorderWeaponDraft,
@@ -190,7 +187,6 @@ export function WeaponDraftSheetPage() {
   const [imageAssetsError, setImageAssetsError] = useState('');
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
   const [filterKeyword, setFilterKeyword] = useState('');
-  const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [weaponImageQuery, setWeaponImageQuery] = useState('');
   const [isWeaponImageDrawerOpen, setIsWeaponImageDrawerOpen] = useState(false);
   const [weaponImageLoadFailed, setWeaponImageLoadFailed] = useState(false);
@@ -249,13 +245,6 @@ export function WeaponDraftSheetPage() {
     return structuralRows;
   }, [activeDraftId, collapsedLevels, collapsedSkills, rows]);
   const workbookRows = useMemo(() => buildWeaponWorkbookRows(draft, visibleRows, columns), [columns, draft, visibleRows]);
-  const filteredBuffTypeOptions = useMemo(() => {
-    const keyword = buffTypeQuery.trim().toLowerCase();
-    if (!keyword) {
-      return WEAPON_BUFF_TYPE_OPTIONS;
-    }
-    return WEAPON_BUFF_TYPE_OPTIONS.filter((option) => buildBuffTypeSearchText(option).toLowerCase().includes(keyword));
-  }, [buffTypeQuery]);
   const weaponImageOptions = useMemo(
     () => imageAssets.map(buildWeaponImageOption).filter((option): option is WeaponImageOption => option !== null),
     [imageAssets],
@@ -316,7 +305,6 @@ export function WeaponDraftSheetPage() {
   }, []);
 
   useEffect(() => {
-    setBuffTypeQuery('');
     setWeaponImageQuery(formulaBinding?.control === 'image-search-select' ? (formulaBinding.value ?? '') : '');
     setIsWeaponImageDrawerOpen(false);
   }, [formulaBinding?.control, formulaBinding?.key, formulaBinding?.value]);
@@ -1038,40 +1026,6 @@ export function WeaponDraftSheetPage() {
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
-      );
-    }
-
-    if (formulaBinding.control === 'search-select') {
-      return (
-        <div className="buff-sheet-formula-type-editor">
-          <input
-            data-formula-focus-id={`${formulaBinding.focusId}-search`}
-            className="buff-sheet-formula-input buff-sheet-formula-type-search"
-            value={buffTypeQuery}
-            onChange={(event) => setBuffTypeQuery(event.target.value)}
-            placeholder="搜索类型：法术 / 异伤 / 倍率 / 源石技艺"
-          />
-          <select
-            data-formula-focus-id={`${formulaBinding.focusId}-select`}
-            className="buff-sheet-formula-input is-select buff-sheet-formula-type-select"
-            value={formulaBinding.value}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setFormulaInput(nextValue);
-              const nextDraft = normalizeWeaponDraft(formulaBinding.apply(draft, nextValue));
-              if (nextDraft !== draft) {
-                setDraft(nextDraft);
-              }
-            }}
-          >
-            {(formulaBinding.options ?? []).slice(0, 1).map((option) => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-            {filteredBuffTypeOptions.map((option) => (
-              <option key={option} value={option}>{getBuffTypeDisplayLabel(option)}</option>
-            ))}
-          </select>
-        </div>
       );
     }
 

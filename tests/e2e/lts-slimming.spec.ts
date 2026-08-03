@@ -913,6 +913,80 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       .toHaveClass(/is-active/);
   });
 
+  await test.step('duplicate Buff type editors stay retired while ordinary equipment remains editable', async () => {
+    await openRoute(page, '/data/buffs', 'Sheet-Buff');
+    const savedBuff = page.locator('.buff-sheet-explorer-label').filter({ hasText: /^slim e2e buff$/i });
+    await expect(savedBuff).toHaveCount(1);
+    await savedBuff.click();
+    const buffItemRow = page.locator('.damage-sheet-excel-row.is-button').filter({ hasText: '自定义项 01' });
+    await expect(buffItemRow).toHaveCount(1);
+    await buffItemRow.getByRole('button', { name: '[+]', exact: true }).click();
+    const buffEffectRow = page.locator('.damage-sheet-excel-row.is-data');
+    await expect(buffEffectRow).toHaveCount(1);
+    await buffEffectRow.dblclick();
+    const buffDialog = page.getByRole('dialog', { name: 'Buff 编辑器' });
+    await buffDialog.getByRole('combobox', { name: 'typeKey' }).selectOption('fireFragile');
+    await buffDialog.getByRole('button', { name: '关闭', exact: true }).click();
+    const buffTypeCell = buffEffectRow.locator('.damage-sheet-excel-cell').nth(4);
+    await expect(buffTypeCell).toHaveText('灼热易伤 · fireFragile');
+    await buffTypeCell.click();
+    await expect(page.locator('.damage-sheet-formula-bar .buff-sheet-formula-type-search')).toHaveCount(0);
+    await expect(page.locator('.damage-sheet-formula-bar select')).toHaveCount(0);
+    await expect(page.locator('.damage-sheet-formula-bar .damage-sheet-formula-value')).toHaveText(
+      '灼热易伤 · fireFragile',
+    );
+
+    await openRoute(page, '/data/weapons', 'Sheet-Weapon');
+    const importedWeapon = page.locator('.buff-sheet-explorer-label').filter({
+      hasText: /^Slim Imported Weapon$/,
+    });
+    await expect(importedWeapon).toHaveCount(1);
+    await importedWeapon.click();
+    const weaponEffectRow = page.locator('.weapon-sheet-row-effect').filter({
+      hasText: 'First Weapon Effect',
+    });
+    await expect(weaponEffectRow).toHaveCount(1);
+    await weaponEffectRow.dblclick();
+    const weaponDialog = page.getByRole('dialog', { name: 'Buff 编辑器' });
+    await weaponDialog.getByRole('combobox', { name: 'typeKey' }).selectOption('fireVulnerability');
+    await weaponDialog.getByRole('button', { name: '关闭', exact: true }).click();
+    const weaponTypeCell = weaponEffectRow.locator('.damage-sheet-excel-cell').nth(4);
+    await expect(weaponTypeCell).toHaveText('灼热脆弱 · fireVulnerability');
+    await weaponTypeCell.click();
+    const weaponFormula = page.locator('.damage-sheet-formula-bar');
+    await expect(weaponFormula.locator('.buff-sheet-formula-type-search')).toHaveCount(0);
+    await expect(weaponFormula.locator('select')).toHaveCount(0);
+    await expect(weaponFormula.locator('input[readonly]')).toHaveValue('灼热脆弱 · fireVulnerability');
+
+    await openRoute(page, '/data/equipments', 'Sheet-Equipment');
+    await page.getByRole('button', { name: /^\[\+\] 旧锋 \d+$/ }).click();
+    const threePieceRow = page.locator(
+      '[data-equipment-row-key="three-piece-buff-gear-set-jiu-feng-effect1"]',
+    );
+    await expect(threePieceRow).toBeVisible();
+    await threePieceRow.dblclick();
+    const equipmentDialog = page.getByRole('dialog', { name: 'Buff 编辑器' });
+    await equipmentDialog.getByRole('combobox', { name: 'typeKey' }).selectOption('fireVulnerability');
+    await equipmentDialog.getByRole('button', { name: '关闭', exact: true }).click();
+    const threePieceTypeCell = threePieceRow.locator('.is-col-effectKey');
+    await expect(threePieceTypeCell).toHaveText('灼热脆弱 · fireVulnerability');
+    await expect(threePieceTypeCell.locator('select')).toHaveCount(0);
+    await threePieceTypeCell.click();
+    const equipmentFormula = page.locator('.damage-sheet-formula-bar');
+    await expect(equipmentFormula.locator('.buff-sheet-formula-type-search')).toHaveCount(0);
+    await expect(equipmentFormula.locator('select')).toHaveCount(0);
+    await expect(equipmentFormula.locator('input[readonly]')).toHaveValue('灼热脆弱 · fireVulnerability');
+
+    await page.getByRole('button', { name: /^\[\+\] 旧锋装甲 护甲$/ }).click();
+    const ordinaryTypeCell = page.locator(
+      '[data-equipment-row-key="effect-gear-set-jiu-feng-equipment-jf-5-effect3"] .is-col-effectKey',
+    );
+    await expect(ordinaryTypeCell.locator('select')).toHaveCount(1);
+    await ordinaryTypeCell.click();
+    await expect(equipmentFormula.locator('.buff-sheet-formula-type-search')).toHaveCount(1);
+    await expect(equipmentFormula.locator('select')).toHaveCount(1);
+  });
+
   await test.step('Operator draft saves through browser storage and survives reload', async () => {
     const operatorImageFileName = 'slim-operator-user-image.png';
     const operatorImageRelativePath = `assets/images/${operatorImageFileName}`;

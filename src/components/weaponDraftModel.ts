@@ -443,14 +443,6 @@ export function buildSearchIndex(values: Array<string | undefined | null>) {
   return [joined, joined.toLowerCase(), fullPinyin, initials].filter(Boolean).join(' | ');
 }
 
-export function buildBuffTypeSearchText(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) {
-    return '';
-  }
-  return buildSearchIndex([trimmed, getBuffTypeLabel(trimmed), getBuffTypeDisplayLabel(trimmed)]);
-}
-
 export function decodeWeaponImageDisplayUrl(url: string) {
   const trimmed = url.trim();
   if (!trimmed) {

@@ -92,6 +92,7 @@ interface DualRunTarget {
   name: 'v1.8-LTS' | 'v1.8-slim';
   baseUrl: string;
   legacyDamageSheet: boolean;
+  legacyThreePieceTypeEditor: boolean;
 }
 
 interface CommonObservation {
@@ -250,6 +251,7 @@ async function observeEditorThemes(
 interface CapabilityObservation {
   damageSheetRoute: boolean;
   xlsxExport: boolean;
+  equipmentThreePieceTypeEditor: boolean;
   tableButton: boolean;
   damageSheetNavigation: boolean;
   fakeCalculationSidebar: boolean;
@@ -377,10 +379,12 @@ async function observeEquipment(page: Page, baseUrl: string): Promise<CommonObse
   await expect(saved).toBeVisible();
   await saved.click();
   await expect(page.locator(`input[value="${nameValue}"]`)).toHaveCount(1);
-  const selectSignatures = await page.locator('select.weapon-sheet-inline-input').evaluateAll((selects) => selects.map((node) => {
-    const select = node as HTMLSelectElement;
-    return `${select.value}::${Array.from(select.options, (option) => `${option.value}=${option.text}`).join('|')}`;
-  }));
+  const selectSignatures = await page.locator('select.weapon-sheet-inline-input').evaluateAll((selects) => selects
+    .filter((node) => !node.closest('[data-equipment-row-key^="three-piece-buff-"] .is-col-effectKey'))
+    .map((node) => {
+      const select = node as HTMLSelectElement;
+      return `${select.value}::${Array.from(select.options, (option) => `${option.value}=${option.text}`).join('|')}`;
+    }));
   expect(selectSignatures.length).toBeGreaterThan(0);
 
   await page.getByRole('button', { name: '导出', exact: true }).click();
@@ -391,6 +395,21 @@ async function observeEquipment(page: Page, baseUrl: string): Promise<CommonObse
     shareType: share.type ?? '',
     selectSignatures,
   };
+}
+
+async function observeEquipmentThreePieceTypeEditor(
+  page: Page,
+  target: DualRunTarget,
+): Promise<boolean> {
+  await openRoute(page, target.baseUrl, '/data/equipments', 'Sheet-Equipment');
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Sheet-Equipment', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^\[\+\] 旧锋 \d+$/ }).click();
+  const typeEditor = page.locator(
+    '[data-equipment-row-key="three-piece-buff-gear-set-jiu-feng-effect1"] .is-col-effectKey select',
+  );
+  await expect(typeEditor).toHaveCount(target.legacyThreePieceTypeEditor ? 1 : 0);
+  return (await typeEditor.count()) === 1;
 }
 
 async function observeOperator(page: Page, baseUrl: string): Promise<CommonObservation['operator']> {
@@ -597,6 +616,10 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
       observeWeapon(page, target.baseUrl));
     const equipment = await test.step(`${target.name}: Equipment save/reload/share`, () =>
       observeEquipment(page, target.baseUrl));
+    const equipmentThreePieceTypeEditor = await test.step(
+      `${target.name}: Equipment three-piece duplicate type editor`,
+      () => observeEquipmentThreePieceTypeEditor(page, target),
+    );
     const operator = await test.step(`${target.name}: Operator save/reload/share`, () =>
       observeOperator(page, target.baseUrl));
     const timelineResult = await test.step(`${target.name}: Timeline/detail/report/config/batch`, () =>
@@ -615,6 +638,7 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
       },
       capabilities: {
         ...legacy,
+        equipmentThreePieceTypeEditor,
         ...timelineResult.capabilities,
       },
       browserErrors,
@@ -627,8 +651,18 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
 test('v1.8-LTS and v1.8-slim share one black-box contract', async ({ browser }, testInfo) => {
   test.setTimeout(300_000);
   const targets: DualRunTarget[] = [
-    { name: 'v1.8-LTS', baseUrl: LTS_BASE_URL, legacyDamageSheet: true },
-    { name: 'v1.8-slim', baseUrl: SLIM_BASE_URL, legacyDamageSheet: false },
+    {
+      name: 'v1.8-LTS',
+      baseUrl: LTS_BASE_URL,
+      legacyDamageSheet: true,
+      legacyThreePieceTypeEditor: true,
+    },
+    {
+      name: 'v1.8-slim',
+      baseUrl: SLIM_BASE_URL,
+      legacyDamageSheet: false,
+      legacyThreePieceTypeEditor: false,
+    },
   ];
 
   const baseline = await runTarget(browser, targets[0]);
@@ -641,6 +675,7 @@ test('v1.8-LTS and v1.8-slim share one black-box contract', async ({ browser }, 
   expect(baseline.capabilities).toEqual({
     damageSheetRoute: true,
     xlsxExport: true,
+    equipmentThreePieceTypeEditor: true,
     tableButton: true,
     damageSheetNavigation: true,
     fakeCalculationSidebar: true,
@@ -648,6 +683,7 @@ test('v1.8-LTS and v1.8-slim share one black-box contract', async ({ browser }, 
   expect(slim.capabilities).toEqual({
     damageSheetRoute: false,
     xlsxExport: false,
+    equipmentThreePieceTypeEditor: false,
     tableButton: false,
     damageSheetNavigation: false,
     fakeCalculationSidebar: false,

@@ -274,12 +274,10 @@ assert.equal(
 );
 
 const threePieceType = binding(threePieceRowKey, 'effectKey');
-assert.equal(threePieceType.control, 'search-select');
-assert.ok(threePieceType.options?.some((option) => option.value === 'strengthBoost'));
-assert.equal(
-  threePieceType.apply(library, 'strengthBoost').gearSets['gear-set-formula'].threePieceBuffs?.effect1.typeKey,
-  'strengthBoost',
-);
+assert.equal(threePieceType.control, undefined);
+assert.equal(threePieceType.readOnly, true);
+assert.equal(threePieceType.value, '物理伤害加成 · physicalDmgBonus');
+assert.strictEqual(threePieceType.apply(library, 'strengthBoost'), library);
 
 const threePieceValue = binding(threePieceRowKey, 'valueText');
 assert.equal(threePieceValue.inputMode, 'number');
@@ -292,7 +290,7 @@ assert.equal(
 
 const extraHitType = binding(extraHitRowKey, 'effectKey');
 assert.equal(extraHitType.readOnly, true);
-assert.equal(extraHitType.key, 'three-piece-buff-gear-set-formula-effect2:effectKey:extra-hit-types');
+assert.equal(extraHitType.key, 'three-piece-buff-gear-set-formula-effect2:effectKey:readonly');
 assert.strictEqual(extraHitType.apply(library, 'ignored'), library);
 
 const header = binding(threePieceHeaderRowKey, 'name');
