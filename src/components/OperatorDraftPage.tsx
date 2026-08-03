@@ -154,26 +154,26 @@ const OPERATOR_BUFF_BUSINESS_TYPE_LABELS: Record<draftBuffModel.OperatorBuffBusi
   extraHit: 'countable extraHit 计层额外伤害段',
 };
 
-type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
-type HitSkillType = SkillButtonType;
+export type SkillButtonType = 'A' | 'B' | 'E' | 'Q' | 'Dot';
+export type HitSkillType = SkillButtonType;
 type SkillTypeFilter = (typeof SKILL_TYPE_FILTERS)[number]['key'];
-type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
-type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
-type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
-type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
-type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
-type OperatorBuffGroupKey = (typeof OPERATOR_BUFF_GROUPS)[number]['key'];
-type OperatorBuffCategory = (typeof OPERATOR_BUFF_CATEGORIES)[number];
-type OperatorBuffValueMode = 'fixed' | 'derived';
-type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
-type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
+export type HitElement = 'physical' | 'fire' | 'ice' | 'electric' | 'nature';
+export type SkillLevelKey = (typeof SKILL_LEVEL_KEYS)[number];
+export type AttributeLevelKey = (typeof ATTRIBUTE_LEVEL_KEYS)[number];
+export type AttributeKey = (typeof ATTRIBUTE_ROWS)[number][0];
+export type AttributeLevels = Record<AttributeKey, Record<AttributeLevelKey, number>>;
+export type OperatorBuffGroupKey = (typeof OPERATOR_BUFF_GROUPS)[number]['key'];
+export type OperatorBuffCategory = (typeof OPERATOR_BUFF_CATEGORIES)[number];
+export type OperatorBuffValueMode = 'fixed' | 'derived';
+export type OperatorBuffDerivedSource = 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
+export type OperatorBuffs = Record<OperatorBuffGroupKey, { effects: Record<string, OperatorBuffEffect> }>;
 
-interface OperatorBuffDerivedValue {
+export interface OperatorBuffDerivedValue {
   source: OperatorBuffDerivedSource;
   perPointValue: number;
 }
 
-interface OperatorBuffEffect {
+export interface OperatorBuffEffect {
   schemaVersion?: 2;
   effectId: string;
   name: string;
@@ -191,7 +191,7 @@ interface OperatorBuffEffect {
   multiplier?: BuffMultiplier;
 }
 
-interface HitMetaDraft {
+export interface HitMetaDraft {
   multiplier?: number;
   displayName: string;
   element: HitElement;
@@ -199,7 +199,7 @@ interface HitMetaDraft {
   levels: Record<SkillLevelKey, number>;
 }
 
-interface SkillDraft {
+export interface SkillDraft {
   displayName: string;
   buttonType: SkillButtonType;
   iconUrl: string;
@@ -207,7 +207,7 @@ interface SkillDraft {
   hitMeta: Record<string, HitMetaDraft>;
 }
 
-interface OperatorDraft {
+export interface OperatorDraft {
   id: string;
   name: string;
   avatarUrl: string;
@@ -228,15 +228,15 @@ function getSkillIndexFromKey(skillKey: string) {
   return matched ? Number(matched[1]) : 1;
 }
 
-function isSkillButtonType(value: unknown): value is SkillButtonType {
+export function isSkillButtonType(value: unknown): value is SkillButtonType {
   return typeof value === 'string' && SKILL_BUTTON_TYPES.includes(value as SkillButtonType);
 }
 
-function buildTypedSkillKey(buttonType: SkillButtonType, index: number) {
+export function buildTypedSkillKey(buttonType: SkillButtonType, index: number) {
   return `skill-${buttonType}-${index}`;
 }
 
-function getSkillFilterKey(skill: SkillDraft): SkillTypeFilter {
+export function getSkillFilterKey(skill: SkillDraft): SkillTypeFilter {
   return isSkillButtonType(skill.buttonType) ? skill.buttonType : 'other';
 }
 
@@ -245,7 +245,7 @@ function getHitIndexFromKey(hitKey: string) {
   return matched ? Number(matched[1]) : 1;
 }
 
-function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
+export function createDefaultHit(hitKey = 'hit1'): HitMetaDraft {
   const hitIndex = getHitIndexFromKey(hitKey);
   return {
     displayName: `第${hitIndex}击`,
@@ -268,11 +268,11 @@ function createDefaultBuffs(): OperatorBuffs {
   return draftBuffModel.createDefaultBuffs();
 }
 
-function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
+export function createDefaultBuffEffect(effectKey = 'effect1'): OperatorBuffEffect {
   return draftBuffModel.createDefaultBuffEffect(effectKey);
 }
 
-function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-A-1'): SkillDraft {
+export function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill-A-1'): SkillDraft {
   const skillIndex = getSkillIndexFromKey(skillKey);
   return {
     displayName: `新技能${skillIndex}`,
@@ -285,7 +285,7 @@ function createDefaultSkill(buttonType: SkillButtonType = 'A', skillKey = 'skill
   };
 }
 
-function createDefaultDraft(): OperatorDraft {
+export function createDefaultDraft(): OperatorDraft {
   return {
     id: 'custom-operator-001',
     name: '新干员',
@@ -305,7 +305,7 @@ function createDefaultDraft(): OperatorDraft {
   };
 }
 
-function createEmptyDraft(nextId = 'custom-operator-001'): OperatorDraft {
+export function createEmptyDraft(nextId = 'custom-operator-001'): OperatorDraft {
   return {
     ...createDefaultDraft(),
     id: nextId,
@@ -345,15 +345,15 @@ function isDraftPath(pathname: string) {
   return pathname === DRAFT_PAGE_PATH;
 }
 
-function cloneDraft<T>(value: T): T {
+export function cloneDraft<T>(value: T): T {
   return JSON.parse(JSON.stringify(value));
 }
 
-function syncHitCount(skill: SkillDraft) {
+export function syncHitCount(skill: SkillDraft) {
   skill.hitCount = Object.keys(skill.hitMeta).length;
 }
 
-function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
+export function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
   const source = rawAttributes && typeof rawAttributes === 'object' ? rawAttributes as Record<string, unknown> : {};
   return Object.fromEntries(
     ATTRIBUTE_ROWS.map(([attributeKey]) => {
@@ -373,19 +373,19 @@ function normalizeAttributeLevels(rawAttributes: unknown): AttributeLevels {
   ) as AttributeLevels;
 }
 
-function validateRawDraftBuffMultipliers(rawDraft: Partial<OperatorDraft>) {
+export function validateRawDraftBuffMultipliers(rawDraft: Partial<OperatorDraft>) {
   draftBuffModel.validateRawDraftBuffMultipliers(rawDraft);
 }
 
-function validateDraftBuffEffects(draft: OperatorDraft) {
+export function validateDraftBuffEffects(draft: OperatorDraft) {
   return draftBuffModel.validateDraftBuffEffects(draft);
 }
 
-function normalizeBuffs(rawBuffs: unknown): OperatorBuffs {
+export function normalizeBuffs(rawBuffs: unknown): OperatorBuffs {
   return draftBuffModel.normalizeBuffs(rawBuffs);
 }
 
-function normalizeDraft(value: OperatorDraft) {
+export function normalizeDraft(value: OperatorDraft) {
   value.attributes = normalizeAttributeLevels(value.attributes);
   value.buffs = normalizeBuffs(value.buffs);
   Object.entries(value.skills).forEach(([skillKey, skill]) => {
@@ -407,7 +407,7 @@ function normalizeDraft(value: OperatorDraft) {
   return value;
 }
 
-function parseImportedDraft(rawText: string) {
+export function parseImportedDraft(rawText: string) {
   const parsed = JSON.parse(rawText) as Partial<OperatorDraft>;
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('JSON 根节点必须是对象');
@@ -419,7 +419,7 @@ function parseImportedDraft(rawText: string) {
   return normalizeDraft(parsed as OperatorDraft);
 }
 
-function getNextSkillKeyByType(draft: OperatorDraft, buttonType: SkillButtonType) {
+export function getNextSkillKeyByType(draft: OperatorDraft, buttonType: SkillButtonType) {
   let index = 1;
   while (draft.skills[buildTypedSkillKey(buttonType, index)]) {
     index += 1;
@@ -427,7 +427,7 @@ function getNextSkillKeyByType(draft: OperatorDraft, buttonType: SkillButtonType
   return buildTypedSkillKey(buttonType, index);
 }
 
-function getNextDraftId(existingIds: string[]) {
+export function getNextDraftId(existingIds: string[]) {
   let index = 1;
   while (existingIds.includes(`custom-operator-${String(index).padStart(3, '0')}`)) {
     index += 1;
@@ -435,7 +435,7 @@ function getNextDraftId(existingIds: string[]) {
   return `custom-operator-${String(index).padStart(3, '0')}`;
 }
 
-function getNextHitKey(skill: SkillDraft) {
+export function getNextHitKey(skill: SkillDraft) {
   let index = 1;
   while (skill.hitMeta[`hit${index}`]) {
     index += 1;
@@ -443,7 +443,7 @@ function getNextHitKey(skill: SkillDraft) {
   return `hit${index}`;
 }
 
-function getNextBuffEffectKey(effects: Record<string, OperatorBuffEffect>) {
+export function getNextBuffEffectKey(effects: Record<string, OperatorBuffEffect>) {
   let index = 1;
   while (effects[`effect${index}`]) {
     index += 1;
@@ -451,14 +451,14 @@ function getNextBuffEffectKey(effects: Record<string, OperatorBuffEffect>) {
   return `effect${index}`;
 }
 
-function syncSkillOrderWithDraft(skillOrder: string[], draft: OperatorDraft) {
+export function syncSkillOrderWithDraft(skillOrder: string[], draft: OperatorDraft) {
   const keys = Object.keys(draft.skills);
   const filtered = skillOrder.filter((key) => keys.includes(key));
   const missing = keys.filter((key) => !filtered.includes(key));
   return [...filtered, ...missing];
 }
 
-function moveSkillKey(skillOrder: string[], fromKey: string, toKey: string) {
+export function moveSkillKey(skillOrder: string[], fromKey: string, toKey: string) {
   if (fromKey === toKey) {
     return skillOrder;
   }
@@ -475,7 +475,7 @@ function moveSkillKey(skillOrder: string[], fromKey: string, toKey: string) {
   return nextOrder;
 }
 
-function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
+export function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
   const nextSkills: Record<string, SkillDraft> = {};
   const nextOrder = syncSkillOrderWithDraft(skillOrder, draft);
   nextOrder.forEach((skillKey) => {
@@ -487,7 +487,7 @@ function buildOrderedDraft(draft: OperatorDraft, skillOrder: string[]) {
   };
 }
 
-function reorderDraftStructure(draft: OperatorDraft) {
+export function reorderDraftStructure(draft: OperatorDraft) {
   const nextSkills: Record<string, SkillDraft> = {};
   const skillKeyMap: Record<string, string> = {};
   const nextTypeIndexes: Record<SkillButtonType, number> = {
