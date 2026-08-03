@@ -52,6 +52,10 @@ import {
   buildEquipmentFormulaBinding,
   type EquipmentFormulaBinding,
 } from './equipmentSheetFormula';
+import {
+  buildEquipmentImagePreviewPresentation,
+  getEquipmentImageOptionSource,
+} from './equipmentSheetImagePreview';
 import { createEquipmentLibraryRepository } from './equipmentSheetPersistence';
 import {
   buildEquipmentLibraryShareFile,
@@ -142,7 +146,7 @@ function buildEquipmentImageAssetUrl(entry: ImageAssetEntry) {
 function buildEquipmentImageOption(entry: ImageAssetEntry): EquipmentImageOption | null {
   if (entry.kind === 'dir') return null;
   const displayUrl = buildEquipmentImageAssetUrl(entry);
-  const source = entry.source === 'release' || entry.source === 'user' ? 'user' : 'builtin';
+  const source = getEquipmentImageOptionSource(entry.source);
   return {
     key: entry.relativePath,
     fileName: entry.fileName,
@@ -226,7 +230,7 @@ export function EquipmentSheetPage() {
   const [formulaInput, setFormulaInput] = useState('');
   const [buffTypeQuery, setBuffTypeQuery] = useState('');
   const [imageAssets, setImageAssets] = useState<ImageAssetEntry[]>([]);
-  const [imageAssetsLoading, setImageAssetsLoading] = useState(false);
+  const [imageAssetsLoading, setImageAssetsLoading] = useState(true);
   const [imageAssetsError, setImageAssetsError] = useState('');
   const [equipmentImageQuery, setEquipmentImageQuery] = useState('');
   const [isEquipmentImageDrawerOpen, setIsEquipmentImageDrawerOpen] = useState(false);
@@ -371,6 +375,16 @@ export function EquipmentSheetPage() {
       alt: equipment?.name || '装备配图',
     };
   }, [library.gearSets, selectedRow]);
+  const previewImageUrl = useMemo(
+    () => normalizeAssetUrl(previewImageMeta.imgUrl),
+    [imageAssets, previewImageMeta.imgUrl],
+  );
+  const previewImagePresentation = buildEquipmentImagePreviewPresentation({
+    storedReference: previewImageMeta.imgUrl,
+    resolvedUrl: previewImageUrl,
+    imageLibraryLoading: imageAssetsLoading,
+    loadFailed: equipmentImageLoadFailed,
+  });
   const equipmentImageOptions = useMemo(
     () => imageAssets.map(buildEquipmentImageOption).filter((option): option is EquipmentImageOption => option !== null),
     [imageAssets],
@@ -860,7 +874,7 @@ export function EquipmentSheetPage() {
 
   useEffect(() => {
     setEquipmentImageLoadFailed(false);
-  }, [previewImageMeta.imgUrl]);
+  }, [previewImageUrl]);
 
   const buildLibraryWithCommittedFormulaInput = useCallback((baseLibrary: EquipmentLibrary) => {
     if (!formulaBinding || formulaBinding.readOnly || formulaInput === formulaBinding.value) {
@@ -1487,20 +1501,22 @@ export function EquipmentSheetPage() {
           </button>
         </div>
 
-        <div className={`weapon-sheet-image-slot${previewImageMeta.imgUrl ? ' has-image' : ''}${equipmentImageLoadFailed ? ' is-broken' : ''}`} title={previewImageMeta.title}>
+        <div className={`weapon-sheet-image-slot${previewImagePresentation.hasStoredImage ? ' has-image' : ''}${previewImagePresentation.showFailure ? ' is-broken' : ''}`} title={previewImageMeta.title}>
           <div className="weapon-sheet-image-slot-square">
-            {previewImageMeta.imgUrl && !equipmentImageLoadFailed ? (
+            {previewImagePresentation.renderImage ? (
               <img
                 className="weapon-sheet-image-preview"
-                src={normalizeAssetUrl(previewImageMeta.imgUrl)}
+                src={previewImagePresentation.imageUrl}
                 alt={previewImageMeta.alt}
+                hidden={previewImagePresentation.showFailure}
+                onLoad={() => setEquipmentImageLoadFailed(false)}
                 onError={() => setEquipmentImageLoadFailed(true)}
               />
             ) : null}
-            {previewImageMeta.imgUrl && equipmentImageLoadFailed ? (
+            {previewImagePresentation.showFailure ? (
               <span className="weapon-sheet-image-fallback">加载失败</span>
             ) : null}
-            {!previewImageMeta.imgUrl ? (
+            {previewImagePresentation.showEmpty ? (
               <span className="weapon-sheet-image-fallback">主图</span>
             ) : null}
           </div>
