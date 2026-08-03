@@ -680,12 +680,14 @@ function productFormula(refs: string[]): string {
   return refs.length > 0 ? `PRODUCT(${refs.join(',')})` : '1';
 }
 
-function structuredZoneFormula(
+function nonSkillStructuredZoneFormula(
   baseValue: number,
   additiveRefs: string[],
   multiplierRefs: string[],
 ): string {
-  return `${productFormula(multiplierRefs)}*(${additiveFormula(baseValue, additiveRefs)})`;
+  // Non-skill zones keep their base value outside the Buff multiplier.
+  // Runtime parity: base + additiveTotal * multiplierProduct.
+  return `${baseValue}+(${sumFormula(additiveRefs)})*${productFormula(multiplierRefs)}`;
 }
 
 function getElementDamageBonusTypes(element: string | undefined): string[] {
@@ -1104,7 +1106,7 @@ function addHitSheet(
       baseAllDamageBonus,
       {
         formula: structuredDamageBonus
-          ? structuredZoneFormula(
+          ? nonSkillStructuredZoneFormula(
             1 + baseElementBonus + baseSkillBonus + baseAllDamageBonus,
             damageBonusContributionRefs?.additiveRefs ?? [],
             damageBonusContributionRefs?.multiplierRefs ?? [],
@@ -1119,19 +1121,19 @@ function addHitSheet(
       },
       {
         formula: structuredAmplify
-          ? structuredZoneFormula(1, amplifyContributionRefs?.additiveRefs ?? [], amplifyContributionRefs?.multiplierRefs ?? [])
+          ? nonSkillStructuredZoneFormula(1, amplifyContributionRefs?.additiveRefs ?? [], amplifyContributionRefs?.multiplierRefs ?? [])
           : legacyAmplifyFormula === '0' ? '1' : `1+${legacyAmplifyFormula}`,
         result: structuredAmplify?.finalValue ?? 1 + result.zones.amplifyRate,
       },
       {
         formula: structuredFragile
-          ? structuredZoneFormula(1, fragileContributionRefs?.additiveRefs ?? [], fragileContributionRefs?.multiplierRefs ?? [])
+          ? nonSkillStructuredZoneFormula(1, fragileContributionRefs?.additiveRefs ?? [], fragileContributionRefs?.multiplierRefs ?? [])
           : legacyFragileFormula === '0' ? '1' : `1+${legacyFragileFormula}`,
         result: structuredFragile?.finalValue ?? 1 + result.zones.fragileRate,
       },
       {
         formula: structuredVulnerability
-          ? structuredZoneFormula(1, vulnerabilityContributionRefs?.additiveRefs ?? [], vulnerabilityContributionRefs?.multiplierRefs ?? [])
+          ? nonSkillStructuredZoneFormula(1, vulnerabilityContributionRefs?.additiveRefs ?? [], vulnerabilityContributionRefs?.multiplierRefs ?? [])
           : legacyVulnerabilityFormula === '0' ? '1' : `1+${legacyVulnerabilityFormula}`,
         result: structuredVulnerability?.finalValue ?? 1 + result.zones.vulnerabilityRate,
       },
