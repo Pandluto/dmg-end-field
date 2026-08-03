@@ -686,6 +686,55 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(savedOption).toHaveText('slim-e2e-operator · Slim E2E Operator');
     await page.reload();
     await expect(savedOption).toHaveText('slim-e2e-operator · Slim E2E Operator');
+
+    await page.getByRole('button', { name: '分享库', exact: true }).click();
+    const operatorShareModal = page.locator('.operator-draft-share-modal');
+    const operatorSharePreview = operatorShareModal.locator('.operator-draft-share-textarea');
+    const currentOperatorShare = JSON.parse(await operatorSharePreview.inputValue()) as {
+      type: string;
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(currentOperatorShare.type).toBe('operator-library-share.v1');
+    const sourceOperatorDraft = currentOperatorShare.payload['slim-e2e-operator'];
+    expect(sourceOperatorDraft).toBeTruthy();
+
+    const operatorShareFileChooserPromise = page.waitForEvent('filechooser');
+    await operatorShareModal.getByRole('button', { name: '导入分享', exact: true }).click();
+    const operatorShareFileChooser = await operatorShareFileChooserPromise;
+    await operatorShareFileChooser.setFiles({
+      name: 'slim-operator-share.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify({
+        type: 'operator-library-share.v1',
+        exportedAt: Date.now(),
+        label: 'Slim Operator Import',
+        payload: {
+          'slim-imported-operator': {
+            ...sourceOperatorDraft,
+            id: 'inner-id-must-lose',
+            name: 'Slim Imported Operator',
+          },
+        },
+      })),
+    });
+    await expect(page.getByRole('heading', { name: '确认导入干员分享', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '确认导入', exact: true }).click();
+
+    const importedOperatorOption = localDrafts.locator('option[value="slim-imported-operator"]');
+    await expect(importedOperatorOption).toHaveText('slim-imported-operator · Slim Imported Operator');
+    await expect(localDrafts).toHaveValue('slim-imported-operator');
+
+    await page.getByRole('button', { name: '分享库', exact: true }).click();
+    await operatorShareModal.getByRole('button', { name: '导出全部', exact: true }).click();
+    const allOperatorShare = JSON.parse(await operatorSharePreview.inputValue()) as {
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(allOperatorShare.payload)).toEqual(expect.arrayContaining([
+      'slim-e2e-operator',
+      'slim-imported-operator',
+    ]));
+    expect(allOperatorShare.payload['slim-imported-operator'].id).toBe('slim-imported-operator');
+    await operatorShareModal.getByRole('button', { name: '关闭', exact: true }).click();
   });
 
   await test.step('SkillButton keeps timeline persistence, detail routing, and theme DOM', async () => {

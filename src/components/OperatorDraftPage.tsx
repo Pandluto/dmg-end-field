@@ -5,10 +5,7 @@ import { buildWeaponSearchIndex, searchWeapons } from '../utils/weaponFuzzySearc
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
-  buildDraftLibraryShareFile,
   buildDraftLibraryShareFileName,
-  parseDraftLibraryShareFile,
-  type DraftLibraryShareFile,
 } from '../utils/draftShare';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import { webImageLibrary } from '../platform/resources/webImageLibrary';
@@ -48,7 +45,6 @@ import {
   getSkillFilterKey,
   moveSkillKey,
   normalizeDraft,
-  parseImportedDraft,
   reorderDraftStructure,
   syncHitCount,
   syncSkillOrderWithDraft,
@@ -65,9 +61,15 @@ import {
   type SkillDraft,
   type SkillTypeFilter,
 } from './operatorDraftPageModel';
+import {
+  buildOperatorDraftLibraryShareFile,
+  mergeOperatorDraftLibraryShare,
+  parseOperatorDraftLibraryShare,
+  resolveOperatorDraftShareSelection,
+  type OperatorDraftLibraryShareFile,
+} from './operatorDraftShare';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
-const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
 const OPERATOR_DRAFT_NAV_LINKS = [
   { label: '主界面', path: APP_ROUTE_PATHS.home },
   { label: '配置页', path: APP_ROUTE_PATHS.operatorConfig },
@@ -258,7 +260,7 @@ export function OperatorDraftPage() {
   const [shareDraftName, setShareDraftName] = useState('');
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [userAssetPathOptions, setUserAssetPathOptions] = useState<string[]>([]);
-  const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
+  const [pendingImportShare, setPendingImportShare] = useState<OperatorDraftLibraryShareFile | null>(null);
   const [isPersistencePending, setIsPersistencePending] = useState(false);
   const persistencePendingRef = useRef(false);
   const latestOrderedDraftRef = useRef<OperatorDraft | null>(null);
@@ -658,29 +660,18 @@ export function OperatorDraftPage() {
     return operatorDraftRepository.loadLibrary();
   };
 
-  const currentShareText = useMemo(() => {
-    const library = readLocalDraftLibrary();
-    let payload: Record<string, OperatorDraft>;
-    if (exportScope === 'current') {
-      payload = draft.id ? { [draft.id]: draft } : {};
-    } else {
-      payload = { ...library };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-    }
-    return JSON.stringify(
-      buildDraftLibraryShareFile(
-        OPERATOR_LIBRARY_SHARE_TYPE,
-        payload,
-        exportScope === 'current' ? draft.name || 'operator' : shareDraftName || draft.name || 'operator-library',
-      ),
-      null,
-      2,
-    );
-  }, [draft, exportScope, shareDraftName]);
+  const currentShareFile = useMemo(
+    () => buildOperatorDraftLibraryShareFile({
+      draft: orderedDraft,
+      library: readLocalDraftLibrary(),
+      scope: exportScope,
+      libraryLabel: shareDraftName,
+    }),
+    [exportScope, localDraftIds, orderedDraft, shareDraftName],
+  );
+  const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
-  const downloadShareFile = (shareFile: DraftLibraryShareFile<OperatorDraft>) => {
+  const downloadShareFile = (shareFile: OperatorDraftLibraryShareFile) => {
     const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
       type: 'application/json;charset=utf-8',
     });
@@ -717,28 +708,13 @@ export function OperatorDraftPage() {
   };
 
   const handleExportLocalLibraryShare = () => {
-    const library = readLocalDraftLibrary();
-    let payload: Record<string, OperatorDraft>;
-    let label: string;
-
-    if (exportScope === 'current') {
-      payload = draft.id ? { [draft.id]: draft } : {};
-      label = draft.name || 'operator';
-    } else {
-      payload = { ...library };
-      if (draft.id) {
-        payload[draft.id] = draft;
-      }
-      label = shareDraftName || draft.name || 'operator-library';
-    }
-
-    const draftCount = Object.keys(payload).length;
+    const shareFile = currentShareFile;
+    const draftCount = Object.keys(shareFile.payload).length;
     if (draftCount === 0) {
       setMessages((prev) => ['[ERR] 当前无可导出内容', ...prev].slice(0, 12));
       return;
     }
 
-    const shareFile = buildDraftLibraryShareFile(OPERATOR_LIBRARY_SHARE_TYPE, payload, label);
     downloadShareFile(shareFile);
     setMessages((prev) => [`[OK] 已导出${exportScope === 'current' ? '当前干员' : '干员库'}分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
   };
@@ -763,34 +739,14 @@ export function OperatorDraftPage() {
     }
 
     const rawText = await file.text();
-    const parsedShare = parseDraftLibraryShareFile(rawText, OPERATOR_LIBRARY_SHARE_TYPE);
-    if (!parsedShare) {
-      setMessages((prev) => ['[ERR] 导入失败：文件不是有效的干员分享 JSON', ...prev].slice(0, 12));
+    const parsedShare = parseOperatorDraftLibraryShare(rawText);
+    if (!parsedShare.ok) {
+      setMessages((prev) => [`[ERR] ${parsedShare.error}`, ...prev].slice(0, 12));
       event.target.value = '';
       return;
     }
 
-    const normalizedPayload = Object.fromEntries(
-      Object.entries(parsedShare.payload).flatMap(([draftId, value]) => {
-        try {
-          const normalizedDraft = parseImportedDraft(JSON.stringify(value));
-          return [[draftId, normalizedDraft] as const];
-        } catch {
-          return [];
-        }
-      })
-    ) as Record<string, OperatorDraft>;
-
-    if (Object.keys(normalizedPayload).length === 0) {
-      setMessages((prev) => ['[ERR] 导入失败：分享文件内没有有效的干员草稿', ...prev].slice(0, 12));
-      event.target.value = '';
-      return;
-    }
-
-    setPendingImportShare({
-      ...parsedShare,
-      payload: normalizedPayload,
-    });
+    setPendingImportShare(parsedShare.shareFile);
     event.target.value = '';
   };
 
@@ -805,7 +761,10 @@ export function OperatorDraftPage() {
     }
 
     let nextLibrary: Record<string, OperatorDraft>;
+    let importedIds: string[] = [];
     try {
+      const mergeResult = mergeOperatorDraftLibraryShare(readLocalDraftLibrary(), importShare);
+      importedIds = mergeResult.importedIds;
       nextLibrary = await operatorDraftRepository.mergeLibrary(importShare.payload);
     } catch (error) {
       setMessages((prev) => [`[ERR] 导入失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
@@ -817,7 +776,7 @@ export function OperatorDraftPage() {
     const nextIds = Object.keys(nextLibrary);
     setLocalDraftIds(nextIds);
     setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, nextLibrary[draftId]?.name || ''])));
-    setSelectedLocalDraftId('');
+    setSelectedLocalDraftId(resolveOperatorDraftShareSelection(importedIds));
     setSelectedDeleteLocalDraftId((prev) => (prev && nextLibrary[prev] ? prev : ''));
     setIsShareModalOpen(false);
     setShareDraftName('');
