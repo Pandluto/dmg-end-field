@@ -194,16 +194,29 @@ assert.equal(applyCellValueToLibrary(baseLibrary, equipmentRow, 'description', '
 const fixedTypeLibrary = applyCellValueToLibrary(baseLibrary, fixedStatRow, 'effectKey', 'hp');
 assert.equal(fixedTypeLibrary.gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.typeKey, 'hp');
 assert.equal(fixedTypeLibrary.gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.value, 999);
-assert.equal(applyCellValueToLibrary(baseLibrary, fixedStatRow, 'name', '生命值').gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.label, '生命值');
+const renamedDefenseFixedStat = applyCellValueToLibrary(baseLibrary, fixedStatRow, 'name', '生命值')
+  .gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat;
+assert.equal(renamedDefenseFixedStat?.label, '生命值');
+assert.equal(renamedDefenseFixedStat?.value, 999, 'renaming a defense stat must preserve its custom value');
+assert.equal(renamedDefenseFixedStat?.raw, '自定义防御：+999', 'renaming a defense stat must preserve its custom raw text');
 assert.equal(
   applyCellValueToLibrary(baseLibrary, fixedStatRow, 'description', '固定描述').gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.raw,
-  '防御力：+56',
-  'editing defense raw currently reapplies the armor preset',
+  '固定描述',
+  'editing defense raw must preserve the user input',
 );
 assert.equal(
   applyCellValueToLibrary(fixedTypeLibrary, fixedStatRow, 'description', '固定描述').gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat?.raw,
   '固定描述',
 );
+const restoredDefenseFixedStat = applyCellValueToLibrary(fixedTypeLibrary, fixedStatRow, 'effectKey', 'defense')
+  .gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat;
+assert.equal(restoredDefenseFixedStat?.value, 56, 'switching back to defense explicitly reapplies the part preset');
+assert.equal(restoredDefenseFixedStat?.raw, '防御力：+56');
+const unclearedDefenseFixedStat = applyCellValueToLibrary(baseLibrary, fixedStatRow, 'effectKey', '')
+  .gearSets['gear-set-demo'].equipments['equipment-main'].fixedStat;
+assert.equal(unclearedDefenseFixedStat?.typeKey, 'defense');
+assert.equal(unclearedDefenseFixedStat?.value, 999, 'clearing a defense type must not reapply the preset');
+assert.equal(unclearedDefenseFixedStat?.raw, '自定义防御：+999');
 
 const changedEffectTypeLibrary = applyCellValueToLibrary(baseLibrary, effectRow, 'effectKey', 'physicalDmgBonus');
 const changedEffect = changedEffectTypeLibrary.gearSets['gear-set-demo'].equipments['equipment-main'].effects.effect3;

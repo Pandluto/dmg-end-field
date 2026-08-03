@@ -52,6 +52,7 @@ import {
   buildEquipmentFormulaBinding,
   type EquipmentFormulaBinding,
 } from './equipmentSheetFormula';
+import { getEquipmentSheetCellPolicy } from './equipmentSheetCellPolicy';
 import {
   buildEquipmentImagePreviewPresentation,
   getEquipmentImageOptionSource,
@@ -61,6 +62,7 @@ import {
   buildEquipmentLibraryShareFile,
   mergeEquipmentLibraryShare,
   parseEquipmentLibraryShare,
+  resolveEquipmentShareSelection,
   type EquipmentLibraryShareFile,
 } from './equipmentSheetShare';
 import {
@@ -232,6 +234,7 @@ export function EquipmentSheetPage() {
   const [imageAssets, setImageAssets] = useState<ImageAssetEntry[]>([]);
   const [imageAssetsLoading, setImageAssetsLoading] = useState(true);
   const [imageAssetsError, setImageAssetsError] = useState('');
+  const [imageLibraryRevision, setImageLibraryRevision] = useState(0);
   const [equipmentImageQuery, setEquipmentImageQuery] = useState('');
   const [isEquipmentImageDrawerOpen, setIsEquipmentImageDrawerOpen] = useState(false);
   const [equipmentImageLoadFailed, setEquipmentImageLoadFailed] = useState(false);
@@ -288,25 +291,39 @@ export function EquipmentSheetPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setImageAssetsLoading(true);
-    setImageAssetsError('');
-    webImageLibrary.listAssets()
-      .then((assets) => {
-        if (cancelled) return;
+    let requestSequence = 0;
+
+    const refreshImageAssets = async (showLoading: boolean) => {
+      const requestId = ++requestSequence;
+      if (showLoading) {
+        setImageAssetsLoading(true);
+      }
+      setImageAssetsError('');
+      try {
+        const assets = await webImageLibrary.listAssets();
+        if (cancelled || requestId !== requestSequence) return;
         setImageAssets(assets);
-      })
-      .catch((error) => {
-        if (cancelled) return;
+      } catch (error) {
+        if (cancelled || requestId !== requestSequence) return;
         setImageAssets([]);
         setImageAssetsError(error instanceof Error ? error.message : '图片资源加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) {
+      } finally {
+        if (!cancelled && requestId === requestSequence) {
           setImageAssetsLoading(false);
         }
-      });
+      }
+    };
+
+    const unsubscribe = webImageLibrary.subscribeChanges(() => {
+      setImageLibraryRevision((revision) => revision + 1);
+      void refreshImageAssets(false);
+    });
+    void refreshImageAssets(true);
+
     return () => {
       cancelled = true;
+      requestSequence += 1;
+      unsubscribe();
     };
   }, []);
 
@@ -377,7 +394,7 @@ export function EquipmentSheetPage() {
   }, [library.gearSets, selectedRow]);
   const previewImageUrl = useMemo(
     () => normalizeAssetUrl(previewImageMeta.imgUrl),
-    [imageAssets, previewImageMeta.imgUrl],
+    [imageAssets, imageLibraryRevision, previewImageMeta.imgUrl],
   );
   const previewImagePresentation = buildEquipmentImagePreviewPresentation({
     storedReference: previewImageMeta.imgUrl,
@@ -937,9 +954,6 @@ export function EquipmentSheetPage() {
     }
     const row = selectedWorkbookRow.sourceRow;
     const columnKey = selectedCell.columnKey;
-    if (columnKey === 'idText' || (row.kind === 'equipment' && columnKey === 'field')) {
-      return;
-    }
     if (row.kind === 'effectLevels') {
       const levelKey = selectedCell.address.replace(/^Lv/, '') as EquipmentLevelKey;
       if (LEVEL_KEYS.includes(levelKey)) {
@@ -947,17 +961,13 @@ export function EquipmentSheetPage() {
       }
       return;
     }
-    const editable =
-      (row.kind === 'set' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'threePieceBuffHeader' && false)
-      || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
-      || (row.kind === 'equipment' && ['name', 'description'].includes(columnKey))
-      || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
-      || (row.kind === 'effect' && ['name', 'effectKey'].includes(columnKey));
-    if (editable) {
+    const effectKind = row.kind === 'threePieceBuff'
+      ? library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind
+      : undefined;
+    if (getEquipmentSheetCellPolicy(row.kind, columnKey, { effectKind }).clearable) {
       updateCellValue(row, columnKey, '');
     }
-  }, [selectedCell, selectedWorkbookRow, updateCellValue]);
+  }, [library.gearSets, selectedCell, selectedWorkbookRow, updateCellValue]);
 
   useEffect(() => {
     const handleSaveShortcut = (event: KeyboardEvent) => {
@@ -1099,10 +1109,19 @@ export function EquipmentSheetPage() {
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) return;
-    mutateLibrary((prev) => mergeEquipmentLibraryShare(prev, pendingImportShare));
+    const nextLibrary = mutateLibrary((prev) => mergeEquipmentLibraryShare(prev, pendingImportShare));
+    const nextGearSetId = resolveEquipmentShareSelection(
+      pendingImportShare.payload,
+      selectedRow?.gearSetId || activeGearSetId || '',
+      nextLibrary,
+    );
+    setActiveGearSetId(nextGearSetId || null);
+    setActiveEquipmentId(null);
+    setSelectedRowKey(nextGearSetId ? `set-${nextGearSetId}` : '');
+    setSelectedCell(null);
     setMessage(`已导入 ${Object.keys(pendingImportShare.payload).length} 个套装。`);
     closeShareModal();
-  }, [closeShareModal, mutateLibrary, pendingImportShare]);
+  }, [activeGearSetId, closeShareModal, mutateLibrary, pendingImportShare, selectedRow?.gearSetId]);
 
   const renderFormulaEditor = () => {
     if (!formulaBinding) {
@@ -1235,17 +1254,14 @@ export function EquipmentSheetPage() {
 
   const renderEditableCell = (row: EquipmentWorkbookRow, cell: EquipmentWorkbookCell) => {
     const sourceRow = row.sourceRow;
-    const editable =
-      (sourceRow.kind === 'set' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'threePieceBuffHeader' && false)
-      || (sourceRow.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'equipment' && ['name', 'field', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(cell.columnKey))
-      || (sourceRow.kind === 'effect' && ['name', 'field', 'effectKey'].includes(cell.columnKey));
-    if (!editable) {
+    const effectKind = sourceRow.kind === 'threePieceBuff'
+      ? library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind
+      : undefined;
+    const cellPolicy = getEquipmentSheetCellPolicy(sourceRow.kind, cell.columnKey, { effectKind });
+    if (!cellPolicy.editable) {
       return cell.value;
     }
-    if (sourceRow.kind === 'equipment' && cell.columnKey === 'field') {
+    if (cellPolicy.control === 'select' && sourceRow.kind === 'equipment' && cell.columnKey === 'field') {
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -1257,7 +1273,7 @@ export function EquipmentSheetPage() {
         </select>
       );
     }
-    if (sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
+    if (cellPolicy.control === 'select' && sourceRow.kind === 'threePieceBuff' && cell.columnKey === 'field') {
       const buff = library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId];
       return (
         <select
@@ -1270,7 +1286,7 @@ export function EquipmentSheetPage() {
         </select>
       );
     }
-    if (sourceRow.kind === 'effect' && cell.columnKey === 'field') {
+    if (cellPolicy.control === 'select' && sourceRow.kind === 'effect' && cell.columnKey === 'field') {
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -1283,10 +1299,7 @@ export function EquipmentSheetPage() {
         </select>
       );
     }
-    if ((sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff') && cell.columnKey === 'effectKey') {
-      const isExtraHit = sourceRow.kind === 'threePieceBuff'
-        && library.gearSets[sourceRow.gearSetId]?.threePieceBuffs?.[sourceRow.effectId]?.effectKind === 'extraHit';
-      if (isExtraHit) return cell.value;
+    if (cellPolicy.control === 'search-select' && (sourceRow.kind === 'effect' || sourceRow.kind === 'threePieceBuff')) {
       const typeOptions = sourceRow.kind === 'effect'
         ? (() => {
             const equipment = library.gearSets[sourceRow.gearSetId]?.equipments[sourceRow.equipmentId];
@@ -1308,7 +1321,7 @@ export function EquipmentSheetPage() {
         </select>
       );
     }
-    if (sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {
+    if (cellPolicy.control === 'select' && sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {
       return (
         <select
           className="weapon-sheet-inline-input"
@@ -1326,7 +1339,7 @@ export function EquipmentSheetPage() {
       <input
         className="weapon-sheet-inline-input"
         value={cell.value}
-        type={cell.columnKey === 'valueText' ? 'number' : 'text'}
+        type={cellPolicy.control === 'number' ? 'number' : 'text'}
         step="any"
         onKeyDown={stopEditingKeyPropagation}
         onChange={(event) => updateCellValue(sourceRow, cell.columnKey, event.target.value)}

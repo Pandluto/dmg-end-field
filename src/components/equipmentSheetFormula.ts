@@ -10,6 +10,7 @@ import {
   type EquipmentLibrary,
 } from './equipmentSheetModel';
 import { applyCellValueToLibrary } from './equipmentSheetEditing';
+import { getEquipmentSheetCellPolicy } from './equipmentSheetCellPolicy';
 import type { EquipmentRow, EquipmentSheetColumn } from './equipmentSheetWorkbook';
 
 export interface EquipmentWorkbookSelection {
@@ -98,19 +99,23 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  const editable =
-    (row.kind === 'set' && ['name', 'effectKey', 'description'].includes(columnKey))
-    || (row.kind === 'threePieceBuffHeader' && false)
-    || (row.kind === 'threePieceBuff' && ['name', 'field', 'effectKey', 'valueText', 'description'].includes(columnKey))
-    || (row.kind === 'equipment' && ['name', 'field', 'description'].includes(columnKey))
-    || (row.kind === 'fixedStat' && ['name', 'effectKey', 'description'].includes(columnKey))
-    || (row.kind === 'effect' && ['name', 'field', 'effectKey'].includes(columnKey));
+  const threePieceEffectKind = row.kind === 'threePieceBuff'
+    ? library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind
+    : undefined;
+  const cellPolicy = getEquipmentSheetCellPolicy(row.kind, columnKey, {
+    effectKind: threePieceEffectKind,
+  });
 
-  if (!editable) {
-    return buildReadOnlyBinding(row, columnKey, selectedWorkbookCellValue(row, selectedWorkbookCell, library));
+  if (!cellPolicy.editable) {
+    const binding = buildReadOnlyBinding(row, columnKey, selectedWorkbookCellValue(row, selectedWorkbookCell, library));
+    return row.kind === 'threePieceBuff'
+      && columnKey === 'effectKey'
+      && threePieceEffectKind === 'extraHit'
+      ? { ...binding, key: `${row.key}:${columnKey}:extra-hit-types` }
+      : binding;
   }
 
-  if ((row.kind === 'set' || row.kind === 'equipment') && columnKey === 'description') {
+  if (cellPolicy.control === 'image-search-select' && (row.kind === 'set' || row.kind === 'equipment')) {
     const value = row.kind === 'set'
       ? library.gearSets[row.gearSetId]?.imgUrl ?? ''
       : library.gearSets[row.gearSetId]?.equipments[row.equipmentId]?.imgUrl ?? '';
@@ -124,7 +129,7 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if (row.kind === 'equipment' && columnKey === 'field') {
+  if (cellPolicy.control === 'select' && row.kind === 'equipment' && columnKey === 'field') {
     return {
       key: `${row.key}:${columnKey}`,
       value: selectedWorkbookCellValue(row, selectedWorkbookCell, library),
@@ -135,7 +140,7 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if (row.kind === 'threePieceBuff' && columnKey === 'field') {
+  if (cellPolicy.control === 'select' && row.kind === 'threePieceBuff' && columnKey === 'field') {
     const selectedBuff = library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId];
     return {
       key: `${row.key}:${columnKey}`,
@@ -147,7 +152,7 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if (row.kind === 'fixedStat' && columnKey === 'effectKey') {
+  if (cellPolicy.control === 'select' && row.kind === 'fixedStat' && columnKey === 'effectKey') {
     return {
       key: `${row.key}:${columnKey}`,
       value: selectedWorkbookCellValue(row, selectedWorkbookCell, library),
@@ -158,7 +163,7 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if (row.kind === 'effect' && columnKey === 'field') {
+  if (cellPolicy.control === 'select' && row.kind === 'effect' && columnKey === 'field') {
     return {
       key: `${row.key}:${columnKey}`,
       value: row.field === '能力值' ? 'ability' : 'buff',
@@ -169,20 +174,7 @@ export function buildEquipmentFormulaBinding(
     };
   }
 
-  if ((row.kind === 'effect' || row.kind === 'threePieceBuff') && columnKey === 'effectKey') {
-    if (
-      row.kind === 'threePieceBuff'
-      && library.gearSets[row.gearSetId]?.threePieceBuffs?.[row.effectId]?.effectKind === 'extraHit'
-    ) {
-      return {
-        key: `${row.key}:${columnKey}:extra-hit-types`,
-        value: selectedWorkbookCellValue(row, selectedWorkbookCell, library),
-        inputMode: 'text',
-        readOnly: true,
-        apply: (baseLibrary) => baseLibrary,
-      };
-    }
-
+  if (cellPolicy.control === 'search-select' && (row.kind === 'effect' || row.kind === 'threePieceBuff')) {
     const effectOptions = row.kind === 'effect'
       ? (() => {
           const equipment = library.gearSets[row.gearSetId]?.equipments[row.equipmentId];
@@ -219,7 +211,7 @@ export function buildEquipmentFormulaBinding(
   return {
     key: `${row.key}:${columnKey}`,
       value: selectedWorkbookCellValue(row, selectedWorkbookCell, library),
-    inputMode: columnKey === 'valueText' ? 'number' : 'text',
+    inputMode: cellPolicy.control === 'number' ? 'number' : 'text',
     apply: (baseLibrary, rawInput) => applyRowValue(baseLibrary, row, columnKey, rawInput),
   };
 }

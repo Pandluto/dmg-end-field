@@ -8,8 +8,10 @@ import {
   createWebImagePathIndex,
   type WebImageIndexedPath,
 } from './webImagePathIndex';
+import { createWebImageObjectUrlRegistry } from './webImageObjectUrlRegistry';
 
 type CapListener = (caps: WebImageLibraryCapabilities) => void;
+type ImageChangeListener = () => void;
 type ImageRow = Record<string, SqlPrimitive>;
 
 export type PortableWebImageAsset = {
@@ -75,11 +77,16 @@ let currentCapabilities = WEB_CAPABILITIES;
 let builtinManifest: ImageAssetEntry[] | null = null;
 let initializationPromise: Promise<void> | null = null;
 const capabilityListeners = new Set<CapListener>();
-const objectUrlByPath = new Map<string, string>();
+const imageChangeListeners = new Set<ImageChangeListener>();
+const objectUrlRegistry = createWebImageObjectUrlRegistry();
 let pathIndex = createWebImagePathIndex([]);
 
 function notifyCapabilityListeners(): void {
   capabilityListeners.forEach((listener) => listener(currentCapabilities));
+}
+
+function notifyImageChangeListeners(): void {
+  imageChangeListeners.forEach((listener) => listener());
 }
 
 function normalizeSlashes(value: string): string {
@@ -154,25 +161,6 @@ async function sha256Bytes(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
-function revokeObjectUrl(relativePath: string): void {
-  const previous = objectUrlByPath.get(relativePath);
-  if (!previous) return;
-  URL.revokeObjectURL(previous);
-  objectUrlByPath.delete(relativePath);
-}
-
-function registerObjectUrl(
-  relativePath: string,
-  mimeType: string,
-  content: Uint8Array,
-): string {
-  revokeObjectUrl(relativePath);
-  const bytes = new Uint8Array(content);
-  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType || 'application/octet-stream' }));
-  objectUrlByPath.set(relativePath, url);
-  return url;
-}
-
 function rowToEntry(row: ImageRow): ImageAssetEntry {
   const relativePath = String(row.relative_path || '');
   const fileName = String(row.file_name || relativePath.split('/').pop() || '');
@@ -235,17 +223,20 @@ async function loadUserRows(): Promise<ImageRow[]> {
 }
 
 function hydrateRows(rows: ImageRow[]): void {
-  const present = new Set<string>();
+  const objectUrlEntries = [];
   for (const row of rows) {
     const relativePath = String(row.relative_path || '');
     if (!relativePath || String(row.mime_type || '') === 'inode/directory') continue;
-    present.add(relativePath);
     const content = toBytes(row.content);
-    if (content) registerObjectUrl(relativePath, String(row.mime_type || ''), content);
+    if (content) {
+      objectUrlEntries.push({
+        relativePath,
+        mimeType: String(row.mime_type || ''),
+        content,
+      });
+    }
   }
-  for (const path of [...objectUrlByPath.keys()]) {
-    if (!present.has(path)) revokeObjectUrl(path);
-  }
+  const objectUrlsChanged = objectUrlRegistry.synchronize(objectUrlEntries);
   const indexedPaths: WebImageIndexedPath[] = [
     ...(builtinManifest || [])
       .filter((entry) => entry.kind !== 'dir')
@@ -261,6 +252,9 @@ function hydrateRows(rows: ImageRow[]): void {
       })),
   ];
   pathIndex = createWebImagePathIndex(indexedPaths);
+  if (objectUrlsChanged) {
+    notifyImageChangeListeners();
+  }
 }
 
 export async function initializeWebImageLibrary(): Promise<void> {
@@ -313,7 +307,7 @@ export function resolveWebImageUrl(path?: string | null): string | null {
   if (/^(?:data|blob):/i.test(canonical)) return canonical;
   if (/^https?:/i.test(canonical)) return canonical;
   const normalized = normalizeSlashes(canonical);
-  return objectUrlByPath.get(normalized) || staticAssetUrl(normalized);
+  return objectUrlRegistry.get(normalized) || staticAssetUrl(normalized);
 }
 
 export async function exportWebImageAssets(): Promise<PortableWebImageAsset[]> {
@@ -408,6 +402,11 @@ export function subscribeCapabilities(listener: CapListener): () => void {
   return () => capabilityListeners.delete(listener);
 }
 
+export function subscribeWebImageLibraryChanges(listener: ImageChangeListener): () => void {
+  imageChangeListeners.add(listener);
+  return () => imageChangeListeners.delete(listener);
+}
+
 export async function refreshCapabilities(): Promise<WebImageLibraryCapabilities> {
   await webDatabase.initialize();
   currentCapabilities = WEB_CAPABILITIES;
@@ -417,7 +416,7 @@ export async function refreshCapabilities(): Promise<WebImageLibraryCapabilities
 
 export function getWebImageUrl(entry: ImageAssetEntry): string | null {
   if (entry.source === 'user') {
-    return objectUrlByPath.get(entry.relativePath) || null;
+    return objectUrlRegistry.get(entry.relativePath);
   }
   return resolveWebImageUrl(entry.relativePath || entry.canonicalPath);
 }
@@ -496,6 +495,7 @@ function fileUpsertStatement(
 export const webImageLibrary = {
   getCapabilities,
   subscribeCapabilities,
+  subscribeChanges: subscribeWebImageLibraryChanges,
   refreshCapabilities,
 
   async listAssets(): Promise<ImageAssetEntry[]> {

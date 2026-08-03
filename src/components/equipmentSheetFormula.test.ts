@@ -200,7 +200,7 @@ const fixedDescription = binding(fixedRowKey, 'description');
 assert.equal(fixedDescription.readOnly, undefined);
 assert.equal(
   fixedDescription.apply(library, '固定描述').gearSets['gear-set-formula'].equipments['equipment-formula'].fixedStat?.raw,
-  '防御力：+56',
+  '固定描述',
 );
 
 const effectCategory = binding(effectRowKey, 'field');

@@ -511,9 +511,10 @@ export function applyCellValueToLibrary(
   }
   if (row.kind === 'fixedStat') {
     return updateLibraryEquipment(library, row.gearSetId, row.equipmentId, (equipment) => {
+      const currentTypeKey = equipment.fixedStat?.typeKey || 'defense';
       const nextTypeKey = columnKey === 'effectKey' && ['defense', 'hp', 'flatAtk'].includes(rawValue)
         ? rawValue as EquipmentFixedTypeKey
-        : equipment.fixedStat?.typeKey || 'defense';
+        : currentTypeKey;
       const nextFixedStat: EquipmentFixedStat = {
         label: columnKey === 'name' ? rawValue : equipment.fixedStat?.label || '防御力',
         typeKey: nextTypeKey,
@@ -523,7 +524,9 @@ export function applyCellValueToLibrary(
       };
       return {
         ...equipment,
-        fixedStat: nextTypeKey === 'defense'
+        fixedStat: columnKey === 'effectKey'
+          && rawValue === 'defense'
+          && currentTypeKey !== 'defense'
           ? applyFixedStatPresetForPart(nextFixedStat, equipment.part)
           : nextFixedStat,
       };

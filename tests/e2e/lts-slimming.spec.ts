@@ -9,6 +9,70 @@ async function openRoute(page: Page, path: string, heading: string): Promise<voi
   await expect(page.getByRole('alert')).toHaveCount(0);
 }
 
+async function upsertGeneratedWebImage(
+  page: Page,
+  relativePath: string,
+  color: string,
+  size: number,
+): Promise<{ beforeUrl: string | null; afterUrl: string | null }> {
+  return page.evaluate(async ({ relativePath: path, color: fillColor, size: dimension }) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = dimension;
+    canvas.height = dimension;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas context is unavailable.');
+    context.fillStyle = fillColor;
+    context.fillRect(0, 0, dimension, dimension);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => {
+        if (value) resolve(value);
+        else reject(new Error('Canvas PNG generation failed.'));
+      }, 'image/png');
+    });
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    const digest = await crypto.subtle.digest('SHA-256', buffer);
+    const sha256 = Array.from(
+      new Uint8Array(digest),
+      (byte) => byte.toString(16).padStart(2, '0'),
+    ).join('');
+    let binary = '';
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    const modulePath = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/platform\/resources\/webImageLibrary\.ts(?:\?|$)/.test(name));
+    if (!modulePath) throw new Error('The active web image library module URL is unavailable.');
+    const imageLibrary = await import(/* @vite-ignore */ modulePath);
+    const beforeUrl = imageLibrary.resolveWebImageUrl(path);
+    await imageLibrary.importWebImageAssets([{
+      relativePath: path,
+      mimeType: 'image/png',
+      sizeBytes: bytes.byteLength,
+      updatedAt: Date.now(),
+      sha256,
+      contentBase64: btoa(binary),
+    }]);
+    return {
+      beforeUrl,
+      afterUrl: imageLibrary.resolveWebImageUrl(path),
+    };
+  }, { relativePath, color, size });
+}
+
+async function deleteWebImage(page: Page, relativePath: string): Promise<void> {
+  const result = await page.evaluate(async (path) => {
+    const modulePath = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/platform\/resources\/webImageLibrary\.ts(?:\?|$)/.test(name));
+    if (!modulePath) throw new Error('The active web image library module URL is unavailable.');
+    const imageLibrary = await import(/* @vite-ignore */ modulePath);
+    return imageLibrary.webImageLibrary.deleteFile(path);
+  }, relativePath);
+  expect(result).toEqual({ ok: true });
+}
+
 test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) => {
   const browserErrors: string[] = [];
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
@@ -381,6 +445,8 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
   await test.step('Equipment draft saves through browser storage and survives reload', async () => {
     const userImageFileName = 'slim-equipment-user-image.png';
     const userImageRelativePath = `assets/images/${userImageFileName}`;
+    const addedUserImageFileName = 'slim-equipment-added-image.png';
+    const addedUserImageRelativePath = `assets/images/${addedUserImageFileName}`;
     await openRoute(page, '/data/images', '图片资源管理');
     const imageFileChooserPromise = page.waitForEvent('filechooser');
     await page.getByRole('button', { name: '导入', exact: true }).click();
@@ -413,7 +479,45 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     });
     await expect(userImageOption).toHaveCount(1);
     await userImageOption.click();
-    await expect(page.locator('.weapon-sheet-image-preview')).toBeVisible();
+    const equipmentImagePreview = page.locator('.weapon-sheet-image-preview');
+    await expect(equipmentImagePreview).toBeVisible();
+    const initialPreviewUrl = await equipmentImagePreview.getAttribute('src');
+    expect(initialPreviewUrl).toMatch(/^blob:/);
+
+    const replacementUrls = await upsertGeneratedWebImage(page, userImageRelativePath, '#ff0000', 2);
+    expect(replacementUrls.beforeUrl).toBe(initialPreviewUrl);
+    expect(replacementUrls.afterUrl).not.toBe(initialPreviewUrl);
+    await expect.poll(() => equipmentImagePreview.getAttribute('src')).not.toBe(initialPreviewUrl);
+    const replacementPreviewUrl = await equipmentImagePreview.getAttribute('src');
+    expect(replacementPreviewUrl).toMatch(/^blob:/);
+    expect(await page.evaluate(async (url) => {
+      if (!url) return false;
+      try {
+        return (await fetch(url)).ok;
+      } catch {
+        return false;
+      }
+    }, replacementPreviewUrl)).toBe(true);
+
+    await equipmentImageSearch.click();
+    await equipmentImageSearch.fill(userImageFileName);
+    await expect(userImageOption).toHaveCount(1);
+    await expect(userImageOption.locator('img')).toHaveAttribute('src', replacementPreviewUrl!);
+    await page.locator('.weapon-sheet-image-option-clear').click();
+
+    await deleteWebImage(page, userImageRelativePath);
+    await equipmentImageSearch.click();
+    await equipmentImageSearch.fill(userImageFileName);
+    await expect(userImageOption).toHaveCount(0);
+
+    await upsertGeneratedWebImage(page, addedUserImageRelativePath, '#0000ff', 3);
+    await equipmentImageSearch.fill(addedUserImageFileName);
+    const addedUserImageOption = page.locator('.weapon-sheet-image-option').filter({
+      hasText: addedUserImageFileName,
+    });
+    await expect(addedUserImageOption).toHaveCount(1);
+    await addedUserImageOption.click();
+    await expect(equipmentImagePreview).toBeVisible();
     await page.getByRole('button', { name: '保存', exact: true }).click();
     await expect(page.getByRole('heading', { name: '确认保存装备库', exact: true })).toBeVisible();
     await page.getByRole('button', { name: '确认保存', exact: true }).click();
@@ -450,7 +554,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       sourceGearSet.equipments as Record<string, Record<string, unknown>>,
     ).find((equipment) => equipment.name === 'Slim E2E Equipment');
     if (!sourceEquipment) throw new Error('Exported Equipment item is missing from share preview.');
-    expect(sourceEquipment.imgUrl).toBe(userImageRelativePath);
+    expect(sourceEquipment.imgUrl).toBe(addedUserImageRelativePath);
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
@@ -523,6 +627,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       hasText: /^Slim Imported Equipment$/,
     });
     await expect(importedSetRow).toHaveCount(1);
+    await expect(importedSetRow).toHaveClass(/is-active/);
     await importedSetRow.locator('.buff-sheet-explorer-toggle').click();
     await expect(importedEntry).toBeVisible();
 
