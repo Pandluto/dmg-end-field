@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 const BASE_URL = 'http://127.0.0.1:3040';
 
@@ -71,6 +71,102 @@ async function deleteWebImage(page: Page, relativePath: string): Promise<void> {
     return imageLibrary.webImageLibrary.deleteFile(path);
   }, relativePath);
   expect(result).toEqual({ ok: true });
+}
+
+function readSkillButtonBuffCount(title: string | null): number {
+  const match = title?.match(/\bBuff\s+(\d+)\s*$/);
+  if (!match) {
+    throw new Error(`技能按钮 title 缺少 Buff count: ${title ?? '<null>'}`);
+  }
+  return Number(match[1]);
+}
+
+async function clickBuffCardByLabel(page: Page, label: string): Promise<Locator> {
+  const cards = page.locator('.buff-edit-buff-card');
+  const cardCount = await cards.count();
+  for (let index = 0; index < cardCount; index += 1) {
+    const card = cards.nth(index);
+    const cardLabel = (await card.locator('.buff-edit-buff-card-title').textContent())?.trim();
+    if (cardLabel !== label) continue;
+    await card.click();
+    return card;
+  }
+  throw new Error(`没有找到 Buff 卡片：${label}`);
+}
+
+async function selectFirstUnownedBuffCard(page: Page, skillButton: Locator): Promise<string> {
+  const cards = page.locator('.buff-edit-buff-card');
+  const cardCount = await cards.count();
+  for (let index = 0; index < cardCount; index += 1) {
+    const card = cards.nth(index);
+    const label = (await card.locator('.buff-edit-buff-card-title').textContent())?.trim();
+    if (!label) continue;
+
+    const cardClassName = await card.getAttribute('class');
+    const skillClassName = await skillButton.getAttribute('class');
+    const isSelected = cardClassName?.split(/\s+/).includes('is-selected');
+    const isOwned = skillClassName?.split(/\s+/).includes('is-add-owned');
+    if (isSelected && !isOwned) {
+      return label;
+    }
+
+    await card.click();
+    await expect(card).toHaveClass(/is-selected/);
+    const nextClassName = await skillButton.getAttribute('class');
+    if (!nextClassName?.split(/\s+/).includes('is-add-owned')) {
+      return label;
+    }
+  }
+  throw new Error(`没有找到技能按钮尚未拥有的 Buff 卡片（共检查 ${cardCount} 张）。`);
+}
+
+async function selectDynamicAddBuffCard(page: Page, skillButton: Locator, expectedLabel?: string): Promise<string> {
+  const cards = page.locator('.buff-edit-buff-card');
+  if (await cards.count() === 0) {
+    await page.keyboard.press('Tab');
+    const candidateSearchInput = page.getByPlaceholder('搜索组 / 项 / Buff / 类型 / 条件');
+    await expect(candidateSearchInput).toBeVisible();
+    await page.getByRole('button', { name: '干员', exact: true }).click();
+    await candidateSearchInput.fill('狼卫');
+    const candidateResults = page.locator('.skill-button-inline-buff-search-item');
+    await expect(candidateResults.first()).toBeVisible({ timeout: 30_000 });
+    let candidateResult = candidateResults.first();
+    if (expectedLabel) {
+      const resultCount = await candidateResults.count();
+      for (let index = 0; index < resultCount; index += 1) {
+        const result = candidateResults.nth(index);
+        const resultLabel = (await result.locator('.local-buff-search-item-head strong').textContent())?.trim();
+        if (resultLabel === expectedLabel) {
+          candidateResult = result;
+          break;
+        }
+      }
+      const selectedResultLabel = (await candidateResult.locator('.local-buff-search-item-head strong').textContent())?.trim();
+      if (selectedResultLabel !== expectedLabel) {
+        throw new Error(`候选搜索结果中没有找到同一 Buff：${expectedLabel}`);
+      }
+    }
+    await candidateResult.click();
+    await expect(cards.first()).toBeVisible();
+  }
+  return selectFirstUnownedBuffCard(page, skillButton);
+}
+
+async function dragBoxOverLocator(page: Page, canvas: Locator, target: Locator): Promise<void> {
+  const canvasBox = await canvas.boundingBox();
+  const targetBox = await target.boundingBox();
+  if (!canvasBox || !targetBox) {
+    throw new Error('批量 Buff 框选所需的画布或技能按钮不可见。');
+  }
+
+  const startX = Math.max(canvasBox.x + 4, targetBox.x - 10);
+  const startY = Math.max(canvasBox.y + 4, targetBox.y - 10);
+  const endX = Math.min(canvasBox.x + canvasBox.width - 4, targetBox.x + targetBox.width + 10);
+  const endY = Math.min(canvasBox.y + canvasBox.height - 4, targetBox.y + targetBox.height + 10);
+  await page.mouse.move(startX, startY);
+  await page.mouse.down();
+  await page.mouse.move(endX, endY, { steps: 8 });
+  await page.mouse.up();
 }
 
 test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) => {
@@ -812,15 +908,123 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     const skillButtonId = await skillButton.getAttribute('data-skill-button-id');
     expect(skillButtonId).toBeTruthy();
 
+    const timelineTheme = await page.locator('html').getAttribute('data-theme');
+    expect(timelineTheme).toBeTruthy();
+
+    await page.locator('.workbench-bottom-nav-button').filter({ hasText: '批量 Buff' }).click();
+    await expect(page.locator('.buff-batch-edit-workbench')).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
+
+    const batchSkillButton = page.locator('.buff-edit-skill-button');
+    const batchCanvas = page.locator('.buff-edit-canvas');
+    const selectionCounter = page.locator('.buff-edit-selection-counter');
+    await expect(batchSkillButton).toHaveCount(1);
+    await expect(selectionCounter).toHaveText('已选 0/1');
+
+    await test.step('批量 Buff 普通点击支持选择、取消和清空', async () => {
+      await batchSkillButton.click();
+      await expect(selectionCounter).toHaveText('已选 1/1');
+      await batchSkillButton.click();
+      await expect(selectionCounter).toHaveText('已选 0/1');
+      await batchSkillButton.click();
+      await page.locator('.buff-edit-clear-selection-button').click();
+      await expect(selectionCounter).toHaveText('已选 0/1');
+    });
+
+    await test.step('批量 Buff 框选使用真实 mouse drag 选择技能按钮', async () => {
+      await page.locator('.buff-edit-box-select-button').click();
+      await expect(page.locator('.buff-edit-box-select-layer')).toBeVisible();
+      await dragBoxOverLocator(page, batchCanvas, batchSkillButton);
+      await expect(selectionCounter).toHaveText('已选 1/1');
+      await page.locator('.buff-edit-clear-selection-button').click();
+      await expect(selectionCounter).toHaveText('已选 0/1');
+    });
+
+    const originalBuffCount = readSkillButtonBuffCount(await batchSkillButton.getAttribute('title'));
+    let addedBuffLabel = '';
+
+    await test.step('批量增加 Buff 支持 pending、取消和确认', async () => {
+      await page.locator('.buff-edit-add-button').click();
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toBeVisible();
+      addedBuffLabel = await selectDynamicAddBuffCard(page, batchSkillButton);
+      const batchSkillButtonTitle = page.locator('.buff-edit-skill-button');
+
+      await batchSkillButtonTitle.click();
+      await expect(batchSkillButtonTitle.locator('.buff-edit-pending-add-count')).toHaveText('+1');
+      expect(readSkillButtonBuffCount(await batchSkillButtonTitle.getAttribute('title'))).toBe(originalBuffCount);
+
+      await page.locator('.buff-edit-clear-selection-button').click();
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toHaveCount(0);
+      expect(readSkillButtonBuffCount(await batchSkillButton.getAttribute('title'))).toBe(originalBuffCount);
+
+      await page.locator('.buff-edit-add-button').click();
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toBeVisible();
+      addedBuffLabel = await selectDynamicAddBuffCard(page, batchSkillButton, addedBuffLabel);
+      await batchSkillButtonTitle.click();
+      await expect(batchSkillButtonTitle.locator('.buff-edit-pending-add-count')).toHaveText('+1');
+      await page.locator('.buff-edit-add-button').click();
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toHaveCount(0);
+      await expect.poll(async () => readSkillButtonBuffCount(await batchSkillButton.getAttribute('title')))
+        .toBe(originalBuffCount + 1);
+    });
+
+    await test.step('批量筛选 Buff 保留同一技能按钮选中态', async () => {
+      await page.locator('.buff-edit-filter-button').click();
+      await expect(page.getByRole('heading', { name: '筛选 Buff', exact: true })).toBeVisible();
+      const filterCard = await clickBuffCardByLabel(page, addedBuffLabel);
+      await expect(selectionCounter).toHaveText('已选 1/1');
+      await expect(filterCard).toHaveClass(/is-selected/);
+      expect(readSkillButtonBuffCount(await batchSkillButton.getAttribute('title'))).toBe(originalBuffCount + 1);
+      await page.locator('.buff-edit-filter-button').click();
+    });
+
+    await test.step('批量删减 Buff 支持 pending、取消和确认', async () => {
+      await page.locator('.buff-edit-remove-button').click();
+      await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toBeVisible();
+
+      await clickBuffCardByLabel(page, addedBuffLabel);
+      const removeSkillButton = page.locator('.buff-edit-skill-button');
+      await removeSkillButton.click();
+      await expect(removeSkillButton.locator('.buff-edit-pending-remove-count')).toHaveText('-1');
+      expect(readSkillButtonBuffCount(await batchSkillButton.getAttribute('title'))).toBe(originalBuffCount + 1);
+
+      await page.locator('.buff-edit-clear-selection-button').click();
+      await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toHaveCount(0);
+      expect(readSkillButtonBuffCount(await batchSkillButton.getAttribute('title'))).toBe(originalBuffCount + 1);
+
+      await page.locator('.buff-edit-remove-button').click();
+      await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toBeVisible();
+      await clickBuffCardByLabel(page, addedBuffLabel);
+      await page.locator('.buff-edit-skill-button').click();
+      await expect(page.locator('.buff-edit-skill-button .buff-edit-pending-remove-count')).toHaveText('-1');
+      await page.locator('.buff-edit-remove-button').click();
+      await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toHaveCount(0);
+      await expect.poll(async () => readSkillButtonBuffCount(await batchSkillButton.getAttribute('title')))
+        .toBe(originalBuffCount);
+    });
+
+    await test.step('回到排轴后使用新的 TimelineSkillDetailWorkbench', async () => {
+      await page.locator('.workbench-bottom-nav-button').filter({ hasText: '排轴' }).click();
+      await expect(page.locator('.canvas-container')).toBeVisible();
+      await expect(page.locator(`[data-skill-button-id="${skillButtonId}"]`)).toHaveCount(1);
+      await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
+    });
+
     await skillButton.dblclick();
     await expect(page).toHaveURL(new RegExp(`#/timeline/skill/${skillButtonId}$`));
     await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: '伤害汇总', exact: true })).toBeVisible();
+    await expect(page.locator('.timeline-detail-layer')).toBeVisible();
+    await expect(page.locator('.skill-button-modal-pair')).toHaveCount(0);
+    await expect(page.locator('.timeline-summary-card')).toBeVisible();
     await expect(page.getByRole('heading', { name: '计算过程', exact: true })).toBeVisible();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
 
     await page.reload();
     await expect(page.locator(`[data-skill-button-id="${skillButtonId}"]`)).toHaveCount(1);
     await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
+    await expect(page.locator('.timeline-detail-layer')).toBeVisible();
+    await expect(page.locator('.skill-button-modal-pair')).toHaveCount(0);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
   });
 
   expect(browserErrors, 'browser console/page errors').toEqual([]);
