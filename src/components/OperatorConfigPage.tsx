@@ -18,8 +18,18 @@ import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionS
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
-import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import { DEFAULT_WEAPON_SKILL_LEVELS } from '../core/services/operatorConfigSnapshotRefreshService';
+import {
+  buildOperatorEquipmentSetBuffs,
+  findOperatorEquipmentItem,
+  getOperatorEquipmentEffectLevelValue,
+  normalizeOperatorEquipmentLibrary,
+  type EquipmentEffect,
+  type EquipmentItem,
+  type EquipmentLibrary,
+  type EquipmentPart,
+  type EquipmentThreePieceBuff,
+} from '../core/services/operatorEquipmentLibrary';
 import DeferredNumberInput from './DeferredNumberInput';
 
 type AttributeItem = {
@@ -27,77 +37,6 @@ type AttributeItem = {
   value: string;
   tone?: 'main' | 'sub';
 };
-
-type EquipmentPart = '护甲' | '护手' | '配件';
-type EquipmentEffectId = 'effect1' | 'effect2' | 'effect3';
-type EquipmentLevelKey = '0' | '1' | '2' | '3';
-
-interface EquipmentEffect {
-  effectId: EquipmentEffectId;
-  label: string;
-  typeKey: string;
-  category: 'ability' | 'buff';
-  levels: Partial<Record<EquipmentLevelKey, number>>;
-  unit: 'flat' | 'percent';
-  raw?: string;
-}
-
-interface EquipmentItem {
-  equipmentId: string;
-  name: string;
-  part: EquipmentPart;
-  imgUrl?: string;
-  effects: Partial<Record<EquipmentEffectId, EquipmentEffect>>;
-}
-
-interface EquipmentThreePieceBuff {
-  effectId: string;
-  name: string;
-  category: 'positive' | 'passive' | 'condition' | 'countable' | '';
-  typeKey: string;
-  value: number;
-  unit: 'flat' | 'percent';
-  description?: string;
-  raw?: string;
-  valueMode?: 'fixed' | 'derived';
-  derivedValue?: {
-    source: 'hp' | 'atk' | 'strength' | 'agility' | 'intelligence' | 'will' | 'sourceSkill';
-    perPointValue: number;
-  };
-  maxStacks?: number;
-  multiplier?: BuffMultiplier;
-  effectKind?: BuffEffectKind;
-  extraHitConfig?: BuffExtraHitConfig;
-}
-
-interface EquipmentGearSet {
-  gearSetId: string;
-  name: string;
-  threePieceBuff?: EquipmentThreePieceBuff;
-  threePieceBuffs?: Record<string, EquipmentThreePieceBuff>;
-  equipments: Record<string, EquipmentItem>;
-}
-
-interface EquipmentLibrary {
-  gearSets: Record<string, EquipmentGearSet>;
-}
-
-function normalizeEquipmentEffectForOperatorConfig(
-  effectId: EquipmentEffectId,
-  lastEffectId: EquipmentEffectId | undefined,
-  typeKey: string,
-  unit: 'flat' | 'percent'
-): { typeKey: string; unit: 'flat' | 'percent' } {
-  // 非最后一条的主/副能力与武器 skill1 一样，都是固定能力值；
-  // 实际最后一个存在的词条才是主/副能力百分比。
-  if (effectId !== lastEffectId && typeKey === 'mainStatBoost') {
-    return { typeKey: 'mainStat', unit: 'flat' };
-  }
-  if (effectId !== lastEffectId && typeKey === 'subStatBoost') {
-    return { typeKey: 'subStat', unit: 'flat' };
-  }
-  return { typeKey, unit };
-}
 
 interface WeaponSkillLevelData {
   value?: number;
@@ -342,109 +281,14 @@ function readSelectedCharacterIdsFromSession(): string[] {
   }
 }
 
-function normalizeEquipmentLibrary(raw: unknown): EquipmentLibrary {
-  const source = raw as Partial<EquipmentLibrary> | null | undefined;
-  const next: EquipmentLibrary = {
-    gearSets: {},
-  };
-  const rawGearSets = source?.gearSets && typeof source.gearSets === 'object' ? source.gearSets : {};
-  Object.entries(rawGearSets).forEach(([gearSetId, rawSet]) => {
-    const setValue = rawSet as Partial<EquipmentGearSet>;
-    const equipments: Record<string, EquipmentItem> = {};
-    const threePieceBuffs: Record<string, EquipmentThreePieceBuff> = {};
-    const rawThreePieceBuffs = setValue.threePieceBuffs && typeof setValue.threePieceBuffs === 'object'
-      ? setValue.threePieceBuffs
-      : {};
-    const normalizeThreePieceBuffCategory = (category: unknown): EquipmentThreePieceBuff['category'] => (
-      category === 'positive' || category === 'passive' || category === 'condition' || category === 'countable' ? category : ''
-    );
-    const normalizeThreePieceBuff = (effectId: string, rawBuff: Partial<EquipmentThreePieceBuff>): EquipmentThreePieceBuff => {
-      const effectKind = rawBuff.effectKind === 'extraHit' ? 'extraHit' : 'modifier';
-      const typeKey = effectKind === 'extraHit' ? '' : String(rawBuff.typeKey || '');
-      const unit = rawBuff.unit === 'flat' ? 'flat' : 'percent';
-      const rawValue = typeof rawBuff.value === 'number' && Number.isFinite(rawBuff.value) ? rawBuff.value : 0;
-      return {
-        effectId: String(rawBuff.effectId || effectId),
-        name: String(rawBuff.name || effectId),
-        category: effectKind === 'extraHit'
-          ? normalizeThreePieceBuffCategory(rawBuff.category) === 'countable' ? 'countable' : 'passive'
-          : normalizeThreePieceBuffCategory(rawBuff.category),
-        typeKey,
-        value: effectKind === 'extraHit' ? 0 : rawValue,
-        unit,
-        raw: rawBuff.raw,
-        description: rawBuff.description,
-        valueMode: rawBuff.valueMode,
-        derivedValue: rawBuff.derivedValue,
-        maxStacks: rawBuff.maxStacks,
-        multiplier: rawBuff.multiplier,
-        effectKind,
-        ...(effectKind === 'extraHit'
-          ? { extraHitConfig: normalizeExtraHitConfig(rawBuff.extraHitConfig, `${effectId}-extra-hit`) }
-          : {}),
-      };
-    };
-    Object.entries(rawThreePieceBuffs).forEach(([effectId, rawBuff]) => {
-      threePieceBuffs[effectId] = normalizeThreePieceBuff(effectId, rawBuff as Partial<EquipmentThreePieceBuff>);
-    });
-    if (setValue.threePieceBuff && Object.keys(threePieceBuffs).length === 0) {
-      threePieceBuffs.effect1 = normalizeThreePieceBuff('effect1', setValue.threePieceBuff);
-    }
-    const rawEquipments = setValue.equipments && typeof setValue.equipments === 'object' ? setValue.equipments : {};
-    Object.entries(rawEquipments).forEach(([equipmentId, rawEquipment]) => {
-      const itemValue = rawEquipment as Partial<EquipmentItem>;
-      const effectIds = ['effect1', 'effect2', 'effect3'] as const;
-      const lastEffectId = [...effectIds].reverse().find((effectId) => Boolean(itemValue.effects?.[effectId]));
-      const effects = effectIds.reduce<Partial<Record<EquipmentEffectId, EquipmentEffect>>>((acc, effectId) => {
-        const rawEffect = itemValue.effects?.[effectId];
-        if (!rawEffect) return acc;
-        const normalizedEffect = normalizeEquipmentEffectForOperatorConfig(
-          effectId,
-          lastEffectId,
-          String(rawEffect.typeKey || ''),
-          rawEffect.unit === 'percent' ? 'percent' : 'flat'
-        );
-        const { typeKey, unit } = normalizedEffect;
-        acc[effectId] = {
-          effectId,
-          label: String(rawEffect.label || effectId),
-          typeKey,
-          category: rawEffect.category === 'ability' ? 'ability' : 'buff',
-          levels: Object.fromEntries(Object.entries(rawEffect.levels ?? {}).flatMap(([levelKey, levelValue]) => {
-            const parsed = typeof levelValue === 'number' && Number.isFinite(levelValue) ? levelValue : Number(levelValue);
-            return Number.isFinite(parsed) ? [[levelKey, parsed]] : [];
-          })) as Partial<Record<EquipmentLevelKey, number>>,
-          unit,
-          raw: rawEffect.raw,
-        };
-        return acc;
-      }, {});
-      equipments[equipmentId] = {
-        equipmentId: String(itemValue.equipmentId || equipmentId),
-        name: String(itemValue.name || equipmentId),
-        part: itemValue.part === '护甲' || itemValue.part === '护手' ? itemValue.part : '配件',
-        imgUrl: String(itemValue.imgUrl || ''),
-        effects,
-      };
-    });
-    next.gearSets[gearSetId] = {
-      gearSetId: String(setValue.gearSetId || gearSetId),
-      name: String(setValue.name || gearSetId),
-      ...(Object.keys(threePieceBuffs).length > 0 ? { threePieceBuffs } : {}),
-      equipments,
-    };
-  });
-  return next;
-}
-
 function readEquipmentLibraryFromStorage(): EquipmentLibrary {
   // Equipment storage keys contain schema-normalized values. Legacy migration
   // belongs to the Equipment import/file boundary and must not rerun here.
-  const library = normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, { gearSets: {} }));
+  const library = normalizeOperatorEquipmentLibrary(readLocalStorageJson(EQUIPMENT_LIBRARY_STORAGE_KEY, { gearSets: {} }));
   if (Object.keys(library.gearSets).length > 0) {
     return library;
   }
-  return normalizeEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, { gearSets: {} }));
+  return normalizeOperatorEquipmentLibrary(readLocalStorageJson(EQUIPMENT_DRAFT_STORAGE_KEY, { gearSets: {} }));
 }
 
 function normalizeWeaponLibrary(raw: unknown): Record<string, WeaponData & { id: string; imgUrl: string }> {
@@ -663,20 +507,6 @@ function buildDraftMapFromSnapshotCache(cache: OperatorConfigPageCache, characte
   );
 }
 
-function findEquipmentItemInLibrary(equipmentLibrary: EquipmentLibrary | null, equipmentId: string): EquipmentItem | null {
-  if (!equipmentLibrary || !equipmentId) return null;
-  return Object.values(equipmentLibrary.gearSets)
-    .flatMap((gearSet) => Object.values(gearSet.equipments))
-    .find((item) => item.equipmentId === equipmentId) ?? null;
-}
-
-function getEquipmentEffectLevelValue(effect: Partial<EquipmentEffect> | undefined, level: number | string): number {
-  const levels = effect?.levels;
-  if (!levels) return 0;
-  const value = levels[String(level) as EquipmentLevelKey];
-  return typeof value === 'number' ? value : 0;
-}
-
 function hydrateEquipmentPieceFromLibrary(
   piece: OperatorConfigPageEquipmentPieceState,
   libraryItem: EquipmentItem
@@ -736,7 +566,7 @@ function hydrateDraftConfigFromLibraries(
   EQUIPMENT_SLOT_KEYS.forEach((slotKey) => {
     const piece = nextEquipment[slotKey];
     if (!piece.id) return;
-    const libraryItem = findEquipmentItemInLibrary(equipmentLibrary, piece.id);
+    const libraryItem = findOperatorEquipmentItem(equipmentLibrary, piece.id);
     if (!libraryItem) return;
     nextEquipment[slotKey] = hydrateEquipmentPieceFromLibrary(piece, libraryItem);
     equipmentChanged = true;
@@ -778,7 +608,7 @@ function createEquipmentPieceFromItem(item: EquipmentItem): OperatorConfigPageEq
 
 function formatEquipmentEffectValue(effect: EquipmentEffect | undefined, level: number | string): string {
   if (!effect) return '0';
-  const numericValue = getEquipmentEffectLevelValue(effect, level);
+  const numericValue = getOperatorEquipmentEffectLevelValue(effect, level);
   if (effect.unit === 'percent' && effect.typeKey !== 'sourceSkillBoost') {
     return `${Number((numericValue * 100).toFixed(2))}%`;
   }
@@ -969,7 +799,7 @@ function buildEquipmentPiecesForSnapshot(config: OperatorConfigPageCharacterConf
       .map((entry) => {
         const effect = entry.data as Partial<EquipmentEffect>;
         const level = entry.config.level;
-        const value = getEquipmentEffectLevelValue(effect, level);
+        const value = getOperatorEquipmentEffectLevelValue(effect, level);
         return {
           effectId: String(effect.effectId ?? entry.id),
           label: String(effect.label ?? entry.id),
@@ -1000,37 +830,7 @@ function buildEquipmentSetBuffsForSnapshot(
   if (!config || !equipmentLibrary) return [];
   const selectedEquipmentIds = EQUIPMENT_SLOT_KEYS.map((slotKey) => config.equipment[slotKey].id)
     .filter((equipmentId) => equipmentId.length > 0);
-  if (selectedEquipmentIds.length < 3) return [];
-
-  return Object.values(equipmentLibrary.gearSets).flatMap((gearSet) => {
-    const setEquipmentIds = new Set(Object.entries(gearSet.equipments).flatMap(([equipmentId, equipment]) => [
-      equipmentId,
-      equipment.equipmentId,
-    ]));
-    const selectedCount = selectedEquipmentIds.filter((equipmentId) => setEquipmentIds.has(equipmentId)).length;
-    if (selectedCount < 3) return [];
-
-    return Object.values(gearSet.threePieceBuffs ?? {})
-      .filter((buff) => buff.effectKind === 'extraHit' || buff.typeKey.trim().length > 0)
-      .map((buff) => ({
-        effectId: buff.effectId,
-        label: buff.name || buff.effectId,
-        typeKey: buff.typeKey,
-        level: '三件套',
-        value: buff.value,
-        unit: buff.unit,
-        raw: buff.raw,
-        gearSetId: gearSet.gearSetId,
-        gearSetName: gearSet.name,
-        category: buff.category,
-        valueMode: buff.valueMode,
-        derivedValue: buff.derivedValue,
-        maxStacks: buff.maxStacks,
-        multiplier: buff.multiplier,
-        effectKind: buff.effectKind,
-        extraHitConfig: buff.extraHitConfig,
-      }));
-  });
+  return buildOperatorEquipmentSetBuffs(selectedEquipmentIds, equipmentLibrary);
 }
 
 function formatEquipmentSetBuffLine(buff: EquipmentSetBuffInput): { label: string; typeKey: string; tail: string; full: string } {
