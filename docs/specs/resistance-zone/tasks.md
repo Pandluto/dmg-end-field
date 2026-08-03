@@ -1,5 +1,7 @@
 # 抗性区与腐蚀落实 Tasks
 
+> **现行范围说明（2026-08-03）：** 计算链与当前 UI/PPT 验收继续有效；下文已完成的 Damage Sheet、Excel/XLSX 项仅记录当时实现，相关产品能力现已退役，不是待恢复任务。
+
 ## Status
 
 本任务用于把当前代码修正到 `docs/specs/resistance-zone/spec.md` 定义的结构。

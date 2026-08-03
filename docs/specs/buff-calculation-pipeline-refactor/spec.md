@@ -1,5 +1,7 @@
 # Buff 计算链路重构 Spec
 
+> **现行范围说明（2026-08-03）：** 统一 Buff 计算链继续有效；下文提及 Damage Sheet、Excel 或 XLSX 的消费要求已随产品能力退役。当前可达消费方为 SkillButton/伤害详情与 PPT 报表，历史文字不得用于重新引入 ExcelJS。
+
 ## Status
 
 草案中。
@@ -412,7 +414,7 @@ skill-button 运行时状态
         ↓
 HitCalculationResult
         ↓
-伤害详情 / 伤害表 / 报表 / Excel
+伤害详情 / PPT 报表
 ```
 
 ### Definition Preservation
@@ -771,7 +773,7 @@ damage =
 - 最终乘区值。
 - 最终伤害分步结果。
 
-伤害详情、伤害表、报表和 Excel SHALL 消费该结果，不得分别实现另一套乘区算法。
+伤害详情和 PPT 报表 SHALL 消费该结果，不得分别实现另一套乘区算法。
 
 ## UI And Formula Display
 
@@ -1245,17 +1247,15 @@ condition / countable
 
 - 相同 hit 上下文在三条伤害链路得到相同五区值。
 
-### Phase 8: Presentation And Export
+### Phase 8: Presentation
 
-目标：展示和导出复用核心结果。
+目标：可达展示复用核心结果。
 
 修改范围：
 
 - Skill damage modal view model。
 - 异常伤害详情。
-- Damage Sheet。
 - Damage Report。
-- Excel Export。
 
 需要完成：
 

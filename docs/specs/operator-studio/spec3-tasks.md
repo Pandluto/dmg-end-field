@@ -1,5 +1,7 @@
 # Operator Studio Spec 3 Tasks - 来源值派生 Buff
 
+> **现行范围说明（2026-08-03）：** 本任务中的 `dotDmgBonus` 计算链仍有效；下文对 `DamageSheetPage.tsx` 的已完成记录只代表当时实现，该页面与 XLSX/ExcelJS 已退役，不是待恢复范围。
+
 ## Status
 
 本任务用于实现 `docs/specs/operator-studio/spec3.md` 中定义的“来源值派生 Buff”。

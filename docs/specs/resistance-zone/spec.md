@@ -1,5 +1,7 @@
 # 抗性区 Spec
 
+> **现行范围说明（2026-08-03）：** 抗性区计算、SkillButton 详情和 PPT 报表仍有效；本文中 Damage Sheet、Excel/XLSX 的展示或导出要求已经退役，只作历史记录，不再参与验收，也不得用于恢复旧页面或 ExcelJS。
+
 ## Goal
 
 为伤害计算新增独立的抗性区，使目标基础抗性、腐蚀 Buff 和无视抗性 Buff 可以进入正确乘区。
@@ -124,7 +126,7 @@ ATK × finalMultiplier × damageBonusRate × defenseZone × resistanceZone × am
 
 异常伤害和额外 hit 的公式 SHALL 使用同一乘区顺序。
 
-### Damage Sheet
+### Damage Sheet（已退役；以下仅为历史要求）
 
 伤害表 SHALL 在 `防御区` 列之后新增 `抗性区` 列。
 

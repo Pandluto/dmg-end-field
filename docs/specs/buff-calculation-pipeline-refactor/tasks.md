@@ -1,5 +1,7 @@
 # Buff 计算链路重构 Tasks
 
+> **现行范围说明（2026-08-03）：** 统一计算链及其 golden 继续有效；下文 Damage Sheet、Excel/XLSX 项只记录当时完成状态，相关页面、导出器与 ExcelJS 已退役，不是待恢复任务。
+
 ## Status
 
 已实现，待手工验收。
@@ -320,7 +322,7 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] 删除消费端对易伤、脆弱和增幅的 `1 + rate` 重复拼装。
 - [ ] 相同 hit 上下文在普通、异常和额外 hit 中得到一致五区值。
 
-## Phase 7B: UI, Damage Sheet And Report
+## Phase 7B: UI And Report
 
 本阶段可在 Phase 5 结果契约稳定后与 Phase 7A、7C 并行。
 
@@ -336,20 +338,18 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] 五类乘区展示 finalValue。
 - [ ] 无 multiplier 时允许简化公式文案。
 
-### Damage Sheet And Report
+### Report
 
-- [ ] Damage Sheet 直接消费 HitCalculationResult 的五区结果。
 - [ ] Damage Report Service 直接消费同一五区结果。
 - [ ] 报表保留普通 Buff 的 `n → k → kn` 追踪。
 - [ ] 报表保留 multiplier Buff 的 `type → coefficient` 追踪。
 - [ ] 报表展示两类贡献到乘区结果再到最终伤害的链路。
-- [ ] 删除 Damage Sheet 中按 type 重新筛选并重算乘区的逻辑。
 - [ ] 删除 Damage Report 中重复维护的异常和普通公式。
-- [ ] UI、Damage Sheet 和 Report 对同一 hit 展示一致结果。
+- [ ] UI 和 Report 对同一 hit 展示一致结果。
 
-## Phase 7C: Excel Export
+## Phase 7C: Excel Export（已取消）
 
-本阶段可在 Phase 5 结果契约稳定后与 Phase 7A、7B 并行。
+> 2026-08-03 随 XLSX/ExcelJS 产品能力退役而整体取消。以下项目只保留历史拆解，不得继续实施。
 
 - [ ] 扩展 `damageExcelModel`，承载结构化五区结果和 Buff 贡献。
 - [ ] Buff sheet 分开保存普通 value 和 multiplier coefficient。
@@ -391,7 +391,7 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] 手工验证刷新后 all-buff-list 和 skill-button 层数状态。
 - [ ] 手工验证时间轴恢复和分享导入。
 - [ ] 对无 multiplier 的代表性普通、异常和额外 hit 做历史结果对比。
-- [ ] 对同一 hit 核对详情、Damage Sheet、Report 和 Excel 的五区结果。
+- [ ] 对同一 hit 核对详情和 Report 的五区结果。
 - [x] 运行 `npm run build`。
 
 ## Acceptance Checklist
@@ -411,7 +411,7 @@ Phase 5 的 `HitCalculationResult` 与五区结果契约稳定后可以并行：
 - [ ] multiplier 命中后作用于当前 hit 的整个对应乘区。
 - [ ] spec 中 `1.32`、`1.452` 和 `1.694` 三个场景通过。
 - [ ] 普通、异常、Dot 和额外 hit 使用同一五区结果。
-- [ ] 详情、Damage Sheet、Report 和 Excel 使用同一结果来源。
+- [ ] 详情和 Report 使用同一结果来源。
 - [ ] 旧存储、时间轴和分享数据可兼容。
 - [ ] 普通 passive 面板计算行为不变。
 - [ ] 没有 multiplier 时历史伤害结果不变。

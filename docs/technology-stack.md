@@ -12,8 +12,9 @@
 | 官方资料 | Cache Storage + Web Crypto | 下载、版本记录与 SHA-256 校验 |
 | 图片解压 | fflate | 在浏览器中异步解压官方 ZIP |
 | 标签页协调 | Web Locks + BroadcastChannel | 单写入租约、占用状态与显式接管 |
-| 表格导出 | ExcelJS | 伤害报告工作簿 |
 | 搜索 | Fuse.js + pinyin-pro | 本地资料模糊检索 |
+
+Damage Sheet、XLSX 导出与 ExcelJS 已在 1.8 slim 中退役；伤害输出保留浏览器内的 PPT 报表。
 
 ## 为什么不用浏览器里的“服务器 SQLite”
 

@@ -1,5 +1,7 @@
 # Complex Damage Excel Export Spec
 
+> **Retired / historical only (2026-08-03).** Damage Sheet、XLSX 导出与 ExcelJS 已按产品决定整体退役，代码落实于 `969dab32`。本文件只保留历史设计证据，不是现行需求、验收标准或重新实现依据；当前用户输出保留“计算伤害”PPT 报表。
+
 ## Goal
 
 Export an Excel workbook that represents the same damage data lineage as the app, not a static report and not a programmer debug trace.
