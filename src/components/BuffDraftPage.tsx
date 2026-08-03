@@ -7,6 +7,8 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
+import { WorkbookShareDialog } from './WorkbookShareDialog';
+import { WorkbookToolButton } from './WorkbookToolButton';
 import {
   BUFF_CATEGORY_LABELS,
   BUFF_CATEGORY_OPTIONS,
@@ -1353,66 +1355,18 @@ export function BuffDraftSheetPage() {
 
       <section className="damage-sheet-ribbon buff-sheet-ribbon">
         <div className="buff-sheet-ribbon-actions">
-          <button type="button" className="buff-sheet-tool-button" onClick={handleCreateNewDraft} title="新建组">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M8 3.25v9.5M3.25 8h9.5" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">新建</span>
-          </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={handleSaveDraft} title="保存当前组">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M3.25 2.75h7.5l2.25 2.25v8.25H3.25z" />
-                <path d="M5.25 2.75v3.5h4.5v-3.5M5.25 10.25h5.5" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">保存</span>
-          </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={handleNormalizeDraft} title="整理项与效果顺序">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M4 4.5h7.5M4 8h5.5M4 11.5h7.5" />
-                <path d="M11 3.25l1.75 1.25L11 5.75" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">整理</span>
-          </button>
-          <button
-            type="button"
-            className={`buff-sheet-tool-button${isOverwriteProtectionEnabled ? ' is-active' : ''}`}
-            onClick={() => setIsOverwriteProtectionEnabled((prev) => !prev)}
+          <WorkbookToolButton icon="new" label="新建" title="新建组" onClick={handleCreateNewDraft} />
+          <WorkbookToolButton icon="save" label="保存" title="保存当前组" onClick={handleSaveDraft} />
+          <WorkbookToolButton icon="normalize" label="整理" title="整理项与效果顺序" onClick={handleNormalizeDraft} />
+          <WorkbookToolButton
+            icon="protect"
+            label={isOverwriteProtectionEnabled ? '保护开' : '保护关'}
             title="切换覆盖保护"
-          >
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M8 2.5l4 1.5v3.25c0 2.5-1.5 4.75-4 6.25-2.5-1.5-4-3.75-4-6.25V4z" />
-                <path d="M6.25 8.25L7.4 9.4l2.35-2.55" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">{isOverwriteProtectionEnabled ? '保护开' : '保护关'}</span>
-          </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={() => openSheetShareModal('export')} title="导出本地 Buff 库">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M8 3v6.5" />
-                <path d="M5.75 7.25L8 9.5l2.25-2.25" />
-                <path d="M3.5 11.75h9" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">导出</span>
-          </button>
-          <button type="button" className="buff-sheet-tool-button" onClick={() => openSheetShareModal('import')} title="导入 Buff 分享">
-            <span className="buff-sheet-tool-icon" aria-hidden="true">
-              <svg className="buff-sheet-tool-svg" viewBox="0 0 16 16" focusable="false">
-                <path d="M8 13V6.5" />
-                <path d="M5.75 8.75L8 6.5l2.25 2.25" />
-                <path d="M3.5 3.25h9" />
-              </svg>
-            </span>
-            <span className="buff-sheet-tool-text">导入</span>
-          </button>
+            active={isOverwriteProtectionEnabled}
+            onClick={() => setIsOverwriteProtectionEnabled((prev) => !prev)}
+          />
+          <WorkbookToolButton icon="export" label="导出" title="导出本地 Buff 库" onClick={() => openSheetShareModal('export')} />
+          <WorkbookToolButton icon="import" label="导入" title="导入 Buff 分享" onClick={() => openSheetShareModal('import')} />
         </div>
         <div ref={formulaBarRef} className="damage-sheet-formula-bar">
           <span className="damage-sheet-formula-address">{selectedWorkbookCell?.address ?? '-'}</span>
@@ -1729,100 +1683,37 @@ export function BuffDraftSheetPage() {
           </div>
         </div>
       ) : null}
-      {isShareModalOpen ? (
-        <div className="buff-sheet-share-modal-mask" onClick={closeSheetShareModal}>
-          <div className="buff-sheet-share-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="buff-sheet-share-modal-header">
-              <div className="buff-sheet-share-modal-tabs">
-                <button
-                  type="button"
-                  className={`buff-sheet-share-modal-tab${shareModalMode === 'export' ? ' is-active' : ''}`}
-                  onClick={() => setShareModalMode('export')}
-                >
-                  导出
-                </button>
-                <button
-                  type="button"
-                  className={`buff-sheet-share-modal-tab${shareModalMode === 'import' ? ' is-active' : ''}`}
-                  onClick={() => setShareModalMode('import')}
-                >
-                  导入
-                </button>
-              </div>
-              <button type="button" className="buff-sheet-share-modal-close" onClick={closeSheetShareModal} aria-label="关闭">
-                ×
-              </button>
-            </div>
-            {shareModalMode === 'export' ? (
-              <div className="buff-sheet-share-modal-body">
-                <div className="buff-sheet-share-modal-copybar">
-                  <div className="buff-sheet-share-modal-copyhint">预览当前本地 Buff 库分享 JSON</div>
-                  <div className="buff-sheet-share-modal-actions">
-                    <button type="button" className="buff-sheet-share-action" onClick={handleCopySheetShareJson}>
-                      复制 JSON
-                    </button>
-                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleExportSheetLibraryShare}>
-                      导出文件
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  className="buff-sheet-share-textarea is-preview"
-                  value={currentSheetShareText}
-                  readOnly
-                  spellCheck={false}
-                />
-              </div>
-            ) : (
-              <div className="buff-sheet-share-modal-body">
-                <div className="buff-sheet-share-modal-copybar">
-                  <div className="buff-sheet-share-modal-copyhint">支持直接粘贴 JSON，或选择本地分享文件</div>
-                  <div className="buff-sheet-share-modal-actions">
-                    <button type="button" className="buff-sheet-share-action" onClick={handleOpenSheetShareImportPicker}>
-                      导入文件
-                    </button>
-                    <button type="button" className="buff-sheet-share-action is-primary" onClick={handleParseSheetImportText}>
-                      读取粘贴内容
-                    </button>
-                  </div>
-                </div>
-                <textarea
-                  className="buff-sheet-share-textarea"
-                  value={shareImportText}
-                  onChange={(event) => {
-                    setShareImportText(event.target.value);
-                    if (shareImportError) {
-                      setShareImportError('');
-                    }
-                  }}
-                  placeholder="把 Buff 分享 JSON 粘贴到这里，或点击右上角导入文件。"
-                  spellCheck={false}
-                />
-                {shareImportError ? (
-                  <div className="buff-sheet-share-feedback is-error">{shareImportError}</div>
-                ) : null}
-                {pendingImportShare ? (
-                  <div className="buff-sheet-share-import-preview">
-                    <div className="buff-sheet-share-import-title">导入预览</div>
-                    <div className="buff-sheet-share-import-meta">
-                      <span>{`名称：${pendingImportShare.label}`}</span>
-                      <span>{`分组数：${Object.keys(pendingImportShare.payload).length}`}</span>
-                    </div>
-                    <div className="buff-sheet-share-modal-actions">
-                      <button type="button" className="buff-sheet-share-action" onClick={handleCancelSheetImportShare}>
-                        清空预览
-                      </button>
-                      <button type="button" className="buff-sheet-share-action is-primary" onClick={handleConfirmSheetImportShare}>
-                        确认导入
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </div>
-      ) : null}
+      <WorkbookShareDialog
+        open={isShareModalOpen}
+        mode={shareModalMode}
+        onModeChange={setShareModalMode}
+        onClose={closeSheetShareModal}
+        exportPanel={{
+          preview: currentSheetShareText,
+          hint: '预览当前本地 Buff 库分享 JSON',
+          onCopy: handleCopySheetShareJson,
+          onDownload: handleExportSheetLibraryShare,
+        }}
+        importPanel={{
+          text: shareImportText,
+          error: shareImportError,
+          placeholder: '把 Buff 分享 JSON 粘贴到这里，或点击右上角导入文件。',
+          onTextChange: (value) => {
+            setShareImportText(value);
+            if (shareImportError) setShareImportError('');
+          },
+          onPickFile: handleOpenSheetShareImportPicker,
+          onParse: handleParseSheetImportText,
+          preview: pendingImportShare ? {
+            details: [
+              `名称：${pendingImportShare.label}`,
+              `分组数：${Object.keys(pendingImportShare.payload).length}`,
+            ],
+            onClear: handleCancelSheetImportShare,
+            onConfirm: handleConfirmSheetImportShare,
+          } : undefined,
+        }}
+      />
     </main>
   );
 }
