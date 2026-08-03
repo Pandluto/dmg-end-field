@@ -14,6 +14,10 @@ import { normalizeAssetUrl } from '../utils/assetResolver';
 import { webImageLibrary } from '../platform/resources/webImageLibrary';
 import { toUserImageRelPath } from '../utils/imageFileService';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
+import {
+  createOperatorDraftRepository,
+  type OperatorDraftSaveRevision,
+} from './operatorDraftPersistence';
 import * as draftBuffModel from './operatorDraftBuffModel';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import {
@@ -33,7 +37,6 @@ import {
   buildOrderedDraft,
   cloneDraft,
   createDefaultBuffEffect,
-  createDefaultDraft,
   createDefaultHit,
   createDefaultSkill,
   createEmptyDraft,
@@ -64,8 +67,6 @@ import {
 } from './operatorDraftPageModel';
 
 const DRAFT_PAGE_PATH = APP_ROUTE_PATHS.draft;
-const DRAFT_STORAGE_KEY = 'def.operator-editor.draft.v1';
-const LIBRARY_STORAGE_KEY = 'def.operator-editor.library.v1';
 const OPERATOR_LIBRARY_SHARE_TYPE = 'operator-library-share.v1';
 const OPERATOR_DRAFT_NAV_LINKS = [
   { label: '主界面', path: APP_ROUTE_PATHS.home },
@@ -84,21 +85,10 @@ function isDraftPath(pathname: string) {
   return pathname === DRAFT_PAGE_PATH;
 }
 
-function loadDraftFromStorage() {
-  if (typeof window === 'undefined') {
-    return createDefaultDraft();
-  }
+const operatorDraftRepository = createOperatorDraftRepository(persistentLocalStorage);
 
-  const raw = persistentLocalStorage.getItem(DRAFT_STORAGE_KEY);
-  if (!raw) {
-    return createDefaultDraft();
-  }
-
-  try {
-    return parseImportedDraft(raw);
-  } catch {
-    return createDefaultDraft();
-  }
+function getPersistenceErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function copyText(text: string) {
@@ -242,7 +232,7 @@ function SearchablePathSelect({ value, options, placeholder, onChange }: Searcha
 export { isDraftPath };
 
 export function OperatorDraftPage() {
-  const [draft, setDraft] = useState<OperatorDraft>(() => loadDraftFromStorage());
+  const [draft, setDraft] = useState<OperatorDraft>(() => operatorDraftRepository.loadDraft());
   const [localDraftIds, setLocalDraftIds] = useState<string[]>([]);
   const [localDraftNames, setLocalDraftNames] = useState<Record<string, string>>({});
   const [selectedLocalDraftId, setSelectedLocalDraftId] = useState('');
@@ -269,6 +259,9 @@ export function OperatorDraftPage() {
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [userAssetPathOptions, setUserAssetPathOptions] = useState<string[]>([]);
   const [pendingImportShare, setPendingImportShare] = useState<DraftLibraryShareFile<OperatorDraft> | null>(null);
+  const [isPersistencePending, setIsPersistencePending] = useState(false);
+  const persistencePendingRef = useRef(false);
+  const latestOrderedDraftRef = useRef<OperatorDraft | null>(null);
   const shareImportInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -330,23 +323,11 @@ export function OperatorDraftPage() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
-    const localDraftIdsFromStorage: string[] = [];
-    const localDraftNamesFromStorage: Record<string, string> = {};
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-        localDraftIdsFromStorage.push(...Object.keys(parsed));
-        Object.entries(parsed).forEach(([draftId, localDraft]) => {
-          localDraftNamesFromStorage[draftId] = typeof localDraft?.name === 'string' ? localDraft.name : '';
-        });
-      } catch {
-        // ignore malformed local library
-      }
-    }
+    const library = operatorDraftRepository.loadLibrary();
+    const localDraftIdsFromStorage = Object.keys(library);
+    const localDraftNamesFromStorage = Object.fromEntries(
+      localDraftIdsFromStorage.map((draftId) => [draftId, library[draftId]?.name || '']),
+    );
     setLocalDraftIds(localDraftIdsFromStorage);
     setLocalDraftNames(localDraftNamesFromStorage);
     setSelectedLocalDraftId((prev) => (prev && localDraftIdsFromStorage.includes(prev) ? prev : ''));
@@ -377,7 +358,7 @@ export function OperatorDraftPage() {
     const handleKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault();
-        handleSaveDraft({
+        void handleSaveDraft({
           allowOverwriteOnConflict: !isOverwriteProtectionEnabled,
         });
       }
@@ -409,6 +390,7 @@ export function OperatorDraftPage() {
   );
 
   const orderedDraft = useMemo(() => buildOrderedDraft(draft, skillOrder), [draft, skillOrder]);
+  latestOrderedDraftRef.current = orderedDraft;
   const draftJson = useMemo(() => JSON.stringify(orderedDraft, null, 2), [orderedDraft]);
   const operatorMarkdown = useMemo(() => {
     const skillLines = Object.entries(orderedDraft.skills).map(([skillKey, skill]) => {
@@ -541,9 +523,34 @@ export function OperatorDraftPage() {
     setMessages((prev) => [`[OK] 已复制 skill：${selectedSkillKey} -> ${nextSkillKey}`, ...prev].slice(0, 12));
   };
 
-  const persistDraftToLibrary = (allowOverwrite: boolean) => {
-    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
-    const library = raw ? (JSON.parse(raw) as Record<string, OperatorDraft>) : {};
+  const beginPersistence = () => {
+    if (persistencePendingRef.current) {
+      return false;
+    }
+    persistencePendingRef.current = true;
+    setIsPersistencePending(true);
+    return true;
+  };
+
+  const endPersistence = () => {
+    persistencePendingRef.current = false;
+    setIsPersistencePending(false);
+  };
+
+  const persistDraftToLibrary = async (
+    allowOverwrite: boolean,
+  ): Promise<OperatorDraftSaveRevision | false> => {
+    if (persistencePendingRef.current) {
+      return false;
+    }
+
+    let library: Record<string, OperatorDraft>;
+    try {
+      library = operatorDraftRepository.loadLibrary();
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 本地保存失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
+      return false;
+    }
     if (!orderedDraft.id.trim()) {
       setMessages((prev) => ['[ERR] 干员 ID 不能为空', ...prev].slice(0, 12));
       return false;
@@ -557,27 +564,58 @@ export function OperatorDraftPage() {
       setIsOverwriteDraftModalOpen(true);
       return false;
     }
-    persistentLocalStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(orderedDraft));
-    library[orderedDraft.id] = orderedDraft;
-    persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(library));
-    setLocalDraftIds((prev) => (prev.includes(orderedDraft.id) ? prev : [...prev, orderedDraft.id]));
-    setLocalDraftNames((prev) => ({ ...prev, [orderedDraft.id]: orderedDraft.name }));
+
+    if (!beginPersistence()) {
+      return false;
+    }
+
+    const saveSnapshot = orderedDraft;
+    let saveRevision: OperatorDraftSaveRevision;
+    try {
+      saveRevision = await operatorDraftRepository.saveDraftRevision(
+        saveSnapshot,
+        () => latestOrderedDraftRef.current ?? saveSnapshot,
+      );
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 本地保存失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
+      return false;
+    } finally {
+      endPersistence();
+    }
+
+    setLocalDraftIds((prev) => (prev.includes(saveSnapshot.id) ? prev : [...prev, saveSnapshot.id]));
+    setLocalDraftNames((prev) => ({ ...prev, [saveSnapshot.id]: saveSnapshot.name }));
     setSelectedLocalDraftId('');
     setLoadedLocalDraftId(null);
-    setMessages((prev) => [`[OK] 已保存到本地：${orderedDraft.id}`, ...prev].slice(0, 12));
-    return true;
+    setMessages((prev) => [
+      saveRevision === 'current'
+        ? `[OK] 已保存到本地：${saveSnapshot.id}`
+        : `[WARN] 已保存开始时的版本；保存期间有新修改：${saveSnapshot.id}`,
+      ...prev,
+    ].slice(0, 12));
+    return saveRevision;
   };
 
-  const handleSaveDraft = (options?: { allowOverwriteOnConflict?: boolean }) => {
-    persistDraftToLibrary(Boolean(options?.allowOverwriteOnConflict));
-  };
-
-  const handleConfirmOverwriteDraft = () => {
-    const saved = persistDraftToLibrary(true);
-    if (saved) {
-      setMessages((prev) => [`[OK] 已覆盖本地干员：${orderedDraft.id}`, ...prev].slice(0, 12));
+  const handleSaveDraft = async (options?: { allowOverwriteOnConflict?: boolean }) => {
+    try {
+      await persistDraftToLibrary(Boolean(options?.allowOverwriteOnConflict));
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 本地保存失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
     }
-    setIsOverwriteDraftModalOpen(false);
+  };
+
+  const handleConfirmOverwriteDraft = async () => {
+    try {
+      const saveRevision = await persistDraftToLibrary(true);
+      if (saveRevision) {
+        if (saveRevision === 'current') {
+          setMessages((prev) => [`[OK] 已覆盖本地干员：${orderedDraft.id}`, ...prev].slice(0, 12));
+        }
+        setIsOverwriteDraftModalOpen(false);
+      }
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 本地保存失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
+    }
   };
 
   const handleCreateNewDraft = () => {
@@ -617,30 +655,7 @@ export function OperatorDraftPage() {
   };
 
   const readLocalDraftLibrary = () => {
-    if (typeof window === 'undefined') {
-      return {} as Record<string, OperatorDraft>;
-    }
-
-    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      return {} as Record<string, OperatorDraft>;
-    }
-
-    try {
-      const parsed = JSON.parse(raw) as Record<string, unknown>;
-      return Object.fromEntries(
-        Object.entries(parsed).flatMap(([draftId, value]) => {
-          try {
-            const normalizedDraft = parseImportedDraft(JSON.stringify(value));
-            return [[draftId, normalizedDraft] as const];
-          } catch {
-            return [];
-          }
-        })
-      );
-    } catch {
-      return {} as Record<string, OperatorDraft>;
-    }
+    return operatorDraftRepository.loadLibrary();
   };
 
   const currentShareText = useMemo(() => {
@@ -783,18 +798,23 @@ export function OperatorDraftPage() {
     setPendingImportShare(null);
   };
 
-  const handleConfirmImportShare = () => {
-    if (typeof window === 'undefined' || !pendingImportShare) {
+  const handleConfirmImportShare = async () => {
+    const importShare = pendingImportShare;
+    if (!importShare || !beginPersistence()) {
       return;
     }
 
-    const currentLibrary = readLocalDraftLibrary();
-    const nextLibrary = {
-      ...currentLibrary,
-      ...pendingImportShare.payload,
-    };
+    let nextLibrary: Record<string, OperatorDraft>;
+    try {
+      nextLibrary = await operatorDraftRepository.mergeLibrary(importShare.payload);
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 导入失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
+      return;
+    } finally {
+      endPersistence();
+    }
+
     const nextIds = Object.keys(nextLibrary);
-    persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(nextLibrary));
     setLocalDraftIds(nextIds);
     setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, nextLibrary[draftId]?.name || ''])));
     setSelectedLocalDraftId('');
@@ -803,34 +823,26 @@ export function OperatorDraftPage() {
     setShareDraftName('');
     setPendingImportShare(null);
     setMessages((prev) => [
-      `[OK] 已导入干员分享：${pendingImportShare.label}（${Object.keys(pendingImportShare.payload).length} 个）`,
+      `[OK] 已导入干员分享：${importShare.label}（${Object.keys(importShare.payload).length} 个）`,
       ...prev,
     ].slice(0, 12));
   };
 
   const handleImportLocalDraft = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
+    const library = operatorDraftRepository.loadLibrary();
+    if (Object.keys(library).length === 0) {
       setMessages((prev) => ['[ERR] 本地没有可导入数据', ...prev].slice(0, 12));
       return;
     }
 
-    try {
-      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-      const localDraft = parsed[selectedLocalDraftId];
-      if (!selectedLocalDraftId || !localDraft) {
+    const localDraft = library[selectedLocalDraftId];
+    if (!selectedLocalDraftId || !localDraft) {
       setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
-        return;
-      }
-      loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
-      setLoadedLocalDraftId(localDraft.id);
-      setSelectedLocalDraftId('');
-    } catch {
-      setMessages((prev) => ['[ERR] 本地数据损坏，无法导入', ...prev].slice(0, 12));
+      return;
     }
+    loadDraftIntoEditor(localDraft, `[OK] 已从本地导入：${localDraft.id}`);
+    setLoadedLocalDraftId(localDraft.id);
+    setSelectedLocalDraftId('');
   };
 
   const handleOpenLocalLibraryManager = () => {
@@ -838,43 +850,42 @@ export function OperatorDraftPage() {
     setIsDeleteLocalDraftModalOpen(true);
   };
 
-  const handleDeleteLocalDraft = () => {
-    if (typeof window === 'undefined' || !selectedDeleteLocalDraftId) {
+  const handleDeleteLocalDraft = async () => {
+    if (!selectedDeleteLocalDraftId) {
       setMessages((prev) => ['[ERR] 请选择要删除的本地干员', ...prev].slice(0, 12));
       return;
     }
+    if (!beginPersistence()) {
+      return;
+    }
 
-    const raw = persistentLocalStorage.getItem(LIBRARY_STORAGE_KEY);
-    if (!raw) {
-      setMessages((prev) => ['[ERR] 本地没有可删除数据', ...prev].slice(0, 12));
+    const deleteId = selectedDeleteLocalDraftId;
+    let deleteResult: Awaited<ReturnType<typeof operatorDraftRepository.deleteFromLibrary>>;
+    try {
+      deleteResult = await operatorDraftRepository.deleteFromLibrary(deleteId);
+    } catch (error) {
+      setMessages((prev) => [`[ERR] 删除本地干员失败：${getPersistenceErrorMessage(error)}`, ...prev].slice(0, 12));
+      return;
+    } finally {
+      endPersistence();
+    }
+
+    if (!deleteResult.deleted) {
+      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
       setIsDeleteLocalDraftModalOpen(false);
       return;
     }
 
-    try {
-      const parsed = JSON.parse(raw) as Record<string, OperatorDraft>;
-      const deleteId = selectedDeleteLocalDraftId;
-      if (!parsed[deleteId]) {
-      setMessages((prev) => ['[ERR] 未找到所选本地干员', ...prev].slice(0, 12));
-        setIsDeleteLocalDraftModalOpen(false);
-        return;
-      }
-      delete parsed[deleteId];
-      persistentLocalStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(parsed));
-      const nextIds = Object.keys(parsed);
-      setLocalDraftIds(nextIds);
-      setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, parsed[draftId]?.name || ''])));
-      setSelectedLocalDraftId((prev) => (prev === deleteId ? '' : prev));
-      setSelectedDeleteLocalDraftId(nextIds[0] ?? '');
-      if (loadedLocalDraftId === deleteId) {
-        setLoadedLocalDraftId(null);
-      }
-      setMessages((prev) => [`[OK] 已删除本地干员：${deleteId}`, ...prev].slice(0, 12));
-    } catch {
-      setMessages((prev) => ['[ERR] 本地数据损坏，无法删除', ...prev].slice(0, 12));
-    } finally {
-      setIsDeleteLocalDraftModalOpen(false);
+    const nextIds = Object.keys(deleteResult.library);
+    setLocalDraftIds(nextIds);
+    setLocalDraftNames(Object.fromEntries(nextIds.map((draftId) => [draftId, deleteResult.library[draftId]?.name || ''])));
+    setSelectedLocalDraftId((prev) => (prev === deleteId ? '' : prev));
+    setSelectedDeleteLocalDraftId(nextIds[0] ?? '');
+    if (loadedLocalDraftId === deleteId) {
+      setLoadedLocalDraftId(null);
     }
+    setMessages((prev) => [`[OK] 已删除本地干员：${deleteId}`, ...prev].slice(0, 12));
+    setIsDeleteLocalDraftModalOpen(false);
   };
 
   const handleAddSkill = () => {
@@ -1193,7 +1204,10 @@ export function OperatorDraftPage() {
                       <button
                         type="button"
                         className="operator-draft-ghost-button"
-                        onClick={() => handleSaveDraft({ allowOverwriteOnConflict: !isOverwriteProtectionEnabled })}
+                        disabled={isPersistencePending}
+                        onClick={() => {
+                          void handleSaveDraft({ allowOverwriteOnConflict: !isOverwriteProtectionEnabled });
+                        }}
                       >
                         保存到本地
                       </button>
@@ -1743,7 +1757,14 @@ export function OperatorDraftPage() {
         </div>
       ) : null}
       {isDeleteLocalDraftModalOpen ? (
-        <div className="operator-draft-modal-overlay" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
+        <div
+          className="operator-draft-modal-overlay"
+          onClick={() => {
+            if (!isPersistencePending) {
+              setIsDeleteLocalDraftModalOpen(false);
+            }
+          }}
+        >
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
               <h3>本地库管理</h3>
@@ -1776,14 +1797,21 @@ export function OperatorDraftPage() {
               <p>删除只影响本地库记录，不会自动清空当前编辑器里的草稿内容。</p>
             </div>
             <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsDeleteLocalDraftModalOpen(false)}>
+              <button
+                type="button"
+                className="operator-draft-ghost-button"
+                disabled={isPersistencePending}
+                onClick={() => setIsDeleteLocalDraftModalOpen(false)}
+              >
                 取消
               </button>
               <button
                 type="button"
                 className="operator-draft-copy-button operator-draft-danger-button"
-                onClick={handleDeleteLocalDraft}
-                disabled={!selectedDeleteLocalDraftId}
+                onClick={() => {
+                  void handleDeleteLocalDraft();
+                }}
+                disabled={!selectedDeleteLocalDraftId || isPersistencePending}
               >
                 删除所选草稿
               </button>
@@ -1792,7 +1820,14 @@ export function OperatorDraftPage() {
         </div>
       ) : null}
       {pendingImportShare ? (
-        <div className="operator-draft-modal-overlay" onClick={handleCancelImportShare}>
+        <div
+          className="operator-draft-modal-overlay"
+          onClick={() => {
+            if (!isPersistencePending) {
+              handleCancelImportShare();
+            }
+          }}
+        >
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
               <h3>确认导入干员分享</h3>
@@ -1803,10 +1838,22 @@ export function OperatorDraftPage() {
               <p>{`本次会写入 ${Object.keys(pendingImportShare.payload).length} 个干员条目，并覆盖本地同 ID 记录。`}</p>
             </div>
             <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={handleCancelImportShare}>
+              <button
+                type="button"
+                className="operator-draft-ghost-button"
+                disabled={isPersistencePending}
+                onClick={handleCancelImportShare}
+              >
                 取消
               </button>
-              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmImportShare}>
+              <button
+                type="button"
+                className="operator-draft-copy-button operator-draft-danger-button"
+                disabled={isPersistencePending}
+                onClick={() => {
+                  void handleConfirmImportShare();
+                }}
+              >
                 确认导入
               </button>
             </div>
@@ -1814,7 +1861,14 @@ export function OperatorDraftPage() {
         </div>
       ) : null}
       {isOverwriteDraftModalOpen ? (
-        <div className="operator-draft-modal-overlay" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+        <div
+          className="operator-draft-modal-overlay"
+          onClick={() => {
+            if (!isPersistencePending) {
+              setIsOverwriteDraftModalOpen(false);
+            }
+          }}
+        >
           <div className="operator-draft-modal operator-draft-confirm-modal" onClick={(event) => event.stopPropagation()}>
             <div className="operator-draft-section-header">
               <h3>覆盖本地干员</h3>
@@ -1825,10 +1879,22 @@ export function OperatorDraftPage() {
               <p>保护开启时，确认后会用当前编辑器内容覆盖本地同 ID 干员。</p>
             </div>
             <div className="operator-draft-modal-actions">
-              <button type="button" className="operator-draft-ghost-button" onClick={() => setIsOverwriteDraftModalOpen(false)}>
+              <button
+                type="button"
+                className="operator-draft-ghost-button"
+                disabled={isPersistencePending}
+                onClick={() => setIsOverwriteDraftModalOpen(false)}
+              >
                 取消
               </button>
-              <button type="button" className="operator-draft-copy-button operator-draft-danger-button" onClick={handleConfirmOverwriteDraft}>
+              <button
+                type="button"
+                className="operator-draft-copy-button operator-draft-danger-button"
+                disabled={isPersistencePending}
+                onClick={() => {
+                  void handleConfirmOverwriteDraft();
+                }}
+              >
                 确认覆盖
               </button>
             </div>
