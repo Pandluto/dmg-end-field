@@ -79,7 +79,7 @@ import {
 } from './equipmentSheetWorkbook';
 import './BuffDraftPage.css';
 import './OperatorDraftPage.css';
-import './DamageSheetPage.css';
+import './WorkbookSheet.css';
 import './EquipmentSheetPage.css';
 
 const EQUIPMENT_SHEET_PAGE_PATH = APP_ROUTE_PATHS.equipmentSheet;

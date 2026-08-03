@@ -4056,10 +4056,6 @@ export function CanvasBoard({
     navigateToAppPath(APP_ROUTE_PATHS.damageReportPpt);
   };
 
-  const handleOpenReportSheet = () => {
-    navigateToAppPath(APP_ROUTE_PATHS.damageSheet);
-  };
-
   const handleRefreshAvailableCandidates = async () => {
     if (isRefreshingAvailableCandidates) {
       return;
@@ -4165,7 +4161,6 @@ export function CanvasBoard({
               onSave={handleOpenSaveSnapshotModal}
               onRestore={handleOpenSnapshotModal}
               onShare={handleOpenShareModal}
-              onTable={handleOpenReportSheet}
               onCalculate={handleOpenDamageReport}
             />
           </div>

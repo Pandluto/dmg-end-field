@@ -12,7 +12,6 @@ export const APP_ROUTE_PATHS = {
   imageManager: '/data/images',
   operatorConfig: '/timeline/operator-config',
   timelineSkillDetail: '/timeline/skill',
-  damageSheet: '/timeline/report/damage',
   damageReportPpt: '/timeline/report/presentation',
 } as const;
 

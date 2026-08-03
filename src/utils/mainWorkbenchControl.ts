@@ -41,7 +41,6 @@ export type MainWorkbenchCommand =
         | 'operatorConfig'
         | 'weaponSheet'
         | 'equipmentSheet'
-        | 'damageSheet'
         | 'damageReportPpt';
       characterId?: string;
       characterName?: string;

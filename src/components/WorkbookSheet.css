@@ -89,8 +89,7 @@
 }
 
 .damage-sheet-back-button,
-.damage-sheet-action-button,
-.damage-sheet-sheet-tab {
+.damage-sheet-action-button {
   min-height: 30px;
   height: 28px;
   padding: 0 10px;
@@ -105,8 +104,7 @@
 }
 
 .damage-sheet-back-button:hover,
-.damage-sheet-action-button:hover,
-.damage-sheet-sheet-tab:hover {
+.damage-sheet-action-button:hover {
   background: var(--ide-bg-hover);
   color: var(--excel-green-main);
   border-color: var(--excel-green-main);
@@ -121,15 +119,6 @@
   border-bottom: 1px solid var(--office-border);
 }
 
-.damage-sheet-view-group {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-
-.damage-sheet-ribbon-card,
 .damage-sheet-formula-bar {
   min-height: 40px;
   display: flex;
@@ -141,17 +130,10 @@
   border: 1px solid var(--office-border);
 }
 
-.damage-sheet-ribbon-label,
 .damage-sheet-formula-label {
   color: var(--text-muted);
   font-size: 10px;
   font-weight: 700;
-}
-
-.damage-sheet-ribbon-card strong {
-  color: var(--office-title);
-  font-size: 16px;
-  line-height: 1;
 }
 
 .damage-sheet-formula-bar {
@@ -206,16 +188,6 @@
   overflow: hidden;
 }
 
-.damage-sheet-workspace-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 12px;
-  border-top: 1px solid var(--office-border);
-  background: var(--office-workspace-panel-bg);
-}
-
 .damage-sheet-sidebar {
   min-height: 0;
   display: flex;
@@ -234,223 +206,12 @@
   text-transform: uppercase;
 }
 
-.damage-sheet-sheet-tab {
-  text-align: left;
-}
-
-.damage-sheet-sheet-tab.is-active {
-  color: var(--excel-green-main);
-  border-color: var(--excel-green-main);
-  box-shadow: inset 0 -2px 0 var(--excel-green-main);
-}
-
-.damage-sheet-sidebar-tabs {
-  display: flex;
-  flex-wrap: wrap;
-
-}
-
-.damage-sheet-mini-tab {
-  min-height: 10px;
-  padding: 0 0px;
-  background: var(--office-card-bg);
-  color: var(--office-body);
-  border: 1px solid var(--office-border);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.damage-sheet-mini-tab.is-active,
-.damage-sheet-mini-tab:hover {
-  background: var(--ide-bg-hover);
-  border-color: var(--excel-green-main);
-  color: var(--excel-green-main);
-}
-
-.damage-sheet-sidebar-note {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.6;
-  padding: 8px;
-  background: var(--office-card-bg);
-  border: 1px solid var(--office-border);
-}
-
 .damage-sheet-detail-empty {
   padding: 12px;
   border: 1px dashed var(--office-border);
   color: var(--text-muted);
   font-size: 11px;
   background: var(--office-card-bg);
-}
-
-.damage-sheet-buff-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.damage-sheet-buff-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.damage-sheet-buff-tag {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-  color: var(--office-body);
-  text-align: left;
-}
-
-.damage-sheet-buff-tag.is-active {
-  border-color: rgba(24, 92, 55, 0.45);
-  background: rgba(232, 248, 238, 0.92);
-  color: #0f3e26;
-}
-
-.damage-sheet-buff-tag.is-selected {
-  box-shadow: inset 0 0 0 1px var(--excel-green-main);
-  border-color: var(--excel-green-main);
-  background: rgba(232, 248, 238, 0.92);
-  color: #0f3e26;
-}
-
-.damage-sheet-buff-tag.is-framed {
-  box-shadow:
-    inset 0 0 0 1px var(--excel-green-main),
-    inset 0 0 0 2px rgba(255, 255, 255, 0.72);
-  border-color: var(--excel-green-main);
-}
-
-.damage-sheet-buff-card.is-muted .damage-sheet-buff-tag {
-  opacity: 0.56;
-}
-
-.damage-sheet-buff-name {
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.damage-sheet-buff-effect {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.damage-sheet-buff-tag:hover {
-  background: var(--ide-bg-hover);
-  border-color: var(--excel-green-main);
-  color: var(--excel-green-main);
-}
-
-.damage-sheet-buff-actions {
-  display: flex;
-  gap: 6px;
-}
-
-.damage-sheet-buff-action {
-  flex: 1;
-  min-height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-  color: var(--office-body);
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.damage-sheet-buff-action:hover {
-  background: var(--ide-bg-hover);
-  border-color: var(--excel-green-main);
-  color: var(--excel-green-main);
-}
-
-.damage-sheet-buff-action.is-danger:hover {
-  border-color: #c85f5f;
-  color: #c85f5f;
-}
-
-.damage-sheet-local-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.damage-sheet-local-search {
-  width: 100%;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-  color: var(--office-body);
-  font-size: 12px;
-}
-
-.damage-sheet-local-results {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.damage-sheet-local-item {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-  padding: 8px 10px;
-  text-align: left;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-  color: var(--office-body);
-}
-
-.damage-sheet-local-item strong {
-  font-size: 11px;
-}
-
-.damage-sheet-local-item span {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-.damage-sheet-local-item:hover {
-  background: var(--ide-bg-hover);
-  border-color: var(--excel-green-main);
-}
-
-.damage-sheet-embedded-panel {
-  min-height: 0;
-  overflow: auto;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-}
-
-.damage-sheet-embedded-panel .modal-content.skill-anomaly-layout {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.damage-sheet-embedded-panel .skill-anomaly-tree,
-.damage-sheet-embedded-panel .skill-anomaly-config,
-.damage-sheet-embedded-panel .skill-anomaly-board,
-.damage-sheet-embedded-panel .skill-anomaly-board-fixed {
-  min-width: 0;
-  width: auto;
-}
-
-.damage-sheet-embedded-panel .skill-anomaly-config {
-  padding: 8px;
-}
-
-.damage-sheet-embedded-panel .skill-anomaly-tree {
-  padding: 8px;
 }
 
 .damage-sheet-excel-shell {
@@ -464,62 +225,6 @@
   height: 100%;
   overflow: auto;
   background: var(--office-grid-area-bg);
-}
-
-.damage-sheet-context-menu {
-  position: fixed;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  padding: 6px;
-  border: 1px solid var(--office-border);
-  background: var(--office-card-bg);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
-}
-
-.damage-sheet-context-menu-item {
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 10px;
-  border: 0;
-  background: transparent;
-  color: var(--office-body);
-  font-size: 11px;
-  font-weight: 600;
-  text-align: left;
-}
-
-.damage-sheet-context-menu-item:hover {
-  background: var(--ide-bg-hover);
-  color: var(--excel-green-main);
-}
-
-.damage-sheet-context-menu-icon {
-  width: 12px;
-  min-width: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: inherit;
-}
-
-.damage-sheet-context-menu-svg {
-  width: 12px;
-  height: 12px;
-  display: block;
-  stroke: currentColor;
-  stroke-width: 1.35;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  fill: none;
-}
-
-.damage-sheet-context-menu-label {
-  min-width: 0;
-  flex: 1 1 auto;
 }
 
 .damage-sheet-empty-state {
@@ -578,22 +283,6 @@
   border-color: var(--excel-green-main);
   color: var(--excel-green-main);
   background: var(--ide-bg-hover);
-}
-
-.damage-sheet-group-header {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 100%;
-}
-
-.damage-sheet-group-toggle {
-  min-width: 28px;
-}
-
-.damage-sheet-group-header-label {
-  white-space: nowrap;
 }
 
 .damage-sheet-excel-row-cells {

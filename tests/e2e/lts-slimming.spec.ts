@@ -353,7 +353,7 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       ['/data/equipments', 'Sheet-Equipment'],
       ['/data/images', '图片资源管理'],
       ['/timeline', '选择干员'],
-      ['/timeline/report/damage', '伤害过程表'],
+      ['/timeline/report/presentation', '队伍配置'],
     ] as const;
 
     for (const [path, heading] of routes) {
@@ -1033,6 +1033,15 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     }
     await expect(page.getByText('已选 4/4', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: '开始排轴', exact: true }).click();
+    await expect(page.locator('.canvas-container')).toBeVisible();
+    await expect(page.getByRole('button', { name: '表格', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '伤害表', exact: true })).toHaveCount(0);
+    const calculateDamageButton = page.getByRole('button', { name: '计算伤害', exact: true });
+    await expect(calculateDamageButton).toBeVisible();
+    await calculateDamageButton.click();
+    await expect(page).toHaveURL(/#\/timeline\/report\/presentation$/);
+    await expect(page.getByRole('heading', { name: '队伍配置', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: '返回', exact: true }).click();
     await expect(page.locator('.canvas-container')).toBeVisible();
 
     const workbenchDrawerTrigger = page.locator('.canvas-bottom-zone-left > .workbench-top-trigger');

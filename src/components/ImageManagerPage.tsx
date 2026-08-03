@@ -21,6 +21,7 @@ import {
   replaceAssetDirPrefix,
 } from '../utils/imageFileService';
 import './ImageManagerPage.css';
+import './WorkbookSheet.css';
 import { ImageManagerRibbon } from './ImageManager/ImageManagerRibbon';
 import { ImageManagerExplorer } from './ImageManager/ImageManagerExplorer';
 import { ImageManagerAssetList } from './ImageManager/ImageManagerAssetList';

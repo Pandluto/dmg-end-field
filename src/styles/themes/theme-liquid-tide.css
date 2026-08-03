@@ -2862,10 +2862,7 @@
 }
 
 /* The draggable global menu resets to the top-left after refresh. */
-:root[data-theme="liquid-tide"] :is(
-  .damage-sheet-topbar-left > .damage-sheet-back-button,
-  .report-ppt-toolbar > button
-) {
+:root[data-theme="liquid-tide"] .damage-sheet-topbar-left > .damage-sheet-back-button {
   margin-left: 52px;
 }
 

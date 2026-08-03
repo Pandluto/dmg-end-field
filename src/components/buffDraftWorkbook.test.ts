@@ -149,4 +149,4 @@ assert.deepEqual(workbookRows[4].cells.map((cell) => ({
 ]);
 assert.equal(workbookRows[4].sourceRow, sourceRows[2]);
 
-console.log('Buff ExcelJS workbook projection characterization contract: PASS');
+console.log('Buff workbook projection characterization contract: PASS');

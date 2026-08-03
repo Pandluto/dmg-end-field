@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import './OperatorDraftPage.css';
+import './WorkbookSheet.css';
 import './BuffDraftPage.css';
 import type { BuffCategory, BuffEffectKind } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';

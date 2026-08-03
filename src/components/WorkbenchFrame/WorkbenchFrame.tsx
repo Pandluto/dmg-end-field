@@ -110,14 +110,6 @@ export function WorkbenchFrame({ activeSkillButtonId = null }: WorkbenchFramePro
       >
         <span className="workbench-trigger-text">干员配置</span>
       </button>
-      <button
-        className="workbench-top-trigger workbench-bottom-nav-button"
-        type="button"
-        disabled={!canAccessCanvas}
-        onClick={() => navigateToAppPath(APP_ROUTE_PATHS.damageSheet)}
-      >
-        <span className="workbench-trigger-text">伤害表</span>
-      </button>
     </div>
   );
 

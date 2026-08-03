@@ -28,7 +28,6 @@ const loadOperatorDraftPage = () => import('./components/OperatorDraftPage');
 const loadBuffDraftPage = () => import('./components/BuffDraftPage');
 const loadWeaponDraftPage = () => import('./components/WeaponDraftPage');
 const loadEquipmentSheetPage = () => import('./components/EquipmentSheetPage');
-const loadDamageSheetPage = () => import('./components/DamageSheetPage');
 const loadDamageReportPptPage = () => import('./components/DamageReportPptPage');
 const loadImageManagerPage = () => import('./components/ImageManagerPage');
 const loadOperatorConfigPage = () => import('./components/OperatorConfigPage');
@@ -48,9 +47,6 @@ const WeaponDraftSheetPage = lazy(async () => ({
 const EquipmentSheetPage = lazy(async () => ({
   default: (await loadEquipmentSheetPage()).EquipmentSheetPage,
 }));
-const DamageSheetPage = lazy(async () => ({
-  default: (await loadDamageSheetPage()).DamageSheetPage,
-}));
 const DamageReportPptPage = lazy(async () => ({
   default: (await loadDamageReportPptPage()).DamageReportPptPage,
 }));
@@ -64,7 +60,6 @@ const OperatorConfigPage = lazy(async () => ({
 const routePreloaders = [
   loadWorkbenchFrame,
   loadOperatorConfigPage,
-  loadDamageSheetPage,
   loadDamageReportPptPage,
   loadOperatorDraftPage,
   loadBuffDraftPage,
@@ -225,8 +220,6 @@ function App() {
     page = <WeaponDraftSheetPage />;
   } else if (currentPath === APP_ROUTE_PATHS.equipmentSheet) {
     page = <EquipmentSheetPage />;
-  } else if (currentPath === APP_ROUTE_PATHS.damageSheet) {
-    page = <DamageSheetPage />;
   } else if (currentPath === APP_ROUTE_PATHS.damageReportPpt) {
     page = <DamageReportPptPage />;
   } else if (currentPath === APP_ROUTE_PATHS.imageManager) {
