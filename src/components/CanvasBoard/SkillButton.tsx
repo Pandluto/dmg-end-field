@@ -35,7 +35,6 @@ import {
 } from '../../core/calculators/skillDamageModalViewModel';
 import { calculateSkillButtonDamageV2 } from '../../core/calculators/skillButtonDamageCalculatorV2';
 import type {
-  AppliedBuffTagViewModel,
   FormulaViewModel,
   ResolvedSkillDamageTemplate,
   SkillDamagePanelBase,
@@ -67,9 +66,8 @@ import {
   SkillButtonStatePanel,
 } from './SkillButtonAnomalyPanels';
 import { useSkillButtonAnomaly } from './useSkillButtonAnomaly';
-import { buildAnomalyBuffOptionsBySegmentKey, buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
+import { buildAnomalyDamageSegments } from './skillButtonAnomalyDamage';
 import { TimelineSkillDetailWorkbench } from './TimelineSkillDetailWorkbench';
-import DeferredNumberInput from '../DeferredNumberInput';
 import './SkillButton.css';
 
 const EMPTY_TARGET_RESISTANCE: Required<HitResistanceInput> = {
@@ -296,15 +294,11 @@ export function SkillButtonComponent({
     allSkillDmgBonus: number;
     allDmgBonus: number;
   } | null>(null);
-  // 计算过程展开状态
-  const [isExpanded, setIsExpanded] = useState(false);
   // infoSnapshot 数据（从 sessionStorage 只读，不影响原数据）
   const [infoSnapshotLines, setInfoSnapshotLines] = useState<string[]>([]);
   // infoSnap JSON 数据（从 sessionStorage 只读，不影响原数据）
   const [infoSnap, setInfoSnap] = useState<Record<string, number>>({});
   const [selectedAnomalySegmentKey, setSelectedAnomalySegmentKey] = useState<string | null>(null);
-  const [isAnomalyFormulaExpanded, setIsAnomalyFormulaExpanded] = useState(false);
-  const [isTargetResistanceExpanded, setIsTargetResistanceExpanded] = useState(false);
   const [isLocalBuffSearchOpen, setIsLocalBuffSearchOpen] = useState(false);
   const [localBuffSearchKeyword, setLocalBuffSearchKeyword] = useState('');
   const [buffSearchMode, setBuffSearchMode] = useState<BuffSearchMode>('buff-group');
@@ -1008,15 +1002,6 @@ export function SkillButtonComponent({
       allStatScale: computedPanel.allStatScale,
     };
   }, [button.characterId, resistanceRevision]);
-  const activeNormalHitSegmentKey = useMemo(
-    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key) : null),
-    [resolvedTemplate, selectedHitIndex]
-  );
-  const activeNormalHitKey = useMemo(
-    () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? resolvedTemplate.hits[selectedHitIndex].key : null),
-    [resolvedTemplate, selectedHitIndex]
-  );
-  const isActiveNormalHitDisabled = activeNormalHitKey ? manuallyDisabledHitKeys.includes(activeNormalHitKey) : false;
   const disabledBuffIdsByHitKey = useMemo(() => {
     if (!resolvedTemplate) {
       return {};
@@ -1104,13 +1089,6 @@ export function SkillButtonComponent({
       panelBase
     );
   }, [resolvedTemplate, damageResult, selectedHitIndex, panelData, buttonStackCounts, manualBuffStackCountsBySegmentKey, panelBase]);
-  const activeHitBuffOptions = useMemo(() => {
-    if (selectedHitIndex === null || !fullDamageResult) {
-      return [];
-    }
-    const hitResult = fullDamageResult.hits[selectedHitIndex];
-    return hitResult ? buildAppliedBuffTags(hitResult.appliedBuffs, buttonStackCounts) : [];
-  }, [buttonStackCounts, fullDamageResult, selectedHitIndex]);
   const manualBuffOptionIdsBySegmentKey = useMemo<Record<string, Set<string>>>(() => {
     const nextMap: Record<string, Set<string>> = {};
 
@@ -1211,20 +1189,6 @@ export function SkillButtonComponent({
     });
   }, [buffList, buttonStackCounts, persistManualBuffStackCounts]);
 
-  const toggleActiveNormalHitDisabled = useCallback(() => {
-    if (!activeNormalHitKey) {
-      return;
-    }
-
-    setManuallyDisabledHitKeys((prev) => {
-      const next = prev.includes(activeNormalHitKey)
-        ? prev.filter((hitKey) => hitKey !== activeNormalHitKey)
-        : [...prev, activeNormalHitKey];
-      persistManualDisabledHitKeys(next);
-      return next;
-    });
-  }, [activeNormalHitKey, persistManualDisabledHitKeys]);
-
   const toggleManualHitDisabled = useCallback((hitKey: string) => {
     if (!hitKey) {
       return;
@@ -1284,18 +1248,6 @@ export function SkillButtonComponent({
   const activeAnomalySegment = useMemo(
     () => (selectedAnomalySegmentKey ? anomalyDamageSegments.find((segment) => segment.key === selectedAnomalySegmentKey) ?? null : null),
     [anomalyDamageSegments, selectedAnomalySegmentKey]
-  );
-  const anomalyBuffOptionsBySegmentKey = useMemo<Record<string, AppliedBuffTagViewModel[]>>(() => {
-    return buildAnomalyBuffOptionsBySegmentKey(
-      selectedAnomalyDamages,
-      fullCombinedModifierBuffList,
-      extraHitBuffList,
-      buttonStackCounts
-    );
-  }, [buttonStackCounts, extraHitBuffList, fullCombinedModifierBuffList, selectedAnomalyDamages]);
-  const activeAnomalyBuffOptions = useMemo(
-    () => (activeAnomalySegment ? (anomalyBuffOptionsBySegmentKey[activeAnomalySegment.key] ?? activeAnomalySegment.appliedBuffTags) : []),
-    [activeAnomalySegment, anomalyBuffOptionsBySegmentKey]
   );
   const isShowingAnomalyDetail = Boolean(activeAnomalySegment) && selectedHitIndex === null;
   const activeAnomalyFormula = useMemo<FormulaViewModel | null>(() => {
@@ -1437,20 +1389,16 @@ export function SkillButtonComponent({
       return;
     }
     setSelectedAnomalySegmentKey(null);
-    setIsAnomalyFormulaExpanded(false);
   }, [anomalyDamageSegments, selectedAnomalySegmentKey]);
 
   // 弹窗打开时加载数据，并设置当前选中的技能按钮
   useEffect(() => {
     if (isModalOpen && !wasModalOpenRef.current) {
       loadRuntimeDamageData();
-      setIsExpanded(false);
       setSelectedHitIndex(0);
       setSelectedSkillButton(button.id);
       resetAnomalyDraftState();
-      setIsTargetResistanceExpanded(false);
       setSelectedAnomalySegmentKey(null);
-      setIsAnomalyFormulaExpanded(false);
     } else if (!isModalOpen && wasModalOpenRef.current) {
       setSelectedSkillButton(null);
     }
@@ -1464,32 +1412,6 @@ export function SkillButtonComponent({
     }
     loadRuntimeDamageData();
   }, [isInspectMode, loadRuntimeDamageData]);
-
-  const renderAppliedBuffButtons = useCallback((segmentKey: string | null, buffTags: AppliedBuffTagViewModel[]) => {
-    if (buffTags.length === 0) {
-      return <span className="no-buff">无</span>;
-    }
-
-    return buffTags.map((buff) => {
-      const isSelected = segmentKey ? isBuffManuallyActive(segmentKey, buff.id) : true;
-      return (
-        <button
-          type="button"
-          key={buff.id}
-          className={`buff-tag buff-tag-selectable${isSelected ? ' is-selected' : ''}`}
-          onClick={() => {
-            if (!segmentKey) {
-              return;
-            }
-            toggleManualBuff(segmentKey, buff.id);
-          }}
-          title={`${isSelected ? '点击停用' : '点击恢复'}：${buff.displayLabel || buff.label} / ${buff.sourceName}`}
-        >
-          {buff.displayLabel || buff.label}
-        </button>
-      );
-    });
-  }, [isBuffManuallyActive, toggleManualBuff]);
 
   // 监听 Buff 添加事件，实时刷新 Buff 列表
   useEffect(() => {
@@ -2147,7 +2069,6 @@ export function SkillButtonComponent({
                 const isCurrentHit = selectedHitIndex === index && selectedAnomalySegmentKey === null;
                 setSelectedHitIndex(isCurrentHit ? null : index);
                 setSelectedAnomalySegmentKey(null);
-                setIsAnomalyFormulaExpanded(false);
               },
             })) ?? []),
             ...anomalyDamageSegments.map((segment) => ({
@@ -2179,7 +2100,6 @@ export function SkillButtonComponent({
                 const isCurrentSegment = selectedHitIndex === null && selectedAnomalySegmentKey === segment.key;
                 setSelectedHitIndex(null);
                 setSelectedAnomalySegmentKey(isCurrentSegment ? null : segment.key);
-                setIsAnomalyFormulaExpanded(false);
               },
             })),
           ]}
@@ -2193,537 +2113,7 @@ export function SkillButtonComponent({
           } : null}
           formula={isShowingAnomalyDetail ? activeAnomalyFormula : damageViewModel?.activeHitFormula ?? null}
           infoLines={infoSnapshotLines}
-        >
-          <div className={`skill-button-modal-pair${isLocalBuffSearchOpen ? ' is-buff-search-open' : ''}`}>
-            {/* 弹窗1：技能信息 */}
-            <div className="skill-button-modal skill-button-modal-info">
-              {/* 独立标题区 */}
-              <div className="modal-header">
-                <h4 className="modal-title">技能信息</h4>
-                <button
-                  className={`lock-control ${isLocked ? 'is-locked' : ''}`}
-                  onClick={() => dispatch({ type: 'TOGGLE_SKILL_BUTTON_LOCK', buttonId: button.id })}
-                  title={isLocked ? '点击解锁，解锁后可右键删除' : '点击锁定，锁定后右键不能删除'}
-                >
-                  <span className="lock-icon">{isLocked ? '🔒' : '🔓'}</span>
-                  <span className="lock-text">{isLocked ? '已锁定' : '未锁定'}</span>
-                </button>
-              </div>
-              <div className="modal-content">
-                <p><strong>角色:</strong> {characterName}</p>
-                <p><strong>技能:</strong> {skillType} / {displayName} <strong>{currentSkillLevelMode}</strong></p>
-                <p><strong>干员索引:</strong> {(button as SkillButtonType).lineIndex}</p>
-                {(() => {
-                  const staffLine = timelineData?.staffLines?.find(s => s.staffIndex === (button as SkillButtonType).lineIndex);
-                  const btnData = staffLine?.buttons?.find(b => b.id === button.id);
-                  if (btnData) {
-                    return (
-                      <>
-                        <p><strong>节点索引:</strong> {btnData.nodeIndex}</p>
-                        <p><strong>节点编号:</strong> {btnData.nodeNumber}</p>
-                      </>
-                    );
-                  }
-                  return null;
-                })()}
-              </div>
-
-              <div className="skill-button-buff-section skill-button-resistance-section">
-                <button
-                  type="button"
-                  className="skill-button-resistance-toggle"
-                  onClick={() => setIsTargetResistanceExpanded((prev) => !prev)}
-                >
-                  <span>目标抗性</span>
-                  <span>{isTargetResistanceExpanded ? '收起' : '展开'}</span>
-                </button>
-                {isTargetResistanceExpanded ? (
-                  <div className="skill-button-resistance-grid">
-                    {[
-                      ['physicalResistance', '物理'],
-                      ['fireResistance', '灼热'],
-                      ['electricResistance', '电磁'],
-                      ['iceResistance', '寒冷'],
-                      ['natureResistance', '自然'],
-                    ].map(([key, label]) => (
-                      <label key={key} className="skill-button-resistance-field">
-                        <span>{label}</span>
-                        <DeferredNumberInput
-                          step="1"
-                          value={targetResistance[key as keyof HitResistanceInput] ?? 0}
-                          onCommit={(value) => updateTargetResistance(key as keyof HitResistanceInput, value ?? 0)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              {/* Buff 列表 */}
-              <div className="skill-button-buff-section">
-                <h5>已选 Buff</h5>
-                <div className="skill-button-buff-list">
-                  {buffList.length === 0 ? (
-                    <div className="skill-button-buff-empty">按 Tab 从 Buff组、干员、武器或装备入口添加</div>
-                  ) : (
-                    buffList.map((buff) => {
-                      const isCountable = buff.category === 'countable';
-                      const maxStacks = typeof buff.maxStacks === 'number' && Number.isFinite(buff.maxStacks) ? Math.max(1, Math.floor(buff.maxStacks)) : 1;
-                      const stackCount = Math.min(Math.max(Math.floor(buttonStackCounts[buff.id] ?? maxStacks), 0), maxStacks);
-                      return (
-                        <div
-                          key={buff.id}
-                          className="skill-button-buff-item"
-                          title={`${buff.displayName} (${buff.sourceName})${isCountable ? ` ${stackCount}/${maxStacks}` : ''}`}
-                          onContextMenu={(e) => {
-                            e.preventDefault();
-                            removeBuff(buff.id);
-                          }}
-                        >
-                          <span>{buff.displayName}</span>
-                          {isCountable && (
-                            <span className="skill-button-buff-stack-controls">
-                              <button
-                                type="button"
-                                onClick={(event) => { event.stopPropagation(); decrementBuffStack(buff.id); }}
-                                disabled={stackCount <= 1}
-                                title={stackCount <= 1 ? '已是最低 1 层，右键删除 Buff' : '减少 1 层'}
-                              >
-                                -
-                              </button>
-                              <span>{stackCount}/{maxStacks}</span>
-                              <button
-                                type="button"
-                                onClick={(event) => { event.stopPropagation(); incrementBuffStack(buff); }}
-                                disabled={stackCount >= maxStacks}
-                                title={stackCount >= maxStacks ? '已达到最大层数' : '增加 1 层'}
-                              >
-                                +
-                              </button>
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              <div className="skill-button-buff-section skill-button-anomaly-summary-section">
-                <h5>已选状态 / 异常</h5>
-                <div className="skill-button-anomaly-summary-list">
-                  {[...selectedStatusCards, ...selectedAnomalyStateSnapshots, ...selectedAnomalyDamages].length === 0 ? (
-                    <div className="skill-button-buff-empty">按 Tab 打开状态区、异常状态区或异常伤害页勾选要演示的项</div>
-                  ) : (
-                    [
-                      ...selectedStatusCards,
-                      ...selectedAnomalyStateSnapshots.map((snapshot) => ({
-                        ...snapshot,
-                        kind: 'state' as const,
-                      })),
-                      ...selectedAnomalyDamages,
-                    ].map((card) => (
-                      <div
-                        key={card.id}
-                        className={`skill-button-anomaly-summary-card is-${card.kind}`}
-                        onContextMenu={(e) => {
-                          e.preventDefault();
-                          if (typeof card.id === 'number') {
-                            removeAnomalyStateSnapshotCard(card.id);
-                            return;
-                          }
-                          removeAnomalyCard(card.kind, card.id);
-                        }}
-                        title="右键移除"
-                      >
-                        <div className="anomaly-summary-head">
-                          <span className="anomaly-summary-kind">{card.kind === 'state' ? '状态' : '伤害'}</span>
-                          <span className="anomaly-summary-title">{card.primaryText}</span>
-                        </div>
-                        <p>{card.secondaryText}</p>
-                        {card.tertiaryText ? <p>{card.tertiaryText}</p> : null}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <button className="modal-close-btn" onClick={handleCloseModal}>关闭</button>
-            </div>
-
-            {/* 弹窗2：技能伤害 - Hit 主导版本 */}
-            <div className="skill-button-modal skill-button-modal-damage">
-              <h4>技能伤害</h4>
-              <div className="modal-content">
-                {damageResult ? (
-                  (() => {
-                    if (!damageViewModel) {
-                      return <p className="skill-damage-empty">加载技能数据中...</p>;
-                    }
-
-                    return (
-                      <>
-                        {/* 总览区 */}
-                        <div className="skill-damage-summary">
-                          <p className="skill-damage-title">{damageViewModel.header.fullText}</p>
-                          <div className="skill-damage-total">
-                            <span>总伤(期望): {(Number(damageViewModel.summary.totalExpectedText) + anomalyDamageSummary.expected).toFixed(0)}</span>
-                            <span>总伤(暴击): {(Number(damageViewModel.summary.totalCritText) + anomalyDamageSummary.crit).toFixed(0)}</span>
-                            <span>总伤(非暴): {(Number(damageViewModel.summary.totalNonCritText) + anomalyDamageSummary.nonCrit).toFixed(0)}</span>
-                          </div>
-                          <p className="skill-damage-total-formula">总伤(非暴)步骤: {totalNonCritSummaryFormula}</p>
-                        </div>
-
-                        {/* Hit 列表区 */}
-                        <div className="skill-damage-hits">
-                          {damageViewModel.hitCards.map((hitCard, index) => (
-                            <div
-                              key={hitCard.key}
-                              className={`skill-damage-hit-card${hitCard.isSelected ? ' selected' : ''}${hitCard.isDisabled ? ' is-disabled' : ''}`}
-                              onClick={() => {
-                                setSelectedHitIndex(index);
-                                setSelectedAnomalySegmentKey(null);
-                                setIsAnomalyFormulaExpanded(false);
-                              }}
-                            >
-                              <div className="hit-card-header">
-                                <div className="hit-card-title-group">
-                                  <span className="hit-name">{hitCard.displayName}</span>
-                                  <span className="buff-count">{hitCard.buffCountText}</span>
-                                </div>
-                                <span className="hit-multiplier">{hitCard.multiplierText}</span>
-                              </div>
-                              <div className="hit-card-damage">
-                                <span className="damage-line">期望: <span className="damage-expected">{hitCard.expectedText}</span></span>
-                                <span className="damage-line">暴击: <span className="damage-crit">{hitCard.critText}</span></span>
-                                <span className="damage-line">非暴: <span className="damage-non-crit">{hitCard.nonCritText}</span></span>
-                              </div>
-                            </div>
-                          ))}
-                          {anomalyDamageSegments.map((segment) => (
-                            <div
-                              key={segment.key}
-                              className={`skill-damage-hit-card${activeAnomalySegment?.key === segment.key ? ' selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
-                              onClick={() => {
-                                setSelectedHitIndex(null);
-                                setSelectedAnomalySegmentKey(segment.key);
-                                setIsAnomalyFormulaExpanded(false);
-                              }}
-                            >
-                              <div className="hit-card-header">
-                                <div className="hit-card-title-group">
-                                  <span className="hit-name">{segment.sequenceTitle}</span>
-                                  <span className="buff-count">{segment.buffText}</span>
-                                  <span className="buff-count">{segment.compactTitle}</span>
-                                  <span className="buff-count">{segment.skillTypeText ? `${segment.skillTypeText} / ${segment.elementText}` : segment.elementText}</span>
-                                </div>
-                                <span className="hit-multiplier">{segment.multiplierText}</span>
-                              </div>
-                              <div className="hit-card-damage">
-                                <span className="damage-line">期望: <span className="damage-expected">{segment.expectedText}</span></span>
-                                <span className="damage-line">暴击: <span className="damage-crit">{segment.critText}</span></span>
-                                <span className="damage-line">非暴: <span className="damage-non-crit">{segment.nonCritText}</span></span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Hit 详情区 */}
-                        {!isShowingAnomalyDetail && damageViewModel.activeHitDetail && (
-                          <div className="skill-damage-hit-detail">
-                            <div className="hit-detail-head">
-                              <p className="hit-detail-title">{damageViewModel.activeHitDetail.title}</p>
-                              {activeNormalHitKey ? (
-                                <button
-                                  type="button"
-                                  className={`hit-toggle-btn${isActiveNormalHitDisabled ? ' is-restore' : ''}`}
-                                  onClick={toggleActiveNormalHitDisabled}
-                                  title={isActiveNormalHitDisabled ? '启用当前 hit 并重新计入总伤' : '禁用当前 hit 并从总伤中扣除'}
-                                >
-                                  {isActiveNormalHitDisabled ? '启用本段' : '禁用本段'}
-                                </button>
-                              ) : null}
-                            </div>
-                            <div className="hit-detail-stats">
-                              <p>倍率: {damageViewModel.activeHitDetail.multiplierText}</p>
-                              <p>元素: {damageViewModel.activeHitDetail.elementText}</p>
-                              <p>期望伤害: {damageViewModel.activeHitDetail.expectedText}</p>
-                              <p>暴击伤害: {damageViewModel.activeHitDetail.critText}</p>
-                              <p>非暴击伤害: {damageViewModel.activeHitDetail.nonCritText}</p>
-                            </div>
-                            <div className="hit-detail-buffs">
-                              <div className="hit-detail-buffs-head">
-                                <p className="buff-section-title">生效 Buff:</p>
-                                {activeNormalHitSegmentKey && (manuallyDisabledBuffIdsBySegmentKey[activeNormalHitSegmentKey]?.length ?? 0) > 0 ? (
-                                  <button type="button" className="buff-reset-btn" onClick={() => resetManualBuffTweaks(activeNormalHitSegmentKey)}>重置微调</button>
-                                ) : null}
-                              </div>
-                              <p className="buff-section-tip">点按按钮可临时启停本次计算</p>
-                              {renderAppliedBuffButtons(activeNormalHitSegmentKey, activeHitBuffOptions)}
-                            </div>
-                          </div>
-                        )}
-
-                        {isShowingAnomalyDetail && activeAnomalySegment && (
-                          <div className="skill-damage-hit-detail">
-                            <p className="hit-detail-title">{activeAnomalySegment.title}</p>
-                            <div className="hit-detail-stats">
-                              <p>ATK: {activeAnomalySegment.panelAtkText}</p>
-                              <p>暴击率: {activeAnomalySegment.critRateText}</p>
-                              <p>暴击伤害: {activeAnomalySegment.critDmgText}</p>
-                              <p>技能类型: {activeAnomalySegment.skillTypeText || '-'}</p>
-                              <p>伤害类型: {activeAnomalySegment.elementText}</p>
-                              <p>最终倍率: {activeAnomalySegment.multiplierText}</p>
-                              {activeAnomalySegment.sourceKind === 'buff-extra-hit' && (
-                                <>
-                                  <p>来源 Buff: {activeAnomalySegment.sourceBuffName || '-'}</p>
-                                  <p>失衡值: {activeAnomalySegment.imbalanceText || '-'}</p>
-                                  <p>冷却文案: {activeAnomalySegment.cooldownText || '-'}</p>
-                                </>
-                              )}
-                              <p>期望伤害: {activeAnomalySegment.expectedText}</p>
-                              <p>暴击伤害: {activeAnomalySegment.critText}</p>
-                              <p>非暴击伤害: {activeAnomalySegment.nonCritText}</p>
-                            </div>
-                            <div className="hit-detail-buffs">
-                              <div className="hit-detail-buffs-head">
-                                <p className="buff-section-title">生效 Buff:</p>
-                                {(manuallyDisabledBuffIdsBySegmentKey[activeAnomalySegment.key]?.length ?? 0) > 0 ? (
-                                  <button type="button" className="buff-reset-btn" onClick={() => resetManualBuffTweaks(activeAnomalySegment.key)}>重置微调</button>
-                                ) : null}
-                              </div>
-                              <p className="buff-section-tip">点按按钮可临时启停本次计算</p>
-                              {renderAppliedBuffButtons(activeAnomalySegment.key, activeAnomalyBuffOptions)}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* 展开计算过程 - 基于当前选中的 activeHit */}
-                        {!isShowingAnomalyDetail && isExpanded && damageViewModel.activeHitFormula && (
-                          <div className="skill-damage-expanded">
-                            <p className="skill-damage-expand-title">{damageViewModel.activeHitFormula.title}</p>
-                            <div className="skill-damage-formula">
-                              <p className="formula-section-title">【面板属性】</p>
-                              {damageViewModel.activeHitFormula.panelLines.map((line) => (
-                                <p key={line}>{line}</p>
-                              ))}
-                              <p className="formula-section-title">【生效 Buff】</p>
-                              {damageViewModel.activeHitFormula.buffTags.length > 0 ? (
-                                <div className="formula-buff-tags">
-                                  {damageViewModel.activeHitFormula.buffTags.map((buff) => (
-                                    <span key={buff.id} className="buff-tag">{buff.displayLabel || buff.label}</span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p>无</p>
-                              )}
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【倍率区】</p>
-                                <p>基础倍率: {damageViewModel.activeHitFormula.baseMultiplierText}</p>
-                                <p>倍率 Buff 加算: {damageViewModel.activeHitFormula.multiplierFormulaText}</p>
-                                <p className="formula-zone-total">最终倍率 = {damageViewModel.activeHitFormula.formulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【加成区】</p>
-                                <p>元素伤害加成 {damageViewModel.activeHitFormula.elementBonusText}</p>
-                                <p>技能伤害加成 {damageViewModel.activeHitFormula.skillBonusText}</p>
-                                <p>全伤害加成 {damageViewModel.activeHitFormula.allDamageBonusText}</p>
-                                <p className="formula-zone-total">加成区系数 = {damageViewModel.activeHitFormula.damageBonusFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【增幅区】</p>
-                                <p>法术/元素增幅</p>
-                                <p className="formula-zone-total">增幅区 = {damageViewModel.activeHitFormula.amplifyFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【易伤区】</p>
-                                <p>易伤效果</p>
-                                <p className="formula-zone-total">易伤区 = {damageViewModel.activeHitFormula.fragileFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【脆弱区】</p>
-                                <p>脆弱效果</p>
-                                <p className="formula-zone-total">脆弱区 = {damageViewModel.activeHitFormula.vulnerabilityFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【连击区】</p>
-                                <p>连击增伤</p>
-                                <p className="formula-zone-total">连击区 = {damageViewModel.activeHitFormula.comboFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【失衡区】</p>
-                                <p>失衡增伤</p>
-                                <p className="formula-zone-total">失衡区 = {damageViewModel.activeHitFormula.imbalanceFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【防御区】</p>
-                                <p>防御减免系数</p>
-                                <p className="formula-zone-total">防御区 = {damageViewModel.activeHitFormula.defenseZoneText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【抗性区】</p>
-                                <p>抗性 / 降抗 / 无视抗性</p>
-                                <p>有效抗性: {damageViewModel.activeHitFormula.resistanceEffectiveText}</p>
-                                <p className="formula-zone-total">抗性区 = {damageViewModel.activeHitFormula.resistanceFormulaText}</p>
-                              </div>
-
-                              <p className="formula-section-title">【结果】</p>
-                              <p>非暴击总伤 = {damageViewModel.activeHitFormula.nonCritFormulaText}</p>
-                              <p>期望伤害: {damageViewModel.activeHitFormula.expectedText}</p>
-                              <p>暴击伤害: {damageViewModel.activeHitFormula.critText}</p>
-                              <p>非暴击伤害: {damageViewModel.activeHitFormula.nonCritText}</p>
-                            </div>
-                          </div>
-                        )}
-
-                        {isShowingAnomalyDetail && activeAnomalySegment && isAnomalyFormulaExpanded && (
-                          <div className="skill-damage-expanded">
-                            <p className="skill-damage-expand-title">{activeAnomalySegment.title} 计算过程</p>
-                            <div className="skill-damage-formula">
-                              <p className="formula-section-title">【面板属性】</p>
-                              <p>ATK: {activeAnomalySegment.panelAtkText}</p>
-                              <p>暴击率: {activeAnomalySegment.critRateText}</p>
-                              <p>暴击伤害: {activeAnomalySegment.critDmgText}</p>
-
-                              <p className="formula-section-title">【生效 Buff】</p>
-                              {activeAnomalySegment.appliedBuffTags.length > 0 ? (
-                                <div className="formula-buff-tags">
-                                  {activeAnomalySegment.appliedBuffTags.map((buff) => (
-                                    <span key={buff.id} className="buff-tag">{buff.displayLabel || buff.label}</span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p>无</p>
-                              )}
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【倍率区】</p>
-                                <p>基础倍率: {activeAnomalySegment.baseMultiplierText}</p>
-                                <p>倍率 Buff 加算: {activeAnomalySegment.multiplierFormulaText}</p>
-                                {activeAnomalySegment.sourceKind === 'anomaly' && (
-                                  <>
-                                    <p>源石技艺强度: {activeAnomalySegment.sourceSkillBoostText}</p>
-                                    <p>等级系数区: × {activeAnomalySegment.levelCoefficientText}</p>
-                                    <p>源石技艺强度区: × {activeAnomalySegment.sourceSkillZoneText}</p>
-                                  </>
-                                )}
-                                <p className="formula-zone-total">最终倍率 = {activeAnomalySegment.formulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【加成区】</p>
-                                <p>元素伤害加成 {activeAnomalySegment.elementBonusText}</p>
-                                <p>技能伤害加成 {activeAnomalySegment.skillBonusText}</p>
-                                <p>全伤害加成 {activeAnomalySegment.allDamageBonusText}</p>
-                                <p className="formula-zone-total">加成区系数 = 1 + {activeAnomalySegment.elementBonusText} + {activeAnomalySegment.skillBonusText} + {activeAnomalySegment.allDamageBonusText} = {activeAnomalySegment.damageBonusRateText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【增幅区】</p>
-                                <p>法术/元素增幅</p>
-                                <p className="formula-zone-total">增幅区 = {activeAnomalySegment.amplifyFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【易伤区】</p>
-                                <p>易伤效果</p>
-                                <p className="formula-zone-total">易伤区 = {activeAnomalySegment.fragileFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【脆弱区】</p>
-                                <p>脆弱效果</p>
-                                <p className="formula-zone-total">脆弱区 = {activeAnomalySegment.vulnerabilityFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【连击区】</p>
-                                <p>连击增伤</p>
-                                <p className="formula-zone-total">连击区 = {activeAnomalySegment.comboFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【失衡区】</p>
-                                <p>失衡增伤</p>
-                                <p className="formula-zone-total">失衡区 = {activeAnomalySegment.imbalanceFormulaText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【防御区】</p>
-                                <p>防御减免系数</p>
-                                <p className="formula-zone-total">防御区 = {activeAnomalySegment.defenseZoneText}</p>
-                              </div>
-
-                              <div className="formula-zone-section">
-                                <p className="formula-section-title">【抗性区】</p>
-                                <p>抗性 / 降抗 / 无视抗性</p>
-                                <p>有效抗性: {(Number(activeAnomalySegment.resistanceBaseText) - Number(activeAnomalySegment.corrosionText)).toFixed(1)}</p>
-                                <p className="formula-zone-total">抗性区 = {activeAnomalySegment.resistanceFormulaText}</p>
-                              </div>
-
-                              {activeAnomalySegment.sourceKind === 'buff-extra-hit' && (
-                                <div className="formula-zone-section">
-                                  <p className="formula-section-title">【附加信息】</p>
-                                  <p>来源 Buff: {activeAnomalySegment.sourceBuffName || '-'}</p>
-                                  <p>失衡值: {activeAnomalySegment.imbalanceText || '-'}</p>
-                                  <p>冷却文案: {activeAnomalySegment.cooldownText || '-'}</p>
-                                </div>
-                              )}
-
-                              <p className="formula-section-title">【结果】</p>
-                              <p>非暴击总伤 = {activeAnomalySegment.nonCritFormulaText}</p>
-                              <p>期望伤害: {activeAnomalySegment.expectedText}</p>
-                              <p>暴击伤害: {activeAnomalySegment.critText}</p>
-                              <p>非暴击伤害: {activeAnomalySegment.nonCritText}</p>
-                            </div>
-                          </div>
-                        )}
-
-                        <button
-                          className="skill-damage-expand-btn"
-                          onClick={() => {
-                            if (isShowingAnomalyDetail) {
-                              setIsAnomalyFormulaExpanded(!isAnomalyFormulaExpanded);
-                              return;
-                            }
-                            setIsExpanded(!isExpanded);
-                          }}
-                        >
-                          {isShowingAnomalyDetail
-                            ? (isAnomalyFormulaExpanded ? '收起异常计算过程' : '展开异常计算过程')
-                            : (isExpanded ? '收起计算过程' : '展开计算过程')}
-                        </button>
-                      </>
-                    );
-                  })()
-                ) : (
-                  <p className="skill-damage-empty">{!panelData ? '加载面板数据...' : '加载技能模板中...'}</p>
-                )}
-              </div>
-            </div>
-
-            {/* 弹窗4：信息快照 */}
-            <div className="skill-button-modal skill-button-modal-info-snapshot">
-              <h4>信息</h4>
-              <div className="modal-content">
-                {infoSnapshotLines.length > 0 ? (
-                  <pre className="skill-info-snapshot-content">{infoSnapshotLines.join('\n')}</pre>
-                ) : (
-                  <p className="skill-info-snapshot-empty">暂无信息快照</p>
-                )}
-              </div>
-            </div>
-          </div>
-        </TimelineSkillDetailWorkbench>
+        />
       )}
     </>
   );

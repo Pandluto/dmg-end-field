@@ -49,7 +49,6 @@ export interface TimelineDetailActiveHit {
 }
 
 interface TimelineSkillDetailWorkbenchProps {
-  children?: ReactNode;
   searchLayer?: ReactNode;
   characterName: string;
   skillLabel: string;
