@@ -54,14 +54,6 @@ async function loadThemeFiles(theme: AppThemeId): Promise<void> {
   void runtime.prewarmLiquidGlassRuntime().catch(() => undefined);
 }
 
-export function isAppThemeBundled(theme: AppThemeId): boolean {
-  return theme === 'office-excel';
-}
-
-export function isAppThemeAssetLoaded(theme: AppThemeId): boolean {
-  return loadedThemes.has(theme);
-}
-
 export async function ensureAppThemeAssets(theme: AppThemeId): Promise<void> {
   if (loadedThemes.has(theme)) return;
   const existing = pendingThemes.get(theme);

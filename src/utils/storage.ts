@@ -481,7 +481,6 @@ export function cleanupStorage(): void {
     try {
       const wrapper = parseV3Wrapper<CharacterDisplayCache>(displayRaw);
       if (wrapper && Date.now() - wrapper.timestamp > 60 * 60 * 1000) {
-        console.log('[cleanup] UI 展示缓存已过期，清除');
         safeSessionStorage.removeItem(STORAGE_KEYS.CHARACTER_DISPLAY_CACHE);
       }
     } catch {
@@ -719,7 +718,6 @@ export function getSelectedCharacterIds(): string[] {
 }
 
 export function setSelectedCharacterIds(characterIds: string[]): void {
-  console.log('[storage] setSelectedCharacterIds', characterIds);
   setStorageJson(STORAGE_KEYS.SELECTED_CHARACTERS, characterIds);
 }
 

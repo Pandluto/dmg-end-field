@@ -1,6 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useLayoutEffect, useRef, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
-import { readAppliedAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
 import {
   enqueueLiquidGlassRender,
@@ -16,7 +15,6 @@ import {
   readPersistentGlassSnapshot,
 } from './liquidGlassSnapshotStore';
 
-const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_BACKDROP_SRC = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
 const MAX_MANAGED_ROOTS = 16;
 const CAPTURE_OVERSCAN = 28;
@@ -300,7 +298,6 @@ const SURFACE_RULES: readonly SurfaceRule[] = [
 
   { selector: '.timeline-snapshot-modal-head > .modal-close-btn', preset: 'control', priority: 0 },
   { selector: '.work-node-modal-head button', preset: 'control', priority: 0 },
-  { selector: '.skill-button-modal .modal-header > button', preset: 'control', priority: 0 },
   { selector: '.operator-config-page-picker-header > button', preset: 'control', priority: 0 },
   { selector: '.operator-config-page-panel-detail-header > button', preset: 'control', priority: 0 },
   { selector: '.operator-config-page-skill-modal-header > button', preset: 'control', priority: 0 },
@@ -524,11 +521,8 @@ export function useLiquidTideSurfaceGlass(
   rootRef: RefObject<HTMLDivElement>,
   activationKey = '',
 ): void {
-  const [theme, setTheme] = useState(readAppliedAppTheme);
   const managedRootsRef = useRef(new Map<HTMLElement, ManagedRoot>());
   const storedAttributesRef = useRef(new Map<HTMLElement, StoredAttributes>());
-
-  useEffect(() => subscribeAppTheme(setTheme), []);
 
   useLayoutEffect(() => {
     const appRoot = rootRef.current;
@@ -604,9 +598,8 @@ export function useLiquidTideSurfaceGlass(
       Array.from(storedAttributes.keys()).forEach(restoreTarget);
     };
 
-    if (!appRoot || theme !== LIQUID_TIDE_THEME_ID) {
+    if (!appRoot) {
       disposeAll();
-      appRoot?.removeAttribute('data-liquid-glass-cohort-state');
       return undefined;
     }
 
@@ -1091,5 +1084,5 @@ export function useLiquidTideSurfaceGlass(
       disposeAll();
       appRoot.removeAttribute('data-liquid-glass-cohort-state');
     };
-  }, [activationKey, rootRef, theme]);
+  }, [activationKey, rootRef]);
 }

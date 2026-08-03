@@ -702,10 +702,6 @@
   color: rgba(0, 0, 0, 0.55);
 }
 
-.operator-config-page-equip-archive {
-  display: none;
-}
-
 .operator-config-page-operator-panel {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -1351,53 +1347,6 @@
   font-size: 12px;
 }
 
-.operator-config-page-equip-row--6 {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
-.operator-config-page-equip-row--4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.operator-config-page-equip-row--3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.operator-config-page-panel .config-equip-copy-drawer-host {
-  gap: 6px;
-}
-
-.operator-config-page-panel .config-equip-copy-drawer {
-  width: 320px;
-}
-
-.operator-config-page-panel .config-equip-copy-textarea {
-  width: 320px;
-  height: 96px;
-}
-
-.operator-config-page-equip-values-box {
-  display: block;
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-  background: transparent;
-  background-color: transparent;
-  background-image: none;
-  aspect-ratio: 914 / 984;
-}
-
-.operator-config-page-equip-box-title {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  z-index: 1;
-  pointer-events: none;
-}
-
 .operator-config-page-picker-backdrop {
   position: fixed;
   inset: 0;
@@ -1634,8 +1583,6 @@
 }
 
 .operator-config-page-panel .config-panel-back-btn,
-.operator-config-page-panel .config-equip-sync-btn,
-.operator-config-page-panel .config-equip-copy-btn,
 .operator-config-page-panel .config-weapon-trigger,
 .operator-config-page-panel .config-weapon-data-trigger,
 .operator-config-page-panel .config-cti-input,
@@ -1649,9 +1596,6 @@
 }
 
 .operator-config-page-panel .config-panel-back-btn:hover,
-.operator-config-page-panel .config-equip-sync-btn:hover,
-.operator-config-page-panel .config-equip-copy-btn:hover,
-.operator-config-page-panel .config-equip-copy-btn.is-open,
 .operator-config-page-panel .config-weapon-trigger:hover,
 .operator-config-page-panel .config-weapon-trigger.is-open,
 .operator-config-page-panel .config-weapon-data-trigger:hover,
@@ -1666,9 +1610,6 @@
 .operator-config-page-section,
 .operator-config-page-panel .config-data-section,
 .operator-config-page-panel .config-skill-card,
-.operator-config-page-panel .config-equip-values-box,
-.operator-config-page-panel .config-equip-set-box,
-.operator-config-page-panel .config-equip-set-sub-box,
 .operator-config-page-panel .config-cti-strip,
 .operator-config-page-panel .config-weapon-potential-box,
 .operator-config-page-panel .config-weapon-drawer,
@@ -1684,7 +1625,6 @@
 
 .operator-config-page-section-title,
 .operator-config-page-panel .config-data-title,
-.operator-config-page-panel .config-equip-box-title,
 .operator-config-page-panel .config-skill-key,
 .operator-config-page-panel .config-skill-name,
 .operator-config-page-track-key,
@@ -1700,7 +1640,6 @@
 }
 
 .operator-config-page-panel .config-data-label,
-.operator-config-page-panel .config-equip-item-label,
 .operator-config-page-panel .config-talent-desc,
 .config-weapon-choose-detail,
 .config-weapon-config-summary,
@@ -1899,7 +1838,6 @@
 
 .operator-config-page-section-title,
 .operator-config-page-panel .config-data-title,
-.operator-config-page-panel .config-equip-box-title,
 .operator-config-page-panel .config-data-value,
 .operator-config-page-panel .config-skill-key,
 .operator-config-page-panel .config-skill-name,

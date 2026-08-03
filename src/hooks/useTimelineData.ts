@@ -43,7 +43,6 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
       // timeline.data 与 skill-button 总表分别写入。异步 UI 切换或历史数据
       // 恢复期间，最后一次写入不能让两者留下不一致的快照。
       ensureTimelineDataConsistency(selectedCharacters);
-      console.log('[timeline] autosaved to workspace repository');
     }, 300);
 
     return () => {
@@ -133,7 +132,6 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
     const dataToSave = timelineDataRef.current;
     saveTimelineDataService(dataToSave);
     const consistentData = ensureTimelineDataConsistency(selectedCharacters) ?? dataToSave;
-    console.log('[timeline] saved to workspace repository', consistentData);
     return consistentData;
   }, [selectedCharacters]);
 
@@ -145,12 +143,6 @@ export function useTimelineData(selectedCharacters: { name: string }[]) {
         setStorageJson(STORAGE_KEYS.TIMELINE_DATA, normalized);
       }
       setTimelineData(normalized);
-      console.log('[timeline] loaded from workspace repository', normalized);
-      console.log('  - selectedCharacters:', selectedCharacters.length);
-      console.log('  - staffLines:', normalized.staffLines.length);
-      normalized.staffLines.forEach((line, idx) => {
-        console.log(`  - staffLine[${idx}]: buttons=${line.buttons.length}, occupiedNodes=${line.occupiedNodes.length}`);
-      });
       return normalized;
     }
     return null;

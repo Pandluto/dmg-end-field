@@ -202,7 +202,6 @@ export function addBuffToButton(
       recomputeSkillButtonPanel(buttonId);
       return { success: true, buffId: existingBuffId, isDuplicate: false };
     }
-    console.log('[buffService] 按钮内已存在相同内容 Buff:', normalizedBuff.displayName);
     return { success: true, buffId: undefined, isDuplicate: true };
   }
 
@@ -218,7 +217,6 @@ export function addBuffToButton(
       upsertBuff({ ...existingBuff, refCount: (existingBuff.refCount || 1) + 1 });
       buffCache[buffId] = { ...existingBuff, refCount: (existingBuff.refCount || 1) + 1 };
     }
-    console.log('[buffService] 复用已有 Buff 实体:', existingBuffId, buff.displayName, 'refCount+1');
   } else {
     // 生成新 buffId，refCount = 1
     buffId = buff.id || `buff-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -230,7 +228,6 @@ export function addBuffToButton(
     };
     upsertBuff(newBuff);
     buffCache[buffId] = newBuff;
-    console.log('[buffService] 新建 Buff 实体:', buffId, buff.displayName, 'refCount=1');
   }
 
   const nextSelectedBuff = [...currentSelectedBuff, buffId];
@@ -252,7 +249,6 @@ export function addBuffToButton(
   });
   recomputeSkillButtonPanel(buttonId);
 
-  console.log('[buffService] 已添加 Buff:', buttonId, buff.displayName, buffId);
   return { success: true, buffId };
 }
 
@@ -293,15 +289,11 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
     if (newRefCount <= 0) {
       removeBuffById(buffId);
       delete buffCache[buffId];
-      console.log('[buffService] Buff refCount=0，删除实体:', buffId);
     } else {
       upsertBuff({ ...buff, refCount: newRefCount });
       buffCache[buffId] = { ...buff, refCount: newRefCount };
-      console.log('[buffService] Buff refCount -1:', buffId, 'newRefCount=', newRefCount);
     }
   }
-
-  console.log('[buffService] 已从按钮移除 Buff:', buttonId, buffId);
 }
 
 export function decrementBuffStackOnButton(buttonId: string, buffId: string): void {
@@ -363,16 +355,12 @@ export function clearButtonBuffs(buttonId: string): void {
       if (newRefCount <= 0) {
         removeBuffById(buffId);
         delete buffCache[buffId];
-        console.log('[buffService] Buff refCount=0，删除实体:', buffId);
       } else {
         upsertBuff({ ...buff, refCount: newRefCount });
         buffCache[buffId] = { ...buff, refCount: newRefCount };
-        console.log('[buffService] Buff refCount -1:', buffId, 'newRefCount=', newRefCount);
       }
     }
   });
-
-  console.log('[buffService] 已清空按钮 Buff:', buttonId);
 }
 
 /**
@@ -389,11 +377,9 @@ export function cleanupBuffsOnButtonRemove(oldSelectedBuff: string[]): void {
       if (newRefCount <= 0) {
         removeBuffById(buffId);
         delete buffCache[buffId];
-        console.log('[buffService] Buff refCount=0，删除实体:', buffId);
       } else {
         upsertBuff({ ...buff, refCount: newRefCount });
         buffCache[buffId] = { ...buff, refCount: newRefCount };
-        console.log('[buffService] Buff refCount -1:', buffId, 'newRefCount=', newRefCount);
       }
     }
   });
@@ -448,11 +434,8 @@ export function rebuildBuffRefCounts(): {
       removeBuffById(buff.id);
       delete buffCache[buff.id];
       removedOrphans.push(buff.id);
-      console.log('[buffService] 清理孤儿 Buff 实体:', buff.id, 'oldRefCount=', buff.refCount);
     }
   });
-
-  console.log('[buffService] 重建 refCount 完成:', Object.keys(rebuilt).length, '个已更新,', removedOrphans.length, '个孤儿已清理');
   return { rebuilt, removedOrphans };
 }
 
@@ -484,7 +467,7 @@ export function deduplicateBuffEntities(): {
   let merged = 0;
 
   // 对每组处理：保留第一个为 canonical，合并其他引用
-  Object.entries(groups).forEach(([key, buffIds]) => {
+  Object.values(groups).forEach((buffIds) => {
     if (buffIds.length <= 1) return; // 没有重复
 
     const [canonicalId, ...duplicateIds] = buffIds;
@@ -533,11 +516,7 @@ export function deduplicateBuffEntities(): {
       delete buffCache[id];
       removedBuffIds.push(id);
     });
-
-    console.log(`[buffService] 归并 Buff 组: key=${key}, canonical=${canonicalId}, removed=${duplicateIds.join(',')}`);
   });
-
-  console.log(`[buffService] 归并完成: ${merged} 组, 删除 ${removedBuffIds.length} 个重复实体`);
   return { merged, removed: removedBuffIds };
 }
 
@@ -563,7 +542,6 @@ export function attachExistingBuffsToButton(buttonId: string, buffIds: string[])
     if (buff) {
       upsertBuff({ ...buff, refCount: (buff.refCount || 1) + 1 });
       buffCache[buffId] = { ...buff, refCount: (buff.refCount || 1) + 1 };
-      console.log('[buffService] 复制按钮附加 Buff，refCount +1:', buffId, 'newRefCount=', (buff.refCount || 1) + 1);
     } else {
       console.warn('[buffService] attachExistingBuffsToButton: Buff 不存在:', buffId);
     }
@@ -589,7 +567,6 @@ export function attachExistingBuffsToButton(buttonId: string, buffIds: string[])
   });
 
   recomputeSkillButtonPanel(buttonId);
-  console.log('[buffService] attachExistingBuffsToButton 完成:', buttonId, '新增 buffIds:', buffIds);
 }
 
 // ===== 选中技能按钮 ID 的读写 =====

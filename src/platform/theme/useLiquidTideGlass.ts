@@ -1,6 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import type { GlassConfig, LiquidGlass as LiquidGlassInstance } from '@ybouane/liquidglass';
-import { readAppliedAppTheme, subscribeAppTheme } from './appTheme';
 import { destroyLiquidGlass } from './liquidGlassLifecycle';
 import {
   enqueueLiquidGlassRender,
@@ -15,7 +14,6 @@ import {
   readPersistentGlassSnapshot,
 } from './liquidGlassSnapshotStore';
 
-const LIQUID_TIDE_THEME_ID = 'liquid-tide';
 const LIQUID_TIDE_GLASS_SELECTOR = '[data-liquid-glass-skill="true"]';
 const LIQUID_TIDE_GLASS_CLIP_PROPERTY = '--liquid-glass-composite-clip';
 const LIQUID_TIDE_GLASS_BACKDROP = '/assets/themes/liquid-tide/anmi-anniversary.jpg';
@@ -248,9 +246,6 @@ export function useLiquidTideGlass(
   const restoredSnapshotKeyRef = useRef<string | null>(null);
   const cacheRefreshPendingRef = useRef(false);
   const [rendererRevision, setRendererRevision] = useState(0);
-  const [theme, setTheme] = useState(readAppliedAppTheme);
-
-  useEffect(() => subscribeAppTheme(setTheme), []);
 
   useLayoutEffect(() => {
     const root = rootRef.current;
@@ -269,10 +264,7 @@ export function useLiquidTideGlass(
     restoredSnapshotKeyRef.current = null;
     cacheRefreshPendingRef.current = false;
 
-    if (!root || theme !== LIQUID_TIDE_THEME_ID) {
-      root?.removeAttribute('data-liquid-glass-engine');
-      root?.removeAttribute('data-liquid-glass-state');
-      root?.removeAttribute('data-liquid-glass-cache');
+    if (!root) {
       return undefined;
     }
 
@@ -550,10 +542,9 @@ export function useLiquidTideGlass(
       root.removeAttribute('data-liquid-glass-state');
       root.removeAttribute('data-liquid-glass-cache');
     };
-  }, [elementSignature, rendererRevision, rootRef, theme]);
+  }, [elementSignature, rendererRevision, rootRef]);
 
   useEffect(() => {
-    if (theme !== LIQUID_TIDE_THEME_ID) return;
     const frameId = requestAnimationFrame(() => {
       const root = rootRef.current;
       if (!root) return;
@@ -573,5 +564,5 @@ export function useLiquidTideGlass(
       queueSnapshotRef.current?.();
     });
     return () => cancelAnimationFrame(frameId);
-  }, [elementSignature, renderSignature, theme]);
+  }, [elementSignature, renderSignature]);
 }

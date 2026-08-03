@@ -114,7 +114,6 @@ export function useSkillButtonBuffs() {
     loadBuffsToCache();
     // 清空本地状态，下次 getBuffs 会重新从 storage 读取
     setButtonBuffs({});
-    console.log('[Buff] 已从 storage 同步');
   }, []);
 
   return {

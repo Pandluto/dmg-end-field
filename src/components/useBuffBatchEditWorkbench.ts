@@ -33,16 +33,12 @@ import {
   BUFF_EDIT_SECONDARY_BUTTON_LEFT_FALLBACK,
   BUFF_EDIT_SECONDARY_BUTTON_WIDTH,
   BUFF_EDIT_TOP_SPACER_HEIGHT,
-  SKILL_BUTTON_HIT_HEIGHT,
-  SKILL_BUTTON_HIT_WIDTH,
-  SKILL_BUTTON_RADIUS,
-  SKILL_BUTTON_VISUAL_OFFSET_X,
-  SKILL_BUTTON_VISUAL_OFFSET_Y,
   buffFromSearchResult,
   buffMatchesSourceFilter,
-  buildButtonPosition,
+  buildButtonHitRect,
   candidateBuffFromAnomalyStateSnapshot,
   compareBuffBySource,
+  countTargetsByButton,
   dedupeBuffIds,
   getNextCandidateAdderMode,
   getStaffGroupCount,
@@ -227,36 +223,16 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
     [involvedBuffIds, sortedBuffs]
   );
   const pendingAddCountByButton = useMemo(() => {
-    const counts = new Map<string, number>();
-    Object.values(pendingAddByBuff).forEach((buttonIds) => {
-      buttonIds.forEach((buttonId) => {
-        counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1);
-      });
-    });
-    return counts;
+    return countTargetsByButton(pendingAddByBuff);
   }, [pendingAddByBuff]);
   const pendingRemoveCountByButton = useMemo(() => {
-    const counts = new Map<string, number>();
-    Object.values(pendingRemoveByBuff).forEach((buttonIds) => {
-      buttonIds.forEach((buttonId) => {
-        counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1);
-      });
-    });
-    return counts;
+    return countTargetsByButton(pendingRemoveByBuff);
   }, [pendingRemoveByBuff]);
   const editAddCountByButton = useMemo(() => {
-    const counts = new Map<string, number>();
-    Object.values(editAddByBuff).forEach((buttonIds) => {
-      buttonIds.forEach((buttonId) => counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1));
-    });
-    return counts;
+    return countTargetsByButton(editAddByBuff);
   }, [editAddByBuff]);
   const editRemoveCountByButton = useMemo(() => {
-    const counts = new Map<string, number>();
-    Object.values(editRemoveByBuff).forEach((buttonIds) => {
-      buttonIds.forEach((buttonId) => counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1));
-    });
-    return counts;
+    return countTargetsByButton(editRemoveByBuff);
   }, [editRemoveByBuff]);
   const staffGroupCount = getStaffGroupCount(skillButtons);
   const canvasHeight = BUFF_EDIT_TOP_SPACER_HEIGHT + GRID_STACK_PADDING_TOP + staffGroupCount * GRID_GROUP_HEIGHT + Math.max(0, staffGroupCount - 1) * GRID_GROUP_GAP + GRID_STACK_PADDING_BOTTOM;
@@ -534,6 +510,16 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
     setEditRemoveByBuff({});
   };
 
+  const finishConfirmedMutation = (resetMode: () => void) => {
+    resetMode();
+    setIsBoxSelectArmed(false);
+    setBoxSelectRect(null);
+    setSelectedButtonIds([]);
+    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
+    setBuffListVersion((version) => version + 1);
+    setToolMode('normal');
+  };
+
   const handleCancelAddMode = () => {
     resetAddMode();
     setIsBoxSelectArmed(false);
@@ -562,13 +548,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
       });
     });
 
-    resetAddMode();
-    setIsBoxSelectArmed(false);
-    setBoxSelectRect(null);
-    setSelectedButtonIds([]);
-    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
-    setBuffListVersion((version) => version + 1);
-    setToolMode('normal');
+    finishConfirmedMutation(resetAddMode);
   };
 
   const handleToggleAddMode = () => {
@@ -603,13 +583,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
       });
     });
 
-    resetRemoveMode();
-    setIsBoxSelectArmed(false);
-    setBoxSelectRect(null);
-    setSelectedButtonIds([]);
-    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
-    setBuffListVersion((version) => version + 1);
-    setToolMode('normal');
+    finishConfirmedMutation(resetRemoveMode);
   };
 
   const handleCancelEditMode = () => {
@@ -641,13 +615,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
       });
     });
 
-    resetEditMode();
-    setIsBoxSelectArmed(false);
-    setBoxSelectRect(null);
-    setSelectedButtonIds([]);
-    setVisualButtons(readVisualSkillButtons(selectedCharacters, gridContentOffsetX));
-    setBuffListVersion((version) => version + 1);
-    setToolMode('normal');
+    finishConfirmedMutation(resetEditMode);
   };
 
   const toggleEditRemoveBuff = (buffId: string) => {
@@ -830,14 +798,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
           if (button.selectedBuff?.includes(activeAddBuffId)) {
             return false;
           }
-          const position = buildButtonPosition(button);
-          const buttonRect = {
-            left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
-            top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
-            right: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X + SKILL_BUTTON_HIT_WIDTH,
-            bottom: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y + SKILL_BUTTON_HIT_HEIGHT,
-          };
-          return intersects(normalizedRect, buttonRect);
+          return intersects(normalizedRect, buildButtonHitRect(button));
         })
         .map((button) => button.id);
 
@@ -861,14 +822,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
           if (!button.selectedBuff?.includes(activeRemoveBuffId)) {
             return false;
           }
-          const position = buildButtonPosition(button);
-          const buttonRect = {
-            left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
-            top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
-            right: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X + SKILL_BUTTON_HIT_WIDTH,
-            bottom: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y + SKILL_BUTTON_HIT_HEIGHT,
-          };
-          return intersects(normalizedRect, buttonRect);
+          return intersects(normalizedRect, buildButtonHitRect(button));
         })
         .map((button) => button.id);
 
@@ -888,14 +842,7 @@ export function useBuffBatchEditWorkbench(selectedCharacters: Character[]) {
 
     const hitIds = skillButtons
       .filter((button) => {
-        const position = buildButtonPosition(button);
-        const buttonRect = {
-          left: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X,
-          top: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y,
-          right: position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X + SKILL_BUTTON_HIT_WIDTH,
-          bottom: position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y + SKILL_BUTTON_HIT_HEIGHT,
-        };
-        return intersects(normalizedRect, buttonRect);
+        return intersects(normalizedRect, buildButtonHitRect(button));
       })
       .map((button) => button.id);
     setSelectedButtonIds((current) => {

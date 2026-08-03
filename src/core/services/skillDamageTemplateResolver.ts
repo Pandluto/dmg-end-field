@@ -50,22 +50,6 @@ function isTypedRuntimeSkillId(runtimeSkillId: string | undefined): boolean {
   return /^skill-(A|B|E|Q|Dot)-\d+$/.test(runtimeSkillId ?? '') || /^official-(A|B|E|Q|Dot)$/.test(runtimeSkillId ?? '');
 }
 
-function logLegacyRuntimeSkillAdaptation(
-  button: SkillButtonType,
-  legacyRuntimeSkillId: string,
-  resolvedSkill: RuntimeOperatorTemplateSkill,
-  strategy: 'legacy-index' | 'same-type-fallback'
-): void {
-  console.log('[resolveSkillDamageTemplate] 触发旧技能ID适配:', {
-    buttonId: button.id,
-    characterId: button.characterId,
-    skillType: button.skillType,
-    legacyRuntimeSkillId,
-    resolvedRuntimeSkillId: resolvedSkill.id,
-    strategy,
-  });
-}
-
 function resolveLegacyRuntimeSkill(
   button: SkillButtonType,
   skills: RuntimeOperatorTemplateSkill[]
@@ -81,14 +65,12 @@ function resolveLegacyRuntimeSkill(
     const sameTypeSkills = skills.filter((skill) => skill.buttonType === button.skillType);
     const candidate = Number.isInteger(legacyIndex) && legacyIndex > 0 ? sameTypeSkills[legacyIndex - 1] : undefined;
     if (candidate) {
-      logLegacyRuntimeSkillAdaptation(button, runtimeSkillId, candidate, 'legacy-index');
       return candidate;
     }
   }
 
   const sameTypeSkills = skills.filter((skill) => skill.buttonType === button.skillType);
   if (sameTypeSkills.length === 1) {
-    logLegacyRuntimeSkillAdaptation(button, runtimeSkillId, sameTypeSkills[0], 'same-type-fallback');
     return sameTypeSkills[0];
   }
 

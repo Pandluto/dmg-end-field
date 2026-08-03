@@ -658,7 +658,6 @@ export function SkillButtonComponent({
     }
 
     setResolvedTemplate(template);
-    console.log(`[SkillButton] 已加载解析模板: ${template.displayName} ${template.buttonType}, hits: ${template.hits.length}`);
   }, [button]);
 
   /**
@@ -1488,14 +1487,8 @@ export function SkillButtonComponent({
       clickCountRef.current = 0;
 
       navigateToAppPath(getTimelineSkillDetailPath(button.id));
-      console.log('双击技能按钮，打开弹窗:', button.id);
-
-      // 输出总数据结构到控制台
-      if (timelineData) {
-        console.log('【排轴数据】当前总数据结构:', timelineData);
-      }
     }
-  }, [button.id, isBrowseMode, timelineData]);
+  }, [button.id, isBrowseMode]);
 
   /**
    * 图标加载成功时：隐藏圆形图标内的兜底技能字母，底座文字继续显示。

@@ -879,7 +879,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .skill-button-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay
 ) {
@@ -888,7 +887,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .skill-button-modal,
   .timeline-snapshot-modal,
   .timeline-snapshot-confirm-modal,
   .timeline-snapshot-share-modal,

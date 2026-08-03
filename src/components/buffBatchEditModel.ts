@@ -106,6 +106,28 @@ export function buildButtonPosition(button: PersistedSkillButton): { x: number; 
   };
 }
 
+export function buildButtonHitRect(button: PersistedSkillButton) {
+  const position = buildButtonPosition(button);
+  const left = position.x - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_X;
+  const top = position.y - SKILL_BUTTON_RADIUS - SKILL_BUTTON_VISUAL_OFFSET_Y;
+  return {
+    left,
+    top,
+    right: left + SKILL_BUTTON_HIT_WIDTH,
+    bottom: top + SKILL_BUTTON_HIT_HEIGHT,
+  };
+}
+
+export function countTargetsByButton(targetsByBuff: Record<string, string[]>): Map<string, number> {
+  const counts = new Map<string, number>();
+  Object.values(targetsByBuff).forEach((buttonIds) => {
+    buttonIds.forEach((buttonId) => {
+      counts.set(buttonId, (counts.get(buttonId) ?? 0) + 1);
+    });
+  });
+  return counts;
+}
+
 export interface RuntimeSkillResolverInput {
   id: string;
   characterId: string;

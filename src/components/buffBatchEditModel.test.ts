@@ -5,9 +5,11 @@ import type { AnomalyStateSnapshot, PersistedSkillButton, SkillButtonBuff } from
 import {
   buffFromSearchResult,
   buffMatchesSourceFilter,
+  buildButtonHitRect,
   buildButtonPosition,
   candidateBuffFromAnomalyStateSnapshot,
   compareBuffBySource,
+  countTargetsByButton,
   dedupeBuffIds,
   getBuffLabel,
   getBuffSourceLabel,
@@ -78,6 +80,21 @@ const fallbackPosition = buildButtonPosition(button({
 }));
 assert.equal(Number.isFinite(fallbackPosition.x), true);
 assert.equal(Number.isFinite(fallbackPosition.y), true);
+
+assert.deepEqual(buildButtonHitRect(button({ position: { x: 100, y: 200 } })), {
+  left: 38,
+  top: 163,
+  right: 140,
+  bottom: 215,
+});
+assert.deepEqual(
+  [...countTargetsByButton({
+    'buff-a': ['button-a', 'button-b'],
+    'buff-b': ['button-a'],
+    empty: [],
+  })],
+  [['button-a', 2], ['button-b', 1]],
+);
 
 const sortedButtons = [
   button({ id: 'third', staffIndex: 1, lineIndex: 1, nodeIndex: 2 }),

@@ -290,7 +290,6 @@
   .context-menu-submenu,
   .timeline-snapshot-modal,
   .work-node-modal,
-  .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
   .operator-config-page-skill-modal,
@@ -349,7 +348,6 @@
 }
 
 :root[data-theme="liquid-tide"] :is(
-  .skill-button-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay,
   .data-save-dialog-backdrop,
@@ -501,18 +499,8 @@
   background: rgba(221, 232, 255, 0.2);
 }
 
-:root[data-theme="liquid-tide"] .canvas-grid-background {
-  --grid-line-color: rgba(255, 255, 255, 0.075);
-}
-
-:root[data-theme="liquid-tide"] .canvas-container.is-dragging-active .canvas-grid-background {
-  --grid-line-color: rgba(255, 255, 255, 0.2);
-}
-
 :root[data-theme="liquid-tide"] .canvas-staff-line {
   height: 1px;
-  background: rgba(255, 255, 255, 0.38);
-  box-shadow: 0 1px 0 rgba(32, 46, 99, 0.12);
 }
 
 :root[data-theme="liquid-tide"] .canvas-damage-node {
@@ -589,37 +577,6 @@
   display: none;
 }
 
-/* Skill material palette. Same semantic type, same gradient everywhere. */
-:root[data-theme="liquid-tide"] [data-skill-type="A"],
-:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-a {
-  --liquid-skill-from: rgba(242, 157, 184, 0.84);
-  --liquid-skill-to: rgba(202, 127, 171, 0.68);
-}
-
-:root[data-theme="liquid-tide"] [data-skill-type="B"],
-:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-b {
-  --liquid-skill-from: rgba(177, 149, 219, 0.82);
-  --liquid-skill-to: rgba(128, 139, 213, 0.7);
-}
-
-:root[data-theme="liquid-tide"] [data-skill-type="E"],
-:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-e {
-  --liquid-skill-from: rgba(121, 207, 230, 0.82);
-  --liquid-skill-to: rgba(113, 155, 221, 0.7);
-}
-
-:root[data-theme="liquid-tide"] [data-skill-type="Q"],
-:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-q {
-  --liquid-skill-from: rgba(224, 133, 188, 0.84);
-  --liquid-skill-to: rgba(150, 133, 216, 0.72);
-}
-
-:root[data-theme="liquid-tide"] [data-skill-type="Dot"],
-:root[data-theme="liquid-tide"] .sandbox-skill-button.skill-dot {
-  --liquid-skill-from: rgba(127, 178, 230, 0.8);
-  --liquid-skill-to: rgba(109, 126, 196, 0.7);
-}
-
 :root[data-theme="liquid-tide"] :is(
   .skill-button-base,
   .dragging-skill-button-base,
@@ -646,23 +603,12 @@
   .report-ppt-axis-button-orb
 ) {
   color: var(--liquid-tide-ink);
-  border-color: transparent;
-  background:
-    linear-gradient(145deg, var(--liquid-skill-from, rgba(226, 235, 255, 0.64)), var(--liquid-skill-to, rgba(213, 178, 222, 0.56))),
-    rgba(245, 249, 255, 0.38) !important;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.82),
-    inset -1px -1px 0 rgba(55, 68, 123, 0.12),
-    0 8px 20px rgba(36, 48, 96, 0.16);
-  -webkit-backdrop-filter: blur(16px) saturate(1.32);
-  backdrop-filter: blur(16px) saturate(1.32);
 }
 
 :root[data-theme="liquid-tide"] :is(
   .skill-button-composite-outline,
   .report-ppt-axis-button-outline
 ) {
-  display: block;
   color: rgba(255, 255, 255, 0.88);
   filter:
     drop-shadow(0 1px 0 rgba(255, 255, 255, 0.4))
@@ -690,11 +636,7 @@
   .canvas-skill-button.selected .skill-button-base,
   .canvas-skill-button.selected .skill-button-orb
 ) {
-  border-color: transparent;
   filter: brightness(1.045) saturate(1.08);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 10px 24px rgba(35, 47, 94, 0.2);
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -736,11 +678,6 @@
     z-index: 0;
     border-radius: inherit;
     content: "";
-    background:
-      linear-gradient(145deg, var(--liquid-skill-from, rgba(226, 235, 255, 0.72)), var(--liquid-skill-to, rgba(213, 178, 222, 0.6))),
-      rgba(245, 249, 255, 0.4);
-    -webkit-backdrop-filter: blur(16px) saturate(1.32);
-    backdrop-filter: blur(16px) saturate(1.32);
     -webkit-mask-image: linear-gradient(#fff 0 0), var(--skill-icon-mask);
     -webkit-mask-position: center, center;
     -webkit-mask-repeat: no-repeat, no-repeat;
@@ -791,7 +728,6 @@
 :root[data-theme="liquid-tide"] .selection-character-card.is-selected {
   border: 1px solid rgba(255, 255, 255, 0.94);
   border-left-width: 1px;
-  background: linear-gradient(135deg, rgba(233, 151, 184, 0.23), rgba(117, 153, 220, 0.24));
   box-shadow:
     0 14px 32px rgba(40, 52, 101, 0.16),
     inset 0 0 0 1px rgba(99, 121, 202, 0.2),
@@ -847,15 +783,6 @@
   color: #ffffff;
   border-color: rgba(255, 255, 255, 0.84);
   background: linear-gradient(135deg, rgba(119, 145, 222, 0.88), rgba(213, 130, 174, 0.82));
-}
-
-/* Skill detail and Buff flows. */
-:root[data-theme="liquid-tide"] .timeline-detail-layer {
-  background:
-    linear-gradient(110deg, rgba(43, 57, 112, 0.18), rgba(213, 144, 180, 0.06)),
-    transparent;
-  -webkit-backdrop-filter: blur(8px) saturate(1.08);
-  backdrop-filter: blur(8px) saturate(1.08);
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -1003,11 +930,6 @@
 ) {
   border-color: rgba(117, 153, 220, 0.42);
   background: rgba(117, 153, 220, 0.14);
-}
-
-:root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-track-hex-svg polygon {
-  fill: rgba(244, 248, 255, 0.36);
-  stroke: rgba(255, 255, 255, 0.72);
 }
 
 :root[data-theme="liquid-tide"] .operator-config-page-root .operator-config-page-track-badge-btn.is-active .operator-config-page-track-hex-svg polygon {
@@ -1245,27 +1167,6 @@
 :root[data-theme="liquid-tide"] .report-ppt-page {
   color: var(--liquid-tide-ink);
   background: transparent;
-}
-
-:root[data-theme="liquid-tide"] .report-ppt-toolbar {
-  border-color: rgba(255, 255, 255, 0.64);
-  background: rgba(245, 249, 255, 0.62);
-  box-shadow:
-    0 14px 34px rgba(38, 50, 97, 0.14),
-    inset 0 1px 0 rgba(255, 255, 255, 0.84);
-  -webkit-backdrop-filter: blur(20px) saturate(1.24);
-  backdrop-filter: blur(20px) saturate(1.24);
-}
-
-:root[data-theme="liquid-tide"] .report-ppt-slide-inner {
-  border-color: rgba(255, 255, 255, 0.72);
-  background:
-    linear-gradient(135deg, rgba(247, 250, 255, 0.72), rgba(230, 238, 255, 0.62));
-  box-shadow:
-    0 26px 70px rgba(34, 45, 91, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  -webkit-backdrop-filter: blur(20px) saturate(1.18);
-  backdrop-filter: blur(20px) saturate(1.18);
 }
 
 :root[data-theme="liquid-tide"] :is(
@@ -1830,10 +1731,6 @@
   background: rgba(239, 245, 255, 0.3);
 }
 
-:root[data-theme="liquid-tide"] .buff-edit-right-placeholder {
-  background: transparent;
-}
-
 :root[data-theme="liquid-tide"] :is(
   .canvas-right-zone.is-skill-sandbox,
   .buff-edit-right-zone
@@ -2369,7 +2266,6 @@
   .context-menu-submenu,
   .timeline-snapshot-confirm-modal,
   .work-node-modal,
-  .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
   .operator-config-page-skill-modal,
@@ -2411,7 +2307,6 @@
   .damage-sheet-workspace-footer:not([data-liquid-glass-surface])
 ) {
   border-color: rgba(255, 255, 255, 0.66) !important;
-  background: rgba(242, 247, 255, 0.78) !important;
   box-shadow:
     0 12px 34px rgba(35, 48, 95, 0.11),
     inset 0 1px 0 rgba(255, 255, 255, 0.84) !important;
@@ -2421,10 +2316,6 @@
 
 :root[data-theme="liquid-tide"] .damage-sheet-topbar {
   border-color: rgba(255, 255, 255, 0.62) !important;
-  background: rgba(242, 247, 255, 0.7) !important;
-  box-shadow:
-    0 8px 24px rgba(35, 48, 95, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8) !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
@@ -2587,7 +2478,6 @@
 /* Backdrops separate depth with tint only; blur belongs to the carrier above. */
 :root[data-theme="liquid-tide"] :is(
   .web-shell-overlay,
-  .skill-button-modal-overlay,
   .timeline-snapshot-modal-overlay,
   .work-node-modal-overlay,
   .data-save-dialog-backdrop,
@@ -3354,7 +3244,6 @@
   .context-menu-submenu,
   .timeline-snapshot-confirm-modal,
   .work-node-modal,
-  .skill-button-modal,
   .operator-config-page-picker-modal,
   .operator-config-page-panel-detail-modal,
   .operator-config-page-skill-modal,

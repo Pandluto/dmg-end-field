@@ -104,61 +104,6 @@ const SKILL_ITEMS = [
 
 const SLOT_COUNT = 8;
 const MAX_MASTERY_LEVEL = 3;
-// 暂时保留，等待装备区重构后决定是否恢复或删除。
-const EQUIPMENT_FORM_ROWS = [
-  {
-    columns: 'operator-config-page-equip-row--6',
-    fields: [
-      { label: '力量', suffix: '' },
-      { label: '敏捷', suffix: '' },
-      { label: '智识', suffix: '' },
-      { label: '意志', suffix: '' },
-      { label: '主能力', suffix: '%' },
-      { label: '副能力', suffix: '%' },
-    ],
-  },
-  {
-    columns: 'operator-config-page-equip-row--4',
-    fields: [
-      { label: '暴击率', suffix: '%' },
-      { label: '暴击伤害', suffix: '%' },
-      { label: '防御值', suffix: '' },
-      { label: '生命', suffix: '' },
-    ],
-  },
-  {
-    columns: 'operator-config-page-equip-row--3',
-    fields: [
-      { label: '物理伤害加成', suffix: '%' },
-      { label: '灼热伤害加成', suffix: '%' },
-      { label: '电磁伤害加成', suffix: '%' },
-    ],
-  },
-  {
-    columns: 'operator-config-page-equip-row--3',
-    fields: [
-      { label: '寒冷伤害加成', suffix: '%' },
-      { label: '自然伤害加成', suffix: '%' },
-      { label: '法术伤害加成', suffix: '%' },
-    ],
-  },
-  {
-    columns: 'operator-config-page-equip-row--3',
-    fields: [
-      { label: '战技伤害加成', suffix: '%' },
-      { label: '连携技伤害加成', suffix: '%' },
-      { label: '终结技伤害加成', suffix: '%' },
-    ],
-  },
-  {
-    columns: 'operator-config-page-equip-row--3',
-    fields: [
-      { label: '普通攻击伤害加成', suffix: '%' },
-      { label: '对失衡目标伤害加成', suffix: '%' },
-      { label: '源石技艺强度', suffix: '' },
-    ],
-  },
-] as const;
 
 const CHARACTER_LEVEL_VALUES = [1, 20, 30, 40, 50, 60, 70, 80, 90] as const;
 const CHARACTER_LEVEL_LABELS = ['1级', '20级', '30级', '40级', '50级', '60级', '70级', '80级', '90级'] as const;
@@ -1240,26 +1185,6 @@ export function OperatorConfigPage() {
       ))
       .filter((character): character is Character => Boolean(character));
   }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
-  React.useEffect(() => {
-    const localCharacterMap = new Map(localCharacters.map((character) => [character.id, character] as const));
-    const runtimeCharacterMap = new Map(runtimeCharacters.map((character) => [character.id, character] as const));
-    const officialCharacterMap = new Map(state.loadedCharacters.map((character) => [character.id, character] as const));
-
-    console.log('[OperatorConfigPage] selected character resolution', selectedCharacterIds.map((characterId) => ({
-      id: characterId,
-      source: localCharacterMap.has(characterId)
-        ? 'local'
-        : runtimeCharacterMap.has(characterId)
-          ? 'runtime'
-          : officialCharacterMap.has(characterId)
-            ? 'official'
-            : 'missing',
-      resolvedName: localCharacterMap.get(characterId)?.name
-        ?? runtimeCharacterMap.get(characterId)?.name
-        ?? officialCharacterMap.get(characterId)?.name
-        ?? null,
-    })));
-  }, [localCharacters, runtimeCharacters, selectedCharacterIds, state.loadedCharacters]);
   const [configMap, setConfigMap] = React.useState<OperatorConfigPageDraftMap>(() => buildDraftMapFromSnapshotCache(getOperatorConfigPageCache(), visibleCharacters));
   const [activeCharacterId, setActiveCharacterId] = React.useState<string | null>(() => {
     const cachedActiveCharacterId = safeSessionStorage.getItem(STORAGE_KEYS.OPERATOR_CONFIG_ACTIVE_CHARACTER);
@@ -1821,55 +1746,6 @@ export function OperatorConfigPage() {
                         )}
                       </div>
                     </div>
-                  </div>
-                  <div className="operator-config-page-equip-archive" aria-hidden="true" data-archived-row-count={EQUIPMENT_FORM_ROWS.length}>
-                    {/* 旧装备数值表单存档：后续可能恢复
-                    <div className="config-equip-values-box operator-config-page-equip-values-box">
-                      <p className="config-equip-box-title operator-config-page-equip-box-title">装备配置</p>
-                      <div className="config-equip-values-grid">
-                        {EQUIPMENT_FORM_ROWS.map((row, rowIndex) => (
-                          <div key={`equip-row-${rowIndex}`} className={`config-equip-row ${row.columns}`}>
-                            {row.fields.map((field) => (
-                              <label key={field.label} className="config-equip-item">
-                                <span className="config-equip-item-label">{field.label}</span>
-                                <span className="config-equip-item-input-wrap">
-                                  <span className="config-equip-item-prefix">+</span>
-                                  <input type="text" className="config-equip-item-input" value="0" readOnly />
-                                  {field.suffix ? <span className="config-equip-item-suffix">{field.suffix}</span> : null}
-                                </span>
-                              </label>
-                            ))}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="config-equip-copy-drawer-host">
-                        <button type="button" className="config-equip-sync-btn" title="同步按钮占位">
-                          同步
-                        </button>
-                        <button type="button" className="config-equip-copy-btn" title="复制按钮占位">
-                          复制
-                        </button>
-                        <div className="config-equip-copy-drawer" aria-hidden="true">
-                          <textarea
-                            className="config-equip-copy-textarea"
-                            value="装备文本输入占位"
-                            readOnly
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    */}
-                    {/* 旧三件套效果区存档：后续可能恢复
-                    <div className="config-equip-set-box">
-                      <p className="config-equip-box-title">三件套效果</p>
-                      <div className="config-equip-set-sub-box">
-                        <p className="config-equip-set-title">1、非条件触发部分</p>
-                      </div>
-                      <div className="config-equip-set-sub-box">
-                        <p className="config-equip-set-title">2、条件触发部分</p>
-                      </div>
-                    </div>
-                    */}
                   </div>
                 </section>
                 <div className="operator-config-page-operator-panel operator-config-page-operator-zone">

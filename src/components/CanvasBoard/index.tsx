@@ -2227,11 +2227,14 @@ export function CanvasBoard({
 
       patchMainWorkbenchCommand(commandEntry.id, { status: 'running' });
       const command = commandEntry.command;
+      const settleCommand = (patch: Parameters<typeof patchMainWorkbenchCommand>[1]) => {
+        const settledEntry = patchMainWorkbenchCommand(commandEntry.id, patch);
+        if (settledEntry) void pushMainWorkbenchCommandResult(settledEntry);
+      };
       try {
         if (command.op === 'addSkillButton') {
           const result = addSkillButtonFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
@@ -2242,7 +2245,7 @@ export function CanvasBoard({
           }
           removeTimelineButton(button.lineIndex, button.id);
           dispatch({ type: 'REMOVE_SKILL_BUTTON', buttonId: button.id });
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: {
               buttonId: button.id,
@@ -2255,7 +2258,6 @@ export function CanvasBoard({
               nodeIndex: button.nodeIndex,
             },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2280,11 +2282,10 @@ export function CanvasBoard({
             dispatch({ type: 'SELECT_SKILL_BUTTON', buttonId });
             safeSessionStorage.setItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON, buttonId);
           }
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: { buttonId, buffId: result.buffId, duplicate: result.isDuplicate },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2316,7 +2317,7 @@ export function CanvasBoard({
             };
           });
           setResistanceRevision((value) => value + 1);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: {
               requestedCount: command.buttonIds.length,
@@ -2325,7 +2326,6 @@ export function CanvasBoard({
               results,
             },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2341,7 +2341,7 @@ export function CanvasBoard({
           buffs.forEach((buff) => removeBuffFromButton(buttonId, buff.id));
           recomputeSkillButtonPanel(buttonId);
           setResistanceRevision((value) => value + 1);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: {
               buttonId,
@@ -2349,7 +2349,6 @@ export function CanvasBoard({
               removedBuffNames: buffs.map((buff) => buff.displayName || buff.name),
             },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2371,11 +2370,10 @@ export function CanvasBoard({
           });
           recomputeSkillButtonPanel(command.buttonId);
           setResistanceRevision((value) => value + 1);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: { buttonId: command.buttonId, targetResistance: nextResistance },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2395,7 +2393,7 @@ export function CanvasBoard({
             payload: snapshot.payload,
             createdAt: snapshot.createdAt,
           });
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: {
               snapshotId: snapshot.id,
@@ -2403,7 +2401,6 @@ export function CanvasBoard({
               summary: snapshot.summary,
             },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2466,11 +2463,10 @@ export function CanvasBoard({
           });
           hydrateCheckoutRuntime(restoredPayload);
           await ensureTimelineDocumentBaselineWorkNode(targetTimelineId, restoredPayload, snapshot.label);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: { snapshotId: snapshot.id, label: snapshot.label, reloaded: command.reload !== false },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           if (command.reload !== false) {
             window.setTimeout(() => window.location.reload(), 80);
           }
@@ -2493,122 +2489,106 @@ export function CanvasBoard({
               buffCount: snapshot.payload?.allBuffList.length || 0,
             },
           }));
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result: { snapshots } });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result: { snapshots } });
           return;
         }
 
         if (command.op === 'createAiTimelineWorkNodeFromCurrent') {
           const result = await createAiTimelineWorkNodeFromCurrentCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'diffAiTimelineWorkNode') {
           const result = await createAiTimelineWorkNodeClient().diff(command.nodeId);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'patchAiTimelineWorkNode') {
           const result = await patchAiTimelineWorkNodeFromCommand(command);
           if ('issues' in result) {
-            const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+            settleCommand({
               status: 'error',
               result,
               error: result.issues.map((issue) => issue.message).join('；'),
             });
-            if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
             return;
           }
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'patchAndValidateAiTimelineWorkNode') {
           const result = await patchAndValidateAiTimelineWorkNodeFromCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: result.ok ? 'done' : 'error',
             result,
             ...(result.ok ? {} : { error: result.issues?.map((issue) => issue.message).join('；') || 'patch_and_validate failed' }),
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
         if (command.op === 'checkoutAiTimelineWorkNode') {
           const result = await checkoutAiTimelineWorkNodeFromCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'restoreAiTimelineWorkNodeBase') {
           const result = await restoreAiTimelineWorkNodeBaseFromCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'refreshOperatorConfig') {
           await handleRefreshAvailableCandidates();
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: { refreshed: true, characterCount: selectedCharacters.length },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
         if (command.op === 'setOperatorWeapon') {
           const result = await setOperatorWeaponFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'setOperatorEquipment') {
           const result = await setOperatorEquipmentFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'setOperatorConfig') {
           const result = await setOperatorConfigFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'previewOperatorConfig') {
           const result = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'applyPreparedOperatorConfig') {
           const result = await applyPreparedOperatorConfigFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'finalizePreparedOperatorConfig') {
           const result = await finalizePreparedOperatorConfigFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
         if (command.op === 'restoreAtomicTeamParent') {
           const result = await restoreAtomicTeamParentFromWorkbenchCommand(command);
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+          settleCommand({ status: 'done', result });
           return;
         }
 
@@ -2617,7 +2597,7 @@ export function CanvasBoard({
           if (snapshot) {
             await pushMainWorkbenchSnapshot(snapshot);
           }
-          const doneEntry = patchMainWorkbenchCommand(commandEntry.id, {
+          settleCommand({
             status: 'done',
             result: {
               refreshed: true,
@@ -2626,7 +2606,6 @@ export function CanvasBoard({
               skillButtonCount: snapshot?.skillButtons.length ?? skillButtons.length,
             },
           });
-          if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
           return;
         }
 
@@ -2738,17 +2717,15 @@ export function CanvasBoard({
               buttons: snapshot.buttons.filter((button) => button.id === command.buttonId),
             }
           : snapshot;
-        const doneEntry = patchMainWorkbenchCommand(commandEntry.id, { status: 'done', result });
-        if (doneEntry) void pushMainWorkbenchCommandResult(doneEntry);
+        settleCommand({ status: 'done', result });
       } catch (error) {
         const errorCode = typeof error === 'object' && error && 'code' in error && typeof error.code === 'string'
           ? error.code
           : '';
-        const errorEntry = patchMainWorkbenchCommand(commandEntry.id, {
+        settleCommand({
           status: 'error',
           error: `${errorCode ? `[${errorCode}] ` : ''}${error instanceof Error ? error.message : String(error)}`,
         });
-        if (errorEntry) void pushMainWorkbenchCommandResult(errorEntry);
       }
     } finally {
       isProcessingWorkbenchCommandRef.current = false;
@@ -2902,9 +2879,6 @@ export function CanvasBoard({
     if (hasMetadataSync) {
       saveTimelineRepo(nextTimelineData);
       setSkillButtonTable(nextSkillButtonTable);
-      console.log('[CanvasBoard] 恢复排轴时已按当前模板同步技能元数据', {
-        buttonCount: restoredButtons.length,
-      });
     }
 
     dispatch({ type: 'CLEAR_SKILL_BUTTONS' });
@@ -2916,7 +2890,6 @@ export function CanvasBoard({
   useEffect(() => {
     return onSkillButtonBuffAdded(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
-      console.log('[Buff event] added:', buttonId, buffId);
       const payload = getCurrentTimelineSnapshotPayload();
       if (payload) setSessionWorkingPayload(payload, 'runtime');
     });
@@ -2925,7 +2898,6 @@ export function CanvasBoard({
   useEffect(() => {
     return onSkillButtonBuffRemoved(({ buttonId, buffId }) => {
       if (!buttonId || !buffId) return;
-      console.log('[Buff event] removed:', buttonId, buffId);
       const payload = getCurrentTimelineSnapshotPayload();
       if (payload) setSessionWorkingPayload(payload, 'runtime');
     });
@@ -3357,9 +3329,6 @@ export function CanvasBoard({
       customHits: result.customHits,
     });
 
-    console.log(
-      `[改类型] buttonId=${payload.buttonId}, ${button.skillType} -> ${resolvedTarget.nextSkillType}, runtimeSkillId=${resolvedTarget.nextRuntimeSkillId ?? 'N/A'}`
-    );
   };
 
   const handleCanvasClick = () => {
@@ -3397,7 +3366,6 @@ export function CanvasBoard({
 
     const snappedResult = resolveSnappedGridNode(gridX, occupiedNodeIndices);
     if (!snappedResult) {
-      console.log('[复制吸附] 满行无可用节点，取消复制');
       setPendingCopy(null);
       return;
     }

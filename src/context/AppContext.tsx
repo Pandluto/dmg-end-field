@@ -390,7 +390,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // 空选中态：清空模板表
     if (selectedCharacters.length === 0) {
       setRuntimeOperatorTemplateMap({});
-      console.log('[AppContext] 模板表已清空（无已选角色）');
       return;
     }
 
@@ -410,11 +409,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     });
 
     setRuntimeOperatorTemplateMap(nextMap);
-    console.log('[AppContext] 模板表已重建:', {
-      selectedCount: selectedCharacters.length,
-      templateCount: Object.keys(nextMap).length,
-      ids: Object.keys(nextMap),
-    });
   }, []);
 
   const loadCharacters = useCallback(async () => {
@@ -426,12 +420,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         const selectedCharacterIds = getSelectedCharacterIds();
         const hasTimelineData = Boolean(safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA));
-        console.log('[AppContext] restore check', {
-          selectedCharacterIds,
-          rawSelectedCharacters: safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_CHARACTERS),
-          hasTimelineData,
-          rawTimelineData: safeSessionStorage.getItem(STORAGE_KEYS.TIMELINE_DATA),
-        });
 
       if (selectedCharacterIds.length > 0 && hasTimelineData) {
         const restoredCharacters = selectedCharacterIds
@@ -460,17 +448,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           });
           // 恢复失败：显式清空模板表，避免残留旧数据
           setRuntimeOperatorTemplateMap({});
-          console.log('[AppContext] 恢复失败，模板表已清空');
         }
         } else {
           // 无有效恢复条件（未选角色或无 timeline 数据）：清空残留模板表
-          console.log('[AppContext] restore skipped', {
-            reason: selectedCharacterIds.length === 0 ? 'selected-character-ids-empty' : 'timeline-data-missing',
-            selectedCharacterIds,
-            hasTimelineData,
-          });
           setRuntimeOperatorTemplateMap({});
-          console.log('[AppContext] 无有效恢复条件，模板表已清空');
         }
     } catch (error) {
       console.warn('Failed to load local operator library:', error);

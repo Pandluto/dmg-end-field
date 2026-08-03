@@ -268,7 +268,6 @@ export function useCanvasDrag({
             const snappedResult = resolveSnappedGridNode(gridX, occupiedNodeIndices);
 
             if (!snappedResult) {
-              console.log('[吸附] 满行无可用节点，取消放置');
               dispatch({ type: 'SET_DRAGGING', buttonId: draggingState.id, isDragging: false });
               setDraggingState(null);
               return;
@@ -282,9 +281,6 @@ export function useCanvasDrag({
               canvasRef.current,
               gridStack
             );
-
-            console.log('[吸附] grid坐标:', { gridX: Math.round(gridX), gridY: Math.round(gridY), nodeCenterX: Math.round(nodeCenterX), lineY: Math.round(lineY) });
-            console.log('[吸附] canvas坐标:', snappedPosition);
 
             const isMovingExistingButton = !!draggingState.originalButton;
 

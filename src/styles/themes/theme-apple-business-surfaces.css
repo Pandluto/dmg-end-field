@@ -9,19 +9,13 @@
 
 /* Skill detail, Buff list and the adjacent "add Buff" workbench. */
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .skill-button-modal-overlay,
   .skill-button-inline-buff-search-mask
 ) {
   background: var(--theme-overlay-bg);
   backdrop-filter: blur(18px) saturate(0.92);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .skill-button-modal-pair.is-buff-search-open::after {
-  background: var(--theme-line-regular);
-}
-
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .skill-button-modal,
   .skill-button-inline-buff-search.is-workbench-mode,
   .skill-button-inline-buff-search.is-anomaly-mode
 ) {
@@ -33,17 +27,8 @@
   backdrop-filter: blur(24px) saturate(1.08);
 }
 
-:root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) .skill-button-modal :where(
-  .modal-header,
-  .skill-button-buff-section,
-  .skill-damage-expanded
-) {
-  border-color: var(--theme-line-soft);
-}
-
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .modal-title,
-  .skill-button-modal h4,
   .skill-button-buff-section h5,
   .skill-damage-title,
   .skill-damage-expand-title,
@@ -61,7 +46,6 @@
 }
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-  .skill-button-modal-info,
   .skill-info-snapshot-content,
   .skill-button-resistance-field,
   .skill-button-anomaly-summary-card,
@@ -106,7 +90,6 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .lock-control,
-  .skill-button-modal .modal-close-btn,
   .skill-button-resistance-toggle,
   .skill-damage-expand-btn,
   .hit-toggle-btn,
@@ -128,7 +111,6 @@
 
 :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
   .lock-control,
-  .skill-button-modal .modal-close-btn,
   .skill-button-resistance-toggle,
   .skill-damage-expand-btn,
   .hit-toggle-btn,
@@ -3893,7 +3875,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   :root:is([data-theme="apple-midnight"], [data-theme="apple-warm"], [data-theme="lieflat-mono"], [data-theme="liquid-tide"]) :where(
-    .skill-button-modal-overlay,
     .skill-button-inline-buff-search-mask,
     .timeline-detail-layer,
     .buff-editor-drawer-mask

@@ -150,7 +150,6 @@
   .timeline-detail-layer,
   .timeline-snapshot-modal,
   .timeline-snapshot-confirm-modal,
-  .skill-button-modal,
   .work-node-modal
 ) {
   font-family: var(--font-family);
@@ -247,7 +246,6 @@
   .web-shell-popover,
   .web-shell-window,
   .web-shell-window-bar,
-  .skill-button-modal,
   .skill-button-inline-buff-search,
   .timeline-detail-card,
   .timeline-detail-utility-panel,
@@ -272,7 +270,6 @@
   .workbench-drawer,
   .timeline-detail-card,
   .timeline-detail-utility-panel,
-  .skill-button-modal,
   .skill-button-inline-buff-search,
   .buff-editor-drawer,
   .timeline-snapshot-modal

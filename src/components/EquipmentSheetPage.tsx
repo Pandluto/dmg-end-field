@@ -3,6 +3,7 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
+import { copyTextToClipboard, downloadJsonFile } from '../utils/browserFile';
 import {
   canonicalizeWebImageReference,
   getWebImageUrl,
@@ -66,8 +67,8 @@ import {
   mergeEquipmentLibraryShare,
   parseEquipmentLibraryShare,
   resolveEquipmentShareSelection,
-  type EquipmentLibraryShareFile,
 } from './equipmentSheetShare';
+import { useWorkbookShareController } from './useWorkbookShareController';
 import {
   buildRows,
   buildWorkbookRows,
@@ -170,18 +171,6 @@ async function readEquipmentLibraryFromFile(): Promise<EquipmentLibrary> {
   return normalizeEquipmentLibrary(await response.json());
 }
 
-function downloadJson(fileName: string, content: string) {
-  const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = fileName;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
-}
-
 export {
   isEquipmentSheetPath,
 };
@@ -213,13 +202,23 @@ export function EquipmentSheetPage() {
   const [equipmentImageLoadFailed, setEquipmentImageLoadFailed] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [isSaveConfirmModalOpen, setIsSaveConfirmModalOpen] = useState(false);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
-  const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<EquipmentLibraryShareFile | null>(null);
+  const {
+    isOpen: isShareModalOpen,
+    mode: shareModalMode,
+    setMode: setShareModalMode,
+    importText: shareImportText,
+    importError: shareImportError,
+    pendingImport: pendingImportShare,
+    fileInputRef: shareImportInputRef,
+    open: openShareModal,
+    close: closeShareModal,
+    setImportText: setShareImportText,
+    pickImportFile: handleOpenShareImportPicker,
+    parseImportText: handleParseImportText,
+    clearImportPreview: handleCancelImportShare,
+    handleImportFileSelected: handleShareFileSelected,
+  } = useWorkbookShareController(parseEquipmentLibraryShare);
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const equipmentImageFormulaRef = useRef<HTMLDivElement>(null);
 
@@ -720,7 +719,7 @@ export function EquipmentSheetPage() {
               scope: 'current',
               selectedGearSetId: gearSet.gearSetId,
             });
-            downloadJson(`${gearSet.gearSetId}.json`, JSON.stringify(shareFile, null, 2));
+            downloadJsonFile(`${gearSet.gearSetId}.json`, shareFile);
           },
         },
         { key: 'delete-set', label: '删除套装', icon: 'delete', onClick: () => deleteNode(state) },
@@ -1013,72 +1012,16 @@ export function EquipmentSheetPage() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [clearSelectedCell, selectedCell, workbookRows]);
 
-  const openShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
-
   const handleCopyShareJson = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(currentShareText);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = currentShareText;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
+    await copyTextToClipboard(currentShareText);
   }, [currentShareText]);
 
-  const prepareImportShare = useCallback((rawText: string) => {
-    const result = parseEquipmentLibraryShare(rawText);
-    if (!result.ok) {
-      setPendingImportShare(null);
-      setShareImportError(result.error);
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare(result.shareFile);
-  }, []);
-
   const handleExportLocalLibrary = useCallback(() => {
-    downloadJson(buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt), currentShareText);
-  }, [currentShareFile.exportedAt, currentShareFile.label, currentShareText]);
-
-  const handleOpenShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const handleParseImportText = useCallback(() => {
-    prepareImportShare(shareImportText);
-  }, [prepareImportShare, shareImportText]);
-
-  const handleCancelImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
-
-  const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    const text = await file.text();
-    setShareImportText(text);
-    prepareImportShare(text);
-  }, [prepareImportShare]);
+    downloadJsonFile(
+      buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt),
+      currentShareFile,
+    );
+  }, [currentShareFile]);
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) return;
@@ -1670,10 +1613,7 @@ export function EquipmentSheetPage() {
           text: shareImportText,
           error: shareImportError,
           placeholder: '把装备分享 JSON 粘贴到这里，或点击右上角导入文件。',
-          onTextChange: (value) => {
-            setShareImportText(value);
-            if (shareImportError) setShareImportError('');
-          },
+          onTextChange: setShareImportText,
           onPickFile: handleOpenShareImportPicker,
           onParse: handleParseImportText,
           preview: pendingImportShare ? {

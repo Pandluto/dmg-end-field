@@ -7,6 +7,7 @@ import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import {
   buildDraftLibraryShareFileName,
 } from '../utils/draftShare';
+import { downloadJsonFile } from '../utils/browserFile';
 import { normalizeAssetUrl } from '../utils/assetResolver';
 import { webImageLibrary } from '../platform/resources/webImageLibrary';
 import DeferredNumberInput, { parseIntegerInput } from './DeferredNumberInput';
@@ -679,18 +680,6 @@ export function OperatorDraftPage() {
   );
   const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
-  const downloadShareFile = (shareFile: OperatorDraftLibraryShareFile) => {
-    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
-  };
-
   const handleOpenExportJsonModal = () => {
     setIsExportJsonModalOpen(true);
   };
@@ -723,7 +712,7 @@ export function OperatorDraftPage() {
       return;
     }
 
-    downloadShareFile(shareFile);
+    downloadJsonFile(buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt), shareFile);
     setMessages((prev) => [`[OK] 已导出${exportScope === 'current' ? '当前干员' : '干员库'}分享：${shareFile.label}（${draftCount} 个）`, ...prev].slice(0, 12));
   };
 

@@ -6,6 +6,7 @@ import type { BuffCategory, BuffEffectKind } from '../core/domain/buff';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
+import { copyTextToClipboard, downloadJsonFile } from '../utils/browserFile';
 import BuffEffectEditorDrawer from './BuffEffectEditorDrawer';
 import { WorkbookContextMenu, type WorkbookContextMenuAction } from './WorkbookContextMenu';
 import { WorkbookShareDialog } from './WorkbookShareDialog';
@@ -63,7 +64,6 @@ import {
   mergeBuffDraftLibraryShare,
   parseBuffDraftLibraryShare,
   resolveBuffDraftShareSelection,
-  type BuffDraftLibraryShareFile,
 } from './buffDraftShare';
 import {
   createBuffUndoRepository,
@@ -77,6 +77,7 @@ import {
   type BuffWorkbookSelection,
 } from './buffDraftWorkbook';
 import { useBuffExplorerDrag } from './useBuffExplorerDrag';
+import { useWorkbookShareController } from './useWorkbookShareController';
 
 const BUFF_SHEET_PAGE_PATH = APP_ROUTE_PATHS.buffSheet;
 const buffDraftRepository = createBuffDraftRepository(persistentLocalStorage);
@@ -84,12 +85,6 @@ const buffUndoRepository = createBuffUndoRepository(persistentLocalStorage);
 
 function isBuffSheetPath(pathname: string) {
   return pathname === BUFF_SHEET_PAGE_PATH;
-}
-
-async function copyText(text: string) {
-  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
-  }
 }
 
 type BuffSheetContextMenuState = {
@@ -154,16 +149,27 @@ export function BuffDraftSheetPage() {
   const [pendingFocusRowKey, setPendingFocusRowKey] = useState<string | null>(null);
   const [effectValueInput, setEffectValueInput] = useState('');
   const [formulaTextInput, setFormulaTextInput] = useState('');
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
-  const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<BuffDraftLibraryShareFile | null>(null);
+  const {
+    isOpen: isShareModalOpen,
+    mode: shareModalMode,
+    setMode: setShareModalMode,
+    importText: shareImportText,
+    importError: shareImportError,
+    pendingImport: pendingImportShare,
+    fileInputRef: shareImportInputRef,
+    open: openSheetShareModal,
+    close: closeSheetShareModal,
+    setImportText: setShareImportText,
+    pickImportFile: handleOpenSheetShareImportPicker,
+    parseImportText: handleParseSheetImportText,
+    clearImportPreview: handleCancelSheetImportShare,
+    handleImportFileSelected: handleSheetShareFileSelected,
+    completeImport: completeSheetShareImport,
+  } = useWorkbookShareController(parseBuffDraftLibraryShare);
   const [contextMenu, setContextMenu] = useState<BuffSheetContextMenuState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ itemKey: string; effectKey: string } | null>(null);
   const columns = useMemo(() => buildBuffSheetColumns(), []);
   const getItemCollapseKey = useCallback((draftId: string, itemKey: string) => `${draftId}:${itemKey}`, []);
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLDivElement>(null);
   const pendingFormulaFocusRef = useRef<FormulaFocusSnapshot | null>(null);
   const [formulaFocusRestoreToken, setFormulaFocusRestoreToken] = useState(0);
@@ -255,38 +261,11 @@ export function BuffDraftSheetPage() {
     }));
   }, [getItemCollapseKey, localLibrary]);
 
-  const downloadSheetShareFile = useCallback((shareFile: BuffDraftLibraryShareFile) => {
-    const blob = new Blob([JSON.stringify(shareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
-  }, []);
-
   const currentSheetShareFile = useMemo(() => buildBuffDraftLibraryShareFile(
     localLibrary,
     draft.name || selectedLocalDraftId || 'buff-library',
   ), [draft.name, localLibrary, selectedLocalDraftId]);
   const currentSheetShareText = useMemo(() => JSON.stringify(currentSheetShareFile, null, 2), [currentSheetShareFile]);
-
-  const openSheetShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeSheetShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
 
   const handleExportSheetLibraryShare = useCallback(() => {
     const draftCount = Object.keys(localLibrary).length;
@@ -297,47 +276,12 @@ export function BuffDraftSheetPage() {
       localLibrary,
       draft.name || selectedLocalDraftId || 'buff-library',
     );
-    downloadSheetShareFile(shareFile);
-  }, [downloadSheetShareFile, draft.name, localLibrary, selectedLocalDraftId]);
-
-  const handleOpenSheetShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const prepareSheetImportShare = useCallback((rawText: string) => {
-    const parsedShare = parseBuffDraftLibraryShare(rawText);
-    if (!parsedShare.ok) {
-      setPendingImportShare(null);
-      setShareImportError(parsedShare.error);
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare(parsedShare.shareFile);
-  }, []);
-
-  const handleSheetShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const rawText = await file.text();
-    setShareImportText(rawText);
-    prepareSheetImportShare(rawText);
-    event.target.value = '';
-  }, [prepareSheetImportShare]);
-
-  const handleParseSheetImportText = useCallback(() => {
-    prepareSheetImportShare(shareImportText);
-  }, [prepareSheetImportShare, shareImportText]);
+    downloadJsonFile(buildDraftLibraryShareFileName(shareFile.label, shareFile.exportedAt), shareFile);
+  }, [draft.name, localLibrary, selectedLocalDraftId]);
 
   const handleCopySheetShareJson = useCallback(async () => {
-    await copyText(currentSheetShareText);
+    await copyTextToClipboard(currentSheetShareText);
   }, [currentSheetShareText]);
-
-  const handleCancelSheetImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
 
   const handleConfirmSheetImportShare = useCallback(() => {
     if (!pendingImportShare) {
@@ -357,11 +301,8 @@ export function BuffDraftSheetPage() {
       setDraft(nextLibrary[nextSelectedId]);
       setPendingFocusRowKey(`group-${nextSelectedId}`);
     }
-    setPendingImportShare(null);
-    setShareImportText('');
-    setShareImportError('');
-    setIsShareModalOpen(false);
-  }, [applyExplorerDefaultCollapse, localLibrary, pendingImportShare, selectedLocalDraftId]);
+    completeSheetShareImport();
+  }, [applyExplorerDefaultCollapse, completeSheetShareImport, localLibrary, pendingImportShare, selectedLocalDraftId]);
 
   useEffect(() => {
     const nextLibrary = {
@@ -1619,10 +1560,7 @@ export function BuffDraftSheetPage() {
           text: shareImportText,
           error: shareImportError,
           placeholder: '把 Buff 分享 JSON 粘贴到这里，或点击右上角导入文件。',
-          onTextChange: (value) => {
-            setShareImportText(value);
-            if (shareImportError) setShareImportError('');
-          },
+          onTextChange: setShareImportText,
           onPickFile: handleOpenSheetShareImportPicker,
           onParse: handleParseSheetImportText,
           preview: pendingImportShare ? {

@@ -6,6 +6,7 @@ import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl, resolvePublicPath } from '../utils/assetResolver';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { buildDraftLibraryShareFileName } from '../utils/draftShare';
+import { copyTextToClipboard, downloadJsonFile } from '../utils/browserFile';
 import { webImageLibrary, getWebImageUrl } from '../platform/resources/webImageLibrary';
 import type { ImageAssetEntry } from './ImageManager/types';
 import DeferredNumberInput from './DeferredNumberInput';
@@ -51,7 +52,6 @@ import {
   mergeWeaponDraftLibraryShare,
   parseWeaponDraftLibraryShare,
   resolveWeaponDraftShareSelection,
-  type WeaponDraftLibraryShareFile,
 } from './weaponDraftShare';
 import {
   buildWeaponFormulaBinding,
@@ -71,6 +71,7 @@ import {
   type WeaponExplorerDragPolicyState,
 } from './weaponExplorerDragPolicy';
 import { useWeaponExplorerDrag } from './useWeaponExplorerDrag';
+import { useWorkbookShareController } from './useWorkbookShareController';
 
 const WEAPON_SHEET_PAGE_PATH = APP_ROUTE_PATHS.weaponSheet;
 const weaponDraftRepository = createWeaponDraftRepository(persistentLocalStorage);
@@ -203,15 +204,26 @@ export function WeaponDraftSheetPage() {
   const [collapsedLevels, setCollapsedLevels] = useState<Record<string, boolean>>({});
   const [isOverwriteProtectionEnabled, setIsOverwriteProtectionEnabled] = useState(true);
   const [isOverwriteDraftModalOpen, setIsOverwriteDraftModalOpen] = useState(false);
-  const [shareImportError, setShareImportError] = useState('');
-  const [pendingImportShare, setPendingImportShare] = useState<WeaponDraftLibraryShareFile | null>(null);
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [shareModalMode, setShareModalMode] = useState<'export' | 'import'>('export');
-  const [shareImportText, setShareImportText] = useState('');
+  const {
+    isOpen: isShareModalOpen,
+    mode: shareModalMode,
+    setMode: setShareModalMode,
+    importText: shareImportText,
+    importError: shareImportError,
+    pendingImport: pendingImportShare,
+    fileInputRef: shareImportInputRef,
+    open: openShareModal,
+    close: closeShareModal,
+    setImportText: setShareImportText,
+    pickImportFile: handleOpenShareImportPicker,
+    parseImportText: handleParseImportText,
+    clearImportPreview: handleCancelImportShare,
+    handleImportFileSelected: handleShareFileSelected,
+    completeImport: completeShareImport,
+  } = useWorkbookShareController(parseWeaponDraftLibraryShare);
   const [exportScope, setExportScope] = useState<'current' | 'all'>('current');
   const [contextMenu, setContextMenu] = useState<WeaponSheetContextMenuState | null>(null);
   const [buffDrawerTarget, setBuffDrawerTarget] = useState<{ skillKey: WeaponSkillKey; effectKey: string; levelKey: string } | null>(null);
-  const shareImportInputRef = useRef<HTMLInputElement>(null);
   const weaponImageFormulaRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -747,82 +759,16 @@ export function WeaponDraftSheetPage() {
 
   const currentShareText = useMemo(() => JSON.stringify(currentShareFile, null, 2), [currentShareFile]);
 
-  const openShareModal = useCallback((mode: 'export' | 'import') => {
-    setShareModalMode(mode);
-    setIsShareModalOpen(true);
-    setShareImportError('');
-    if (mode === 'import') {
-      setPendingImportShare(null);
-    }
-  }, []);
-
-  const closeShareModal = useCallback(() => {
-    setIsShareModalOpen(false);
-    setShareImportError('');
-    setPendingImportShare(null);
-  }, []);
-
   const handleCopyShareJson = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(currentShareText);
-    } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = currentShareText;
-      textarea.style.position = 'fixed';
-      textarea.style.opacity = '0';
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-    }
+    await copyTextToClipboard(currentShareText);
   }, [currentShareText]);
 
-  const prepareImportShare = useCallback((rawText: string) => {
-    const result = parseWeaponDraftLibraryShare(rawText);
-    if (!result.ok) {
-      setPendingImportShare(null);
-      setShareImportError(result.error);
-      return;
-    }
-    setShareImportError('');
-    setPendingImportShare(result.shareFile);
-  }, []);
-
   const handleExportLocalLibrary = useCallback(() => {
-    const blob = new Blob([JSON.stringify(currentShareFile, null, 2)], {
-      type: 'application/json;charset=utf-8',
-    });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt);
-    link.click();
-    window.URL.revokeObjectURL(url);
+    downloadJsonFile(
+      buildDraftLibraryShareFileName(currentShareFile.label, currentShareFile.exportedAt),
+      currentShareFile,
+    );
   }, [currentShareFile]);
-
-  const handleOpenShareImportPicker = useCallback(() => {
-    shareImportInputRef.current?.click();
-  }, []);
-
-  const handleParseImportText = useCallback(() => {
-    prepareImportShare(shareImportText);
-  }, [prepareImportShare, shareImportText]);
-
-  const handleCancelImportShare = useCallback(() => {
-    setPendingImportShare(null);
-    setShareImportError('');
-  }, []);
-
-  const handleShareFileSelected = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    const rawText = await file.text();
-    setShareImportText(rawText);
-    prepareImportShare(rawText);
-    event.target.value = '';
-  }, [prepareImportShare]);
 
   const handleConfirmImportShare = useCallback(() => {
     if (!pendingImportShare) {
@@ -838,11 +784,8 @@ export function WeaponDraftSheetPage() {
       ? nextLibrary[nextDraftId]
       : draft;
     persistLibraryState(nextLibrary, nextDraft, nextDraftId);
-    setPendingImportShare(null);
-    setShareImportText('');
-    setShareImportError('');
-    setIsShareModalOpen(false);
-  }, [draft, localLibrary, pendingImportShare, persistLibraryState, selectedLocalDraftId]);
+    completeShareImport();
+  }, [completeShareImport, draft, localLibrary, pendingImportShare, persistLibraryState, selectedLocalDraftId]);
 
   const openContextMenu = useCallback((event: ReactMouseEvent, nextMenu: WeaponSheetContextMenuState) => {
     event.preventDefault();
@@ -1772,10 +1715,7 @@ export function WeaponDraftSheetPage() {
           text: shareImportText,
           error: shareImportError,
           placeholder: '把武器分享 JSON 粘贴到这里，或点击右上角导入文件。',
-          onTextChange: (value) => {
-            setShareImportText(value);
-            if (shareImportError) setShareImportError('');
-          },
+          onTextChange: setShareImportText,
           onPickFile: handleOpenShareImportPicker,
           onParse: handleParseImportText,
           preview: pendingImportShare ? {
