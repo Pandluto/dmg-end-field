@@ -325,6 +325,7 @@ export function SkillButtonComponent({
   const isLongPressRef = useRef(false);
   const clickCountRef = useRef(0);
   const wasModalOpenRef = useRef(false);
+  const runtimeDamageRevisionRef = useRef(resistanceRevision);
   const localBuffSearchInputRef = useRef<HTMLInputElement | null>(null);
   const selectedTeamCharacterIds = useMemo(() => {
     const ids = state.selectedCharacters
@@ -767,14 +768,14 @@ export function SkillButtonComponent({
    * @param buffId - Buff ID
    */
   const removeBuff = useCallback((buffId: string) => {
-    setGloballyDisabledBuffIds((prev) => prev.filter((id) => id !== buffId));
     removeSkillButtonBuff(button.id, buffId);
+    loadPersistedManualBuffTweaks();
     loadBuffList(); // 重新加载列表
     loadPanelData();
 
     // 触发事件通知 CanvasBoard 从 timelineData 中移除 buffId
     emitSkillButtonBuffRemoved(button.id, buffId);
-  }, [button.id, loadBuffList, loadPanelData]);
+  }, [button.id, loadBuffList, loadPanelData, loadPersistedManualBuffTweaks]);
 
   const clearAllBuffs = useCallback(() => {
     const currentBuffs = getButtonBuffs(button.id);
@@ -1006,7 +1007,7 @@ export function SkillButtonComponent({
       subStatScale: computedPanel.subStatScale,
       allStatScale: computedPanel.allStatScale,
     };
-  }, [button.characterId]);
+  }, [button.characterId, resistanceRevision]);
   const activeNormalHitSegmentKey = useMemo(
     () => (selectedHitIndex !== null && resolvedTemplate?.hits[selectedHitIndex] ? getNormalHitSegmentKey(resolvedTemplate.hits[selectedHitIndex].key) : null),
     [resolvedTemplate, selectedHitIndex]
@@ -1382,8 +1383,14 @@ export function SkillButtonComponent({
     loadPersistedManualBuffTweaks,
   ]);
   useEffect(() => {
+    const hasRevisionChanged = runtimeDamageRevisionRef.current !== resistanceRevision;
+    runtimeDamageRevisionRef.current = resistanceRevision;
+    if (hasRevisionChanged && (isModalOpen || isInspectMode)) {
+      loadRuntimeDamageData();
+      return;
+    }
     loadPersistedManualBuffTweaks();
-  }, [loadPersistedManualBuffTweaks, resistanceRevision]);
+  }, [isInspectMode, isModalOpen, loadPersistedManualBuffTweaks, loadRuntimeDamageData, resistanceRevision]);
   const inspectDamageSummary = useMemo(() => {
     if (!damageViewModel) {
       return { expected: '-', nonCrit: '-' };

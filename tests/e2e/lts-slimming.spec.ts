@@ -169,6 +169,150 @@ async function dragBoxOverLocator(page: Page, canvas: Locator, target: Locator):
   await page.mouse.up();
 }
 
+async function seedPersistedBuffOverrides(
+  page: Page,
+  buttonId: string,
+  buffLabel: string,
+): Promise<string> {
+  return page.evaluate(async ({ buttonId: targetButtonId, buffLabel: targetBuffLabel }) => {
+    const moduleUrls = performance.getEntriesByType('resource').map((entry) => entry.name);
+    const buffServiceUrl = moduleUrls.find((name) => /\/src\/core\/services\/buffService\.ts(?:\?|$)/.test(name));
+    const skillButtonRepositoryUrl = moduleUrls.find((name) => /\/src\/core\/repositories\/skillButtonRepository\.ts(?:\?|$)/.test(name));
+    if (!buffServiceUrl || !skillButtonRepositoryUrl) {
+      throw new Error('The active Buff or SkillButton repository module URL is unavailable.');
+    }
+
+    const [buffService, skillButtonRepository] = await Promise.all([
+      import(/* @vite-ignore */ buffServiceUrl),
+      import(/* @vite-ignore */ skillButtonRepositoryUrl),
+    ]);
+    const button = skillButtonRepository.getSkillButtonById(targetButtonId);
+    const targetBuff = buffService.getBuffsByButtonId(targetButtonId).find((buff: {
+      id: string;
+      name?: string;
+      displayName?: string;
+    }) => (buff.displayName || buff.name || buff.id) === targetBuffLabel);
+    if (!button || !targetBuff) {
+      throw new Error(`Cannot seed persisted overrides for ${targetBuffLabel}.`);
+    }
+
+    const panelConfig = button.panelConfig ?? { selectedBuff: [...(button.selectedBuff ?? [])] };
+    skillButtonRepository.upsertSkillButton({
+      ...button,
+      panelConfig: {
+        ...panelConfig,
+        selectedBuff: [...(button.selectedBuff ?? [])],
+        globallyDisabledBuffIds: [...(panelConfig.globallyDisabledBuffIds ?? []), targetBuff.id],
+        manualDisabledBuffIdsBySegmentKey: {
+          ...(panelConfig.manualDisabledBuffIdsBySegmentKey ?? {}),
+          'slim-e2e-segment': [targetBuff.id],
+        },
+        manualBuffStackCountsBySegmentKey: {
+          ...(panelConfig.manualBuffStackCountsBySegmentKey ?? {}),
+          'slim-e2e-segment': { [targetBuff.id]: 2 },
+        },
+      },
+    });
+    return targetBuff.id;
+  }, { buttonId, buffLabel });
+}
+
+async function readPersistedSkillButton(page: Page, buttonId: string): Promise<{
+  selectedBuff: string[];
+  buffStackCounts: Record<string, number>;
+  globallyDisabledBuffIds: string[];
+  manualDisabledBuffIdsBySegmentKey: Record<string, string[]>;
+  manualBuffStackCountsBySegmentKey: Record<string, Record<string, number>>;
+}> {
+  return page.evaluate(async (targetButtonId) => {
+    const moduleUrl = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/core\/repositories\/skillButtonRepository\.ts(?:\?|$)/.test(name));
+    if (!moduleUrl) throw new Error('The active SkillButton repository module URL is unavailable.');
+    const repository = await import(/* @vite-ignore */ moduleUrl);
+    const button = repository.getSkillButtonById(targetButtonId);
+    if (!button) throw new Error(`SkillButton ${targetButtonId} is unavailable.`);
+    return {
+      selectedBuff: button.selectedBuff ?? [],
+      buffStackCounts: button.buffStackCounts ?? {},
+      globallyDisabledBuffIds: button.panelConfig?.globallyDisabledBuffIds ?? [],
+      manualDisabledBuffIdsBySegmentKey: button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {},
+      manualBuffStackCountsBySegmentKey: button.panelConfig?.manualBuffStackCountsBySegmentKey ?? {},
+    };
+  }, buttonId);
+}
+
+async function increaseActiveOperatorPanelAtk(page: Page, buttonId: string): Promise<{
+  characterId: string;
+  beforeAtk: number;
+  afterAtk: number;
+}> {
+  return page.evaluate(async (targetButtonId) => {
+    const moduleUrls = performance.getEntriesByType('resource').map((entry) => entry.name);
+    const operatorRepositoryUrl = moduleUrls.find((name) => /\/src\/core\/repositories\/operatorConfigRepository\.ts(?:\?|$)/.test(name));
+    const skillButtonRepositoryUrl = moduleUrls.find((name) => /\/src\/core\/repositories\/skillButtonRepository\.ts(?:\?|$)/.test(name));
+    if (!operatorRepositoryUrl || !skillButtonRepositoryUrl) {
+      throw new Error('The active Operator or SkillButton repository module URL is unavailable.');
+    }
+
+    const [operatorRepository, skillButtonRepository] = await Promise.all([
+      import(/* @vite-ignore */ operatorRepositoryUrl),
+      import(/* @vite-ignore */ skillButtonRepositoryUrl),
+    ]);
+    const button = skillButtonRepository.getSkillButtonById(targetButtonId);
+    if (!button) throw new Error(`SkillButton ${targetButtonId} is unavailable.`);
+    const characterId = button.characterId || button.characterName;
+    const cache = operatorRepository.getOperatorConfigPageCache();
+    const snapshot = cache[characterId];
+    if (!snapshot) throw new Error(`Operator snapshot ${characterId} is unavailable.`);
+
+    const nextSnapshot = structuredClone(snapshot);
+    const beforeAtk = Number(nextSnapshot.panel.display.atk);
+    const increment = Math.max(10_000, Math.abs(beforeAtk) * 10);
+    nextSnapshot.panel.calc.operatorAtk += increment;
+    nextSnapshot.panel.display.atk += increment;
+    nextSnapshot.panel.display.baseAtk += increment;
+    nextSnapshot.panel.display.attackDetail.rawAtk += increment;
+    nextSnapshot.panel.display.attackDetail.baseAtk += increment;
+    nextSnapshot.panel.display.attackDetail.panelAtk += increment;
+    operatorRepository.setOperatorConfigPageCache({
+      ...cache,
+      [characterId]: nextSnapshot,
+    });
+    return {
+      characterId,
+      beforeAtk,
+      afterAtk: nextSnapshot.panel.display.atk,
+    };
+  }, buttonId);
+}
+
+async function readSkillButtonPanelDiagnostics(page: Page, buttonId: string): Promise<{
+  cacheAtk: number | null;
+  runtimeAtk: number | null;
+}> {
+  return page.evaluate(async (targetButtonId) => {
+    const moduleUrls = performance.getEntriesByType('resource').map((entry) => entry.name);
+    const operatorRepositoryUrl = moduleUrls.find((name) => /\/src\/core\/repositories\/operatorConfigRepository\.ts(?:\?|$)/.test(name));
+    const skillButtonRepositoryUrl = moduleUrls.find((name) => /\/src\/core\/repositories\/skillButtonRepository\.ts(?:\?|$)/.test(name));
+    if (!operatorRepositoryUrl || !skillButtonRepositoryUrl) {
+      throw new Error('The active Operator or SkillButton repository module URL is unavailable.');
+    }
+    const [operatorRepository, skillButtonRepository] = await Promise.all([
+      import(/* @vite-ignore */ operatorRepositoryUrl),
+      import(/* @vite-ignore */ skillButtonRepositoryUrl),
+    ]);
+    const button = skillButtonRepository.getSkillButtonById(targetButtonId);
+    if (!button) throw new Error(`SkillButton ${targetButtonId} is unavailable.`);
+    const characterId = button.characterId || button.characterName;
+    return {
+      cacheAtk: operatorRepository.getOperatorConfigPageCache()[characterId]?.panel.display.atk ?? null,
+      runtimeAtk: button.runtimeSnapshot?.atk ?? null,
+    };
+  }, buttonId);
+}
+
 test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) => {
   const browserErrors: string[] = [];
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
@@ -978,7 +1122,8 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       await page.locator('.buff-edit-filter-button').click();
     });
 
-    await test.step('批量删减 Buff 支持 pending、取消和确认', async () => {
+    await test.step('批量删减 Buff 支持 pending、取消、确认和持久 override 清理', async () => {
+      const overrideBuffId = await seedPersistedBuffOverrides(page, skillButtonId!, addedBuffLabel);
       await page.locator('.buff-edit-remove-button').click();
       await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toBeVisible();
 
@@ -1001,6 +1146,14 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
       await expect(page.getByRole('heading', { name: '删减 Buff', exact: true })).toHaveCount(0);
       await expect.poll(async () => readSkillButtonBuffCount(await batchSkillButton.getAttribute('title')))
         .toBe(originalBuffCount);
+
+      const persistedButton = await readPersistedSkillButton(page, skillButtonId!);
+      expect(persistedButton.selectedBuff).not.toContain(overrideBuffId);
+      expect(Object.keys(persistedButton.buffStackCounts)).not.toContain(overrideBuffId);
+      expect(persistedButton.globallyDisabledBuffIds).not.toContain(overrideBuffId);
+      expect(Object.values(persistedButton.manualDisabledBuffIdsBySegmentKey).flat()).not.toContain(overrideBuffId);
+      expect(Object.values(persistedButton.manualBuffStackCountsBySegmentKey)
+        .flatMap((stackCounts) => Object.keys(stackCounts))).not.toContain(overrideBuffId);
     });
 
     await test.step('回到排轴后使用新的 TimelineSkillDetailWorkbench', async () => {
@@ -1018,6 +1171,31 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(page.locator('.timeline-summary-card')).toBeVisible();
     await expect(page.getByRole('heading', { name: '计算过程', exact: true })).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
+
+    await test.step('详情保持打开时会响应外部面板缓存 revision', async () => {
+      const expectedSummary = page.locator('.timeline-summary-card strong');
+      const beforeSummary = (await expectedSummary.textContent())?.trim();
+      expect(beforeSummary).toBeTruthy();
+      const beforeDiagnostics = await readSkillButtonPanelDiagnostics(page, skillButtonId!);
+      const mutation = await increaseActiveOperatorPanelAtk(page, skillButtonId!);
+      expect(mutation.afterAtk).toBeGreaterThan(mutation.beforeAtk);
+      await expect(expectedSummary).toHaveText(beforeSummary!);
+
+      await page.getByRole('button', { name: '批量设置敌方抗性', exact: true }).evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      const resistanceModal = page.locator('.batch-resistance-modal');
+      await expect(resistanceModal).toBeVisible();
+      await resistanceModal.getByRole('button', { name: '应用到全部按钮', exact: true }).evaluate((button) => {
+        (button as HTMLButtonElement).click();
+      });
+      await expect(resistanceModal).toHaveCount(0);
+      const afterDiagnostics = await readSkillButtonPanelDiagnostics(page, skillButtonId!);
+      expect(afterDiagnostics.cacheAtk).toBe(mutation.afterAtk);
+      expect(afterDiagnostics.runtimeAtk).not.toBe(beforeDiagnostics.runtimeAtk);
+      await expect.poll(async () => (await expectedSummary.textContent())?.trim()).not.toBe(beforeSummary);
+      await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
+    });
 
     await page.reload();
     await expect(page.locator(`[data-skill-button-id="${skillButtonId}"]`)).toHaveCount(1);

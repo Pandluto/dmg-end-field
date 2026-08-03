@@ -17,6 +17,7 @@ import {
 import { calculateBuffedPanel } from '../calculators/buffCalculator';
 import { getCharacterComputed } from '../../utils/storage';
 import { normalizeBuffMultiplier } from '../domain/buffMultiplier';
+import { detachBuffFromSkillButton } from './skillButtonPanelConfig';
 
 // 运行时缓存（用于快速访问）
 let buffCache: Record<string, SkillButtonBuff> = {};
@@ -278,16 +279,8 @@ export function removeBuffFromButton(buttonId: string, buffId: string): void {
   // 1. 从 skill-button 总表的 selectedBuff 中移除
   const button = getSkillButtonById(buttonId);
   if (button && button.selectedBuff) {
-    const newSelectedBuff = button.selectedBuff.filter(id => id !== buffId);
-    const buff = getBuffById(buffId);
     upsertSkillButton({
-      ...button,
-      selectedBuff: newSelectedBuff,
-      buffStackCounts: buff ? withBuffStackCount(button, buffId, buff, null) : button.buffStackCounts,
-      panelConfig: {
-        ...(button.panelConfig ?? { selectedBuff: [] }),
-        selectedBuff: newSelectedBuff,
-      },
+      ...detachBuffFromSkillButton(button, buffId),
       updatedAt: Date.now(),
     });
     recomputeSkillButtonPanel(buttonId);
@@ -621,4 +614,3 @@ export function setSelectedSkillButton(buttonId: string | null): void {
 export function getSelectedSkillButton(): string | null {
   return safeSessionStorage.getItem(STORAGE_KEYS.SELECTED_SKILL_BUTTON);
 }
-
