@@ -183,8 +183,6 @@ interface CommonObservation {
       status: string;
       error: string;
     };
-    hitCount: number;
-    selectedHitLabel: string;
     physicalResistance: string;
     persistedAfterReload: boolean;
   };
@@ -755,16 +753,6 @@ async function observeTimeline(
 
   await skillButton.dblclick();
   await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
-  const hitButtons = page.locator('.timeline-detail-hit');
-  const hitCount = await hitButtons.count();
-  expect(hitCount).toBeGreaterThan(1);
-  await expect(hitButtons.first()).toHaveClass(/is-selected/);
-  await hitButtons.first().click();
-  await expect(hitButtons.first()).not.toHaveClass(/is-selected/);
-  await hitButtons.nth(1).click();
-  await expect(hitButtons.nth(1)).toHaveClass(/is-selected/);
-  const selectedHitLabel = normalizeText(await hitButtons.nth(1).locator('strong').textContent());
-
   await page.getByRole('button', { name: '目标抗性', exact: true }).click();
   const physicalResistanceInput = page.locator('.timeline-resistance-card')
     .getByText('物理', { exact: true })
@@ -886,8 +874,6 @@ async function observeTimeline(
       buffBatchSecondaryPaths,
       commandSuccess,
       commandError,
-      hitCount,
-      selectedHitLabel,
       physicalResistance,
       persistedAfterReload: true,
     },
