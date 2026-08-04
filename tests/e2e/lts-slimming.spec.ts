@@ -1,6 +1,15 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import {
+  readCountEnvironment,
+  readTextEnvironment,
+} from './regressionEnvironment';
 
-const BASE_URL = 'http://127.0.0.1:3040';
+const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3040';
+const ACCESS_PASSWORD = readTextEnvironment('E2E_ACCESS_PASSWORD', 'zmd');
+const EXPECTED_OPERATOR_COUNT = readCountEnvironment('E2E_EXPECTED_OPERATOR_COUNT', 30);
+const EXPECTED_WEAPON_COUNT = readCountEnvironment('E2E_EXPECTED_WEAPON_COUNT', 75);
+const EXPECTED_IMAGE_COUNT = readCountEnvironment('E2E_EXPECTED_IMAGE_COUNT', 559);
+const EXPECTED_VERSION_LABEL = readTextEnvironment('E2E_EXPECTED_VERSION_LABEL', 'Web LTS 1.8');
 
 async function openRoute(page: Page, path: string, heading: string): Promise<void> {
   await page.goto(`${BASE_URL}/#${path}`);
@@ -313,7 +322,7 @@ async function readSkillButtonPanelDiagnostics(page: Page, buttonId: string): Pr
   }, buttonId);
 }
 
-test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) => {
+test('candidate browser behavior regression', async ({ context, page }) => {
   const browserErrors: string[] = [];
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
@@ -326,22 +335,22 @@ test('v1.8 LTS slimming browser behavior baseline', async ({ context, page }) =>
     await expect(page.getByRole('heading', { name: '终末地伤害工作台', exact: true })).toBeVisible();
 
     const password = page.getByRole('textbox', { name: '访问密码', exact: true });
-    await password.fill('wrong-password');
+    await password.fill(`${ACCESS_PASSWORD}-wrong`);
     await page.getByRole('button', { name: '进入工作台', exact: true }).click();
     await expect(page.getByRole('alert')).toHaveText('访问密码不正确。');
 
-    await password.fill('zmd');
+    await password.fill(ACCESS_PASSWORD);
     await page.getByRole('button', { name: '进入工作台', exact: true }).click();
     await expect(page.getByRole('heading', { name: '先把基础资料装进浏览器', exact: true })).toBeVisible();
-    await expect(page.getByText('30 位本地干员', { exact: true })).toBeVisible();
-    await expect(page.getByText('75 件本地武器', { exact: true })).toBeVisible();
-    await expect(page.getByText('559 个图片资源', { exact: true })).toBeVisible();
+    await expect(page.getByText(`${EXPECTED_OPERATOR_COUNT} 位本地干员`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${EXPECTED_WEAPON_COUNT} 件本地武器`, { exact: true })).toBeVisible();
+    await expect(page.getByText(`${EXPECTED_IMAGE_COUNT} 个图片资源`, { exact: true })).toBeVisible();
 
     await page.getByRole('button', { name: '下载完整资料并开始', exact: true }).click();
     await expect(page.getByRole('heading', { name: '建立第一份排轴', exact: true })).toBeVisible({
       timeout: 120_000,
     });
-    await expect(page.getByText('Web LTS 1.8', { exact: true })).toBeVisible();
+    await expect(page.getByText(EXPECTED_VERSION_LABEL, { exact: true })).toBeVisible();
     expect(await page.evaluate(() => window.localStorage.getItem('dmg.web.access-lease.v1'))).toBeTruthy();
   });
 

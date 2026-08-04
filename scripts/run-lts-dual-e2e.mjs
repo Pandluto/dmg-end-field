@@ -8,6 +8,8 @@ const ltsBaseUrl = process.env.LTS_DUAL_BASE_URL || 'http://127.0.0.1:3030';
 const slimBaseUrl = process.env.SLIM_DUAL_BASE_URL || 'http://127.0.0.1:3040';
 const ltsExpectedBranch = process.env.LTS_DUAL_LTS_BRANCH || 'v1.8-LTS';
 const slimExpectedBranch = process.env.LTS_DUAL_SLIM_BRANCH || 'codex/v1.8-lts-slimming';
+const baselineLabel = process.env.LTS_DUAL_BASELINE_LABEL || 'v1.8-LTS';
+const candidateLabel = process.env.LTS_DUAL_CANDIDATE_LABEL || 'v1.8-slim';
 
 function command(commandName, args, cwd = repoRoot) {
   return execFileSync(commandName, args, {
@@ -107,16 +109,16 @@ async function isReachable(url) {
   }
 }
 
-async function waitForServer(url, child) {
+async function waitForServer(url, child, label) {
   const deadline = Date.now() + 120_000;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) {
-      throw new Error(`v1.8-LTS server exited before becoming ready (code ${child.exitCode}).`);
+      throw new Error(`${label} server exited before becoming ready (code ${child.exitCode}).`);
     }
     if (await isReachable(url)) return;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error(`Timed out waiting for v1.8-LTS server at ${url}.`);
+  throw new Error(`Timed out waiting for ${label} server at ${url}.`);
 }
 
 function runPreparation(cwd, script) {
@@ -135,6 +137,9 @@ async function run() {
         `No ${ltsExpectedBranch} worktree was found. Set LTS_DUAL_WORKTREE to its local path.`,
       );
     }
+    const slimWorktree = process.env.SLIM_DUAL_WORKTREE
+      ? path.resolve(process.env.SLIM_DUAL_WORKTREE)
+      : repoRoot;
     if (!(await isReachable(ltsBaseUrl))) {
       runPreparation(ltsWorktree, 'assets:web-prepare');
       runPreparation(ltsWorktree, 'data:web-manifest');
@@ -151,24 +156,24 @@ async function run() {
         cwd: ltsWorktree,
         stdio: 'inherit',
       });
-      await waitForServer(ltsBaseUrl, ltsServer);
+      await waitForServer(ltsBaseUrl, ltsServer, baselineLabel);
     }
     if (!(await isReachable(slimBaseUrl))) {
       throw new Error(
-        `v1.8 slim server is not reachable at ${slimBaseUrl}. Start ${slimExpectedBranch} on that URL first.`,
+        `${candidateLabel} server is not reachable at ${slimBaseUrl}. Start ${slimExpectedBranch} on that URL first.`,
       );
     }
 
     assertServerIdentity({
-      label: 'v1.8-LTS',
+      label: baselineLabel,
       baseUrl: ltsBaseUrl,
       expectedWorktree: ltsWorktree,
       expectedBranch: ltsExpectedBranch,
     });
     assertServerIdentity({
-      label: 'v1.8-slim',
+      label: candidateLabel,
       baseUrl: slimBaseUrl,
-      expectedWorktree: repoRoot,
+      expectedWorktree: slimWorktree,
       expectedBranch: slimExpectedBranch,
     });
 
@@ -181,6 +186,11 @@ async function run() {
       stdio: 'inherit',
       env: {
         ...process.env,
+        // The dual runner already owns server readiness and identity checks.
+        // Prevent Playwright's generic config from starting a second server,
+        // and keep custom candidate ports reusable outside the 1.8 defaults.
+        E2E_BASE_URL: slimBaseUrl,
+        E2E_SKIP_WEB_SERVER: '1',
         LTS_DUAL_BASE_URL: ltsBaseUrl,
         SLIM_DUAL_BASE_URL: slimBaseUrl,
       },

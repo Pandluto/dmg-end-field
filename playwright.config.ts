@@ -1,6 +1,8 @@
 import { defineConfig } from '@playwright/test';
 
-const baseURL = 'http://127.0.0.1:3040';
+const baseURL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3040';
+const webServerCommand = process.env.E2E_SERVER_COMMAND || 'npm run dev:e2e';
+const skipWebServer = /^(1|true)$/i.test(process.env.E2E_SKIP_WEB_SERVER?.trim() || '');
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -21,8 +23,8 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  webServer: {
-    command: 'npm run dev:e2e',
+  webServer: skipWebServer ? undefined : {
+    command: webServerCommand,
     url: baseURL,
     reuseExistingServer: true,
     timeout: 120_000,

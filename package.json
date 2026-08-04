@@ -21,6 +21,8 @@
     "test:e2e:lts-dual": "node scripts/run-lts-dual-e2e.mjs",
     "test:e2e:lts-slimming": "playwright test tests/e2e/lts-slimming.spec.ts",
     "test:lts-slimming": "npm test && npm run test:e2e:lts-slimming",
+    "test:regression": "npm run typecheck && npm test && npm run test:e2e:lts-slimming",
+    "test:regression:dual": "npm run test:e2e:lts-dual",
     "test:numeric": "node scripts/run-ts-test.mjs /src/core/calculators/buffPanelCalculator.test.ts /src/core/calculators/buffZoneCalculator.test.ts /src/core/calculators/resistanceZone.test.ts",
     "typecheck": "tsc --noEmit",
     "data:web-normalize": "node scripts/normalize-web-asset-paths.mjs",

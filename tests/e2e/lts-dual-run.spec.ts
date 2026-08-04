@@ -4,9 +4,21 @@ import {
   type Browser,
   type Page,
 } from '@playwright/test';
+import {
+  readBooleanEnvironment,
+  readCountEnvironment,
+  readTextEnvironment,
+} from './regressionEnvironment';
 
 const LTS_BASE_URL = process.env.LTS_DUAL_BASE_URL || 'http://127.0.0.1:3030';
 const SLIM_BASE_URL = process.env.SLIM_DUAL_BASE_URL || 'http://127.0.0.1:3040';
+const BASELINE_LABEL = process.env.LTS_DUAL_BASELINE_LABEL || 'v1.8-LTS';
+const CANDIDATE_LABEL = process.env.LTS_DUAL_CANDIDATE_LABEL || 'v1.8-slim';
+const ACCESS_PASSWORD = readTextEnvironment('E2E_ACCESS_PASSWORD', 'zmd');
+const EXPECTED_OPERATOR_COUNT = readCountEnvironment('E2E_EXPECTED_OPERATOR_COUNT', 30);
+const EXPECTED_WEAPON_COUNT = readCountEnvironment('E2E_EXPECTED_WEAPON_COUNT', 75);
+const EXPECTED_IMAGE_COUNT = readCountEnvironment('E2E_EXPECTED_IMAGE_COUNT', 559);
+const EXPECTED_VERSION_LABEL = readTextEnvironment('E2E_EXPECTED_VERSION_LABEL', 'Web LTS 1.8');
 const THEME_STORAGE_KEY = 'dmg.appearance.theme.v1';
 
 const EDITOR_THEMES = [
@@ -89,7 +101,7 @@ const COMMON_ROUTES = [
 ] as const;
 
 interface DualRunTarget {
-  name: 'v1.8-LTS' | 'v1.8-slim';
+  name: string;
   baseUrl: string;
   legacyDamageSheet: boolean;
   legacyThreePieceTypeEditor: boolean;
@@ -263,6 +275,17 @@ interface TargetObservation {
   browserErrors: string[];
 }
 
+function expectedCapabilities(target: DualRunTarget): CapabilityObservation {
+  return {
+    damageSheetRoute: target.legacyDamageSheet,
+    xlsxExport: target.legacyDamageSheet,
+    equipmentThreePieceTypeEditor: target.legacyThreePieceTypeEditor,
+    tableButton: target.legacyDamageSheet,
+    damageSheetNavigation: target.legacyDamageSheet,
+    fakeCalculationSidebar: target.legacyDamageSheet,
+  };
+}
+
 function normalizeText(value: string | null): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -279,27 +302,27 @@ async function bootstrap(page: Page, baseUrl: string): Promise<CommonObservation
   await expect(page.getByRole('heading', { name: '终末地伤害工作台', exact: true })).toBeVisible();
 
   const password = page.getByRole('textbox', { name: '访问密码', exact: true });
-  await password.fill('wrong-password');
+  await password.fill(`${ACCESS_PASSWORD}-wrong`);
   await page.getByRole('button', { name: '进入工作台', exact: true }).click();
   await expect(page.getByRole('alert')).toHaveText('访问密码不正确。');
 
-  await password.fill('zmd');
+  await password.fill(ACCESS_PASSWORD);
   await page.getByRole('button', { name: '进入工作台', exact: true }).click();
   await expect(page.getByRole('heading', { name: '先把基础资料装进浏览器', exact: true })).toBeVisible();
-  await expect(page.getByText('30 位本地干员', { exact: true })).toBeVisible();
-  await expect(page.getByText('75 件本地武器', { exact: true })).toBeVisible();
-  await expect(page.getByText('559 个图片资源', { exact: true })).toBeVisible();
+  await expect(page.getByText(`${EXPECTED_OPERATOR_COUNT} 位本地干员`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`${EXPECTED_WEAPON_COUNT} 件本地武器`, { exact: true })).toBeVisible();
+  await expect(page.getByText(`${EXPECTED_IMAGE_COUNT} 个图片资源`, { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '下载完整资料并开始', exact: true }).click();
   await expect(page.getByRole('heading', { name: '建立第一份排轴', exact: true })).toBeVisible({
     timeout: 120_000,
   });
-  const version = normalizeText(await page.getByText('Web LTS 1.8', { exact: true }).textContent());
+  const version = normalizeText(await page.getByText(EXPECTED_VERSION_LABEL, { exact: true }).textContent());
 
   return {
-    operators: 30,
-    weapons: 75,
-    images: 559,
+    operators: EXPECTED_OPERATOR_COUNT,
+    weapons: EXPECTED_WEAPON_COUNT,
+    images: EXPECTED_IMAGE_COUNT,
     leaseStored: await page.evaluate(() => Boolean(window.localStorage.getItem('dmg.web.access-lease.v1'))),
     version,
   };
@@ -648,46 +671,32 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
   }
 }
 
-test('v1.8-LTS and v1.8-slim share one black-box contract', async ({ browser }, testInfo) => {
+test('baseline and candidate share one black-box contract', async ({ browser }, testInfo) => {
   test.setTimeout(300_000);
   const targets: DualRunTarget[] = [
     {
-      name: 'v1.8-LTS',
+      name: BASELINE_LABEL,
       baseUrl: LTS_BASE_URL,
-      legacyDamageSheet: true,
-      legacyThreePieceTypeEditor: true,
+      legacyDamageSheet: readBooleanEnvironment('LTS_DUAL_BASELINE_LEGACY_DAMAGE_SHEET', true),
+      legacyThreePieceTypeEditor: readBooleanEnvironment('LTS_DUAL_BASELINE_LEGACY_THREE_PIECE_TYPE_EDITOR', true),
     },
     {
-      name: 'v1.8-slim',
+      name: CANDIDATE_LABEL,
       baseUrl: SLIM_BASE_URL,
-      legacyDamageSheet: false,
-      legacyThreePieceTypeEditor: false,
+      legacyDamageSheet: readBooleanEnvironment('LTS_DUAL_CANDIDATE_LEGACY_DAMAGE_SHEET', false),
+      legacyThreePieceTypeEditor: readBooleanEnvironment('LTS_DUAL_CANDIDATE_LEGACY_THREE_PIECE_TYPE_EDITOR', false),
     },
   ];
 
   const baseline = await runTarget(browser, targets[0]);
   const slim = await runTarget(browser, targets[1]);
 
-  expect(baseline.browserErrors, 'v1.8-LTS browser console/page errors').toEqual([]);
-  expect(slim.browserErrors, 'v1.8-slim browser console/page errors').toEqual([]);
+  expect(baseline.browserErrors, `${targets[0].name} browser console/page errors`).toEqual([]);
+  expect(slim.browserErrors, `${targets[1].name} browser console/page errors`).toEqual([]);
   expect(slim.common, 'shared public behavior must remain equal').toEqual(baseline.common);
 
-  expect(baseline.capabilities).toEqual({
-    damageSheetRoute: true,
-    xlsxExport: true,
-    equipmentThreePieceTypeEditor: true,
-    tableButton: true,
-    damageSheetNavigation: true,
-    fakeCalculationSidebar: true,
-  });
-  expect(slim.capabilities).toEqual({
-    damageSheetRoute: false,
-    xlsxExport: false,
-    equipmentThreePieceTypeEditor: false,
-    tableButton: false,
-    damageSheetNavigation: false,
-    fakeCalculationSidebar: false,
-  });
+  expect(baseline.capabilities).toEqual(expectedCapabilities(targets[0]));
+  expect(slim.capabilities).toEqual(expectedCapabilities(targets[1]));
 
   await testInfo.attach('lts-dual-run-observations.json', {
     body: Buffer.from(JSON.stringify({ baseline, slim }, null, 2)),
