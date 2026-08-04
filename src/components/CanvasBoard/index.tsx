@@ -120,6 +120,7 @@ import type {
   TimelineSqliteWorkspace,
 } from '../../agentKernel/timelineRepository/localTimelineClient';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
+import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -3739,25 +3740,43 @@ export function CanvasBoard({
   };
 
   const handleConvertTimelineArchive = async (archive: TimelineArchiveSummary, payloadOnly = false) => {
-    try {
-      const repository = createTimelineRepositoryClient();
-      const converted = await repository.convertTimelineArchive({
+    const repository = createTimelineRepositoryClient();
+    const outcome = await runTimelineArchiveConversionForReload({
+      convert: () => repository.convertTimelineArchive({
         source: archive.library,
         archiveId: archive.archiveId,
         payloadOnly,
         updatedAt: Date.now(),
-      });
-      activateTimeline({ document: converted.document as TimelineDocument, checkoutRef: converted.checkoutRef, workingPayload: converted.payload });
-      hydrateCheckoutRuntime(converted.payload);
-      await refreshTimelineArchiveLibrary();
-      setWorkNodeRefreshKey((current) => current + 1);
-      setIsSnapshotModalOpen(false);
-      const archiveKind = archive.library === 'shared' ? '共享' : '本地';
-      setWorkNodeSaveNotice(`已从${archiveKind}存档创建 SQLite 工作区：${converted.document.label}`);
-      window.setTimeout(() => setWorkNodeSaveNotice(''), 2200);
-    } catch (error) {
-      alert(`存档转换 SQLite 失败：${formatTimelineOperationError(error)}`);
+      }),
+      activate: (converted) => {
+        activateTimeline({
+          document: converted.document as TimelineDocument,
+          checkoutRef: converted.checkoutRef,
+          workingPayload: converted.payload,
+        });
+      },
+      // 转换接口已经把 checkout 的完整工作副本写入 user.sqlite。
+      // 与“应用 SQLite 工作区”保持同一路径，让 AppContext 在新页面里
+      // 根据新选中干员重建可信技能目录，避免旧运行时目录误拒绝有效技能。
+      reload: () => window.location.reload(),
+    });
+    if (outcome.status === 'reloading') {
+      return;
     }
+    if (outcome.status === 'conversion-failed') {
+      alert(`存档转换 SQLite 失败：${formatTimelineOperationError(outcome.error)}`);
+      return;
+    }
+
+    // SQLite 已经创建成功；若活动工作区切换异常，仍刷新列表并明确
+    // 告知用户数据已落盘，不能再误报成“转换失败”。
+    try {
+      await refreshTimelineArchiveLibrary();
+      setRestorePanelTab('sqlite');
+    } catch {
+      // 下面的主错误已经足够指导用户刷新后从 SQLite 列表继续应用。
+    }
+    alert(`SQLite 工作区已创建，但自动应用失败：${formatTimelineOperationError(outcome.error)}。请刷新后从 SQLite 标签页继续应用。`);
   };
 
   const handleApplySqliteWorkspace = async (workspace: TimelineSqliteWorkspace) => {
