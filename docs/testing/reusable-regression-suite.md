@@ -7,10 +7,12 @@
 | 层级 | 稳定入口 | 主要证据 | 适用场景 |
 | --- | --- | --- | --- |
 | 纯逻辑与存储合同 | `npm test` | `src/**/*.test.ts(x)`；由 `scripts/run-ts-test.mjs` 自动发现 | 日常模型重构、错误回归、存储边界 |
-| 当前分支浏览器回归 | `npm run test:regression` | `tests/e2e/lts-slimming.spec.ts` | 页面、SQLite 刷新恢复、分享、主题和完整业务流程 |
-| 基线/候选双跑 | `npm run test:regression:dual` | `tests/e2e/lts-dual-run.spec.ts` | 无逻辑瘦身、跨分支迁移、确认保留功能没有漂移 |
+| 当前分支浏览器回归 | `npm run test:regression` | `tests/e2e/lts-slimming.spec.ts` | 页面、SQLite 刷新恢复、分享、实时主题、深层编辑和完整业务流程 |
+| 基线/候选双跑 | `npm run test:regression:dual` | `tests/e2e/lts-dual-run.spec.ts` | 同文件操作两侧、跨分支迁移、确认保留功能没有漂移 |
 
 `npm run test:regression` 会依次执行 typecheck、全部 Node 合同和当前分支浏览器回归。生产发布仍需另外执行 `npm run check`；双跑需要两棵工作树，因此不隐式塞进普通 `check`。
+
+截至 2026-08-04，Slim 有 50 份相邻源码测试和 3 份浏览器 spec/helper。当前补测覆盖矩阵、真实结果与未自动化边界见 [1.8 LTS Slim 补测闭环](./v1.8-lts-slimming-test-closure.md)。
 
 ## 默认运行方式
 
@@ -94,6 +96,7 @@ npm run test:regression:dual
 4. 纯模型、公式、normalize、存储事务和错误分类放在临近实现的 `*.test.ts`；跨页面真实流程才进入 Playwright。
 5. E2E 必须使用隔离 browser context 和临时数据，不能读取开发者 Chrome、真实 OPFS 或用户缓存。
 6. 每次增加覆盖，都同步更新本文件的边界说明；测试通过不能被描述成覆盖了未执行的平台场景。
+7. 基线缺少某个可操作对象时，不得用条件跳过后仍把它标成 `PASS-DUAL`；应在候选 E2E 直接验证，并在双跑中只比较两侧真正共有的行为。
 
 本次 SQLite 转换缺陷就是第 3 条的样例：`timelineArchiveConversionFlow.test.ts` 固定“写入成功后激活并重载”以及转换/激活错误分界；真实 3040 流程验证洛茜 A 技能与新 SQLite 当前工作区在重载后立即可见。
 
@@ -105,5 +108,7 @@ npm run test:regression:dual
 - 双标签 Web Locks/BroadcastChannel 占用、接管和并发写入；
 - 生产 Service Worker 控制后的真实断网冷启动与失败更新回滚；
 - 操作系统级文件选择器、下载落盘及 Electron/桌面壳差异。
+- 同一真实 profile 的 LTS → Slim 原位升级与既定回滚流程；
+- 所有主题、页面与窗口尺寸的像素级视觉穷举。
 
 这些能力完成自动化后，应作为第四层“平台终验”加入本入口，而不是塞入允许差异白名单。
