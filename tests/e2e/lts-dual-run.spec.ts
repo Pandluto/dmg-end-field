@@ -11,6 +11,23 @@ import {
 } from './regressionEnvironment';
 import {
   SYNTHETIC_ALL_BUFF_LIST,
+  SYNTHETIC_ANOMALY_REPORT_GOLDEN,
+  SYNTHETIC_ANOMALY_BUFFS,
+  SYNTHETIC_ANOMALY_BUTTON_IDS,
+  SYNTHETIC_ANOMALY_DAMAGE_CARDS,
+  SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF,
+  SYNTHETIC_ANOMALY_MODIFIER_BUFFS,
+  SYNTHETIC_ANOMALY_STATE_SNAPSHOTS,
+  SYNTHETIC_ANOMALY_STATUS_CARDS,
+  SYNTHETIC_ANOMALY_TARGET_RESISTANCE,
+  SYNTHETIC_ANOMALY_TEMPLATE,
+  SYNTHETIC_BURN_DOT_CARD,
+  SYNTHETIC_BURN_SPLIT_CARD,
+  SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS,
+  SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID,
+  SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN,
+  SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE,
+  SYNTHETIC_BUFF_TYPE_MATRIX_TYPES,
   SYNTHETIC_CONFIG_SNAPSHOT,
   SYNTHETIC_DAMAGE_GOLDEN,
   SYNTHETIC_FULL_MULTIPLIER_TEMPLATE,
@@ -217,11 +234,11 @@ function expectSyntheticArchiveObservation(
     equipmentSets: 1,
     equipments: 4,
     buffGroups: 1,
-    buffItems: 2,
+    buffItems: 4,
     importedTimelineArchives: 1,
   });
   expect(observation.sqlite.characterCount, `${label}: SQLite character count`).toBe(1);
-  expect(observation.sqlite.buttonCount, `${label}: SQLite button count`).toBe(6);
+  expect(observation.sqlite.buttonCount, `${label}: SQLite button count`).toBe(10);
   expect(observation.sqlite.buffCount, `${label}: SQLite Buff count`).toBe(SYNTHETIC_ALL_BUFF_LIST.length);
 
   expect(observation.fixture.operatorName, `${label}: synthetic operator`).toBe('测试满乘区干员');
@@ -254,8 +271,30 @@ function expectSyntheticArchiveObservation(
     definitions.some((buff) => (buff.multiplierCoefficient ?? 0) > 1),
     `${label}: direct multiplier Buff`,
   ).toBe(true);
+  const typeMatrixDefinitions = definitions.filter((buff) => buff.id.startsWith('type-matrix-'));
+  expect(typeMatrixDefinitions, `${label}: all public Buff definitions after SQLite conversion`).toHaveLength(
+    SYNTHETIC_BUFF_TYPE_MATRIX_TYPES.length,
+  );
+  expect(typeMatrixDefinitions.map((buff) => buff.id), `${label}: Buff type matrix ids`).toEqual(
+    SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.map((buff) => buff.id),
+  );
+  SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.forEach((sourceBuff) => {
+    const restored = typeMatrixDefinitions.find((buff) => buff.id === sourceBuff.id);
+    expect(restored, `${label}: restored type definition ${sourceBuff.type}`).toBeDefined();
+    if (!restored) return;
+    if (sourceBuff.type === 'multiplierMultiplier') {
+      expect(restored, `${label}: legacy multiplier migration`).toMatchObject({
+        type: 'multiplierBonus',
+        value: null,
+        multiplierCoefficient: 1.03,
+      });
+    } else {
+      expect(restored.type, `${label}: restored type ${sourceBuff.type}`).toBe(sourceBuff.type);
+      expectClose(restored.value ?? 0, sourceBuff.value ?? 0, `${label}: restored value ${sourceBuff.type}`);
+    }
+  });
 
-  expect(observation.report.buttonCount, `${label}: damage report button count`).toBe(6);
+  expect(observation.report.buttonCount, `${label}: damage report button count`).toBe(10);
   const reportButtons = new Map(observation.report.buttons.map((button) => [button.id, button]));
   for (const skillType of ['A', 'B', 'E', 'Q', 'Dot'] as const) {
     const expectedTarget = SYNTHETIC_TARGET_SKILL_EXPECTATIONS[skillType];
@@ -317,9 +356,142 @@ function expectSyntheticArchiveObservation(
     });
   });
 
+  expect(observation.restored.snapshotCount, `${label}: restored anomaly snapshot count`).toBe(3);
+  expect(observation.restored.snapshots.map((snapshot) => snapshot.key), `${label}: restored anomaly snapshot keys`).toEqual([
+    'conductive',
+    'corrosion',
+    'armor-break',
+  ]);
+  SYNTHETIC_ANOMALY_STATE_SNAPSHOTS.forEach((expectedSnapshot) => {
+    const actualSnapshot = observation.restored.snapshots.find((snapshot) => snapshot.id === expectedSnapshot.id);
+    expect(actualSnapshot, `${label}: restored ${expectedSnapshot.key} snapshot`).toBeDefined();
+    if (!actualSnapshot) return;
+    expect(actualSnapshot.level, `${label}: ${expectedSnapshot.key} snapshot level`).toBe(expectedSnapshot.level);
+    expect(actualSnapshot.sourceSkillStrengthSnapshot, `${label}: ${expectedSnapshot.key} source skill snapshot`).toBe(60);
+    expectClose(actualSnapshot.effectValue, expectedSnapshot.effectValue, `${label}: ${expectedSnapshot.key} effect value`);
+    if (expectedSnapshot.currentCorrosion !== undefined) {
+      expectClose(actualSnapshot.initialCorrosion ?? 0, expectedSnapshot.initialCorrosion ?? 0, `${label}: corrosion initial`);
+      expectClose(actualSnapshot.tickCorrosionPerSecond ?? 0, expectedSnapshot.tickCorrosionPerSecond ?? 0, `${label}: corrosion tick`);
+      expectClose(actualSnapshot.maxCorrosion ?? 0, expectedSnapshot.maxCorrosion ?? 0, `${label}: corrosion cap`);
+      expectClose(actualSnapshot.currentCorrosion ?? 0, expectedSnapshot.currentCorrosion, `${label}: corrosion current`);
+    }
+  });
+
+  expect(observation.restored.anomalyButtons, `${label}: restored anomaly button count`).toHaveLength(3);
+  const restoredButtonById = new Map(observation.restored.anomalyButtons.map((button) => [button.id, button]));
+  const restoredMatrix = restoredButtonById.get(SYNTHETIC_ANOMALY_BUTTON_IDS.matrix);
+  expect(restoredMatrix, `${label}: restored anomaly matrix button`).toBeDefined();
+  if (restoredMatrix) {
+    expect(restoredMatrix.runtimeSkillId, `${label}: anomaly trusted skill`).toBe(SYNTHETIC_ANOMALY_TEMPLATE.runtimeSkillId);
+    expect(restoredMatrix.selectedBuffIds, `${label}: anomaly selected Buffs`).toEqual(SYNTHETIC_ANOMALY_BUFFS.map((buff) => buff.id));
+    expect(restoredMatrix.buffStackCounts[SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF.id], `${label}: anomaly extra-hit stacks`).toBe(2);
+    expect(restoredMatrix.disabledHitKeys, `${label}: disabled carrier hit`).toEqual(['anomaly-carrier-hit']);
+    expect(restoredMatrix.statusCards, `${label}: restored status cards`).toEqual(
+      SYNTHETIC_ANOMALY_STATUS_CARDS.map((card) => ({ id: card.id, key: card.key, level: card.level })),
+    );
+    expect(restoredMatrix.damageCards.map(({ id, key, level }) => ({ id, key, level })), `${label}: restored damage cards`).toEqual(
+      SYNTHETIC_ANOMALY_DAMAGE_CARDS.map((card) => ({ id: card.id, key: card.key, level: card.level })),
+    );
+    expect(restoredMatrix.stateSnapshotIds, `${label}: restored state snapshot references`).toEqual(
+      SYNTHETIC_ANOMALY_STATE_SNAPSHOTS.map((snapshot) => snapshot.id),
+    );
+    expect(restoredMatrix.targetResistance, `${label}: restored five-element resistance`).toEqual(SYNTHETIC_ANOMALY_TARGET_RESISTANCE);
+  }
+
+  const restoredBurnDot = restoredButtonById.get(SYNTHETIC_ANOMALY_BUTTON_IDS.burnDot);
+  expect(restoredBurnDot?.damageCards, `${label}: restored burn dot card`).toEqual([{
+    id: SYNTHETIC_BURN_DOT_CARD.id,
+    key: 'burn',
+    level: 2,
+    burnDamageMode: 'dotOnly',
+    durationSeconds: 4,
+  }]);
+  const restoredBurnSplit = restoredButtonById.get(SYNTHETIC_ANOMALY_BUTTON_IDS.burnSplit);
+  expect(restoredBurnSplit?.damageCards, `${label}: restored split burn card`).toEqual([{
+    id: SYNTHETIC_BURN_SPLIT_CARD.id,
+    key: 'burn',
+    level: 2,
+    burnDamageMode: 'splitDot',
+    durationSeconds: 3,
+  }]);
+
+  Object.entries(SYNTHETIC_ANOMALY_REPORT_GOLDEN).forEach(([buttonId, goldenButton]) => {
+    const actualButton = reportButtons.get(buttonId);
+    expect(actualButton, `${label}: anomaly report button ${buttonId}`).toBeDefined();
+    if (!actualButton) return;
+    expectClose(actualButton.expected, goldenButton.expected, `${label}: ${buttonId} expected`);
+    expectClose(actualButton.nonCrit, goldenButton.nonCrit, `${label}: ${buttonId} non-crit`);
+    expect(actualButton.hits, `${label}: ${buttonId} hit count`).toHaveLength(goldenButton.hits.length);
+    goldenButton.hits.forEach((goldenHit, index) => {
+      const actualHit = actualButton.hits[index];
+      expect(actualHit.id, `${label}: ${buttonId}[${index}] id`).toBe(goldenHit.id);
+      expect(actualHit.sourceKind, `${label}: ${buttonId}[${index}] source kind`).toBe(goldenHit.sourceKind);
+      expect(actualHit.elementLabel, `${label}: ${buttonId}[${index}] element`).toBe(goldenHit.elementLabel);
+      expectClose(actualHit.expected, goldenHit.expected, `${label}: ${buttonId}[${index}] expected`);
+      expectClose(actualHit.nonCrit, goldenHit.nonCrit, `${label}: ${buttonId}[${index}] non-crit`);
+      expectClose(actualHit.resistance.baseResistance, goldenHit.baseResistance, `${label}: ${buttonId}[${index}] base resistance`);
+      expectClose(actualHit.resistance.corrosion, goldenHit.corrosion, `${label}: ${buttonId}[${index}] corrosion`);
+      expectClose(actualHit.resistance.resistanceIgnore, goldenHit.resistanceIgnore, `${label}: ${buttonId}[${index}] resistance ignore`);
+      expectClose(actualHit.resistance.resistanceZone, goldenHit.resistanceZone, `${label}: ${buttonId}[${index}] resistance zone`);
+    });
+  });
+
+  const anomalyMatrixReport = reportButtons.get(SYNTHETIC_ANOMALY_BUTTON_IDS.matrix);
+  const matrixRuntimeHits = anomalyMatrixReport?.hits.filter((hit) => hit.sourceKind !== 'normal') ?? [];
+  expect(matrixRuntimeHits.filter((hit) => hit.sourceKind === 'anomaly'), `${label}: ten anomaly damage rows`).toHaveLength(10);
+  expect(matrixRuntimeHits.filter((hit) => hit.sourceKind === 'extraHit'), `${label}: countable extra-hit rows`).toHaveLength(2);
+  matrixRuntimeHits.forEach((hit) => {
+    const appliedIds = new Set(hit.buffs.map((buff) => buff.id));
+    expect(appliedIds.has('anomaly-source-skill'), `${label}: ${hit.id} source-skill Buff`).toBe(true);
+    expect(appliedIds.has('anomaly-state-snapshot-2'), `${label}: ${hit.id} corrosion snapshot Buff`).toBe(true);
+  });
+
+  const typeMatrixObservation = reportButtons.get(SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID);
+  expect(typeMatrixObservation, `${label}: Buff type matrix report button`).toBeDefined();
+  if (typeMatrixObservation) {
+    expect(typeMatrixObservation.skillName, `${label}: Buff type matrix skill`).toBe(SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.displayName);
+    expectClose(typeMatrixObservation.expected, SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN.expected, `${label}: Buff type matrix expected`);
+    expectClose(typeMatrixObservation.nonCrit, SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN.nonCrit, `${label}: Buff type matrix non-crit`);
+    expect(typeMatrixObservation.hits, `${label}: Buff type matrix hit count`).toHaveLength(5);
+    typeMatrixObservation.hits.forEach((hit, index) => {
+      const golden = SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN.hits[index];
+      expect(hit.id, `${label}: type matrix[${index}] id`).toBe(golden.id);
+      expect(hit.elementLabel, `${label}: type matrix[${index}] element`).toBe(golden.elementLabel);
+      expect(hit.skillTypeLabel, `${label}: type matrix[${index}] skill type`).toBe(golden.skillTypeLabel);
+      expectClose(hit.expected, golden.expected, `${label}: type matrix[${index}] expected`);
+      expectClose(hit.nonCrit, golden.nonCrit, `${label}: type matrix[${index}] non-crit`);
+      expectClose(hit.resistance.baseResistance, golden.resistance.baseResistance, `${label}: type matrix[${index}] base resistance`);
+      expectClose(hit.resistance.corrosion, golden.resistance.corrosion, `${label}: type matrix[${index}] corrosion`);
+      expectClose(hit.resistance.resistanceIgnore, golden.resistance.resistanceIgnore, `${label}: type matrix[${index}] resistance ignore`);
+      expectClose(hit.resistance.resistanceZone, golden.resistance.resistanceZone, `${label}: type matrix[${index}] resistance zone`);
+      const zoneByKey = new Map(hit.zones.map((zone) => [zone.key, zone]));
+      Object.entries(golden.zones).forEach(([zoneKey, goldenZone]) => {
+        const actualZone = zoneByKey.get(zoneKey);
+        expect(actualZone, `${label}: type matrix[${index}] ${zoneKey} zone`).toBeDefined();
+        if (!actualZone) return;
+        expectClose(actualZone.additiveTotal, goldenZone.additiveTotal, `${label}: type matrix[${index}] ${zoneKey} additive`);
+        expectClose(actualZone.multiplierProduct, goldenZone.multiplierProduct, `${label}: type matrix[${index}] ${zoneKey} product`);
+        expectClose(actualZone.finalValue, goldenZone.finalValue, `${label}: type matrix[${index}] ${zoneKey} final`);
+      });
+      expect(hit.buffs.map((buff) => buff.id), `${label}: type matrix[${index}] all 75 Buff ids`).toEqual(
+        SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.map((buff) => buff.id),
+      );
+      expect(
+        hit.buffs.find((buff) => buff.id === 'type-matrix-multiplierMultiplier'),
+        `${label}: type matrix[${index}] migrated legacy multiplier contribution`,
+      ).toMatchObject({
+        type: 'multiplierBonus',
+        multiplierCoefficient: 1.03,
+        multiplier: true,
+      });
+    });
+  }
+
   const expectedTotal = Object.values(SYNTHETIC_DAMAGE_GOLDEN.targetCaseFinals)
     .flatMap((golden) => [...golden.expected])
     .concat([...SYNTHETIC_DAMAGE_GOLDEN.full.expected])
+    .concat(Object.values(SYNTHETIC_ANOMALY_REPORT_GOLDEN).map((golden) => golden.expected))
+    .concat(SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN.expected)
     .reduce((sum, value) => sum + value, 0);
   expectClose(observation.report.totalExpected, expectedTotal, `${label}: report total expected`);
 }

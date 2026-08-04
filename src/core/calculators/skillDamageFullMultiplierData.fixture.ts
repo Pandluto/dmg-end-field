@@ -2,7 +2,9 @@ import { buildConfigSnapshot, type EquipmentPieceInput, type OperatorPanelInput 
 import type { ResolvedSkillDamageTemplate, SkillDamageCalcInputV2, SkillDamagePanelBase } from './skillDamage.types';
 import type { ElementType, HitSkillType, SkillType, TimelineData } from '../../types';
 import type {
+  AnomalyStateSnapshot,
   DamageBonusSnapshot,
+  PersistedAnomalyCard,
   PersistedSkillButton,
   SkillButtonBuff,
   SkillButtonTable,
@@ -10,6 +12,7 @@ import type {
 import type { LocalDataArchive } from '../../platform/data/localDataPackages';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import type { LegacyTimelineArchive } from '../../platform/timeline/browserTimelineStore';
+import { BUFF_TYPE_LABELS } from '../domain/buffTypeMetadata';
 
 function createBuff(
   id: string,
@@ -502,6 +505,228 @@ export const SYNTHETIC_TARGET_CASES: SkillDamageCalcInputV2[] = targetCaseDefini
   targetResistance: resistance,
 }));
 
+export const SYNTHETIC_ANOMALY_TEMPLATE: ResolvedSkillDamageTemplate = {
+  characterId: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id,
+  characterName: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.name,
+  runtimeSkillId: 'skill-B-3',
+  displayName: '异常与状态矩阵承载技能',
+  buttonType: 'B',
+  hits: [createHit('anomaly-carrier-hit', '异常承载段（禁用）', 1, 'fire', 'B')],
+};
+
+export const SYNTHETIC_ANOMALY_MODIFIER_BUFFS: SkillButtonBuff[] = [
+  createBuff('anomaly-source-skill', 'sourceSkillBoost', 18),
+  createBuff('anomaly-multiplier-additive', 'multiplierBonus', 0.25),
+  createMultiplierBuff('anomaly-multiplier-product', 'multiplierBonus', 1.12),
+  createBuff('anomaly-all-damage', 'allDmgBonus', 0.04),
+  createBuff('anomaly-magic-amplify', 'magicAmplify', 0.05),
+  createBuff('anomaly-physical-amplify', 'physicalAmplify', 0.06),
+  createBuff('anomaly-magic-vulnerability', 'magicVulnerability', 0.07),
+  createBuff('anomaly-physical-vulnerability', 'physicalVulnerability', 0.08),
+  createBuff('anomaly-all-corrosion', 'allCorrosion', 2),
+  createBuff('anomaly-magic-corrosion', 'magicCorrosion', 3),
+  createBuff('anomaly-physical-corrosion', 'physicalCorrosion', 4),
+  createBuff('anomaly-all-resistance-ignore', 'allResistanceIgnore', 1),
+  createBuff('anomaly-magic-resistance-ignore', 'magicResistanceIgnore', 2),
+  createBuff('anomaly-physical-resistance-ignore', 'physicalResistanceIgnore', 3),
+];
+
+export const SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF: SkillButtonBuff = createBuff(
+  'anomaly-countable-extra-hit',
+  'physicalDmgBonus',
+  undefined,
+  {
+    category: 'countable',
+    maxStacks: 3,
+    effectKind: 'extraHit',
+    extraHitConfig: {
+      key: 'synthetic-physical-extra-hit',
+      damageType: 'physical',
+      skillType: 'B',
+      baseMultiplier: 1.3,
+      imbalanceValue: 20,
+      cooldownSeconds: 8,
+      trigger: 'physicalAbnormal',
+    },
+  },
+);
+
+export const SYNTHETIC_ANOMALY_BUFFS = [
+  ...SYNTHETIC_ANOMALY_MODIFIER_BUFFS,
+  SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF,
+];
+
+function createAnomalyCard(
+  id: string,
+  key: string,
+  label: string,
+  category: 'magic' | 'physical',
+  level: number,
+  options: Partial<PersistedAnomalyCard> = {},
+): PersistedAnomalyCard {
+  return {
+    id,
+    key,
+    label,
+    kind: 'damage',
+    category,
+    level,
+    primaryText: `${label} Lv${level}`,
+    secondaryText: '测试专用异常矩阵',
+    selectedBuffIds: [],
+    ...options,
+  };
+}
+
+export const SYNTHETIC_ANOMALY_DAMAGE_CARDS: PersistedAnomalyCard[] = [
+  createAnomalyCard('matrix-conductive', 'conductive', '导电', 'magic', 1),
+  createAnomalyCard('matrix-corrosion', 'corrosion', '腐蚀', 'magic', 2, { durationSeconds: 5 }),
+  createAnomalyCard('matrix-burn-initial', 'burn', '燃烧', 'magic', 3, { burnDamageMode: 'initialOnly', durationSeconds: 4 }),
+  createAnomalyCard('matrix-freeze', 'freeze', '冻结', 'magic', 4, { durationSeconds: 6 }),
+  createAnomalyCard('matrix-shatter-ice', 'shatter-ice', '碎冰', 'magic', 2),
+  createAnomalyCard('matrix-magic-burst', 'magic-burst', '法术爆发', 'magic', 1),
+  createAnomalyCard('matrix-knockdown', 'knockdown', '倒地', 'physical', 1),
+  createAnomalyCard('matrix-launch', 'launch', '击飞', 'physical', 1),
+  createAnomalyCard('matrix-armor-break', 'armor-break', '碎甲', 'physical', 3, { durationSeconds: 10 }),
+  createAnomalyCard('matrix-smash', 'smash', '猛击', 'physical', 4),
+];
+
+export const SYNTHETIC_ANOMALY_STATUS_CARDS: PersistedAnomalyCard[] = [
+  createAnomalyCard('matrix-combo-state', 'combo-state', '连击', 'physical', 4, { kind: 'state' }),
+  createAnomalyCard('matrix-imbalance-state', 'imbalance-state', '失衡', 'physical', 1, { kind: 'state' }),
+];
+
+export const SYNTHETIC_ANOMALY_STATE_SNAPSHOTS: AnomalyStateSnapshot[] = [
+  {
+    id: 1,
+    key: 'conductive',
+    label: '导电',
+    level: 3,
+    sourceButtonId: 'synthetic-anomaly-matrix-button',
+    sourceCharacterId: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id,
+    sourceCharacterName: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.name,
+    sourceSkillStrengthSnapshot: 60,
+    effectValue: 0.26666666666666666,
+    primaryText: '导电 Lv3 · 来源 测试满乘区干员',
+    secondaryText: '快照效果: 26.7% 法术易伤',
+    tertiaryText: '快照生效',
+    createdAt: 1700000000001,
+  },
+  {
+    id: 2,
+    key: 'corrosion',
+    label: '腐蚀',
+    level: 2,
+    sourceButtonId: 'synthetic-anomaly-matrix-button',
+    sourceCharacterId: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id,
+    sourceCharacterName: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.name,
+    sourceSkillStrengthSnapshot: 60,
+    effectValue: 13.866666666666667,
+    initialCorrosion: 6.4,
+    tickCorrosionPerSecond: 1.4933333333333334,
+    maxCorrosion: 21.333333333333332,
+    currentCorrosion: 13.866666666666667,
+    durationSeconds: 5,
+    primaryText: '腐蚀 Lv2 · 来源 测试满乘区干员',
+    secondaryText: '快照效果: 5s = 13.87 点全属性降抗',
+    tertiaryText: '当前 5s',
+    createdAt: 1700000000002,
+  },
+  {
+    id: 3,
+    key: 'armor-break',
+    label: '碎甲',
+    level: 4,
+    sourceButtonId: 'synthetic-anomaly-matrix-button',
+    sourceCharacterId: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id,
+    sourceCharacterName: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.name,
+    sourceSkillStrengthSnapshot: 60,
+    effectValue: 0.32,
+    durationSeconds: 10,
+    primaryText: '碎甲 Lv4 · 来源 测试满乘区干员',
+    secondaryText: '快照效果: 32.0% 物伤易伤',
+    tertiaryText: '持续 10s',
+    createdAt: 1700000000003,
+  },
+];
+
+export const SYNTHETIC_BURN_DOT_CARD = createAnomalyCard(
+  'matrix-burn-dot',
+  'burn',
+  '燃烧总持续',
+  'magic',
+  2,
+  { burnDamageMode: 'dotOnly', durationSeconds: 4 },
+);
+
+export const SYNTHETIC_BURN_SPLIT_CARD = createAnomalyCard(
+  'matrix-burn-split',
+  'burn',
+  '燃烧逐跳',
+  'magic',
+  2,
+  { burnDamageMode: 'splitDot', durationSeconds: 3 },
+);
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_TYPES = Object.keys(BUFF_TYPE_LABELS);
+
+const BUFF_TYPE_MATRIX_FLAT_TYPES = new Set([
+  'atk',
+  'flatAtk',
+  'mainStat',
+  'subStat',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'sourceSkillBoost',
+]);
+
+function resolveBuffTypeMatrixValue(type: string): number {
+  if (type === 'multiplierMultiplier') return 1.03;
+  if (BUFF_TYPE_MATRIX_FLAT_TYPES.has(type)) return 2;
+  if (type.endsWith('Corrosion') || type.endsWith('ResistanceIgnore')) return 1;
+  return 0.01;
+}
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS: SkillButtonBuff[] = SYNTHETIC_BUFF_TYPE_MATRIX_TYPES.map((type) => (
+  createBuff(
+    `type-matrix-${type}`,
+    type,
+    resolveBuffTypeMatrixValue(type),
+    type === 'comboDamageBonus'
+      ? { category: 'countable', maxStacks: 3 }
+      : { category: 'condition' },
+  )
+));
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_STACK_COUNTS = {
+  'type-matrix-comboDamageBonus': 2,
+};
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE: ResolvedSkillDamageTemplate = {
+  characterId: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id,
+  characterName: SYNTHETIC_OPERATOR_PANEL_INPUT.operator.name,
+  runtimeSkillId: 'skill-B-4',
+  displayName: '75 类 Buff 五系矩阵技能',
+  buttonType: 'B',
+  hits: [
+    createHit('type-matrix-physical-a', '物理普攻矩阵段', 1, 'physical', 'A'),
+    createHit('type-matrix-fire-b', '灼热战技矩阵段', 1.1, 'fire', 'B'),
+    createHit('type-matrix-electric-e', '电磁连携矩阵段', 1.2, 'electric', 'E'),
+    createHit('type-matrix-ice-q', '寒冷终结矩阵段', 1.3, 'ice', 'Q'),
+    createHit('type-matrix-nature-dot', '自然持续矩阵段', 1.4, 'nature', 'Dot'),
+  ],
+};
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_TARGET_RESISTANCE = {
+  physicalResistance: 21,
+  fireResistance: 22,
+  electricResistance: 23,
+  iceResistance: 24,
+  natureResistance: 25,
+};
+
 function buildRefCountedBuffList(
   groups: SkillButtonBuff[][],
   selectedBuffGroups: string[][],
@@ -516,13 +741,17 @@ function buildRefCountedBuffList(
   }));
 }
 
-// The SQLite payload intentionally carries two independent Buff groups:
-// comprehensive multiplier coverage and per-skill target coverage.
+// The SQLite payload carries four independent Buff groups: comprehensive
+// ordinary damage, per-skill targeting, anomaly/state, and all 75 public types.
 export const SYNTHETIC_ALL_BUFF_LIST = buildRefCountedBuffList(
-  [FULL_ZONE_BUFFS, SYNTHETIC_TARGET_BUFFS],
+  [FULL_ZONE_BUFFS, SYNTHETIC_TARGET_BUFFS, SYNTHETIC_ANOMALY_BUFFS, SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS],
   [
     FULL_ZONE_BUFFS.map((buff) => buff.id),
     ...SYNTHETIC_TARGET_CASES.map((input) => input.buffs.map((buff) => buff.id)),
+    SYNTHETIC_ANOMALY_BUFFS.map((buff) => buff.id),
+    SYNTHETIC_ANOMALY_MODIFIER_BUFFS.map((buff) => buff.id),
+    SYNTHETIC_ANOMALY_MODIFIER_BUFFS.map((buff) => buff.id),
+    SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.map((buff) => buff.id),
   ],
 );
 
@@ -560,10 +789,132 @@ function buildTimelineButton(
   };
 }
 
-const timelineButtons = [
+const ordinaryTimelineButtons = [
   ...Object.values(SYNTHETIC_SKILL_TEMPLATES),
   SYNTHETIC_FULL_MULTIPLIER_TEMPLATE,
 ].map(buildTimelineButton);
+
+export const SYNTHETIC_ANOMALY_BUTTON_IDS = {
+  matrix: 'synthetic-anomaly-matrix-button',
+  burnDot: 'synthetic-anomaly-burn-dot-button',
+  burnSplit: 'synthetic-anomaly-burn-split-button',
+} as const;
+
+export const SYNTHETIC_ANOMALY_TARGET_RESISTANCE = {
+  physicalResistance: 31,
+  fireResistance: 33,
+  electricResistance: 35,
+  iceResistance: 37,
+  natureResistance: 39,
+};
+
+function buildAnomalyTimelineButton(
+  id: string,
+  index: number,
+  selectedDamages: PersistedAnomalyCard[],
+  selectedBuffs: SkillButtonBuff[],
+  options: {
+    selectedStatuses?: PersistedAnomalyCard[];
+    selectedStateSnapshotIds?: number[];
+    extraHitStacks?: number;
+  } = {},
+): PersistedSkillButton {
+  const selectedBuff = selectedBuffs.map((buff) => buff.id);
+  return {
+    id,
+    characterId: SYNTHETIC_ANOMALY_TEMPLATE.characterId,
+    characterName: SYNTHETIC_ANOMALY_TEMPLATE.characterName,
+    skillType: SYNTHETIC_ANOMALY_TEMPLATE.buttonType,
+    staffIndex: 0,
+    lineIndex: 0,
+    nodeIndex: index,
+    nodeNumber: index + 1,
+    position: { x: index * 44, y: 24 },
+    runtimeSkillId: SYNTHETIC_ANOMALY_TEMPLATE.runtimeSkillId,
+    skillDisplayName: SYNTHETIC_ANOMALY_TEMPLATE.displayName,
+    customHits: SYNTHETIC_ANOMALY_TEMPLATE.hits,
+    selectedBuff,
+    buffStackCounts: options.extraHitStacks === undefined
+      ? {}
+      : { [SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF.id]: options.extraHitStacks },
+    anomalyConfig: {
+      selectedStatuses: options.selectedStatuses ?? [],
+      selectedDamages,
+      selectedStateSnapshotIds: options.selectedStateSnapshotIds ?? [],
+    },
+    resistanceConfig: { targetResistance: SYNTHETIC_ANOMALY_TARGET_RESISTANCE },
+    panelConfig: {
+      selectedBuff,
+      manualDisabledHitKeys: ['anomaly-carrier-hit'],
+    },
+    runtimeSnapshot: {
+      atk: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.atk,
+      critRate: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.critRate,
+      critDmg: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.critDmg,
+      characterComputed: null,
+    },
+  };
+}
+
+const anomalyTimelineButtons = [
+  buildAnomalyTimelineButton(
+    SYNTHETIC_ANOMALY_BUTTON_IDS.matrix,
+    ordinaryTimelineButtons.length,
+    SYNTHETIC_ANOMALY_DAMAGE_CARDS,
+    SYNTHETIC_ANOMALY_BUFFS,
+    {
+      selectedStatuses: SYNTHETIC_ANOMALY_STATUS_CARDS,
+      selectedStateSnapshotIds: SYNTHETIC_ANOMALY_STATE_SNAPSHOTS.map((snapshot) => snapshot.id),
+      extraHitStacks: 2,
+    },
+  ),
+  buildAnomalyTimelineButton(
+    SYNTHETIC_ANOMALY_BUTTON_IDS.burnDot,
+    ordinaryTimelineButtons.length + 1,
+    [SYNTHETIC_BURN_DOT_CARD],
+    SYNTHETIC_ANOMALY_MODIFIER_BUFFS,
+  ),
+  buildAnomalyTimelineButton(
+    SYNTHETIC_ANOMALY_BUTTON_IDS.burnSplit,
+    ordinaryTimelineButtons.length + 2,
+    [SYNTHETIC_BURN_SPLIT_CARD],
+    SYNTHETIC_ANOMALY_MODIFIER_BUFFS,
+  ),
+];
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID = 'synthetic-buff-type-matrix-button';
+
+const buffTypeMatrixSelectedBuff = SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.map((buff) => buff.id);
+const buffTypeMatrixTimelineButton: PersistedSkillButton = {
+  id: SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID,
+  characterId: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.characterId,
+  characterName: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.characterName,
+  skillType: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.buttonType,
+  staffIndex: 0,
+  lineIndex: 0,
+  nodeIndex: ordinaryTimelineButtons.length + anomalyTimelineButtons.length,
+  nodeNumber: ordinaryTimelineButtons.length + anomalyTimelineButtons.length + 1,
+  position: { x: (ordinaryTimelineButtons.length + anomalyTimelineButtons.length) * 44, y: 24 },
+  runtimeSkillId: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.runtimeSkillId,
+  skillDisplayName: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.displayName,
+  customHits: SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.hits,
+  selectedBuff: buffTypeMatrixSelectedBuff,
+  buffStackCounts: SYNTHETIC_BUFF_TYPE_MATRIX_STACK_COUNTS,
+  resistanceConfig: { targetResistance: SYNTHETIC_BUFF_TYPE_MATRIX_TARGET_RESISTANCE },
+  panelConfig: { selectedBuff: buffTypeMatrixSelectedBuff },
+  runtimeSnapshot: {
+    atk: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.atk,
+    critRate: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.critRate,
+    critDmg: SYNTHETIC_CONFIG_SNAPSHOT.panel.display.critDmg,
+    characterComputed: null,
+  },
+};
+
+const timelineButtons = [
+  ...ordinaryTimelineButtons,
+  ...anomalyTimelineButtons,
+  buffTypeMatrixTimelineButton,
+];
 
 const timelineTable: SkillButtonTable = Object.fromEntries(timelineButtons.map((button) => [button.id, button]));
 const timelineData: TimelineData = {
@@ -615,7 +966,7 @@ export const SYNTHETIC_TIMELINE_PAYLOAD: TimelineSnapshotPayload = {
   timelineData,
   skillButtonTable: timelineTable,
   allBuffList: SYNTHETIC_ALL_BUFF_LIST,
-  anomalyStateSnapshots: [],
+  anomalyStateSnapshots: SYNTHETIC_ANOMALY_STATE_SNAPSHOTS,
   characterInputMap: { [SYNTHETIC_OPERATOR_PANEL_INPUT.operator.id]: SYNTHETIC_CHARACTER_INPUT },
   characterComputedMap: {},
   characterDisplayCacheMap: {},
@@ -645,6 +996,8 @@ const operatorDraftForArchive = {
   skills: Object.fromEntries([
     ...Object.values(SYNTHETIC_SKILL_TEMPLATES),
     SYNTHETIC_FULL_MULTIPLIER_TEMPLATE,
+    SYNTHETIC_ANOMALY_TEMPLATE,
+    SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE,
   ].map((template) => [
     // The key is the trusted runtime ID, including the second B skill used by
     // the comprehensive two-hit button.
@@ -735,6 +1088,20 @@ const buffDraftForArchive = {
       sourceName: '纯测试 fixture',
       description: '分别挂在 A/B/E/Q/Dot 按钮上的目标匹配与不匹配 Buff。',
       effects: buildArchiveBuffEffects(SYNTHETIC_ALL_BUFF_LIST.filter((buff) => SYNTHETIC_TARGET_BUFFS.some((targetBuff) => targetBuff.id === buff.id))),
+    },
+    'synthetic-anomaly-item': {
+      id: 'synthetic-anomaly-item',
+      name: '异常与状态矩阵 Buff',
+      sourceName: '纯测试 fixture',
+      description: '用于异常倍率、源石技艺顺序、状态快照、抗性与叠层额外 Hit 双跑。',
+      effects: buildArchiveBuffEffects(SYNTHETIC_ALL_BUFF_LIST.filter((buff) => SYNTHETIC_ANOMALY_BUFFS.some((anomalyBuff) => anomalyBuff.id === buff.id))),
+    },
+    'synthetic-buff-type-matrix-item': {
+      id: 'synthetic-buff-type-matrix-item',
+      name: '75 类 Buff 完整目录',
+      sourceName: '纯测试 fixture',
+      description: '每个公开 Buff type 恰好一条，用于 SQLite 迁移、恢复与五系伤害双跑。',
+      effects: buildArchiveBuffEffects(SYNTHETIC_ALL_BUFF_LIST.filter((buff) => SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.some((matrixBuff) => matrixBuff.id === buff.id))),
     },
   },
 };
@@ -928,4 +1295,126 @@ export const SYNTHETIC_DAMAGE_GOLDEN = {
     crit: [73658.52905627244, 37459.4843276259],
     nonCrit: [37968.31394653218, 19309.01254001336],
   },
+} as const;
+
+export const SYNTHETIC_ANOMALY_REPORT_GOLDEN = {
+  [SYNTHETIC_ANOMALY_BUTTON_IDS.matrix]: {
+    expected: 484218.334778702,
+    nonCrit: 423267.775156208,
+    hits: [
+      { id: 'normal-synthetic-anomaly-matrix-button-anomaly-carrier-hit-0', sourceKind: 'normal', elementLabel: '火', expected: 0, nonCrit: 0, baseResistance: 33, corrosion: 0, resistanceIgnore: 0, resistanceZone: 0.67 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-conductive', sourceKind: 'anomaly', elementLabel: '雷', expected: 23999.068182226, nonCrit: 20978.206452994, baseResistance: 35, corrosion: 18.866666667, resistanceIgnore: 3, resistanceZone: 0.868666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-corrosion', sourceKind: 'anomaly', elementLabel: '自然', expected: 33467.001899547, nonCrit: 29254.372289813, baseResistance: 39, corrosion: 18.866666667, resistanceIgnore: 3, resistanceZone: 0.828666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-burn-initial', sourceKind: 'anomaly', elementLabel: '火', expected: 50006.937311384, nonCrit: 43712.357789671, baseResistance: 33, corrosion: 18.866666667, resistanceIgnore: 3, resistanceZone: 0.888666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-freeze', sourceKind: 'anomaly', elementLabel: '冰', expected: 55931.162429577, nonCrit: 48890.87624963, baseResistance: 37, corrosion: 18.866666667, resistanceIgnore: 3, resistanceZone: 0.848666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-shatter-ice', sourceKind: 'anomaly', elementLabel: '物理', expected: 64117.098920036, nonCrit: 56046.415139892, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-magic-burst', sourceKind: 'anomaly', elementLabel: '法术', expected: 46923.844078602, nonCrit: 41017.346222554, baseResistance: 0, corrosion: 15.866666667, resistanceIgnore: 1, resistanceZone: 1.168666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-knockdown', sourceKind: 'anomaly', elementLabel: '物理', expected: 19668.202936, nonCrit: 17192.485083916, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-launch', sourceKind: 'anomaly', elementLabel: '物理', expected: 19668.202936, nonCrit: 17192.485083916, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-armor-break', sourceKind: 'anomaly', elementLabel: '物理', expected: 31265.663727061, nonCrit: 27330.125635543, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'anomaly-synthetic-anomaly-matrix-button-matrix-smash', sourceKind: 'anomaly', elementLabel: '物理', expected: 110998.206665607, nonCrit: 97026.404427978, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'extra-hit-synthetic-anomaly-matrix-button-anomaly-countable-extra-hit-1', sourceKind: 'extraHit', elementLabel: '物理', expected: 14086.472846331, nonCrit: 12313.35039015, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+      { id: 'extra-hit-synthetic-anomaly-matrix-button-anomaly-countable-extra-hit-2', sourceKind: 'extraHit', elementLabel: '物理', expected: 14086.472846331, nonCrit: 12313.35039015, baseResistance: 31, corrosion: 19.866666667, resistanceIgnore: 4, resistanceZone: 0.928666667 },
+    ],
+  },
+  [SYNTHETIC_ANOMALY_BUTTON_IDS.burnDot]: {
+    expected: 6910.245156632,
+    nonCrit: 6040.424087965,
+    hits: [
+      { id: 'normal-synthetic-anomaly-burn-dot-button-anomaly-carrier-hit-0', sourceKind: 'normal', elementLabel: '火', expected: 0, nonCrit: 0, baseResistance: 33, corrosion: 0, resistanceIgnore: 0, resistanceZone: 0.67 },
+      { id: 'anomaly-synthetic-anomaly-burn-dot-button-matrix-burn-dot-dot', sourceKind: 'anomaly', elementLabel: '火', expected: 6910.245156632, nonCrit: 6040.424087965, baseResistance: 33, corrosion: 5, resistanceIgnore: 3, resistanceZone: 0.75 },
+    ],
+  },
+  [SYNTHETIC_ANOMALY_BUTTON_IDS.burnSplit]: {
+    expected: 6490.543732403,
+    nonCrit: 5673.552213639,
+    hits: [
+      { id: 'normal-synthetic-anomaly-burn-split-button-anomaly-carrier-hit-0', sourceKind: 'normal', elementLabel: '火', expected: 0, nonCrit: 0, baseResistance: 33, corrosion: 0, resistanceIgnore: 0, resistanceZone: 0.67 },
+      { id: 'anomaly-synthetic-anomaly-burn-split-button-matrix-burn-split-dot-1', sourceKind: 'anomaly', elementLabel: '火', expected: 2163.514577468, nonCrit: 1891.184071213, baseResistance: 33, corrosion: 5, resistanceIgnore: 3, resistanceZone: 0.75 },
+      { id: 'anomaly-synthetic-anomaly-burn-split-button-matrix-burn-split-dot-2', sourceKind: 'anomaly', elementLabel: '火', expected: 2163.514577468, nonCrit: 1891.184071213, baseResistance: 33, corrosion: 5, resistanceIgnore: 3, resistanceZone: 0.75 },
+      { id: 'anomaly-synthetic-anomaly-burn-split-button-matrix-burn-split-dot-3', sourceKind: 'anomaly', elementLabel: '火', expected: 2163.514577468, nonCrit: 1891.184071213, baseResistance: 33, corrosion: 5, resistanceIgnore: 3, resistanceZone: 0.75 },
+    ],
+  },
+} as const;
+
+export const SYNTHETIC_BUFF_TYPE_MATRIX_REPORT_GOLDEN = {
+  expected: 16773.298120644,
+  nonCrit: 14543.742409299,
+  hits: [
+    {
+      id: 'normal-synthetic-buff-type-matrix-button-type-matrix-physical-a-0',
+      elementLabel: '物理',
+      skillTypeLabel: 'A',
+      expected: 2757.583952463,
+      nonCrit: 2391.03785005,
+      resistance: { baseResistance: 21, corrosion: 2, resistanceIgnore: 2, resistanceZone: 0.83 },
+      zones: {
+        skillMultiplier: { additiveTotal: 0.01, multiplierProduct: 1.03, finalValue: 1.0403 },
+        damageBonus: { additiveTotal: 0.03, multiplierProduct: 1, finalValue: 1.18 },
+        amplify: { additiveTotal: 0.01, multiplierProduct: 1, finalValue: 1.01 },
+        fragile: { additiveTotal: 0.01, multiplierProduct: 1, finalValue: 1.01 },
+        vulnerability: { additiveTotal: 0.01, multiplierProduct: 1, finalValue: 1.01 },
+      },
+    },
+    {
+      id: 'normal-synthetic-buff-type-matrix-button-type-matrix-fire-b-1',
+      elementLabel: '火',
+      skillTypeLabel: 'B',
+      expected: 3493.668663356,
+      nonCrit: 3029.280034125,
+      resistance: { baseResistance: 22, corrosion: 3, resistanceIgnore: 3, resistanceZone: 0.84 },
+      zones: {
+        skillMultiplier: { additiveTotal: 0.01, multiplierProduct: 1.03, finalValue: 1.1433 },
+        damageBonus: { additiveTotal: 0.06, multiplierProduct: 1, finalValue: 1.46 },
+        amplify: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        fragile: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        vulnerability: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+      },
+    },
+    {
+      id: 'normal-synthetic-buff-type-matrix-button-type-matrix-electric-e-2',
+      elementLabel: '雷',
+      skillTypeLabel: 'E',
+      expected: 3531.104933868,
+      nonCrit: 3061.740166364,
+      resistance: { baseResistance: 23, corrosion: 3, resistanceIgnore: 3, resistanceZone: 0.83 },
+      zones: {
+        skillMultiplier: { additiveTotal: 0.01, multiplierProduct: 1.03, finalValue: 1.2463 },
+        damageBonus: { additiveTotal: 0.06, multiplierProduct: 1, finalValue: 1.37 },
+        amplify: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        fragile: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        vulnerability: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+      },
+    },
+    {
+      id: 'normal-synthetic-buff-type-matrix-button-type-matrix-ice-q-3',
+      elementLabel: '冰',
+      skillTypeLabel: 'Q',
+      expected: 3473.619842815,
+      nonCrit: 3011.896161289,
+      resistance: { baseResistance: 24, corrosion: 3, resistanceIgnore: 3, resistanceZone: 0.82 },
+      zones: {
+        skillMultiplier: { additiveTotal: 0.01, multiplierProduct: 1.03, finalValue: 1.3493 },
+        damageBonus: { additiveTotal: 0.06, multiplierProduct: 1, finalValue: 1.26 },
+        amplify: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        fragile: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        vulnerability: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+      },
+    },
+    {
+      id: 'normal-synthetic-buff-type-matrix-button-type-matrix-nature-dot-4',
+      elementLabel: '自然',
+      skillTypeLabel: '持续伤害',
+      expected: 3517.320728142,
+      nonCrit: 3049.78819747,
+      resistance: { baseResistance: 25, corrosion: 3, resistanceIgnore: 3, resistanceZone: 0.81 },
+      zones: {
+        skillMultiplier: { additiveTotal: 0.01, multiplierProduct: 1.03, finalValue: 1.4523 },
+        damageBonus: { additiveTotal: 0.05, multiplierProduct: 1, finalValue: 1.2 },
+        amplify: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        fragile: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+        vulnerability: { additiveTotal: 0.02, multiplierProduct: 1, finalValue: 1.02 },
+      },
+    },
+  ],
 } as const;

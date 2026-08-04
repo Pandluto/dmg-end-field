@@ -34,12 +34,47 @@ export interface SyntheticDamageReportObservation {
     threePieceBuffNames: string[];
     buffDefinitions: Array<{
       id: string;
+      type: string;
+      value: number | null;
       category: string;
+      effectKind: string;
       valueMode: string;
       maxStacks: number | null;
       derivedSource: string;
       derivedPerPointValue: number | null;
       multiplierCoefficient: number | null;
+    }>;
+  };
+  restored: {
+    snapshotCount: number;
+    snapshots: Array<{
+      id: number;
+      key: string;
+      level: number;
+      sourceSkillStrengthSnapshot: number;
+      effectValue: number;
+      initialCorrosion: number | null;
+      tickCorrosionPerSecond: number | null;
+      maxCorrosion: number | null;
+      currentCorrosion: number | null;
+      durationSeconds: number | null;
+    }>;
+    anomalyButtons: Array<{
+      id: string;
+      runtimeSkillId: string;
+      selectedBuffIds: string[];
+      buffStackCounts: Record<string, number>;
+      disabledHitKeys: string[];
+      statusCards: Array<{ id: string; key: string; level: number }>;
+      damageCards: Array<{
+        id: string;
+        key: string;
+        level: number;
+        burnDamageMode: string;
+        durationSeconds: number | null;
+      }>;
+      stateSnapshotIds: number[];
+      targetResistance: Record<string, number>;
     }>;
   };
   report: {
@@ -53,7 +88,10 @@ export interface SyntheticDamageReportObservation {
       expected: number;
       nonCrit: number;
       hits: Array<{
+        id: string;
         title: string;
+        sourceKind: string;
+        damageSourceLabel: string;
         elementLabel: string;
         skillTypeLabel: string;
         expected: number;
@@ -119,7 +157,10 @@ function normalizeReport(raw: Record<string, unknown>): SyntheticDamageReportObs
           const zones = Array.isArray(hit.zones) ? hit.zones : [];
           const buffs = Array.isArray(hit.buffs) ? hit.buffs : [];
           return {
+            id: String(hit.id ?? ''),
             title: String(hit.title ?? ''),
+            sourceKind: String(hit.sourceKind ?? ''),
+            damageSourceLabel: String(hit.damageSourceLabel ?? ''),
             elementLabel: String(hit.elementLabel ?? ''),
             skillTypeLabel: String(hit.skillTypeLabel ?? ''),
             expected: roundNumber(hit.expected),
@@ -245,7 +286,10 @@ export async function observeSyntheticArchiveAfterSqliteReload(
             const multiplier = buff.multiplier as Record<string, unknown> | undefined;
             return {
               id: String(buff.id ?? ''),
+              type: String(buff.type ?? ''),
+              value: typeof buff.value === 'number' ? buff.value : null,
               category: String(buff.category ?? ''),
+              effectKind: String(buff.effectKind ?? 'modifier'),
               valueMode: String(buff.valueMode ?? 'fixed'),
               maxStacks: typeof buff.maxStacks === 'number' ? buff.maxStacks : null,
               derivedSource: String(derived?.source ?? ''),
@@ -266,16 +310,81 @@ export async function observeSyntheticArchiveAfterSqliteReload(
   await expect(page.locator('.canvas-container')).toBeVisible({ timeout: 60_000 });
   await expect(page.locator('[data-skill-button-id]')).toHaveCount(input.expectedButtonCount);
 
-  const rawReport = await page.evaluate(async () => {
-    const moduleUrl = new URL('/src/core/services/damageReportService.ts', window.location.origin).href;
-    const report = await import(/* @vite-ignore */ moduleUrl);
-    return report.buildDamageReportSnapshot();
-  }) as Record<string, unknown>;
+  const afterReload = await page.evaluate(async () => {
+    const sourceModuleUrl = (path: string) => new URL(path, window.location.origin).href;
+    const reportModule = await import(/* @vite-ignore */ sourceModuleUrl('/src/core/services/damageReportService.ts'));
+    const snapshotModule = await import(/* @vite-ignore */ sourceModuleUrl('/src/utils/timelineSnapshotStorage.ts'));
+    const payload = snapshotModule.getCurrentTimelineSnapshotPayload() as {
+      anomalyStateSnapshots?: Array<Record<string, unknown>>;
+      skillButtonTable?: Record<string, Record<string, unknown>>;
+    } | null;
+    const snapshots = payload?.anomalyStateSnapshots ?? [];
+    const buttons = Object.values(payload?.skillButtonTable ?? {});
+    return {
+      report: reportModule.buildDamageReportSnapshot(),
+      restored: {
+        snapshotCount: snapshots.length,
+        snapshots: snapshots.map((snapshot) => ({
+          id: Number(snapshot.id) || 0,
+          key: String(snapshot.key ?? ''),
+          level: Number(snapshot.level) || 0,
+          sourceSkillStrengthSnapshot: Number(snapshot.sourceSkillStrengthSnapshot) || 0,
+          effectValue: Number(snapshot.effectValue) || 0,
+          initialCorrosion: typeof snapshot.initialCorrosion === 'number' ? snapshot.initialCorrosion : null,
+          tickCorrosionPerSecond: typeof snapshot.tickCorrosionPerSecond === 'number' ? snapshot.tickCorrosionPerSecond : null,
+          maxCorrosion: typeof snapshot.maxCorrosion === 'number' ? snapshot.maxCorrosion : null,
+          currentCorrosion: typeof snapshot.currentCorrosion === 'number' ? snapshot.currentCorrosion : null,
+          durationSeconds: typeof snapshot.durationSeconds === 'number' ? snapshot.durationSeconds : null,
+        })),
+        anomalyButtons: buttons.flatMap((button) => {
+          const anomalyConfig = button.anomalyConfig as Record<string, unknown> | undefined;
+          if (!anomalyConfig) return [];
+          const selectedStatuses = Array.isArray(anomalyConfig.selectedStatuses) ? anomalyConfig.selectedStatuses : [];
+          const selectedDamages = Array.isArray(anomalyConfig.selectedDamages) ? anomalyConfig.selectedDamages : [];
+          const selectedStateSnapshotIds = Array.isArray(anomalyConfig.selectedStateSnapshotIds)
+            ? anomalyConfig.selectedStateSnapshotIds.map(Number)
+            : [];
+          if (selectedStatuses.length === 0 && selectedDamages.length === 0 && selectedStateSnapshotIds.length === 0) {
+            return [];
+          }
+          const resistanceConfig = button.resistanceConfig as { targetResistance?: Record<string, number> } | undefined;
+          const panelConfig = button.panelConfig as { manualDisabledHitKeys?: string[] } | undefined;
+          return [{
+            id: String(button.id ?? ''),
+            runtimeSkillId: String(button.runtimeSkillId ?? ''),
+            selectedBuffIds: Array.isArray(button.selectedBuff) ? button.selectedBuff.map(String) : [],
+            buffStackCounts: (button.buffStackCounts ?? {}) as Record<string, number>,
+            disabledHitKeys: Array.isArray(panelConfig?.manualDisabledHitKeys) ? panelConfig.manualDisabledHitKeys : [],
+            statusCards: selectedStatuses.map((value) => {
+              const card = value as Record<string, unknown>;
+              return { id: String(card.id ?? ''), key: String(card.key ?? ''), level: Number(card.level) || 0 };
+            }),
+            damageCards: selectedDamages.map((value) => {
+              const card = value as Record<string, unknown>;
+              return {
+                id: String(card.id ?? ''),
+                key: String(card.key ?? ''),
+                level: Number(card.level) || 0,
+                burnDamageMode: String(card.burnDamageMode ?? ''),
+                durationSeconds: typeof card.durationSeconds === 'number' ? card.durationSeconds : null,
+              };
+            }),
+            stateSnapshotIds: selectedStateSnapshotIds,
+            targetResistance: resistanceConfig?.targetResistance ?? {},
+          }];
+        }),
+      },
+    };
+  }) as {
+    report: Record<string, unknown>;
+    restored: SyntheticDamageReportObservation['restored'];
+  };
 
   return {
     package: setup.package,
     sqlite: setup.sqlite,
     fixture: setup.fixture,
-    report: normalizeReport(rawReport),
+    restored: afterReload.restored,
+    report: normalizeReport(afterReload.report),
   };
 }

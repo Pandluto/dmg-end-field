@@ -459,6 +459,9 @@ function normalizeEquipmentEffectTypeKey(effect: EquipmentEffectInput, lastEffec
 const OPERATOR_TOTAL_FIELDS = new Set([
   ...WEAPON_TOTAL_FIELDS,
   ...EQUIPMENT_TOTAL_FIELDS,
+  'receivedHealingBonus',
+  'chainCooldownReduction',
+  'imbalanceEfficiency',
 ]);
 
 const PERCENT_FIELDS = new Set([

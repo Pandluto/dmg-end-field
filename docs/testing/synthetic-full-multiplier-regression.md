@@ -1,78 +1,159 @@
-# 合成满乘区 SQLite 双跑样本
+# 合成完整计算矩阵与 SQLite 双跑样本
 
-- 建立日期：2026-08-04
+- 首建日期：2026-08-04
+- 完整矩阵扩展：2026-08-05
 - 基线：`v1.8-LTS@920a6f94`
 - 候选：`codex/v1.8-lts-slimming`
 - 数据原则：全部为测试专用合成数据，不读取或复制用户存档
 
 ## 目的
 
-这套样本补上了旧回归测试最薄弱的一层：不再只验证页面能打开、存档能恢复，也不只让 LTS 与 Slim 互相比较；同一份完整配置必须在纯计算、Local Data 数据包、Timeline archive、浏览器 SQLite、刷新恢复和伤害报告六个阶段保持同一结果，并同时命中独立硬编码金值。
+这套样本同时回答两个问题：
 
-两边即使同时算错，也不能因为“结果相等”而通过。
+1. 计算公式本身是否符合人工固定的硬编码金值。
+2. 同一份 Local Data / Timeline 资料经过浏览器 SQLite 保存、刷新和恢复后，LTS 与 Slim 是否得到完全相同的结果。
+
+验证链固定为：纯计算 → Local Data 数据包 → Timeline archive → 浏览器 SQLite → 页面刷新恢复 → 结构化伤害报告。双侧结果相等但不符合硬金值时仍然失败，避免“两边一起算错也通过”。
 
 ## 测试专用资源
 
 | 资源 | 内容 | 主要用途 |
 | --- | --- | --- |
-| 测试满乘区干员 | 完整 90 级属性；A/B/E/Q/Dot 五类技能；额外 `skill-B-2` 双段综合技能；被动、正向和派生属性 Buff | 验证可信技能目录、技能等级、面板和不同 Hit |
-| 测试满乘区武器 | 攻击成长、力量、灼热/法术/战技加成；skill3 条件电磁 Buff 和直接倍率候选 | B 技能专门消费武器条件 Buff |
-| 四件测试装备 | 测试配件一、测试配件二、测试护甲、测试护手 | 分别提供物理、连携技、所有技能和失衡加成 |
-| 测试三件套 | 攻击、全伤、源石技艺、自然条件四项效果 | E 技能专门消费三件套条件 Buff |
-| 两组测试 Buff | 综合满乘区组、按技能目标组 | 分开验证公式完整性和目标筛选 |
+| 测试满乘区干员 | 90 级完整四维；A/B/E/Q/Dot；B2 满乘区技能；B3 异常承载技能；B4 五系类型矩阵技能 | 可信技能目录、面板、普通伤害、异常伤害 |
+| 测试满乘区武器 | 攻击成长、力量、灼热/法术/战技加成、条件电磁 Buff、直接倍率 | 武器条件与倍率候选 |
+| 四件测试装备 | 物理、连携技、所有技能、失衡加成 | 装备面板和伤害区 |
+| 测试三件套 | 攻击、全伤、源石技艺、自然条件 | 三件套条件 Buff 与源石技艺基值 |
+| 四组测试 Buff | 综合满乘区、按技能目标、异常/状态、75 类型目录 | 公式、筛选、异常和全部公开类型 |
 
-## 技能与 Buff 分工
+最终数据包包含 1 个干员、1 把武器、4 件装备、1 套套装、4 个 Buff item、159 条 Buff 实例、3 个异常状态快照和 10 个 Timeline 按钮。
 
-| 技能 | 命中内容 | 明确不应命中 |
-| --- | --- | --- |
-| A 普通攻击 | 默认生效 Buff；第二段按 `damageKey` 命中物理 Buff | 电磁元素 Buff |
-| B 战技 | 测试武器提供的电磁条件 Buff | 只针对 Q 的 Buff |
-| E 连携技 | 测试三件套提供的自然条件 Buff | 寒冷元素 Buff |
-| Q 终结技 | 寒冷元素 Buff | 只针对 B 的 Buff |
-| Dot 持续伤害 | 只针对 Dot 的灼热 Buff | 不存在的 Hit key |
-| B2 综合技能 | 灼热 B 段与物理 E 段共同消费完整满乘区 Buff | 无；用于公式总验收 |
+## 十个持久化按钮
 
-每个 A/B/E/Q/Dot 按钮只选择三条定向 Buff，不借用综合按钮的 Buff 列表。测试同时检查应命中的 Buff 至少出现在一个 Hit，明确不命中的 Buff 在全部 Hit 中都不存在。
+| 数量 | 按钮 | 验证内容 |
+| ---: | --- | --- |
+| 5 | A/B/E/Q/Dot 定向按钮 | 默认生效、正确目标、错误元素/技能/Hit key 不应生效 |
+| 1 | B2 综合满乘区 | 攻击、倍率、暴击、伤害、防御、抗性、增幅、易伤、脆弱、连击、失衡 |
+| 1 | B3 异常与状态矩阵 | 十类异常、连击/失衡、三类状态快照、两层额外 Hit |
+| 1 | B3 燃烧总持续 | `dotOnly`，4 秒合成一段 |
+| 1 | B3 燃烧逐跳 | `splitDot`，3 秒拆为三段 |
+| 1 | B4 75 类 Buff 五系矩阵 | 物理 A、灼热 B、电磁 E、寒冷 Q、自然 Dot 五段 |
 
-## Buff 形态与公式覆盖
+异常承载技能的普通 Hit 被明确禁用，避免占位段污染异常金值。
 
-| 形态 | 固定样本 |
+## 75 类 Buff 封闭矩阵
+
+`buffTypeMatrix.test.ts` 将 `BUFF_TYPE_LABELS` 的全部公开类型强制分到三个可执行合同中：
+
+- 伤害运行时：攻击、四维、暴击、元素/技能伤害、易伤、脆弱、增幅、抗性、连击、失衡、倍率和源石技艺。
+- 面板运行时：`atk`/`hp` 兼容别名、生命、充能、治疗、受治疗、连携冷却、失衡效率、减伤、火自然与冰电磁复合加成。
+- 存储迁移：旧 `multiplierMultiplier` 必须转换为 `multiplierBonus + multiplier.coefficient`。
+
+新增公开类型却没有登记计算合同，会直接导致测试失败。SQLite 五系矩阵还会把 75 条定义全部落盘；每一段报告都必须恢复相同的 75 个 ID。旧倍率类型在 3030 和 3040 均恢复为 `multiplierBonus`，系数固定为 `1.03`。
+
+五系抗性矩阵分别固定怪物物理、灼热、电磁、寒冷、自然抗性，并逐项验证：
+
+```text
+抗性区 = 1 - (怪物抗性 - 降抗) / 100 + 无视抗性 / 100
+```
+
+全属性、法术、物理及五种具体元素的降抗与无视抗性都有正向消费路径。
+
+## Buff 形态与派生值
+
+| 形态 | 固定合同 |
 | --- | --- |
-| 条件触发 | 元素、技能类型和伤害段 key 三种目标 |
+| 条件触发 | 元素、技能类型、伤害段 key |
 | 默认触发 | `category=passive` |
-| 可叠层 | `combo-countable`，上限 3 层，测试明确选择 2 层，结果为 `0.06 × 2 = 0.12` |
-| 数值派生 | `combo-derived`，按攻击 `2400 × 0.000025 = 0.06`；另验证干员敏捷派生攻击 |
-| 直接乘系数 | 多个 `multiplier.coefficient`，包括技能倍率和元素/易伤/脆弱/增幅乘区 |
+| 可叠层 | 普通 Buff 显式层数和默认满层；额外 Hit 固定 2/3 层 |
+| 数值派生 | hp、atk、strength、agility、intelligence、will、sourceSkill 七种来源 |
+| 直接乘系数 | 技能倍率、伤害、增幅、易伤、脆弱及旧倍率迁移 |
+| 复合类型 | `fireNatureDmgBonus`、`iceElectricDmgBonus` 展开到两个对应元素 |
 
-综合技能让以下最终公式因子全部处于非默认状态：攻击、技能倍率、暴击、伤害加成、防御、抗性、增幅、易伤（Fragile）、脆弱（Vulnerability）、连击和失衡。纯计算合同还逐层固定 `base`、`afterCrit`、`afterBonus`、`afterDefense`、`afterResistance`、`afterAmplify`、`afterFragile`、`afterVulnerability`、连击后结果与最终值。
+矩阵测试发现并修复了一个真实漏口：`receivedHealingBonus`、`chainCooldownReduction`、`imbalanceEfficiency` 已有类型和面板字段，但原先没有进入干员 Buff 汇总白名单，配置后会静默归零。现在三项均有面板金值保护。
 
-## 三层证据
+## 异常伤害矩阵
+
+| 异常 | 等级/模式 | 元素或特殊规则 |
+| --- | --- | --- |
+| 导电 | Lv1 | 电磁 |
+| 腐蚀 | Lv2 | 自然 |
+| 燃烧 | Lv3 `initialOnly` | 灼热初始段 |
+| 冻结 | Lv4 | 寒冷 |
+| 碎冰 | Lv2 | 最终物理，但使用法术异常等级系数 |
+| 法术爆发 | 固定 160% | 当前 LTS 报告按“法术”元素 |
+| 倒地、击飞 | 固定 120% | 物理 |
+| 碎甲 | Lv3 | 物理 |
+| 猛击 | Lv4 | 物理 |
+| 燃烧总持续 | Lv2、4 秒 | `12% × (1 + 等级) × 秒数` |
+| 燃烧逐跳 | Lv2、3 秒 | 三段，每段 `12% × (1 + 等级)` |
+
+源石技艺强度的伤害顺序被单独固定为：
+
+```text
+异常基础倍率
+× 等级系数
+× (1 + 面板源石技艺 + 已选源石技艺 Buff) / 100
+→ 倍率加算
+→ 倍率乘算
+→ 伤害加成
+→ 防御
+→ 抗性
+→ 增幅
+→ 易伤
+→ 脆弱
+→ 连击
+→ 失衡
+```
+
+测试面板提供 12 点源石技艺，异常 Buff 再提供 18 点，因此异常伤害必须使用 30 点、即 `1.300` 的源石技艺区。取消该 Buff 后必须回到 12 点、即 `1.120`，防止未选择的 Buff 泄漏。
+
+## 状态快照矩阵
+
+三个状态快照都使用 60 点源石技艺强度：
+
+```text
+状态效果增强 = 2 × 60 / (60 + 300) = 1/3
+```
+
+| 快照 | 固定结果 | 转换后的运行时 Buff |
+| --- | ---: | --- |
+| 导电 Lv3 | 26.6666667% | `magicFragile` |
+| 碎甲 Lv4 | 32% | `physicalFragile` |
+| 腐蚀 Lv2、5 秒 | 初始 6.4；每秒 1.4933333；上限 21.3333333；当前 13.8666667 | `allCorrosion` |
+
+状态区还固定：连击 B 技能 Lv1–4 为 30%/45%/60%/75%，Q 为 20%/30%/40%/50%，A 不生效；失衡固定为 30%。SQLite 刷新后必须保留快照来源强度、等级、持续时间和所有中间值。
+
+## 证据文件
 
 | 层级 | 文件 | 验证内容 |
 | --- | --- | --- |
-| 独立公式金值 | `skillDamageFullMultiplier.fixture.ts/.test.ts` | 满乘区的面板、五个公开乘区、抗性、隐藏连击/失衡步骤和最终伤害 |
-| 完整数据资料 | `skillDamageFullMultiplierData.fixture.ts/.test.ts` | 专用干员/武器/装备/三件套、技能目录、Buff library、refCount、Timeline payload、Local Data archive 和各技能金值 |
-| 真实浏览器双跑 | `syntheticRegressionArchiveHarness.ts` + `lts-dual-run.spec.ts` | 保存并应用 Local Data 包、转 Timeline archive 为 SQLite、激活、整页刷新、恢复 6 个按钮、读取结构化伤害报告，再分别对硬金值和两侧公共 observation 作校验 |
+| 75 类型与面板 | `src/core/calculators/buffTypeMatrix.test.ts` | 类型封闭清单、五系乘区/抗性、面板类型、七种派生来源、Buff 类别 |
+| 异常伤害 | `src/components/CanvasBoard/skillButtonAnomalyMatrix.test.ts` | 十类异常、源石技艺顺序、燃烧三模式及硬金值 |
+| 状态快照 | `src/core/services/anomalyStateBuffs.test.ts` | 连击/失衡、导电/腐蚀/碎甲快照及源石技艺增强 |
+| 完整测试资料 | `src/core/calculators/skillDamageFullMultiplierData.fixture.ts/.test.ts` | 专用资源、159 条 Buff、10 个按钮、3 个快照、可信技能目录和硬金值 |
+| 浏览器双跑 | `tests/e2e/syntheticRegressionArchiveHarness.ts` + `tests/e2e/lts-dual-run.spec.ts` | Local Data → SQLite → 刷新 → 报告，3030/3040 同文件对测 |
 
-浏览器测试使用隔离 context。测试数据只写入该 context 的 IndexedDB/存储，不接触开发者真实浏览器资料。
+浏览器测试使用隔离 context，测试数据只写入该 context 的 IndexedDB/存储，不接触真实用户资料。
 
-## 本轮实际结果
+## 2026-08-05 验收结果
 
 | 命令 | 结果 |
 | --- | --- |
-| 两份满乘区纯合同 | 通过 |
-| `npm run typecheck` | 通过 |
-| `npm test` | 通过，包含两份新合同 |
-| `npm run check` | 通过；554 tracked、0 vulnerabilities、244 modules、atomic shell `7049e002817b1071` / 37 files |
-| `npm run test:regression:dual` | 身份锁定 3030/3040 后通过；`1 passed (38.6s)` |
+| `npm test` | 通过，包含类型、异常、状态和完整数据合同 |
+| `npm run check` | 通过；557 tracked、0 vulnerabilities、244 modules、Atomic shell `58233ca869789739` / 37 files |
+| `npm run test:regression:dual` | 通过；`1 passed (37.6s)` |
 
-双跑最终确认：LTS 与 Slim 的数据包计数、SQLite 摘要、专用资源、Buff 定义、6 个技能、每段命中 Buff、抗性、五个公开乘区、非暴击伤害、期望伤害和总伤害完全相等；所有数值同时符合硬编码 golden。
+双跑身份锁定：
 
-## 以后如何复用
+- 3030：`v1.8-LTS@920a6f94`
+- 3040：`codex/v1.8-lts-slimming@18443b0d` 加本轮工作区改动
 
-1. 日常公式改动先运行 `npm test`；专门调试时只执行两份 `skillDamageFullMultiplier*.test.ts`。
-2. LTS/Slim 封版时固定 3030 为基线、3040 为候选，执行 `npm run test:regression:dual`。
-3. 新增乘区、Buff 形态或目标规则时，优先扩展同一测试干员和同一数据包，不再复制另一套存档。
-4. 公式有意变更时，必须先人工核对中间链，再更新硬编码 golden；禁止在测试运行时从被测实现动态生成期望值。
+两侧最终恢复 10 个按钮、3 个快照、159 条 Buff，总期望伤害均为 `615015.75223684`。每段期望/非暴击伤害、元素、技能类型、抗性、降抗、无视抗性、五个公开乘区、Buff ID、旧倍率迁移和总计完全一致，并同时符合硬编码 golden。
 
-这套样本证明的是计算和浏览器 SQLite 恢复链。真实用户 profile 原位升级、SQLite 文件选择器往返、双标签并发和生产 Service Worker 断网仍属于独立平台终验。
+## 复用规则与边界
+
+1. 日常公式改动先运行 `npm test`；封版再固定 3030/3040 执行 `npm run test:regression:dual`。
+2. 新增 Buff type 时，必须先登记其运行时归属，再加入对应矩阵；不得只补显示标签。
+3. 公式有意变化时，先人工核对中间链，再更新硬编码 golden；禁止运行时从被测实现生成期望值。
+4. 这套矩阵证明计算、Local Data、Timeline、SQLite 恢复和报告链；真实用户 profile 原位升级、文件选择器往返、双标签并发和生产 Service Worker 断网仍属于独立平台终验。
+5. 当前 LTS 行为中，法术爆发报告使用通用“法术”元素、异常报告不暴露五区贡献明细、部分持续时间字段不参与伤害倍率。这些行为已被如实记录，但本轮只做测试补全，不擅自改变业务规则。

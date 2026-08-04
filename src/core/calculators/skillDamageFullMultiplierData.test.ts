@@ -5,6 +5,23 @@ import { calculateSkillButtonDamageV2 } from './skillButtonDamageCalculatorV2';
 import {
   FULL_ZONE_BUFFS,
   SYNTHETIC_ALL_BUFF_LIST,
+  SYNTHETIC_ANOMALY_BUFFS,
+  SYNTHETIC_ANOMALY_BUTTON_IDS,
+  SYNTHETIC_ANOMALY_DAMAGE_CARDS,
+  SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF,
+  SYNTHETIC_ANOMALY_MODIFIER_BUFFS,
+  SYNTHETIC_ANOMALY_STATE_SNAPSHOTS,
+  SYNTHETIC_ANOMALY_STATUS_CARDS,
+  SYNTHETIC_ANOMALY_TARGET_RESISTANCE,
+  SYNTHETIC_ANOMALY_TEMPLATE,
+  SYNTHETIC_BURN_DOT_CARD,
+  SYNTHETIC_BURN_SPLIT_CARD,
+  SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS,
+  SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID,
+  SYNTHETIC_BUFF_TYPE_MATRIX_STACK_COUNTS,
+  SYNTHETIC_BUFF_TYPE_MATRIX_TARGET_RESISTANCE,
+  SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE,
+  SYNTHETIC_BUFF_TYPE_MATRIX_TYPES,
   SYNTHETIC_CHARACTER_INPUT,
   SYNTHETIC_CONFIG_SNAPSHOT,
   SYNTHETIC_DAMAGE_GOLDEN,
@@ -168,6 +185,12 @@ archiveAttributeKeys.forEach((attribute) => {
 const trustedFullSkill = operatorDraft.skills?.['skill-B-2'];
 if (!trustedFullSkill) throw new Error('archive operator trusted skill directory is missing skill-B-2');
 assertEqual(trustedFullSkill.hitCount, 2, 'trusted skill-B-2 should retain both comprehensive hits');
+const trustedAnomalySkill = operatorDraft.skills?.[SYNTHETIC_ANOMALY_TEMPLATE.runtimeSkillId];
+if (!trustedAnomalySkill) throw new Error('archive operator trusted skill directory is missing the anomaly carrier');
+assertEqual(trustedAnomalySkill.hitCount, 1, 'anomaly carrier should retain its disabled placeholder hit');
+const trustedTypeMatrixSkill = operatorDraft.skills?.[SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.runtimeSkillId];
+if (!trustedTypeMatrixSkill) throw new Error('archive operator trusted skill directory is missing the Buff type matrix');
+assertEqual(trustedTypeMatrixSkill.hitCount, 5, 'Buff type matrix should retain all five elemental hits');
 assertEqual(
   Object.keys(operatorLibrary).length,
   1,
@@ -188,17 +211,29 @@ const buffLibrary = archive.storage.local['def.buff-editor.library.v1'] as Recor
 }>;
 const buffDraft = buffLibrary['synthetic-full-multiplier-buffs'];
 if (!buffDraft?.items) throw new Error('archive should export the Buff library');
-assertEqual(Object.keys(buffDraft.items).length, 2, 'Buff archive should keep full-zone and target groups');
+assertEqual(Object.keys(buffDraft.items).length, 4, 'Buff archive should keep all four test groups');
 const targetBuffArchiveEffects = buffDraft.items['synthetic-target-item']?.effects;
 if (!targetBuffArchiveEffects) throw new Error('Buff archive is missing target Buff group');
 SYNTHETIC_TARGET_BUFFS.forEach((buff) => {
   if (!targetBuffArchiveEffects[buff.id]) throw new Error(`Buff archive is missing target Buff ${buff.id}`);
 });
+const anomalyBuffArchiveEffects = buffDraft.items['synthetic-anomaly-item']?.effects;
+if (!anomalyBuffArchiveEffects) throw new Error('Buff archive is missing anomaly Buff group');
+SYNTHETIC_ANOMALY_BUFFS.forEach((buff) => {
+  if (!anomalyBuffArchiveEffects[buff.id]) throw new Error(`Buff archive is missing anomaly Buff ${buff.id}`);
+});
+const typeMatrixArchiveEffects = buffDraft.items['synthetic-buff-type-matrix-item']?.effects;
+if (!typeMatrixArchiveEffects) throw new Error('Buff archive is missing the 75-type matrix group');
+assertEqual(Object.keys(typeMatrixArchiveEffects).length, SYNTHETIC_BUFF_TYPE_MATRIX_TYPES.length, 'Buff archive should retain every public type exactly once');
+SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.forEach((buff) => {
+  if (!typeMatrixArchiveEffects[buff.id]) throw new Error(`Buff archive is missing type matrix Buff ${buff.id}`);
+});
 
 const timelineValidation = validateTimelinePayload(SYNTHETIC_TIMELINE_PAYLOAD);
 assertEqual(timelineValidation.ok, true, 'exported timeline payload should validate');
 assertEqual(SYNTHETIC_TIMELINE_PAYLOAD.selectedCharacters.length, 1, 'timeline payload should select the synthetic operator');
-assertEqual(Object.keys(SYNTHETIC_TIMELINE_PAYLOAD.skillButtonTable).length, 6, 'timeline payload should include five skills plus the full-zone skill');
+assertEqual(Object.keys(SYNTHETIC_TIMELINE_PAYLOAD.skillButtonTable).length, 10, 'timeline payload should include ordinary, anomaly, and Buff type matrix buttons');
+assertEqual(SYNTHETIC_TIMELINE_PAYLOAD.anomalyStateSnapshots.length, 3, 'timeline payload should persist all anomaly state snapshots');
 assertEqual(SYNTHETIC_TIMELINE_PAYLOAD.characterInputMap[snapshot.operator.id], SYNTHETIC_CHARACTER_INPUT, 'timeline should export explicit character input');
 assertEqual(SYNTHETIC_TIMELINE_PAYLOAD.characterInputMap[snapshot.operator.id].skillLevels.A, 'M3', 'timeline character input A level');
 assertEqual(SYNTHETIC_TIMELINE_PAYLOAD.characterInputMap[snapshot.operator.id].weapon.name, snapshot.weapon.name, 'timeline character input weapon');
@@ -236,8 +271,53 @@ assertEqual(
   'full persisted target resistance',
 );
 
+const anomalyMatrixButton = timelineButtonById(SYNTHETIC_ANOMALY_BUTTON_IDS.matrix);
+assertEqual(anomalyMatrixButton.runtimeSkillId, SYNTHETIC_ANOMALY_TEMPLATE.runtimeSkillId, 'anomaly matrix trusted skill id');
+assertArrayEqual(anomalyMatrixButton.selectedBuff, SYNTHETIC_ANOMALY_BUFFS.map((buff) => buff.id), 'anomaly matrix selected Buff ids');
+assertEqual(anomalyMatrixButton.buffStackCounts?.[SYNTHETIC_ANOMALY_EXTRA_HIT_BUFF.id], 2, 'anomaly matrix extra Hit stack count');
+assertEqual(anomalyMatrixButton.anomalyConfig?.selectedDamages.length, SYNTHETIC_ANOMALY_DAMAGE_CARDS.length, 'anomaly matrix damage card count');
+assertEqual(anomalyMatrixButton.anomalyConfig?.selectedStatuses.length, SYNTHETIC_ANOMALY_STATUS_CARDS.length, 'anomaly matrix status card count');
+assertArrayEqual(
+  anomalyMatrixButton.anomalyConfig?.selectedStateSnapshotIds.map(String) ?? [],
+  SYNTHETIC_ANOMALY_STATE_SNAPSHOTS.map((snapshot) => String(snapshot.id)),
+  'anomaly matrix state snapshot ids',
+);
+assertEqual(
+  JSON.stringify(anomalyMatrixButton.resistanceConfig?.targetResistance),
+  JSON.stringify(SYNTHETIC_ANOMALY_TARGET_RESISTANCE),
+  'anomaly matrix five-element target resistance',
+);
+assertArrayEqual(anomalyMatrixButton.panelConfig?.manualDisabledHitKeys ?? [], ['anomaly-carrier-hit'], 'anomaly carrier normal hit should be disabled');
+
+const burnDotButton = timelineButtonById(SYNTHETIC_ANOMALY_BUTTON_IDS.burnDot);
+assertArrayEqual(burnDotButton.selectedBuff, SYNTHETIC_ANOMALY_MODIFIER_BUFFS.map((buff) => buff.id), 'burn dot selected Buff ids');
+assertEqual(burnDotButton.anomalyConfig?.selectedDamages[0]?.id, SYNTHETIC_BURN_DOT_CARD.id, 'burn dot card identity');
+assertEqual(burnDotButton.anomalyConfig?.selectedDamages[0]?.burnDamageMode, 'dotOnly', 'burn dot mode');
+assertEqual(burnDotButton.anomalyConfig?.selectedDamages[0]?.durationSeconds, 4, 'burn dot duration');
+
+const burnSplitButton = timelineButtonById(SYNTHETIC_ANOMALY_BUTTON_IDS.burnSplit);
+assertArrayEqual(burnSplitButton.selectedBuff, SYNTHETIC_ANOMALY_MODIFIER_BUFFS.map((buff) => buff.id), 'burn split selected Buff ids');
+assertEqual(burnSplitButton.anomalyConfig?.selectedDamages[0]?.id, SYNTHETIC_BURN_SPLIT_CARD.id, 'burn split card identity');
+assertEqual(burnSplitButton.anomalyConfig?.selectedDamages[0]?.burnDamageMode, 'splitDot', 'burn split mode');
+assertEqual(burnSplitButton.anomalyConfig?.selectedDamages[0]?.durationSeconds, 3, 'burn split duration');
+
+const typeMatrixButton = timelineButtonById(SYNTHETIC_BUFF_TYPE_MATRIX_BUTTON_ID);
+assertEqual(typeMatrixButton.runtimeSkillId, SYNTHETIC_BUFF_TYPE_MATRIX_TEMPLATE.runtimeSkillId, 'Buff type matrix trusted skill id');
+assertArrayEqual(typeMatrixButton.selectedBuff, SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.map((buff) => buff.id), 'Buff type matrix selected ids');
+assertEqual(typeMatrixButton.customHits?.length, 5, 'Buff type matrix should persist all elemental hits');
+assertEqual(
+  JSON.stringify(typeMatrixButton.buffStackCounts),
+  JSON.stringify(SYNTHETIC_BUFF_TYPE_MATRIX_STACK_COUNTS),
+  'Buff type matrix stack counts',
+);
+assertEqual(
+  JSON.stringify(typeMatrixButton.resistanceConfig?.targetResistance),
+  JSON.stringify(SYNTHETIC_BUFF_TYPE_MATRIX_TARGET_RESISTANCE),
+  'Buff type matrix target resistance',
+);
+
 assertEqual(new Set(SYNTHETIC_ALL_BUFF_LIST.map((buff) => buff.id)).size, SYNTHETIC_ALL_BUFF_LIST.length, 'allBuffList ids should be unique');
-assertEqual(SYNTHETIC_ALL_BUFF_LIST.length, FULL_ZONE_BUFFS.length + SYNTHETIC_TARGET_BUFFS.length, 'allBuffList should contain two Buff groups');
+assertEqual(SYNTHETIC_ALL_BUFF_LIST.length, FULL_ZONE_BUFFS.length + SYNTHETIC_TARGET_BUFFS.length + SYNTHETIC_ANOMALY_BUFFS.length + SYNTHETIC_BUFF_TYPE_MATRIX_BUFFS.length, 'allBuffList should contain all four Buff groups');
 SYNTHETIC_ALL_BUFF_LIST.forEach((buff) => {
   const expectedRefCount = timelineButtons.filter((button) => button.selectedBuff.includes(buff.id)).length;
   assertEqual(buff.refCount, expectedRefCount, `${buff.id} refCount`);
