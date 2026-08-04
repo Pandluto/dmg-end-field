@@ -15,7 +15,6 @@ import { WorkbookContextMenu, type WorkbookContextMenuAction } from './WorkbookC
 import { WorkbookShareDialog } from './WorkbookShareDialog';
 import { WorkbookToolButton } from './WorkbookToolButton';
 import {
-  BUFF_TYPE_LABELS,
   BUFF_TYPE_OPTIONS,
   createEmptyLibrary,
   drawerEffectToEquipmentBuff,
@@ -24,6 +23,7 @@ import {
   equipmentBuffToDrawer,
   getEffectEntries,
   getEquipmentBuffBusinessType,
+  getEquipmentBuffTypeDisplayLabel,
   getEquipments,
   getEquipmentEffectShape,
   getEquipmentEffectTypeOptions,
@@ -1058,7 +1058,7 @@ export function EquipmentSheetPage() {
       const keyword = buffTypeQuery.trim().toLowerCase();
       const searchOptions = (formulaBinding.options ?? BUFF_TYPE_OPTIONS.map((typeKey) => ({
         value: typeKey,
-        label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+        label: getEquipmentBuffTypeDisplayLabel(typeKey),
       }))).filter((option) => !keyword || `${option.label} ${option.value}`.toLowerCase().includes(keyword));
       return (
         <div className="buff-sheet-formula-type-editor">
@@ -1195,7 +1195,7 @@ export function EquipmentSheetPage() {
         { value: '', label: '未映射' },
         ...typeOptions.map((typeKey) => ({
           value: typeKey,
-          label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+          label: getEquipmentBuffTypeDisplayLabel(typeKey),
         })),
       ];
     } else if (cellPolicy.control === 'select' && sourceRow.kind === 'fixedStat' && cell.columnKey === 'effectKey') {

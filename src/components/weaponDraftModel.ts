@@ -1,5 +1,9 @@
 import { pinyin } from 'pinyin-pro';
 import type { BuffEffectKind, BuffExtraHitConfig } from '../core/domain/buff';
+import {
+  getBuffTypeDisplayLabel as getCanonicalBuffTypeDisplayLabel,
+  getBuffTypeLabel as getCanonicalBuffTypeLabel,
+} from '../core/domain/buffTypeMetadata';
 import { normalizeExtraHitConfig } from '../core/services/buffExtraHit';
 import * as buffModel from './operatorDraftBuffModel';
 import {
@@ -8,7 +12,6 @@ import {
   SKILL1_BUFF_TYPE_MAP,
   SKILL2_BUFF_TYPE_MAP,
   SKILL_KEYS,
-  WEAPON_BUFF_TYPE_LABELS,
   type WeaponSkillKey,
 } from './weaponDraftCatalog';
 
@@ -409,19 +412,11 @@ export function getSkillAutoBuffType(skillKey: WeaponSkillKey, statType: string)
 }
 
 export function getBuffTypeLabel(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) {
-    return '-';
-  }
-  return WEAPON_BUFF_TYPE_LABELS[trimmed] ?? trimmed;
+  return getCanonicalBuffTypeLabel(buffType, { emptyLabel: '-' });
 }
 
 export function getBuffTypeDisplayLabel(buffType: string) {
-  const trimmed = buffType.trim();
-  if (!trimmed) {
-    return '-';
-  }
-  return `${getBuffTypeLabel(trimmed)} · ${trimmed}`;
+  return getCanonicalBuffTypeDisplayLabel(buffType, { emptyLabel: '-' });
 }
 
 export function buildSearchIndex(values: Array<string | undefined | null>) {

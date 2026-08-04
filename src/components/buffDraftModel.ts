@@ -1,12 +1,15 @@
 import { pinyin } from 'pinyin-pro';
 import type { BuffCategory, BuffEffectKind, CandidateBuff } from '../core/domain/buff';
 import { normalizeBuffMultiplier } from '../core/domain/buffMultiplier';
+import {
+  getBuffTypeDisplayLabel as getCanonicalBuffTypeDisplayLabel,
+  getBuffTypeLabel as getCanonicalBuffTypeLabel,
+} from '../core/domain/buffTypeMetadata';
 import { isMultiplierSupportedBuffType } from '../core/domain/buffTypeRegistry';
 import { normalizeStoredBuffDefinition } from '../core/services/buffStorageNormalization';
 import type { OperatorBuffEffect } from './operatorDraftBuffModel';
 import {
   BUFF_CATEGORY_LABELS,
-  BUFF_TYPE_LABELS,
   DEFAULT_EXTRA_HIT_CONFIG,
   DISPLAY_FLAT_TYPES,
   DISPLAY_PERCENT_TYPES,
@@ -181,18 +184,11 @@ export function buildBuffDraftIdFromName(name: string) {
 }
 
 export function getBuffTypeDisplayLabel(type?: string) {
-  if (!type) {
-    return '暂无';
-  }
-  const label = BUFF_TYPE_LABELS[type];
-  return label ? `${label} · ${type}` : type;
+  return getCanonicalBuffTypeDisplayLabel(type, { emptyLabel: '暂无' });
 }
 
 export function getBuffTypePlainLabel(type?: string) {
-  if (!type) {
-    return '';
-  }
-  return BUFF_TYPE_LABELS[type] || type;
+  return getCanonicalBuffTypeLabel(type);
 }
 
 export function normalizeLegacyBuffType(type: unknown) {

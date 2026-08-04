@@ -1,5 +1,9 @@
 import { pinyin } from 'pinyin-pro';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
+import {
+  getBuffTypeDisplayLabel as getCanonicalBuffTypeDisplayLabel,
+  getBuffTypeLabel as getCanonicalBuffTypeLabel,
+} from '../core/domain/buffTypeMetadata';
 import * as buffModel from './operatorDraftBuffModel';
 import equipmentValuePresetsRaw from '../data/equipmentValuePresets.json';
 
@@ -176,71 +180,23 @@ export const BUFF_TYPE_OPTIONS = [
   'natureResistanceIgnore',
 ];
 
-export const BUFF_TYPE_LABELS: Record<string, string> = {
-  atkPercentBoost: '攻击力百分比',
-  flatAtk: '固定攻击力',
-  mainStatBoost: '主能力提升',
-  subStatBoost: '副能力提升',
-  allStatBoost: '全属性提升',
-  strengthBoost: '力量提升',
-  agilityBoost: '敏捷提升',
-  intelligenceBoost: '智识提升',
-  willBoost: '意志提升',
-  critRateBoost: '暴击率',
-  critDmgBonusBoost: '暴击伤害',
-  physicalDmgBonus: '物理伤害加成',
-  magicDmgBonus: '法术伤害加成',
-  fireDmgBonus: '灼热伤害加成',
-  electricDmgBonus: '电磁伤害加成',
-  iceDmgBonus: '寒冷伤害加成',
-  natureDmgBonus: '自然伤害加成',
-  allDmgBonus: '全伤害加成',
-  skillDmgBonus: '战技伤害加成',
-  chainSkillDmgBonus: '连携技伤害加成',
-  ultimateDmgBonus: '终结技伤害加成',
+const EQUIPMENT_BUFF_TYPE_LABEL_OVERRIDES: Readonly<Record<string, string>> = Object.freeze({
   normalAttackDmgBonus: '普通攻击伤害加成',
-  dotDmgBonus: '持续伤害加成',
-  allSkillDmgBonus: '全技能伤害加成',
-  physicalFragile: '物理易伤',
-  fireFragile: '灼热易伤',
-  electricFragile: '电磁易伤',
-  iceFragile: '寒冷易伤',
-  natureFragile: '自然易伤',
-  magicFragile: '法术易伤',
-  physicalVulnerability: '物理脆弱',
-  fireVulnerability: '灼热脆弱',
-  electricVulnerability: '电磁脆弱',
-  iceVulnerability: '寒冷脆弱',
-  natureVulnerability: '自然脆弱',
-  magicVulnerability: '法术脆弱',
-  sourceSkillBoost: '源石技艺强度',
   imbalanceDmgBonus: '对失衡目标伤害加成',
-  ultimateChargeEfficiency: '终结技充能效率',
   healingBonus: '治疗效率加成',
   hpPercent: '生命值',
   damageReduction: '全伤害减免',
-  fireNatureDmgBonus: '灼热和自然伤害',
-  iceElectricDmgBonus: '寒冷和电磁伤害',
-  allCorrosion: '全属性降抗',
-  physicalCorrosion: '物理降抗',
-  magicCorrosion: '法术降抗',
-  fireCorrosion: '灼热降抗',
-  electricCorrosion: '电磁降抗',
-  iceCorrosion: '寒冷降抗',
-  natureCorrosion: '自然降抗',
-  allResistanceIgnore: '无视全部抗性',
-  physicalResistanceIgnore: '无视物理抗性',
-  magicResistanceIgnore: '无视法术抗性',
-  fireResistanceIgnore: '无视灼热抗性',
-  electricResistanceIgnore: '无视电磁抗性',
-  iceResistanceIgnore: '无视寒冷抗性',
-  natureResistanceIgnore: '无视自然抗性',
-};
+});
+
+export function getEquipmentBuffTypeLabel(typeKey: string) {
+  return getCanonicalBuffTypeLabel(typeKey, { overrides: EQUIPMENT_BUFF_TYPE_LABEL_OVERRIDES });
+}
 
 export function getEquipmentBuffTypeDisplayLabel(typeKey: string) {
-  const normalizedTypeKey = typeKey.trim();
-  if (!normalizedTypeKey) return '未映射';
-  return `${BUFF_TYPE_LABELS[normalizedTypeKey] || normalizedTypeKey} · ${normalizedTypeKey}`;
+  return getCanonicalBuffTypeDisplayLabel(typeKey, {
+    emptyLabel: '未映射',
+    overrides: EQUIPMENT_BUFF_TYPE_LABEL_OVERRIDES,
+  });
 }
 
 export const EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS = buffModel.OPERATOR_BUFF_BUSINESS_TYPES.map((value) => ({
@@ -480,7 +436,7 @@ function buildEquipmentValueCatalog() {
         const typedEffectId = effectId as EquipmentEffectId;
         const key = makeValueCatalogKey(part, typedEffectId, typeKey, shape);
         const entry: EquipmentValueCatalogEntry = {
-          label: String(effect.label || BUFF_TYPE_LABELS[typeKey] || typeKey),
+          label: String(effect.label || getEquipmentBuffTypeLabel(typeKey)),
           typeKey,
           category: normalizeCategory(effect.category || (ABILITY_TYPE_KEYS.has(typeKey) ? 'ability' : 'buff')),
           unit: normalizeUnit(effect.unit),
@@ -534,7 +490,7 @@ export function getEquipmentEffectTypeOptions(part: EquipmentPart, effectId: Equ
   const options = Object.entries(EQUIPMENT_VALUE_CATALOG)
     .filter(([key, entry]) => key.startsWith(keyPrefix) && key.endsWith(keySuffix) && entry.category === category)
     .map(([, entry]) => entry.typeKey)
-    .sort((a, b) => (BUFF_TYPE_LABELS[a] || a).localeCompare(BUFF_TYPE_LABELS[b] || b, 'zh-CN'));
+    .sort((a, b) => getEquipmentBuffTypeLabel(a).localeCompare(getEquipmentBuffTypeLabel(b), 'zh-CN'));
   return options.length > 0 ? options : BUFF_TYPE_OPTIONS;
 }
 

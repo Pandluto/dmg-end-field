@@ -1,9 +1,9 @@
 import {
-  BUFF_TYPE_LABELS,
   BUFF_TYPE_OPTIONS,
   EQUIPMENT_BUFF_BUSINESS_TYPE_OPTIONS,
   EQUIPMENT_PARTS,
   getEquipmentBuffBusinessType,
+  getEquipmentBuffTypeDisplayLabel,
   getEquipmentEffectShape,
   getEquipmentEffectTypeOptions,
   LEVEL_KEYS,
@@ -176,7 +176,7 @@ export function buildEquipmentFormulaBinding(
         )
       : BUFF_TYPE_OPTIONS).map((typeKey) => ({
         value: typeKey,
-        label: `${BUFF_TYPE_LABELS[typeKey] || typeKey} · ${typeKey}`,
+        label: getEquipmentBuffTypeDisplayLabel(typeKey),
       }));
     return {
       key: `${row.key}:${columnKey}`,
