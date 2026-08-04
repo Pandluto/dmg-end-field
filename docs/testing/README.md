@@ -30,6 +30,7 @@ npm run check
 ## 当前专项
 
 - [可复用回归测试包](./reusable-regression-suite.md)：统一说明纯合同、单分支浏览器回归和双分支同测的稳定入口、参数与扩展规则。
+- [合成满乘区 SQLite 双跑样本](./synthetic-full-multiplier-regression.md)：记录测试专用干员、武器、四件装备、三件套、技能定向 Buff、硬编码公式金值和真实 SQLite 双跑口径。
 - [1.8 LTS Slim 补测闭环](./v1.8-lts-slimming-test-closure.md)：逐域记录本轮新增测试、双跑口径、已确认风险与仍需平台终验的边界。
 - [1.8 LTS 瘦身测试基线](./v1.8-lts-slimming-baseline.md)：记录共同基线上的确定性结果、现有缺口、分批行为门禁与 AI 实施约束。
 - [1.8 LTS 瘦身工作账本](../maintenance/v1.8-lts-slimming-worklog.md)：记录旧 slim 逐提交证据、LTS 补丁保护点和迁移状态。

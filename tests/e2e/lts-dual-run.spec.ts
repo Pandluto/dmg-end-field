@@ -9,6 +9,19 @@ import {
   readCountEnvironment,
   readTextEnvironment,
 } from './regressionEnvironment';
+import {
+  SYNTHETIC_ALL_BUFF_LIST,
+  SYNTHETIC_CONFIG_SNAPSHOT,
+  SYNTHETIC_DAMAGE_GOLDEN,
+  SYNTHETIC_FULL_MULTIPLIER_TEMPLATE,
+  SYNTHETIC_LOCAL_DATA_ARCHIVE,
+  SYNTHETIC_TARGET_SKILL_EXPECTATIONS,
+  SYNTHETIC_TIMELINE_PAYLOAD,
+} from '../../src/core/calculators/skillDamageFullMultiplierData.fixture';
+import {
+  observeSyntheticArchiveAfterSqliteReload,
+  type SyntheticDamageReportObservation,
+} from './syntheticRegressionArchiveHarness';
 
 const LTS_BASE_URL = process.env.LTS_DUAL_BASE_URL || 'http://127.0.0.1:3030';
 const SLIM_BASE_URL = process.env.SLIM_DUAL_BASE_URL || 'http://127.0.0.1:3040';
@@ -186,6 +199,129 @@ interface CommonObservation {
     physicalResistance: string;
     persistedAfterReload: boolean;
   };
+  syntheticArchive: SyntheticDamageReportObservation;
+}
+
+function expectClose(actual: number, expected: number, label: string): void {
+  expect(actual, label).toBeCloseTo(expected, 7);
+}
+
+function expectSyntheticArchiveObservation(
+  observation: SyntheticDamageReportObservation,
+  label: string,
+): void {
+  expect(observation.package, `${label}: package contents`).toEqual({
+    packageId: SYNTHETIC_LOCAL_DATA_ARCHIVE.id,
+    operators: 1,
+    weapons: 1,
+    equipmentSets: 1,
+    equipments: 4,
+    buffGroups: 1,
+    buffItems: 2,
+    importedTimelineArchives: 1,
+  });
+  expect(observation.sqlite.characterCount, `${label}: SQLite character count`).toBe(1);
+  expect(observation.sqlite.buttonCount, `${label}: SQLite button count`).toBe(6);
+  expect(observation.sqlite.buffCount, `${label}: SQLite Buff count`).toBe(SYNTHETIC_ALL_BUFF_LIST.length);
+
+  expect(observation.fixture.operatorName, `${label}: synthetic operator`).toBe('测试满乘区干员');
+  expect(observation.fixture.weaponName, `${label}: synthetic weapon`).toBe('测试满乘区武器');
+  expect(observation.fixture.equipmentNames, `${label}: synthetic equipment`).toEqual([
+    '测试配件一',
+    '测试配件二',
+    '测试护甲',
+    '测试护手',
+  ]);
+  expect(observation.fixture.threePieceBuffNames, `${label}: synthetic three-piece set`).toEqual([
+    '测试套装攻击',
+    '测试套装全伤',
+    '测试套装技艺',
+    '测试套装自然条件',
+  ]);
+
+  const definitions = observation.fixture.buffDefinitions;
+  expect(definitions.some((buff) => buff.category === 'passive'), `${label}: passive/default-active Buff`).toBe(true);
+  expect(definitions.some((buff) => buff.category === 'condition'), `${label}: conditional Buff`).toBe(true);
+  expect(
+    definitions.some((buff) => buff.category === 'countable' && buff.maxStacks === 3),
+    `${label}: countable Buff`,
+  ).toBe(true);
+  expect(
+    definitions.some((buff) => buff.valueMode === 'derived' && buff.derivedSource === 'atk'),
+    `${label}: value-derived Buff`,
+  ).toBe(true);
+  expect(
+    definitions.some((buff) => (buff.multiplierCoefficient ?? 0) > 1),
+    `${label}: direct multiplier Buff`,
+  ).toBe(true);
+
+  expect(observation.report.buttonCount, `${label}: damage report button count`).toBe(6);
+  const reportButtons = new Map(observation.report.buttons.map((button) => [button.id, button]));
+  for (const skillType of ['A', 'B', 'E', 'Q', 'Dot'] as const) {
+    const expectedTarget = SYNTHETIC_TARGET_SKILL_EXPECTATIONS[skillType];
+    const button = reportButtons.get(expectedTarget.buttonId);
+    expect(button, `${label}: ${skillType} target button`).toBeDefined();
+    if (!button) continue;
+
+    expect(button.skillType, `${label}: ${skillType} button type`).toBe(skillType);
+    const golden = SYNTHETIC_DAMAGE_GOLDEN.targetCaseFinals[skillType];
+    const goldenHits = golden.expected;
+    expect(button.hits, `${label}: ${skillType} hit count`).toHaveLength(goldenHits.length);
+    button.hits.forEach((hit, index) => {
+      expectClose(hit.expected, goldenHits[index], `${label}: ${skillType}[${index}] golden damage`);
+      expectClose(hit.nonCrit, golden.nonCrit[index], `${label}: ${skillType}[${index}] golden non-crit`);
+    });
+    const appliedBuffIds = new Set(button.hits.flatMap((hit) => hit.buffs.map((buff) => buff.id)));
+    expectedTarget.matchedBuffIds.forEach((buffId) => {
+      expect(appliedBuffIds.has(buffId), `${label}: ${skillType} should apply ${buffId}`).toBe(true);
+    });
+    expectedTarget.unmatchedBuffIds.forEach((buffId) => {
+      expect(appliedBuffIds.has(buffId), `${label}: ${skillType} should reject ${buffId}`).toBe(false);
+    });
+  }
+
+  const fullButtonId = `synthetic-button-${SYNTHETIC_FULL_MULTIPLIER_TEMPLATE.runtimeSkillId}`;
+  const fullButton = reportButtons.get(fullButtonId);
+  expect(fullButton, `${label}: comprehensive multiplier button`).toBeDefined();
+  if (!fullButton) return;
+  expect(fullButton.skillName, `${label}: comprehensive skill identity`).toBe(
+    SYNTHETIC_FULL_MULTIPLIER_TEMPLATE.displayName,
+  );
+  fullButton.hits.forEach((hit, index) => {
+    expectClose(hit.expected, SYNTHETIC_DAMAGE_GOLDEN.full.expected[index], `${label}: full[${index}] expected`);
+    expectClose(hit.nonCrit, SYNTHETIC_DAMAGE_GOLDEN.full.nonCrit[index], `${label}: full[${index}] non-crit`);
+    expect(hit.resistance.corrosion, `${label}: full[${index}] corrosion`).toBeGreaterThan(0);
+    expect(hit.resistance.resistanceIgnore, `${label}: full[${index}] resistance ignore`).toBeGreaterThan(0);
+    expect(hit.resistance.resistanceZone, `${label}: full[${index}] resistance zone`).not.toBe(1);
+    expect(hit.zones.map((zone) => zone.key), `${label}: full[${index}] exposed zones`).toEqual([
+      'skillMultiplier',
+      'damageBonus',
+      'amplify',
+      'fragile',
+      'vulnerability',
+    ]);
+    hit.zones.forEach((zone) => {
+      expect(zone.additiveTotal, `${label}: full[${index}] ${zone.key} additive`).toBeGreaterThan(0);
+      expect(zone.multiplierProduct, `${label}: full[${index}] ${zone.key} multiplier`).toBeGreaterThan(1);
+      expect(zone.finalValue, `${label}: full[${index}] ${zone.key} final`).not.toBe(1);
+    });
+
+    const buffById = new Map(hit.buffs.map((buff) => [buff.id, buff]));
+    expect(
+      buffById.get('skill-multiplier-multiplier'),
+      `${label}: full[${index}] direct multiplier contribution`,
+    ).toMatchObject({
+      effectiveValue: 1.18,
+      multiplierCoefficient: 1.18,
+      multiplier: true,
+    });
+  });
+
+  const expectedTotal = Object.values(SYNTHETIC_DAMAGE_GOLDEN.targetCaseFinals)
+    .flatMap((golden) => [...golden.expected])
+    .concat([...SYNTHETIC_DAMAGE_GOLDEN.full.expected])
+    .reduce((sum, value) => sum + value, 0);
+  expectClose(observation.report.totalExpected, expectedTotal, `${label}: report total expected`);
 }
 
 async function observeEditorThemes(
@@ -928,6 +1064,17 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
       observeOperator(page, target.baseUrl));
     const timelineResult = await test.step(`${target.name}: Timeline/detail/report/config/batch`, () =>
       observeTimeline(page, target));
+    const syntheticArchive = await test.step(
+      `${target.name}: synthetic data package -> SQLite -> damage report`,
+      () => observeSyntheticArchiveAfterSqliteReload(page, target.baseUrl, {
+        archive: SYNTHETIC_LOCAL_DATA_ARCHIVE as unknown as Record<string, unknown>,
+        archiveId: SYNTHETIC_LOCAL_DATA_ARCHIVE.timelineArchives?.[0]?.archiveId ?? '',
+        operatorId: SYNTHETIC_CONFIG_SNAPSHOT.operator.id,
+        packageId: SYNTHETIC_LOCAL_DATA_ARCHIVE.id,
+        workspaceLabel: '测试满乘区 SQLite',
+        expectedButtonCount: Object.keys(SYNTHETIC_TIMELINE_PAYLOAD.skillButtonTable).length,
+      }),
+    );
 
     return {
       common: {
@@ -940,6 +1087,7 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
         themes,
         liveThemes,
         timeline: timelineResult.timeline,
+        syntheticArchive,
       },
       capabilities: {
         ...legacy,
@@ -975,6 +1123,8 @@ test('baseline and candidate share one black-box contract', async ({ browser }, 
 
   expect(baseline.browserErrors, `${targets[0].name} browser console/page errors`).toEqual([]);
   expect(slim.browserErrors, `${targets[1].name} browser console/page errors`).toEqual([]);
+  expectSyntheticArchiveObservation(baseline.common.syntheticArchive, targets[0].name);
+  expectSyntheticArchiveObservation(slim.common.syntheticArchive, targets[1].name);
   expect(slim.common, 'shared public behavior must remain equal').toEqual(baseline.common);
 
   expect(baseline.capabilities).toEqual(expectedCapabilities(targets[0]));

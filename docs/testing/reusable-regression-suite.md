@@ -12,7 +12,13 @@
 
 `npm run test:regression` 会依次执行 typecheck、全部 Node 合同和当前分支浏览器回归。生产发布仍需另外执行 `npm run check`；双跑需要两棵工作树，因此不隐式塞进普通 `check`。
 
-截至 2026-08-04，Slim 有 50 份相邻源码测试和 3 份浏览器 spec/helper。当前补测覆盖矩阵、真实结果与未自动化边界见 [1.8 LTS Slim 补测闭环](./v1.8-lts-slimming-test-closure.md)。
+截至 2026-08-04，Slim 有 52 份相邻源码测试和 4 份浏览器 spec/helper。当前补测覆盖矩阵、真实结果与未自动化边界见 [1.8 LTS Slim 补测闭环](./v1.8-lts-slimming-test-closure.md)。
+
+## 专用满乘区回归样本
+
+`skillDamageFullMultiplier.fixture.test.ts` 与 `skillDamageFullMultiplierData.test.ts` 提供不依赖用户存档的硬编码公式合同；`syntheticRegressionArchiveHarness.ts` 再把同一份测试专用干员、武器、四件装备、三件套和 Timeline archive 走完 Local Data → SQLite → 刷新恢复 → 伤害报告流程。双跑会让 3030 与 3040 分别执行该流程，同时要求两侧相等且各自命中独立 golden。
+
+完整技能/Buff 矩阵和维护规则见 [合成满乘区 SQLite 双跑样本](./synthetic-full-multiplier-regression.md)。以后新增乘区或 Buff 形态应扩展这一个样本，不复制用户存档或另建只能单侧运行的测试。
 
 ## 默认运行方式
 
