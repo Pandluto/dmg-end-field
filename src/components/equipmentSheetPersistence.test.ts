@@ -14,11 +14,16 @@ class MemoryStorage implements EquipmentLibraryStorage {
   readonly values = new Map<string, string>();
   readonly setCalls: Array<{ key: string; value: string }> = [];
   flushCalls = 0;
+  getFailureKey: string | null = null;
+  getFailure: Error | null = null;
   setFailureKey: string | null = null;
   setFailure: Error | null = null;
   flushImplementation: () => Promise<void> = async () => undefined;
 
   getItem(key: string): string | null {
+    if (key === this.getFailureKey) {
+      throw this.getFailure;
+    }
     return this.values.get(key) ?? null;
   }
 
@@ -164,6 +169,8 @@ for (const invalidDraftValue of [null, '', '   ', 'null', '{malformed']) {
 }
 
 const savedLibrary = normalizeEquipmentLibrary(makeRawLibrary('保存库'));
+const oldSavedLibrary = normalizeEquipmentLibrary(makeRawLibrary('旧值'));
+const newerSavedLibrary = normalizeEquipmentLibrary(makeRawLibrary('新值'));
 const saveStorage = new MemoryStorage();
 await createEquipmentLibraryRepository(saveStorage).saveLibrary(savedLibrary);
 const savedLibraryJson = saveStorage.values.get(EQUIPMENT_LIBRARY_STORAGE_KEY);
@@ -228,13 +235,99 @@ assert.equal(
 );
 
 const flushFailure = new Error('flush failed');
-const rejectedFlushStorage = new MemoryStorage();
+const rejectedFlushStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+  [EQUIPMENT_DRAFT_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
 rejectedFlushStorage.flushImplementation = async () => {
   throw flushFailure;
 };
+const rejectedFlushRepository = createEquipmentLibraryRepository(rejectedFlushStorage);
 await assert.rejects(
-  createEquipmentLibraryRepository(rejectedFlushStorage).saveLibrary(savedLibrary),
+  rejectedFlushRepository.saveLibrary(newerSavedLibrary),
   (error) => error === flushFailure,
+);
+assert.equal(rejectedFlushStorage.flushCalls, 1);
+assert.equal(
+  rejectedFlushStorage.values.get(EQUIPMENT_LIBRARY_STORAGE_KEY),
+  JSON.stringify(newerSavedLibrary),
+  'flush failure happens after both in-memory values have been replaced',
+);
+assert.equal(
+  rejectedFlushStorage.values.get(EQUIPMENT_DRAFT_STORAGE_KEY),
+  JSON.stringify(newerSavedLibrary),
+  'flush failure does not restore the draft cache value',
+);
+assert.equal(
+  rejectedFlushRepository.loadCachedLibrary().gearSets['gear-set-persistence'].name,
+  '新值',
+  'the repository reads the latest in-memory cache after a failed flush',
+);
+
+const firstSetFailure = new Error('first set failed');
+const firstSetFailureStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+  [EQUIPMENT_DRAFT_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
+firstSetFailureStorage.setFailureKey = EQUIPMENT_LIBRARY_STORAGE_KEY;
+firstSetFailureStorage.setFailure = firstSetFailure;
+const firstSetFailureRepository = createEquipmentLibraryRepository(firstSetFailureStorage);
+await assert.rejects(
+  firstSetFailureRepository.saveLibrary(newerSavedLibrary),
+  (error) => error === firstSetFailure,
+);
+assert.deepEqual(
+  firstSetFailureStorage.setCalls,
+  [],
+  'the first failed setItem must not be recorded as a successful write',
+);
+assert.equal(firstSetFailureStorage.flushCalls, 0);
+assert.equal(
+  firstSetFailureStorage.values.get(EQUIPMENT_LIBRARY_STORAGE_KEY),
+  JSON.stringify(oldSavedLibrary),
+);
+assert.equal(
+  firstSetFailureStorage.values.get(EQUIPMENT_DRAFT_STORAGE_KEY),
+  JSON.stringify(oldSavedLibrary),
+);
+assert.equal(
+  firstSetFailureRepository.loadCachedLibrary().gearSets['gear-set-persistence'].name,
+  '旧值',
+  'a first-key failure leaves both old cache values readable',
+);
+
+const secondSetFailure = new Error('second set failed');
+const secondSetFailureStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+  [EQUIPMENT_DRAFT_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
+secondSetFailureStorage.setFailureKey = EQUIPMENT_DRAFT_STORAGE_KEY;
+secondSetFailureStorage.setFailure = secondSetFailure;
+const secondSetFailureRepository = createEquipmentLibraryRepository(secondSetFailureStorage);
+await assert.rejects(
+  secondSetFailureRepository.saveLibrary(newerSavedLibrary),
+  (error) => error === secondSetFailure,
+);
+assert.deepEqual(
+  secondSetFailureStorage.setCalls.map(({ key }) => key),
+  [EQUIPMENT_LIBRARY_STORAGE_KEY],
+  'the library key is written before the draft key is attempted',
+);
+assert.equal(secondSetFailureStorage.flushCalls, 0);
+assert.equal(
+  secondSetFailureStorage.values.get(EQUIPMENT_LIBRARY_STORAGE_KEY),
+  JSON.stringify(newerSavedLibrary),
+  'the first key remains updated when the second setItem fails',
+);
+assert.equal(
+  secondSetFailureStorage.values.get(EQUIPMENT_DRAFT_STORAGE_KEY),
+  JSON.stringify(oldSavedLibrary),
+  'the second key retains its old value when its setItem fails',
+);
+assert.equal(
+  secondSetFailureRepository.loadCachedLibrary().gearSets['gear-set-persistence'].name,
+  '新值',
+  'the non-empty library key remains the cache priority after a partial write',
 );
 
 for (const failedKey of [EQUIPMENT_LIBRARY_STORAGE_KEY, EQUIPMENT_DRAFT_STORAGE_KEY]) {
@@ -248,5 +341,78 @@ for (const failedKey of [EQUIPMENT_LIBRARY_STORAGE_KEY, EQUIPMENT_DRAFT_STORAGE_
   );
   assert.equal(rejectedSetStorage.flushCalls, 0, 'flush must not run after a setItem failure');
 }
+
+const libraryReadFailureStorage = storageWith([
+  [EQUIPMENT_DRAFT_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
+libraryReadFailureStorage.getFailureKey = EQUIPMENT_LIBRARY_STORAGE_KEY;
+libraryReadFailureStorage.getFailure = new Error('library read failed');
+assert.equal(
+  createEquipmentLibraryRepository(libraryReadFailureStorage)
+    .loadCachedLibrary()
+    .gearSets['gear-set-persistence'].name,
+  '旧值',
+  'a library read failure falls back to the draft cache',
+);
+
+const draftReadFailureStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(normalizeEquipmentLibrary(null))],
+]);
+draftReadFailureStorage.getFailureKey = EQUIPMENT_DRAFT_STORAGE_KEY;
+draftReadFailureStorage.getFailure = new Error('draft read failed');
+assert.deepEqual(
+  createEquipmentLibraryRepository(draftReadFailureStorage).loadCachedLibrary(),
+  normalizedEmptyLibrary,
+  'a draft read failure returns a normalized empty library after an empty primary cache',
+);
+
+const liveCacheStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
+const liveCacheRepository = createEquipmentLibraryRepository(liveCacheStorage);
+assert.equal(
+  liveCacheRepository.loadCachedLibrary().gearSets['gear-set-persistence'].name,
+  '旧值',
+);
+liveCacheStorage.values.set(EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(newerSavedLibrary));
+assert.equal(
+  liveCacheRepository.loadCachedLibrary().gearSets['gear-set-persistence'].name,
+  '新值',
+  'loadCachedLibrary must not retain a stale repository-local snapshot',
+);
+
+const supersededByEqualCloneRepository = createEquipmentLibraryRepository(new MemoryStorage());
+assert.equal(
+  await supersededByEqualCloneRepository.saveLibraryRevision(
+    savedLibrary,
+    () => structuredClone(savedLibrary),
+  ),
+  'superseded',
+  'revision status uses snapshot identity, not deep equality',
+);
+
+let failedRevisionCurrentLookupCalls = 0;
+const failedRevisionStorage = storageWith([
+  [EQUIPMENT_LIBRARY_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+  [EQUIPMENT_DRAFT_STORAGE_KEY, JSON.stringify(oldSavedLibrary)],
+]);
+failedRevisionStorage.flushImplementation = async () => {
+  throw new Error('revision flush failed');
+};
+await assert.rejects(
+  createEquipmentLibraryRepository(failedRevisionStorage).saveLibraryRevision(
+    newerSavedLibrary,
+    () => {
+      failedRevisionCurrentLookupCalls += 1;
+      return newerSavedLibrary;
+    },
+  ),
+  /revision flush failed/,
+);
+assert.equal(
+  failedRevisionCurrentLookupCalls,
+  0,
+  'current/superseded lookup must not run when durable flush fails',
+);
 
 console.log('Equipment cached library repository and durable flush contract: PASS');

@@ -232,6 +232,7 @@ async function readPersistedSkillButton(page: Page, buttonId: string): Promise<{
   globallyDisabledBuffIds: string[];
   manualDisabledBuffIdsBySegmentKey: Record<string, string[]>;
   manualBuffStackCountsBySegmentKey: Record<string, Record<string, number>>;
+  targetResistance: Record<string, number>;
 }> {
   return page.evaluate(async (targetButtonId) => {
     const moduleUrl = performance
@@ -248,8 +249,55 @@ async function readPersistedSkillButton(page: Page, buttonId: string): Promise<{
       globallyDisabledBuffIds: button.panelConfig?.globallyDisabledBuffIds ?? [],
       manualDisabledBuffIdsBySegmentKey: button.panelConfig?.manualDisabledBuffIdsBySegmentKey ?? {},
       manualBuffStackCountsBySegmentKey: button.panelConfig?.manualBuffStackCountsBySegmentKey ?? {},
+      targetResistance: button.resistanceConfig?.targetResistance ?? {},
     };
   }, buttonId);
+}
+
+type BrowserWorkbenchCommandResult = {
+  id: string;
+  status: 'pending' | 'running' | 'done' | 'error';
+  result?: Record<string, unknown>;
+  error?: string;
+};
+
+async function enqueueBrowserWorkbenchCommand(
+  page: Page,
+  command: Record<string, unknown>,
+  id: string,
+): Promise<string> {
+  return page.evaluate(async ({ command: nextCommand, id: commandId }) => {
+    const moduleUrl = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/utils\/mainWorkbenchControl\.ts(?:\?|$)/.test(name));
+    if (!moduleUrl) throw new Error('The active Main Workbench control module URL is unavailable.');
+    const control = await import(/* @vite-ignore */ moduleUrl);
+    return control.enqueueMainWorkbenchCommand(nextCommand, 'slim-e2e', commandId).id as string;
+  }, { command, id });
+}
+
+async function readBrowserWorkbenchCommand(
+  page: Page,
+  id: string,
+): Promise<BrowserWorkbenchCommandResult | null> {
+  return page.evaluate(async (commandId) => {
+    const moduleUrl = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/utils\/mainWorkbenchControl\.ts(?:\?|$)/.test(name));
+    if (!moduleUrl) throw new Error('The active Main Workbench control module URL is unavailable.');
+    const control = await import(/* @vite-ignore */ moduleUrl);
+    const entry = control.readMainWorkbenchCommandQueue().find((item: { id: string }) => item.id === commandId);
+    return entry
+      ? {
+          id: entry.id,
+          status: entry.status,
+          result: entry.result,
+          error: entry.error,
+        }
+      : null;
+  }, id);
 }
 
 async function increaseActiveOperatorPanelAtk(page: Page, buttonId: string): Promise<{
@@ -323,6 +371,7 @@ async function readSkillButtonPanelDiagnostics(page: Page, buttonId: string): Pr
 }
 
 test('candidate browser behavior regression', async ({ context, page }) => {
+  test.setTimeout(240_000);
   const browserErrors: string[] = [];
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
   page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
@@ -368,6 +417,54 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     for (const [path, heading] of routes) {
       await openRoute(page, path, heading);
     }
+  });
+
+  await test.step('all five themes switch live without reloading the mounted app', async () => {
+    await page.goto(`${BASE_URL}/#/settings`);
+    await expect(page.getByRole('heading', { name: '界面主题', exact: true })).toBeVisible();
+    await page.evaluate(() => {
+      document.body.dataset.slimE2eThemeMarker = 'mounted';
+    });
+
+    const themeIds = [
+      'apple-midnight',
+      'apple-warm',
+      'lieflat-mono',
+      'liquid-tide',
+      'office-excel',
+    ] as const;
+    const tokenSignatures: string[] = [];
+
+    for (const themeId of themeIds) {
+      const option = page.locator(`.theme-option.is-${themeId}`);
+      await option.click();
+      await expect(page.locator('html')).toHaveAttribute('data-theme', themeId);
+      await expect(page.locator('html')).not.toHaveAttribute('data-theme-pending', themeId);
+      await expect(option).toHaveAttribute('aria-checked', 'true');
+      expect(await page.evaluate(() => document.body.dataset.slimE2eThemeMarker)).toBe('mounted');
+      expect(await page.evaluate(() => window.localStorage.getItem('dmg.appearance.theme.v1'))).toBe(themeId);
+
+      const tokenSignature = await page.evaluate(() => {
+        const style = getComputedStyle(document.documentElement);
+        return [
+          style.getPropertyValue('--theme-bg-window').trim(),
+          style.getPropertyValue('--theme-text-title').trim(),
+          style.getPropertyValue('--theme-accent-main').trim(),
+          style.getPropertyValue('--theme-radius-control').trim(),
+        ].join('|');
+      });
+      expect(tokenSignature.split('|').every(Boolean)).toBe(true);
+      tokenSignatures.push(tokenSignature);
+
+      if (themeId === 'liquid-tide') {
+        await expect(option).toHaveAttribute('data-liquid-glass-surface', 'true');
+      }
+    }
+
+    expect(new Set(tokenSignatures).size).toBe(themeIds.length);
+    await page.evaluate(() => {
+      delete document.body.dataset.slimE2eThemeMarker;
+    });
   });
 
   await test.step('Buff draft saves through browser storage and survives reload', async () => {
@@ -442,13 +539,18 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/\.json$/);
 
+    await page.locator('.buff-sheet-share-modal-mask').click({ position: { x: 4, y: 4 } });
+    await expect(shareModal).toHaveCount(0);
+    await page.getByRole('button', { name: '导出', exact: true }).click();
+    await expect(shareModal).toBeVisible();
+
     await shareModal.locator('.buff-sheet-share-modal-tab').filter({ hasText: '导入' }).click();
     const importText = shareModal.locator('.buff-sheet-share-textarea:not(.is-preview)');
     await importText.fill(JSON.stringify({ type: 'not-a-buff-share', payload: {} }));
     await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
     await expect(shareModal.getByText('JSON 无效，或不是 Buff 分享文件。', { exact: true })).toBeVisible();
 
-    await importText.fill(JSON.stringify({
+    const validBuffShare = JSON.stringify({
       type: 'buff-library-share.v1',
       exportedAt: Date.now(),
       label: 'Slim E2E Import',
@@ -460,8 +562,15 @@ test('candidate browser behavior regression', async ({ context, page }) => {
         },
         invalid: {},
       },
-    }));
-    await shareModal.getByRole('button', { name: '读取粘贴内容', exact: true }).click();
+    });
+    const fileChooserPromise = page.waitForEvent('filechooser');
+    await shareModal.getByRole('button', { name: '导入文件', exact: true }).click();
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles({
+      name: 'slim-e2e-buff-share.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(validBuffShare),
+    });
     await expect(shareModal.getByText('名称：Slim E2E Import', { exact: true })).toBeVisible();
     await expect(shareModal.getByText('分组数：1', { exact: true })).toBeVisible();
     await shareModal.getByRole('button', { name: '确认导入', exact: true }).click();
@@ -519,7 +628,7 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await page.getByRole('button', { name: '导出', exact: true }).click();
     const shareModal = page.locator('.buff-sheet-share-modal');
     const sharePreview = shareModal.locator('.buff-sheet-share-textarea.is-preview');
-    const shareText = await sharePreview.inputValue();
+    let shareText = await sharePreview.inputValue();
     const parsedShare = JSON.parse(shareText) as {
       type: string;
       exportedAt: number;
@@ -532,6 +641,21 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     if (!sourceDraft) throw new Error('Exported Weapon draft is missing from share preview.');
     const sourceSkills = sourceDraft.skills as Record<string, Record<string, unknown>>;
     const sourceSkill3 = sourceSkills.skill3;
+
+    await shareModal.getByRole('button', { name: '导出全部', exact: true }).click();
+    const allWeaponShare = JSON.parse(await sharePreview.inputValue()) as {
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(allWeaponShare.payload).length).toBeGreaterThan(1);
+    expect(Object.values(allWeaponShare.payload).some((value) => value.name === 'Slim E2E Weapon')).toBe(true);
+    await shareModal.getByRole('button', { name: '导出当前', exact: true }).click();
+    shareText = await sharePreview.inputValue();
+    const currentWeaponShare = JSON.parse(shareText) as {
+      label: string;
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(currentWeaponShare.label).toBe('Slim E2E Weapon');
+    expect(Object.keys(currentWeaponShare.payload)).toHaveLength(1);
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
@@ -617,6 +741,24 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await expect(secondEffectRow).toContainText('Second Weapon Effect');
     await expect(mainValueRow).toContainText('value');
     await expect(mainValueRow).not.toHaveClass(/is-draggable/);
+
+    await firstEffectRow.dispatchEvent('contextmenu', {
+      button: 2,
+      clientX: 240,
+      clientY: 180,
+    });
+    const weaponContextMenu = page.locator('.buff-sheet-context-menu');
+    await expect(weaponContextMenu).toBeVisible();
+    await expect(weaponContextMenu.getByRole('button')).toHaveText([
+      '按 Lv1/Lv9 补全等级',
+      /^(?:展开|折叠)等级$/,
+      '编辑 Buff',
+      '复制效果',
+      '删除效果',
+    ]);
+    await page.keyboard.press('Escape');
+    await expect(weaponContextMenu).toHaveCount(0);
+
     await mainValueRow.scrollIntoViewIfNeeded();
     const mainValueBox = await mainValueRow.boundingBox();
     if (!mainValueBox) throw new Error('Weapon main value is not available for drag guard test.');
@@ -786,7 +928,7 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await page.getByRole('button', { name: '导出', exact: true }).click();
     const shareModal = page.locator('.buff-sheet-share-modal');
     const sharePreview = shareModal.locator('.buff-sheet-share-textarea.is-preview');
-    const shareText = await sharePreview.inputValue();
+    let shareText = await sharePreview.inputValue();
     const parsedShare = JSON.parse(shareText) as {
       type: string;
       exportedAt: number;
@@ -804,6 +946,24 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     ).find((equipment) => equipment.name === 'Slim E2E Equipment');
     if (!sourceEquipment) throw new Error('Exported Equipment item is missing from share preview.');
     expect(sourceEquipment.imgUrl).toBe(addedUserImageRelativePath);
+
+    await shareModal.getByRole('button', { name: '导出全部', exact: true }).click();
+    const allEquipmentShare = JSON.parse(await sharePreview.inputValue()) as {
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(allEquipmentShare.payload).length).toBeGreaterThan(1);
+    expect(Object.values(allEquipmentShare.payload).some((gearSet) => Object.values(
+      gearSet.equipments as Record<string, Record<string, unknown>> ?? {},
+    ).some((equipment) => equipment.name === 'Slim E2E Equipment'))).toBe(true);
+    await shareModal.getByRole('button', { name: '导出当前', exact: true }).click();
+    shareText = await sharePreview.inputValue();
+    const currentEquipmentShare = JSON.parse(shareText) as {
+      payload: Record<string, Record<string, unknown>>;
+    };
+    expect(Object.keys(currentEquipmentShare.payload)).toHaveLength(1);
+    expect(Object.values(currentEquipmentShare.payload).some((gearSet) => Object.values(
+      gearSet.equipments as Record<string, Record<string, unknown>> ?? {},
+    ).some((equipment) => equipment.name === 'Slim E2E Equipment'))).toBe(true);
 
     await shareModal.getByRole('button', { name: '复制 JSON', exact: true }).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(shareText);
@@ -1042,6 +1202,40 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await expect(skillIconPathInput).toHaveValue(operatorImageRelativePath);
     await expect(page.locator('.operator-draft-skill-hero-icon')).toHaveAttribute('src', /^blob:/);
 
+    const skillForm = page.locator('.operator-draft-skill-form');
+    await skillForm.getByLabel('技能名', { exact: true }).fill('Slim E2E Skill');
+    const skillButtonType = skillForm.locator('label').filter({ hasText: '按钮类型' }).locator('select');
+    await skillButtonType.selectOption('E');
+    const initialHitCount = await page.locator('.operator-draft-hit-item').count();
+    await page.getByRole('button', { name: '新增 Hit', exact: true }).click();
+    await expect(page.locator('.operator-draft-hit-item')).toHaveCount(initialHitCount + 1);
+    const hitDetail = page.locator('.operator-draft-hit-detail-card');
+    await hitDetail.getByLabel('名称', { exact: true }).fill('Slim E2E Hit');
+    const hitM3 = hitDetail.getByLabel('M3', { exact: true });
+    await hitM3.fill('2.75');
+    await hitM3.press('Enter');
+    const hitElement = hitDetail.locator('label').filter({ hasText: '伤害属性' }).locator('select');
+    const hitSkillType = hitDetail.locator('label').filter({ hasText: '技能乘区' }).locator('select');
+    await hitElement.selectOption('fire');
+    await hitSkillType.selectOption('E');
+
+    const buffPanel = page.locator('.operator-draft-buff-panel');
+    await buffPanel.getByRole('button', { name: '新增', exact: true }).click();
+    await expect(buffPanel.locator('.operator-draft-buff-item')).toHaveCount(1);
+    const buffDrawer = page.getByRole('dialog', { name: 'Buff 编辑器', exact: true });
+    await expect(buffDrawer).toBeVisible();
+    await buffDrawer.getByLabel('名称', { exact: true }).fill('Slim E2E Operator Buff');
+    await buffDrawer.locator('label').filter({ hasText: '业务类型' }).locator('select').selectOption('countable');
+    await buffDrawer.locator('label').filter({ hasText: /^typeKey/ }).locator('select').selectOption('fireVulnerability');
+    const buffValue = buffDrawer.getByLabel('数值', { exact: true });
+    await buffValue.fill('0.25');
+    await buffValue.press('Enter');
+    const maxStacks = buffDrawer.getByLabel('最大层数', { exact: true });
+    await maxStacks.fill('3');
+    await maxStacks.press('Enter');
+    await buffDrawer.getByRole('button', { name: '完成', exact: true }).click();
+    await expect(buffPanel.locator('.operator-draft-buff-item').first()).toContainText('Slim E2E Operator Buff');
+
     await page.getByRole('button', { name: '保存到本地', exact: true }).click();
 
     const localDrafts = page.getByRole('combobox', { name: '载入本地草稿', exact: true });
@@ -1053,6 +1247,17 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await expect(skillIconPathInput).toHaveValue(operatorImageRelativePath);
     await expect(page.locator('.operator-draft-avatar')).toHaveAttribute('src', /^blob:/);
     await expect(page.locator('.operator-draft-skill-hero-icon')).toHaveAttribute('src', /^blob:/);
+    await expect(skillForm.getByLabel('技能名', { exact: true })).toHaveValue('Slim E2E Skill');
+    await expect(skillButtonType).toHaveValue('E');
+    const savedHit = page.locator('.operator-draft-hit-item').filter({ hasText: 'Slim E2E Hit' });
+    await expect(savedHit).toHaveCount(1);
+    await savedHit.click();
+    await expect(hitDetail.getByLabel('M3', { exact: true })).toHaveValue('2.75');
+    await expect(hitElement).toHaveValue('fire');
+    await expect(hitSkillType).toHaveValue('E');
+    await expect(buffPanel.locator('.operator-draft-buff-item').filter({
+      hasText: 'Slim E2E Operator Buff',
+    })).toHaveCount(1);
 
     await page.getByRole('button', { name: '分享库', exact: true }).click();
     const operatorShareModal = page.locator('.operator-draft-share-modal');
@@ -1066,7 +1271,28 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     expect(sourceOperatorDraft).toBeTruthy();
     expect(sourceOperatorDraft.avatarUrl).toBe(operatorImageRelativePath);
     const sourceOperatorSkills = sourceOperatorDraft.skills as Record<string, Record<string, unknown>>;
-    expect(Object.values(sourceOperatorSkills)[0]?.iconUrl).toBe(operatorImageRelativePath);
+    const sourceOperatorSkill = Object.values(sourceOperatorSkills)[0];
+    expect(sourceOperatorSkill?.iconUrl).toBe(operatorImageRelativePath);
+    expect(sourceOperatorSkill?.displayName).toBe('Slim E2E Skill');
+    expect(sourceOperatorSkill?.buttonType).toBe('E');
+    const sourceOperatorHits = sourceOperatorSkill?.hitMeta as Record<string, Record<string, unknown>>;
+    expect(Object.values(sourceOperatorHits).some((hit) => (
+      hit.displayName === 'Slim E2E Hit'
+      && (hit.levels as Record<string, number>)?.M3 === 2.75
+      && hit.element === 'fire'
+      && hit.skillType === 'E'
+    ))).toBe(true);
+    const sourceOperatorBuffs = sourceOperatorDraft.buffs as Record<string, {
+      effects?: Record<string, Record<string, unknown>>;
+    }>;
+    const sourceOperatorBuff = Object.values(sourceOperatorBuffs)
+      .flatMap((group) => Object.values(group.effects ?? {}))
+      .find((effect) => effect.name === 'Slim E2E Operator Buff');
+    expect(sourceOperatorBuff).toMatchObject({
+      type: 'fireVulnerability',
+      value: 0.25,
+      maxStacks: 3,
+    });
 
     const operatorShareFileChooserPromise = page.waitForEvent('filechooser');
     await operatorShareModal.getByRole('button', { name: '导入分享', exact: true }).click();
@@ -1124,6 +1350,21 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await calculateDamageButton.click();
     await expect(page).toHaveURL(/#\/timeline\/report\/presentation$/);
     await expect(page.getByRole('heading', { name: '队伍配置', exact: true })).toBeVisible();
+    const pptToolbarGeometry = await page.locator('.report-ppt-toolbar').evaluate((toolbar) => {
+      const toolbarRect = toolbar.getBoundingClientRect();
+      const firstButtonRect = toolbar.querySelector('button')?.getBoundingClientRect();
+      const style = getComputedStyle(toolbar);
+      return {
+        height: toolbarRect.height,
+        paddingLeft: style.paddingLeft,
+        firstButtonOffset: firstButtonRect ? firstButtonRect.left - toolbarRect.left : -1,
+      };
+    });
+    expect(pptToolbarGeometry).toEqual({
+      height: 44,
+      paddingLeft: '70px',
+      firstButtonOffset: 70,
+    });
     await page.getByRole('button', { name: '返回', exact: true }).click();
     await expect(page.locator('.canvas-container')).toBeVisible();
 
@@ -1150,8 +1391,99 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     const skillButtonId = await skillButton.getAttribute('data-skill-button-id');
     expect(skillButtonId).toBeTruthy();
 
+    await test.step('Canvas command queue settles both successful and failed commands', async () => {
+      const successCommandId = `slim-e2e-refresh-${Date.now()}`;
+      await enqueueBrowserWorkbenchCommand(page, { op: 'refreshSnapshot' }, successCommandId);
+      await expect.poll(() => readBrowserWorkbenchCommand(page, successCommandId)).toMatchObject({
+        id: successCommandId,
+        status: 'done',
+        result: {
+          refreshed: true,
+          selectedCharacterCount: 4,
+          skillButtonCount: 1,
+        },
+      });
+
+      const errorCommandId = `slim-e2e-error-${Date.now()}`;
+      await enqueueBrowserWorkbenchCommand(page, {
+        op: 'setTargetResistance',
+        buttonId: 'missing-slim-e2e-button',
+        targetResistance: { physicalResistance: 20 },
+      }, errorCommandId);
+      await expect.poll(() => readBrowserWorkbenchCommand(page, errorCommandId)).toMatchObject({
+        id: errorCommandId,
+        status: 'error',
+        error: '技能按钮不存在: missing-slim-e2e-button',
+      });
+    });
+
     const timelineTheme = await page.locator('html').getAttribute('data-theme');
     expect(timelineTheme).toBeTruthy();
+
+    await test.step('OperatorConfig selects real equipment, entry levels, and a three-piece set', async () => {
+      await page.locator('.workbench-bottom-nav-button').filter({ hasText: '干员配置' }).click();
+      await expect(page.locator('.operator-config-page-root')).toBeVisible();
+
+      const selectEquipment = async (
+        circleSelector: string,
+        pickerHeading: string,
+        equipmentName: string,
+      ) => {
+        const circle = page.locator(circleSelector);
+        await circle.click();
+        const picker = page.locator('.operator-config-page-picker-modal');
+        await expect(picker.getByRole('heading', { name: pickerHeading, exact: true })).toBeVisible();
+        const name = picker.getByText(equipmentName, { exact: true });
+        await name.locator('xpath=ancestor::button[1]').click();
+        await expect(picker).toHaveCount(0);
+        await expect(circle.locator('img')).toHaveAttribute('alt', equipmentName);
+      };
+
+      await selectEquipment(
+        '.operator-config-page-equip-circle--1',
+        '选择护甲',
+        '旧锋装甲',
+      );
+      const armorEntryLevel = page.locator('button[aria-label="armor 词条 1 档位 L2"]');
+      await expect(armorEntryLevel).toBeEnabled();
+      await armorEntryLevel.click();
+      await expect(armorEntryLevel).toHaveAttribute('aria-pressed', 'true');
+
+      await selectEquipment(
+        '.operator-config-page-equip-circle--2',
+        '选择配件',
+        '旧锋刺刃',
+      );
+      await selectEquipment(
+        '.operator-config-page-equip-circle--4',
+        '选择护手',
+        '旧锋手甲',
+      );
+
+      await expect(page.locator('.operator-config-page-equip-set-empty')).toHaveCount(0);
+      await expect(page.locator('.operator-config-page-equip-set-line').first()).toBeVisible();
+      await page.getByRole('button', { name: '面板数据', exact: true }).click();
+      const panelDetail = page.locator('.operator-config-page-panel-detail-content');
+      await expect(panelDetail).toContainText('旧锋装甲');
+      await expect(panelDetail).toContainText('三件套效果');
+      await expect(panelDetail).toContainText('旧锋');
+      await page.locator('.operator-config-page-panel-detail-close').click();
+
+      await page.evaluate(() => {
+        window.location.hash = '#/timeline';
+      });
+      await expect(page.locator('.canvas-container')).toBeVisible();
+      await page.locator('.workbench-bottom-nav-button').filter({ hasText: '干员配置' }).click();
+      await expect(page.locator('.operator-config-page-equip-circle--1 img'))
+        .toHaveAttribute('alt', '旧锋装甲');
+      await expect(page.locator('button[aria-label="armor 词条 1 档位 L2"]'))
+        .toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.operator-config-page-equip-set-line').first()).toBeVisible();
+      await page.evaluate(() => {
+        window.location.hash = '#/timeline';
+      });
+      await expect(page.locator('.canvas-container')).toBeVisible();
+    });
 
     await page.locator('.workbench-bottom-nav-button').filter({ hasText: '批量 Buff' }).click();
     await expect(page.locator('.buff-batch-edit-workbench')).toBeVisible();
@@ -1162,6 +1494,34 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     const selectionCounter = page.locator('.buff-edit-selection-counter');
     await expect(batchSkillButton).toHaveCount(1);
     await expect(selectionCounter).toHaveText('已选 0/1');
+
+    await test.step('批量 Buff 角色快捷选择、编辑模式和键盘取消路径可用', async () => {
+      const wolfQuickSelect = page.getByRole('button', { name: '选择干员按钮 狼卫', exact: true });
+      await wolfQuickSelect.click();
+      await expect(selectionCounter).toHaveText('已选 1/1');
+      await wolfQuickSelect.click();
+      await expect(selectionCounter).toHaveText('已选 0/1');
+
+      const editModeButton = page.locator('.buff-edit-mode-button');
+      await editModeButton.click();
+      await expect(page.getByRole('heading', { name: '编辑目录', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('heading', { name: '编辑目录', exact: true })).toHaveCount(0);
+
+      await page.locator('.buff-edit-add-button').click();
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toBeVisible();
+      await page.keyboard.press('Tab');
+      const candidateModal = page.locator('.buff-edit-candidate-modal');
+      await expect(candidateModal).toBeVisible();
+      await candidateModal.getByRole('button', { name: '异常状态区', exact: true }).click();
+      await expect(candidateModal.locator('.skill-anomaly-layout')).toBeVisible();
+      await expect(candidateModal.getByText('异常状态区', { exact: true }).first()).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(candidateModal).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toHaveCount(0);
+    });
 
     await test.step('批量 Buff 普通点击支持选择、取消和清空', async () => {
       await batchSkillButton.click();
@@ -1269,6 +1629,35 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     await expect(page.locator('.timeline-summary-card')).toBeVisible();
     await expect(page.getByRole('heading', { name: '计算过程', exact: true })).toBeVisible();
     await expect(page.locator('html')).toHaveAttribute('data-theme', timelineTheme!);
+
+    await test.step('详情页逐 Hit 展开、选择和目标抗性会写回按钮配置', async () => {
+      const hits = page.locator('.timeline-detail-hit');
+      expect(await hits.count()).toBeGreaterThan(0);
+      await expect(hits.first()).toHaveClass(/is-selected/);
+      await hits.first().click();
+      await expect(hits.first()).not.toHaveClass(/is-selected/);
+      await hits.nth(1).click();
+      await expect(hits.nth(1)).toHaveClass(/is-selected/);
+
+      const expandAll = page.getByRole('button', { name: '展开全部 Hit 微调', exact: true });
+      await expandAll.click();
+      await expect(page.getByRole('button', { name: '收起全部 Hit 微调', exact: true })).toBeVisible();
+      expect(await page.locator('.timeline-tuning-inline-actions').count()).toBeGreaterThan(0);
+
+      await page.getByRole('button', { name: '目标抗性', exact: true }).click();
+      const resistanceCard = page.locator('.timeline-resistance-card');
+      await expect(resistanceCard).toBeVisible();
+      const physicalResistance = resistanceCard
+        .getByText('物理', { exact: true })
+        .locator('xpath=..')
+        .locator('input');
+      await physicalResistance.fill('37');
+      await physicalResistance.press('Enter');
+      await expect(physicalResistance).toHaveValue('37');
+      await expect.poll(async () => (
+        await readPersistedSkillButton(page, skillButtonId!)
+      ).targetResistance.physicalResistance).toBe(37);
+    });
 
     await page.getByRole('dialog', { name: '技能排轴详情', exact: true })
       .getByRole('button', { name: '关闭', exact: true })

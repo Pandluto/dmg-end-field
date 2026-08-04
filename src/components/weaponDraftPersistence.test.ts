@@ -9,12 +9,17 @@ import {
 
 class MemoryStorage implements WeaponDraftStorage {
   readonly values = new Map<string, string>();
+  failure: Error | null = null;
+  failureKey: string | null = null;
 
   getItem(key: string): string | null {
     return this.values.get(key) ?? null;
   }
 
   setItem(key: string, value: string): void {
+    if (key === this.failureKey) {
+      throw this.failure;
+    }
     this.values.set(key, value);
   }
 }
@@ -80,5 +85,19 @@ assert.deepEqual(JSON.parse(storage.getItem(WEAPON_DRAFT_STORAGE_KEY) ?? ''), se
 assert.deepEqual(JSON.parse(storage.getItem(WEAPON_LIBRARY_STORAGE_KEY) ?? ''), {
   'saved-weapon': serializedDraft,
 });
+
+for (const [failedKey, save] of [
+  [WEAPON_DRAFT_STORAGE_KEY, () => repository.saveDraft(savedDraft)],
+  [WEAPON_LIBRARY_STORAGE_KEY, () => repository.saveLibrary({ 'saved-weapon': savedDraft })],
+] as const) {
+  const previousValue = storage.getItem(failedKey);
+  const failure = new Error(`write failed: ${failedKey}`);
+  storage.failureKey = failedKey;
+  storage.failure = failure;
+  assert.throws(save, (error) => error === failure, `${failedKey} must propagate storage failures`);
+  assert.equal(storage.getItem(failedKey), previousValue, `${failedKey} must retain its previous value after a failed write`);
+  storage.failureKey = null;
+  storage.failure = null;
+}
 
 console.log('Weapon SQLite draft repository contract: PASS');

@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import {
   applyBuffCategory,
   applyBuffEffectKind,
+  buildFallbackEffectDisplayName,
   buildBuffDraftIdFromName,
   buildBuffSheetRows,
   createDefaultBuffEffect,
+  formatBuffEffectValueText,
+  formatEffectValueForDisplay,
   getNextDraftId,
   normalizeBuffDraft,
   parseImportedBuffDraft,
   reorderDraftStructure,
+  sanitizeExplicitEffectDisplayName,
   setBuffMaxStacks,
   setBuffMultiplierCoefficient,
   type BuffDraft,
@@ -47,6 +51,82 @@ assert.deepEqual(normalizeBuffDraft(legacyDraft), legacyDraft, 'normalization mu
 assert.equal(buildBuffDraftIdFromName('潮涌'), 'chaoyong');
 assert.equal(buildBuffDraftIdFromName('  '), '');
 assert.equal(getNextDraftId(['custom-buff-001', 'custom-buff-002']), 'custom-buff-003');
+
+assert.equal(formatEffectValueForDisplay({ type: 'physicalDmgBonus', value: 12.5 }), '12.5%');
+assert.equal(formatEffectValueForDisplay({ type: 'multiplierBonus', value: 1.25 }), '1.25x');
+assert.equal(formatEffectValueForDisplay({ type: 'multiplierBonus', value: 3 }), '3');
+assert.equal(formatEffectValueForDisplay({ type: 'flatAtk', value: 42 }), '42');
+assert.equal(formatEffectValueForDisplay({ type: 'flatAtk', value: 0 }), '');
+assert.equal(formatEffectValueForDisplay({ type: 'flatAtk', value: Number.NaN }), '');
+
+assert.equal(
+  sanitizeExplicitEffectDisplayName('说明，20%20%物理伤害加成', '物理伤害加成'),
+  '说明，物理伤害加成',
+  'repeated numeric prefixes before a type label must be removed once',
+);
+assert.equal(
+  sanitizeExplicitEffectDisplayName('说明：20%30%物理伤害加成 +5%', '物理伤害加成'),
+  '说明：物理伤害加成 +5%',
+  'concatenated natural-language values before a signed clause must be removed',
+);
+assert.equal(
+  sanitizeExplicitEffectDisplayName('自然语言物理伤害加成效果', '物理伤害加成'),
+  '自然语言物理伤害加成效果',
+  'ordinary user-authored display names must remain untouched',
+);
+assert.equal(
+  sanitizeExplicitEffectDisplayName('20%20%伤害(%)', '伤害(%)'),
+  '伤害(%)',
+  'type labels containing regular-expression characters must be escaped',
+);
+
+const generatedPhysicalName = buildFallbackEffectDisplayName('buff-7', {
+  displayName: 'Buff 效果 07',
+  name: 'custom_buff_007',
+  type: 'physicalDmgBonus',
+  value: 12,
+}, 'Buff 效果 07');
+assert.equal(generatedPhysicalName, '12%物理伤害加成');
+assert.equal(
+  buildFallbackEffectDisplayName('buff-7', {
+    displayName: '物理伤害加成',
+    type: 'physicalDmgBonus',
+    value: 12,
+  }, 'Buff 效果 07'),
+  generatedPhysicalName,
+  'a bare type label and a generated default must normalize identically',
+);
+assert.equal(
+  buildFallbackEffectDisplayName('buff-7', {
+    displayName: generatedPhysicalName,
+    type: 'physicalDmgBonus',
+    value: 12,
+  }, 'Buff 效果 07'),
+  generatedPhysicalName,
+  'generated display names must be idempotent',
+);
+assert.equal(
+  buildFallbackEffectDisplayName('buff-7', {
+    name: 'meaningful_internal_name',
+    type: '',
+  }, 'Buff 效果 07'),
+  'meaningful_internal_name',
+);
+assert.equal(
+  buildFallbackEffectDisplayName('buff-7', {
+    name: 'custom_buff_007',
+    description: '12345678901234567890',
+    type: '',
+  }, 'Buff 效果 07'),
+  '123456789012345678...',
+);
+
+assert.equal(formatBuffEffectValueText({ type: 'physicalAmplify', value: 12.5 }), '12.5%');
+assert.equal(formatBuffEffectValueText({ multiplier: { coefficient: 1.75 } }), '×1.75');
+assert.equal(formatBuffEffectValueText({
+  effectKind: 'extraHit',
+  extraHitConfig: { baseMultiplier: 3 } as never,
+}), '3x');
 
 const baseEffect = {
   ...createDefaultBuffEffect('buff-3', '测试来源'),

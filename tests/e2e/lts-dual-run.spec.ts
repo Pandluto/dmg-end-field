@@ -132,6 +132,15 @@ interface CommonObservation {
   operator: {
     persisted: boolean;
     shareType: string;
+    skillName: string;
+    skillType: string;
+    hitName: string;
+    hitM3: number | null;
+    hitElement: string;
+    hitSkillType: string;
+    buffType: string;
+    buffValue: number | null;
+    buffMaxStacks: number | null;
   };
   themes: Array<{
     theme: string;
@@ -145,6 +154,11 @@ interface CommonObservation {
       liquidSurface: string;
     }>;
   }>;
+  liveThemes: Array<{
+    theme: string;
+    tokenSignature: string;
+    stored: string | null;
+  }>;
   timeline: {
     selectedCharacters: number;
     skillButtons: number;
@@ -155,7 +169,23 @@ interface CommonObservation {
     calculation: string;
     reportMeta: string;
     operatorConfigVisible: boolean;
+    operatorEquipmentNames: string[];
+    operatorEquipmentLevel: string | null;
+    operatorSetBuffLines: string[];
     buffBatchSelected: string;
+    buffBatchSecondaryPaths: boolean;
+    commandSuccess: {
+      status: string;
+      selectedCharacterCount: number | null;
+      skillButtonCount: number | null;
+    };
+    commandError: {
+      status: string;
+      error: string;
+    };
+    hitCount: number;
+    selectedHitLabel: string;
+    physicalResistance: string;
     persistedAfterReload: boolean;
   };
 }
@@ -258,6 +288,86 @@ async function observeEditorThemes(
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'office-excel');
   return observations;
+}
+
+async function observeLiveThemeSwitch(
+  page: Page,
+  baseUrl: string,
+): Promise<CommonObservation['liveThemes']> {
+  await page.goto(`${baseUrl}/#/settings`);
+  await expect(page.getByRole('heading', { name: '界面主题', exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    document.body.dataset.dualThemeMarker = 'mounted';
+  });
+
+  const observations: CommonObservation['liveThemes'] = [];
+  for (const theme of [
+    'apple-midnight',
+    'apple-warm',
+    'lieflat-mono',
+    'liquid-tide',
+    'office-excel',
+  ] as const) {
+    const option = page.locator(`.theme-option.is-${theme}`);
+    await option.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await expect(option).toHaveAttribute('aria-checked', 'true');
+    expect(await page.evaluate(() => document.body.dataset.dualThemeMarker)).toBe('mounted');
+    const tokenSignature = await page.evaluate(() => {
+      const style = getComputedStyle(document.documentElement);
+      return [
+        style.getPropertyValue('--theme-bg-window').trim(),
+        style.getPropertyValue('--theme-text-title').trim(),
+        style.getPropertyValue('--theme-accent-main').trim(),
+        style.getPropertyValue('--theme-radius-control').trim(),
+      ].join('|');
+    });
+    expect(tokenSignature.split('|').every(Boolean)).toBe(true);
+    observations.push({
+      theme,
+      tokenSignature,
+      stored: await page.evaluate((key) => window.localStorage.getItem(key), THEME_STORAGE_KEY),
+    });
+  }
+  expect(new Set(observations.map((entry) => entry.tokenSignature)).size).toBe(EDITOR_THEMES.length);
+  return observations;
+}
+
+type DualWorkbenchCommandResult = {
+  status: string;
+  result?: Record<string, unknown>;
+  error?: string;
+};
+
+async function enqueueWorkbenchCommand(
+  page: Page,
+  command: Record<string, unknown>,
+  id: string,
+): Promise<void> {
+  await page.evaluate(async ({ command: nextCommand, id: commandId }) => {
+    const moduleUrl = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/utils\/mainWorkbenchControl\.ts(?:\?|$)/.test(name));
+    if (!moduleUrl) throw new Error('The active Main Workbench control module URL is unavailable.');
+    const control = await import(/* @vite-ignore */ moduleUrl);
+    control.enqueueMainWorkbenchCommand(nextCommand, 'dual-e2e', commandId);
+  }, { command, id });
+}
+
+async function readWorkbenchCommand(page: Page, id: string): Promise<DualWorkbenchCommandResult | null> {
+  return page.evaluate(async (commandId) => {
+    const moduleUrl = performance
+      .getEntriesByType('resource')
+      .map((entry) => entry.name)
+      .find((name) => /\/src\/utils\/mainWorkbenchControl\.ts(?:\?|$)/.test(name));
+    if (!moduleUrl) throw new Error('The active Main Workbench control module URL is unavailable.');
+    const control = await import(/* @vite-ignore */ moduleUrl);
+    const entry = control.readMainWorkbenchCommandQueue().find((item: { id: string }) => item.id === commandId);
+    return entry
+      ? { status: entry.status, result: entry.result, error: entry.error }
+      : null;
+  }, id);
 }
 
 interface CapabilityObservation {
@@ -453,6 +563,35 @@ async function observeOperator(page: Page, baseUrl: string): Promise<CommonObser
   await element.selectOption('fire');
   await mainStat.selectOption('力量');
   await subStat.selectOption('敏捷');
+
+  await page.getByRole('button', { name: '新增技能', exact: true }).click();
+  const skillForm = page.locator('.operator-draft-skill-form');
+  await skillForm.getByLabel('技能名', { exact: true }).fill('Dual Run Skill');
+  const skillButtonType = skillForm.locator('label').filter({ hasText: '按钮类型' }).locator('select');
+  await skillButtonType.selectOption('E');
+  await page.getByRole('button', { name: '新增 Hit', exact: true }).click();
+  const hitDetail = page.locator('.operator-draft-hit-detail-card');
+  await hitDetail.getByLabel('名称', { exact: true }).fill('Dual Run Hit');
+  const hitM3Input = hitDetail.getByLabel('M3', { exact: true });
+  await hitM3Input.fill('2.75');
+  await hitM3Input.press('Enter');
+  await hitDetail.locator('label').filter({ hasText: '伤害属性' }).locator('select').selectOption('fire');
+  await hitDetail.locator('label').filter({ hasText: '技能乘区' }).locator('select').selectOption('E');
+
+  const buffPanel = page.locator('.operator-draft-buff-panel');
+  await buffPanel.getByRole('button', { name: '新增', exact: true }).click();
+  const buffDrawer = page.getByRole('dialog', { name: 'Buff 编辑器', exact: true });
+  await expect(buffDrawer).toBeVisible();
+  await buffDrawer.getByLabel('名称', { exact: true }).fill('Dual Run Operator Buff');
+  await buffDrawer.locator('label').filter({ hasText: '业务类型' }).locator('select').selectOption('countable');
+  await buffDrawer.locator('label').filter({ hasText: /^typeKey/ }).locator('select').selectOption('fireVulnerability');
+  const buffValueInput = buffDrawer.getByLabel('数值', { exact: true });
+  await buffValueInput.fill('0.25');
+  await buffValueInput.press('Enter');
+  const maxStacksInput = buffDrawer.getByLabel('最大层数', { exact: true });
+  await maxStacksInput.fill('3');
+  await maxStacksInput.press('Enter');
+  await buffDrawer.getByRole('button', { name: '完成', exact: true }).click();
   await page.getByRole('button', { name: '保存到本地', exact: true }).click();
 
   const drafts = page.getByRole('combobox', { name: '载入本地草稿', exact: true });
@@ -465,6 +604,14 @@ async function observeOperator(page: Page, baseUrl: string): Promise<CommonObser
   await expect(element).toHaveValue('fire');
   await expect(mainStat).toHaveValue('力量');
   await expect(subStat).toHaveValue('敏捷');
+  await expect(skillForm.getByLabel('技能名', { exact: true })).toHaveValue('Dual Run Skill');
+  const savedHit = page.locator('.operator-draft-hit-item').filter({ hasText: 'Dual Run Hit' });
+  await expect(savedHit).toHaveCount(1);
+  await savedHit.click();
+  await expect(hitDetail.getByLabel('M3', { exact: true })).toHaveValue('2.75');
+  await expect(buffPanel.locator('.operator-draft-buff-item').filter({
+    hasText: 'Dual Run Operator Buff',
+  })).toHaveCount(1);
 
   await page.getByRole('button', { name: '保存到本地', exact: true }).click();
   await expect(page.getByRole('heading', { name: '覆盖本地干员', exact: true })).toBeVisible();
@@ -476,10 +623,35 @@ async function observeOperator(page: Page, baseUrl: string): Promise<CommonObser
 
   await page.getByRole('button', { name: '分享库', exact: true }).click();
   const preview = page.locator('.operator-draft-share-textarea');
-  const share = JSON.parse(await preview.inputValue()) as { type?: string };
+  const share = JSON.parse(await preview.inputValue()) as {
+    type?: string;
+    payload?: Record<string, Record<string, unknown>>;
+  };
+  const sharedDraft = share.payload?.[idValue];
+  if (!sharedDraft) throw new Error('Dual Run Operator is missing from the current share payload.');
+  const sharedSkill = Object.values(sharedDraft.skills as Record<string, Record<string, unknown>>)[0];
+  const sharedHit = Object.values(sharedSkill.hitMeta as Record<string, Record<string, unknown>>)
+    .find((hit) => hit.displayName === 'Dual Run Hit');
+  if (!sharedHit) throw new Error('Dual Run Hit is missing from the Operator share payload.');
+  const sharedBuff = Object.values(sharedDraft.buffs as Record<string, {
+    effects?: Record<string, Record<string, unknown>>;
+  }>).flatMap((group) => Object.values(group.effects ?? {}))
+    .find((effect) => effect.name === 'Dual Run Operator Buff');
+  if (!sharedBuff) throw new Error('Dual Run Operator Buff is missing from the share payload.');
   return {
     persisted: true,
     shareType: share.type ?? '',
+    skillName: String(sharedSkill.displayName ?? ''),
+    skillType: String(sharedSkill.buttonType ?? ''),
+    hitName: String(sharedHit.displayName ?? ''),
+    hitM3: typeof (sharedHit.levels as Record<string, unknown>)?.M3 === 'number'
+      ? (sharedHit.levels as Record<string, number>).M3
+      : null,
+    hitElement: String(sharedHit.element ?? ''),
+    hitSkillType: String(sharedHit.skillType ?? ''),
+    buffType: String(sharedBuff.type ?? ''),
+    buffValue: typeof sharedBuff.value === 'number' ? sharedBuff.value : null,
+    buffMaxStacks: typeof sharedBuff.maxStacks === 'number' ? sharedBuff.maxStacks : null,
   };
 }
 
@@ -544,8 +716,64 @@ async function observeTimeline(
   const skillType = await skillButton.getAttribute('data-skill-type');
   const outlinePaths = await skillButton.locator('.skill-button-composite-outline path').count();
 
+  const successCommandId = `dual-refresh-${Date.now()}`;
+  await enqueueWorkbenchCommand(page, { op: 'refreshSnapshot' }, successCommandId);
+  await expect.poll(() => readWorkbenchCommand(page, successCommandId)).toMatchObject({
+    status: 'done',
+    result: {
+      refreshed: true,
+      selectedCharacterCount: 4,
+      skillButtonCount: 1,
+    },
+  });
+  const successCommand = await readWorkbenchCommand(page, successCommandId);
+  const commandSuccess = {
+    status: successCommand?.status ?? '',
+    selectedCharacterCount: typeof successCommand?.result?.selectedCharacterCount === 'number'
+      ? successCommand.result.selectedCharacterCount
+      : null,
+    skillButtonCount: typeof successCommand?.result?.skillButtonCount === 'number'
+      ? successCommand.result.skillButtonCount
+      : null,
+  };
+
+  const errorCommandId = `dual-error-${Date.now()}`;
+  await enqueueWorkbenchCommand(page, {
+    op: 'setTargetResistance',
+    buttonId: 'missing-dual-e2e-button',
+    targetResistance: { physicalResistance: 20 },
+  }, errorCommandId);
+  await expect.poll(() => readWorkbenchCommand(page, errorCommandId)).toMatchObject({
+    status: 'error',
+    error: '技能按钮不存在: missing-dual-e2e-button',
+  });
+  const failedCommand = await readWorkbenchCommand(page, errorCommandId);
+  const commandError = {
+    status: failedCommand?.status ?? '',
+    error: failedCommand?.error ?? '',
+  };
+
   await skillButton.dblclick();
   await expect(page.getByRole('dialog', { name: '技能排轴详情', exact: true })).toBeVisible();
+  const hitButtons = page.locator('.timeline-detail-hit');
+  const hitCount = await hitButtons.count();
+  expect(hitCount).toBeGreaterThan(1);
+  await expect(hitButtons.first()).toHaveClass(/is-selected/);
+  await hitButtons.first().click();
+  await expect(hitButtons.first()).not.toHaveClass(/is-selected/);
+  await hitButtons.nth(1).click();
+  await expect(hitButtons.nth(1)).toHaveClass(/is-selected/);
+  const selectedHitLabel = normalizeText(await hitButtons.nth(1).locator('strong').textContent());
+
+  await page.getByRole('button', { name: '目标抗性', exact: true }).click();
+  const physicalResistanceInput = page.locator('.timeline-resistance-card')
+    .getByText('物理', { exact: true })
+    .locator('xpath=..')
+    .locator('input');
+  await physicalResistanceInput.fill('37');
+  await physicalResistanceInput.press('Enter');
+  await expect(physicalResistanceInput).toHaveValue('37');
+  const physicalResistance = await physicalResistanceInput.inputValue();
   const summary = normalizeText(await page.locator('.timeline-summary-card').innerText());
   const calculation = normalizeText(await page.locator('.timeline-calculation-card').innerText());
   await page.getByRole('dialog', { name: '技能排轴详情', exact: true })
@@ -566,6 +794,36 @@ async function observeTimeline(
   await page.locator('.workbench-bottom-nav-button').filter({ hasText: '干员配置' }).click();
   await expect(page.locator('.operator-config-page-root')).toBeVisible();
   const operatorConfigVisible = await page.locator('.operator-config-page-root').isVisible();
+
+  const selectOperatorEquipment = async (
+    circleSelector: string,
+    heading: string,
+    equipmentName: string,
+  ) => {
+    const circle = page.locator(circleSelector);
+    await circle.click();
+    const picker = page.locator('.operator-config-page-picker-modal');
+    await expect(picker.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await picker.getByText(equipmentName, { exact: true }).locator('xpath=ancestor::button[1]').click();
+    await expect(picker).toHaveCount(0);
+    await expect(circle.locator('img')).toHaveAttribute('alt', equipmentName);
+  };
+  await selectOperatorEquipment('.operator-config-page-equip-circle--1', '选择护甲', '旧锋装甲');
+  const operatorEquipmentLevelButton = page.locator('button[aria-label="armor 词条 1 档位 L2"]');
+  await operatorEquipmentLevelButton.click();
+  await expect(operatorEquipmentLevelButton).toHaveAttribute('aria-pressed', 'true');
+  await selectOperatorEquipment('.operator-config-page-equip-circle--2', '选择配件', '旧锋刺刃');
+  await selectOperatorEquipment('.operator-config-page-equip-circle--4', '选择护手', '旧锋手甲');
+  await expect(page.locator('.operator-config-page-equip-set-empty')).toHaveCount(0);
+  const operatorEquipmentNames = await page.locator([
+    '.operator-config-page-equip-circle--1 img',
+    '.operator-config-page-equip-circle--2 img',
+    '.operator-config-page-equip-circle--4 img',
+  ].join(', ')).evaluateAll((images) => images.map((image) => image.getAttribute('alt') ?? ''));
+  const operatorEquipmentLevel = await operatorEquipmentLevelButton.getAttribute('aria-pressed');
+  const operatorSetBuffLines = (await page.locator('.operator-config-page-equip-set-line').allTextContents())
+    .map(normalizeText);
+  expect(operatorSetBuffLines.length).toBeGreaterThan(0);
   await page.evaluate(() => {
     window.location.hash = '#/timeline';
   });
@@ -575,8 +833,34 @@ async function observeTimeline(
   await expect(page.locator('.buff-batch-edit-workbench')).toBeVisible();
   const batchButton = page.locator('.buff-edit-skill-button');
   await expect(batchButton).toHaveCount(1);
+  const selectionCounter = page.locator('.buff-edit-selection-counter');
+  await expect(selectionCounter).toHaveText('已选 0/1');
+  const wolfQuickSelect = page.getByRole('button', { name: '选择干员按钮 狼卫', exact: true });
+  await wolfQuickSelect.click();
+  await expect(selectionCounter).toHaveText('已选 1/1');
+  await wolfQuickSelect.click();
+  await expect(selectionCounter).toHaveText('已选 0/1');
+
+  await page.locator('.buff-edit-mode-button').click();
+  await expect(page.getByRole('heading', { name: '编辑目录', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: '编辑目录', exact: true })).toHaveCount(0);
+
+  await page.locator('.buff-edit-add-button').click();
+  await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toBeVisible();
+  await page.keyboard.press('Tab');
+  const candidateModal = page.locator('.buff-edit-candidate-modal');
+  await expect(candidateModal).toBeVisible();
+  await candidateModal.getByRole('button', { name: '异常状态区', exact: true }).click();
+  await expect(candidateModal.locator('.skill-anomaly-layout')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(candidateModal).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('heading', { name: '增加 Buff', exact: true })).toHaveCount(0);
+  const buffBatchSecondaryPaths = true;
+
   await batchButton.click();
-  const buffBatchSelected = normalizeText(await page.locator('.buff-edit-selection-counter').innerText());
+  const buffBatchSelected = normalizeText(await selectionCounter.innerText());
 
   await page.locator('.workbench-bottom-nav-button').filter({ hasText: '排轴' }).click();
   await expect(page.locator('.canvas-container')).toBeVisible();
@@ -595,7 +879,16 @@ async function observeTimeline(
       calculation,
       reportMeta,
       operatorConfigVisible,
+      operatorEquipmentNames,
+      operatorEquipmentLevel,
+      operatorSetBuffLines,
       buffBatchSelected,
+      buffBatchSecondaryPaths,
+      commandSuccess,
+      commandError,
+      hitCount,
+      selectedHitLabel,
+      physicalResistance,
       persistedAfterReload: true,
     },
     capabilities: {
@@ -631,6 +924,8 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
     });
     const themes = await test.step(`${target.name}: five-theme editor structure`, () =>
       observeEditorThemes(page, target.baseUrl));
+    const liveThemes = await test.step(`${target.name}: five-theme live switch`, () =>
+      observeLiveThemeSwitch(page, target.baseUrl));
     const legacy = await test.step(`${target.name}: declared legacy capability`, () =>
       observeLegacyDamageSheet(page, target));
     const buff = await test.step(`${target.name}: Buff save/reload/share`, () =>
@@ -657,6 +952,7 @@ async function runTarget(browser: Browser, target: DualRunTarget): Promise<Targe
         equipment,
         operator,
         themes,
+        liveThemes,
         timeline: timelineResult.timeline,
       },
       capabilities: {
