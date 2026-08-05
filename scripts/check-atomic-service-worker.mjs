@@ -56,6 +56,7 @@ assert.ok(
 function createInstallHarness(failingUrl = null) {
   const listeners = new Map();
   const stores = new Map();
+  let skipWaitingCalls = 0;
   const cacheStorage = {
     async delete(name) {
       return stores.delete(name);
@@ -92,7 +93,9 @@ function createInstallHarness(failingUrl = null) {
     clients: {
       async claim() {},
     },
-    async skipWaiting() {},
+    async skipWaiting() {
+      skipWaitingCalls += 1;
+    },
     addEventListener(type, listener) {
       listeners.set(type, listener);
     },
@@ -113,7 +116,11 @@ function createInstallHarness(failingUrl = null) {
     self: serviceWorkerGlobal,
   });
   vm.runInContext(source, context, { filename: serviceWorkerPath });
-  return { listeners, stores };
+  return {
+    listeners,
+    stores,
+    readSkipWaitingCalls: () => skipWaitingCalls,
+  };
 }
 
 async function runInstall(harness) {
@@ -135,9 +142,22 @@ const successfulInstall = createInstallHarness();
 await runInstall(successfulInstall);
 assert.equal(successfulInstall.stores.size, 1, 'Successful install must publish one versioned cache.');
 assert.equal(
+  successfulInstall.readSkipWaitingCalls(),
+  0,
+  'A downloaded page version must wait for explicit user activation.',
+);
+assert.equal(
   [...successfulInstall.stores.values()][0].entries.size,
   appShellFiles.length,
   'Successful install must cache the entire manifest before activation.',
+);
+const messageListener = successfulInstall.listeners.get('message');
+assert.ok(messageListener, 'Service worker must expose explicit update activation.');
+messageListener({ data: { type: 'SKIP_WAITING' } });
+assert.equal(
+  successfulInstall.readSkipWaitingCalls(),
+  1,
+  'Explicit user activation must release the waiting page version.',
 );
 
 console.log(

@@ -6,8 +6,10 @@ import {
   type ReactNode,
 } from 'react';
 import { OptionalLiquidTideSurfaceEffects } from '../../platform/theme/OptionalLiquidTideEffects';
+import { APP_VERSION_LABEL } from '../../platform/runtime/appVersion';
 import {
   readOfflineAvailability,
+  reloadLatestPageVersion,
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
@@ -41,6 +43,8 @@ type LauncherDragState = {
   originY: number;
   moved: boolean;
 };
+
+type PageUpdateState = 'idle' | 'checking' | 'up-to-date' | 'failed';
 
 const LAUNCHER_SIZE = 44;
 const LAUNCHER_MARGIN = 8;
@@ -141,6 +145,8 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     supported: true,
     ready: false,
   });
+  const [pageUpdateState, setPageUpdateState] = useState<PageUpdateState>('idle');
+  const [pageUpdateError, setPageUpdateError] = useState('');
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -194,6 +200,19 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     setMenuOpen((open) => !open);
   };
 
+  const handlePageUpdate = async () => {
+    if (!isOnline || pageUpdateState === 'checking') return;
+    setPageUpdateState('checking');
+    setPageUpdateError('');
+    try {
+      const result = await reloadLatestPageVersion();
+      if (result === 'up-to-date') setPageUpdateState('up-to-date');
+    } catch (error) {
+      setPageUpdateError(error instanceof Error ? error.message : String(error));
+      setPageUpdateState('failed');
+    }
+  };
+
   useEffect(() => {
     setMenuOpen(false);
   }, [currentPath]);
@@ -204,10 +223,14 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     };
     const handleOnline = () => {
       setIsOnline(true);
+      setPageUpdateState('idle');
+      setPageUpdateError('');
       refreshOfflineAvailability();
     };
     const handleOffline = () => {
       setIsOnline(false);
+      setPageUpdateState('idle');
+      setPageUpdateError('');
       refreshOfflineAvailability();
     };
 
@@ -357,7 +380,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 <BrandLogo />
                 <span>
                   <strong>终末地伤害工作台</strong>
-                  <small>Web LTS 1.8</small>
+                  <small>Web LTS {APP_VERSION_LABEL}</small>
                 </span>
               </div>
 
@@ -376,22 +399,48 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 ))}
               </nav>
 
-              <div className="web-shell-local-state" role="status" aria-live="polite">
+              <button
+                className={`web-shell-local-state is-${pageUpdateState}`}
+                type="button"
+                disabled={!isOnline || pageUpdateState === 'checking'}
+                aria-label={isOnline
+                  ? `当前版本 ${APP_VERSION_LABEL}，点击检查并更新`
+                  : `当前离线，版本 ${APP_VERSION_LABEL}`}
+                title={pageUpdateError || (isOnline ? '点击检查服务器上的最新版本' : '连接网络后可检查更新')}
+                onClick={() => void handlePageUpdate()}
+              >
                 <span
-                  className={`local-state-dot ${isOnline ? 'is-online' : 'is-offline'}`}
+                  className={`local-state-dot ${isOnline ? 'is-online' : 'is-offline'}${pageUpdateState === 'checking' ? ' is-checking' : ''}`}
                   aria-hidden="true"
                 />
-                <div>
-                  <strong>{isOnline ? '当前联网' : '当前离线'}</strong>
+                <div aria-live="polite">
+                  <strong>
+                    {pageUpdateState === 'checking'
+                      ? `正在检查 · ${APP_VERSION_LABEL}`
+                      : pageUpdateState === 'failed'
+                        ? `更新失败 · ${APP_VERSION_LABEL}`
+                        : `${isOnline ? '当前联网' : '当前离线'} · ${APP_VERSION_LABEL}`}
+                  </strong>
                   <small>
-                    {offlineAvailability.ready
-                      ? '离线工作区已就绪'
-                      : offlineAvailability.supported
-                        ? '正在准备离线工作区'
-                        : '此环境仅支持在线使用'}
+                    {pageUpdateState === 'checking'
+                      ? '正在下载并校验完整版本'
+                      : pageUpdateState === 'up-to-date'
+                        ? '已经是服务器最新版本'
+                        : pageUpdateState === 'failed'
+                          ? '点击重试更新检查'
+                          : isOnline
+                            ? '点击检查并更新'
+                            : offlineAvailability.ready
+                              ? '离线工作区已就绪'
+                              : offlineAvailability.supported
+                                ? '正在准备离线工作区'
+                                : '此环境仅支持在线使用'}
                   </small>
                 </div>
-              </div>
+                <span className="local-state-action" aria-hidden="true">
+                  {isOnline ? '↻' : '—'}
+                </span>
+              </button>
             </div>
           )}
         </div>

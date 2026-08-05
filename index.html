@@ -21,22 +21,14 @@
       (() => {
         if (!('serviceWorker' in navigator)) return;
 
-        const hadController = Boolean(navigator.serviceWorker.controller);
-        let reloadingForUpdate = false;
-
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          if (!hadController || reloadingForUpdate) return;
-          reloadingForUpdate = true;
-          window.location.reload();
-        });
-
-        void navigator.serviceWorker.register('/sw.js', {
-          scope: '/',
-          updateViaCache: 'none',
-        }).then(async (registration) => {
-          await registration.update();
-          registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
-        }).catch(() => undefined);
+        // Normal startup only installs the offline service once. Existing
+        // installations are updated explicitly from the in-app version button.
+        void navigator.serviceWorker.getRegistration('/').then((registration) => (
+          registration || navigator.serviceWorker.register('/sw.js', {
+            scope: '/',
+            updateViaCache: 'none',
+          })
+        )).catch(() => undefined);
       })();
     </script>
     <script>

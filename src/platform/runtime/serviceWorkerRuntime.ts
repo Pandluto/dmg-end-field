@@ -9,6 +9,8 @@ export type OfflineAvailability = {
   ready: boolean;
 };
 
+export type PageUpdateResult = 'up-to-date' | 'reloading';
+
 function readReloadAttempt(): boolean {
   try {
     return sessionStorage.getItem(CONTROLLER_RELOAD_KEY) === '1';
@@ -144,7 +146,7 @@ export async function readOfflineAvailability(): Promise<OfflineAvailability> {
   }
 }
 
-export async function reloadLatestPageVersion(): Promise<void> {
+export async function reloadLatestPageVersion(): Promise<PageUpdateResult> {
   if (!navigator.onLine) {
     throw new Error('当前处于离线状态，连接网络后再更新页面。');
   }
@@ -173,10 +175,19 @@ export async function reloadLatestPageVersion(): Promise<void> {
   const waitingWorker = registration.waiting;
   if (waitingWorker) {
     waitingWorker.postMessage({ type: 'SKIP_WAITING' });
-    await waitForControllerChange(previousController, CONTROL_TIMEOUT_MS * 2);
+    const controllerChanged = await waitForControllerChange(
+      previousController,
+      CONTROL_TIMEOUT_MS * 2,
+    );
+    if (!controllerChanged) {
+      throw new Error('新版已经下载，但未能接管页面；请关闭其他标签页后重试。');
+    }
+  } else if (navigator.serviceWorker.controller === previousController) {
+    return 'up-to-date';
   }
 
   const target = new URL(window.location.href);
   target.searchParams.set(PAGE_UPDATE_PARAM, String(Date.now()));
   window.location.replace(target.href);
+  return 'reloading';
 }

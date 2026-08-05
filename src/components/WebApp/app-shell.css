@@ -204,10 +204,36 @@
 }
 
 .web-shell-local-state {
-  display: flex;
+  display: grid;
+  width: 100%;
+  min-height: 46px;
+  grid-template-columns: 7px minmax(0, 1fr) 18px;
   align-items: center;
   gap: 9px;
   padding: 11px 9px 7px;
+  border: 0;
+  border-radius: 10px;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  box-shadow: none;
+}
+
+.web-shell-local-state:hover:not(:disabled) {
+  border-color: transparent;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.055);
+  transform: none;
+}
+
+.web-shell-local-state:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--shell-accent) 55%, transparent);
+  outline-offset: -2px;
+}
+
+.web-shell-local-state:disabled {
+  cursor: default;
+  opacity: 1;
 }
 
 .local-state-dot {
@@ -227,6 +253,10 @@
   box-shadow: 0 0 0 3px rgba(142, 142, 147, 0.11);
 }
 
+.local-state-dot.is-checking {
+  animation: local-state-pulse 850ms ease-in-out infinite alternate;
+}
+
 .web-shell-local-state div {
   display: grid;
   gap: 1px;
@@ -241,6 +271,30 @@
 .web-shell-local-state small {
   color: var(--shell-faint);
   font-size: 8px;
+}
+
+.local-state-action {
+  justify-self: end;
+  color: var(--shell-faint);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.web-shell-local-state:hover:not(:disabled) .local-state-action {
+  color: var(--shell-accent);
+}
+
+.web-shell-local-state.is-checking .local-state-action {
+  animation: local-state-spin 900ms linear infinite;
+}
+
+@keyframes local-state-pulse {
+  from { opacity: 0.45; }
+  to { opacity: 1; }
+}
+
+@keyframes local-state-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* Start, data, and settings are windows layered above the untouched workspace. */

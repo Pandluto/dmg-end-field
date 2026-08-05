@@ -34,7 +34,7 @@ async function installAtomicAppShell() {
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     await installAtomicAppShell();
-    await self.skipWaiting();
+    // Keep a complete new shell waiting until the user explicitly accepts it.
   })());
 });
 

@@ -16,6 +16,7 @@ import {
   removeDefaultImagePackage,
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
+import { APP_VERSION_LABEL } from '../../platform/runtime/appVersion';
 import { reloadLatestPageVersion } from '../../platform/runtime/serviceWorkerRuntime';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
@@ -110,7 +111,11 @@ export function SettingsPage() {
     setUpdatingPage(true);
     setMessage('正在下载并校验完整的新版本…');
     try {
-      await reloadLatestPageVersion();
+      const result = await reloadLatestPageVersion();
+      if (result === 'up-to-date') {
+        setMessage(`${APP_VERSION_LABEL} 已经是服务器最新版本。`);
+        setUpdatingPage(false);
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
       setUpdatingPage(false);
@@ -213,7 +218,7 @@ export function SettingsPage() {
         <div className="settings-action-row">
           <div>
             <strong>载入服务器上的最新页面</strong>
-            <span>完整下载并校验后才切换版本；不会删除 SQLite、排轴、资源包、图片或设置。</span>
+            <span>当前 {APP_VERSION_LABEL}；完整下载并校验后才切换，不会删除 SQLite、排轴、资源包、图片或设置。</span>
           </div>
           <button
             className="dashboard-primary-button"

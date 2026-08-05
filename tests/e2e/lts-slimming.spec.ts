@@ -1,8 +1,13 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import {
   readCountEnvironment,
   readTextEnvironment,
 } from './regressionEnvironment';
+
+const packageMetadata = JSON.parse(
+  readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
+) as { version: string };
 
 const BASE_URL = process.env.E2E_BASE_URL || 'http://127.0.0.1:3040';
 const ACCESS_PASSWORD = readTextEnvironment('E2E_ACCESS_PASSWORD', 'zmd');
@@ -10,6 +15,10 @@ const EXPECTED_OPERATOR_COUNT = readCountEnvironment('E2E_EXPECTED_OPERATOR_COUN
 const EXPECTED_WEAPON_COUNT = readCountEnvironment('E2E_EXPECTED_WEAPON_COUNT', 75);
 const EXPECTED_IMAGE_COUNT = readCountEnvironment('E2E_EXPECTED_IMAGE_COUNT', 559);
 const EXPECTED_VERSION_LABEL = readTextEnvironment('E2E_EXPECTED_VERSION_LABEL', 'Web LTS 1.8');
+const EXPECTED_APP_VERSION_LABEL = readTextEnvironment(
+  'E2E_EXPECTED_APP_VERSION_LABEL',
+  `v${packageMetadata.version}`,
+);
 
 async function openRoute(page: Page, path: string, heading: string): Promise<void> {
   await page.goto(`${BASE_URL}/#${path}`);
@@ -401,6 +410,22 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     });
     await expect(page.getByText(EXPECTED_VERSION_LABEL, { exact: true })).toBeVisible();
     expect(await page.evaluate(() => window.localStorage.getItem('dmg.web.access-lease.v1'))).toBeTruthy();
+  });
+
+  await test.step('online status exposes the version and manual update entry', async () => {
+    await openRoute(page, '/timeline', '选择干员');
+    await page.getByRole('button', { name: '打开工作台菜单', exact: true }).click();
+
+    const updateButton = page.getByRole('button', {
+      name: `当前版本 ${EXPECTED_APP_VERSION_LABEL}，点击检查并更新`,
+      exact: true,
+    });
+    await expect(updateButton).toBeVisible();
+    await expect(updateButton).toBeEnabled();
+    await expect(updateButton.getByText(`当前联网 · ${EXPECTED_APP_VERSION_LABEL}`, { exact: true })).toBeVisible();
+    await expect(updateButton.getByText('点击检查并更新', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: '关闭工作台菜单', exact: true }).click();
   });
 
   await test.step('all slimming-related lazy routes render without a fallback or alert', async () => {
