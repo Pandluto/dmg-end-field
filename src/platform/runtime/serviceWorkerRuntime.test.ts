@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { reloadLatestPageVersion } from './serviceWorkerRuntime';
+import {
+  ensureImageServiceWorkerController,
+  reloadLatestPageVersion,
+} from './serviceWorkerRuntime';
 
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
 const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
@@ -10,6 +13,7 @@ const nextController = { id: 'next' } as unknown as ServiceWorker;
 let waitingWorker: ServiceWorker | null = null;
 let replacedUrl = '';
 let updateCalls = 0;
+let reloadCalls = 0;
 
 const registration = {
   get installing() {
@@ -39,11 +43,15 @@ const navigatorMock = {
 };
 
 const windowMock = {
+  isSecureContext: true,
   location: {
     origin: 'https://manual-update.test',
     href: 'https://manual-update.test/#/timeline',
     replace(url: string) {
       replacedUrl = url;
+    },
+    reload() {
+      reloadCalls += 1;
     },
   },
   setTimeout,
@@ -91,6 +99,15 @@ try {
     'offline state must never attempt an update',
   );
   assert.equal(updateCalls, 2);
+
+  navigatorMock.onLine = true;
+  (serviceWorker as { controller: ServiceWorker | null }).controller = null;
+  assert.equal(
+    await ensureImageServiceWorkerController(),
+    false,
+    'A worker startup failure must degrade image delivery instead of blocking the workspace.',
+  );
+  assert.equal(reloadCalls, 0, 'Worker startup recovery must never force a reload loop.');
 } finally {
   globalThis.fetch = originalFetch;
   if (originalNavigator) Object.defineProperty(globalThis, 'navigator', originalNavigator);

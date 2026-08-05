@@ -22,14 +22,42 @@
       (() => {
         if (!('serviceWorker' in navigator)) return;
 
-        // Normal startup only installs the offline service once. Existing
-        // installations are updated explicitly from the in-app version button.
-        void navigator.serviceWorker.getRegistration('/').then((registration) => (
-          registration || navigator.serviceWorker.register('/sw.js', {
-            scope: '/',
-            updateViaCache: 'none',
-          })
-        )).catch(() => undefined);
+        const recoveryShellVersions = new Set([
+          'e564a69322ae3fc8',
+          '79ce3dba11d89ada',
+        ]);
+        const readControllerShellVersion = () => new Promise((resolve) => {
+          const controller = navigator.serviceWorker.controller;
+          if (!controller || typeof MessageChannel === 'undefined') {
+            resolve('');
+            return;
+          }
+          const channel = new MessageChannel();
+          const finish = (value) => {
+            window.clearTimeout(timeout);
+            channel.port1.close();
+            resolve(value);
+          };
+          const timeout = window.setTimeout(() => finish(''), 1_000);
+          channel.port1.onmessage = (event) => {
+            finish(String(event.data?.shellVersion || ''));
+          };
+          controller.postMessage({ type: 'GET_PAGE_VERSION' }, [channel.port2]);
+        });
+
+        void navigator.serviceWorker.getRegistration('/').then(async (registration) => {
+          const currentRegistration = registration
+            || await navigator.serviceWorker.register('/sw.js', {
+              scope: '/',
+              updateViaCache: 'none',
+            });
+          const controllerShellVersion = await readControllerShellVersion();
+          if (recoveryShellVersions.has(controllerShellVersion)) {
+            // Fetch the one-time recovery worker even when the browser recently
+            // checked the broken registration and would otherwise throttle it.
+            await currentRegistration.update();
+          }
+        }).catch(() => undefined);
       })();
     </script>
     <script>
@@ -52,6 +80,66 @@
             sessionStorage.setItem(recoveryKey, String(value));
           } catch {
             // The recovery still works when session storage is unavailable.
+          }
+        };
+
+        const recoveryWorkerTimeoutMs = 60_000;
+        const waitForWorkerState = (worker, acceptedStates) => {
+          if (acceptedStates.includes(worker.state)) return Promise.resolve();
+          return new Promise((resolve, reject) => {
+            const finish = (error) => {
+              window.clearTimeout(timeout);
+              worker.removeEventListener('statechange', handleStateChange);
+              if (error) reject(error);
+              else resolve();
+            };
+            const handleStateChange = () => {
+              if (acceptedStates.includes(worker.state)) {
+                finish();
+              } else if (worker.state === 'redundant') {
+                finish(new Error('页面恢复文件安装失败。'));
+              }
+            };
+            const timeout = window.setTimeout(
+              () => finish(new Error('页面恢复文件安装超时。')),
+              recoveryWorkerTimeoutMs,
+            );
+            worker.addEventListener('statechange', handleStateChange);
+          });
+        };
+
+        const waitForActiveRegistration = () => Promise.race([
+          navigator.serviceWorker.ready,
+          new Promise((_, reject) => {
+            window.setTimeout(
+              () => reject(new Error('页面恢复服务启动超时。')),
+              recoveryWorkerTimeoutMs,
+            );
+          }),
+        ]);
+
+        const prepareRecoveryWorker = async () => {
+          let registration = await navigator.serviceWorker.getRegistration('/');
+          if (!registration) {
+            registration = await navigator.serviceWorker.register('/sw.js', {
+              scope: '/',
+              updateViaCache: 'none',
+            });
+          } else if (navigator.onLine) {
+            await registration.update();
+          }
+
+          const installing = registration.installing;
+          if (installing) {
+            await waitForWorkerState(installing, ['installed', 'activated']);
+          }
+          const waiting = registration.waiting;
+          if (waiting) {
+            waiting.postMessage({ type: 'SKIP_WAITING' });
+            await waitForWorkerState(waiting, ['activated']);
+          }
+          if (!registration.active && !navigator.serviceWorker.controller) {
+            await waitForActiveRegistration();
           }
         };
 
@@ -84,21 +172,14 @@
           writeRecoveryAttempt(attempt + 1);
           try {
             if ('serviceWorker' in navigator) {
-              const registration = await navigator.serviceWorker.getRegistration('/');
-              if (!registration && !navigator.serviceWorker.controller) {
-                showRecovery();
-                recoveryRunning = false;
-                return;
-              }
-              if (navigator.onLine && registration) {
-                await registration.update().catch(() => undefined);
-                registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
-              }
+              await prepareRecoveryWorker();
             }
-          } finally {
             const target = new URL(window.location.href);
             target.searchParams.set(recoveryParam, String(Date.now()));
             window.location.replace(target.href);
+          } catch {
+            recoveryRunning = false;
+            showRecovery();
           }
         };
 

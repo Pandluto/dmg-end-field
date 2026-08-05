@@ -1,7 +1,6 @@
-const CONTROLLER_RELOAD_KEY = 'dmg.sw-controller-reload.v1';
 const PAGE_UPDATE_PARAM = '__sw_recovery';
-const READY_TIMEOUT_MS = 8_000;
-const CONTROL_TIMEOUT_MS = 4_000;
+const READY_TIMEOUT_MS = 60_000;
+const CONTROL_TIMEOUT_MS = 15_000;
 const APP_SHELL_CACHE_PREFIX = 'dmg-app-shell-';
 
 export type OfflineAvailability = {
@@ -10,23 +9,6 @@ export type OfflineAvailability = {
 };
 
 export type PageUpdateResult = 'up-to-date' | 'reloading';
-
-function readReloadAttempt(): boolean {
-  try {
-    return sessionStorage.getItem(CONTROLLER_RELOAD_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeReloadAttempt(value: boolean): void {
-  try {
-    if (value) sessionStorage.setItem(CONTROLLER_RELOAD_KEY, '1');
-    else sessionStorage.removeItem(CONTROLLER_RELOAD_KEY);
-  } catch {
-    // Continue without the reload guard when session storage is unavailable.
-  }
-}
 
 function waitForController(timeoutMs: number): Promise<boolean> {
   if (navigator.serviceWorker.controller) return Promise.resolve(true);
@@ -99,34 +81,32 @@ async function waitForReadyRegistration(): Promise<void> {
   ]);
 }
 
-export async function ensureImageServiceWorkerController(): Promise<void> {
+export async function ensureImageServiceWorkerController(): Promise<boolean> {
   if (!window.isSecureContext || !('serviceWorker' in navigator)) {
-    throw new Error('图片缓存需要 localhost 或 HTTPS 安全上下文。');
+    return false;
   }
-  if (navigator.serviceWorker.controller) {
-    writeReloadAttempt(false);
-    return;
-  }
+  if (navigator.serviceWorker.controller) return true;
 
   try {
-    await waitForReadyRegistration();
-    if (await waitForController(CONTROL_TIMEOUT_MS)) {
-      writeReloadAttempt(false);
-      return;
+    let registration = await navigator.serviceWorker.getRegistration('/');
+    if (!registration) {
+      registration = await navigator.serviceWorker.register('/sw.js', {
+        scope: '/',
+        updateViaCache: 'none',
+      });
+    } else if (navigator.onLine) {
+      await registration.update();
     }
-  } catch (error) {
-    if (readReloadAttempt()) throw error;
+    if (registration.installing) {
+      await waitForWorkerInstall(registration.installing, READY_TIMEOUT_MS);
+    }
+    registration.waiting?.postMessage({ type: 'SKIP_WAITING' });
+    await waitForReadyRegistration();
+    return await waitForController(CONTROL_TIMEOUT_MS);
+  } catch {
+    // Image interception may recover later. Never block access to the workspace.
+    return false;
   }
-
-  if (!readReloadAttempt()) {
-    writeReloadAttempt(true);
-    window.location.reload();
-    await new Promise<void>(() => {
-      // Keep bootstrap suspended until the browser replaces this document.
-    });
-  }
-
-  throw new Error('图片缓存服务未能接管页面，请使用“修复并重新加载”。');
 }
 
 export async function readOfflineAvailability(): Promise<OfflineAvailability> {

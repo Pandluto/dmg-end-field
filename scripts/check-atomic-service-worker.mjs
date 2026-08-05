@@ -11,6 +11,10 @@ const versionManifestPath = path.join(outputDirectory, 'version.json');
 const source = fs.readFileSync(serviceWorkerPath, 'utf8');
 const indexHtml = fs.readFileSync(indexPath, 'utf8');
 const versionManifest = JSON.parse(fs.readFileSync(versionManifestPath, 'utf8'));
+const incidentShellVersions = [
+  'e564a69322ae3fc8',
+  '79ce3dba11d89ada',
+];
 
 const versionMatch = source.match(/const APP_SHELL_VERSION = ("[a-f0-9]{16}");/);
 const releaseVersionMatch = source.match(/const APP_RELEASE_VERSION = ("[^"]+");/);
@@ -29,6 +33,17 @@ assert.match(
   indexHtml,
   new RegExp(`<meta name="dmg-app-shell-version" content="${shellVersion}"`),
   'Built index must identify its installed app-shell version.',
+);
+for (const incidentShellVersion of incidentShellVersions) {
+  assert.ok(
+    indexHtml.includes(incidentShellVersion),
+    `Built index must request recovery from incident shell ${incidentShellVersion}.`,
+  );
+}
+assert.match(
+  indexHtml,
+  /recoveryShellVersions\.has\(controllerShellVersion\)[\s\S]*await currentRegistration\.update\(\)/,
+  'A hard-refreshed incident shell must explicitly request its recovery worker.',
 );
 
 const appShellFiles = JSON.parse(filesMatch[1]);
@@ -234,30 +249,31 @@ assert.equal(
 );
 successfulInstall.setCacheOperationsFail(false);
 
-const brokenShellVersion = 'e564a69322ae3fc8';
-assert.notEqual(
-  shellVersion,
-  brokenShellVersion,
-  'The recovery worker must have a new shell version.',
-);
-const recoveryInstall = createInstallHarness();
-await recoveryInstall.seedCache(
-  `dmg-app-shell-${brokenShellVersion}`,
-  '/index.html',
-  'previous:/index.html',
-);
-await runInstall(recoveryInstall);
-assert.equal(
-  recoveryInstall.readSkipWaitingCalls(),
-  1,
-  'The known broken page version must be recovered without another page click.',
-);
-await runActivate(recoveryInstall);
-assert.equal(
-  recoveryInstall.stores.has(`dmg-app-shell-${brokenShellVersion}`),
-  true,
-  'Activation must retain one previous shell as an emergency fallback.',
-);
+for (const brokenShellVersion of incidentShellVersions) {
+  assert.notEqual(
+    shellVersion,
+    brokenShellVersion,
+    'The recovery worker must have a new shell version.',
+  );
+  const recoveryInstall = createInstallHarness();
+  await recoveryInstall.seedCache(
+    `dmg-app-shell-${brokenShellVersion}`,
+    '/index.html',
+    'previous:/index.html',
+  );
+  await runInstall(recoveryInstall);
+  assert.equal(
+    recoveryInstall.readSkipWaitingCalls(),
+    1,
+    'A known broken page version must recover without another page click.',
+  );
+  await runActivate(recoveryInstall);
+  assert.equal(
+    recoveryInstall.stores.has(`dmg-app-shell-${brokenShellVersion}`),
+    true,
+    'Activation must retain one previous shell as an emergency fallback.',
+  );
+}
 
 const unavailableCacheInstall = createInstallHarness();
 unavailableCacheInstall.setCacheOperationsFail(true);

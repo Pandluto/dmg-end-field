@@ -6,7 +6,7 @@ import { initializeAppTheme } from './platform/theme/appTheme'
 declare global {
   interface Window {
     __DMG_MARK_MODULE_READY__?: () => void
-    __DMG_RECOVER_STARTUP__?: () => void
+    __DMG_RECOVER_STARTUP__?: () => Promise<void>
   }
 }
 

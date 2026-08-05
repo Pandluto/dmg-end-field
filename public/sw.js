@@ -6,12 +6,15 @@ const APP_RELEASE_VERSION = '__DMG_APP_RELEASE_VERSION__';
 const APP_SHELL_VERSION = '__DMG_APP_SHELL_VERSION__';
 const APP_SHELL_FILES = /*__DMG_APP_SHELL_FILES__*/[];
 const APP_SHELL_FILE_PATHS = new Set(APP_SHELL_FILES);
+const APP_SHELL_INSTALL_CONCURRENCY = 6;
 const HAS_BUILT_APP_SHELL = APP_SHELL_FILES.length > 0
   && APP_SHELL_VERSION !== '__DMG_APP_SHELL_VERSION__';
 const APP_SHELL_CACHE_NAME = `${APP_SHELL_CACHE_PREFIX}${APP_SHELL_VERSION}`;
 const RECOVERY_APP_SHELL_VERSIONS = new Set([
   // v1.8.2 site release v26 could reject navigation when Cache Storage failed.
   'e564a69322ae3fc8',
+  // v1.8.2 site release v27 could reload before a slow worker finished installing.
+  '79ce3dba11d89ada',
 ]);
 const LEGACY_PAGE_CACHE_PREFIXES = [
   'workbox-precache',
@@ -29,13 +32,26 @@ async function installAtomicAppShell() {
     return false;
   }
   try {
-    for (const url of APP_SHELL_FILES) {
-      const response = await fetch(new Request(url, { cache: 'reload' }));
-      if (!response.ok) {
-        throw new Error(`App shell request failed: ${url} (${response.status})`);
-      }
+    for (
+      let offset = 0;
+      offset < APP_SHELL_FILES.length;
+      offset += APP_SHELL_INSTALL_CONCURRENCY
+    ) {
+      const batch = APP_SHELL_FILES.slice(
+        offset,
+        offset + APP_SHELL_INSTALL_CONCURRENCY,
+      );
+      const downloads = await Promise.all(batch.map(async (url) => {
+        const response = await fetch(new Request(url, { cache: 'reload' }));
+        if (!response.ok) {
+          throw new Error(`App shell request failed: ${url} (${response.status})`);
+        }
+        return { url, response };
+      }));
       try {
-        await cache.put(url, response);
+        await Promise.all(downloads.map(({ url, response }) => (
+          cache.put(url, response)
+        )));
       } catch {
         await caches.delete(APP_SHELL_CACHE_NAME).catch(() => undefined);
         return false;

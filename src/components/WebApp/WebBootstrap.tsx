@@ -64,7 +64,7 @@ export function WebBootstrap() {
       setInstalledPackage(installed);
       setInstalledImagePackage(imagePackage);
       const complete = Boolean(installed && imagePackage);
-      if (imagePackage) await ensureImageServiceWorkerController();
+      if (imagePackage) void ensureImageServiceWorkerController();
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
@@ -85,7 +85,7 @@ export function WebBootstrap() {
     setPhase('starting');
     setFailure('');
     try {
-      await ensureImageServiceWorkerController();
+      void ensureImageServiceWorkerController();
       setInstalledPackage(resourcePackage);
       setInstalledImagePackage(imagePackage);
       navigateToAppPath(APP_ROUTE_PATHS.welcome);
