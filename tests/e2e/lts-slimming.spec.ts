@@ -382,7 +382,21 @@ async function readSkillButtonPanelDiagnostics(page: Page, buttonId: string): Pr
 test('candidate browser behavior regression', async ({ context, page }) => {
   test.setTimeout(240_000);
   const browserErrors: string[] = [];
+  let advertisedPageVersion = EXPECTED_APP_VERSION_LABEL.slice(1);
+  let versionCheckRequests = 0;
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE_URL });
+  await page.route('**/version.json*', async (route) => {
+    versionCheckRequests += 1;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schemaVersion: 1,
+        releaseVersion: advertisedPageVersion,
+        shellVersion: 'development',
+      }),
+    });
+  });
   page.on('pageerror', (error) => browserErrors.push(`pageerror: ${error.message}`));
   page.on('console', (message) => {
     if (message.type() === 'error') browserErrors.push(`console: ${message.text()}`);
@@ -412,18 +426,35 @@ test('candidate browser behavior regression', async ({ context, page }) => {
     expect(await page.evaluate(() => window.localStorage.getItem('dmg.web.access-lease.v1'))).toBeTruthy();
   });
 
-  await test.step('online status exposes the version and manual update entry', async () => {
+  await test.step('version check is automatic while update activation stays manual', async () => {
     await openRoute(page, '/timeline', '选择干员');
     await page.getByRole('button', { name: '打开工作台菜单', exact: true }).click();
 
+    const currentVersionStatus = page.getByRole('button', {
+      name: `当前版本 ${EXPECTED_APP_VERSION_LABEL}，已自动检查为最新版本`,
+      exact: true,
+    });
+    await expect(currentVersionStatus).toBeVisible();
+    await expect(currentVersionStatus).toBeDisabled();
+    await expect(currentVersionStatus.getByText(`当前联网 · ${EXPECTED_APP_VERSION_LABEL}`, { exact: true })).toBeVisible();
+    await expect(currentVersionStatus.getByText('已自动检查，是最新版本', { exact: true })).toBeVisible();
+    expect(versionCheckRequests).toBeGreaterThan(0);
+
+    advertisedPageVersion = '9.9.9';
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
     const updateButton = page.getByRole('button', {
-      name: `当前版本 ${EXPECTED_APP_VERSION_LABEL}，点击检查并更新`,
+      name: '发现新版本 v9.9.9，点击更新',
       exact: true,
     });
     await expect(updateButton).toBeVisible();
     await expect(updateButton).toBeEnabled();
-    await expect(updateButton.getByText(`当前联网 · ${EXPECTED_APP_VERSION_LABEL}`, { exact: true })).toBeVisible();
-    await expect(updateButton.getByText('点击检查并更新', { exact: true })).toBeVisible();
+    await expect(updateButton.getByText('发现新版本 · v9.9.9', { exact: true })).toBeVisible();
+    await expect(updateButton.getByText('点击更新，完成后自动重新载入', { exact: true })).toBeVisible();
+
+    advertisedPageVersion = EXPECTED_APP_VERSION_LABEL.slice(1);
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(currentVersionStatus).toBeVisible();
+    await expect(currentVersionStatus).toBeDisabled();
 
     await page.getByRole('button', { name: '关闭工作台菜单', exact: true }).click();
   });

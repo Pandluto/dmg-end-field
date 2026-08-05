@@ -16,8 +16,7 @@ import {
   removeDefaultImagePackage,
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
-import { APP_VERSION_LABEL } from '../../platform/runtime/appVersion';
-import { reloadLatestPageVersion } from '../../platform/runtime/serviceWorkerRuntime';
+import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
@@ -61,7 +60,13 @@ export function SettingsPage() {
   const [message, setMessage] = useState('');
   const [theme, setTheme] = useState<AppThemeId>(() => readAppTheme());
   const [loadingTheme, setLoadingTheme] = useState<AppThemeId | null>(null);
-  const [updatingPage, setUpdatingPage] = useState(false);
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
+  const pageVersionCanUpdate = ['update-available', 'update-failed']
+    .includes(pageVersionUpdate.phase);
+  const pageVersionTargetLabel = pageVersionUpdate.latestVersionLabel
+    || pageVersionUpdate.currentVersionLabel;
+  const pageVersionHasNewRelease = pageVersionUpdate.latestVersionLabel !== null
+    && pageVersionUpdate.latestVersionLabel !== pageVersionUpdate.currentVersionLabel;
 
   const refresh = async () => {
     const [nextStorage, installed, images, lease] = await Promise.all([
@@ -105,21 +110,6 @@ export function SettingsPage() {
     const persisted = await requestPersistentBrowserStorage();
     setMessage(persisted ? '浏览器已经授予持久存储。' : '浏览器暂未授予持久存储，请保留定期备份。');
     await refresh();
-  };
-
-  const handlePageUpdate = async () => {
-    setUpdatingPage(true);
-    setMessage('正在下载并校验完整的新版本…');
-    try {
-      const result = await reloadLatestPageVersion();
-      if (result === 'up-to-date') {
-        setMessage(`${APP_VERSION_LABEL} 已经是服务器最新版本。`);
-        setUpdatingPage(false);
-      }
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
-      setUpdatingPage(false);
-    }
   };
 
   const handleExport = async () => {
@@ -217,16 +207,49 @@ export function SettingsPage() {
         </div>
         <div className="settings-action-row">
           <div>
-            <strong>载入服务器上的最新页面</strong>
-            <span>当前 {APP_VERSION_LABEL}；完整下载并校验后才切换，不会删除 SQLite、排轴、资源包、图片或设置。</span>
+            <strong>
+              {pageVersionUpdate.phase === 'update-available'
+                ? `${pageVersionHasNewRelease ? '发现新版本' : '发现页面更新'} ${pageVersionTargetLabel}`
+                : pageVersionUpdate.phase === 'update-failed'
+                  ? `更新 ${pageVersionTargetLabel} 失败`
+                  : pageVersionUpdate.phase === 'checking'
+                    ? '正在自动检查页面版本'
+                    : '页面版本自动检查'}
+            </strong>
+            <span>
+              当前 {pageVersionUpdate.currentVersionLabel}；
+              {pageVersionUpdate.phase === 'update-available'
+                ? '由你确认后才下载、切换并重新载入。'
+                : pageVersionUpdate.phase === 'update-failed'
+                  ? pageVersionUpdate.error
+                  : pageVersionUpdate.phase === 'check-failed'
+                    ? '本次检查失败，页面回到前台或重新联网时会自动重试。'
+                    : pageVersionUpdate.phase === 'offline'
+                      ? '离线时保留当前版本，重新联网后自动检查。'
+                      : pageVersionUpdate.phase === 'up-to-date'
+                        ? '已经自动确认是服务器最新版本。'
+                        : '检查只读取版本信息，不会切换正在使用的页面。'}
+            </span>
           </div>
           <button
             className="dashboard-primary-button"
             type="button"
-            disabled={updatingPage}
-            onClick={handlePageUpdate}
+            disabled={!pageVersionCanUpdate}
+            onClick={() => void updatePageVersion()}
           >
-            {updatingPage ? '正在更新…' : '更新并重新载入'}
+            {pageVersionUpdate.phase === 'updating'
+              ? '正在更新…'
+              : pageVersionUpdate.phase === 'update-available'
+                ? '更新并重新载入'
+                : pageVersionUpdate.phase === 'update-failed'
+                  ? '重试更新'
+                  : pageVersionUpdate.phase === 'checking'
+                    ? '自动检查中…'
+                    : pageVersionUpdate.phase === 'up-to-date'
+                      ? '已是最新版本'
+                      : pageVersionUpdate.phase === 'offline'
+                        ? '当前离线'
+                        : '稍后自动重试'}
           </button>
         </div>
       </section>

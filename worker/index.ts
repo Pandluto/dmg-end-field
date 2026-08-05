@@ -153,6 +153,7 @@ export default {
       || url.pathname === '/'
       || url.pathname === '/index.html'
       || url.pathname === '/sw.js'
+      || url.pathname === '/version.json'
       || url.pathname === '/manifest.webmanifest'
     )
 

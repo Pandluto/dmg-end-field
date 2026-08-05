@@ -7,15 +7,29 @@ import zlib from 'node:zlib';
 const outputDirectory = path.resolve(process.argv[2] || 'dist');
 const serviceWorkerPath = path.join(outputDirectory, 'sw.js');
 const indexPath = path.join(outputDirectory, 'index.html');
+const versionManifestPath = path.join(outputDirectory, 'version.json');
 const source = fs.readFileSync(serviceWorkerPath, 'utf8');
 const indexHtml = fs.readFileSync(indexPath, 'utf8');
+const versionManifest = JSON.parse(fs.readFileSync(versionManifestPath, 'utf8'));
 
 const versionMatch = source.match(/const APP_SHELL_VERSION = ("[a-f0-9]{16}");/);
+const releaseVersionMatch = source.match(/const APP_RELEASE_VERSION = ("[^"]+");/);
 const filesMatch = source.match(
   /const APP_SHELL_FILES = (\[[\s\S]*?\]);\nconst APP_SHELL_FILE_PATHS/,
 );
 assert.ok(versionMatch, 'Generated service worker must contain a content version.');
+assert.ok(releaseVersionMatch, 'Generated service worker must contain a release version.');
 assert.ok(filesMatch, 'Generated service worker must contain an app-shell manifest.');
+const shellVersion = JSON.parse(versionMatch[1]);
+const releaseVersion = JSON.parse(releaseVersionMatch[1]);
+assert.equal(versionManifest.schemaVersion, 1, 'Version manifest schema must be supported.');
+assert.equal(versionManifest.releaseVersion, releaseVersion, 'Version manifest release must match the worker.');
+assert.equal(versionManifest.shellVersion, shellVersion, 'Version manifest shell must match the worker.');
+assert.match(
+  indexHtml,
+  new RegExp(`<meta name="dmg-app-shell-version" content="${shellVersion}"`),
+  'Built index must identify its installed app-shell version.',
+);
 
 const appShellFiles = JSON.parse(filesMatch[1]);
 assert.ok(appShellFiles.includes('/index.html'), 'Offline shell must contain index.html.');
@@ -57,6 +71,7 @@ function createInstallHarness(failingUrl = null) {
   const listeners = new Map();
   const stores = new Map();
   let skipWaitingCalls = 0;
+  let fetchCalls = 0;
   const cacheStorage = {
     async delete(name) {
       return stores.delete(name);
@@ -108,6 +123,7 @@ function createInstallHarness(failingUrl = null) {
     console,
     caches: cacheStorage,
     fetch: async (request) => {
+      fetchCalls += 1;
       const pathname = new URL(request.url).pathname;
       return new Response(`asset:${pathname}`, {
         status: pathname === failingUrl ? 503 : 200,
@@ -119,6 +135,8 @@ function createInstallHarness(failingUrl = null) {
   return {
     listeners,
     stores,
+    createRequest: (input, init) => new HarnessRequest(input, init),
+    readFetchCalls: () => fetchCalls,
     readSkipWaitingCalls: () => skipWaitingCalls,
   };
 }
@@ -151,8 +169,41 @@ assert.equal(
   appShellFiles.length,
   'Successful install must cache the entire manifest before activation.',
 );
+const installFetchCalls = successfulInstall.readFetchCalls();
+let navigationResponsePromise;
+successfulInstall.listeners.get('fetch')({
+  request: successfulInstall.createRequest('/timeline', { mode: 'navigate' }),
+  respondWith(promise) {
+    navigationResponsePromise = promise;
+  },
+});
+assert.ok(navigationResponsePromise, 'Navigation must be handled by the installed app shell.');
+assert.equal(
+  await (await navigationResponsePromise).text(),
+  'asset:/index.html',
+  'A normal navigation must keep the currently installed page version.',
+);
+assert.equal(
+  successfulInstall.readFetchCalls(),
+  installFetchCalls,
+  'A controlled navigation must not switch to the server page before user activation.',
+);
 const messageListener = successfulInstall.listeners.get('message');
 assert.ok(messageListener, 'Service worker must expose explicit update activation.');
+let reportedPageVersion;
+messageListener({
+  data: { type: 'GET_PAGE_VERSION' },
+  ports: [{ postMessage(value) { reportedPageVersion = value; } }],
+});
+assert.deepEqual(
+  JSON.parse(JSON.stringify(reportedPageVersion)),
+  {
+    schemaVersion: 1,
+    releaseVersion,
+    shellVersion,
+  },
+  'The active worker must report the exact installed release and shell versions.',
+);
 messageListener({ data: { type: 'SKIP_WAITING' } });
 assert.equal(
   successfulInstall.readSkipWaitingCalls(),
@@ -161,6 +212,6 @@ assert.equal(
 );
 
 console.log(
-  `ATOMIC_SW_OK version=${JSON.parse(versionMatch[1])} files=${appShellFiles.length} `
+  `ATOMIC_SW_OK release=${releaseVersion} version=${shellVersion} files=${appShellFiles.length} `
   + `entryGzip=${entryGzipBytes} optionalLiquidAssets=${liquidThemeAssets.length}`,
 );

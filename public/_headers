@@ -11,6 +11,10 @@
   Pragma: no-cache
   Service-Worker-Allowed: /
 
+/version.json
+  Cache-Control: no-store, no-cache, must-revalidate
+  Pragma: no-cache
+
 /manifest.webmanifest
   Cache-Control: no-store, no-cache, must-revalidate
   Pragma: no-cache

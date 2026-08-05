@@ -2,6 +2,7 @@ const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
 const THEME_CACHE_NAME = 'dmg-theme-assets-v1';
 const APP_SHELL_CACHE_PREFIX = 'dmg-app-shell-';
+const APP_RELEASE_VERSION = '__DMG_APP_RELEASE_VERSION__';
 const APP_SHELL_VERSION = '__DMG_APP_SHELL_VERSION__';
 const APP_SHELL_FILES = /*__DMG_APP_SHELL_FILES__*/[];
 const APP_SHELL_FILE_PATHS = new Set(APP_SHELL_FILES);
@@ -56,6 +57,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'GET_PAGE_VERSION') {
+    event.ports?.[0]?.postMessage({
+      schemaVersion: 1,
+      releaseVersion: APP_RELEASE_VERSION,
+      shellVersion: APP_SHELL_VERSION,
+    });
+  }
 });
 
 async function readInstalledPackage(request, cacheName) {
@@ -69,12 +77,6 @@ async function readAppShell(request) {
 }
 
 async function readNavigation(request) {
-  try {
-    const response = await fetch(request);
-    if (response.ok) return response;
-  } catch {
-    // The complete, versioned app shell is the offline fallback.
-  }
   const cache = await caches.open(APP_SHELL_CACHE_NAME);
   const fallback = await cache.match('/index.html', { ignoreSearch: true });
   if (fallback) return fallback;

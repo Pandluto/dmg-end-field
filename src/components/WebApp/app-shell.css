@@ -284,7 +284,20 @@
   color: var(--shell-accent);
 }
 
-.web-shell-local-state.is-checking .local-state-action {
+.web-shell-local-state.is-update-available:not(:disabled),
+.web-shell-local-state.is-update-failed:not(:disabled) {
+  background: color-mix(in srgb, var(--shell-accent) 8%, transparent);
+}
+
+.web-shell-local-state.is-update-available strong,
+.web-shell-local-state.is-update-failed strong,
+.web-shell-local-state.is-update-available .local-state-action,
+.web-shell-local-state.is-update-failed .local-state-action {
+  color: var(--shell-accent);
+}
+
+.web-shell-local-state.is-checking .local-state-action,
+.web-shell-local-state.is-updating .local-state-action {
   animation: local-state-spin 900ms linear infinite;
 }
 

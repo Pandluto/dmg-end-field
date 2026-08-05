@@ -9,9 +9,9 @@ import { OptionalLiquidTideSurfaceEffects } from '../../platform/theme/OptionalL
 import { APP_VERSION_LABEL } from '../../platform/runtime/appVersion';
 import {
   readOfflineAvailability,
-  reloadLatestPageVersion,
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
+import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -43,8 +43,6 @@ type LauncherDragState = {
   originY: number;
   moved: boolean;
 };
-
-type PageUpdateState = 'idle' | 'checking' | 'up-to-date' | 'failed';
 
 const LAUNCHER_SIZE = 44;
 const LAUNCHER_MARGIN = 8;
@@ -145,8 +143,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     supported: true,
     ready: false,
   });
-  const [pageUpdateState, setPageUpdateState] = useState<PageUpdateState>('idle');
-  const [pageUpdateError, setPageUpdateError] = useState('');
+  const { state: pageVersionUpdate, update: updatePageVersion } = usePageVersionUpdate();
   const [launcherPosition, setLauncherPosition] = useState<LauncherPosition>(
     () => ({ ...LAUNCHER_DEFAULT_POSITION }),
   );
@@ -172,6 +169,16 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     : launcherPosition.y + 200 > viewportHeight
       ? 'bottom'
       : 'center';
+  const pageVersionTargetLabel = pageVersionUpdate.latestVersionLabel
+    || pageVersionUpdate.currentVersionLabel;
+  const pageVersionHasNewRelease = pageVersionUpdate.latestVersionLabel !== null
+    && pageVersionUpdate.latestVersionLabel !== pageVersionUpdate.currentVersionLabel;
+  const pageVersionDiscoveryLabel = pageVersionHasNewRelease
+    ? '发现新版本'
+    : '发现页面更新';
+  const pageVersionCanUpdate = isOnline
+    && ['update-available', 'update-failed'].includes(pageVersionUpdate.phase);
+  const pageVersionBusy = ['checking', 'updating'].includes(pageVersionUpdate.phase);
 
   const handleLauncherPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
@@ -200,19 +207,6 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     setMenuOpen((open) => !open);
   };
 
-  const handlePageUpdate = async () => {
-    if (!isOnline || pageUpdateState === 'checking') return;
-    setPageUpdateState('checking');
-    setPageUpdateError('');
-    try {
-      const result = await reloadLatestPageVersion();
-      if (result === 'up-to-date') setPageUpdateState('up-to-date');
-    } catch (error) {
-      setPageUpdateError(error instanceof Error ? error.message : String(error));
-      setPageUpdateState('failed');
-    }
-  };
-
   useEffect(() => {
     setMenuOpen(false);
   }, [currentPath]);
@@ -223,14 +217,10 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     };
     const handleOnline = () => {
       setIsOnline(true);
-      setPageUpdateState('idle');
-      setPageUpdateError('');
       refreshOfflineAvailability();
     };
     const handleOffline = () => {
       setIsOnline(false);
-      setPageUpdateState('idle');
-      setPageUpdateError('');
       refreshOfflineAvailability();
     };
 
@@ -400,45 +390,71 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
               </nav>
 
               <button
-                className={`web-shell-local-state is-${pageUpdateState}`}
+                className={`web-shell-local-state is-${pageVersionUpdate.phase}`}
                 type="button"
-                disabled={!isOnline || pageUpdateState === 'checking'}
-                aria-label={isOnline
-                  ? `当前版本 ${APP_VERSION_LABEL}，点击检查并更新`
-                  : `当前离线，版本 ${APP_VERSION_LABEL}`}
-                title={pageUpdateError || (isOnline ? '点击检查服务器上的最新版本' : '连接网络后可检查更新')}
-                onClick={() => void handlePageUpdate()}
+                disabled={!pageVersionCanUpdate}
+                aria-label={pageVersionCanUpdate
+                  ? `${pageVersionDiscoveryLabel} ${pageVersionTargetLabel}，点击更新`
+                  : pageVersionUpdate.phase === 'checking'
+                    ? `正在自动检查页面版本，当前 ${pageVersionUpdate.currentVersionLabel}`
+                    : pageVersionUpdate.phase === 'updating'
+                      ? `正在更新到 ${pageVersionTargetLabel}`
+                      : pageVersionUpdate.phase === 'up-to-date'
+                        ? `当前版本 ${pageVersionUpdate.currentVersionLabel}，已自动检查为最新版本`
+                        : pageVersionUpdate.phase === 'check-failed'
+                          ? `当前版本 ${pageVersionUpdate.currentVersionLabel}，自动检查暂不可用`
+                          : `当前离线，版本 ${pageVersionUpdate.currentVersionLabel}`}
+                title={pageVersionUpdate.error || (pageVersionCanUpdate
+                  ? '点击下载、激活并重新载入新版本'
+                  : '页面会自动检查服务器版本')}
+                onClick={() => void updatePageVersion()}
               >
                 <span
-                  className={`local-state-dot ${isOnline ? 'is-online' : 'is-offline'}${pageUpdateState === 'checking' ? ' is-checking' : ''}`}
+                  className={`local-state-dot ${isOnline ? 'is-online' : 'is-offline'}${pageVersionBusy ? ' is-checking' : ''}`}
                   aria-hidden="true"
                 />
                 <div aria-live="polite">
                   <strong>
-                    {pageUpdateState === 'checking'
-                      ? `正在检查 · ${APP_VERSION_LABEL}`
-                      : pageUpdateState === 'failed'
-                        ? `更新失败 · ${APP_VERSION_LABEL}`
-                        : `${isOnline ? '当前联网' : '当前离线'} · ${APP_VERSION_LABEL}`}
+                    {pageVersionUpdate.phase === 'checking'
+                      ? `正在自动检查 · ${pageVersionUpdate.currentVersionLabel}`
+                      : pageVersionUpdate.phase === 'updating'
+                        ? `正在更新 · ${pageVersionTargetLabel}`
+                        : pageVersionUpdate.phase === 'update-failed'
+                          ? `更新失败 · ${pageVersionTargetLabel}`
+                          : pageVersionUpdate.phase === 'update-available'
+                            ? `${pageVersionDiscoveryLabel} · ${pageVersionTargetLabel}`
+                            : `${isOnline ? '当前联网' : '当前离线'} · ${pageVersionUpdate.currentVersionLabel}`}
                   </strong>
                   <small>
-                    {pageUpdateState === 'checking'
-                      ? '正在下载并校验完整版本'
-                      : pageUpdateState === 'up-to-date'
-                        ? '已经是服务器最新版本'
-                        : pageUpdateState === 'failed'
-                          ? '点击重试更新检查'
-                          : isOnline
-                            ? '点击检查并更新'
-                            : offlineAvailability.ready
-                              ? '离线工作区已就绪'
-                              : offlineAvailability.supported
-                                ? '正在准备离线工作区'
-                                : '此环境仅支持在线使用'}
+                    {pageVersionUpdate.phase === 'checking'
+                      ? '正在自动检查服务器版本'
+                      : pageVersionUpdate.phase === 'updating'
+                        ? '正在下载并校验完整版本'
+                        : pageVersionUpdate.phase === 'update-available'
+                          ? '点击更新，完成后自动重新载入'
+                          : pageVersionUpdate.phase === 'update-failed'
+                            ? '点击重试更新'
+                            : pageVersionUpdate.phase === 'check-failed'
+                              ? '自动检查暂不可用，将稍后重试'
+                              : pageVersionUpdate.phase === 'up-to-date'
+                                ? '已自动检查，是最新版本'
+                                : offlineAvailability.ready
+                                  ? '离线工作区已就绪'
+                                  : offlineAvailability.supported
+                                    ? '正在准备离线工作区'
+                                    : '此环境仅支持在线使用'}
                   </small>
                 </div>
                 <span className="local-state-action" aria-hidden="true">
-                  {isOnline ? '↻' : '—'}
+                  {pageVersionBusy
+                    ? '↻'
+                    : pageVersionCanUpdate
+                      ? '↓'
+                      : pageVersionUpdate.phase === 'up-to-date'
+                        ? '✓'
+                        : pageVersionUpdate.phase === 'check-failed'
+                          ? '!'
+                          : '—'}
                 </span>
               </button>
             </div>
