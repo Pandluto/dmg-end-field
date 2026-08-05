@@ -45,6 +45,12 @@ if (!shellEntries.some(({ relativePath }) => relativePath === 'index.html')) {
 }
 
 const digest = crypto.createHash('sha256');
+// Worker behavior is part of the installed page version. Hash the template
+// before marker replacement so worker-only hotfixes always receive a new cache.
+digest.update('sw.js');
+digest.update('\0');
+digest.update(fs.readFileSync(serviceWorkerPath));
+digest.update('\0');
 for (const entry of shellEntries) {
   digest.update(entry.relativePath);
   digest.update('\0');

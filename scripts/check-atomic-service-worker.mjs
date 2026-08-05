@@ -72,14 +72,22 @@ function createInstallHarness(failingUrl = null) {
   const stores = new Map();
   let skipWaitingCalls = 0;
   let fetchCalls = 0;
+  let clientClaimCalls = 0;
+  let cacheOperationsFail = false;
+  const assertCacheAvailable = () => {
+    if (cacheOperationsFail) throw new Error('Cache Storage unavailable');
+  };
   const cacheStorage = {
     async delete(name) {
+      assertCacheAvailable();
       return stores.delete(name);
     },
     async keys() {
+      assertCacheAvailable();
       return [...stores.keys()];
     },
     async open(name) {
+      assertCacheAvailable();
       if (!stores.has(name)) {
         const entries = new Map();
         stores.set(name, {
@@ -106,7 +114,9 @@ function createInstallHarness(failingUrl = null) {
     registration: { active: null },
     location: { origin: 'https://offline.test' },
     clients: {
-      async claim() {},
+      async claim() {
+        clientClaimCalls += 1;
+      },
     },
     async skipWaiting() {
       skipWaitingCalls += 1;
@@ -138,6 +148,14 @@ function createInstallHarness(failingUrl = null) {
     createRequest: (input, init) => new HarnessRequest(input, init),
     readFetchCalls: () => fetchCalls,
     readSkipWaitingCalls: () => skipWaitingCalls,
+    readClientClaimCalls: () => clientClaimCalls,
+    setCacheOperationsFail(value) {
+      cacheOperationsFail = value;
+    },
+    async seedCache(name, key, body) {
+      const cache = await cacheStorage.open(name);
+      await cache.put(key, new Response(body));
+    },
   };
 }
 
@@ -150,6 +168,17 @@ async function runInstall(harness) {
   });
   assert.ok(installPromise, 'Install handler must register atomic work.');
   return installPromise;
+}
+
+async function runActivate(harness) {
+  let activatePromise;
+  harness.listeners.get('activate')({
+    waitUntil(promise) {
+      activatePromise = promise;
+    },
+  });
+  assert.ok(activatePromise, 'Activate handler must register cleanup work.');
+  return activatePromise;
 }
 
 const failedInstall = createInstallHarness(appShellFiles.at(-2));
@@ -187,6 +216,62 @@ assert.equal(
   successfulInstall.readFetchCalls(),
   installFetchCalls,
   'A controlled navigation must not switch to the server page before user activation.',
+);
+
+successfulInstall.setCacheOperationsFail(true);
+let recoveryNavigationResponsePromise;
+successfulInstall.listeners.get('fetch')({
+  request: successfulInstall.createRequest('/recovery', { mode: 'navigate' }),
+  respondWith(promise) {
+    recoveryNavigationResponsePromise = promise;
+  },
+});
+assert.ok(recoveryNavigationResponsePromise, 'Navigation recovery must still be handled.');
+assert.equal(
+  await (await recoveryNavigationResponsePromise).text(),
+  'asset:/recovery',
+  'Cache Storage failure must fall back to the online navigation.',
+);
+successfulInstall.setCacheOperationsFail(false);
+
+const brokenShellVersion = 'e564a69322ae3fc8';
+assert.notEqual(
+  shellVersion,
+  brokenShellVersion,
+  'The recovery worker must have a new shell version.',
+);
+const recoveryInstall = createInstallHarness();
+await recoveryInstall.seedCache(
+  `dmg-app-shell-${brokenShellVersion}`,
+  '/index.html',
+  'previous:/index.html',
+);
+await runInstall(recoveryInstall);
+assert.equal(
+  recoveryInstall.readSkipWaitingCalls(),
+  1,
+  'The known broken page version must be recovered without another page click.',
+);
+await runActivate(recoveryInstall);
+assert.equal(
+  recoveryInstall.stores.has(`dmg-app-shell-${brokenShellVersion}`),
+  true,
+  'Activation must retain one previous shell as an emergency fallback.',
+);
+
+const unavailableCacheInstall = createInstallHarness();
+unavailableCacheInstall.setCacheOperationsFail(true);
+await runInstall(unavailableCacheInstall);
+assert.equal(
+  unavailableCacheInstall.readSkipWaitingCalls(),
+  1,
+  'Cache Storage failure must activate the online recovery worker.',
+);
+await runActivate(unavailableCacheInstall);
+assert.equal(
+  unavailableCacheInstall.readClientClaimCalls(),
+  1,
+  'Cache cleanup failure must not block navigation recovery.',
 );
 const messageListener = successfulInstall.listeners.get('message');
 assert.ok(messageListener, 'Service worker must expose explicit update activation.');
