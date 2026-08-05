@@ -73,6 +73,8 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+const BUILTIN_IMAGE_INDEX_PATH = 'assets/images/_manifest.json';
+
 let currentCapabilities = WEB_CAPABILITIES;
 let builtinManifest: ImageAssetEntry[] | null = null;
 let initializationPromise: Promise<void> | null = null;
@@ -185,34 +187,38 @@ function rowToEntry(row: ImageRow): ImageAssetEntry {
 
 async function loadBuiltinManifest(): Promise<ImageAssetEntry[]> {
   if (builtinManifest) return builtinManifest;
-  const response = await fetch(staticAssetUrl('web-image-manifest.json'), {
+  const response = await fetch(staticAssetUrl(BUILTIN_IMAGE_INDEX_PATH), {
     cache: 'no-store',
   });
   if (!response.ok) throw new Error(`图片索引加载失败：HTTP ${response.status}`);
-  const payload = await response.json() as {
-    generatedAt?: string;
-    files?: Array<{ path: string; size: number }>;
-  };
-  const updatedAt = Date.parse(payload.generatedAt || '') || 0;
-  builtinManifest = Array.isArray(payload.files)
-    ? payload.files.map((entry) => {
-      const fileName = entry.path.split('/').pop() || entry.path;
-      const { baseName, ext } = fileParts(fileName);
-      return {
-        fileName,
-        baseName,
-        ext,
-        relativePath: entry.path,
-        sizeBytes: entry.size,
-        updatedAt,
-        writable: false,
-        source: 'release',
-        rootId: 'release',
-        rootLabel: '官方图片包',
-        rootPriority: -1,
-      };
-    })
-    : [];
+  const payload = await response.json() as unknown;
+  if (!Array.isArray(payload)) throw new Error('图片索引格式无效。');
+  builtinManifest = payload.map((rawEntry) => {
+    const entry = rawEntry as Partial<ImageAssetEntry>;
+    const relativePath = typeof entry.relativePath === 'string'
+      ? normalizeSlashes(entry.relativePath)
+      : '';
+    const sizeBytes = Number(entry.sizeBytes);
+    const updatedAt = Number(entry.updatedAt);
+    if (!relativePath.startsWith('assets/images/') || !Number.isFinite(sizeBytes)) {
+      throw new Error('图片索引格式无效。');
+    }
+    const fileName = relativePath.split('/').pop() || relativePath;
+    const { baseName, ext } = fileParts(fileName);
+    return {
+      fileName,
+      baseName,
+      ext,
+      relativePath,
+      sizeBytes,
+      updatedAt: Number.isFinite(updatedAt) ? updatedAt : 0,
+      writable: false,
+      source: 'release',
+      rootId: 'release',
+      rootLabel: '官方图片包',
+      rootPriority: -1,
+    };
+  });
   return builtinManifest;
 }
 

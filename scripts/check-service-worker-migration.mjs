@@ -143,6 +143,14 @@ page.on('response', (response) => {
 try {
   const firstResponse = await page.goto(origin, { waitUntil: 'domcontentloaded' });
   assert.equal(firstResponse?.status(), 200, 'The old deployed page must start normally.');
+  assert.equal(
+    await page.evaluate(async () => {
+      if (!window.__DMG_ENSURE_SERVICE_WORKER__) return false;
+      return window.__DMG_ENSURE_SERVICE_WORKER__();
+    }),
+    true,
+    'The old deployed page must establish its controller before migration.',
+  );
   await waitForControllerVersion(page, oldVersion.shellVersion);
 
   await page.evaluate(async ({ oldShellVersion, probePath }) => {

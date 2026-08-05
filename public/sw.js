@@ -19,6 +19,8 @@ const RECOVERY_APP_SHELL_VERSIONS = new Set([
   '79ce3dba11d89ada',
   // v1.8.2 site release v28 could accept an old controller and lose image delivery.
   '7b6e63d83be550ff',
+  // v1.8.2 site release v29 fetched its image index outside the offline shell.
+  '581ba284e45339c7',
 ]);
 const LEGACY_PAGE_CACHE_PREFIXES = [
   'workbox-precache',
@@ -315,6 +317,18 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // The generated browser image index lives below /assets/images/, but it is
+  // application code metadata rather than an installed image. Serve every
+  // explicit non-navigation shell entry before the generic package routes.
+  if (
+    HAS_BUILT_APP_SHELL
+    && request.mode !== 'navigate'
+    && APP_SHELL_FILE_PATHS.has(url.pathname)
+  ) {
+    event.respondWith(readAppShellResource(request));
+    return;
+  }
 
   if (url.pathname.includes('/assets/images/')) {
     event.respondWith(readInstalledPackage(request, IMAGE_CACHE_NAME));

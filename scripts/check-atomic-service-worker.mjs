@@ -15,6 +15,7 @@ const incidentShellVersions = [
   'e564a69322ae3fc8',
   '79ce3dba11d89ada',
   '7b6e63d83be550ff',
+  '581ba284e45339c7',
 ];
 
 const versionMatch = source.match(/const APP_SHELL_VERSION = ("[a-f0-9]{16}");/);
@@ -54,6 +55,10 @@ assert.match(
 
 const appShellFiles = JSON.parse(filesMatch[1]);
 assert.ok(appShellFiles.includes('/index.html'), 'Offline shell must contain index.html.');
+assert.ok(
+  appShellFiles.includes('/assets/images/_manifest.json'),
+  'Offline shell must contain the browser image index used during workspace startup.',
+);
 assert.ok(appShellFiles.some((file) => file.endsWith('.wasm')), 'Offline shell must contain SQLite WASM.');
 assert.ok(appShellFiles.some((file) => file.endsWith('.css')), 'Offline shell must contain core CSS.');
 assert.ok(appShellFiles.some((file) => file.endsWith('.js')), 'Offline shell must contain core JavaScript.');
@@ -96,6 +101,10 @@ function createInstallHarness(failingUrl = null, failureCount = Number.POSITIVE_
   let clientClaimCalls = 0;
   let cacheOperationsFail = false;
   let remainingFailures = failureCount;
+  const normalizeCacheKey = (key) => new URL(
+    String(key?.url || key),
+    'https://offline.test',
+  ).href;
   const assertCacheAvailable = () => {
     if (cacheOperationsFail) throw new Error('Cache Storage unavailable');
   };
@@ -115,10 +124,10 @@ function createInstallHarness(failingUrl = null, failureCount = Number.POSITIVE_
         stores.set(name, {
           entries,
           async match(key) {
-            return entries.get(String(key?.url || key));
+            return entries.get(normalizeCacheKey(key));
           },
           async put(key, response) {
-            entries.set(String(key?.url || key), response);
+            entries.set(normalizeCacheKey(key), response);
           },
         });
       }
@@ -289,6 +298,49 @@ assert.equal(
   'A controlled navigation must not switch to the server page before user activation.',
 );
 
+let imageIndexResponsePromise;
+successfulInstall.listeners.get('fetch')({
+  request: successfulInstall.createRequest('/assets/images/_manifest.json'),
+  respondWith(promise) {
+    imageIndexResponsePromise = promise;
+  },
+});
+assert.ok(imageIndexResponsePromise, 'The browser image index must be handled offline.');
+assert.equal(
+  await (await imageIndexResponsePromise).text(),
+  'asset:/assets/images/_manifest.json',
+  'The browser image index must come from the atomic app shell, not the network.',
+);
+assert.equal(
+  successfulInstall.readFetchCalls(),
+  installFetchCalls,
+  'Reading the browser image index must not fall through to the network.',
+);
+
+await successfulInstall.seedCache(
+  'dmg-image-pack-v1',
+  'https://offline.test/assets/images/cache-only.png',
+  'installed-image',
+);
+let installedImageResponsePromise;
+successfulInstall.listeners.get('fetch')({
+  request: successfulInstall.createRequest('/assets/images/cache-only.png'),
+  respondWith(promise) {
+    installedImageResponsePromise = promise;
+  },
+});
+assert.ok(installedImageResponsePromise, 'An installed image must be handled offline.');
+assert.equal(
+  await (await installedImageResponsePromise).text(),
+  'installed-image',
+  'Installed images must still come from the image package cache.',
+);
+assert.equal(
+  successfulInstall.readFetchCalls(),
+  installFetchCalls,
+  'Reading an installed image must not fall through to the network.',
+);
+
 successfulInstall.setCacheOperationsFail(true);
 let recoveryNavigationResponsePromise;
 successfulInstall.listeners.get('fetch')({
@@ -337,17 +389,17 @@ for (const brokenShellVersion of incidentShellVersions) {
 }
 
 const missingOldCacheRecovery = createInstallHarness();
-missingOldCacheRecovery.setActiveWorkerVersion('7b6e63d83be550ff');
+missingOldCacheRecovery.setActiveWorkerVersion(incidentShellVersions.at(-1));
 await runInstall(missingOldCacheRecovery);
 assert.equal(
   missingOldCacheRecovery.readSkipWaitingCalls(),
   1,
-  'The v28 controller must recover even when its app-shell cache is already missing.',
+  'The latest incident controller must recover even when its app-shell cache is missing.',
 );
 
 const previousAssetFallback = createInstallHarness();
 await previousAssetFallback.seedCache(
-  'dmg-app-shell-7b6e63d83be550ff',
+  `dmg-app-shell-${incidentShellVersions.at(-1)}`,
   'https://offline.test/assets/previous-release.js',
   'previous-release-asset',
 );
