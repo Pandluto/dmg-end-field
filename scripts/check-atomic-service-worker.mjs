@@ -14,6 +14,7 @@ const versionManifest = JSON.parse(fs.readFileSync(versionManifestPath, 'utf8'))
 const incidentShellVersions = [
   'e564a69322ae3fc8',
   '79ce3dba11d89ada',
+  '7b6e63d83be550ff',
 ];
 
 const versionMatch = source.match(/const APP_SHELL_VERSION = ("[a-f0-9]{16}");/);
@@ -42,8 +43,13 @@ for (const incidentShellVersion of incidentShellVersions) {
 }
 assert.match(
   indexHtml,
-  /recoveryShellVersions\.has\(controllerShellVersion\)[\s\S]*await currentRegistration\.update\(\)/,
-  'A hard-refreshed incident shell must explicitly request its recovery worker.',
+  /recoveryShellVersions\.has\(shellVersion\)[\s\S]*__DMG_ENSURE_SERVICE_WORKER__/,
+  'A hard-refreshed incident shell must run the complete controller migration transaction.',
+);
+assert.match(
+  indexHtml,
+  /readWorkerShellVersion\(worker\)[\s\S]*worker\.postMessage\(\{ type: 'SKIP_WAITING' \}\)[\s\S]*waitForTargetController/,
+  'Recovery must install, activate, and confirm the matching controller before continuing.',
 );
 
 const appShellFiles = JSON.parse(filesMatch[1]);
@@ -82,13 +88,14 @@ assert.ok(
   `Core JavaScript gzip budget exceeded: ${entryGzipBytes} bytes.`,
 );
 
-function createInstallHarness(failingUrl = null) {
+function createInstallHarness(failingUrl = null, failureCount = Number.POSITIVE_INFINITY) {
   const listeners = new Map();
   const stores = new Map();
   let skipWaitingCalls = 0;
   let fetchCalls = 0;
   let clientClaimCalls = 0;
   let cacheOperationsFail = false;
+  let remainingFailures = failureCount;
   const assertCacheAvailable = () => {
     if (cacheOperationsFail) throw new Error('Cache Storage unavailable');
   };
@@ -140,7 +147,34 @@ function createInstallHarness(failingUrl = null) {
       listeners.set(type, listener);
     },
   };
+  class HarnessMessageChannel {
+    constructor() {
+      this.port1 = {
+        onmessage: null,
+        close() {},
+      };
+      this.port2 = {
+        postMessage: (value) => this.port1.onmessage?.({ data: value }),
+      };
+    }
+  }
+  let timerSequence = 0;
+  const pendingTimers = new Set();
   const context = vm.createContext({
+    clearTimeout(timerId) {
+      pendingTimers.delete(timerId);
+    },
+    setTimeout(callback) {
+      const timerId = ++timerSequence;
+      pendingTimers.add(timerId);
+      queueMicrotask(() => {
+        if (!pendingTimers.delete(timerId)) return;
+        callback();
+      });
+      return timerId;
+    },
+    MessageChannel: HarnessMessageChannel,
+    TextDecoder,
     URL,
     Request: HarnessRequest,
     Response,
@@ -150,8 +184,10 @@ function createInstallHarness(failingUrl = null) {
     fetch: async (request) => {
       fetchCalls += 1;
       const pathname = new URL(request.url).pathname;
-      return new Response(`asset:${pathname}`, {
-        status: pathname === failingUrl ? 503 : 200,
+      const shouldFail = pathname === failingUrl && remainingFailures > 0;
+      if (shouldFail) remainingFailures -= 1;
+      return new Response(pathname === '/index.html' ? indexHtml : `asset:${pathname}`, {
+        status: shouldFail ? 503 : 200,
       });
     },
     self: serviceWorkerGlobal,
@@ -166,6 +202,18 @@ function createInstallHarness(failingUrl = null) {
     readClientClaimCalls: () => clientClaimCalls,
     setCacheOperationsFail(value) {
       cacheOperationsFail = value;
+    },
+    setActiveWorkerVersion(version) {
+      serviceWorkerGlobal.registration.active = {
+        postMessage(message, ports) {
+          if (message?.type !== 'GET_PAGE_VERSION') return;
+          ports?.[0]?.postMessage({
+            schemaVersion: 1,
+            releaseVersion,
+            shellVersion: version,
+          });
+        },
+      };
     },
     async seedCache(name, key, body) {
       const cache = await cacheStorage.open(name);
@@ -200,6 +248,14 @@ const failedInstall = createInstallHarness(appShellFiles.at(-2));
 await assert.rejects(runInstall(failedInstall));
 assert.equal(failedInstall.stores.size, 0, 'Failed app-shell install must remove its partial cache.');
 
+const transientInstall = createInstallHarness(appShellFiles.at(-2), 2);
+await runInstall(transientInstall);
+assert.equal(
+  transientInstall.stores.size,
+  1,
+  'A release asset that appears late at the edge must be retried into a complete shell.',
+);
+
 const successfulInstall = createInstallHarness();
 await runInstall(successfulInstall);
 assert.equal(successfulInstall.stores.size, 1, 'Successful install must publish one versioned cache.');
@@ -210,8 +266,8 @@ assert.equal(
 );
 assert.equal(
   [...successfulInstall.stores.values()][0].entries.size,
-  appShellFiles.length,
-  'Successful install must cache the entire manifest before activation.',
+  appShellFiles.length + 1,
+  'Successful install must cache the entire manifest and its completion marker.',
 );
 const installFetchCalls = successfulInstall.readFetchCalls();
 let navigationResponsePromise;
@@ -222,10 +278,10 @@ successfulInstall.listeners.get('fetch')({
   },
 });
 assert.ok(navigationResponsePromise, 'Navigation must be handled by the installed app shell.');
-assert.equal(
+assert.match(
   await (await navigationResponsePromise).text(),
-  'asset:/index.html',
-  'A normal navigation must keep the currently installed page version.',
+  new RegExp(`dmg-app-shell-version" content="${shellVersion}`),
+  'A normal navigation must keep the complete currently installed page version.',
 );
 assert.equal(
   successfulInstall.readFetchCalls(),
@@ -269,25 +325,55 @@ for (const brokenShellVersion of incidentShellVersions) {
   );
   await runActivate(recoveryInstall);
   assert.equal(
+    recoveryInstall.readClientClaimCalls(),
+    1,
+    'A complete recovery worker must claim existing tabs after activation.',
+  );
+  assert.equal(
     recoveryInstall.stores.has(`dmg-app-shell-${brokenShellVersion}`),
     true,
     'Activation must retain one previous shell as an emergency fallback.',
   );
 }
 
+const missingOldCacheRecovery = createInstallHarness();
+missingOldCacheRecovery.setActiveWorkerVersion('7b6e63d83be550ff');
+await runInstall(missingOldCacheRecovery);
+assert.equal(
+  missingOldCacheRecovery.readSkipWaitingCalls(),
+  1,
+  'The v28 controller must recover even when its app-shell cache is already missing.',
+);
+
+const previousAssetFallback = createInstallHarness();
+await previousAssetFallback.seedCache(
+  'dmg-app-shell-7b6e63d83be550ff',
+  'https://offline.test/assets/previous-release.js',
+  'previous-release-asset',
+);
+await runInstall(previousAssetFallback);
+await runActivate(previousAssetFallback);
+let previousAssetResponsePromise;
+previousAssetFallback.listeners.get('fetch')({
+  request: previousAssetFallback.createRequest('/assets/previous-release.js'),
+  respondWith(promise) {
+    previousAssetResponsePromise = promise;
+  },
+});
+assert.ok(previousAssetResponsePromise, 'A previous release asset must be handled offline.');
+assert.equal(
+  await (await previousAssetResponsePromise).text(),
+  'previous-release-asset',
+  'A retained previous index must keep its matching hashed assets, not only index.html.',
+);
+
 const unavailableCacheInstall = createInstallHarness();
 unavailableCacheInstall.setCacheOperationsFail(true);
-await runInstall(unavailableCacheInstall);
+await assert.rejects(runInstall(unavailableCacheInstall));
 assert.equal(
   unavailableCacheInstall.readSkipWaitingCalls(),
-  1,
-  'Cache Storage failure must activate the online recovery worker.',
-);
-await runActivate(unavailableCacheInstall);
-assert.equal(
-  unavailableCacheInstall.readClientClaimCalls(),
-  1,
-  'Cache cleanup failure must not block navigation recovery.',
+  0,
+  'Cache Storage failure must never activate an incomplete worker.',
 );
 const messageListener = successfulInstall.listeners.get('message');
 assert.ok(messageListener, 'Service worker must expose explicit update activation.');

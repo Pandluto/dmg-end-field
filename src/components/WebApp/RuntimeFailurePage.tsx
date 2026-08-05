@@ -2,10 +2,10 @@ import { useState } from 'react';
 
 interface RuntimeFailurePageProps {
   error: string;
+  onRetry?: () => void | Promise<void>;
 }
 
-export function RuntimeFailurePage({ error }: RuntimeFailurePageProps) {
-  const canRepairPageCache = error.includes('图片缓存服务');
+export function RuntimeFailurePage({ error, onRetry }: RuntimeFailurePageProps) {
   const [repairing, setRepairing] = useState(false);
 
   return (
@@ -22,19 +22,17 @@ export function RuntimeFailurePage({ error }: RuntimeFailurePageProps) {
           type="button"
           disabled={repairing}
           onClick={() => {
-            if (canRepairPageCache && window.__DMG_RECOVER_STARTUP__) {
-              setRepairing(true);
-              void window.__DMG_RECOVER_STARTUP__().finally(() => {
-                setRepairing(false);
-              });
+            if (!onRetry) {
+              window.location.reload();
               return;
             }
-            window.location.reload();
+            setRepairing(true);
+            void Promise.resolve(onRetry()).finally(() => {
+              setRepairing(false);
+            });
           }}
         >
-          {repairing
-            ? '正在修复，请稍候…'
-            : canRepairPageCache ? '修复并重新加载' : '重新尝试'}
+          {repairing ? '正在重新检查…' : '重新检查'}
         </button>
       </section>
     </main>

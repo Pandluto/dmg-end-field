@@ -27,6 +27,7 @@ import {
   normalizeAppliedLocalDataImagePaths,
 } from '../../platform/data/localDataPackages';
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
+import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -61,10 +62,15 @@ export function WebBootstrap() {
         readInstalledResourcePackage(),
         readInstalledImagePackage(),
       ]);
+      if (imagePackage && !await ensureImageServiceWorkerController()) {
+        throw new Error(
+          '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
+        );
+      }
+      if (imagePackage) await initializeAppTheme().catch(() => undefined);
       setInstalledPackage(installed);
       setInstalledImagePackage(imagePackage);
       const complete = Boolean(installed && imagePackage);
-      if (imagePackage) void ensureImageServiceWorkerController();
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
@@ -85,7 +91,12 @@ export function WebBootstrap() {
     setPhase('starting');
     setFailure('');
     try {
-      void ensureImageServiceWorkerController();
+      if (!await ensureImageServiceWorkerController()) {
+        throw new Error(
+          '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
+        );
+      }
+      await initializeAppTheme().catch(() => undefined);
       setInstalledPackage(resourcePackage);
       setInstalledImagePackage(imagePackage);
       navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -155,7 +166,12 @@ export function WebBootstrap() {
   }
 
   if (phase === 'failed') {
-    return <RuntimeFailurePage error={failure} />;
+    return (
+      <RuntimeFailurePage
+        error={failure}
+        onRetry={() => initializeWorkspace()}
+      />
+    );
   }
 
   if (phase === 'onboarding') {

@@ -25,10 +25,20 @@
         const recoveryShellVersions = new Set([
           'e564a69322ae3fc8',
           '79ce3dba11d89ada',
+          '7b6e63d83be550ff',
         ]);
-        const readControllerShellVersion = () => new Promise((resolve) => {
-          const controller = navigator.serviceWorker.controller;
-          if (!controller || typeof MessageChannel === 'undefined') {
+        const targetShellVersion = document
+          .querySelector('meta[name="dmg-app-shell-version"]')
+          ?.getAttribute('content') || '';
+        const transactionTimeoutMs = 90_000;
+        let ensureInFlight = null;
+
+        const delay = (milliseconds) => new Promise((resolve) => {
+          window.setTimeout(resolve, milliseconds);
+        });
+
+        const readWorkerShellVersion = (worker) => new Promise((resolve) => {
+          if (!worker || typeof MessageChannel === 'undefined') {
             resolve('');
             return;
           }
@@ -42,22 +52,128 @@
           channel.port1.onmessage = (event) => {
             finish(String(event.data?.shellVersion || ''));
           };
-          controller.postMessage({ type: 'GET_PAGE_VERSION' }, [channel.port2]);
+          try {
+            worker.postMessage({ type: 'GET_PAGE_VERSION' }, [channel.port2]);
+          } catch {
+            finish('');
+          }
         });
 
-        void navigator.serviceWorker.getRegistration('/').then(async (registration) => {
-          const currentRegistration = registration
-            || await navigator.serviceWorker.register('/sw.js', {
+        const waitForWorkerState = (worker, acceptedStates, timeoutMs) => {
+          if (acceptedStates.includes(worker.state)) return Promise.resolve(true);
+          if (worker.state === 'redundant') return Promise.resolve(false);
+          return new Promise((resolve) => {
+            const finish = (result) => {
+              window.clearTimeout(timeout);
+              worker.removeEventListener('statechange', handleStateChange);
+              resolve(result);
+            };
+            const handleStateChange = () => {
+              if (acceptedStates.includes(worker.state)) finish(true);
+              else if (worker.state === 'redundant') finish(false);
+            };
+            const timeout = window.setTimeout(
+              () => finish(acceptedStates.includes(worker.state)),
+              timeoutMs,
+            );
+            worker.addEventListener('statechange', handleStateChange);
+          });
+        };
+
+        const controllerMatchesTarget = async () => (
+          await readWorkerShellVersion(navigator.serviceWorker.controller)
+        ) === targetShellVersion;
+
+        const waitForTargetController = async (timeoutMs) => {
+          const deadline = Date.now() + timeoutMs;
+          while (Date.now() < deadline) {
+            if (await controllerMatchesTarget()) return true;
+            await delay(200);
+          }
+          return controllerMatchesTarget();
+        };
+
+        const activateMatchingWorker = async (registration) => {
+          const candidates = [...new Set([
+            registration.waiting,
+            registration.installing,
+            registration.active,
+          ].filter(Boolean))];
+          for (const worker of candidates) {
+            if (worker.state === 'installing') {
+              const installed = await waitForWorkerState(
+                worker,
+                ['installed', 'activated'],
+                transactionTimeoutMs,
+              );
+              if (!installed) continue;
+            }
+            if (await readWorkerShellVersion(worker) !== targetShellVersion) continue;
+            if (worker.state === 'installed') {
+              worker.postMessage({ type: 'SKIP_WAITING' });
+            }
+            if (worker.state === 'installed' || worker.state === 'activating') {
+              const activated = await waitForWorkerState(
+                worker,
+                ['activated'],
+                30_000,
+              );
+              if (!activated) continue;
+            }
+            if (worker.state === 'activated') {
+              return waitForTargetController(30_000);
+            }
+          }
+          return false;
+        };
+
+        const ensureTargetController = async () => {
+          if (await controllerMatchesTarget()) return true;
+          let registration = await navigator.serviceWorker.getRegistration('/');
+          if (!registration) {
+            registration = await navigator.serviceWorker.register('/sw.js', {
               scope: '/',
               updateViaCache: 'none',
             });
-          const controllerShellVersion = await readControllerShellVersion();
-          if (recoveryShellVersions.has(controllerShellVersion)) {
-            // Fetch the one-time recovery worker even when the browser recently
-            // checked the broken registration and would otherwise throttle it.
-            await currentRegistration.update();
           }
-        }).catch(() => undefined);
+
+          const deadline = Date.now() + transactionTimeoutMs;
+          let retryDelay = 250;
+          while (Date.now() < deadline) {
+            if (await activateMatchingWorker(registration)) return true;
+            if (!navigator.onLine) return false;
+            try {
+              await registration.update();
+            } catch {
+              // A release may reach the page and worker edge routes a few
+              // seconds apart. Retry inside this single bounded transaction.
+            }
+            if (await activateMatchingWorker(registration)) return true;
+            await delay(retryDelay);
+            retryDelay = Math.min(retryDelay * 2, 4_000);
+          }
+          return controllerMatchesTarget();
+        };
+
+        window.__DMG_ENSURE_SERVICE_WORKER__ = () => {
+          if (!ensureInFlight) {
+            ensureInFlight = ensureTargetController()
+              .catch(() => false)
+              .finally(() => {
+                ensureInFlight = null;
+              });
+          }
+          return ensureInFlight;
+        };
+
+        void readWorkerShellVersion(navigator.serviceWorker.controller).then((shellVersion) => {
+          if (
+            recoveryShellVersions.has(shellVersion)
+            && shellVersion !== targetShellVersion
+          ) {
+            void window.__DMG_ENSURE_SERVICE_WORKER__();
+          }
+        });
       })();
     </script>
     <script>
@@ -119,6 +235,11 @@
         ]);
 
         const prepareRecoveryWorker = async () => {
+          if (window.__DMG_ENSURE_SERVICE_WORKER__) {
+            const controlled = await window.__DMG_ENSURE_SERVICE_WORKER__();
+            if (!controlled) throw new Error('页面恢复服务未能接管当前页面。');
+            return;
+          }
           let registration = await navigator.serviceWorker.getRegistration('/');
           if (!registration) {
             registration = await navigator.serviceWorker.register('/sw.js', {

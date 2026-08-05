@@ -212,7 +212,7 @@ export async function readInstalledImagePackage(): Promise<InstalledImagePackage
   const row = rows[0];
   if (!row) return null;
   try {
-    return {
+    const installed = {
       packageId: String(row.package_id),
       version: String(row.version),
       installedAt: Number(row.installed_at),
@@ -220,14 +220,70 @@ export async function readInstalledImagePackage(): Promise<InstalledImagePackage
       byteSize: Number(row.byte_size),
       manifest: JSON.parse(String(row.manifest_json)) as ImagePackageManifest,
     };
+    return await verifyInstalledImagePackageCache(installed) ? installed : null;
   } catch {
     return null;
+  }
+}
+
+function absoluteImageCacheUrl(path: string): string {
+  const baseUrl = typeof window === 'undefined'
+    ? 'https://dmg-image-package.invalid/'
+    : window.location.href;
+  return new URL(resolvePublicPath(path), baseUrl).href;
+}
+
+export async function verifyInstalledImagePackageCache(
+  installed: InstalledImagePackage,
+): Promise<boolean> {
+  if (
+    installed.packageId !== IMAGE_PACKAGE_ID
+    || installed.manifest.packageId !== IMAGE_PACKAGE_ID
+    || installed.version !== installed.manifest.version
+    || !Array.isArray(installed.manifest.files)
+    || !('caches' in globalThis)
+  ) {
+    return false;
+  }
+
+  try {
+    const cache = await caches.open(IMAGE_CACHE_NAME);
+    const cachedRequests = await cache.keys();
+    const cachedByUrl = new Map(cachedRequests.map((request) => [request.url, request]));
+    const verificationBatchSize = 32;
+    for (
+      let offset = 0;
+      offset < installed.manifest.files.length;
+      offset += verificationBatchSize
+    ) {
+      const results = await Promise.all(
+        installed.manifest.files
+          .slice(offset, offset + verificationBatchSize)
+          .map(async (entry) => {
+            const request = cachedByUrl.get(absoluteImageCacheUrl(entry.path));
+            if (!request) return false;
+            const response = await cache.match(request);
+            return Boolean(
+              response
+              && response.headers.get('X-Dmg-Image-Package') === installed.version
+              && Number(response.headers.get('Content-Length')) === entry.size,
+            );
+          }),
+      );
+      if (results.includes(false)) return false;
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
 
 export async function installDefaultImagePackage(
   onProgress?: (progress: ImageInstallProgress) => void,
 ): Promise<InstalledImagePackage> {
+  if (!('caches' in globalThis)) {
+    throw new Error('浏览器图片缓存不可用。请关闭无痕模式或受限存储后重试。');
+  }
   const manifest = await fetchImagePackageManifest();
   const archive = await downloadArchive(manifest, onProgress);
   onProgress?.({
