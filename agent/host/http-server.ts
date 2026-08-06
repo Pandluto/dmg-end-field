@@ -1,0 +1,494 @@
+import { timingSafeEqual } from 'node:crypto';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import {
+  AGENT_UI_CAPABILITY_HEADER,
+  DEF_AGENT_PROTOCOL_VERSION,
+  asCommandId,
+  asDatabaseGeneration,
+  asTimelineId,
+  asWorkspaceId,
+  type AgentHostHealth,
+  type AgentLaunchAudience,
+  type AgentLaunchGrantRegistration,
+  type AgentUiState,
+  type BrowserCommandResultSubmission,
+  type BrowserSnapshotPublish,
+  type BrowserWorkbenchHeartbeat,
+  type BrowserWorkbenchRegistration,
+  type JsonObject,
+  type JsonValue,
+  type ProductBinding,
+  type ProductCommandResult,
+} from '../core/contracts/index.ts';
+import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
+import { DefAgentHost } from './def-agent-host.ts';
+import { DefAgentHostError } from './errors.ts';
+import { RemoteBrowserProductGateway } from './remote-browser-product-gateway.ts';
+import { AgentTokenAuthority, type AgentUiCapabilityClaims } from './token-authority.ts';
+
+export const AGENT_HOST_INTERNAL_TOKEN_HEADER = 'x-dmg-agent-host-token';
+export const AGENT_HOST_PROXY_ORIGIN_HEADER = 'x-dmg-agent-browser-origin';
+
+const MAX_REQUEST_BYTES = 1_048_576;
+const UI_AUDIENCE: AgentLaunchAudience = 'workbench-ai-mode';
+
+type RuntimeState = 'starting' | 'ready' | 'stopping' | 'error';
+
+export interface DefAgentHostHttpServerOptions {
+  readonly hostToken: string;
+  readonly browserOrigin: string;
+  readonly host: DefAgentHost;
+  readonly tokens: AgentTokenAuthority;
+  readonly consumers: BrowserConsumerRegistry;
+  readonly gateway: RemoteBrowserProductGateway;
+  readonly engine: AgentHostHealth['engine'];
+  readonly onShutdownRequested?: () => void;
+}
+
+export class DefAgentHostHttpServer {
+  readonly #hostToken: string;
+  readonly #browserOrigin: string;
+  readonly #host: DefAgentHost;
+  readonly #tokens: AgentTokenAuthority;
+  readonly #consumers: BrowserConsumerRegistry;
+  readonly #gateway: RemoteBrowserProductGateway;
+  readonly #engine: AgentHostHealth['engine'];
+  readonly #onShutdownRequested: () => void;
+  readonly #server: Server;
+  #state: RuntimeState = 'starting';
+  #stopPromise: Promise<void> | null = null;
+
+  constructor(options: DefAgentHostHttpServerOptions) {
+    if (!isSecureToken(options.hostToken)) throw new Error('DEF Agent Host token is invalid');
+    this.#hostToken = options.hostToken;
+    this.#browserOrigin = normalizeOrigin(options.browserOrigin);
+    this.#host = options.host;
+    this.#tokens = options.tokens;
+    this.#consumers = options.consumers;
+    this.#gateway = options.gateway;
+    this.#engine = options.engine;
+    this.#onShutdownRequested = options.onShutdownRequested ?? (() => {});
+    this.#server = createServer((request, response) => {
+      void this.#handle(request, response).catch((error: unknown) => {
+        this.#writeError(response, error);
+      });
+    });
+  }
+
+  async listen(port = 0): Promise<number> {
+    if (this.#state !== 'starting') throw new Error(`Cannot listen while Host is ${this.#state}`);
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error): void => reject(error);
+      this.#server.once('error', onError);
+      this.#server.listen(port, '127.0.0.1', () => {
+        this.#server.off('error', onError);
+        resolve();
+      });
+    });
+    const address = this.#server.address();
+    if (!address || typeof address === 'string') throw new Error('DEF Agent Host has no TCP address');
+    this.#state = 'ready';
+    return address.port;
+  }
+
+  health(): AgentHostHealth {
+    return {
+      service: 'def-agent-host',
+      protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+      runtimeSchemaVersion: 1,
+      state: this.#state,
+      engine: this.#engine,
+    };
+  }
+
+  stop(): Promise<void> {
+    if (this.#stopPromise) return this.#stopPromise;
+    this.#stopPromise = this.#stop();
+    return this.#stopPromise;
+  }
+
+  async #stop(): Promise<void> {
+    if (this.#state === 'stopping') return;
+    this.#state = 'stopping';
+    this.#tokens.clear();
+    this.#consumers.clear();
+    this.#gateway.clear('DEF Agent Host stopped');
+    await this.#host.shutdown();
+    if (this.#server.listening) {
+      await new Promise<void>((resolve, reject) => {
+        this.#server.close((error) => error ? reject(error) : resolve());
+        this.#server.closeAllConnections();
+      });
+    }
+  }
+
+  async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    response.setHeader('Cache-Control', 'no-store');
+    response.setHeader('Pragma', 'no-cache');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+    this.#assertHostToken(request);
+
+    if (url.pathname.startsWith('/internal/')) {
+      await this.#handleInternal(request, response, url);
+      return;
+    }
+    if (!url.pathname.startsWith('/agent-host/')) throw httpError('AGENT_ROUTE_NOT_FOUND', 'Route not found', 404);
+    this.#assertBrowserOrigin(request);
+    await this.#handleBrowser(request, response, url);
+  }
+
+  async #handleInternal(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
+    if (request.method === 'GET' && url.pathname === '/internal/health') {
+      this.#writeJson(response, 200, this.health());
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/internal/launch-grants') {
+      const body = expectRecord(await readJson(request));
+      const registration: AgentLaunchGrantRegistration = {
+        grant: expectString(body.grant, 'grant'),
+        origin: expectString(body.origin, 'origin'),
+        audience: expectAudience(body.audience),
+        expiresAt: expectNumber(body.expiresAt, 'expiresAt'),
+      };
+      if (normalizeOrigin(registration.origin) !== this.#browserOrigin) {
+        throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Launch grant origin is not the configured browser origin', 403);
+      }
+      this.#tokens.registerLaunchGrant(registration);
+      this.#writeJson(response, 201, { registered: true, expiresAt: registration.expiresAt });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/internal/shutdown') {
+      this.#writeJson(response, 202, { stopping: true });
+      setImmediate(() => {
+        this.#onShutdownRequested();
+        void this.stop();
+      });
+      return;
+    }
+    throw httpError('AGENT_ROUTE_NOT_FOUND', 'Internal Host route not found', 404);
+  }
+
+  async #handleBrowser(request: IncomingMessage, response: ServerResponse, url: URL): Promise<void> {
+    if (request.method === 'GET' && url.pathname === '/agent-host/health') {
+      this.#writeJson(response, 200, this.health());
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/ui/session') {
+      const body = expectRecord(await readJson(request));
+      const session = this.#tokens.exchangeLaunchGrant({
+        grant: expectString(body.launchGrant, 'launchGrant'),
+        origin: this.#browserOrigin,
+        audience: expectAudience(body.audience),
+      });
+      this.#writeJson(response, 201, session);
+      return;
+    }
+
+    const claims = this.#requireUiCapability(request);
+    if (request.method === 'GET' && url.pathname === '/agent-host/ui/state') {
+      const ids = this.#host.getActiveIds();
+      const state: AgentUiState = {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        engine: this.#engine,
+        consumer: this.#consumers.current(),
+        activeDefSessionId: ids.defSessionId,
+        activeDefTurnId: ids.defTurnId,
+      };
+      this.#writeJson(response, 200, state);
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/workbench/register') {
+      const registration = parseWorkbenchRegistration(await readJson(request));
+      this.#writeJson(response, 201, this.#consumers.register(claims, registration));
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/workbench/heartbeat') {
+      const heartbeat = parseWorkbenchHeartbeat(await readJson(request));
+      this.#writeJson(response, 200, this.#consumers.heartbeat(claims, heartbeat));
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/workbench/close') {
+      const body = expectRecord(await readJson(request));
+      this.#consumers.close(claims, {
+        consumerId: expectString(body.consumerId, 'consumerId'),
+        executorLeaseId: expectString(body.executorLeaseId, 'executorLeaseId'),
+      });
+      this.#writeJson(response, 200, { closed: true });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/workbench/snapshot') {
+      const publish = parseSnapshotPublish(await readJson(request));
+      this.#writeJson(response, 200, this.#gateway.publishSnapshot(claims, publish));
+      return;
+    }
+    if (request.method === 'GET' && url.pathname === '/agent-host/workbench/commands/next') {
+      const delivery = this.#gateway.nextCommand(claims, {
+        consumerId: expectQuery(url, 'consumerId'),
+        executorLeaseId: expectQuery(url, 'executorLeaseId'),
+        afterCursor: parseNonNegativeInteger(expectQuery(url, 'afterCursor'), 'afterCursor'),
+      });
+      this.#writeJson(response, 200, { delivery });
+      return;
+    }
+
+    const commandMatch = /^\/agent-host\/workbench\/commands\/([^/]+)(?:\/result)?$/.exec(url.pathname);
+    if (commandMatch) {
+      const commandId = asCommandId(decodeURIComponent(commandMatch[1]!));
+      if (request.method === 'POST' && url.pathname.endsWith('/result')) {
+        const submission = parseCommandResultSubmission(await readJson(request));
+        if (submission.result.commandId !== commandId) {
+          throw httpError('AGENT_REQUEST_INVALID', 'Result commandId does not match route', 400);
+        }
+        this.#writeJson(response, 200, this.#gateway.submitResult(claims, submission));
+        return;
+      }
+      if (request.method === 'GET' && !url.pathname.endsWith('/result')) {
+        const command = this.#gateway.getCommand(commandId);
+        if (!command) {
+          throw new DefAgentHostError('AGENT_COMMAND_NOT_FOUND', `Product command ${commandId} does not exist`, 404);
+        }
+        this.#writeJson(response, 200, command);
+        return;
+      }
+    }
+    throw httpError('AGENT_ROUTE_NOT_FOUND', 'Browser Host route not found', 404);
+  }
+
+  #assertHostToken(request: IncomingMessage): void {
+    const candidate = headerValue(request, AGENT_HOST_INTERNAL_TOKEN_HEADER);
+    if (!candidate || !constantTimeEqual(candidate, this.#hostToken)) {
+      throw httpError('AGENT_INTERNAL_UNAUTHORIZED', 'Private Agent Host authentication failed', 401);
+    }
+  }
+
+  #assertBrowserOrigin(request: IncomingMessage): void {
+    const origin = headerValue(request, AGENT_HOST_PROXY_ORIGIN_HEADER);
+    if (!origin || normalizeOrigin(origin) !== this.#browserOrigin) {
+      throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origin is denied', 403);
+    }
+  }
+
+  #requireUiCapability(request: IncomingMessage): AgentUiCapabilityClaims {
+    return this.#tokens.validateCapability({
+      capability: headerValue(request, AGENT_UI_CAPABILITY_HEADER) ?? '',
+      origin: this.#browserOrigin,
+      audience: UI_AUDIENCE,
+    });
+  }
+
+  #writeJson(response: ServerResponse, statusCode: number, value: unknown): void {
+    if (response.headersSent || response.destroyed) return;
+    const payload = JSON.stringify(value);
+    response.statusCode = statusCode;
+    response.setHeader('Content-Type', 'application/json; charset=utf-8');
+    response.setHeader('Content-Length', Buffer.byteLength(payload));
+    response.end(payload);
+  }
+
+  #writeError(response: ServerResponse, error: unknown): void {
+    const known = error instanceof DefAgentHostError || isHttpError(error);
+    const statusCode = known ? error.statusCode : 500;
+    const code = known ? error.code : 'AGENT_HOST_INTERNAL_ERROR';
+    const message = known && statusCode < 500
+      ? error.message
+      : 'DEF Agent Host request failed';
+    this.#writeJson(response, statusCode, { error: { code, message } });
+  }
+}
+
+type HttpError = Error & { readonly code: string; readonly statusCode: number };
+
+function httpError(code: string, message: string, statusCode: number): HttpError {
+  return Object.assign(new Error(message), { code, statusCode });
+}
+
+function isHttpError(error: unknown): error is HttpError {
+  return error instanceof Error
+    && 'code' in error
+    && typeof error.code === 'string'
+    && 'statusCode' in error
+    && typeof error.statusCode === 'number';
+}
+
+async function readJson(request: IncomingMessage): Promise<JsonValue> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > MAX_REQUEST_BYTES) throw httpError('AGENT_REQUEST_TOO_LARGE', 'Request body is too large', 413);
+    chunks.push(buffer);
+  }
+  if (chunks.length === 0) return {};
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as JsonValue;
+  } catch {
+    throw httpError('AGENT_REQUEST_INVALID', 'Request body must be valid JSON', 400);
+  }
+}
+
+function parseWorkbenchRegistration(value: JsonValue): BrowserWorkbenchRegistration {
+  const body = expectRecord(value);
+  if (body.writer !== true || body.visible !== true) {
+    throw httpError('AGENT_REQUEST_INVALID', 'Consumer must be a visible writer', 400);
+  }
+  return {
+    consumerId: expectString(body.consumerId, 'consumerId'),
+    executorLeaseId: expectString(body.executorLeaseId, 'executorLeaseId'),
+    writer: true,
+    visible: true,
+    binding: parseBinding(body.binding),
+  };
+}
+
+function parseWorkbenchHeartbeat(value: JsonValue): BrowserWorkbenchHeartbeat {
+  return parseWorkbenchRegistration(value);
+}
+
+function parseSnapshotPublish(value: JsonValue): BrowserSnapshotPublish {
+  const body = expectRecord(value);
+  const snapshot = expectRecord(body.snapshot);
+  return {
+    consumerId: expectString(body.consumerId, 'consumerId'),
+    executorLeaseId: expectString(body.executorLeaseId, 'executorLeaseId'),
+    snapshot: {
+      protocolVersion: expectLiteralOne(snapshot.protocolVersion, 'snapshot.protocolVersion'),
+      binding: parseBinding(snapshot.binding),
+      capturedAt: expectString(snapshot.capturedAt, 'snapshot.capturedAt'),
+      payload: expectRecord(snapshot.payload),
+    },
+  };
+}
+
+function parseCommandResultSubmission(value: JsonValue): BrowserCommandResultSubmission {
+  const body = expectRecord(value);
+  const raw = expectRecord(body.result);
+  const allowed = ['succeeded', 'committed', 'not-executed', 'rejected', 'conflict', 'error', 'orphaned'];
+  const status = expectString(raw.status, 'result.status');
+  if (!allowed.includes(status)) throw httpError('AGENT_REQUEST_INVALID', 'result.status is invalid', 400);
+  const result: ProductCommandResult = {
+    commandId: asCommandId(expectString(raw.commandId, 'result.commandId')),
+    status: status as ProductCommandResult['status'],
+    ...optionalString(raw.code, 'result.code'),
+    ...optionalString(raw.message, 'result.message'),
+    beforeRevision: nullableNumber(raw.beforeRevision, 'result.beforeRevision'),
+    afterRevision: nullableNumber(raw.afterRevision, 'result.afterRevision'),
+    ...optionalJson(raw.browserResult, 'browserResult'),
+    ...optionalJson(raw.visiblePostcondition, 'visiblePostcondition'),
+    ...optionalString(raw.executorLeaseId, 'result.executorLeaseId'),
+    completedAt: expectString(raw.completedAt, 'result.completedAt'),
+  };
+  return {
+    consumerId: expectString(body.consumerId, 'consumerId'),
+    executorLeaseId: expectString(body.executorLeaseId, 'executorLeaseId'),
+    result,
+  };
+}
+
+function parseBinding(value: JsonValue | undefined): ProductBinding {
+  const binding = expectRecord(value);
+  return {
+    workspaceId: asWorkspaceId(expectString(binding.workspaceId, 'binding.workspaceId')),
+    databaseGeneration: asDatabaseGeneration(expectString(binding.databaseGeneration, 'binding.databaseGeneration')),
+    timelineId: asTimelineId(expectString(binding.timelineId, 'binding.timelineId')),
+    checkoutTargetId: nullableString(binding.checkoutTargetId, 'binding.checkoutTargetId'),
+    checkoutUpdatedAt: expectNumber(binding.checkoutUpdatedAt, 'binding.checkoutUpdatedAt'),
+    contentRevision: expectNumber(binding.contentRevision, 'binding.contentRevision'),
+    snapshotDigest: expectString(binding.snapshotDigest, 'binding.snapshotDigest'),
+  };
+}
+
+function expectRecord(value: JsonValue | undefined): JsonObject {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw httpError('AGENT_REQUEST_INVALID', 'Expected a JSON object', 400);
+  }
+  return value;
+}
+
+function expectString(value: JsonValue | undefined, field: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} must be a non-empty string`, 400);
+  }
+  return value;
+}
+
+function optionalString(value: JsonValue | undefined, field: string): Record<string, string> {
+  return value === undefined ? {} : { [field.split('.').at(-1)!]: expectString(value, field) };
+}
+
+function nullableString(value: JsonValue | undefined, field: string): string | null {
+  return value === null ? null : expectString(value, field);
+}
+
+function expectNumber(value: JsonValue | undefined, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} must be a finite number`, 400);
+  }
+  return value;
+}
+
+function nullableNumber(value: JsonValue | undefined, field: string): number | null {
+  return value === null ? null : expectNumber(value, field);
+}
+
+function optionalJson(value: JsonValue | undefined, field: string): Record<string, JsonValue> {
+  return value === undefined ? {} : { [field]: value };
+}
+
+function expectLiteralOne(value: JsonValue | undefined, field: string): 1 {
+  if (value !== 1) throw httpError('AGENT_REQUEST_INVALID', `${field} must be 1`, 400);
+  return 1;
+}
+
+function expectAudience(value: JsonValue | undefined): AgentLaunchAudience {
+  if (value !== UI_AUDIENCE) throw httpError('AGENT_REQUEST_INVALID', 'Agent audience is invalid', 400);
+  return value;
+}
+
+function expectQuery(url: URL, key: string): string {
+  const value = url.searchParams.get(key);
+  if (!value) throw httpError('AGENT_REQUEST_INVALID', `${key} query parameter is required`, 400);
+  return value;
+}
+
+function parseNonNegativeInteger(value: string, field: string): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result) || result < 0) {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} must be a non-negative integer`, 400);
+  }
+  return result;
+}
+
+function headerValue(request: IncomingMessage, name: string): string | null {
+  const value = request.headers[name];
+  if (Array.isArray(value)) return value.length === 1 ? value[0] ?? null : null;
+  return value ?? null;
+}
+
+function normalizeOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    if (
+      !['http:', 'https:'].includes(url.protocol)
+      || url.username
+      || url.password
+      || url.pathname !== '/'
+      || url.search
+      || url.hash
+    ) throw new Error('invalid origin');
+    return url.origin;
+  } catch {
+    throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origin is invalid', 403);
+  }
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function isSecureToken(value: string): boolean {
+  return /^[A-Za-z0-9_-]{20,200}$/.test(value);
+}

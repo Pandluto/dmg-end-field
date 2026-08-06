@@ -22,6 +22,7 @@ interface AppShellProps {
   currentPath: string;
   children: ReactNode;
   overlay?: ReactNode;
+  agentOverlay?: ReactNode;
 }
 
 type SectionMeta = {
@@ -135,7 +136,7 @@ function BrandLogo() {
   );
 }
 
-export function AppShell({ currentPath, children, overlay }: AppShellProps) {
+export function AppShell({ currentPath, children, overlay, agentOverlay }: AppShellProps) {
   const desktopWebHost = isDesktopWebHost();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(
@@ -339,6 +340,8 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
     <div ref={shellRef} className={`web-app-shell ${overlay ? 'has-overlay' : ''}`}>
       <OptionalLiquidTideSurfaceEffects rootRef={shellRef} activationKey={currentPath} />
       <main className="web-shell-content">{children}</main>
+
+      {agentOverlay && <div className="web-shell-agent-overlay">{agentOverlay}</div>}
 
       {showLauncher && (
         <div

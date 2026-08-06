@@ -17,6 +17,7 @@ const {
 } = require('electron');
 const { createDesktopStaticServer } = require('./static-host.cjs');
 const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
+const { createAgentRuntime } = require('./agent-runtime.cjs');
 
 const DESKTOP_HOST = '127.0.0.1';
 const DESKTOP_PORT = 31457;
@@ -25,6 +26,7 @@ const DEV_ORIGIN = 'http://127.0.0.1:3030';
 const DESKTOP_WEB_MARKER = '__desktop_shell';
 const MCP_PUBLISHER_QUERY = '__mcp_fill_publisher';
 const MCP_REVIEW_GRANT_QUERY = '__mcp_fill_review_grant';
+const AGENT_LAUNCH_GRANT_FRAGMENT_KEY = '__agent_launch_grant';
 const APPLICATION_ROOT = path.resolve(__dirname, '..');
 const SHELL_DOCUMENT_PATH = path.join(__dirname, 'shell', 'index.html');
 const applicationMetadata = JSON.parse(
@@ -64,6 +66,9 @@ function buildBrowserUrl(routePath = '', options = {}) {
   const reviewLaunchGrant = typeof options.reviewLaunchGrant === 'string'
     ? options.reviewLaunchGrant
     : '';
+  const agentLaunchGrant = typeof options.agentLaunchGrant === 'string'
+    ? options.agentLaunchGrant
+    : '';
   const url = new URL('/', browserOrigin);
   url.searchParams.set(DESKTOP_WEB_MARKER, '1');
   if (includePublisher && legacyFillRuntime?.publisherCapability) {
@@ -73,6 +78,7 @@ function buildBrowserUrl(routePath = '', options = {}) {
     const route = routePath.startsWith('/') ? routePath : `/${routePath}`;
     const hashQuery = new URLSearchParams();
     if (reviewLaunchGrant) hashQuery.set(MCP_REVIEW_GRANT_QUERY, reviewLaunchGrant);
+    if (agentLaunchGrant) hashQuery.set(AGENT_LAUNCH_GRANT_FRAGMENT_KEY, agentLaunchGrant);
     url.hash = `#${route}${hashQuery.size ? `?${hashQuery}` : ''}`;
   }
   return url.href;
@@ -82,6 +88,8 @@ let shellWindow = null;
 let tray = null;
 let staticHost = null;
 let legacyFillRuntime = null;
+let agentRuntime = null;
+let openAgentModePromise = null;
 let allowQuit = false;
 let quitInProgress = false;
 let shellScale = DEFAULT_SCALE;
@@ -185,6 +193,24 @@ async function openMcpFillWorkspace() {
   return { url: buildBrowserUrl('/mcp-fill'), runtime };
 }
 
+async function openAgentMode() {
+  if (openAgentModePromise) return openAgentModePromise;
+  openAgentModePromise = (async () => {
+    if (!agentRuntime) throw new Error('DEF Agent Host 尚未初始化。');
+    const launch = await agentRuntime.issueLaunchGrant({ origin: browserOrigin });
+    await shell.openExternal(buildBrowserUrl('/timeline/ai', {
+      agentLaunchGrant: launch.grant,
+    }));
+    return {
+      url: buildBrowserUrl('/timeline/ai'),
+      runtime: agentRuntime.state(),
+    };
+  })().finally(() => {
+    openAgentModePromise = null;
+  });
+  return openAgentModePromise;
+}
+
 function updateTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -198,6 +224,12 @@ function updateTrayMenu() {
       label: '打开 MCP 填表',
       click: () => void openMcpFillWorkspace().catch((error) => {
         dialog.showErrorBox('无法打开 MCP 填表', error instanceof Error ? error.message : String(error));
+      }),
+    },
+    {
+      label: '打开 AI 模式',
+      click: () => void openAgentMode().catch((error) => {
+        dialog.showErrorBox('无法打开 AI 模式', error instanceof Error ? error.message : String(error));
       }),
     },
     {
@@ -298,7 +330,12 @@ function registerIpc() {
       host: 'desktop-shell',
       browserWorkspace: true,
       releaseTools: { images: true, data: true },
-      agent: { available: false, reason: '本轮仅保留接口占位' },
+      agent: {
+        available: true,
+        framework: true,
+        engine: false,
+        reason: agentRuntime?.state().reason || 'DEF Agent Host 尚未初始化',
+      },
       mcp: {
         available: Boolean(mcpState?.ready),
         reason: mcpState?.reason || 'MCP 填表服务尚未初始化',
@@ -346,6 +383,23 @@ function registerIpc() {
       ready: false,
       reason: 'MCP 填表运行时尚未初始化。',
     };
+  });
+  ipcMain.handle('desktop:get-agent-state', (event) => {
+    requireTrustedSender(event);
+    return agentRuntime?.state() || {
+      running: false,
+      ready: false,
+      state: 'not-started',
+      reason: 'DEF Agent Host 尚未初始化。',
+    };
+  });
+  ipcMain.handle('desktop:open-agent-mode', async (event) => {
+    requireTrustedSender(event);
+    try {
+      return { ok: true, ...await openAgentMode() };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   });
   ipcMain.handle('desktop:open-mcp-fill', async (event) => {
     requireTrustedSender(event);
@@ -451,6 +505,21 @@ async function startApplication() {
       serviceName: 'Legacy Fill MCP Service',
     }),
   });
+  const runtimeApplicationRoot = app.isPackaged
+    ? path.join(process.resourcesPath, 'app.asar.unpacked')
+    : APPLICATION_ROOT;
+  agentRuntime = createAgentRuntime({
+    applicationRoot: runtimeApplicationRoot,
+    runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
+    browserOrigin,
+    diagnostic,
+    launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {
+      cwd,
+      env,
+      stdio: 'pipe',
+      serviceName: 'DEF Agent Host',
+    }),
+  });
   registerIpc();
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
@@ -466,7 +535,10 @@ async function startApplication() {
     rootDir: browserHostRoot,
     host: DESKTOP_HOST,
     port: DESKTOP_PORT,
-    requestHandler: legacyFillRuntime.handleBrowserRequest,
+    requestHandler: async (request, response) => (
+      await agentRuntime.handleBrowserRequest(request, response)
+      || await legacyFillRuntime.handleBrowserRequest(request, response)
+    ),
     serveStatic: !isDevelopment,
   });
   diagnostic(`browser workspace bridge listening at ${staticHost.origin}`);
@@ -495,6 +567,7 @@ app.on('before-quit', (event) => {
   if (quitInProgress) return;
   quitInProgress = true;
   const shutdownTasks = [
+    agentRuntime?.stop(),
     legacyFillRuntime?.stop(),
     staticHost?.close(),
   ].filter(Boolean);

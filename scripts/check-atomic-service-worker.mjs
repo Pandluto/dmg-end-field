@@ -317,6 +317,19 @@ assert.equal(
   'Reading the browser image index must not fall through to the network.',
 );
 
+let agentHostRespondWithCalls = 0;
+successfulInstall.listeners.get('fetch')({
+  request: successfulInstall.createRequest('/agent-host/ui/state'),
+  respondWith() {
+    agentHostRespondWithCalls += 1;
+  },
+});
+assert.equal(
+  agentHostRespondWithCalls,
+  0,
+  'Agent Host protocol requests must bypass the atomic application cache.',
+);
+
 await successfulInstall.seedCache(
   'dmg-image-pack-v1',
   'https://offline.test/assets/images/cache-only.png',

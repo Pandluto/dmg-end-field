@@ -3,6 +3,7 @@ import type { DamageReportSnapshot } from '../core/services/damageReportService'
 import type { SkillButtonBuff } from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
+import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
@@ -595,14 +596,15 @@ export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): voi
 }
 
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
-  // Retained as a no-op while local command consumers are migrated away from
-  // the removed remote REST transport.
+  await browserAgentRuntime.pullRemoteCommands((command, id) => {
+    enqueueMainWorkbenchCommand(command, 'agent-host', id);
+  });
 }
 
-export async function pushMainWorkbenchCommandResult(_entry: QueuedMainWorkbenchCommand): Promise<void> {
-  // Results already live in the page-local recovery log.
+export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {
+  await browserAgentRuntime.pushCommandResult(entry);
 }
 
-export async function pushMainWorkbenchSnapshot(_snapshot: MainWorkbenchSnapshot): Promise<void> {
-  // The local snapshot mirror is now authoritative.
+export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
+  await browserAgentRuntime.publishMainWorkbenchSnapshot(snapshot);
 }

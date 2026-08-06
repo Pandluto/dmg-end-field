@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('desktopHost', Object.freeze({
   openBrowser: () => invoke('desktop:open-browser'),
   getMcpState: () => invoke('desktop:get-mcp-state'),
   openMcpFill: () => invoke('desktop:open-mcp-fill'),
+  getAgentState: () => invoke('desktop:get-agent-state'),
+  openAgentMode: () => invoke('desktop:open-agent-mode'),
   quit: () => invoke('desktop:quit'),
   pickImageReleaseSource: () => invoke('desktop:pick-image-release-source'),
   pickDataReleaseSource: () => invoke('desktop:pick-data-release-source'),

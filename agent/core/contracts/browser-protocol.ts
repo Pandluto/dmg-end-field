@@ -1,0 +1,117 @@
+import type {
+  CommandId,
+  DefSessionId,
+  DefTurnId,
+  ToolCallId,
+} from './ids.ts';
+import type {
+  ProductBinding,
+  ProductCommandEnvelope,
+  ProductCommandResult,
+  ProductSnapshotEnvelope,
+} from './product.ts';
+
+export const DEF_AGENT_PROTOCOL_VERSION = 2 as const;
+export const DEF_AGENT_RUNTIME_SCHEMA_VERSION = 1 as const;
+export const DEF_AGENT_COMMAND_SCHEMA_VERSION = 1 as const;
+
+export const AGENT_UI_CAPABILITY_HEADER = 'x-dmg-agent-ui-capability' as const;
+export const AGENT_LAUNCH_GRANT_FRAGMENT_KEY = '__agent_launch_grant' as const;
+export const AGENT_UI_CAPABILITY_STORAGE_KEY = 'dmg.desktop.agent-ui-session.v1' as const;
+
+export type AgentLaunchAudience = 'workbench-ai-mode';
+
+export type Phase2ProductOperationSchema = {
+  'workbench.refresh-snapshot': {
+    readonly reason: 'agent-read';
+  };
+};
+
+export type Phase2ProductCommand = ProductCommandEnvelope<Phase2ProductOperationSchema>;
+
+export type AgentHostHealth = {
+  readonly service: 'def-agent-host';
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly runtimeSchemaVersion: typeof DEF_AGENT_RUNTIME_SCHEMA_VERSION;
+  readonly state: 'starting' | 'ready' | 'stopping' | 'error';
+  readonly engine: {
+    readonly kind: string;
+    readonly state: 'ready' | 'pending' | 'unavailable';
+    readonly reason?: string;
+  };
+};
+
+export type AgentLaunchGrantRegistration = {
+  readonly grant: string;
+  readonly origin: string;
+  readonly audience: AgentLaunchAudience;
+  readonly expiresAt: number;
+};
+
+export type AgentUiSessionExchange = {
+  readonly launchGrant: string;
+  readonly audience: AgentLaunchAudience;
+};
+
+export type AgentUiSession = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly capability: string;
+  readonly audience: AgentLaunchAudience;
+  readonly expiresAt: number;
+};
+
+export type BrowserWorkbenchRegistration = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly writer: true;
+  readonly visible: true;
+  readonly binding: ProductBinding;
+};
+
+export type BrowserWorkbenchHeartbeat = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly writer: true;
+  readonly visible: true;
+  readonly binding: ProductBinding;
+};
+
+export type BrowserWorkbenchConsumerState = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly binding: ProductBinding;
+  readonly registeredAt: number;
+  readonly heartbeatExpiresAt: number;
+};
+
+export type AgentUiState = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly engine: AgentHostHealth['engine'];
+  readonly consumer: BrowserWorkbenchConsumerState | null;
+  readonly activeDefSessionId: DefSessionId | null;
+  readonly activeDefTurnId: DefTurnId | null;
+};
+
+export type BrowserSnapshotPublish = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly snapshot: ProductSnapshotEnvelope;
+};
+
+export type BrowserCommandDelivery = {
+  readonly cursor: number;
+  readonly command: Phase2ProductCommand;
+};
+
+export type BrowserCommandResultSubmission = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly result: ProductCommandResult;
+};
+
+export type BrowserCommandCorrelation = {
+  readonly commandId: CommandId;
+  readonly defSessionId: DefSessionId;
+  readonly defTurnId: DefTurnId;
+  readonly toolCallId: ToolCallId;
+};

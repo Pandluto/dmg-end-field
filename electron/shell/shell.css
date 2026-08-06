@@ -194,6 +194,10 @@ code {
   color: var(--accent);
 }
 
+.status-grid strong.failed {
+  color: var(--danger);
+}
+
 .status-action {
   width: 100%;
   min-height: 30px;

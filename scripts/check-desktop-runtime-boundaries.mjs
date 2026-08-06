@@ -11,6 +11,10 @@ const legacyFillRuntimeSource = fs.readFileSync(
   path.join(repositoryRoot, 'electron', 'legacy-fill-runtime.cjs'),
   'utf8',
 );
+const agentRuntimeSource = fs.readFileSync(
+  path.join(repositoryRoot, 'electron', 'agent-runtime.cjs'),
+  'utf8',
+);
 const shellDocumentSource = fs.readFileSync(
   path.join(repositoryRoot, 'electron', 'shell', 'index.html'),
   'utf8',
@@ -67,7 +71,7 @@ for (const dependency of ['better-sqlite3', 'sqlite3', 'electron-updater', '@mod
 }
 
 const packagedFiles = packageJson.build?.files || [];
-assert.deepEqual(packageJson.build?.asarUnpack, ['dist/legacy-fill/**']);
+assert.deepEqual(packageJson.build?.asarUnpack, ['dist/legacy-fill/**', 'dist/agent/**']);
 for (const forbidden of [
   'agent/**',
   'src/**',
@@ -93,10 +97,12 @@ const handledChannels = [...mainSource.matchAll(/ipcMain\.handle\('([^']+)'/g)]
 assert.deepEqual(handledChannels, [
   'desktop:build-data-release',
   'desktop:build-image-release',
+  'desktop:get-agent-state',
   'desktop:get-app-info',
   'desktop:get-capabilities',
   'desktop:get-mcp-state',
   'desktop:get-settings',
+  'desktop:open-agent-mode',
   'desktop:open-browser',
   'desktop:open-mcp-fill',
   'desktop:pick-data-release-source',
@@ -115,10 +121,13 @@ assert.match(mainSource, /shell\.openExternal\(buildBrowserUrl\(/);
 assert.doesNotMatch(mainSource, /loadURL\(.*(?:DESKTOP_ORIGIN|browserOrigin|windowUrl)/);
 assert.match(shellDocumentSource, /工作台在系统浏览器中运行/);
 assert.match(shellDocumentSource, /打开 MCP 填表/);
+assert.match(shellDocumentSource, /打开 AI 模式/);
 assert.match(appSource, /APP_ROUTE_PATHS\.mcpFill/);
 assert.doesNotMatch(appShellSource, /mcp-fill|MCP 填表/i, 'normal Web navigation keeps the MCP route hidden');
+assert.doesNotMatch(appShellSource, /agentMode|AI 模式/i, 'normal Web navigation keeps the Agent route hidden');
 assert.match(shellDocumentSource, /GitHub Release 产物/);
 assert.match(mainSource, /createLegacyFillRuntime/);
+assert.match(mainSource, /createAgentRuntime/);
 assert.match(mainSource, /utilityProcess\.fork/);
 assert.match(mainSource, /app\.asar\.unpacked/);
 assert.match(legacyFillRuntimeSource, /SERVICE_PORT = 17323/);
@@ -131,6 +140,10 @@ assert.match(legacyFillRuntimeSource, /key\.startsWith\('OPENCODE_'\)/);
 assert.match(mainSource, /source:\s*releaseSelections\.imageSource/);
 assert.match(mainSource, /source:\s*releaseSelections\.dataSource/);
 assert.match(mainSource, /generatedReleaseDirectories\.has\(targetPath\)/);
+assert.match(agentRuntimeSource, /dist', 'agent', 'host-entry\.cjs/);
+assert.match(agentRuntimeSource, /\/internal\/health/);
+assert.match(agentRuntimeSource, /x-dmg-agent-host-token/);
+assert.doesNotMatch(agentRuntimeSource, /node:sqlite|better-sqlite3|sqlite3|17321|17322|17323/);
 assert.doesNotMatch(mainSource, /buildImageReleasePackage\(payload/);
 assert.doesNotMatch(mainSource, /buildDesktopDataRelease\(payload/);
 
@@ -142,4 +155,4 @@ console.log('Desktop runtime boundary check passed.');
 console.log(`- IPC handlers: ${handledChannels.length}`);
 console.log('- Electron renders only the independent Shell; the Slim app opens in the system browser');
 console.log('- Browser SQLite remains the only business store; MCP uses an isolated proposal/audit database');
-console.log('- DEF/OpenCode, old REST ports, sidecars, and legacy business data services remain absent');
+console.log('- DEF Agent Host is isolated and lazy; OpenCode/Pi, old REST ports, sidecars, and Node business SQLite remain absent');

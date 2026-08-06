@@ -25,6 +25,15 @@
   overflow: hidden;
 }
 
+.web-shell-agent-overlay {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 6100;
+  max-height: calc(100% - 32px);
+  overflow: auto;
+}
+
 .workbench-idle-backdrop {
   width: 100%;
   height: 100%;

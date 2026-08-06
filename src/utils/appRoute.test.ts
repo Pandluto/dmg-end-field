@@ -23,6 +23,10 @@ assert.equal(
   getCurrentAppPath({ hash: '   ', pathname: '/ignored' } as Location),
   APP_ROUTE_PATHS.home,
 );
+assert.equal(
+  getCurrentAppPath({ hash: '#/timeline/ai?launch=desktop', pathname: '/index.html' } as Location),
+  APP_ROUTE_PATHS.agentMode,
+);
 
 const reservedButtonId = 'skill / 中文 ? #';
 const detailPath = getTimelineSkillDetailPath(reservedButtonId);

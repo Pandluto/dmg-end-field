@@ -224,6 +224,10 @@ const crossOriginImage = harness.fetchEvent('https://cdn.test/assets/images/remo
 await harness.dispatch('fetch', crossOriginImage);
 assert.equal(crossOriginImage.respondWithCalls, 0, 'cross-origin resources must not be intercepted');
 
+const agentHostRequest = harness.fetchEvent(`${DESKTOP_ORIGIN}/agent-host/ui/state`);
+await harness.dispatch('fetch', agentHostRequest);
+assert.equal(agentHostRequest.respondWithCalls, 0, 'Agent Host requests must never be cached');
+
 const imageUrl = `${DESKTOP_ORIGIN}/assets/images/operator.png`;
 await assertResourceRoute(harness, imageUrl, IMAGE_CACHE_NAME, `origin:${imageUrl}`);
 const imageCache = harness.cacheStorage.cache(IMAGE_CACHE_NAME);

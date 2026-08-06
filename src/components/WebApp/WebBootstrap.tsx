@@ -30,6 +30,12 @@ import { ensureImageServiceWorkerController } from '../../platform/runtime/servi
 import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
 import {
+  browserAgentRuntime,
+  desktopAgentBridge,
+  desktopAgentConsumerController,
+} from '../../platform/agent/browserAgentRuntime';
+import { isDesktopAgentModeRoute } from '../../platform/agent/desktopAgentBridge';
+import {
   captureDesktopMcpCapability,
   hasDesktopMcpReviewAuthority,
 } from '../../platform/runtime/desktopMcpBridge';
@@ -44,10 +50,20 @@ import { SecondaryTabPage } from './SecondaryTabPage';
 import { WelcomePage } from './WelcomePage';
 import './web-app.css';
 
-type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
+type BootstrapPhase =
+  | 'checking-access'
+  | 'authorizing-agent'
+  | 'agent-unauthorized'
+  | 'locked'
+  | 'starting'
+  | 'secondary'
+  | 'onboarding'
+  | 'ready'
+  | 'failed';
 
 export function WebBootstrap() {
   const desktopWebHost = isDesktopWebHost();
+  const [agentMode] = useState(() => isDesktopAgentModeRoute());
   const [desktopMcpContext] = useState(() => {
     const capability = desktopWebHost && captureDesktopMcpCapability();
     return {
@@ -57,7 +73,7 @@ export function WebBootstrap() {
   });
   const desktopMcpCapability = desktopMcpContext.capability;
   const [phase, setPhase] = useState<BootstrapPhase>(
-    () => (desktopWebHost ? 'starting' : 'checking-access'),
+    () => (agentMode ? 'authorizing-agent' : desktopWebHost ? 'starting' : 'checking-access'),
   );
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
@@ -68,7 +84,7 @@ export function WebBootstrap() {
     setFailure('');
     try {
       let role = await workspaceLease.start();
-      if (role !== 'writer' && desktopMcpContext.reviewLaunch) {
+      if (role !== 'writer' && (desktopMcpContext.reviewLaunch || agentMode)) {
         role = await workspaceLease.requestControl();
       }
       if (role !== 'writer') {
@@ -76,6 +92,10 @@ export function WebBootstrap() {
         return;
       }
       await webDatabase.initialize();
+      if (agentMode) {
+        await browserAgentRuntime.initializeWorkspace();
+        await desktopAgentConsumerController.start();
+      }
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
       if (desktopMcpCapability) {
@@ -113,7 +133,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopMcpCapability, desktopMcpContext.reviewLaunch, desktopWebHost]);
+  }, [agentMode, desktopMcpCapability, desktopMcpContext.reviewLaunch, desktopWebHost]);
 
   const handleInstalled = useCallback(async (
     resourcePackage: InstalledResourcePackage,
@@ -144,6 +164,25 @@ export function WebBootstrap() {
   }, [desktopMcpCapability, desktopWebHost]);
 
   useEffect(() => {
+    if (agentMode) {
+      let cancelled = false;
+      void desktopAgentBridge.initialize().then((state) => {
+        if (cancelled) return;
+        if (state.authorization !== 'authorized' || state.host !== 'ready') {
+          setFailure(state.error || 'AI 模式授权无效，请从桌面 Shell 重新打开。');
+          setPhase('agent-unauthorized');
+          return;
+        }
+        void initializeWorkspace();
+      }).catch((error: unknown) => {
+        if (cancelled) return;
+        setFailure(error instanceof Error ? error.message : String(error));
+        setPhase('agent-unauthorized');
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
     if (desktopWebHost) {
       void initializeWorkspace();
       return undefined;
@@ -160,7 +199,7 @@ export function WebBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [desktopWebHost, initializeWorkspace]);
+  }, [agentMode, desktopWebHost, initializeWorkspace]);
 
   useEffect(() => {
     const handleReleaseRequest = async () => {
@@ -186,7 +225,7 @@ export function WebBootstrap() {
     return () => document.removeEventListener('visibilitychange', flushOnHide);
   }, []);
 
-  if (phase === 'checking-access' || phase === 'starting') {
+  if (phase === 'checking-access' || phase === 'authorizing-agent' || phase === 'starting') {
     return (
       <main className="web-entry-screen">
         <div className="boot-indicator">
@@ -194,8 +233,21 @@ export function WebBootstrap() {
           <p>
             {phase === 'checking-access'
               ? '检查访问状态'
+              : phase === 'authorizing-agent'
+                ? '正在验证 AI 模式授权'
               : '正在打开浏览器工作区'}
           </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (phase === 'agent-unauthorized') {
+    return (
+      <main className="web-entry-screen" role="alert">
+        <div className="boot-indicator">
+          <p>请从桌面 Shell 打开 AI 模式</p>
+          <small>{failure || '当前标签页没有有效的一次性授权。'}</small>
         </div>
       </main>
     );

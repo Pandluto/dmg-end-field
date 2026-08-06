@@ -113,7 +113,7 @@ function structured(result) {
   return result.structuredContent.data;
 }
 
-async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath }) {
+async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath, issueAgentUrl }) {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   let client;
   try {
@@ -154,6 +154,97 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
     await workspacePage.getByRole('button', { name: '下载完整资料并开始' }).click();
     await workspacePage.getByRole('button', { name: '打开排轴工作区' }).waitFor({ timeout: 120_000 });
     assert.equal(await workspacePage.getByText('MCP 填表', { exact: true }).count(), 0, '普通前端导航不应暴露 MCP 入口');
+    assert.equal(await workspacePage.getByText('AI 模式', { exact: true }).count(), 0, '普通前端导航不应暴露 AI 模式入口');
+    await workspacePage.getByRole('button', { name: '打开排轴工作区' }).click();
+
+    const agentUrl = await issueAgentUrl();
+    assert.match(agentUrl, /#\/timeline\/ai\?__agent_launch_grant=[a-zA-Z0-9_-]+$/u);
+    const agentPage = await context.newPage();
+    const agentTraffic = [];
+    agentPage.on('request', (request) => {
+      if (new URL(request.url()).pathname.startsWith('/agent-host/')) {
+        agentTraffic.push(`> ${request.method()} ${new URL(request.url()).pathname}`);
+      }
+    });
+    agentPage.on('response', (response) => {
+      if (new URL(response.url()).pathname.startsWith('/agent-host/')) {
+        agentTraffic.push(`< ${response.status()} ${new URL(response.url()).pathname}`);
+      }
+    });
+    captureLogs(agentPage, 'agent');
+    await agentPage.goto(agentUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    try {
+      await agentPage.getByRole('complementary', { name: 'AI 模式状态' }).waitFor({ timeout: 30_000 });
+    } catch (error) {
+      const diagnostics = await agentPage.evaluate(async () => {
+        const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
+        const host = capability
+          ? await fetch('/agent-host/ui/state', {
+              cache: 'no-store',
+              headers: { 'x-dmg-agent-ui-capability': capability },
+            }).then(async (response) => ({ status: response.status, body: await response.text() }))
+              .catch((requestError) => ({ status: 0, body: String(requestError) }))
+          : null;
+        return {
+          url: window.location.href,
+          capability: capability ? 'present' : 'missing',
+          body: document.body.innerText.slice(0, 4_000),
+          host,
+        };
+      }).catch((diagnosticError) => ({ diagnosticError: String(diagnosticError) }));
+      throw new Error(`AI 模式页面没有进入工作台：${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(diagnostics, null, 2)}\n${browserLogs.join('\n')}`);
+    }
+    assert.doesNotMatch(new URL(agentPage.url()).hash, /__agent_launch_grant/u, 'AI 页面没有立即清除一次性 launch grant');
+    assert.equal(new URL(agentPage.url()).searchParams.has('__agent_launch_grant'), false, 'AI launch grant 不得进入 query string');
+    const agentSession = await agentPage.evaluate(() => ({
+      capability: window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '',
+      localCapability: window.localStorage.getItem('dmg.desktop.agent-ui-session.v1'),
+    }));
+    assert.match(agentSession.capability, /^[a-zA-Z0-9_-]{20,200}$/u);
+    assert.equal(agentSession.localCapability, null, 'AI capability 只能保存在当前标签 sessionStorage');
+    const consumerDeadline = Date.now() + 60_000;
+    let registeredAgentState = null;
+    while (Date.now() < consumerDeadline) {
+      registeredAgentState = await agentPage.evaluate(async () => {
+        const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
+        const response = await fetch('/agent-host/ui/state', {
+          cache: 'no-store',
+          headers: { 'x-dmg-agent-ui-capability': capability },
+        });
+        return response.ok ? response.json() : null;
+      });
+      if (registeredAgentState?.consumer?.binding?.workspaceId) break;
+      await agentPage.waitForTimeout(100);
+    }
+    assert.equal(
+      registeredAgentState?.consumer?.binding?.workspaceId?.length > 0,
+      true,
+      'AI 模式没有在时限内注册完整 Browser Workbench consumer',
+    );
+    // The first Main Workbench render can publish more than one snapshot while
+    // it settles its active timeline. Verify the post-settlement consumer, not
+    // the brief close/rebind edge between those snapshots.
+    await agentPage.waitForTimeout(250);
+    const agentState = await agentPage.evaluate(async () => {
+      const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
+      const response = await fetch('/agent-host/ui/state', {
+        cache: 'no-store',
+        headers: { 'x-dmg-agent-ui-capability': capability },
+      });
+      return response.json();
+    });
+    const agentPresentation = await agentPage.evaluate(async () => ({
+      visibility: document.visibilityState,
+      body: document.body.innerText.slice(0, 4_000),
+      locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : null,
+    }));
+    assert.equal(agentState.engine?.state, 'pending');
+    assert.equal(
+      agentState.consumer?.binding?.workspaceId?.length > 0,
+      true,
+      `Agent consumer binding is incomplete: ${JSON.stringify({ agentState, agentPresentation, agentTraffic })}`,
+    );
+    await agentPage.close();
 
     const reviewPage = await context.newPage();
     captureLogs(reviewPage, 'review');
@@ -396,10 +487,15 @@ try {
     capabilities: await window.desktopHost?.getCapabilities(),
     appInfo: await window.desktopHost?.getAppInfo(),
     mcpState: await window.desktopHost?.getMcpState(),
+    agentState: await window.desktopHost?.getAgentState(),
   }));
   assert.equal(shellRuntime.capabilities?.host, 'desktop-shell');
   assert.equal(shellRuntime.capabilities?.browserWorkspace, true);
-  assert.equal(shellRuntime.capabilities?.agent.available, false);
+  assert.equal(shellRuntime.capabilities?.agent.available, true);
+  assert.equal(shellRuntime.capabilities?.agent.framework, true);
+  assert.equal(shellRuntime.capabilities?.agent.engine, false);
+  assert.equal(shellRuntime.agentState?.state, 'not-started');
+  assert.equal(shellRuntime.agentState?.running, false, 'Agent Host 必须保持懒启动');
   assert.equal(shellRuntime.capabilities?.mcp.available, true);
   assert.equal(shellRuntime.mcpState?.ready, true, shellRuntime.mcpState?.reason);
   assert.equal(shellRuntime.mcpState?.mcpUrl, 'http://127.0.0.1:17323/mcp');
@@ -435,7 +531,18 @@ try {
     workspaceUrl: openedUrls[0],
     mcpUrl: openedUrls[1],
     clientConfigPath: shellRuntime.mcpState.mcpClientConfigPath,
+    issueAgentUrl: async () => {
+      const before = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__.length);
+      await firstPage.getByRole('button', { name: '打开 AI 模式' }).click();
+      await firstPage.getByText(/AI 模式已在系统浏览器中打开/u).waitFor({ timeout: 30_000 });
+      const urls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
+      assert.equal(urls.length, before + 1);
+      return urls.at(-1);
+    },
   });
+  const runningAgent = await firstPage.evaluate(() => window.desktopHost?.getAgentState());
+  assert.equal(runningAgent?.ready, true, runningAgent?.reason);
+  assert.equal(runningAgent?.health?.engine?.state, 'pending');
 
   const bypassedSelection = await firstPage.evaluate(async (fixture) => (
     window.desktopHost?.buildDataRelease({
@@ -484,12 +591,19 @@ try {
   await firstPage.waitForTimeout(150);
   await closeDesktop(firstApplication, firstPage);
   firstApplication = undefined;
+  assert.equal(
+    fs.existsSync(path.join(profileRoot, 'runtime', 'def-agent-host', 'ready.json')),
+    false,
+    'Electron 退出后 Agent Host ready manifest 仍然存在',
+  );
 
   console.log('[desktop smoke] relaunching persisted shell settings');
   secondApplication = await launchDesktop();
   const secondPage = await secondApplication.firstWindow({ timeout: 30_000 });
   await secondPage.getByRole('heading', { name: '终末地伤害工作台' }).waitFor({ timeout: 30_000 });
   assert.equal(await secondPage.getByLabel('Shell 显示比例').inputValue(), '1.25');
+  const secondAgentState = await secondPage.evaluate(() => window.desktopHost?.getAgentState());
+  assert.equal(secondAgentState?.state, 'not-started');
   assert.equal((await fetch(`${expectedOrigin}/`)).status, 200);
   await assertRetiredPortsClosed();
   await assertMcpPortOpen();
@@ -505,6 +619,7 @@ try {
     retiredRuntimePorts,
     mcpRuntimePort,
     mcpProposalRoundTrip: ['buff', 'weapon', 'operator', 'equipment'],
+    agentFramework: 'lazy-host-browser-product-gateway',
     mcpReviewDiff: true,
     releaseTools: true,
     packagedExecutable: packagedExecutable || null,

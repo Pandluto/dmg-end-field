@@ -136,7 +136,8 @@ const allowedLegacyFillFiles = new Set([
   'src/legacyFillService/resources/strategy-v1.json',
   'src/legacyFillService/server.mjs',
 ]);
-const allowedAgentCoreFiles = new Set([
+const allowedAgentFiles = new Set([
+  'agent/core/contracts/browser-protocol.ts',
   'agent/core/contracts/engine.ts',
   'agent/core/contracts/events.ts',
   'agent/core/contracts/ids.ts',
@@ -147,6 +148,15 @@ const allowedAgentCoreFiles = new Set([
   'agent/core/contracts/session.ts',
   'agent/core/testing/fake-engine.contract.test.ts',
   'agent/core/testing/fake-engine.ts',
+  'agent/host/browser-consumer-registry.ts',
+  'agent/host/def-agent-host.ts',
+  'agent/host/errors.ts',
+  'agent/host/host.contract.test.ts',
+  'agent/host/http-server.ts',
+  'agent/host/remote-browser-product-gateway.ts',
+  'agent/host/token-authority.ts',
+  'agent/runtime/host-entry.ts',
+  'agent/runtime/pending-agent-engine.ts',
 ]);
 const removedRuntimeFiles = new Set([
   'src/utils/localBridge.ts',
@@ -156,6 +166,8 @@ const removedRuntimeFiles = new Set([
 const thinShellElectronFiles = new Set([
   'electron/assets/icon.ico',
   'electron/assets/icon.png',
+  'electron/agent-runtime.cjs',
+  'electron/agent-runtime.test.cjs',
   'electron/entitlements.mac.plist',
   'electron/legacy-fill-runtime.cjs',
   'electron/main.cjs',
@@ -175,8 +187,8 @@ for (const file of files) {
   if (removedRuntimePrefixes.some((prefix) => file.startsWith(prefix)) || removedRuntimeFiles.has(file)) {
     fail(`removed desktop/Agent runtime returned: ${file}`);
   }
-  if (file.startsWith('agent/') && !allowedAgentCoreFiles.has(file)) {
-    fail(`Agent core contains an unreviewed file: ${file}`);
+  if (file.startsWith('agent/') && !allowedAgentFiles.has(file)) {
+    fail(`Agent runtime contains an unreviewed file: ${file}`);
   }
   if (/^src\/legacyFill(?:Core|Host|Service)\//.test(file) && !allowedLegacyFillFiles.has(file)) {
     fail(`Legacy Fill runtime contains an unreviewed file: ${file}`);
@@ -186,22 +198,29 @@ for (const file of files) {
   }
 }
 
-const agentCoreRoot = path.join(root, 'agent/core');
-for (const file of files.filter((candidate) => allowedAgentCoreFiles.has(candidate))) {
+const agentRoot = path.join(root, 'agent');
+const agentCoreRoot = path.join(agentRoot, 'core');
+for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))) {
   const content = fs.readFileSync(path.join(root, file), 'utf8');
   const dependencyInspection = inspectTypeScriptDependencies(content, file);
   for (const label of dependencyInspection.uninspectable) {
     fail(`Agent core contains an uninspectable ${label}: ${file}`);
   }
   for (const specifier of dependencyInspection.specifiers) {
-    if (file.endsWith('.test.ts') && specifier.startsWith('node:')) continue;
+    const canUseNodeBuiltins = file.endsWith('.test.ts')
+      || file.startsWith('agent/host/')
+      || file.startsWith('agent/runtime/');
+    if (canUseNodeBuiltins && specifier.startsWith('node:')) continue;
     if (!specifier.startsWith('.')) {
-      fail(`Agent core imports a non-core dependency (${specifier}): ${file}`);
+      fail(`Agent runtime imports an external package (${specifier}): ${file}`);
       continue;
     }
     const resolvedImport = path.resolve(path.dirname(path.join(root, file)), specifier);
-    if (!isPathInside(agentCoreRoot, resolvedImport)) {
-      fail(`Agent core import escapes its boundary (${specifier}): ${file}`);
+    if (!isPathInside(agentRoot, resolvedImport)) {
+      fail(`Agent runtime import escapes its boundary (${specifier}): ${file}`);
+    }
+    if (file.startsWith('agent/core/') && !isPathInside(agentCoreRoot, resolvedImport)) {
+      fail(`Agent core import escapes its engine-neutral boundary (${specifier}): ${file}`);
     }
   }
 }

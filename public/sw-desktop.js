@@ -127,6 +127,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
   if (url.origin !== self.location.origin) return;
+  // Agent Host requests carry tab-scoped capabilities and are lifecycle
+  // traffic, never installable resources. Always leave them to the origin.
+  if (url.pathname.startsWith('/agent-host/')) return;
 
   if (isInstalledImagePath(request, url.pathname)) {
     event.respondWith(readCacheFirst(request, IMAGE_CACHE_NAME));

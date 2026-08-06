@@ -3,6 +3,7 @@ export const APP_ROUTE_PATHS = {
   welcome: '/welcome',
   home: '/timeline',
   timelineWorkspace: '/timeline',
+  agentMode: '/timeline/ai',
   dataWorkspace: '/data',
   settings: '/settings',
   draft: '/data/operators',

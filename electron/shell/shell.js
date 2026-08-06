@@ -30,6 +30,7 @@
     for (const id of [
       'open-browser',
       'open-mcp-fill',
+      'open-agent-mode',
       'pick-image-source',
       'pick-data-source',
       'pick-output',
@@ -46,6 +47,27 @@
     available.classList.toggle('ready', Boolean(runtime?.ready));
     available.classList.toggle('pending', !runtime?.ready);
     element('mcp-status').textContent = runtime?.reason || 'MCP 填表服务状态未知';
+  }
+
+  function renderAgentState(runtime) {
+    const available = element('agent-availability');
+    const lifecycle = runtime?.state || 'not-started';
+    const label = runtime?.ready
+      ? 'Framework 就绪'
+      : lifecycle === 'starting'
+        ? '正在启动'
+        : lifecycle === 'error'
+          ? '启动失败'
+          : lifecycle === 'stopping'
+            ? '正在停止'
+            : '尚未启动';
+    available.textContent = label;
+    available.classList.toggle('ready', Boolean(runtime?.ready));
+    available.classList.toggle('pending', !runtime?.ready && lifecycle !== 'error');
+    available.classList.toggle('failed', lifecycle === 'error');
+    const engine = runtime?.health?.engine;
+    const engineLabel = engine?.state === 'ready' ? `引擎 ${engine.kind} 已就绪` : '引擎待接入';
+    element('agent-status').textContent = `${runtime?.reason || 'DEF Agent Host 状态未知'} · ${engineLabel}`;
   }
 
   async function selectPath(kind) {
@@ -99,11 +121,12 @@
     }
 
     try {
-      const [capabilities, appInfo, settings, mcpState] = await Promise.all([
+      const [capabilities, appInfo, settings, mcpState, agentState] = await Promise.all([
         host.getCapabilities(),
         host.getAppInfo(),
         host.getSettings(),
         host.getMcpState(),
+        host.getAgentState(),
       ]);
       state.capabilities = capabilities;
       state.appInfo = appInfo;
@@ -112,6 +135,7 @@
       element('web-url').textContent = appInfo.webUrl;
       element('platform').textContent = `${appInfo.platform} · ${appInfo.arch}`;
       element('agent-status').textContent = capabilities.agent.reason;
+      renderAgentState(agentState);
       renderMcpState(mcpState);
       element('release-version').value = appInfo.version;
 
@@ -148,6 +172,21 @@
     } catch (error) {
       setMessage(errorMessage(error), true);
       renderMcpState(await host.getMcpState().catch(() => null));
+    } finally {
+      setBusy(false);
+    }
+  });
+  element('open-agent-mode').addEventListener('click', async () => {
+    setBusy(true);
+    setMessage('正在启动 DEF Agent Host 并打开 AI 模式…');
+    try {
+      const result = await host.openAgentMode();
+      if (!result?.ok) throw new Error(result?.error || '无法打开 AI 模式。');
+      renderAgentState(result.runtime);
+      setMessage('AI 模式已在系统浏览器中打开；当前引擎仍待接入。');
+    } catch (error) {
+      setMessage(errorMessage(error), true);
+      renderAgentState(await host.getAgentState().catch(() => null));
     } finally {
       setBusy(false);
     }

@@ -2,7 +2,7 @@
 
 ## Status
 
-已定稿，待实施。
+已完成。
 
 ## Background
 
@@ -140,6 +140,8 @@ TTL 初值：launch grant 30 秒、UI capability 8 小时、consumer heartbeat 1
 - canonical `snapshotDigest`；
 - capturedAt；
 - Main Workbench snapshot payload。
+
+尚未创建具体排轴时，选择工作区使用稳定的 `workspace-selection` 哨兵 `timelineId`；一旦进入真实排轴，consumer 必须关闭旧绑定并以真实 `timelineId` 重新注册，不允许用空字符串绕过绑定合同。
 
 本阶段负责首次创建并稳定读取 identity；数据库整库导入/恢复时的 generation 轮换必须有明确 hook 和合同测试，不允许旧 command 静默跨 generation 使用。
 

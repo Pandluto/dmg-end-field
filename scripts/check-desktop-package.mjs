@@ -22,6 +22,8 @@ for (const required of [
   '/dist/legacy-fill/domain-runtime.mjs',
   '/dist/legacy-fill/resources/strategy-v1.json',
   '/dist/legacy-fill/resources/golden-v1.json',
+  '/dist/agent/host-entry.cjs',
+  '/electron/agent-runtime.cjs',
   '/electron/main.cjs',
   '/electron/legacy-fill-runtime.cjs',
   '/electron/preload.cjs',
@@ -57,6 +59,7 @@ for (const required of [
   'dist/legacy-fill/domain-runtime.mjs',
   'dist/legacy-fill/resources/strategy-v1.json',
   'dist/legacy-fill/resources/golden-v1.json',
+  'dist/agent/host-entry.cjs',
 ]) {
   const unpackedPath = path.join(unpackedRoot, required);
   assert.ok(fs.statSync(unpackedPath).isFile(), `桌面包缺少可执行 MCP 运行文件：${unpackedPath}`);
@@ -67,5 +70,6 @@ console.log(JSON.stringify({
   appPath,
   asarBytes: fs.statSync(asarPath).size,
   unpackedLegacyFillRoot: path.join(unpackedRoot, 'dist', 'legacy-fill'),
+  unpackedAgentRoot: path.join(unpackedRoot, 'dist', 'agent'),
   packagedEntries: packagedFiles.length,
 }, null, 2));

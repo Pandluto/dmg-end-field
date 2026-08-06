@@ -213,6 +213,67 @@ function migrateSchema(): void {
       updated_at INTEGER NOT NULL
     ) STRICT;
 
+    CREATE TABLE IF NOT EXISTS agent_runtime_meta (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      workspace_id TEXT NOT NULL,
+      database_generation TEXT NOT NULL,
+      agent_runtime_schema_version INTEGER NOT NULL,
+      command_journal_schema_version INTEGER NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS agent_command_journal (
+      command_id TEXT PRIMARY KEY,
+      command_journal_schema_version INTEGER NOT NULL,
+      operation TEXT NOT NULL,
+      command_payload_json TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      database_generation TEXT NOT NULL,
+      timeline_id TEXT NOT NULL,
+      checkout_target_id TEXT,
+      checkout_updated_at INTEGER NOT NULL,
+      expected_revision INTEGER NOT NULL,
+      expected_digest TEXT NOT NULL,
+      def_session_id TEXT NOT NULL,
+      def_turn_id TEXT NOT NULL,
+      tool_call_id TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN (
+        'queued', 'dispatched', 'claimed', 'reconciling',
+        'committed', 'succeeded', 'not-executed', 'rejected',
+        'conflict', 'error', 'orphaned'
+      )),
+      executor_lease_id TEXT,
+      before_revision INTEGER,
+      after_revision INTEGER,
+      browser_result_json TEXT,
+      visible_postcondition_json TEXT,
+      receipt_digest TEXT,
+      error_code TEXT,
+      error_message TEXT,
+      accepted_at TEXT NOT NULL,
+      claimed_at TEXT,
+      completed_at TEXT,
+      command_digest TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS agent_runtime_snapshot (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      workspace_id TEXT NOT NULL,
+      database_generation TEXT NOT NULL,
+      timeline_id TEXT NOT NULL,
+      checkout_target_id TEXT,
+      checkout_updated_at INTEGER NOT NULL,
+      content_revision INTEGER NOT NULL,
+      snapshot_digest TEXT NOT NULL,
+      captured_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS idx_agent_command_journal_pending
+      ON agent_command_journal(status, accepted_at);
+    CREATE INDEX IF NOT EXISTS idx_agent_command_journal_generation
+      ON agent_command_journal(workspace_id, database_generation, status);
+
     INSERT INTO app_meta(key, value, updated_at)
     VALUES ('schema_version', '3', unixepoch('subsec') * 1000)
     ON CONFLICT(key) DO UPDATE SET

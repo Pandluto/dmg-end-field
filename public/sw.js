@@ -317,6 +317,9 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+  // Agent Host responses are live, capability-bound protocol messages. They
+  // must never be read from or written to an application cache.
+  if (url.pathname.startsWith('/agent-host/')) return;
 
   // The generated browser image index lives below /assets/images/, but it is
   // application code metadata rather than an installed image. Serve every

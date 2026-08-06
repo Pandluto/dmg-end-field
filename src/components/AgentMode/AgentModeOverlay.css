@@ -1,0 +1,99 @@
+.agent-mode-overlay {
+  width: min(100%, 360px);
+  box-sizing: border-box;
+  padding: 22px;
+  border: 1px solid color-mix(in srgb, var(--color-border, #cad3df) 76%, transparent);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 92%, transparent);
+  box-shadow: 0 20px 48px rgb(31 46 72 / 12%);
+  color: var(--color-text, #1f2a37);
+}
+
+.agent-mode-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.agent-mode-eyebrow {
+  margin: 0 0 5px;
+  color: var(--color-text-muted, #748197);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .16em;
+}
+
+.agent-mode-header h1 {
+  margin: 0;
+  font-size: 25px;
+  line-height: 1.1;
+}
+
+.agent-mode-pending-badge {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #e8a43a 16%, transparent);
+  color: #9a5d07;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.agent-mode-status-list {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border, #cad3df) 72%, transparent);
+  border-radius: 12px;
+}
+
+.agent-mode-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+  background: color-mix(in srgb, var(--color-surface, #ffffff) 78%, var(--color-border, #cad3df));
+}
+
+.agent-mode-status-row dt,
+.agent-mode-status-row dd {
+  margin: 0;
+  font-size: 13px;
+}
+
+.agent-mode-status-row dt {
+  color: var(--color-text-muted, #748197);
+}
+
+.agent-mode-status-row dd {
+  max-width: 68%;
+  overflow: hidden;
+  color: var(--color-text, #1f2a37);
+  font-weight: 650;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-mode-status-row dd[data-tone='good'] { color: #19734b; }
+.agent-mode-status-row dd[data-tone='warn'] { color: #9a5d07; }
+.agent-mode-status-row dd[data-tone='bad'] { color: #b23b45; }
+
+.agent-mode-error {
+  margin: 14px 0 0;
+  color: #b23b45;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agent-mode-note {
+  margin: 17px 0 0;
+  color: var(--color-text-muted, #748197);
+  font-size: 12px;
+  line-height: 1.65;
+}

@@ -1,3 +1,4 @@
+export * from './browser-protocol.ts';
 export * from './engine.ts';
 export * from './events.ts';
 export * from './ids.ts';
