@@ -23,5 +23,6 @@
 - [复用边界与上下游缺口分析](./audits/reuse-boundary-gap-analysis-20260627.md)
 - [Spec / Task 与代码复用审计](./audits/spec-task-code-audit-20260627.md)
 - [OpenCode 打包范围与体积审计](./audits/opencode-package-scope-size-audit-20260713.md)
+- [1.8 Slim Electron Shell 职责审计与迁移方案](./audits/v1.8-slim-electron-shell-migration-20260806.md)
 
 只影响单一 Spec 的研究、验收或修复仍放在对应 `docs/specs/<spec-id>/`；本目录不替代需求事实源。
