@@ -1,6 +1,6 @@
 # Spec 总索引
 
-本页只索引仍会约束 1.8 LTS 产品行为的规格。DEF OpenCode、旧 AI CLI、Harness、MCP/Legacy Fill 及其阶段研究、任务和验收记录已经移出当前文档树。
+本页只索引仍会约束 1.8 LTS 产品行为的规格。旧 AI CLI、旧 Sidecar/REST、Node 业务 SQLite 与原生 OpenCode UI 已经退役；新的桌面 Agent、Harness、OpenCode EngineAdapter 和独立 Legacy Fill MCP 只按下列窄边界恢复。
 
 ## 数据、排轴与工作台
 
@@ -45,6 +45,8 @@
 - [DEF Harness 与五业务只读 Tool Phase 3](./def-agent-harness-phase3/spec.md)
 - [DEF Harness 与五业务只读 Tool Phase 3 Tasks](./def-agent-harness-phase3/tasks.md)
 - [DEF Harness 与五业务只读 Tool Phase 3 验证记录](./def-agent-harness-phase3/validation.md)
+- [OpenCode EngineAdapter Phase 4](./def-opencode-engine-phase4/spec.md)
+- [OpenCode EngineAdapter Phase 4 Tasks](./def-opencode-engine-phase4/tasks.md)
 
 ## 目录内文件约定
 
