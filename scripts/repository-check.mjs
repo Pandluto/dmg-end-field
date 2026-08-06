@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
@@ -39,6 +40,59 @@ function isPortableRelativePath(value) {
   );
 }
 
+function inspectTypeScriptDependencies(content, fileName) {
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
+  const specifiers = new Set(sourceFile.referencedFiles.map((reference) => reference.fileName));
+  const uninspectable = [];
+
+  function addLiteral(node, label) {
+    if (node && ts.isStringLiteralLike(node)) {
+      specifiers.add(node.text);
+      return;
+    }
+    uninspectable.push(label);
+  }
+
+  function visit(node) {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier) addLiteral(node.moduleSpecifier, 'module declaration');
+    } else if (ts.isImportEqualsDeclaration(node)) {
+      if (ts.isExternalModuleReference(node.moduleReference)) {
+        addLiteral(node.moduleReference.expression, 'import equals');
+      }
+    } else if (ts.isImportTypeNode(node)) {
+      const argument = node.argument;
+      if (ts.isLiteralTypeNode(argument)) addLiteral(argument.literal, 'import type');
+      else uninspectable.push('import type');
+    } else if (ts.isCallExpression(node)) {
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequire = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      if (isDynamicImport || isRequire) {
+        if (node.arguments.length === 1) {
+          addLiteral(node.arguments[0], isDynamicImport ? 'dynamic import' : 'require call');
+        } else {
+          uninspectable.push(isDynamicImport ? 'dynamic import' : 'require call');
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+
+  visit(sourceFile);
+  return { specifiers: [...specifiers], uninspectable };
+}
+
+function isPathInside(parentPath, candidatePath) {
+  const relativePath = path.relative(parentPath, candidatePath);
+  return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+}
+
 const files = trackedFiles().filter((file) => fs.existsSync(path.join(root, file)));
 const packageJson = readJson('package.json');
 
@@ -57,7 +111,6 @@ for (const forbidden of ['pnpm-lock.yaml', 'yarn.lock']) {
 }
 
 const removedRuntimePrefixes = [
-  'agent/',
   'public/shell/',
   '.agents/skills/harness-audit-assistant/',
   'src/aiCli/',
@@ -82,6 +135,18 @@ const allowedLegacyFillFiles = new Set([
   'src/legacyFillService/resources/golden-v1.json',
   'src/legacyFillService/resources/strategy-v1.json',
   'src/legacyFillService/server.mjs',
+]);
+const allowedAgentCoreFiles = new Set([
+  'agent/core/contracts/engine.ts',
+  'agent/core/contracts/events.ts',
+  'agent/core/contracts/ids.ts',
+  'agent/core/contracts/index.ts',
+  'agent/core/contracts/interaction.ts',
+  'agent/core/contracts/json.ts',
+  'agent/core/contracts/product.ts',
+  'agent/core/contracts/session.ts',
+  'agent/core/testing/fake-engine.contract.test.ts',
+  'agent/core/testing/fake-engine.ts',
 ]);
 const removedRuntimeFiles = new Set([
   'src/utils/localBridge.ts',
@@ -110,11 +175,34 @@ for (const file of files) {
   if (removedRuntimePrefixes.some((prefix) => file.startsWith(prefix)) || removedRuntimeFiles.has(file)) {
     fail(`removed desktop/Agent runtime returned: ${file}`);
   }
+  if (file.startsWith('agent/') && !allowedAgentCoreFiles.has(file)) {
+    fail(`Agent core contains an unreviewed file: ${file}`);
+  }
   if (/^src\/legacyFill(?:Core|Host|Service)\//.test(file) && !allowedLegacyFillFiles.has(file)) {
     fail(`Legacy Fill runtime contains an unreviewed file: ${file}`);
   }
   if (file.startsWith('electron/') && !thinShellElectronFiles.has(file)) {
     fail(`thin Electron Shell contains an unapproved runtime file: ${file}`);
+  }
+}
+
+const agentCoreRoot = path.join(root, 'agent/core');
+for (const file of files.filter((candidate) => allowedAgentCoreFiles.has(candidate))) {
+  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  const dependencyInspection = inspectTypeScriptDependencies(content, file);
+  for (const label of dependencyInspection.uninspectable) {
+    fail(`Agent core contains an uninspectable ${label}: ${file}`);
+  }
+  for (const specifier of dependencyInspection.specifiers) {
+    if (file.endsWith('.test.ts') && specifier.startsWith('node:')) continue;
+    if (!specifier.startsWith('.')) {
+      fail(`Agent core imports a non-core dependency (${specifier}): ${file}`);
+      continue;
+    }
+    const resolvedImport = path.resolve(path.dirname(path.join(root, file)), specifier);
+    if (!isPathInside(agentCoreRoot, resolvedImport)) {
+      fail(`Agent core import escapes its boundary (${specifier}): ${file}`);
+    }
   }
 }
 
@@ -184,6 +272,12 @@ for (const [name, command] of Object.entries(packageJson.scripts || {})) {
   if (/public\/shell|ai-cli-rest-server|17321|17322/.test(String(command))) {
     fail(`desktop command references a retired runtime in script ${name}`);
   }
+}
+if (packageJson.scripts?.['typecheck:agent'] !== 'tsc -p tsconfig.agent.json') {
+  fail('Agent core typecheck script is missing or invalid');
+}
+if (!String(packageJson.scripts?.['test:agent-core'] || '').includes('fake-engine.contract.test.ts')) {
+  fail('Agent core contract test script is missing or invalid');
 }
 
 const dataManifest = readJson('public/web-data-manifest.json');
