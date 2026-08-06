@@ -42,6 +42,8 @@
 - [DEF Agent Core Phase 1 Tasks](./def-agent-core-phase1/tasks.md)
 - [DEF Agent Host 与 Browser ProductGateway Phase 2](./def-agent-host-phase2/spec.md)
 - [DEF Agent Host 与 Browser ProductGateway Phase 2 Tasks](./def-agent-host-phase2/tasks.md)
+- [DEF Harness 与五业务只读 Tool Phase 3](./def-agent-harness-phase3/spec.md)
+- [DEF Harness 与五业务只读 Tool Phase 3 Tasks](./def-agent-harness-phase3/tasks.md)
 
 ## 目录内文件约定
 
