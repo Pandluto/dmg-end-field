@@ -8,7 +8,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { sha256Digest } from '../src/legacyFillService/canonical-json.mjs';
-import { LEGACY_FILL_MCP_RESOURCE_TEMPLATES, LEGACY_FILL_MCP_TOOL_NAMES } from '../src/legacyFillService/mcp-operations.mjs';
+import { diffValues, LEGACY_FILL_MCP_RESOURCE_TEMPLATES, LEGACY_FILL_MCP_TOOL_NAMES } from '../src/legacyFillService/mcp-operations.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'legacy-fill-mcp-'));
@@ -26,6 +26,15 @@ const ownerB = 'standard-client:contract-installation-b:fixture-workspace';
 const fixture = JSON.parse(fs.readFileSync(path.join(root, 'docs/specs/legacy-ai-cli-mcp-extraction/fixtures/legacy-fill-wire-v1.json'), 'utf8'));
 let child;
 let serviceLogs = '';
+
+assert.deepEqual(
+  diffValues(
+    { name: 'Before', retained: true },
+    { name: 'After', retained: true, normalizedOptional: undefined },
+  ),
+  [{ path: '/name', kind: 'replace', before: 'Before', after: 'After' }],
+  'review diff ignores normalized undefined properties',
+);
 
 function serviceEnv() {
   return {

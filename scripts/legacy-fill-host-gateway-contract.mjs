@@ -291,7 +291,7 @@ assert.match(browserBridgeSource, /__mcp_fill_review_grant/, 'review launch gran
 assert.doesNotMatch(browserBridgeSource, /__mcp_fill_capability/, 'retired all-powerful browser capability is not used');
 assert.match(electronMainSource, /buildBrowserUrl\('\/mcp-fill'\)/, 'Electron opens the hidden MCP review route');
 assert.doesNotMatch(preloadSource, /confirmAndBeginSaveLegacyFillProposal/, 'MCP Fill is not exposed as a desktop preload product surface');
-for (const visibleField of ['处理结果', '内容检查通过']) {
+for (const visibleField of ['变更内容', '完整结果', '提案依据', '内容检查通过']) {
   assert.equal(pageSource.includes(visibleField), true, `review UI exposes ${visibleField}`);
 }
 for (const componentName of ['WeaponResultPreview', 'OperatorResultPreview', 'BuffResultPreview', 'EquipmentResultPreview']) {
@@ -301,7 +301,7 @@ assert.equal(resultPreviewSources.every((source) => source.includes('mcp-domain-
 assert.equal(resultPreviewSources[0].includes("sword: '单手剑'"), true, 'weapon result uses product weapon type labels');
 assert.equal(pageSource.includes('<MarkdownRenderer'), false, 'review UI no longer exposes a generic Markdown/JSON field tree');
 assert.equal(pageSource.includes('MCP 填表'), true, 'review UI has a dedicated MCP product identity');
-assert.equal(pageSource.includes('确认变更'), true, 'review UI uses an interactive product confirmation');
+assert.equal(pageSource.includes('最终写入确认'), true, 'review UI uses an interactive product confirmation');
 assert.equal(pageSource.includes('确认并写入'), true, 'review UI does not expose internal approve/save steps as separate user work');
 assert.equal(pageSource.includes('Y/Y'), false, 'review UI does not expose the retired Y/Y interaction');
 assert.equal(pageSource.includes('DefOpenCodeView'), false, 'Legacy Fill review UI is not hosted by DEF OpenCode');

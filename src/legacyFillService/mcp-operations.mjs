@@ -127,17 +127,21 @@ function proposalSummary(proposal, latestSnapshot) {
   };
 }
 
-function diffValues(before, after, path = '', output = []) {
+export function diffValues(before, after, path = '', output = []) {
   if (canonicalJson(before) === canonicalJson(after)) return output;
   const beforeObject = before && typeof before === 'object' && !Array.isArray(before);
   const afterObject = after && typeof after === 'object' && !Array.isArray(after);
   if (beforeObject && afterObject) {
-    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])].sort();
+    const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+      .filter((key) => before[key] !== undefined || after[key] !== undefined)
+      .sort();
     for (const key of keys) {
       const escaped = key.replaceAll('~', '~0').replaceAll('/', '~1');
       const nextPath = `${path}/${escaped}`;
-      if (!Object.hasOwn(before, key)) output.push({ path: nextPath, kind: 'add', after: after[key] });
-      else if (!Object.hasOwn(after, key)) output.push({ path: nextPath, kind: 'remove', before: before[key] });
+      const beforeHasValue = Object.hasOwn(before, key) && before[key] !== undefined;
+      const afterHasValue = Object.hasOwn(after, key) && after[key] !== undefined;
+      if (!beforeHasValue) output.push({ path: nextPath, kind: 'add', after: after[key] });
+      else if (!afterHasValue) output.push({ path: nextPath, kind: 'remove', before: before[key] });
       else diffValues(before[key], after[key], nextPath, output);
       if (output.length > 5000) fail('review-diff-too-large', 'proposal diff exceeds 5000 field changes');
     }

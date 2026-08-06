@@ -20,6 +20,9 @@ const packagedExecutable = executableArgumentIndex >= 0
 const expectedOrigin = 'http://127.0.0.1:31457';
 const retiredRuntimePorts = [17321, 17322];
 const mcpRuntimePort = 17323;
+const screenshotRoot = process.env.DMG_DESKTOP_SMOKE_SCREENSHOT_DIR
+  ? path.resolve(process.env.DMG_DESKTOP_SMOKE_SCREENSHOT_DIR)
+  : '';
 const fillFixture = JSON.parse(fs.readFileSync(
   path.join(projectRoot, 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'),
   'utf8',
@@ -226,11 +229,28 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
       const queueItem = reviewPage.locator('.mcp-fill-proposal-list > button').filter({ hasText: testCase.displayName });
       await queueItem.waitFor({ timeout: 30_000 });
       await queueItem.click();
+      await reviewPage.getByRole('tab', { name: /变更内容/u }).waitFor();
+      await reviewPage.getByText('这是新增资料', { exact: true }).waitFor();
+      const reviewLayout = await reviewPage.evaluate(() => ({
+        bodyMinWidth: getComputedStyle(document.body).minWidth,
+        routeClass: document.body.classList.contains('mcp-fill-route'),
+      }));
+      assert.equal(reviewLayout.bodyMinWidth, '0px', 'MCP 审核页仍被主应用 1440px 最小宽度裁切');
+      assert.equal(reviewLayout.routeClass, true, 'MCP 审核页没有启用独立响应式页面边界');
+      if (screenshotRoot && testCase.domain === 'buff') {
+        fs.mkdirSync(screenshotRoot, { recursive: true });
+        const originalViewport = reviewPage.viewportSize();
+        await reviewPage.setViewportSize({ width: 1440, height: 900 });
+        await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-wide.png') });
+        await reviewPage.setViewportSize({ width: 760, height: 900 });
+        await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-narrow.png') });
+        if (originalViewport) await reviewPage.setViewportSize(originalViewport);
+      }
       await reviewPage.getByRole('button', { name: '确认并写入', exact: true }).click();
-      const dialog = reviewPage.getByRole('dialog');
+      const dialog = reviewPage.getByRole('alertdialog');
       await dialog.getByRole('button', { name: '确认并写入', exact: true }).click();
       try {
-        await reviewPage.getByText(/写入完成：Host 已重新读取目标/u).waitFor({ timeout: 30_000 });
+        await reviewPage.getByText(/写入完成：浏览器 SQLite 已保存/u).waitFor({ timeout: 30_000 });
       } catch (error) {
         const body = await reviewPage.locator('body').innerText().catch(() => '');
         const latest = structured(await client.callTool({ name: 'fill_get_current', arguments: { domain: testCase.domain } }));
@@ -248,6 +268,70 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
       }));
       assert.equal(inspected.status.lifecycleStatus, 'applied');
     }
+
+    const currentBuff = structured(await client.callTool({
+      name: 'fill_get_current',
+      arguments: { domain: 'buff' },
+    }));
+    const updatedBuffDraft = structuredClone(cases[0].draft);
+    updatedBuffDraft.name = 'Desktop Smoke Buff Revised';
+    updatedBuffDraft.description = 'Synthetic contract fixture revised for review diff.';
+    updatedBuffDraft.items[0].effects[0].value = 0.2;
+    const updateIntent = 'desktop smoke verifies field-level before and after review';
+    const updateProposal = structured(await client.callTool({
+      name: 'proposal_create',
+      arguments: {
+        ownerNamespace: config.ownerNamespace,
+        idempotencyKey: 'desktop-electron-smoke-buff-update-v1',
+        domain: 'buff',
+        schemaVersion: 1,
+        baseSnapshot: {
+          snapshotId: currentBuff.snapshotId,
+          revision: currentBuff.revision,
+          contentHash: currentBuff.contentHash,
+        },
+        draft: updatedBuffDraft,
+        intent: updateIntent,
+        evidence: [{ label: 'desktop smoke diff', text: 'existing target update fixture' }],
+      },
+    }));
+    assert.equal(updateProposal.result, 'created');
+
+    await reviewPage.getByRole('button', { name: '刷新', exact: true }).click();
+    const updateQueueItem = reviewPage.locator('.mcp-fill-proposal-list > button').filter({ hasText: updatedBuffDraft.name });
+    await updateQueueItem.waitFor({ timeout: 30_000 });
+    await updateQueueItem.click();
+    const nameDiff = reviewPage.locator('.mcp-fill-diff-entry').filter({ hasText: '名称' });
+    await nameDiff.waitFor();
+    assert.equal(await reviewPage.locator('.mcp-fill-diff-entry').count(), 3, '更新提案应只显示实际发生的三个字段变化');
+    const nameDiffText = await nameDiff.innerText();
+    assert.match(nameDiffText, /Desktop Smoke Buff/u);
+    assert.match(nameDiffText, /Desktop Smoke Buff Revised/u);
+    assert.equal(await reviewPage.getByText('这是新增资料', { exact: true }).count(), 0);
+    assert.equal(await reviewPage.getByRole('button', { name: '确认并写入', exact: true }).isEnabled(), true);
+
+    await reviewPage.getByRole('tab', { name: /完整结果/u }).click();
+    await reviewPage.locator('.mcp-domain-result').getByRole('heading', { name: updatedBuffDraft.name, exact: true }).waitFor();
+    await reviewPage.getByRole('tab', { name: /提案依据/u }).click();
+    await reviewPage.getByText(updateIntent, { exact: true }).waitFor();
+    await reviewPage.getByRole('tab', { name: /变更内容/u }).click();
+    if (screenshotRoot) {
+      const originalViewport = reviewPage.viewportSize();
+      await reviewPage.setViewportSize({ width: 1440, height: 900 });
+      await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-diff-wide.png') });
+      await reviewPage.setViewportSize({ width: 760, height: 900 });
+      await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-diff-narrow.png') });
+      if (originalViewport) await reviewPage.setViewportSize(originalViewport);
+    }
+
+    await reviewPage.getByRole('button', { name: '拒绝', exact: true }).click();
+    await reviewPage.getByRole('alertdialog').getByRole('button', { name: '确认拒绝', exact: true }).click();
+    await reviewPage.getByText('已拒绝这份变更，产品资料没有发生变化。', { exact: true }).waitFor();
+    const rejectedUpdate = structured(await client.callTool({
+      name: 'proposal_inspect',
+      arguments: { ownerNamespace: config.ownerNamespace, proposalId: updateProposal.proposalId },
+    }));
+    assert.equal(rejectedUpdate.status.lifecycleStatus, 'rejected');
     await context.close();
   } finally {
     await client?.close().catch(() => undefined);
@@ -383,6 +467,7 @@ try {
     retiredRuntimePorts,
     mcpRuntimePort,
     mcpProposalRoundTrip: ['buff', 'weapon', 'operator', 'equipment'],
+    mcpReviewDiff: true,
     releaseTools: true,
     packagedExecutable: packagedExecutable || null,
   }, null, 2));

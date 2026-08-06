@@ -31,10 +31,12 @@ export interface LegacyFillReviewProposal extends ReviewedProposal {
 
 export interface McpFillRuntimeState {
   running: boolean;
+  ready: boolean;
   pid: number | null;
   startedAt: number | null;
   url: string;
   mcpUrl?: string;
+  reason?: string;
 }
 const reviewSessions = new Map<string, { proposal: LegacyFillReviewProposal; reviewSessionId: string }>();
 const SAVE_OUTBOX_KEY = 'def.legacy-fill.save-outbox.v1';
