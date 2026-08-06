@@ -40,6 +40,8 @@
 
 - [DEF Agent Core Phase 1](./def-agent-core-phase1/spec.md)
 - [DEF Agent Core Phase 1 Tasks](./def-agent-core-phase1/tasks.md)
+- [DEF Agent Host 与 Browser ProductGateway Phase 2](./def-agent-host-phase2/spec.md)
+- [DEF Agent Host 与 Browser ProductGateway Phase 2 Tasks](./def-agent-host-phase2/tasks.md)
 
 ## 目录内文件约定
 
