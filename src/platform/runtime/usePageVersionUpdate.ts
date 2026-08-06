@@ -5,7 +5,7 @@ import {
   type PageVersionCheckResult,
 } from './pageVersionRuntime';
 import { reloadLatestPageVersion } from './serviceWorkerRuntime';
-import { isDesktopRuntime } from '../desktop/desktopHost';
+import { isDesktopWebHost } from './desktopWebHost';
 
 const AUTO_CHECK_INTERVAL_MS = 30 * 60 * 1_000;
 
@@ -38,9 +38,9 @@ export function usePageVersionUpdate(): {
   state: PageVersionUpdateState;
   update: () => Promise<void>;
 } {
-  const desktopMode = isDesktopRuntime();
+  const desktopWebHost = isDesktopWebHost();
   const [state, setState] = useState<PageVersionUpdateState>(() => ({
-    phase: desktopMode ? 'up-to-date' : navigator.onLine ? 'checking' : 'offline',
+    phase: desktopWebHost ? 'up-to-date' : navigator.onLine ? 'checking' : 'offline',
     currentVersionLabel: APP_VERSION_LABEL,
     latestVersionLabel: null,
     error: '',
@@ -49,7 +49,7 @@ export function usePageVersionUpdate(): {
   const updatingRef = useRef(false);
 
   const check = useCallback(async () => {
-    if (desktopMode) return;
+    if (desktopWebHost) return;
     if (updatingRef.current) return;
     const sequence = checkSequenceRef.current + 1;
     checkSequenceRef.current = sequence;
@@ -70,10 +70,10 @@ export function usePageVersionUpdate(): {
         error: error instanceof Error ? error.message : String(error),
       }));
     }
-  }, [desktopMode]);
+  }, [desktopWebHost]);
 
   const update = useCallback(async () => {
-    if (desktopMode) return;
+    if (desktopWebHost) return;
     if (!['update-available', 'update-failed'].includes(state.phase)) return;
     updatingRef.current = true;
     checkSequenceRef.current += 1;
@@ -93,10 +93,10 @@ export function usePageVersionUpdate(): {
     } finally {
       updatingRef.current = false;
     }
-  }, [check, desktopMode, state.phase]);
+  }, [check, desktopWebHost, state.phase]);
 
   useEffect(() => {
-    if (desktopMode) return undefined;
+    if (desktopWebHost) return undefined;
     const handleOnline = () => void check();
     const handleOffline = () => {
       checkSequenceRef.current += 1;
@@ -118,7 +118,7 @@ export function usePageVersionUpdate(): {
       window.removeEventListener('offline', handleOffline);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [check, desktopMode]);
+  }, [check, desktopWebHost]);
 
   return { state, update };
 }

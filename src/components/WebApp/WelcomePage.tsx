@@ -12,7 +12,6 @@ import {
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
 import { applyDefaultLocalDataPackage } from '../../platform/data/localDataPackages';
-import { isDesktopRuntime } from '../../platform/desktop/desktopHost';
 
 interface WelcomePageProps {
   onInstalled: (
@@ -31,7 +30,6 @@ function formatBytes(value: number): string {
 }
 
 export function WelcomePage({ onInstalled }: WelcomePageProps) {
-  const desktopMode = isDesktopRuntime();
   const [progress, setProgress] = useState<CombinedProgress | null>(null);
   const [isInstalling, setIsInstalling] = useState(false);
   const [error, setError] = useState('');
@@ -72,14 +70,14 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
             <img src="./app-icon.png" alt="" />
           </div>
           <p className="eyebrow">第一次使用</p>
-          <h1>先把基础资料装进{desktopMode ? '桌面工作区' : '浏览器'}</h1>
+          <h1>先把基础资料装进浏览器</h1>
           <p>
             程序本体已经准备好。完整 Local Data、图片资料会在你确认后
-            {desktopMode ? '从安装包载入' : '下载'}，资料应用到 SQLite 后即可使用。
+            下载，资料应用到 SQLite 后即可使用。
           </p>
           <div className="onboarding-points">
             <div>
-              <strong>{desktopMode ? '桌面本地' : '浏览器本地'}</strong>
+              <strong>浏览器本地</strong>
               <span>私人排轴不会上传</span>
             </div>
             <div>
@@ -94,7 +92,7 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
         </div>
         <div className="install-panel">
           <div className="install-panel-header">
-            <span>{desktopMode ? 'Desktop LTS' : 'Web LTS'} 基础资料包</span>
+            <span>Web LTS 基础资料包</span>
             <span className="status-chip">{isInstalling ? '正在安装' : '尚未安装'}</span>
           </div>
           <div className="package-contents">
@@ -115,9 +113,7 @@ export function WelcomePage({ onInstalled }: WelcomePageProps) {
           )}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-action" type="button" onClick={handleInstall} disabled={isInstalling}>
-            {isInstalling
-              ? `${desktopMode ? '载入' : '下载'}并校验中…`
-              : `${desktopMode ? '载入' : '下载'}完整资料并开始`}
+            {isInstalling ? '下载并校验中…' : '下载完整资料并开始'}
           </button>
           <p className="install-footnote">不会读取、迁移或写入任何旧 Node SQLite。</p>
         </div>

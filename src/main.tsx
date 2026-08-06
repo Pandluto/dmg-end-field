@@ -5,6 +5,7 @@ import { installDesktopResourceWorkerRuntime } from './platform/desktop/desktopR
 
 declare global {
   interface Window {
+    __DMG_DESKTOP_WEB_HOST__?: boolean
     __DMG_MARK_MODULE_READY__?: () => void
     __DMG_RECOVER_STARTUP__?: () => Promise<void>
     __DMG_ENSURE_SERVICE_WORKER__?: () => Promise<boolean>

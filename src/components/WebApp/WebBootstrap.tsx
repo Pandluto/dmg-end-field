@@ -28,7 +28,7 @@ import {
 } from '../../platform/data/localDataPackages';
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
-import { isDesktopRuntime, readDesktopHost } from '../../platform/desktop/desktopHost';
+import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -39,9 +39,9 @@ import './web-app.css';
 type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 'onboarding' | 'ready' | 'failed';
 
 export function WebBootstrap() {
-  const desktopMode = isDesktopRuntime();
+  const desktopWebHost = isDesktopWebHost();
   const [phase, setPhase] = useState<BootstrapPhase>(
-    () => (desktopMode ? 'starting' : 'checking-access'),
+    () => (desktopWebHost ? 'starting' : 'checking-access'),
   );
   const [failure, setFailure] = useState('');
   const [installedPackage, setInstalledPackage] = useState<InstalledResourcePackage | null>(null);
@@ -61,15 +61,15 @@ export function WebBootstrap() {
       await bootstrapUserWorkspaceBridge();
       await initializeWebImageLibrary();
       await normalizeAppliedLocalDataImagePaths();
-      if (!desktopMode) void requestPersistentBrowserStorage();
+      void requestPersistentBrowserStorage();
       const [installed, imagePackage] = await Promise.all([
         readInstalledResourcePackage(),
         readInstalledImagePackage(),
       ]);
       if (imagePackage && !await ensureImageServiceWorkerController()) {
         throw new Error(
-          desktopMode
-            ? '桌面图片资源服务没有接管当前页面；本地存档不会受影响。'
+          desktopWebHost
+            ? '本地图片资源服务没有接管当前页面；浏览器存档不会受影响。'
             : '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
         );
       }
@@ -88,7 +88,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopMode]);
+  }, [desktopWebHost]);
 
   const handleInstalled = useCallback(async (
     resourcePackage: InstalledResourcePackage,
@@ -99,8 +99,8 @@ export function WebBootstrap() {
     try {
       if (!await ensureImageServiceWorkerController()) {
         throw new Error(
-          desktopMode
-            ? '桌面图片资源服务没有接管当前页面；本地存档不会受影响。'
+          desktopWebHost
+            ? '本地图片资源服务没有接管当前页面；浏览器存档不会受影响。'
             : '图片缓存服务没有接管当前页面。请保持联网后重新检查；本地存档不会受影响。',
         );
       }
@@ -113,10 +113,10 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopMode]);
+  }, [desktopWebHost]);
 
   useEffect(() => {
-    if (desktopMode) {
+    if (desktopWebHost) {
       void initializeWorkspace();
       return undefined;
     }
@@ -132,23 +132,7 @@ export function WebBootstrap() {
     return () => {
       cancelled = true;
     };
-  }, [desktopMode, initializeWorkspace]);
-
-  useEffect(() => {
-    const desktopHost = readDesktopHost();
-    if (!desktopHost) return undefined;
-    return desktopHost.onBeforeQuit(() => {
-      void (async () => {
-        try {
-          await Promise.all([flushPersistentStorage(), flushUserWorkspaceState()]);
-          await webDatabase.close();
-          workspaceLease.release();
-        } finally {
-          desktopHost.confirmReadyToQuit();
-        }
-      })();
-    });
-  }, []);
+  }, [desktopWebHost, initializeWorkspace]);
 
   useEffect(() => {
     const handleReleaseRequest = async () => {
@@ -182,9 +166,7 @@ export function WebBootstrap() {
           <p>
             {phase === 'checking-access'
               ? '检查访问状态'
-              : desktopMode
-                ? '正在打开桌面工作区'
-                : '正在打开浏览器工作区'}
+              : '正在打开浏览器工作区'}
           </p>
         </div>
       </main>

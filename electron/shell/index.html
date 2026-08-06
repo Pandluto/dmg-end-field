@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>终末地伤害工作台 Shell</title>
+    <link rel="stylesheet" href="./shell.css" />
+  </head>
+  <body>
+    <main class="shell-layout">
+      <header class="hero">
+        <div class="brand">
+          <img src="../assets/icon.png" alt="" />
+          <div>
+            <p>DESKTOP CONTROL SHELL</p>
+            <h1>终末地伤害工作台</h1>
+          </div>
+        </div>
+        <span class="version" id="app-version">读取中</span>
+      </header>
+
+      <section class="launch-card">
+        <div>
+          <p class="eyebrow">Slim LTS 前端</p>
+          <h2>工作台在系统浏览器中运行</h2>
+          <p class="description">
+            Electron 只托管本地页面服务与桌面工具，不承载配装、排轴、SQLite 或图片数据。
+          </p>
+          <code id="web-url">正在读取本地地址</code>
+        </div>
+        <button class="primary" id="open-browser" type="button">打开浏览器工作台</button>
+      </section>
+
+      <section class="status-grid" aria-label="运行边界">
+        <article>
+          <span>前端页面</span>
+          <strong>系统浏览器</strong>
+          <small>使用 Slim LTS 同一套 Web 页面</small>
+        </article>
+        <article>
+          <span>业务数据</span>
+          <strong>浏览器 SQLite</strong>
+          <small>Shell 无 Node SQLite 权限</small>
+        </article>
+        <article>
+          <span>Agent / OpenCode</span>
+          <strong class="pending">尚未接入</strong>
+          <small id="agent-status">本轮只保留接口位置</small>
+        </article>
+        <article>
+          <span>MCP</span>
+          <strong class="pending">尚未接入</strong>
+          <small id="mcp-status">本轮只保留接口位置</small>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Shell 设置</p>
+            <h2>桌面控制壳</h2>
+          </div>
+          <span id="platform">—</span>
+        </div>
+        <label class="field compact-field">
+          <span>Shell 显示比例</span>
+          <select id="shell-scale" aria-label="Shell 显示比例"></select>
+        </label>
+      </section>
+
+      <section class="panel release-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">本地开发工具</p>
+            <h2>GitHub Release 产物</h2>
+          </div>
+          <span>不读取业务数据库</span>
+        </div>
+
+        <div class="release-fields">
+          <label class="field">
+            <span>发布版本</span>
+            <input id="release-version" autocomplete="off" />
+          </label>
+          <label class="field path-field">
+            <span>图片源目录</span>
+            <span><input id="image-source" readonly /><button id="pick-image-source" type="button">选择</button></span>
+          </label>
+          <label class="field path-field">
+            <span>Slim data 或 public 目录</span>
+            <span><input id="data-source" readonly /><button id="pick-data-source" type="button">选择</button></span>
+          </label>
+          <label class="field path-field">
+            <span>输出目录</span>
+            <span><input id="release-output" readonly /><button id="pick-output" type="button">选择</button></span>
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="primary" id="build-images" type="button">生成图片发布包</button>
+          <button id="build-data" type="button">生成数据发布包</button>
+          <button id="reveal-output" type="button" hidden>打开结果目录</button>
+        </div>
+        <p class="message" id="message" role="status" aria-live="polite">Shell 已就绪。</p>
+      </section>
+
+      <footer>
+        <span>关闭窗口只会收起 Shell，本地网页服务继续运行。</span>
+        <button class="danger" id="quit" type="button">完全退出</button>
+      </footer>
+    </main>
+    <script src="./shell.js"></script>
+  </body>
+</html>

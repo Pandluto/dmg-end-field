@@ -1,4 +1,4 @@
-import { isDesktopRuntime } from './desktopHost';
+import { isDesktopWebHost } from '../runtime/desktopWebHost';
 
 const DESKTOP_WORKER_PATH = '/sw-desktop.js';
 const CONTROL_TIMEOUT_MS = 30_000;
@@ -41,7 +41,7 @@ async function ensureDesktopResourceWorker(): Promise<boolean> {
 }
 
 export function installDesktopResourceWorkerRuntime(): void {
-  if (!isDesktopRuntime()) return;
+  if (!isDesktopWebHost()) return;
   window.__DMG_ENSURE_SERVICE_WORKER__ = () => {
     if (!ensureInFlight) {
       ensureInFlight = ensureDesktopResourceWorker().finally(() => {

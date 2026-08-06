@@ -1,0 +1,272 @@
+:root {
+  color-scheme: light;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  color: #1d2420;
+  background: #f1f3f2;
+  --surface: rgba(255, 255, 255, 0.86);
+  --surface-strong: #ffffff;
+  --line: rgba(35, 53, 44, 0.13);
+  --muted: #657068;
+  --accent: #176c4a;
+  --accent-hover: #105c3e;
+  --accent-soft: #e4f1ea;
+  --pending: #8a6218;
+  --danger: #a1362e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 720px;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 85% -10%, rgba(46, 132, 91, 0.13), transparent 33%),
+    linear-gradient(180deg, #f7f8f7, #edf1ef);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 14px;
+  background: var(--surface-strong);
+  color: #27312b;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #f5f7f6;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: white;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button.danger {
+  color: var(--danger);
+}
+
+.shell-layout {
+  width: min(940px, 100%);
+  margin: 0 auto;
+  padding: 28px;
+  display: grid;
+  gap: 16px;
+}
+
+.hero,
+.panel-heading,
+footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.brand img {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.brand p,
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.12em;
+}
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 0;
+  font-size: 21px;
+}
+
+h2 {
+  margin-bottom: 8px;
+  font-size: 17px;
+}
+
+.version,
+.panel-heading > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.launch-card,
+.panel {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: 0 10px 35px rgba(28, 49, 38, 0.06);
+}
+
+.launch-card {
+  padding: 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+}
+
+.description {
+  margin-bottom: 12px;
+  color: var(--muted);
+  line-height: 1.65;
+}
+
+code {
+  display: block;
+  color: #4b5950;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.status-grid article {
+  min-width: 0;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.status-grid span,
+.status-grid small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.status-grid strong {
+  display: block;
+  margin: 7px 0 5px;
+  font-size: 14px;
+}
+
+.status-grid strong.pending {
+  color: var(--pending);
+}
+
+.panel {
+  padding: 20px;
+}
+
+.panel-heading {
+  margin-bottom: 16px;
+}
+
+.panel-heading h2 {
+  margin-bottom: 0;
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 7px 10px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #263029;
+}
+
+.compact-field {
+  width: min(280px, 100%);
+}
+
+.release-fields {
+  display: grid;
+  grid-template-columns: 0.7fr 1.3fr;
+  gap: 12px;
+}
+
+.path-field > span:last-child {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.message {
+  min-height: 20px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.message.is-error {
+  color: var(--danger);
+}
+
+footer {
+  padding: 4px 2px 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 820px) {
+  .status-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .release-fields {
+    grid-template-columns: 1fr;
+  }
+}

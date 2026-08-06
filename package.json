@@ -4,7 +4,7 @@
   "version": "1.8.2",
   "main": "electron/main.cjs",
   "author": "SailStellar <190052366@qq.com>",
-  "description": "终末地配装、排轴与伤害计算的离线优先 Web 工作台",
+  "description": "Slim LTS 浏览器工作台与独立 Electron 桌面 Shell",
   "type": "module",
   "packageManager": "npm@11.13.0",
   "engines": {
@@ -43,6 +43,7 @@
     "build": "npm run typecheck && npm run build:web",
     "preview": "vite preview --host 127.0.0.1",
     "electron:dev": "concurrently --kill-others-on-fail --names web,desktop \"npm:dev\" \"npm:electron:dev:launch\"",
+    "electron:shell": "npm run electron:dev",
     "electron:dev:launch": "wait-on http-get://127.0.0.1:3030 && electron electron/main.cjs --dev",
     "electron:start": "electron electron/main.cjs",
     "electron:smoke:host": "node scripts/desktop-static-host-smoke.mjs",

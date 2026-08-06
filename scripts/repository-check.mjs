@@ -77,6 +77,9 @@ const thinShellElectronFiles = new Set([
   'electron/entitlements.mac.plist',
   'electron/main.cjs',
   'electron/preload.cjs',
+  'electron/shell/index.html',
+  'electron/shell/shell.css',
+  'electron/shell/shell.js',
   'electron/static-host.cjs',
 ]);
 

@@ -20,10 +20,24 @@
     </script>
     <script>
       (() => {
+        try {
+          const url = new URL(window.location.href);
+          const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+          const loopback = ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(hostname);
+          window.__DMG_DESKTOP_WEB_HOST__ = url.protocol === 'http:'
+            && loopback
+            && (url.port === '31457' || url.searchParams.get('__desktop_shell') === '1');
+        } catch {
+          window.__DMG_DESKTOP_WEB_HOST__ = false;
+        }
+      })();
+    </script>
+    <script>
+      (() => {
         if (!('serviceWorker' in navigator)) return;
-        // Electron serves the installed files from its own loopback host. Its
-        // module entry registers /sw-desktop.js for image/data caches only.
-        if (window.desktopHost) return;
+        // The independent Electron Shell opens this page in the system browser.
+        // That local host uses /sw-desktop.js for image/data caches only.
+        if (window.__DMG_DESKTOP_WEB_HOST__) return;
 
         const recoveryShellVersions = new Set([
           'e564a69322ae3fc8',
@@ -182,7 +196,7 @@
     </script>
     <script>
       (() => {
-        if (window.desktopHost) {
+        if (window.__DMG_DESKTOP_WEB_HOST__) {
           let moduleReady = false;
           const reloadInstalledFiles = async () => {
             const target = new URL(window.location.href);
@@ -195,9 +209,9 @@
             root.innerHTML = `
               <main style="min-height:100vh;display:grid;place-items:center;padding:24px;background:#eef1ef;color:#1d1d1f;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','PingFang SC',sans-serif">
                 <section style="width:min(420px,100%);padding:28px;border:1px solid rgba(0,0,0,.08);border-radius:24px;background:rgba(255,255,255,.82);box-shadow:0 18px 60px rgba(18,26,22,.12)">
-                  <p style="margin:0 0 8px;color:#6e746f;font-size:13px">桌面宿主</p>
-                  <h1 style="margin:0 0 12px;font-size:24px">安装包页面没有完整载入</h1>
-                  <p style="margin:0 0 20px;color:#5f655f;line-height:1.6">SQLite/OPFS 数据没有被删除。请重新读取当前安装包中的页面文件。</p>
+                  <p style="margin:0 0 8px;color:#6e746f;font-size:13px">本地浏览器工作台</p>
+                  <h1 style="margin:0 0 12px;font-size:24px">本地页面没有完整载入</h1>
+                  <p style="margin:0 0 20px;color:#5f655f;line-height:1.6">浏览器 SQLite/OPFS 数据没有被删除。请重新读取 Shell 提供的页面文件。</p>
                   <button id="dmg-desktop-reload" type="button" style="width:100%;padding:12px 16px;border:0;border-radius:14px;background:#1d1d1f;color:#fff;font:inherit;cursor:pointer">重新载入</button>
                 </section>
               </main>

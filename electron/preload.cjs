@@ -1,3 +1,5 @@
+'use strict';
+
 const { contextBridge, ipcRenderer } = require('electron');
 
 function invoke(channel, payload) {
@@ -9,14 +11,8 @@ contextBridge.exposeInMainWorld('desktopHost', Object.freeze({
   getAppInfo: () => invoke('desktop:get-app-info'),
   getSettings: () => invoke('desktop:get-settings'),
   setScale: (scale) => invoke('desktop:set-scale', { scale }),
+  openBrowser: () => invoke('desktop:open-browser'),
   quit: () => invoke('desktop:quit'),
-  onBeforeQuit: (callback) => {
-    if (typeof callback !== 'function') return () => undefined;
-    const listener = () => callback();
-    ipcRenderer.on('desktop:before-quit', listener);
-    return () => ipcRenderer.removeListener('desktop:before-quit', listener);
-  },
-  confirmReadyToQuit: () => ipcRenderer.send('desktop:ready-to-quit'),
   pickImageReleaseSource: () => invoke('desktop:pick-image-release-source'),
   pickDataReleaseSource: () => invoke('desktop:pick-data-release-source'),
   pickReleaseOutput: () => invoke('desktop:pick-release-output'),

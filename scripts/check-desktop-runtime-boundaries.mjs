@@ -7,6 +7,10 @@ const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
 const mainSource = fs.readFileSync(path.join(repositoryRoot, 'electron', 'main.cjs'), 'utf8');
 const preloadSource = fs.readFileSync(path.join(repositoryRoot, 'electron', 'preload.cjs'), 'utf8');
+const shellDocumentSource = fs.readFileSync(
+  path.join(repositoryRoot, 'electron', 'shell', 'index.html'),
+  'utf8',
+);
 const dataBuilderSource = fs.readFileSync(
   path.join(repositoryRoot, 'scripts', 'build-desktop-data-release.mjs'),
   'utf8',
@@ -83,6 +87,7 @@ assert.deepEqual(handledChannels, [
   'desktop:get-app-info',
   'desktop:get-capabilities',
   'desktop:get-settings',
+  'desktop:open-browser',
   'desktop:pick-data-release-source',
   'desktop:pick-image-release-source',
   'desktop:pick-release-output',
@@ -93,8 +98,12 @@ assert.deepEqual(handledChannels, [
 assert.match(mainSource, /contextIsolation:\s*true/);
 assert.match(mainSource, /nodeIntegration:\s*false/);
 assert.match(mainSource, /sandbox:\s*true/);
-assert.match(mainSource, /storages:\s*\['serviceworkers'\]/);
 assert.doesNotMatch(mainSource, /clearCache\s*\(/);
+assert.match(mainSource, /loadFile\(SHELL_DOCUMENT_PATH\)/);
+assert.match(mainSource, /shell\.openExternal\(url\)/);
+assert.doesNotMatch(mainSource, /loadURL\(.*(?:DESKTOP_ORIGIN|browserOrigin|windowUrl)/);
+assert.match(shellDocumentSource, /工作台在系统浏览器中运行/);
+assert.match(shellDocumentSource, /GitHub Release 产物/);
 assert.match(mainSource, /source:\s*releaseSelections\.imageSource/);
 assert.match(mainSource, /source:\s*releaseSelections\.dataSource/);
 assert.match(mainSource, /generatedReleaseDirectories\.has\(targetPath\)/);
@@ -107,4 +116,5 @@ assert.ok(preloadChannels.every((channel) => handledChannels.includes(channel)))
 
 console.log('Desktop runtime boundary check passed.');
 console.log(`- IPC handlers: ${handledChannels.length}`);
+console.log('- Electron renders only the independent Shell; the Slim app opens in the system browser');
 console.log('- Node SQLite, AI, MCP, sidecars, and legacy data services are absent');
