@@ -26,6 +26,7 @@ function assertDirectory(value, label) {
 function sanitizeVersion(value) {
   const version = assertString(value, 'assetVersion')
     .replace(/[<>:"/\\|?*\x00-\x1F]+/g, '-')
+    .replace(/[. ]+$/g, '')
     .slice(0, 120);
   if (!version || version === '.' || version === '..') {
     throw new Error('assetVersion 无效');
@@ -164,7 +165,7 @@ export function buildImageReleasePackage(options = {}) {
   }
 
   const outputDir = path.join(outputRoot, assetVersion);
-  if (pathsOverlap(layout.scanRoot, outputDir)) {
+  if (pathsOverlap(sourceDir, outputDir)) {
     throw new Error(`发布输出不能与图片源目录重叠: ${outputDir}`);
   }
   const packageFileName = `assets-${assetVersion}-full.zip`;
@@ -172,58 +173,64 @@ export function buildImageReleasePackage(options = {}) {
   const stagingDir = fs.mkdtempSync(path.join(os.tmpdir(), `dmg-assets-${assetVersion}-`));
   const packageRoot = path.join(stagingDir, 'package');
 
-  fs.rmSync(outputDir, { recursive: true, force: true });
-  fs.mkdirSync(outputDir, { recursive: true });
-  fs.mkdirSync(packageRoot, { recursive: true });
+  try {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    fs.mkdirSync(outputDir, { recursive: true });
+    fs.mkdirSync(packageRoot, { recursive: true });
 
-  const files = imageFiles.map((sourceFile) => {
-    const { rel } = copyFileForPackage({
-      sourceFile,
-      sourceRoot: layout.scanRoot,
-      packageRoot,
-      packagePrefix: layout.packagePrefix,
+    const files = imageFiles.map((sourceFile) => {
+      const { rel } = copyFileForPackage({
+        sourceFile,
+        sourceRoot: layout.scanRoot,
+        packageRoot,
+        packagePrefix: layout.packagePrefix,
+      });
+      return {
+        relativePath: `${layout.releasePrefix}/${rel}`,
+        sha256: sha256File(sourceFile),
+        sizeBytes: fs.statSync(sourceFile).size,
+        source: 'release',
+      };
     });
-    return {
-      relativePath: `${layout.releasePrefix}/${rel}`,
-      sha256: sha256File(sourceFile),
-      sizeBytes: fs.statSync(sourceFile).size,
-      source: 'release',
+
+    compressDirectoryToZip(packageRoot, packagePath);
+
+    const manifest = {
+      manifestVersion: 1,
+      releaseTag,
+      generatedAt: new Date().toISOString(),
+      minShellVersion,
+      assetVersion,
+      delivery: 'archive',
+      files,
+      deletedFiles: [],
+      package: {
+        format: 'zip',
+        fileName: packageFileName,
+        packagePath: packageFileName,
+        sha256: sha256File(packagePath),
+        sizeBytes: fs.statSync(packagePath).size,
+      },
     };
-  });
 
-  compressDirectoryToZip(packageRoot, packagePath);
+    const manifestPath = path.join(outputDir, MANIFEST_NAME);
+    fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
 
-  const manifest = {
-    manifestVersion: 1,
-    releaseTag,
-    generatedAt: new Date().toISOString(),
-    minShellVersion,
-    assetVersion,
-    delivery: 'archive',
-    files,
-    deletedFiles: [],
-    package: {
-      format: 'zip',
-      fileName: packageFileName,
-      packagePath: packageFileName,
-      sha256: sha256File(packagePath),
-      sizeBytes: fs.statSync(packagePath).size,
-    },
-  };
-
-  const manifestPath = path.join(outputDir, MANIFEST_NAME);
-  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8');
-  fs.rmSync(stagingDir, { recursive: true, force: true });
-
-  return {
-    mode: 'archive',
-    assetVersion,
-    releaseTag,
-    outputDir,
-    manifestPath,
-    packagePaths: [packagePath],
-    totalFiles: files.length,
-  };
+    return {
+      mode: 'archive',
+      assetVersion,
+      releaseTag,
+      outputDir,
+      manifestPath,
+      packagePaths: [packagePath],
+      totalFiles: files.length,
+    };
+  } catch (error) {
+    fs.rmSync(outputDir, { recursive: true, force: true });
+    throw error;
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
+  }
 }
 
 function parseCliArgs(argv) {

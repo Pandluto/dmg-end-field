@@ -20,7 +20,7 @@ try {
   const result = buildImageReleasePackage({
     source: path.join(temporaryRoot, 'source'),
     output: outputRoot,
-    assetVersion: 'desktop/1.8.2',
+    assetVersion: 'desktop/1.8.2. ',
     releaseTag: 'desktop-images-v1.8.2',
   });
   assert.equal(result.assetVersion, 'desktop-1.8.2');
@@ -58,6 +58,17 @@ try {
     }),
     /不能与图片源目录重叠/,
   );
+  const nestedOutputRoot = path.join(temporaryRoot, 'source', 'release-output');
+  fs.mkdirSync(nestedOutputRoot, { recursive: true });
+  assert.throws(
+    () => buildImageReleasePackage({
+      source: path.join(temporaryRoot, 'source'),
+      output: nestedOutputRoot,
+      assetVersion: 'nested-output',
+    }),
+    /不能与图片源目录重叠/,
+  );
+  assert.equal(fs.existsSync(path.join(nestedOutputRoot, 'nested-output')), false);
   assert.ok(fs.existsSync(path.join(sourceRoot, 'operators', 'alpha.png')));
 
   if (process.platform !== 'win32') {
