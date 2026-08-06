@@ -36,6 +36,11 @@
 
 - [浏览器图片管理架构](./image-manager/architecture.md)
 
+## 桌面 Agent
+
+- [DEF Agent Core Phase 1](./def-agent-core-phase1/spec.md)
+- [DEF Agent Core Phase 1 Tasks](./def-agent-core-phase1/tasks.md)
+
 ## 目录内文件约定
 
 优先使用稳定名称 `spec.md`。活跃开发可以在对应目录维护 `tasks.md`；阶段完成后，研究、任务和验收记录是否继续保留，应以其是否仍约束当前实现为准。禁止重新创建顶层 `*-spec.md`。
