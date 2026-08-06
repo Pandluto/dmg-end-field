@@ -160,6 +160,19 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
     await reviewPage.goto(mcpUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await reviewPage.getByRole('heading', { name: 'MCP 填表', exact: true }).waitFor({ timeout: 60_000 });
     await reviewPage.getByText('MCP 服务运行中').waitFor({ timeout: 30_000 });
+    const emptyReviewLayout = await reviewPage.evaluate(() => {
+      const page = document.querySelector('.mcp-fill-page')?.getBoundingClientRect();
+      const workspace = document.querySelector('.mcp-fill-workspace')?.getBoundingClientRect();
+      return {
+        viewportHeight: window.innerHeight,
+        pageHeight: page?.height || 0,
+        workspaceHeight: workspace?.height || 0,
+        workspaceBottom: workspace?.bottom || 0,
+      };
+    });
+    assert.ok(Math.abs(emptyReviewLayout.pageHeight - emptyReviewLayout.viewportHeight) < 2, 'MCP 审核页没有铺满浏览器高度');
+    assert.ok(Math.abs(emptyReviewLayout.workspaceBottom - emptyReviewLayout.viewportHeight) < 2, '空审核队列在页面下半部留下空白');
+    assert.ok(emptyReviewLayout.workspaceHeight > emptyReviewLayout.viewportHeight * 0.75, '空审核队列工作区高度异常');
     await workspacePage.getByRole('heading', { name: '另一个标签页正在编辑' }).waitFor({ timeout: 30_000 });
     assert.equal(new URL(reviewPage.url()).searchParams.has('__mcp_fill_publisher'), false, 'MCP 页面没有清除快照发布能力参数');
     assert.doesNotMatch(new URL(reviewPage.url()).hash, /__mcp_fill_review_grant/u, 'MCP 页面没有清除一次性审核授权');
@@ -251,6 +264,18 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
       await dialog.getByRole('button', { name: '确认并写入', exact: true }).click();
       try {
         await reviewPage.getByText(/写入完成：浏览器 SQLite 已保存/u).waitFor({ timeout: 30_000 });
+        if (testCase.domain === 'buff') {
+          const noticeLayout = await reviewPage.evaluate(() => {
+            const workspace = document.querySelector('.mcp-fill-workspace')?.getBoundingClientRect();
+            return {
+              hasNoticeLayout: document.querySelector('.mcp-fill-page')?.classList.contains('has-notice'),
+              workspaceBottom: workspace?.bottom || 0,
+              viewportHeight: window.innerHeight,
+            };
+          });
+          assert.equal(noticeLayout.hasNoticeLayout, true, '成功提示出现时没有切换到三行页面布局');
+          assert.ok(Math.abs(noticeLayout.workspaceBottom - noticeLayout.viewportHeight) < 2, '成功提示出现后工作区没有铺到页面底部');
+        }
       } catch (error) {
         const body = await reviewPage.locator('body').innerText().catch(() => '');
         const latest = structured(await client.callTool({ name: 'fill_get_current', arguments: { domain: testCase.domain } }));

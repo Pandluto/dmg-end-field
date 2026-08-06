@@ -36,10 +36,14 @@ body.mcp-fill-route {
   min-width: 0;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   color: var(--mcp-body);
   background: var(--mcp-bg);
+}
+
+.mcp-fill-page.has-notice {
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .mcp-fill-page .sr-only {
@@ -461,7 +465,7 @@ body.mcp-fill-route {
 .mcp-fill-center-state.is-inline { min-height: 360px; }
 
 .mcp-fill-state-page {
-  grid-row: 3;
+  grid-row: 2;
   width: min(600px, calc(100% - 40px));
   place-self: center;
   display: flex;

@@ -337,7 +337,7 @@ export function McpFillPage() {
               : `这份提案${STATUS_LABELS[selected.lifecycleStatus]}`;
 
   return (
-    <main className="mcp-fill-page">
+    <main className={`mcp-fill-page${notice ? ' has-notice' : ''}`}>
       <header className="mcp-fill-topbar">
         <div className="mcp-fill-brand">
           <button className="mcp-fill-back" type="button" onClick={() => navigateToAppPath(APP_ROUTE_PATHS.home)} aria-label="返回主界面">←</button>
