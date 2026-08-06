@@ -511,6 +511,8 @@ async function startApplication() {
   agentRuntime = createAgentRuntime({
     applicationRoot: runtimeApplicationRoot,
     runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
+    engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-opencode-engine'),
+    engineProfilePath: path.join(app.getPath('userData'), 'runtime', 'def-agent-provider-profiles.json'),
     browserOrigin,
     diagnostic,
     launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {

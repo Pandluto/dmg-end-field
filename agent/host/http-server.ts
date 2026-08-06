@@ -41,7 +41,7 @@ export interface DefAgentHostHttpServerOptions {
   readonly tokens: AgentTokenAuthority;
   readonly consumers: BrowserConsumerRegistry;
   readonly gateway: RemoteBrowserProductGateway;
-  readonly engine: AgentHostHealth['engine'];
+  readonly engine: AgentHostHealth['engine'] | (() => AgentHostHealth['engine']);
   readonly onShutdownRequested?: () => void;
 }
 
@@ -52,7 +52,7 @@ export class DefAgentHostHttpServer {
   readonly #tokens: AgentTokenAuthority;
   readonly #consumers: BrowserConsumerRegistry;
   readonly #gateway: RemoteBrowserProductGateway;
-  readonly #engine: AgentHostHealth['engine'];
+  readonly #engine: () => AgentHostHealth['engine'];
   readonly #onShutdownRequested: () => void;
   readonly #server: Server;
   #state: RuntimeState = 'starting';
@@ -66,7 +66,8 @@ export class DefAgentHostHttpServer {
     this.#tokens = options.tokens;
     this.#consumers = options.consumers;
     this.#gateway = options.gateway;
-    this.#engine = options.engine;
+    const engine = options.engine;
+    this.#engine = typeof engine === 'function' ? engine : () => engine;
     this.#onShutdownRequested = options.onShutdownRequested ?? (() => {});
     this.#server = createServer((request, response) => {
       void this.#handle(request, response).catch((error: unknown) => {
@@ -97,7 +98,7 @@ export class DefAgentHostHttpServer {
       protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
       runtimeSchemaVersion: 1,
       state: this.#state,
-      engine: this.#engine,
+      engine: this.#engine(),
     };
   }
 
@@ -190,7 +191,7 @@ export class DefAgentHostHttpServer {
       const ids = this.#host.getActiveIds();
       const state: AgentUiState = {
         protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
-        engine: this.#engine,
+        engine: this.#engine(),
         consumer: this.#consumers.current(),
         activeDefSessionId: ids.defSessionId,
         activeDefTurnId: ids.defTurnId,

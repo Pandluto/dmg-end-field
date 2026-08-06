@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('node:crypto');
+const { spawnSync } = require('node:child_process');
 const fsModule = require('node:fs');
 const path = require('node:path');
 
@@ -46,8 +47,23 @@ function createAgentRuntime(options = {}) {
   const servicePath = path.resolve(String(
     options.servicePath || path.join(applicationRoot, 'dist', 'agent', 'host-entry.cjs'),
   ));
+  const engineRoot = path.resolve(String(
+    options.engineRoot || path.join(applicationRoot, 'dist', 'agent', 'engine', 'opencode'),
+  ));
+  const engineStoreRoot = path.resolve(String(
+    options.engineStoreRoot || path.join(runtimeRoot, 'opencode'),
+  ));
+  const engineProfilePath = path.resolve(String(
+    options.engineProfilePath || path.join(runtimeRoot, 'provider-profiles.json'),
+  ));
+  const engineDefaultProfileRef = String(options.engineDefaultProfileRef || 'default').trim();
+  if (!engineDefaultProfileRef) throw new TypeError('Agent runtime requires a default provider profile ref');
   const browserOrigin = normalizeOrigin(options.browserOrigin || 'http://127.0.0.1:31457');
   const launchService = options.launchService || defaultLaunchService;
+  const processKill = typeof options.processKill === 'function' ? options.processKill : process.kill.bind(process);
+  const inspectProcessIdentity = typeof options.inspectProcessIdentity === 'function'
+    ? options.inspectProcessIdentity
+    : defaultInspectProcessIdentity;
   const diagnostic = typeof options.diagnostic === 'function' ? options.diagnostic : () => undefined;
   const clock = typeof options.clock === 'function' ? options.clock : Date.now;
   const randomToken = typeof options.randomToken === 'function'
@@ -159,6 +175,7 @@ function createAgentRuntime(options = {}) {
     });
     addOnce(nextChild, 'exit', (code, signal) => {
       if (child !== nextChild) return;
+      const exitedHostPid = childPid;
       childExited = true;
       if (resolveChildExit) resolveChildExit({ code, signal });
       resolveChildExit = null;
@@ -170,6 +187,7 @@ function createAgentRuntime(options = {}) {
       privateOrigin = '';
       lastHealth = null;
       clearReadyFile();
+      void terminateOrphanedEngine(exitedHostPid);
       if (wasStopping) {
         diagnostic(`agent host stopped code=${code ?? '-'} signal=${signal || '-'}`);
       } else if (!preserveExistingError) {
@@ -178,6 +196,193 @@ function createAgentRuntime(options = {}) {
         diagnostic(`agent host crashed code=${code ?? '-'} signal=${signal || '-'}`);
       }
     });
+  }
+
+  async function terminateOrphanedEngine(expectedHostPid) {
+    if (!Number.isSafeInteger(expectedHostPid) || expectedHostPid <= 0) return false;
+    const processManifestPath = path.join(engineStoreRoot, 'process.json');
+    try {
+      if (typeof fs.existsSync === 'function' && !fs.existsSync(processManifestPath)) return false;
+      if (typeof fs.lstatSync === 'function') {
+        const info = fs.lstatSync(processManifestPath);
+        if (!info.isFile() || info.isSymbolicLink() || info.size > 4_096) return false;
+        if (
+          process.platform !== 'win32'
+          && ((info.mode & 0o077) !== 0 || (process.getuid && info.uid !== process.getuid()))
+        ) return false;
+      }
+      const ownership = parseEngineProcessManifest(
+        JSON.parse(String(fs.readFileSync(processManifestPath, 'utf8'))),
+      );
+      if (ownership.hostPid !== expectedHostPid) return false;
+      if (ownership.legacy) {
+        if (isProcessAlive(ownership.enginePid)) {
+          diagnostic(`legacy OpenCode ownership manifest retained for live pid=${ownership.enginePid}`);
+          return false;
+        }
+        removeEngineProcessManifest(processManifestPath);
+        return true;
+      }
+
+      let engineState = ownedProcessState(
+        ownership.enginePid,
+        ownership.engineProcessIdentity,
+      );
+      if (engineState !== 'owned') {
+        removeEngineProcessManifest(processManifestPath);
+        diagnostic(engineState === 'reused'
+          ? `stale OpenCode PID was reused; manifest removed without signalling pid=${ownership.enginePid}`
+          : `stale OpenCode engine already exited pid=${ownership.enginePid}`);
+        return true;
+      }
+      if (engineState === 'owned') {
+        try {
+          processKill(ownership.enginePid, 'SIGTERM');
+        } catch (error) {
+          if (error?.code !== 'ESRCH') throw error;
+        }
+        await waitForOwnedProcessExit(
+          ownership.enginePid,
+          ownership.engineProcessIdentity,
+          Math.min(stopTimeoutMs, 2_000),
+        );
+      }
+      engineState = ownedProcessState(ownership.enginePid, ownership.engineProcessIdentity);
+      if (engineState === 'owned') {
+        try {
+          processKill(ownership.enginePid, 'SIGKILL');
+        } catch (error) {
+          if (error?.code !== 'ESRCH') throw error;
+        }
+        await waitForOwnedProcessExit(ownership.enginePid, ownership.engineProcessIdentity, 1_000);
+      }
+      engineState = ownedProcessState(ownership.enginePid, ownership.engineProcessIdentity);
+      if (engineState === 'owned') {
+        throw new AgentRuntimeError(
+          'AGENT_ENGINE_STOP_FAILED',
+          `OpenCode engine ${ownership.enginePid} did not exit after SIGKILL`,
+        );
+      }
+      removeEngineProcessManifest(processManifestPath);
+      diagnostic(`orphaned OpenCode engine terminated pid=${ownership.enginePid}`);
+      return true;
+    } catch (error) {
+      diagnostic(`OpenCode process ownership cleanup failed: ${messageOf(error)}`);
+      return false;
+    }
+  }
+
+  async function cleanupStaleEngineBeforeStart() {
+    const processManifestPath = path.join(engineStoreRoot, 'process.json');
+    if (typeof fs.existsSync === 'function' && !fs.existsSync(processManifestPath)) return;
+    let manifestValue;
+    try {
+      if (typeof fs.lstatSync === 'function') {
+        const info = fs.lstatSync(processManifestPath);
+        if (!info.isFile() || info.isSymbolicLink() || info.size > 4_096) {
+          throw new AgentRuntimeError('AGENT_ENGINE_MANIFEST_INVALID', 'OpenCode process ownership manifest is invalid');
+        }
+        if (
+          process.platform !== 'win32'
+          && ((info.mode & 0o077) !== 0 || (process.getuid && info.uid !== process.getuid()))
+        ) {
+          throw new AgentRuntimeError('AGENT_ENGINE_MANIFEST_INVALID', 'OpenCode process ownership manifest is insecure');
+        }
+      }
+      manifestValue = parseEngineProcessManifest(
+        JSON.parse(String(fs.readFileSync(processManifestPath, 'utf8'))),
+      );
+    } catch (error) {
+      if (error?.code === 'ENOENT') return;
+      throw error instanceof AgentRuntimeError
+        ? error
+        : new AgentRuntimeError('AGENT_ENGINE_MANIFEST_INVALID', 'OpenCode process ownership manifest is invalid');
+    }
+    const hostPid = manifestValue.hostPid;
+    if (manifestValue.legacy && isProcessAlive(hostPid)) {
+      throw new AgentRuntimeError(
+        'AGENT_ENGINE_ALREADY_RUNNING',
+        `Legacy OpenCode ownership is still associated with live PID ${hostPid}`,
+      );
+    }
+    if (manifestValue.legacy && isProcessAlive(manifestValue.enginePid)) {
+      throw new AgentRuntimeError(
+        'AGENT_ENGINE_STOP_FAILED',
+        'A live engine with a legacy ownership manifest cannot be signalled safely',
+      );
+    }
+    if (!manifestValue.legacy) {
+      const hostState = ownedProcessState(hostPid, manifestValue.hostProcessIdentity);
+      if (hostState === 'owned') {
+        throw new AgentRuntimeError(
+          'AGENT_ENGINE_ALREADY_RUNNING',
+          `OpenCode engine is still owned by live Agent Host ${hostPid}`,
+        );
+      }
+    }
+    const cleaned = await terminateOrphanedEngine(hostPid);
+    if (!cleaned && fs.existsSync(processManifestPath)) {
+      throw new AgentRuntimeError('AGENT_ENGINE_STOP_FAILED', 'Stale OpenCode engine could not be cleaned');
+    }
+  }
+
+  function isProcessAlive(pid) {
+    if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+    try {
+      processKill(pid, 0);
+      return true;
+    } catch (error) {
+      if (error?.code === 'ESRCH') return false;
+      if (error?.code === 'EPERM') return true;
+      throw error;
+    }
+  }
+
+  function ownedProcessState(pid, expectedIdentity) {
+    if (!isProcessAlive(pid)) return 'exited';
+    let actualIdentity;
+    try {
+      actualIdentity = inspectProcessIdentity(pid);
+    } catch (error) {
+      throw new AgentRuntimeError(
+        'AGENT_PROCESS_IDENTITY_UNAVAILABLE',
+        `无法核验进程 ${pid} 的身份：${messageOf(error)}`,
+      );
+    }
+    if (!actualIdentity) {
+      if (!isProcessAlive(pid)) return 'exited';
+      throw new AgentRuntimeError(
+        'AGENT_PROCESS_IDENTITY_UNAVAILABLE',
+        `无法核验仍在运行的进程 ${pid} 身份`,
+      );
+    }
+    return actualIdentity === expectedIdentity ? 'owned' : 'reused';
+  }
+
+  async function waitForOwnedProcessExit(pid, expectedIdentity, timeoutMs) {
+    const deadline = clock() + timeoutMs;
+    while (clock() < deadline) {
+      if (ownedProcessState(pid, expectedIdentity) !== 'owned') return true;
+      await delay(Math.min(50, Math.max(1, deadline - clock())));
+    }
+    return ownedProcessState(pid, expectedIdentity) !== 'owned';
+  }
+
+  async function waitForProcessExit(pid, timeoutMs) {
+    const deadline = clock() + timeoutMs;
+    while (clock() < deadline) {
+      if (!isProcessAlive(pid)) return true;
+      await delay(Math.min(50, Math.max(1, deadline - clock())));
+    }
+    return !isProcessAlive(pid);
+  }
+
+  function removeEngineProcessManifest(processManifestPath) {
+    try {
+      fs.unlinkSync(processManifestPath);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
   }
 
   async function start() {
@@ -220,10 +425,11 @@ function createAgentRuntime(options = {}) {
 
     try {
       fs.mkdirSync(runtimeRoot, { recursive: true });
+      await cleanupStaleEngineBeforeStart();
     } catch (error) {
       return failStart(new AgentRuntimeError(
         'AGENT_RUNTIME_DIRECTORY_FAILED',
-        `无法准备 Agent Host 运行目录：${messageOf(error)}`,
+        `无法准备 Agent Host 运行目录或清理旧引擎：${messageOf(error)}`,
       ));
     }
 
@@ -454,6 +660,7 @@ function createAgentRuntime(options = {}) {
     const exitPromise = childExitPromise;
     if (exitPromise) await raceWithDelay(exitPromise, stopTimeoutMs);
     if (!childExited && child === currentChild) {
+      await requireOwnedEngineStopped(childPid);
       try {
         if (typeof currentChild.kill === 'function') currentChild.kill();
       } catch (error) {
@@ -462,8 +669,18 @@ function createAgentRuntime(options = {}) {
       if (childExitPromise) await raceWithDelay(childExitPromise, Math.min(stopTimeoutMs, 1_000));
     }
     if (!childExited && child === currentChild) {
-      // The Electron process object can lose its exit event during application
-      // teardown. Forget the child locally so a future start cannot duplicate it.
+      try {
+        if (childPid && isProcessAlive(childPid)) processKill(childPid, 'SIGKILL');
+      } catch (error) {
+        if (error?.code !== 'ESRCH') diagnostic(`agent host SIGKILL failed: ${messageOf(error)}`);
+      }
+      if (childPid) await waitForProcessExit(childPid, 1_000);
+    }
+    if (!childExited && child === currentChild && childPid && isProcessAlive(childPid)) {
+      throw new AgentRuntimeError('AGENT_RUNTIME_STOP_FAILED', `Agent Host ${childPid} did not exit after SIGKILL`);
+    }
+    if (!childExited && child === currentChild) {
+      // The OS confirmed exit even if Electron lost the utility-process event.
       child = null;
       childExited = true;
       if (resolveChildExit) resolveChildExit({ code: null, signal: 'forced-timeout' });
@@ -472,6 +689,18 @@ function createAgentRuntime(options = {}) {
       manifest = null;
       privateOrigin = '';
       clearReadyFile();
+      await requireOwnedEngineStopped(childPid);
+    }
+  }
+
+  async function requireOwnedEngineStopped(expectedHostPid) {
+    const cleaned = await terminateOrphanedEngine(expectedHostPid);
+    const processManifestPath = path.join(engineStoreRoot, 'process.json');
+    if (!cleaned && typeof fs.existsSync === 'function' && fs.existsSync(processManifestPath)) {
+      throw new AgentRuntimeError(
+        'AGENT_ENGINE_STOP_FAILED',
+        'OpenCode engine could not be confirmed stopped; ownership manifest was retained',
+      );
     }
   }
 
@@ -514,6 +743,10 @@ function createAgentRuntime(options = {}) {
       DEF_AGENT_BROWSER_ORIGIN: browserOrigin,
       DEF_AGENT_READY_FILE: readyFile,
       DEF_AGENT_PARENT_PID: String(process.pid),
+      DEF_AGENT_ENGINE_ROOT: engineRoot,
+      DEF_AGENT_ENGINE_STORE_ROOT: engineStoreRoot,
+      DEF_AGENT_ENGINE_PROFILE_PATH: engineProfilePath,
+      DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF: engineDefaultProfileRef,
     });
     return environment;
   }
@@ -526,6 +759,9 @@ function createAgentRuntime(options = {}) {
     handleBrowserRequest,
     get readyFile() { return readyFile; },
     get servicePath() { return servicePath; },
+    get engineRoot() { return engineRoot; },
+    get engineStoreRoot() { return engineStoreRoot; },
+    get engineProfilePath() { return engineProfilePath; },
     get browserOrigin() { return browserOrigin; },
   });
 
@@ -562,6 +798,73 @@ function createAgentRuntime(options = {}) {
       throw new AgentRuntimeError('AGENT_RUNTIME_RESPONSE_INVALID', `${label}返回了非 JSON 响应：${messageOf(error)}`);
     }
   }
+}
+
+function parseEngineProcessManifest(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AgentRuntimeError('AGENT_ENGINE_MANIFEST_INVALID', 'OpenCode process ownership manifest is invalid');
+  }
+  const legacyKeys = ['enginePid', 'hostPid', 'processNonce', 'runtimeVersion', 'schemaVersion'];
+  const currentKeys = [
+    'enginePid',
+    'engineProcessIdentity',
+    'hostPid',
+    'hostProcessIdentity',
+    'processNonce',
+    'runtimeVersion',
+    'schemaVersion',
+  ];
+  const keys = Object.keys(value).sort();
+  const isLegacy = value.schemaVersion === 1
+    && keys.length === legacyKeys.length
+    && keys.every((key, index) => key === legacyKeys[index]);
+  const isCurrent = value.schemaVersion === 2
+    && keys.length === currentKeys.length
+    && keys.every((key, index) => key === currentKeys[index]);
+  if (
+    (!isLegacy && !isCurrent)
+    || !Number.isSafeInteger(value.hostPid)
+    || value.hostPid <= 0
+    || !Number.isSafeInteger(value.enginePid)
+    || value.enginePid <= 0
+    || value.enginePid === value.hostPid
+    || value.enginePid === process.pid
+    || typeof value.processNonce !== 'string'
+    || !/^[A-Za-z0-9_-]{32,128}$/.test(value.processNonce)
+    || value.runtimeVersion !== '1.17.11-def.1'
+    || (isCurrent && (
+      typeof value.hostProcessIdentity !== 'string'
+      || !/^sha256:[a-f0-9]{64}$/.test(value.hostProcessIdentity)
+      || typeof value.engineProcessIdentity !== 'string'
+      || !/^sha256:[a-f0-9]{64}$/.test(value.engineProcessIdentity)
+    ))
+  ) {
+    throw new AgentRuntimeError('AGENT_ENGINE_MANIFEST_INVALID', 'OpenCode process ownership manifest is invalid');
+  }
+  return isLegacy
+    ? { ...value, legacy: true }
+    : { ...value, legacy: false };
+}
+
+function defaultInspectProcessIdentity(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  const result = process.platform === 'win32'
+    ? spawnSync('powershell.exe', [
+      '-NoLogo',
+      '-NoProfile',
+      '-NonInteractive',
+      '-Command',
+      `$p = Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\" | Select-Object -First 1 CreationDate,ExecutablePath; if ($null -ne $p) { $p | ConvertTo-Json -Compress }`,
+    ], { encoding: 'utf8', timeout: 3_000, windowsHide: true })
+    : spawnSync('ps', [
+      '-p', String(pid),
+      '-o', 'lstart=',
+      '-o', 'comm=',
+    ], { encoding: 'utf8', timeout: 3_000, windowsHide: true });
+  if (result.error) throw result.error;
+  const normalized = String(result.stdout || '').trim().replace(/\s+/gu, ' ');
+  if (!normalized) return null;
+  return `sha256:${crypto.createHash('sha256').update(normalized).digest('hex')}`;
 }
 
 function defaultLaunchService({ servicePath, cwd, env }) {

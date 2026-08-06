@@ -2,7 +2,7 @@
 
 ## Status
 
-已定稿，待实施。
+实施完成，验证通过。
 
 ## Background
 
@@ -34,7 +34,7 @@ Phase 1 已建立引擎无关的 Session、Turn、Event 与双向 `AgentEngine` 
 - 保证 Tool result 与下一 projection 在 Engine 恢复推理前原子接受；
 - 保证 DEF Session ID 与 OpenCode Session ID 分离，并支持同 runtime/store schema 下恢复、删除和 shutdown；
 - 将 runtime、plugin、manifest、checksum 与许可证按窄边界打入 Electron 包；
-- 用 deterministic OpenAI-compatible provider stub 驱动真实 OpenCode binary，完成 calculation 的 route → context → damage → response 纵向黑盒；
+- 用 deterministic OpenAI-compatible provider stub 驱动真实 OpenCode binary，完成五条只读业务路线的纵向黑盒；
 - 保持普通 Slim、MCP、Browser SQLite 和现有 Electron Shell 独立正常。
 
 ## Phase Boundary
@@ -106,7 +106,7 @@ runtime 由受控 manifest 描述，至少包含：
 - `runtimeVersion: 1.17.11-def.1`；
 - `upstreamVersion: 1.17.11`；
 - `sourceRef: codex/def-opencode-spec9-2-implementation@bcea5f12`；
-- target、binary 相对路径、bytes、SHA-256 与 `--version` 期望值；
+- target、binary 相对路径、受控 source bytes/SHA-256、签名归一化 code bytes/SHA-256 与 `--version` 期望值；
 - plugin bundle 相对路径与 SHA-256；
 - store schema version；
 - OpenCode MIT License。
@@ -118,13 +118,15 @@ runtime 由受控 manifest 描述，至少包含：
 ```text
 dist/agent/engine/opencode/
   manifest.json
-  checksums.json
+  runtime-lock.json
   LICENSE
   plugin.mjs
   bin/<target>/opencode-1.17.11
 ```
 
 Electron 发布包必须把上述目录放在 `app.asar.unpacked`。包内不得包含 vendor source、OpenCode Web UI、Bun 或另一个平台 binary。
+
+`darwin-arm64` source binary 必须先有有效 macOS 签名。Electron 可用本地 ad-hoc 或发布 Developer ID 对包内 binary 重签；runtime manifest 因此校验“有效签名 + 去签名后的稳定 code digest”，而 runtime lock 继续精确锁定 source artifact。整个 `.app` 还必须通过 `codesign --verify --deep --strict`，避免“文件齐全但不可作为 Mac 应用执行”的假通过。
 
 ## Provider Profile Contract
 
@@ -153,11 +155,17 @@ Profile 缺失、损坏或 ref 不存在时：
 - `createSession()` 首次需要时才启动 OpenCode；
 - OpenCode 仅监听 `127.0.0.1` 随机端口；
 - Tool bridge 仅监听 `127.0.0.1` 随机端口并要求每请求 constant-time token；
+- runtime ready 必须同时通过 OpenCode health、六个 DEF Tool 注册和带 process nonce 的 plugin handshake；
 - runtime 使用 adapter-owned XDG/store/workspace 目录，不读写用户全局 OpenCode 目录；
 - 禁用 share、project config、通用 bash/edit/read/task/web/MCP Tool 和自动升级；
 - 相同 runtime/profile 可复用进程；运行 profile 改变时不得热切正在执行的 Turn；
 - 子进程异常退出时所有 active Turn 只产生一个 `turn.failed`；
+- 每次进程启动递增 runtime epoch；崩溃后的 Session 必须显式 recover，不能继续使用旧端口；
+- SSE 异常先对 OpenCode Session 发出 abort，再把 Session 标记 detached；recover 必须再次幂等 abort 并确认 `/session/status` 已 idle；
 - `shutdown()` 先 abort Turn，再关闭 bridge，再停止 OpenCode，且幂等；
+- Host 写入权限受限的进程所有权清单 v2，同时绑定 Host/OpenCode PID 与各自的进程出生身份；Electron 每次 TERM/KILL 前重新核验身份，PID 已复用时只移除过期清单、绝不发送信号；无法确认身份或退出时保留清单并 fail closed；
+- 新 Host 启动前清理死 Host 遗留的受信清单；活 Host 清单视为冲突，不重复启动；Host 同时监视 Electron parent PID，父进程消失时自行有序 shutdown；
+- OpenCode 停止失败后 supervisor 必须保留旧 child/清单并拒绝再次 start；Host shutdown 失败时由有界强制退出兜底，下一次 Electron 启动再按进程身份安全清理；
 - Electron/App 退出后不得残留 OpenCode 子进程。
 
 ## Canonical Tool Binding
@@ -181,6 +189,7 @@ OpenCode/provider-safe 名称只存在于 adapter/plugin 内部：
 - terminal 空 projection：不保留 DEF Tool，`toolChoice=none`；
 - bridge 不可达、token 错误、Session/Turn 不匹配或 projection revision 回退：该 step 失败，不回退为全 Tool；
 - adapter 在 bridge 收到 Tool execute 时再次校验 current projection，插件过滤不能替代 Host 授权。
+- Harness descriptor 是 description 与 input schema 的唯一权威来源；插件把当前 descriptor schema 原样替换到模型 Tool definition，不能再维护第二份 route/buff 静态 schema。
 
 ## Tool Bridge And Atomic Resume
 
@@ -188,6 +197,7 @@ OpenCode/provider-safe 名称只存在于 adapter/plugin 内部：
 
 - OpenCode Session ID；
 - OpenCode message/call ID；
+- Engine Turn ID、随机 Turn lease、显式 user message ID 与当前 assistant message ID；
 - safe binding；
 - JSON input。
 
@@ -273,7 +283,7 @@ Phase 4 不产生 Engine interaction。`submitInteractionResult` 在没有 pendi
 
 1. runtime manifest schema、target、checksum、size、version、plugin hash 和 LICENSE；
 2. 任意 runtime/profile 缺失均不启动子进程；
-3. canonical ↔ safe Tool binding 唯一且精确；
+3. canonical ↔ safe Tool binding 唯一且精确，provider 实际收到 Harness 动态 description 与 input schema；
 4. plugin bridge token、payload、Session/Turn/call correlation 和 size limit；
 5. projection hook 每 step 只有当前一个 Tool，空 projection 为零 Tool；
 6. result → projection → plugin resume 的原子顺序；
@@ -281,11 +291,11 @@ Phase 4 不产生 Engine interaction。`submitInteractionResult` 在没有 pendi
 8. create/recover/missing/incompatible/dispose/shutdown；
 9. response delta、provider failure、OpenCode crash、abort 与 terminal 恰好一次；
 10. Fake transport 合同与真实 OpenCode binary conformance；
-11. 真实 OpenCode + deterministic provider stub 完成 calculation 三次 Tool call 与最终文本；
-12. 同一真实黑盒中 provider 每 step 实际收到的 Tool 集依次为 route、context、damage、empty；
+11. 真实 OpenCode + deterministic provider stub 完成 selection、loadout、timeline、buff、calculation 五条路线与最终文本；
+12. 同一真实黑盒中 provider 每 step 实际收到对应 route、业务 Tool 与 terminal empty Tool 集；
 13. 同一真实黑盒接入 `DefAgentHost + DefHarnessManager + DefReadToolRegistry`，产品结果来自 fixture ProductGateway；
 14. 普通 Slim、MCP、Browser SQLite、隐藏 AI 路由和 Electron supervisor 不回归；
-15. 包中有且只有当前 target runtime/plugin/manifest/LICENSE，无 vendor/UI/Bun/旧 REST/Node SQLite；
+15. 包中有且只有当前 target runtime/plugin/manifest/LICENSE，无 vendor/UI/Bun/旧 REST/Node SQLite；Mac app 与 binary 签名有效，重签后 code digest 不变；
 16. `npm run check`、Engine 单测、真实 runtime smoke、目录包边界与实际 Mac Agent smoke；
 17. 独立高智能审查无未关闭 P0/P1。
 
@@ -298,7 +308,7 @@ Phase 4 不产生 Engine interaction。`submitInteractionResult` 在没有 pendi
 - production Host 使用 `OpenCodeEngineAdapter`，不再使用 `PendingAgentEngine`；
 - runtime/profile 就绪时 Engine health 为 `ready`，缺失时明确 `unavailable`；
 - OpenCode 在每个 step 只看到当前 Harness projection；
-- calculation 真实 OpenCode 黑盒完整通过，工具结果来自 Browser ProductGateway fixture；
+- 五条只读业务路线的真实 OpenCode 黑盒完整通过，工具结果来自 Browser ProductGateway fixture；
 - Tool result 与下一 projection 原子接受，OpenCode 不会抢跑；
 - Session、abort、failure、process exit 和 shutdown 满足 `AgentEngine` conformance；
 - 浏览器和 Electron 不获得 OpenCode 私有身份或 secret；

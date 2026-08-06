@@ -155,6 +155,17 @@ const allowedAgentFiles = new Set([
   'agent/core/testing/fake-engine.ts',
   'agent/core/testing/fixtures/phase3-readonly-parity.ts',
   'agent/core/tools/read-only-workbench.ts',
+  'agent/engines/opencode/LICENSE',
+  'agent/engines/opencode/adapter.ts',
+  'agent/engines/opencode/errors.ts',
+  'agent/engines/opencode/opencode.contract.test.ts',
+  'agent/engines/opencode/opencode.real-blackbox.test.ts',
+  'agent/engines/opencode/plugin-entry.ts',
+  'agent/engines/opencode/private-bridge.ts',
+  'agent/engines/opencode/profile.ts',
+  'agent/engines/opencode/runtime-lock.json',
+  'agent/engines/opencode/runtime.ts',
+  'agent/engines/opencode/tool-bindings.ts',
   'agent/host/browser-consumer-registry.ts',
   'agent/host/def-agent-host.ts',
   'agent/host/errors.ts',
@@ -216,21 +227,29 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
   ) {
     fail(`Agent runtime references retired REST or Node business SQLite: ${file}`);
   }
+  if (!file.endsWith('.ts')) continue;
+  const isOpenCodeEngine = file.startsWith('agent/engines/opencode/');
   const dependencyInspection = inspectTypeScriptDependencies(content, file);
   for (const label of dependencyInspection.uninspectable) {
     fail(`Agent core contains an uninspectable ${label}: ${file}`);
   }
   for (const specifier of dependencyInspection.specifiers) {
-    if (/opencode|pi-agent|better-sqlite3|sqlite3|node:sqlite/i.test(specifier)) {
+    if (/pi-agent|better-sqlite3|sqlite3|node:sqlite/i.test(specifier)) {
       fail(`Agent runtime imports a deferred or retired runtime (${specifier}): ${file}`);
+      continue;
+    }
+    if (/opencode/i.test(specifier) && !isOpenCodeEngine && file !== 'agent/runtime/host-entry.ts') {
+      fail(`Agent runtime imports OpenCode outside its adapter boundary (${specifier}): ${file}`);
       continue;
     }
     const canUseNodeBuiltins = file.endsWith('.test.ts')
       || file.startsWith('agent/core/harness/')
       || file.startsWith('agent/host/')
-      || file.startsWith('agent/runtime/');
+      || file.startsWith('agent/runtime/')
+      || isOpenCodeEngine;
     if (canUseNodeBuiltins && specifier.startsWith('node:')) continue;
     if (!specifier.startsWith('.')) {
+      if (isOpenCodeEngine && specifier === 'zod') continue;
       fail(`Agent runtime imports an external package (${specifier}): ${file}`);
       continue;
     }
@@ -322,6 +341,21 @@ if (
   || !String(packageJson.scripts?.['test:agent-harness'] || '').includes('harness-blackbox.test.ts')
 ) {
   fail('Agent Harness contract and blackbox test script is missing or invalid');
+}
+if (
+  !String(packageJson.scripts?.['test:agent-engine:opencode'] || '').includes('opencode.contract.test.ts')
+  || !String(packageJson.scripts?.['test:agent-engine:opencode'] || '').includes('opencode.real-blackbox.test.ts')
+) {
+  fail('OpenCode Engine contract and real blackbox test script is missing or invalid');
+}
+if (
+  packageJson.scripts?.['agent:runtime:prepare'] !== 'node scripts/prepare-opencode-runtime.mjs'
+  || packageJson.scripts?.['agent:runtime:verify'] !== 'node scripts/verify-opencode-runtime.mjs'
+) {
+  fail('OpenCode runtime prepare/verify scripts are missing or invalid');
+}
+if (packageJson.scripts?.['electron:smoke:agent-package'] !== 'node scripts/check-packaged-agent-host.mjs') {
+  fail('Packaged OpenCode Agent Host smoke script is missing or invalid');
 }
 
 const dataManifest = readJson('public/web-data-manifest.json');

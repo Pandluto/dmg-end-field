@@ -8,13 +8,31 @@ import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gate
 import { AgentTokenAuthority } from '../host/token-authority.ts';
 import { DefHarnessManager } from '../core/harness/manager.ts';
 import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
-import { PendingAgentEngine } from './pending-agent-engine.ts';
+import { OpenCodeEngineAdapter } from '../engines/opencode/adapter.ts';
+import { FileOpenCodeProviderProfileSource } from '../engines/opencode/profile.ts';
+import type { AgentHostHealth, EngineHealth } from '../core/contracts/index.ts';
 
 const hostToken = requiredEnv('DEF_AGENT_HOST_TOKEN');
 const browserOrigin = requiredEnv('DEF_AGENT_BROWSER_ORIGIN');
 const readyFile = requiredEnv('DEF_AGENT_READY_FILE');
+const engineRoot = requiredEnv('DEF_AGENT_ENGINE_ROOT');
+const engineStoreRoot = requiredEnv('DEF_AGENT_ENGINE_STORE_ROOT');
+const engineProfilePath = requiredEnv('DEF_AGENT_ENGINE_PROFILE_PATH');
+const engineDefaultProfileRef = process.env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF?.trim() || 'default';
+const parentPid = requiredPidEnv('DEF_AGENT_PARENT_PID');
+const FORCED_SHUTDOWN_TIMEOUT_MS = 8_000;
 
-const engine = new PendingAgentEngine();
+const engine = new OpenCodeEngineAdapter({
+  runtimeRoot: engineRoot,
+  storeRoot: engineStoreRoot,
+  profileSource: new FileOpenCodeProviderProfileSource(engineProfilePath),
+  probeProfileRef: engineDefaultProfileRef,
+});
+let engineState: AgentHostHealth['engine'] = {
+  kind: 'opencode',
+  state: 'pending',
+  reason: 'OpenCode Engine 正在检查运行时和模型配置',
+};
 const tokens = new AgentTokenAuthority();
 let host: DefAgentHost;
 const consumers = new BrowserConsumerRegistry({
@@ -39,6 +57,10 @@ host = new DefAgentHost({
 });
 
 let shuttingDown = false;
+const parentWatch = setInterval(() => {
+  if (!processAlive(parentPid)) void shutdown(0);
+}, 1_000);
+parentWatch.unref();
 const runtime = new DefAgentHostHttpServer({
   hostToken,
   browserOrigin,
@@ -46,11 +68,7 @@ const runtime = new DefAgentHostHttpServer({
   tokens,
   consumers,
   gateway,
-  engine: {
-    kind: 'pending',
-    state: 'pending',
-    reason: 'OpenCode/Pi engine adapter is intentionally deferred to the next phase',
-  },
+  engine: () => engineState,
   onShutdownRequested: () => {
     setImmediate(() => void shutdown(0));
   },
@@ -73,6 +91,7 @@ void startRuntime().catch((error: unknown) => {
 });
 
 async function startRuntime(): Promise<void> {
+  engineState = projectEngineHealth(await engine.probe());
   const port = await runtime.listen(0);
   await writeReadyManifest({
     service: 'def-agent-host',
@@ -86,14 +105,31 @@ async function startRuntime(): Promise<void> {
   });
 }
 
+function projectEngineHealth(health: EngineHealth): AgentHostHealth['engine'] {
+  if (health.status === 'ready') return { kind: health.kind, state: 'ready' };
+  return { kind: health.kind, state: 'unavailable', reason: health.message };
+}
+
 async function shutdown(exitCode: number): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(parentWatch);
+  const forcedExit = setTimeout(() => {
+    process.exit(exitCode === 0 ? 1 : exitCode);
+  }, FORCED_SHUTDOWN_TIMEOUT_MS);
+  forcedExit.unref();
+  let stoppedCleanly = false;
+  let finalExitCode = exitCode;
   try {
     await runtime.stop();
-    await rm(readyFile, { force: true });
+    stoppedCleanly = true;
+  } catch (error) {
+    finalExitCode = 1;
+    console.error('[def-agent-host] shutdown failed; forcing process exit', error);
   } finally {
-    process.exitCode = exitCode;
+    await rm(readyFile, { force: true }).catch(() => undefined);
+    process.exitCode = finalExitCode;
+    if (stoppedCleanly) clearTimeout(forcedExit);
   }
 }
 
@@ -108,4 +144,23 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`${name} is required`);
   return value;
+}
+
+function requiredPidEnv(name: string): number {
+  const value = Number(requiredEnv(name));
+  if (!Number.isSafeInteger(value) || value <= 0 || value === process.pid) {
+    throw new Error(`${name} must identify the owning parent process`);
+  }
+  return value;
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false;
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return true;
+    return false;
+  }
 }

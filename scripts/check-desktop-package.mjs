@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listPackage } from '@electron/asar';
+import { inspectRuntimeCode } from './opencode-runtime-contract.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultAppPath = path.join(projectRoot, 'release', 'mac-arm64', '终末地伤害工作台.app');
@@ -23,6 +26,11 @@ for (const required of [
   '/dist/legacy-fill/resources/strategy-v1.json',
   '/dist/legacy-fill/resources/golden-v1.json',
   '/dist/agent/host-entry.cjs',
+  '/dist/agent/engine/opencode/manifest.json',
+  '/dist/agent/engine/opencode/runtime-lock.json',
+  '/dist/agent/engine/opencode/plugin.mjs',
+  '/dist/agent/engine/opencode/LICENSE',
+  '/dist/agent/engine/opencode/bin/darwin-arm64/opencode-1.17.11',
   '/electron/agent-runtime.cjs',
   '/electron/main.cjs',
   '/electron/legacy-fill-runtime.cjs',
@@ -60,9 +68,68 @@ for (const required of [
   'dist/legacy-fill/resources/strategy-v1.json',
   'dist/legacy-fill/resources/golden-v1.json',
   'dist/agent/host-entry.cjs',
+  'dist/agent/engine/opencode/manifest.json',
+  'dist/agent/engine/opencode/runtime-lock.json',
+  'dist/agent/engine/opencode/plugin.mjs',
+  'dist/agent/engine/opencode/LICENSE',
+  'dist/agent/engine/opencode/bin/darwin-arm64/opencode-1.17.11',
 ]) {
   const unpackedPath = path.join(unpackedRoot, required);
   assert.ok(fs.statSync(unpackedPath).isFile(), `桌面包缺少可执行 MCP 运行文件：${unpackedPath}`);
+}
+
+const engineRoot = path.join(unpackedRoot, 'dist', 'agent', 'engine', 'opencode');
+const engineManifest = JSON.parse(fs.readFileSync(path.join(engineRoot, 'manifest.json'), 'utf8'));
+assert.equal(engineManifest.schemaVersion, 1);
+assert.equal(engineManifest.name, 'def-opencode-engine-runtime');
+assert.equal(engineManifest.engineKind, 'opencode');
+assert.equal(engineManifest.upstreamVersion, '1.17.11');
+assert.equal(engineManifest.runtimeVersion, '1.17.11-def.1');
+assert.equal(engineManifest.storeSchemaVersion, 1);
+assert.equal(engineManifest.target, 'darwin-arm64');
+assert.equal(engineManifest.binaryVersion, '0.0.0--202608061828');
+for (const [relativePath, bytes, digest, label] of [
+  [engineManifest.plugin, undefined, engineManifest.pluginSha256, 'plugin'],
+  [engineManifest.license, engineManifest.licenseBytes, engineManifest.licenseSha256, 'license'],
+]) {
+  const filePath = path.join(engineRoot, ...relativePath.split('/'));
+  const info = fs.lstatSync(filePath);
+  assert.equal(info.isFile(), true, `OpenCode ${label} 不是普通文件`);
+  assert.equal(info.isSymbolicLink(), false, `OpenCode ${label} 不得是符号链接`);
+  if (bytes !== undefined) assert.equal(info.size, bytes, `OpenCode ${label} 大小不匹配`);
+  assert.equal(sha256(filePath), digest, `OpenCode ${label} 摘要不匹配`);
+}
+assert.notEqual(
+  fs.statSync(path.join(engineRoot, ...engineManifest.binary.split('/'))).mode & 0o111,
+  0,
+  'OpenCode binary 不可执行',
+);
+const packagedBinaryPath = path.join(engineRoot, ...engineManifest.binary.split('/'));
+const binaryInfo = fs.lstatSync(packagedBinaryPath);
+assert.equal(binaryInfo.isFile(), true, 'OpenCode binary 不是普通文件');
+assert.equal(binaryInfo.isSymbolicLink(), false, 'OpenCode binary 不得是符号链接');
+const packagedCode = inspectRuntimeCode(packagedBinaryPath, engineManifest.target);
+assert.equal(packagedCode.bytes, engineManifest.binaryCodeBytes, 'OpenCode binary code 大小不匹配');
+assert.equal(packagedCode.sha256, engineManifest.binaryCodeSha256, 'OpenCode binary code 摘要不匹配');
+if (process.platform === 'darwin') {
+  const signature = spawnSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', '--verbose=2', appPath], {
+    encoding: 'utf8',
+    timeout: 30_000,
+    maxBuffer: 128 * 1024,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.equal(signature.status, 0, `macOS app 签名无效：${signature.stderr || signature.error || ''}`);
+}
+const versionCheck = spawnSync(packagedBinaryPath, ['--version'], {
+  encoding: 'utf8',
+  timeout: 30_000,
+  maxBuffer: 64 * 1024,
+  stdio: ['ignore', 'pipe', 'pipe'],
+});
+assert.equal(versionCheck.status, 0, 'OpenCode binary --version 执行失败');
+assert.equal(versionCheck.stdout.replace(/\r\n/gu, '\n').replace(/\n+$/gu, ''), engineManifest.binaryVersion);
+for (const forbidden of ['vendor', 'node_modules', 'packages', 'web', 'ui', 'bun']) {
+  assert.equal(fs.existsSync(path.join(engineRoot, forbidden)), false, `OpenCode 包含多余目录：${forbidden}`);
 }
 
 const agentBundlePath = path.join(unpackedRoot, 'dist', 'agent', 'host-entry.cjs');
@@ -88,3 +155,7 @@ console.log(JSON.stringify({
   unpackedAgentRoot: path.join(unpackedRoot, 'dist', 'agent'),
   packagedEntries: packagedFiles.length,
 }, null, 2));
+
+function sha256(filePath) {
+  return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+}

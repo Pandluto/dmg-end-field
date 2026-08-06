@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "storeSchemaVersion": 1,
+  "name": "opencode-core",
+  "upstreamVersion": "1.17.11",
+  "runtimeVersion": "1.17.11-def.1",
+  "sourceRef": "codex/def-opencode-spec9-2-implementation@bcea5f12",
+  "target": "darwin-arm64",
+  "patchCapabilities": [
+    "dynamic-tool-projection",
+    "darwin-adhoc-codesign"
+  ],
+  "binary": {
+    "cachePath": "agent/runtime/opencode-core/bin/darwin-arm64/opencode-1.17.11",
+    "runtimePath": "bin/darwin-arm64/opencode-1.17.11",
+    "version": "0.0.0--202608061828",
+    "bytes": 98979376,
+    "sha256": "9c6790175c2e704e856170ade1535da8f441c4285fb79da6b9c00c80f5dde34a"
+  },
+  "license": {
+    "cachePath": "agent/engines/opencode/LICENSE",
+    "runtimePath": "LICENSE",
+    "bytes": 1065,
+    "sha256": "625f0f619133f89bbbb2abe37369613dfa1885eba1e50d02170deb62bb42cb6b"
+  }
+}

@@ -1,6 +1,7 @@
 'use strict';
 
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { EventEmitter } = require('node:events');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -84,16 +85,50 @@ function createResponseCapture() {
   };
 }
 
+function processIdentity(pid, generation = 'owned') {
+  return `sha256:${crypto.createHash('sha256').update(`${pid}:${generation}`).digest('hex')}`;
+}
+
+function writeEngineProcessManifest(fixture, {
+  hostPid,
+  enginePid,
+  hostGeneration = 'owned',
+  engineGeneration = 'owned',
+}) {
+  const manifestPath = path.join(fixture.runtime.engineStoreRoot, 'process.json');
+  fs.mkdirSync(fixture.runtime.engineStoreRoot, { recursive: true });
+  fixture.setProcessIdentity(hostPid, processIdentity(hostPid, hostGeneration));
+  fixture.setProcessIdentity(enginePid, processIdentity(enginePid, engineGeneration));
+  fs.writeFileSync(manifestPath, JSON.stringify({
+    schemaVersion: 2,
+    hostPid,
+    hostProcessIdentity: processIdentity(hostPid, hostGeneration),
+    enginePid,
+    engineProcessIdentity: processIdentity(enginePid, engineGeneration),
+    processNonce: 'abcdefghijklmnopqrstuvwxyzABCDEF0123456789_-',
+    runtimeVersion: '1.17.11-def.1',
+  }), { mode: 0o600 });
+  return manifestPath;
+}
+
 function createFakeFs(realFs) {
   return {
     existsSync: realFs.existsSync.bind(realFs),
     mkdirSync: realFs.mkdirSync.bind(realFs),
     readFileSync: realFs.readFileSync.bind(realFs),
+    lstatSync: realFs.lstatSync.bind(realFs),
     unlinkSync: realFs.unlinkSync.bind(realFs),
   };
 }
 
-async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseDelayMs = 0 } = {}) {
+async function createFixture({
+  fetchImpl,
+  manifestOverrides = {},
+  proxyResponseDelayMs = 0,
+  gracefulShutdown = true,
+  engineIgnoresSigterm = false,
+  engineIgnoresSigkill = false,
+} = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-agent-runtime-test-'));
   const applicationRoot = path.join(root, 'app');
   const runtimeRoot = path.join(root, 'runtime');
@@ -107,6 +142,9 @@ async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseD
   const calls = [];
   const grants = [];
   const fetchCalls = [];
+  const killedProcesses = [];
+  const deadPids = new Set();
+  const processIdentities = new Map();
 
   const fakeFetch = fetchImpl || (async (url, requestOptions = {}) => {
     const parsed = new URL(url);
@@ -125,6 +163,7 @@ async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseD
       return createResponse(201, { ok: true });
     }
     if (parsed.pathname === SHUTDOWN_PATH) {
+      if (!gracefulShutdown) throw new Error('fixture graceful shutdown unavailable');
       queueMicrotask(() => currentChild?.emit('exit', 0, null));
       return createResponse(200, { ok: true });
     }
@@ -167,6 +206,7 @@ async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseD
       calls.push({ env: { ...env } });
       currentChild = new FakeUtilityProcess(pid++);
       const child = currentChild;
+      child.once('exit', () => deadPids.add(child.pid));
       setImmediate(() => {
         fs.mkdirSync(runtimeRoot, { recursive: true });
         fs.writeFileSync(
@@ -186,6 +226,24 @@ async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseD
       });
       return child;
     },
+    processKill(pid, signal) {
+      if (signal === 0) {
+        if (deadPids.has(pid)) {
+          const error = new Error('process does not exist');
+          error.code = 'ESRCH';
+          throw error;
+        }
+        return true;
+      }
+      killedProcesses.push({ pid, signal });
+      if ((signal === 'SIGKILL' && !engineIgnoresSigkill) || (signal === 'SIGTERM' && !engineIgnoresSigterm)) {
+        deadPids.add(pid);
+      }
+      return true;
+    },
+    inspectProcessIdentity(pid) {
+      return processIdentities.get(pid) || processIdentity(pid);
+    },
   });
 
   return {
@@ -195,6 +253,9 @@ async function createFixture({ fetchImpl, manifestOverrides = {}, proxyResponseD
     calls,
     grants,
     fetchCalls,
+    killedProcesses,
+    markDeadProcess(pid) { deadPids.add(pid); },
+    setProcessIdentity(pid, identity) { processIdentities.set(pid, identity); },
     get launchCount() { return launchCount; },
     get child() { return currentChild; },
     cleanup() { fs.rmSync(root, { recursive: true, force: true }); },
@@ -217,6 +278,11 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     assert.equal(fixture.calls[0].env.DEF_AGENT_HOST_TOKEN, 'test-token-01-abcdefghijklmnop');
     assert.equal(fixture.calls[0].env.DEF_AGENT_BROWSER_ORIGIN, 'http://127.0.0.1:31457');
     assert.equal(fixture.calls[0].env.DEF_AGENT_READY_FILE, fixture.runtime.readyFile);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_ROOT, fixture.runtime.engineRoot);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_STORE_ROOT, fixture.runtime.engineStoreRoot);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_PROFILE_PATH, fixture.runtime.engineProfilePath);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF, 'default');
+    assert.equal(fixture.calls[0].env.DEF_AGENT_PARENT_PID, String(process.pid));
     assert.doesNotMatch(JSON.stringify(first), /test-token/u);
 
     const reused = await fixture.runtime.start();
@@ -236,6 +302,96 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     assert.equal(fixture.child.killed, false, '正常 shutdown 应先让 Host 自己退出');
     assert.equal(fs.existsSync(fixture.runtime.readyFile), false);
   } finally {
+    fixture.cleanup();
+  }
+});
+
+test('forced Host shutdown terminates only its correlated OpenCode child', async () => {
+  const fixture = await createFixture({ gracefulShutdown: false });
+  try {
+    await fixture.runtime.start();
+    writeEngineProcessManifest(fixture, { hostPid: fixture.child.pid, enginePid: 51_234 });
+
+    await fixture.runtime.stop();
+    assert.deepEqual(fixture.killedProcesses, [{ pid: 51_234, signal: 'SIGTERM' }]);
+    assert.equal(fs.existsSync(path.join(fixture.runtime.engineStoreRoot, 'process.json')), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('forced Host shutdown escalates a stubborn OpenCode child and only removes the manifest after exit', async () => {
+  const fixture = await createFixture({ gracefulShutdown: false, engineIgnoresSigterm: true });
+  try {
+    await fixture.runtime.start();
+    writeEngineProcessManifest(fixture, { hostPid: fixture.child.pid, enginePid: 51_235 });
+
+    await fixture.runtime.stop();
+    assert.deepEqual(fixture.killedProcesses, [
+      { pid: 51_235, signal: 'SIGTERM' },
+      { pid: 51_235, signal: 'SIGKILL' },
+    ]);
+    assert.equal(fs.existsSync(path.join(fixture.runtime.engineStoreRoot, 'process.json')), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a fresh Host start cleans an engine owned by a dead prior Host before launching', async () => {
+  const fixture = await createFixture();
+  try {
+    const staleHostPid = 49_999;
+    fixture.markDeadProcess(staleHostPid);
+    writeEngineProcessManifest(fixture, { hostPid: staleHostPid, enginePid: 51_236 });
+
+    const started = await fixture.runtime.start();
+    assert.equal(started.ready, true);
+    assert.deepEqual(fixture.killedProcesses, [{ pid: 51_236, signal: 'SIGTERM' }]);
+    assert.equal(fs.existsSync(path.join(fixture.runtime.engineStoreRoot, 'process.json')), false);
+  } finally {
+    await fixture.runtime.stop();
+    fixture.cleanup();
+  }
+});
+
+test('a reused stale engine PID is never signalled and only its obsolete manifest is removed', async () => {
+  const fixture = await createFixture({ gracefulShutdown: false });
+  try {
+    await fixture.runtime.start();
+    const enginePid = 51_238;
+    const manifestPath = writeEngineProcessManifest(fixture, {
+      hostPid: fixture.child.pid,
+      enginePid,
+    });
+    fixture.setProcessIdentity(enginePid, processIdentity(enginePid, 'reused'));
+
+    await fixture.runtime.stop();
+
+    assert.deepEqual(fixture.killedProcesses, []);
+    assert.equal(fs.existsSync(manifestPath), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('shutdown retains ownership evidence and fails closed when an OpenCode child survives SIGKILL', async () => {
+  const fixture = await createFixture({
+    gracefulShutdown: false,
+    engineIgnoresSigterm: true,
+    engineIgnoresSigkill: true,
+  });
+  try {
+    await fixture.runtime.start();
+    const manifestPath = writeEngineProcessManifest(fixture, {
+      hostPid: fixture.child.pid,
+      enginePid: 51_237,
+    });
+
+    await assert.rejects(() => fixture.runtime.stop(), /ownership manifest was retained/u);
+    assert.equal(fs.existsSync(manifestPath), true);
+  } finally {
+    fixture.markDeadProcess(51_237);
+    await fixture.runtime.stop().catch(() => undefined);
     fixture.cleanup();
   }
 });

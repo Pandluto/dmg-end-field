@@ -66,7 +66,11 @@
     available.classList.toggle('pending', !runtime?.ready && lifecycle !== 'error');
     available.classList.toggle('failed', lifecycle === 'error');
     const engine = runtime?.health?.engine;
-    const engineLabel = engine?.state === 'ready' ? `引擎 ${engine.kind} 已就绪` : '引擎待接入';
+    const engineLabel = engine?.state === 'ready'
+      ? `引擎 ${engine.kind} 已就绪`
+      : engine?.state === 'unavailable'
+        ? `引擎 ${engine.kind || 'opencode'} 不可用${engine.reason ? `：${engine.reason}` : ''}`
+        : `引擎 ${engine?.kind || 'opencode'} 正在检查`;
     element('agent-status').textContent = `${runtime?.reason || 'DEF Agent Host 状态未知'} · ${engineLabel}`;
   }
 
@@ -183,7 +187,7 @@
       const result = await host.openAgentMode();
       if (!result?.ok) throw new Error(result?.error || '无法打开 AI 模式。');
       renderAgentState(result.runtime);
-      setMessage('AI 模式已在系统浏览器中打开；当前引擎仍待接入。');
+      setMessage('AI 模式已在系统浏览器中打开。');
     } catch (error) {
       setMessage(errorMessage(error), true);
       renderAgentState(await host.getAgentState().catch(() => null));

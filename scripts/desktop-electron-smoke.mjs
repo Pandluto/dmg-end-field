@@ -238,7 +238,8 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
       body: document.body.innerText.slice(0, 4_000),
       locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : null,
     }));
-    assert.equal(agentState.engine?.state, 'pending');
+    assert.equal(agentState.engine?.kind, 'opencode');
+    assert.equal(agentState.engine?.state, 'unavailable');
     assert.equal(
       agentState.consumer?.binding?.workspaceId?.length > 0,
       true,
@@ -542,7 +543,8 @@ try {
   });
   const runningAgent = await firstPage.evaluate(() => window.desktopHost?.getAgentState());
   assert.equal(runningAgent?.ready, true, runningAgent?.reason);
-  assert.equal(runningAgent?.health?.engine?.state, 'pending');
+  assert.equal(runningAgent?.health?.engine?.kind, 'opencode');
+  assert.equal(runningAgent?.health?.engine?.state, 'unavailable');
 
   const bypassedSelection = await firstPage.evaluate(async (fixture) => (
     window.desktopHost?.buildDataRelease({
