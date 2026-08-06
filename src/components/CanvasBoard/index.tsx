@@ -3118,6 +3118,7 @@ export function CanvasBoard({
       selectedCharacters: mirroredSelectedCharacters,
       skillCatalog: mirroredSkillCatalog,
       skillButtons: mirroredButtons,
+      damageReportStatus: 'ready' as const,
       damageReport: {
         generatedAt: damageReport.generatedAt,
         totalExpected: damageReport.totalExpected,

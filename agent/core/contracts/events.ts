@@ -15,6 +15,12 @@ import type {
 import type { InteractionKind, InteractionStatus } from './interaction.ts';
 import type { JsonValue } from './json.ts';
 import type { ProductCommandResultStatus } from './product.ts';
+import type {
+  DefHarnessBusinessId,
+  DefHarnessOperationId,
+  DefHarnessPhaseKind,
+  DefHarnessTerminalState,
+} from './harness.ts';
 
 type EmptyEventPayload = Record<string, never>;
 type NoEventCorrelation = Record<never, never>;
@@ -60,6 +66,30 @@ export interface DefEventPayloadMap {
     readonly code: string;
     readonly message: string;
     readonly details?: JsonValue;
+  };
+  'harness.routed': {
+    readonly businessId: DefHarnessBusinessId;
+    readonly operation: DefHarnessOperationId;
+    readonly revision: string;
+    readonly sourceLineage: string;
+    readonly contentHash: string;
+  };
+  'harness.phase.entered': {
+    readonly businessId: DefHarnessBusinessId | null;
+    readonly operation: DefHarnessOperationId | null;
+    readonly phaseId: string;
+    readonly phaseKind: DefHarnessPhaseKind;
+  };
+  'harness.tool.projected': {
+    readonly projectionRevision: number;
+    readonly tools: readonly string[];
+  };
+  'harness.terminal': {
+    readonly businessId: DefHarnessBusinessId | null;
+    readonly operation: DefHarnessOperationId | null;
+    readonly phaseId: string;
+    readonly terminalState: DefHarnessTerminalState;
+    readonly code?: string;
   };
   'interaction.requested': {
     readonly kind: InteractionKind;
@@ -152,6 +182,10 @@ export interface DefEventCorrelationMap {
   'tool.started': DefToolCorrelation;
   'tool.result': DefToolCorrelation;
   'tool.error': DefToolCorrelation;
+  'harness.routed': DefTurnCorrelation;
+  'harness.phase.entered': DefTurnCorrelation;
+  'harness.tool.projected': DefTurnCorrelation;
+  'harness.terminal': DefTurnCorrelation;
   'interaction.requested': DefInteractionCorrelation;
   'interaction.resolved': DefInteractionCorrelation;
   'command.queued': DefCommandCorrelation;

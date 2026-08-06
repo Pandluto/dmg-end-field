@@ -190,6 +190,14 @@ export interface EngineTurnHandle {
   readonly ref: EngineTurnRef;
   readonly events: AsyncIterable<EngineEvent>;
   submitToolResult(input: EngineToolResultInput): Promise<void>;
+  /**
+   * Atomically accepts a Tool result and the projection for the next Harness
+   * phase before the Engine may resume inference or emit a terminal event.
+   */
+  submitToolResultAndUpdateProjection(
+    input: EngineToolResultInput,
+    projection: EngineToolProjectionInput,
+  ): Promise<void>;
   submitInteractionResult(input: EngineInteractionResultInput): Promise<void>;
   updateToolProjection(input: EngineToolProjectionInput): Promise<void>;
   abort(reason: EngineAbortReason): Promise<AbortResult>;

@@ -8,6 +8,7 @@ import {
   type AgentEngine,
   type ClientTurnId,
   type DefEvent,
+  type DefHarnessTraceEntry,
   type DefSessionId,
   type DefSessionV6,
   type DefTurnId,
@@ -22,6 +23,9 @@ import {
   type ProductCommandEnvelope,
   type ProductGateway,
 } from '../core/contracts/index.ts';
+import { DefHarnessError, DefHarnessManager } from '../core/harness/manager.ts';
+import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
+import { DefToolExecutionError } from '../core/contracts/tool.ts';
 import { DefAgentHostError } from './errors.ts';
 
 type DefEventInput<Type extends DefEvent['type']> = Type extends DefEvent['type']
@@ -43,10 +47,14 @@ type ActiveTurn = {
   readonly session: SessionRecord;
   readonly defTurnId: DefTurnId;
   readonly handle: EngineTurnHandle;
+  readonly harnessTransactionId: string | null;
+  readonly abortController: AbortController;
   readonly terminal: Promise<DefEvent>;
   readonly cancelled: Promise<void>;
   resolveTerminal: (event: DefEvent) => void;
   resolveCancelled: () => void;
+  protocolTail: Promise<void>;
+  abortRequested: boolean;
   settled: boolean;
 };
 
@@ -59,23 +67,33 @@ type IdFactory = {
 export class DefAgentHost {
   readonly #engine: AgentEngine;
   readonly #productGateway: ProductGateway<Phase2ProductOperationSchema>;
+  readonly #harnessManager: DefHarnessManager | null;
+  readonly #toolRegistry: DefReadToolRegistry | null;
   readonly #requireConsumer: () => void;
   readonly #clock: () => number;
   readonly #ids: IdFactory;
   readonly #sessions = new Map<DefSessionId, SessionRecord>();
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
   #activeTurn: ActiveTurn | null = null;
+  #turnStarting = false;
   #shutdown = false;
 
   constructor(options: {
     readonly engine: AgentEngine;
     readonly productGateway: ProductGateway<Phase2ProductOperationSchema>;
     readonly requireConsumer: () => void;
+    readonly harnessManager?: DefHarnessManager;
+    readonly toolRegistry?: DefReadToolRegistry;
     readonly clock?: () => number;
     readonly ids?: Partial<IdFactory>;
   }) {
     this.#engine = options.engine;
     this.#productGateway = options.productGateway;
+    if (Boolean(options.harnessManager) !== Boolean(options.toolRegistry)) {
+      throw new Error('DefAgentHost requires Harness Manager and Tool Registry together');
+    }
+    this.#harnessManager = options.harnessManager ?? null;
+    this.#toolRegistry = options.toolRegistry ?? null;
     this.#requireConsumer = options.requireConsumer;
     this.#clock = options.clock ?? Date.now;
     let sessionSequence = 0;
@@ -117,7 +135,10 @@ export class DefAgentHost {
       axisBindingId: null,
       boundNodeId: input.binding.checkoutTargetId,
       engine,
-      harness: { stateVersion: 1, revision: 'phase2-browser-product-gateway' },
+      harness: {
+        stateVersion: 1,
+        revision: this.#harnessManager?.catalogRevision ?? 'phase2-browser-product-gateway',
+      },
       createdAt: now,
       updatedAt: now,
     };
@@ -148,26 +169,103 @@ export class DefAgentHost {
   }): Promise<{ readonly defTurnId: DefTurnId; readonly clientTurnId: ClientTurnId }> {
     this.#assertRunning();
     this.#requireConsumer();
-    if (this.#activeTurn) {
-      throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench already has an active turn');
-    }
+    this.#assertTurnAvailable();
     const record = this.#sessions.get(input.defSessionId);
     if (!record) {
       throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
     }
-    const defTurnId = this.#ids.turn();
-    const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
-    const handle = await this.#engine.startTurn({
-      engineSession: record.session.engine,
-      defSessionId: record.session.defSessionId,
-      defTurnId,
-      clientTurnId,
-      systemContext: input.systemContext,
-      userMessage: input.userMessage,
-      providerProfileRef: record.providerProfileRef,
-      toolProjection: input.toolProjection,
-      context: bindingContext(record.binding),
-    });
+    this.#turnStarting = true;
+    try {
+      const defTurnId = this.#ids.turn();
+      const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
+      const handle = await this.#engine.startTurn({
+        engineSession: record.session.engine,
+        defSessionId: record.session.defSessionId,
+        defTurnId,
+        clientTurnId,
+        systemContext: input.systemContext,
+        userMessage: input.userMessage,
+        providerProfileRef: record.providerProfileRef,
+        toolProjection: input.toolProjection,
+        context: bindingContext(record.binding),
+      });
+      const active = this.#createActiveTurn(record, defTurnId, handle, null);
+      this.#append(record, {
+        type: 'turn.accepted',
+        defTurnId,
+        payload: { clientTurnId },
+      });
+      void this.#pump(active);
+      return { defTurnId, clientTurnId };
+    } finally {
+      this.#turnStarting = false;
+    }
+  }
+
+  async startHarnessTurn(input: {
+    readonly defSessionId: DefSessionId;
+    readonly userMessage: string;
+    readonly clientTurnId?: ClientTurnId;
+  }): Promise<{ readonly defTurnId: DefTurnId; readonly clientTurnId: ClientTurnId }> {
+    this.#assertRunning();
+    this.#requireConsumer();
+    this.#assertTurnAvailable();
+    const harnessManager = this.#requireHarnessManager();
+    this.#requireToolRegistry();
+    const record = this.#sessions.get(input.defSessionId);
+    if (!record) {
+      throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
+    }
+    this.#turnStarting = true;
+    try {
+      const defTurnId = this.#ids.turn();
+      const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
+      const started = harnessManager.beginTurn({
+        defSessionId: record.session.defSessionId,
+        defTurnId,
+      });
+      let handle: EngineTurnHandle;
+      try {
+        handle = await this.#engine.startTurn({
+          engineSession: record.session.engine,
+          defSessionId: record.session.defSessionId,
+          defTurnId,
+          clientTurnId,
+          systemContext: harnessManager.buildRoutingSystemContext(),
+          userMessage: input.userMessage,
+          providerProfileRef: record.providerProfileRef,
+          toolProjection: started.transaction.projection,
+          context: bindingContext(record.binding),
+        });
+      } catch (error) {
+        harnessManager.abort(started.transaction.transactionId, 'ENGINE_START_FAILED');
+        throw error;
+      }
+      const active = this.#createActiveTurn(
+        record,
+        defTurnId,
+        handle,
+        started.transaction.transactionId,
+      );
+      this.#append(record, {
+        type: 'turn.accepted',
+        defTurnId,
+        payload: { clientTurnId },
+      });
+      this.#appendHarnessTrace(active, started.trace);
+      void this.#pump(active);
+      return { defTurnId, clientTurnId };
+    } finally {
+      this.#turnStarting = false;
+    }
+  }
+
+  #createActiveTurn(
+    record: SessionRecord,
+    defTurnId: DefTurnId,
+    handle: EngineTurnHandle,
+    harnessTransactionId: string | null,
+  ): ActiveTurn {
     let resolveTerminal!: (event: DefEvent) => void;
     let resolveCancelled!: () => void;
     const terminal = new Promise<DefEvent>((resolve) => {
@@ -180,21 +278,19 @@ export class DefAgentHost {
       session: record,
       defTurnId,
       handle,
+      harnessTransactionId,
+      abortController: new AbortController(),
       terminal,
       cancelled,
       resolveTerminal,
       resolveCancelled,
+      protocolTail: Promise.resolve(),
+      abortRequested: false,
       settled: false,
     };
     this.#activeTurn = active;
     this.#turns.set(defTurnId, active);
-    this.#append(record, {
-      type: 'turn.accepted',
-      defTurnId,
-      payload: { clientTurnId },
-    });
-    void this.#pump(active);
-    return { defTurnId, clientTurnId };
+    return active;
   }
 
   async respondInteraction(
@@ -205,12 +301,17 @@ export class DefAgentHost {
     if (!active || this.#activeTurn !== active) {
       throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
     }
-    await active.handle.submitInteractionResult(input);
-    this.#append(active.session, {
-      type: 'interaction.resolved',
-      defTurnId,
-      interactionId: input.interactionId,
-      payload: { status: input.resolution, ...('value' in input ? { value: input.value } : {}) },
+    await this.#withTurnProtocolLock(active, async () => {
+      if (active.settled || active.abortRequested) {
+        throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} is stopping`, 404);
+      }
+      await active.handle.submitInteractionResult(input);
+      this.#append(active.session, {
+        type: 'interaction.resolved',
+        defTurnId,
+        interactionId: input.interactionId,
+        payload: { status: input.resolution, ...('value' in input ? { value: input.value } : {}) },
+      });
     });
   }
 
@@ -219,14 +320,23 @@ export class DefAgentHost {
     if (!active || this.#activeTurn !== active) {
       throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
     }
-    const result = await active.handle.abort({ code });
-    if (result.status === 'aborted' && !active.settled) {
-      this.#settle(active, this.#append(active.session, {
-        type: 'turn.stopped',
-        defTurnId: active.defTurnId,
-        payload: { code },
-      }));
-    }
+    active.abortRequested = true;
+    active.abortController.abort();
+    await this.#withTurnProtocolLock(active, async () => {
+      if (active.settled) return;
+      if (active.harnessTransactionId) {
+        const transition = this.#requireHarnessManager().abort(active.harnessTransactionId, code);
+        this.#appendHarnessTrace(active, transition.trace);
+      }
+      const result = await active.handle.abort({ code });
+      if (result.status === 'aborted' && !active.settled) {
+        this.#settle(active, this.#append(active.session, {
+          type: 'turn.stopped',
+          defTurnId: active.defTurnId,
+          payload: { code },
+        }));
+      }
+    });
   }
 
   waitForTurnTerminal(defTurnId: DefTurnId): Promise<DefEvent> {
@@ -316,15 +426,32 @@ export class DefAgentHost {
       }
     } catch (error) {
       if (active.settled) return;
-      const terminal = this.#append(active.session, {
-        type: 'turn.failed',
-        defTurnId: active.defTurnId,
-        payload: {
-          code: 'HOST_EVENT_LOOP_FAILED',
-          message: error instanceof Error ? error.message : String(error),
-        },
+      active.abortRequested = true;
+      active.abortController.abort();
+      await this.#withTurnProtocolLock(active, async () => {
+        if (active.settled) return;
+        if (active.harnessTransactionId) {
+          const transition = this.#requireHarnessManager().abort(
+            active.harnessTransactionId,
+            'HOST_EVENT_LOOP_FAILED',
+          );
+          this.#appendHarnessTrace(active, transition.trace);
+        }
+        try {
+          await active.handle.abort({ code: 'HOST_EVENT_LOOP_FAILED' });
+        } catch {
+          // The original event-loop failure remains the authoritative terminal error.
+        }
+        const terminal = this.#append(active.session, {
+          type: 'turn.failed',
+          defTurnId: active.defTurnId,
+          payload: {
+            code: 'HOST_EVENT_LOOP_FAILED',
+            message: error instanceof Error ? error.message : String(error),
+          },
+        });
+        this.#settle(active, terminal);
       });
-      this.#settle(active, terminal);
     } finally {
       if (this.#activeTurn === active) this.#activeTurn = null;
     }
@@ -334,6 +461,13 @@ export class DefAgentHost {
     active: ActiveTurn,
     event: Extract<EngineEvent, { type: 'tool.requested' }>,
   ): Promise<void> {
+    if (active.harnessTransactionId) {
+      await this.#executeHarnessTool(active, event);
+      return;
+    }
+    let outcome:
+      | { readonly status: 'succeeded'; readonly result: JsonValue }
+      | { readonly status: 'failed'; readonly code: string; readonly message: string };
     try {
       let result: JsonValue;
       if (event.name === 'product.snapshot.read') {
@@ -352,47 +486,210 @@ export class DefAgentHost {
           },
         };
         await this.#productGateway.dispatch(command);
-        const outcome = await Promise.race([
+        const gatewayOutcome = await Promise.race([
           this.#productGateway.awaitResult(command.commandId).then((value) => ({
             status: 'result' as const,
             value,
           })),
           active.cancelled.then(() => ({ status: 'cancelled' as const })),
         ]);
-        if (outcome.status === 'cancelled') return;
-        result = outcome.value as unknown as JsonValue;
+        if (gatewayOutcome.status === 'cancelled') return;
+        result = gatewayOutcome.value as unknown as JsonValue;
       } else {
         throw new DefAgentHostError('AGENT_TOOL_UNSUPPORTED', `Unsupported Phase 2 tool: ${event.name}`);
       }
-      if (active.settled) return;
-      await active.handle.submitToolResult({ toolCallId: event.toolCallId, status: 'succeeded', result });
+      outcome = { status: 'succeeded', result };
+    } catch (error) {
+      outcome = {
+        status: 'failed',
+        code: error instanceof DefAgentHostError ? error.code : 'PRODUCT_GATEWAY_ERROR',
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+    await this.#withTurnProtocolLock(active, async () => {
+      if (active.settled || active.abortRequested) return;
+      if (outcome.status === 'succeeded') {
+        await active.handle.submitToolResult({
+          toolCallId: event.toolCallId,
+          status: 'succeeded',
+          result: outcome.result,
+        });
+        this.#append(active.session, {
+          type: 'tool.result',
+          defTurnId: active.defTurnId,
+          toolCallId: event.toolCallId,
+          payload: { result: outcome.result },
+        });
+        return;
+      }
+      await active.handle.submitToolResult({
+        toolCallId: event.toolCallId,
+        status: 'failed',
+        code: outcome.code,
+        message: outcome.message,
+      });
+      this.#append(active.session, {
+        type: 'tool.error',
+        defTurnId: active.defTurnId,
+        toolCallId: event.toolCallId,
+        payload: { code: outcome.code, message: outcome.message },
+      });
+    });
+  }
+
+  async #executeHarnessTool(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+  ): Promise<void> {
+    const transactionId = active.harnessTransactionId;
+    if (!transactionId) throw new Error('Harness Tool execution requires a Harness transaction');
+    const harnessManager = this.#requireHarnessManager();
+    const toolRegistry = this.#requireToolRegistry();
+    this.#append(active.session, {
+      type: 'tool.started',
+      defTurnId: active.defTurnId,
+      toolCallId: event.toolCallId,
+      payload: { name: event.name },
+    });
+
+    let prepared:
+      | { readonly status: 'route' }
+      | { readonly status: 'succeeded'; readonly result: JsonValue }
+      | { readonly status: 'failed'; readonly error: unknown } = { status: 'route' };
+    try {
+      // Authorization must happen before a registered but out-of-phase Tool
+      // can touch the Browser ProductGateway.
+      harnessManager.assertToolProjected(transactionId, event.name);
+      if (event.name !== 'def.harness.route') {
+        prepared = {
+          status: 'succeeded',
+          result: await toolRegistry.execute(event.name, event.input, {
+            defSessionId: active.session.session.defSessionId,
+            defTurnId: active.defTurnId,
+            toolCallId: event.toolCallId,
+            binding: active.session.binding,
+            product: this.#productGateway,
+            abortSignal: active.abortController.signal,
+          }),
+        };
+      }
+    } catch (error) {
+      prepared = { status: 'failed', error };
+    }
+
+    await this.#withTurnProtocolLock(active, async () => {
+      if (active.settled || active.abortRequested) return;
+      let result: JsonValue;
+      let staged;
+      try {
+        harnessManager.assertToolProjected(transactionId, event.name);
+        if (prepared.status === 'route') {
+          staged = harnessManager.prepareRoute(transactionId, event.input);
+          result = {
+            contract: 'DefHarnessRouteResultV1',
+            businessId: staged.transition.transaction.businessId,
+            operation: staged.transition.transaction.operation,
+            revision: staged.transition.transaction.revision?.revision ?? null,
+            sourceLineage: staged.transition.transaction.revision?.sourceLineage ?? null,
+            contentHash: staged.transition.transaction.revision?.contentHash ?? null,
+            phaseId: staged.transition.transaction.phaseId,
+          };
+        } else {
+          if (prepared.status === 'failed') throw prepared.error;
+          result = prepared.result;
+          staged = harnessManager.prepareToolCompletion(transactionId, {
+            toolName: event.name,
+            status: 'succeeded',
+          });
+        }
+      } catch (error) {
+        const failure = harnessToolFailure(error);
+        staged = this.#prepareHarnessToolFailure(
+          harnessManager,
+          transactionId,
+          event.name,
+          failure.code,
+        );
+        await active.handle.submitToolResultAndUpdateProjection({
+          toolCallId: event.toolCallId,
+          status: 'failed',
+          code: failure.code,
+          message: failure.message,
+          ...(failure.details === undefined ? {} : { details: failure.details }),
+        }, staged.transition.transaction.projection);
+        const transition = harnessManager.commitPrepared(staged);
+        this.#append(active.session, {
+          type: 'tool.error',
+          defTurnId: active.defTurnId,
+          toolCallId: event.toolCallId,
+          payload: {
+            code: failure.code,
+            message: failure.message,
+            ...(failure.details === undefined ? {} : { details: failure.details }),
+          },
+        });
+        this.#appendHarnessTrace(active, transition.trace);
+        return;
+      }
+
+      await active.handle.submitToolResultAndUpdateProjection({
+        toolCallId: event.toolCallId,
+        status: 'succeeded',
+        result,
+      }, staged.transition.transaction.projection);
+      const transition = harnessManager.commitPrepared(staged);
       this.#append(active.session, {
         type: 'tool.result',
         defTurnId: active.defTurnId,
         toolCallId: event.toolCallId,
         payload: { result },
       });
-    } catch (error) {
-      if (active.settled) return;
-      const code = error instanceof DefAgentHostError ? error.code : 'PRODUCT_GATEWAY_ERROR';
-      const message = error instanceof Error ? error.message : String(error);
-      await active.handle.submitToolResult({
-        toolCallId: event.toolCallId,
-        status: 'failed',
-        code,
-        message,
-      });
-      this.#append(active.session, {
-        type: 'tool.error',
-        defTurnId: active.defTurnId,
-        toolCallId: event.toolCallId,
-        payload: { code, message },
-      });
+      this.#appendHarnessTrace(active, transition.trace);
+    });
+  }
+
+  #prepareHarnessToolFailure(
+    harnessManager: DefHarnessManager,
+    transactionId: string,
+    toolName: string,
+    code: string,
+  ) {
+    const transaction = harnessManager.getTransaction(transactionId);
+    if (
+      transaction.status === 'active'
+      && transaction.projection.tools.some((tool) => tool.name === toolName)
+      && toolName !== 'def.harness.route'
+    ) {
+      try {
+        return harnessManager.prepareToolCompletion(transactionId, { toolName, status: 'failed' });
+      } catch {
+        // Fall through to the global abort so every failed Tool closes the transaction.
+      }
     }
+    return harnessManager.prepareAbort(transactionId, code);
   }
 
   #projectTerminal(active: ActiveTurn, event: EngineEvent): DefEvent | null {
     if (event.type === 'turn.completed') {
+      if (active.harnessTransactionId) {
+        const harnessManager = this.#requireHarnessManager();
+        const transaction = harnessManager.getTransaction(active.harnessTransactionId);
+        if (transaction.status !== 'completed') {
+          const code = transaction.status === 'aborted' ? 'HARNESS_ABORTED' : 'HARNESS_INCOMPLETE';
+          const transition = harnessManager.abort(active.harnessTransactionId, code);
+          this.#appendHarnessTrace(active, transition.trace);
+          return this.#append(active.session, {
+            type: 'turn.failed',
+            defTurnId: active.defTurnId,
+            payload: {
+              code,
+              message: transaction.status === 'aborted'
+                ? 'The Harness transaction aborted before the Engine completed'
+                : 'The Engine completed before the Harness transaction reached its terminal phase',
+            },
+          });
+        }
+      }
       return this.#append(active.session, {
         type: 'turn.completed',
         defTurnId: active.defTurnId,
@@ -400,6 +697,13 @@ export class DefAgentHost {
       });
     }
     if (event.type === 'turn.failed') {
+      if (active.harnessTransactionId) {
+        const transition = this.#requireHarnessManager().abort(
+          active.harnessTransactionId,
+          event.code,
+        );
+        this.#appendHarnessTrace(active, transition.trace);
+      }
       return this.#append(active.session, {
         type: 'turn.failed',
         defTurnId: active.defTurnId,
@@ -407,6 +711,13 @@ export class DefAgentHost {
       });
     }
     if (event.type === 'turn.aborted') {
+      if (active.harnessTransactionId) {
+        const transition = this.#requireHarnessManager().abort(
+          active.harnessTransactionId,
+          event.reason.code,
+        );
+        this.#appendHarnessTrace(active, transition.trace);
+      }
       return this.#append(active.session, {
         type: 'turn.stopped',
         defTurnId: active.defTurnId,
@@ -419,6 +730,7 @@ export class DefAgentHost {
   #settle(active: ActiveTurn, terminal: DefEvent): void {
     if (active.settled) return;
     active.settled = true;
+    active.abortController.abort();
     active.resolveCancelled();
     active.resolveTerminal(terminal);
     if (this.#activeTurn === active) this.#activeTurn = null;
@@ -439,8 +751,97 @@ export class DefAgentHost {
     return envelope;
   }
 
+  #appendHarnessTrace(active: ActiveTurn, trace: readonly DefHarnessTraceEntry[]): void {
+    for (const entry of trace) {
+      if (entry.type === 'harness.routed') {
+        this.#append(active.session, {
+          type: entry.type,
+          defTurnId: active.defTurnId,
+          payload: {
+            businessId: entry.businessId,
+            operation: entry.operation,
+            revision: entry.revision.revision,
+            sourceLineage: entry.revision.sourceLineage,
+            contentHash: entry.revision.contentHash,
+          },
+        });
+        continue;
+      }
+      if (entry.type === 'harness.phase.entered') {
+        this.#append(active.session, {
+          type: entry.type,
+          defTurnId: active.defTurnId,
+          payload: {
+            businessId: entry.businessId,
+            operation: entry.operation,
+            phaseId: entry.phaseId,
+            phaseKind: entry.phaseKind,
+          },
+        });
+        continue;
+      }
+      if (entry.type === 'harness.tool.projected') {
+        this.#append(active.session, {
+          type: entry.type,
+          defTurnId: active.defTurnId,
+          payload: {
+            projectionRevision: entry.projectionRevision,
+            tools: entry.tools,
+          },
+        });
+        continue;
+      }
+      this.#append(active.session, {
+        type: entry.type,
+        defTurnId: active.defTurnId,
+        payload: {
+          businessId: entry.businessId,
+          operation: entry.operation,
+          phaseId: entry.phaseId,
+          terminalState: entry.terminalState,
+          ...(entry.code ? { code: entry.code } : {}),
+        },
+      });
+    }
+  }
+
+  #requireHarnessManager(): DefHarnessManager {
+    if (!this.#harnessManager) {
+      throw new DefAgentHostError('AGENT_TOOL_UNSUPPORTED', 'DEF Harness Manager is not configured');
+    }
+    return this.#harnessManager;
+  }
+
+  #requireToolRegistry(): DefReadToolRegistry {
+    if (!this.#toolRegistry) {
+      throw new DefAgentHostError('AGENT_TOOL_UNSUPPORTED', 'DEF Tool Registry is not configured');
+    }
+    return this.#toolRegistry;
+  }
+
+  async #withTurnProtocolLock<Result>(
+    active: ActiveTurn,
+    action: () => Promise<Result>,
+  ): Promise<Result> {
+    const previous = active.protocolTail;
+    let release!: () => void;
+    active.protocolTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try {
+      return await action();
+    } finally {
+      release();
+    }
+  }
+
   #assertRunning(): void {
     if (this.#shutdown) throw new Error('DEF Agent Host is shut down');
+  }
+
+  #assertTurnAvailable(): void {
+    if (this.#activeTurn || this.#turnStarting) {
+      throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench already has an active or starting turn');
+    }
   }
 }
 
@@ -453,5 +854,26 @@ function bindingContext(binding: ProductBinding): JsonObject {
     checkoutUpdatedAt: binding.checkoutUpdatedAt,
     contentRevision: binding.contentRevision,
     snapshotDigest: binding.snapshotDigest,
+  };
+}
+
+function harnessToolFailure(error: unknown): {
+  readonly code: string;
+  readonly message: string;
+  readonly details?: JsonValue;
+} {
+  if (error instanceof DefToolExecutionError) {
+    return {
+      code: error.code,
+      message: error.message,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    };
+  }
+  if (error instanceof DefHarnessError || error instanceof DefAgentHostError) {
+    return { code: error.code, message: error.message };
+  }
+  return {
+    code: 'DEF_TOOL_EXECUTION_FAILED',
+    message: error instanceof Error ? error.message : String(error),
   };
 }

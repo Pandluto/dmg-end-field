@@ -212,6 +212,53 @@ class FakeEngineTurnHandle implements EngineTurnHandle {
     pending.resolve();
   }
 
+  async submitToolResultAndUpdateProjection(
+    input: EngineToolResultInput,
+    projection: EngineToolProjectionInput,
+  ): Promise<void> {
+    const resultFingerprint = fingerprint(input);
+    const projectionFingerprint = fingerprint(projection);
+    const acceptedResult = this.#acceptedToolResults.get(input.toolCallId);
+    const acceptedProjection = this.#acceptedProjections.get(projection.revision);
+    if (acceptedResult !== undefined || acceptedProjection !== undefined) {
+      if (
+        acceptedResult === resultFingerprint
+        && acceptedProjection === projectionFingerprint
+      ) return;
+      throw new AgentEngineProtocolError(
+        'ENGINE_CORRELATION_CONFLICT',
+        `Atomic Tool result/projection was already partially or differently submitted for ${input.toolCallId}`,
+      );
+    }
+    this.#assertActive();
+    if (this.#pending?.kind !== 'tool' || this.#pending.correlationId !== input.toolCallId) {
+      throw new AgentEngineProtocolError(
+        'ENGINE_INPUT_UNEXPECTED',
+        `Turn is not waiting for atomic tool result ${input.toolCallId}`,
+      );
+    }
+    if (projection.revision <= this.#lastProjectionRevision) {
+      throw new AgentEngineProtocolError(
+        'ENGINE_PROJECTION_STALE',
+        `Tool projection revision ${projection.revision} must be greater than ${this.#lastProjectionRevision}`,
+      );
+    }
+
+    this.#acceptedToolResults.set(input.toolCallId, resultFingerprint);
+    this.#toolResults.push(input);
+    this.#acceptedProjections.set(projection.revision, projectionFingerprint);
+    this.#toolProjections.push(projection);
+    this.#lastProjectionRevision = projection.revision;
+    const pending = this.#pending;
+    this.#pending = null;
+    this.#emit({ type: 'tool-projection.applied', revision: projection.revision });
+    pending.resolve();
+    // Let the script consume a pre-applied projection and, when applicable,
+    // emit an eager terminal before the atomic Host call resolves.
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
   async submitInteractionResult(input: EngineInteractionResultInput): Promise<void> {
     const accepted = this.#acceptedInteractionResults.get(input.interactionId);
     const nextFingerprint = fingerprint(input);
@@ -388,6 +435,10 @@ class FakeEngineTurnHandle implements EngineTurnHandle {
       | { readonly kind: 'projection'; readonly revision: number },
   ): Promise<void> {
     if (this.#terminal) return Promise.resolve();
+    if (
+      pending.kind === 'projection'
+      && this.#acceptedProjections.has(pending.revision)
+    ) return Promise.resolve();
     if (this.#pending) throw new Error('Fake Engine script attempted to wait for two inputs');
     return new Promise<void>((resolve) => {
       this.#pending = { ...pending, resolve } as PendingInput;

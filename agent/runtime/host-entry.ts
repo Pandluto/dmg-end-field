@@ -6,6 +6,8 @@ import { DefAgentHost } from '../host/def-agent-host.ts';
 import { DefAgentHostHttpServer } from '../host/http-server.ts';
 import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gateway.ts';
 import { AgentTokenAuthority } from '../host/token-authority.ts';
+import { DefHarnessManager } from '../core/harness/manager.ts';
+import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
 import { PendingAgentEngine } from './pending-agent-engine.ts';
 
 const hostToken = requiredEnv('DEF_AGENT_HOST_TOKEN');
@@ -22,9 +24,15 @@ const consumers = new BrowserConsumerRegistry({
   },
 });
 const gateway = new RemoteBrowserProductGateway(consumers);
+const toolRegistry = new DefReadToolRegistry();
+const harnessManager = new DefHarnessManager({
+  resolveToolDescriptor: (name) => toolRegistry.resolveDescriptor(name),
+});
 host = new DefAgentHost({
   engine,
   productGateway: gateway,
+  harnessManager,
+  toolRegistry,
   requireConsumer: () => {
     consumers.requireActive();
   },

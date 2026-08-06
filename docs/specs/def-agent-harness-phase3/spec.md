@@ -2,7 +2,7 @@
 
 ## Status
 
-已定稿，待实施。
+实现完成；自动化、目录包和包内容验收通过，待固定端口空闲后补跑 packaged Mac 实际启动验收。
 
 ## Background
 
@@ -122,15 +122,16 @@ Turn 路由成功时 pin `businessId + operation + revision + contentHash`。一
 1. Host 接受 Harness Turn；
 2. Engine 初始只看见 `def.harness.route`；
 3. route input 必须明确提供 allowlisted `businessId` 与 `operation`；
-4. Manager 创建 pinned transaction 并进入 entry phase；
-5. Host 把 route result 回送 Engine；
-6. Host 在同一 Turn 调用 `updateToolProjection`，只投影 entry phase Tool；
-7. Engine Tool request 必须命中当前 projection；
-8. Tool registry读取与 Session binding 完全一致的最新 Product snapshot；
-9. Host 回送 typed result，并让 Manager 原子推进 phase；
-10. phase 改变后 projection revision 单调递增；
-11. terminal phase 投影空 Tool 集；
-12. Engine terminal 后 transaction 封存，迟到 Tool/result 一律拒绝。
+4. Manager prepare pinned transition，但此时不改变当前 transaction；
+5. Host 通过 `submitToolResultAndUpdateProjection` 原子回送 route result 与下一 projection；
+6. Engine 接受后 Manager 才 commit transition；若 Engine 拒绝，prepare 被丢弃且当前 transaction 进入失败收口；
+7. Engine adapter 在 result 与 projection 都接受前不得恢复推理或发出 terminal；
+8. Engine Tool request 必须在任何 handler/ProductGateway 调用前命中当前 projection；
+9. Tool registry读取与 Session binding 完全一致的最新 Product snapshot；
+10. Host 原子回送 typed result 与下一 projection，再 commit Manager phase；
+11. phase 改变后 projection revision 单调递增；
+12. terminal phase 投影空 Tool 集；
+13. Engine terminal 后 transaction 封存，迟到 Tool/result 一律拒绝。
 
 route 不做自然语言规则猜测。未来 OpenCode/Pi adapter 可以让模型调用 route Tool，但 Harness Manager 只接受 typed route contract。
 
@@ -154,7 +155,7 @@ route 不做自然语言规则猜测。未来 OpenCode/Pi adapter 可以让模�
 
 ### `def.data.resource.damage`
 
-返回当前产品生成的 typed damage report、`damage-report-v1` 语义版本、snapshot digest 与统计范围。Harness 不重算公式；报告缺失时返回 typed unavailable，不伪造 0 伤害。
+返回当前产品生成的 typed damage report、`damage-report-v1` 语义版本、snapshot digest 与统计范围。产品 snapshot 必须明确标记 `damageReportStatus: ready`，且报告来自 Canvas、结构完整、按钮与当前 timeline 一致。选择页 carry/placeholder、缺失或过期报告返回 typed unavailable，不伪造 0 伤害。
 
 所有结果都必须是 JSON-safe、可排序、可做 deterministic snapshot 的值。
 

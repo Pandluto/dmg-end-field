@@ -65,6 +65,21 @@ for (const required of [
   assert.ok(fs.statSync(unpackedPath).isFile(), `桌面包缺少可执行 MCP 运行文件：${unpackedPath}`);
 }
 
+const agentBundlePath = path.join(unpackedRoot, 'dist', 'agent', 'host-entry.cjs');
+const agentBundleSource = fs.readFileSync(agentBundlePath, 'utf8');
+for (const marker of [
+  'DefHarnessRouteResultV1',
+  'def.harness.route',
+  'def.data.resource.team_loadouts',
+  'def.data.resource.damage',
+  'damage-report-v1',
+]) {
+  assert.ok(agentBundleSource.includes(marker), `桌面 Agent 包缺少 Phase 3 标记：${marker}`);
+}
+for (const forbidden of ['17321', '17322', 'better-sqlite3', 'node:sqlite']) {
+  assert.equal(agentBundleSource.includes(forbidden), false, `桌面 Agent 包包含退役运行时：${forbidden}`);
+}
+
 console.log(JSON.stringify({
   result: 'desktop package boundary check passed',
   appPath,

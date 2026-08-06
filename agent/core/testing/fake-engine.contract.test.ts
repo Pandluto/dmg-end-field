@@ -398,6 +398,37 @@ assert.deepEqual(await engine.compact(session), {
   summaryRef: 'fake-compaction-1',
 });
 
+const atomicToolCallId = asToolCallId('tool-atomic-projection');
+engine.enqueueScript([
+  { type: 'tool', toolCallId: atomicToolCallId, name: 'route_once', input: {} },
+  { type: 'projection', revision: 2 },
+  { type: 'complete', output: { atomic: true } },
+]);
+const atomicHandle = await engine.startTurn(createTurnInput(session, 'atomic-projection'));
+const atomicEvents = atomicHandle.events[Symbol.asyncIterator]();
+assert.equal((await nextEvent(atomicEvents)).type, 'tool.requested');
+const atomicResult = {
+  toolCallId: atomicToolCallId,
+  status: 'succeeded' as const,
+  result: { routed: true },
+};
+const atomicProjection: EngineToolProjectionInput = {
+  revision: 2,
+  tools: [{
+    name: 'read_once',
+    description: 'Read one projected resource',
+    inputSchema: { type: 'object' },
+    risk: 'read',
+  }],
+};
+await atomicHandle.submitToolResultAndUpdateProjection(atomicResult, atomicProjection);
+await atomicHandle.submitToolResultAndUpdateProjection(atomicResult, atomicProjection);
+assert.equal((await nextEvent(atomicEvents)).type, 'tool-projection.applied');
+assert.equal((await nextEvent(atomicEvents)).type, 'turn.completed');
+assert.equal((await atomicEvents.next()).done, true);
+assert.deepEqual(engine.getTurnTrace(atomicHandle.ref)?.toolResults, [atomicResult]);
+assert.deepEqual(engine.getTurnTrace(atomicHandle.ref)?.toolProjections, [atomicProjection]);
+
 const approvalInteractionId = asInteractionId('interaction-approval');
 engine.enqueueScript([
   {

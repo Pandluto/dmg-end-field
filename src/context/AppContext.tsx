@@ -122,6 +122,7 @@ function buildSelectionWorkbenchSnapshot(
       librarySource: character.librarySource,
     })),
     skillButtons: mirroredButtons,
+    damageReportStatus: 'placeholder',
     damageReport: canReuseDamageReport && previousDamageReport
       ? previousDamageReport
       : {

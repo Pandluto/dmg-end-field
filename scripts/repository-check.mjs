@@ -140,18 +140,26 @@ const allowedAgentFiles = new Set([
   'agent/core/contracts/browser-protocol.ts',
   'agent/core/contracts/engine.ts',
   'agent/core/contracts/events.ts',
+  'agent/core/contracts/harness.ts',
   'agent/core/contracts/ids.ts',
   'agent/core/contracts/index.ts',
   'agent/core/contracts/interaction.ts',
   'agent/core/contracts/json.ts',
   'agent/core/contracts/product.ts',
   'agent/core/contracts/session.ts',
+  'agent/core/contracts/tool.ts',
+  'agent/core/harness/catalog.ts',
+  'agent/core/harness/harness.contract.test.ts',
+  'agent/core/harness/manager.ts',
   'agent/core/testing/fake-engine.contract.test.ts',
   'agent/core/testing/fake-engine.ts',
+  'agent/core/testing/fixtures/phase3-readonly-parity.ts',
+  'agent/core/tools/read-only-workbench.ts',
   'agent/host/browser-consumer-registry.ts',
   'agent/host/def-agent-host.ts',
   'agent/host/errors.ts',
   'agent/host/host.contract.test.ts',
+  'agent/host/harness-blackbox.test.ts',
   'agent/host/http-server.ts',
   'agent/host/remote-browser-product-gateway.ts',
   'agent/host/token-authority.ts',
@@ -202,12 +210,23 @@ const agentRoot = path.join(root, 'agent');
 const agentCoreRoot = path.join(agentRoot, 'core');
 for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))) {
   const content = fs.readFileSync(path.join(root, file), 'utf8');
+  if (
+    !file.endsWith('.test.ts')
+    && /17321|17322|ai-cli-rest-server|better-sqlite3|node:sqlite/.test(content)
+  ) {
+    fail(`Agent runtime references retired REST or Node business SQLite: ${file}`);
+  }
   const dependencyInspection = inspectTypeScriptDependencies(content, file);
   for (const label of dependencyInspection.uninspectable) {
     fail(`Agent core contains an uninspectable ${label}: ${file}`);
   }
   for (const specifier of dependencyInspection.specifiers) {
+    if (/opencode|pi-agent|better-sqlite3|sqlite3|node:sqlite/i.test(specifier)) {
+      fail(`Agent runtime imports a deferred or retired runtime (${specifier}): ${file}`);
+      continue;
+    }
     const canUseNodeBuiltins = file.endsWith('.test.ts')
+      || file.startsWith('agent/core/harness/')
       || file.startsWith('agent/host/')
       || file.startsWith('agent/runtime/');
     if (canUseNodeBuiltins && specifier.startsWith('node:')) continue;
@@ -297,6 +316,12 @@ if (packageJson.scripts?.['typecheck:agent'] !== 'tsc -p tsconfig.agent.json') {
 }
 if (!String(packageJson.scripts?.['test:agent-core'] || '').includes('fake-engine.contract.test.ts')) {
   fail('Agent core contract test script is missing or invalid');
+}
+if (
+  !String(packageJson.scripts?.['test:agent-harness'] || '').includes('harness.contract.test.ts')
+  || !String(packageJson.scripts?.['test:agent-harness'] || '').includes('harness-blackbox.test.ts')
+) {
+  fail('Agent Harness contract and blackbox test script is missing or invalid');
 }
 
 const dataManifest = readJson('public/web-data-manifest.json');
