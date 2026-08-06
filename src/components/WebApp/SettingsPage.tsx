@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { clearAccessLease, readAccessLeaseStatus } from '../../platform/auth/accessLease';
 import {
   readBrowserStorageEstimate,
@@ -17,6 +17,7 @@ import {
   type InstalledImagePackage,
 } from '../../platform/resources/imagePackage';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
+import { isDesktopRuntime } from '../../platform/desktop/desktopHost';
 import { workspaceLease } from '../../platform/runtime/workspaceLease';
 import { flushPersistentStorage } from '../../platform/storage/persistentStorage';
 import {
@@ -26,6 +27,11 @@ import {
   subscribeAppTheme,
   type AppThemeId,
 } from '../../platform/theme/appTheme';
+
+const DesktopSettingsPanel = lazy(async () => {
+  const module = await import('../Desktop/DesktopSettingsPanel');
+  return { default: module.DesktopSettingsPanel };
+});
 
 type StorageOverview = {
   usage: number;
@@ -52,6 +58,7 @@ function formatDate(value: number | null): string {
 }
 
 export function SettingsPage() {
+  const desktopMode = isDesktopRuntime();
   const [databaseInfo] = useState<WebDatabaseInfo | null>(() => webDatabase.getInfo());
   const [storage, setStorage] = useState<StorageOverview>({ usage: 0, quota: 0, persisted: false });
   const [resourcePackage, setResourcePackage] = useState<InstalledResourcePackage | null>(null);
@@ -98,7 +105,9 @@ export function SettingsPage() {
     try {
       const applied = await setAppTheme(nextTheme);
       setTheme(applied);
-      setMessage('主题已经切换；下载过的主题可在离线时继续使用。');
+      setMessage(desktopMode
+        ? '主题已经切换；资源保存在桌面工作区。'
+        : '主题已经切换；下载过的主题可在离线时继续使用。');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -108,7 +117,9 @@ export function SettingsPage() {
 
   const handlePersist = async () => {
     const persisted = await requestPersistentBrowserStorage();
-    setMessage(persisted ? '浏览器已经授予持久存储。' : '浏览器暂未授予持久存储，请保留定期备份。');
+    setMessage(persisted
+      ? `${desktopMode ? '桌面工作区' : '浏览器'}已经获得持久存储。`
+      : '当前环境暂未授予持久存储，请保留定期备份。');
     await refresh();
   };
 
@@ -122,14 +133,16 @@ export function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `dmg-web-lts-backup-${new Date().toISOString().slice(0, 10)}.sqlite3`;
+    anchor.download = `dmg-${desktopMode ? 'desktop' : 'web-lts'}-backup-${new Date().toISOString().slice(0, 10)}.sqlite3`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setMessage('数据库备份已导出。');
   };
 
   const handleRemovePackage = async () => {
-    if (!window.confirm('移除基础资料包？私人排轴不会删除，重新进入时需要再次下载资料。')) return;
+    if (!window.confirm(
+      `移除基础资料包？私人排轴不会删除，重新进入时需要再次${desktopMode ? '载入' : '下载'}资料。`,
+    )) return;
     await Promise.all([
       removeDefaultResourcePackage(),
       removeDefaultImagePackage(),
@@ -188,7 +201,7 @@ export function SettingsPage() {
                     : option.delivery === 'bundled'
                       ? '随工作台内置'
                       : theme === option.id
-                        ? '已安装 · 离线可用'
+                        ? (desktopMode ? '已安装到工作区' : '已安装 · 离线可用')
                         : '选择时按需载入'}
                 </em>
               </span>
@@ -197,7 +210,7 @@ export function SettingsPage() {
           ))}
         </div>
       </section>
-      <section className="settings-section">
+      {!desktopMode && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>更新</p>
@@ -252,15 +265,20 @@ export function SettingsPage() {
                         : '稍后自动重试'}
           </button>
         </div>
-      </section>
+      </section>}
+      {desktopMode && (
+        <Suspense fallback={null}>
+          <DesktopSettingsPanel />
+        </Suspense>
+      )}
       <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>存储</p>
-            <h2>浏览器存储</h2>
+            <h2>{desktopMode ? '桌面工作区存储' : '浏览器存储'}</h2>
           </div>
-          <span className={storage.persisted ? 'settings-state is-good' : 'settings-state'}>
-            {storage.persisted ? '已持久化' : '尽力保存'}
+          <span className={desktopMode || storage.persisted ? 'settings-state is-good' : 'settings-state'}>
+            {desktopMode ? '应用目录' : storage.persisted ? '已持久化' : '尽力保存'}
           </span>
         </div>
         <div className="settings-card-grid">
@@ -285,13 +303,18 @@ export function SettingsPage() {
             <small>{imagePackage?.manifest.files.length || 0} 个文件</small>
           </article>
         </div>
-        <div className="settings-action-row">
+        {desktopMode ? <div className="settings-action-row">
           <div>
-            <strong>防止浏览器自动回收数据</strong>
-            <span>向浏览器申请把本工作台标记为持久存储。</span>
+            <strong>由 Chromium 工作区持久保存</strong>
+            <span>SQLite WASM 直接使用 Electron 用户资料目录中的 OPFS；Shell 不读取数据库。</span>
+          </div>
+        </div> : <div className="settings-action-row">
+          <div>
+            <strong>防止 Chromium 自动回收数据</strong>
+            <span>把当前 SQLite/OPFS 工作区标记为持久存储。</span>
           </div>
           <button type="button" onClick={handlePersist}>申请持久存储</button>
-        </div>
+        </div>}
       </section>
 
       <section className="settings-section">
@@ -303,21 +326,24 @@ export function SettingsPage() {
         </div>
         <div className="settings-action-row">
           <div>
-            <strong>导出完整 Web LTS 数据库</strong>
-            <span>包含私人排轴、快照、工作节点、配置和自定义图片；官方资料包可重新下载。</span>
+            <strong>导出完整 {desktopMode ? '桌面' : 'Web LTS'} 数据库</strong>
+            <span>
+              包含私人排轴、快照、工作节点、配置和自定义图片；
+              官方资料包可{desktopMode ? '从安装包重新载入' : '重新下载'}。
+            </span>
           </div>
           <button className="dashboard-primary-button" type="button" onClick={handleExport}>导出 SQLite 备份</button>
         </div>
         <div className="settings-action-row">
           <div>
             <strong>移除官方基础资料</strong>
-            <span>不会删除私人数据；下次启动会重新询问是否下载。</span>
+            <span>不会删除私人数据；下次启动会重新询问是否{desktopMode ? '载入' : '下载'}。</span>
           </div>
           <button type="button" onClick={handleRemovePackage}>移除资料包</button>
         </div>
       </section>
 
-      <section className="settings-section">
+      {!desktopMode && <section className="settings-section">
         <div className="settings-section-heading">
           <div>
             <p>访问</p>
@@ -334,7 +360,7 @@ export function SettingsPage() {
         <p className="settings-security-note">
           当前是本地部署的纯前端门禁，用来过滤无效访问，不等同于服务器身份认证。
         </p>
-      </section>
+      </section>}
     </div>
   );
 }

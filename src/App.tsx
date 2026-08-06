@@ -186,7 +186,7 @@ function App() {
       if (typeof requestIdle === 'function') {
         idleHandle = requestIdle.call(window, run, { timeout: 2_000 });
       } else {
-        timerHandle = globalThis.setTimeout(run, 450);
+        timerHandle = window.setTimeout(run, 450);
       }
     };
 

@@ -12,6 +12,7 @@ import {
   type OfflineAvailability,
 } from '../../platform/runtime/serviceWorkerRuntime';
 import { usePageVersionUpdate } from '../../platform/runtime/usePageVersionUpdate';
+import { isDesktopRuntime } from '../../platform/desktop/desktopHost';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import './app-shell.css';
 
@@ -66,12 +67,12 @@ function clampLauncherPosition(
   };
 }
 
-function sectionMeta(path: string): SectionMeta {
+function sectionMeta(path: string, desktopMode = false): SectionMeta {
   if (path === APP_ROUTE_PATHS.settings) {
     return {
       key: 'settings',
       title: '设置',
-      description: '存储、备份与访问',
+      description: desktopMode ? '桌面宿主、存储与备份' : '存储、备份与访问',
     };
   }
   if (path === APP_ROUTE_PATHS.welcome || path === APP_ROUTE_PATHS.root) {
@@ -135,6 +136,7 @@ function BrandLogo() {
 }
 
 export function AppShell({ currentPath, children, overlay }: AppShellProps) {
+  const desktopMode = isDesktopRuntime();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isOnline, setIsOnline] = useState(
     () => typeof navigator === 'undefined' || navigator.onLine,
@@ -152,7 +154,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   const launcherRef = useRef<HTMLDivElement | null>(null);
   const launcherDragRef = useRef<LauncherDragState | null>(null);
   const suppressLauncherClickRef = useRef(false);
-  const meta = sectionMeta(currentPath);
+  const meta = sectionMeta(currentPath, desktopMode);
   const navItems: Array<{ key: NavKey; label: string; path: string }> = [
     { key: 'start', label: '开始', path: APP_ROUTE_PATHS.welcome },
     { key: 'timeline', label: '工作区', path: APP_ROUTE_PATHS.timelineWorkspace },
@@ -212,6 +214,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
   }, [currentPath]);
 
   useEffect(() => {
+    if (desktopMode) return undefined;
     const refreshOfflineAvailability = () => {
       void readOfflineAvailability().then(setOfflineAvailability);
     };
@@ -234,7 +237,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
       window.removeEventListener('offline', handleOffline);
       navigator.serviceWorker?.removeEventListener('controllerchange', refreshOfflineAvailability);
     };
-  }, []);
+  }, [desktopMode]);
 
   useEffect(() => {
     const handlePointerMove = (event: PointerEvent) => {
@@ -370,7 +373,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 <BrandLogo />
                 <span>
                   <strong>终末地伤害工作台</strong>
-                  <small>Web LTS {APP_VERSION_LABEL}</small>
+                  <small>{desktopMode ? 'Desktop LTS' : 'Web LTS'} {APP_VERSION_LABEL}</small>
                 </span>
               </div>
 
@@ -389,7 +392,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                 ))}
               </nav>
 
-              <button
+              {!desktopMode && <button
                 className={`web-shell-local-state is-${pageVersionUpdate.phase}`}
                 type="button"
                 disabled={!pageVersionCanUpdate}
@@ -456,7 +459,7 @@ export function AppShell({ currentPath, children, overlay }: AppShellProps) {
                           ? '!'
                           : '—'}
                 </span>
-              </button>
+              </button>}
             </div>
           )}
         </div>

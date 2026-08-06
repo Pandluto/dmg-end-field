@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { WebBootstrap } from './components/WebApp/WebBootstrap'
+import { installDesktopResourceWorkerRuntime } from './platform/desktop/desktopResourceWorker'
 
 declare global {
   interface Window {
@@ -17,6 +18,8 @@ declare global {
 //   event.returnValue = '确定要离开当前页面吗？'
 //   return event.returnValue
 // }
+
+installDesktopResourceWorkerRuntime()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -58,7 +58,6 @@ for (const forbidden of ['pnpm-lock.yaml', 'yarn.lock']) {
 
 const removedRuntimePrefixes = [
   'agent/',
-  'electron/',
   'public/shell/',
   '.agents/skills/harness-audit-assistant/',
   'src/aiCli/',
@@ -72,6 +71,14 @@ const removedRuntimeFiles = new Set([
   'src/utils/localDataBridge.ts',
   'src/utils/workbenchRendererCapability.ts',
 ]);
+const thinShellElectronFiles = new Set([
+  'electron/assets/icon.ico',
+  'electron/assets/icon.png',
+  'electron/entitlements.mac.plist',
+  'electron/main.cjs',
+  'electron/preload.cjs',
+  'electron/static-host.cjs',
+]);
 
 for (const file of files) {
   const segments = file.split('/');
@@ -81,6 +88,9 @@ for (const file of files) {
   }
   if (removedRuntimePrefixes.some((prefix) => file.startsWith(prefix)) || removedRuntimeFiles.has(file)) {
     fail(`removed desktop/Agent runtime returned: ${file}`);
+  }
+  if (file.startsWith('electron/') && !thinShellElectronFiles.has(file)) {
+    fail(`thin Electron Shell contains an unapproved runtime file: ${file}`);
   }
 }
 
@@ -115,14 +125,16 @@ if (!packageJson.devDependencies?.vite || !packageJson.devDependencies?.['vite-p
 if (!packageJson.dependencies?.['@sqlite.org/sqlite-wasm']) {
   fail('browser SQLite WASM must remain a runtime dependency');
 }
-if (packageJson.main || packageJson.build) fail('desktop entry points and packager config must not return');
+if (packageJson.main !== 'electron/main.cjs') fail('thin desktop entry point must be electron/main.cjs');
+if (!packageJson.build || packageJson.build.appId !== 'com.dmg.def') {
+  fail('thin desktop packager config is missing or invalid');
+}
 
 const forbiddenDependencies = [
   '@modelcontextprotocol/sdk',
-  'concurrently',
-  'electron',
-  'electron-builder',
-  'wait-on',
+  'better-sqlite3',
+  'electron-updater',
+  'sqlite3',
   'zod',
 ];
 for (const dependency of forbiddenDependencies) {
@@ -130,9 +142,17 @@ for (const dependency of forbiddenDependencies) {
     fail(`removed runtime dependency returned: ${dependency}`);
   }
 }
+for (const dependency of ['concurrently', 'electron', 'electron-builder', 'wait-on']) {
+  if (packageJson.dependencies?.[dependency]) {
+    fail(`desktop build-only dependency must not be a runtime dependency: ${dependency}`);
+  }
+  if (!packageJson.devDependencies?.[dependency]) {
+    fail(`thin desktop development dependency is missing: ${dependency}`);
+  }
+}
 for (const [name, command] of Object.entries(packageJson.scripts || {})) {
-  if (/(?:^|[/:])electron(?:$|[/:])|electron-builder|public\/shell/.test(String(command))) {
-    fail(`desktop command returned in script ${name}`);
+  if (/public\/shell|ai-cli-rest-server|legacy-fill|17321|17322|17323/.test(String(command))) {
+    fail(`desktop command references a retired runtime in script ${name}`);
   }
 }
 
@@ -289,6 +309,6 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `REPOSITORY_CHECK_OK tracked=${files.length} syntax=${syntaxFiles.length} `
+  `REPOSITORY_CHECK_OK profile=desktop-thin-shell tracked=${files.length} syntax=${syntaxFiles.length} `
   + `data=${dataManifest.files.length} images=${imageManifest.files.length} docs=${stableDocs.length}`,
 );
