@@ -8,6 +8,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const defaultAppPath = path.join(projectRoot, 'release', 'mac-arm64', '终末地伤害工作台.app');
 const appPath = path.resolve(process.argv[2] || defaultAppPath);
 const asarPath = path.join(appPath, 'Contents', 'Resources', 'app.asar');
+const unpackedRoot = path.join(appPath, 'Contents', 'Resources', 'app.asar.unpacked');
 
 assert.ok(fs.existsSync(asarPath), `缺少桌面 app.asar：${asarPath}`);
 
@@ -16,7 +17,13 @@ const packagedSet = new Set(packagedFiles);
 for (const required of [
   '/dist/index.html',
   '/dist/sw-desktop.js',
+  '/dist/legacy-fill/service.mjs',
+  '/dist/legacy-fill/stdio.mjs',
+  '/dist/legacy-fill/domain-runtime.mjs',
+  '/dist/legacy-fill/resources/strategy-v1.json',
+  '/dist/legacy-fill/resources/golden-v1.json',
   '/electron/main.cjs',
+  '/electron/legacy-fill-runtime.cjs',
   '/electron/preload.cjs',
   '/electron/static-host.cjs',
   '/electron/shell/index.html',
@@ -44,9 +51,21 @@ for (const forbidden of [
   );
 }
 
+for (const required of [
+  'dist/legacy-fill/service.mjs',
+  'dist/legacy-fill/stdio.mjs',
+  'dist/legacy-fill/domain-runtime.mjs',
+  'dist/legacy-fill/resources/strategy-v1.json',
+  'dist/legacy-fill/resources/golden-v1.json',
+]) {
+  const unpackedPath = path.join(unpackedRoot, required);
+  assert.ok(fs.statSync(unpackedPath).isFile(), `桌面包缺少可执行 MCP 运行文件：${unpackedPath}`);
+}
+
 console.log(JSON.stringify({
   result: 'desktop package boundary check passed',
   appPath,
   asarBytes: fs.statSync(asarPath).size,
+  unpackedLegacyFillRoot: path.join(unpackedRoot, 'dist', 'legacy-fill'),
   packagedEntries: packagedFiles.length,
 }, null, 2));

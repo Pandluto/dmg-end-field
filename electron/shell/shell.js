@@ -29,6 +29,7 @@
     state.busy = value;
     for (const id of [
       'open-browser',
+      'open-mcp-fill',
       'pick-image-source',
       'pick-data-source',
       'pick-output',
@@ -37,6 +38,14 @@
     ]) {
       element(id).disabled = value;
     }
+  }
+
+  function renderMcpState(runtime) {
+    const available = element('mcp-availability');
+    available.textContent = runtime?.ready ? '服务已就绪' : runtime?.running ? '正在启动' : '服务不可用';
+    available.classList.toggle('ready', Boolean(runtime?.ready));
+    available.classList.toggle('pending', !runtime?.ready);
+    element('mcp-status').textContent = runtime?.reason || 'MCP 填表服务状态未知';
   }
 
   async function selectPath(kind) {
@@ -90,10 +99,11 @@
     }
 
     try {
-      const [capabilities, appInfo, settings] = await Promise.all([
+      const [capabilities, appInfo, settings, mcpState] = await Promise.all([
         host.getCapabilities(),
         host.getAppInfo(),
         host.getSettings(),
+        host.getMcpState(),
       ]);
       state.capabilities = capabilities;
       state.appInfo = appInfo;
@@ -102,7 +112,7 @@
       element('web-url').textContent = appInfo.webUrl;
       element('platform').textContent = `${appInfo.platform} · ${appInfo.arch}`;
       element('agent-status').textContent = capabilities.agent.reason;
-      element('mcp-status').textContent = capabilities.mcp.reason;
+      renderMcpState(mcpState);
       element('release-version').value = appInfo.version;
 
       const scaleSelect = element('shell-scale');
@@ -125,6 +135,21 @@
       setMessage(`浏览器工作台已打开：${result.url}`);
     } catch (error) {
       setMessage(errorMessage(error), true);
+    }
+  });
+  element('open-mcp-fill').addEventListener('click', async () => {
+    setBusy(true);
+    setMessage('正在打开 MCP 填表界面…');
+    try {
+      const result = await host.openMcpFill();
+      if (!result?.ok) throw new Error(result?.error || '无法打开 MCP 填表界面。');
+      renderMcpState(result.runtime);
+      setMessage(`MCP 填表已打开；客户端配置：${result.clientConfigPath}`);
+    } catch (error) {
+      setMessage(errorMessage(error), true);
+      renderMcpState(await host.getMcpState().catch(() => null));
+    } finally {
+      setBusy(false);
     }
   });
   element('shell-scale').addEventListener('change', async (event) => {

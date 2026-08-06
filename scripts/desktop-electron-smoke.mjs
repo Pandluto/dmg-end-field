@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { _electron as electron, chromium } from '@playwright/test';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { LEGACY_FILL_MCP_TOOL_NAMES } from '../src/legacyFillService/mcp-operations.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const distIndex = path.join(projectRoot, 'dist', 'index.html');
@@ -15,7 +18,12 @@ const packagedExecutable = executableArgumentIndex >= 0
   ? path.resolve(process.argv[executableArgumentIndex + 1] || '')
   : '';
 const expectedOrigin = 'http://127.0.0.1:31457';
-const retiredRuntimePorts = [17321, 17322, 17323];
+const retiredRuntimePorts = [17321, 17322];
+const mcpRuntimePort = 17323;
+const fillFixture = JSON.parse(fs.readFileSync(
+  path.join(projectRoot, 'docs', 'specs', 'legacy-ai-cli-mcp-extraction', 'fixtures', 'legacy-fill-wire-v1.json'),
+  'utf8',
+));
 const releaseFixtureRoot = path.join(profileRoot, 'release-fixture');
 const dataFixtureRoot = path.join(releaseFixtureRoot, 'public', 'data');
 const imageFixtureRoot = path.join(releaseFixtureRoot, 'images');
@@ -56,6 +64,10 @@ async function assertRetiredPortsClosed() {
   }
 }
 
+async function assertMcpPortOpen() {
+  assert.equal(await canConnect(mcpRuntimePort), true, 'MCP 填表服务没有监听 17323');
+}
+
 async function launchDesktop() {
   return electron.launch({
     ...(packagedExecutable
@@ -92,16 +104,29 @@ async function closeDesktop(application, page) {
   assert.equal(closedGracefully, true, '桌面 Shell 没有正常退出');
 }
 
-async function inspectBrowserWorkspace(url) {
+function structured(result) {
+  assert.equal(typeof result?.structuredContent, 'object');
+  assert.equal(result.structuredContent.ok, true, JSON.stringify(result.structuredContent));
+  return result.structuredContent.data;
+}
+
+async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath }) {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
+  let client;
   try {
     const context = await browser.newContext();
-    const page = await context.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    await page.getByRole('heading', { name: '先把基础资料装进浏览器' }).waitFor({
+    const workspacePage = await context.newPage();
+    const browserLogs = [];
+    const captureLogs = (page, label) => {
+      page.on('console', (message) => browserLogs.push(`[${label}:console:${message.type()}] ${message.text()}`));
+      page.on('pageerror', (error) => browserLogs.push(`[${label}:pageerror] ${error.message}`));
+    };
+    captureLogs(workspacePage, 'workspace');
+    await workspacePage.goto(workspaceUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await workspacePage.getByRole('heading', { name: '先把基础资料装进浏览器' }).waitFor({
       timeout: 60_000,
     });
-    const runtime = await page.evaluate(async () => ({
+    const runtime = await workspacePage.evaluate(async () => ({
       desktopHost: typeof window.desktopHost,
       desktopWebHost: window.__DMG_DESKTOP_WEB_HOST__,
       workerReady: await window.__DMG_ENSURE_SERVICE_WORKER__?.(),
@@ -111,9 +136,121 @@ async function inspectBrowserWorkspace(url) {
     assert.equal(runtime.desktopWebHost, true, '系统浏览器没有识别本地 Shell 宿主');
     assert.equal(runtime.workerReady, true, '本地图片/资料 Worker 未接管浏览器页面');
     assert.match(runtime.controller, /\/sw-desktop\.js$/u);
-    assert.equal(await page.getByText('Electron Shell').count(), 0);
+    assert.equal(await workspacePage.getByText('Electron Shell').count(), 0);
+    assert.equal(new URL(workspacePage.url()).searchParams.has('__mcp_fill_publisher'), false, '浏览器地址栏没有清除快照发布能力参数');
+    const ordinaryAuthority = await workspacePage.evaluate(async () => {
+      const publisher = window.sessionStorage.getItem('dmg.desktop.mcp-fill-publisher.v1') || '';
+      const response = await fetch('http://127.0.0.1:31457/mcp-fill-host/proposals', {
+        headers: { 'x-dmg-mcp-fill-capability': publisher },
+      });
+      return { status: response.status, payload: await response.json() };
+    });
+    assert.equal(ordinaryAuthority.status, 403, '普通工作页不应获得 MCP 审核权限');
+    assert.equal(ordinaryAuthority.payload?.error?.code, 'mcp-fill-review-authority-required');
+
+    await workspacePage.getByRole('button', { name: '下载完整资料并开始' }).click();
+    await workspacePage.getByRole('button', { name: '打开排轴工作区' }).waitFor({ timeout: 120_000 });
+    assert.equal(await workspacePage.getByText('MCP 填表', { exact: true }).count(), 0, '普通前端导航不应暴露 MCP 入口');
+
+    const reviewPage = await context.newPage();
+    captureLogs(reviewPage, 'review');
+    await reviewPage.goto(mcpUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+    await reviewPage.getByRole('heading', { name: 'MCP 填表', exact: true }).waitFor({ timeout: 60_000 });
+    await reviewPage.getByText('MCP 服务运行中').waitFor({ timeout: 30_000 });
+    await workspacePage.getByRole('heading', { name: '另一个标签页正在编辑' }).waitFor({ timeout: 30_000 });
+    assert.equal(new URL(reviewPage.url()).searchParams.has('__mcp_fill_publisher'), false, 'MCP 页面没有清除快照发布能力参数');
+    assert.doesNotMatch(new URL(reviewPage.url()).hash, /__mcp_fill_review_grant/u, 'MCP 页面没有清除一次性审核授权');
+
+    const config = JSON.parse(fs.readFileSync(clientConfigPath, 'utf8'));
+    client = new Client({ name: 'desktop-electron-smoke', version: '1.0.0' }, { capabilities: {} });
+    const transport = new StreamableHTTPClientTransport(new URL(config.url), {
+      requestInit: { headers: { Authorization: `Bearer ${config.token}` } },
+    });
+    await client.connect(transport);
+    const tools = await client.listTools();
+    assert.deepEqual(tools.tools.map((tool) => tool.name), LEGACY_FILL_MCP_TOOL_NAMES);
+
+    const cases = [
+      {
+        domain: 'buff', targetId: 'desktop-smoke-buff', displayName: 'Desktop Smoke Buff',
+        draft: { ...structuredClone(fillFixture.domains.buff.draft), id: 'desktop-smoke-buff', name: 'Desktop Smoke Buff' },
+      },
+      {
+        domain: 'weapon', targetId: 'desktop-smoke-weapon', displayName: 'Desktop Smoke Weapon',
+        draft: { ...structuredClone(fillFixture.domains.weapon.draft), id: 'desktop-smoke-weapon', name: 'Desktop Smoke Weapon' },
+      },
+      {
+        domain: 'operator', targetId: 'desktop-smoke-operator', displayName: 'Desktop Smoke Operator',
+        draft: { ...structuredClone(fillFixture.domains.operator.draft), id: 'desktop-smoke-operator', name: 'Desktop Smoke Operator' },
+      },
+      {
+        domain: 'equipment', targetId: 'desktop-smoke-set', displayName: 'Desktop Smoke Set',
+        draft: {
+          ...structuredClone(fillFixture.domains.equipment.draft),
+          gearSets: {
+            'desktop-smoke-set': {
+              ...structuredClone(fillFixture.domains.equipment.draft.gearSets['fixture-set']),
+              gearSetId: 'desktop-smoke-set',
+              name: 'Desktop Smoke Set',
+            },
+          },
+        },
+      },
+    ];
+
+    for (const testCase of cases) {
+      const current = structured(await client.callTool({
+        name: 'fill_get_current',
+        arguments: { domain: testCase.domain },
+      }));
+      const created = structured(await client.callTool({
+        name: 'proposal_create',
+        arguments: {
+          ownerNamespace: config.ownerNamespace,
+          idempotencyKey: `desktop-electron-smoke-${testCase.domain}-v1`,
+          domain: testCase.domain,
+          schemaVersion: 1,
+          baseSnapshot: {
+            snapshotId: current.snapshotId,
+            revision: current.revision,
+            contentHash: current.contentHash,
+          },
+          draft: testCase.draft,
+          intent: `desktop smoke verifies ${testCase.domain} MCP-to-browser SQLite write`,
+          evidence: [{ label: 'desktop smoke', text: 'synthetic integration fixture' }],
+        },
+      }));
+      assert.equal(created.result, 'created');
+
+      await reviewPage.getByRole('button', { name: '刷新', exact: true }).click();
+      const queueItem = reviewPage.locator('.mcp-fill-proposal-list > button').filter({ hasText: testCase.displayName });
+      await queueItem.waitFor({ timeout: 30_000 });
+      await queueItem.click();
+      await reviewPage.getByRole('button', { name: '确认并写入', exact: true }).click();
+      const dialog = reviewPage.getByRole('dialog');
+      await dialog.getByRole('button', { name: '确认并写入', exact: true }).click();
+      try {
+        await reviewPage.getByText(/写入完成：Host 已重新读取目标/u).waitFor({ timeout: 30_000 });
+      } catch (error) {
+        const body = await reviewPage.locator('body').innerText().catch(() => '');
+        const latest = structured(await client.callTool({ name: 'fill_get_current', arguments: { domain: testCase.domain } }));
+        throw new Error(`MCP ${testCase.domain} 网页确认写入没有完成：${error instanceof Error ? error.message : String(error)}\nbase=${JSON.stringify(current)}\nlatest=${JSON.stringify(latest)}\n${body.slice(0, 8_000)}\n${browserLogs.join('\n')}`);
+      }
+
+      const search = structured(await client.callTool({
+        name: 'fill_search_library',
+        arguments: { domain: testCase.domain, inspectId: testCase.targetId },
+      }));
+      assert.equal(search.items[0].id, testCase.targetId);
+      const inspected = structured(await client.callTool({
+        name: 'proposal_inspect',
+        arguments: { ownerNamespace: config.ownerNamespace, proposalId: created.proposalId },
+      }));
+      assert.equal(inspected.status.lifecycleStatus, 'applied');
+    }
     await context.close();
   } finally {
+    await client?.close().catch(() => undefined);
     await browser.close();
   }
 }
@@ -136,31 +273,47 @@ try {
   const shellRuntime = await firstPage.evaluate(async () => ({
     capabilities: await window.desktopHost?.getCapabilities(),
     appInfo: await window.desktopHost?.getAppInfo(),
+    mcpState: await window.desktopHost?.getMcpState(),
   }));
   assert.equal(shellRuntime.capabilities?.host, 'desktop-shell');
   assert.equal(shellRuntime.capabilities?.browserWorkspace, true);
   assert.equal(shellRuntime.capabilities?.agent.available, false);
-  assert.equal(shellRuntime.capabilities?.mcp.available, false);
+  assert.equal(shellRuntime.capabilities?.mcp.available, true);
+  assert.equal(shellRuntime.mcpState?.ready, true, shellRuntime.mcpState?.reason);
+  assert.equal(shellRuntime.mcpState?.mcpUrl, 'http://127.0.0.1:17323/mcp');
+  assert.ok(fs.existsSync(shellRuntime.mcpState?.mcpClientConfigPath || ''));
   assert.equal(shellRuntime.appInfo?.webOrigin, expectedOrigin);
   assert.equal(shellRuntime.appInfo?.version, '1.8.2');
   assert.match(shellRuntime.appInfo?.webUrl || '', /[?&]__desktop_shell=1(?:&|$)/u);
+  assert.doesNotMatch(shellRuntime.appInfo?.webUrl || '', /__mcp_fill_(?:publisher|review_grant)/u);
 
   const hostResponse = await fetch(shellRuntime.appInfo.webUrl, { redirect: 'error' });
   assert.equal(hostResponse.status, 200);
   await assertRetiredPortsClosed();
+  await assertMcpPortOpen();
 
   await firstApplication.evaluate(({ shell: electronShell }) => {
-    globalThis.__DMG_SMOKE_OPENED_URL__ = '';
+    globalThis.__DMG_SMOKE_OPENED_URLS__ = [];
     electronShell.openExternal = async (url) => {
-      globalThis.__DMG_SMOKE_OPENED_URL__ = url;
+      globalThis.__DMG_SMOKE_OPENED_URLS__.push(url);
     };
   });
   await firstPage.getByRole('button', { name: '打开浏览器工作台' }).click();
   await firstPage.getByText(/浏览器工作台已打开/u).waitFor();
-  const openedUrl = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URL__);
-  assert.equal(openedUrl, shellRuntime.appInfo.webUrl);
+  await firstPage.getByRole('button', { name: '打开 MCP 填表' }).click();
+  await firstPage.getByText(/MCP 填表已打开/u).waitFor();
+  const openedUrls = await firstApplication.evaluate(() => globalThis.__DMG_SMOKE_OPENED_URLS__);
+  assert.equal(openedUrls.length, 2);
+  assert.match(openedUrls[0], /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
+  assert.doesNotMatch(openedUrls[0], /__mcp_fill_review_grant/u);
+  assert.match(openedUrls[1], /[?&]__mcp_fill_publisher=[a-zA-Z0-9_-]+/u);
+  assert.match(openedUrls[1], /#\/mcp-fill\?__mcp_fill_review_grant=[a-zA-Z0-9_-]+$/u);
 
-  await inspectBrowserWorkspace(shellRuntime.appInfo.webUrl);
+  await inspectBrowserWorkspace({
+    workspaceUrl: openedUrls[0],
+    mcpUrl: openedUrls[1],
+    clientConfigPath: shellRuntime.mcpState.mcpClientConfigPath,
+  });
 
   const bypassedSelection = await firstPage.evaluate(async (fixture) => (
     window.desktopHost?.buildDataRelease({
@@ -217,8 +370,10 @@ try {
   assert.equal(await secondPage.getByLabel('Shell 显示比例').inputValue(), '1.25');
   assert.equal((await fetch(`${expectedOrigin}/`)).status, 200);
   await assertRetiredPortsClosed();
+  await assertMcpPortOpen();
   await closeDesktop(secondApplication, secondPage);
   secondApplication = undefined;
+  assert.equal(await canConnect(mcpRuntimePort), false, 'Electron 退出后 MCP 服务仍在监听');
 
   console.log(JSON.stringify({
     result: 'independent desktop shell smoke passed',
@@ -226,6 +381,8 @@ try {
     browserOrigin: expectedOrigin,
     browserUsesPreload: false,
     retiredRuntimePorts,
+    mcpRuntimePort,
+    mcpProposalRoundTrip: ['buff', 'weapon', 'operator', 'equipment'],
     releaseTools: true,
     packagedExecutable: packagedExecutable || null,
   }, null, 2));

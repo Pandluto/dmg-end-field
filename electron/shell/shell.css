@@ -190,6 +190,18 @@ code {
   color: var(--pending);
 }
 
+.status-grid strong.ready {
+  color: var(--accent);
+}
+
+.status-action {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 9px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+
 .panel {
   padding: 20px;
 }

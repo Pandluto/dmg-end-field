@@ -13,6 +13,8 @@ export const APP_ROUTE_PATHS = {
   operatorConfig: '/timeline/operator-config',
   timelineSkillDetail: '/timeline/skill',
   damageReportPpt: '/timeline/report/presentation',
+  mcpFill: '/mcp-fill',
+  legacyFillReview: '/legacy-fill-review',
 } as const;
 
 export function getTimelineSkillDetailPath(buttonId: string): string {

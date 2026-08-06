@@ -1,0 +1,131 @@
+{
+  "fixtureVersion": 1,
+  "protocolVersion": 1,
+  "description": "Synthetic, path-free legacy REST wire inputs used to freeze current/library/template/check/apply behavior.",
+  "domains": {
+    "buff": {
+      "currentFormat": "BuffDraft",
+      "libraryFormat": "BuffDraftMap",
+      "templateFormat": "BuffFillAiDraft",
+      "draft": {
+        "id": "fixture-buff",
+        "name": "Fixture Buff",
+        "sourceName": "Contract Fixture",
+        "source": "fixture",
+        "description": "Synthetic contract fixture.",
+        "items": [
+          {
+            "name": "Fixture Item",
+            "sourceName": "Contract Fixture",
+            "description": "Synthetic item.",
+            "effects": [
+              {
+                "displayName": "Attack +10%",
+                "name": "Attack +10%",
+                "level": "",
+                "source": "fixture",
+                "sourceName": "Contract Fixture",
+                "description": "Synthetic modifier.",
+                "condition": "",
+                "effectKind": "modifier",
+                "type": "atkPercentBoost",
+                "value": 0.1,
+                "evidenceText": "Synthetic evidence for a ten percent attack modifier.",
+                "confidence": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "weapon": {
+      "currentFormat": "WeaponDraft",
+      "libraryFormat": "WeaponDraftMap",
+      "draft": {
+        "id": "fixture-weapon",
+        "name": "Fixture Weapon",
+        "rarity": 1,
+        "type": "sword",
+        "description": "Synthetic contract fixture.",
+        "imgUrl": "",
+        "attackGrowth": {},
+        "sourceName": "Contract Fixture",
+        "source": "fixture",
+        "skills": {
+          "skill1": { "name": "Skill 1", "statType": "atk", "effects": {}, "levels": {} },
+          "skill2": { "name": "Skill 2", "statType": "atk", "effects": {}, "levels": {} },
+          "skill3": { "name": "Skill 3", "statType": "atk", "effects": {}, "levels": {} }
+        }
+      }
+    },
+    "operator": {
+      "currentFormat": "OperatorDraft",
+      "libraryFormat": "OperatorDraftMap",
+      "draft": {
+        "id": "fixture-operator",
+        "name": "Fixture Operator",
+        "avatarUrl": "",
+        "rarity": 4,
+        "profession": "术师",
+        "weapon": "法术单元",
+        "element": "nature",
+        "mainStat": "智识",
+        "subStat": "意志",
+        "level": 90,
+        "attributes": {},
+        "skills": {
+          "skill-A-1": {
+            "displayName": "Fixture Attack",
+            "buttonType": "A",
+            "iconUrl": "",
+            "hitCount": 1,
+            "hitMeta": {
+              "hit1": {
+                "displayName": "Fixture Hit",
+                "element": "nature",
+                "skillType": "A",
+                "levels": { "L1": 1 }
+              }
+            }
+          }
+        },
+        "buffs": {
+          "talent": { "effects": {} },
+          "potential": { "effects": {} },
+          "skill": { "effects": {} }
+        }
+      }
+    },
+    "equipment": {
+      "currentFormat": "EquipmentLibrary",
+      "libraryFormat": "EquipmentLibrary",
+      "draft": {
+        "updatedAt": "2026-01-01T00:00:00.000Z",
+        "gearSets": {
+          "fixture-set": {
+            "gearSetId": "fixture-set",
+            "name": "Fixture Set",
+            "equipments": {}
+          }
+        }
+      }
+    }
+  },
+  "invariants": {
+    "checkWrites": false,
+    "applyWrites": false,
+    "approvalStatus": "Wait",
+    "saveStatus": "Wait",
+    "restForbiddenCommands": [
+      "proposal.approve fixture",
+      "proposal.reject fixture",
+      "proposal.save fixture",
+      "proposal.unsave fixture",
+      "y",
+      "n"
+    ],
+    "forbiddenStatus": 403,
+    "pendingApplyStatus": 409,
+    "pendingApplyErrorCode": "pending-proposals-blocking"
+  }
+}

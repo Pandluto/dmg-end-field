@@ -31,8 +31,13 @@ class WorkspaceLeaseCoordinator {
 
   async requestControl(): Promise<WorkspaceLeaseRole> {
     this.channel?.postMessage({ type: 'release-request', requestedAt: Date.now() });
-    await new Promise((resolve) => window.setTimeout(resolve, 240));
-    return this.tryAcquire();
+    const deadline = Date.now() + 4_000;
+    do {
+      await new Promise((resolve) => window.setTimeout(resolve, 160));
+      const role = await this.tryAcquire();
+      if (role === 'writer') return role;
+    } while (Date.now() < deadline);
+    return this.role;
   }
 
   release(): void {
@@ -97,4 +102,3 @@ class WorkspaceLeaseCoordinator {
 }
 
 export const workspaceLease = new WorkspaceLeaseCoordinator();
-

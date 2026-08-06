@@ -29,6 +29,14 @@ import {
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
+import {
+  captureDesktopMcpCapability,
+  hasDesktopMcpReviewAuthority,
+} from '../../platform/runtime/desktopMcpBridge';
+import {
+  bootstrapLegacyFillHostGateway,
+  publishLegacyFillHostSnapshot,
+} from '../../legacyFillHost/runtime';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../../utils/appRoute';
 import { AccessGate } from './AccessGate';
 import { RuntimeFailurePage } from './RuntimeFailurePage';
@@ -40,6 +48,14 @@ type BootstrapPhase = 'checking-access' | 'locked' | 'starting' | 'secondary' | 
 
 export function WebBootstrap() {
   const desktopWebHost = isDesktopWebHost();
+  const [desktopMcpContext] = useState(() => {
+    const capability = desktopWebHost && captureDesktopMcpCapability();
+    return {
+      capability,
+      reviewLaunch: capability && hasDesktopMcpReviewAuthority(),
+    };
+  });
+  const desktopMcpCapability = desktopMcpContext.capability;
   const [phase, setPhase] = useState<BootstrapPhase>(
     () => (desktopWebHost ? 'starting' : 'checking-access'),
   );
@@ -51,7 +67,10 @@ export function WebBootstrap() {
     setPhase('starting');
     setFailure('');
     try {
-      const role = await workspaceLease.start();
+      let role = await workspaceLease.start();
+      if (role !== 'writer' && desktopMcpContext.reviewLaunch) {
+        role = await workspaceLease.requestControl();
+      }
       if (role !== 'writer') {
         setPhase('secondary');
         return;
@@ -59,6 +78,9 @@ export function WebBootstrap() {
       await webDatabase.initialize();
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
+      if (desktopMcpCapability) {
+        await bootstrapLegacyFillHostGateway().catch(() => null);
+      }
       await initializeWebImageLibrary();
       await normalizeAppliedLocalDataImagePaths();
       void requestPersistentBrowserStorage();
@@ -80,6 +102,9 @@ export function WebBootstrap() {
       if (complete && !hasAnyAppliedIndependentLibraries()) {
         await applyDefaultLocalDataPackage({ backup: false });
       }
+      if (complete && desktopMcpCapability) {
+        await publishLegacyFillHostSnapshot().catch(() => null);
+      }
       setPhase(complete ? 'ready' : 'onboarding');
       if (complete && (window.location.hash === '' || window.location.hash === '#/')) {
         navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -88,7 +113,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopWebHost]);
+  }, [desktopMcpCapability, desktopMcpContext.reviewLaunch, desktopWebHost]);
 
   const handleInstalled = useCallback(async (
     resourcePackage: InstalledResourcePackage,
@@ -105,6 +130,9 @@ export function WebBootstrap() {
         );
       }
       await initializeAppTheme().catch(() => undefined);
+      if (desktopMcpCapability) {
+        await publishLegacyFillHostSnapshot().catch(() => null);
+      }
       setInstalledPackage(resourcePackage);
       setInstalledImagePackage(imagePackage);
       navigateToAppPath(APP_ROUTE_PATHS.welcome);
@@ -113,7 +141,7 @@ export function WebBootstrap() {
       setFailure(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
-  }, [desktopWebHost]);
+  }, [desktopMcpCapability, desktopWebHost]);
 
   useEffect(() => {
     if (desktopWebHost) {

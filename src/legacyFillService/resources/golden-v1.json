@@ -1,0 +1,107 @@
+{
+  "version": "v1",
+  "kind": "validated-curated-fixtures",
+  "domains": {
+    "weapon": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "weapon-stacking-chiying-v1",
+          "sourceCase": "legacy golden example: Chiying conditional physical-damage stacks",
+          "strategyTags": ["stacking", "condition", "level-specific-values"],
+          "draft": {
+            "id": "fixture-golden-chiying",
+            "name": "Curated Chiying Example",
+            "rarity": 6,
+            "type": "sword",
+            "description": "Sanitized versioned example; no personal library data or absolute path.",
+            "imgUrl": "",
+            "attackGrowth": {},
+            "sourceName": "Curated legacy golden example",
+            "source": "curated-fixture",
+            "skills": {
+              "skill1": { "name": "Ability", "statType": "agility", "effects": {}, "levels": {} },
+              "skill2": { "name": "Attribute", "statType": "ultimateChargeEfficiency", "effects": {}, "levels": {} },
+              "skill3": {
+                "name": "Conditional stacking example",
+                "statType": "special",
+                "effects": {
+                  "effect1": { "name": "Physical damage · 1 stack", "type": "physicalDmgBonus", "category": "condition", "levels": { "1": 0.06, "2": 0.07, "3": 0.08, "4": 0.09, "5": 0.10, "6": 0.11, "7": 0.12, "8": 0.13, "9": 0.15 } },
+                  "effect2": { "name": "Physical damage · 2 stacks", "type": "physicalDmgBonus", "category": "condition", "levels": { "1": 0.12, "2": 0.14, "3": 0.16, "4": 0.18, "5": 0.20, "6": 0.22, "7": 0.24, "8": 0.26, "9": 0.30 } },
+                  "effect3": { "name": "Physical damage · 3 stacks", "type": "physicalDmgBonus", "category": "condition", "levels": { "1": 0.18, "2": 0.21, "3": 0.24, "4": 0.27, "5": 0.30, "6": 0.33, "7": 0.36, "8": 0.39, "9": 0.45 } },
+                  "effect4": { "name": "Physical damage · 4 stacks", "type": "physicalDmgBonus", "category": "condition", "levels": { "1": 0.24, "2": 0.28, "3": 0.32, "4": 0.36, "5": 0.40, "6": 0.44, "7": 0.48, "8": 0.52, "9": 0.60 } }
+                },
+                "levels": {}
+              }
+            }
+          }
+        }
+      ]
+    },
+    "operator": {
+      "schemaVersion": 1,
+      "fixtures": [
+        {
+          "id": "operator-countable-zhanfeng-v1",
+          "sourceCase": "legacy golden example: Zhanfeng five-stack countable effect",
+          "strategyTags": ["countable", "stacking", "evidence"],
+          "draft": {
+            "id": "fixture-golden-operator",
+            "name": "Curated Countable Example",
+            "avatarUrl": "",
+            "rarity": 4,
+            "profession": "术师",
+            "weapon": "法术单元",
+            "element": "nature",
+            "mainStat": "智识",
+            "subStat": "意志",
+            "level": 90,
+            "attributes": {},
+            "skills": {
+              "skill-A-1": {
+                "displayName": "Curated Attack",
+                "buttonType": "A",
+                "iconUrl": "",
+                "hitCount": 1,
+                "hitMeta": {
+                  "hit1": {
+                    "displayName": "Curated Hit",
+                    "element": "nature",
+                    "skillType": "A",
+                    "levels": { "L1": 1 }
+                  }
+                }
+              }
+            },
+            "buffs": {
+              "talent": {
+                "effects": {
+                  "zhanfeng": {
+                    "effectId": "zhanfeng",
+                    "name": "斩锋",
+                    "type": "atkPercentBoost",
+                    "category": "countable",
+                    "value": 0.08,
+                    "maxStacks": 5,
+                    "unit": "percent",
+                    "valueMode": "fixed",
+                    "description": "技能命中后攻击力增加，最多五层。"
+                  }
+                }
+              },
+              "potential": { "effects": {} },
+              "skill": { "effects": {} }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "excluded": [
+    "personal library dumps",
+    "request/response captures",
+    "absolute paths",
+    "loopback image URLs",
+    "tokens and session identifiers"
+  ]
+}

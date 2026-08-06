@@ -61,11 +61,28 @@ const removedRuntimePrefixes = [
   'public/shell/',
   '.agents/skills/harness-audit-assistant/',
   'src/aiCli/',
-  'src/legacyFillCore/',
-  'src/legacyFillHost/',
-  'src/legacyFillService/',
   'src/components/def-opencode/',
 ];
+const allowedLegacyFillFiles = new Set([
+  'src/legacyFillCore/domains/buff/catalog.ts',
+  'src/legacyFillCore/domains/buff/schema.ts',
+  'src/legacyFillCore/domains/buff/validator.ts',
+  'src/legacyFillCore/domains/equipment.ts',
+  'src/legacyFillCore/domains/operator.ts',
+  'src/legacyFillCore/domains/weapon.ts',
+  'src/legacyFillCore/index.ts',
+  'src/legacyFillCore/preserveAssets.ts',
+  'src/legacyFillHost/browserGateway.ts',
+  'src/legacyFillHost/runtime.ts',
+  'src/legacyFillService/canonical-json.mjs',
+  'src/legacyFillService/domain-runtime-entry.ts',
+  'src/legacyFillService/mcp-operations.mjs',
+  'src/legacyFillService/mcp-server.mjs',
+  'src/legacyFillService/proposal-repository.mjs',
+  'src/legacyFillService/resources/golden-v1.json',
+  'src/legacyFillService/resources/strategy-v1.json',
+  'src/legacyFillService/server.mjs',
+]);
 const removedRuntimeFiles = new Set([
   'src/utils/localBridge.ts',
   'src/utils/localDataBridge.ts',
@@ -75,6 +92,7 @@ const thinShellElectronFiles = new Set([
   'electron/assets/icon.ico',
   'electron/assets/icon.png',
   'electron/entitlements.mac.plist',
+  'electron/legacy-fill-runtime.cjs',
   'electron/main.cjs',
   'electron/preload.cjs',
   'electron/shell/index.html',
@@ -91,6 +109,9 @@ for (const file of files) {
   }
   if (removedRuntimePrefixes.some((prefix) => file.startsWith(prefix)) || removedRuntimeFiles.has(file)) {
     fail(`removed desktop/Agent runtime returned: ${file}`);
+  }
+  if (/^src\/legacyFill(?:Core|Host|Service)\//.test(file) && !allowedLegacyFillFiles.has(file)) {
+    fail(`Legacy Fill runtime contains an unreviewed file: ${file}`);
   }
   if (file.startsWith('electron/') && !thinShellElectronFiles.has(file)) {
     fail(`thin Electron Shell contains an unapproved runtime file: ${file}`);
@@ -134,15 +155,21 @@ if (!packageJson.build || packageJson.build.appId !== 'com.dmg.def') {
 }
 
 const forbiddenDependencies = [
-  '@modelcontextprotocol/sdk',
   'better-sqlite3',
   'electron-updater',
   'sqlite3',
-  'zod',
 ];
 for (const dependency of forbiddenDependencies) {
   if (packageJson.dependencies?.[dependency] || packageJson.devDependencies?.[dependency]) {
     fail(`removed runtime dependency returned: ${dependency}`);
+  }
+}
+for (const dependency of ['@modelcontextprotocol/sdk', 'esbuild', 'zod']) {
+  if (!packageJson.devDependencies?.[dependency]) {
+    fail(`Legacy Fill MCP development dependency is missing: ${dependency}`);
+  }
+  if (packageJson.dependencies?.[dependency]) {
+    fail(`bundled Legacy Fill dependency must not ship through node_modules: ${dependency}`);
   }
 }
 for (const dependency of ['concurrently', 'electron', 'electron-builder', 'wait-on']) {
@@ -154,7 +181,7 @@ for (const dependency of ['concurrently', 'electron', 'electron-builder', 'wait-
   }
 }
 for (const [name, command] of Object.entries(packageJson.scripts || {})) {
-  if (/public\/shell|ai-cli-rest-server|legacy-fill|17321|17322|17323/.test(String(command))) {
+  if (/public\/shell|ai-cli-rest-server|17321|17322/.test(String(command))) {
     fail(`desktop command references a retired runtime in script ${name}`);
   }
 }
@@ -312,6 +339,6 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `REPOSITORY_CHECK_OK profile=desktop-thin-shell tracked=${files.length} syntax=${syntaxFiles.length} `
+  `REPOSITORY_CHECK_OK profile=desktop-thin-shell-legacy-fill-mcp tracked=${files.length} syntax=${syntaxFiles.length} `
   + `data=${dataManifest.files.length} images=${imageManifest.files.length} docs=${stableDocs.length}`,
 );

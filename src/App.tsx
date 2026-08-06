@@ -31,6 +31,7 @@ const loadEquipmentSheetPage = () => import('./components/EquipmentSheetPage');
 const loadDamageReportPptPage = () => import('./components/DamageReportPptPage');
 const loadImageManagerPage = () => import('./components/ImageManagerPage');
 const loadOperatorConfigPage = () => import('./components/OperatorConfigPage');
+const loadMcpFillPage = () => import('./components/McpFillPage');
 
 const WorkbenchFrame = lazy(async () => ({
   default: (await loadWorkbenchFrame()).WorkbenchFrame,
@@ -56,6 +57,9 @@ const ImageManagerPage = lazy(async () => ({
 const OperatorConfigPage = lazy(async () => ({
   default: (await loadOperatorConfigPage()).OperatorConfigPage,
 }));
+const McpFillPage = lazy(async () => ({
+  default: (await loadMcpFillPage()).McpFillPage,
+}));
 
 const routePreloaders = [
   loadWorkbenchFrame,
@@ -78,6 +82,10 @@ function isOverlayPath(path: string): boolean {
 function isWorkbenchPath(path: string): boolean {
   return path === APP_ROUTE_PATHS.timelineWorkspace
     || path.startsWith(`${APP_ROUTE_PATHS.timelineSkillDetail}/`);
+}
+
+function isMcpFillPath(path: string): boolean {
+  return path === APP_ROUTE_PATHS.mcpFill || path === APP_ROUTE_PATHS.legacyFillReview;
 }
 
 function PageLoadingFallback() {
@@ -204,6 +212,16 @@ function App() {
       if (timerHandle !== null) window.clearTimeout(timerHandle);
     };
   }, []);
+
+  if (isMcpFillPath(currentPath)) {
+    return (
+      <div className="app">
+        <RouteLoadBoundary key={currentPath}>
+          <Suspense fallback={<PageLoadingFallback />}><McpFillPage /></Suspense>
+        </RouteLoadBoundary>
+      </div>
+    );
+  }
 
   let page: ReactNode;
   let overlay: ReactNode = null;

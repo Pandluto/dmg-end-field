@@ -166,6 +166,31 @@ async function main() {
 
     await close();
     assert.equal(server.listening, false);
+
+    let bridgeCalls = 0;
+    staticHost = await createDesktopStaticServer({
+      rootDir,
+      port: 0,
+      serveStatic: false,
+      requestHandler(request, response) {
+        if (new URL(request.url, 'http://bridge.invalid').pathname !== '/bridge') return false;
+        bridgeCalls += 1;
+        response.writeHead(request.method === 'OPTIONS' ? 204 : 200, {
+          'Content-Type': 'application/json; charset=utf-8',
+        });
+        response.end(request.method === 'OPTIONS' ? undefined : '{"ok":true}');
+        return true;
+      },
+    });
+    const bridge = await request(staticHost.origin, '/bridge');
+    assert.equal(bridge.status, 200);
+    assert.equal(text(bridge), '{"ok":true}');
+    assert.equal((await request(staticHost.origin, '/bridge', { method: 'OPTIONS' })).status, 204);
+    assert.equal((await request(staticHost.origin, '/index.html')).status, 404, 'bridge-only host does not serve Shell files');
+    const callsBeforeRejectedHost = bridgeCalls;
+    assert.equal((await request(staticHost.origin, '/bridge', { headers: { Host: 'attacker.invalid' } })).status, 403);
+    assert.equal(bridgeCalls, callsBeforeRejectedHost, 'Host validation runs before dynamic bridge handlers');
+    await staticHost.close();
     console.log('desktop static host smoke: PASS');
   } finally {
     if (staticHost?.server.listening) await staticHost.close();

@@ -13,14 +13,18 @@ const {
   session,
   shell,
   Tray,
+  utilityProcess,
 } = require('electron');
 const { createDesktopStaticServer } = require('./static-host.cjs');
+const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 
 const DESKTOP_HOST = '127.0.0.1';
 const DESKTOP_PORT = 31457;
 const DESKTOP_ORIGIN = `http://${DESKTOP_HOST}:${DESKTOP_PORT}`;
 const DEV_ORIGIN = 'http://127.0.0.1:3030';
 const DESKTOP_WEB_MARKER = '__desktop_shell';
+const MCP_PUBLISHER_QUERY = '__mcp_fill_publisher';
+const MCP_REVIEW_GRANT_QUERY = '__mcp_fill_review_grant';
 const APPLICATION_ROOT = path.resolve(__dirname, '..');
 const SHELL_DOCUMENT_PATH = path.join(__dirname, 'shell', 'index.html');
 const applicationMetadata = JSON.parse(
@@ -55,15 +59,29 @@ const browserOrigin = isDevelopment
   ? resolveDevelopmentOrigin(process.env.DMG_DESKTOP_DEV_URL || DEV_ORIGIN)
   : DESKTOP_ORIGIN;
 
-function buildBrowserUrl() {
+function buildBrowserUrl(routePath = '', options = {}) {
+  const includePublisher = options.includePublisher === true;
+  const reviewLaunchGrant = typeof options.reviewLaunchGrant === 'string'
+    ? options.reviewLaunchGrant
+    : '';
   const url = new URL('/', browserOrigin);
   url.searchParams.set(DESKTOP_WEB_MARKER, '1');
+  if (includePublisher && legacyFillRuntime?.publisherCapability) {
+    url.searchParams.set(MCP_PUBLISHER_QUERY, legacyFillRuntime.publisherCapability);
+  }
+  if (routePath) {
+    const route = routePath.startsWith('/') ? routePath : `/${routePath}`;
+    const hashQuery = new URLSearchParams();
+    if (reviewLaunchGrant) hashQuery.set(MCP_REVIEW_GRANT_QUERY, reviewLaunchGrant);
+    url.hash = `#${route}${hashQuery.size ? `?${hashQuery}` : ''}`;
+  }
   return url.href;
 }
 
 let shellWindow = null;
 let tray = null;
 let staticHost = null;
+let legacyFillRuntime = null;
 let allowQuit = false;
 let quitInProgress = false;
 let shellScale = DEFAULT_SCALE;
@@ -151,9 +169,20 @@ function hideShellWindow() {
 }
 
 async function openBrowserWorkspace() {
-  const url = buildBrowserUrl();
-  await shell.openExternal(url);
-  return url;
+  await shell.openExternal(buildBrowserUrl('', { includePublisher: true }));
+  return buildBrowserUrl();
+}
+
+async function openMcpFillWorkspace() {
+  if (!legacyFillRuntime) throw new Error('MCP 填表运行时尚未初始化。');
+  const runtime = await legacyFillRuntime.start();
+  if (!runtime.ready) throw new Error(runtime.reason || 'MCP 填表服务未就绪。');
+  const reviewLaunchGrant = legacyFillRuntime.issueReviewLaunchGrant();
+  await shell.openExternal(buildBrowserUrl('/mcp-fill', {
+    includePublisher: true,
+    reviewLaunchGrant,
+  }));
+  return { url: buildBrowserUrl('/mcp-fill'), runtime };
 }
 
 function updateTrayMenu() {
@@ -163,6 +192,12 @@ function updateTrayMenu() {
       label: '打开浏览器工作台',
       click: () => void openBrowserWorkspace().catch((error) => {
         dialog.showErrorBox('无法打开浏览器工作台', error instanceof Error ? error.message : String(error));
+      }),
+    },
+    {
+      label: '打开 MCP 填表',
+      click: () => void openMcpFillWorkspace().catch((error) => {
+        dialog.showErrorBox('无法打开 MCP 填表', error instanceof Error ? error.message : String(error));
       }),
     },
     {
@@ -258,12 +293,16 @@ async function importReleaseBuilder(fileName) {
 function registerIpc() {
   ipcMain.handle('desktop:get-capabilities', (event) => {
     requireTrustedSender(event);
+    const mcpState = legacyFillRuntime?.state();
     return {
       host: 'desktop-shell',
       browserWorkspace: true,
       releaseTools: { images: true, data: true },
       agent: { available: false, reason: '本轮仅保留接口占位' },
-      mcp: { available: false, reason: '本轮仅保留接口占位' },
+      mcp: {
+        available: Boolean(mcpState?.ready),
+        reason: mcpState?.reason || 'MCP 填表服务尚未初始化',
+      },
     };
   });
   ipcMain.handle('desktop:get-app-info', (event) => {
@@ -274,6 +313,7 @@ function registerIpc() {
       platform: process.platform,
       arch: process.arch,
       webUrl: buildBrowserUrl(),
+      mcpReviewUrl: buildBrowserUrl('/mcp-fill'),
       webOrigin: browserOrigin,
       development: isDevelopment,
     };
@@ -295,6 +335,27 @@ function registerIpc() {
     requireTrustedSender(event);
     try {
       return { ok: true, url: await openBrowserWorkspace() };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+  ipcMain.handle('desktop:get-mcp-state', (event) => {
+    requireTrustedSender(event);
+    return legacyFillRuntime?.state() || {
+      running: false,
+      ready: false,
+      reason: 'MCP 填表运行时尚未初始化。',
+    };
+  });
+  ipcMain.handle('desktop:open-mcp-fill', async (event) => {
+    requireTrustedSender(event);
+    try {
+      const result = await openMcpFillWorkspace();
+      return {
+        ok: true,
+        ...result,
+        clientConfigPath: legacyFillRuntime.clientConfigPath,
+      };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -371,21 +432,46 @@ async function startApplication() {
     throw new Error(`缺少 Shell 页面：${SHELL_DOCUMENT_PATH}`);
   }
   loadSettings();
+  const legacyFillRuntimeRoot = path.join(
+    app.getPath('userData'),
+    'runtime',
+    'legacy-fill-service',
+  );
+  legacyFillRuntime = createLegacyFillRuntime({
+    applicationRoot: app.isPackaged
+      ? path.join(process.resourcesPath, 'app.asar.unpacked')
+      : APPLICATION_ROOT,
+    runtimeRoot: legacyFillRuntimeRoot,
+    browserOrigin,
+    diagnostic,
+    launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {
+      cwd,
+      env,
+      stdio: 'pipe',
+      serviceName: 'Legacy Fill MCP Service',
+    }),
+  });
   registerIpc();
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
   });
 
-  if (!isDevelopment) {
-    const distDirectory = path.join(APPLICATION_ROOT, 'dist');
-    diagnostic(`starting browser workspace host from ${distDirectory}`);
-    staticHost = await createDesktopStaticServer({
-      rootDir: distDirectory,
-      host: DESKTOP_HOST,
-      port: DESKTOP_PORT,
-    });
-    diagnostic(`browser workspace listening at ${staticHost.origin}`);
-  }
+  const browserHostRoot = isDevelopment
+    ? path.join(APPLICATION_ROOT, 'electron', 'shell')
+    : path.join(APPLICATION_ROOT, 'dist');
+  diagnostic(isDevelopment
+    ? 'starting MCP browser bridge without static files'
+    : `starting browser workspace host from ${browserHostRoot}`);
+  staticHost = await createDesktopStaticServer({
+    rootDir: browserHostRoot,
+    host: DESKTOP_HOST,
+    port: DESKTOP_PORT,
+    requestHandler: legacyFillRuntime.handleBrowserRequest,
+    serveStatic: !isDevelopment,
+  });
+  diagnostic(`browser workspace bridge listening at ${staticHost.origin}`);
+  const mcpState = await legacyFillRuntime.start();
+  diagnostic(`mcp fill ${mcpState.ready ? 'ready' : 'unavailable'} ${mcpState.reason}`);
 
   Menu.setApplicationMenu(null);
   createTray();
@@ -408,12 +494,11 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (quitInProgress) return;
   quitInProgress = true;
-  if (!staticHost) {
-    allowQuit = true;
-    app.quit();
-    return;
-  }
-  void staticHost.close().catch(() => undefined).finally(() => {
+  const shutdownTasks = [
+    legacyFillRuntime?.stop(),
+    staticHost?.close(),
+  ].filter(Boolean);
+  void Promise.allSettled(shutdownTasks).finally(() => {
     allowQuit = true;
     app.quit();
   });

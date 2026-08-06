@@ -236,9 +236,18 @@ async function resolveFile({ rootRealPath, pathname }) {
   return fallback.kind === 'forbidden' ? fallback : { kind: 'missing' };
 }
 
-async function handleRequest(request, response, rootRealPath) {
+async function handleRequest(request, response, rootRealPath, requestHandler, serveStatic) {
   if (!isLoopbackHostHeader(request.headers.host)) {
     sendText(response, 403, 'Forbidden');
+    return;
+  }
+
+  if (requestHandler && await requestHandler(request, response)) {
+    return;
+  }
+
+  if (!serveStatic) {
+    sendText(response, 404, 'Not Found');
     return;
   }
 
@@ -295,7 +304,13 @@ async function handleRequest(request, response, rootRealPath) {
   stream.pipe(response);
 }
 
-async function createDesktopStaticServer({ rootDir, host = '127.0.0.1', port = 31457 } = {}) {
+async function createDesktopStaticServer({
+  rootDir,
+  host = '127.0.0.1',
+  port = 31457,
+  requestHandler,
+  serveStatic = true,
+} = {}) {
   if (typeof rootDir !== 'string' || rootDir.length === 0) {
     throw new TypeError('rootDir must be a non-empty string');
   }
@@ -308,6 +323,13 @@ async function createDesktopStaticServer({ rootDir, host = '127.0.0.1', port = 3
     throw new TypeError('host must be a loopback hostname');
   }
 
+  if (requestHandler !== undefined && typeof requestHandler !== 'function') {
+    throw new TypeError('requestHandler must be a function');
+  }
+  if (typeof serveStatic !== 'boolean') {
+    throw new TypeError('serveStatic must be a boolean');
+  }
+
   const rootRealPath = await fsPromises.realpath(path.resolve(rootDir));
   const rootStats = await fsPromises.stat(rootRealPath);
   if (!rootStats.isDirectory()) {
@@ -315,7 +337,7 @@ async function createDesktopStaticServer({ rootDir, host = '127.0.0.1', port = 3
   }
 
   const server = http.createServer((request, response) => {
-    handleRequest(request, response, rootRealPath).catch(() => {
+    handleRequest(request, response, rootRealPath, requestHandler, serveStatic).catch(() => {
       sendText(response, 500, 'Internal Server Error');
     });
   });
