@@ -75,14 +75,12 @@ export function WeaponResultPreview({ value }: Props) {
   const imageUrl = draft.imgUrl ? normalizeAssetUrl(draft.imgUrl) : '';
 
   return (
-    <article className="mcp-domain-result is-weapon">
-      <header className="mcp-domain-result-hero">
+    <article className="mcp-domain-result is-weapon" aria-label={`${draft.name} 完整结果`}>
+      <header className="mcp-domain-result-hero is-compact">
         <div className="mcp-domain-result-image" aria-hidden={!imageUrl}>
           {imageUrl ? <img src={imageUrl} alt="" /> : <span>武器</span>}
         </div>
         <div className="mcp-domain-result-heading">
-          <span className="mcp-domain-result-kicker">武器资料已整理</span>
-          <h1>{draft.name}</h1>
           <p>{draft.description || '没有补充说明。'}</p>
           <div className="mcp-domain-result-tags">
             <span>{'★'.repeat(Math.max(1, Math.min(6, Number(draft.rarity) || 1)))}</span>

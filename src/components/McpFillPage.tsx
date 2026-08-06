@@ -420,43 +420,32 @@ export function McpFillPage() {
 
           {selected ? (
             <>
-              <header className="mcp-fill-review-header">
-                <div className="mcp-fill-review-copy">
-                  <div className="mcp-fill-review-kicker">
-                    <span>{DOMAIN_LABELS[selected.domain]}</span>
-                    <span>{manifest.target?.existsInBase === false ? '新增资料' : '更新资料'}</span>
-                    <span className={`is-${selected.lifecycleStatus}`}>{STATUS_LABELS[selected.lifecycleStatus]}</span>
-                  </div>
-                  <h2>{proposalTargetLabel(selected)}</h2>
-                  <p>{selected.summary}</p>
-                  <div className="mcp-fill-review-meta">
-                    <span>提案 r{selected.revision}</span>
-                    <span>{displayTime(selected.updatedAt)}</span>
-                    <code title={selected.proposalId}>{selected.proposalId}</code>
-                  </div>
+              <div className="mcp-fill-review-toolbar">
+                <nav className="mcp-fill-view-tabs" role="tablist" aria-label="提案查看方式">
+                  {VIEWS.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={view === item.id}
+                      className={view === item.id ? 'is-active' : ''}
+                      onClick={() => setView(item.id)}
+                    >
+                      {item.label}
+                      {item.id === 'changes' ? <small>{changes.total}</small> : null}
+                    </button>
+                  ))}
+                </nav>
+                <div
+                  className={`mcp-fill-review-status ${validation.valid ? 'is-valid' : 'is-invalid'}`}
+                  role="status"
+                  title={`${validation.valid ? '内容检查通过' : '内容检查未通过'}；${validation.errors.length} 错误，${validation.warnings.length} 提醒`}
+                >
+                  <i aria-hidden="true" />
+                  <strong>{validation.valid ? '检查通过' : '检查未通过'}</strong>
+                  <span>{validation.errors.length} 错误 · {validation.warnings.length} 提醒</span>
                 </div>
-                <div className={`mcp-fill-validation-card ${validation.valid ? 'is-valid' : 'is-invalid'}`}>
-                  <span>{validation.valid ? '内容检查通过' : '内容检查未通过'}</span>
-                  <strong>{validation.errors.length} 错误 · {validation.warnings.length} 提醒</strong>
-                  <small>{changes.isNew ? '新增完整资料' : `${changes.total} 项字段变更`}</small>
-                </div>
-              </header>
-
-              <nav className="mcp-fill-view-tabs" role="tablist" aria-label="提案查看方式">
-                {VIEWS.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={view === item.id}
-                    className={view === item.id ? 'is-active' : ''}
-                    onClick={() => setView(item.id)}
-                  >
-                    {item.label}
-                    {item.id === 'changes' ? <small>{changes.total}</small> : null}
-                  </button>
-                ))}
-              </nav>
+              </div>
 
               <div className="mcp-fill-review-scroll" role="tabpanel">
                 {view === 'changes' ? (
@@ -490,7 +479,15 @@ export function McpFillPage() {
                     </section>
                     <section className="mcp-fill-context-card"><span>基础快照</span><dl><div><dt>Revision</dt><dd>{manifest.baseSnapshot?.revision ?? selected.baseRevision}</dd></div><div><dt>Snapshot</dt><dd><code>{manifest.baseSnapshot?.snapshotId || '—'}</code></dd></div></dl></section>
                     <section className="mcp-fill-context-card"><span>写入目标</span><dl>{(manifest.requestedWrites || []).map((write, index) => <div key={`${write.storageDomain}-${index}`}><dt>{write.storageDomain || selected.domain}</dt><dd><code>{write.targetId || manifest.target?.id || '—'}</code></dd></div>)}</dl></section>
-                    <section className="mcp-fill-context-card is-wide"><span>来源命名空间</span><code className="mcp-fill-block-code">{selected.ownerNamespace}</code></section>
+                    <section className="mcp-fill-context-card is-wide">
+                      <span>提案信息</span>
+                      <dl>
+                        <div><dt>版本</dt><dd>r{selected.revision}</dd></div>
+                        <div><dt>更新时间</dt><dd>{displayTime(selected.updatedAt)}</dd></div>
+                        <div><dt>提案 ID</dt><dd><code>{selected.proposalId}</code></dd></div>
+                        <div><dt>来源命名空间</dt><dd><code>{selected.ownerNamespace}</code></dd></div>
+                      </dl>
+                    </section>
                   </div>
                 ) : null}
               </div>

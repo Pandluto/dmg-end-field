@@ -50,23 +50,10 @@ export function EquipmentResultPreview({ value }: Props) {
   const effectCount = summaries.reduce((sum, item) => sum + item.effects, 0);
 
   return (
-    <article className="mcp-domain-result is-equipment">
-      <header className="mcp-domain-result-hero is-without-image">
-        <div className="mcp-domain-result-heading">
-          <span className="mcp-domain-result-kicker">装备资料已整理</span>
-          <h1>{gearSets.length === 1 ? gearSets[0].name : `${gearSets.length} 套装备`}</h1>
-          <p>装备、固定属性和词条等级已经按装备编辑器的结构整理完成。</p>
-          <div className="mcp-domain-result-tags">
-            <span>{gearSets.length} 个套装</span>
-            <span>{equipmentCount} 件装备</span>
-            <span>{effectCount} 个词条</span>
-          </div>
-        </div>
-      </header>
-
+    <article className="mcp-domain-result is-equipment" aria-label={`${gearSets.length === 1 ? gearSets[0].name : `${gearSets.length} 套装备`} 完整结果`}>
       <section className="mcp-domain-result-summary">
         <div><span>写入结果</span><strong>更新装备资料库</strong></div>
-        <div><span>内容规模</span><strong>{equipmentCount} 件装备，共 {effectCount} 个词条</strong></div>
+        <div><span>内容规模</span><strong>{gearSets.length} 个套装，{equipmentCount} 件装备，共 {effectCount} 个词条</strong></div>
       </section>
 
       <section className="mcp-domain-result-section">

@@ -250,13 +250,26 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
       }));
       assert.equal(reviewLayout.bodyMinWidth, '0px', 'MCP 审核页仍被主应用 1440px 最小宽度裁切');
       assert.equal(reviewLayout.routeClass, true, 'MCP 审核页没有启用独立响应式页面边界');
-      if (screenshotRoot && testCase.domain === 'buff') {
-        fs.mkdirSync(screenshotRoot, { recursive: true });
+      if (testCase.domain === 'buff') {
+        if (screenshotRoot) fs.mkdirSync(screenshotRoot, { recursive: true });
         const originalViewport = reviewPage.viewportSize();
         await reviewPage.setViewportSize({ width: 1440, height: 900 });
-        await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-wide.png') });
+        const compactReviewLayout = await reviewPage.evaluate(() => {
+          const toolbar = document.querySelector('.mcp-fill-review-toolbar')?.getBoundingClientRect();
+          const firstResultCard = document.querySelector('.mcp-fill-review-scroll .mcp-result-card')?.getBoundingClientRect();
+          return {
+            toolbarHeight: toolbar?.height || 0,
+            legacyHeaderCount: document.querySelectorAll('.mcp-fill-review-header').length,
+            firstResultTop: firstResultCard?.top || 0,
+          };
+        });
+        assert.ok(compactReviewLayout.toolbarHeight <= 52, 'MCP 审核工具栏重新占用了过多纵向空间');
+        assert.equal(compactReviewLayout.legacyHeaderCount, 0, 'MCP 审核页仍保留重复的提案标题区');
+        assert.ok(compactReviewLayout.firstResultTop > 0 && compactReviewLayout.firstResultTop < 500, '首个真实结果没有进入宽屏首屏');
+        assert.equal(await reviewPage.getByText(testCase.displayName, { exact: true }).count(), 1, '提案名称在队列和审核区重复显示');
+        if (screenshotRoot) await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-wide.png') });
         await reviewPage.setViewportSize({ width: 760, height: 900 });
-        await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-narrow.png') });
+        if (screenshotRoot) await reviewPage.screenshot({ path: path.join(screenshotRoot, 'mcp-fill-narrow.png') });
         if (originalViewport) await reviewPage.setViewportSize(originalViewport);
       }
       await reviewPage.getByRole('button', { name: '确认并写入', exact: true }).click();
@@ -336,7 +349,7 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath 
     assert.equal(await reviewPage.getByRole('button', { name: '确认并写入', exact: true }).isEnabled(), true);
 
     await reviewPage.getByRole('tab', { name: /完整结果/u }).click();
-    await reviewPage.locator('.mcp-domain-result').getByRole('heading', { name: updatedBuffDraft.name, exact: true }).waitFor();
+    await reviewPage.getByRole('article', { name: `${updatedBuffDraft.name} 完整结果`, exact: true }).waitFor();
     await reviewPage.getByRole('tab', { name: /提案依据/u }).click();
     await reviewPage.getByText(updateIntent, { exact: true }).waitFor();
     await reviewPage.getByRole('tab', { name: /变更内容/u }).click();

@@ -39,23 +39,15 @@ export function BuffResultPreview({ value }: Props) {
   const effectCount = items.reduce((sum, item) => sum + Object.keys(item.effects || {}).length, 0);
 
   return (
-    <article className="mcp-domain-result is-buff">
-      <header className="mcp-domain-result-hero is-without-image">
-        <div className="mcp-domain-result-heading">
-          <span className="mcp-domain-result-kicker">Buff 资料已整理</span>
-          <h1>{draft.name}</h1>
-          <p>{draft.description || '没有补充说明。'}</p>
-          <div className="mcp-domain-result-tags">
-            <span>{draft.sourceName || '本地自定义'}</span>
-            <span>{items.length} 个条目</span>
-            <span>{effectCount} 个效果</span>
-          </div>
-        </div>
-      </header>
+    <article className="mcp-domain-result is-buff" aria-label={`${draft.name} 完整结果`}>
+      <div className="mcp-domain-result-intro">
+        <span>{draft.sourceName || '本地自定义'}</span>
+        <p>{draft.description || '没有补充说明。'}</p>
+      </div>
 
       <section className="mcp-domain-result-summary">
         <div><span>写入结果</span><strong>新增或更新 1 组 Buff</strong></div>
-        <div><span>效果组织</span><strong>{items.length} 个条目，共 {effectCount} 个效果</strong></div>
+        <div><span>内容规模</span><strong>{items.length} 个条目，共 {effectCount} 个效果</strong></div>
       </section>
 
       <section className="mcp-domain-result-section">

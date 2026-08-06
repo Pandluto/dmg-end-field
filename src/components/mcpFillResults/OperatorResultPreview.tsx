@@ -38,14 +38,12 @@ export function OperatorResultPreview({ value }: Props) {
   const imageUrl = draft.avatarUrl ? normalizeAssetUrl(draft.avatarUrl) : '';
 
   return (
-    <article className="mcp-domain-result is-operator">
-      <header className="mcp-domain-result-hero">
+    <article className="mcp-domain-result is-operator" aria-label={`${draft.name} 完整结果`}>
+      <header className="mcp-domain-result-hero is-compact">
         <div className="mcp-domain-result-image is-avatar" aria-hidden={!imageUrl}>
           {imageUrl ? <img src={imageUrl} alt="" /> : <span>干员</span>}
         </div>
         <div className="mcp-domain-result-heading">
-          <span className="mcp-domain-result-kicker">干员资料已整理</span>
-          <h1>{draft.name}</h1>
           <p>{draft.profession || '未设置职业'} · {ELEMENT_LABELS[draft.element] || draft.element || '未设置元素'} · {draft.weapon || '未设置武器'}</p>
           <div className="mcp-domain-result-tags">
             <span>{'★'.repeat(Math.max(1, Math.min(6, Number(draft.rarity) || 1)))}</span>
