@@ -483,6 +483,7 @@ export class DefAgentHost {
   async shutdown(): Promise<void> {
     if (this.#shutdown) return;
     this.#shutdown = true;
+    if (this.#startingTurn) this.#startingTurn.abortCode ??= 'HOST_SHUTDOWN';
     if (this.#activeTurn) await this.abortTurn(this.#activeTurn.defTurnId, 'HOST_SHUTDOWN');
     await this.#engine.shutdown();
   }
@@ -977,14 +978,24 @@ export class DefAgentHost {
       starting.abortCode ??= 'BROWSER_CONSUMER_LOST';
     }
     if (!starting.abortCode) return null;
-    return {
-      code: starting.abortCode,
-      error: consumerError instanceof DefAgentHostError
-        ? consumerError
-        : new DefAgentHostError(
+    if (consumerError instanceof DefAgentHostError) {
+      return { code: starting.abortCode, error: consumerError };
+    }
+    if (starting.abortCode === 'BROWSER_CONSUMER_LOST') {
+      return {
+        code: starting.abortCode,
+        error: new DefAgentHostError(
           'AGENT_CONSUMER_REQUIRED',
           `Browser Workbench consumer was lost while starting DEF Turn ${starting.defTurnId}`,
         ),
+      };
+    }
+    return {
+      code: starting.abortCode,
+      error: new DefAgentHostError(
+        'AGENT_TURN_START_CANCELLED',
+        `DEF Turn ${starting.defTurnId} was cancelled while starting (${starting.abortCode})`,
+      ),
     };
   }
 

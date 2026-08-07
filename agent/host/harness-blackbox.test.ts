@@ -8,6 +8,7 @@ import {
   asWorkspaceId,
   type AgentEngine,
   type DefEvent,
+  type DefTurnId,
   type EngineToolResultInput,
   type JsonObject,
   type JsonValue,
@@ -312,6 +313,86 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
     await new Promise((resolve) => setTimeout(resolve, 1));
   }
   throw new Error(message);
+}
+
+async function delayedStartingTurnFixture(label: string) {
+  const owner = claims(`phase3-${label}-owner`);
+  const consumers = new BrowserConsumerRegistry();
+  const registration = {
+    consumerId: `consumer-${label}`,
+    executorLeaseId: `lease-${label}`,
+    writer: true as const,
+    visible: true as const,
+    binding: binding(),
+  };
+  consumers.register(owner, registration);
+  const gateway = new RemoteBrowserProductGateway(consumers);
+  gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: snapshot(),
+  });
+  const baseEngine = new DeterministicFakeAgentEngine();
+  let markHandleReady!: () => void;
+  const handleReady = new Promise<void>((resolve) => { markHandleReady = resolve; });
+  let releaseStart!: () => void;
+  const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+  let startingDefTurnId: DefTurnId | null = null;
+  const engineAbortCodes: string[] = [];
+  const delayedEngine: AgentEngine = {
+    kind: baseEngine.kind,
+    probe: () => baseEngine.probe(),
+    createSession: (input) => baseEngine.createSession(input),
+    recoverSession: (ref) => baseEngine.recoverSession(ref),
+    startTurn: async (input) => {
+      const handle = await baseEngine.startTurn(input);
+      startingDefTurnId = input.defTurnId;
+      markHandleReady();
+      await startGate;
+      return {
+        ref: handle.ref,
+        events: handle.events,
+        submitToolResult: (result) => handle.submitToolResult(result),
+        submitToolResultAndUpdateProjection: (result, projection) => (
+          handle.submitToolResultAndUpdateProjection(result, projection)
+        ),
+        submitInteractionResult: (result) => handle.submitInteractionResult(result),
+        updateToolProjection: (projection) => handle.updateToolProjection(projection),
+        abort: async (reason) => {
+          engineAbortCodes.push(reason.code);
+          return handle.abort(reason);
+        },
+      };
+    },
+    compact: (ref) => baseEngine.compact(ref),
+    disposeSession: (ref) => baseEngine.disposeSession(ref),
+    shutdown: () => baseEngine.shutdown(),
+  };
+  const tools = new DefReadToolRegistry();
+  const harness = new DefHarnessManager({
+    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
+  });
+  const host = new DefAgentHost({
+    engine: delayedEngine,
+    productGateway: gateway,
+    harnessManager: harness,
+    toolRegistry: tools,
+    requireConsumer: () => { consumers.requireActive(); },
+  });
+  const session = await host.createSession({
+    binding: binding(),
+    providerProfileRef: 'fake-profile',
+  });
+  baseEngine.enqueueScript([{ type: 'complete' }]);
+  return {
+    host,
+    harness,
+    session,
+    handleReady,
+    releaseStart,
+    engineAbortCodes,
+    getStartingDefTurnId: () => startingDefTurnId,
+  };
 }
 
 const owner = claims('phase3-owner');
@@ -628,14 +709,31 @@ await host.shutdown();
   const baseEngine = new DeterministicFakeAgentEngine();
   let releaseStart!: () => void;
   const startGate = new Promise<void>((resolve) => { releaseStart = resolve; });
+  let startingDefTurnId: string | null = null;
+  const startAbortCodes: string[] = [];
   const delayedEngine: AgentEngine = {
     kind: baseEngine.kind,
     probe: () => baseEngine.probe(),
     createSession: (input) => baseEngine.createSession(input),
     recoverSession: (ref) => baseEngine.recoverSession(ref),
     startTurn: async (input) => {
+      startingDefTurnId = input.defTurnId;
       await startGate;
-      return baseEngine.startTurn(input);
+      const handle = await baseEngine.startTurn(input);
+      return {
+        ref: handle.ref,
+        events: handle.events,
+        submitToolResult: (result) => handle.submitToolResult(result),
+        submitToolResultAndUpdateProjection: (result, projection) => (
+          handle.submitToolResultAndUpdateProjection(result, projection)
+        ),
+        submitInteractionResult: (result) => handle.submitInteractionResult(result),
+        updateToolProjection: (projection) => handle.updateToolProjection(projection),
+        abort: async (reason) => {
+          startAbortCodes.push(reason.code);
+          return handle.abort(reason);
+        },
+      };
     },
     compact: (ref) => baseEngine.compact(ref),
     disposeSession: (ref) => baseEngine.disposeSession(ref),
@@ -681,6 +779,18 @@ await host.shutdown();
     false,
     'a Turn cancelled during Engine startup must never be accepted into the Event Journal',
   );
+  assert.deepEqual(startAbortCodes, ['BROWSER_CONSUMER_LOST']);
+  assert.ok(startingDefTurnId);
+  const cancelledTransactionId = `harness:${startingDefTurnId}`;
+  const cancelledTransaction = startHarness.getTransaction(cancelledTransactionId);
+  assert.equal(cancelledTransaction.status, 'aborted');
+  assert.equal(cancelledTransaction.terminalState, 'aborted');
+  const cancelledHarnessTerminal = startHarness.getTrace(cancelledTransactionId)
+    .find((entry) => entry.type === 'harness.terminal');
+  assert.equal(cancelledHarnessTerminal?.type, 'harness.terminal');
+  if (cancelledHarnessTerminal?.type === 'harness.terminal') {
+    assert.equal(cancelledHarnessTerminal.code, 'BROWSER_CONSUMER_LOST');
+  }
 
   startConsumers.register(startOwner, startRegistration);
   startGateway.publishSnapshot(startOwner, {
@@ -697,6 +807,70 @@ await host.shutdown();
   assert.equal(earlyTerminal.type, 'turn.failed');
   if (earlyTerminal.type === 'turn.failed') assert.equal(earlyTerminal.payload.code, 'HARNESS_INCOMPLETE');
   await startHost.shutdown();
+}
+
+// Explicit cancellation during Engine startup is not misreported as consumer loss.
+{
+  const fixture = await delayedStartingTurnFixture('explicit-start-stop');
+  const startingPromise = fixture.host.startHarnessTurn({
+    defSessionId: fixture.session.defSessionId,
+    userMessage: '启动中手动停止',
+  });
+  await fixture.handleReady;
+  const startingTurnId = fixture.getStartingDefTurnId();
+  assert.ok(startingTurnId);
+  await fixture.host.abortTurn(startingTurnId, 'USER_STOPPED');
+  fixture.releaseStart();
+  await assert.rejects(
+    startingPromise,
+    (error: unknown) => (
+      error instanceof DefAgentHostError
+      && error.code === 'AGENT_TURN_START_CANCELLED'
+      && error.message.includes('USER_STOPPED')
+    ),
+  );
+  assert.deepEqual(fixture.engineAbortCodes, ['USER_STOPPED']);
+  const transactionId = `harness:${startingTurnId}`;
+  assert.equal(fixture.harness.getTransaction(transactionId).terminalState, 'aborted');
+  const terminal = fixture.harness.getTrace(transactionId)
+    .find((entry) => entry.type === 'harness.terminal');
+  assert.equal(terminal?.type, 'harness.terminal');
+  if (terminal?.type === 'harness.terminal') assert.equal(terminal.code, 'USER_STOPPED');
+  await fixture.host.shutdown();
+}
+
+// Host shutdown also cancels a Turn whose Engine handle has not reached the Host yet.
+{
+  const fixture = await delayedStartingTurnFixture('shutdown-during-start');
+  const startingPromise = fixture.host.startHarnessTurn({
+    defSessionId: fixture.session.defSessionId,
+    userMessage: '启动中关闭 Host',
+  });
+  await fixture.handleReady;
+  const startingTurnId = fixture.getStartingDefTurnId();
+  assert.ok(startingTurnId);
+  await fixture.host.shutdown();
+  fixture.releaseStart();
+  await assert.rejects(
+    startingPromise,
+    (error: unknown) => (
+      error instanceof DefAgentHostError
+      && error.code === 'AGENT_TURN_START_CANCELLED'
+      && error.message.includes('HOST_SHUTDOWN')
+    ),
+  );
+  assert.deepEqual(fixture.engineAbortCodes, ['HOST_SHUTDOWN']);
+  assert.equal(
+    fixture.host.readEvents(fixture.session.defSessionId)
+      .some((event) => event.type === 'turn.accepted'),
+    false,
+  );
+  const transactionId = `harness:${startingTurnId}`;
+  assert.equal(fixture.harness.getTransaction(transactionId).terminalState, 'aborted');
+  const terminal = fixture.harness.getTrace(transactionId)
+    .find((entry) => entry.type === 'harness.terminal');
+  assert.equal(terminal?.type, 'harness.terminal');
+  if (terminal?.type === 'harness.terminal') assert.equal(terminal.code, 'HOST_SHUTDOWN');
 }
 
 // Abort waits for an in-flight atomic Tool commit, so the terminal journal event stays last.
