@@ -61,6 +61,76 @@
   height: 14px;
 }
 
+.agent-native-recovery {
+  position: absolute;
+  z-index: 4;
+  top: 42px;
+  right: 8px;
+  width: min(360px, calc(100% - 16px));
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid rgba(17, 17, 17, .16);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(250, 250, 250, .96);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, .1);
+  backdrop-filter: blur(10px);
+}
+
+.agent-native-recovery > strong {
+  display: block;
+  font: 600 12px/1.4 system-ui, sans-serif;
+}
+
+.agent-native-recovery > p {
+  margin: 3px 0 8px;
+  color: #6f6f6a;
+  font: 400 11px/1.45 system-ui, sans-serif;
+}
+
+.agent-native-recovery .agent-native-recovery-error {
+  color: #a5261f;
+}
+
+.agent-native-recovery .agent-native-recovery-empty {
+  margin-bottom: 0;
+}
+
+.agent-native-recovery-list {
+  display: grid;
+  gap: 5px;
+}
+
+.agent-native-recovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-native-recovery-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11px/1.4 system-ui, sans-serif;
+}
+
+.agent-native-recovery-row > button {
+  flex: 0 0 auto;
+  border: 1px solid #b6b6b0;
+  border-radius: 5px;
+  padding: 3px 8px;
+  color: #272724;
+  background: #fff;
+  cursor: pointer;
+  font: 500 11px/1.3 system-ui, sans-serif;
+}
+
+.agent-native-recovery-row > button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
+
 .agent-native-opencode-status {
   position: absolute;
   inset: 0;

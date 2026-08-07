@@ -104,6 +104,9 @@ export function AgentModeOverlay({
   const [launchRevision, setLaunchRevision] = useState(0);
   const [archivedSessions, setArchivedSessions] = useState<readonly AgentProductSession[]>([]);
   const [restoringSessionId, setRestoringSessionId] = useState<DefSessionId | null>(null);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [status, setStatus] = useState('正在连接 OpenCode…');
   const [error, setError] = useState<string | null>(null);
 
@@ -197,20 +200,34 @@ export function AgentModeOverlay({
   const restoreArchivedSession = async (session: AgentProductSession): Promise<void> => {
     if (restoringSessionId) return;
     setRestoringSessionId(session.defSessionId);
-    setError(null);
-    setStatus('正在恢复已归档会话…');
+    setRecoveryError(null);
     try {
       const restored = await bridge.restoreNativeUiSession(session.defSessionId);
       setArchivedSessions((current) => current.filter((candidate) => candidate.defSessionId !== session.defSessionId));
-      setStatus('正在打开恢复的 OpenCode 会话…');
+      setRecoveryOpen(false);
       const nextLaunch = await bridge.launchNativeUi(restored.defSessionId);
       setLaunch(nextLaunch);
-      setStatus('');
     } catch (cause) {
-      setError(operationMessage(cause));
-      setStatus('恢复失败，请重试。');
+      setRecoveryError(operationMessage(cause));
     } finally {
       setRestoringSessionId(null);
+    }
+  };
+
+  const toggleRecovery = async (): Promise<void> => {
+    if (recoveryOpen) {
+      setRecoveryOpen(false);
+      return;
+    }
+    setRecoveryOpen(true);
+    setRecoveryLoading(true);
+    setRecoveryError(null);
+    try {
+      setArchivedSessions(archivedSessionsForRecovery(await bridge.listSessions()));
+    } catch (cause) {
+      setRecoveryError(operationMessage(cause));
+    } finally {
+      setRecoveryLoading(false);
     }
   };
 
@@ -240,53 +257,46 @@ export function AgentModeOverlay({
             <WorkNodeTreeIcon className="agent-native-shell-icon" />
           </button>
         )}
+        <button
+          type="button"
+          onClick={() => void toggleRecovery()}
+          title="恢复已归档会话"
+          aria-label="恢复已归档会话"
+          aria-expanded={recoveryOpen}
+        >
+          档
+        </button>
       </div>
 
-      {archivedSessions.length > 0 && (
-        <section
-          aria-label="已归档 AI 会话"
-          style={{
-            position: 'absolute',
-            zIndex: 4,
-            top: 48,
-            left: 12,
-            right: 12,
-            maxHeight: 180,
-            overflow: 'auto',
-            padding: '10px 12px',
-            border: '1px solid rgba(17, 17, 17, .16)',
-            borderRadius: 8,
-            background: 'rgba(250, 250, 250, .94)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, .1)',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          <strong style={{ display: 'block', font: '600 12px/1.4 system-ui, sans-serif' }}>
+      {recoveryOpen && (
+        <section className="agent-native-recovery" aria-label="已归档 AI 会话">
+          <strong>
             已归档会话
           </strong>
-          <p style={{ margin: '3px 0 8px', color: '#6f6f6a', font: '400 11px/1.45 system-ui, sans-serif' }}>
+          <p>
             原版 OpenCode 没有恢复入口，请手动选择要恢复的会话。
           </p>
-          <div style={{ display: 'grid', gap: 5 }}>
-            {archivedSessions.map((session) => (
-              <div
-                key={session.defSessionId}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', font: '400 11px/1.4 system-ui, sans-serif' }}>
-                  {session.defSessionId}
-                </span>
-                <button
-                  type="button"
-                  disabled={restoringSessionId !== null}
-                  onClick={() => void restoreArchivedSession(session)}
-                  style={{ flex: '0 0 auto', border: '1px solid #b6b6b0', borderRadius: 5, padding: '3px 8px', color: '#272724', background: '#fff', cursor: 'pointer', font: '500 11px/1.3 system-ui, sans-serif' }}
-                >
-                  {restoringSessionId === session.defSessionId ? '恢复中…' : '恢复'}
-                </button>
-              </div>
-            ))}
-          </div>
+          {recoveryError && <p className="agent-native-recovery-error" role="alert">{recoveryError}</p>}
+          {recoveryLoading ? (
+            <p className="agent-native-recovery-empty">正在刷新…</p>
+          ) : archivedSessions.length === 0 ? (
+            <p className="agent-native-recovery-empty">没有已归档会话。</p>
+          ) : (
+            <div className="agent-native-recovery-list">
+              {archivedSessions.map((session) => (
+                <div className="agent-native-recovery-row" key={session.defSessionId}>
+                  <span>{session.defSessionId}</span>
+                  <button
+                    type="button"
+                    disabled={restoringSessionId !== null}
+                    onClick={() => void restoreArchivedSession(session)}
+                  >
+                    {restoringSessionId === session.defSessionId ? '恢复中…' : '恢复'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
