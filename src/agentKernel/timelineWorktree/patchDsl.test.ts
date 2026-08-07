@@ -91,6 +91,128 @@ assert.deepEqual(
   ['buffStackCounts', 'targetResistance'],
 );
 
+const segmented = applyTimelineWorkNodePatch(adjusted.workingPayload, [{
+  op: 'setBuffStack',
+  target: { buttonId: 'button-test' },
+  buffId: 'buff-test',
+  stackCount: 2,
+  segmentKey: 'normal-hit-1',
+}]);
+assert.equal(segmented.ok, true);
+if (!segmented.ok) throw new Error('segment stack fixture failed');
+assert.equal(segmented.workingPayload.skillButtonTable['button-test']?.buffStackCounts?.['buff-test'], 4);
+assert.equal(
+  segmented.workingPayload.skillButtonTable['button-test']?.panelConfig
+    ?.manualBuffStackCountsBySegmentKey?.['normal-hit-1']?.['buff-test'],
+  2,
+);
+
+for (const illegalStack of [0, 6]) {
+  const before = structuredClone(segmented.workingPayload);
+  const invalidStack = applyTimelineWorkNodePatch(segmented.workingPayload, [{
+    op: 'setBuffStack',
+    target: { buttonId: 'button-test' },
+    buffId: 'buff-test',
+    stackCount: illegalStack,
+  }]);
+  assert.equal(invalidStack.ok, false);
+  assert.deepEqual(segmented.workingPayload, before, 'a rejected stack must not mutate its input');
+}
+
+const invalidAttachBase = fixture();
+const invalidAttach = applyTimelineWorkNodePatch(invalidAttachBase, [
+  {
+    op: 'addButton',
+    buttonId: 'invalid-attach-button',
+    characterName: '测试干员',
+    skillType: 'A',
+    nodeIndex: 0,
+  },
+  {
+    op: 'attachBuff',
+    target: { buttonId: 'invalid-attach-button' },
+    stackCount: 6,
+    buff: {
+      id: 'invalid-attach-buff',
+      name: 'invalid-attach-buff',
+      displayName: '非法层数 Buff',
+      sourceName: '测试来源',
+      category: 'countable',
+      maxStacks: 5,
+    },
+  },
+]);
+assert.equal(invalidAttach.ok, false);
+assert.deepEqual(invalidAttachBase, fixture(), 'a failed batch must leave the original payload untouched');
+
+const replaceBase = JSON.parse(JSON.stringify(segmented.workingPayload)) as TimelineSnapshotPayload;
+const replaceButton = replaceBase.skillButtonTable['button-test'];
+if (!replaceButton) throw new Error('replace Buff source button is missing');
+replaceButton.panelConfig = {
+  ...(replaceButton.panelConfig ?? { selectedBuff: ['buff-test'] }),
+  selectedBuff: ['buff-test'],
+  globallyDisabledBuffIds: ['buff-test'],
+  manualDisabledBuffIdsBySegmentKey: {
+    'normal-hit-1': ['buff-test'],
+    'normal-hit-2': ['keep-other'],
+  },
+  manualBuffStackCountsBySegmentKey: {
+    'normal-hit-1': { 'buff-test': 2 },
+    'normal-hit-2': { 'keep-other': 1 },
+  },
+  manualDisabledHitKeys: ['hit-keep'],
+};
+const replacedBuff = applyTimelineWorkNodePatch(replaceBase, [{
+  op: 'replaceBuff',
+  target: { buttonId: 'button-test' },
+  buffId: 'buff-test',
+  buff: {
+    id: 'buff-replacement',
+    name: 'replacement-buff',
+    displayName: '替换 Buff',
+    sourceName: '替换来源',
+    category: 'countable',
+    maxStacks: 3,
+  },
+}]);
+assert.equal(replacedBuff.ok, true);
+if (!replacedBuff.ok) throw new Error('replace Buff fixture failed');
+const replacementButton = replacedBuff.workingPayload.skillButtonTable['button-test'];
+assert.deepEqual(replacementButton?.selectedBuff, ['buff-replacement']);
+assert.equal(replacementButton?.buffStackCounts?.['buff-replacement'], 3, 'global stack is preserved and bounded by the new max');
+assert.equal(replacementButton?.buffStackCounts?.['buff-test'], undefined);
+assert.deepEqual(replacementButton?.panelConfig?.globallyDisabledBuffIds, ['buff-replacement']);
+assert.deepEqual(replacementButton?.panelConfig?.manualDisabledBuffIdsBySegmentKey, {
+  'normal-hit-1': ['buff-replacement'],
+  'normal-hit-2': ['keep-other'],
+});
+assert.deepEqual(replacementButton?.panelConfig?.manualBuffStackCountsBySegmentKey, {
+  'normal-hit-2': { 'keep-other': 1 },
+  'normal-hit-1': { 'buff-replacement': 2 },
+});
+assert.deepEqual(replacementButton?.panelConfig?.manualDisabledHitKeys, ['hit-keep']);
+assert.deepEqual(replacementButton?.resistanceConfig, replaceButton.resistanceConfig);
+assert.equal(replacedBuff.workingPayload.allBuffList.some((buff) => buff.id === 'buff-test'), false);
+assert.equal(replacedBuff.workingPayload.allBuffList.find((buff) => buff.id === 'buff-replacement')?.refCount, 1);
+
+const detachedReplacement = applyTimelineWorkNodePatch(replacedBuff.workingPayload, [{
+  op: 'removeBuff',
+  target: { buttonId: 'button-test' },
+  buffId: 'buff-replacement',
+}]);
+assert.equal(detachedReplacement.ok, true);
+if (!detachedReplacement.ok) throw new Error('replacement detach fixture failed');
+const detachedReplacementButton = detachedReplacement.workingPayload.skillButtonTable['button-test'];
+assert.deepEqual(detachedReplacementButton?.selectedBuff, []);
+assert.deepEqual(detachedReplacementButton?.panelConfig?.globallyDisabledBuffIds, []);
+assert.deepEqual(detachedReplacementButton?.panelConfig?.manualDisabledBuffIdsBySegmentKey, {
+  'normal-hit-2': ['keep-other'],
+});
+assert.deepEqual(detachedReplacementButton?.panelConfig?.manualBuffStackCountsBySegmentKey, {
+  'normal-hit-2': { 'keep-other': 1 },
+});
+assert.equal(detachedReplacement.workingPayload.allBuffList.some((buff) => buff.id === 'buff-replacement'), false);
+
 const sourceButton = adjusted.workingPayload.skillButtonTable['button-test'];
 if (!sourceButton) throw new Error('copyButton source fixture is missing');
 sourceButton.runtimeSkillId = 'operator-test-skill-a';

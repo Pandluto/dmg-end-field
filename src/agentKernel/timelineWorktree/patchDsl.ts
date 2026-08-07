@@ -1,6 +1,7 @@
 import type { SkillButtonType } from '../../types';
 import type { SkillButtonBuff, SkillButtonTable } from '../../types/storage';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
+import { detachBuffFromSkillButton } from '../../core/services/skillButtonPanelConfig';
 import { diffTimelinePayloads } from './diff';
 import type { AiTimelineRiskFlag, TimelinePayloadDiff } from './types';
 import { validateTimelinePayload } from './validator';
@@ -80,10 +81,21 @@ export type TimelineWorkNodePatchOperation =
       count?: number;
     }
   | {
+      op: 'replaceBuff';
+      target: TimelinePatchTarget;
+      buffId: string;
+      replacementBuffId?: string;
+      buff?: TimelinePatchBuff;
+      stackCount?: number;
+      preserveStack?: boolean;
+      preserveDisabled?: boolean;
+    }
+  | {
       op: 'setBuffStack';
       target: TimelinePatchTarget;
       buffId: string;
       stackCount: number;
+      segmentKey?: string;
     }
   | {
       op: 'setTargetResistance';
@@ -342,6 +354,121 @@ function findBuff(payload: TimelineSnapshotPayload, buffId: string): SkillButton
   return buff;
 }
 
+function resolveOrCreateBuff(
+  payload: TimelineSnapshotPayload,
+  input: { buffId?: string; buff?: TimelinePatchBuff },
+  path: string,
+  generatedId: string,
+): SkillButtonBuff {
+  let buff = input.buffId
+    ? payload.allBuffList.find((item) => item.id === input.buffId)
+    : undefined;
+  if (!buff && input.buff) {
+    const identity = buffIdentity(input.buff);
+    buff = payload.allBuffList.find((candidate) => buffIdentity(candidate) === identity);
+    if (!buff) {
+      const id = input.buff.id || input.buffId || generatedId;
+      if (payload.allBuffList.some((candidate) => candidate.id === id)) {
+        throw new Error(`${path}: buff id already exists with different content: ${id}`);
+      }
+      buff = {
+        ...input.buff,
+        id,
+        category: normalizeBuffCategory(input.buff.category),
+        ...(normalizeBuffCategory(input.buff.category) === 'countable'
+          ? { maxStacks: normalizeMaxStacks(input.buff.maxStacks) }
+          : {}),
+        refCount: 0,
+      } as SkillButtonBuff;
+      payload.allBuffList.push(buff);
+    }
+  }
+  if (!buff) throw new Error(`${path}: buff not found: ${input.buffId || 'missing-id'}`);
+  return buff;
+}
+
+function assertLegalStackCount(buff: SkillButtonBuff, stackCount: number, path: string): number {
+  const maximum = normalizeMaxStacks(buff.maxStacks);
+  if (!Number.isInteger(stackCount) || stackCount < 1 || stackCount > maximum) {
+    throw new Error(`${path}: stackCount must be an integer between 1 and ${maximum}`);
+  }
+  return stackCount;
+}
+
+function remapBuffRuntimeOverrides(
+  button: SkillButtonTable[string],
+  oldBuffId: string,
+  newBuff: SkillButtonBuff,
+  options: {
+    preserveStack: boolean;
+    preserveDisabled: boolean;
+    requestedStackCount?: number;
+    oldStackCount: number;
+  },
+): SkillButtonTable[string] {
+  const detached = detachBuffFromSkillButton(button, oldBuffId);
+  const selectedBuff = [...new Set([...detached.selectedBuff, newBuff.id])];
+  const sourcePanel = button.panelConfig;
+  const nextPanel = {
+    ...(detached.panelConfig ?? { selectedBuff: [] }),
+    selectedBuff,
+  };
+
+  if (options.preserveDisabled) {
+    if (sourcePanel?.globallyDisabledBuffIds?.includes(oldBuffId)) {
+      nextPanel.globallyDisabledBuffIds = [...new Set([
+        ...(nextPanel.globallyDisabledBuffIds ?? []),
+        newBuff.id,
+      ])];
+    }
+    const disabledBySegment = Object.fromEntries(
+      Object.entries(sourcePanel?.manualDisabledBuffIdsBySegmentKey ?? {}).map(([segmentKey, ids]) => [
+        segmentKey,
+        [...new Set(ids.map((id) => id === oldBuffId ? newBuff.id : id))],
+      ]),
+    );
+    if (Object.keys(disabledBySegment).length > 0) {
+      nextPanel.manualDisabledBuffIdsBySegmentKey = disabledBySegment;
+    }
+  }
+
+  const nextStackCounts = { ...(detached.buffStackCounts ?? {}) };
+  if (normalizeBuffCategory(newBuff.category) === 'countable') {
+    const maximum = normalizeMaxStacks(newBuff.maxStacks);
+    const requested = options.requestedStackCount === undefined
+      ? options.preserveStack
+        ? Math.min(Math.max(options.oldStackCount, 1), maximum)
+        : maximum
+      : assertLegalStackCount(newBuff, options.requestedStackCount, 'replaceBuff');
+    nextStackCounts[newBuff.id] = requested;
+
+    if (options.preserveStack) {
+      const stackCountsBySegment = Object.fromEntries(
+        Object.entries(sourcePanel?.manualBuffStackCountsBySegmentKey ?? {}).flatMap(([segmentKey, counts]) => {
+          if (counts[oldBuffId] === undefined) return [];
+          const nextCounts = { ...(nextPanel.manualBuffStackCountsBySegmentKey?.[segmentKey] ?? {}) };
+          nextCounts[newBuff.id] = Math.min(Math.max(Math.floor(counts[oldBuffId]!), 1), maximum);
+          return [[segmentKey, nextCounts] as const];
+        }),
+      );
+      if (Object.keys(stackCountsBySegment).length > 0) {
+        nextPanel.manualBuffStackCountsBySegmentKey = {
+          ...(nextPanel.manualBuffStackCountsBySegmentKey ?? {}),
+          ...stackCountsBySegment,
+        };
+      }
+    }
+  }
+
+  return {
+    ...detached,
+    selectedBuff,
+    buffStackCounts: nextStackCounts,
+    panelConfig: nextPanel,
+    updatedAt: Date.now(),
+  };
+}
+
 function applyPatchOperation(payload: TimelineSnapshotPayload, operation: TimelineWorkNodePatchOperation, index: number, summary: string[], riskFlags: AiTimelineRiskFlag[]) {
   const path = `patch[${index}]`;
   if (operation.op === 'clearTimeline') {
@@ -567,32 +694,12 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     if (!operation.buffId && !operation.buff) {
       throw new Error(`${path}: attachBuff requires buffId or buff`);
     }
-    let buff = operation.buffId
-      ? payload.allBuffList.find((item) => item.id === operation.buffId)
-      : undefined;
-    if (!buff && operation.buff) {
-      const identity = buffIdentity(operation.buff);
-      buff = payload.allBuffList.find((candidate) => buffIdentity(candidate) === identity);
-      if (!buff) {
-        const id = operation.buff.id
-          || operation.buffId
-          || `ai-patch-buff-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
-        if (payload.allBuffList.some((candidate) => candidate.id === id)) {
-          throw new Error(`${path}: attachBuff id already exists with different content: ${id}`);
-        }
-        buff = {
-          ...operation.buff,
-          id,
-          category: normalizeBuffCategory(operation.buff.category),
-          ...(normalizeBuffCategory(operation.buff.category) === 'countable'
-            ? { maxStacks: normalizeMaxStacks(operation.buff.maxStacks) }
-            : {}),
-          refCount: 0,
-        } as SkillButtonBuff;
-        payload.allBuffList.push(buff);
-      }
-    }
-    if (!buff) throw new Error(`${path}: buff not found: ${operation.buffId}`);
+    const buff = resolveOrCreateBuff(
+      payload,
+      { buffId: operation.buffId, buff: operation.buff },
+      path,
+      `ai-patch-buff-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    );
     const selectedBuff = new Set(getSelectedBuffIds(button));
     const alreadySelected = selectedBuff.has(buff.id);
     selectedBuff.add(buff.id);
@@ -604,7 +711,9 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
       const requested = operation.stackCount ?? (alreadySelected ? current + 1 : maximum);
       button.buffStackCounts = {
         ...(button.buffStackCounts ?? {}),
-        [buff.id]: Math.min(Math.max(Math.floor(requested), 0), maximum),
+        [buff.id]: operation.stackCount === undefined
+          ? Math.min(Math.max(Math.floor(requested), 1), maximum)
+          : assertLegalStackCount(buff, requested, path),
       };
     }
     syncTimelineButtonFromTable(payload, button.id);
@@ -631,16 +740,48 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
       summary.push(`Reduced buff ${operation.buffId} on ${button.characterName}-${button.skillType} to ${currentStack - removeCount} stacks.`);
       return;
     }
-    setButtonBuffIds(button, before.filter((id) => id !== operation.buffId));
-    if (button.buffStackCounts) {
-      const nextStacks = { ...button.buffStackCounts };
-      delete nextStacks[operation.buffId];
-      button.buffStackCounts = nextStacks;
-    }
+    payload.skillButtonTable[button.id] = detachBuffFromSkillButton(button, operation.buffId);
     decrementBuffReference(payload, operation.buffId);
     syncTimelineButtonFromTable(payload, button.id);
     riskFlags.push(makeRiskFlag('warning', 'buff-removed', `Patch removes buff ${operation.buffId} from a button.`, path));
     summary.push(`Removed buff ${operation.buffId} from ${button.characterName}-${button.skillType}.`);
+    return;
+  }
+
+  if (operation.op === 'replaceBuff') {
+    const button = findButton(payload, operation.target || {}, path);
+    if (!getSelectedBuffIds(button).includes(operation.buffId)) {
+      throw new Error(`${path}: button does not reference buff ${operation.buffId}`);
+    }
+    if (!operation.replacementBuffId && !operation.buff) {
+      throw new Error(`${path}: replaceBuff requires replacementBuffId or buff`);
+    }
+    const oldBuff = findBuff(payload, operation.buffId);
+    const replacement = resolveOrCreateBuff(
+      payload,
+      { buffId: operation.replacementBuffId, buff: operation.buff },
+      path,
+      `ai-patch-buff-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+    );
+    if (replacement.id === oldBuff.id) {
+      throw new Error(`${path}: replacement buff must differ from ${oldBuff.id}`);
+    }
+    const oldStackCount = Number(button.buffStackCounts?.[oldBuff.id] ?? normalizeMaxStacks(oldBuff.maxStacks));
+    payload.skillButtonTable[button.id] = remapBuffRuntimeOverrides(
+      button,
+      oldBuff.id,
+      replacement,
+      {
+        preserveStack: operation.preserveStack !== false,
+        preserveDisabled: operation.preserveDisabled !== false,
+        ...(operation.stackCount === undefined ? {} : { requestedStackCount: operation.stackCount }),
+        oldStackCount,
+      },
+    );
+    decrementBuffReference(payload, oldBuff.id);
+    replacement.refCount = Math.max(1, Number(replacement.refCount || 0) + 1);
+    syncTimelineButtonFromTable(payload, button.id);
+    summary.push(`Replaced buff ${oldBuff.id} with ${replacement.id} on ${button.characterName}-${button.skillType}.`);
     return;
   }
 
@@ -653,11 +794,25 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     if (normalizeBuffCategory(buff.category) !== 'countable') {
       throw new Error(`${path}: buff ${operation.buffId} is not countable`);
     }
-    if (!Number.isInteger(operation.stackCount) || operation.stackCount < 0) {
-      throw new Error(`${path}: setBuffStack requires a non-negative integer stackCount`);
+    const stackCount = assertLegalStackCount(buff, operation.stackCount, path);
+    if (operation.segmentKey !== undefined) {
+      if (typeof operation.segmentKey !== 'string' || !operation.segmentKey.trim()) {
+        throw new Error(`${path}: setBuffStack segmentKey must be a non-empty string`);
+      }
+      button.panelConfig = {
+        ...(button.panelConfig ?? { selectedBuff: [...getSelectedBuffIds(button)] }),
+        selectedBuff: [...getSelectedBuffIds(button)],
+        manualBuffStackCountsBySegmentKey: {
+          ...(button.panelConfig?.manualBuffStackCountsBySegmentKey ?? {}),
+          [operation.segmentKey]: {
+            ...(button.panelConfig?.manualBuffStackCountsBySegmentKey?.[operation.segmentKey] ?? {}),
+            [operation.buffId]: stackCount,
+          },
+        },
+      };
+    } else {
+      button.buffStackCounts = { ...(button.buffStackCounts ?? {}), [operation.buffId]: stackCount };
     }
-    const stackCount = Math.min(operation.stackCount, normalizeMaxStacks(buff.maxStacks));
-    button.buffStackCounts = { ...(button.buffStackCounts ?? {}), [operation.buffId]: stackCount };
     button.updatedAt = Date.now();
     syncTimelineButtonFromTable(payload, button.id);
     summary.push(`Set buff ${operation.buffId} on ${button.characterName}-${button.skillType} to ${stackCount} stacks.`);
