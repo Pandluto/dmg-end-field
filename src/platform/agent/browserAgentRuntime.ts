@@ -716,6 +716,152 @@ function evaluateCommandResultPostcondition(
     };
   }
 
+  if (entry.command.op === 'restoreAiTimelineWorkNodeBase') {
+    const visible = asJsonObject(result.visiblePostcondition);
+    const expected = asJsonObject(visible?.expected);
+    const observed = asJsonObject(visible?.observed);
+    const checkout = asJsonObject(result.checkout);
+    const expectedCheckout = asJsonObject(expected?.checkout);
+    const observedCheckout = asJsonObject(observed?.checkout);
+    const expectedButtonIds = stringArrayValue(expected?.visibleButtonIds).sort();
+    const observedButtonIds = stringArrayValue(observed?.visibleButtonIds).sort();
+    const actualButtonIds = snapshot.skillButtons.map((button) => button.id).sort();
+    const digestFields = [
+      'payloadDigest',
+      'timelineDigest',
+      'buttonDigest',
+      'buffDigest',
+      'resistanceDigest',
+      'operatorConfigDigest',
+    ];
+    const receiptDigestsAreExact = digestFields.every((field) => (
+      isString(expected?.[field])
+      && isString(observed?.[field])
+      && expected?.[field] === observed?.[field]
+    ));
+    const checkoutIsExact = Boolean(
+      checkout
+      && expectedCheckout
+      && observedCheckout
+      && checkout.targetType === expectedCheckout.targetType
+      && checkout.targetId === expectedCheckout.targetId
+      && checkout.targetType === observedCheckout.targetType
+      && checkout.targetId === observedCheckout.targetId
+      && snapshot.checkout?.targetType === checkout.targetType
+      && snapshot.checkout.targetId === checkout.targetId
+      && snapshot.checkout.updatedAt === checkout.updatedAt,
+    );
+    const checkoutRevisionIsExact = Number.isSafeInteger(result.checkoutTargetRevision)
+      && Number.isSafeInteger(expected?.nodeRevision)
+      && result.checkoutTargetRevision === expected?.nodeRevision;
+    const pass = result.ok === true
+      && result.done === true
+      && result.rollbackApplied === true
+      && result.rollbackMarkError === null
+      && visible?.pass === true
+      && Array.isArray(visible.failures)
+      && visible.failures.length === 0
+      && receiptDigestsAreExact
+      && expectedButtonIds.length === actualButtonIds.length
+      && sameStringArray(expectedButtonIds, actualButtonIds)
+      && observedButtonIds.length === actualButtonIds.length
+      && sameStringArray(observedButtonIds, actualButtonIds)
+      && checkoutIsExact
+      && checkoutRevisionIsExact
+      && isString(result.basePayloadDigest)
+      && result.basePayloadDigest === observed?.payloadDigest
+      && result.nodeId === entry.command.nodeId
+      && Number.isSafeInteger(result.nodeRevision);
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'Work Node restore 没有同时满足 rollback ledger、checkout revision、payload digest 和可见状态精确后置条件。' }),
+      observed: {
+        checkout: snapshot.checkout ?? null,
+        visibleButtonIds: actualButtonIds,
+        payloadDigest: observed?.payloadDigest ?? null,
+        nodeRevision: result.nodeRevision ?? null,
+        checkoutTargetRevision: result.checkoutTargetRevision ?? null,
+      },
+    };
+  }
+
+  if (entry.command.op === 'deleteAiTimelineWorkNode') {
+    const ledger = asJsonObject(result.ledgerPostcondition);
+    const deletedNodeIds = stringArrayValue(result.deletedNodeIds).sort();
+    const ledgerDeletedNodeIds = stringArrayValue(ledger?.deletedNodeIds).sort();
+    const ledgerRemainingNodeIds = stringArrayValue(ledger?.remainingNodeIds).sort();
+    const checkoutStillPointsToDeletedNode = Boolean(
+      snapshot.checkout?.targetType === 'work-node'
+      && deletedNodeIds.includes(snapshot.checkout.targetId),
+    );
+    const pass = result.ok === true
+      && result.deleted === true
+      && ledger?.pass === true
+      && deletedNodeIds.length > 0
+      && sameStringArray(deletedNodeIds, ledgerDeletedNodeIds)
+      && Number(result.remainingNodeCount) === ledgerRemainingNodeIds.length
+      && !checkoutStillPointsToDeletedNode;
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'Work Node 删除没有提供完整子树已从 SQLite ledger 消失的证据。' }),
+      observed: {
+        deletedNodeIds,
+        ledgerDeletedNodeIds,
+        remainingNodeIds: ledgerRemainingNodeIds,
+        checkout: snapshot.checkout ?? null,
+      },
+    };
+  }
+
+  if (entry.command.op === 'checkoutAiTimelineWorkNode') {
+    const visible = asJsonObject(result.visiblePostcondition);
+    const expected = asJsonObject(visible?.expected);
+    const observed = asJsonObject(visible?.observed);
+    const checkout = asJsonObject(result.checkout);
+    const expectedCheckout = asJsonObject(expected?.checkout);
+    const observedCheckout = asJsonObject(observed?.checkout);
+    const expectedButtonIds = stringArrayValue(expected?.visibleButtonIds).sort();
+    const observedButtonIds = stringArrayValue(observed?.visibleButtonIds).sort();
+    const actualButtonIds = snapshot.skillButtons.map((button) => button.id).sort();
+    const exactPathDigests = ['payloadDigest', 'timelineDigest', 'buttonDigest', 'buffDigest', 'resistanceDigest', 'operatorConfigDigest']
+      .every((field) => isString(expected?.[field]) && expected?.[field] === observed?.[field]);
+    const pass = result.ok === true
+      && result.done === true
+      && result.checkoutApplied === true
+      && visible?.pass === true
+      && Array.isArray(visible.failures)
+      && visible.failures.length === 0
+      && exactPathDigests
+      && expectedButtonIds.length === actualButtonIds.length
+      && sameStringArray(expectedButtonIds, actualButtonIds)
+      && observedButtonIds.length === actualButtonIds.length
+      && sameStringArray(observedButtonIds, actualButtonIds)
+      && isString(result.nodeId)
+      && Number.isSafeInteger(result.nodeRevision)
+      && checkout?.targetType === 'work-node'
+      && checkout.targetId === result.nodeId
+      && expectedCheckout?.targetType === checkout.targetType
+      && expectedCheckout?.targetId === checkout.targetId
+      && observedCheckout?.targetType === checkout.targetType
+      && observedCheckout?.targetId === checkout.targetId
+      && snapshot.checkout?.targetType === checkout.targetType
+      && snapshot.checkout.targetId === checkout.targetId
+      && snapshot.checkout.updatedAt === checkout.updatedAt
+      && Number.isSafeInteger(result.checkoutTargetRevision)
+      && result.checkoutTargetRevision === expected?.nodeRevision
+      && result.nodeId === entry.command.nodeId;
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'Work Node use/checkout 没有同时满足 checkout、revision、payload digest 和可见状态精确后置条件。' }),
+      observed: {
+        checkout: snapshot.checkout ?? null,
+        visibleButtonIds: actualButtonIds,
+        nodeRevision: result.nodeRevision ?? null,
+        checkoutTargetRevision: result.checkoutTargetRevision ?? null,
+      },
+    };
+  }
+
   if (result.ok === false) {
     return { pass: false, reason: `命令 ${entry.command.op} 返回 ok:false。`, observed: result };
   }

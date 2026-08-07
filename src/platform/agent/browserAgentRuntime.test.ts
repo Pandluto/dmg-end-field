@@ -660,6 +660,285 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   assert.equal(failedLoadoutBridge.results[0]?.result.code, 'AGENT_POSTCONDITION_NOT_OBSERVED');
 }
 
+function exactWorkNodeReceipt(input: {
+  readonly checkoutTargetId: string;
+  readonly checkoutUpdatedAt: number;
+  readonly checkoutTargetRevision: number;
+  readonly nodeRevision: number;
+  readonly buttonIds?: readonly string[];
+  readonly observedCheckoutTargetId?: string;
+  readonly observedCheckoutTargetRevision?: number;
+}) {
+  const buttonIds = [...(input.buttonIds || ['button-base'])].sort();
+  const expectedCheckoutTargetId = input.checkoutTargetId;
+  const observedCheckoutTargetId = input.observedCheckoutTargetId || expectedCheckoutTargetId;
+  const expectedNodeRevision = input.checkoutTargetRevision;
+  const observedNodeRevision = input.observedCheckoutTargetRevision ?? expectedNodeRevision;
+  const digestFields = {
+    payloadDigest: 'sha256:payload-base',
+    timelineDigest: 'sha256:timeline-base',
+    buttonDigest: 'sha256:buttons-base',
+    buffDigest: 'sha256:buffs-base',
+    resistanceDigest: 'sha256:resistance-base',
+    operatorConfigDigest: 'sha256:operator-config-base',
+  };
+  return {
+    pass: true,
+    failures: [],
+    expected: {
+      ...digestFields,
+      visibleButtonIds: buttonIds,
+      checkout: { targetType: 'work-node', targetId: expectedCheckoutTargetId },
+      nodeRevision: expectedNodeRevision,
+    },
+    observed: {
+      ...digestFields,
+      visibleButtonIds: buttonIds,
+      checkout: { targetType: 'work-node', targetId: observedCheckoutTargetId },
+      nodeRevision: observedNodeRevision,
+    },
+  };
+}
+
+function makeExactWorkNodeSnapshot(
+  targetId: string,
+  updatedAt: number,
+  buttonIds = ['button-base'],
+  checkoutUpdatedAt = updatedAt,
+): MainWorkbenchSnapshot {
+  return {
+    schemaVersion: 1,
+    updatedAt,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'work-node', targetId, updatedAt: checkoutUpdatedAt },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: buttonIds.map((id) => ({
+      id,
+      characterId: 'operator-test',
+      characterName: '测试干员',
+      skillType: 'A',
+      staffIndex: 0,
+      lineIndex: 0,
+      persistenceStaffIndex: 0,
+      persistenceNodeIndex: 0,
+      selectedBuffIds: [],
+    })),
+  };
+}
+
+// Restore only succeeds when the Canvas receipt proves the ready rollback
+// ledger, exact base payload digests, target checkout and visible buttons.
+{
+  const restoreCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-worknode-restore-exact'),
+    toolCallId: asToolCallId('tool-worknode-restore-exact'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: {
+        command: {
+          op: 'restoreAiTimelineWorkNodeBase',
+          nodeId: 'candidate-node',
+          reload: false,
+          approval: { mode: 'manual', approvedBy: 'user', rationale: '恢复测试' },
+        },
+      },
+    },
+  };
+  const restoreEvents: string[] = [];
+  const restoreBridge = new FakeBridge(restoreEvents);
+  restoreBridge.delivery = { cursor: 1, command: await withApprovalCapability(restoreCommand) };
+  const restoreStore = new FakeStore(restoreEvents);
+  const restoreRuntime = new BrowserAgentRuntime({
+    bridge: restoreBridge,
+    consumerController: controller,
+    store: restoreStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await restoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 300));
+  await restoreRuntime.pullRemoteCommands(() => undefined);
+  restoreStore.snapshotBinding = { ...binding, checkoutUpdatedAt: 301, contentRevision: 301, snapshotDigest: 'sha256:restore-301' };
+  await restoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 301, ['button-base'], 300));
+  const visiblePostcondition = exactWorkNodeReceipt({
+    checkoutTargetId: 'base-node',
+    checkoutUpdatedAt: 300,
+    checkoutTargetRevision: 8,
+    nodeRevision: 9,
+  });
+  await restoreRuntime.pushCommandResult({
+    id: restoreCommand.commandId,
+    command: restoreCommand.command.payload.command,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 300,
+    result: {
+      ok: true,
+      done: true,
+      nodeId: 'candidate-node',
+      nodeRevision: 9,
+      status: 'ready',
+      rollbackApplied: true,
+      rollbackMarkError: null,
+      checkout: { timelineId: 'timeline-runtime', targetType: 'work-node', targetId: 'base-node', updatedAt: 300 },
+      checkoutTargetRevision: 8,
+      basePayloadDigest: 'sha256:payload-base',
+      visiblePostcondition,
+    },
+  });
+  assert.equal(restoreBridge.results[0]?.result.status, 'succeeded');
+
+  const badRestoreEvents: string[] = [];
+  const badRestoreBridge = new FakeBridge(badRestoreEvents);
+  const badRestoreCommand = await withApprovalCapability({
+    ...restoreCommand,
+    commandId: asCommandId('command-worknode-restore-bad-ledger'),
+    toolCallId: asToolCallId('tool-worknode-restore-bad-ledger'),
+  });
+  badRestoreBridge.delivery = { cursor: 1, command: badRestoreCommand };
+  const badRestoreStore = new FakeStore(badRestoreEvents);
+  const badRestoreRuntime = new BrowserAgentRuntime({
+    bridge: badRestoreBridge,
+    consumerController: controller,
+    store: badRestoreStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await badRestoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 300));
+  await badRestoreRuntime.pullRemoteCommands(() => undefined);
+  badRestoreStore.snapshotBinding = { ...binding, checkoutUpdatedAt: 301, contentRevision: 301, snapshotDigest: 'sha256:bad-restore-301' };
+  await badRestoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 301, ['button-base'], 300));
+  await badRestoreRuntime.pushCommandResult({
+    id: badRestoreCommand.commandId,
+    command: badRestoreCommand.command.payload.command,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 300,
+    result: {
+      ok: true,
+      done: true,
+      nodeId: 'candidate-node',
+      nodeRevision: 9,
+      status: 'ready',
+      rollbackApplied: false,
+      rollbackMarkError: 'ledger write failed',
+      checkout: { timelineId: 'timeline-runtime', targetType: 'work-node', targetId: 'base-node', updatedAt: 300 },
+      checkoutTargetRevision: 8,
+      basePayloadDigest: 'sha256:payload-base',
+      visiblePostcondition,
+    },
+  });
+  assert.equal(badRestoreBridge.results[0]?.result.status, 'error');
+}
+
+// The browser-side delete/use checks consume the fresh ledger and exact
+// checkout receipt rather than trusting a generic `ok` flag.
+{
+  const deleteCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-worknode-delete-exact'),
+    toolCallId: asToolCallId('tool-worknode-delete-exact'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: { command: { op: 'deleteAiTimelineWorkNode', nodeId: 'parent-node' } },
+    },
+  };
+  const deleteEvents: string[] = [];
+  const deleteBridge = new FakeBridge(deleteEvents);
+  deleteBridge.delivery = { cursor: 1, command: await withApprovalCapability(deleteCommand) };
+  const deleteStore = new FakeStore(deleteEvents);
+  const deleteRuntime = new BrowserAgentRuntime({
+    bridge: deleteBridge,
+    consumerController: controller,
+    store: deleteStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await deleteRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('unrelated-node', 301));
+  await deleteRuntime.pullRemoteCommands(() => undefined);
+  deleteStore.snapshotBinding = { ...binding, checkoutUpdatedAt: 302, contentRevision: 302, snapshotDigest: 'sha256:delete-302' };
+  await deleteRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('unrelated-node', 302));
+  await deleteRuntime.pushCommandResult({
+    id: deleteCommand.commandId,
+    command: deleteCommand.command.payload.command,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 301,
+    result: {
+      ok: true,
+      deleted: true,
+      nodeId: 'parent-node',
+      deletedNodeIds: ['parent-node'],
+      remainingNodeCount: 2,
+      ledgerPostcondition: {
+        pass: false,
+        deletedNodeIds: ['parent-node'],
+        remainingNodeIds: ['child-node', 'unrelated-node'],
+      },
+    },
+  });
+  assert.equal(deleteBridge.results[0]?.result.status, 'error');
+
+  const useCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-worknode-use-exact'),
+    toolCallId: asToolCallId('tool-worknode-use-exact'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: {
+        command: {
+          op: 'checkoutAiTimelineWorkNode',
+          nodeId: 'node-a',
+          commitId: undefined,
+          reload: false,
+          approval: { mode: 'manual', approvedBy: 'user', rationale: 'use test' },
+        },
+      },
+    },
+  };
+  const useEvents: string[] = [];
+  const useBridge = new FakeBridge(useEvents);
+  useBridge.delivery = { cursor: 1, command: await withApprovalCapability(useCommand) };
+  const useStore = new FakeStore(useEvents);
+  const useRuntime = new BrowserAgentRuntime({
+    bridge: useBridge,
+    consumerController: controller,
+    store: useStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await useRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('node-b', 302));
+  await useRuntime.pullRemoteCommands(() => undefined);
+  useStore.snapshotBinding = { ...binding, checkoutUpdatedAt: 303, contentRevision: 303, snapshotDigest: 'sha256:use-303' };
+  await useRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('node-b', 303, ['button-base'], 302));
+  await useRuntime.pushCommandResult({
+    id: useCommand.commandId,
+    command: useCommand.command.payload.command,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 302,
+    result: {
+      ok: true,
+      done: true,
+      nodeId: 'node-a',
+      nodeRevision: 11,
+      checkoutApplied: true,
+      checkout: { timelineId: 'timeline-runtime', targetType: 'work-node', targetId: 'node-a', updatedAt: 302 },
+      checkoutTargetRevision: 10,
+      visiblePostcondition: exactWorkNodeReceipt({
+        checkoutTargetId: 'node-a',
+        checkoutUpdatedAt: 302,
+        checkoutTargetRevision: 10,
+        nodeRevision: 11,
+      }),
+    },
+  });
+  assert.equal(useBridge.results[0]?.result.status, 'error');
+}
+
 // Missing, expired, or proposal-mismatched capabilities fail closed before
 // any Canvas command is enqueued and the typed rejection returns to the Host.
 {

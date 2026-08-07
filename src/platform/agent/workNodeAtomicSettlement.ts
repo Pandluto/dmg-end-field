@@ -1,0 +1,286 @@
+import type { TimelineCheckoutRef } from '../../core/domain/timeline';
+import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
+import { digestJson } from './operatorConfigProposal';
+
+export type WorkNodePayloadPostcondition = {
+  pass: boolean;
+  expected: {
+    payloadDigest: string;
+    timelineDigest: string;
+    buttonDigest: string;
+    buffDigest: string;
+    resistanceDigest: string;
+    operatorConfigDigest: string;
+    visibleButtonIds: string[];
+    checkout?: Pick<TimelineCheckoutRef, 'targetType' | 'targetId'>;
+    nodeRevision?: number;
+  };
+  observed: {
+    payloadDigest: string | null;
+    timelineDigest: string | null;
+    buttonDigest: string | null;
+    buffDigest: string | null;
+    resistanceDigest: string | null;
+    operatorConfigDigest: string | null;
+    visibleButtonIds: string[];
+    checkout: Pick<TimelineCheckoutRef, 'targetType' | 'targetId'> | null;
+    nodeRevision: number | null;
+  };
+  failures: string[];
+};
+
+export type WorkNodeRestoreVerification = {
+  pass: boolean;
+  reason?: string;
+  observed?: unknown;
+};
+
+export class WorkNodeAtomicRestoreError extends Error {
+  readonly code = 'AI_WORKNODE_ATOMIC_RESTORE_FAILED';
+  readonly primaryError: Error;
+  readonly rollbackError: Error | null;
+
+  constructor(primaryError: unknown, rollbackError: unknown = null) {
+    const primary = asError(primaryError);
+    const rollback = rollbackError === null ? null : asError(rollbackError);
+    super(
+      `${primary.message}${rollback
+        ? `；恢复原状态失败：${rollback.message}`
+        : '；已恢复原页面与 checkout。'}`,
+    );
+    this.name = 'WorkNodeAtomicRestoreError';
+    this.primaryError = primary;
+    this.rollbackError = rollback;
+  }
+}
+
+type AtomicRestoreInput = {
+  applyTarget: () => Promise<void>;
+  verifyVisibleTarget: () => Promise<WorkNodeRestoreVerification>;
+  persistCheckout: () => Promise<void>;
+  persistRollbackLedger: () => Promise<{ rollbackApplied: boolean }>;
+  verifyPersistedTarget: () => Promise<WorkNodeRestoreVerification>;
+  restorePreviousState: () => Promise<void>;
+  verifyPreviousState: () => Promise<WorkNodeRestoreVerification>;
+};
+
+/**
+ * Runs the browser-side base restore transaction.  The callbacks are the only
+ * effectful boundary: the order and failure contract stay testable without
+ * rendering React or opening SQLite in a Node test.
+ */
+export async function runAtomicWorkNodeRestore(input: AtomicRestoreInput): Promise<void> {
+  try {
+    await input.applyTarget();
+    await requirePassed(input.verifyVisibleTarget(), '目标 base payload 的可见状态校验失败');
+    await input.persistCheckout();
+    const rollback = await input.persistRollbackLedger();
+    if (!rollback.rollbackApplied) {
+      throw new Error('Work Node rollback ledger 没有返回 rollbackApplied=true。');
+    }
+    await requirePassed(input.verifyPersistedTarget(), '目标 checkout 或 rollback ledger 的最终校验失败');
+  } catch (primaryError) {
+    let rollbackError: Error | null = null;
+    try {
+      await input.restorePreviousState();
+      await requirePassed(input.verifyPreviousState(), '原页面与 checkout 的恢复后置检查失败');
+    } catch (error) {
+      rollbackError = asError(error);
+    }
+    throw new WorkNodeAtomicRestoreError(primaryError, rollbackError);
+  }
+}
+
+/**
+ * Compares the persisted Work Node ledger after a subtree deletion.  The
+ * caller must supply a freshly re-read ledger; a command response alone is
+ * intentionally not accepted as evidence.
+ */
+export function verifyWorkNodeDeleteLedger(input: {
+  requestedNodeId: string;
+  expectedDeletedNodeIds: readonly string[];
+  remainingNodeIds: readonly string[];
+  actualDeletedNodeIds?: readonly string[];
+}): WorkNodeRestoreVerification & {
+  deletedNodeIds: string[];
+  remainingNodeIds: string[];
+} {
+  const expected = [...new Set(input.expectedDeletedNodeIds)].sort();
+  const remaining = [...new Set(input.remainingNodeIds)].sort();
+  const deletedNodeIds = expected.filter((id) => !remaining.includes(id));
+  const missingNodeIds = expected.filter((id) => remaining.includes(id));
+  const actualDeletedNodeIds = [...new Set(input.actualDeletedNodeIds || deletedNodeIds)].sort();
+  const unexpectedDeletedNodeIds = actualDeletedNodeIds.filter((id) => !expected.includes(id));
+  const pass = Boolean(input.requestedNodeId)
+    && expected.includes(input.requestedNodeId)
+    && missingNodeIds.length === 0
+    && unexpectedDeletedNodeIds.length === 0
+    && actualDeletedNodeIds.join('|') === expected.join('|');
+  return {
+    pass,
+    ...(pass ? {} : {
+      reason: `删除后的 Work Node ledger 不精确：残留=${missingNodeIds.join(', ') || '无'}；额外删除=${unexpectedDeletedNodeIds.join(', ') || '无'}`,
+    }),
+    observed: { requestedNodeId: input.requestedNodeId, missingNodeIds, unexpectedDeletedNodeIds },
+    deletedNodeIds,
+    remainingNodeIds: remaining,
+  };
+}
+
+function comparableValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(comparableValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => key !== 'createdAt' && key !== 'updatedAt')
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, comparableValue(entry)]),
+  );
+}
+
+function payloadPathProjection(payload: TimelineSnapshotPayload, path: keyof TimelineSnapshotPayload): unknown {
+  return comparableValue(payload[path]);
+}
+
+function buttonIds(payload: TimelineSnapshotPayload | null): string[] {
+  return payload
+    ? Object.keys(payload.skillButtonTable || {}).sort()
+    : [];
+}
+
+function buffProjection(payload: TimelineSnapshotPayload): unknown {
+  return {
+    allBuffList: comparableValue(payload.allBuffList),
+    buttonBuffs: Object.entries(payload.skillButtonTable || {})
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, button]) => [id, comparableValue({
+        selectedBuff: (button as { selectedBuff?: unknown }).selectedBuff,
+        selectedBuffIds: (button as { selectedBuffIds?: unknown }).selectedBuffIds,
+        buffStackCounts: (button as { buffStackCounts?: unknown }).buffStackCounts,
+      })]),
+  };
+}
+
+function resistanceProjection(payload: TimelineSnapshotPayload): unknown {
+  return Object.entries(payload.skillButtonTable || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, button]) => [id, comparableValue((button as { resistanceConfig?: { targetResistance?: unknown } }).resistanceConfig?.targetResistance ?? null)]);
+}
+
+/**
+ * Builds one exact, path-level receipt for a hydrated checkout.  Generated
+ * timestamps are ignored, but buttons, Buff attachments/stacks, resistances,
+ * operator config and timeline content are all independently compared.
+ */
+export async function buildWorkNodePayloadPostcondition(input: {
+  expectedPayload: TimelineSnapshotPayload;
+  actualPayload: TimelineSnapshotPayload | null;
+  expectedVisibleButtonIds?: readonly string[];
+  actualVisibleButtonIds?: readonly string[];
+  expectedCheckout?: Pick<TimelineCheckoutRef, 'targetType' | 'targetId'>;
+  observedCheckout?: Pick<TimelineCheckoutRef, 'targetType' | 'targetId'> | null;
+  expectedNodeRevision?: number;
+  observedNodeRevision?: number | null;
+}): Promise<WorkNodePayloadPostcondition> {
+  const expected = input.expectedPayload;
+  const actual = input.actualPayload;
+  const expectedVisibleButtonIds = [...(input.expectedVisibleButtonIds || buttonIds(expected))].sort();
+  const actualVisibleButtonIds = [...(input.actualVisibleButtonIds || buttonIds(actual))].sort();
+  const expectedCheckout = input.expectedCheckout;
+  const observedCheckout = input.observedCheckout || null;
+
+  const expectedProjection = comparableValue(expected);
+  const actualProjection = actual ? comparableValue(actual) : null;
+  const expectedDigests = await Promise.all([
+    digestJson(expectedProjection),
+    digestJson(payloadPathProjection(expected, 'timelineData')),
+    digestJson(payloadPathProjection(expected, 'skillButtonTable')),
+    digestJson(buffProjection(expected)),
+    digestJson(resistanceProjection(expected)),
+    digestJson(payloadPathProjection(expected, 'operatorConfigPageCache')),
+  ]);
+  const actualDigests = actual
+    ? await Promise.all([
+      digestJson(actualProjection),
+      digestJson(payloadPathProjection(actual, 'timelineData')),
+      digestJson(payloadPathProjection(actual, 'skillButtonTable')),
+      digestJson(buffProjection(actual)),
+      digestJson(resistanceProjection(actual)),
+      digestJson(payloadPathProjection(actual, 'operatorConfigPageCache')),
+    ])
+    : [null, null, null, null, null, null] as const;
+
+  const [
+    expectedPayloadDigest,
+    expectedTimelineDigest,
+    expectedButtonDigest,
+    expectedBuffDigest,
+    expectedResistanceDigest,
+    expectedOperatorConfigDigest,
+  ] = expectedDigests;
+  const [
+    actualPayloadDigest,
+    actualTimelineDigest,
+    actualButtonDigest,
+    actualBuffDigest,
+    actualResistanceDigest,
+    actualOperatorConfigDigest,
+  ] = actualDigests;
+  const failures: string[] = [];
+  if (!actual) failures.push('Canvas 当前 payload 不可读');
+  if (actualPayloadDigest !== expectedPayloadDigest) failures.push('payload digest 不一致');
+  if (actualTimelineDigest !== expectedTimelineDigest) failures.push('timeline digest 不一致');
+  if (actualButtonDigest !== expectedButtonDigest) failures.push('技能按钮状态不一致');
+  if (actualBuffDigest !== expectedBuffDigest) failures.push('Buff 状态不一致');
+  if (actualResistanceDigest !== expectedResistanceDigest) failures.push('抗性状态不一致');
+  if (actualOperatorConfigDigest !== expectedOperatorConfigDigest) failures.push('operator config 不一致');
+  if (expectedVisibleButtonIds.join('|') !== actualVisibleButtonIds.join('|')) failures.push('可见按钮集合不一致');
+  if (expectedCheckout && (!observedCheckout
+    || expectedCheckout.targetType !== observedCheckout.targetType
+    || expectedCheckout.targetId !== observedCheckout.targetId)) {
+    failures.push('checkout target 不一致');
+  }
+  if (input.expectedNodeRevision !== undefined && input.expectedNodeRevision !== input.observedNodeRevision) {
+    failures.push('checkout node revision 不一致');
+  }
+  return {
+    pass: failures.length === 0,
+    expected: {
+      payloadDigest: expectedPayloadDigest,
+      timelineDigest: expectedTimelineDigest,
+      buttonDigest: expectedButtonDigest,
+      buffDigest: expectedBuffDigest,
+      resistanceDigest: expectedResistanceDigest,
+      operatorConfigDigest: expectedOperatorConfigDigest,
+      visibleButtonIds: expectedVisibleButtonIds,
+      ...(expectedCheckout ? { checkout: expectedCheckout } : {}),
+      ...(input.expectedNodeRevision === undefined ? {} : { nodeRevision: input.expectedNodeRevision }),
+    },
+    observed: {
+      payloadDigest: actualPayloadDigest,
+      timelineDigest: actualTimelineDigest,
+      buttonDigest: actualButtonDigest,
+      buffDigest: actualBuffDigest,
+      resistanceDigest: actualResistanceDigest,
+      operatorConfigDigest: actualOperatorConfigDigest,
+      visibleButtonIds: actualVisibleButtonIds,
+      checkout: observedCheckout,
+      nodeRevision: input.observedNodeRevision ?? null,
+    },
+    failures,
+  };
+}
+
+async function requirePassed(
+  verification: WorkNodeRestoreVerification | Promise<WorkNodeRestoreVerification>,
+  prefix: string,
+): Promise<void> {
+  const result = await verification;
+  if (!result.pass) {
+    throw new Error(`${prefix}${result.reason ? `：${result.reason}` : ''}`);
+  }
+}
+
+function asError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value));
+}

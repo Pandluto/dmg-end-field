@@ -110,6 +110,13 @@ export type MarkAiTimelineWorkNodeRollbackAppliedInput = {
   appliedAt?: number;
   appliedBy?: 'ai' | 'user' | 'system';
   rationale?: string;
+  checkout?: {
+    targetType: 'snapshot' | 'work-node';
+    targetId: string;
+    updatedAt: number;
+  };
+  basePayloadDigest?: string;
+  baseRevision?: number;
 };
 
 function toNodeListItem(node: AiTimelineWorkNode): AiTimelineWorkNodeListItem {

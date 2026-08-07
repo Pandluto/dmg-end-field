@@ -1606,6 +1606,13 @@ export async function markWorkNodeRollbackApplied(
     appliedAt?: number;
     appliedBy?: 'ai' | 'user' | 'system';
     rationale?: string;
+    checkout?: {
+      targetType: 'snapshot' | 'work-node';
+      targetId: string;
+      updatedAt: number;
+    };
+    basePayloadDigest?: string;
+    baseRevision?: number;
   } = {},
 ): Promise<BrowserTimelineWorkNode> {
   const node = await getWorkNode(id);
@@ -1631,6 +1638,9 @@ export async function markWorkNodeRollbackApplied(
       details: {
         appliedBy: input.appliedBy || 'system',
         rationale: input.rationale || '从工作节点 base payload 恢复。',
+        ...(input.checkout ? { checkout: input.checkout } : {}),
+        ...(input.basePayloadDigest ? { basePayloadDigest: input.basePayloadDigest } : {}),
+        ...(Number.isSafeInteger(input.baseRevision) ? { baseRevision: input.baseRevision } : {}),
       },
       createdAt: appliedAt,
     }),

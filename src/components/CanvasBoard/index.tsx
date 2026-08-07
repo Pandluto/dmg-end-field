@@ -138,6 +138,11 @@ import {
   normalizeOperatorConfigFinalConfig,
   rollbackOperatorConfigProposal,
 } from '../../platform/agent/operatorConfigProposal';
+import {
+  buildWorkNodePayloadPostcondition,
+  runAtomicWorkNodeRestore,
+  verifyWorkNodeDeleteLedger,
+} from '../../platform/agent/workNodeAtomicSettlement';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -2254,6 +2259,7 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const { node } = await client.get(nodeId);
+    const nodeRevision = operatorConfigNodeRevision(node);
     const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
     const isManualApproval = command.approval?.mode === 'manual';
     const nodeDiff = diffTimelinePayloads(node.basePayload, node.workingPayload);
@@ -2324,7 +2330,11 @@ export function CanvasBoard({
     let checkoutRefUpdated = false;
     let applied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markCheckoutApplied']>> | null = null;
     let checkoutMarkError: string | undefined;
-    let visiblePostcondition = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
+    let visiblePostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | {
+      pass: boolean;
+      expected: string[];
+      actual: string[];
+    } = { pass: false, expected: expectedVisibleIds, actual: [] as string[] };
     let checkoutApplied = false;
     isCheckoutMutationPendingRef.current = true;
     try {
@@ -2335,7 +2345,7 @@ export function CanvasBoard({
       refreshWorkbenchAfterCheckout();
       visiblePostcondition = await waitForVisibleCanvasButtons(expectedVisibleIds);
       if (!visiblePostcondition.pass || document.visibilityState !== 'visible') {
-        throw new Error(`checkout-visible-postcondition-failed: expected=${visiblePostcondition.expected.join(',')} actual=${visiblePostcondition.actual.join(',')}`);
+        throw new Error(`checkout-visible-postcondition-failed: expected=${JSON.stringify(visiblePostcondition.expected)} actual=${JSON.stringify(visiblePostcondition.actual)}`);
       }
       const checkoutRef = {
         timelineId: node.timelineId || activeTimelineId,
@@ -2366,6 +2376,30 @@ export function CanvasBoard({
       }
       checkoutApplied = lifecyclePlan.reuseAppliedCommit || Boolean(applied?.commit.checkoutApplied);
       if (!checkoutApplied) throw new Error('checkout-applied-record-missing: visible Canvas was restored but SQLite apply record did not commit');
+      const persistedCheckout = await repository.getCheckoutRef(node.timelineId || activeTimelineId);
+      if (!persistedCheckout
+        || persistedCheckout.targetType !== 'work-node'
+        || persistedCheckout.targetId !== node.id
+        || persistedCheckout.updatedAt !== checkoutRef.updatedAt) {
+        throw new Error('checkout-postcondition-failed: SQLite checkout ref 不再精确指向本次应用的 Work Node。');
+      }
+      const payloadPostcondition = await buildWorkNodePayloadPostcondition({
+        expectedPayload: node.workingPayload,
+        actualPayload: getCurrentTimelineSnapshotPayload(),
+        expectedVisibleButtonIds: expectedVisibleIds,
+        actualVisibleButtonIds: visiblePostcondition.actual,
+        expectedCheckout: { targetType: 'work-node', targetId: node.id },
+        observedCheckout: persistedCheckout,
+        expectedNodeRevision: nodeRevision,
+        observedNodeRevision: nodeRevision,
+      });
+      if (!payloadPostcondition.pass) {
+        throw new Error(`checkout-exact-postcondition-failed: ${payloadPostcondition.failures.join('；')}`);
+      }
+      visiblePostcondition = {
+        ...visiblePostcondition,
+        ...payloadPostcondition,
+      };
     } catch (error) {
       checkoutMarkError = error instanceof Error ? error.message : String(error);
       if (checkoutRefUpdated && previousCheckoutRef) {
@@ -2386,10 +2420,15 @@ export function CanvasBoard({
     }
 
     return {
+      ok: true,
+      done: true,
       nodeId: applied?.node.id || node.id,
+      nodeRevision,
       commitId: applied?.commit.id || commit.id,
       status: applied?.node.status || node.status,
       checkoutApplied,
+      checkout: await repository.getCheckoutRef(node.timelineId || activeTimelineId),
+      checkoutTargetRevision: nodeRevision,
       checkoutMarkError,
       visiblePostcondition,
       reloaded: command.reload === true,
@@ -2587,40 +2626,275 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const { node } = await client.get(nodeId);
+    if (node.timelineId !== activeTimelineId) {
+      throw new Error(`AI work node ${node.id} 不属于当前排轴，拒绝恢复。`);
+    }
+    const targetNodeRevision = operatorConfigNodeRevision(node);
     const validation = validateTimelinePayload(node.basePayload);
     if (!validation.ok) {
       throw new Error(`AI work node basePayload 校验失败：${validation.issues.map((issue) => issue.message).join('；')}`);
     }
 
+    const repository = createTimelineRepositoryClient();
     saveTimelineData();
     setSelectedCharacterIds(selectedCharacters.map((character) => character.id));
     const currentPayload = getCurrentTimelineSnapshotPayload();
-    const currentDiff = currentPayload ? diffTimelinePayloads(currentPayload, node.basePayload).summary : null;
-    hydrateCheckoutRuntime(node.basePayload);
+    if (!currentPayload) {
+      throw new Error('当前 Canvas runtime payload 不可用，restore 未执行。');
+    }
+    const previousCheckoutRef = await repository.getCheckoutRef(activeTimelineId);
+    if (!previousCheckoutRef) {
+      throw new Error('当前正式 SQLite 没有可恢复的 checkout，restore 未执行。');
+    }
+    if (checkoutIdentity(activeCheckoutRef) !== checkoutIdentity(previousCheckoutRef)) {
+      throw new Error('当前页面 checkout 与 SQLite checkout 不一致，拒绝执行 restore。');
+    }
+    if (previousCheckoutRef.targetType !== 'work-node' || previousCheckoutRef.targetId !== node.id) {
+      throw new Error('restore 只能作用于当前 checkout 的 Work Node，目标节点已失去 checkout 所有权。');
+    }
+    const latestTargetNode = (await client.get(node.id)).node;
+    if (operatorConfigNodeRevision(latestTargetNode) !== targetNodeRevision
+      || latestTargetNode.timelineId !== node.timelineId
+      || (latestTargetNode.parentNodeId || null) !== (node.parentNodeId || null)
+      || !sameOperatorConfigPayload(latestTargetNode.basePayload, node.basePayload)
+      || !sameOperatorConfigPayload(latestTargetNode.workingPayload, node.workingPayload)) {
+      throw new Error('restore 目标 Work Node 在执行前发生 revision、lineage 或 payload 漂移，拒绝恢复。');
+    }
+    const formalBefore = await readFormalCheckoutPayload(activeTimelineId, previousCheckoutRef);
+    if (!sameOperatorConfigPayload(currentPayload, formalBefore.payload)) {
+      throw new Error('当前 Canvas payload 与正式 checkout 不一致，拒绝执行 restore。');
+    }
+    const currentDiff = diffTimelinePayloads(currentPayload, node.basePayload).summary;
 
-    let rollbackApplied: Awaited<ReturnType<ReturnType<typeof createAiTimelineWorkNodeClient>['markRollbackApplied']>> | null = null;
-    let rollbackMarkError: string | undefined;
-    try {
-      rollbackApplied = await client.markRollbackApplied(node.id, {
-        appliedAt: Date.now(),
-        appliedBy: command.approval?.approvedBy || 'ai',
-        rationale: command.approval?.rationale || 'Renderer rollback applied from AI timeline work node basePayload.',
+    // A Work Node base belongs to its parent.  A root node has no parent, so
+    // materialize the base as a browser SQLite snapshot instead of pointing a
+    // checkout at a node whose working payload is still the candidate.
+    let baseCheckoutTarget: {
+      targetType: 'snapshot' | 'work-node';
+      targetId: string;
+      revision: number;
+    };
+    let createdRollbackSnapshotId: string | null = null;
+    if (node.parentNodeId) {
+      const { node: parent } = await client.get(node.parentNodeId);
+      if (parent.timelineId !== node.timelineId
+        || parent.id !== node.parentNodeId
+        || !sameOperatorConfigPayload(parent.workingPayload, node.basePayload)) {
+        throw new Error('restore target lineage/base payload 不一致，拒绝恢复。');
+      }
+      baseCheckoutTarget = {
+        targetType: 'work-node',
+        targetId: parent.id,
+        revision: operatorConfigNodeRevision(parent),
+      };
+    } else if (sameOperatorConfigPayload(currentPayload, node.basePayload)) {
+      const currentTargetRevision = operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node);
+      baseCheckoutTarget = {
+        targetType: 'work-node',
+        targetId: previousCheckoutRef.targetId,
+        revision: currentTargetRevision,
+      };
+    } else {
+      const baseSnapshot = await repository.saveSnapshot({
+        id: `ai-rollback-base-${node.id}-${generateId()}`,
+        timelineId: activeTimelineId,
+        label: `[rollback base] ${node.label}`,
+        payload: node.basePayload,
       });
-    } catch (error) {
-      rollbackMarkError = error instanceof Error ? error.message : String(error);
+      createdRollbackSnapshotId = baseSnapshot.reused ? null : baseSnapshot.snapshot.id;
+      baseCheckoutTarget = {
+        targetType: 'snapshot',
+        targetId: baseSnapshot.snapshot.id,
+        revision: baseSnapshot.snapshot.createdAt,
+      };
     }
 
+    let targetCheckoutRef: TimelineCheckoutRef | null = null;
+    let finalPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
+    const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
+    const previousVisibleIds = Object.keys(currentPayload.skillButtonTable || {}).sort();
+
+    isCheckoutMutationPendingRef.current = true;
+    try {
+      await runAtomicWorkNodeRestore({
+      applyTarget: async () => {
+        hydrateCheckoutRuntime(node.basePayload, { flushRender: true });
+        refreshWorkbenchAfterCheckout();
+      },
+      verifyVisibleTarget: async () => {
+        if (document.visibilityState !== 'visible') {
+          return { pass: false, reason: '前台 Canvas 不可见' };
+        }
+        const visible = await waitForVisibleCanvasButtons(Object.keys(node.basePayload.skillButtonTable || {}).sort());
+        const postcondition = await buildWorkNodePayloadPostcondition({
+          expectedPayload: node.basePayload,
+          actualPayload: getCurrentTimelineSnapshotPayload(),
+          expectedVisibleButtonIds: Object.keys(node.basePayload.skillButtonTable || {}).sort(),
+          actualVisibleButtonIds: visible.actual,
+        });
+        return postcondition.pass
+          ? postcondition
+          : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
+      },
+      persistCheckout: async () => {
+        const nextCheckoutRef: TimelineCheckoutRef = {
+          timelineId: activeTimelineId,
+          targetType: baseCheckoutTarget.targetType,
+          targetId: baseCheckoutTarget.targetId,
+          updatedAt: Date.now(),
+        };
+        targetCheckoutRef = nextCheckoutRef;
+        await repository.setCheckoutRef(nextCheckoutRef);
+        activateTimeline({
+          document: previousDocument,
+          checkoutRef: nextCheckoutRef,
+          workingPayload: node.basePayload,
+        });
+      },
+      persistRollbackLedger: async () => {
+        if (!targetCheckoutRef) {
+          throw new Error('restore rollback ledger 缺少目标 checkout ref。');
+        }
+        const latestNode = (await client.get(node.id)).node;
+        if (operatorConfigNodeRevision(latestNode) !== targetNodeRevision
+          || !sameOperatorConfigPayload(latestNode.basePayload, node.basePayload)
+          || !sameOperatorConfigPayload(latestNode.workingPayload, node.workingPayload)) {
+          throw new Error('restore 目标 Work Node 在 rollback ledger 写入前发生 revision 或 payload 漂移。');
+        }
+        const marked = await client.markRollbackApplied(node.id, {
+          appliedAt: targetCheckoutRef.updatedAt,
+          appliedBy: command.approval?.approvedBy || 'ai',
+          rationale: command.approval?.rationale || 'Renderer rollback applied from AI timeline work node basePayload.',
+          checkout: targetCheckoutRef,
+          basePayloadDigest: await digestJson(node.basePayload),
+          baseRevision: baseCheckoutTarget.revision,
+        });
+        return {
+          rollbackApplied: marked.node.id === node.id
+            && marked.node.status === 'ready'
+            && operatorConfigNodeRevision(marked.node) === targetNodeRevision,
+        };
+      },
+      verifyPersistedTarget: async () => {
+        if (!targetCheckoutRef) return { pass: false, reason: 'restore checkout ref 未生成' };
+        const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
+        const persistedNode = (await client.get(node.id)).node;
+        const rollbackEvent = (await repository.listAuditEvents(activeTimelineId, 200)).find((event) => (
+          event.eventType === 'work-node.base-restored'
+          && event.subjectType === 'work-node'
+          && event.subjectId === node.id
+        ));
+        const visible = await waitForVisibleCanvasButtons(Object.keys(node.basePayload.skillButtonTable || {}).sort());
+        finalPostcondition = await buildWorkNodePayloadPostcondition({
+          expectedPayload: node.basePayload,
+          actualPayload: getCurrentTimelineSnapshotPayload(),
+          expectedVisibleButtonIds: Object.keys(node.basePayload.skillButtonTable || {}).sort(),
+          actualVisibleButtonIds: visible.actual,
+          expectedCheckout: {
+            targetType: targetCheckoutRef.targetType,
+            targetId: targetCheckoutRef.targetId,
+          },
+          observedCheckout: persistedCheckout,
+          expectedNodeRevision: baseCheckoutTarget.revision,
+          observedNodeRevision: targetCheckoutRef.targetType === 'work-node'
+            ? operatorConfigNodeRevision((await client.get(targetCheckoutRef.targetId)).node)
+            : (await repository.exportDocumentBundle(activeTimelineId)).snapshots.find((snapshot) => snapshot.id === targetCheckoutRef?.targetId)?.createdAt || null,
+        });
+        if (persistedNode.status !== 'ready' || operatorConfigNodeRevision(persistedNode) !== targetNodeRevision) {
+          return { pass: false, reason: `rollback ledger 状态/revision 不正确：status=${persistedNode.status} revision=${operatorConfigNodeRevision(persistedNode)}`, observed: persistedNode };
+        }
+        const rollbackDetails = rollbackEvent?.details || {};
+        const rollbackCheckout = rollbackDetails.checkout as { targetType?: unknown; targetId?: unknown; updatedAt?: unknown } | undefined;
+        if (!rollbackEvent
+          || rollbackCheckout?.targetType !== targetCheckoutRef.targetType
+          || rollbackCheckout.targetId !== targetCheckoutRef.targetId
+          || rollbackCheckout.updatedAt !== targetCheckoutRef.updatedAt
+          || rollbackDetails.basePayloadDigest !== finalPostcondition.expected.payloadDigest
+          || rollbackDetails.baseRevision !== baseCheckoutTarget.revision) {
+          return { pass: false, reason: 'rollback ledger 没有精确记录本次 checkout、revision 和 base payload digest', observed: rollbackEvent || null };
+        }
+        return finalPostcondition.pass
+          ? finalPostcondition
+          : { pass: false, reason: finalPostcondition.failures.join('；'), observed: finalPostcondition };
+      },
+      restorePreviousState: async () => {
+        const rollbackFailures: string[] = [];
+        try {
+          await repository.setCheckoutRef(previousCheckoutRef);
+        } catch (error) {
+          rollbackFailures.push(`恢复原 checkout 失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+        try {
+          activateTimeline({
+            document: previousDocument,
+            checkoutRef: previousCheckoutRef,
+            workingPayload: currentPayload,
+          });
+          hydrateCheckoutRuntime(currentPayload, { flushRender: true });
+          refreshWorkbenchAfterCheckout();
+          await waitForVisibleCanvasButtons(previousVisibleIds);
+        } catch (error) {
+          rollbackFailures.push(`恢复原页面失败：${error instanceof Error ? error.message : String(error)}`);
+        }
+        if (createdRollbackSnapshotId) {
+          try {
+            await repository.archiveSnapshot(createdRollbackSnapshotId);
+          } catch (error) {
+            rollbackFailures.push(`清理临时 rollback snapshot 失败：${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        if (rollbackFailures.length > 0) {
+          throw new Error(rollbackFailures.join('；'));
+        }
+      },
+      verifyPreviousState: async () => {
+        const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
+        const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
+        const previousRevision = operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node);
+        const postcondition = await buildWorkNodePayloadPostcondition({
+          expectedPayload: currentPayload,
+          actualPayload: getCurrentTimelineSnapshotPayload(),
+          expectedVisibleButtonIds: previousVisibleIds,
+          actualVisibleButtonIds: visible.actual,
+          expectedCheckout: {
+            targetType: previousCheckoutRef.targetType,
+            targetId: previousCheckoutRef.targetId,
+          },
+          observedCheckout: persistedCheckout,
+          expectedNodeRevision: previousRevision,
+          observedNodeRevision: operatorConfigNodeRevision((await client.get(previousCheckoutRef.targetId)).node),
+        });
+        return postcondition.pass
+          ? postcondition
+          : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
+      },
+      });
+    } finally {
+      isCheckoutMutationPendingRef.current = false;
+      setProjectionVisibilityRevision((revision) => revision + 1);
+    }
+
+    const finalReceipt = finalPostcondition as Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null;
+    if (!targetCheckoutRef || !finalReceipt || !finalReceipt.pass) {
+      throw new Error('restore 成功后没有形成可验证的 checkout/postcondition receipt。');
+    }
     if (command.reload === true) {
       window.setTimeout(() => window.location.reload(), 80);
     }
-
     return {
-      nodeId: rollbackApplied?.node.id || node.id,
-      status: rollbackApplied?.node.status || 'rolled-back-unrecorded',
-      rollbackApplied: Boolean(rollbackApplied),
-      rollbackMarkError,
-      reloaded: command.reload === true,
+      ok: true,
+      done: true,
+      nodeId: node.id,
+      nodeRevision: targetNodeRevision,
+      status: 'ready' as const,
+      rollbackApplied: true,
+      rollbackMarkError: null,
+      checkout: targetCheckoutRef,
+      checkoutTargetRevision: baseCheckoutTarget.revision,
+      basePayloadDigest: finalReceipt.observed.payloadDigest,
       currentDiff,
+      visiblePostcondition: finalReceipt,
+      reloaded: command.reload === true,
     };
   };
 
@@ -3068,6 +3342,26 @@ export function CanvasBoard({
           const deletedNodeIds = before.nodes
             .filter((node) => !remainingIds.has(node.id))
             .map((node) => node.id);
+          const ledgerPostcondition = verifyWorkNodeDeleteLedger({
+            requestedNodeId: command.nodeId,
+            expectedDeletedNodeIds: [...deletedCandidateIds],
+            remainingNodeIds: deleted.nodes.map((node) => node.id),
+            actualDeletedNodeIds: deletedNodeIds,
+          });
+          if (!ledgerPostcondition.pass) {
+            const result = {
+              ok: false as const,
+              deleted: false as const,
+              nodeId: command.nodeId,
+              deletedNodeIds,
+              protected: false as const,
+              code: 'ai-worknode-delete-postcondition-failed',
+              message: ledgerPostcondition.reason || 'Work Node 删除后的 SQLite ledger 校验失败。',
+              ledgerPostcondition,
+            };
+            settleCommand({ status: 'error', result, error: result.message });
+            return;
+          }
           settleCommand({
             status: 'done',
             result: {
@@ -3078,6 +3372,7 @@ export function CanvasBoard({
               protected: false,
               remainingNodeCount: deleted.nodes.length,
               path: deleted.path,
+              ledgerPostcondition,
             },
           });
           return;
