@@ -228,6 +228,50 @@ assert.deepEqual(
 );
 
 assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'discoverGearTopologies',
+    limit: 12,
+    combinationsPerSet: 4,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'discoverGearTopologies',
+      limit: 12,
+      combinationsPerSet: 4,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'skillFact',
+    operatorQuery: '测试干员',
+    skillQuery: 'A',
+    hitQuery: '主伤害',
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'skillFact',
+      operatorQuery: '测试干员',
+      skillQuery: 'A',
+      hitQuery: '主伤害',
+    },
+  },
+);
+
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'skillFact',
+    operatorQuery: '测试干员',
+  }),
+  /skillFact requires operatorQuery and skillQuery/u,
+);
+
+assert.deepEqual(
   await prepareAny('def.worknode.validate', { nodeId: 'node-review' }),
   {
     kind: 'command',

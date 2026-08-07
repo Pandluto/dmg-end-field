@@ -9,9 +9,11 @@ import type { AiTimelineNodeReviewProjection } from '../agentKernel/timelineWork
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
 import {
+  discoverGearTopologies,
   getAgentBuildGuide,
   getCompatibleWeapons,
   getGearTopologyFacts,
+  getSkillFact,
   planGearTopology,
   queryAgentProductCatalog,
   readAgentProductCatalogInput,
@@ -29,6 +31,8 @@ export type AgentProductCatalogAction =
   | 'compatibleWeapons'
   | 'gearTopologyFacts'
   | 'gearTopologyPlan'
+  | 'discoverGearTopologies'
+  | 'skillFact'
   | 'buildGuide';
 
 export type AgentProductCatalogCommand =
@@ -58,6 +62,20 @@ export type AgentProductCatalogCommand =
       setQuery: string;
       limit?: number;
       allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'discoverGearTopologies';
+      limit?: number;
+      combinationsPerSet?: number;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'skillFact';
+      operatorQuery: string;
+      skillQuery: string;
+      hitQuery?: string;
     }
   | {
       op: 'queryAgentProductCatalog';
@@ -464,6 +482,20 @@ export function executeAgentProductCatalogCommand(
         setQuery: command.setQuery,
         limit: command.limit,
         allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories === true,
+      });
+      break;
+    case 'discoverGearTopologies':
+      payload = discoverGearTopologies(input, {
+        limit: command.limit,
+        combinationsPerSet: command.combinationsPerSet,
+        allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories === true,
+      });
+      break;
+    case 'skillFact':
+      payload = getSkillFact(input, {
+        operatorQuery: command.operatorQuery,
+        skillQuery: command.skillQuery,
+        hitQuery: command.hitQuery,
       });
       break;
     case 'buildGuide':

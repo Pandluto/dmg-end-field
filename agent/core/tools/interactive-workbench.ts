@@ -225,12 +225,23 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
           objectSchema({
             required: ['action'],
             properties: {
-              action: { enum: ['query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide'] },
+              action: { enum: [
+                'query',
+                'compatibleWeapons',
+                'gearTopologyFacts',
+                'gearTopologyPlan',
+                'discoverGearTopologies',
+                'skillFact',
+                'buildGuide',
+              ] },
               domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
               query: boundedStringSchema(1, 200),
               operatorQuery: boundedStringSchema(1, 200),
+              skillQuery: boundedStringSchema(1, 200),
+              hitQuery: boundedStringSchema(1, 200),
               setQuery: boundedStringSchema(1, 200),
               limit: boundedIntegerSchema(1, 256),
+              combinationsPerSet: boundedIntegerSchema(1, 256),
               allowDuplicateCompatibleAccessories: { type: 'boolean' },
             },
           }),
@@ -684,11 +695,18 @@ function operatorConfigPreviewSchema(): JsonObject {
 
 async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteractiveToolPlan> {
   const value = exactObject(input, [
-    'action', 'domain', 'query', 'operatorQuery', 'setQuery', 'limit',
+    'action', 'domain', 'query', 'operatorQuery', 'skillQuery', 'hitQuery', 'setQuery', 'limit',
+    'combinationsPerSet',
     'allowDuplicateCompatibleAccessories',
   ]);
   const action = requiredEnum(value.action, 'action', [
-    'query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide',
+    'query',
+    'compatibleWeapons',
+    'gearTopologyFacts',
+    'gearTopologyPlan',
+    'discoverGearTopologies',
+    'skillFact',
+    'buildGuide',
   ] as const);
   if (action === 'query' && value.domain === undefined) invalid('catalog query requires domain');
   if ((action === 'compatibleWeapons' || action === 'buildGuide') && value.operatorQuery === undefined) {
@@ -696,6 +714,9 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
   }
   if ((action === 'gearTopologyFacts' || action === 'gearTopologyPlan') && value.setQuery === undefined) {
     invalid(`${action} requires setQuery`);
+  }
+  if (action === 'skillFact' && (value.operatorQuery === undefined || value.skillQuery === undefined)) {
+    invalid('skillFact requires operatorQuery and skillQuery');
   }
   return {
     kind: 'command',
@@ -709,8 +730,17 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
       ...(optionalString(value.operatorQuery, 'operatorQuery', 200)
         ? { operatorQuery: value.operatorQuery as string }
         : {}),
+      ...(optionalString(value.skillQuery, 'skillQuery', 200)
+        ? { skillQuery: value.skillQuery as string }
+        : {}),
+      ...(optionalString(value.hitQuery, 'hitQuery', 200)
+        ? { hitQuery: value.hitQuery as string }
+        : {}),
       ...(optionalString(value.setQuery, 'setQuery', 200) ? { setQuery: value.setQuery as string } : {}),
       ...(value.limit === undefined ? {} : { limit: requiredInteger(value.limit, 'limit', 1, 256) }),
+      ...(value.combinationsPerSet === undefined
+        ? {}
+        : { combinationsPerSet: requiredInteger(value.combinationsPerSet, 'combinationsPerSet', 1, 256) }),
       ...(value.allowDuplicateCompatibleAccessories === undefined
         ? {}
         : {

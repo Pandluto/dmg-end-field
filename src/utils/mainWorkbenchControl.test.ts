@@ -117,4 +117,27 @@ assert.equal(
   'evidenceUnavailable',
 );
 
+const discoveryResult = executeAgentProductCatalogCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'discoverGearTopologies',
+  limit: 4,
+  combinationsPerSet: 2,
+}, emptyCatalogStorage);
+assert.equal(
+  (discoveryResult.payload as { ranking: string }).ranking,
+  'unranked-facts-only',
+);
+
+const skillFactResult = executeAgentProductCatalogCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'skillFact',
+  operatorQuery: '洛茜',
+  skillQuery: 'A',
+  hitQuery: '主伤害',
+}, emptyCatalogStorage);
+assert.equal(
+  (skillFactResult.payload as { state: string }).state,
+  'OPERATOR_UNRESOLVED',
+);
+
 console.log('Main Workbench command queue lifecycle contract: PASS');
