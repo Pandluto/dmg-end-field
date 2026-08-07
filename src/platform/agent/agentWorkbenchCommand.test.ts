@@ -456,7 +456,17 @@ rejected({ op: 'validateAiTimelineWorkNode', nodeId: 'node-test', repairStatus: 
 assert.deepEqual(parseAgentWorkbenchCommand({
   op: 'deleteAiTimelineWorkNode',
   nodeId: 'node-test',
-}), { op: 'deleteAiTimelineWorkNode', nodeId: 'node-test' });
+  expectedNodeRevision: 0,
+  expectedSubtreeNodeCount: 2,
+  expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+}), {
+  op: 'deleteAiTimelineWorkNode',
+  nodeId: 'node-test',
+  expectedNodeRevision: 0,
+  expectedSubtreeNodeCount: 2,
+  expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+});
+rejected({ op: 'deleteAiTimelineWorkNode', nodeId: 'node-test' });
 assert.equal(parseAgentWorkbenchCommand({
   op: 'checkoutAiTimelineWorkNode',
   nodeId: 'node-test',

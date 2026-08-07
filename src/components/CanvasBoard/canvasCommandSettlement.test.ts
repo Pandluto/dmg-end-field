@@ -68,8 +68,17 @@ assert.ok(
 );
 assert.match(
   dispatcher,
-  /case 'readAiTimelineWorkNode':[\s\S]*?buildReviewedWorkNodeIdentity\([\s\S]*?reviewIdentity/,
-  'Work Node read must return the exact receipt required by a later approved checkout',
+  /case 'readAiTimelineWorkNode':[\s\S]*?buildReviewedWorkNodeIdentity\([\s\S]*?buildReviewedWorkNodeDeletionIdentity\([\s\S]*?reviewIdentity[\s\S]*?deletionIdentity/,
+  'Work Node read must return exact receipts for later approved checkout and subtree deletion',
+);
+const deleteBranchStart = dispatcher.indexOf("case 'deleteAiTimelineWorkNode':");
+const deleteBranchEnd = dispatcher.indexOf("if (command.op === 'prepareReviewedWorkNodeProposal')", deleteBranchStart);
+const deleteBranchSource = dispatcher.slice(deleteBranchStart, deleteBranchEnd);
+const deleteReviewIndex = deleteBranchSource.indexOf('verifyReviewedWorkNodeDeletionIdentity({');
+const deleteWriteIndex = deleteBranchSource.indexOf('client.delete(');
+assert.ok(
+  deleteReviewIndex >= 0 && deleteWriteIndex > deleteReviewIndex,
+  'the complete reviewed subtree identity must be verified before the repository delete',
 );
 
 branchMatches.forEach((match, index) => {

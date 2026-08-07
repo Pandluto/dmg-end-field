@@ -43,6 +43,29 @@ export type ReviewedWorkNodeIdentity = {
   diffDigest: string;
 };
 
+export type ReviewedWorkNodeDeletionIdentity = {
+  nodeId: string;
+  timelineId: string;
+  nodeRevision: number;
+  subtreeNodeCount: number;
+  subtreeNodeIds: string[];
+  subtreeDigest: string;
+};
+
+export type ReviewedWorkNodeDeletionEntry = {
+  id: string;
+  timelineId: string;
+  parentNodeId?: string | null;
+  branchId?: string;
+  label?: string;
+  description?: string;
+  status?: string;
+  approvalPolicy?: string;
+  contentRevision?: number;
+  updatedAt?: number;
+  riskFlags?: unknown;
+};
+
 export class WorkNodeAtomicRestoreError extends Error {
   readonly code = 'AI_WORKNODE_ATOMIC_RESTORE_FAILED';
   readonly primaryError: Error;
@@ -185,6 +208,87 @@ export function verifyReviewedWorkNodeIdentity(input: {
     : {
       pass: false,
       reason: `已审阅 Work Node 已变化：${failures.join(', ')}`,
+      observed: input.observed,
+    };
+}
+
+/** Builds the complete, deterministic subtree that a delete approval covers. */
+export async function buildReviewedWorkNodeDeletionIdentity(input: {
+  nodeId: string;
+  nodes: readonly ReviewedWorkNodeDeletionEntry[];
+}): Promise<ReviewedWorkNodeDeletionIdentity> {
+  const target = input.nodes.find((node) => node.id === input.nodeId);
+  if (!target) throw new Error(`reviewed-worknode-delete-target-missing: ${input.nodeId}`);
+  if (!target.timelineId.trim()) {
+    throw new Error('reviewed-worknode-delete-identity-invalid: timelineId 不可为空。');
+  }
+  if (!Number.isSafeInteger(target.contentRevision) || Number(target.contentRevision) < 0) {
+    throw new Error('reviewed-worknode-delete-identity-invalid: nodeRevision 必须是非负安全整数。');
+  }
+  const scopedNodes = input.nodes.filter((node) => node.timelineId === target.timelineId);
+  const subtreeIds = new Set<string>([target.id]);
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const node of scopedNodes) {
+      if (node.parentNodeId && subtreeIds.has(node.parentNodeId) && !subtreeIds.has(node.id)) {
+        subtreeIds.add(node.id);
+        expanded = true;
+      }
+    }
+  }
+  const subtree = scopedNodes
+    .filter((node) => subtreeIds.has(node.id))
+    .sort((left, right) => left.id.localeCompare(right.id))
+    .map((node) => {
+      if (!Number.isSafeInteger(node.contentRevision) || Number(node.contentRevision) < 0) {
+        throw new Error(`reviewed-worknode-delete-identity-invalid: ${node.id} 缺少 contentRevision。`);
+      }
+      if (!Number.isSafeInteger(node.updatedAt) || Number(node.updatedAt) < 0) {
+        throw new Error(`reviewed-worknode-delete-identity-invalid: ${node.id} 缺少 updatedAt。`);
+      }
+      return {
+        id: node.id,
+        timelineId: node.timelineId,
+        parentNodeId: node.parentNodeId || null,
+        branchId: node.branchId || '',
+        label: node.label || '',
+        description: node.description || '',
+        status: node.status || '',
+        approvalPolicy: node.approvalPolicy || '',
+        contentRevision: Number(node.contentRevision),
+        updatedAt: Number(node.updatedAt),
+        riskFlags: node.riskFlags || [],
+      };
+    });
+  const subtreeNodeIds = subtree.map((node) => node.id);
+  return {
+    nodeId: target.id,
+    timelineId: target.timelineId,
+    nodeRevision: Number(target.contentRevision),
+    subtreeNodeCount: subtree.length,
+    subtreeNodeIds,
+    subtreeDigest: await digestJson(subtree),
+  };
+}
+
+export function verifyReviewedWorkNodeDeletionIdentity(input: {
+  expected: Pick<
+    ReviewedWorkNodeDeletionIdentity,
+    'nodeId' | 'nodeRevision' | 'subtreeNodeCount' | 'subtreeDigest'
+  >;
+  observed: ReviewedWorkNodeDeletionIdentity;
+}): WorkNodeRestoreVerification {
+  const failures: string[] = [];
+  if (input.expected.nodeId !== input.observed.nodeId) failures.push('nodeId');
+  if (input.expected.nodeRevision !== input.observed.nodeRevision) failures.push('nodeRevision');
+  if (input.expected.subtreeNodeCount !== input.observed.subtreeNodeCount) failures.push('subtreeNodeCount');
+  if (input.expected.subtreeDigest !== input.observed.subtreeDigest) failures.push('subtreeDigest');
+  return failures.length === 0
+    ? { pass: true, observed: input.observed }
+    : {
+      pass: false,
+      reason: `已审阅删除子树已变化：${failures.join(', ')}`,
       observed: input.observed,
     };
 }

@@ -88,7 +88,12 @@
 
 ## 规范底层能力
 
-50 个 operation 是用户意图层；底层应收敛为以下可测试能力，不恢复旧版大量重复 Tool：
+旧稳定版的 50 个 operation 仍是用户意图层。当前另加一项不计入旧版
+能力对齐数的管理操作 `timeline.delete_node`：它先读取并展示完整子树，再把目标
+revision、节点数与子树摘要绑定进人工审批；SQLite 删除事务会逐节点复核
+`contentRevision + updatedAt`，审批后新增、移动或修改任一后代都会使整次删除失败。
+
+底层应收敛为以下可测试能力，不恢复旧版大量重复 Tool：
 
 1. `def.user.ask`
 2. `def.workbench.read`

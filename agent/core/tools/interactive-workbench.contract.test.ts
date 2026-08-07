@@ -650,9 +650,25 @@ assert.deepEqual(
   },
 );
 
-const deletePlan = await prepare('def.worknode.delete', { nodeId: 'node-obsolete' });
+const deletePlan = await prepare('def.worknode.delete', {
+  nodeId: 'node-obsolete',
+  expectedNodeRevision: 0,
+  expectedSubtreeNodeCount: 2,
+  expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+});
 assert.deepEqual(deletePlan.scope, ['timeline.work-node']);
-assert.deepEqual(deletePlan.command, { op: 'deleteAiTimelineWorkNode', nodeId: 'node-obsolete' });
+assert.deepEqual(deletePlan.command, {
+  op: 'deleteAiTimelineWorkNode',
+  nodeId: 'node-obsolete',
+  expectedNodeRevision: 0,
+  expectedSubtreeNodeCount: 2,
+  expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+});
+assert.match(deletePlan.prompt, /2/u);
+await assert.rejects(
+  () => prepareAny('def.worknode.delete', { nodeId: 'node-obsolete' }),
+  /expectedSubtreeNodeCount/u,
+);
 
 const usePlan = await prepare('def.worknode.use', {
   nodeId: 'node-ready',

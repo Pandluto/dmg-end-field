@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import {
+  buildReviewedWorkNodeDeletionIdentity,
   buildReviewedWorkNodeIdentity,
   buildWorkNodePayloadPostcondition,
   runAtomicWorkNodeRestore,
+  verifyReviewedWorkNodeDeletionIdentity,
   verifyReviewedWorkNodeIdentity,
   verifyWorkNodeDeleteLedger,
   WorkNodeAtomicRestoreError,
@@ -49,6 +51,53 @@ function payload(buttonId = 'button-1'): TimelineSnapshotPayload {
       'operator-1': { operator: { name: '干员一' }, weapon: { id: 'weapon-1' }, equipment: { pieces: [] } },
     } as never,
   };
+}
+
+// A delete review covers the complete subtree and invalidates when a child is
+// added or any reviewed node receives a newer revision/metadata timestamp.
+{
+  const nodes = [
+    {
+      id: 'root', timelineId: 'timeline-a', parentNodeId: null, contentRevision: 0,
+      updatedAt: 10, label: 'Root', status: 'ready', riskFlags: [],
+    },
+    {
+      id: 'child', timelineId: 'timeline-a', parentNodeId: 'root', contentRevision: 2,
+      updatedAt: 20, label: 'Child', status: 'open', riskFlags: [],
+    },
+    {
+      id: 'unrelated', timelineId: 'timeline-a', parentNodeId: null, contentRevision: 4,
+      updatedAt: 30, label: 'Other', status: 'ready', riskFlags: [],
+    },
+    {
+      id: 'cross-timeline', timelineId: 'timeline-b', parentNodeId: 'root', contentRevision: 1,
+      updatedAt: 40, label: 'Cross', status: 'ready', riskFlags: [],
+    },
+  ];
+  const reviewed = await buildReviewedWorkNodeDeletionIdentity({ nodeId: 'root', nodes });
+  assert.equal(reviewed.nodeRevision, 0);
+  assert.deepEqual(reviewed.subtreeNodeIds, ['child', 'root']);
+  assert.equal(reviewed.subtreeNodeCount, 2);
+  assert.match(reviewed.subtreeDigest, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(verifyReviewedWorkNodeDeletionIdentity({ expected: reviewed, observed: reviewed }).pass, true);
+
+  const changed = await buildReviewedWorkNodeDeletionIdentity({
+    nodeId: 'root',
+    nodes: [
+      ...nodes.map((node) => node.id === 'root'
+        ? { ...node, contentRevision: 1, updatedAt: 11 }
+        : node),
+      {
+        id: 'grandchild', timelineId: 'timeline-a', parentNodeId: 'child', contentRevision: 0,
+        updatedAt: 50, label: 'Grandchild', status: 'open', riskFlags: [],
+      },
+    ],
+  });
+  const verification = verifyReviewedWorkNodeDeletionIdentity({ expected: reviewed, observed: changed });
+  assert.equal(verification.pass, false);
+  assert.match(verification.reason || '', /nodeRevision/u);
+  assert.match(verification.reason || '', /subtreeNodeCount/u);
+  assert.match(verification.reason || '', /subtreeDigest/u);
 }
 
 function noOpVerification(pass = true) {

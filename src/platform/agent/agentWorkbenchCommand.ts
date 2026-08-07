@@ -229,8 +229,27 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
     };
   }
   if (operation === 'deleteAiTimelineWorkNode') {
-    exact(value, ['op', 'nodeId']);
-    return { op: 'deleteAiTimelineWorkNode', nodeId: string(value.nodeId, 'nodeId', 200) };
+    exact(value, [
+      'op', 'nodeId', 'expectedNodeRevision',
+      'expectedSubtreeNodeCount', 'expectedSubtreeDigest',
+    ]);
+    return {
+      op: 'deleteAiTimelineWorkNode',
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      expectedNodeRevision: integer(
+        value.expectedNodeRevision,
+        'expectedNodeRevision',
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      expectedSubtreeNodeCount: integer(
+        value.expectedSubtreeNodeCount,
+        'expectedSubtreeNodeCount',
+        1,
+        100_000,
+      ),
+      expectedSubtreeDigest: exactSha256Digest(value.expectedSubtreeDigest, 'expectedSubtreeDigest'),
+    };
   }
   if (operation === 'checkoutAiTimelineWorkNode') {
     exact(value, [

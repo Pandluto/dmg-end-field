@@ -356,6 +356,9 @@ export type MainWorkbenchCommand =
       /** Delete a Work Node subtree through the browser repository constraint. */
       op: 'deleteAiTimelineWorkNode';
       nodeId: string;
+      expectedNodeRevision: number;
+      expectedSubtreeNodeCount: number;
+      expectedSubtreeDigest: string;
     }
   | {
       op: 'patchAiTimelineWorkNode';

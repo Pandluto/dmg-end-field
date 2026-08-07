@@ -49,6 +49,7 @@ export type DefHarnessOperationId =
   | 'move'
   | 'copy'
   | 'validate'
+  | 'delete_node'
   | 'source'
   | 'batch'
   | 'stack'

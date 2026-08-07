@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   BrowserTimelineStoreError,
+  deleteWorkNode,
   getWorkNode,
   listWorkNodeHeads,
   listWorkNodePatches,
@@ -201,6 +202,36 @@ async function run(): Promise<void> {
     assert.deepEqual(heads.heads['timeline-a'], { nodeId: 'node-a', revision: 0 });
     assert.equal(heads.headNodeId, 'node-a', 'head selection must follow checkout recency, not nodes[0] or revision sort');
     assert.equal(heads.revision, 0);
+
+    const reviewedDeleteExpectation = {
+      nodes: [{
+        id: nodeState.id,
+        contentRevision: nodeState.contentRevision,
+        updatedAt: nodeState.updatedAt,
+      }],
+    };
+    await deleteWorkNode(nodeState.id, nodeState.timelineId, reviewedDeleteExpectation);
+    const deleteBatch = batches.find((statements) => (
+      statements[0].sql.includes('WITH RECURSIVE descendants')
+        && statements[0].sql.includes('DELETE FROM timeline_work_nodes')
+    ))!;
+    assert.ok(deleteBatch, 'reviewed subtree delete must use one guarded SQLite transaction');
+    assert.match(deleteBatch[0].sql, /SELECT COUNT\(\*\) FROM descendants/u);
+    assert.match(deleteBatch[0].sql, /content_revision = \? AND current\.updated_at = \?/u);
+    assert.equal(deleteBatch[0].requireChanges, true);
+
+    const normalBatch = database.batch;
+    database.batch = async (statements) => (
+      statements[0].sql.includes('DELETE FROM timeline_work_nodes')
+        ? { changes: 0, statementChanges: statements.map(() => 0) }
+        : normalBatch(statements)
+    );
+    await assert.rejects(
+      () => deleteWorkNode(nodeState.id, nodeState.timelineId, reviewedDeleteExpectation),
+      (error: unknown) => errorCode(error) === 'timeline-work-node-delete-review-stale',
+      'a concurrent subtree/revision change must make the atomic delete fail closed',
+    );
+    database.batch = normalBatch;
   } finally {
     database.query = originalQuery;
     database.batch = originalBatch;

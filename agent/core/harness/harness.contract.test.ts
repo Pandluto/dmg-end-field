@@ -220,7 +220,7 @@ const managerAgain = new DefHarnessManager({
 const expectedFullOperationMatrix = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
   loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
-  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
+  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'delete_node', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 } as const;
@@ -626,14 +626,14 @@ function readPlanEvents(
   assert.equal(resumed.transaction.operation, 'current');
 }
 
-// The old stable operation matrix is exact: the only additions to each
-// business are its clarification route, while direct conversation remains a
-// separate business with respond.
+// The 50 old stable operations remain exact, with one explicit current
+// administration route for safe Work Node subtree deletion. Clarification
+// remains the only other addition to each business.
 assert.deepEqual(DEF_HARNESS_FULL_OPERATION_MATRIX, expectedFullOperationMatrix);
 assert.equal(
   Object.values(expectedFullOperationMatrix).flat().length,
-  50,
-  'the audited matrix must contain exactly 50 old stable operations',
+  51,
+  'the audited matrix must contain 50 parity operations plus one safe administration route',
 );
 for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof typeof expectedFullOperationMatrix>) {
   const definition = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === businessId)!;
@@ -648,7 +648,7 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     `${businessId} must retain one clarification route`,
   );
   assert.equal(new Set(actualOperations).size, expectedOperations.length, `${businessId} contains a duplicate operation`);
-  assert.match(definition.revision, /-v17-full-matrix$/u);
+  assert.match(definition.revision, /-v18-full-matrix$/u);
   assert.match(definition.sourceLineage, /old-stable:bcea5f12a3148737e7a9b799d2fa4e0170ffe0bb/u);
   for (const operation of definition.operations) {
     assert.equal(

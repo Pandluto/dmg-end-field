@@ -60,6 +60,7 @@ const TOOL = {
   worknodeRead: 'def.worknode.read',
   worknodeDiff: 'def.worknode.diff',
   worknodeValidate: 'def.worknode.validate',
+  worknodeDelete: 'def.worknode.delete',
   worknodeUse: 'def.worknode.use',
   worknodeRestore: 'def.worknode.restore',
   loadoutPreview: 'def.loadout.preview',
@@ -71,6 +72,7 @@ const COMMAND = {
   loadoutApply: 'applyPreparedOperatorConfigProposal',
   preparedPatch: 'prepareReviewedWorkNodeProposal',
   checkout: 'checkoutAiTimelineWorkNode',
+  deleteWorkNode: 'deleteAiTimelineWorkNode',
 } as const;
 
 function tool(name: string, action?: string): DefOperationCapabilityRoute {
@@ -251,6 +253,11 @@ const ENTRIES = {
       '由 worknode.validate 对明确 Work Node 执行只读 schema 校验，不改 live checkout。',
       [tool(TOOL.worknodeRead), tool(TOOL.worknodeValidate)],
     ),
+    delete_node: available(
+      '先读取完整子树并绑定目标 revision、节点数和子树摘要；审批后仅删除该精确且未被 checkout 的 Work Node 子树，数据库事务会再次校验全部节点版本。',
+      [tool(TOOL.worknodeRead), tool(TOOL.worknodeDelete), command(COMMAND.deleteWorkNode)],
+      true,
+    ),
     preview: available(
       '由 worknode.diff 读取隔离候选节点的语义差异；结果不冒充 live checkout 预览。',
       [tool(TOOL.worknodeDiff)],
@@ -370,7 +377,7 @@ function countStatuses(): Record<DefOperationCapabilityStatus, number> {
 export const DEF_OPERATION_CAPABILITY_COUNT = Object.values(ENTRIES)
   .reduce((count, operations) => count + Object.keys(operations).length, 0);
 
-/** Stable, machine-readable audit result for the exact 50-operation matrix. */
+/** Stable audit result for 50 parity operations plus one safe admin route. */
 export const DEF_OPERATION_CAPABILITY_STATUS_COUNTS: Readonly<Record<DefOperationCapabilityStatus, number>> = Object.freeze(countStatuses());
 
 function materialize(

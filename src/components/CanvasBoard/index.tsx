@@ -150,9 +150,11 @@ import {
   rollbackOperatorConfigProposal,
 } from '../../platform/agent/operatorConfigProposal';
 import {
+  buildReviewedWorkNodeDeletionIdentity,
   buildReviewedWorkNodeIdentity,
   buildWorkNodePayloadPostcondition,
   runAtomicWorkNodeRestore,
+  verifyReviewedWorkNodeDeletionIdentity,
   verifyReviewedWorkNodeIdentity,
   verifyWorkNodeDeleteLedger,
 } from '../../platform/agent/workNodeAtomicSettlement';
@@ -4431,7 +4433,15 @@ export function CanvasBoard({
             return;
           }
           case 'readAiTimelineWorkNode': {
-            const result = await createAiTimelineWorkNodeClient().get(command.nodeId);
+            const client = createAiTimelineWorkNodeClient();
+            const result = await client.get(command.nodeId);
+            const list = await client.list();
+            const listedTarget = list.nodes.find((node) => node.id === result.node.id);
+            if (!listedTarget
+              || authoritativePreparedNodeRevision(listedTarget) !== authoritativePreparedNodeRevision(result.node)
+              || listedTarget.updatedAt !== result.node.updatedAt) {
+              throw new Error('AI_WORKNODE_READ_STALE: Work Node 在读取期间发生变化，请重新审阅。');
+            }
             const nodeRevision = authoritativePreparedNodeRevision(result.node);
             const diff = diffTimelinePayloads(result.node.basePayload, result.node.workingPayload);
             const reviewIdentity = await buildReviewedWorkNodeIdentity({
@@ -4441,15 +4451,22 @@ export function CanvasBoard({
               workingPayload: result.node.workingPayload,
               diffChanges: diff,
             });
+            const deletionIdentity = await buildReviewedWorkNodeDeletionIdentity({
+              nodeId: result.node.id,
+              nodes: list.nodes,
+            });
             if (command.includePayload === false) {
               const { basePayload: _basePayload, workingPayload: _workingPayload, ...node } = result.node;
               settleCommand({
                 status: 'done',
-                result: { ...result, node, diffSummary: diff.summary, reviewIdentity },
+                result: { ...result, node, diffSummary: diff.summary, reviewIdentity, deletionIdentity },
               });
               return;
             }
-            settleCommand({ status: 'done', result: { ...result, diffSummary: diff.summary, reviewIdentity } });
+            settleCommand({
+              status: 'done',
+              result: { ...result, diffSummary: diff.summary, reviewIdentity, deletionIdentity },
+            });
             return;
           }
           case 'validateAiTimelineWorkNode': {
@@ -4507,17 +4524,25 @@ export function CanvasBoard({
             settleCommand({ status: 'error', result, error: result.message });
             return;
           }
-          const deletedCandidateIds = new Set([target.id]);
-          let expanded = true;
-          while (expanded) {
-            expanded = false;
-            for (const node of before.nodes) {
-              if (node.parentNodeId && deletedCandidateIds.has(node.parentNodeId) && !deletedCandidateIds.has(node.id)) {
-                deletedCandidateIds.add(node.id);
-                expanded = true;
-              }
-            }
+          const deletionIdentity = await buildReviewedWorkNodeDeletionIdentity({
+            nodeId: target.id,
+            nodes: before.nodes,
+          });
+          const deletionVerification = verifyReviewedWorkNodeDeletionIdentity({
+            expected: {
+              nodeId: command.nodeId,
+              nodeRevision: command.expectedNodeRevision,
+              subtreeNodeCount: command.expectedSubtreeNodeCount,
+              subtreeDigest: command.expectedSubtreeDigest,
+            },
+            observed: deletionIdentity,
+          });
+          if (!deletionVerification.pass) {
+            throw new Error(
+              `AI_WORKNODE_DELETE_REVIEW_STALE: ${deletionVerification.reason || 'Work Node 删除子树已变化。'}`,
+            );
           }
+          const deletedCandidateIds = new Set(deletionIdentity.subtreeNodeIds);
           if (agentWorkNodeTimelineId) {
             for (const node of before.nodes) {
               if (deletedCandidateIds.has(node.id)) {
@@ -4540,7 +4565,18 @@ export function CanvasBoard({
             settleCommand({ status: 'error', result, error: result.message });
             return;
           }
-          const deleted = await client.delete(command.nodeId);
+          const deleteExpectationNodes = before.nodes
+            .filter((node) => deletedCandidateIds.has(node.id))
+            .map((node) => ({
+              id: node.id,
+              contentRevision: authoritativePreparedNodeRevision(node),
+              updatedAt: node.updatedAt,
+            }));
+          const deleted = await client.delete(
+            command.nodeId,
+            target.timelineId,
+            { nodes: deleteExpectationNodes },
+          );
           const remainingIds = new Set(deleted.nodes.map((node) => node.id));
           const deletedNodeIds = before.nodes
             .filter((node) => !remainingIds.has(node.id))

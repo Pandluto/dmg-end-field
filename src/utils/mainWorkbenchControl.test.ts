@@ -263,7 +263,13 @@ const crossTimelineCommands: MainWorkbenchCommand[] = [
   { op: 'readAiTimelineWorkNode', nodeId: 'node-b' },
   { op: 'diffAiTimelineWorkNode', nodeId: 'node-b' },
   { op: 'validateAiTimelineWorkNode', nodeId: 'node-b', repairStatus: true },
-  { op: 'deleteAiTimelineWorkNode', nodeId: 'node-b' },
+  {
+    op: 'deleteAiTimelineWorkNode',
+    nodeId: 'node-b',
+    expectedNodeRevision: 1,
+    expectedSubtreeNodeCount: 1,
+    expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+  },
   {
     op: 'checkoutAiTimelineWorkNode',
     nodeId: 'node-b',

@@ -439,11 +439,22 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.delete',
-          'Delete one non-checked-out Work Node subtree after explicit user approval.',
+          'Delete one exact reviewed, non-checked-out Work Node subtree after explicit user approval.',
           'mutate',
           objectSchema({
-            required: ['nodeId'],
-            properties: { nodeId: boundedStringSchema(1, 200) },
+            required: [
+              'nodeId', 'expectedNodeRevision',
+              'expectedSubtreeNodeCount', 'expectedSubtreeDigest',
+            ],
+            properties: {
+              nodeId: boundedStringSchema(1, 200),
+              expectedNodeRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
+              expectedSubtreeNodeCount: boundedIntegerSchema(1, 100_000),
+              expectedSubtreeDigest: {
+                type: 'string',
+                pattern: '^sha256:[0-9a-f]{64}$',
+              },
+            },
           }),
         ),
         prepareWorkNodeDeletion,
@@ -1048,12 +1059,35 @@ async function prepareWorkNodeValidation(input: JsonValue): Promise<DefInteracti
 }
 
 async function prepareWorkNodeDeletion(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, ['nodeId']);
+  const value = exactObject(input, [
+    'nodeId', 'expectedNodeRevision',
+    'expectedSubtreeNodeCount', 'expectedSubtreeDigest',
+  ]);
   const nodeId = requiredString(value.nodeId, 'nodeId', 200);
+  const expectedSubtreeNodeCount = requiredInteger(
+    value.expectedSubtreeNodeCount,
+    'expectedSubtreeNodeCount',
+    1,
+    100_000,
+  );
   return mutationPlan(
-    `删除 Work Node ${nodeId}`,
+    `删除 Work Node ${nodeId} 及已审阅的 ${expectedSubtreeNodeCount} 个节点`,
     ['timeline.work-node'],
-    { op: 'deleteAiTimelineWorkNode', nodeId },
+    {
+      op: 'deleteAiTimelineWorkNode',
+      nodeId,
+      expectedNodeRevision: requiredInteger(
+        value.expectedNodeRevision,
+        'expectedNodeRevision',
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      expectedSubtreeNodeCount,
+      expectedSubtreeDigest: requiredSha256Digest(
+        value.expectedSubtreeDigest,
+        'expectedSubtreeDigest',
+      ),
+    },
   );
 }
 

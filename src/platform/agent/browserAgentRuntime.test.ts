@@ -1604,7 +1604,15 @@ function makeExactWorkNodeSnapshot(
     toolCallId: asToolCallId('tool-worknode-delete-exact'),
     command: {
       op: 'workbench.execute-command',
-      payload: { command: { op: 'deleteAiTimelineWorkNode', nodeId: 'parent-node' } },
+      payload: {
+        command: {
+          op: 'deleteAiTimelineWorkNode',
+          nodeId: 'parent-node',
+          expectedNodeRevision: 3,
+          expectedSubtreeNodeCount: 2,
+          expectedSubtreeDigest: `sha256:${'c'.repeat(64)}`,
+        },
+      },
     },
   };
   const deleteEvents: string[] = [];

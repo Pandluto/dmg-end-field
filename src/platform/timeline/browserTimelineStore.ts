@@ -55,6 +55,14 @@ export type BrowserTimelineWorkNode = AiTimelineWorkNode & {
   contentRevision: number;
 };
 
+export type BrowserWorkNodeDeleteExpectation = {
+  nodes: readonly {
+    id: string;
+    contentRevision: number;
+    updatedAt: number;
+  }[];
+};
+
 export type BrowserTimelineWorkNodePatch = {
   id: string;
   timelineId: string;
@@ -1198,6 +1206,7 @@ export async function archiveSnapshot(
 export async function deleteWorkNode(
   nodeId: string,
   expectedTimelineId?: string,
+  expectation?: BrowserWorkNodeDeleteExpectation,
 ): Promise<{ deletedNodeIds: string[] }> {
   const targetRows = await webDatabase.query<Row>(
     expectedTimelineId
@@ -1224,6 +1233,33 @@ export async function deleteWorkNode(
     [timelineId, nodeId, timelineId],
   );
   const deletedNodeIds = descendantRows.map((row) => textValue(row.id));
+  const expectedNodes = expectation?.nodes
+    ? [...expectation.nodes].sort((left, right) => left.id.localeCompare(right.id))
+    : null;
+  if (expectedNodes) {
+    const expectedIds = expectedNodes.map((node) => node.id);
+    if (expectedIds.length < 1
+      || new Set(expectedIds).size !== expectedIds.length
+      || !expectedIds.includes(nodeId)
+      || expectedNodes.some((node) => !Number.isSafeInteger(node.contentRevision)
+        || node.contentRevision < 0
+        || !Number.isSafeInteger(node.updatedAt)
+        || node.updatedAt < 0)) {
+      fail(
+        'timeline-work-node-delete-expectation-invalid',
+        400,
+        'Timeline Work Node delete expectation is incomplete or invalid.',
+      );
+    }
+    if ([...deletedNodeIds].sort().join('|') !== expectedIds.join('|')) {
+      fail(
+        'timeline-work-node-delete-review-stale',
+        409,
+        'Timeline Work Node subtree changed after it was reviewed.',
+        { timelineId, nodeId, expectedIds, observedIds: [...deletedNodeIds].sort() },
+      );
+    }
+  }
   const checkout = await getCheckoutRef(timelineId);
   if (checkout?.targetType === 'work-node' && deletedNodeIds.includes(checkout.targetId)) {
     fail(
@@ -1232,9 +1268,53 @@ export async function deleteWorkNode(
       'Cannot delete the current Work Node path. Checkout another target first.',
     );
   }
-  const placeholders = deletedNodeIds.map(() => '?').join(', ');
-  const result = await batchWithRequiredChanges([
-    {
+  const guardedDeletedNodeIds = expectedNodes?.map((node) => node.id) || deletedNodeIds;
+  const placeholders = guardedDeletedNodeIds.map(() => '?').join(', ');
+  const identityPredicate = expectedNodes
+    ?.map(() => '(current.id = ? AND current.content_revision = ? AND current.updated_at = ?)')
+    .join(' OR ');
+  const deleteStatement: SqlStatement = expectedNodes
+    ? {
+      sql: `
+        WITH RECURSIVE descendants(id) AS (
+          SELECT id FROM timeline_work_nodes WHERE timeline_id = ? AND id = ?
+          UNION ALL
+          SELECT node.id FROM timeline_work_nodes node
+          JOIN descendants parent
+            ON node.timeline_id = ? AND node.parent_node_id = parent.id
+        )
+        DELETE FROM timeline_work_nodes
+        WHERE timeline_id = ? AND id IN (${placeholders})
+          AND (SELECT COUNT(*) FROM descendants) = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM descendants WHERE id NOT IN (${placeholders})
+          )
+          AND (
+            SELECT COUNT(*) FROM timeline_work_nodes current
+            WHERE current.timeline_id = ? AND (${identityPredicate})
+          ) = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM timeline_checkout_refs
+            WHERE timeline_id = ? AND target_type = 'work-node' AND target_id IN (${placeholders})
+          )
+      `,
+      bind: [
+        timelineId,
+        nodeId,
+        timelineId,
+        timelineId,
+        ...guardedDeletedNodeIds,
+        expectedNodes.length,
+        ...guardedDeletedNodeIds,
+        timelineId,
+        ...expectedNodes.flatMap((node) => [node.id, node.contentRevision, node.updatedAt]),
+        expectedNodes.length,
+        timelineId,
+        ...guardedDeletedNodeIds,
+      ],
+      requireChanges: true,
+    }
+    : {
       sql: `
         DELETE FROM timeline_work_nodes
         WHERE timeline_id = ? AND id IN (${placeholders})
@@ -1243,21 +1323,23 @@ export async function deleteWorkNode(
             WHERE timeline_id = ? AND target_type = 'work-node' AND target_id IN (${placeholders})
           )
       `,
-      bind: [timelineId, ...deletedNodeIds, timelineId, ...deletedNodeIds],
+      bind: [timelineId, ...guardedDeletedNodeIds, timelineId, ...guardedDeletedNodeIds],
       requireChanges: true,
-    },
+    };
+  const result = await batchWithRequiredChanges([
+    deleteStatement,
     auditStatement({
       timelineId,
       eventType: 'work-node.deleted',
       subjectType: 'work-node',
       subjectId: nodeId,
-      details: { deletedNodeIds },
+      details: { deletedNodeIds: guardedDeletedNodeIds },
       when: { sql: 'changes() > 0' },
     }),
   ], {
     code: 'timeline-work-node-conflict',
     message: 'Timeline Work Node changed before it could be deleted.',
-    details: { timelineId, nodeId },
+    details: { timelineId, nodeId, expectedNodeIds: guardedDeletedNodeIds },
   });
   if (!result.statementChanges[0]) {
     const currentCheckout = await getCheckoutRef(timelineId);
@@ -1268,9 +1350,15 @@ export async function deleteWorkNode(
         'Cannot delete the current Work Node path. Checkout another target first.',
       );
     }
-    fail('timeline-work-node-conflict', 409, 'Timeline Work Node changed before it could be deleted.');
+    fail(
+      expectedNodes ? 'timeline-work-node-delete-review-stale' : 'timeline-work-node-conflict',
+      409,
+      expectedNodes
+        ? 'Timeline Work Node subtree changed after it was reviewed.'
+        : 'Timeline Work Node changed before it could be deleted.',
+    );
   }
-  return { deletedNodeIds };
+  return { deletedNodeIds: guardedDeletedNodeIds };
 }
 
 export async function deleteDocument(timelineId: string): Promise<{

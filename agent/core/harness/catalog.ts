@@ -502,6 +502,13 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     ],
   }),
   defineOperation({
+    operation: 'delete_node',
+    phases: [
+      phase('timeline-delete-node-read', 'context', T.worknodeRead, 'Read the explicitly named Work Node and retain deletionIdentity.nodeRevision, deletionIdentity.subtreeNodeCount and deletionIdentity.subtreeDigest exactly. Show the reviewed subtreeNodeIds before requesting deletion.'),
+      phase('timeline-delete-node', 'mutation', T.worknodeDelete, 'Delete only that reviewed non-checked-out subtree. Copy the three deletionIdentity values into the expected fields unchanged; reject if the subtree changed after review.', ['timeline.work-node']),
+    ],
+  }),
+  defineOperation({
     operation: 'preview',
     phases: [
       phase('timeline-preview-current', 'context', T.current, 'Read the current timeline baseline before preparing a preview.'),
@@ -669,9 +676,9 @@ const calculationOperations: readonly DefHarnessOperationDefinition[] = [
 ];
 
 /**
- * This is the audited old-stable operation matrix.  Keep this list explicit:
- * it is the source of truth for parity tests and prevents a canonical Tool
- * refactor from silently dropping a business operation.
+ * This keeps all 50 audited old-stable operations and one current
+ * administrative Work Node deletion route. Keep the list explicit so neither
+ * parity behavior nor the safe maintenance operation can silently disappear.
  */
 type FullMatrixOperationPlaceholder = {
   readonly selection: readonly DefHarnessOperationId[];
@@ -684,7 +691,7 @@ type FullMatrixOperationPlaceholder = {
 export const DEF_HARNESS_FULL_OPERATION_MATRIX = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
   loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
-  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
+  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'delete_node', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 } as const satisfies FullMatrixOperationPlaceholder;
@@ -692,11 +699,11 @@ export const DEF_HARNESS_FULL_OPERATION_MATRIX = {
 const FULL_MATRIX_SOURCE = 'old-stable:bcea5f12a3148737e7a9b799d2fa4e0170ffe0bb';
 
 function fullRevision(businessId: Exclude<keyof typeof DEF_HARNESS_FULL_OPERATION_MATRIX, never>): string {
-  return `${businessId}-v17-full-matrix`;
+  return `${businessId}-v18-full-matrix`;
 }
 
 function fullLineage(businessId: Exclude<keyof typeof DEF_HARNESS_FULL_OPERATION_MATRIX, never>): string {
-  return `${businessId}@${FULL_MATRIX_SOURCE}:50-operation-parity`;
+  return `${businessId}@${FULL_MATRIX_SOURCE}:50-operation-parity+worknode-delete-admin`;
 }
 
 export const PHASE7_FULL_HARNESS_CATALOG = [
@@ -726,7 +733,7 @@ export const PHASE7_FULL_HARNESS_CATALOG = [
     displayName: '排轴',
     sourceLineage: fullLineage('timeline'),
     revision: fullRevision('timeline'),
-    summary: 'Restore all eleven audited timeline operations; every write is isolated, validated and applied through a Work Node.',
+    summary: 'Restore all eleven audited timeline operations plus safe Work Node subtree deletion; every write is isolated, reviewed and revision-bound.',
     writeScope: TIMELINE_WRITE_SCOPE,
     operations: timelineOperations,
   },
