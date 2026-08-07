@@ -254,11 +254,11 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
                 'buildGuide',
               ] },
               domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
-              query: boundedStringSchema(1, 200),
-              operatorQuery: boundedStringSchema(1, 200),
-              skillQuery: boundedStringSchema(1, 200),
-              hitQuery: boundedStringSchema(1, 200),
-              setQuery: boundedStringSchema(1, 200),
+              query: boundedStringSchema(1, 160),
+              operatorQuery: boundedStringSchema(1, 160),
+              skillQuery: boundedStringSchema(1, 160),
+              hitQuery: boundedStringSchema(1, 160),
+              setQuery: boundedStringSchema(1, 160),
               limit: boundedIntegerSchema(1, 256),
               combinationsPerSet: boundedIntegerSchema(1, 256),
               allowDuplicateCompatibleAccessories: { type: 'boolean' },
@@ -747,17 +747,17 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
       ...(value.domain === undefined
         ? {}
         : { domain: requiredEnum(value.domain, 'domain', ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] as const) }),
-      ...(optionalString(value.query, 'query', 200) ? { query: value.query as string } : {}),
-      ...(optionalString(value.operatorQuery, 'operatorQuery', 200)
+      ...(optionalString(value.query, 'query', 160) ? { query: value.query as string } : {}),
+      ...(optionalString(value.operatorQuery, 'operatorQuery', 160)
         ? { operatorQuery: value.operatorQuery as string }
         : {}),
-      ...(optionalString(value.skillQuery, 'skillQuery', 200)
+      ...(optionalString(value.skillQuery, 'skillQuery', 160)
         ? { skillQuery: value.skillQuery as string }
         : {}),
-      ...(optionalString(value.hitQuery, 'hitQuery', 200)
+      ...(optionalString(value.hitQuery, 'hitQuery', 160)
         ? { hitQuery: value.hitQuery as string }
         : {}),
-      ...(optionalString(value.setQuery, 'setQuery', 200) ? { setQuery: value.setQuery as string } : {}),
+      ...(optionalString(value.setQuery, 'setQuery', 160) ? { setQuery: value.setQuery as string } : {}),
       ...(value.limit === undefined ? {} : { limit: requiredInteger(value.limit, 'limit', 1, 256) }),
       ...(value.combinationsPerSet === undefined
         ? {}

@@ -430,6 +430,15 @@ await assert.rejects(
   /skillFact requires operatorQuery and skillQuery/u,
 );
 
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'query',
+    domain: 'operators',
+    query: '过'.repeat(161),
+  }),
+  /query must be a non-empty string of at most 160 characters/u,
+);
+
 assert.deepEqual(
   await prepareAny('def.worknode.validate', { nodeId: 'node-review' }),
   {
