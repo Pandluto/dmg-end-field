@@ -15,7 +15,10 @@ const expectedOperations = {
     'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment',
     'compare', 'preview', 'apply', 'restore',
   ],
-  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'delete_node', 'preview', 'apply', 'restore'],
+  timeline: [
+    'current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate',
+    'delete_node', 'preview', 'apply', 'reject_preview', 'revise_preview', 'restore',
+  ],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 } as const;
@@ -25,9 +28,9 @@ const keyOf = (entry: Pick<DefOperationCapability, 'businessId' | 'operation'>) 
   `${entry.businessId}.${entry.operation}`
 );
 
-assert.equal(DEF_OPERATION_CAPABILITY_COUNT, 51);
-assert.equal(entries.length, 51);
-assert.equal(new Set(entries.map(keyOf)).size, 51, 'the matrix must contain 51 unique business.operation keys');
+assert.equal(DEF_OPERATION_CAPABILITY_COUNT, 53);
+assert.equal(entries.length, 53);
+assert.equal(new Set(entries.map(keyOf)).size, 53, 'the matrix must contain 53 unique business.operation keys');
 
 for (const [businessId, operations] of Object.entries(expectedOperations)) {
   const actual = entries
@@ -37,20 +40,26 @@ for (const [businessId, operations] of Object.entries(expectedOperations)) {
 }
 
 assert.deepEqual(DEF_OPERATION_CAPABILITY_STATUS_COUNTS, {
-  available: 48,
+  available: 50,
   'fact-only': 1,
   'evidence-unavailable': 0,
   retired: 2,
 });
 assert.equal(
   Object.values(DEF_OPERATION_CAPABILITY_STATUS_COUNTS).reduce((sum, count) => sum + count, 0),
-  51,
+  53,
 );
 
 assert.equal(readDefOperationCapability('loadout', 'recommend')?.status, 'available');
 assert.equal(readDefOperationCapability('loadout', 'recommend_discovered_set')?.status, 'available');
 assert.equal(readDefOperationCapability('timeline', 'restore')?.status, 'available');
 assert.equal(readDefOperationCapability('timeline', 'delete_node')?.status, 'available');
+assert.equal(readDefOperationCapability('timeline', 'reject_preview')?.status, 'available');
+assert.equal(readDefOperationCapability('timeline', 'revise_preview')?.status, 'available');
+assert.deepEqual(
+  readDefOperationCapability('timeline', 'inspect')?.implementationRoute,
+  [{ kind: 'tool', name: 'def.node.crud.current' }],
+);
 assert.equal(readDefOperationCapability('buff', 'restore')?.status, 'available');
 assert.equal(readDefOperationCapability('calculation', 'compare')?.status, 'available');
 assert.equal(readDefOperationCapability('conversation', 'respond'), null);
@@ -66,6 +75,9 @@ const canonicalMutationTools = new Set([
   'def.worknode.use',
   'def.worknode.delete',
   'def.worknode.restore',
+  'def.timeline.apply_prepared',
+  'def.timeline.reject_preview',
+  'def.timeline.revise_preview',
   'def.buff.add_to_button',
   'def.buff.remove_from_button',
 ]);
@@ -74,10 +86,12 @@ const canonicalMutationCommands = new Set([
   'prepareReviewedWorkNodeProposal',
   'checkoutAiTimelineWorkNode',
   'deleteAiTimelineWorkNode',
+  'applyReviewedWorkNodeProposal',
+  'abandonPreparedWorkNodeProposal',
 ]);
 
 const mutatingAvailable = entries.filter((entry) => entry.status === 'available' && entry.mutatesProduct);
-assert.equal(mutatingAvailable.length, 21);
+assert.equal(mutatingAvailable.length, 23);
 for (const entry of mutatingAvailable) {
   assert.equal(
     entry.implementationRoute.some((route) => route.kind === 'tool' && canonicalMutationTools.has(route.name)),

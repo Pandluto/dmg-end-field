@@ -3,12 +3,24 @@ import type { DefSessionId, DefTurnId, ToolCallId } from './ids.ts';
 import type { JsonObject, JsonValue } from './json.ts';
 import type { ProductBinding, ProductSnapshotEnvelope } from './product.ts';
 import type {
+  DefPreparedWorkNodeCandidateRefV1,
   PreparedWorkNodeScope,
 } from './prepared-work-node.ts';
 
 export interface DefToolDescriptor extends EngineToolDescriptor {
   readonly risk: EngineToolRisk;
 }
+
+/**
+ * The only identity a later Turn may submit for a prepared proposal.  The
+ * candidate payload, review and source checkout are deliberately absent: the
+ * Host resolves those from the completed Turn journal before it can create an
+ * approval request.
+ */
+export type DefPreparedProposalIdentityV1 = Pick<
+  DefPreparedWorkNodeCandidateRefV1,
+  'proposalId' | 'nodeId' | 'nodeRevision' | 'proposalDigest'
+>;
 
 export interface DefProductSnapshotReader {
   getSnapshot(binding: ProductBinding): Promise<ProductSnapshotEnvelope>;
@@ -61,6 +73,56 @@ export type DefInteractiveToolPlan =
       readonly applyOperation: 'applyReviewedWorkNodeProposal';
       readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
       readonly visiblePostcondition?: JsonObject;
+    }
+  | {
+      /**
+       * Prepare an isolated Timeline Work Node without asking for approval.
+       * The complete proposal is returned to the Engine and persisted in the
+       * completed Turn journal for a later apply/reject/revise action.
+       */
+      readonly kind: 'prepared-preview';
+      readonly prompt: string;
+      readonly scope: readonly PreparedWorkNodeScope[];
+      readonly prepareCommand: JsonObject;
+      readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
+    }
+  | {
+      /**
+       * Apply a prepared proposal from a previous completed Turn.  The
+       * identity is model-supplied, but the Host resolves the full candidate
+       * and review from history before creating a fresh Approval V2 request.
+       */
+      readonly kind: 'prepared-history-apply';
+      readonly prompt: string;
+      readonly identity: DefPreparedProposalIdentityV1;
+      readonly intent: 'timeline';
+      readonly applyOperation: 'applyReviewedWorkNodeProposal';
+      readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
+    }
+  | {
+      /**
+       * Reject and delete a prepared proposal from a previous completed Turn.
+       * This is an explicit cleanup operation and never opens a second
+       * approval interaction.
+       */
+      readonly kind: 'prepared-history-reject';
+      readonly prompt: string;
+      readonly identity: DefPreparedProposalIdentityV1;
+      readonly intent: 'timeline';
+      readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
+    }
+  | {
+      /**
+       * Replace a previous preview.  The Host must resolve and clean the
+       * superseded candidate before dispatching this new prepare command.
+       */
+      readonly kind: 'prepared-history-revise';
+      readonly prompt: string;
+      readonly superseded: DefPreparedProposalIdentityV1;
+      readonly intent: 'timeline';
+      readonly scope: readonly PreparedWorkNodeScope[];
+      readonly prepareCommand: JsonObject;
+      readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
     };
 
 export interface DefInteractiveToolHandler {

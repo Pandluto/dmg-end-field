@@ -15,6 +15,7 @@ import {
   isPreparedWorkNodeCleanupAudit,
   isPreparedWorkNodeCandidateRef,
   isPreparedWorkNodeProposal,
+  isPreparedWorkNodeReview,
   PREPARED_WORK_NODE_SCOPES,
   type AgentEngine,
   type ApprovalCapabilityVerificationKey,
@@ -39,6 +40,7 @@ import {
   type DefPreparedWorkNodeCleanupAuditV1,
   type DefPreparedWorkNodeProposalV1,
   type DefPreparedWorkNodeReviewV1,
+  type DefPreparedProposalIdentityV1,
   type DefWorkbenchToolRegistry,
   type InteractionId,
   type InteractionRequest,
@@ -77,6 +79,8 @@ type DefEventInput<Type extends DefEvent['type']> = Type extends DefEvent['type'
     'schemaVersion' | 'sequence' | 'occurredAt' | 'defSessionId'
   >
   : never;
+
+type ToolCallCorrelation = Pick<Extract<EngineEvent, { type: 'tool.requested' }>, 'toolCallId'>;
 
 type SessionRecord = {
   session: DefSessionV6;
@@ -212,6 +216,7 @@ export class DefAgentHost {
   readonly #sessions = new Map<DefSessionId, SessionRecord>();
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
   readonly #settledTurns = new Map<DefTurnId, SettledTurn>();
+  readonly #timelineCleanupPromises = new Set<Promise<void>>();
   #activeTurn: ActiveTurn | null = null;
   #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
@@ -376,6 +381,7 @@ export class DefAgentHost {
         await this.#finishDeletingSession(active);
       } else {
         await this.#recoverSessionIfNeeded(active);
+        await this.#cleanupStalePreparedTimelinePreviews(active, active.binding);
       }
       this.#trimEventWindow(active);
     }
@@ -840,6 +846,235 @@ export class DefAgentHost {
     }
   }
 
+  /**
+   * A prepared Timeline preview has no Interaction record until a later Turn
+   * applies it. If the Host dies after journaling the full preview result but
+   * before that Turn completes, recover the isolated candidate before exposing
+   * the Session again. This path intentionally requires the exact binding and
+   * a terminal browser cleanup receipt; uncertainty remains fail-closed.
+   */
+  async #cleanupStalePreparedTimelinePreviews(
+    record: SessionRecord,
+    expected: ProductBinding,
+  ): Promise<void> {
+    this.#ensureFullEventHistory(record);
+    const completedTurns = new Set<DefTurnId>(
+      record.events
+        .filter((event): event is Extract<DefEvent, { type: 'turn.completed' }> => event.type === 'turn.completed')
+        .map((event) => event.defTurnId),
+    );
+    for (let index = 0; index < record.events.length; index += 1) {
+      const resultEvent = record.events[index];
+      if (resultEvent?.type !== 'tool.result' || completedTurns.has(resultEvent.defTurnId)) continue;
+      const request = record.events
+        .slice(0, index)
+        .reverse()
+        .find((event): event is Extract<DefEvent, { type: 'tool.requested' }> => (
+          event.type === 'tool.requested'
+            && event.defTurnId === resultEvent.defTurnId
+            && event.toolCallId === resultEvent.toolCallId
+            && (event.payload.name === 'def.timeline.preview'
+              || event.payload.name === 'def.timeline.revise_preview')
+        ));
+      if (!request) continue;
+
+      let history: TimelinePreviewHistoryRecord | null;
+      try {
+        history = timelinePreviewProposalFromResult(resultEvent.payload.result, request);
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Interrupted Timeline preview has no trustworthy persisted candidate: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+      if (!history) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Interrupted Timeline preview is missing its complete proposal, candidate, or review; manual Work Node review is required.',
+          409,
+        );
+      }
+      if (!sameExactProductBinding(history.proposal.sourceBinding, expected)
+        || history.candidate.sourceRevision !== expected.contentRevision
+        || (expected.checkoutTargetId !== null
+          && history.candidate.sourceTargetId !== expected.checkoutTargetId)
+        || history.candidate.candidateTimelineId !== expected.timelineId) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Interrupted Timeline preview cleanup requires the exact source and current Product binding.',
+          409,
+        );
+      }
+
+      const laterCommands = record.events.filter((event): event is Extract<DefEvent, { type: 'command.queued' }> => (
+        event.type === 'command.queued'
+          && event.defTurnId === request.defTurnId
+          && event.toolCallId === request.toolCallId
+          && event.sequence > resultEvent.sequence
+      ));
+      for (const queued of laterCommands) {
+        const reconciled = await this.#productGateway.reconcile(queued.commandId).catch(() => null);
+        if (!reconciled) {
+          throw new DefAgentHostError(
+            'AGENT_PREPARED_RECOVERY_RECONCILE_REQUIRED',
+            'Interrupted Timeline preview already has an uncertain cleanup command; reconcile it before continuing.',
+            409,
+          );
+        }
+        const audit = preparedCleanupAuditFromReconciledResult(reconciled, history.candidate);
+        if (!audit || (audit.status !== 'deleted' && audit.status !== 'abandoned')) {
+          throw new DefAgentHostError(
+            'AGENT_PREPARED_RECOVERY_BLOCKED',
+            `Interrupted Timeline preview cleanup was not proven safe: ${audit?.reason ?? reconciled.message ?? reconciled.status}`,
+            409,
+          );
+        }
+      }
+      if (laterCommands.length > 0) continue;
+
+      let snapshot: ProductSnapshotEnvelope;
+      try {
+        snapshot = await this.#productGateway.getSnapshot(expected);
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Interrupted Timeline preview cannot be cleaned against the current Product binding: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+      if (!sameExactProductBinding(snapshot.binding, expected)) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Interrupted Timeline preview cleanup requires the exact visible Product binding.',
+          409,
+        );
+      }
+      await this.#dispatchRecoveredTimelinePreviewCleanup(record, request, history.candidate, expected);
+    }
+  }
+
+  async #dispatchRecoveredTimelinePreviewCleanup(
+    record: SessionRecord,
+    request: Extract<DefEvent, { type: 'tool.requested' }>,
+    candidate: DefPreparedWorkNodeCandidateRefV1,
+    expected: ProductBinding,
+  ): Promise<void> {
+    const commandId = asCommandId(`command-recovery-timeline-preview-${createHash('sha256')
+      .update(`${record.session.defSessionId}:${request.defTurnId}:${request.toolCallId}:${candidate.proposalDigest}`)
+      .digest('hex')
+      .slice(0, 32)}`);
+    const command: ProductCommandEnvelope<Phase2ProductOperationSchema> = {
+      protocolVersion: 1,
+      commandId,
+      defSessionId: record.session.defSessionId,
+      defTurnId: request.defTurnId,
+      toolCallId: request.toolCallId,
+      expected,
+      command: {
+        op: 'workbench.execute-command',
+        payload: {
+          command: {
+            op: 'abandonPreparedWorkNodeProposal',
+            candidate: candidateAsJson(candidate),
+            reason: 'Host restart interrupted the Timeline preview before its Turn completed.',
+          },
+        },
+      },
+    };
+    const correlation = {
+      defTurnId: request.defTurnId,
+      toolCallId: request.toolCallId,
+      commandId,
+    };
+    const bindingPayload = {
+      workspaceId: expected.workspaceId,
+      databaseGeneration: expected.databaseGeneration,
+      timelineId: expected.timelineId,
+      checkoutTargetId: expected.checkoutTargetId,
+      beforeRevision: expected.contentRevision,
+    };
+    let result: ProductCommandResult | null = null;
+    try {
+      await this.#productGateway.dispatch(command);
+      this.#append(record, {
+        type: 'command.queued',
+        ...correlation,
+        payload: {
+          ...bindingPayload,
+          op: command.command.op,
+          afterRevision: null,
+          browserReceiptDigest: null,
+        },
+      });
+      this.#append(record, {
+        type: 'command.dispatched',
+        ...correlation,
+        payload: {
+          ...bindingPayload,
+          op: command.command.op,
+          afterRevision: null,
+          browserReceiptDigest: null,
+        },
+      });
+      try {
+        result = await this.#productGateway.awaitResult(commandId, {
+          timeoutMs: PRODUCT_COMMAND_TIMEOUT_MS,
+        });
+      } catch {
+        result = await this.#productGateway.reconcile(commandId).catch(() => null);
+      }
+    } catch (error) {
+      throw new DefAgentHostError(
+        'AGENT_PREPARED_RECOVERY_BLOCKED',
+        `Interrupted Timeline preview cleanup could not be dispatched: ${error instanceof Error ? error.message : String(error)}`,
+        409,
+      );
+    }
+    if (!result) {
+      this.#append(record, {
+        type: 'command.orphaned',
+        ...correlation,
+        payload: {
+          ...bindingPayload,
+          code: 'PREPARED_RECOVERY_CLEANUP_UNCERTAIN',
+          message: 'No terminal browser receipt was available for interrupted Timeline preview cleanup.',
+          afterRevision: null,
+          browserReceiptDigest: null,
+        },
+      });
+      throw new DefAgentHostError(
+        'AGENT_PREPARED_RECOVERY_RECONCILE_REQUIRED',
+        'Interrupted Timeline preview cleanup has no terminal browser receipt; manual Work Node reconciliation is required.',
+        409,
+      );
+    }
+    const receipt = (result.browserResult ?? result.visiblePostcondition ?? null) as JsonValue;
+    const browserReceiptDigest = createHash('sha256')
+      .update(canonicalJson(receipt))
+      .digest('hex');
+    this.#append(record, {
+      type: 'command.result',
+      ...correlation,
+      payload: {
+        ...bindingPayload,
+        status: result.status,
+        afterRevision: result.afterRevision,
+        browserReceiptDigest,
+        ...(result.code ? { code: result.code } : {}),
+        ...(result.message ? { message: result.message } : {}),
+      },
+    });
+    const audit = preparedCleanupAuditFromReconciledResult(result, candidate);
+    if (audit.status !== 'deleted' && audit.status !== 'abandoned') {
+      throw new DefAgentHostError(
+        'AGENT_PREPARED_RECOVERY_BLOCKED',
+        `Interrupted Timeline preview was not safely removed: ${audit.reason ?? audit.status}`,
+        409,
+      );
+    }
+  }
+
   async createSession(input: {
     readonly binding: ProductBinding;
     readonly providerProfileRef: string;
@@ -969,6 +1204,7 @@ export class DefAgentHost {
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     await this.#cleanupStalePreparedCandidates(record, record.binding);
+    await this.#cleanupStalePreparedTimelinePreviews(record, record.binding);
     if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const defTurnId = this.#ids.turn();
@@ -1072,6 +1308,7 @@ export class DefAgentHost {
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     await this.#cleanupStalePreparedCandidates(record, input.binding ?? record.binding);
+    await this.#cleanupStalePreparedTimelinePreviews(record, input.binding ?? record.binding);
     if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     if (input.binding) {
@@ -1216,6 +1453,7 @@ export class DefAgentHost {
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     await this.#cleanupStalePreparedCandidates(record, input.binding);
+    await this.#cleanupStalePreparedTimelinePreviews(record, input.binding);
     if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const interruptedSource = harnessManager.getTransaction(input.sourceTransactionId);
@@ -1938,6 +2176,7 @@ export class DefAgentHost {
         .map((record) => record.recoveryPromise)
         .filter((promise): promise is Promise<SessionRecoveryOutcome> => promise !== null),
     );
+    await Promise.allSettled([...this.#timelineCleanupPromises]);
     await this.#engine.shutdown();
   }
 
@@ -2226,11 +2465,6 @@ export class DefAgentHost {
         return;
       }
 
-      await active.handle.submitToolResultAndUpdateProjection({
-        toolCallId: event.toolCallId,
-        status: 'succeeded',
-        result,
-      }, staged.transition.transaction.projection);
       const transition = harnessManager.commitPrepared(staged);
       this.#append(active.session, {
         type: 'tool.result',
@@ -2239,6 +2473,15 @@ export class DefAgentHost {
         payload: { result },
       });
       this.#appendHarnessTrace(active, transition.trace);
+      // Journal a successful prepared result before handing it back to the
+      // Engine. If the process dies after Product preparation but before the
+      // Engine observes the result, recovery can still identify and clean an
+      // incomplete preview candidate instead of losing its identity.
+      await active.handle.submitToolResultAndUpdateProjection({
+        toolCallId: event.toolCallId,
+        status: 'succeeded',
+        result,
+      }, transition.transaction.projection);
     });
   }
 
@@ -2284,6 +2527,22 @@ export class DefAgentHost {
 
     if (plan.kind === 'prepared-mutation') {
       return this.#executePreparedMutation(active, event, plan, snapshot.binding);
+    }
+
+    if (plan.kind === 'prepared-preview') {
+      return this.#executePreparedPreview(active, event, plan, snapshot.binding);
+    }
+
+    if (plan.kind === 'prepared-history-apply') {
+      return this.#executePreparedHistoryApply(active, event, plan, snapshot.binding);
+    }
+
+    if (plan.kind === 'prepared-history-reject') {
+      return this.#executePreparedHistoryReject(active, event, plan, snapshot.binding);
+    }
+
+    if (plan.kind === 'prepared-history-revise') {
+      return this.#executePreparedHistoryRevise(active, event, plan, snapshot.binding);
     }
 
     const resolvedMutation = plan.command.op === 'applyPreparedOperatorConfigProposal'
@@ -2483,12 +2742,273 @@ export class DefAgentHost {
     }
   }
 
-  async #cleanupPreparedMutation(
+  async #executePreparedPreview(
     active: ActiveTurn,
     event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-preview' }>,
+    pinnedBinding: ProductBinding,
+  ): Promise<JsonValue> {
+    const preparedPlan = readPreparedPreviewPlan(plan);
+    const prepareCommand: JsonObject = {
+      ...preparedPlan.command,
+      sourceBinding: productBindingAsJson(pinnedBinding),
+    };
+    const prepareResult = await this.#dispatchProductCommand(active, event, {
+      expected: pinnedBinding,
+      command: prepareCommand,
+    });
+    const rawProposal = preparedProposalFromCommandResult(prepareResult);
+    let proposal: DefPreparedWorkNodeProposalV1;
+    try {
+      if (!isPreparedWorkNodeProposal(rawProposal)) {
+        throw new DefToolExecutionError(
+          'DEF_PRODUCT_COMMAND_FAILED',
+          'Timeline preview did not return a complete DefPreparedWorkNodeProposalV1',
+        );
+      }
+      proposal = structuredClone(rawProposal);
+      assertPreparedProposalMatchesPlan(proposal, preparedPlan, pinnedBinding);
+    } catch (error) {
+      if (isPreparedWorkNodeProposal(rawProposal)) {
+        await this.#cleanupPreparedCandidate(
+          active,
+          event,
+          candidateFromProposal(rawProposal),
+          pinnedBinding,
+          plan.cleanupOperation,
+          undefined,
+          'invalid-timeline-preview-proposal',
+        );
+      }
+      throw error;
+    }
+    return timelinePreviewResult(proposal, prepareResult);
+  }
+
+  async #executePreparedHistoryApply(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-history-apply' }>,
+    pinnedBinding: ProductBinding,
+  ): Promise<JsonValue> {
+    this.#ensureFullEventHistory(active.session);
+    const history = findTimelinePreviewProposalFromHistory(
+      active.session,
+      active.defTurnId,
+      plan.identity,
+      pinnedBinding,
+    );
+    const candidate = history.candidate;
+    const interactionId = this.#ids.interaction();
+    const createdAt = new Date(this.#clock()).toISOString();
+    const request: Extract<InteractionRequest, { kind: 'approval' }> = {
+      interactionId,
+      defSessionId: active.session.session.defSessionId,
+      defTurnId: active.defTurnId,
+      toolCallId: event.toolCallId,
+      kind: 'approval',
+      prompt: plan.prompt,
+      proposalHash: candidate.proposalDigest,
+      binding: { ...pinnedBinding },
+      scope: [...candidate.scope],
+      proposal: timelineApplyProposal(history),
+      candidate: clonePreparedWorkNodeCandidateRef(candidate),
+      candidateReview: clonePreparedWorkNodeReview(history.proposal.review),
+      createdAt,
+      expiresAt: new Date(this.#clock() + INTERACTION_TIMEOUT_MS).toISOString(),
+    };
+    const response = await this.#requestInteraction(active, request);
+    if (response.status !== 'approved') {
+      await this.#cleanupPreparedCandidate(
+        active,
+        event,
+        candidate,
+        request.binding,
+        plan.cleanupOperation,
+        interactionId,
+        `timeline-preview-apply-${response.status}`,
+        response.status,
+      );
+      throw interactionToolFailure(response);
+    }
+
+    try {
+      const exactSnapshot = await this.#productGateway.getSnapshot(request.binding);
+      if (!sameExactProductBinding(exactSnapshot.binding, request.binding)) {
+        throw new DefToolExecutionError(
+          'DEF_INTERACTION_STALE',
+          'Timeline preview approval binding changed before apply',
+        );
+      }
+      const commandId = this.#ids.command();
+      const claims = this.#interactionBroker.issueApprovalCapability(interactionId, commandId);
+      const consumedClaims = this.#interactionBroker.consumePreparedApprovalCapability(claims, candidate, {
+        interactionId,
+        commandId,
+        defSessionId: active.session.session.defSessionId,
+        defTurnId: active.defTurnId,
+        toolCallId: event.toolCallId,
+        proposalHash: candidate.proposalDigest,
+        binding: request.binding,
+        scope: request.scope,
+      });
+      const approvalCapability = this.#approvalCapabilitySigner.sign(consumedClaims);
+      return await this.#dispatchProductCommand(active, event, {
+        commandId,
+        interactionId,
+        expected: request.binding,
+        command: {
+          op: plan.applyOperation,
+          operation: 'timeline.preview.apply',
+          candidate: candidateAsJson(candidate),
+        },
+        approvalCapability,
+      });
+    } catch (error) {
+      await this.#cleanupPreparedCandidate(
+        active,
+        event,
+        candidate,
+        request.binding,
+        plan.cleanupOperation,
+        interactionId,
+        `timeline-preview-apply-failed: ${error instanceof Error ? error.message : String(error)}`,
+        'approved',
+      );
+      throw error;
+    }
+  }
+
+  async #executePreparedHistoryReject(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-history-reject' }>,
+    pinnedBinding: ProductBinding,
+  ): Promise<JsonValue> {
+    this.#ensureFullEventHistory(active.session);
+    const history = findTimelinePreviewProposalFromHistory(
+      active.session,
+      active.defTurnId,
+      plan.identity,
+      pinnedBinding,
+    );
+    const cleanup = await this.#cleanupPreparedCandidate(
+      active,
+      event,
+      history.candidate,
+      pinnedBinding,
+      plan.cleanupOperation,
+      undefined,
+      'timeline-preview-rejected',
+    );
+    assertPreparedCleanupCompleted(cleanup, 'Timeline preview rejection');
+    return {
+      contract: 'DefPreparedTimelinePreviewCleanupResultV1',
+      schemaVersion: 1,
+      status: 'rejected',
+      proposalId: history.candidate.proposalId,
+      nodeId: history.candidate.nodeId,
+      proposalDigest: history.candidate.proposalDigest,
+      cleanup: structuredClone(cleanup) as unknown as JsonValue,
+    };
+  }
+
+  async #executePreparedHistoryRevise(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-history-revise' }>,
+    pinnedBinding: ProductBinding,
+  ): Promise<JsonValue> {
+    this.#ensureFullEventHistory(active.session);
+    const previous = findTimelinePreviewProposalFromHistory(
+      active.session,
+      active.defTurnId,
+      plan.superseded,
+      pinnedBinding,
+    );
+    const supersededCleanup = await this.#cleanupPreparedCandidate(
+      active,
+      event,
+      previous.candidate,
+      pinnedBinding,
+      plan.cleanupOperation,
+      undefined,
+      'timeline-preview-superseded',
+    );
+    assertPreparedCleanupCompleted(supersededCleanup, 'Timeline preview revision');
+
+    const preparedPlan = readPreparedPreviewPlan(plan);
+    const prepareCommand: JsonObject = {
+      ...preparedPlan.command,
+      sourceBinding: productBindingAsJson(pinnedBinding),
+    };
+    let prepareResult: JsonValue;
+    try {
+      prepareResult = await this.#dispatchProductCommand(active, event, {
+        expected: pinnedBinding,
+        command: prepareCommand,
+      });
+    } catch (error) {
+      throw error;
+    }
+    const rawProposal = preparedProposalFromCommandResult(prepareResult);
+    try {
+      if (!isPreparedWorkNodeProposal(rawProposal)) {
+        throw new DefToolExecutionError(
+          'DEF_PRODUCT_COMMAND_FAILED',
+          'Revised Timeline preview did not return a complete DefPreparedWorkNodeProposalV1',
+        );
+      }
+      const proposal = structuredClone(rawProposal);
+      assertPreparedProposalMatchesPlan(proposal, preparedPlan, pinnedBinding);
+      return timelinePreviewResult(proposal, prepareResult, {
+        supersededProposalDigest: previous.candidate.proposalDigest,
+        supersededCleanup,
+      });
+    } catch (error) {
+      if (isPreparedWorkNodeProposal(rawProposal)) {
+        await this.#cleanupPreparedCandidate(
+          active,
+          event,
+          candidateFromProposal(rawProposal),
+          pinnedBinding,
+          plan.cleanupOperation,
+          undefined,
+          'invalid-revised-timeline-preview-proposal',
+        );
+      }
+      throw error;
+    }
+  }
+
+  async #cleanupPreparedMutation(
+    active: ActiveTurn,
+    event: ToolCallCorrelation,
     plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>,
     candidate: DefPreparedWorkNodeCandidateRefV1,
     expected: ProductBinding,
+    interactionId: InteractionId | undefined,
+    reason: string,
+    resolutionStatus: Exclude<InteractionResponse['status'], 'pending'> | undefined = undefined,
+  ): Promise<DefPreparedWorkNodeCleanupAuditV1> {
+    return this.#cleanupPreparedCandidate(
+      active,
+      event,
+      candidate,
+      expected,
+      plan.cleanupOperation,
+      interactionId,
+      reason,
+      resolutionStatus,
+    );
+  }
+
+  async #cleanupPreparedCandidate(
+    active: ActiveTurn,
+    event: ToolCallCorrelation,
+    candidate: DefPreparedWorkNodeCandidateRefV1,
+    expected: ProductBinding,
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
     interactionId: InteractionId | undefined,
     reason: string,
     resolutionStatus: Exclude<InteractionResponse['status'], 'pending'> | undefined = undefined,
@@ -2520,7 +3040,7 @@ export class DefAgentHost {
         interactionId,
         expected,
         command: {
-          op: plan.cleanupOperation,
+          op: cleanupOperation,
           candidate: candidateAsJson(candidate),
           reason: reason.slice(0, 2_000),
         },
@@ -2547,7 +3067,7 @@ export class DefAgentHost {
 
   #appendPreparedCleanupAudit(
     active: ActiveTurn,
-    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    event: ToolCallCorrelation,
     interactionId: InteractionId | undefined,
     resolutionStatus: Exclude<InteractionResponse['status'], 'pending'> | undefined,
     audit: DefPreparedWorkNodeCleanupAuditV1,
@@ -2696,7 +3216,7 @@ export class DefAgentHost {
 
   async #dispatchProductCommand(
     active: ActiveTurn,
-    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    event: ToolCallCorrelation,
     input: {
       readonly commandId?: CommandId;
       readonly interactionId?: InteractionId;
@@ -3048,6 +3568,119 @@ export class DefAgentHost {
     }
   }
 
+  async #cleanupIncompleteTimelinePreviews(active: ActiveTurn): Promise<void> {
+    const events = active.session.events;
+    const previewResults = events.filter((event): event is Extract<DefEvent, { type: 'tool.result' }> => (
+      event.type === 'tool.result' && event.defTurnId === active.defTurnId
+    ));
+    for (const resultEvent of previewResults) {
+      const request = events
+        .slice(0, events.indexOf(resultEvent))
+        .reverse()
+        .find((event): event is Extract<DefEvent, { type: 'tool.requested' }> => (
+          event.type === 'tool.requested'
+            && event.defTurnId === active.defTurnId
+            && event.toolCallId === resultEvent.toolCallId
+            && (event.payload.name === 'def.timeline.preview'
+              || event.payload.name === 'def.timeline.revise_preview')
+        ));
+      if (!request) continue;
+      let history: TimelinePreviewHistoryRecord | null = null;
+      try {
+        history = timelinePreviewProposalFromResult(resultEvent.payload.result, request);
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Incomplete Timeline preview has no trustworthy persisted candidate: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+      if (!history) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Incomplete Timeline preview is missing its complete proposal, candidate, or review.',
+          409,
+        );
+      }
+      const laterCommands = events.filter((event): event is Extract<DefEvent, { type: 'command.queued' }> => (
+        event.type === 'command.queued'
+          && event.toolCallId === request.toolCallId
+          && event.sequence > resultEvent.sequence
+      ));
+      if (laterCommands.length > 0) {
+        for (const queued of laterCommands) {
+          const reconciled = await this.#productGateway.reconcile(queued.commandId).catch(() => null);
+          if (!reconciled) {
+            throw new DefAgentHostError(
+              'AGENT_PREPARED_RECOVERY_RECONCILE_REQUIRED',
+              'Timeline preview cleanup was dispatched but has no terminal browser receipt.',
+              409,
+            );
+          }
+          const audit = preparedCleanupAuditFromReconciledResult(reconciled, history.candidate);
+          if (!audit || (audit.status !== 'deleted' && audit.status !== 'abandoned')) {
+            throw new DefAgentHostError(
+              'AGENT_PREPARED_RECOVERY_BLOCKED',
+              `Timeline preview cleanup was not proven safe: ${audit?.reason ?? reconciled.message ?? reconciled.status}`,
+              409,
+            );
+          }
+        }
+        continue;
+      }
+      const cleanup = await this.#cleanupPreparedCandidate(
+        active,
+        request,
+        history.candidate,
+        active.session.binding,
+        'abandonPreparedWorkNodeProposal',
+        undefined,
+        'incomplete-timeline-preview-turn',
+      );
+      if (cleanup.status !== 'deleted' && cleanup.status !== 'abandoned') {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          cleanup.reason ?? 'Incomplete Timeline preview candidate was not safely cleaned',
+          409,
+        );
+      }
+    }
+  }
+
+  #trackIncompleteTimelinePreviewCleanup(active: ActiveTurn): void {
+    const cleanup = this.#cleanupIncompleteTimelinePreviews(active);
+    this.#timelineCleanupPromises.add(cleanup);
+    void cleanup
+      .catch((error: unknown) => {
+        const request = [...active.session.events]
+          .reverse()
+          .find((event): event is Extract<DefEvent, { type: 'tool.requested' }> => (
+            event.type === 'tool.requested'
+              && event.defTurnId === active.defTurnId
+              && (event.payload.name === 'def.timeline.preview'
+                || event.payload.name === 'def.timeline.revise_preview')
+          ));
+        if (!request) return;
+        try {
+          this.#append(active.session, {
+            type: 'tool.error',
+            defTurnId: active.defTurnId,
+            toolCallId: request.toolCallId,
+            payload: {
+              code: error instanceof DefAgentHostError || error instanceof DefToolExecutionError
+                ? error.code
+                : 'AGENT_PREPARED_RECOVERY_BLOCKED',
+              message: error instanceof Error ? error.message : String(error),
+            },
+          });
+        } catch {
+          // The terminal event and the cleanup command audit remain durable;
+          // do not turn an event-capacity failure into an unhandled rejection.
+        }
+      })
+      .finally(() => this.#timelineCleanupPromises.delete(cleanup));
+  }
+
   #settle(active: ActiveTurn, terminal: DefEvent): void {
     if (active.settled) return;
     active.settled = true;
@@ -3057,6 +3690,7 @@ export class DefAgentHost {
     if (this.#activeTurn === active) this.#activeTurn = null;
     active.resolveCancelled();
     active.resolveTerminal(terminal);
+    if (terminal.type !== 'turn.completed') this.#trackIncompleteTimelinePreviewCleanup(active);
   }
 
   #append<Type extends DefEvent['type']>(
@@ -3602,6 +4236,13 @@ type PreparedMutationPlanDetails = {
   readonly command: JsonObject;
 };
 
+type TimelinePreviewHistoryRecord = {
+  readonly proposal: DefPreparedWorkNodeProposalV1;
+  readonly candidate: DefPreparedWorkNodeCandidateRefV1;
+  readonly previewTurnId: DefTurnId;
+  readonly previewToolCallId: Extract<EngineEvent, { type: 'tool.requested' }>['toolCallId'];
+};
+
 type LoadoutApplyIdentity = {
   readonly parentNodeId: string;
   readonly parentRevision: number;
@@ -3839,6 +4480,42 @@ function readPreparedMutationPlan(
   };
 }
 
+function readPreparedPreviewPlan(
+  plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-preview' | 'prepared-history-revise' }>,
+): PreparedMutationPlanDetails {
+  const command = plan.prepareCommand;
+  const operation = readPreparedPlanString(command.operation, 'operation', 256);
+  const intent = readPreparedPlanIntent(command.intent);
+  const planScope = readPreparedPlanScopeList(plan.scope, 'plan.scope');
+  const commandScope = readPreparedPlanScopeList(command.scope, 'prepareCommand.scope');
+  if (operation !== 'timeline.preview' || intent !== 'timeline') {
+    throw preparedPlanError('Timeline preview must use the timeline.preview operation and timeline intent');
+  }
+  if (!sameStringArray(planScope, commandScope)) {
+    throw preparedPlanError('Timeline preview plan scope does not match its prepare command');
+  }
+  if (!Array.isArray(command.patch) || command.patch.length === 0
+    || !command.patch.every(isJsonObjectValue)) {
+    throw preparedPlanError('Timeline preview must contain a non-empty patch object array');
+  }
+  const label = readPreparedOptionalPlanString(command.label, 'label', 120);
+  const description = readPreparedOptionalPlanString(command.description, 'description', 500);
+  return {
+    operation,
+    intent,
+    scope: planScope,
+    command: {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation,
+      intent,
+      scope: [...planScope],
+      patch: command.patch.map((entry) => structuredClone(entry)),
+      ...(label === undefined ? {} : { label }),
+      ...(description === undefined ? {} : { description }),
+    },
+  };
+}
+
 function readPreparedPlanString(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== 'string' || value.length === 0 || value.length > maxLength || !value.trim()) {
     throw preparedPlanError(`Prepared mutation ${field} is invalid`);
@@ -3882,7 +4559,221 @@ function readPreparedPlanScopeList(
 function preparedProposalFromCommandResult(result: JsonValue): unknown {
   if (isPreparedWorkNodeProposal(result)) return result;
   if (!isJsonObjectValue(result) || !Object.prototype.hasOwnProperty.call(result, 'browserResult')) return null;
-  return result.browserResult;
+  const browserResult = result.browserResult;
+  if (isPreparedWorkNodeProposal(browserResult)) return browserResult;
+  if (isJsonObjectValue(browserResult) && isPreparedWorkNodeProposal(browserResult.proposal)) {
+    return browserResult.proposal;
+  }
+  return browserResult;
+}
+
+function timelinePreviewResult(
+  proposal: DefPreparedWorkNodeProposalV1,
+  productResult: JsonValue,
+  extra: {
+    readonly supersededProposalDigest?: string;
+    readonly supersededCleanup?: DefPreparedWorkNodeCleanupAuditV1;
+  } = {},
+): JsonObject {
+  const candidate = candidateFromProposal(proposal);
+  return {
+    contract: 'DefPreparedTimelinePreviewResultV1',
+    schemaVersion: 1,
+    lifecycle: 'prepared',
+    proposal: structuredClone(proposal) as unknown as JsonValue,
+    candidate: candidateAsJson(candidate),
+    review: clonePreparedWorkNodeReview(proposal.review) as unknown as JsonValue,
+    productResult: structuredClone(productResult),
+    ...(extra.supersededProposalDigest === undefined
+      ? {}
+      : { supersededProposalDigest: extra.supersededProposalDigest }),
+    ...(extra.supersededCleanup === undefined
+      ? {}
+      : { supersededCleanup: structuredClone(extra.supersededCleanup) as unknown as JsonValue }),
+  };
+}
+
+function timelineApplyProposal(history: TimelinePreviewHistoryRecord): JsonObject {
+  return {
+    contract: 'DefPreparedTimelineApplyProposalV1',
+    schemaVersion: 1,
+    previewTurnId: history.previewTurnId,
+    previewToolCallId: history.previewToolCallId,
+    source: structuredClone(history.proposal) as unknown as JsonValue,
+    candidate: candidateAsJson(history.candidate),
+    review: clonePreparedWorkNodeReview(history.proposal.review) as unknown as JsonValue,
+  };
+}
+
+function assertPreparedCleanupCompleted(
+  cleanup: DefPreparedWorkNodeCleanupAuditV1,
+  action: string,
+): void {
+  if (cleanup.status !== 'deleted' && cleanup.status !== 'abandoned') {
+    throw new DefToolExecutionError(
+      'DEF_PRODUCT_COMMAND_FAILED',
+      `${action} could not prove that the isolated candidate was deleted: ${cleanup.reason ?? cleanup.status}`,
+      cleanup as unknown as JsonValue,
+    );
+  }
+}
+
+function findTimelinePreviewProposalFromHistory(
+  session: SessionRecord,
+  currentTurnId: DefTurnId,
+  identity: DefPreparedProposalIdentityV1,
+  binding: ProductBinding,
+): TimelinePreviewHistoryRecord {
+  if (timelinePreviewIdentityWasConsumed(session.events, currentTurnId, identity)) {
+    throw preparedPlanError('The Timeline preview proposal has already been consumed');
+  }
+  const completedTurns = new Set<DefTurnId>(
+    session.events
+      .filter((event): event is Extract<DefEvent, { type: 'turn.completed' }> => event.type === 'turn.completed')
+      .map((event) => event.defTurnId),
+  );
+  let digestMatched = false;
+  for (let index = session.events.length - 1; index >= 0; index -= 1) {
+    const resultEvent = session.events[index];
+    if (resultEvent?.type !== 'tool.result' || resultEvent.defTurnId === currentTurnId) continue;
+    const previewRequest = session.events
+      .slice(0, index)
+      .reverse()
+      .find((event): event is Extract<DefEvent, { type: 'tool.requested' }> => (
+        event.type === 'tool.requested'
+          && event.toolCallId === resultEvent.toolCallId
+          && (event.payload.name === 'def.timeline.preview'
+            || event.payload.name === 'def.timeline.revise_preview')
+      ));
+    if (!previewRequest || !completedTurns.has(previewRequest.defTurnId)) continue;
+    const persisted = timelinePreviewProposalFromResult(resultEvent.payload.result, previewRequest);
+    if (!persisted || persisted.candidate.proposalDigest !== identity.proposalDigest) continue;
+    digestMatched = true;
+    if (!timelinePreviewIdentityMatches(persisted.candidate, identity)) {
+      throw preparedPlanError('Timeline preview candidate identity drifted from the requested proposal digest');
+    }
+    if (!sameExactProductBinding(persisted.proposal.sourceBinding, binding)) {
+      throw new DefToolExecutionError(
+        'DEF_INTERACTION_STALE',
+        'Timeline preview source binding or revision no longer matches the current Product binding',
+      );
+    }
+    const queued = session.events
+      .slice(0, index)
+      .reverse()
+      .find((event): event is Extract<DefEvent, { type: 'command.queued' }> => (
+        event.type === 'command.queued' && event.toolCallId === previewRequest.toolCallId
+      ));
+    if (!queued || !loadoutCommandBindingMatches(queued.payload, binding)) {
+      throw new DefToolExecutionError(
+        'DEF_INTERACTION_STALE',
+        'Timeline preview command binding is no longer the current Product binding',
+      );
+    }
+    if (
+      persisted.candidate.sourceRevision !== binding.contentRevision
+      || (binding.checkoutTargetId !== null && persisted.candidate.sourceTargetId !== binding.checkoutTargetId)
+      || persisted.candidate.candidateTimelineId !== binding.timelineId
+    ) {
+      throw new DefToolExecutionError(
+        'DEF_INTERACTION_STALE',
+        'Timeline preview source checkout or revision is stale',
+      );
+    }
+    return persisted;
+  }
+  if (digestMatched) {
+    throw preparedPlanError('Timeline preview candidate identity does not match the requested proposal');
+  }
+  throw preparedPlanError('No unchanged Timeline preview from a previous completed Turn matches the proposal identity');
+}
+
+function timelinePreviewProposalFromResult(
+  result: JsonValue,
+  previewRequest: Extract<DefEvent, { type: 'tool.requested' }>,
+): TimelinePreviewHistoryRecord | null {
+  const wrapper = isJsonObjectValue(result)
+    && result.contract === 'DefPreparedTimelinePreviewResultV1'
+    ? result
+    : null;
+  const source = wrapper?.proposal ?? preparedProposalFromCommandResult(result);
+  if (!isPreparedWorkNodeProposal(source)) return null;
+  const candidate = candidateFromProposal(source);
+  if (wrapper) {
+    if (!isPreparedWorkNodeCandidateRef(wrapper.candidate)
+      || !isPreparedWorkNodeReview(wrapper.review)
+      || canonicalJson(wrapper.candidate as unknown as JsonValue)
+        !== canonicalJson(candidateAsJson(candidate))
+      || canonicalJson(wrapper.review as unknown as JsonValue)
+        !== canonicalJson(source.review as unknown as JsonValue)) {
+      throw preparedPlanError('Persisted Timeline preview proposal, candidate and review are inconsistent');
+    }
+  }
+  return {
+    proposal: structuredClone(source),
+    candidate,
+    previewTurnId: previewRequest.defTurnId,
+    previewToolCallId: previewRequest.toolCallId,
+  };
+}
+
+function timelinePreviewIdentityMatches(
+  candidate: DefPreparedProposalIdentityV1,
+  identity: DefPreparedProposalIdentityV1,
+): boolean {
+  return candidate.proposalId === identity.proposalId
+    && candidate.nodeId === identity.nodeId
+    && candidate.nodeRevision === identity.nodeRevision
+    && candidate.proposalDigest === identity.proposalDigest;
+}
+
+function timelinePreviewIdentityWasConsumed(
+  events: readonly DefEvent[],
+  currentTurnId: DefTurnId,
+  identity: DefPreparedProposalIdentityV1,
+): boolean {
+  return events.some((event) => {
+    if (event.type !== 'tool.requested' || event.defTurnId === currentTurnId) return false;
+    const input = isJsonObjectValue(event.payload.input) ? event.payload.input : null;
+    if (!input) return false;
+    const requested = event.payload.name === 'def.timeline.apply_prepared'
+      || event.payload.name === 'def.timeline.reject_preview'
+      ? timelineIdentityFromObject(input, '')
+      : event.payload.name === 'def.timeline.revise_preview'
+        ? timelineIdentityFromObject(input, 'superseded')
+        : null;
+    if (!requested || !timelinePreviewIdentityMatches(requested, identity)) return false;
+    // A request is consumed only after Host has journaled its successful
+    // result. Failed validation, approval, cleanup, or Product commands keep
+    // the identity retryable; the next Turn will re-verify the full history.
+    return events.some((result) => (
+      result.type === 'tool.result'
+        && result.defTurnId === event.defTurnId
+        && result.toolCallId === event.toolCallId
+        && result.sequence > event.sequence
+    ));
+  });
+}
+
+function timelineIdentityFromObject(
+  object: JsonObject,
+  prefix: string,
+): DefPreparedProposalIdentityV1 | null {
+  const proposalId = object[prefix ? `${prefix}ProposalId` : 'proposalId'];
+  const nodeId = object[prefix ? `${prefix}NodeId` : 'nodeId'];
+  const nodeRevision = object[prefix ? `${prefix}NodeRevision` : 'nodeRevision'];
+  const proposalDigest = object[prefix ? `${prefix}ProposalDigest` : 'proposalDigest'];
+  return typeof proposalId === 'string'
+    && proposalId.length > 0
+    && typeof nodeId === 'string'
+    && nodeId.length > 0
+    && typeof nodeRevision === 'number'
+    && Number.isSafeInteger(nodeRevision)
+    && nodeRevision >= 0
+    && typeof proposalDigest === 'string'
+    && /^sha256:[0-9a-f]{64}$/u.test(proposalDigest)
+    ? { proposalId, nodeId, nodeRevision, proposalDigest }
+    : null;
 }
 
 function candidateFromProposal(

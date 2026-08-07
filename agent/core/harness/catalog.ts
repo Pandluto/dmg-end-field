@@ -51,6 +51,10 @@ const T = {
   worknodeDelete: 'def.worknode.delete',
   worknodeUse: 'def.worknode.use',
   worknodeRestore: 'def.worknode.restore',
+  timelinePreview: 'def.timeline.preview',
+  timelineApplyPrepared: 'def.timeline.apply_prepared',
+  timelineRejectPreview: 'def.timeline.reject_preview',
+  timelineRevisePreview: 'def.timeline.revise_preview',
   loadoutPreview: 'def.loadout.preview',
   loadoutApplyPrepared: 'def.loadout.apply_prepared',
 } as const;
@@ -84,6 +88,10 @@ export const DEF_HARNESS_CANONICAL_TOOL_NAMES = [
   T.worknodeDelete,
   T.worknodeUse,
   T.worknodeRestore,
+  T.timelinePreview,
+  T.timelineApplyPrepared,
+  T.timelineRejectPreview,
+  T.timelineRevisePreview,
   T.loadoutPreview,
   T.loadoutApplyPrepared,
 ] as const;
@@ -452,9 +460,12 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'inspect',
     phases: [
-      phase('timeline-inspect-current', 'context', T.current, 'Read the current timeline and resolve the requested button or checkout target.'),
-      phase('timeline-inspect-nodes', 'evidence', T.worknodeList, 'List available Work Nodes from the current bound timeline; do not select or mutate one implicitly.'),
-      phase('timeline-inspect-node', 'evidence', T.worknodeRead, 'Read only the explicitly selected Work Node and retain its revision and source lineage.'),
+      phase(
+        'timeline-inspect-current',
+        'context',
+        T.current,
+        'Read only the current bound Timeline snapshot, including its button count, stable button identities and checkout. Historical Work Nodes require a separate explicit def.worknode.read request with nodeId.',
+      ),
     ],
   }),
   defineOperation({
@@ -512,14 +523,25 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'preview',
     phases: [
       phase('timeline-preview-current', 'context', T.current, 'Read the current timeline baseline before preparing a preview.'),
-      phase('timeline-preview-diff', 'evidence', T.worknodeDiff, 'Require candidateNodeId for an isolated Work Node created or selected for this preview. Return its exact diff, additions/deletions and semantic risk; never call this a preview of the live checkout.'),
+      phase('timeline-preview', 'proposal', T.timelinePreview, 'Submit a trusted patch to create one complete isolated prepared Work Node. The Tool returns proposal, candidate and review; live checkout must remain untouched. Persist the four identity fields from this completed Turn for a later apply, reject or revise action.'),
     ],
   }),
   defineOperation({
     operation: 'apply',
     phases: [
-      phase('timeline-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Work Node and retain reviewIdentity.nodeRevision, reviewIdentity.workingPayloadDigest and reviewIdentity.diffDigest exactly.'),
-      phase('timeline-apply', 'mutation', T.worknodeUse, 'Use only that explicitly reviewed Work Node. Copy the three reviewIdentity values into the expected fields unchanged; after approval verify the exact checkout and visible timeline postcondition.', timelineMutationWrites),
+      phase('timeline-apply', 'mutation', T.timelineApplyPrepared, 'Submit only proposalId, nodeId, nodeRevision and proposalDigest from a previous completed Timeline preview. The Host restores the full candidate and review, requests fresh approval, and applies through prepared Approval Capability V2.', timelineMutationWrites),
+    ],
+  }),
+  defineOperation({
+    operation: 'reject_preview',
+    phases: [
+      phase('timeline-reject-preview', 'mutation', T.timelineRejectPreview, 'Submit only the four identity fields from a previous completed Timeline preview. The Host verifies the historical candidate and deletes it without a second approval or live checkout change.', ['timeline.work-node']),
+    ],
+  }),
+  defineOperation({
+    operation: 'revise_preview',
+    phases: [
+      phase('timeline-revise-preview', 'mutation', T.timelineRevisePreview, 'Submit the superseded proposal identity plus a new trusted patch. The Host must verify and clean the old candidate first, then create and return a new isolated complete proposal; a changed or stale old identity fails closed.', ['timeline.work-node']),
     ],
   }),
   defineOperation({
@@ -691,10 +713,22 @@ type FullMatrixOperationPlaceholder = {
 export const DEF_HARNESS_FULL_OPERATION_MATRIX = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
   loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
-  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'delete_node', 'preview', 'apply', 'restore'],
+  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 } as const satisfies FullMatrixOperationPlaceholder;
+
+/**
+ * Operations outside the historical 50-operation parity set.  These are
+ * explicit maintenance/lifecycle extensions, not silently substituted legacy
+ * behavior: delete_node is the existing Work Node administration route, and
+ * the two preview operations complete the cross-Turn candidate lifecycle.
+ */
+export const DEF_HARNESS_ADMIN_EXTENSION_OPERATIONS = [
+  'timeline.delete_node',
+  'timeline.reject_preview',
+  'timeline.revise_preview',
+] as const;
 
 const FULL_MATRIX_SOURCE = 'old-stable:bcea5f12a3148737e7a9b799d2fa4e0170ffe0bb';
 
@@ -703,7 +737,7 @@ function fullRevision(businessId: Exclude<keyof typeof DEF_HARNESS_FULL_OPERATIO
 }
 
 function fullLineage(businessId: Exclude<keyof typeof DEF_HARNESS_FULL_OPERATION_MATRIX, never>): string {
-  return `${businessId}@${FULL_MATRIX_SOURCE}:50-operation-parity+worknode-delete-admin`;
+  return `${businessId}@${FULL_MATRIX_SOURCE}:50-operation-parity+worknode-delete-admin+timeline-preview-lifecycle-admin`;
 }
 
 export const PHASE7_FULL_HARNESS_CATALOG = [
@@ -733,7 +767,7 @@ export const PHASE7_FULL_HARNESS_CATALOG = [
     displayName: '排轴',
     sourceLineage: fullLineage('timeline'),
     revision: fullRevision('timeline'),
-    summary: 'Restore all eleven audited timeline operations plus safe Work Node subtree deletion; every write is isolated, reviewed and revision-bound.',
+    summary: 'Restore the audited Timeline parity operations plus explicit Work Node administration and cross-Turn preview lifecycle extensions; every write is isolated, reviewed and revision-bound.',
     writeScope: TIMELINE_WRITE_SCOPE,
     operations: timelineOperations,
   },

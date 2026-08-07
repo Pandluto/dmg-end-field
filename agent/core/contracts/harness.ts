@@ -50,6 +50,8 @@ export type DefHarnessOperationId =
   | 'copy'
   | 'validate'
   | 'delete_node'
+  | 'reject_preview'
+  | 'revise_preview'
   | 'source'
   | 'batch'
   | 'stack'

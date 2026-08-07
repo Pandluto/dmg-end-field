@@ -5,6 +5,7 @@ import {
   type DefToolDescriptor,
   type DefToolExecutionContext,
   type DefWorkbenchToolRegistry,
+  type DefPreparedProposalIdentityV1,
   type JsonObject,
   type JsonValue,
   type PreparedWorkNodeIntent,
@@ -253,6 +254,12 @@ const PRODUCT_CATALOG_QUERY_SCHEMA: JsonObject = {
     }),
   ],
 };
+const TIMELINE_MOVE_BUTTON_OPERATION_SCHEMA = exactSchema(['op', 'target', 'nodeIndex'], {
+  op: { const: 'moveButton' },
+  target: PATCH_TARGET_SCHEMA,
+  staffIndex: boundedIntegerSchema(0, 100),
+  nodeIndex: boundedIntegerSchema(0, 10_000),
+});
 const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
   oneOf: [
     exactSchema(['op', 'characterName'], {
@@ -275,12 +282,7 @@ const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
       replaceTarget: { type: 'boolean' },
     }),
     exactSchema(['op', 'target'], { op: { const: 'removeButton' }, target: PATCH_TARGET_SCHEMA }),
-    exactSchema(['op', 'target', 'nodeIndex'], {
-      op: { const: 'moveButton' },
-      target: PATCH_TARGET_SCHEMA,
-      staffIndex: boundedIntegerSchema(0, 100),
-      nodeIndex: boundedIntegerSchema(0, 10_000),
-    }),
+    TIMELINE_MOVE_BUTTON_OPERATION_SCHEMA,
     exactSchema(['op', 'target', 'nodeIndex'], {
       op: { const: 'copyButton' },
       target: PATCH_TARGET_SCHEMA,
@@ -351,6 +353,25 @@ const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
     }),
     exactSchema(['op'], { op: { const: 'clearTimeline' } }),
   ],
+};
+const PREPARED_PROPOSAL_IDENTITY_PROPERTIES: JsonObject = {
+  proposalId: boundedStringSchema(1, 200),
+  nodeId: boundedStringSchema(1, 200),
+  nodeRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
+  proposalDigest: {
+    type: 'string',
+    pattern: '^sha256:[0-9a-f]{64}$',
+  },
+};
+const TIMELINE_PREVIEW_PATCH_PROPERTIES: JsonObject = {
+  patch: {
+    type: 'array',
+    minItems: 1,
+    maxItems: MAX_ARRAY_ITEMS,
+    items: TIMELINE_PATCH_OPERATION_SCHEMA,
+  },
+  label: boundedStringSchema(1, 120),
+  description: boundedStringSchema(1, 500),
 };
 
 export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
@@ -423,6 +444,63 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
           }),
         ),
         prepareWorkNodeDiff,
+      ),
+      handler(
+        descriptor(
+          'def.timeline.preview',
+          'Create a complete isolated Timeline Work Node proposal from a trusted patch. The live checkout is never changed; apply, reject or revise must happen in a later completed Turn.',
+          'propose',
+          objectSchema({
+            required: ['patch'],
+            properties: TIMELINE_PREVIEW_PATCH_PROPERTIES,
+          }),
+        ),
+        prepareTimelinePreview,
+      ),
+      handler(
+        descriptor(
+          'def.timeline.apply_prepared',
+          'Apply one unchanged Timeline preview from a previous completed Turn. Supply only its proposal identity; the Host restores the full candidate and opens a fresh prepared V2 approval.',
+          'mutate',
+          objectSchema({
+            required: ['proposalId', 'nodeId', 'nodeRevision', 'proposalDigest'],
+            properties: PREPARED_PROPOSAL_IDENTITY_PROPERTIES,
+          }),
+        ),
+        prepareTimelineApplyPrepared,
+      ),
+      handler(
+        descriptor(
+          'def.timeline.reject_preview',
+          'Reject one unchanged Timeline preview from a previous completed Turn and delete its isolated candidate without opening another approval.',
+          'mutate',
+          objectSchema({
+            required: ['proposalId', 'nodeId', 'nodeRevision', 'proposalDigest'],
+            properties: PREPARED_PROPOSAL_IDENTITY_PROPERTIES,
+          }),
+        ),
+        prepareTimelineRejectPreview,
+      ),
+      handler(
+        descriptor(
+          'def.timeline.revise_preview',
+          'Revise one previous Timeline preview. The superseded proposal identity is mandatory; the Host verifies and deletes the old candidate before creating the new isolated proposal.',
+          'mutate',
+          objectSchema({
+            required: [
+              'supersededProposalId', 'supersededNodeId', 'supersededNodeRevision',
+              'supersededProposalDigest', 'patch',
+            ],
+            properties: {
+              supersededProposalId: PREPARED_PROPOSAL_IDENTITY_PROPERTIES.proposalId!,
+              supersededNodeId: PREPARED_PROPOSAL_IDENTITY_PROPERTIES.nodeId!,
+              supersededNodeRevision: PREPARED_PROPOSAL_IDENTITY_PROPERTIES.nodeRevision!,
+              supersededProposalDigest: PREPARED_PROPOSAL_IDENTITY_PROPERTIES.proposalDigest!,
+              ...TIMELINE_PREVIEW_PATCH_PROPERTIES,
+            },
+          }),
+        ),
+        prepareTimelineRevisePreview,
       ),
       handler(
         descriptor(
@@ -1301,6 +1379,109 @@ async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToo
   );
 }
 
+async function prepareTimelinePreview(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['patch', 'label', 'description']);
+  const patch = parseTimelinePatchOperations(value.patch);
+  const scope = scopesForTimelinePatch(patch);
+  return preparedPreviewPlan(
+    '预览排轴修改',
+    scope,
+    {
+      patch,
+    },
+    optionalString(value.label, 'label', 120) ?? '排轴预览',
+    optionalString(value.description, 'description', 500)
+      ?? '在隔离 Work Node 中创建排轴预览；不修改当前 live checkout。',
+  );
+}
+
+async function prepareTimelineApplyPrepared(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'proposalId', 'nodeId', 'nodeRevision', 'proposalDigest',
+  ]);
+  return {
+    kind: 'prepared-history-apply',
+    prompt: '应用上一已完成 Turn 的排轴预览',
+    identity: preparedProposalIdentityFromInput(value, ''),
+    intent: 'timeline',
+    applyOperation: 'applyReviewedWorkNodeProposal',
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
+  };
+}
+
+async function prepareTimelineRejectPreview(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'proposalId', 'nodeId', 'nodeRevision', 'proposalDigest',
+  ]);
+  return {
+    kind: 'prepared-history-reject',
+    prompt: '清理上一已完成 Turn 的排轴预览',
+    identity: preparedProposalIdentityFromInput(value, ''),
+    intent: 'timeline',
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
+  };
+}
+
+async function prepareTimelineRevisePreview(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'supersededProposalId', 'supersededNodeId', 'supersededNodeRevision',
+    'supersededProposalDigest', 'patch', 'label', 'description',
+  ]);
+  const patch = parseTimelinePatchOperations(value.patch);
+  const scope = scopesForTimelinePatch(patch);
+  return {
+    kind: 'prepared-history-revise',
+    prompt: '先清理旧排轴预览，再创建新的排轴预览',
+    superseded: {
+      proposalId: requiredString(value.supersededProposalId, 'supersededProposalId', 200),
+      nodeId: requiredString(value.supersededNodeId, 'supersededNodeId', 200),
+      nodeRevision: requiredInteger(
+        value.supersededNodeRevision,
+        'supersededNodeRevision',
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      proposalDigest: requiredSha256Digest(
+        value.supersededProposalDigest,
+        'supersededProposalDigest',
+      ),
+    },
+    intent: 'timeline',
+    scope,
+    prepareCommand: {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation: 'timeline.preview',
+      intent: 'timeline',
+      scope: [...scope],
+      patch,
+      label: optionalString(value.label, 'label', 120) ?? '修订后的排轴预览',
+      description: optionalString(value.description, 'description', 500)
+        ?? '清理旧排轴预览后，在隔离 Work Node 中创建修订预览；不修改当前 live checkout。',
+    },
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
+  };
+}
+
+function preparedProposalIdentityFromInput(
+  value: JsonObject,
+  prefix: string,
+): DefPreparedProposalIdentityV1 {
+  return {
+    proposalId: requiredString(value[`${prefix}proposalId`], `${prefix}proposalId`, 200),
+    nodeId: requiredString(value[`${prefix}nodeId`], `${prefix}nodeId`, 200),
+    nodeRevision: requiredInteger(
+      value[`${prefix}nodeRevision`],
+      `${prefix}nodeRevision`,
+      0,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    proposalDigest: requiredSha256Digest(
+      value[`${prefix}proposalDigest`],
+      `${prefix}proposalDigest`,
+    ),
+  };
+}
+
 function parseTimelinePatchOperations(value: JsonValue | undefined): JsonObject[] {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_ARRAY_ITEMS) {
     invalid(`patch must contain between 1 and ${MAX_ARRAY_ITEMS} operations`);
@@ -1774,6 +1955,30 @@ function workNodeMutationPlan(
     label,
     description,
   );
+}
+
+function preparedPreviewPlan(
+  prompt: string,
+  scope: readonly PreparedWorkNodeScope[],
+  payload: Readonly<Partial<Pick<JsonObject, 'patch' | 'roster' | 'restore'>>>,
+  label: string,
+  description: string,
+): Extract<DefInteractiveToolPlan, { kind: 'prepared-preview' }> {
+  return {
+    kind: 'prepared-preview',
+    prompt,
+    scope: [...scope],
+    prepareCommand: {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation: 'timeline.preview',
+      intent: 'timeline',
+      scope: [...scope],
+      ...cloneJson(payload),
+      label,
+      description,
+    },
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
+  };
 }
 
 function explicitWorkNodeMutationPlan(

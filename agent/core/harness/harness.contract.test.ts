@@ -22,6 +22,7 @@ import { PHASE3_READONLY_PARITY_CASES } from '../testing/fixtures/phase3-readonl
 import { DefReadToolRegistry } from '../tools/read-only-workbench.ts';
 import {
   DEF_HARNESS_CANONICAL_TOOL_NAMES,
+  DEF_HARNESS_ADMIN_EXTENSION_OPERATIONS,
   DEF_HARNESS_FULL_OPERATION_MATRIX,
   DEF_HARNESS_ROUTE_TOOL_NAME,
   PHASE3_READONLY_HARNESS_CATALOG,
@@ -220,7 +221,7 @@ const managerAgain = new DefHarnessManager({
 const expectedFullOperationMatrix = {
   selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
   loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
-  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'delete_node', 'preview', 'apply', 'restore'],
+  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
   buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
   calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
 } as const;
@@ -240,6 +241,9 @@ const fullMutationTools = new Set([
   'def.worknode.use',
   'def.worknode.restore',
   'def.loadout.apply_prepared',
+  'def.timeline.apply_prepared',
+  'def.timeline.reject_preview',
+  'def.timeline.revise_preview',
 ]);
 const fullStubResolver = (name: string): DefToolDescriptor | null => {
   if (name === DEF_HARNESS_ROUTE_TOOL_NAME) {
@@ -626,20 +630,22 @@ function readPlanEvents(
   assert.equal(resumed.transaction.operation, 'current');
 }
 
-// The 50 old stable operations remain exact, with one explicit current
-// administration route for safe Work Node subtree deletion. Clarification
-// remains the only other addition to each business.
+// The 50 old stable operations remain exact. Work Node deletion and the
+// Timeline preview lifecycle are explicit administration extensions and are
+// checked separately below; clarification remains the only other addition.
 assert.deepEqual(DEF_HARNESS_FULL_OPERATION_MATRIX, expectedFullOperationMatrix);
 assert.equal(
   Object.values(expectedFullOperationMatrix).flat().length,
-  51,
-  'the audited matrix must contain 50 parity operations plus one safe administration route',
+  50,
+  'the audited matrix must contain exactly the 50 parity operations',
 );
+const adminExtensionSet = new Set<string>(DEF_HARNESS_ADMIN_EXTENSION_OPERATIONS);
 for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof typeof expectedFullOperationMatrix>) {
   const definition = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === businessId)!;
   const expectedOperations = expectedFullOperationMatrix[businessId];
   const actualOperations = definition.operations
     .filter((operation) => operation.operation !== 'ask')
+    .filter((operation) => !adminExtensionSet.has(`${businessId}.${operation.operation}`))
     .map((operation) => operation.operation);
   assert.deepEqual(actualOperations, expectedOperations, `${businessId} must not silently drop an old operation`);
   assert.equal(
@@ -678,9 +684,31 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     }
   }
 }
+for (const extension of DEF_HARNESS_ADMIN_EXTENSION_OPERATIONS) {
+  const [businessId, operation] = extension.split('.') as [keyof typeof expectedFullOperationMatrix, string];
+  assert.ok(
+    PHASE7_FULL_HARNESS_CATALOG
+      .find((entry) => entry.businessId === businessId)
+      ?.operations.some((candidate) => candidate.operation === operation),
+    `${extension} must be explicitly present as an admin extension`,
+  );
+}
 const fullOperation = (businessId: string, operation: string) => PHASE7_FULL_HARNESS_CATALOG
   .find((entry) => entry.businessId === businessId)!
   .operations.find((entry) => entry.operation === operation)!;
+const timelineInspect = fullOperation('timeline', 'inspect');
+assert.equal(
+  timelineInspect.phases.filter((currentPhase) => currentPhase.kind !== 'response').length,
+  1,
+);
+assert.deepEqual(
+  timelineInspect.phases.flatMap((currentPhase) => currentPhase.tools),
+  ['def.node.crud.current'],
+);
+assert.match(
+  timelineInspect.phases[0]?.instructions ?? '',
+  /Historical Work Nodes require a separate explicit def\.worknode\.read request with nodeId/u,
+);
 assert.deepEqual(
   fullOperation('loadout', 'restore').phases.flatMap((phase) => phase.tools),
   ['def.capability.status'],
@@ -973,10 +1001,10 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     status: 'succeeded',
   });
   assert.equal(timelineDiff.transaction.projection.revision, 4);
-  assert.deepEqual(timelineDiff.transaction.projection.tools.map((tool) => tool.name), ['def.worknode.diff']);
+  assert.deepEqual(timelineDiff.transaction.projection.tools.map((tool) => tool.name), ['def.timeline.preview']);
 
   const calculationStarted = planManager.completeTool(timelineDiff.transaction.transactionId, {
-    toolName: 'def.worknode.diff',
+    toolName: 'def.timeline.preview',
     status: 'succeeded',
   });
   assert.equal(calculationStarted.transaction.projection.revision, 5);
@@ -1012,7 +1040,7 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
       [DEF_HARNESS_ROUTE_TOOL_NAME],
       ['def.node.crud.context'],
       ['def.node.crud.current'],
-      ['def.worknode.diff'],
+      ['def.timeline.preview'],
       ['def.node.crud.context'],
       ['def.data.resource.damage'],
       [],

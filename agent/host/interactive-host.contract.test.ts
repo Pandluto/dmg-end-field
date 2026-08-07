@@ -129,6 +129,7 @@ function preparedProposal(
     readonly candidateTimelineId?: string;
     readonly sourceCheckoutTargetId?: string;
     readonly sourceCheckoutRevision?: number;
+    readonly candidateSuffix?: string;
     readonly scope?: readonly ('timeline.structure' | 'buff.attachments' | 'buff.resistance' | 'selection.roster' | 'loadout.config')[];
   } = {},
 ): DefPreparedWorkNodeProposalV1 {
@@ -151,13 +152,13 @@ function preparedProposal(
   const candidateWithoutDigest = {
     contract: 'DefPreparedWorkNodeCandidateRefV1' as const,
     schemaVersion: 1 as const,
-    proposalId: `proposal-${operation.replaceAll('.', '-')}`,
+    proposalId: `proposal-${operation.replaceAll('.', '-')}${options.candidateSuffix ?? ''}`,
     intent,
     destination: options.destination ?? 'current-timeline',
     sourceTargetId,
     sourceRevision: binding.contentRevision,
     candidateTimelineId: options.candidateTimelineId ?? binding.timelineId,
-    nodeId: `candidate-${operation.replaceAll('.', '-')}`,
+    nodeId: `candidate-${operation.replaceAll('.', '-')}${options.candidateSuffix ?? ''}`,
     nodeRevision: 1,
     basePayloadDigest: `sha256:${'1'.repeat(64)}`,
     workingPayloadDigest: `sha256:${'2'.repeat(64)}`,
@@ -261,7 +262,7 @@ function enqueuePreparedSelection(
 }
 
 function cleanupBrowserResult(
-  candidate: DefPreparedWorkNodeCandidateRefV1,
+  candidate: DefPreparedWorkNodeCandidateRefV1 | DefPreparedWorkNodeProposalV1,
   status: 'deleted' | 'preserved' | 'failed' = 'deleted',
 ): JsonValue {
   return {
@@ -1466,6 +1467,428 @@ await assertPreparedProposalTamperRejected('scope', (proposal) => ({
   assert.equal(host.readEvents(session.defSessionId).some((event) => (
     event.type === 'interaction.resolved' && event.payload.status === 'cancelled'
   )), true);
+  await host.shutdown();
+}
+
+// Timeline preview is a persisted, isolated candidate lifecycle.  The first
+// Turn creates a complete proposal without approval; only the next completed
+// Turn may ask for a fresh prepared Approval Capability V2.
+{
+  const { engine, gateway, host } = fixture();
+  const proposal = preparedProposal(productBinding, 'timeline.preview');
+  const patch = [{
+    op: 'moveButton',
+    target: { buttonId: 'button-old' },
+    staffIndex: 0,
+    nodeIndex: 1,
+  }];
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-preview-route'),
+      name: 'def.harness.route',
+      input: { businessId: 'timeline', operation: 'preview' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-preview-current'),
+      name: 'def.node.crud.current',
+      input: {},
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-preview'),
+      name: 'def.timeline.preview',
+      input: { patch, label: '排轴预览测试' },
+    },
+    { type: 'complete', output: { preview: true } },
+  ]);
+  const session = await createSession(host);
+  const previewTurn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '先预览排轴修改',
+    binding: productBinding,
+  });
+  const prepare = await waitFor(() => gateway.commands[0], 'timeline preview prepare was not dispatched');
+  assert.equal(prepare.command.op, 'workbench.execute-command');
+  if (prepare.command.op !== 'workbench.execute-command') throw new Error('expected timeline preview command');
+  assert.deepEqual(prepare.command.payload.command, {
+    op: 'prepareReviewedWorkNodeProposal',
+    operation: 'timeline.preview',
+    intent: 'timeline',
+    scope: ['timeline.structure'],
+    patch,
+    label: '排轴预览测试',
+    description: '在隔离 Work Node 中创建排轴预览；不修改当前 live checkout。',
+    sourceBinding: productBinding,
+  });
+  gateway.settle({
+    commandId: prepare.commandId,
+    status: 'succeeded',
+    beforeRevision: 4,
+    afterRevision: 4,
+    browserResult: proposal as unknown as JsonValue,
+    completedAt: '2026-08-08T01:00:00.000Z',
+  });
+  assert.equal((await host.waitForTurnTerminal(previewTurn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 1, 'preview must not touch live checkout or request approval');
+  const previewResult = host.readEvents(session.defSessionId).find((event) => (
+    event.type === 'tool.result' && event.toolCallId === asToolCallId('timeline-preview')
+  ));
+  assert.ok(previewResult && previewResult.type === 'tool.result');
+  assert.equal((previewResult.payload.result as { contract?: string }).contract, 'DefPreparedTimelinePreviewResultV1');
+
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-apply-route'),
+      name: 'def.harness.route',
+      input: { businessId: 'timeline', operation: 'apply' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-apply'),
+      name: 'def.timeline.apply_prepared',
+      input: {
+        proposalId: proposal.proposalId,
+        nodeId: proposal.nodeId,
+        nodeRevision: proposal.nodeRevision,
+        proposalDigest: proposal.proposalDigest,
+      },
+    },
+    { type: 'complete', output: { applied: true } },
+  ]);
+  const applyTurn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '确认应用这个排轴预览',
+    binding: productBinding,
+  });
+  const approval = await waitFor(
+    () => host.listPendingInteractions(productBinding)[0],
+    'timeline apply approval was not published',
+  );
+  assert.equal(approval.kind, 'approval');
+  if (approval.kind !== 'approval' || !approval.candidate) throw new Error('expected timeline apply candidate');
+  assert.deepEqual(approval.candidate, {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: 1,
+    proposalId: proposal.proposalId,
+    intent: proposal.intent,
+    destination: proposal.destination,
+    sourceTargetId: proposal.sourceTargetId,
+    sourceRevision: proposal.sourceRevision,
+    candidateTimelineId: proposal.candidateTimelineId,
+    nodeId: proposal.nodeId,
+    nodeRevision: proposal.nodeRevision,
+    basePayloadDigest: proposal.basePayloadDigest,
+    workingPayloadDigest: proposal.workingPayloadDigest,
+    diffDigest: proposal.diffDigest,
+    proposalDigest: proposal.proposalDigest,
+    scope: proposal.scope,
+  });
+  assert.equal(gateway.commands.length, 1, 'history apply must wait for fresh approval');
+  host.resolveInteraction(approval.interactionId, { status: 'approved' }, productBinding);
+  const apply = await waitFor(() => gateway.commands[1], 'timeline apply command was not dispatched');
+  assert.equal(apply.command.op, 'workbench.execute-command');
+  if (apply.command.op !== 'workbench.execute-command') throw new Error('expected timeline apply command');
+  assert.deepEqual(apply.command.payload.command, {
+    op: 'applyReviewedWorkNodeProposal',
+    operation: 'timeline.preview.apply',
+    candidate: approval.candidate,
+  });
+  assert.ok(apply.approvalCapability);
+  const claims = verifyApprovalCapabilityToken(apply.approvalCapability!, host.getApprovalVerificationKey());
+  assert.equal(claims.schemaVersion, 2, 'Timeline apply must use prepared Approval Capability V2');
+  assert.deepEqual(claims.candidate, approval.candidate);
+  gateway.settle({
+    commandId: apply.commandId,
+    status: 'succeeded',
+    beforeRevision: 4,
+    afterRevision: 5,
+    browserResult: { applied: true },
+    completedAt: '2026-08-08T01:00:02.000Z',
+  });
+  assert.equal((await host.waitForTurnTerminal(applyTurn.defTurnId)).type, 'turn.completed');
+
+  // A second consumer cannot reuse a consumed proposal, even though the
+  // identity is otherwise exact.
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-duplicate-route'),
+      name: 'def.harness.route',
+      input: { businessId: 'timeline', operation: 'apply' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('timeline-duplicate-apply'),
+      name: 'def.timeline.apply_prepared',
+      input: {
+        proposalId: proposal.proposalId,
+        nodeId: proposal.nodeId,
+        nodeRevision: proposal.nodeRevision,
+        proposalDigest: proposal.proposalDigest,
+      },
+    },
+    { type: 'complete', output: { duplicate: true } },
+  ]);
+  const duplicateTurn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '重复应用同一个排轴预览',
+    binding: productBinding,
+  });
+  assert.equal((await host.waitForTurnTerminal(duplicateTurn.defTurnId)).type, 'turn.failed');
+  assert.equal(gateway.commands.length, 2, 'consumed apply must not dispatch another Product command');
+  await host.shutdown();
+}
+
+// A digest alone is not enough: identity drift and a later source-binding
+// drift both fail closed before another approval or Product mutation.
+{
+  const { engine, gateway, host } = fixture();
+  const proposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-drift' });
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('drift-preview-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'preview' } },
+    { type: 'tool', toolCallId: asToolCallId('drift-preview-current'), name: 'def.node.crud.current', input: {} },
+    { type: 'tool', toolCallId: asToolCallId('drift-preview'), name: 'def.timeline.preview', input: { patch: [{ op: 'clearTimeline' }] } },
+    { type: 'complete', output: { preview: true } },
+  ]);
+  const session = await createSession(host);
+  const previewTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '创建用于漂移测试的预览', binding: productBinding });
+  const prepare = await waitFor(() => gateway.commands[0], 'drift preview prepare was not dispatched');
+  gateway.settle({ commandId: prepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: proposal as unknown as JsonValue, completedAt: '2026-08-08T01:05:00.000Z' });
+  assert.equal((await host.waitForTurnTerminal(previewTurn.defTurnId)).type, 'turn.completed');
+
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('identity-drift-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'apply' } },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('identity-drift-apply'),
+      name: 'def.timeline.apply_prepared',
+      input: {
+        proposalId: proposal.proposalId,
+        nodeId: `${proposal.nodeId}-drifted`,
+        nodeRevision: proposal.nodeRevision,
+        proposalDigest: proposal.proposalDigest,
+      },
+    },
+    { type: 'complete', output: { drifted: true } },
+  ]);
+  const identityDriftTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '使用漂移的候选身份', binding: productBinding });
+  assert.equal((await host.waitForTurnTerminal(identityDriftTurn.defTurnId)).type, 'turn.failed');
+  assert.equal(host.listPendingInteractions(productBinding).length, 0);
+  assert.equal(gateway.commands.length, 1);
+
+  const driftedBinding: ProductBinding = {
+    ...productBinding,
+    checkoutUpdatedAt: 11,
+    contentRevision: 5,
+    snapshotDigest: 'sha256:interactive-5',
+  };
+  gateway.snapshot = { ...gateway.snapshot, binding: driftedBinding };
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('binding-drift-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'apply' } },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('binding-drift-apply'),
+      name: 'def.timeline.apply_prepared',
+      input: {
+        proposalId: proposal.proposalId,
+        nodeId: proposal.nodeId,
+        nodeRevision: proposal.nodeRevision,
+        proposalDigest: proposal.proposalDigest,
+      },
+    },
+    { type: 'complete', output: { stale: true } },
+  ]);
+  const bindingDriftTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '在源版本漂移后应用预览', binding: driftedBinding });
+  assert.equal((await host.waitForTurnTerminal(bindingDriftTurn.defTurnId)).type, 'turn.failed');
+  assert.equal(host.listPendingInteractions(driftedBinding).length, 0);
+  assert.equal(gateway.commands.length, 1);
+  await host.shutdown();
+}
+
+// Reject is a direct, non-approval cleanup and never reaches live checkout.
+{
+  const { engine, gateway, host } = fixture();
+  const proposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-reject' });
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('reject-preview-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'preview' } },
+    { type: 'tool', toolCallId: asToolCallId('reject-preview-current'), name: 'def.node.crud.current', input: {} },
+    { type: 'tool', toolCallId: asToolCallId('reject-preview'), name: 'def.timeline.preview', input: { patch: [{ op: 'clearTimeline' }] } },
+    { type: 'complete', output: { preview: true } },
+  ]);
+  const session = await createSession(host);
+  const previewTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '预览后拒绝', binding: productBinding });
+  const prepare = await waitFor(() => gateway.commands[0], 'reject preview prepare was not dispatched');
+  gateway.settle({ commandId: prepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: proposal as unknown as JsonValue, completedAt: '2026-08-08T01:10:00.000Z' });
+  assert.equal((await host.waitForTurnTerminal(previewTurn.defTurnId)).type, 'turn.completed');
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('reject-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'reject_preview' } },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('reject-tool'),
+      name: 'def.timeline.reject_preview',
+      input: { proposalId: proposal.proposalId, nodeId: proposal.nodeId, nodeRevision: proposal.nodeRevision, proposalDigest: proposal.proposalDigest },
+    },
+    { type: 'complete', output: { rejected: true } },
+  ]);
+  const rejectTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '拒绝这个预览', binding: productBinding });
+  assert.deepEqual(host.listPendingInteractions(productBinding), []);
+  const cleanup = await waitFor(() => gateway.commands[1], 'reject preview cleanup was not dispatched');
+  assert.equal(cleanup.command.op, 'workbench.execute-command');
+  if (cleanup.command.op !== 'workbench.execute-command') throw new Error('expected reject cleanup command');
+  assert.equal(cleanup.command.payload.command.op, 'abandonPreparedWorkNodeProposal');
+  gateway.settle({ commandId: cleanup.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: cleanupBrowserResult(proposal), completedAt: '2026-08-08T01:10:01.000Z' });
+  assert.equal((await host.waitForTurnTerminal(rejectTurn.defTurnId)).type, 'turn.completed');
+  await host.shutdown();
+}
+
+// Revise is explicitly supersession-bound: the old candidate is cleaned
+// before the new prepare dispatch, and the old identity is consumed.
+{
+  const { engine, gateway, host } = fixture();
+  const oldProposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-old' });
+  const newProposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-new' });
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('revise-initial-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'preview' } },
+    { type: 'tool', toolCallId: asToolCallId('revise-initial-current'), name: 'def.node.crud.current', input: {} },
+    { type: 'tool', toolCallId: asToolCallId('revise-initial-preview'), name: 'def.timeline.preview', input: { patch: [{ op: 'clearTimeline' }] } },
+    { type: 'complete', output: { preview: true } },
+  ]);
+  const session = await createSession(host);
+  const initialTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '创建旧预览', binding: productBinding });
+  const initialPrepare = await waitFor(() => gateway.commands[0], 'initial revise preview was not dispatched');
+  gateway.settle({ commandId: initialPrepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: oldProposal as unknown as JsonValue, completedAt: '2026-08-08T01:20:00.000Z' });
+  assert.equal((await host.waitForTurnTerminal(initialTurn.defTurnId)).type, 'turn.completed');
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('revise-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'revise_preview' } },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('revise-tool'),
+      name: 'def.timeline.revise_preview',
+      input: {
+        supersededProposalId: oldProposal.proposalId,
+        supersededNodeId: oldProposal.nodeId,
+        supersededNodeRevision: oldProposal.nodeRevision,
+        supersededProposalDigest: oldProposal.proposalDigest,
+        patch: [{ op: 'clearTimeline' }],
+        label: '新的预览',
+      },
+    },
+    { type: 'complete', output: { revised: true } },
+  ]);
+  const reviseTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '修改这个预览', binding: productBinding });
+  const oldCleanup = await waitFor(() => gateway.commands[1], 'superseded candidate cleanup was not dispatched first');
+  if (oldCleanup.command.op !== 'workbench.execute-command') throw new Error('expected superseded cleanup command');
+  assert.equal(oldCleanup.command.payload.command.op, 'abandonPreparedWorkNodeProposal');
+  gateway.settle({ commandId: oldCleanup.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: cleanupBrowserResult(oldProposal), completedAt: '2026-08-08T01:20:01.000Z' });
+  const revisedPrepare = await waitFor(() => gateway.commands[2], 'revised preview prepare was not dispatched after cleanup');
+  if (revisedPrepare.command.op !== 'workbench.execute-command') throw new Error('expected revised prepare command');
+  assert.equal(revisedPrepare.command.payload.command.op, 'prepareReviewedWorkNodeProposal');
+  gateway.settle({ commandId: revisedPrepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: newProposal as unknown as JsonValue, completedAt: '2026-08-08T01:20:02.000Z' });
+  assert.equal((await host.waitForTurnTerminal(reviseTurn.defTurnId)).type, 'turn.completed');
+  const revisedResult = host.readEvents(session.defSessionId).find((event) => (
+    event.type === 'tool.result' && event.toolCallId === asToolCallId('revise-tool')
+  ));
+  assert.ok(revisedResult && revisedResult.type === 'tool.result');
+  assert.equal((revisedResult.payload.result as { supersededProposalDigest?: string }).supersededProposalDigest, oldProposal.proposalDigest);
+
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('old-after-revise-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'apply' } },
+    { type: 'tool', toolCallId: asToolCallId('old-after-revise'), name: 'def.timeline.apply_prepared', input: { proposalId: oldProposal.proposalId, nodeId: oldProposal.nodeId, nodeRevision: oldProposal.nodeRevision, proposalDigest: oldProposal.proposalDigest } },
+    { type: 'complete', output: { old: true } },
+  ]);
+  const oldApplyTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '应用旧预览', binding: productBinding });
+  assert.equal((await host.waitForTurnTerminal(oldApplyTurn.defTurnId)).type, 'turn.failed');
+  assert.equal(gateway.commands.length, 3, 'old superseded identity must not be applied');
+  await host.shutdown();
+}
+
+// A rejected cleanup that fails at the Product boundary does not consume the
+// proposal identity. The same reject request can safely retry and complete
+// once the Browser returns a typed deletion audit.
+{
+  const { engine, gateway, host } = fixture();
+  const proposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-retry' });
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('retry-preview-route'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'preview' } },
+    { type: 'tool', toolCallId: asToolCallId('retry-preview-current'), name: 'def.node.crud.current', input: {} },
+    { type: 'tool', toolCallId: asToolCallId('retry-preview'), name: 'def.timeline.preview', input: { patch: [{ op: 'clearTimeline' }] } },
+    { type: 'complete', output: { preview: true } },
+  ]);
+  const session = await createSession(host);
+  const previewTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '创建可重试的预览', binding: productBinding });
+  const prepare = await waitFor(() => gateway.commands[0], 'retry preview prepare was not dispatched');
+  gateway.settle({ commandId: prepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: proposal as unknown as JsonValue, completedAt: '2026-08-08T01:25:00.000Z' });
+  assert.equal((await host.waitForTurnTerminal(previewTurn.defTurnId)).type, 'turn.completed');
+
+  const rejectInput = {
+    proposalId: proposal.proposalId,
+    nodeId: proposal.nodeId,
+    nodeRevision: proposal.nodeRevision,
+    proposalDigest: proposal.proposalDigest,
+  };
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('retry-reject-route-1'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'reject_preview' } },
+    { type: 'tool', toolCallId: asToolCallId('retry-reject-1'), name: 'def.timeline.reject_preview', input: rejectInput },
+    { type: 'complete', output: { retry: 1 } },
+  ]);
+  const failedRejectTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '第一次清理失败', binding: productBinding });
+  const failedCleanup = await waitFor(() => gateway.commands[1], 'failed reject cleanup was not dispatched');
+  gateway.settle({
+    commandId: failedCleanup.commandId,
+    status: 'error',
+    beforeRevision: 4,
+    afterRevision: 4,
+    code: 'CANDIDATE_CLEANUP_FAILED',
+    message: 'temporary browser failure',
+    browserResult: { ok: false },
+    completedAt: '2026-08-08T01:25:01.000Z',
+  });
+  assert.equal((await host.waitForTurnTerminal(failedRejectTurn.defTurnId)).type, 'turn.failed');
+
+  engine.enqueueScript([
+    { type: 'tool', toolCallId: asToolCallId('retry-reject-route-2'), name: 'def.harness.route', input: { businessId: 'timeline', operation: 'reject_preview' } },
+    { type: 'tool', toolCallId: asToolCallId('retry-reject-2'), name: 'def.timeline.reject_preview', input: rejectInput },
+    { type: 'complete', output: { retry: 2 } },
+  ]);
+  const retryRejectTurn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '再次清理预览', binding: productBinding });
+  const retryCleanup = await waitFor(() => gateway.commands[2], 'retry reject cleanup was not dispatched');
+  gateway.settle({ commandId: retryCleanup.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: cleanupBrowserResult(proposal), completedAt: '2026-08-08T01:25:02.000Z' });
+  assert.equal((await host.waitForTurnTerminal(retryRejectTurn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 3);
+  await host.shutdown();
+}
+
+// A preview and apply in the same Turn is rejected because the preview has
+// not reached a completed Turn boundary. The failed Turn cleanup removes the
+// isolated candidate without opening approval for the illegal apply.
+{
+  const { engine, gateway, host } = fixture();
+  const proposal = preparedProposal(productBinding, 'timeline.preview', { candidateSuffix: '-same-turn' });
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('same-turn-route'),
+      name: 'def.harness.route',
+      input: { steps: [{ businessId: 'timeline', operation: 'preview' }, { businessId: 'timeline', operation: 'apply' }] },
+    },
+    { type: 'tool', toolCallId: asToolCallId('same-turn-current'), name: 'def.node.crud.current', input: {} },
+    { type: 'tool', toolCallId: asToolCallId('same-turn-preview'), name: 'def.timeline.preview', input: { patch: [{ op: 'clearTimeline' }] } },
+    { type: 'tool', toolCallId: asToolCallId('same-turn-apply'), name: 'def.timeline.apply_prepared', input: { proposalId: proposal.proposalId, nodeId: proposal.nodeId, nodeRevision: proposal.nodeRevision, proposalDigest: proposal.proposalDigest } },
+    { type: 'complete', output: { sameTurn: true } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({ defSessionId: session.defSessionId, userMessage: '同一轮先预览再应用', binding: productBinding });
+  const prepare = await waitFor(() => gateway.commands[0], 'same-Turn preview prepare was not dispatched');
+  gateway.settle({ commandId: prepare.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: proposal as unknown as JsonValue, completedAt: '2026-08-08T01:30:00.000Z' });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.failed');
+  const cleanup = await waitFor(() => gateway.commands[1], 'same-Turn failed preview cleanup was not dispatched');
+  if (cleanup.command.op !== 'workbench.execute-command') throw new Error('expected same-Turn cleanup command');
+  assert.equal(cleanup.command.payload.command.op, 'abandonPreparedWorkNodeProposal');
+  gateway.settle({ commandId: cleanup.commandId, status: 'succeeded', beforeRevision: 4, afterRevision: 4, browserResult: cleanupBrowserResult(proposal), completedAt: '2026-08-08T01:30:01.000Z' });
+  assert.equal(host.listPendingInteractions(productBinding).length, 0);
   await host.shutdown();
 }
 

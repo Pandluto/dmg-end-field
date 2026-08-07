@@ -8,6 +8,7 @@ import {
   asWorkspaceId,
   type DefInteractiveToolPlan,
   type DefToolExecutionContext,
+  type JsonObject,
   type JsonValue,
   type ProductBinding,
   type ProductSnapshotEnvelope,
@@ -705,6 +706,53 @@ assert.deepEqual(previewPlan, {
 await assert.rejects(
   () => prepareAny('def.worknode.diff', { nodeId: 'node-candidate' }),
   /unexpected fields: nodeId/u,
+);
+
+// The public Timeline preview descriptor and its runtime parser must share
+// the same exact moveButton contract. Keep this assertion at the descriptor
+// boundary so a duplicate/overwritten `op` property cannot silently weaken
+// the schema while the parser tests continue to pass.
+const timelinePreviewDescriptor = registry.resolveDescriptor('def.timeline.preview');
+assert.ok(timelinePreviewDescriptor);
+const timelinePreviewPatch = (timelinePreviewDescriptor.inputSchema.properties as JsonObject).patch as JsonObject;
+const timelinePatchOperations = timelinePreviewPatch.items as JsonObject;
+const moveButtonBranches = (timelinePatchOperations.oneOf as readonly JsonObject[]).filter((branch) => (
+  (branch.properties as JsonObject).op &&
+  ((branch.properties as JsonObject).op as JsonObject).const === 'moveButton'
+));
+assert.equal(moveButtonBranches.length, 1, 'moveButton must have exactly one schema branch');
+const moveButtonProperties = moveButtonBranches[0]!.properties as JsonObject;
+assert.equal(Object.keys(moveButtonProperties).filter((key) => key === 'op').length, 1);
+assert.deepEqual(moveButtonProperties.op, { const: 'moveButton' });
+assert.deepEqual(moveButtonBranches[0]!.required, ['op', 'target', 'nodeIndex']);
+
+const timelinePreview = await prepareAny('def.timeline.preview', {
+  patch: [{
+    op: 'moveButton',
+    target: { buttonId: 'button-test' },
+    staffIndex: 0,
+    nodeIndex: 2,
+  }],
+});
+assert.equal(timelinePreview.kind, 'prepared-preview');
+if (timelinePreview.kind !== 'prepared-preview') throw new Error('timeline preview must be prepared');
+assert.deepEqual(timelinePreview.prepareCommand.patch, [{
+  op: 'moveButton',
+  target: { buttonId: 'button-test' },
+  staffIndex: 0,
+  nodeIndex: 2,
+}]);
+await assert.rejects(
+  () => prepareAny('def.timeline.preview', {
+    patch: [{ op: 'moveButton', target: { buttonId: 'button-test' } }],
+  }),
+  /nodeIndex/u,
+);
+await assert.rejects(
+  () => prepareAny('def.timeline.preview', {
+    patch: [{ op: 'moveButton', target: { buttonId: 'button-test' }, nodeIndex: 2, unexpected: true }],
+  }),
+  /unexpected fields: unexpected/u,
 );
 
 const selectionPlan = await preparePrepared('def.team.selection.apply', {

@@ -63,6 +63,10 @@ const TOOL = {
   worknodeDelete: 'def.worknode.delete',
   worknodeUse: 'def.worknode.use',
   worknodeRestore: 'def.worknode.restore',
+  timelinePreview: 'def.timeline.preview',
+  timelineApplyPrepared: 'def.timeline.apply_prepared',
+  timelineRejectPreview: 'def.timeline.reject_preview',
+  timelineRevisePreview: 'def.timeline.revise_preview',
   loadoutPreview: 'def.loadout.preview',
   loadoutApplyPrepared: 'def.loadout.apply_prepared',
 } as const;
@@ -71,6 +75,8 @@ const COMMAND = {
   loadoutPreview: 'prepareOperatorConfigProposal',
   loadoutApply: 'applyPreparedOperatorConfigProposal',
   preparedPatch: 'prepareReviewedWorkNodeProposal',
+  preparedApply: 'applyReviewedWorkNodeProposal',
+  preparedCleanup: 'abandonPreparedWorkNodeProposal',
   checkout: 'checkoutAiTimelineWorkNode',
   deleteWorkNode: 'deleteAiTimelineWorkNode',
 } as const;
@@ -221,8 +227,8 @@ const ENTRIES = {
       [tool(TOOL.current)],
     ),
     inspect: available(
-      '读取当前排轴并按明确 nodeId 查询 Work Node 列表和内容，不隐式切换 checkout。',
-      [tool(TOOL.current), tool(TOOL.worknodeList), tool(TOOL.worknodeRead)],
+      '只读取当前绑定的排轴快照（包括按钮数量、稳定按钮身份和 checkout）；历史 Work Node 必须通过独立的 def.worknode.read 并明确提供 nodeId 查询，不隐式切换 checkout。',
+      [tool(TOOL.current)],
     ),
     add: available(
       '先由 skillFact 确认技能身份，再通过 add_skill_button 和受审阅 patch 节点写入。',
@@ -259,12 +265,22 @@ const ENTRIES = {
       true,
     ),
     preview: available(
-      '由 worknode.diff 读取隔离候选节点的语义差异；结果不冒充 live checkout 预览。',
-      [tool(TOOL.worknodeDiff)],
+      '从受信任 patch 创建完整的隔离 Timeline prepared proposal；结果包含 proposal、candidate 和 review，且不修改 live checkout。',
+      [tool(TOOL.timelinePreview), command(COMMAND.preparedPatch, 'timeline.preview')],
     ),
     apply: available(
-      '由 worknode.use 在审批后 checkout 明确且已校验的 Work Node，并验证可见排轴后置条件。',
-      [tool(TOOL.worknodeUse), command(COMMAND.checkout)],
+      '只接受上一已完成 Turn 的四元 proposal identity；Host 从历史恢复完整 candidate，重新请求人工审批并使用 prepared Approval Capability V2。',
+      [tool(TOOL.timelineApplyPrepared), command(COMMAND.preparedApply, 'timeline.preview.apply')],
+      true,
+    ),
+    reject_preview: available(
+      '按上一已完成 Turn 的四元 proposal identity 清理隔离 candidate；不二次审批，也不触碰 live checkout。',
+      [tool(TOOL.timelineRejectPreview), command(COMMAND.preparedCleanup, 'timeline.preview.reject')],
+      true,
+    ),
+    revise_preview: available(
+      '强制绑定 superseded proposal identity，先验证并清理旧 candidate，再创建新的隔离 Timeline proposal。',
+      [tool(TOOL.timelineRevisePreview), command(COMMAND.preparedPatch, 'timeline.preview')],
       true,
     ),
     restore: available(
