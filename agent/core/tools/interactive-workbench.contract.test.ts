@@ -460,6 +460,15 @@ await assert.rejects(
 );
 
 assert.deepEqual(
+  await prepareAny('def.worknode.list', {}),
+  { kind: 'command', command: { op: 'listAiTimelineWorkNodes' } },
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.list', { timelineId: 'timeline-other' }),
+  /unexpected fields: timelineId/u,
+);
+
+assert.deepEqual(
   await prepareAny('def.worknode.validate', { nodeId: 'node-review' }),
   {
     kind: 'command',

@@ -316,9 +316,9 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.list',
-          'List browser SQLite Work Nodes and lifecycle state without changing checkout.',
+          'List only the browser SQLite Work Nodes bound to the current DEF timeline without changing checkout.',
           'propose',
-          objectSchema({ properties: { timelineId: boundedStringSchema(1, 200) } }),
+          objectSchema({ properties: {} }),
         ),
         prepareWorkNodeList,
       ),
@@ -824,13 +824,10 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
 }
 
 async function prepareWorkNodeList(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, ['timelineId']);
+  exactObject(input, []);
   return {
     kind: 'command',
-    command: {
-      op: 'listAiTimelineWorkNodes',
-      ...(optionalString(value.timelineId, 'timelineId', 200) ? { timelineId: value.timelineId as string } : {}),
-    },
+    command: { op: 'listAiTimelineWorkNodes' },
   };
 }
 
