@@ -106,6 +106,141 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       ),
       handler(
         descriptor(
+          'def.data.catalog.query',
+          'Query bounded 1.8 browser-owned operator, skill, weapon, equipment, gear-set, compatibility, 3+1, or evidence-availability facts.',
+          'propose',
+          objectSchema({
+            required: ['action'],
+            properties: {
+              action: { enum: ['query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide'] },
+              domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
+              query: boundedStringSchema(1, 200),
+              operatorQuery: boundedStringSchema(1, 200),
+              setQuery: boundedStringSchema(1, 200),
+              limit: boundedIntegerSchema(1, 256),
+              allowDuplicateCompatibleAccessories: { type: 'boolean' },
+            },
+          }),
+        ),
+        prepareProductCatalogQuery,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.list',
+          'List browser SQLite Work Nodes and lifecycle state without changing checkout.',
+          'propose',
+          objectSchema({ properties: { timelineId: boundedStringSchema(1, 200) } }),
+        ),
+        prepareWorkNodeList,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.read',
+          'Read one exact browser SQLite Work Node without hydrating it into Canvas.',
+          'propose',
+          objectSchema({
+            required: ['nodeId'],
+            properties: {
+              nodeId: boundedStringSchema(1, 200),
+              includePayload: { type: 'boolean' },
+            },
+          }),
+        ),
+        prepareWorkNodeRead,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.diff',
+          'Read the semantic diff for one exact browser SQLite Work Node.',
+          'propose',
+          objectSchema({
+            required: ['nodeId'],
+            properties: { nodeId: boundedStringSchema(1, 200) },
+          }),
+        ),
+        prepareWorkNodeDiff,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.validate',
+          'Validate one exact browser SQLite Work Node without repairing or changing its lifecycle state.',
+          'propose',
+          objectSchema({
+            required: ['nodeId'],
+            properties: { nodeId: boundedStringSchema(1, 200) },
+          }),
+        ),
+        prepareWorkNodeValidation,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.delete',
+          'Delete one non-checked-out Work Node subtree after explicit user approval.',
+          'mutate',
+          objectSchema({
+            required: ['nodeId'],
+            properties: { nodeId: boundedStringSchema(1, 200) },
+          }),
+        ),
+        prepareWorkNodeDeletion,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.use',
+          'Checkout one exact validated Work Node after explicit user approval.',
+          'mutate',
+          objectSchema({
+            required: ['nodeId'],
+            properties: {
+              nodeId: boundedStringSchema(1, 200),
+              commitId: boundedStringSchema(1, 200),
+            },
+          }),
+        ),
+        prepareWorkNodeUse,
+      ),
+      handler(
+        descriptor(
+          'def.worknode.restore',
+          'Restore the exact base payload of one Work Node after explicit user approval.',
+          'mutate',
+          objectSchema({
+            required: ['nodeId'],
+            properties: { nodeId: boundedStringSchema(1, 200) },
+          }),
+        ),
+        prepareWorkNodeRestore,
+      ),
+      handler(
+        descriptor(
+          'def.loadout.preview',
+          'Create a read-only exact operator-configuration preview and isolated browser Work Node; no live checkout is changed.',
+          'propose',
+          operatorConfigPreviewSchema(),
+        ),
+        prepareLoadoutPreview,
+      ),
+      handler(
+        descriptor(
+          'def.loadout.apply_prepared',
+          'Apply one unchanged prepared operator-configuration Work Node after explicit user approval and exact revision checks.',
+          'mutate',
+          objectSchema({
+            required: ['parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest', 'finalConfig'],
+            properties: {
+              parentNodeId: boundedStringSchema(1, 200),
+              parentRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
+              nodeId: boundedStringSchema(1, 200),
+              nodeRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
+              proposalDigest: boundedStringSchema(16, 200),
+              finalConfig: { type: 'object', additionalProperties: true },
+            },
+          }),
+        ),
+        prepareLoadoutApply,
+      ),
+      handler(
+        descriptor(
           'def.team.selection.apply',
           'Replace the selected roster with one exact one-to-four operator roster after explicit user approval.',
           'mutate',
@@ -370,6 +505,267 @@ function stringArraySchema(minItems: number, maxItems: number, maxLength: number
     uniqueItems: true,
     items: boundedStringSchema(1, maxLength),
   };
+}
+
+function operatorConfigPreviewSchema(): JsonObject {
+  const level = { oneOf: [{ type: 'number' }, boundedStringSchema(1, 40)] };
+  const weaponSkillLevels = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      skill1: boundedIntegerSchema(1, 20),
+      skill2: boundedIntegerSchema(1, 20),
+      skill3: boundedIntegerSchema(1, 20),
+    },
+  };
+  const operatorSkillLevels = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      A: { enum: ['L9', 'M3'] },
+      B: { enum: ['L9', 'M3'] },
+      E: { enum: ['L9', 'M3'] },
+      Q: { enum: ['L9', 'M3'] },
+    },
+  };
+  const equipment = {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      slotKey: { enum: ['armor', 'accessory2', 'accessory1', 'glove'] },
+      part: { enum: ['护甲', '护手', '配件'] },
+      equipmentId: boundedStringSchema(1, 200),
+      equipmentName: boundedStringSchema(1, 200),
+      gearSetId: boundedStringSchema(1, 200),
+      gearSetName: boundedStringSchema(1, 200),
+      entryLevel: level,
+      entryLevels: {
+        oneOf: [
+          { type: 'array', minItems: 1, maxItems: 8, items: level },
+          { type: 'object', maxProperties: 16, additionalProperties: level },
+        ],
+      },
+    },
+  };
+  return objectSchema({
+    properties: {
+      characterId: boundedStringSchema(1, 160),
+      characterName: boundedStringSchema(1, 160),
+      weaponName: boundedStringSchema(1, 200),
+      weaponLevel: level,
+      potential: boundedStringSchema(1, 40),
+      weaponSkillLevels,
+      operatorSkillLevels,
+      equipments: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 4,
+        items: equipment,
+      },
+      label: boundedStringSchema(1, 120),
+      description: boundedStringSchema(1, 500),
+    },
+    anyOf: [{ required: ['characterId'] }, { required: ['characterName'] }],
+  });
+}
+
+async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'action', 'domain', 'query', 'operatorQuery', 'setQuery', 'limit',
+    'allowDuplicateCompatibleAccessories',
+  ]);
+  const action = requiredEnum(value.action, 'action', [
+    'query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide',
+  ] as const);
+  if (action === 'query' && value.domain === undefined) invalid('catalog query requires domain');
+  if ((action === 'compatibleWeapons' || action === 'buildGuide') && value.operatorQuery === undefined) {
+    invalid(`${action} requires operatorQuery`);
+  }
+  if ((action === 'gearTopologyFacts' || action === 'gearTopologyPlan') && value.setQuery === undefined) {
+    invalid(`${action} requires setQuery`);
+  }
+  return {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action,
+      ...(value.domain === undefined
+        ? {}
+        : { domain: requiredEnum(value.domain, 'domain', ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] as const) }),
+      ...(optionalString(value.query, 'query', 200) ? { query: value.query as string } : {}),
+      ...(optionalString(value.operatorQuery, 'operatorQuery', 200)
+        ? { operatorQuery: value.operatorQuery as string }
+        : {}),
+      ...(optionalString(value.setQuery, 'setQuery', 200) ? { setQuery: value.setQuery as string } : {}),
+      ...(value.limit === undefined ? {} : { limit: requiredInteger(value.limit, 'limit', 1, 256) }),
+      ...(value.allowDuplicateCompatibleAccessories === undefined
+        ? {}
+        : {
+            allowDuplicateCompatibleAccessories: requiredBoolean(
+              value.allowDuplicateCompatibleAccessories,
+              'allowDuplicateCompatibleAccessories',
+            ),
+          }),
+    },
+  };
+}
+
+async function prepareWorkNodeList(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['timelineId']);
+  return {
+    kind: 'command',
+    command: {
+      op: 'listAiTimelineWorkNodes',
+      ...(optionalString(value.timelineId, 'timelineId', 200) ? { timelineId: value.timelineId as string } : {}),
+    },
+  };
+}
+
+async function prepareWorkNodeRead(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId', 'includePayload']);
+  return {
+    kind: 'command',
+    command: {
+      op: 'readAiTimelineWorkNode',
+      nodeId: requiredString(value.nodeId, 'nodeId', 200),
+      ...(value.includePayload === undefined
+        ? {}
+        : { includePayload: requiredBoolean(value.includePayload, 'includePayload') }),
+    },
+  };
+}
+
+async function prepareWorkNodeDiff(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId']);
+  return {
+    kind: 'command',
+    command: { op: 'diffAiTimelineWorkNode', nodeId: requiredString(value.nodeId, 'nodeId', 200) },
+  };
+}
+
+async function prepareWorkNodeValidation(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId']);
+  return {
+    kind: 'command',
+    command: {
+      op: 'validateAiTimelineWorkNode',
+      nodeId: requiredString(value.nodeId, 'nodeId', 200),
+      repairStatus: false,
+    },
+  };
+}
+
+async function prepareWorkNodeDeletion(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId']);
+  const nodeId = requiredString(value.nodeId, 'nodeId', 200);
+  return mutationPlan(
+    `删除 Work Node ${nodeId}`,
+    ['timeline.work-node'],
+    { op: 'deleteAiTimelineWorkNode', nodeId },
+  );
+}
+
+async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId', 'commitId']);
+  const nodeId = requiredString(value.nodeId, 'nodeId', 200);
+  return mutationPlan(
+    `检出 Work Node ${nodeId}`,
+    ['timeline.work-node', 'timeline.checkout'],
+    {
+      op: 'checkoutAiTimelineWorkNode',
+      nodeId,
+      ...(optionalString(value.commitId, 'commitId', 200) ? { commitId: value.commitId as string } : {}),
+      reload: false,
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        rationale: 'Approved in the embedded DEF AI mode.',
+      },
+    },
+  );
+}
+
+async function prepareWorkNodeRestore(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['nodeId']);
+  const nodeId = requiredString(value.nodeId, 'nodeId', 200);
+  return mutationPlan(
+    `恢复 Work Node ${nodeId} 的基线`,
+    ['timeline.work-node', 'timeline.checkout'],
+    {
+      op: 'restoreAiTimelineWorkNodeBase',
+      nodeId,
+      reload: false,
+      approval: {
+        approvedBy: 'user',
+        rationale: 'Approved in the embedded DEF AI mode.',
+      },
+    },
+  );
+}
+
+async function prepareLoadoutPreview(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const allowed = [
+    'characterId', 'characterName', 'weaponName', 'weaponLevel', 'potential',
+    'weaponSkillLevels', 'operatorSkillLevels', 'equipments', 'label', 'description',
+  ] as const;
+  const value = exactObject(input, allowed);
+  const characterId = optionalString(value.characterId, 'characterId', 160);
+  const characterName = optionalString(value.characterName, 'characterName', 160);
+  if (!characterId && !characterName) invalid('loadout preview requires characterId or characterName');
+  const request: JsonObject = {
+    op: 'setOperatorConfig',
+    ...(characterId ? { characterId } : {}),
+    ...(characterName ? { characterName } : {}),
+    ...(optionalString(value.weaponName, 'weaponName', 200) ? { weaponName: value.weaponName as string } : {}),
+    ...(value.weaponLevel === undefined ? {} : { weaponLevel: cloneJson(value.weaponLevel) }),
+    ...(optionalString(value.potential, 'potential', 40) ? { potential: value.potential as string } : {}),
+    ...(value.weaponSkillLevels === undefined
+      ? {}
+      : { weaponSkillLevels: unrestrictedObject(value.weaponSkillLevels, 'weaponSkillLevels') }),
+    ...(value.operatorSkillLevels === undefined
+      ? {}
+      : { operatorSkillLevels: unrestrictedObject(value.operatorSkillLevels, 'operatorSkillLevels') }),
+    ...(value.equipments === undefined
+      ? {}
+      : { equipments: objectArray(value.equipments, 'equipments', 4) }),
+  };
+  return {
+    kind: 'command',
+    command: {
+      op: 'prepareOperatorConfigProposal',
+      request,
+      label: optionalString(value.label, 'label', 120) ?? `调整 ${characterName ?? characterId} 配装`,
+      description: optionalString(value.description, 'description', 500)
+        ?? '在隔离 Work Node 中预览角色配置，不改动当前 checkout。',
+    },
+  };
+}
+
+async function prepareLoadoutApply(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest', 'finalConfig',
+  ]);
+  const nodeId = requiredString(value.nodeId, 'nodeId', 200);
+  const finalConfig = unrestrictedObject(value.finalConfig, 'finalConfig');
+  const command: JsonObject = {
+    op: 'applyPreparedOperatorConfigProposal',
+    parentNodeId: requiredString(value.parentNodeId, 'parentNodeId', 200),
+    parentRevision: requiredInteger(value.parentRevision, 'parentRevision', 0, Number.MAX_SAFE_INTEGER),
+    nodeId,
+    nodeRevision: requiredInteger(value.nodeRevision, 'nodeRevision', 0, Number.MAX_SAFE_INTEGER),
+    proposalDigest: requiredString(value.proposalDigest, 'proposalDigest', 200),
+    finalConfig,
+    approval: {
+      mode: 'manual',
+      approvedBy: 'user',
+      rationale: 'Approved in the embedded DEF AI mode.',
+    },
+  };
+  return mutationPlan(
+    `应用已审阅配装 ${nodeId}`,
+    ['loadout.config', 'timeline.work-node', 'timeline.checkout'],
+    command,
+  );
 }
 
 async function prepareQuestion(input: JsonValue): Promise<DefInteractiveToolPlan> {
@@ -690,6 +1086,17 @@ function optionalString(
 function requiredBoolean(value: JsonValue | undefined, label: string): boolean {
   if (typeof value !== 'boolean') invalid(`${label} must be boolean`);
   return value;
+}
+
+function requiredEnum<const Value extends string>(
+  value: JsonValue | undefined,
+  label: string,
+  values: readonly Value[],
+): Value {
+  if (typeof value !== 'string' || !values.includes(value as Value)) {
+    invalid(`${label} must be one of: ${values.join(', ')}`);
+  }
+  return value as Value;
 }
 
 function requiredInteger(

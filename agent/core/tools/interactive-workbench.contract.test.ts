@@ -65,8 +65,12 @@ const context: DefToolExecutionContext = {
 
 const registry = new DefProductToolRegistry();
 
+async function prepareAny(name: string, input: JsonValue) {
+  return registry.prepareInteractive(name, input, context);
+}
+
 async function prepare(name: string, input: JsonValue) {
-  const plan = await registry.prepareInteractive(name, input, context);
+  const plan = await prepareAny(name, input);
   assert.equal(plan.kind, 'mutation', `${name} must be an approved mutation`);
   return plan as Extract<DefInteractiveToolPlan, { kind: 'mutation' }>;
 }
@@ -157,5 +161,88 @@ assertWorkNodePlan(
   }],
   ['timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
 );
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'compatibleWeapons',
+    operatorQuery: '测试干员',
+    limit: 8,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'compatibleWeapons',
+      operatorQuery: '测试干员',
+      limit: 8,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.worknode.validate', { nodeId: 'node-review' }),
+  {
+    kind: 'command',
+    command: {
+      op: 'validateAiTimelineWorkNode',
+      nodeId: 'node-review',
+      repairStatus: false,
+    },
+  },
+);
+
+const deletePlan = await prepare('def.worknode.delete', { nodeId: 'node-obsolete' });
+assert.deepEqual(deletePlan.scope, ['timeline.work-node']);
+assert.deepEqual(deletePlan.command, { op: 'deleteAiTimelineWorkNode', nodeId: 'node-obsolete' });
+
+const usePlan = await prepare('def.worknode.use', { nodeId: 'node-ready', commitId: 'commit-ready' });
+assert.deepEqual(usePlan.scope, ['timeline.work-node', 'timeline.checkout']);
+assert.deepEqual(usePlan.command, {
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-ready',
+  commitId: 'commit-ready',
+  reload: false,
+  approval: {
+    mode: 'manual',
+    approvedBy: 'user',
+    rationale: 'Approved in the embedded DEF AI mode.',
+  },
+});
+
+const loadoutPreview = await prepareAny('def.loadout.preview', {
+  characterId: 'operator-test',
+  weaponName: '测试武器',
+  weaponLevel: 90,
+  weaponSkillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+  operatorSkillLevels: { A: 'M3', B: 'L9' },
+  equipments: [{ slotKey: 'armor', equipmentId: 'equipment-test' }],
+  label: '测试配装',
+});
+assert.equal(loadoutPreview.kind, 'command');
+if (loadoutPreview.kind !== 'command') throw new Error('loadout preview must be a command');
+assert.equal(loadoutPreview.command.op, 'prepareOperatorConfigProposal');
+assert.equal((loadoutPreview.command.request as { op?: string }).op, 'setOperatorConfig');
+
+const finalConfig = {
+  characterId: 'operator-test',
+  characterName: '测试干员',
+  weapon: { id: 'weapon-test', name: '测试武器', level: 90, potential: '0潜' },
+  equipment: [],
+  operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'L9' },
+};
+const loadoutApply = await prepare('def.loadout.apply_prepared', {
+  parentNodeId: 'node-parent',
+  parentRevision: 10,
+  nodeId: 'node-candidate',
+  nodeRevision: 11,
+  proposalDigest: 'sha256:0123456789abcdef',
+  finalConfig,
+});
+assert.deepEqual(loadoutApply.scope, [
+  'loadout.config',
+  'timeline.work-node',
+  'timeline.checkout',
+]);
+assert.deepEqual(loadoutApply.proposal, { command: loadoutApply.command, scope: loadoutApply.scope });
 
 console.log('DEF_INTERACTIVE_WORKBENCH_TOOL_CONTRACT_OK');
