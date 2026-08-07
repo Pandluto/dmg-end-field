@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const PROFILE_SCHEMA_VERSION = 1;
 const DEFAULT_PROFILE_REF = 'default';
+const DEFAULT_DEEPSEEK_MODEL_ID = 'deepseek-v4-flash';
 
 function readAgentProviderProfile(filePath, options = {}) {
   const fs = options.fs || fsModule;
@@ -42,7 +43,7 @@ function writeAgentProviderProfile(filePath, input, options = {}) {
     providerId: input?.providerId || existing?.providerId || 'deepseek',
     displayName: input?.displayName || existing?.displayName || 'DeepSeek',
     baseUrl: input?.baseUrl || existing?.baseUrl || 'https://api.deepseek.com',
-    modelId: input?.modelId || existing?.modelId || 'deepseek-chat',
+    modelId: input?.modelId || existing?.modelId || DEFAULT_DEEPSEEK_MODEL_ID,
     apiKey,
   });
   const document = { schemaVersion: PROFILE_SCHEMA_VERSION, profiles: [profile] };
@@ -81,7 +82,7 @@ function migrateLegacyAgentProviderProfile(filePath, legacyPaths, options = {}) 
       providerId: 'deepseek',
       displayName: 'DeepSeek',
       baseUrl: deepseek.baseUrl || 'https://api.deepseek.com',
-      modelId: deepseek.model || 'deepseek-chat',
+      modelId: deepseek.model || DEFAULT_DEEPSEEK_MODEL_ID,
       apiKey: deepseek.apiKey,
     }, { fs });
     return { migrated: true, profile, sourcePath: legacyPath };
@@ -137,6 +138,7 @@ function portableIdentifier(value, label) {
 }
 
 module.exports = {
+  DEFAULT_DEEPSEEK_MODEL_ID,
   migrateLegacyAgentProviderProfile,
   readAgentProviderProfile,
   writeAgentProviderProfile,

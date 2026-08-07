@@ -19,6 +19,7 @@ const { createDesktopStaticServer } = require('./static-host.cjs');
 const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 const { createAgentRuntime } = require('./agent-runtime.cjs');
 const {
+  DEFAULT_DEEPSEEK_MODEL_ID,
   migrateLegacyAgentProviderProfile,
   readAgentProviderProfile,
   writeAgentProviderProfile,
@@ -410,7 +411,7 @@ function registerIpc() {
       providerId: 'deepseek',
       displayName: 'DeepSeek',
       baseUrl: 'https://api.deepseek.com',
-      modelId: 'deepseek-chat',
+      modelId: DEFAULT_DEEPSEEK_MODEL_ID,
       apiKeyConfigured: false,
     };
   });

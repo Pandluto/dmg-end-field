@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {
+  DEFAULT_DEEPSEEK_MODEL_ID,
   migrateLegacyAgentProviderProfile,
   readAgentProviderProfile,
   writeAgentProviderProfile,
@@ -12,9 +13,14 @@ const {
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-agent-profile-'));
 const target = path.join(root, 'runtime', 'profiles.json');
+const defaultTarget = path.join(root, 'runtime', 'default-profiles.json');
 const legacy = path.join(root, 'legacy.json');
 
 try {
+  assert.equal(DEFAULT_DEEPSEEK_MODEL_ID, 'deepseek-v4-flash');
+  const defaultProfile = writeAgentProviderProfile(defaultTarget, { apiKey: 'default-secret' });
+  assert.equal(defaultProfile.modelId, 'deepseek-v4-flash');
+
   assert.equal(readAgentProviderProfile(target), null);
   fs.writeFileSync(legacy, JSON.stringify({
     deepseek: {
