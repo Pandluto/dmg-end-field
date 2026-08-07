@@ -107,6 +107,7 @@ export class DefAgentHost {
   #activeTurn: ActiveTurn | null = null;
   #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
+  #pendingSessionCreations = 0;
   #shutdown = false;
 
   constructor(options: {
@@ -143,22 +144,31 @@ export class DefAgentHost {
   }): Promise<DefSessionV6> {
     this.#assertRunning();
     this.#requireConsumer();
-    if (this.#sessions.size >= DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost) {
+    if (
+      this.#sessions.size + this.#pendingSessionCreations
+      >= DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost
+    ) {
       throw new DefAgentHostError(
         'AGENT_SESSION_LIMIT_REACHED',
         `This Agent Host keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} in-memory Sessions`,
       );
     }
     const defSessionId = this.#ids.session();
-    const engine = await this.#engine.createSession({
-      defSessionId,
-      providerProfileRef: input.providerProfileRef,
-      metadata: {
-        workspaceId: input.binding.workspaceId,
-        databaseGeneration: input.binding.databaseGeneration,
-        timelineId: input.binding.timelineId,
-      },
-    });
+    let engine: DefSessionV6['engine'];
+    this.#pendingSessionCreations += 1;
+    try {
+      engine = await this.#engine.createSession({
+        defSessionId,
+        providerProfileRef: input.providerProfileRef,
+        metadata: {
+          workspaceId: input.binding.workspaceId,
+          databaseGeneration: input.binding.databaseGeneration,
+          timelineId: input.binding.timelineId,
+        },
+      });
+    } finally {
+      this.#pendingSessionCreations -= 1;
+    }
     const now = new Date(this.#clock()).toISOString();
     const session: DefSessionV6 = {
       schemaVersion: DEF_SESSION_SCHEMA_VERSION,
@@ -1101,10 +1111,10 @@ export class DefAgentHost {
       starting.abortCode ??= 'BROWSER_CONSUMER_LOST';
     }
     if (!starting.abortCode) return null;
-    if (consumerError instanceof DefAgentHostError) {
-      return { code: starting.abortCode, error: consumerError };
-    }
     if (starting.abortCode === 'BROWSER_CONSUMER_LOST') {
+      if (consumerError instanceof DefAgentHostError) {
+        return { code: starting.abortCode, error: consumerError };
+      }
       return {
         code: starting.abortCode,
         error: new DefAgentHostError(

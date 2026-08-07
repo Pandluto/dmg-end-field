@@ -769,7 +769,7 @@ export class DesktopAgentBridge {
       { method: 'POST', body: input },
     );
     const { parseTurnAccepted } = await loadProtocolValidation();
-    return parseTurnAccepted(data, defSessionId);
+    return parseTurnAccepted(data, defSessionId, input.clientTurnId);
   }
 
   async abortTurn(defTurnId: DefTurnId): Promise<AgentTurnAbortResult> {

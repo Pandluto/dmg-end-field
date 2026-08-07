@@ -145,6 +145,7 @@ class FakeStore implements BrowserProductStore {
 class FakeBridge {
   active = true;
   failSnapshotPublish = false;
+  commitSnapshotBeforeFailure = false;
   delivery: BrowserCommandDelivery | null = { cursor: 1, command: productCommand };
   readonly snapshots: BrowserSnapshotPublish[] = [];
   readonly results: BrowserCommandResultSubmission[] = [];
@@ -154,6 +155,10 @@ class FakeBridge {
   isAgentModeRoute(): boolean { return this.active; }
   getSessionCapability(): string | null { return this.active ? 'capability-runtime-1234567890' : null; }
   async publishSnapshot(input: BrowserSnapshotPublish): Promise<void> {
+    if (this.commitSnapshotBeforeFailure) {
+      this.snapshots.push(input);
+      throw new Error('snapshot response lost after commit');
+    }
     if (this.failSnapshotPublish) throw new Error('snapshot publish failed');
     this.snapshots.push(input);
   }
@@ -223,9 +228,47 @@ await assert.rejects(
   }),
   /snapshot publish failed/,
 );
-assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
-assert.equal(refreshes, 1, 'a failed same-scope publish must not advance the heartbeat binding');
+assert.equal(runtime.getBinding(), null, 'an uncertain publish must suspend the heartbeat binding');
+assert.equal(refreshes, 2, 'an uncertain publish must close or suspend the current consumer');
 bridge.failSnapshotPublish = false;
+store.snapshotBinding = binding;
+await runtime.publishMainWorkbenchSnapshot({
+  schemaVersion: 1,
+  updatedAt: 100,
+  source: 'app',
+  timelineId: 'timeline-runtime',
+  activeTimelineId: 'timeline-runtime',
+  checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+  currentView: 'canvas',
+  selectedCharacters: [],
+  skillButtons: [],
+});
+assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+
+store.snapshotBinding = failedBinding;
+bridge.commitSnapshotBeforeFailure = true;
+await assert.rejects(
+  runtime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+  }),
+  /snapshot response lost after commit/,
+);
+assert.equal(
+  bridge.snapshots.at(-1)?.snapshot.binding.snapshotDigest,
+  failedBinding.snapshotDigest,
+  'the Host-side commit fixture must have accepted the new snapshot before the response is lost',
+);
+assert.equal(runtime.getBinding(), null, 'a lost response must not leave the old heartbeat binding active');
+assert.equal(refreshes, 4);
+bridge.commitSnapshotBeforeFailure = false;
 store.snapshotBinding = binding;
 
 const enqueued: Array<{ command: unknown; id: string }> = [];

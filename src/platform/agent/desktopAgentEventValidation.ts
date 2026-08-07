@@ -4,7 +4,7 @@ import type {
   AgentTurnAccepted,
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import type { DefEvent } from '../../../agent/core/contracts/events.ts';
-import type { DefSessionId, DefTurnId } from '../../../agent/core/contracts/ids.ts';
+import type { ClientTurnId, DefSessionId, DefTurnId } from '../../../agent/core/contracts/ids.ts';
 import { DesktopAgentBridgeError } from './desktopAgentBridgeError';
 
 type RecordValue = Record<string, unknown>;
@@ -266,6 +266,7 @@ export function parseProductEventPage(
     || typeof payload.hasMore !== 'boolean'
     || !Array.isArray(payload.events)
     || payload.events.length > limit
+    || (payload.hasMore === true && payload.events.length === 0)
   ) {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的事件页。', 'INVALID_HOST_RESPONSE');
   }
@@ -299,13 +300,14 @@ export function parseTurnAbortResult(
 export function parseTurnAccepted(
   payload: RecordValue,
   expectedSessionId: DefSessionId,
+  expectedClientTurnId: ClientTurnId,
 ): AgentTurnAccepted {
   if (
     !exact(payload, ['protocolVersion', 'defSessionId', 'defTurnId', 'clientTurnId'])
     || payload.protocolVersion !== 2
     || payload.defSessionId !== expectedSessionId
     || typeof payload.defTurnId !== 'string'
-    || typeof payload.clientTurnId !== 'string'
+    || payload.clientTurnId !== expectedClientTurnId
   ) {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Turn。', 'INVALID_HOST_RESPONSE');
   }

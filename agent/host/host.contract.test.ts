@@ -989,11 +989,18 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     snapshot: snapshot(),
   });
   const baseEngine = new DeterministicFakeAgentEngine();
+  let failNextSessionCreation = true;
   const capacityAbortCodes: string[] = [];
   const engine: AgentEngine = {
     kind: baseEngine.kind,
     probe: () => baseEngine.probe(),
-    createSession: (input) => baseEngine.createSession(input),
+    createSession: async (input) => {
+      if (failNextSessionCreation) {
+        failNextSessionCreation = false;
+        throw new Error('intentional Engine Session creation failure');
+      }
+      return baseEngine.createSession(input);
+    },
     recoverSession: (ref) => baseEngine.recoverSession(ref),
     startTurn: async (input) => {
       const handle = await baseEngine.startTurn(input);
@@ -1028,13 +1035,30 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     toolRegistry: tools,
     requireConsumer: () => { registry.requireActive(); },
   });
-  const sessions = [];
-  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost; index += 1) {
-    sessions.push(await host.createSession({
+  await assert.rejects(
+    host.createSession({ binding: binding(), providerProfileRef: 'retention-profile-failed' }),
+    /intentional Engine Session creation failure/,
+  );
+  const concurrentSessionResults = await Promise.allSettled(Array.from(
+    { length: DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost + 1 },
+    (_, index) => host.createSession({
       binding: binding(),
       providerProfileRef: `retention-profile-${index}`,
-    }));
-  }
+    }),
+  ));
+  const sessions = concurrentSessionResults.flatMap((result) => (
+    result.status === 'fulfilled' ? [result.value] : []
+  ));
+  const sessionFailures = concurrentSessionResults.flatMap((result) => (
+    result.status === 'rejected' ? [result.reason] : []
+  ));
+  assert.equal(sessions.length, DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost);
+  assert.equal(sessionFailures.length, 1);
+  assert.ok(
+    sessionFailures[0] instanceof DefAgentHostError
+      && sessionFailures[0].code === 'AGENT_SESSION_LIMIT_REACHED',
+    'concurrent Session creation must reserve capacity before awaiting the Engine',
+  );
   await expectHostError(() => host.createSession({
     binding: binding(),
     providerProfileRef: 'retention-profile-overflow',

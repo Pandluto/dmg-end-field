@@ -388,6 +388,9 @@ async function delayedStartingTurnFixture(label: string) {
     host,
     harness,
     session,
+    consumers,
+    owner,
+    registration,
     handleReady,
     releaseStart,
     engineAbortCodes,
@@ -832,6 +835,36 @@ await host.shutdown();
   assert.deepEqual(fixture.engineAbortCodes, ['USER_STOPPED']);
   const transactionId = `harness:${startingTurnId}`;
   assert.equal(fixture.harness.getTransaction(transactionId).terminalState, 'aborted');
+  const terminal = fixture.harness.getTrace(transactionId)
+    .find((entry) => entry.type === 'harness.terminal');
+  assert.equal(terminal?.type, 'harness.terminal');
+  if (terminal?.type === 'harness.terminal') assert.equal(terminal.code, 'USER_STOPPED');
+  await fixture.host.shutdown();
+}
+
+// The first cancellation reason remains authoritative if the consumer is also lost before Engine start resolves.
+{
+  const fixture = await delayedStartingTurnFixture('explicit-stop-then-consumer-loss');
+  const startingPromise = fixture.host.startHarnessTurn({
+    defSessionId: fixture.session.defSessionId,
+    userMessage: '先手动停止再关闭 consumer',
+  });
+  await fixture.handleReady;
+  const startingTurnId = fixture.getStartingDefTurnId();
+  assert.ok(startingTurnId);
+  await fixture.host.abortTurn(startingTurnId, 'USER_STOPPED');
+  fixture.consumers.close(fixture.owner, fixture.registration);
+  fixture.releaseStart();
+  await assert.rejects(
+    startingPromise,
+    (error: unknown) => (
+      error instanceof DefAgentHostError
+      && error.code === 'AGENT_TURN_START_CANCELLED'
+      && error.message.includes('USER_STOPPED')
+    ),
+  );
+  assert.deepEqual(fixture.engineAbortCodes, ['USER_STOPPED']);
+  const transactionId = `harness:${startingTurnId}`;
   const terminal = fixture.harness.getTrace(transactionId)
     .find((entry) => entry.type === 'harness.terminal');
   assert.equal(terminal?.type, 'harness.terminal');

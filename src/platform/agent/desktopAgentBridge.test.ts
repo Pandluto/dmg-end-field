@@ -356,7 +356,8 @@ class FakeLease implements AgentWorkspaceLease {
   storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
   const document = new FakeDocument();
   const lease = new FakeLease();
-  let currentBinding = binding();
+  let currentBinding: ReturnType<typeof binding> | null = binding();
+  let closeCount = 0;
   const heartbeatBindings: ReturnType<typeof binding>[] = [];
   const bridge = createDesktopAgentBridge({
     location,
@@ -386,6 +387,7 @@ class FakeLease implements AgentWorkspaceLease {
           },
         });
       }
+      if (url.endsWith('/workbench/close')) closeCount += 1;
       return response({ ok: true });
     },
   });
@@ -411,6 +413,11 @@ class FakeLease implements AgentWorkspaceLease {
   await controller.refreshEligibility();
   assert.deepEqual(heartbeatBindings, [currentBinding]);
   assert.deepEqual(controller.getState().consumer?.binding, currentBinding);
+  currentBinding = null;
+  await controller.refreshEligibility();
+  assert.equal(closeCount, 1, 'a missing authoritative binding must close the active consumer');
+  assert.equal(controller.getState().consumer, null);
+  assert.equal(controller.getState().state, 'blocked');
   await controller.stop();
 }
 
@@ -500,6 +507,32 @@ class FakeLease implements AgentWorkspaceLease {
   )), true);
 }
 
+// A Turn response must echo the request clientTurnId exactly.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const session = productSession();
+  const requestedClientTurnId = asClientTurnId('client-turn-requested');
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response({
+      protocolVersion: 2,
+      defSessionId: session.defSessionId,
+      defTurnId: asDefTurnId('def-turn-mismatched-client'),
+      clientTurnId: asClientTurnId('client-turn-wrong'),
+    }, 202),
+  });
+  await assert.rejects(
+    bridge.startTurn(session.defSessionId, {
+      clientTurnId: requestedClientTurnId,
+      userMessage: '严格核对请求身份',
+    }),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
 // Engine-private identities in a Product response fail closed.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
@@ -519,6 +552,22 @@ class FakeLease implements AgentWorkspaceLease {
   });
   await assert.rejects(
     bridge.getSession(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// A page that claims more events must advance its cursor.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 0,
+    hasMore: true,
+    events: [],
+  });
+  await assert.rejects(
+    bridge.readSessionEvents(session.defSessionId),
     (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
   );
 }

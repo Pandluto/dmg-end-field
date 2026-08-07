@@ -149,10 +149,8 @@ export class BrowserAgentRuntime {
         snapshot: runtimeSnapshot,
       });
     } catch (error) {
-      if (requiresRegistration) {
-        this.#binding = null;
-        await this.#consumerController.refreshEligibility().catch(() => undefined);
-      }
+      this.#binding = null;
+      await this.#consumerController.refreshEligibility().catch(() => undefined);
       throw error;
     }
     this.#binding = runtimeSnapshot.binding;
