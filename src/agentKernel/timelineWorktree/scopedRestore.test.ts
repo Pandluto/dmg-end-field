@@ -9,7 +9,7 @@ import {
 
 type AnyRecord = Record<string, any>;
 
-function buff(id: string, name = id): AnyRecord {
+function buff(id: string, name = id, extra: AnyRecord = {}): AnyRecord {
   return {
     id,
     name,
@@ -20,6 +20,7 @@ function buff(id: string, name = id): AnyRecord {
     maxStacks: 5,
     value: 10,
     futureBuffField: { id, nested: true },
+    ...extra,
   };
 }
 
@@ -283,8 +284,13 @@ assert.equal(buffRestored.skillButtonTable['button-a']?.nodeIndex, 9, 'Buff rest
 assert.equal(buffRestored.skillButtonTable['button-a']?.runtimeSkillId, 'current-skill');
 assert.deepEqual(
   buffRestored.skillButtonTable['button-a']?.runtimeSnapshot,
-  { atk: 999, critRate: 0.99, critDmg: 0.99 },
-  'Buff restore must preserve the current loadout-derived runtime snapshot',
+  null,
+  'Buff restore must invalidate the old loadout-derived runtime snapshot',
+);
+assert.equal(
+  buffRestored.skillButtonTable['button-current-only']?.runtimeSnapshot,
+  null,
+  'a current-only button must not retain a snapshot calculated before the Buff restore',
 );
 assert.deepEqual(buffRestored.skillButtonTable['button-a']?.selectedBuff, ['baseline-shared', 'baseline-stack']);
 assert.deepEqual(buffRestored.skillButtonTable['button-a']?.buffStackCounts, {
@@ -337,11 +343,16 @@ assert.deepEqual(
   'a current-only button keeps its current resistance',
 );
 assert.deepEqual(resistanceRestored.skillButtonTable['button-a']?.selectedBuff, ['current-only']);
-assert.deepEqual(resistanceRestored.skillButtonTable['button-a']?.runtimeSnapshot, {
-  atk: 999,
-  critRate: 0.99,
-  critDmg: 0.99,
-});
+assert.equal(
+  resistanceRestored.skillButtonTable['button-a']?.runtimeSnapshot,
+  null,
+  'resistance restore must invalidate the old loadout-derived runtime snapshot',
+);
+assert.equal(
+  resistanceRestored.skillButtonTable['button-current-only']?.runtimeSnapshot,
+  null,
+  'a current-only button must not retain a snapshot after resistance changes',
+);
 
 const baselineWithoutResistance = structuredClone(baselineBuff);
 delete (baselineWithoutResistance.skillButtonTable['button-a'] as AnyRecord).resistanceConfig;
@@ -352,9 +363,11 @@ assert.equal(
   'baseline absence removes resistance only for the matching current button',
 );
 assert.deepEqual(resistanceRemoved.skillButtonTable['button-a']?.selectedBuff, ['current-only']);
+assert.equal(resistanceRemoved.skillButtonTable['button-a']?.runtimeSnapshot, null);
 
 const sharedCurrentA = button('shared-a', 'operator-a', 0, 1, ['same-buff']);
 const sharedCurrentB = button('shared-b', 'operator-a', 0, 2, ['same-buff']);
+const sharedCurrentOnly = button('shared-current-only', 'operator-a', 0, 3, ['same-buff']);
 const sharedBaselineA = button('shared-a', 'operator-a', 0, 1, ['same-buff'], {
   buffStackCounts: { 'same-buff': 3 },
   panelConfig: {
@@ -367,12 +380,53 @@ const sharedBaselineA = button('shared-a', 'operator-a', 0, 1, ['same-buff'], {
 const sharedBaselineB = button('shared-b', 'operator-a', 0, 2, ['same-buff'], {
   buffStackCounts: { 'same-buff': 4 },
 });
-const sharedCurrent = makePayload({ buttons: [sharedCurrentA, sharedCurrentB], buffs: [buff('same-buff')] });
-const sharedBaseline = makePayload({ buttons: [sharedBaselineA, sharedBaselineB], buffs: [buff('same-buff')] });
+const sharedCurrent = makePayload({
+  buttons: [sharedCurrentA, sharedCurrentB, sharedCurrentOnly],
+  buffs: [buff('same-buff', '当前同 ID Buff', { value: 100 })],
+});
+const sharedBaseline = makePayload({
+  buttons: [sharedBaselineA, sharedBaselineB],
+  buffs: [buff('same-buff', '基线同 ID Buff', { value: 200 })],
+});
 const sharedResult = mustSucceed(restoreBuffScope(sharedCurrent, sharedBaseline));
-assert.equal(sharedResult.allBuffList[0]?.refCount, 2, 'shared Buff refCount must count button references');
-assert.deepEqual(sharedResult.skillButtonTable['shared-a']?.buffStackCounts, { 'same-buff': 3 });
-assert.deepEqual(sharedResult.skillButtonTable['shared-b']?.buffStackCounts, { 'same-buff': 4 });
+const sharedBaselineId = sharedResult.skillButtonTable['shared-a']?.selectedBuff[0];
+assert.equal(typeof sharedBaselineId, 'string');
+assert.notEqual(sharedBaselineId, 'same-buff', 'the conflicting baseline Buff must receive a distinct ID');
+assert.equal(sharedResult.skillButtonTable['shared-b']?.selectedBuff[0], sharedBaselineId);
+assert.equal(sharedResult.skillButtonTable['shared-current-only']?.selectedBuff[0], 'same-buff');
+assert.equal(sharedResult.allBuffList.find((item) => item.id === sharedBaselineId)?.value, 200);
+assert.equal(sharedResult.allBuffList.find((item) => item.id === 'same-buff')?.value, 100);
+assert.equal(sharedResult.allBuffList.find((item) => item.id === sharedBaselineId)?.refCount, 2);
+assert.equal(sharedResult.allBuffList.find((item) => item.id === 'same-buff')?.refCount, 1);
+assert.deepEqual(sharedResult.skillButtonTable['shared-a']?.buffStackCounts, { [sharedBaselineId as string]: 3 });
+assert.deepEqual(sharedResult.skillButtonTable['shared-b']?.buffStackCounts, { [sharedBaselineId as string]: 4 });
+assert.deepEqual(sharedResult.skillButtonTable['shared-a']?.panelConfig?.selectedBuff, [sharedBaselineId]);
+assert.deepEqual(sharedResult.skillButtonTable['shared-a']?.panelConfig?.globallyDisabledBuffIds, [sharedBaselineId]);
+assert.deepEqual(
+  sharedResult.skillButtonTable['shared-a']?.panelConfig?.manualDisabledBuffIdsBySegmentKey,
+  { segment: [sharedBaselineId] },
+);
+assert.deepEqual(
+  sharedResult.skillButtonTable['shared-a']?.panelConfig?.manualBuffStackCountsBySegmentKey,
+  { segment: { [sharedBaselineId as string]: 3 } },
+);
+assert.deepEqual(sharedResult.skillButtonTable['shared-current-only']?.panelConfig?.selectedBuff, ['same-buff']);
+
+const sharedReversedResult = mustSucceed(restoreBuffScope(
+  makePayload({
+    buttons: [sharedCurrentOnly, sharedCurrentB, sharedCurrentA],
+    buffs: [buff('same-buff', '当前同 ID Buff', { value: 100 })],
+  }),
+  makePayload({
+    buttons: [sharedBaselineB, sharedBaselineA],
+    buffs: [buff('same-buff', '基线同 ID Buff', { value: 200 })],
+  }),
+));
+const sharedReversedBaselineId = sharedReversedResult.skillButtonTable['shared-a']?.selectedBuff[0];
+assert.equal(sharedReversedBaselineId, sharedBaselineId, 'baseline remap must not depend on button order');
+assert.equal(sharedReversedResult.allBuffList.find((item) => item.id === sharedReversedBaselineId)?.value, 200);
+assert.equal(sharedReversedResult.allBuffList.find((item) => item.id === 'same-buff')?.value, 100);
+assert.equal(sharedReversedResult.skillButtonTable['shared-current-only']?.selectedBuff[0], 'same-buff');
 
 const currentAnomalyCommon = button('anomaly-common', 'operator-a', 0, 1, [], {
   anomalyConfig: { selectedStatuses: [], selectedDamages: [], selectedStateSnapshotIds: [7] },

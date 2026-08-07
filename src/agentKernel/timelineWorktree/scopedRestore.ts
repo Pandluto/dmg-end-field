@@ -63,7 +63,7 @@ const BUTTON_BUFF_STATE_KEYS = [
   'panelConfig',
 ] as const;
 
-/** Derived from the current loadout/calculation input, never owned by Buff restore. */
+/** Derived from the current loadout/calculation input; restore scopes invalidate it rather than copy it. */
 const BUTTON_DERIVED_RUNTIME_KEYS = ['runtimeSnapshot'] as const;
 
 const PANEL_BUFF_STATE_KEYS = [
@@ -132,6 +132,15 @@ function copyOptionalField(target: AnyRecord, source: AnyRecord | undefined, key
 
 function copyFields(target: AnyRecord, source: AnyRecord | undefined, keys: readonly string[]): void {
   for (const key of keys) copyOptionalField(target, source, key);
+}
+
+/**
+ * Buff and resistance restore change inputs used by the derived panel. Keep
+ * the invalidation explicit so a later damage consumer cannot mistake a
+ * snapshot calculated from the pre-restore state for a fresh calculation.
+ */
+function invalidateDerivedRuntimeSnapshot(target: AnyRecord): void {
+  target.runtimeSnapshot = null;
 }
 
 function readSelectedBuff(button: AnyRecord | undefined): string[] {
@@ -322,6 +331,7 @@ function buildTimelineRestoreTable(
 function buildBuffRestoreTable(
   current: TimelineSnapshotPayload,
   baseline: TimelineSnapshotPayload,
+  baselineBuffIdRemap: ReadonlyMap<string, string>,
 ): Record<string, PersistedSkillButton> {
   const currentTable = current.skillButtonTable as unknown as Record<string, AnyRecord>;
   const baselineTable = baseline.skillButtonTable as unknown as Record<string, AnyRecord>;
@@ -330,7 +340,11 @@ function buildBuffRestoreTable(
   for (const [buttonId, currentButton] of Object.entries(currentTable)) {
     const next = deepClone(currentButton) as MutableButtonRecord;
     const baselineButton = baselineTable[buttonId];
-    if (baselineButton) applyBuffStateFromBaseline(next, currentButton, baselineButton);
+    if (baselineButton) {
+      applyBuffStateFromBaseline(next, currentButton, baselineButton);
+      remapBuffStateReferences(next, baselineBuffIdRemap);
+    }
+    invalidateDerivedRuntimeSnapshot(next);
     normalizeButtonBuffState(next);
     result[buttonId] = next as unknown as PersistedSkillButton;
   }
@@ -340,9 +354,11 @@ function buildBuffRestoreTable(
 
 /**
  * Resistance is an independent scope. Only buttons that still exist in the
- * current timeline can be restored, and every non-resistance field remains a
- * byte-for-byte clone of current. A missing baseline field restores absence;
- * current-only buttons retain their current resistance.
+ * current timeline can be restored. All non-resistance fields remain a
+ * byte-for-byte clone of current except the derived runtime snapshot, which
+ * is invalidated because resistance participates in damage calculation. A
+ * missing baseline field restores absence; current-only buttons retain their
+ * current resistance.
  */
 function buildResistanceRestoreTable(
   current: TimelineSnapshotPayload,
@@ -359,6 +375,7 @@ function buildResistanceRestoreTable(
       // directly before resistanceConfig became the canonical container.
       copyOptionalField(next, baselineButton, 'targetResistance');
     }
+    invalidateDerivedRuntimeSnapshot(next);
     return [buttonId, next as unknown as PersistedSkillButton];
   }));
 }
@@ -450,19 +467,25 @@ function rebuildBuffList(
   current: TimelineSnapshotPayload,
   baseline: TimelineSnapshotPayload,
   preferredSource: Map<string, 'current' | 'baseline'>,
+  baselineBuffIdRemap: ReadonlyMap<string, string> = new Map(),
 ): SkillButtonBuff[] {
   const currentBuffs = buffMap(current);
   const baselineBuffs = buffMap(baseline);
+  const baselineIdByRestoredId = new Map(
+    [...baselineBuffIdRemap.entries()].map(([baselineId, restoredId]) => [restoredId, baselineId] as const),
+  );
   const references = collectReferencedBuffIds(table);
 
   return references.order.map((buffId) => {
-    const preferred = preferredSource.get(buffId);
+    const baselineId = baselineIdByRestoredId.get(buffId);
+    const preferred = baselineId ? 'baseline' : preferredSource.get(buffId);
     const buff = preferred === 'baseline'
-      ? baselineBuffs.get(buffId) ?? currentBuffs.get(buffId)
+      ? baselineBuffs.get(baselineId ?? buffId) ?? currentBuffs.get(buffId)
       : currentBuffs.get(buffId) ?? baselineBuffs.get(buffId);
     if (!buff) throw new Error(`Scoped restore could not resolve referenced Buff ${buffId}.`);
     return {
       ...deepClone(buff),
+      id: buffId,
       refCount: references.counts.get(buffId) ?? 0,
     };
   });
@@ -486,31 +509,131 @@ function preferredBuffSourcesForTimelineRestore(
   return preferred;
 }
 
-function preferredBuffSourcesForBuffRestore(
-  current: TimelineSnapshotPayload,
-  baseline: TimelineSnapshotPayload,
-  restoredTable: Record<string, PersistedSkillButton>,
-): Map<string, 'current' | 'baseline'> {
-  const currentTable = current.skillButtonTable as unknown as Record<string, AnyRecord>;
-  const baselineTable = baseline.skillButtonTable as unknown as Record<string, AnyRecord>;
-  const preferred = new Map<string, 'current' | 'baseline'>();
-  for (const buttonId of Object.keys(restoredTable)) {
-    const source = baselineTable[buttonId] ?? currentTable[buttonId];
-    const sourceKind: 'current' | 'baseline' = baselineTable[buttonId] ? 'baseline' : 'current';
-    for (const buffId of readSelectedBuff(source)) {
-      if (!preferred.has(buffId)) preferred.set(buffId, sourceKind);
-    }
-  }
-  return preferred;
+function compareStableText(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   if (!value || typeof value !== 'object') return JSON.stringify(value);
   return `{${Object.entries(value as AnyRecord)
-    .sort(([left], [right]) => left.localeCompare(right))
+    .sort(([left], [right]) => compareStableText(left, right))
     .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
     .join(',')}}`;
+}
+
+function buffDefinitionSignature(buff: SkillButtonBuff): string {
+  const definition = cloneRecord(buff);
+  delete definition.id;
+  delete definition.refCount;
+  return stableJson(definition);
+}
+
+function stableDefinitionHash(value: string): string {
+  let hash = 2166136261;
+  for (const character of value) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+  return hash.toString(36).padStart(7, '0');
+}
+
+/**
+ * A baseline Buff with the same ID but a different definition cannot share
+ * the current ID: current-only buttons may still legitimately refer to the
+ * current definition. Allocate baseline IDs from sorted definitions so the
+ * result is independent of button traversal order.
+ */
+function buildBuffRestoreIdRemap(
+  current: TimelineSnapshotPayload,
+  baseline: TimelineSnapshotPayload,
+): Map<string, string> {
+  const currentBuffs = buffMap(current);
+  const baselineBuffs = buffMap(baseline);
+  const reservedIds = new Set([...currentBuffs.keys(), ...baselineBuffs.keys()]);
+  const conflicts = [...baselineBuffs.entries()]
+    .filter(([buffId, baselineBuff]) => {
+      const currentBuff = currentBuffs.get(buffId);
+      return currentBuff !== undefined && buffDefinitionSignature(currentBuff) !== buffDefinitionSignature(baselineBuff);
+    })
+    .sort(([left], [right]) => compareStableText(left, right));
+  const remap = new Map<string, string>();
+
+  for (const [buffId, baselineBuff] of conflicts) {
+    const baseId = `${buffId}::baseline-${stableDefinitionHash(buffDefinitionSignature(baselineBuff))}`;
+    let restoredId = baseId;
+    let suffix = 2;
+    while (reservedIds.has(restoredId)) {
+      restoredId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    reservedIds.add(restoredId);
+    remap.set(buffId, restoredId);
+  }
+
+  return remap;
+}
+
+function remapBuffIdList(value: unknown, idRemap: ReadonlyMap<string, string>): unknown {
+  if (!Array.isArray(value)) return deepClone(value);
+  return value.map((entry) => (
+    typeof entry === 'string' ? idRemap.get(entry) ?? entry : deepClone(entry)
+  ));
+}
+
+function remapBuffCountMap(value: unknown, idRemap: ReadonlyMap<string, string>): unknown {
+  if (!isRecord(value)) return deepClone(value);
+  return Object.fromEntries(
+    Object.entries(value).map(([buffId, count]) => [idRemap.get(buffId) ?? buffId, deepClone(count)]),
+  );
+}
+
+function remapBuffIdArrayMap(value: unknown, idRemap: ReadonlyMap<string, string>): unknown {
+  if (!isRecord(value)) return deepClone(value);
+  return Object.fromEntries(
+    Object.entries(value).map(([segmentKey, buffIds]) => [segmentKey, remapBuffIdList(buffIds, idRemap)]),
+  );
+}
+
+function remapBuffPanelReferences(panelConfig: unknown, idRemap: ReadonlyMap<string, string>): unknown {
+  if (!isRecord(panelConfig)) return deepClone(panelConfig);
+  const next = cloneRecord(panelConfig);
+  if (hasOwn(panelConfig, 'selectedBuff')) {
+    next.selectedBuff = remapBuffIdList(panelConfig.selectedBuff, idRemap);
+  }
+  if (hasOwn(panelConfig, 'globallyDisabledBuffIds')) {
+    next.globallyDisabledBuffIds = remapBuffIdList(panelConfig.globallyDisabledBuffIds, idRemap);
+  }
+  if (hasOwn(panelConfig, 'manualDisabledBuffIdsBySegmentKey')) {
+    next.manualDisabledBuffIdsBySegmentKey = remapBuffIdArrayMap(
+      panelConfig.manualDisabledBuffIdsBySegmentKey,
+      idRemap,
+    );
+  }
+  if (hasOwn(panelConfig, 'manualBuffStackCountsBySegmentKey')) {
+    next.manualBuffStackCountsBySegmentKey = isRecord(panelConfig.manualBuffStackCountsBySegmentKey)
+      ? Object.fromEntries(
+        Object.entries(panelConfig.manualBuffStackCountsBySegmentKey).map(([segmentKey, counts]) => [
+          segmentKey,
+          remapBuffCountMap(counts, idRemap),
+        ]),
+      )
+      : deepClone(panelConfig.manualBuffStackCountsBySegmentKey);
+  }
+  return next;
+}
+
+function remapBuffStateReferences(
+  target: MutableButtonRecord,
+  idRemap: ReadonlyMap<string, string>,
+): void {
+  if (idRemap.size === 0) return;
+  if (hasOwn(target, 'selectedBuff')) target.selectedBuff = remapBuffIdList(target.selectedBuff, idRemap) as string[];
+  if (hasOwn(target, 'buffStackCounts')) target.buffStackCounts = remapBuffCountMap(target.buffStackCounts, idRemap) as Record<string, number>;
+  if (hasOwn(target, 'panelConfig')) {
+    target.panelConfig = remapBuffPanelReferences(target.panelConfig, idRemap) as SkillButtonPanelConfig;
+  }
 }
 
 function selectedAnomalySnapshotIds(button: AnyRecord | undefined): number[] {
@@ -705,16 +828,19 @@ export function restoreScopedTimelinePayload(
     return { ok: true, scope, payload: restoredPayload };
   }
 
+  const baselineBuffIdRemap = scope === 'buff'
+    ? buildBuffRestoreIdRemap(current, baseline)
+    : new Map<string, string>();
   const restoredTable = scope === 'timeline'
     ? buildTimelineRestoreTable(current, baseline)
-    : buildBuffRestoreTable(current, baseline);
+    : buildBuffRestoreTable(current, baseline, baselineBuffIdRemap);
   const preferredSource = scope === 'timeline'
     ? preferredBuffSourcesForTimelineRestore(current, baseline, restoredTable)
-    : preferredBuffSourcesForBuffRestore(current, baseline, restoredTable);
+    : new Map<string, 'current' | 'baseline'>();
 
   let restoredBuffList: SkillButtonBuff[];
   try {
-    restoredBuffList = rebuildBuffList(restoredTable, current, baseline, preferredSource);
+    restoredBuffList = rebuildBuffList(restoredTable, current, baseline, preferredSource, baselineBuffIdRemap);
   } catch (error) {
     return restoredFailure(scope, { ok: false, issues: [{
       code: 'unresolved-buff-reference',
@@ -767,7 +893,7 @@ export function restoreTimelineScope(
   return restoreScopedTimelinePayload('timeline', current, baseline);
 }
 
-/** Restore baseline Buff attachments/runtime for common IDs and preserve live timeline structure. */
+/** Restore baseline Buff attachments and invalidate derived runtime for the live timeline structure. */
 export function restoreBuffScope(
   current: TimelineSnapshotPayload,
   baseline: TimelineSnapshotPayload,
@@ -775,7 +901,7 @@ export function restoreBuffScope(
   return restoreScopedTimelinePayload('buff', current, baseline);
 }
 
-/** Restore only baseline target resistance and preserve attachments, timeline, loadout, and runtime. */
+/** Restore only baseline target resistance and invalidate derived runtime snapshots. */
 export function restoreResistanceScope(
   current: TimelineSnapshotPayload,
   baseline: TimelineSnapshotPayload,
