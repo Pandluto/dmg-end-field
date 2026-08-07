@@ -255,6 +255,7 @@ export type MainWorkbenchCommand =
       nodeId: string;
       reload?: boolean;
       approval?: {
+        mode?: 'manual';
         approvedBy?: 'ai' | 'user' | 'system';
         rationale?: string;
       };
@@ -354,6 +355,16 @@ export type MainWorkbenchCommand =
       request: Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }>;
     }
   | {
+      /**
+       * Resolve one configuration request and persist only an isolated manual
+       * Work Node. The current checkout and renderer cache remain untouched.
+       */
+      op: 'prepareOperatorConfigProposal';
+      request: Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }>;
+      label: string;
+      description: string;
+    }
+  | {
       // Applies the already reviewed child node only if the original checkout
       // still has the same revision. Commit/checkout bookkeeping happens in
       // the bridge after this renderer acknowledgement.
@@ -362,6 +373,24 @@ export type MainWorkbenchCommand =
       parentRevision: number;
       nodeId: string;
       nodeRevision: number;
+    }
+  | {
+      /**
+       * Atomically apply a prepared operator-config Work Node after the
+       * BrowserAgentRuntime has verified the signed approval capability.
+       */
+      op: 'applyPreparedOperatorConfigProposal';
+      parentNodeId: string;
+      parentRevision: number;
+      nodeId: string;
+      nodeRevision: number;
+      proposalDigest: string;
+      finalConfig: Record<string, unknown>;
+      approval: {
+        mode: 'manual';
+        approvedBy: 'user';
+        rationale?: string;
+      };
     }
   | {
       // Runs only after the bridge has marked this reviewed child commit as

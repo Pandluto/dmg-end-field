@@ -486,6 +486,180 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   assert.equal(approvalBridge.results.length, 0);
 }
 
+// The reviewed loadout mutation is admitted only with the signed capability,
+// and a newer snapshot must prove the exact candidate checkout and visible
+// operator configuration rather than merely a revision bump.
+{
+  const loadoutFinalConfig = {
+    characterId: 'operator-test',
+    characterName: '测试干员',
+    weapon: {
+      id: 'weapon-test',
+      name: '测试武器',
+      level: 90,
+      potential: '0潜',
+      skillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+    },
+    equipment: [],
+    operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'L9', Dot: 'L9' },
+  } as const;
+  const loadoutCommandPayload = {
+    op: 'applyPreparedOperatorConfigProposal',
+    parentNodeId: 'parent-node',
+    parentRevision: 100,
+    nodeId: 'candidate-node',
+    nodeRevision: 101,
+    proposalDigest: `sha256:${'a'.repeat(64)}`,
+    finalConfig: loadoutFinalConfig,
+    approval: { mode: 'manual', approvedBy: 'user', rationale: '测试批准' },
+  } as const;
+  const loadoutCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-loadout-approved'),
+    toolCallId: asToolCallId('tool-loadout-approved'),
+    command: { op: 'workbench.execute-command', payload: { command: loadoutCommandPayload } },
+  };
+  const loadoutEvents: string[] = [];
+  const loadoutBridge = new FakeBridge(loadoutEvents);
+  loadoutBridge.delivery = {
+    cursor: 1,
+    command: await withApprovalCapability(loadoutCommand),
+  };
+  const loadoutStore = new FakeStore(loadoutEvents);
+  loadoutStore.snapshotBinding = {
+    ...binding,
+    checkoutTargetId: 'candidate-node',
+    checkoutUpdatedAt: 101,
+    contentRevision: 101,
+    snapshotDigest: 'sha256:loadout-101',
+  };
+  const loadoutRuntime = new BrowserAgentRuntime({
+    bridge: loadoutBridge,
+    consumerController: controller,
+    store: loadoutStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await loadoutRuntime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'work-node', targetId: 'candidate-node', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+    operatorConfigs: [{
+      characterId: 'operator-test',
+      characterName: '测试干员',
+      weapon: {
+        id: 'weapon-test',
+        name: '测试武器',
+        level: 90,
+        potential: '0潜',
+        skillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+        attack: 100,
+      },
+      equipment: [],
+      operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'L9', Dot: 'L9' },
+    }],
+  });
+  const loadoutAdmitted: Array<{ command: unknown; id: string }> = [];
+  await loadoutRuntime.pullRemoteCommands((command, id) => loadoutAdmitted.push({ command, id }));
+  assert.equal(loadoutAdmitted.length, 1);
+  await loadoutRuntime.pushCommandResult({
+    id: loadoutCommand.commandId,
+    command: loadoutCommandPayload as never,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: {
+      ok: true,
+      applied: true,
+      nodeId: 'candidate-node',
+      commitId: 'commit-loadout',
+      checkoutApplied: true,
+      finalized: true,
+      finalConfig: loadoutFinalConfig,
+      visiblePostcondition: { pass: true },
+    },
+  });
+  assert.equal(loadoutBridge.results[0]?.result.status, 'succeeded');
+
+  const failedLoadoutEvents: string[] = [];
+  const failedLoadoutBridge = new FakeBridge(failedLoadoutEvents);
+  const failedLoadoutCommand = await withApprovalCapability({
+    ...loadoutCommand,
+    commandId: asCommandId('command-loadout-visible-mismatch'),
+    toolCallId: asToolCallId('tool-loadout-visible-mismatch'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: {
+        command: {
+          ...loadoutCommandPayload,
+          finalConfig: { ...loadoutFinalConfig, weapon: { ...loadoutFinalConfig.weapon, name: '错误武器' } },
+        },
+      },
+    },
+  });
+  failedLoadoutBridge.delivery = { cursor: 1, command: failedLoadoutCommand };
+  const failedLoadoutStore = new FakeStore(failedLoadoutEvents);
+  failedLoadoutStore.snapshotBinding = loadoutStore.snapshotBinding;
+  const failedLoadoutRuntime = new BrowserAgentRuntime({
+    bridge: failedLoadoutBridge,
+    consumerController: controller,
+    store: failedLoadoutStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await failedLoadoutRuntime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'work-node', targetId: 'candidate-node', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+    operatorConfigs: [{
+      characterId: 'operator-test',
+      characterName: '测试干员',
+      weapon: {
+        id: 'weapon-test',
+        name: '测试武器',
+        level: 90,
+        potential: '0潜',
+        skillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+        attack: 100,
+      },
+      equipment: [],
+      operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'L9', Dot: 'L9' },
+    }],
+  });
+  await failedLoadoutRuntime.pullRemoteCommands(() => undefined);
+  await failedLoadoutRuntime.pushCommandResult({
+    id: failedLoadoutCommand.commandId,
+    command: failedLoadoutCommand.command.payload.command as never,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: {
+      ok: true,
+      applied: true,
+      nodeId: 'candidate-node',
+      commitId: 'commit-loadout',
+      checkoutApplied: true,
+      finalized: true,
+      finalConfig: { ...loadoutFinalConfig, weapon: { ...loadoutFinalConfig.weapon, name: '错误武器' } },
+      visiblePostcondition: { pass: true },
+    },
+  });
+  assert.equal(failedLoadoutBridge.results[0]?.result.status, 'error');
+  assert.equal(failedLoadoutBridge.results[0]?.result.code, 'AGENT_POSTCONDITION_NOT_OBSERVED');
+}
+
 // Missing, expired, or proposal-mismatched capabilities fail closed before
 // any Canvas command is enqueued and the typed rejection returns to the Host.
 {

@@ -34,6 +34,46 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
   if (operation === 'queryAgentProductCatalog') {
     return parseAgentProductCatalogCommand(value);
   }
+  if (operation === 'prepareOperatorConfigProposal') {
+    exact(value, ['op', 'request', 'label', 'description']);
+    return {
+      op: 'prepareOperatorConfigProposal',
+      request: parseOperatorConfigRequest(record(value.request, 'request')),
+      label: string(value.label, 'label', 120),
+      description: string(value.description, 'description', 500),
+    };
+  }
+  if (operation === 'applyPreparedOperatorConfigProposal') {
+    exact(value, [
+      'op', 'parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision',
+      'proposalDigest', 'finalConfig', 'approval',
+    ]);
+    const approval = record(value.approval, 'approval');
+    exact(approval, ['mode', 'approvedBy', 'rationale']);
+    if (approval.mode !== 'manual' || approval.approvedBy !== 'user') {
+      invalid('applyPreparedOperatorConfigProposal requires an exact manual user approval marker');
+    }
+    const proposalDigest = string(value.proposalDigest, 'proposalDigest', 200);
+    if (!/^sha256:[0-9a-f]{16,128}$/u.test(proposalDigest)) {
+      invalid('proposalDigest must be a sha256-prefixed hexadecimal digest');
+    }
+    return {
+      op: 'applyPreparedOperatorConfigProposal',
+      parentNodeId: string(value.parentNodeId, 'parentNodeId', 200),
+      parentRevision: integer(value.parentRevision, 'parentRevision', 0, Number.MAX_SAFE_INTEGER),
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      nodeRevision: integer(value.nodeRevision, 'nodeRevision', 0, Number.MAX_SAFE_INTEGER),
+      proposalDigest,
+      finalConfig: parseOperatorConfigFinalConfig(record(value.finalConfig, 'finalConfig')),
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        ...(optionalString(approval.rationale, 'approval.rationale', 400)
+          ? { rationale: approval.rationale as string }
+          : {}),
+      },
+    };
+  }
   if (operation === 'selectCharacters') {
     exact(value, ['op', 'characterIds', 'characterNames', 'nodeTitle', 'nodeDescription', 'openCanvas', 'approval']);
     const characterIds = optionalStringArray(value.characterIds, 'characterIds', 4, 160);
@@ -156,6 +196,63 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
       ...(optionalString(value.description, 'description', 500) ? { description: value.description as string } : {}),
     };
   }
+  if (operation === 'listAiTimelineWorkNodes') {
+    exact(value, ['op', 'timelineId']);
+    return {
+      op: 'listAiTimelineWorkNodes',
+      ...(optionalString(value.timelineId, 'timelineId', 200) ? { timelineId: value.timelineId as string } : {}),
+    };
+  }
+  if (operation === 'readAiTimelineWorkNode') {
+    exact(value, ['op', 'nodeId', 'includePayload']);
+    return {
+      op: 'readAiTimelineWorkNode',
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      ...(value.includePayload === undefined ? {} : { includePayload: boolean(value.includePayload, 'includePayload') }),
+    };
+  }
+  if (operation === 'diffAiTimelineWorkNode') {
+    exact(value, ['op', 'nodeId']);
+    return { op: 'diffAiTimelineWorkNode', nodeId: string(value.nodeId, 'nodeId', 200) };
+  }
+  if (operation === 'validateAiTimelineWorkNode') {
+    exact(value, ['op', 'nodeId', 'repairStatus']);
+    if (value.repairStatus === true) invalid('Agent validation cannot repair Work Node status');
+    return {
+      op: 'validateAiTimelineWorkNode',
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      // The agent-facing route is always read-only.  Do not leave the
+      // renderer's historical default (repairStatus !== false) reachable.
+      repairStatus: false,
+    };
+  }
+  if (operation === 'deleteAiTimelineWorkNode') {
+    exact(value, ['op', 'nodeId']);
+    return { op: 'deleteAiTimelineWorkNode', nodeId: string(value.nodeId, 'nodeId', 200) };
+  }
+  if (operation === 'checkoutAiTimelineWorkNode') {
+    exact(value, ['op', 'nodeId', 'commitId', 'reload', 'approval']);
+    if (value.reload === true) invalid('Agent Work Node checkout must not request a reload');
+    const approval = parseManualUserApproval(value.approval, 'checkoutAiTimelineWorkNode');
+    return {
+      op: 'checkoutAiTimelineWorkNode',
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      ...(optionalString(value.commitId, 'commitId', 200) ? { commitId: value.commitId as string } : {}),
+      reload: false,
+      approval,
+    };
+  }
+  if (operation === 'restoreAiTimelineWorkNodeBase') {
+    exact(value, ['op', 'nodeId', 'reload', 'approval']);
+    if (value.reload === true) invalid('Agent Work Node restore must not request a reload');
+    const approval = parseManualUserApproval(value.approval, 'restoreAiTimelineWorkNodeBase');
+    return {
+      op: 'restoreAiTimelineWorkNodeBase',
+      nodeId: string(value.nodeId, 'nodeId', 200),
+      reload: false,
+      approval,
+    };
+  }
   if (operation === 'calculateDamage') {
     exact(value, ['op', 'buttonId']);
     return {
@@ -164,6 +261,168 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
     };
   }
   invalid(`Agent command operation is not allowlisted: ${operation}`);
+}
+
+const OPERATOR_CONFIG_FIELDS = [
+  'op', 'characterId', 'characterName', 'weaponName', 'weaponLevel',
+  'weaponSkillLevels', 'level', 'potential', 'skillLevels', 'operatorSkillLevels',
+  'slotKey', 'part', 'equipmentId', 'equipmentName', 'gearSetId', 'gearSetName',
+  'fillSlots', 'entryLevel', 'entryLevels', 'equipmentEntryLevel',
+  'equipmentEntryLevels', 'equipments',
+] as const;
+
+function parseOperatorConfigRequest(value: JsonObject): Extract<MainWorkbenchCommand, { op: 'setOperatorConfig' }> {
+  exact(value, OPERATOR_CONFIG_FIELDS);
+  if (value.op !== 'setOperatorConfig') invalid('request.op must be setOperatorConfig');
+  const characterId = optionalString(value.characterId, 'request.characterId', 160);
+  const characterName = optionalString(value.characterName, 'request.characterName', 160);
+  if (!characterId && !characterName) invalid('request requires characterId or characterName');
+  return {
+    op: 'setOperatorConfig',
+    ...(characterId ? { characterId } : {}),
+    ...(characterName ? { characterName } : {}),
+    ...(optionalString(value.weaponName, 'request.weaponName', 200) ? { weaponName: value.weaponName as string } : {}),
+    ...(value.weaponLevel === undefined ? {} : { weaponLevel: scalar(value.weaponLevel, 'request.weaponLevel', 80) }),
+    ...(value.weaponSkillLevels === undefined ? {} : { weaponSkillLevels: parseNumericSkillLevels(record(value.weaponSkillLevels, 'request.weaponSkillLevels')) }),
+    ...(value.level === undefined ? {} : { level: scalar(value.level, 'request.level', 80) }),
+    ...(optionalString(value.potential, 'request.potential', 40) ? { potential: value.potential as string } : {}),
+    ...(value.skillLevels === undefined ? {} : { skillLevels: parseNumericSkillLevels(record(value.skillLevels, 'request.skillLevels')) }),
+    ...(value.operatorSkillLevels === undefined ? {} : { operatorSkillLevels: parseOperatorSkillLevels(record(value.operatorSkillLevels, 'request.operatorSkillLevels')) }),
+    ...(value.slotKey === undefined ? {} : { slotKey: enumValue(value.slotKey, 'request.slotKey', ['armor', 'accessory2', 'accessory1', 'glove'] as const) }),
+    ...(value.part === undefined ? {} : { part: enumValue(value.part, 'request.part', ['护甲', '护手', '配件'] as const) }),
+    ...(optionalString(value.equipmentId, 'request.equipmentId', 200) ? { equipmentId: value.equipmentId as string } : {}),
+    ...(optionalString(value.equipmentName, 'request.equipmentName', 200) ? { equipmentName: value.equipmentName as string } : {}),
+    ...(optionalString(value.gearSetId, 'request.gearSetId', 200) ? { gearSetId: value.gearSetId as string } : {}),
+    ...(optionalString(value.gearSetName, 'request.gearSetName', 200) ? { gearSetName: value.gearSetName as string } : {}),
+    ...(value.fillSlots === undefined ? {} : { fillSlots: boolean(value.fillSlots, 'request.fillSlots') }),
+    ...(value.entryLevel === undefined ? {} : { entryLevel: scalar(value.entryLevel, 'request.entryLevel', 40) }),
+    ...(value.entryLevels === undefined ? {} : { entryLevels: parseEntryLevels(value.entryLevels, 'request.entryLevels') }),
+    ...(value.equipmentEntryLevel === undefined ? {} : { equipmentEntryLevel: scalar(value.equipmentEntryLevel, 'request.equipmentEntryLevel', 40) }),
+    ...(value.equipmentEntryLevels === undefined ? {} : { equipmentEntryLevels: parseEntryLevels(value.equipmentEntryLevels, 'request.equipmentEntryLevels') }),
+    ...(value.equipments === undefined ? {} : { equipments: parseEquipmentSelections(value.equipments, 'request.equipments') }),
+  };
+}
+
+function parseNumericSkillLevels(value: JsonObject): { skill1?: number; skill2?: number; skill3?: number } {
+  exact(value, ['skill1', 'skill2', 'skill3']);
+  return {
+    ...(value.skill1 === undefined ? {} : { skill1: integer(value.skill1, 'skill1', 0, 100) }),
+    ...(value.skill2 === undefined ? {} : { skill2: integer(value.skill2, 'skill2', 0, 100) }),
+    ...(value.skill3 === undefined ? {} : { skill3: integer(value.skill3, 'skill3', 0, 100) }),
+  };
+}
+
+function parseOperatorSkillLevels(value: JsonObject): { A?: 'L9' | 'M3'; B?: 'L9' | 'M3'; E?: 'L9' | 'M3'; Q?: 'L9' | 'M3' } {
+  exact(value, ['A', 'B', 'E', 'Q']);
+  return {
+    ...(value.A === undefined ? {} : { A: enumValue(value.A, 'operatorSkillLevels.A', ['L9', 'M3'] as const) }),
+    ...(value.B === undefined ? {} : { B: enumValue(value.B, 'operatorSkillLevels.B', ['L9', 'M3'] as const) }),
+    ...(value.E === undefined ? {} : { E: enumValue(value.E, 'operatorSkillLevels.E', ['L9', 'M3'] as const) }),
+    ...(value.Q === undefined ? {} : { Q: enumValue(value.Q, 'operatorSkillLevels.Q', ['L9', 'M3'] as const) }),
+  };
+}
+
+function parseEntryLevels(value: JsonValue, label: string): Array<number | string> | Record<string, number | string> {
+  if (Array.isArray(value)) {
+    if (value.length > 8) invalid(`${label} may contain at most 8 levels`);
+    return value.map((entry, index) => scalar(entry, `${label}[${index}]`, 40));
+  }
+  const source = record(value, label);
+  if (Object.keys(source).length > 16) invalid(`${label} may contain at most 16 entries`);
+  return Object.fromEntries(Object.entries(source).map(([key, entry]) => [
+    string(key, `${label}.${key}`, 80),
+    scalar(entry, `${label}.${key}`, 40),
+  ]));
+}
+
+function parseEquipmentSelections(value: JsonValue, label: string) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4) {
+    invalid(`${label} must contain 1-4 equipment selections`);
+  }
+  return value.map((entry, index) => {
+    const item = record(entry, `${label}[${index}]`);
+    exact(item, [
+      'slotKey', 'part', 'equipmentId', 'equipmentName', 'gearSetId', 'gearSetName',
+      'fillSlots', 'entryLevel', 'entryLevels',
+    ]);
+    return {
+      ...(item.slotKey === undefined ? {} : { slotKey: enumValue(item.slotKey, `${label}[${index}].slotKey`, ['armor', 'accessory2', 'accessory1', 'glove'] as const) }),
+      ...(item.part === undefined ? {} : { part: enumValue(item.part, `${label}[${index}].part`, ['护甲', '护手', '配件'] as const) }),
+      ...(optionalString(item.equipmentId, `${label}[${index}].equipmentId`, 200) ? { equipmentId: item.equipmentId as string } : {}),
+      ...(optionalString(item.equipmentName, `${label}[${index}].equipmentName`, 200) ? { equipmentName: item.equipmentName as string } : {}),
+      ...(optionalString(item.gearSetId, `${label}[${index}].gearSetId`, 200) ? { gearSetId: item.gearSetId as string } : {}),
+      ...(optionalString(item.gearSetName, `${label}[${index}].gearSetName`, 200) ? { gearSetName: item.gearSetName as string } : {}),
+      ...(item.fillSlots === undefined ? {} : { fillSlots: boolean(item.fillSlots, `${label}[${index}].fillSlots`) }),
+      ...(item.entryLevel === undefined ? {} : { entryLevel: scalar(item.entryLevel, `${label}[${index}].entryLevel`, 40) }),
+      ...(item.entryLevels === undefined ? {} : { entryLevels: parseEntryLevels(item.entryLevels, `${label}[${index}].entryLevels`) }),
+    };
+  });
+}
+
+function parseOperatorConfigFinalConfig(value: JsonObject): Record<string, unknown> {
+  exact(value, ['characterId', 'characterName', 'weapon', 'equipment', 'operatorSkillLevels']);
+  const weapon = record(value.weapon, 'finalConfig.weapon');
+  exact(weapon, ['id', 'name', 'level', 'potential', 'skillLevels']);
+  const skillLevels = weapon.skillLevels === undefined ? undefined : parseNumericSkillLevels(record(weapon.skillLevels, 'finalConfig.weapon.skillLevels'));
+  const equipment = value.equipment;
+  if (!Array.isArray(equipment) || equipment.length > 4) invalid('finalConfig.equipment must contain at most 4 entries');
+  const equipmentResult = equipment.map((entry, index) => {
+    const item = record(entry, `finalConfig.equipment[${index}]`);
+    exact(item, ['slotKey', 'equipmentId', 'name', 'effects']);
+    const effects = item.effects;
+    if (!Array.isArray(effects) || effects.length > 32) invalid(`finalConfig.equipment[${index}].effects must contain at most 32 entries`);
+    return {
+      slotKey: string(item.slotKey, `finalConfig.equipment[${index}].slotKey`, 80),
+      equipmentId: string(item.equipmentId, `finalConfig.equipment[${index}].equipmentId`, 200),
+      name: string(item.name, `finalConfig.equipment[${index}].name`, 200),
+      effects: effects.map((effect, effectIndex) => {
+        const itemEffect = record(effect, `finalConfig.equipment[${index}].effects[${effectIndex}]`);
+        exact(itemEffect, ['effectId', 'label', 'level', 'value']);
+        return {
+          effectId: string(itemEffect.effectId, `finalConfig.equipment[${index}].effects[${effectIndex}].effectId`, 200),
+          label: string(itemEffect.label, `finalConfig.equipment[${index}].effects[${effectIndex}].label`, 300),
+          level: itemEffect.level === null ? null : scalar(itemEffect.level, `finalConfig.equipment[${index}].effects[${effectIndex}].level`, 40),
+          value: itemEffect.value === null ? null : finiteNumber(itemEffect.value, `finalConfig.equipment[${index}].effects[${effectIndex}].value`, -1e12, 1e12),
+        };
+      }),
+    };
+  });
+  return {
+    characterId: string(value.characterId, 'finalConfig.characterId', 160),
+    characterName: string(value.characterName, 'finalConfig.characterName', 160),
+    weapon: {
+      id: string(weapon.id, 'finalConfig.weapon.id', 200),
+      name: string(weapon.name, 'finalConfig.weapon.name', 200),
+      level: weapon.level === null ? null : scalar(weapon.level, 'finalConfig.weapon.level', 80),
+      potential: weapon.potential === null ? null : scalar(weapon.potential, 'finalConfig.weapon.potential', 80),
+      ...(skillLevels ? { skillLevels } : {}),
+    },
+    equipment: equipmentResult,
+    operatorSkillLevels: parseFinalOperatorSkillLevels(record(value.operatorSkillLevels, 'finalConfig.operatorSkillLevels')),
+  };
+}
+
+function parseManualUserApproval(value: JsonValue | undefined, operation: string) {
+  const approval = record(value, `${operation}.approval`);
+  exact(approval, ['mode', 'approvedBy', 'rationale']);
+  if (approval.mode !== 'manual' || approval.approvedBy !== 'user') {
+    invalid(`${operation} requires an exact manual user approval marker`);
+  }
+  return {
+    mode: 'manual' as const,
+    approvedBy: 'user' as const,
+    ...(optionalString(approval.rationale, `${operation}.approval.rationale`, 400)
+      ? { rationale: approval.rationale as string }
+      : {}),
+  };
+}
+
+function parseFinalOperatorSkillLevels(value: JsonObject): Record<string, string | number | null> {
+  exact(value, ['A', 'B', 'E', 'Q', 'Dot']);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    entry === null ? null : enumValue(entry, `finalConfig.operatorSkillLevels.${key}`, ['L9', 'M3'] as const),
+  ]));
 }
 
 function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalogCommand {
@@ -391,6 +650,16 @@ function finiteNumber(
     invalid(`${label} must be a finite number between ${minimum} and ${maximum}`);
   }
   return value;
+}
+
+function scalar(value: JsonValue | undefined, label: string, maxStringLength: number): number | string {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) {
+      invalid(`${label} must be a finite safe number`);
+    }
+    return value;
+  }
+  return string(value, label, maxStringLength);
 }
 
 function enumValue<const Value extends string>(

@@ -129,6 +129,14 @@ import {
   exitDesktopAgentModeToWorkbench,
 } from '../../platform/agent/browserAgentRuntime';
 import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
+import {
+  buildOperatorConfigFinalConfig,
+  buildOperatorConfigProposalDigest,
+  buildTimelinePreservation,
+  digestJson,
+  equalOperatorConfigFinalConfig,
+  normalizeOperatorConfigFinalConfig,
+} from '../../platform/agent/operatorConfigProposal';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -1146,6 +1154,132 @@ export function CanvasBoard({
     }
   };
 
+  const operatorConfigNodeRevision = (node: { contentRevision?: number; updatedAt: number }): number => (
+    Number(node.contentRevision ?? node.updatedAt)
+  );
+
+  const sameOperatorConfigPayload = (left: TimelineSnapshotPayload, right: TimelineSnapshotPayload): boolean => (
+    serializeCheckpointPayload(left) === serializeCheckpointPayload(right)
+  );
+
+  const makeOperatorConfigProposalError = (code: string, message: string) => {
+    const error = new Error(message) as Error & { code?: string };
+    error.code = code;
+    return error;
+  };
+
+  const prepareOperatorConfigProposalFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'prepareOperatorConfigProposal' }>,
+  ) => {
+    const parent = await prepareOperatorConfigCheckout();
+    const currentPayload = getCurrentTimelineSnapshotPayload();
+    if (!currentPayload || !sameOperatorConfigPayload(currentPayload, parent.workingPayload)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-checkout-payload-stale',
+        '当前 Canvas payload 与正式 checkout 不一致；未创建配装提案，请重新发布工作台快照。',
+      );
+    }
+    const parentValidation = validateTimelinePayload(parent.workingPayload);
+    if (!parentValidation.ok) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-parent-invalid',
+        `当前 checkout 排轴校验失败：${parentValidation.issues.map((issue) => issue.message).join('；')}`,
+      );
+    }
+
+    const preview = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
+    if (preview.parentNodeId !== parent.id
+      || preview.parentRevision !== operatorConfigNodeRevision(parent)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-parent-revision-drift',
+        '配装预览期间正式 checkout 已变化；未创建配装提案。',
+      );
+    }
+    const preparedValidation = validateTimelinePayload(preview.preparedPayload);
+    if (!preparedValidation.ok) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-prepared-invalid',
+        `配装预览排轴校验失败：${preparedValidation.issues.map((issue) => issue.message).join('；')}`,
+      );
+    }
+    const diff = diffTimelinePayloads(parent.workingPayload, preview.preparedPayload);
+    if (diff.changedOperatorConfigs.length !== 1) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-change-not-single-target',
+        `配装提案必须只改变一个干员配置，实际检测到 ${diff.changedOperatorConfigs.length} 个配置变更。`,
+      );
+    }
+    const characterId = diff.changedOperatorConfigs[0].characterId;
+    const finalConfig = buildOperatorConfigFinalConfig(preview.preparedPayload, characterId);
+    const previewFinalConfig = normalizeOperatorConfigFinalConfig(preview.finalConfig);
+    if (!finalConfig || !previewFinalConfig || !equalOperatorConfigFinalConfig(finalConfig, previewFinalConfig)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-preview-authority-mismatch',
+        '配装预览的用户配置与候选 payload 重算结果不一致；提案已拒绝。',
+      );
+    }
+    const timelinePreservation = await buildTimelinePreservation(parent.workingPayload, preview.preparedPayload);
+    if (!timelinePreservation.pass) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-timeline-not-preserved',
+        `配装预览改变了排轴内容：${timelinePreservation.changedPaths.join(', ')}`,
+      );
+    }
+
+    const client = createAiTimelineWorkNodeClient();
+    // This is intentionally a horizontal branch: the candidate is a sibling
+    // of the current checkout in the Work Node tree, while its base payload is
+    // still the exact current checkout payload.
+    const candidateResponse = await client.create({
+      timelineId: parent.timelineId,
+      parentNodeId: parent.parentNodeId || null,
+      branchId: `operator-config-${parent.id}-${Date.now()}`,
+      label: command.label,
+      description: command.description,
+      basePayload: parent.workingPayload,
+      workingPayload: preview.preparedPayload,
+      approvalPolicy: 'manual',
+      riskFlags: [],
+    });
+    const candidate = candidateResponse.node;
+    const candidateRevision = operatorConfigNodeRevision(candidate);
+    const candidateDiff = diffTimelinePayloads(candidate.basePayload, candidate.workingPayload);
+    if (!sameOperatorConfigPayload(candidate.basePayload, parent.workingPayload)
+      || !sameOperatorConfigPayload(candidate.workingPayload, preview.preparedPayload)
+      || candidateDiff.changedOperatorConfigs.length !== 1) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-candidate-payload-mismatch',
+        '浏览器 SQLite 候选 Work Node payload 与预览不一致；提案已拒绝。',
+      );
+    }
+    const candidateTimelinePreservation = await buildTimelinePreservation(candidate.basePayload, candidate.workingPayload);
+    const proposalDigest = await buildOperatorConfigProposalDigest({
+      parentNodeId: parent.id,
+      parentRevision: operatorConfigNodeRevision(parent),
+      nodeId: candidate.id,
+      nodeRevision: candidateRevision,
+      finalConfig,
+      diff: candidateDiff,
+      timelinePreservation: candidateTimelinePreservation,
+      workingPayload: candidate.workingPayload,
+    });
+    return {
+      ok: true,
+      kind: 'operator-config-proposal',
+      path: 'browser-sqlite://timeline-work-nodes',
+      liveCheckoutTouched: false,
+      parentNodeId: parent.id,
+      parentRevision: operatorConfigNodeRevision(parent),
+      nodeId: candidate.id,
+      nodeRevision: candidateRevision,
+      proposalDigest,
+      finalConfig,
+      diff: candidateDiff,
+      timelinePreservation: candidateTimelinePreservation,
+      candidatePayloadDigest: await digestJson(candidate.workingPayload),
+    };
+  };
+
   const applyPreparedOperatorConfigFromWorkbenchCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'applyPreparedOperatorConfig' }>,
   ) => {
@@ -1178,6 +1312,255 @@ export function CanvasBoard({
       parentRevision: Number(parent.node.contentRevision || parent.node.updatedAt),
       appliedPayload: child.node.workingPayload,
     };
+  };
+
+  const applyPreparedOperatorConfigProposalFromWorkbenchCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'applyPreparedOperatorConfigProposal' }>,
+  ) => {
+    const parent = await prepareOperatorConfigCheckout();
+    const repository = createTimelineRepositoryClient();
+    const persistedParentCheckout = await repository.getCheckoutRef(parent.timelineId);
+    const currentPayload = getCurrentTimelineSnapshotPayload();
+    const parentRevision = operatorConfigNodeRevision(parent);
+    if (parent.id !== command.parentNodeId
+      || parentRevision !== command.parentRevision
+      || persistedParentCheckout?.targetType !== 'work-node'
+      || persistedParentCheckout.targetId !== parent.id
+      || !currentPayload
+      || !sameOperatorConfigPayload(currentPayload, parent.workingPayload)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-stale-parent',
+        '正式 checkout、revision 或当前 Canvas payload 已变化；配装提案拒绝应用。',
+      );
+    }
+    const client = createAiTimelineWorkNodeClient();
+    const candidateResponse = await client.get(command.nodeId);
+    const candidate = candidateResponse.node;
+    const candidateRevision = operatorConfigNodeRevision(candidate);
+    if (candidate.timelineId !== parent.timelineId
+      || candidateRevision !== command.nodeRevision
+      || (candidate.parentNodeId || null) !== (parent.parentNodeId || null)
+      || !sameOperatorConfigPayload(candidate.basePayload, parent.workingPayload)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-stale-candidate',
+        '待审批配装候选的 revision、结构父节点或 base payload 已变化；拒绝应用。',
+      );
+    }
+    if (candidate.status !== 'open' && candidate.status !== 'ready') {
+      throw makeOperatorConfigProposalError(
+        'operator-config-candidate-not-available',
+        `待审批配装候选状态为 ${candidate.status}，不能再次提交。`,
+      );
+    }
+    const candidateValidation = validateTimelinePayload(candidate.workingPayload);
+    if (!candidateValidation.ok) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-candidate-invalid',
+        `待审批配装候选排轴校验失败：${candidateValidation.issues.map((issue) => issue.message).join('；')}`,
+      );
+    }
+    const diff = diffTimelinePayloads(candidate.basePayload, candidate.workingPayload);
+    if (diff.changedOperatorConfigs.length !== 1) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-change-not-single-target',
+        `待审批配装必须只改变一个干员配置，实际检测到 ${diff.changedOperatorConfigs.length} 个配置变更。`,
+      );
+    }
+    const characterId = diff.changedOperatorConfigs[0].characterId;
+    const finalConfig = buildOperatorConfigFinalConfig(candidate.workingPayload, characterId);
+    const submittedFinalConfig = normalizeOperatorConfigFinalConfig(command.finalConfig);
+    if (!finalConfig || !submittedFinalConfig || !equalOperatorConfigFinalConfig(finalConfig, submittedFinalConfig)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-final-config-mismatch',
+        '审批命令中的 finalConfig 与候选 payload 重算结果不一致；拒绝应用。',
+      );
+    }
+    const timelinePreservation = await buildTimelinePreservation(candidate.basePayload, candidate.workingPayload);
+    if (!timelinePreservation.pass) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-timeline-not-preserved',
+        `待审批配装改变了排轴内容：${timelinePreservation.changedPaths.join(', ')}`,
+      );
+    }
+    const proposalDigest = await buildOperatorConfigProposalDigest({
+      parentNodeId: parent.id,
+      parentRevision,
+      nodeId: candidate.id,
+      nodeRevision: candidateRevision,
+      finalConfig,
+      diff,
+      timelinePreservation,
+      workingPayload: candidate.workingPayload,
+    });
+    if (proposalDigest !== command.proposalDigest) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-proposal-digest-mismatch',
+        '审批提案摘要与浏览器 SQLite 候选内容不一致；拒绝应用。',
+      );
+    }
+
+    const commitResponse = await client.commit(candidate.id, {
+      label: candidate.label,
+      riskFlags: candidate.riskFlags,
+      approval: {
+        mode: 'manual',
+        approvedAt: Date.now(),
+        approvedBy: 'user',
+        rationale: command.approval.rationale || '用户批准了配装 Work Node 的原子应用。',
+      },
+    });
+    if (!sameOperatorConfigPayload(commitResponse.commit.appliedPayload, candidate.workingPayload)) {
+      throw makeOperatorConfigProposalError(
+        'operator-config-commit-payload-mismatch',
+        'SQLite commit payload 与候选 payload 不一致；未触碰 live checkout。',
+      );
+    }
+
+    let liveTouched = false;
+    let rollbackError: string | undefined;
+    try {
+      // This existing helper performs the canonical renderer hydration. Mark
+      // the live phase before entering it so a partial hydration is also
+      // covered by the exact rollback path below.
+      liveTouched = true;
+      await applyPreparedOperatorConfigFromWorkbenchCommand({
+        op: 'applyPreparedOperatorConfig',
+        parentNodeId: parent.id,
+        parentRevision,
+        nodeId: candidate.id,
+        nodeRevision: candidateRevision,
+      });
+      const livePayload = getCurrentTimelineSnapshotPayload();
+      if (!livePayload || !sameOperatorConfigPayload(livePayload, candidate.workingPayload)) {
+        throw makeOperatorConfigProposalError(
+          'operator-config-live-payload-mismatch',
+          'live Canvas payload 没有精确等于候选 payload。',
+        );
+      }
+      const liveConfig = buildOperatorConfigFinalConfig(livePayload, characterId);
+      if (!liveConfig || !equalOperatorConfigFinalConfig(liveConfig, finalConfig)) {
+        throw makeOperatorConfigProposalError(
+          'operator-config-live-config-mismatch',
+          'live Canvas 配置没有精确等于候选 payload 重算配置。',
+        );
+      }
+      const liveTimelinePreservation = await buildTimelinePreservation(parent.workingPayload, livePayload);
+      if (!liveTimelinePreservation.pass) {
+        throw makeOperatorConfigProposalError(
+          'operator-config-live-timeline-mismatch',
+          `live Canvas 改变了排轴内容：${liveTimelinePreservation.changedPaths.join(', ')}`,
+        );
+      }
+
+      const appliedAt = Date.now();
+      const checkoutRef: TimelineCheckoutRef = {
+        timelineId: candidate.timelineId,
+        targetType: 'work-node',
+        targetId: candidate.id,
+        updatedAt: appliedAt,
+      };
+      await repository.setCheckoutRef(checkoutRef);
+      const checkoutApplied = await client.markCheckoutApplied(candidate.id, {
+        commitId: commitResponse.commit.id,
+        appliedAt,
+        appliedBy: 'user',
+        rationale: command.approval.rationale || '已验证 live 配置、候选 payload 与排轴保持后应用 checkout。',
+      });
+      if (!checkoutApplied.commit.checkoutApplied
+        || checkoutApplied.commit.id !== commitResponse.commit.id
+        || !sameOperatorConfigPayload(checkoutApplied.commit.appliedPayload, candidate.workingPayload)) {
+        throw makeOperatorConfigProposalError(
+          'operator-config-checkout-record-mismatch',
+          'SQLite checkout-applied 记录没有精确绑定候选 commit。',
+        );
+      }
+      const finalized = await finalizePreparedOperatorConfigFromWorkbenchCommand({
+        op: 'finalizePreparedOperatorConfig',
+        nodeId: candidate.id,
+        commitId: commitResponse.commit.id,
+      });
+      const finalPayload = getCurrentTimelineSnapshotPayload();
+      const finalCheckout = await repository.getCheckoutRef(candidate.timelineId);
+      if (!finalPayload
+        || !sameOperatorConfigPayload(finalPayload, candidate.workingPayload)
+        || finalCheckout?.targetType !== 'work-node'
+        || finalCheckout.targetId !== candidate.id) {
+        throw makeOperatorConfigProposalError(
+          'operator-config-finalize-postcondition-failed',
+          'finalize 后的 Canvas payload 或正式 checkout 不精确。',
+        );
+      }
+      const visiblePostcondition = {
+        pass: true,
+        expected: {
+          checkoutTargetId: candidate.id,
+          finalConfig,
+          timelinePreservationPass: true,
+        },
+        observed: {
+          checkoutTargetId: finalCheckout.targetId,
+          checkoutUpdatedAt: finalCheckout.updatedAt,
+          finalConfig,
+          candidatePayloadDigest: await digestJson(candidate.workingPayload),
+          commitPayloadDigest: await digestJson(checkoutApplied.commit.appliedPayload),
+          commitPayloadEqualCandidate: true,
+          timelinePreservationPass: true,
+        },
+      };
+      return {
+        ok: true,
+        applied: true,
+        nodeId: candidate.id,
+        nodeRevision: candidateRevision,
+        parentNodeId: parent.id,
+        parentRevision,
+        commitId: commitResponse.commit.id,
+        proposalDigest,
+        finalConfig,
+        diff,
+        timelinePreservation,
+        checkout: finalized.checkout,
+        checkoutApplied: true,
+        finalized: finalized.finalized,
+        visiblePostcondition,
+      };
+    } catch (error) {
+      if (liveTouched) {
+        try {
+          const rollbackCheckoutRef: TimelineCheckoutRef = {
+            timelineId: parent.timelineId,
+            targetType: 'work-node',
+            targetId: parent.id,
+            updatedAt: Date.now(),
+          };
+          hydrateCheckoutRuntime(parent.workingPayload, { flushRender: true });
+          setSessionWorkingPayload(parent.workingPayload, 'checkout');
+          await repository.setCheckoutRef(rollbackCheckoutRef);
+          const document = parent.timelineId === activeTimelineId
+            ? { id: activeTimelineId, label: activeTimelineLabel }
+            : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId)
+              || { id: parent.timelineId, label: parent.label };
+          activateTimeline({ document, checkoutRef: rollbackCheckoutRef, workingPayload: parent.workingPayload });
+          refreshWorkbenchAfterCheckout();
+          const restoredPayload = getCurrentTimelineSnapshotPayload();
+          if (!restoredPayload || !sameOperatorConfigPayload(restoredPayload, parent.workingPayload)) {
+            throw new Error('rollback payload does not exactly equal parent payload');
+          }
+          await client.markRollbackApplied(candidate.id, {
+            appliedAt: rollbackCheckoutRef.updatedAt,
+            appliedBy: 'system',
+            rationale: '配装原子应用失败，已恢复 exact parent checkout；候选节点保留供审计。',
+          });
+        } catch (rollbackFailure) {
+          rollbackError = rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure);
+        }
+      }
+      const originalMessage = error instanceof Error ? error.message : String(error);
+      throw makeOperatorConfigProposalError(
+        'operator-config-atomic-apply-failed',
+        `${originalMessage}${rollbackError ? `；回滚失败：${rollbackError}` : '；已恢复 exact parent checkout，候选节点保留供审计。'}`,
+      );
+    }
   };
 
   const finalizePreparedOperatorConfigFromWorkbenchCommand = async (
@@ -1520,6 +1903,15 @@ export function CanvasBoard({
       throw error;
     }
   };
+
+  // These legacy command implementations remain only as private migration
+  // references for old in-page state; they are intentionally not registered
+  // in the Agent command queue. All Agent loadout writes use the proposal
+  // Work Node path above, so no direct setOperatorConfig route is reachable.
+  void restoreAtomicTeamParentFromWorkbenchCommand;
+  void setOperatorWeaponFromWorkbenchCommand;
+  void setOperatorEquipmentFromWorkbenchCommand;
+  void setOperatorConfigFromWorkbenchCommand;
 
   const resolveWorkbenchCommandSkill = (
     character: Character,
@@ -2256,13 +2648,8 @@ export function CanvasBoard({
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
-        'setOperatorWeapon',
-        'setOperatorEquipment',
-        'setOperatorConfig',
-        'previewOperatorConfig',
-        'applyPreparedOperatorConfig',
-        'finalizePreparedOperatorConfig',
-        'restoreAtomicTeamParent',
+        'prepareOperatorConfigProposal',
+        'applyPreparedOperatorConfigProposal',
         'refreshSnapshot',
       ])[0];
       if (!commandEntry) {
@@ -2779,44 +3166,14 @@ export function CanvasBoard({
           return;
         }
 
-        if (command.op === 'setOperatorWeapon') {
-          const result = await setOperatorWeaponFromWorkbenchCommand(command);
+        if (command.op === 'prepareOperatorConfigProposal') {
+          const result = await prepareOperatorConfigProposalFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
           return;
         }
 
-        if (command.op === 'setOperatorEquipment') {
-          const result = await setOperatorEquipmentFromWorkbenchCommand(command);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
-        if (command.op === 'setOperatorConfig') {
-          const result = await setOperatorConfigFromWorkbenchCommand(command);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
-        if (command.op === 'previewOperatorConfig') {
-          const result = await buildOperatorConfigPreviewFromWorkbenchCommand(command.request);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
-        if (command.op === 'applyPreparedOperatorConfig') {
-          const result = await applyPreparedOperatorConfigFromWorkbenchCommand(command);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
-        if (command.op === 'finalizePreparedOperatorConfig') {
-          const result = await finalizePreparedOperatorConfigFromWorkbenchCommand(command);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
-        if (command.op === 'restoreAtomicTeamParent') {
-          const result = await restoreAtomicTeamParentFromWorkbenchCommand(command);
+        if (command.op === 'applyPreparedOperatorConfigProposal') {
+          const result = await applyPreparedOperatorConfigProposalFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
           return;
         }

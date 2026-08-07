@@ -51,19 +51,13 @@ const MUTATING_MAIN_COMMANDS = new Set<MainWorkbenchCommand['op']>([
   'saveTimelineSnapshot',
   'restoreTimelineSnapshot',
   'createAiTimelineWorkNodeFromCurrent',
-  'validateAiTimelineWorkNode',
   'deleteAiTimelineWorkNode',
   'patchAiTimelineWorkNode',
   'patchAndValidateAiTimelineWorkNode',
   'applyApprovedWorkNodePatch',
   'checkoutAiTimelineWorkNode',
   'restoreAiTimelineWorkNodeBase',
-  'setOperatorWeapon',
-  'setOperatorEquipment',
-  'setOperatorConfig',
-  'applyPreparedOperatorConfig',
-  'finalizePreparedOperatorConfig',
-  'restoreAtomicTeamParent',
+  'applyPreparedOperatorConfigProposal',
 ]);
 const DESKTOP_AGENT_BOOT_QUERY_KEY = '__agent_mode';
 export const AGENT_SELECTION_WORKSPACE_TIMELINE_ID = 'workspace-selection';
@@ -688,6 +682,40 @@ function evaluateCommandResultPostcondition(
     };
   }
 
+  if (entry.command.op === 'applyPreparedOperatorConfigProposal') {
+    const visible = asJsonObject(result.visiblePostcondition);
+    const finalConfig = asJsonObject(result.finalConfig);
+    const nodeId = isString(result.nodeId) ? result.nodeId : '';
+    const commitId = isString(result.commitId) ? result.commitId : '';
+    const operatorConfigObserved = finalConfig
+      ? snapshotOperatorConfigMatches(snapshot, finalConfig)
+      : false;
+    const pass = result.ok === true
+      && result.applied === true
+      && result.checkoutApplied === true
+      && result.finalized === true
+      && visible?.pass === true
+      && Boolean(nodeId)
+      && Boolean(commitId)
+      && snapshot.checkout?.targetType === 'work-node'
+      && snapshot.checkout.targetId === nodeId
+      && operatorConfigObserved;
+    return {
+      pass,
+      ...(pass ? {} : {
+        reason: '配装候选、commit、checkout、finalize 或 live 配置没有同时通过精确后置检查。',
+      }),
+      observed: {
+        checkoutTargetId: snapshot.checkout?.targetId ?? null,
+        nodeId,
+        commitId,
+        operatorConfigObserved,
+        finalConfig: finalConfig ?? null,
+        visiblePostcondition: visible ?? null,
+      },
+    };
+  }
+
   if (result.ok === false) {
     return { pass: false, reason: `命令 ${entry.command.op} 返回 ok:false。`, observed: result };
   }
@@ -754,6 +782,63 @@ function isString(value: unknown): value is string {
 
 function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
   return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function snapshotOperatorConfigMatches(snapshot: MainWorkbenchSnapshot, finalConfig: JsonObject): boolean {
+  const characterId = finalConfig.characterId;
+  if (!isString(characterId)) return false;
+  const actual = snapshot.operatorConfigs?.find((config) => config.characterId === characterId);
+  if (!actual) return false;
+  if (isString(finalConfig.characterName) && finalConfig.characterName !== actual.characterName) return false;
+  const expectedWeapon = asJsonObject(finalConfig.weapon);
+  if (!expectedWeapon || !actual.weapon) return false;
+  for (const key of ['id', 'name', 'level', 'potential'] as const) {
+    if (!Object.is(expectedWeapon[key], actual.weapon[key])) return false;
+  }
+  const expectedWeaponSkills = asJsonObject(expectedWeapon.skillLevels);
+  const actualWeaponSkills = actual.weapon.skillLevels ?? {};
+  const actualWeaponSkillRecord = actualWeaponSkills as Record<string, unknown>;
+  if (!expectedWeaponSkills
+    || !Object.keys(expectedWeaponSkills).every((key) => Object.is(expectedWeaponSkills[key], actualWeaponSkillRecord[key]))
+    || !Object.keys(actualWeaponSkillRecord).every((key) => Object.prototype.hasOwnProperty.call(expectedWeaponSkills, key))) {
+    return false;
+  }
+  const expectedEquipment = Array.isArray(finalConfig.equipment) ? finalConfig.equipment : null;
+  if (!expectedEquipment || expectedEquipment.length !== actual.equipment.length) return false;
+  const expectedEquipmentEntries = expectedEquipment
+    .map(asJsonObject)
+    .filter((entry): entry is JsonObject => Boolean(entry));
+  const expectedEquipmentIds = expectedEquipmentEntries
+    .map((entry) => `${String(entry.slotKey ?? '')}:${String(entry.equipmentId ?? '')}`)
+    .sort();
+  const actualEquipmentIds = actual.equipment
+    .map((entry) => `${entry.slotKey}:${entry.equipmentId}`)
+    .sort();
+  if (!sameStringArray(expectedEquipmentIds, actualEquipmentIds)) return false;
+  for (const expectedEquipmentEntry of expectedEquipmentEntries) {
+    const actualEquipment = actual.equipment.find((entry) => (
+      entry.slotKey === expectedEquipmentEntry.slotKey
+      && entry.equipmentId === expectedEquipmentEntry.equipmentId
+    ));
+    if (!actualEquipment || expectedEquipmentEntry.name !== actualEquipment.name) return false;
+    const expectedEffects = Array.isArray(expectedEquipmentEntry.effects)
+      ? expectedEquipmentEntry.effects.map(asJsonObject).filter((entry): entry is JsonObject => Boolean(entry))
+      : [];
+    if (expectedEffects.length !== actualEquipment.effects.length) return false;
+    const expectedEffectKeys = expectedEffects.map((effect) => (
+      `${String(effect.effectId ?? '')}:${String(effect.label ?? '')}:${String(effect.level ?? '')}:${String(effect.value ?? '')}`
+    )).sort();
+    const actualEffectKeys = actualEquipment.effects.map((effect) => (
+      `${effect.effectId}:${effect.label}:${effect.level}:${effect.value}`
+    )).sort();
+    if (!sameStringArray(expectedEffectKeys, actualEffectKeys)) return false;
+  }
+  const expectedSkills = asJsonObject(finalConfig.operatorSkillLevels);
+  if (!expectedSkills) return false;
+  const actualSkills = actual.operatorSkillLevels ?? {};
+  const actualSkillRecord = actualSkills as Record<string, unknown>;
+  return Object.keys(expectedSkills).every((key) => Object.is(expectedSkills[key], actualSkillRecord[key]))
+    && Object.keys(actualSkills).every((key) => Object.prototype.hasOwnProperty.call(expectedSkills, key));
 }
 
 function cloneSnapshot(snapshot: MainWorkbenchSnapshot): MainWorkbenchSnapshot {

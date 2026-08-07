@@ -202,4 +202,120 @@ rejected({
   limit: 4,
 });
 
+const proposal = parseAgentWorkbenchCommand({
+  op: 'prepareOperatorConfigProposal',
+  request: {
+    op: 'setOperatorConfig',
+    characterId: 'operator-test',
+    weaponName: '测试武器',
+    weaponLevel: 90,
+    weaponSkillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+    operatorSkillLevels: { A: 'M3', B: 'L9' },
+    equipments: [{ slotKey: 'armor', equipmentId: 'equipment-test', entryLevel: 3 }],
+  },
+  label: '测试配装提案',
+  description: '在隔离 Work Node 中测试配装。',
+});
+assert.equal(proposal.op, 'prepareOperatorConfigProposal');
+assert.equal(proposal.request.op, 'setOperatorConfig');
+assert.equal(proposal.request.equipments?.[0]?.slotKey, 'armor');
+rejected({
+  op: 'prepareOperatorConfigProposal',
+  request: {
+    op: 'setOperatorConfig',
+    characterId: 'operator-test',
+    hiddenMutation: true,
+  },
+  label: 'bad',
+  description: 'bad',
+});
+rejected({
+  op: 'setOperatorConfig',
+  characterId: 'operator-test',
+  weaponName: '不允许直接写入',
+});
+
+const proposalFinalConfig = {
+  characterId: 'operator-test',
+  characterName: '测试干员',
+  weapon: {
+    id: 'weapon-test',
+    name: '测试武器',
+    level: 90,
+    potential: '0潜',
+    skillLevels: { skill1: 5, skill2: 5, skill3: 5 },
+  },
+  equipment: [],
+  operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'L9', Dot: 'L9' },
+};
+const applyProposal = parseAgentWorkbenchCommand({
+  op: 'applyPreparedOperatorConfigProposal',
+  parentNodeId: 'node-parent',
+  parentRevision: 10,
+  nodeId: 'node-candidate',
+  nodeRevision: 11,
+  proposalDigest: `sha256:${'a'.repeat(64)}`,
+  finalConfig: proposalFinalConfig,
+  approval: { mode: 'manual', approvedBy: 'user', rationale: '测试批准' },
+});
+assert.equal(applyProposal.op, 'applyPreparedOperatorConfigProposal');
+assert.equal(applyProposal.approval.approvedBy, 'user');
+rejected({
+  op: 'applyPreparedOperatorConfigProposal',
+  parentNodeId: 'node-parent',
+  parentRevision: 10,
+  nodeId: 'node-candidate',
+  nodeRevision: 11,
+  proposalDigest: 'not-a-digest',
+  finalConfig: proposalFinalConfig,
+  approval: { mode: 'manual', approvedBy: 'user' },
+});
+
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'listAiTimelineWorkNodes',
+  timelineId: 'timeline-test',
+}), { op: 'listAiTimelineWorkNodes', timelineId: 'timeline-test' });
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'readAiTimelineWorkNode',
+  nodeId: 'node-test',
+  includePayload: false,
+}), { op: 'readAiTimelineWorkNode', nodeId: 'node-test', includePayload: false });
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'diffAiTimelineWorkNode',
+  nodeId: 'node-test',
+}), { op: 'diffAiTimelineWorkNode', nodeId: 'node-test' });
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'validateAiTimelineWorkNode',
+  nodeId: 'node-test',
+}), { op: 'validateAiTimelineWorkNode', nodeId: 'node-test', repairStatus: false });
+rejected({ op: 'validateAiTimelineWorkNode', nodeId: 'node-test', repairStatus: true });
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'deleteAiTimelineWorkNode',
+  nodeId: 'node-test',
+}), { op: 'deleteAiTimelineWorkNode', nodeId: 'node-test' });
+assert.equal(parseAgentWorkbenchCommand({
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-test',
+  reload: false,
+  approval: { mode: 'manual', approvedBy: 'user' },
+}).op, 'checkoutAiTimelineWorkNode');
+assert.equal(parseAgentWorkbenchCommand({
+  op: 'restoreAiTimelineWorkNodeBase',
+  nodeId: 'node-test',
+  reload: false,
+  approval: { mode: 'manual', approvedBy: 'user' },
+}).op, 'restoreAiTimelineWorkNodeBase');
+rejected({
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-test',
+  reload: true,
+  approval: { mode: 'manual', approvedBy: 'user' },
+});
+rejected({
+  op: 'restoreAiTimelineWorkNodeBase',
+  nodeId: 'node-test',
+  reload: false,
+  approval: { mode: 'manual', approvedBy: 'ai' },
+});
+
 console.log('Agent Workbench command schema contract passed');
