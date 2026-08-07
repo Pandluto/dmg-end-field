@@ -121,6 +121,7 @@ const blackboxCases = [
       input: { prompt: '请选择测试队伍', options: ['甲', '乙'] },
     }],
     interaction: { kind: 'question', status: 'answered', value: '乙' },
+    followUpRoute: { businessId: 'conversation', operation: 'respond' },
     answer: '用户选择了乙。',
   },
   {
@@ -190,8 +191,31 @@ const providerPlan = [...blackboxCases, ...sameSessionCases].flatMap((scenario) 
     input: scenario.route,
   },
   ...scenario.tools.map((tool) => ({ scenarioId: scenario.id, ...tool })),
+  ...('followUpRoute' in scenario ? [{
+    scenarioId: scenario.id,
+    safeName: 'def_harness_route',
+    description: routeDescription,
+    input: scenario.followUpRoute,
+  }] : []),
   { scenarioId: scenario.id, answer: scenario.answer },
 ]);
+
+function expectedScenarioTools(scenario: typeof blackboxCases[number] | typeof sameSessionCases[number]) {
+  return [
+    'def.harness.route',
+    ...scenario.tools.map((tool) => tool.canonicalName),
+    ...('followUpRoute' in scenario ? ['def.harness.route'] : []),
+  ];
+}
+
+function expectedScenarioProjections(scenario: typeof blackboxCases[number] | typeof sameSessionCases[number]) {
+  return [
+    ['def.harness.route'],
+    ...scenario.tools.map((tool) => [tool.canonicalName]),
+    ...('followUpRoute' in scenario ? [['def.harness.route']] : []),
+    [],
+  ];
+}
 
 async function run(): Promise<void> {
   const tools = new DefProductToolRegistry();
@@ -480,15 +504,11 @@ async function run(): Promise<void> {
       assert.equal(provider.failure, null, provider.failure?.stack);
       assert.deepEqual(
         events.filter((event) => event.type === 'tool.requested').map((event) => event.payload.name),
-        ['def.harness.route', ...scenario.tools.map((tool) => tool.canonicalName)],
+        expectedScenarioTools(scenario),
       );
       assert.deepEqual(
         events.filter((event) => event.type === 'harness.tool.projected').map((event) => event.payload.tools),
-        [
-          ['def.harness.route'],
-          ...scenario.tools.map((tool) => [tool.canonicalName]),
-          [],
-        ],
+        expectedScenarioProjections(scenario),
       );
       const answer = events
         .filter((event) => event.type === 'response.delta')
@@ -524,11 +544,11 @@ async function run(): Promise<void> {
       assert.equal(terminal.type, 'turn.completed', JSON.stringify(events, null, 2));
       assert.deepEqual(
         events.filter((event) => event.type === 'tool.requested').map((event) => event.payload.name),
-        ['def.harness.route', ...scenario.tools.map((tool) => tool.canonicalName)],
+        expectedScenarioTools(scenario),
       );
       assert.deepEqual(
         events.filter((event) => event.type === 'harness.tool.projected').map((event) => event.payload.tools),
-        [['def.harness.route'], ...scenario.tools.map((tool) => [tool.canonicalName]), []],
+        expectedScenarioProjections(scenario),
       );
       const answer = events
         .filter((event) => event.type === 'response.delta')

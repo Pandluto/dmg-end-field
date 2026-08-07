@@ -22,6 +22,8 @@ function normalizeButton(button: TimelineSnapshotPayload['skillButtonTable'][str
     staffIndex: button.staffIndex,
     nodeIndex: button.nodeIndex,
     selectedBuffIds: [...(button.selectedBuff || [])].sort(),
+    buffStackCounts: Object.fromEntries(Object.entries(button.buffStackCounts ?? {}).sort(([left], [right]) => left.localeCompare(right))),
+    targetResistance: Object.fromEntries(Object.entries(button.resistanceConfig?.targetResistance ?? {}).sort(([left], [right]) => left.localeCompare(right))),
     label: '',
   };
   return {
@@ -61,6 +63,8 @@ function compareButton(before: TimelineButtonDiffItem, after: TimelineButtonDiff
   compareField(changes, 'staffIndex', before.staffIndex, after.staffIndex);
   compareField(changes, 'nodeIndex', before.nodeIndex, after.nodeIndex);
   compareField(changes, 'selectedBuffIds', before.selectedBuffIds, after.selectedBuffIds);
+  compareField(changes, 'buffStackCounts', before.buffStackCounts, after.buffStackCounts);
+  compareField(changes, 'targetResistance', before.targetResistance, after.targetResistance);
   if (!changes.length) return null;
   return { id: before.id, before, after, changes };
 }

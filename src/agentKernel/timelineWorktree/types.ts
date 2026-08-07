@@ -98,6 +98,8 @@ export type TimelineButtonDiffItem = {
   staffIndex: number;
   nodeIndex: number;
   selectedBuffIds: string[];
+  buffStackCounts: Record<string, number>;
+  targetResistance: Record<string, number>;
 };
 
 export type TimelineButtonFieldChange = {

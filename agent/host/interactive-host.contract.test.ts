@@ -106,6 +106,35 @@ async function createSession(host: DefAgentHost) {
   return host.createSession({ binding: productBinding, providerProfileRef: 'test' });
 }
 
+// Greetings and prior-result questions terminate as direct conversation instead of inventing a business Tool.
+{
+  const { engine, gateway, host } = fixture();
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('route-direct-conversation'),
+      name: 'def.harness.route',
+      input: { businessId: 'conversation', operation: 'respond' },
+    },
+    { type: 'complete', output: { text: '你好，我在。' } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '你好',
+    binding: productBinding,
+  });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 0);
+  assert.deepEqual(
+    host.readEvents(session.defSessionId)
+      .filter((event) => event.type === 'harness.tool.projected')
+      .map((event) => event.payload.tools),
+    [['def.harness.route'], []],
+  );
+  await host.shutdown();
+}
+
 // A typed question pauses the Engine Tool and resumes with the exact answer.
 {
   const { engine, gateway, host } = fixture();
@@ -121,6 +150,12 @@ async function createSession(host: DefAgentHost) {
       toolCallId: asToolCallId('ask-question'),
       name: 'def.user.ask',
       input: { prompt: '请选择测试队伍', options: ['甲', '乙'] },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('route-after-question'),
+      name: 'def.harness.route',
+      input: { businessId: 'conversation', operation: 'respond' },
     },
     { type: 'complete', output: { ok: true } },
   ]);
@@ -149,6 +184,17 @@ async function createSession(host: DefAgentHost) {
     interactionId: interaction.interactionId,
     answer: '乙',
   });
+  assert.deepEqual(
+    host.readEvents(session.defSessionId)
+      .filter((event) => event.type === 'harness.tool.projected')
+      .map((event) => event.payload.tools),
+    [
+      ['def.harness.route'],
+      ['def.user.ask'],
+      ['def.harness.route'],
+      [],
+    ],
+  );
   await host.shutdown();
 }
 

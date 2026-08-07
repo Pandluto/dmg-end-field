@@ -151,7 +151,7 @@ export class DefHarnessManager {
     return [
       `You are running inside the DEF Harness ${interactive ? 'interactive' : 'read-only'} phase.`,
       `Call ${DEF_HARNESS_ROUTE_TOOL_NAME} before any business Tool.`,
-      'Choose one business and one operation. Cross-business routing and unlisted tools are unavailable.',
+      'Choose one business and one operation. Use conversation.respond for greetings, acknowledgements, capability questions, prior-result questions, or any direct response that needs no business Tool.',
       ...(interactive ? [
         'Mutation Tools never apply directly: the DEF Host pauses for an explicit user approval bound to the exact proposal and browser snapshot.',
         'If the target is ambiguous, choose the ask operation instead of guessing.',
@@ -202,8 +202,12 @@ export class DefHarnessManager {
   prepareRoute(transactionId: string, rawInput: JsonValue): DefHarnessPreparedTransition {
     const record = this.#requireTransaction(transactionId);
     this.#assertLive(record);
-    if (record.status !== 'routing') {
-      throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'Harness route can only be selected once');
+    const initialRoute = record.status === 'routing';
+    const clarificationReroute = record.status === 'active'
+      && record.operation === 'ask'
+      && record.phase.tools.includes(DEF_HARNESS_ROUTE_TOOL_NAME);
+    if (!initialRoute && !clarificationReroute) {
+      throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'Harness route is not available in the current phase');
     }
     this.assertToolProjected(transactionId, DEF_HARNESS_ROUTE_TOOL_NAME);
     const input = parseRouteInput(rawInput);
@@ -232,6 +236,11 @@ export class DefHarnessManager {
       revision: catalog.revision,
     });
     this.#recordPhaseAndProjection(candidate);
+    if (candidate.phase.terminalState) {
+      candidate.terminalState = candidate.phase.terminalState;
+      candidate.status = candidate.phase.terminalState === 'completed' ? 'completed' : 'aborted';
+      this.#recordTerminal(candidate);
+    }
     return this.#stage(record, candidate, traceOffset);
   }
 
@@ -481,8 +490,9 @@ function validateCatalog(
 ): ReadonlyMap<DefHarnessBusinessId, CatalogRecord> {
   const expected = ['buff', 'calculation', 'loadout', 'selection', 'timeline'];
   const actual = definitions.map((definition) => definition.businessId).sort();
-  if (canonicalJson(actual) !== canonicalJson(expected)) {
-    throw new DefHarnessError('HARNESS_CATALOG_INVALID', 'Phase 3 catalog must contain exactly five businesses');
+  const extras = actual.filter((businessId) => !expected.includes(businessId) && businessId !== 'conversation');
+  if (expected.some((businessId) => !actual.includes(businessId)) || extras.length > 0) {
+    throw new DefHarnessError('HARNESS_CATALOG_INVALID', 'Harness catalog must contain the five DEF businesses and may include direct conversation');
   }
   const result = new Map<DefHarnessBusinessId, CatalogRecord>();
   for (const definition of definitions) {
@@ -524,7 +534,14 @@ function validateOperation(
       throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Duplicate phase ${businessId}.${operation.operation}.${phase.id}`);
     }
     for (const toolName of phase.tools) {
-      const descriptor = resolveTool(toolName);
+      const descriptor = toolName === DEF_HARNESS_ROUTE_TOOL_NAME
+        ? {
+            name: DEF_HARNESS_ROUTE_TOOL_NAME,
+            description: 'Route this Turn to one allowlisted DEF business operation.',
+            risk: 'read' as const,
+            inputSchema: { type: 'object' } as const,
+          }
+        : resolveTool(toolName);
       if (!descriptor) {
         throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Phase ${phase.id} has an unknown Tool: ${toolName}`);
       }

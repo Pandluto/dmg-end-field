@@ -131,6 +131,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
           objectSchema({
             required: ['characterName'],
             properties: {
+              buttonId: boundedStringSchema(1, 200),
               characterId: boundedStringSchema(1, 160),
               characterName: boundedStringSchema(1, 160),
               skillType: { enum: ['A', 'B', 'E', 'Q', 'Dot'] },
@@ -142,7 +143,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
             },
           }),
         ),
-        (input) => directMutationPlan('添加技能按钮', 'timeline.buttons', 'addSkillButton', input),
+        prepareTimelineButtonAddition,
       ),
       handler(
         descriptor(
@@ -185,7 +186,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
             },
           }),
         ),
-        (input) => directMutationPlan('添加 Buff', 'timeline.buffs', 'addBuff', input),
+        prepareBuffAddition,
       ),
       handler(
         descriptor(
@@ -208,10 +209,11 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
               { required: ['name'] },
               { required: ['displayName'] },
               { required: ['latest'] },
+              { required: ['all'] },
             ],
           }),
         ),
-        (input) => directMutationPlan('移除 Buff', 'timeline.buffs', 'removeBuff', input),
+        prepareBuffRemoval,
       ),
       handler(
         descriptor(
@@ -237,7 +239,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
             },
           }),
         ),
-        (input) => directMutationPlan('设置目标抗性', 'timeline.resistance', 'setTargetResistance', input),
+        prepareTargetResistance,
       ),
       handler(
         descriptor(
@@ -432,6 +434,122 @@ async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToo
   return mutationPlan('应用并检出排轴修改', ['timeline.work-node', 'timeline.checkout'], command);
 }
 
+async function prepareTimelineButtonAddition(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'buttonId', 'characterId', 'characterName', 'skillType', 'runtimeSkillId', 'skillDisplayName',
+    'staffIndex', 'nodeIndex', 'select',
+  ]);
+  const characterName = requiredString(value.characterName, 'characterName', 160);
+  const patch: JsonObject = {
+    op: 'addButton',
+    characterName,
+    ...(optionalString(value.buttonId, 'buttonId', 200) ? { buttonId: value.buttonId as string } : {}),
+    ...(optionalString(value.characterId, 'characterId', 160) ? { characterId: value.characterId as string } : {}),
+    ...(optionalString(value.skillType, 'skillType', 8) ? { skillType: value.skillType as string } : {}),
+    ...(optionalString(value.runtimeSkillId, 'runtimeSkillId', 200) ? { runtimeSkillId: value.runtimeSkillId as string } : {}),
+    ...(optionalString(value.skillDisplayName, 'skillDisplayName', 200) ? { skillDisplayName: value.skillDisplayName as string } : {}),
+    ...(value.staffIndex === undefined ? {} : { staffIndex: requiredInteger(value.staffIndex, 'staffIndex', 0, 100) }),
+    ...(value.nodeIndex === undefined ? {} : { nodeIndex: requiredInteger(value.nodeIndex, 'nodeIndex', 0, 10_000) }),
+  };
+  return workNodeMutationPlan(
+    '添加技能按钮',
+    ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+    [patch],
+    `添加 ${characterName} 技能按钮`,
+    `在隔离工作节点中添加 ${characterName} 的技能按钮，校验语义变更后检出。`,
+  );
+}
+
+async function prepareBuffAddition(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['buttonId', 'buff', 'select']);
+  const buttonId = requiredString(value.buttonId, 'buttonId', 200);
+  const buff = unrestrictedObject(value.buff, 'buff');
+  const displayName = optionalString(buff.displayName, 'buff.displayName', 200)
+    ?? requiredString(buff.name, 'buff.name', 200);
+  return workNodeMutationPlan(
+    '添加 Buff',
+    ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+    [{
+      op: 'attachBuff',
+      target: { buttonId },
+      ...(optionalString(buff.id, 'buff.id', 200) ? { buffId: buff.id as string } : {}),
+      buff,
+    }],
+    `添加 Buff：${displayName}`,
+    `在隔离工作节点中向按钮 ${buttonId} 添加 ${displayName}，校验后检出。`,
+  );
+}
+
+async function prepareBuffRemoval(
+  input: JsonValue,
+  context: DefToolExecutionContext,
+): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'buttonId', 'buffId', 'name', 'displayName', 'latest', 'count', 'all',
+  ]);
+  const buttonId = requiredString(value.buttonId, 'buttonId', 200);
+  const snapshot = await context.product.getSnapshot(context.binding);
+  const payload = unrestrictedObject(snapshot.payload, 'Product snapshot payload');
+  const buttons = Array.isArray(payload.skillButtons) ? payload.skillButtons : [];
+  const button = buttons
+    .map((entry, index) => unrestrictedObject(entry, `skillButtons[${index}]`))
+    .find((entry) => entry.id === buttonId);
+  if (!button) invalid(`buttonId is not present in the bound snapshot: ${buttonId}`);
+  const selectedBuffIds = Array.isArray(button.selectedBuffIds)
+    ? button.selectedBuffIds.map((entry, index) => requiredString(entry, `selectedBuffIds[${index}]`, 200))
+    : [];
+  const selectedBuffs = Array.isArray(button.selectedBuffs)
+    ? button.selectedBuffs.map((entry, index) => unrestrictedObject(entry, `selectedBuffs[${index}]`))
+    : [];
+  let buffIds: string[];
+  if (value.all === true) {
+    buffIds = [...selectedBuffIds];
+  } else if (value.buffId !== undefined) {
+    const buffId = requiredString(value.buffId, 'buffId', 200);
+    buffIds = selectedBuffIds.includes(buffId) ? [buffId] : [];
+  } else {
+    const query = optionalString(value.displayName, 'displayName', 200)
+      ?? optionalString(value.name, 'name', 200);
+    if (!query) invalid('Buff removal requires buffId, name, displayName, or all:true');
+    buffIds = selectedBuffs
+      .filter((buff) => buff.id && [buff.displayName, buff.name].includes(query))
+      .map((buff) => requiredString(buff.id, 'selectedBuff.id', 200));
+    if (buffIds.length > 1 && value.latest !== true) {
+      invalid(`Buff query matched ${buffIds.length} entries; provide buffId or latest:true`);
+    }
+    if (value.latest === true && buffIds.length > 1) buffIds = [buffIds[buffIds.length - 1]!];
+  }
+  if (!buffIds.length) invalid('No selected Buff matched the requested removal');
+  const count = value.count === undefined
+    ? undefined
+    : requiredInteger(value.count, 'count', 1, 100);
+  return workNodeMutationPlan(
+    buffIds.length === 1 ? '移除 Buff' : `移除 ${buffIds.length} 个 Buff`,
+    ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+    buffIds.map((buffId) => ({
+      op: 'removeBuff',
+      target: { buttonId },
+      buffId,
+      ...(count === undefined || buffIds.length > 1 ? {} : { count }),
+    })),
+    buffIds.length === 1 ? '移除 Buff' : `批量移除 ${buffIds.length} 个 Buff`,
+    `在隔离工作节点中从按钮 ${buttonId} 移除已确认的 Buff，校验后检出。`,
+  );
+}
+
+async function prepareTargetResistance(input: JsonValue): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, ['buttonId', 'targetResistance']);
+  const buttonId = requiredString(value.buttonId, 'buttonId', 200);
+  const targetResistance = unrestrictedObject(value.targetResistance, 'targetResistance');
+  return workNodeMutationPlan(
+    '设置目标抗性',
+    ['timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
+    [{ op: 'setTargetResistance', target: { buttonId }, targetResistance }],
+    '设置目标抗性',
+    `在隔离工作节点中修改按钮 ${buttonId} 的目标抗性，校验后检出。`,
+  );
+}
+
 async function prepareTimelineButtonRemoval(
   input: JsonValue,
   context: DefToolExecutionContext,
@@ -441,16 +559,25 @@ async function prepareTimelineButtonRemoval(
     'label', 'description',
   ]);
   if (value.buttonIds === undefined) {
-    const direct = cloneJson(value);
-    delete direct.label;
-    delete direct.description;
-    if (!direct.buttonId && !direct.characterId && !direct.characterName) {
+    if (!value.buttonId && !value.characterId && !value.characterName) {
       invalid('skill-button removal requires one exact target or buttonIds');
     }
-    return mutationPlan('移除 1 个技能按钮', ['timeline.buttons'], {
-      op: 'removeSkillButton',
-      ...direct,
-    });
+    const target: JsonObject = {
+      ...(optionalString(value.buttonId, 'buttonId', 200) ? { buttonId: value.buttonId as string } : {}),
+      ...(optionalString(value.characterId, 'characterId', 160) ? { characterId: value.characterId as string } : {}),
+      ...(optionalString(value.characterName, 'characterName', 160) ? { characterName: value.characterName as string } : {}),
+      ...(optionalString(value.skillType, 'skillType', 8) ? { skillType: value.skillType as string } : {}),
+      ...(value.nodeIndex === undefined ? {} : { nodeIndex: requiredInteger(value.nodeIndex, 'nodeIndex', 0, 10_000) }),
+      ...(value.latest === undefined ? {} : { latest: requiredBoolean(value.latest, 'latest') }),
+    };
+    return workNodeMutationPlan(
+      '移除 1 个技能按钮',
+      ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+      [{ op: 'removeButton', target }],
+      optionalString(value.label, 'label', 120) ?? '移除技能按钮',
+      optionalString(value.description, 'description', 500)
+        ?? '在隔离工作节点中移除已确认的技能按钮，校验后检出。',
+    );
   }
   if (
     value.buttonId !== undefined
@@ -475,15 +602,12 @@ async function prepareTimelineButtonRemoval(
   const label = optionalString(value.label, 'label', 120) ?? `移除 ${buttonIds.length} 个技能按钮`;
   const description = optionalString(value.description, 'description', 500)
     ?? `从当前排轴移除 ${buttonIds.length} 个已确认的技能按钮，并由工作节点验证变更。`;
-  return mutationPlan(
+  return workNodeMutationPlan(
     buttonIds.length === 1 ? '移除 1 个技能按钮' : `批量移除 ${buttonIds.length} 个技能按钮`,
     ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
-    {
-      op: 'applyApprovedWorkNodePatch',
-      patch: buttonIds.map((buttonId) => ({ op: 'removeButton', target: { buttonId } })),
-      label,
-      description,
-    },
+    buttonIds.map((buttonId) => ({ op: 'removeButton', target: { buttonId } })),
+    label,
+    description,
   );
 }
 
@@ -497,14 +621,19 @@ async function prepareDamageCalculation(input: JsonValue): Promise<DefInteractiv
   };
 }
 
-async function directMutationPlan(
+function workNodeMutationPlan(
   prompt: string,
-  scope: string,
-  operation: string,
-  input: JsonValue,
-): Promise<DefInteractiveToolPlan> {
-  const value = unrestrictedObject(input, operation);
-  return mutationPlan(prompt, [scope], { op: operation, ...value });
+  scope: readonly string[],
+  patch: readonly JsonObject[],
+  label: string,
+  description: string,
+): DefInteractiveToolPlan {
+  return mutationPlan(prompt, scope, {
+    op: 'applyApprovedWorkNodePatch',
+    patch: [...patch],
+    label,
+    description,
+  });
 }
 
 function mutationPlan(
@@ -560,6 +689,18 @@ function optionalString(
 
 function requiredBoolean(value: JsonValue | undefined, label: string): boolean {
   if (typeof value !== 'boolean') invalid(`${label} must be boolean`);
+  return value;
+}
+
+function requiredInteger(
+  value: JsonValue | undefined,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) {
+    invalid(`${label} must be an integer between ${minimum} and ${maximum}`);
+  }
   return value;
 }
 

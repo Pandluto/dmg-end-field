@@ -4,6 +4,7 @@ import type { EngineToolProjectionInput } from './engine.ts';
 export const DEF_HARNESS_STATE_VERSION = 1 as const;
 
 export type DefHarnessBusinessId =
+  | 'conversation'
   | 'selection'
   | 'loadout'
   | 'timeline'
@@ -11,6 +12,7 @@ export type DefHarnessBusinessId =
   | 'calculation';
 
 export type DefHarnessOperationId =
+  | 'respond'
   | 'inspect'
   | 'current'
   | 'resolve'
