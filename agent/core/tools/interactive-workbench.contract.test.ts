@@ -63,6 +63,35 @@ const context: DefToolExecutionContext = {
   abortSignal: new AbortController().signal,
 };
 
+const expectedCurrentLoadout = {
+  contract: 'DefTeamLoadoutsV1',
+  binding: {
+    workspaceId: 'workspace-interactive-tools',
+    databaseGeneration: 'generation-interactive-tools',
+    timelineId: 'timeline-interactive-tools',
+    checkoutTargetId: 'node-interactive-tools',
+    checkoutUpdatedAt: 10,
+    contentRevision: 10,
+    snapshotDigest: 'sha256:interactive-tools',
+  },
+  complete: false,
+  missingCharacterIds: ['operator-test'],
+  operators: [{
+    character: {
+      id: 'operator-test',
+      name: '测试干员',
+      element: null,
+      profession: null,
+      librarySource: null,
+    },
+    weapon: null,
+    equipment: [],
+    setBuffs: [],
+    operatorSkillLevels: null,
+    configured: false,
+  }],
+};
+
 const registry = new DefProductToolRegistry();
 
 async function prepareAny(name: string, input: JsonValue) {
@@ -386,6 +415,147 @@ assert.deepEqual(
       limit: 8,
     },
   },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'recommendLoadout',
+    operatorQuery: '测试干员',
+    limit: 6,
+    combinationLimit: 128,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'recommendLoadout',
+      operatorQuery: '测试干员',
+      limit: 6,
+      combinationLimit: 128,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'recommendWeapons',
+    operatorQuery: '测试干员',
+    limit: 8,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'recommendWeapons',
+      operatorQuery: '测试干员',
+      limit: 8,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'recommendNamedSet',
+    operatorQuery: '测试干员',
+    setQuery: '测试套装',
+    limit: 4,
+    combinationLimit: 256,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'recommendNamedSet',
+      operatorQuery: '测试干员',
+      setQuery: '测试套装',
+      limit: 4,
+      combinationLimit: 256,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'recommendDiscoveredSets',
+    operatorQuery: '测试干员',
+    limit: 3,
+    combinationLimit: 64,
+    allowDuplicateCompatibleAccessories: true,
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'recommendDiscoveredSets',
+      operatorQuery: '测试干员',
+      limit: 3,
+      combinationLimit: 64,
+      allowDuplicateCompatibleAccessories: true,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'evaluateLoadout',
+    operatorQuery: '测试干员',
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'evaluateLoadout',
+      operatorQuery: '测试干员',
+      currentLoadout: expectedCurrentLoadout,
+    },
+  },
+);
+
+assert.deepEqual(
+  await prepareAny('def.data.catalog.query', {
+    action: 'compareLoadoutCandidate',
+    operatorQuery: '测试干员',
+    candidate: {
+      weaponId: 'weapon-test',
+      equipment: [{ slotKey: 'armor', equipmentId: 'armor-test' }],
+    },
+  }),
+  {
+    kind: 'command',
+    command: {
+      op: 'queryAgentProductCatalog',
+      action: 'compareLoadoutCandidate',
+      operatorQuery: '测试干员',
+      candidate: {
+        weaponId: 'weapon-test',
+        equipment: [{ slotKey: 'armor', equipmentId: 'armor-test' }],
+      },
+      currentLoadout: expectedCurrentLoadout,
+    },
+  },
+);
+
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'recommendWeapons',
+    operatorQuery: '测试干员',
+    limit: 33,
+  }),
+  /limit must be an integer between 1 and 32/u,
+);
+
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'compareLoadoutCandidate',
+    operatorQuery: '测试干员',
+    candidate: {
+      equipment: [
+        { slotKey: 'armor', equipmentId: 'armor-a' },
+        { slotKey: 'armor', equipmentId: 'armor-b' },
+      ],
+    },
+  }),
+  /cannot contain duplicate slots/u,
 );
 
 assert.deepEqual(

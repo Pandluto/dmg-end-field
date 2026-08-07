@@ -26,6 +26,17 @@ import {
   type AgentCatalogDomain,
   type AgentProductCatalogStorage,
 } from '../core/services/agentProductCatalogService';
+import {
+  compareCandidateLoadouts as compareAgentLoadoutCandidates,
+  compareCurrentWithCandidate as compareCurrentAgentLoadoutWithCandidate,
+  deriveProfile as deriveAgentLoadoutProfile,
+  evaluateCurrent as evaluateCurrentAgentLoadout,
+  recommend as recommendAgentLoadout,
+  recommendDiscoveredSets as recommendAgentDiscoveredSets,
+  recommendNamedSet as recommendAgentNamedSet,
+  recommendWeapons as recommendAgentWeapons,
+  type AgentLoadoutCapsule,
+} from '../core/services/agentLoadoutRecommendationService';
 import { getCandidateBuffList } from '../core/repositories';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
@@ -40,7 +51,22 @@ export type AgentProductCatalogAction =
   | 'gearTopologyPlan'
   | 'discoverGearTopologies'
   | 'skillFact'
-  | 'buildGuide';
+  | 'buildGuide'
+  | 'recommendLoadout'
+  | 'recommendWeapons'
+  | 'recommendNamedSet'
+  | 'recommendDiscoveredSets'
+  | 'evaluateLoadout'
+  | 'compareLoadoutCandidate'
+  | 'compareLoadoutCandidates';
+
+export interface AgentLoadoutCandidateCommandInput {
+  weaponId?: string;
+  equipment?: Array<{
+    slotKey: 'armor' | 'glove' | 'accessory1' | 'accessory2';
+    equipmentId: string;
+  }>;
+}
 
 export type AgentProductCatalogCommand =
   | {
@@ -88,6 +114,61 @@ export type AgentProductCatalogCommand =
       op: 'queryAgentProductCatalog';
       action: 'buildGuide';
       operatorQuery: string;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'recommendLoadout';
+      operatorQuery: string;
+      limit?: number;
+      combinationLimit?: number;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'recommendWeapons';
+      operatorQuery: string;
+      limit?: number;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'recommendNamedSet';
+      operatorQuery: string;
+      setQuery: string;
+      limit?: number;
+      combinationLimit?: number;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'recommendDiscoveredSets';
+      operatorQuery: string;
+      limit?: number;
+      combinationLimit?: number;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'evaluateLoadout';
+      operatorQuery: string;
+      /** Host-projected from the exact pinned snapshot; never model supplied. */
+      currentLoadout: AgentLoadoutCapsule;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'compareLoadoutCandidate';
+      operatorQuery: string;
+      /** Host-projected from the exact pinned snapshot; never model supplied. */
+      currentLoadout: AgentLoadoutCapsule;
+      candidate: AgentLoadoutCandidateCommandInput;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'compareLoadoutCandidates';
+      operatorQuery: string;
+      /** Host-projected base for fields omitted by either candidate patch. */
+      currentLoadout: AgentLoadoutCapsule;
+      candidateA: AgentLoadoutCandidateCommandInput;
+      candidateB: AgentLoadoutCandidateCommandInput;
     };
 
 type PreparedWorkNodePrepareCommon = {
@@ -560,6 +641,74 @@ export function executeAgentProductCatalogCommand(
     case 'buildGuide':
       payload = getAgentBuildGuide(input, command.operatorQuery);
       break;
+    case 'recommendLoadout': {
+      const recommendation = recommendAgentLoadout(input, command.operatorQuery, {
+        discoveredSets: {
+          limit: command.limit,
+          combinationLimit: command.combinationLimit,
+          allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories,
+        },
+      });
+      payload = {
+        ...recommendation,
+        weapons: limitRecommendationCandidates(recommendation.weapons, command.limit),
+      };
+      break;
+    }
+    case 'recommendWeapons':
+      payload = limitRecommendationCandidates(
+        recommendAgentWeapons(input, command.operatorQuery),
+        command.limit,
+      );
+      break;
+    case 'recommendNamedSet':
+      payload = limitRecommendationCandidates(
+        recommendAgentNamedSet(input, command.operatorQuery, command.setQuery, {
+          limit: command.combinationLimit,
+          allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories,
+        }),
+        command.limit,
+      );
+      break;
+    case 'recommendDiscoveredSets':
+      payload = recommendAgentDiscoveredSets(input, command.operatorQuery, {
+        limit: command.limit,
+        combinationLimit: command.combinationLimit,
+        allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories,
+      });
+      break;
+    case 'evaluateLoadout':
+      payload = evaluateCurrentAgentLoadout(input, command.operatorQuery, command.currentLoadout);
+      break;
+    case 'compareLoadoutCandidate': {
+      const profile = deriveAgentLoadoutProfile(input, command.operatorQuery);
+      payload = {
+        baseline: 'current',
+        candidate: 'requested-stable-ids',
+        result: compareCurrentAgentLoadoutWithCandidate(
+          input,
+          profile,
+          command.currentLoadout,
+          command.candidate,
+        ),
+      };
+      break;
+    }
+    case 'compareLoadoutCandidates': {
+      const profile = deriveAgentLoadoutProfile(input, command.operatorQuery);
+      payload = {
+        a: 'candidate-a-stable-ids',
+        b: 'candidate-b-stable-ids',
+        result: compareAgentLoadoutCandidates(
+          input,
+          profile,
+          command.currentLoadout,
+          command.candidateA,
+          command.candidateB,
+        ),
+      };
+      break;
+    }
     default: {
       const exhaustive: never = command;
       throw new Error(`Unsupported agent product catalog action: ${String(exhaustive)}`);
@@ -572,6 +721,26 @@ export function executeAgentProductCatalogCommand(
     action: command.action,
     source: 'browser-sqlite-mirror',
     payload,
+  };
+}
+
+function limitRecommendationCandidates<
+  Result extends { candidates: readonly unknown[]; warnings?: readonly string[] },
+>(result: Result, requestedLimit: number | undefined): Result & {
+  returnedCandidateCount: number;
+  candidateResultTruncated: boolean;
+} {
+  const limit = requestedLimit ?? 12;
+  const candidates = result.candidates.slice(0, limit);
+  const truncated = candidates.length < result.candidates.length;
+  return {
+    ...result,
+    candidates,
+    returnedCandidateCount: candidates.length,
+    candidateResultTruncated: truncated,
+    ...(truncated && result.warnings
+      ? { warnings: [...result.warnings, `候选展示已收紧到前 ${limit} 项；排名仍基于完整已遍历候选。`] }
+      : {}),
   };
 }
 

@@ -10,7 +10,10 @@ import {
   type PreparedWorkNodeIntent,
   type PreparedWorkNodeScope,
 } from '../contracts/index.ts';
-import { DefReadToolRegistry } from './read-only-workbench.ts';
+import {
+  DefReadToolRegistry,
+  readBoundTeamLoadoutsCapsule,
+} from './read-only-workbench.ts';
 
 const MAX_ARRAY_ITEMS = 64;
 const MAX_TEXT_LENGTH = 2_000;
@@ -110,6 +113,25 @@ const TARGET_RESISTANCE_SCHEMA: JsonObject = {
     natureResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
   },
 };
+const LOADOUT_CANDIDATE_SCHEMA: JsonObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    weaponId: boundedStringSchema(1, 200),
+    equipment: {
+      type: 'array',
+      maxItems: 4,
+      items: exactSchema(['slotKey', 'equipmentId'], {
+        slotKey: { enum: ['armor', 'glove', 'accessory1', 'accessory2'] },
+        equipmentId: boundedStringSchema(1, 200),
+      }),
+    },
+  },
+  anyOf: [
+    { required: ['weaponId'] },
+    { required: ['equipment'] },
+  ],
+};
 const CATALOG_QUERY_PROPERTIES: JsonObject = {
   action: { enum: [
     'query',
@@ -119,6 +141,13 @@ const CATALOG_QUERY_PROPERTIES: JsonObject = {
     'discoverGearTopologies',
     'skillFact',
     'buildGuide',
+    'recommendLoadout',
+    'recommendWeapons',
+    'recommendNamedSet',
+    'recommendDiscoveredSets',
+    'evaluateLoadout',
+    'compareLoadoutCandidate',
+    'compareLoadoutCandidates',
   ] },
   domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
   query: boundedStringSchema(1, 160),
@@ -129,7 +158,11 @@ const CATALOG_QUERY_PROPERTIES: JsonObject = {
   setQuery: boundedStringSchema(1, 160),
   limit: boundedIntegerSchema(1, 256),
   combinationsPerSet: boundedIntegerSchema(1, 256),
+  combinationLimit: boundedIntegerSchema(1, 4_096),
   allowDuplicateCompatibleAccessories: { type: 'boolean' },
+  candidate: cloneJson(LOADOUT_CANDIDATE_SCHEMA),
+  candidateA: cloneJson(LOADOUT_CANDIDATE_SCHEMA),
+  candidateB: cloneJson(LOADOUT_CANDIDATE_SCHEMA),
 };
 const PRODUCT_CATALOG_QUERY_SCHEMA: JsonObject = {
   type: 'object',
@@ -175,6 +208,48 @@ const PRODUCT_CATALOG_QUERY_SCHEMA: JsonObject = {
     exactSchema(['action', 'operatorQuery'], {
       action: { const: 'buildGuide' },
       operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'recommendLoadout' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      limit: boundedIntegerSchema(1, 32),
+      combinationLimit: CATALOG_QUERY_PROPERTIES.combinationLimit!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'recommendWeapons' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      limit: boundedIntegerSchema(1, 32),
+    }),
+    exactSchema(['action', 'operatorQuery', 'setQuery'], {
+      action: { const: 'recommendNamedSet' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      setQuery: CATALOG_QUERY_PROPERTIES.setQuery!,
+      limit: boundedIntegerSchema(1, 32),
+      combinationLimit: CATALOG_QUERY_PROPERTIES.combinationLimit!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'recommendDiscoveredSets' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      limit: boundedIntegerSchema(1, 32),
+      combinationLimit: CATALOG_QUERY_PROPERTIES.combinationLimit!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'evaluateLoadout' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+    }),
+    exactSchema(['action', 'operatorQuery', 'candidate'], {
+      action: { const: 'compareLoadoutCandidate' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      candidate: CATALOG_QUERY_PROPERTIES.candidate!,
+    }),
+    exactSchema(['action', 'operatorQuery', 'candidateA', 'candidateB'], {
+      action: { const: 'compareLoadoutCandidates' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      candidateA: CATALOG_QUERY_PROPERTIES.candidateA!,
+      candidateB: CATALOG_QUERY_PROPERTIES.candidateB!,
     }),
   ],
 };
@@ -760,10 +835,14 @@ function operatorConfigPreviewSchema(): JsonObject {
   });
 }
 
-async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteractiveToolPlan> {
+async function prepareProductCatalogQuery(
+  input: JsonValue,
+  context: DefToolExecutionContext,
+): Promise<DefInteractiveToolPlan> {
   const union = exactObject(input, [
     'action', 'domain', 'query', 'operatorQuery', 'weaponQuery', 'skillQuery', 'hitQuery', 'setQuery',
-    'limit', 'combinationsPerSet', 'allowDuplicateCompatibleAccessories',
+    'limit', 'combinationsPerSet', 'combinationLimit', 'allowDuplicateCompatibleAccessories',
+    'candidate', 'candidateA', 'candidateB',
   ]);
   const action = requiredEnum(union.action, 'action', [
     'query',
@@ -773,6 +852,13 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
     'discoverGearTopologies',
     'skillFact',
     'buildGuide',
+    'recommendLoadout',
+    'recommendWeapons',
+    'recommendNamedSet',
+    'recommendDiscoveredSets',
+    'evaluateLoadout',
+    'compareLoadoutCandidate',
+    'compareLoadoutCandidates',
   ] as const);
   const allowedByAction = {
     query: ['action', 'domain', 'query', 'limit'],
@@ -782,6 +868,20 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
     discoverGearTopologies: ['action', 'limit', 'combinationsPerSet', 'allowDuplicateCompatibleAccessories'],
     skillFact: ['action', 'operatorQuery', 'skillQuery', 'hitQuery'],
     buildGuide: ['action', 'operatorQuery'],
+    recommendLoadout: [
+      'action', 'operatorQuery', 'limit', 'combinationLimit', 'allowDuplicateCompatibleAccessories',
+    ],
+    recommendWeapons: ['action', 'operatorQuery', 'limit'],
+    recommendNamedSet: [
+      'action', 'operatorQuery', 'setQuery', 'limit', 'combinationLimit',
+      'allowDuplicateCompatibleAccessories',
+    ],
+    recommendDiscoveredSets: [
+      'action', 'operatorQuery', 'limit', 'combinationLimit', 'allowDuplicateCompatibleAccessories',
+    ],
+    evaluateLoadout: ['action', 'operatorQuery'],
+    compareLoadoutCandidate: ['action', 'operatorQuery', 'candidate'],
+    compareLoadoutCandidates: ['action', 'operatorQuery', 'candidateA', 'candidateB'],
   } as const;
   const value = exactObject(input, allowedByAction[action]);
   const command: JsonObject = { op: 'queryAgentProductCatalog', action };
@@ -806,8 +906,35 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
     if (hitQuery) command.hitQuery = hitQuery;
   } else if (action === 'buildGuide') {
     command.operatorQuery = requiredString(value.operatorQuery, 'operatorQuery', 160);
+  } else if (
+    action === 'recommendLoadout'
+    || action === 'recommendWeapons'
+    || action === 'recommendNamedSet'
+    || action === 'recommendDiscoveredSets'
+    || action === 'evaluateLoadout'
+    || action === 'compareLoadoutCandidate'
+    || action === 'compareLoadoutCandidates'
+  ) {
+    command.operatorQuery = requiredString(value.operatorQuery, 'operatorQuery', 160);
+    if (action === 'recommendNamedSet') {
+      command.setQuery = requiredString(value.setQuery, 'setQuery', 160);
+    }
+    if (action === 'compareLoadoutCandidate') {
+      command.candidate = parseLoadoutCandidate(value.candidate);
+    }
+    if (action === 'compareLoadoutCandidates') {
+      command.candidateA = parseLoadoutCandidate(value.candidateA);
+      command.candidateB = parseLoadoutCandidate(value.candidateB);
+    }
   }
-  if (value.limit !== undefined) command.limit = requiredInteger(value.limit, 'limit', 1, 256);
+  if (value.limit !== undefined) {
+    command.limit = requiredInteger(
+      value.limit,
+      'limit',
+      1,
+      action.startsWith('recommend') ? 32 : 256,
+    );
+  }
   if (value.combinationsPerSet !== undefined) {
     command.combinationsPerSet = requiredInteger(value.combinationsPerSet, 'combinationsPerSet', 1, 256);
   }
@@ -817,10 +944,49 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
       'allowDuplicateCompatibleAccessories',
     );
   }
+  if (value.combinationLimit !== undefined) {
+    command.combinationLimit = requiredInteger(value.combinationLimit, 'combinationLimit', 1, 4_096);
+  }
+  if (
+    action === 'evaluateLoadout'
+    || action === 'compareLoadoutCandidate'
+    || action === 'compareLoadoutCandidates'
+  ) {
+    command.currentLoadout = await readBoundTeamLoadoutsCapsule(context);
+  }
   return {
     kind: 'command',
     command,
   };
+}
+
+function parseLoadoutCandidate(value: JsonValue | undefined): JsonObject {
+  const candidate = exactObjectAt(value, 'candidate', ['weaponId', 'equipment']);
+  const result: JsonObject = {};
+  if (candidate.weaponId !== undefined) {
+    result.weaponId = requiredString(candidate.weaponId, 'candidate.weaponId', 200);
+  }
+  if (candidate.equipment !== undefined) {
+    const equipment = objectArray(candidate.equipment, 'candidate.equipment', 4).map((entry, index) => {
+      const item = exactObjectAt(entry, `candidate.equipment[${index}]`, ['slotKey', 'equipmentId']);
+      return {
+        slotKey: requiredEnum(
+          item.slotKey,
+          `candidate.equipment[${index}].slotKey`,
+          ['armor', 'glove', 'accessory1', 'accessory2'] as const,
+        ),
+        equipmentId: requiredString(item.equipmentId, `candidate.equipment[${index}].equipmentId`, 200),
+      };
+    });
+    if (new Set(equipment.map((entry) => entry.slotKey)).size !== equipment.length) {
+      invalid('candidate.equipment cannot contain duplicate slots');
+    }
+    result.equipment = equipment;
+  }
+  if (Object.keys(result).length === 0) {
+    invalid('candidate requires weaponId or equipment');
+  }
+  return result;
 }
 
 async function prepareWorkNodeList(input: JsonValue): Promise<DefInteractiveToolPlan> {

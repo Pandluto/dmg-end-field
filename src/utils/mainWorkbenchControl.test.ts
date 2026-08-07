@@ -144,6 +144,78 @@ assert.equal(
   'OPERATOR_UNRESOLVED',
 );
 
+const emptyProjectedLoadout = {
+  contract: 'DefTeamLoadoutsV1',
+  complete: false,
+  missingCharacterIds: ['operator-luoxi'],
+  operators: [{
+    character: { id: 'operator-luoxi', name: '洛茜' },
+    weapon: null,
+    equipment: [],
+    setBuffs: [],
+    operatorSkillLevels: null,
+    configured: false,
+  }],
+} as const;
+const recommendationResult = executeAgentProductCatalogCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendLoadout',
+  operatorQuery: '洛茜',
+  limit: 4,
+}, emptyCatalogStorage);
+assert.equal(
+  (recommendationResult.payload as { profile: { status: string } }).profile.status,
+  'OPERATOR_UNRESOLVED',
+);
+assert.equal(
+  (recommendationResult.payload as { weapons: { returnedCandidateCount: number } }).weapons.returnedCandidateCount,
+  0,
+);
+assert.equal(
+  (executeAgentProductCatalogCommand({
+    op: 'queryAgentProductCatalog',
+    action: 'recommendWeapons',
+    operatorQuery: '洛茜',
+  }, emptyCatalogStorage).payload as { status: string }).status,
+  'NO_PLAN',
+);
+assert.equal(
+  (executeAgentProductCatalogCommand({
+    op: 'queryAgentProductCatalog',
+    action: 'recommendNamedSet',
+    operatorQuery: '洛茜',
+    setQuery: '潮涌',
+  }, emptyCatalogStorage).payload as { status: string }).status,
+  'NO_PLAN',
+);
+assert.equal(
+  (executeAgentProductCatalogCommand({
+    op: 'queryAgentProductCatalog',
+    action: 'recommendDiscoveredSets',
+    operatorQuery: '洛茜',
+  }, emptyCatalogStorage).payload as { status: string }).status,
+  'NO_PLAN',
+);
+assert.equal(
+  (executeAgentProductCatalogCommand({
+    op: 'queryAgentProductCatalog',
+    action: 'evaluateLoadout',
+    operatorQuery: '洛茜',
+    currentLoadout: emptyProjectedLoadout,
+  }, emptyCatalogStorage).payload as { status: string }).status,
+  'NO_PROFILE',
+);
+assert.equal(
+  (executeAgentProductCatalogCommand({
+    op: 'queryAgentProductCatalog',
+    action: 'compareLoadoutCandidate',
+    operatorQuery: '洛茜',
+    currentLoadout: emptyProjectedLoadout,
+    candidate: { weaponId: 'weapon-test' },
+  }, emptyCatalogStorage).payload as { result: { status: string } }).result.status,
+  'PARTIAL',
+);
+
 const phase2ExpectedBinding = {
   workspaceId: 'workspace-two-timeline',
   databaseGeneration: 'generation-two-timeline',

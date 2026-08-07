@@ -209,6 +209,110 @@ assert.deepEqual(parseAgentWorkbenchCommand({
   action: 'buildGuide',
   operatorQuery: '洛茜',
 });
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendLoadout',
+  operatorQuery: '洛茜',
+  limit: 6,
+  combinationLimit: 128,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'recommendLoadout',
+  operatorQuery: '洛茜',
+  limit: 6,
+  combinationLimit: 128,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendWeapons',
+  operatorQuery: '洛茜',
+  limit: 8,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'recommendWeapons',
+  operatorQuery: '洛茜',
+  limit: 8,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendNamedSet',
+  operatorQuery: '洛茜',
+  setQuery: '潮涌',
+  limit: 4,
+  combinationLimit: 256,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'recommendNamedSet',
+  operatorQuery: '洛茜',
+  setQuery: '潮涌',
+  limit: 4,
+  combinationLimit: 256,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendDiscoveredSets',
+  operatorQuery: '洛茜',
+  limit: 3,
+  combinationLimit: 64,
+  allowDuplicateCompatibleAccessories: true,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'recommendDiscoveredSets',
+  operatorQuery: '洛茜',
+  limit: 3,
+  combinationLimit: 64,
+  allowDuplicateCompatibleAccessories: true,
+});
+
+const projectedCurrentLoadout = {
+  contract: 'DefTeamLoadoutsV1',
+  complete: false,
+  missingCharacterIds: ['operator-luoxi'],
+  operators: [{
+    character: {
+      id: 'operator-luoxi',
+      name: '洛茜',
+      element: 'physical',
+      profession: '近卫',
+      librarySource: null,
+    },
+    weapon: null,
+    equipment: [],
+    setBuffs: [],
+    operatorSkillLevels: null,
+    configured: false,
+  }],
+};
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'evaluateLoadout',
+  operatorQuery: '洛茜',
+  currentLoadout: projectedCurrentLoadout,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'evaluateLoadout',
+  operatorQuery: '洛茜',
+  currentLoadout: projectedCurrentLoadout,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'compareLoadoutCandidate',
+  operatorQuery: '洛茜',
+  currentLoadout: projectedCurrentLoadout,
+  candidate: {
+    weaponId: 'weapon-a',
+    equipment: [{ slotKey: 'armor', equipmentId: 'armor-a' }],
+  },
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'compareLoadoutCandidate',
+  operatorQuery: '洛茜',
+  currentLoadout: projectedCurrentLoadout,
+  candidate: {
+      weaponId: 'weapon-a',
+      equipment: [{ slotKey: 'armor', equipmentId: 'armor-a' }],
+  },
+});
 rejected({
   op: 'queryAgentProductCatalog',
   action: 'query',
@@ -236,6 +340,30 @@ rejected({
   op: 'queryAgentProductCatalog',
   action: 'skillFact',
   operatorQuery: '洛茜',
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'recommendWeapons',
+  operatorQuery: '洛茜',
+  limit: 33,
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'evaluateLoadout',
+  operatorQuery: '洛茜',
+  currentLoadout: { ...projectedCurrentLoadout, complete: true },
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'compareLoadoutCandidate',
+  operatorQuery: '洛茜',
+  currentLoadout: projectedCurrentLoadout,
+  candidate: {
+    equipment: [
+      { slotKey: 'armor', equipmentId: 'armor-a' },
+      { slotKey: 'armor', equipmentId: 'armor-b' },
+    ],
+  },
 });
 
 const proposal = parseAgentWorkbenchCommand({

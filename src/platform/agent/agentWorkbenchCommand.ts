@@ -1,9 +1,11 @@
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import type { SkillButtonType } from '../../types';
 import type {
+  AgentLoadoutCandidateCommandInput,
   AgentProductCatalogCommand,
   MainWorkbenchCommand,
 } from '../../utils/mainWorkbenchControl';
+import { validateLoadoutCapsule } from '../../../agent/core/tools/loadout-fact-operations.ts';
 
 const SKILL_TYPES = new Set<SkillButtonType>(['A', 'B', 'E', 'Q', 'Dot']);
 const RESISTANCE_KEYS = new Set([
@@ -437,6 +439,13 @@ function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalog
       'discoverGearTopologies',
       'skillFact',
       'buildGuide',
+      'recommendLoadout',
+      'recommendWeapons',
+      'recommendNamedSet',
+      'recommendDiscoveredSets',
+      'evaluateLoadout',
+      'compareLoadoutCandidate',
+      'compareLoadoutCandidates',
     ] as const,
   );
   if (action === 'query') {
@@ -525,12 +534,140 @@ function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalog
       ...(optionalString(value.hitQuery, 'hitQuery', 160) ? { hitQuery: value.hitQuery as string } : {}),
     };
   }
+  if (action === 'recommendLoadout' || action === 'recommendDiscoveredSets') {
+    exact(value, [
+      'op', 'action', 'operatorQuery', 'limit', 'combinationLimit',
+      'allowDuplicateCompatibleAccessories',
+    ]);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 32) }),
+      ...(value.combinationLimit === undefined
+        ? {}
+        : { combinationLimit: integer(value.combinationLimit, 'combinationLimit', 1, 4096) }),
+      ...(value.allowDuplicateCompatibleAccessories === undefined ? {} : {
+        allowDuplicateCompatibleAccessories: boolean(
+          value.allowDuplicateCompatibleAccessories,
+          'allowDuplicateCompatibleAccessories',
+        ),
+      }),
+    };
+  }
+  if (action === 'recommendWeapons') {
+    exact(value, ['op', 'action', 'operatorQuery', 'limit']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 32) }),
+    };
+  }
+  if (action === 'recommendNamedSet') {
+    exact(value, [
+      'op', 'action', 'operatorQuery', 'setQuery', 'limit', 'combinationLimit',
+      'allowDuplicateCompatibleAccessories',
+    ]);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      setQuery: string(value.setQuery, 'setQuery', 160),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 32) }),
+      ...(value.combinationLimit === undefined
+        ? {}
+        : { combinationLimit: integer(value.combinationLimit, 'combinationLimit', 1, 4096) }),
+      ...(value.allowDuplicateCompatibleAccessories === undefined ? {} : {
+        allowDuplicateCompatibleAccessories: boolean(
+          value.allowDuplicateCompatibleAccessories,
+          'allowDuplicateCompatibleAccessories',
+        ),
+      }),
+    };
+  }
+  if (action === 'evaluateLoadout') {
+    exact(value, ['op', 'action', 'operatorQuery', 'currentLoadout']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      currentLoadout: parseCurrentLoadout(value.currentLoadout),
+    };
+  }
+  if (action === 'compareLoadoutCandidate') {
+    exact(value, ['op', 'action', 'operatorQuery', 'currentLoadout', 'candidate']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      currentLoadout: parseCurrentLoadout(value.currentLoadout),
+      candidate: parseLoadoutCandidate(value.candidate),
+    };
+  }
+  if (action === 'compareLoadoutCandidates') {
+    exact(value, ['op', 'action', 'operatorQuery', 'currentLoadout', 'candidateA', 'candidateB']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      currentLoadout: parseCurrentLoadout(value.currentLoadout),
+      candidateA: parseLoadoutCandidate(value.candidateA),
+      candidateB: parseLoadoutCandidate(value.candidateB),
+    };
+  }
   exact(value, ['op', 'action', 'operatorQuery']);
   return {
     op: 'queryAgentProductCatalog',
     action,
     operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
   };
+}
+
+function parseCurrentLoadout(value: JsonValue | undefined) {
+  const validated = validateLoadoutCapsule(value);
+  if (!validated.ok) {
+    invalid(`currentLoadout is invalid: ${validated.error.code}: ${validated.error.message}`);
+  }
+  return validated.value;
+}
+
+function parseLoadoutCandidate(value: JsonValue | undefined): AgentLoadoutCandidateCommandInput {
+  const candidate = record(value, 'candidate');
+  exact(candidate, ['weaponId', 'equipment']);
+  const weaponId = optionalString(candidate.weaponId, 'candidate.weaponId', 200);
+  const equipment = candidate.equipment === undefined
+    ? undefined
+    : parseLoadoutCandidateEquipment(candidate.equipment);
+  if (!weaponId && equipment === undefined) {
+    invalid('candidate requires weaponId or equipment');
+  }
+  return {
+    ...(weaponId ? { weaponId } : {}),
+    ...(equipment === undefined ? {} : { equipment }),
+  };
+}
+
+function parseLoadoutCandidateEquipment(value: JsonValue): NonNullable<AgentLoadoutCandidateCommandInput['equipment']> {
+  if (!Array.isArray(value) || value.length > 4) {
+    invalid('candidate.equipment must contain at most 4 entries');
+  }
+  const equipment = value.map((entry, index) => {
+    const item = record(entry, `candidate.equipment[${index}]`);
+    exact(item, ['slotKey', 'equipmentId']);
+    return {
+      slotKey: enumValue(
+        item.slotKey,
+        `candidate.equipment[${index}].slotKey`,
+        ['armor', 'glove', 'accessory1', 'accessory2'] as const,
+      ),
+      equipmentId: string(item.equipmentId, `candidate.equipment[${index}].equipmentId`, 200),
+    };
+  });
+  if (new Set(equipment.map((entry) => entry.slotKey)).size !== equipment.length) {
+    invalid('candidate.equipment cannot contain duplicate slots');
+  }
+  return equipment;
 }
 
 function parseBuff(value: JsonObject): Extract<MainWorkbenchCommand, { op: 'addBuff' }>['buff'] {

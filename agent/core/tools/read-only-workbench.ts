@@ -227,41 +227,7 @@ async function readTeamLoadouts(input: JsonValue, context: DefToolExecutionConte
   ]);
   const action = optionalLoadoutAction(args.action);
   validateLoadoutActionInput(action, args);
-  const snapshot = await readSnapshot(context);
-  const payload = workbenchPayload(snapshot);
-  const configs = new Map<string, JsonObject>();
-  for (const config of payload.operatorConfigs) {
-    const characterId = stringOrNull(config.characterId);
-    if (characterId) configs.set(characterId, config);
-  }
-  const missingCharacterIds: string[] = [];
-  const operators = payload.selectedCharacters.map((character) => {
-    const projectedCharacter = projectCharacter(character);
-    const characterId = stringOrNull(character.id) ?? '';
-    const config = configs.get(characterId) ?? null;
-    if (!config) missingCharacterIds.push(characterId);
-    return {
-      character: projectedCharacter,
-      weapon: config ? objectOrNull(config.weapon) : null,
-      equipment: config
-        ? [...objectArray(config.equipment, 'operatorConfig.equipment')]
-          .sort(compareByStableIdentity('slotKey', 'equipmentId'))
-        : [],
-      setBuffs: config
-        ? [...optionalObjectArray(config.setBuffs, 'operatorConfig.setBuffs')]
-          .sort(compareByStableIdentity('gearSetId', 'effectId'))
-        : [],
-      operatorSkillLevels: config ? objectOrNull(config.operatorSkillLevels) : null,
-      configured: Boolean(config),
-    };
-  });
-  const capsule = {
-    contract: 'DefTeamLoadoutsV1',
-    binding: bindingJson(snapshot.binding),
-    complete: missingCharacterIds.length === 0,
-    missingCharacterIds,
-    operators,
-  };
+  const capsule = await readBoundTeamLoadoutsCapsule(context);
   if (action === null) return capsule;
   const validated = validateLoadoutCapsule(capsule);
   if (!validated.ok) {
@@ -291,6 +257,52 @@ async function readTeamLoadouts(input: JsonValue, context: DefToolExecutionConte
   return unwrapLoadoutFactOperation(
     compareLoadoutFacts(baseline.value, validated.value, options),
   ) as unknown as JsonValue;
+}
+
+/**
+ * Project the exact turn-bound Product snapshot into the same closed capsule
+ * used by the public team-loadout Tool. Interactive catalog plans reuse this
+ * boundary so the Engine can request an evaluation without ever supplying or
+ * rewriting the authoritative current loadout itself.
+ */
+export async function readBoundTeamLoadoutsCapsule(
+  context: DefToolExecutionContext,
+): Promise<JsonObject> {
+  const snapshot = await readSnapshot(context);
+  const payload = workbenchPayload(snapshot);
+  const configs = new Map<string, JsonObject>();
+  for (const config of payload.operatorConfigs) {
+    const characterId = stringOrNull(config.characterId);
+    if (characterId) configs.set(characterId, config);
+  }
+  const missingCharacterIds: string[] = [];
+  const operators = payload.selectedCharacters.map((character) => {
+    const projectedCharacter = projectCharacter(character);
+    const characterId = stringOrNull(character.id) ?? '';
+    const config = configs.get(characterId) ?? null;
+    if (!config) missingCharacterIds.push(characterId);
+    return {
+      character: projectedCharacter,
+      weapon: config ? objectOrNull(config.weapon) : null,
+      equipment: config
+        ? [...objectArray(config.equipment, 'operatorConfig.equipment')]
+          .sort(compareByStableIdentity('slotKey', 'equipmentId'))
+        : [],
+      setBuffs: config
+        ? [...optionalObjectArray(config.setBuffs, 'operatorConfig.setBuffs')]
+          .sort(compareByStableIdentity('gearSetId', 'effectId'))
+        : [],
+      operatorSkillLevels: config ? objectOrNull(config.operatorSkillLevels) : null,
+      configured: Boolean(config),
+    };
+  });
+  return {
+    contract: 'DefTeamLoadoutsV1',
+    binding: bindingJson(snapshot.binding),
+    complete: missingCharacterIds.length === 0,
+    missingCharacterIds,
+    operators,
+  };
 }
 
 function optionalLoadoutAction(value: JsonValue | undefined): 'current' | 'evaluate' | 'compare' | null {
