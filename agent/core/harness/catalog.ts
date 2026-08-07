@@ -5,7 +5,7 @@ const terminalCompleted = {
   kind: 'response',
   tools: [],
   writes: [],
-  instructions: 'Return only facts established by the typed result and retain the bound snapshot identity.',
+  instructions: 'Return only facts established by the typed result and retain the bound snapshot identity. This Turn is complete: do not call, serialize, or announce another Tool invocation.',
   terminalState: 'completed',
 } as const;
 
@@ -14,7 +14,7 @@ const terminalFailed = {
   kind: 'response',
   tools: [],
   writes: [],
-  instructions: 'Report the typed unavailable or invalid state. Do not infer missing business facts.',
+  instructions: 'Report the typed unavailable or invalid state. Do not infer missing business facts or call, serialize, or announce another Tool invocation.',
   terminalState: 'aborted',
 } as const;
 
@@ -215,6 +215,33 @@ function singleToolOperation(input: {
   } as const;
 }
 
+const timelineRemoveOperation = {
+  operation: 'remove',
+  entryPhase: 'read-remove-targets',
+  phases: [
+    {
+      id: 'read-remove-targets',
+      kind: 'context',
+      tools: ['def.node.crud.current'],
+      writes: [],
+      instructions: 'Read the authoritative current button list once and resolve the complete requested removal set. For a grouped or bulk request, retain every matching stable button id; do not start deleting one button at a time.',
+      onSuccess: 'remove-buttons',
+      onFailure: 'failed',
+    },
+    {
+      id: 'remove-buttons',
+      kind: 'mutation',
+      tools: ['def.workbench.remove_skill_button'],
+      writes: ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+      instructions: 'Submit exactly one removal request containing the complete stable button-id set established by the preceding read. A single target may use buttonId; a grouped request must use buttonIds once so the browser creates and validates one isolated Work Node. Explicit approval is mandatory. Never serialize a second Tool call as response text.',
+      onSuccess: 'done',
+      onFailure: 'failed',
+    },
+    terminalCompleted,
+    terminalFailed,
+  ],
+} as const;
+
 /**
  * First interactive Slim catalog. It deliberately reuses the proven read-only
  * phases and adds only browser-owned operations that have a typed command and
@@ -251,7 +278,7 @@ export const PHASE6_INTERACTIVE_HARNESS_CATALOG = [
   },
   {
     ...PHASE3_READONLY_HARNESS_CATALOG[2],
-    revision: 'v14-slim-interactive',
+    revision: 'v15-slim-interactive',
     summary: 'Read or explicitly edit the current timeline through browser-owned typed commands.',
     writeScope: ['timeline.buttons', 'timeline.work-node', 'timeline.checkout', 'timeline.resistance'],
     operations: [
@@ -260,7 +287,7 @@ export const PHASE6_INTERACTIVE_HARNESS_CATALOG = [
         operation: 'edit',
         phaseId: 'edit-work-node',
         phaseKind: 'mutation',
-        toolName: 'def.worknode.patch_and_checkout',
+        toolName: 'def.worknode.patch_and_validate',
         writes: ['timeline.work-node', 'timeline.checkout'],
         instructions: 'Use a constrained patch for moves, copies, grouped changes, or resistance edits. Explicit approval is mandatory.',
       }),
@@ -272,14 +299,7 @@ export const PHASE6_INTERACTIVE_HARNESS_CATALOG = [
         writes: ['timeline.buttons'],
         instructions: 'Add exactly one unambiguous skill button. Explicit approval is mandatory.',
       }),
-      singleToolOperation({
-        operation: 'remove',
-        phaseId: 'remove-button',
-        phaseKind: 'mutation',
-        toolName: 'def.workbench.remove_skill_button',
-        writes: ['timeline.buttons'],
-        instructions: 'Remove exactly one unambiguously identified skill button. Explicit approval is mandatory.',
-      }),
+      timelineRemoveOperation,
       singleToolOperation({
         operation: 'resistance',
         phaseId: 'set-target-resistance',

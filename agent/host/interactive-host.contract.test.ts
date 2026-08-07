@@ -261,6 +261,114 @@ async function createSession(host: DefAgentHost) {
   await host.shutdown();
 }
 
+// Timeline removal reads the authoritative set, then applies one approved Work Node patch for the whole group.
+{
+  const { engine, gateway, host } = fixture();
+  gateway.snapshot = {
+    protocolVersion: 1,
+    binding: productBinding,
+    capturedAt: '2026-08-07T00:00:00.000Z',
+    payload: {
+      schemaVersion: 1,
+      selectedCharacters: [],
+      skillButtons: [
+        {
+          id: 'bzb6ptf17',
+          characterId: 'operator-luoxi',
+          characterName: '洛茜',
+          skillType: 'A',
+          staffIndex: 0,
+          lineIndex: 0,
+          persistenceStaffIndex: 0,
+          persistenceNodeIndex: 0,
+          selectedBuffIds: [],
+        },
+        {
+          id: 'k1n3s6ze4',
+          characterId: 'operator-luoxi',
+          characterName: '洛茜',
+          skillType: 'A',
+          staffIndex: 0,
+          lineIndex: 0,
+          persistenceStaffIndex: 0,
+          persistenceNodeIndex: 1,
+          selectedBuffIds: [],
+        },
+      ],
+    },
+  };
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('route-bulk-remove'),
+      name: 'def.harness.route',
+      input: { businessId: 'timeline', operation: 'remove' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('read-bulk-remove-targets'),
+      name: 'def.node.crud.current',
+      input: {},
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('apply-bulk-remove'),
+      name: 'def.workbench.remove_skill_button',
+      input: { buttonIds: ['bzb6ptf17', 'k1n3s6ze4'] },
+    },
+    { type: 'complete', output: { removed: 2 } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '把洛茜这一组技能按钮都删掉',
+    binding: productBinding,
+  });
+  const approval = await waitFor(
+    () => host.listPendingInteractions(productBinding)[0],
+    'bulk removal approval interaction was not published',
+  );
+  assert.equal(approval.kind, 'approval');
+  if (approval.kind !== 'approval') throw new Error('expected approval');
+  assert.deepEqual(approval.scope, ['timeline.buttons', 'timeline.work-node', 'timeline.checkout']);
+  assert.equal(gateway.commands.length, 0);
+  host.resolveInteraction(approval.interactionId, { status: 'approved' }, productBinding);
+  const command = await waitFor(() => gateway.commands[0], 'bulk removal command was not dispatched');
+  assert.equal(command.command.op, 'workbench.execute-command');
+  if (command.command.op !== 'workbench.execute-command') throw new Error('expected workbench command');
+  assert.deepEqual(command.command.payload.command, {
+    op: 'applyApprovedWorkNodePatch',
+    patch: [
+      { op: 'removeButton', target: { buttonId: 'bzb6ptf17' } },
+      { op: 'removeButton', target: { buttonId: 'k1n3s6ze4' } },
+    ],
+    label: '移除 2 个技能按钮',
+    description: '从当前排轴移除 2 个已确认的技能按钮，并由工作节点验证变更。',
+  });
+  gateway.settle({
+    commandId: command.commandId,
+    status: 'succeeded',
+    beforeRevision: 4,
+    afterRevision: 5,
+    browserResult: { removedButtonIds: ['bzb6ptf17', 'k1n3s6ze4'] },
+    visiblePostcondition: { contentRevision: 5 },
+    completedAt: '2026-08-07T00:00:02.000Z',
+  });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
+  assert.deepEqual(
+    host.readEvents(session.defSessionId)
+      .filter((event) => event.type === 'harness.tool.projected')
+      .map((event) => event.payload.tools),
+    [
+      ['def.harness.route'],
+      ['def.node.crud.current'],
+      ['def.workbench.remove_skill_button'],
+      [],
+    ],
+  );
+  await host.shutdown();
+}
+
 // Rejection is terminal for the proposed Harness action and dispatches nothing.
 {
   const { engine, gateway, host } = fixture();

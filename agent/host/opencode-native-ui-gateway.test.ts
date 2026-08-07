@@ -124,7 +124,24 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
         return Response.json({ theme: 'system' });
       }
       if (pathname.startsWith('/session/ses_native_ui/message')) {
-        return Response.json([], { headers: { 'x-next-cursor': 'cursor-native-ui' } });
+        return Response.json([
+          {
+            info: { id: 'message-native-ui', role: 'assistant' },
+            parts: [{
+              id: 'part-native-ui',
+              type: 'text',
+              text: '已删除一个按钮。\n<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="def_workbench_remove_skill_button"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+            }],
+          },
+          {
+            info: { id: 'message-user-native-ui', role: 'user' },
+            parts: [{
+              id: 'part-user-native-ui',
+              type: 'text',
+              text: '请解释 <｜｜DSML｜｜tool_calls> 是什么。',
+            }],
+          },
+        ], { headers: { 'x-next-cursor': 'cursor-native-ui' } });
       }
       if (pathname.startsWith('/session/ses_native_ui')) {
         return Response.json({ id: 'ses_native_ui', title: 'DEF' });
@@ -184,6 +201,9 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     });
     assert.equal(messageResponse.status, 200);
     assert.equal(messageResponse.headers.get('x-next-cursor'), 'cursor-native-ui');
+    const nativeMessages = await messageResponse.json() as Array<{ parts: Array<{ text: string }> }>;
+    assert.equal(nativeMessages[0]?.parts[0]?.text, '已删除一个按钮。');
+    assert.equal(nativeMessages[1]?.parts[0]?.text, '请解释 <｜｜DSML｜｜tool_calls> 是什么。');
 
     const interactionTurnId = asDefTurnId('def-turn-native-interaction');
     const questionId = asInteractionId('question-native-ui');

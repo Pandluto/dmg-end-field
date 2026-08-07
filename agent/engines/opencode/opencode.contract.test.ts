@@ -15,6 +15,11 @@ import {
 } from '../../core/contracts/index.ts';
 import { OpenCodeEngineAdapter, type OpenCodeRuntimeController } from './adapter.ts';
 import { OpenCodeEngineError } from './errors.ts';
+import DefOpenCodeEnginePlugin from './plugin-entry.ts';
+import {
+  AGENT_UNREADABLE_OUTPUT_FALLBACK,
+  sanitizeAgentCompletedText,
+} from '../../core/output-sanitizer.ts';
 import { OpenCodePrivateBridge } from './private-bridge.ts';
 import {
   FileOpenCodeProviderProfileSource,
@@ -22,6 +27,7 @@ import {
   type OpenCodeProviderProfile,
 } from './profile.ts';
 import {
+  DEF_OPENCODE_AGENT_PROMPT,
   OPENCODE_BINARY_VERSION,
   OPENCODE_RUNTIME_MANIFEST_SCHEMA_VERSION,
   OPENCODE_RUNTIME_VERSION,
@@ -48,6 +54,23 @@ const profile: OpenCodeProviderProfile = {
   apiKey: 'fixture-secret',
 };
 
+const leakedDsml = [
+  '已删除 **bzb6ptf17**（洛茜-沸腾狼血@1-1），剩余 12 个。继续下一个：',
+  '',
+  '<｜｜DSML｜｜tool_calls> <｜｜DSML｜｜invoke name="def_workbench_remove_skill_button"> <｜｜DSML｜｜parameter name="buttonId" string="true">k1n3s6ze4</｜｜DSML｜｜parameter> </｜｜DSML｜｜invoke> </｜｜DSML｜｜tool_calls>',
+].join('\n');
+assert.equal(
+  sanitizeAgentCompletedText(leakedDsml),
+  '已删除 **bzb6ptf17**（洛茜-沸腾狼血@1-1），剩余 12 个。继续下一个：',
+);
+assert.equal(
+  sanitizeAgentCompletedText('<|DSML|tool_calls><invoke name="private" /></|DSML|tool_calls>'),
+  AGENT_UNREADABLE_OUTPUT_FALLBACK,
+);
+assert.equal(sanitizeAgentCompletedText('正常的最终答复。'), '正常的最终答复。');
+assert.match(DEF_OPENCODE_AGENT_PROMPT, /Never emit raw Tool-call markup, DSML/u);
+assert.doesNotMatch(DEF_OPENCODE_AGENT_PROMPT, /read-only assistant/u);
+
 assert.deepEqual(
   OPENCODE_TOOL_BINDINGS.map(([canonical, safe]) => [
     toDefCanonicalToolName(safe),
@@ -69,7 +92,7 @@ assert.deepEqual(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical), [
   'def.buff.add_to_button',
   'def.buff.remove_from_button',
   'def.target.set_resistance',
-  'def.worknode.patch_and_checkout',
+  'def.worknode.patch_and_validate',
   'def.damage.calculate_and_verify',
 ]);
 assert.equal(
@@ -293,6 +316,51 @@ async function testPrivateBridge(): Promise<void> {
   assert.equal(requested, true);
   bridge.unregister('session-bridge', controller);
   await bridge.stop();
+}
+
+async function testPluginCompletedTextSanitizer(): Promise<void> {
+  const bridge = new OpenCodePrivateBridge({ token: 'plugin-output-token-abcdefghijklmnopqrstuvwxyz' });
+  const origin = await bridge.start();
+  const directory = '/fixture/plugin-output-workspace';
+  const processNonce = 'plugin-output-process-nonce';
+  const runtimeVersion = 'plugin-output-runtime-v1';
+  const ready = bridge.expectPluginReady({
+    protocolVersion: 1,
+    buildId: 'def-opencode-engine-phase4-v1',
+    processNonce,
+    runtimeVersion,
+    directory,
+  });
+  const names = [
+    'DEF_OPENCODE_TOOL_BRIDGE_URL',
+    'DEF_OPENCODE_TOOL_BRIDGE_TOKEN',
+    'DEF_OPENCODE_PROCESS_NONCE',
+    'DEF_OPENCODE_RUNTIME_VERSION',
+  ] as const;
+  const previous = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  process.env.DEF_OPENCODE_TOOL_BRIDGE_URL = origin;
+  process.env.DEF_OPENCODE_TOOL_BRIDGE_TOKEN = bridge.token;
+  process.env.DEF_OPENCODE_PROCESS_NONCE = processNonce;
+  process.env.DEF_OPENCODE_RUNTIME_VERSION = runtimeVersion;
+  try {
+    const plugin = await DefOpenCodeEnginePlugin({ directory });
+    await ready;
+    const complete = plugin['experimental.text.complete'];
+    assert.equal(typeof complete, 'function');
+    const output = { text: leakedDsml };
+    await complete({ sessionID: 'session-plugin-output' }, output);
+    assert.equal(
+      output.text,
+      '已删除 **bzb6ptf17**（洛茜-沸腾狼血@1-1），剩余 12 个。继续下一个：',
+    );
+  } finally {
+    for (const name of names) {
+      const value = previous[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    await bridge.stop();
+  }
 }
 
 async function testAdapterAtomicProjection(): Promise<void> {
@@ -1105,6 +1173,7 @@ try {
   await testRuntimeManifest(temporary);
   await testSupervisorDoesNotReplaceUnstoppableChild(temporary);
   await testPrivateBridge();
+  await testPluginCompletedTextSanitizer();
   await testAdapterAtomicProjection();
   await testAdapterUsesMonotonicMessageIdsAcrossTurns();
   await testAdapterAbortWithPendingTool();

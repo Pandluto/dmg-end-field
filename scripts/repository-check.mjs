@@ -153,6 +153,7 @@ const allowedAgentFiles = new Set([
   'agent/core/harness/manager.ts',
   'agent/core/interactions/interaction-broker.test.ts',
   'agent/core/interactions/interaction-broker.ts',
+  'agent/core/output-sanitizer.ts',
   'agent/core/testing/fake-engine.contract.test.ts',
   'agent/core/testing/fake-engine.ts',
   'agent/core/testing/fixtures/phase3-readonly-parity.ts',

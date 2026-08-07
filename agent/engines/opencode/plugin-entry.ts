@@ -2,6 +2,7 @@ import {
   OPENCODE_TOOL_BINDINGS,
   type OpenCodeSafeToolName,
 } from './tool-bindings.ts';
+import { sanitizeAgentCompletedText } from '../../core/output-sanitizer.ts';
 
 type ToolContext = {
   readonly sessionID: string;
@@ -130,6 +131,12 @@ export default async function DefOpenCodeEnginePlugin(input: { readonly director
         tool.inputSchema = aiJsonSchema(projected.inputSchema);
       }
       output.toolChoice = allowed.size === 0 ? 'none' : 'required';
+    },
+    'experimental.text.complete': async (
+      _input: { readonly sessionID?: string },
+      output: { text: string },
+    ) => {
+      output.text = sanitizeAgentCompletedText(output.text);
     },
   };
 }

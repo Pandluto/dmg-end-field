@@ -39,6 +39,7 @@ const applicationMetadata = JSON.parse(
 );
 const APPLICATION_NAME = applicationMetadata.build?.productName || '终末地伤害工作台';
 const APPLICATION_VERSION = String(applicationMetadata.version || app.getVersion());
+const APPLICATION_ICON_PATH = path.join(__dirname, 'assets', 'icon.png');
 const isDevelopment = process.argv.includes('--dev');
 const SCALE_OPTIONS = ['0.8', '0.85', '1', '1.25', '1.5'];
 const DEFAULT_SCALE = process.platform === 'darwin' ? '0.85' : '1';
@@ -249,9 +250,8 @@ function updateTrayMenu() {
 
 function createTray() {
   if (tray) return;
-  const iconPath = path.join(__dirname, 'assets', 'icon.png');
-  const icon = fs.existsSync(iconPath)
-    ? nativeImage.createFromPath(iconPath)
+  const icon = fs.existsSync(APPLICATION_ICON_PATH)
+    ? nativeImage.createFromPath(APPLICATION_ICON_PATH)
     : nativeImage.createEmpty();
   tray = new Tray(icon.resize({ width: 18, height: 18 }));
   tray.setToolTip(`${APPLICATION_NAME} Shell`);
@@ -272,7 +272,9 @@ function createShellWindow() {
     title: `${APPLICATION_NAME} Shell`,
     backgroundColor: '#f1f3f2',
     autoHideMenuBar: true,
-    icon: path.join(__dirname, 'assets', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    icon: process.platform === 'win32'
+      ? path.join(__dirname, 'assets', 'icon.ico')
+      : APPLICATION_ICON_PATH,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -514,6 +516,10 @@ async function startApplication() {
   diagnostic('Electron ready; starting independent shell');
   if (!fs.existsSync(SHELL_DOCUMENT_PATH)) {
     throw new Error(`缺少 Shell 页面：${SHELL_DOCUMENT_PATH}`);
+  }
+  if (process.platform === 'darwin' && app.dock && fs.existsSync(APPLICATION_ICON_PATH)) {
+    const dockIcon = nativeImage.createFromPath(APPLICATION_ICON_PATH);
+    if (!dockIcon.isEmpty()) app.dock.setIcon(dockIcon);
   }
   loadSettings();
   const legacyFillRuntimeRoot = path.join(

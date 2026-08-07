@@ -12,6 +12,7 @@ import {
   type JsonValue,
   type ProductBinding,
 } from '../core/contracts/index.ts';
+import { sanitizeAgentCompletedText } from '../core/output-sanitizer.ts';
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
@@ -562,6 +563,17 @@ export class OpenCodeNativeUiGateway {
       return;
     }
 
+    if (method === 'GET' && /^message(?:\/|$)/u.test(sessionRoute?.[2] ?? '')) {
+      const upstream = await this.#engine.requestNativeUi(`${url.pathname}${url.search}`);
+      const body = await upstream.json() as unknown;
+      this.#writeJson(response, upstream.status, sanitizeNativeTranscript(body), {
+        ...(upstream.headers.get('x-next-cursor')
+          ? { 'x-next-cursor': upstream.headers.get('x-next-cursor')! }
+          : {}),
+      });
+      return;
+    }
+
     await this.#proxyEngineResponse(
       response,
       await this.#engine.requestNativeUi(`${url.pathname}${url.search}`, {
@@ -889,12 +901,18 @@ export class OpenCodeNativeUiGateway {
       .replace('</head>', `${bootstrap}</head>`);
   }
 
-  #writeJson(response: ServerResponse, status: number, body: unknown): void {
+  #writeJson(
+    response: ServerResponse,
+    status: number,
+    body: unknown,
+    headers: Readonly<Record<string, string>> = {},
+  ): void {
     const encoded = Buffer.from(JSON.stringify(body));
     response.writeHead(status, {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Length': encoded.length,
       'Cache-Control': 'no-store',
+      ...headers,
     });
     response.end(encoded);
   }
@@ -910,6 +928,23 @@ export class OpenCodeNativeUiGateway {
     this.#diagnostic(`${code}: ${error instanceof Error ? error.message : String(error)}`);
     this.#writeJson(response, status, { ok: false, error: { code, message } });
   }
+}
+
+function sanitizeNativeTranscript(value: unknown, assistantMessage = false): unknown {
+  if (Array.isArray(value)) {
+    return value.map((entry) => sanitizeNativeTranscript(entry, assistantMessage));
+  }
+  if (!isRecord(value)) return value;
+  const messageIsAssistant = assistantMessage || (
+    isRecord(value.info) && value.info.role === 'assistant'
+  ) || value.role === 'assistant';
+  const sanitized = Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    messageIsAssistant && key === 'text' && value.type === 'text' && typeof entry === 'string'
+      ? sanitizeAgentCompletedText(entry)
+      : sanitizeNativeTranscript(entry, messageIsAssistant),
+  ]));
+  return sanitized;
 }
 
 type NativeUiAccess = {

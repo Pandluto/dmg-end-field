@@ -147,25 +147,29 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.workbench.remove_skill_button',
-          'Remove one unambiguously identified skill button after explicit user approval.',
+          'Remove one exact current skill button, or a complete stable button-id set through one validated Work Node, after explicit user approval.',
           'mutate',
           objectSchema({
             properties: {
+              buttonIds: stringArraySchema(1, MAX_ARRAY_ITEMS, 200),
               buttonId: boundedStringSchema(1, 200),
               characterId: boundedStringSchema(1, 160),
               characterName: boundedStringSchema(1, 160),
               skillType: { enum: ['A', 'B', 'E', 'Q', 'Dot'] },
               nodeIndex: boundedIntegerSchema(0, 10_000),
               latest: { type: 'boolean' },
+              label: boundedStringSchema(1, 120),
+              description: boundedStringSchema(1, 500),
             },
             anyOf: [
+              { required: ['buttonIds'] },
               { required: ['buttonId'] },
               { required: ['characterId'] },
               { required: ['characterName'] },
             ],
           }),
         ),
-        (input) => directMutationPlan('移除技能按钮', 'timeline.buttons', 'removeSkillButton', input),
+        prepareTimelineButtonRemoval,
       ),
       handler(
         descriptor(
@@ -237,7 +241,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       ),
       handler(
         descriptor(
-          'def.worknode.patch_and_checkout',
+          'def.worknode.patch_and_validate',
           'Apply a constrained timeline patch through a temporary Work Node, validate it, and checkout only after explicit user approval.',
           'mutate',
           objectSchema({
@@ -426,6 +430,61 @@ async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToo
       : {}),
   };
   return mutationPlan('应用并检出排轴修改', ['timeline.work-node', 'timeline.checkout'], command);
+}
+
+async function prepareTimelineButtonRemoval(
+  input: JsonValue,
+  context: DefToolExecutionContext,
+): Promise<DefInteractiveToolPlan> {
+  const value = exactObject(input, [
+    'buttonIds', 'buttonId', 'characterId', 'characterName', 'skillType', 'nodeIndex', 'latest',
+    'label', 'description',
+  ]);
+  if (value.buttonIds === undefined) {
+    const direct = cloneJson(value);
+    delete direct.label;
+    delete direct.description;
+    if (!direct.buttonId && !direct.characterId && !direct.characterName) {
+      invalid('skill-button removal requires one exact target or buttonIds');
+    }
+    return mutationPlan('移除 1 个技能按钮', ['timeline.buttons'], {
+      op: 'removeSkillButton',
+      ...direct,
+    });
+  }
+  if (
+    value.buttonId !== undefined
+    || value.characterId !== undefined
+    || value.characterName !== undefined
+    || value.skillType !== undefined
+    || value.nodeIndex !== undefined
+    || value.latest !== undefined
+  ) {
+    invalid('buttonIds cannot be combined with a single-button target');
+  }
+  const buttonIds = stringArray(value.buttonIds, 'buttonIds', MAX_ARRAY_ITEMS, 200);
+  const snapshot = await context.product.getSnapshot(context.binding);
+  const payload = unrestrictedObject(snapshot.payload, 'Product snapshot payload');
+  const currentButtons = Array.isArray(payload.skillButtons) ? payload.skillButtons : null;
+  if (!currentButtons) invalid('Product snapshot has no current skill-button list');
+  const currentIds = new Set(currentButtons.map((button, index) => (
+    requiredString(unrestrictedObject(button, `skillButtons[${index}]`).id, `skillButtons[${index}].id`, 200)
+  )));
+  const missing = buttonIds.filter((buttonId) => !currentIds.has(buttonId));
+  if (missing.length) invalid(`buttonIds are not present in the bound snapshot: ${missing.join(', ')}`);
+  const label = optionalString(value.label, 'label', 120) ?? `移除 ${buttonIds.length} 个技能按钮`;
+  const description = optionalString(value.description, 'description', 500)
+    ?? `从当前排轴移除 ${buttonIds.length} 个已确认的技能按钮，并由工作节点验证变更。`;
+  return mutationPlan(
+    buttonIds.length === 1 ? '移除 1 个技能按钮' : `批量移除 ${buttonIds.length} 个技能按钮`,
+    ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+    {
+      op: 'applyApprovedWorkNodePatch',
+      patch: buttonIds.map((buttonId) => ({ op: 'removeButton', target: { buttonId } })),
+      label,
+      description,
+    },
+  );
 }
 
 async function prepareDamageCalculation(input: JsonValue): Promise<DefInteractiveToolPlan> {

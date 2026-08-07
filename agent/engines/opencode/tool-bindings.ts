@@ -15,7 +15,7 @@ export const OPENCODE_TOOL_BINDINGS = [
   ['def.buff.add_to_button', 'def_buff_add_to_button'],
   ['def.buff.remove_from_button', 'def_buff_remove_from_button'],
   ['def.target.set_resistance', 'def_target_set_resistance'],
-  ['def.worknode.patch_and_checkout', 'def_worknode_patch_and_checkout'],
+  ['def.worknode.patch_and_validate', 'def_worknode_patch_and_validate'],
   ['def.damage.calculate_and_verify', 'def_damage_calculate_and_verify'],
 ] as const;
 
