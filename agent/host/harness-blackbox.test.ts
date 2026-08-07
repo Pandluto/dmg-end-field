@@ -604,7 +604,13 @@ await host.shutdown();
 // A slow Engine start reserves the single-Turn slot before an Engine handle exists.
 {
   const startOwner = claims('phase3-start-owner');
-  const startConsumers = new BrowserConsumerRegistry();
+  let startHost!: DefAgentHost;
+  const startConsumers = new BrowserConsumerRegistry({
+    onConsumerLost: () => {
+      const turnId = startHost.getActiveIds().defTurnId;
+      if (turnId) void startHost.abortTurn(turnId, 'BROWSER_CONSUMER_LOST');
+    },
+  });
   const startRegistration = {
     consumerId: 'consumer-start',
     executorLeaseId: 'lease-start',
@@ -639,7 +645,7 @@ await host.shutdown();
   const startHarness = new DefHarnessManager({
     resolveToolDescriptor: (name) => startTools.resolveDescriptor(name),
   });
-  const startHost = new DefAgentHost({
+  startHost = new DefAgentHost({
     engine: delayedEngine,
     productGateway: startGateway,
     harnessManager: startHarness,
@@ -662,8 +668,31 @@ await host.shutdown();
     }),
     (error: unknown) => error instanceof DefAgentHostError && error.code === 'AGENT_TURN_BUSY',
   );
+  startConsumers.close(startOwner, startRegistration);
   releaseStart();
-  const startedTurn = await firstStart;
+  await assert.rejects(
+    firstStart,
+    (error: unknown) => (
+      error instanceof DefAgentHostError && error.code === 'AGENT_CONSUMER_REQUIRED'
+    ),
+  );
+  assert.equal(
+    startHost.readEvents(startSession.defSessionId).some((event) => event.type === 'turn.accepted'),
+    false,
+    'a Turn cancelled during Engine startup must never be accepted into the Event Journal',
+  );
+
+  startConsumers.register(startOwner, startRegistration);
+  startGateway.publishSnapshot(startOwner, {
+    consumerId: startRegistration.consumerId,
+    executorLeaseId: startRegistration.executorLeaseId,
+    snapshot: snapshot(),
+  });
+  baseEngine.enqueueScript([{ type: 'complete' }]);
+  const startedTurn = await startHost.startHarnessTurn({
+    defSessionId: startSession.defSessionId,
+    userMessage: '取消后重新启动',
+  });
   const earlyTerminal = await startHost.waitForTurnTerminal(startedTurn.defTurnId);
   assert.equal(earlyTerminal.type, 'turn.failed');
   if (earlyTerminal.type === 'turn.failed') assert.equal(earlyTerminal.payload.code, 'HARNESS_INCOMPLETE');

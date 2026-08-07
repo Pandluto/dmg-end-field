@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented and locally validated; independent review remains.
+Complete.
 
 ## Goal
 

@@ -4,7 +4,7 @@
 
 Phase 5 的代码和自动化纵向链路已经完成：Slim React AI 模式现在只通过 DEF Product API 创建 Session、发送/停止 Turn，并完全从 DEF Event Journal 重建用户消息、回答、Tool 过程和终态。浏览器不读取 OpenCode Session/消息协议，Electron 仍只负责 Host 生命周期与代理。
 
-本阶段实现和本地验收已经完成，但暂不宣称最后一道审查门关闭。重新启动 `npm run electron:dev` 后，lazy Agent Host 正常就绪，Shell 发出的单次授权能够进入完整 Slim Workbench/AI 面板；面板全高布局、收起/展开、Timeline binding 和 engine unavailable 禁用态均经真实 Chrome 手工检查。当前机器没有配置 OpenCode provider profile，因此没有擅自写入凭据；真实问答由 Product HTTP 自动黑盒覆盖。Sol 独立审查已发起，但平台额度耗尽而未产出结论，独立审查门保持未勾选。
+本阶段实现、本地验收和独立审查均已完成。重新启动 `npm run electron:dev` 后，lazy Agent Host 正常就绪，Shell 发出的单次授权能够进入完整 Slim Workbench/AI 面板；面板全高布局、收起/展开、Timeline binding 和 engine unavailable 禁用态均经真实 Chrome 手工检查。当前机器没有配置 OpenCode provider profile，因此没有擅自写入凭据；真实问答由 Product HTTP 自动黑盒覆盖。最终 Sol 复审结论为：无未关闭 P0/P1。
 
 ## 已实现链路
 
@@ -33,6 +33,13 @@ Phase 5 的代码和自动化纵向链路已经完成：Slim React AI 模式现�
 2. 新 checkout/revision 发布后，consumer binding 原先最多等待 5 秒定时心跳才更新；用户立即发送可能用旧 binding 读取新 snapshot。现在 `refreshEligibility()` 会在同一 Timeline 内检测完整 binding 变化并立即 heartbeat，且有专门回归测试。
 3. client Turn reservation、跨 Timeline read/abort、poller in-flight Session switch 和 Host binding mutation 顺序均复核通过。
 4. 开发模式 React StrictMode 会并发执行两次授权 effect，原先第二次初始化可能在第一次交换 grant 前误判为未授权。现在 `DesktopAgentBridge.initialize()` 合并并发初始化，共享同一个 grant exchange，并有 StrictMode 回归测试。
+5. Sol 实际复现 consumer 在 `engine.startTurn()` 延迟期间关闭后 Turn 仍会被接受。Host 现在把 starting Turn 纳入 active identity 与取消路径；引擎返回后会重新验证 consumer，丢失时只 abort 一次 Engine handle、回滚 Harness、拒绝启动且不写 `turn.accepted`，随后仍可重新启动。
+
+## 独立审查
+
+Sol xhigh 首轮报告 1 个 P1 和 4 个后续治理 P2。P1 已修复并加入延迟 Engine start + consumer close 黑盒回归；复审额外验证 Engine handle 只 abort 一次、Harness 正确回滚、无 accepted Event，并明确给出“整个 Phase 5 无未关闭 P0/P1”。审查者未修改文件。
+
+复审通过：`npm run typecheck:agent`、`npm run test:agent-harness`、`npm run test:agent-host`、`npm test`。本次修复没有改动 OpenCode adapter 或 Product HTTP 路径，因此未重复运行真实模型黑盒。
 
 ## 边界确认
 
@@ -41,6 +48,10 @@ Phase 5 的代码和自动化纵向链路已经完成：Slim React AI 模式现�
 - 普通 Slim 页面没有 AI 导航入口；直接访问隐藏路由会 fail-closed 并提示从 Electron Shell 打开。
 - Browser SQLite/OPFS 仍是唯一业务事实源；旧 Node SQLite、旧 REST 和 OpenCode Web UI 没有恢复。
 
-## 待关闭项目
+## 后续治理 P2
 
-- 平台额度恢复后补一次独立 Sol 高智能复审，要求明确给出无未关闭 P0/P1。
+- Host 直接 shutdown 时同步标记尚在启动的 Turn，并细分显式停止与 consumer-loss 的错误码。
+- 把 consumer binding 与对应 Browser snapshot 合并为原子发布语义。
+- `/agent-host/ui/state` 按 capability owner 隔离 consumer binding 与 active IDs。
+- Browser bridge 拒绝 Event sequence 跳号及额外私有字段。
+- 为 settled Turn、成功 `clientTurnId`、Session Event Journal 和前端 transcript 建立归档/容量上限。

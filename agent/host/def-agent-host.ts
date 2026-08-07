@@ -52,6 +52,12 @@ type TurnStartResult = {
   readonly clientTurnId: ClientTurnId;
 };
 
+type StartingTurn = {
+  readonly session: SessionRecord;
+  readonly defTurnId: DefTurnId;
+  abortCode: string | null;
+};
+
 type ActiveTurn = {
   readonly session: SessionRecord;
   readonly defTurnId: DefTurnId;
@@ -84,8 +90,8 @@ export class DefAgentHost {
   readonly #sessions = new Map<DefSessionId, SessionRecord>();
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
   #activeTurn: ActiveTurn | null = null;
+  #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
-  #turnStarting = false;
   #shutdown = false;
 
   constructor(options: {
@@ -186,10 +192,10 @@ export class DefAgentHost {
     if (!record) {
       throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
     }
-    this.#turnStarting = true;
+    const defTurnId = this.#ids.turn();
+    const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
+    const starting = this.#beginStartingTurn(record, defTurnId);
     try {
-      const defTurnId = this.#ids.turn();
-      const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
       const handle = await this.#engine.startTurn({
         engineSession: record.session.engine,
         defSessionId: record.session.defSessionId,
@@ -201,6 +207,12 @@ export class DefAgentHost {
         toolProjection: input.toolProjection,
         context: bindingContext(record.binding),
       });
+      const cancellation = this.#startingTurnCancellation(starting);
+      if (cancellation) {
+        await handle.abort({ code: cancellation.code }).catch(() => undefined);
+        throw cancellation.error;
+      }
+      this.#startingTurn = null;
       const active = this.#createActiveTurn(record, defTurnId, handle, null);
       this.#activeSessionId = record.session.defSessionId;
       this.#touchSession(record);
@@ -212,7 +224,7 @@ export class DefAgentHost {
       void this.#pump(active);
       return { defTurnId, clientTurnId };
     } finally {
-      this.#turnStarting = false;
+      if (this.#startingTurn === starting) this.#startingTurn = null;
     }
   }
 
@@ -247,7 +259,6 @@ export class DefAgentHost {
     }
     this.#assertTurnAvailable();
     if (input.binding) record.binding = input.binding;
-    this.#turnStarting = true;
     const promise = this.#startHarnessTurn(record, harnessManager, {
       clientTurnId,
       userMessage: input.userMessage,
@@ -268,8 +279,9 @@ export class DefAgentHost {
     harnessManager: DefHarnessManager,
     input: { readonly clientTurnId: ClientTurnId; readonly userMessage: string },
   ): Promise<TurnStartResult> {
+    const defTurnId = this.#ids.turn();
+    const starting = this.#beginStartingTurn(record, defTurnId);
     try {
-      const defTurnId = this.#ids.turn();
       const started = harnessManager.beginTurn({
         defSessionId: record.session.defSessionId,
         defTurnId,
@@ -287,10 +299,19 @@ export class DefAgentHost {
           toolProjection: started.transaction.projection,
           context: bindingContext(record.binding),
         });
+        const cancellation = this.#startingTurnCancellation(starting);
+        if (cancellation) {
+          await handle.abort({ code: cancellation.code }).catch(() => undefined);
+          throw cancellation.error;
+        }
       } catch (error) {
-        harnessManager.abort(started.transaction.transactionId, 'ENGINE_START_FAILED');
+        harnessManager.abort(
+          started.transaction.transactionId,
+          starting.abortCode ?? 'ENGINE_START_FAILED',
+        );
         throw error;
       }
+      this.#startingTurn = null;
       const active = this.#createActiveTurn(
         record,
         defTurnId,
@@ -308,7 +329,7 @@ export class DefAgentHost {
       void this.#pump(active);
       return { defTurnId, clientTurnId: input.clientTurnId };
     } finally {
-      this.#turnStarting = false;
+      if (this.#startingTurn === starting) this.#startingTurn = null;
     }
   }
 
@@ -372,6 +393,12 @@ export class DefAgentHost {
     code = 'USER_STOPPED',
     binding?: ProductBinding,
   ): Promise<void> {
+    const starting = this.#startingTurn;
+    if (starting?.defTurnId === defTurnId) {
+      if (binding) assertStableSessionBinding(starting.session.session, binding);
+      starting.abortCode ??= code;
+      return;
+    }
     const active = this.#turns.get(defTurnId);
     if (!active) {
       throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
@@ -446,8 +473,10 @@ export class DefAgentHost {
 
   getActiveIds(): { readonly defSessionId: DefSessionId | null; readonly defTurnId: DefTurnId | null } {
     return {
-      defSessionId: this.#activeTurn?.session.session.defSessionId ?? this.#activeSessionId,
-      defTurnId: this.#activeTurn?.defTurnId ?? null,
+      defSessionId: this.#activeTurn?.session.session.defSessionId
+        ?? this.#startingTurn?.session.session.defSessionId
+        ?? this.#activeSessionId,
+      defTurnId: this.#activeTurn?.defTurnId ?? this.#startingTurn?.defTurnId ?? null,
     };
   }
 
@@ -924,9 +953,39 @@ export class DefAgentHost {
   }
 
   #assertTurnAvailable(): void {
-    if (this.#activeTurn || this.#turnStarting) {
+    if (this.#activeTurn || this.#startingTurn) {
       throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench already has an active or starting turn');
     }
+  }
+
+  #beginStartingTurn(record: SessionRecord, defTurnId: DefTurnId): StartingTurn {
+    const starting: StartingTurn = { session: record, defTurnId, abortCode: null };
+    this.#startingTurn = starting;
+    this.#activeSessionId = record.session.defSessionId;
+    return starting;
+  }
+
+  #startingTurnCancellation(starting: StartingTurn): {
+    readonly code: string;
+    readonly error: DefAgentHostError;
+  } | null {
+    let consumerError: unknown = null;
+    try {
+      this.#requireConsumer();
+    } catch (error) {
+      consumerError = error;
+      starting.abortCode ??= 'BROWSER_CONSUMER_LOST';
+    }
+    if (!starting.abortCode) return null;
+    return {
+      code: starting.abortCode,
+      error: consumerError instanceof DefAgentHostError
+        ? consumerError
+        : new DefAgentHostError(
+          'AGENT_CONSUMER_REQUIRED',
+          `Browser Workbench consumer was lost while starting DEF Turn ${starting.defTurnId}`,
+        ),
+    };
   }
 
   #requireSession(defSessionId: DefSessionId): SessionRecord {
