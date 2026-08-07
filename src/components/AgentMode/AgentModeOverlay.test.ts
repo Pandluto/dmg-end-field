@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import type { AgentProductSession } from '../../../agent/core/contracts/browser-protocol';
 import { archivedSessionsForRecovery } from './AgentModeOverlay';
 
@@ -43,4 +45,21 @@ test('Agent Mode exposes only archived sessions for explicit recovery', () => {
     'def-old-archived',
     'def-new-archived',
   ]);
+});
+
+test('archived history never blocks creation of a fresh Agent Session', () => {
+  const source = fs.readFileSync(
+    fileURLToPath(new URL('./AgentModeOverlay.tsx', import.meta.url)),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    source,
+    /if \(archived\.length > 0\) \{[\s\S]*?return;/u,
+    'an archived-only binding must not force the user to restore history before starting fresh',
+  );
+  assert.match(
+    source,
+    /selected = await bridge\.createSession\(\);/u,
+    'the empty-ready-session path must create a fresh DEF Session',
+  );
 });

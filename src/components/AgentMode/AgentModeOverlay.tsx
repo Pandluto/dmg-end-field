@@ -161,14 +161,12 @@ export function AgentModeOverlay({
       setArchivedSessions(archived);
       let selected = chooseSession(listed, uiState.activeDefSessionId);
       if (!selected) {
-        if (archived.length > 0) {
-          setStatus('发现已归档会话，请先选择恢复。');
-          return;
-        }
         if (bridgeState.engine?.state !== 'ready') {
           throw new Error(bridgeState.engine?.reason || 'OpenCode 引擎尚未就绪。');
         }
-        setStatus('正在创建 DEF 会话…');
+        setStatus(archived.length > 0
+          ? '正在创建新的 DEF 会话；已归档会话仍可随时恢复…'
+          : '正在创建 DEF 会话…');
         selected = await bridge.createSession();
         if (disposed) return;
       }
