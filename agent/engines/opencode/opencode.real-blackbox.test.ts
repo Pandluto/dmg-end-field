@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -10,12 +11,16 @@ import {
   asDefTurnId,
   asTimelineId,
   asWorkspaceId,
+  canonicalJson,
   type DefEvent,
+  type DefPreparedWorkNodeCandidateRefV1,
+  type DefPreparedWorkNodeProposalV1,
   type Phase2ProductCommand,
   type Phase2ProductOperationSchema,
   type ProductBinding,
   type ProductGateway,
   type ProductSnapshotEnvelope,
+  type JsonValue,
   type JsonObject,
 } from '../../core/contracts/index.ts';
 import { DefHarnessManager } from '../../core/harness/manager.ts';
@@ -34,7 +39,7 @@ import { OpenCodeEngineAdapter } from './adapter.ts';
 import { InMemoryOpenCodeProviderProfileSource } from './profile.ts';
 import { toOpenCodeSafeToolName } from './tool-bindings.ts';
 
-const routeDescription = 'Route this Turn to one allowlisted DEF business operation.';
+const routeDescription = 'Route this Turn to one allowlisted DEF business operation. An ask route must include its bounded resume target. For an ordered cross-business Turn, submit one bounded plan.';
 const attachmentText = 'DEF_NATIVE_ATTACHMENT_OK';
 const attachmentFilename = 'def-native-attachment-test.txt';
 const attachmentFixture = {
@@ -65,7 +70,7 @@ const blackboxCases = [
       safeName: 'def_data_resource_team_loadouts',
       canonicalName: 'def.data.resource.team_loadouts',
       description: 'Read exact current loadouts for all selected operators.',
-      input: {},
+      input: { action: 'current' },
     }],
     answer: '测试干员已配置测试武器、3 件测试装备与测试套装。',
   },
@@ -86,10 +91,15 @@ const blackboxCases = [
     userMessage: '请查找当前按钮上的灼热增伤 Buff。',
     route: { businessId: 'buff', operation: 'resolve' },
     tools: [{
+      safeName: 'def_node_crud_current',
+      canonicalName: 'def.node.crud.current',
+      description: 'Read the current timeline checkout and stable skill-button coordinates.',
+      input: {},
+    }, {
       safeName: 'def_data_resource_buff',
       canonicalName: 'def.data.resource.buff',
       description: 'Resolve bounded Buff facts present in the current Workbench snapshot.',
-      input: { query: '灼热', buttonId: 'button-blackbox' },
+      input: { action: 'resolve', query: '灼热', buttonId: 'button-blackbox' },
     }],
     answer: '按钮 button-blackbox 当前包含灼热增伤。',
   },
@@ -106,22 +116,30 @@ const blackboxCases = [
       safeName: 'def_data_resource_damage',
       canonicalName: 'def.data.resource.damage',
       description: 'Read the product-generated typed damage report without recomputing formulas.',
-      input: {},
+      input: { action: 'current' },
     }],
     answer: '当前总期望伤害为 1234.5。',
   },
   {
     id: 'selection-question',
     userMessage: '如果队伍不明确，请问我选择甲还是乙。',
-    route: { businessId: 'selection', operation: 'ask' },
+    route: {
+      businessId: 'selection',
+      operation: 'ask',
+      resume: { steps: [{ businessId: 'selection', operation: 'inspect' }] },
+    },
     tools: [{
       safeName: 'def_user_ask',
       canonicalName: 'def.user.ask',
       description: 'Ask the user one explicit question and wait for the answer in the DEF AI panel.',
       input: { prompt: '请选择测试队伍', options: ['甲', '乙'] },
+    }, {
+      safeName: 'def_node_crud_context',
+      canonicalName: 'def.node.crud.context',
+      description: 'Read the bound current Workbench context and selected roster.',
+      input: {},
     }],
     interaction: { kind: 'question', status: 'answered', value: '乙' },
-    followUpRoute: { businessId: 'conversation', operation: 'respond' },
     answer: '用户选择了乙。',
   },
   {
@@ -129,6 +147,11 @@ const blackboxCases = [
     userMessage: '请把队伍明确改成洛茜。',
     route: { businessId: 'selection', operation: 'apply' },
     tools: [{
+      safeName: 'def_node_crud_context',
+      canonicalName: 'def.node.crud.context',
+      description: 'Read the bound current Workbench context and selected roster.',
+      input: {},
+    }, {
       safeName: 'def_team_selection_apply',
       canonicalName: 'def.team.selection.apply',
       description: 'Replace the selected roster with one exact one-to-four operator roster after explicit user approval.',
@@ -140,16 +163,20 @@ const blackboxCases = [
       },
     }],
     interaction: { kind: 'approval', status: 'approved' },
-    command: {
-      op: 'selectCharacters',
-      characterNames: ['洛茜'],
-      nodeTitle: '调整阵容：仅保留洛茜',
-      nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
-      openCanvas: true,
-      approval: {
-        mode: 'manual',
-        approvedBy: 'user',
-        rationale: 'Approved in the embedded DEF AI mode.',
+    preparedMutation: {
+      prepareCommand: {
+        op: 'prepareReviewedWorkNodeProposal',
+        operation: 'selection.apply',
+        intent: 'selection',
+        scope: ['selection.roster', 'timeline.structure', 'buff.attachments', 'buff.resistance', 'loadout.config'],
+        roster: {
+          characterNames: ['洛茜'],
+          nodeTitle: '调整阵容：仅保留洛茜',
+          nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
+          openCanvas: true,
+        },
+        label: '调整阵容：仅保留洛茜',
+        description: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
       },
     },
     answer: '已按批准把队伍改成洛茜。',
@@ -227,14 +254,17 @@ async function run(): Promise<void> {
     defSessionId: asDefSessionId('def-session-schema-inspection'),
     defTurnId: asDefTurnId('def-turn-schema-inspection'),
   });
-  const schemas = new Map<string, JsonObject>();
+  const projectedTools = new Map<string, { description: string; inputSchema: JsonObject }>();
   for (const descriptor of [
     ...schemaInspection.transaction.projection.tools,
     ...tools.listDescriptors(),
   ]) {
-    schemas.set(toOpenCodeSafeToolName(descriptor.name), descriptor.inputSchema);
+    projectedTools.set(toOpenCodeSafeToolName(descriptor.name), {
+      description: descriptor.description,
+      inputSchema: descriptor.inputSchema,
+    });
   }
-  const provider = await startProviderStub(schemas);
+  const provider = await startProviderStub(projectedTools);
   // Keep a non-ASCII segment in the real runtime path. Electron places this
   // directory beneath the Chinese product name on both development and
   // packaged installs, and the OpenCode directory header must remain valid.
@@ -395,7 +425,15 @@ async function run(): Promise<void> {
             ))) return page.events;
             await new Promise((resolveWait) => setTimeout(resolveWait, 10));
           }
-        })(), 60_000);
+        })(), 60_000).catch((error: unknown) => {
+          console.error(JSON.stringify({
+            scenario: scenario.id,
+            providerToolSets: provider.toolSets,
+            providerFailure: provider.failure?.stack ?? null,
+            events: host.readEvents(asDefSessionId(created.session.defSessionId)),
+          }, null, 2));
+          throw error;
+        });
         terminal = [...events].reverse().find((event) => (
           'defTurnId' in event
           && event.defTurnId === started.defTurnId
@@ -413,7 +451,82 @@ async function run(): Promise<void> {
           userMessage: scenario.userMessage,
           ...('userAttachments' in scenario ? { userAttachments: scenario.userAttachments } : {}),
         });
-        if ('interaction' in scenario) {
+        if ('preparedMutation' in scenario) {
+          const prepareDelivery = await waitForWorkbenchCommand(
+            productBaseUrl,
+            productHeaders,
+            consumer,
+            0,
+          );
+          assert.equal(prepareDelivery.command.command.op, 'workbench.execute-command');
+          assert.deepEqual(prepareDelivery.command.command.payload.command, {
+            ...scenario.preparedMutation.prepareCommand,
+            sourceBinding: binding,
+          });
+          assert.equal(prepareDelivery.command.approvalCapability, undefined);
+          const proposal = preparedSelectionProposal(binding);
+          await submitWorkbenchCommandResult(
+            productBaseUrl,
+            productHeaders,
+            consumer,
+            prepareDelivery.command,
+            {
+              beforeRevision: binding.contentRevision,
+              afterRevision: binding.contentRevision,
+              browserResult: proposal as unknown as JsonValue,
+            },
+          );
+          const interaction = await waitForInteraction(
+            productBaseUrl,
+            productHeaders,
+            session.defSessionId,
+          );
+          assert.equal(interaction.kind, scenario.interaction.kind);
+          await respondToInteraction(
+            productBaseUrl,
+            productHeaders,
+            interaction.interactionId,
+            scenario.interaction,
+          );
+          const applyDelivery = await waitForWorkbenchCommand(
+            productBaseUrl,
+            productHeaders,
+            consumer,
+            prepareDelivery.cursor,
+          );
+          assert.equal(applyDelivery.command.command.op, 'workbench.execute-command');
+          const candidate = candidateFromProposal(proposal);
+          assert.deepEqual(applyDelivery.command.command.payload.command, {
+            op: 'applyReviewedWorkNodeProposal',
+            operation: 'selection.apply',
+            candidate,
+          });
+          assert.equal(typeof applyDelivery.command.approvalCapability, 'string');
+          const postBinding: ProductBinding = {
+            ...binding,
+            timelineId: asTimelineId(proposal.candidateTimelineId),
+            checkoutTargetId: proposal.nodeId,
+            checkoutUpdatedAt: binding.checkoutUpdatedAt + 1,
+            contentRevision: proposal.nodeRevision,
+            snapshotDigest: proposal.workingPayloadDigest,
+          };
+          await submitWorkbenchCommandResult(
+            productBaseUrl,
+            productHeaders,
+            consumer,
+            applyDelivery.command,
+            {
+              beforeRevision: binding.contentRevision,
+              afterRevision: postBinding.contentRevision,
+              browserResult: { selectedCharacters: ['洛茜'] },
+              visiblePostcondition: {
+                pass: true,
+                contentRevision: postBinding.contentRevision,
+                binding: JSON.parse(JSON.stringify(postBinding)) as JsonValue,
+              },
+            },
+          );
+        } else if ('interaction' in scenario) {
           const interaction = await withTimeout((async () => {
             for (;;) {
               const interactionResponse = await fetch(
@@ -446,47 +559,6 @@ async function run(): Promise<void> {
             },
           );
           assert.equal(interactionResponse.status, 200);
-        }
-        if ('command' in scenario) {
-          const delivery = await withTimeout((async () => {
-            for (;;) {
-              const commandResponse = await fetch(
-                `${productBaseUrl}/agent-host/workbench/commands/next?consumerId=${consumer.consumerId}&executorLeaseId=${consumer.executorLeaseId}&afterCursor=0`,
-                { headers: productHeaders },
-              );
-              assert.equal(commandResponse.status, 200);
-              const body = await commandResponse.json() as {
-                delivery: null | { cursor: number; command: Phase2ProductCommand };
-              };
-              if (body.delivery) return body.delivery;
-              await new Promise((resolveWait) => setTimeout(resolveWait, 10));
-            }
-          })(), 60_000);
-          assert.equal(delivery.command.command.op, 'workbench.execute-command');
-          assert.deepEqual(delivery.command.command.payload.command, scenario.command);
-          assert.equal(typeof delivery.command.approvalCapability, 'string');
-          const resultResponse = await fetch(
-            `${productBaseUrl}/agent-host/workbench/commands/${delivery.command.commandId}/result`,
-            {
-              method: 'POST',
-              headers: productHeaders,
-              body: JSON.stringify({
-                consumerId: consumer.consumerId,
-                executorLeaseId: consumer.executorLeaseId,
-                result: {
-                  commandId: delivery.command.commandId,
-                  status: 'succeeded',
-                  beforeRevision: delivery.command.expected.contentRevision,
-                  afterRevision: delivery.command.expected.contentRevision + 1,
-                  browserResult: { selectedCharacters: ['洛茜'] },
-                  visiblePostcondition: { contentRevision: delivery.command.expected.contentRevision + 1 },
-                  executorLeaseId: consumer.executorLeaseId,
-                  completedAt: new Date().toISOString(),
-                },
-              }),
-            },
-          );
-          assert.equal(resultResponse.status, 200);
         }
         terminal = await withTimeout(host.waitForTurnTerminal(turn.defTurnId), 60_000).catch((error: unknown) => {
           console.error(JSON.stringify({
@@ -565,7 +637,9 @@ async function run(): Promise<void> {
     }
     assert.equal(provider.failure, null, provider.failure?.stack);
     assert.equal(provider.requestCount, providerPlan.length);
-    assert.equal(snapshotReads, 10);
+    // Candidate-first selection reads once for context, once to pin the
+    // prepare source, and once more to prove the approved binding stayed exact.
+    assert.equal(snapshotReads, 13);
     console.log(JSON.stringify({
       result: 'real OpenCode read/question/approval/mutation/multi-turn blackbox passed',
       runtimeVersion: '1.17.11-def.1',
@@ -579,7 +653,10 @@ async function run(): Promise<void> {
   }
 }
 
-async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject>): Promise<{
+async function startProviderStub(expectedTools: ReadonlyMap<string, {
+  readonly description: string;
+  readonly inputSchema: JsonObject;
+}>): Promise<{
   readonly origin: string;
   readonly toolSets: string[][];
   readonly requestCount: number;
@@ -642,13 +719,19 @@ async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject
       );
       const fn = asRecord(asRecord(definitions[0]).function);
       assert.equal(typeof fn.description, 'string');
-      assert.equal(
-        (fn.description as string).startsWith(`${expected.description}\nCurrent Harness phase: `),
-        true,
-      );
+      const expectedTool = expectedTools.get(expected.safeName);
+      assert.ok(expectedTool, `Missing projected Tool fixture for ${expected.safeName}`);
+      if (expected.safeName === 'def_harness_route') {
+        assert.equal(fn.description, expectedTool.description);
+      } else {
+        assert.equal(
+          (fn.description as string).startsWith(`${expectedTool.description}\nCurrent Harness phase: `),
+          true,
+        );
+      }
       assert.deepEqual(
         fn.parameters,
-        expectedSchemas.get(expected.safeName),
+        expectedTool.inputSchema,
         `${expected.safeName} 必须把 Harness 的动态 schema 原样送到 provider`,
       );
     } else {
@@ -666,7 +749,7 @@ async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject
         requestIndex,
         `call-${expected.scenarioId}-${expected.safeName}`,
         expected.safeName!,
-        expected.input,
+        asRecord(expected.input),
       );
     } else {
       writeText(response, requestIndex, expected.answer);
@@ -750,6 +833,193 @@ function asRecord(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+async function waitForWorkbenchCommand(
+  productBaseUrl: string,
+  headers: Record<string, string>,
+  consumer: { consumerId: string; executorLeaseId: string },
+  afterCursor: number,
+): Promise<{ cursor: number; command: Phase2ProductCommand }> {
+  return withTimeout((async () => {
+    for (;;) {
+      const response = await fetch(
+        `${productBaseUrl}/agent-host/workbench/commands/next?consumerId=${consumer.consumerId}&executorLeaseId=${consumer.executorLeaseId}&afterCursor=${afterCursor}`,
+        { headers },
+      );
+      assert.equal(response.status, 200);
+      const body = await response.json() as {
+        delivery: null | { cursor: number; command: Phase2ProductCommand };
+      };
+      if (body.delivery) return body.delivery;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+  })(), 60_000);
+}
+
+async function submitWorkbenchCommandResult(
+  productBaseUrl: string,
+  headers: Record<string, string>,
+  consumer: { consumerId: string; executorLeaseId: string },
+  command: Phase2ProductCommand,
+  result: {
+    beforeRevision: number;
+    afterRevision: number;
+    browserResult: JsonValue;
+    visiblePostcondition?: JsonValue;
+  },
+): Promise<void> {
+  const response = await fetch(
+    `${productBaseUrl}/agent-host/workbench/commands/${command.commandId}/result`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        consumerId: consumer.consumerId,
+        executorLeaseId: consumer.executorLeaseId,
+        result: {
+          commandId: command.commandId,
+          status: 'succeeded',
+          ...result,
+          executorLeaseId: consumer.executorLeaseId,
+          completedAt: new Date().toISOString(),
+        },
+      }),
+    },
+  );
+  assert.equal(response.status, 200, await response.text());
+}
+
+async function waitForInteraction(
+  productBaseUrl: string,
+  headers: Record<string, string>,
+  defSessionId: string,
+): Promise<{ interactionId: string; kind: string }> {
+  return withTimeout((async () => {
+    for (;;) {
+      const response = await fetch(`${productBaseUrl}/agent-host/interactions`, { headers });
+      assert.equal(response.status, 200);
+      const body = await response.json() as {
+        interactions: Array<{ interactionId: string; defSessionId: string; kind: string }>;
+      };
+      const pending = body.interactions.find((entry) => entry.defSessionId === defSessionId);
+      if (pending) return pending;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+  })(), 60_000);
+}
+
+async function respondToInteraction(
+  productBaseUrl: string,
+  headers: Record<string, string>,
+  interactionId: string,
+  response: { status: string; value?: string },
+): Promise<void> {
+  const result = await fetch(
+    `${productBaseUrl}/agent-host/interactions/${interactionId}/respond`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        status: response.status,
+        ...(response.value === undefined ? {} : { value: response.value }),
+      }),
+    },
+  );
+  assert.equal(result.status, 200, await result.text());
+}
+
+function candidateFromProposal(
+  proposal: DefPreparedWorkNodeProposalV1,
+): DefPreparedWorkNodeCandidateRefV1 {
+  return {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: proposal.schemaVersion,
+    proposalId: proposal.proposalId,
+    intent: proposal.intent,
+    destination: proposal.destination,
+    sourceTargetId: proposal.sourceTargetId,
+    sourceRevision: proposal.sourceRevision,
+    candidateTimelineId: proposal.candidateTimelineId,
+    nodeId: proposal.nodeId,
+    nodeRevision: proposal.nodeRevision,
+    basePayloadDigest: proposal.basePayloadDigest,
+    workingPayloadDigest: proposal.workingPayloadDigest,
+    diffDigest: proposal.diffDigest,
+    proposalDigest: proposal.proposalDigest,
+    scope: [...proposal.scope],
+  };
+}
+
+function preparedSelectionProposal(binding: ProductBinding): DefPreparedWorkNodeProposalV1 {
+  const sourceTargetId = binding.checkoutTargetId ?? `snapshot-${binding.timelineId}`;
+  const scope = [
+    'selection.roster',
+    'timeline.structure',
+    'buff.attachments',
+    'buff.resistance',
+    'loadout.config',
+  ] as const;
+  const changes = [{
+    path: '/selectedCharacters',
+    kind: 'changed' as const,
+    before: [{ id: 'char-blackbox', name: '测试干员' }],
+    after: [{ id: 'char-luoxi', name: '洛茜' }],
+  }];
+  const digest = (value: JsonValue): string => (
+    `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`
+  );
+  const candidateWithoutProposalDigest = {
+    contract: 'DefPreparedWorkNodeCandidateRefV1' as const,
+    schemaVersion: 1 as const,
+    proposalId: 'proposal-opencode-selection',
+    intent: 'selection' as const,
+    destination: 'new-temporary-workspace' as const,
+    sourceTargetId,
+    sourceRevision: binding.contentRevision,
+    candidateTimelineId: 'timeline-opencode-selection-candidate',
+    nodeId: 'candidate-opencode-selection',
+    nodeRevision: 1,
+    basePayloadDigest: `sha256:${'1'.repeat(64)}`,
+    workingPayloadDigest: `sha256:${'2'.repeat(64)}`,
+    diffDigest: digest(changes as unknown as JsonValue),
+    scope,
+  };
+  const proposalDigest = digest({
+    operation: 'selection.apply',
+    intent: candidateWithoutProposalDigest.intent,
+    candidate: candidateWithoutProposalDigest,
+    scope: [...scope],
+  } as unknown as JsonValue);
+  const candidate = { ...candidateWithoutProposalDigest, proposalDigest };
+  return {
+    ...candidate,
+    contract: 'DefPreparedWorkNodeProposalV1',
+    sourceBinding: { ...binding },
+    sourceCheckout: {
+      timelineId: binding.timelineId,
+      targetType: binding.checkoutTargetId === null ? 'snapshot' : 'work-node',
+      targetId: sourceTargetId,
+      revision: binding.contentRevision,
+      payloadDigest: candidate.basePayloadDigest,
+    },
+    structuralParentNodeId: null,
+    review: {
+      contract: 'DefPreparedWorkNodeReviewV1',
+      schemaVersion: 1,
+      manifest: {
+        proposalId: candidate.proposalId,
+        nodeId: candidate.nodeId,
+        nodeRevision: candidate.nodeRevision,
+        diffDigest: candidate.diffDigest,
+        proposalDigest: candidate.proposalDigest,
+        scope: [...scope],
+      },
+      summary: { addedPathCount: 0, removedPathCount: 0, changedPathCount: 1 },
+      changes,
+    },
+    liveCheckoutTouched: false,
+  };
+}
+
 function fixtureBinding(): ProductBinding {
   return {
     workspaceId: asWorkspaceId('workspace-opencode-blackbox'),
@@ -806,24 +1076,29 @@ function fixtureSnapshot(binding: ProductBinding): ProductSnapshotEnvelope {
       operatorConfigs: [{
         characterId: 'char-blackbox',
         weapon: {
-          weaponId: 'weapon-blackbox',
+          id: 'weapon-blackbox',
           name: '测试武器',
           level: 90,
+          potential: 'P0',
+          attack: 100,
         },
         equipment: [{
           slotKey: 'armor',
           equipmentId: 'equipment-blackbox-1',
           name: '测试装备甲',
+          part: '护甲',
           effects: [],
         }, {
-          slotKey: 'gloves',
+          slotKey: 'glove',
           equipmentId: 'equipment-blackbox-2',
           name: '测试装备手',
+          part: '护手',
           effects: [],
         }, {
-          slotKey: 'kit',
+          slotKey: 'accessory1',
           equipmentId: 'equipment-blackbox-3',
           name: '测试装备包',
+          part: '配件',
           effects: [],
         }],
         setBuffs: [{
@@ -834,18 +1109,59 @@ function fixtureSnapshot(binding: ProductBinding): ProductSnapshotEnvelope {
           typeKey: 'attack-percent',
           value: 0.15,
         }],
-        operatorSkillLevels: { basic: 12, battle: 12, ultimate: 12, talent: 12 },
+        operatorSkillLevels: { A: 'M3', B: 'L9', E: 'L9', Q: 'M3', Dot: 'L9' },
       }],
       damageReport: {
         generatedAt: 30,
+        totalDamage: 1234.5,
         totalExpected: 1234.5,
         totalNonCrit: 1000,
         buttonCount: 1,
         buttons: [{
           id: 'button-blackbox',
           characterId: 'char-blackbox',
+          groupLabel: '第1组',
+          orderLabel: '01',
+          characterName: '测试干员',
+          skillName: '测试技能',
+          skillType: 'A',
+          damage: 1234.5,
           expected: 1234.5,
           nonCrit: 1000,
+          share: 1,
+          hits: [{
+            id: 'button-blackbox-hit-1',
+            title: '测试命中',
+            sourceKind: 'normal',
+            damageSourceLabel: '主伤害',
+            skillTypeLabel: 'A',
+            elementLabel: '火',
+            damage: 1234.5,
+            expected: 1234.5,
+            nonCrit: 1000,
+            resistanceZone: 0.9,
+            resistance: {
+              baseResistance: 10,
+              corrosion: 0,
+              resistanceIgnore: 0,
+              effectiveResistance: 10,
+              resistanceZone: 0.9,
+              formulaText: '测试抗性区',
+            },
+            buffs: [],
+            zones: [],
+          }],
+        }],
+        characters: [{
+          characterId: 'char-blackbox',
+          characterName: '测试干员',
+          weaponName: '测试武器',
+          weaponPotentialMode: 'P0',
+          level: 90,
+          skillLevels: ['A M3'],
+          attributeLines: ['攻击 100'],
+          equipmentLines: ['测试装备'],
+          skills: [],
         }],
       },
     },
