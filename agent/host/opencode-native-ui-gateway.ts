@@ -8,6 +8,7 @@ import {
   PREPARED_WORK_NODE_LIMITS,
   type DefSessionId,
   type DefSessionV6,
+  type DefPreparedWorkNodeReviewV1,
   type EngineUserAttachment,
   type InteractionRequest,
   type InteractionResponse,
@@ -498,7 +499,7 @@ export class OpenCodeNativeUiGateway {
         ? pendingApprovals[0].interaction.candidateReview
         : undefined;
       const review = candidateReview
-        ? { ok: true, candidateReview: structuredClone(candidateReview) }
+        ? { ok: true, ...readCandidateReviewProjection(candidateReview) }
         : {
             ok: true,
             ...readNodeReviewProjection((await this.#host.readProductSnapshot(access.binding)).payload),
@@ -1273,6 +1274,66 @@ function readNodeReviewProjection(payload: unknown): {
     report: review.report === null || isRecord(review.report)
       ? structuredClone(review.report as JsonValue | null)
       : null,
+  };
+}
+
+function readCandidateReviewProjection(review: DefPreparedWorkNodeReviewV1): {
+  readonly bound: false;
+  readonly diffs: readonly JsonValue[];
+  readonly report: JsonValue;
+} {
+  const before = preparedReviewDocument(review, 'before');
+  const after = preparedReviewDocument(review, 'after');
+  const counts = changedLineCounts(before, after);
+  return {
+    bound: false,
+    diffs: [{
+      file: 'node/working/prepared-proposal.json',
+      before,
+      after,
+      additions: counts.additions,
+      deletions: counts.deletions,
+    }],
+    report: structuredClone(review) as unknown as JsonValue,
+  };
+}
+
+function preparedReviewDocument(
+  review: DefPreparedWorkNodeReviewV1,
+  side: 'before' | 'after',
+): string {
+  const changes = review.changes.map((change) => {
+    const exists = Object.prototype.hasOwnProperty.call(change, side);
+    return {
+      path: change.path,
+      kind: change.kind,
+      exists,
+      ...(exists ? { value: structuredClone(change[side]) } : {}),
+    };
+  });
+  return `${JSON.stringify({
+    proposalId: review.manifest.proposalId,
+    nodeId: review.manifest.nodeId,
+    nodeRevision: review.manifest.nodeRevision,
+    scope: review.manifest.scope,
+    changes,
+  }, null, 2)}\n`;
+}
+
+function changedLineCounts(before: string, after: string): {
+  readonly additions: number;
+  readonly deletions: number;
+} {
+  const left = before.split('\n');
+  const right = after.split('\n');
+  const shared = Math.min(left.length, right.length);
+  let changed = 0;
+  for (let index = 0; index < shared; index += 1) {
+    if (left[index] !== right[index]) changed += 1;
+  }
+  return {
+    additions: changed + Math.max(0, right.length - left.length),
+    deletions: changed + Math.max(0, left.length - right.length),
   };
 }
 

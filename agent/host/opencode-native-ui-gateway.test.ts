@@ -407,7 +407,21 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       { headers: { authorization: `Basic ${authToken}` } },
     );
     assert.equal(candidateReviewResponse.status, 200);
-    assert.deepEqual(await candidateReviewResponse.json(), { ok: true, candidateReview: nativeReview });
+    const candidateReviewBody = await candidateReviewResponse.json() as {
+      ok: boolean;
+      bound: boolean;
+      diffs: Array<{ file: string; before: string; after: string; additions: number; deletions: number }>;
+      report: unknown;
+    };
+    assert.equal(candidateReviewBody.ok, true);
+    assert.equal(candidateReviewBody.bound, false);
+    assert.equal(candidateReviewBody.diffs.length, 1);
+    assert.equal(candidateReviewBody.diffs[0]?.file, 'node/working/prepared-proposal.json');
+    assert.match(candidateReviewBody.diffs[0]?.before ?? '', /"value": 1/u);
+    assert.match(candidateReviewBody.diffs[0]?.after ?? '', /"value": 2/u);
+    assert.ok((candidateReviewBody.diffs[0]?.additions ?? 0) > 0);
+    assert.ok((candidateReviewBody.diffs[0]?.deletions ?? 0) > 0);
+    assert.deepEqual(candidateReviewBody.report, nativeReview);
 
     const secondApproval: InteractionRequest = {
       ...(pending.find((candidate) => candidate.interactionId === approvalId) as Extract<InteractionRequest, { kind: 'approval' }>),
