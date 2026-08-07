@@ -6,6 +6,7 @@ import {
   getAgentBuildGuide,
   getCompatibleWeapons,
   getGearTopologyFacts,
+  getSkillFact,
   normalizeAgentProductQuery,
   planGearTopology,
   queryAgentProductCatalog,
@@ -224,6 +225,39 @@ assert.deepEqual(
 );
 assert.equal(compatibleWeapons.recommendation.status, 'evidenceUnavailable');
 assert.equal('score' in (compatibleWeapons.compatibleWeapons.results[0] ?? {}), false);
+
+const exactSkillFact = getSkillFact(input, {
+  operatorQuery: '洛茜',
+  skillQuery: '终结技',
+  hitQuery: '第二段',
+});
+assert.equal(exactSkillFact.state, 'READY');
+assert.equal(exactSkillFact.skill?.skillId, 'skill-q');
+assert.equal(exactSkillFact.hit?.key, 'hit2');
+assert.equal(exactSkillFact.hit?.multiplier, 2.1);
+assert.equal(exactSkillFact.hit?.element, 'physical');
+
+const wrongOperatorSkill = getSkillFact(input, {
+  operatorQuery: '重名干员',
+  skillQuery: '终结技',
+});
+assert.equal(wrongOperatorSkill.state, 'OPERATOR_UNRESOLVED');
+assert.equal(wrongOperatorSkill.skill, null);
+
+const missingSkillFact = getSkillFact(input, {
+  operatorQuery: '洛茜',
+  skillQuery: '不存在的技能',
+});
+assert.equal(missingSkillFact.state, 'SKILL_NOT_FOUND');
+assert.equal(missingSkillFact.hit, null);
+
+const missingHitFact = getSkillFact(input, {
+  operatorQuery: '洛茜',
+  skillQuery: '终结技',
+  hitQuery: '第三段',
+});
+assert.equal(missingHitFact.state, 'HIT_NOT_FOUND');
+assert.equal(missingHitFact.skill?.skillId, 'skill-q');
 
 const guide = getAgentBuildGuide(input, '洛茜');
 assert.equal(guide.evidence.status, 'evidenceUnavailable');

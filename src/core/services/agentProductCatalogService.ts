@@ -228,6 +228,28 @@ export interface AgentWeaponCompatibilityResult {
   recommendation: AgentEvidenceUnavailable;
 }
 
+export type AgentSkillFactState =
+  | 'READY'
+  | 'OPERATOR_UNRESOLVED'
+  | 'SKILL_QUERY_REQUIRED'
+  | 'SKILL_NOT_FOUND'
+  | 'SKILL_AMBIGUOUS'
+  | 'HIT_NOT_FOUND'
+  | 'HIT_AMBIGUOUS';
+
+export interface AgentSkillFactResult {
+  source: AgentProductCatalogSource;
+  state: AgentSkillFactState;
+  operator: AgentOperatorResolution;
+  skills: AgentCatalogEnvelope<AgentSkillCatalogItem>;
+  skill: AgentSkillCatalogItem | null;
+  requestedHitQuery: string;
+  normalizedHitQuery: string;
+  hitMatchMode: AgentCatalogMatchMode;
+  hitCandidates: readonly AgentSkillHitCatalogItem[];
+  hit: AgentSkillHitCatalogItem | null;
+}
+
 export type AgentGearSlotKey = 'armor' | 'glove' | 'accessory1' | 'accessory2';
 
 export const AGENT_GEAR_SLOT_ORDER: readonly AgentGearSlotKey[] = [
@@ -862,6 +884,105 @@ export function getCompatibleWeapons(
     compatibility: 'deterministic-weapon-type-match',
     compatibleWeapons: buildCatalogEnvelope(compatible, request.weaponQuery, request.limit, ['id', 'name', 'type']),
     recommendation: createEvidenceUnavailable('subjective recommendation'),
+  };
+}
+
+/** Resolve one skill/hit only inside one exact operator's trusted catalog. */
+export function getSkillFact(
+  input: AgentProductCatalogInput,
+  request: { operatorQuery: string; skillQuery: string; hitQuery?: string },
+): AgentSkillFactResult {
+  const sources = normalizeSources(input);
+  const operator = resolveOperator(sources.operators, request.operatorQuery);
+  const skillQuery = asTrimmedString(request.skillQuery);
+  const hitQuery = asTrimmedString(request.hitQuery);
+  const emptySkills = buildCatalogEnvelope<AgentSkillCatalogItem>([], skillQuery, MAX_AGENT_PRODUCT_CATALOG_LIMIT, ['id', 'skillId', 'name']);
+  const base = {
+    source: AGENT_PRODUCT_CATALOG_SOURCE,
+    operator,
+    requestedHitQuery: hitQuery,
+    normalizedHitQuery: normalizeAgentProductQuery(hitQuery),
+  } as const;
+  if (!operator.operator) {
+    return {
+      ...base,
+      state: 'OPERATOR_UNRESOLVED',
+      skills: emptySkills,
+      skill: null,
+      hitMatchMode: 'none',
+      hitCandidates: [],
+      hit: null,
+    };
+  }
+  const operatorSkills = sources.skills.filter((skill) => skill.operatorId === operator.operator!.id);
+  if (!skillQuery) {
+    return {
+      ...base,
+      state: 'SKILL_QUERY_REQUIRED',
+      skills: buildCatalogEnvelope(operatorSkills, '', MAX_AGENT_PRODUCT_CATALOG_LIMIT, ['id', 'skillId', 'name', 'buttonType']),
+      skill: null,
+      hitMatchMode: 'none',
+      hitCandidates: [],
+      hit: null,
+    };
+  }
+  const skills = buildCatalogEnvelope(
+    operatorSkills,
+    skillQuery,
+    MAX_AGENT_PRODUCT_CATALOG_LIMIT,
+    ['id', 'skillId', 'name', 'buttonType'],
+  );
+  const skill = skills.matchMode === 'exact' || skills.matchMode === 'normalized'
+    ? skills.results[0] ?? null
+    : null;
+  if (!skill) {
+    return {
+      ...base,
+      state: skills.ambiguous ? 'SKILL_AMBIGUOUS' : 'SKILL_NOT_FOUND',
+      skills,
+      skill: null,
+      hitMatchMode: 'none',
+      hitCandidates: [],
+      hit: null,
+    };
+  }
+  if (!hitQuery) {
+    return {
+      ...base,
+      state: 'READY',
+      skills,
+      skill,
+      hitMatchMode: 'all',
+      hitCandidates: skill.hits,
+      hit: null,
+    };
+  }
+  const normalizedHitQuery = normalizeAgentProductQuery(hitQuery);
+  const exactHits = skill.hits.filter((hit) => (
+    [hit.key, hit.name].some((value) => exactQueryText(value) === exactQueryText(hitQuery))
+  ));
+  const normalizedHits = skill.hits.filter((hit) => (
+    [hit.key, hit.name].some((value) => normalizeAgentProductQuery(value) === normalizedHitQuery)
+  ));
+  const hitCandidates = sortByIdAndName((exactHits.length > 0 ? exactHits : normalizedHits).map((hit) => ({
+    ...hit,
+    id: hit.key,
+  }))).map(({ id: _id, ...hit }) => hit);
+  const hitMatchMode: AgentCatalogMatchMode = hitCandidates.length === 0
+    ? 'none'
+    : hitCandidates.length > 1
+      ? 'ambiguous'
+      : exactHits.length > 0
+        ? 'exact'
+        : 'normalized';
+  return {
+    ...base,
+    state: hitCandidates.length === 0 ? 'HIT_NOT_FOUND' : hitCandidates.length > 1 ? 'HIT_AMBIGUOUS' : 'READY',
+    skills,
+    skill,
+    hitMatchMode,
+    hitCandidates,
+    hit: hitCandidates.length === 1 ? hitCandidates[0]! : null,
   };
 }
 
