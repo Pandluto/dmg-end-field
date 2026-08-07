@@ -3,6 +3,7 @@ import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { BrowserConsumerRegistry } from '../host/browser-consumer-registry.ts';
 import { DefAgentHost } from '../host/def-agent-host.ts';
+import { DefAgentInteropRoute } from '../host/def-agent-interop.ts';
 import { DefAgentHostHttpServer } from '../host/http-server.ts';
 import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gateway.ts';
 import { createFileProductCommandStore } from '../host/product-command-store.ts';
@@ -26,6 +27,7 @@ const productCommandStoreRoot = requiredEnv('DEF_AGENT_PRODUCT_COMMAND_STORE_ROO
 const engineProfilePath = requiredEnv('DEF_AGENT_ENGINE_PROFILE_PATH');
 const nativeUiRoot = requiredEnv('DEF_AGENT_NATIVE_UI_ROOT');
 const engineDefaultProfileRef = process.env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF?.trim() || 'default';
+const interopEnabled = process.env.DEF_AGENT_INTEROP_ENABLED === '1';
 const parentPid = requiredPidEnv('DEF_AGENT_PARENT_PID');
 const FORCED_SHUTDOWN_TIMEOUT_MS = 8_000;
 
@@ -79,6 +81,15 @@ const nativeUi = new OpenCodeNativeUiGateway({
   providerProfileRef: engineDefaultProfileRef,
   diagnostic: (message) => console.error(`[def-opencode-ui] ${message}`),
 });
+const interop = new DefAgentInteropRoute({
+  host,
+  consumers,
+  gateway,
+  engine: () => engineState,
+  profile: interopEnabled ? 'development' : 'release',
+  enabled: interopEnabled,
+  diagnostic: (message) => console.error(`[def-agent-interop] ${message}`),
+});
 
 let shuttingDown = false;
 const parentWatch = setInterval(() => {
@@ -92,6 +103,7 @@ const runtime = new DefAgentHostHttpServer({
   tokens,
   consumers,
   gateway,
+  interop,
   nativeUi,
   engine: () => engineState,
   diagnostic: (message) => console.error(`[def-agent-host] ${message}`),

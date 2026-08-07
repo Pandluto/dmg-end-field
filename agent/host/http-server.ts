@@ -30,6 +30,7 @@ import {
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
+import { DefAgentInteropRoute } from './def-agent-interop.ts';
 import { RemoteBrowserProductGateway } from './remote-browser-product-gateway.ts';
 import { AgentTokenAuthority, type AgentUiCapabilityClaims } from './token-authority.ts';
 
@@ -55,6 +56,8 @@ export interface DefAgentHostHttpServerOptions {
   readonly tokens: AgentTokenAuthority;
   readonly consumers: BrowserConsumerRegistry;
   readonly gateway: RemoteBrowserProductGateway;
+  /** Development-only blackbox observation route over the current Host journal. */
+  readonly interop?: DefAgentInteropRoute;
   readonly nativeUi?: NativeAgentUiGateway;
   readonly engine: AgentHostHealth['engine'] | (() => AgentHostHealth['engine']);
   readonly diagnostic?: (message: string) => void;
@@ -68,6 +71,7 @@ export class DefAgentHostHttpServer {
   readonly #tokens: AgentTokenAuthority;
   readonly #consumers: BrowserConsumerRegistry;
   readonly #gateway: RemoteBrowserProductGateway;
+  readonly #interop: DefAgentInteropRoute | null;
   readonly #nativeUi: NativeAgentUiGateway | null;
   readonly #engine: () => AgentHostHealth['engine'];
   readonly #diagnostic: (message: string) => void;
@@ -84,6 +88,7 @@ export class DefAgentHostHttpServer {
     this.#tokens = options.tokens;
     this.#consumers = options.consumers;
     this.#gateway = options.gateway;
+    this.#interop = options.interop ?? null;
     this.#nativeUi = options.nativeUi ?? null;
     const engine = options.engine;
     this.#engine = typeof engine === 'function' ? engine : () => engine;
@@ -157,6 +162,7 @@ export class DefAgentHostHttpServer {
     }
     if (!url.pathname.startsWith('/agent-host/')) throw httpError('AGENT_ROUTE_NOT_FOUND', 'Route not found', 404);
     this.#assertBrowserOrigin(request);
+    if (this.#interop && await this.#interop.handle(request, response, url)) return;
     await this.#handleBrowser(request, response, url);
   }
 
