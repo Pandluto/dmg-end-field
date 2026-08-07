@@ -284,7 +284,7 @@ function App() {
   return (
     <div className="app">
       <AppShell currentPath={currentPath} overlay={overlay}>
-        <RouteLoadBoundary key={currentPath}>
+        <RouteLoadBoundary key={isWorkbenchPath(currentPath) ? 'workbench' : currentPath}>
           <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
         </RouteLoadBoundary>
       </AppShell>

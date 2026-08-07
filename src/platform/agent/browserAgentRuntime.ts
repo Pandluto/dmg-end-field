@@ -3,7 +3,6 @@ import {
   asTimelineId,
   type CommandId,
 } from '../../../agent/core/contracts/ids.ts';
-import { AGENT_LAUNCH_GRANT_FRAGMENT_KEY } from '../../../agent/core/contracts/browser-protocol.ts';
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import type {
   ApprovalCapabilityClaims,
@@ -28,7 +27,6 @@ import {
   createDesktopAgentConsumerController,
   DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS,
   DESKTOP_AGENT_MODE_PATH,
-  requestDesktopAgentModeLaunch,
   type DesktopAgentBridge,
   type DesktopAgentConsumerController,
 } from './desktopAgentBridge';
@@ -1290,38 +1288,83 @@ export const browserAgentRuntime = new BrowserAgentRuntime({
 });
 browserAgentRuntimeRef = browserAgentRuntime;
 
-/**
- * Re-enter through a full document navigation so WebBootstrap can acquire the
- * writer lease and initialize the ProductGateway before the AI panel mounts.
- * A hash-only route change would leave the ordinary-workbench bootstrap alive.
- */
-export async function enterDesktopAgentModeFromWorkbench(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  const launch = await requestDesktopAgentModeLaunch();
-  // A previous Agent Host may have exited while this browser tab retained its
-  // sessionStorage. Never let that stale capability suppress exchange of the
-  // fresh one-time launch grant.
-  desktopAgentBridge.clearSessionCapability();
-  const url = new URL(window.location.href);
-  // Changing only the hash is a same-document navigation. WebBootstrap would
-  // therefore keep the ordinary-workbench lifecycle and never initialize the
-  // Agent writer/ProductGateway. The harmless query marker forces a real page
-  // load while the launch secret itself stays in the fragment.
-  url.searchParams.set(DESKTOP_AGENT_BOOT_QUERY_KEY, '1');
-  const query = new URLSearchParams({
-    [AGENT_LAUNCH_GRANT_FRAGMENT_KEY]: launch.grant,
-  });
-  url.hash = `#${DESKTOP_AGENT_MODE_PATH}?${query.toString()}`;
-  window.location.assign(url.href);
+export interface DesktopAgentModeNavigationDependencies {
+  readonly currentHref: () => string;
+  readonly pushHref: (href: string) => void;
+  readonly replaceHref: (href: string) => void;
+  readonly announceRoute: (oldHref: string, newHref: string) => void;
+  readonly authorize: () => Promise<unknown>;
+  readonly initializeWorkspace: () => Promise<void>;
+  readonly startConsumer: () => Promise<void>;
+  readonly stopConsumer: () => Promise<void>;
+  readonly clearCapability: () => void;
 }
 
-/** Close the registered browser consumer before dropping its tab capability. */
-export async function exitDesktopAgentModeToWorkbench(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  await desktopAgentConsumerController.stop().catch(() => undefined);
-  desktopAgentBridge.clearSessionCapability();
-  const url = new URL(window.location.href);
+function defaultAgentModeNavigationDependencies(): DesktopAgentModeNavigationDependencies | null {
+  if (typeof window === 'undefined') return null;
+  return {
+    currentHref: () => window.location.href,
+    pushHref: (href) => window.history.pushState(window.history.state, '', href),
+    replaceHref: (href) => window.history.replaceState(window.history.state, '', href),
+    announceRoute: (oldHref, newHref) => window.dispatchEvent(new HashChangeEvent('hashchange', {
+      oldURL: oldHref,
+      newURL: newHref,
+    })),
+    authorize: () => desktopAgentBridge.retryAuthorization(),
+    initializeWorkspace: () => browserAgentRuntime.initializeWorkspace(),
+    startConsumer: () => desktopAgentConsumerController.start(),
+    stopConsumer: () => desktopAgentConsumerController.stop(),
+    clearCapability: () => desktopAgentBridge.clearSessionCapability(),
+  };
+}
+
+function agentModeHref(currentHref: string, route: string): string {
+  const url = new URL(currentHref);
+  // Remove the old reload marker whenever a tab created by an earlier build
+  // reaches this same-document lifecycle.
   url.searchParams.delete(DESKTOP_AGENT_BOOT_QUERY_KEY);
-  url.hash = '#/timeline';
-  window.location.assign(url.href);
+  url.hash = `#${route}`;
+  return url.href;
+}
+
+/**
+ * Authorize and register the existing Workbench before publishing the AI hash
+ * route. history.pushState deliberately changes the URL without mounting the
+ * overlay yet, preventing initialize/reauthorize races while preserving the
+ * current React tree, SQLite connection and writer lease.
+ */
+export async function enterDesktopAgentModeFromWorkbench(
+  injected?: DesktopAgentModeNavigationDependencies,
+): Promise<void> {
+  const dependencies = injected ?? defaultAgentModeNavigationDependencies();
+  if (!dependencies) return;
+  const previousHref = dependencies.currentHref();
+  const nextHref = agentModeHref(previousHref, DESKTOP_AGENT_MODE_PATH);
+  dependencies.pushHref(nextHref);
+  try {
+    await dependencies.authorize();
+    await dependencies.initializeWorkspace();
+    await dependencies.startConsumer();
+    dependencies.announceRoute(previousHref, nextHref);
+  } catch (error) {
+    await dependencies.stopConsumer().catch(() => undefined);
+    dependencies.clearCapability();
+    dependencies.replaceHref(previousHref);
+    dependencies.announceRoute(nextHref, previousHref);
+    throw error;
+  }
+}
+
+/** Close the registered consumer and return without reloading the Workbench. */
+export async function exitDesktopAgentModeToWorkbench(
+  injected?: DesktopAgentModeNavigationDependencies,
+): Promise<void> {
+  const dependencies = injected ?? defaultAgentModeNavigationDependencies();
+  if (!dependencies) return;
+  const previousHref = dependencies.currentHref();
+  await dependencies.stopConsumer().catch(() => undefined);
+  dependencies.clearCapability();
+  const nextHref = agentModeHref(previousHref, '/timeline');
+  dependencies.pushHref(nextHref);
+  dependencies.announceRoute(previousHref, nextHref);
 }

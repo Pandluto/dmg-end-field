@@ -31,6 +31,9 @@ import type { MainWorkbenchSnapshot } from '../../utils/mainWorkbenchControl';
 import {
   AGENT_SELECTION_WORKSPACE_TIMELINE_ID,
   BrowserAgentRuntime,
+  enterDesktopAgentModeFromWorkbench,
+  exitDesktopAgentModeToWorkbench,
+  type DesktopAgentModeNavigationDependencies,
 } from './browserAgentRuntime';
 
 const binding = {
@@ -1344,5 +1347,75 @@ assert.equal(
   publishedSnapshotsBeforeOrdinaryRoute,
   'ordinary pages must not issue Agent requests',
 );
+
+// AI mode is a same-document lifecycle. Authorization and consumer startup
+// finish before the route event mounts the overlay; no location.assign/reload
+// is involved and failures restore the exact previous URL.
+{
+  let href = 'http://127.0.0.1:3030/?__agent_mode=1#/timeline';
+  const events: string[] = [];
+  const dependencies: DesktopAgentModeNavigationDependencies = {
+    currentHref: () => href,
+    pushHref: (next) => { href = next; events.push(`push:${new URL(next).hash}`); },
+    replaceHref: (next) => { href = next; events.push(`replace:${new URL(next).hash}`); },
+    announceRoute: (_oldHref, nextHref) => events.push(`route:${new URL(nextHref).hash}`),
+    authorize: async () => { events.push('authorize'); },
+    initializeWorkspace: async () => { events.push('workspace'); },
+    startConsumer: async () => { events.push('consumer:start'); },
+    stopConsumer: async () => { events.push('consumer:stop'); },
+    clearCapability: () => { events.push('capability:clear'); },
+  };
+  await enterDesktopAgentModeFromWorkbench(dependencies);
+  assert.equal(new URL(href).hash, '#/timeline/ai');
+  assert.equal(new URL(href).searchParams.has('__agent_mode'), false);
+  assert.deepEqual(events, [
+    'push:#/timeline/ai',
+    'authorize',
+    'workspace',
+    'consumer:start',
+    'route:#/timeline/ai',
+  ]);
+
+  events.length = 0;
+  await exitDesktopAgentModeToWorkbench(dependencies);
+  assert.equal(new URL(href).hash, '#/timeline');
+  assert.deepEqual(events, [
+    'consumer:stop',
+    'capability:clear',
+    'push:#/timeline',
+    'route:#/timeline',
+  ]);
+}
+
+{
+  const originalHref = 'http://127.0.0.1:3030/#/timeline';
+  let href = originalHref;
+  const events: string[] = [];
+  const failure = new Error('authorization failed');
+  const dependencies: DesktopAgentModeNavigationDependencies = {
+    currentHref: () => href,
+    pushHref: (next) => { href = next; events.push(`push:${new URL(next).hash}`); },
+    replaceHref: (next) => { href = next; events.push(`replace:${new URL(next).hash}`); },
+    announceRoute: (_oldHref, nextHref) => events.push(`route:${new URL(nextHref).hash}`),
+    authorize: async () => { events.push('authorize'); throw failure; },
+    initializeWorkspace: async () => { events.push('workspace'); },
+    startConsumer: async () => { events.push('consumer:start'); },
+    stopConsumer: async () => { events.push('consumer:stop'); },
+    clearCapability: () => { events.push('capability:clear'); },
+  };
+  await assert.rejects(
+    () => enterDesktopAgentModeFromWorkbench(dependencies),
+    (error: unknown) => error === failure,
+  );
+  assert.equal(href, originalHref);
+  assert.deepEqual(events, [
+    'push:#/timeline/ai',
+    'authorize',
+    'consumer:stop',
+    'capability:clear',
+    'replace:#/timeline',
+    'route:#/timeline',
+  ]);
+}
 
 console.log('browserAgentRuntime seam contract tests passed');
