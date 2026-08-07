@@ -2973,22 +2973,54 @@ export function CanvasBoard({
   });
 
   useEffect(() => {
-    if (currentView !== 'canvas' || selectedCharacters.length === 0) {
+    if (!isAgentMode || currentView !== 'canvas' || selectedCharacters.length === 0) {
       return undefined;
     }
-    void processMainWorkbenchCanvasCommand();
+    let stopped = false;
+    const yieldToBrowser = () => new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0);
+    });
+    const runCommandPullLoop = async () => {
+      while (!stopped) {
+        if (document.visibilityState !== 'visible') {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+          continue;
+        }
+        try {
+          await processMainWorkbenchCanvasCommand();
+        } catch (error) {
+          if (!stopped) {
+            console.warn('[CanvasBoard] Agent command pull failed; recovery path will retry.', error);
+          }
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+        }
+        await yieldToBrowser();
+      }
+    };
+    void runCommandPullLoop();
     const handleControlEvent = () => {
       void processMainWorkbenchCanvasCommand();
     };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void processMainWorkbenchCanvasCommand();
+      }
+    };
+    // The Agent bridge keeps the command request open and wakes it from the
+    // Host when a Product command is dispatched. This timer is deliberately
+    // retained only as a recovery path for a dropped long-poll/event request.
     const timer = window.setInterval(() => {
       void processMainWorkbenchCanvasCommand();
     }, 1200);
     window.addEventListener('def-main-workbench-control', handleControlEvent);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
       window.clearInterval(timer);
+      stopped = true;
       window.removeEventListener('def-main-workbench-control', handleControlEvent);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentView, selectedCharacters, skillButtons, staffCount]);
+  }, [currentView, isAgentMode, selectedCharacters, skillButtons, staffCount]);
 
   useEffect(() => {
     const publishWhenVisible = () => {

@@ -126,6 +126,8 @@ async function createFixture({
   fetchImpl,
   manifestOverrides = {},
   proxyResponseDelayMs = 0,
+  proxyTimeoutMs = 30_000,
+  commandNextProxyTimeoutMs = 35_000,
   gracefulShutdown = true,
   engineIgnoresSigterm = false,
   engineIgnoresSigkill = false,
@@ -201,6 +203,8 @@ async function createFixture({
     pollIntervalMs: 1,
     readyTimeoutMs: 500,
     healthTimeoutMs: 100,
+    proxyTimeoutMs,
+    commandNextProxyTimeoutMs,
     stopTimeoutMs: 100,
     launchService({ env }) {
       launchCount += 1;
@@ -530,6 +534,28 @@ test('the default browser proxy timeout allows a real asynchronous Host response
     }, response), true);
     assert.equal(response.statusCode, 200);
     assert.match(response.body.toString('utf8'), /agent-host\/health/u);
+  } finally {
+    await fixture.runtime.stop();
+    fixture.cleanup();
+  }
+});
+
+test('the Product command long-poll proxy uses its extended timeout', async () => {
+  const fixture = await createFixture({
+    proxyResponseDelayMs: 30,
+    proxyTimeoutMs: 10,
+    commandNextProxyTimeoutMs: 100,
+  });
+  try {
+    await fixture.runtime.start();
+    const response = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'GET',
+      url: '/agent-host/workbench/commands/next?waitMs=25000',
+      headers: { origin: 'http://127.0.0.1:31457' },
+    }, response), true);
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body.toString('utf8'), /workbench\/commands\/next/u);
   } finally {
     await fixture.runtime.stop();
     fixture.cleanup();

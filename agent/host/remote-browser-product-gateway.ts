@@ -45,6 +45,20 @@ type ResultWaiter = {
   readonly timer: ReturnType<typeof setTimeout> | null;
 };
 
+type NextCommandInput = {
+  readonly consumerId: string;
+  readonly executorLeaseId: string;
+  readonly afterCursor: number;
+};
+
+type NextCommandWaiter = {
+  readonly claims: AgentUiCapabilityClaims;
+  readonly input: NextCommandInput;
+  readonly resolve: (delivery: BrowserCommandDelivery | null) => void;
+  readonly reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+};
+
 export type RemoteProductCommandView = {
   readonly cursor: number;
   readonly command: Phase2ProductCommand;
@@ -61,6 +75,7 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
   readonly #onTerminalResult: ((view: RemoteProductCommandView) => void) | null;
   readonly #commands = new Map<CommandId, QueuedCommand>();
   readonly #waiters = new Map<CommandId, Set<ResultWaiter>>();
+  readonly #nextCommandWaiters = new Set<NextCommandWaiter>();
   #snapshot: ProductSnapshotEnvelope | null = null;
   #cursor = 0;
 
@@ -166,16 +181,13 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
       result: persisted.result,
     });
     this.#cursor = Math.max(this.#cursor, persisted.cursor);
+    this.#notifyNextCommandWaiters();
     return { commandId: command.commandId, status: 'queued', acceptedAt };
   }
 
   nextCommand(
     claims: AgentUiCapabilityClaims,
-    input: {
-      readonly consumerId: string;
-      readonly executorLeaseId: string;
-      readonly afterCursor: number;
-    },
+    input: NextCommandInput,
   ): BrowserCommandDelivery | null {
     const consumer = this.#consumers.requireActive(claims);
     assertConsumerIdentity(consumer, input.consumerId, input.executorLeaseId);
@@ -192,6 +204,37 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
       command: next.command,
       mode: next.deliveryMode,
     };
+  }
+
+  /**
+   * Keep the browser request open while no command is available. The durable
+   * cursor and delivery state remain owned by nextCommand(); this method only
+   * adds a bounded wake-up wait around that existing replay-safe operation.
+   */
+  waitForNextCommand(
+    claims: AgentUiCapabilityClaims,
+    input: NextCommandInput,
+    waitMs: number,
+  ): Promise<BrowserCommandDelivery | null> {
+    const immediate = this.nextCommand(claims, input);
+    const timeoutMs = Number.isSafeInteger(waitMs) && waitMs > 0 ? waitMs : 0;
+    if (immediate || timeoutMs === 0) return Promise.resolve(immediate);
+
+    return new Promise<BrowserCommandDelivery | null>((resolve, reject) => {
+      const waiter: NextCommandWaiter = {
+        claims,
+        input,
+        resolve,
+        reject,
+        timer: null,
+      };
+      waiter.timer = setTimeout(() => {
+        this.#nextCommandWaiters.delete(waiter);
+        waiter.timer = null;
+        resolve(null);
+      }, timeoutMs);
+      this.#nextCommandWaiters.add(waiter);
+    });
   }
 
   submitResult(
@@ -354,8 +397,38 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
       }
     }
     this.#waiters.clear();
+    for (const waiter of this.#nextCommandWaiters) {
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.timer = null;
+      waiter.resolve(null);
+    }
+    this.#nextCommandWaiters.clear();
     this.#commands.clear();
     this.#snapshot = null;
+  }
+
+  #notifyNextCommandWaiters(): void {
+    // There is one active writer consumer, so waking the first eligible
+    // request avoids handing the same replay-safe delivery to a burst of
+    // duplicate browser requests. A retry still observes the same cursor.
+    for (const waiter of [...this.#nextCommandWaiters]) {
+      let delivery: BrowserCommandDelivery | null;
+      try {
+        delivery = this.nextCommand(waiter.claims, waiter.input);
+      } catch (error) {
+        this.#nextCommandWaiters.delete(waiter);
+        if (waiter.timer) clearTimeout(waiter.timer);
+        waiter.timer = null;
+        waiter.reject(error instanceof Error ? error : new Error(String(error)));
+        continue;
+      }
+      if (!delivery) continue;
+      this.#nextCommandWaiters.delete(waiter);
+      if (waiter.timer) clearTimeout(waiter.timer);
+      waiter.timer = null;
+      waiter.resolve(delivery);
+      break;
+    }
   }
 }
 

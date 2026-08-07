@@ -27,6 +27,7 @@ import type {
   ProductCommandResult,
   ProductSnapshotEnvelope,
 } from '../../../agent/core/contracts/index.ts';
+import type { MainWorkbenchSnapshot } from '../../utils/mainWorkbenchControl';
 import {
   AGENT_SELECTION_WORKSPACE_TIMELINE_ID,
   BrowserAgentRuntime,
@@ -199,6 +200,54 @@ class AlreadyPendingStore extends FakeStore {
   }
 }
 
+class GatedSnapshotStore extends FakeStore {
+  #resolveFirstSnapshotStarted!: () => void;
+  #releaseFirstSnapshot!: () => void;
+  readonly firstSnapshotStarted = new Promise<void>((resolve) => {
+    this.#resolveFirstSnapshotStarted = resolve;
+  });
+  readonly firstSnapshotRelease = new Promise<void>((resolve) => {
+    this.#releaseFirstSnapshot = resolve;
+  });
+
+  async createRuntimeSnapshot(input: RuntimeSnapshotInput): Promise<ProductSnapshotEnvelope> {
+    this.snapshotInputs.push(input);
+    if (this.snapshotInputs.length === 1) {
+      this.#resolveFirstSnapshotStarted();
+      await this.firstSnapshotRelease;
+    }
+    return {
+      protocolVersion: 1,
+      binding: {
+        ...binding,
+        checkoutUpdatedAt: input.checkoutUpdatedAt,
+        contentRevision: input.contentRevision,
+        snapshotDigest: `sha256:runtime-${input.contentRevision}`,
+      },
+      capturedAt: input.capturedAt!,
+      payload: input.payload,
+    };
+  }
+
+  releaseFirstSnapshot(): void {
+    this.#releaseFirstSnapshot();
+  }
+}
+
+function runtimeSnapshotAt(revision: number): MainWorkbenchSnapshot {
+  return {
+    schemaVersion: 1,
+    updatedAt: revision,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: revision },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+  };
+}
+
 class FakeBridge {
   active = true;
   failSnapshotPublish = false;
@@ -263,6 +312,34 @@ await runtime.publishMainWorkbenchSnapshot({
 assert.equal(refreshes, 1);
 assert.equal(bridge.snapshots.length, 1);
 assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+
+// Consecutive snapshots that are waiting behind one in-flight publish keep
+// only the newest binding/revision/digest candidate.
+{
+  const coalescingEvents: string[] = [];
+  const coalescingBridge = new FakeBridge(coalescingEvents);
+  coalescingBridge.delivery = null;
+  const coalescingStore = new GatedSnapshotStore(coalescingEvents);
+  const coalescingRuntime = new BrowserAgentRuntime({
+    bridge: coalescingBridge,
+    consumerController: {
+      getState: controller.getState,
+      refreshEligibility: async () => undefined,
+    },
+    store: coalescingStore,
+  });
+  const firstPublish = coalescingRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(101));
+  await coalescingStore.firstSnapshotStarted;
+  const intermediatePublish = coalescingRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(102));
+  const newestPublish = coalescingRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(103));
+  assert.equal(coalescingStore.snapshotInputs.length, 1);
+  coalescingStore.releaseFirstSnapshot();
+  await Promise.all([firstPublish, intermediatePublish, newestPublish]);
+  assert.equal(coalescingStore.snapshotInputs.length, 2);
+  assert.equal(coalescingStore.snapshotInputs.at(-1)?.contentRevision, 103);
+  assert.equal(coalescingBridge.snapshots.at(-1)?.snapshot.binding.contentRevision, 103);
+  assert.equal(coalescingBridge.snapshots.at(-1)?.snapshot.binding.snapshotDigest, 'sha256:runtime-103');
+}
 
 const failedBinding = {
   ...binding,

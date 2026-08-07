@@ -38,6 +38,7 @@ export const AGENT_HOST_PROXY_ORIGIN_HEADER = 'x-dmg-agent-browser-origin';
 
 const MAX_REQUEST_BYTES = 1_048_576;
 const MAX_PRODUCT_EVENT_PAGE_BYTES = 8_388_608;
+const MAX_PRODUCT_COMMAND_WAIT_MS = 25_000;
 const UI_AUDIENCE: AgentLaunchAudience = 'workbench-ai-mode';
 
 type RuntimeState = 'starting' | 'ready' | 'stopping' | 'error';
@@ -409,11 +410,22 @@ export class DefAgentHostHttpServer {
       return;
     }
     if (request.method === 'GET' && url.pathname === '/agent-host/workbench/commands/next') {
-      const delivery = this.#gateway.nextCommand(claims, {
+      const waitMs = parseNonNegativeInteger(
+        url.searchParams.get('waitMs') ?? '0',
+        'waitMs',
+      );
+      if (waitMs > MAX_PRODUCT_COMMAND_WAIT_MS) {
+        throw httpError(
+          'AGENT_REQUEST_INVALID',
+          `waitMs must be between 0 and ${MAX_PRODUCT_COMMAND_WAIT_MS}`,
+          400,
+        );
+      }
+      const delivery = await this.#gateway.waitForNextCommand(claims, {
         consumerId: expectQuery(url, 'consumerId'),
         executorLeaseId: expectQuery(url, 'executorLeaseId'),
         afterCursor: parseNonNegativeInteger(expectQuery(url, 'afterCursor'), 'afterCursor'),
-      });
+      }, waitMs);
       this.#writeJson(response, 200, { delivery });
       return;
     }

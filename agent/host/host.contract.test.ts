@@ -242,6 +242,18 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     executorLeaseId: registration.executorLeaseId,
     afterCursor: delivery!.cursor,
   }), null);
+  const waitingCommand = command('command-gateway-wait');
+  const waitingDelivery = gateway.waitForNextCommand(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    afterCursor: delivery!.cursor,
+  }, 1_000);
+  await gateway.dispatch(waitingCommand);
+  assert.equal(
+    (await waitingDelivery)?.command.commandId,
+    waitingCommand.commandId,
+    'a queued command must wake an outstanding browser long-poll request',
+  );
   const result: ProductCommandResult = {
     commandId: first.commandId,
     status: 'succeeded',
@@ -730,6 +742,28 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     }),
   });
   assert.equal(snapshotResponse.status, 200);
+
+  const nextDeliveryRequest = fetch(
+    `${baseUrl}/agent-host/workbench/commands/next?consumerId=${registration.consumerId}`
+      + `&executorLeaseId=${registration.executorLeaseId}&afterCursor=0&waitMs=1000`,
+    { headers: productHeaders },
+  );
+  const httpWaitingCommand = command('command-http-wait', productBinding);
+  await gateway.dispatch(httpWaitingCommand);
+  const nextDeliveryResponse = await nextDeliveryRequest;
+  assert.equal(nextDeliveryResponse.status, 200);
+  const nextDeliveryPayload = await nextDeliveryResponse.json() as {
+    delivery: { command: { commandId: string }; cursor: number } | null;
+  };
+  assert.equal(nextDeliveryPayload.delivery?.command.commandId, httpWaitingCommand.commandId);
+  assert.equal(nextDeliveryPayload.delivery?.cursor, 1);
+
+  const invalidWaitResponse = await fetch(
+    `${baseUrl}/agent-host/workbench/commands/next?consumerId=${registration.consumerId}`
+      + `&executorLeaseId=${registration.executorLeaseId}&afterCursor=1&waitMs=25001`,
+    { headers: productHeaders },
+  );
+  assert.equal(invalidWaitResponse.status, 400);
 
   const forgedSessionBinding = await fetch(`${baseUrl}/agent-host/sessions`, {
     method: 'POST',

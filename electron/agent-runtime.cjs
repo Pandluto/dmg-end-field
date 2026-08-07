@@ -17,6 +17,7 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const DEFAULT_HEALTH_TIMEOUT_MS = 1_000;
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000;
+const DEFAULT_COMMAND_NEXT_PROXY_TIMEOUT_MS = 35_000;
 const DEFAULT_SESSION_CREATE_PROXY_TIMEOUT_MS = 90_000;
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
 const DEFAULT_GRANT_TTL_MS = 30_000;
@@ -84,6 +85,10 @@ function createAgentRuntime(options = {}) {
   const pollIntervalMs = positiveInteger(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS);
   const healthTimeoutMs = positiveInteger(options.healthTimeoutMs, DEFAULT_HEALTH_TIMEOUT_MS);
   const proxyTimeoutMs = positiveInteger(options.proxyTimeoutMs, DEFAULT_PROXY_TIMEOUT_MS);
+  const commandNextProxyTimeoutMs = positiveInteger(
+    options.commandNextProxyTimeoutMs,
+    DEFAULT_COMMAND_NEXT_PROXY_TIMEOUT_MS,
+  );
   const sessionCreateProxyTimeoutMs = positiveInteger(
     options.sessionCreateProxyTimeoutMs,
     DEFAULT_SESSION_CREATE_PROXY_TIMEOUT_MS,
@@ -676,7 +681,9 @@ function createAgentRuntime(options = {}) {
       const requestMethod = String(request.method || 'GET').toUpperCase();
       const requestTimeoutMs = requestMethod === 'POST' && pathname === '/agent-host/sessions'
         ? sessionCreateProxyTimeoutMs
-        : proxyTimeoutMs;
+        : requestMethod === 'GET' && pathname === '/agent-host/workbench/commands/next'
+          ? commandNextProxyTimeoutMs
+          : proxyTimeoutMs;
       const upstream = await fetchWithTimeout(
         `${privateOrigin}${requestTarget(request)}`,
         {

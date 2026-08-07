@@ -26,6 +26,7 @@ import {
 import {
   createDesktopAgentBridge,
   createDesktopAgentConsumerController,
+  DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS,
   DESKTOP_AGENT_MODE_PATH,
   requestDesktopAgentModeLaunch,
   type DesktopAgentBridge,
@@ -53,6 +54,16 @@ export const AGENT_SELECTION_WORKSPACE_TIMELINE_ID = 'workspace-selection';
 type EnqueueCommand = (command: MainWorkbenchCommand, id: string) => void;
 type RecoverCommandResult = (commandId: string) => QueuedMainWorkbenchCommand | null;
 
+type SnapshotPublishWaiter = {
+  readonly resolve: () => void;
+  readonly reject: (error: unknown) => void;
+};
+
+type PendingSnapshotPublish = {
+  snapshot: MainWorkbenchSnapshot;
+  readonly waiters: SnapshotPublishWaiter[];
+};
+
 export interface BrowserAgentRuntimeOptions {
   readonly bridge: Pick<
     DesktopAgentBridge,
@@ -69,6 +80,7 @@ export interface BrowserAgentRuntimeOptions {
   >;
   readonly store: BrowserProductStore;
   readonly postCommandSnapshotTimeoutMs?: number;
+  readonly commandLongPollWaitMs?: number;
 }
 
 export class BrowserAgentRuntime {
@@ -76,11 +88,13 @@ export class BrowserAgentRuntime {
   readonly #consumerController: BrowserAgentRuntimeOptions['consumerController'];
   readonly #store: BrowserProductStore;
   readonly #postCommandSnapshotTimeoutMs: number;
+  readonly #commandLongPollWaitMs: number;
   readonly #pendingHostResults = new Set<CommandId>();
   #binding: ProductBinding | null = null;
   #commandCursor = 0;
   #consumerRegistrationKey = '';
-  #publishChain = Promise.resolve();
+  #pendingSnapshot: PendingSnapshotPublish | null = null;
+  #publishPromise: Promise<void> | null = null;
   #resultChain = Promise.resolve();
   #pullPromise: Promise<void> | null = null;
 
@@ -89,6 +103,9 @@ export class BrowserAgentRuntime {
     this.#consumerController = options.consumerController;
     this.#store = options.store;
     this.#postCommandSnapshotTimeoutMs = options.postCommandSnapshotTimeoutMs ?? 1_500;
+    this.#commandLongPollWaitMs = Number.isSafeInteger(options.commandLongPollWaitMs)
+      ? Math.max(0, options.commandLongPollWaitMs as number)
+      : DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS;
   }
 
   isActive(): boolean {
@@ -106,10 +123,23 @@ export class BrowserAgentRuntime {
 
   publishMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
     if (!this.isActive()) return Promise.resolve();
-    this.#publishChain = this.#publishChain
-      .catch(() => undefined)
-      .then(() => this.#publishSnapshot(snapshot));
-    return this.#publishChain;
+    const promise = new Promise<void>((resolve, reject) => {
+      const pending = this.#pendingSnapshot;
+      if (!pending) {
+        this.#pendingSnapshot = { snapshot, waiters: [{ resolve, reject }] };
+      } else {
+        // A snapshot that has not started its network/store transaction is
+        // only a projection hint. Keep the newest binding/revision/digest
+        // candidate, while resolving every caller after that newest snapshot
+        // has actually been accepted by the Host.
+        if (shouldReplacePendingSnapshot(pending.snapshot, snapshot)) {
+          pending.snapshot = snapshot;
+        }
+        pending.waiters.push({ resolve, reject });
+      }
+    });
+    this.#startSnapshotPublishLoop();
+    return promise;
   }
 
   pullRemoteCommands(
@@ -186,15 +216,47 @@ export class BrowserAgentRuntime {
     await this.#consumerController.refreshEligibility();
   }
 
+  #startSnapshotPublishLoop(): void {
+    if (this.#publishPromise) return;
+    const loop = this.#drainSnapshotPublishes();
+    this.#publishPromise = loop;
+    void loop.then(
+      () => this.#finishSnapshotPublishLoop(loop),
+      () => this.#finishSnapshotPublishLoop(loop),
+    );
+  }
+
+  async #drainSnapshotPublishes(): Promise<void> {
+    while (this.#pendingSnapshot) {
+      const pending = this.#pendingSnapshot;
+      this.#pendingSnapshot = null;
+      try {
+        await this.#publishSnapshot(pending.snapshot);
+        for (const waiter of pending.waiters) waiter.resolve();
+      } catch (error) {
+        for (const waiter of pending.waiters) waiter.reject(error);
+      }
+    }
+  }
+
+  #finishSnapshotPublishLoop(loop: Promise<void>): void {
+    if (this.#publishPromise !== loop) return;
+    this.#publishPromise = null;
+    if (this.#pendingSnapshot) this.#startSnapshotPublishLoop();
+  }
+
   async #pull(enqueue: EnqueueCommand, recoverCommandResult: RecoverCommandResult): Promise<void> {
     const consumer = this.#currentConsumer();
     if (!consumer) return;
     await this.#flushPendingResults(consumer.consumerId, consumer.executorLeaseId);
+    if (!this.#isCurrentConsumer(consumer)) return;
     const delivery = await this.#bridge.nextCommand({
       consumerId: consumer.consumerId,
       executorLeaseId: consumer.executorLeaseId,
       afterCursor: this.#commandCursor,
+      waitMs: this.#commandLongPollWaitMs,
     });
+    if (!this.#isCurrentConsumer(consumer)) return;
     if (!delivery) return;
     const command = delivery.command;
     if ((delivery.mode ?? 'execute') === 'reconcile') {
@@ -432,6 +494,53 @@ export class BrowserAgentRuntime {
     }
     return consumer;
   }
+
+  #isCurrentConsumer(expected: {
+    readonly consumerId: string;
+    readonly executorLeaseId: string;
+    readonly registeredAt: number;
+  }): boolean {
+    const current = this.#consumerController.getState().consumer;
+    return Boolean(
+      current
+      && current.consumerId === expected.consumerId
+      && current.executorLeaseId === expected.executorLeaseId
+      && current.registeredAt === expected.registeredAt,
+    );
+  }
+}
+
+function snapshotMergeKey(snapshot: MainWorkbenchSnapshot): string {
+  const timelineId = (
+    snapshot.activeTimelineId
+    || snapshot.timelineId
+    || AGENT_SELECTION_WORKSPACE_TIMELINE_ID
+  ).trim();
+  const checkout = snapshot.checkout;
+  const revision = checkout?.updatedAt ?? snapshot.updatedAt;
+  let digestHint = '';
+  try {
+    digestHint = canonicalJson(JSON.parse(JSON.stringify(snapshot)) as JsonObject);
+  } catch {
+    digestHint = String(snapshot.updatedAt);
+  }
+  return [
+    timelineId,
+    checkout?.targetType ?? 'none',
+    checkout?.targetId ?? '',
+    String(revision),
+    digestHint,
+  ].join('|');
+}
+
+function shouldReplacePendingSnapshot(
+  current: MainWorkbenchSnapshot,
+  next: MainWorkbenchSnapshot,
+): boolean {
+  // The caller order is the renderer's authoritative projection order. A
+  // checkout can legitimately move to a lower numeric revision, so never
+  // retain an older projection merely because its revision compares larger.
+  return snapshotMergeKey(current) !== snapshotMergeKey(next);
 }
 
 function sameConsumerScope(left: ProductBinding, right: ProductBinding): boolean {

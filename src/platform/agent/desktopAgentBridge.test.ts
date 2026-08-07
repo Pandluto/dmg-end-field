@@ -828,6 +828,34 @@ class FakeLease implements AgentWorkspaceLease {
   )), true);
 }
 
+// Product command pulls carry the bounded Host long-poll hint without changing
+// the durable consumer identity or cursor fields.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
+  const calls: URL[] = [];
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (rawUrl) => {
+      calls.push(new URL(rawUrl));
+      return response({ delivery: null });
+    },
+  });
+  assert.equal(await bridge.nextCommand({
+    consumerId: 'consumer-long-poll',
+    executorLeaseId: 'lease-long-poll',
+    afterCursor: 17,
+    waitMs: 25_000,
+  }), null);
+  assert.equal(calls[0]?.pathname, '/agent-host/workbench/commands/next');
+  assert.equal(calls[0]?.searchParams.get('consumerId'), 'consumer-long-poll');
+  assert.equal(calls[0]?.searchParams.get('executorLeaseId'), 'lease-long-poll');
+  assert.equal(calls[0]?.searchParams.get('afterCursor'), '17');
+  assert.equal(calls[0]?.searchParams.get('waitMs'), '25000');
+}
+
 // A Turn response must echo the request clientTurnId exactly.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');

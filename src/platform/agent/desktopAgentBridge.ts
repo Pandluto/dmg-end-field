@@ -47,6 +47,7 @@ export const DESKTOP_AGENT_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 export const DESKTOP_AGENT_MODE_PATH = '/timeline/ai';
 export const DESKTOP_AGENT_LAUNCH_PATH = '/agent-host/ui/launch';
 export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
+export const DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS = 25_000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
 const loadProtocolValidation = () => import('./desktopAgentEventValidation');
@@ -1041,12 +1042,16 @@ export class DesktopAgentBridge {
     readonly consumerId: string;
     readonly executorLeaseId: string;
     readonly afterCursor: number;
+    readonly waitMs?: number;
   }): Promise<BrowserCommandDelivery | null> {
     const query = new URLSearchParams({
       consumerId: input.consumerId,
       executorLeaseId: input.executorLeaseId,
       afterCursor: String(input.afterCursor),
     });
+    if (input.waitMs && Number.isSafeInteger(input.waitMs) && input.waitMs > 0) {
+      query.set('waitMs', String(input.waitMs));
+    }
     const data = await this.#request(`/agent-host/workbench/commands/next?${query}`);
     if (data.delivery === null) return null;
     const candidate = (
