@@ -35,6 +35,14 @@ export type WorkNodeRestoreVerification = {
   observed?: unknown;
 };
 
+export type ReviewedWorkNodeIdentity = {
+  nodeId: string;
+  timelineId: string;
+  nodeRevision: number;
+  workingPayloadDigest: string;
+  diffDigest: string;
+};
+
 export class WorkNodeAtomicRestoreError extends Error {
   readonly code = 'AI_WORKNODE_ATOMIC_RESTORE_FAILED';
   readonly primaryError: Error;
@@ -125,6 +133,60 @@ export function verifyWorkNodeDeleteLedger(input: {
     deletedNodeIds,
     remainingNodeIds: remaining,
   };
+}
+
+/**
+ * Freezes the exact Work Node version shown during review.  Checkout approval
+ * must carry these fields back unchanged so a later edit cannot reuse an old
+ * approval for different payload bytes.
+ */
+export async function buildReviewedWorkNodeIdentity(input: {
+  nodeId: string;
+  timelineId: string;
+  nodeRevision: number;
+  workingPayload: TimelineSnapshotPayload;
+  diffChanges: unknown;
+}): Promise<ReviewedWorkNodeIdentity> {
+  if (!input.nodeId.trim() || !input.timelineId.trim()) {
+    throw new Error('reviewed-worknode-identity-invalid: nodeId/timelineId 不可为空。');
+  }
+  if (!Number.isSafeInteger(input.nodeRevision) || input.nodeRevision < 0) {
+    throw new Error('reviewed-worknode-identity-invalid: nodeRevision 必须是非负安全整数。');
+  }
+  const [workingPayloadDigest, diffDigest] = await Promise.all([
+    digestJson(input.workingPayload),
+    digestJson(input.diffChanges),
+  ]);
+  return {
+    nodeId: input.nodeId,
+    timelineId: input.timelineId,
+    nodeRevision: input.nodeRevision,
+    workingPayloadDigest,
+    diffDigest,
+  };
+}
+
+export function verifyReviewedWorkNodeIdentity(input: {
+  expected: Pick<
+    ReviewedWorkNodeIdentity,
+    'nodeId' | 'nodeRevision' | 'workingPayloadDigest' | 'diffDigest'
+  >;
+  observed: ReviewedWorkNodeIdentity;
+}): WorkNodeRestoreVerification {
+  const failures: string[] = [];
+  if (input.expected.nodeId !== input.observed.nodeId) failures.push('nodeId');
+  if (input.expected.nodeRevision !== input.observed.nodeRevision) failures.push('nodeRevision');
+  if (input.expected.workingPayloadDigest !== input.observed.workingPayloadDigest) {
+    failures.push('workingPayloadDigest');
+  }
+  if (input.expected.diffDigest !== input.observed.diffDigest) failures.push('diffDigest');
+  return failures.length === 0
+    ? { pass: true, observed: input.observed }
+    : {
+      pass: false,
+      reason: `已审阅 Work Node 已变化：${failures.join(', ')}`,
+      observed: input.observed,
+    };
 }
 
 function comparableValue(value: unknown): unknown {

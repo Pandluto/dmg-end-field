@@ -654,12 +654,21 @@ const deletePlan = await prepare('def.worknode.delete', { nodeId: 'node-obsolete
 assert.deepEqual(deletePlan.scope, ['timeline.work-node']);
 assert.deepEqual(deletePlan.command, { op: 'deleteAiTimelineWorkNode', nodeId: 'node-obsolete' });
 
-const usePlan = await prepare('def.worknode.use', { nodeId: 'node-ready', commitId: 'commit-ready' });
+const usePlan = await prepare('def.worknode.use', {
+  nodeId: 'node-ready',
+  commitId: 'commit-ready',
+  expectedNodeRevision: 0,
+  expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+});
 assert.deepEqual(usePlan.scope, ['timeline.work-node', 'timeline.checkout']);
 assert.deepEqual(usePlan.command, {
   op: 'checkoutAiTimelineWorkNode',
   nodeId: 'node-ready',
   commitId: 'commit-ready',
+  expectedNodeRevision: 0,
+  expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
   reload: false,
   approval: {
     mode: 'manual',
@@ -667,6 +676,10 @@ assert.deepEqual(usePlan.command, {
     rationale: 'Approved in the embedded DEF AI mode.',
   },
 });
+await assert.rejects(
+  () => prepareAny('def.worknode.use', { nodeId: 'node-ready' }),
+  /expectedNodeRevision/u,
+);
 
 const previewPlan = await prepareAny('def.worknode.diff', { candidateNodeId: 'node-candidate' });
 assert.deepEqual(previewPlan, {

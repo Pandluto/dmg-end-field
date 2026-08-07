@@ -56,6 +56,22 @@ assert.match(
   'delete must prove every recursively deleted descendant remains in the bound timeline before writing',
 );
 
+const checkoutStart = source.indexOf('const checkoutAiTimelineWorkNodeFromCommand = async');
+const checkoutEnd = source.indexOf('\n  const ensureTimelineDocumentBaselineWorkNode', checkoutStart);
+assert.ok(checkoutStart >= 0 && checkoutEnd > checkoutStart, 'Work Node checkout boundary must remain detectable');
+const checkoutSource = source.slice(checkoutStart, checkoutEnd);
+const reviewGuardIndex = checkoutSource.indexOf('verifyReviewedWorkNodeIdentity({');
+const firstLiveSaveIndex = checkoutSource.indexOf('saveTimelineData();');
+assert.ok(
+  reviewGuardIndex >= 0 && firstLiveSaveIndex > reviewGuardIndex,
+  'the exact reviewed revision/payload/diff receipt must be verified before checkout can save live Canvas state',
+);
+assert.match(
+  dispatcher,
+  /case 'readAiTimelineWorkNode':[\s\S]*?buildReviewedWorkNodeIdentity\([\s\S]*?reviewIdentity/,
+  'Work Node read must return the exact receipt required by a later approved checkout',
+);
+
 branchMatches.forEach((match, index) => {
   const branchStart = match.index ?? 0;
   const branchEnd = index + 1 < branchMatches.length

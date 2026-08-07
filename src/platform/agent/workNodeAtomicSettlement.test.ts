@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import {
+  buildReviewedWorkNodeIdentity,
   buildWorkNodePayloadPostcondition,
   runAtomicWorkNodeRestore,
+  verifyReviewedWorkNodeIdentity,
   verifyWorkNodeDeleteLedger,
   WorkNodeAtomicRestoreError,
 } from './workNodeAtomicSettlement';
@@ -170,6 +172,37 @@ function noOpVerification(pass = true) {
   assert.equal(result.pass, false);
   assert(result.failures.includes('checkout target 不一致'));
   assert(result.failures.includes('checkout node revision 不一致'));
+}
+
+// Approval is bound to the exact reviewed revision, working payload and diff.
+// Reusing the review after any one of those values changes must fail closed.
+{
+  const reviewedPayload = payload();
+  const identity = await buildReviewedWorkNodeIdentity({
+    nodeId: 'node-reviewed',
+    timelineId: 'timeline-a',
+    nodeRevision: 0,
+    workingPayload: reviewedPayload,
+    diffChanges: [{ path: 'timelineData.staffLines[0]', kind: 'added' }],
+  });
+  assert.equal(identity.nodeRevision, 0);
+  assert.match(identity.workingPayloadDigest, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(verifyReviewedWorkNodeIdentity({ expected: identity, observed: identity }).pass, true);
+
+  const editedPayload = structuredClone(reviewedPayload);
+  editedPayload.skillButtonTable['button-1'].buffStackCounts = { 'buff-1': 9 };
+  const editedIdentity = await buildReviewedWorkNodeIdentity({
+    nodeId: identity.nodeId,
+    timelineId: identity.timelineId,
+    nodeRevision: 1,
+    workingPayload: editedPayload,
+    diffChanges: [{ path: 'skillButtonTable.button-1.buffStackCounts', kind: 'changed' }],
+  });
+  const verification = verifyReviewedWorkNodeIdentity({ expected: identity, observed: editedIdentity });
+  assert.equal(verification.pass, false);
+  assert.match(verification.reason || '', /nodeRevision/u);
+  assert.match(verification.reason || '', /workingPayloadDigest/u);
+  assert.match(verification.reason || '', /diffDigest/u);
 }
 
 // The receipt also rejects a payload that only changes one of the sensitive

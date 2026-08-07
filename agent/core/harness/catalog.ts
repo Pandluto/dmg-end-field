@@ -511,8 +511,8 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'apply',
     phases: [
-      phase('timeline-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Work Node and verify its parent/revision before application.'),
-      phase('timeline-apply', 'mutation', T.worknodeUse, 'Use only the explicitly reviewed Work Node after approval; verify the exact checkout and visible timeline postcondition.', timelineMutationWrites),
+      phase('timeline-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Work Node and retain reviewIdentity.nodeRevision, reviewIdentity.workingPayloadDigest and reviewIdentity.diffDigest exactly.'),
+      phase('timeline-apply', 'mutation', T.worknodeUse, 'Use only that explicitly reviewed Work Node. Copy the three reviewIdentity values into the expected fields unchanged; after approval verify the exact checkout and visible timeline postcondition.', timelineMutationWrites),
     ],
   }),
   defineOperation({
@@ -596,8 +596,8 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'apply',
     phases: [
-      phase('buff-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Buff Work Node and verify its revision and parent before application.'),
-      phase('buff-apply', 'mutation', T.worknodeUse, 'Use only the explicitly reviewed Buff Work Node after approval and verify exact Buff attachments and checkout.', buffMutationWrites),
+      phase('buff-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Buff Work Node and retain reviewIdentity.nodeRevision, reviewIdentity.workingPayloadDigest and reviewIdentity.diffDigest exactly.'),
+      phase('buff-apply', 'mutation', T.worknodeUse, 'Use only that explicitly reviewed Buff Work Node. Copy the three reviewIdentity values into the expected fields unchanged; after approval verify exact Buff attachments and checkout.', buffMutationWrites),
     ],
   }),
   defineOperation({

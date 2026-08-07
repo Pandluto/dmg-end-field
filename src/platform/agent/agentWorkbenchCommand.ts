@@ -233,13 +233,29 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
     return { op: 'deleteAiTimelineWorkNode', nodeId: string(value.nodeId, 'nodeId', 200) };
   }
   if (operation === 'checkoutAiTimelineWorkNode') {
-    exact(value, ['op', 'nodeId', 'commitId', 'reload', 'approval']);
+    exact(value, [
+      'op', 'nodeId', 'commitId', 'expectedNodeRevision',
+      'expectedWorkingPayloadDigest', 'expectedDiffDigest', 'reload', 'approval',
+    ]);
     if (value.reload === true) invalid('Agent Work Node checkout must not request a reload');
     const approval = parseManualUserApproval(value.approval, 'checkoutAiTimelineWorkNode');
+    const expectedWorkingPayloadDigest = exactSha256Digest(
+      value.expectedWorkingPayloadDigest,
+      'expectedWorkingPayloadDigest',
+    );
+    const expectedDiffDigest = exactSha256Digest(value.expectedDiffDigest, 'expectedDiffDigest');
     return {
       op: 'checkoutAiTimelineWorkNode',
       nodeId: string(value.nodeId, 'nodeId', 200),
       ...(optionalString(value.commitId, 'commitId', 200) ? { commitId: value.commitId as string } : {}),
+      expectedNodeRevision: integer(
+        value.expectedNodeRevision,
+        'expectedNodeRevision',
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      expectedWorkingPayloadDigest,
+      expectedDiffDigest,
       reload: false,
       approval,
     };
@@ -816,6 +832,14 @@ function integer(value: JsonValue | undefined, label: string, minimum: number, m
     invalid(`${label} must be an integer between ${minimum} and ${maximum}`);
   }
   return value as number;
+}
+
+function exactSha256Digest(value: JsonValue | undefined, label: string): string {
+  const digest = string(value, label, 71);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(digest)) {
+    invalid(`${label} must be an exact sha256 digest`);
+  }
+  return digest;
 }
 
 function finiteNumber(

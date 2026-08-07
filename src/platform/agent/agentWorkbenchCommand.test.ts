@@ -460,6 +460,9 @@ assert.deepEqual(parseAgentWorkbenchCommand({
 assert.equal(parseAgentWorkbenchCommand({
   op: 'checkoutAiTimelineWorkNode',
   nodeId: 'node-test',
+  expectedNodeRevision: 0,
+  expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
   reload: false,
   approval: { mode: 'manual', approvedBy: 'user' },
 }).op, 'checkoutAiTimelineWorkNode');
@@ -472,7 +475,25 @@ assert.equal(parseAgentWorkbenchCommand({
 rejected({
   op: 'checkoutAiTimelineWorkNode',
   nodeId: 'node-test',
+  expectedNodeRevision: 1,
+  expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
   reload: true,
+  approval: { mode: 'manual', approvedBy: 'user' },
+});
+rejected({
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-test',
+  reload: false,
+  approval: { mode: 'manual', approvedBy: 'user' },
+});
+rejected({
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-test',
+  expectedNodeRevision: 1,
+  expectedWorkingPayloadDigest: 'sha256:not-exact',
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  reload: false,
   approval: { mode: 'manual', approvedBy: 'user' },
 });
 rejected({

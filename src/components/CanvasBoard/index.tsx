@@ -150,8 +150,10 @@ import {
   rollbackOperatorConfigProposal,
 } from '../../platform/agent/operatorConfigProposal';
 import {
+  buildReviewedWorkNodeIdentity,
   buildWorkNodePayloadPostcondition,
   runAtomicWorkNodeRestore,
+  verifyReviewedWorkNodeIdentity,
   verifyWorkNodeDeleteLedger,
 } from '../../platform/agent/workNodeAtomicSettlement';
 import {
@@ -2449,10 +2451,41 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const { node } = await client.get(nodeId);
-    const nodeRevision = operatorConfigNodeRevision(node);
     const riskFlags = Array.isArray(node.riskFlags) ? node.riskFlags : [];
     const isManualApproval = command.approval?.mode === 'manual';
     const nodeDiff = diffTimelinePayloads(node.basePayload, node.workingPayload);
+    const hasReviewReceipt = command.expectedNodeRevision !== undefined
+      || command.expectedWorkingPayloadDigest !== undefined
+      || command.expectedDiffDigest !== undefined;
+    const nodeRevision = hasReviewReceipt
+      ? authoritativePreparedNodeRevision(node)
+      : operatorConfigNodeRevision(node);
+    if (hasReviewReceipt) {
+      if (command.expectedNodeRevision === undefined
+        || !command.expectedWorkingPayloadDigest
+        || !command.expectedDiffDigest) {
+        throw new Error('AI_WORKNODE_REVIEW_RECEIPT_INCOMPLETE: Work Node 审阅凭据不完整。');
+      }
+      const observedIdentity = await buildReviewedWorkNodeIdentity({
+        nodeId: node.id,
+        timelineId: node.timelineId,
+        nodeRevision,
+        workingPayload: node.workingPayload,
+        diffChanges: nodeDiff,
+      });
+      const reviewVerification = verifyReviewedWorkNodeIdentity({
+        expected: {
+          nodeId,
+          nodeRevision: command.expectedNodeRevision,
+          workingPayloadDigest: command.expectedWorkingPayloadDigest,
+          diffDigest: command.expectedDiffDigest,
+        },
+        observed: observedIdentity,
+      });
+      if (!reviewVerification.pass) {
+        throw new Error(`AI_WORKNODE_REVIEW_STALE: ${reviewVerification.reason || 'Work Node 已变化。'}`);
+      }
+    }
     const checkoutDecision = buildAiTimelineCheckoutDecision({
       approvalPolicy: node.approvalPolicy,
       riskFlags,
@@ -4399,15 +4432,24 @@ export function CanvasBoard({
           }
           case 'readAiTimelineWorkNode': {
             const result = await createAiTimelineWorkNodeClient().get(command.nodeId);
+            const nodeRevision = authoritativePreparedNodeRevision(result.node);
+            const diff = diffTimelinePayloads(result.node.basePayload, result.node.workingPayload);
+            const reviewIdentity = await buildReviewedWorkNodeIdentity({
+              nodeId: result.node.id,
+              timelineId: result.node.timelineId,
+              nodeRevision,
+              workingPayload: result.node.workingPayload,
+              diffChanges: diff,
+            });
             if (command.includePayload === false) {
               const { basePayload: _basePayload, workingPayload: _workingPayload, ...node } = result.node;
               settleCommand({
                 status: 'done',
-                result: { ...result, node },
+                result: { ...result, node, diffSummary: diff.summary, reviewIdentity },
               });
               return;
             }
-            settleCommand({ status: 'done', result });
+            settleCommand({ status: 'done', result: { ...result, diffSummary: diff.summary, reviewIdentity } });
             return;
           }
           case 'validateAiTimelineWorkNode': {

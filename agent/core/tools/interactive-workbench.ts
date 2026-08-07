@@ -451,13 +451,25 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.use',
-          'Checkout one exact validated Work Node after explicit user approval.',
+          'Checkout the exact reviewed Work Node revision and digests after explicit user approval.',
           'mutate',
           objectSchema({
-            required: ['nodeId'],
+            required: [
+              'nodeId', 'expectedNodeRevision',
+              'expectedWorkingPayloadDigest', 'expectedDiffDigest',
+            ],
             properties: {
               nodeId: boundedStringSchema(1, 200),
               commitId: boundedStringSchema(1, 200),
+              expectedNodeRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
+              expectedWorkingPayloadDigest: {
+                type: 'string',
+                pattern: '^sha256:[0-9a-f]{64}$',
+              },
+              expectedDiffDigest: {
+                type: 'string',
+                pattern: '^sha256:[0-9a-f]{64}$',
+              },
             },
           }),
         ),
@@ -1046,7 +1058,10 @@ async function prepareWorkNodeDeletion(input: JsonValue): Promise<DefInteractive
 }
 
 async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, ['nodeId', 'commitId']);
+  const value = exactObject(input, [
+    'nodeId', 'commitId', 'expectedNodeRevision',
+    'expectedWorkingPayloadDigest', 'expectedDiffDigest',
+  ]);
   const nodeId = requiredString(value.nodeId, 'nodeId', 200);
   return mutationPlan(
     `检出 Work Node ${nodeId}`,
@@ -1055,6 +1070,17 @@ async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolP
       op: 'checkoutAiTimelineWorkNode',
       nodeId,
       ...(optionalString(value.commitId, 'commitId', 200) ? { commitId: value.commitId as string } : {}),
+      expectedNodeRevision: requiredInteger(
+        value.expectedNodeRevision,
+        'expectedNodeRevision',
+        0,
+        Number.MAX_SAFE_INTEGER,
+      ),
+      expectedWorkingPayloadDigest: requiredSha256Digest(
+        value.expectedWorkingPayloadDigest,
+        'expectedWorkingPayloadDigest',
+      ),
+      expectedDiffDigest: requiredSha256Digest(value.expectedDiffDigest, 'expectedDiffDigest'),
       reload: false,
       approval: {
         mode: 'manual',
@@ -1791,6 +1817,14 @@ function requiredString(value: JsonValue | undefined, label: string, maximum = M
     invalid(`${label} must be a non-empty string of at most ${maximum} characters`);
   }
   return value.trim();
+}
+
+function requiredSha256Digest(value: JsonValue | undefined, label: string): string {
+  const digest = requiredString(value, label, 71);
+  if (!/^sha256:[0-9a-f]{64}$/u.test(digest)) {
+    invalid(`${label} must be an exact sha256 digest`);
+  }
+  return digest;
 }
 
 function optionalString(

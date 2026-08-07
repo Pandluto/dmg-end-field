@@ -404,6 +404,10 @@ export type MainWorkbenchCommand =
       op: 'checkoutAiTimelineWorkNode';
       nodeId: string;
       commitId?: string;
+      /** Exact review receipt; Agent commands provide all three fields together. */
+      expectedNodeRevision?: number;
+      expectedWorkingPayloadDigest?: string;
+      expectedDiffDigest?: string;
       reload?: boolean;
       approval?: {
         mode?: 'auto' | 'manual';
