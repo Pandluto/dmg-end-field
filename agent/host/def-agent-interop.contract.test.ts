@@ -307,7 +307,11 @@ try {
       type: 'tool',
       toolCallId: asToolCallId('route-question'),
       name: 'def.harness.route',
-      input: { businessId: 'selection', operation: 'ask' },
+      input: {
+        businessId: 'selection',
+        operation: 'ask',
+        resume: { steps: [{ businessId: 'selection', operation: 'inspect' }] },
+      },
     },
     {
       type: 'tool',
@@ -317,9 +321,9 @@ try {
     },
     {
       type: 'tool',
-      toolCallId: asToolCallId('route-after-question'),
-      name: 'def.harness.route',
-      input: { businessId: 'conversation', operation: 'respond' },
+      toolCallId: asToolCallId('inspect-after-question'),
+      name: 'def.node.crud.context',
+      input: {},
     },
     { type: 'complete', output: { ok: true } },
   ]);

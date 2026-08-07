@@ -284,12 +284,6 @@ function askOperation(): DefHarnessOperationDefinition {
         T.ask,
         'Ask exactly one precise clarification question and wait for the typed answer. Do not guess a target or mutate the Browser Workbench.',
       ),
-      phase(
-        'reroute',
-        'route',
-        DEF_HARNESS_ROUTE_TOOL_NAME,
-        'After the user answers, route the original business request again using the answer. The route must select the requested operation; do not terminate merely by echoing the answer.',
-      ),
     ],
   });
 }

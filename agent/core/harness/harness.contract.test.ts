@@ -500,7 +500,14 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
       defSessionId: asDefSessionId(`session-full-${businessId}-${operation.operation}`),
       defTurnId: asDefTurnId(`turn-full-${businessId}-${operation.operation}`),
     });
-    let current = fullHarnessManager.route(started.transaction.transactionId, { businessId, operation: operation.operation }).transaction;
+    const routeInput: JsonObject = operation.operation === 'ask'
+      ? {
+          businessId,
+          operation: 'ask' as const,
+          resume: { steps: [{ businessId, operation: expectedFullOperationMatrix[businessId][0]! }] },
+        }
+      : { businessId, operation: operation.operation };
+    let current = fullHarnessManager.route(started.transaction.transactionId, routeInput).transaction;
     while (current.status === 'active') {
       const toolName = current.projection.tools[0]?.name;
       assert.ok(toolName, `${businessId}.${operation.operation} lost its active Tool`);
@@ -514,8 +521,8 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   }
 }
 
-// A clarification answer can submit the now-resolved plan and then advances
-// without another route guess.
+// A clarification answer follows the exact bound resume plan and never
+// projects an arbitrary second route.
 {
   const started = fullHarnessManager.beginTurn({
     defSessionId: asDefSessionId('session-full-ask-reroute'),
@@ -524,19 +531,28 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   const asked = fullHarnessManager.route(started.transaction.transactionId, {
     businessId: 'selection',
     operation: 'ask',
+    resume: {
+      steps: [
+        { businessId: 'timeline', operation: 'preview' },
+        { businessId: 'calculation', operation: 'calculate' },
+      ],
+    },
   });
   assert.deepEqual(asked.transaction.projection.tools.map((tool) => tool.name), ['def.user.ask']);
+  assert.deepEqual(
+    asked.transaction.clarificationPlan?.map(({ businessId, operation }) => ({ businessId, operation })),
+    [
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
+  );
   const rerouteReady = fullHarnessManager.completeTool(asked.transaction.transactionId, {
     toolName: 'def.user.ask',
     status: 'succeeded',
   });
-  assert.deepEqual(rerouteReady.transaction.projection.tools.map((tool) => tool.name), [DEF_HARNESS_ROUTE_TOOL_NAME]);
-  const rerouted = fullHarnessManager.route(rerouteReady.transaction.transactionId, {
-    steps: [
-      { businessId: 'timeline', operation: 'preview' },
-      { businessId: 'calculation', operation: 'calculate' },
-    ],
-  });
+  assert.deepEqual(rerouteReady.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.current']);
+  assert.equal(rerouteReady.transaction.clarificationPlan, null);
+  const rerouted = rerouteReady;
   assert.equal(rerouted.transaction.businessId, 'timeline');
   assert.equal(rerouted.transaction.operation, 'preview');
   assert.deepEqual(rerouted.transaction.plan?.steps.map(({ businessId, operation }) => ({ businessId, operation })), [
@@ -546,6 +562,13 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   ]);
   assert.deepEqual(rerouted.transaction.plan?.completedSteps.map((step) => step.index), [0]);
   assert.deepEqual(rerouted.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.current']);
+  await expectHarnessError(
+    () => fullHarnessManager.route(rerouted.transaction.transactionId, {
+      businessId: 'conversation',
+      operation: 'respond',
+    }),
+    'HARNESS_ROUTE_INVALID',
+  );
   let completed = rerouted.transaction;
   while (completed.status === 'active') {
     const toolName = completed.projection.tools[0]?.name;
@@ -562,6 +585,60 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     readPlanEvents(fullHarnessManager, completed.transactionId).map((event) => event.type),
     ['plan.created', 'step.completed', 'plan.created', 'step.completed', 'step.completed'],
   );
+}
+
+// A question that is interrupted is restart-safe: its original resume edge is
+// restored with the transaction, and a fresh Turn re-asks before entering the
+// bound business operation. No arbitrary route is projected after the answer.
+{
+  const sourceManager = createFullHarnessManager();
+  const sessionId = asDefSessionId('session-ask-restart');
+  const started = sourceManager.beginTurn({
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-ask-restart-source'),
+    bindingSnapshotDigest: 'sha256:ask-restart',
+  });
+  const asked = sourceManager.route(started.transaction.transactionId, {
+    businessId: 'selection',
+    operation: 'ask',
+    resume: {
+      steps: [
+        { businessId: 'selection', operation: 'inspect' },
+        { businessId: 'timeline', operation: 'current' },
+      ],
+    },
+  });
+  const interrupted = sourceManager.interrupt(asked.transaction.transactionId, {
+    code: 'HOST_RESTARTED',
+    message: 'question was open during restart',
+    occurredAt: '2026-08-08T00:00:00.000Z',
+  });
+  const persisted = sourceManager.exportPersistedTransactions(sessionId)[0]!;
+  const restartedManager = createFullHarnessManager();
+  restartedManager.restorePersistedTransaction(JSON.parse(JSON.stringify(persisted)));
+  const resumed = restartedManager.resumeFromInterrupted({
+    sourceTransactionId: interrupted.transaction.transactionId,
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-ask-restart-resumed'),
+    expectedCatalogRevision: restartedManager.catalogRevision,
+    expectedBindingSnapshotDigest: 'sha256:ask-restart',
+  });
+  assert.equal(resumed.transaction.operation, 'ask');
+  assert.deepEqual(
+    resumed.transaction.clarificationPlan?.map(({ businessId, operation }) => ({ businessId, operation })),
+    [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'current' },
+    ],
+  );
+  const afterAnswer = restartedManager.completeTool(resumed.transaction.transactionId, {
+    toolName: 'def.user.ask',
+    status: 'succeeded',
+  });
+  assert.equal(afterAnswer.transaction.businessId, 'selection');
+  assert.equal(afterAnswer.transaction.operation, 'inspect');
+  assert.deepEqual(afterAnswer.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.context']);
+  assert.equal(afterAnswer.transaction.projection.tools.some((tool) => tool.name === DEF_HARNESS_ROUTE_TOOL_NAME), false);
 }
 
 // Three businesses execute in one deterministic Turn. An operation terminal
@@ -747,6 +824,21 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
           businessId: 'selection',
           operation: index % 2 === 0 ? 'inspect' : 'search',
         })),
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        businessId: 'selection',
+        operation: 'ask',
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        businessId: 'selection',
+        operation: 'ask',
+        resume: { steps: [{ businessId: 'conversation', operation: 'respond' }] },
       },
       code: 'HARNESS_ROUTE_INVALID',
     },

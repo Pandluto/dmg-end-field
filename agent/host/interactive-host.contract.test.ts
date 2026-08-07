@@ -115,12 +115,6 @@ async function createSession(host: DefAgentHost) {
 {
   const { engine, gateway, host } = fixture();
   engine.enqueueScript([
-    {
-      type: 'tool',
-      toolCallId: asToolCallId('route-direct-conversation'),
-      name: 'def.harness.route',
-      input: { businessId: 'conversation', operation: 'respond' },
-    },
     { type: 'complete', output: { text: '你好，我在。' } },
   ]);
   const session = await createSession(host);
@@ -148,7 +142,11 @@ async function createSession(host: DefAgentHost) {
       type: 'tool',
       toolCallId: asToolCallId('route-question'),
       name: 'def.harness.route',
-      input: { businessId: 'selection', operation: 'ask' },
+      input: {
+        businessId: 'selection',
+        operation: 'ask',
+        resume: { steps: [{ businessId: 'selection', operation: 'inspect' }] },
+      },
     },
     {
       type: 'tool',
@@ -158,9 +156,9 @@ async function createSession(host: DefAgentHost) {
     },
     {
       type: 'tool',
-      toolCallId: asToolCallId('route-after-question'),
-      name: 'def.harness.route',
-      input: { businessId: 'conversation', operation: 'respond' },
+      toolCallId: asToolCallId('inspect-after-question'),
+      name: 'def.node.crud.context',
+      input: {},
     },
     { type: 'complete', output: { ok: true } },
   ]);
@@ -196,9 +194,83 @@ async function createSession(host: DefAgentHost) {
     [
       ['def.harness.route'],
       ['def.user.ask'],
-      ['def.harness.route'],
+      ['def.node.crud.context'],
       [],
     ],
+  );
+  await host.shutdown();
+}
+
+// High-confidence read requests are committed before Engine startup: the
+// model receives the business Tool directly and never spends a roundtrip on
+// def.harness.route. The trace still records the deterministic route.
+{
+  const { engine, gateway, host } = fixture();
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('deterministic-roster-context'),
+      name: 'def.node.crud.context',
+      input: {},
+    },
+    { type: 'complete', output: { selected: [] } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '当前队伍有谁？',
+    binding: productBinding,
+  });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 0);
+  const events = host.readEvents(session.defSessionId);
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'tool.requested')
+      .map((event) => event.payload.name),
+    ['def.node.crud.context'],
+  );
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'harness.routed')
+      .map((event) => `${event.payload.businessId}.${event.payload.operation}`),
+    ['selection.inspect'],
+  );
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'harness.tool.projected')
+      .map((event) => event.payload.tools),
+    [['def.harness.route'], ['def.node.crud.context'], []],
+  );
+  await host.shutdown();
+}
+
+// A continuation word without durable pending/interrupted context is not an
+// executable command. It remains model-routable and cannot resume anything.
+{
+  const { engine, gateway, host } = fixture();
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('ungated-continuation-route'),
+      name: 'def.harness.route',
+      input: { businessId: 'conversation', operation: 'respond' },
+    },
+    { type: 'complete', output: { text: '没有可继续的任务。' } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '继续',
+    binding: productBinding,
+  });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 0);
+  assert.deepEqual(
+    host.readEvents(session.defSessionId)
+      .filter((event) => event.type === 'tool.requested')
+      .map((event) => event.payload.name),
+    ['def.harness.route'],
   );
   await host.shutdown();
 }
@@ -486,7 +558,11 @@ async function createSession(host: DefAgentHost) {
       type: 'tool',
       toolCallId: asToolCallId('route-stop-question'),
       name: 'def.harness.route',
-      input: { businessId: 'selection', operation: 'ask' },
+      input: {
+        businessId: 'selection',
+        operation: 'ask',
+        resume: { steps: [{ businessId: 'selection', operation: 'inspect' }] },
+      },
     },
     {
       type: 'tool',

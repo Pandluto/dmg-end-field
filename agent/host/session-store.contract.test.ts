@@ -110,6 +110,7 @@ function routingHarnessTransaction(
     interruption: null,
     resumedFromTransactionId: null,
     plan: null,
+    clarificationPlan: null,
     trace: [
       {
         sequence: 1,

@@ -113,7 +113,19 @@ export interface DefHarnessPlanStep {
   readonly operation: DefHarnessOperationId;
 }
 
-export interface DefHarnessSingleRouteInput extends DefHarnessPlanStep {}
+/**
+ * A clarification is a control-flow edge, not a second model routing turn.
+ * The edge is bounded and persisted so a restart cannot turn the answer into
+ * an arbitrary conversation.respond or mutation route.
+ */
+export interface DefHarnessResumePlanInput {
+  readonly steps: readonly DefHarnessPlanStep[];
+}
+
+export interface DefHarnessSingleRouteInput extends DefHarnessPlanStep {
+  /** Only valid when operation is ask. */
+  readonly resume?: DefHarnessResumePlanInput;
+}
 
 export interface DefHarnessPlanRouteInput {
   readonly steps: readonly DefHarnessPlanStep[];
@@ -154,6 +166,8 @@ export interface DefHarnessTransactionSnapshot {
   readonly projection: EngineToolProjectionInput;
   readonly terminalState: DefHarnessTerminalState | null;
   readonly plan: DefHarnessPlanSnapshot | null;
+  /** Resolved target that is activated after the bound ask succeeds. */
+  readonly clarificationPlan: readonly DefHarnessPlannedStep[] | null;
 }
 
 export interface DefHarnessResumeInput {
@@ -261,5 +275,7 @@ export interface DefHarnessPersistedTransaction {
   readonly interruption: DefHarnessInterruption | null;
   readonly resumedFromTransactionId: string | null;
   readonly plan: DefHarnessPlanSnapshot | null;
+  /** Optional on schema v1 reads for migration of pre-clarification snapshots. */
+  readonly clarificationPlan?: readonly DefHarnessPlannedStep[] | null;
   readonly trace: readonly DefHarnessTraceEntry[];
 }

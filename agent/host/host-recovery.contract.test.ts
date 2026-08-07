@@ -5,6 +5,7 @@ import {
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
+  asEngineTurnId,
   asInteractionId,
   asTimelineId,
   asToolCallId,
@@ -18,8 +19,9 @@ import {
   type ProductGateway,
 } from '../core/contracts/index.ts';
 import { DeterministicFakeAgentEngine } from '../core/testing/fake-engine.ts';
+import { PHASE6_INTERACTIVE_HARNESS_CATALOG } from '../core/harness/catalog.ts';
 import { DefHarnessManager } from '../core/harness/manager.ts';
-import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
+import { DefProductToolRegistry } from '../core/tools/interactive-workbench.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
 import { MemoryDefAgentSessionStore } from './session-store.ts';
@@ -524,10 +526,10 @@ assert.equal(
   0,
 );
 
-// A persisted cross-business plan survives a Host reconstruction as evidence,
-// but an active survivor is never resumed automatically. Startup converts it
-// into an explicitly interrupted transaction and leaves every uncompleted
-// step in the plan for inspection.
+// A persisted clarification with a cross-business resume plan survives a Host
+// reconstruction as evidence. Startup converts it into an explicitly
+// interrupted transaction and leaves the answer and all business steps for an
+// explicit safe resume.
 const harnessRecoveryEngine = new CountingRecoveryEngine();
 const harnessRecoveryStore = new MemoryDefAgentSessionStore();
 const harnessRecoveryId = asDefSessionId('def-session-harness-recovery');
@@ -537,8 +539,9 @@ const harnessRecoveryEngineSession = await harnessRecoveryEngine.createSession({
   defSessionId: harnessRecoveryId,
   providerProfileRef: 'default',
 });
-const harnessRecoveryTools = new DefReadToolRegistry();
+const harnessRecoveryTools = new DefProductToolRegistry();
 const harnessRecoverySource = new DefHarnessManager({
+  catalog: PHASE6_INTERACTIVE_HARNESS_CATALOG,
   resolveToolDescriptor: (name) => harnessRecoveryTools.resolveDescriptor(name),
 });
 const harnessRecoveryStarted = harnessRecoverySource.beginTurn({
@@ -549,10 +552,14 @@ const harnessRecoveryStarted = harnessRecoverySource.beginTurn({
 const harnessRecoveryRouted = harnessRecoverySource.route(
   harnessRecoveryStarted.transaction.transactionId,
   {
-    steps: [
-      { businessId: 'selection', operation: 'inspect' },
-      { businessId: 'timeline', operation: 'current' },
-    ],
+    businessId: 'selection',
+    operation: 'ask',
+    resume: {
+      steps: [
+        { businessId: 'selection', operation: 'inspect' },
+        { businessId: 'timeline', operation: 'current' },
+      ],
+    },
   },
 );
 const harnessRecoveryPersisted = harnessRecoverySource.exportPersistedTransactions(harnessRecoveryId);
@@ -611,6 +618,7 @@ harnessRecoveryStore.append(harnessRecoveryId, {
 });
 harnessRecoveryStore.setActive(harnessRecoveryId);
 const harnessRecoveryManager = new DefHarnessManager({
+  catalog: PHASE6_INTERACTIVE_HARNESS_CATALOG,
   resolveToolDescriptor: (name) => harnessRecoveryTools.resolveDescriptor(name),
 });
 const harnessRecoveryHost = new DefAgentHost({
@@ -626,10 +634,13 @@ const harnessRecoveryState = harnessRecoveryManager.exportPersistedTransactions(
 assert.equal(harnessRecoveryState.status, 'interrupted');
 assert.equal(harnessRecoveryState.interruption?.code, 'HOST_RESTARTED');
 assert.deepEqual(harnessRecoveryState.plan?.steps.map((step) => `${step.businessId}.${step.operation}`), [
+  'selection.ask',
+]);
+assert.equal(harnessRecoveryState.plan?.currentIndex, 0);
+assert.deepEqual(harnessRecoveryState.clarificationPlan?.map((step) => `${step.businessId}.${step.operation}`), [
   'selection.inspect',
   'timeline.current',
 ]);
-assert.equal(harnessRecoveryState.plan?.currentIndex, 0);
 assert.ok(harnessRecoveryState.trace.some((entry) => entry.type === 'harness.terminal'));
 assert.equal(
   harnessRecoveryHost.readEvents(harnessRecoveryId, 0, 256)
@@ -647,9 +658,10 @@ assert.equal(
 );
 assert.equal(harnessRecoveryRouted.transaction.plan?.currentIndex, 0);
 
-// Resume is a separate, explicit Host API. The new Engine Turn starts from
-// the preserved current step, while the old interrupted transaction remains
-// immutable audit evidence and no mutation gateway method is reached.
+// A typed answer is executable only because the interrupted ask transaction is
+// present. The new Engine Turn starts from the bound selection operation, then
+// continues to the timeline step; the old transaction remains immutable audit
+// evidence and no mutation gateway method is reached.
 harnessRecoveryEngine.enqueueScript([
   {
     type: 'tool',
@@ -668,21 +680,36 @@ harnessRecoveryEngine.enqueueScript([
 const resumedTurn = await harnessRecoveryHost.resumeHarnessTurn({
   defSessionId: harnessRecoveryId,
   sourceTransactionId: harnessRecoveryRouted.transaction.transactionId,
-  userMessage: '明确继续上一次跨业务计划',
+  userMessage: '乙',
   clientTurnId: asClientTurnId('client-turn-harness-resumed'),
   binding,
+  questionAnswer: '乙',
 });
 assert.equal((await harnessRecoveryHost.waitForTurnTerminal(resumedTurn.defTurnId)).type, 'turn.completed');
 const resumedState = harnessRecoveryManager.exportPersistedTransactions(harnessRecoveryId)
   .find((transaction) => transaction.defTurnId === resumedTurn.defTurnId)!;
 assert.equal(resumedState.status, 'completed');
 assert.equal(resumedState.resumedFromTransactionId, harnessRecoveryRouted.transaction.transactionId);
+assert.deepEqual(resumedState.plan?.steps.map((step) => `${step.businessId}.${step.operation}`), [
+  'selection.ask',
+  'selection.inspect',
+  'timeline.current',
+]);
 assert.equal(
   harnessRecoveryHost.readEvents(harnessRecoveryId, 0, 256)
     .filter((event) => event.type === 'harness.resumed').length,
   1,
 );
 assert.equal(harnessRecoveryMutationDispatches, 0);
+const resumedEngineTrace = harnessRecoveryEngine.getTurnTrace({
+  session: harnessRecoveryEngineSession,
+  turnId: asEngineTurnId('fake-turn-1'),
+});
+assert.match(resumedEngineTrace?.input.systemContext ?? '', /Typed DefQuestionAnswerV1 answer/u);
+assert.deepEqual(
+  resumedEngineTrace?.input.toolProjection.tools.map((tool) => tool.name),
+  ['def.node.crud.context'],
+);
 await harnessRecoveryHost.shutdown();
 
 console.log('DEF Agent Host restart recovery contract passed');
