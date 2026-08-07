@@ -520,9 +520,11 @@ export class OpenCodeNativeUiGateway {
     if (method === 'PATCH' && sessionRoute && !sessionRoute[2]) {
       if (!routeSession) throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', 'Native session was not found', 404);
       const body = expectRecord(await readJson(request));
-      if (!Object.keys(body).every((key) => key === 'title')) {
+      const archive = isNativeSessionArchiveUpdate(body);
+      if (!archive && !Object.keys(body).every((key) => key === 'title')) {
         throw new DefAgentHostError('AGENT_NATIVE_UI_MUTATION_DENIED', 'Only native session titles may be updated directly', 403);
       }
+      if (archive) this.#host.archiveSession(routeSession.defSessionId, access.binding);
       await this.#proxyEngineResponse(response, await this.#engine.requestNativeUi(
         `${url.pathname}${url.search}`,
         { method, body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
@@ -964,7 +966,7 @@ function embeddedProfile() {
     features: {
       sessionCreate: true,
       sessionList: true,
-      sessionArchive: false,
+      sessionArchive: true,
       nodeReview: false,
       nodeFiles: false,
       nodeApproval: false,
@@ -1233,6 +1235,13 @@ function expectRecord(value: unknown): Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isNativeSessionArchiveUpdate(value: Record<string, unknown>): boolean {
+  if (!Object.keys(value).every((key) => key === 'title' || key === 'time')) return false;
+  if (value.title !== undefined && typeof value.title !== 'string') return false;
+  if (!isRecord(value.time) || !Object.keys(value.time).every((key) => key === 'archived')) return false;
+  return typeof value.time.archived === 'number' && Number.isFinite(value.time.archived);
 }
 
 function readAuthToken(value: string | null): string {

@@ -63,20 +63,38 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
   };
   const started: unknown[] = [];
   const resolved: InteractionResponse[] = [];
+  const archiveCalls: string[] = [];
+  const deleteCalls: string[] = [];
+  let sessionState = session;
   let pending: InteractionRequest[] = [];
   const upstreamRequests: string[] = [];
   const host = {
     readSession(defSessionId: string) {
       assert.equal(defSessionId, session.defSessionId);
-      return session;
+      return sessionState;
     },
     listSessions(expected?: ProductBinding) {
-      return expected?.timelineId === binding.timelineId ? [session] : [session, foreignSession];
+      return expected?.timelineId === binding.timelineId ? [sessionState] : [sessionState, foreignSession];
     },
     async createSession() {
-      return session;
+      return sessionState;
     },
-    async deleteSession() {},
+    archiveSession(defSessionId: string, expected?: ProductBinding) {
+      assert.equal(defSessionId, session.defSessionId);
+      assert.deepEqual(expected, binding);
+      archiveCalls.push(defSessionId);
+      sessionState = {
+        ...sessionState,
+        status: 'archived',
+        updatedAt: '2026-08-08T00:00:02.000Z',
+      };
+      return sessionState;
+    },
+    async deleteSession(defSessionId: string, expected?: ProductBinding) {
+      assert.equal(defSessionId, session.defSessionId);
+      assert.deepEqual(expected, binding);
+      deleteCalls.push(defSessionId);
+    },
     async startHarnessTurn(input: unknown) {
       started.push(input);
       return { defTurnId: 'def-turn-native-ui', clientTurnId: 'native-message' };
@@ -113,6 +131,8 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       return candidate.capabilityId === claims.capabilityId ? consumer : null;
     },
   } as unknown as BrowserConsumerRegistry;
+  let upstreamArchived = false;
+  const nativeSessionUpdates: Array<{ readonly method: string; readonly body: unknown }> = [];
   const engine = {
     async nativeUiDirectory() {
       return '/tmp/def-native-ui-workspace';
@@ -122,6 +142,17 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       if (pathname === '/global/event') return openEventStream(init?.signal);
       if (pathname === '/global/config') {
         return Response.json({ theme: 'system' });
+      }
+      if (pathname === '/session/ses_native_ui' && init?.method === 'PATCH') {
+        assert.equal(typeof init.body, 'string');
+        const body = JSON.parse(init.body as string) as unknown;
+        nativeSessionUpdates.push({ method: init.method, body });
+        upstreamArchived = true;
+        return Response.json({
+          id: 'ses_native_ui',
+          title: 'DEF',
+          time: { created: 1, updated: 2, archived: 2 },
+        });
       }
       if (pathname.startsWith('/session/ses_native_ui/message')) {
         return Response.json([
@@ -147,7 +178,7 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
         return Response.json({ id: 'ses_native_ui', title: 'DEF' });
       }
       if (pathname.startsWith('/session')) {
-        return Response.json([
+        return Response.json(upstreamArchived ? [] : [
           { id: 'ses_native_ui', title: 'DEF' },
           { id: 'ses_foreign', title: 'foreign' },
         ]);
@@ -400,6 +431,42 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       engineUserMessageId: 'msg_000000000001ABCDEFGHIJKLMN',
       binding,
     });
+
+    const archiveResponse = await fetch(`${gateway.origin}/session/ses_native_ui`, {
+      method: 'PATCH',
+      headers: {
+        authorization: `Basic ${authToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ time: { archived: 1_754_598_402_000 } }),
+    });
+    assert.equal(archiveResponse.status, 200);
+    assert.deepEqual(archiveCalls, [session.defSessionId]);
+    assert.deepEqual(deleteCalls, []);
+    assert.deepEqual(nativeSessionUpdates, [{
+      method: 'PATCH',
+      body: { time: { archived: 1_754_598_402_000 } },
+    }]);
+
+    const archivedListResponse = await fetch(`${gateway.origin}/session`, {
+      headers: { authorization: `Basic ${authToken}` },
+    });
+    assert.equal(archivedListResponse.status, 200);
+    assert.deepEqual(await archivedListResponse.json(), []);
+
+    const archivedReadResponse = await fetch(`${gateway.origin}/session/ses_native_ui`, {
+      headers: { authorization: `Basic ${authToken}` },
+    });
+    assert.equal(archivedReadResponse.status, 200);
+    assert.deepEqual(await archivedReadResponse.json(), { id: 'ses_native_ui', title: 'DEF' });
+
+    const deleteResponse = await fetch(`${gateway.origin}/session/ses_native_ui`, {
+      method: 'DELETE',
+      headers: { authorization: `Basic ${authToken}` },
+    });
+    assert.equal(deleteResponse.status, 200);
+    assert.deepEqual(deleteCalls, [session.defSessionId]);
+    assert.deepEqual(archiveCalls, [session.defSessionId]);
   } finally {
     await gateway.stop();
     await rm(uiRoot, { recursive: true, force: true });
