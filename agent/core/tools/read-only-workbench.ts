@@ -4,11 +4,26 @@ import {
   type DefToolDescriptor,
   type DefToolExecutionContext,
   type DefToolHandler,
+  type DefHarnessBusinessId,
+  type DefHarnessOperationId,
   type JsonObject,
   type JsonValue,
   type ProductBinding,
   type ProductSnapshotEnvelope,
 } from '../contracts/index.ts';
+import {
+  aggregateDamageReport,
+  attributeDamageReport,
+  compareDamageReports,
+  currentDamageReportProjection,
+  diagnoseDamageReport,
+  explainDamageReport,
+  exportDamageReport,
+  validateDamageReportCapsule,
+  type DamageReportOperationResult,
+  type DefDamageReportCapsule,
+} from './damage-report-operations.ts';
+import { operationCapabilityJson } from './operation-capability.ts';
 
 export const DEF_DAMAGE_REPORT_VERSION = 'damage-report-v1' as const;
 const MAX_BUFF_CANDIDATES = 200;
@@ -68,10 +83,41 @@ export class DefReadToolRegistry {
       createHandler(
         descriptor(
           'def.data.resource.damage',
-          'Read the product-generated typed damage report without recomputing formulas.',
-          emptyObjectSchema(),
+          'Read, aggregate, compare, attribute, diagnose, export or explain the product-generated typed damage report without recomputing formulas.',
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              action: {
+                type: 'string',
+                enum: ['current', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain'],
+              },
+              baseline: { type: 'object' },
+              buttonId: { type: 'string', maxLength: 256 },
+              hitId: { type: 'string', maxLength: 256 },
+              format: { type: 'string', enum: ['table', 'json'] },
+              maxRows: { type: 'integer', minimum: 1, maximum: 256 },
+              includeCharacters: { type: 'boolean' },
+            },
+          },
         ),
         readDamageReport,
+      ),
+      createHandler(
+        descriptor(
+          'def.capability.status',
+          'Read the authoritative 1.8 capability status for one Harness business operation.',
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['businessId', 'operation'],
+            properties: {
+              businessId: { type: 'string', maxLength: 64 },
+              operation: { type: 'string', maxLength: 64 },
+            },
+          },
+        ),
+        readCapabilityStatus,
       ),
     ];
     this.#handlers = new Map(handlers.map((handler) => [handler.descriptor.name, handler]));
@@ -344,18 +390,163 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
 }
 
 async function readDamageReport(input: JsonValue, context: DefToolExecutionContext): Promise<JsonValue> {
-  expectExactObject(input, []);
+  const args = expectExactObject(input, [
+    'action',
+    'baseline',
+    'buttonId',
+    'hitId',
+    'format',
+    'maxRows',
+    'includeCharacters',
+  ]);
+  const action = optionalDamageAction(args.action);
   const snapshot = await readSnapshot(context);
   const payload = workbenchPayload(snapshot);
-  const damageReport = requireReadyDamageReport(payload);
+  if (action === 'diagnose') {
+    return diagnoseSnapshotDamageReport(payload, snapshot.binding);
+  }
+  const capsule = buildValidatedDamageReportCapsule(payload, snapshot.binding);
+  // Backward compatibility: the original `{}` call returned the full capsule.
+  if (action === null) return capsule as unknown as JsonValue;
+
+  const selection = damageSelectionOptions(args);
+  const result = (() => {
+    switch (action) {
+      case 'current': return currentDamageReportProjection(capsule);
+      case 'aggregate': return aggregateDamageReport(capsule);
+      case 'compare': {
+        if (!isRecord(args.baseline)) {
+          throw new DefToolExecutionError(
+            'DEF_TOOL_INPUT_INVALID',
+            'baseline must be a DefDamageReportV1 object when action is compare',
+          );
+        }
+        return compareDamageReports(capsule, args.baseline);
+      }
+      case 'attribute': return attributeDamageReport(capsule, selection);
+      case 'explain': return explainDamageReport(capsule, selection);
+      case 'export': return exportDamageReport(capsule, damageExportOptions(args));
+    }
+  })();
+  return unwrapDamageOperation(result) as unknown as JsonValue;
+}
+
+async function readCapabilityStatus(input: JsonValue): Promise<JsonValue> {
+  const args = expectExactObject(input, ['businessId', 'operation']);
+  const businessId = requiredInputString(args.businessId, 'businessId', 64);
+  const operation = requiredInputString(args.operation, 'operation', 64);
+  return operationCapabilityJson(
+    businessId as DefHarnessBusinessId,
+    operation as DefHarnessOperationId,
+  );
+}
+
+function damageReportCapsule(
+  report: JsonObject,
+  binding: ProductBinding,
+): DefDamageReportCapsule {
   return {
     contract: 'DefDamageReportV1',
-    binding: bindingJson(snapshot.binding),
+    binding: bindingJson(binding) as unknown as DefDamageReportCapsule['binding'],
     formulaVersion: DEF_DAMAGE_REPORT_VERSION,
     statisticalScope: 'current-workbench-snapshot',
-    schemeDigest: snapshot.binding.snapshotDigest,
-    report: damageReport,
+    schemeDigest: binding.snapshotDigest,
+    report: report as unknown as DefDamageReportCapsule['report'],
   };
+}
+
+function buildValidatedDamageReportCapsule(
+  payload: WorkbenchPayload,
+  binding: ProductBinding,
+): DefDamageReportCapsule {
+  const capsule = damageReportCapsule(requireReadyDamageReport(payload), binding);
+  const validated = validateDamageReportCapsule(capsule);
+  if (!validated.ok) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_PRODUCT_SNAPSHOT_INVALID',
+      `Generated damage report is malformed: ${validated.error.message}`,
+    );
+  }
+  return validated.value;
+}
+
+function diagnoseSnapshotDamageReport(
+  payload: WorkbenchPayload,
+  binding: ProductBinding,
+): JsonValue {
+  if (
+    payload.raw.currentView !== 'canvas'
+    || payload.raw.damageReportStatus !== 'ready'
+    || !isRecord(payload.raw.damageReport)
+  ) {
+    return unwrapDamageOperation(diagnoseDamageReport(null)) as unknown as JsonValue;
+  }
+  return unwrapDamageOperation(
+    diagnoseDamageReport(damageReportCapsule(payload.raw.damageReport, binding)),
+  ) as unknown as JsonValue;
+}
+
+function unwrapDamageOperation(result: DamageReportOperationResult<unknown>): unknown {
+  if (result.ok) return result.value;
+  throw new DefToolExecutionError(
+    'DEF_TOOL_INPUT_INVALID',
+    `${result.error.code}: ${result.error.message}`,
+  );
+}
+
+function optionalDamageAction(value: JsonValue | undefined):
+  | 'current'
+  | 'aggregate'
+  | 'compare'
+  | 'attribute'
+  | 'diagnose'
+  | 'export'
+  | 'explain'
+  | null {
+  if (value === undefined) return null;
+  const actions = new Set([
+    'current',
+    'aggregate',
+    'compare',
+    'attribute',
+    'diagnose',
+    'export',
+    'explain',
+  ]);
+  if (typeof value !== 'string' || !actions.has(value)) {
+    throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'action is not a supported damage report operation');
+  }
+  return value as Exclude<ReturnType<typeof optionalDamageAction>, null>;
+}
+
+function damageSelectionOptions(args: JsonObject): JsonObject {
+  const options: JsonObject = {};
+  if (args.buttonId !== undefined) options.buttonId = requiredInputString(args.buttonId, 'buttonId', 256);
+  if (args.hitId !== undefined) options.hitId = requiredInputString(args.hitId, 'hitId', 256);
+  return options;
+}
+
+function damageExportOptions(args: JsonObject): JsonObject {
+  const options: JsonObject = {};
+  if (args.format !== undefined) {
+    if (args.format !== 'table' && args.format !== 'json') {
+      throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'format must be table or json');
+    }
+    options.format = args.format;
+  }
+  if (args.maxRows !== undefined) {
+    if (!Number.isSafeInteger(args.maxRows) || Number(args.maxRows) < 1 || Number(args.maxRows) > 256) {
+      throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'maxRows must be an integer between 1 and 256');
+    }
+    options.maxRows = args.maxRows;
+  }
+  if (args.includeCharacters !== undefined) {
+    if (typeof args.includeCharacters !== 'boolean') {
+      throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'includeCharacters must be a boolean');
+    }
+    options.includeCharacters = args.includeCharacters;
+  }
+  return options;
 }
 
 function requireReadyDamageReport(payload: WorkbenchPayload): JsonObject {
@@ -813,6 +1004,24 @@ function optionalBoundedString(value: JsonValue | undefined, field: string): str
   }
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+function requiredInputString(
+  value: JsonValue | undefined,
+  field: string,
+  maxLength: number,
+): string {
+  if (typeof value !== 'string') {
+    throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', `${field} must be a string`);
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_INPUT_INVALID',
+      `${field} must be a non-empty string of at most ${maxLength} characters`,
+    );
+  }
+  return trimmed;
 }
 
 function objectArray(value: JsonValue | undefined, field: string): JsonObject[] {
