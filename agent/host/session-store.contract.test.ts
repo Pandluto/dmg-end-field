@@ -9,6 +9,8 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -98,6 +100,22 @@ function readyEvent(defSessionId: DefSessionV6['defSessionId'], sequence: number
   };
 }
 
+function deltaEvent(
+  defSessionId: DefSessionV6['defSessionId'],
+  sequence: number,
+  delta = `delta-${sequence}`,
+): DefEvent {
+  return {
+    schemaVersion: 1,
+    sequence,
+    occurredAt: '2026-08-07T00:00:01.000Z',
+    defSessionId,
+    defTurnId: asDefTurnId('turn-contract'),
+    type: 'response.delta',
+    payload: { delta },
+  };
+}
+
 function acceptedTurn(clientTurnId = 'client-contract', defTurnId = 'turn-contract') {
   return {
     clientTurnId: asClientTurnId(clientTurnId),
@@ -112,6 +130,87 @@ function acceptedTurn(clientTurnId = 'client-contract', defTurnId = 'turn-contra
 
 function makeRoot(): string {
   return mkdtempSync(path.join(os.tmpdir(), 'def-session-store-contract-'));
+}
+
+function countEventJournalReads(journalPath: string, action: () => void): number {
+  const original = fs.readFileSync;
+  let count = 0;
+  fs.readFileSync = ((...args: any[]) => {
+    if (path.resolve(String(args[0])) === path.resolve(journalPath)) count += 1;
+    return Reflect.apply(original, fs, args);
+  }) as typeof fs.readFileSync;
+  syncBuiltinESMExports();
+  try {
+    action();
+  } finally {
+    fs.readFileSync = original;
+    syncBuiltinESMExports();
+  }
+  return count;
+}
+
+function countFsyncs(action: () => void): number {
+  const original = fs.fsyncSync;
+  let count = 0;
+  fs.fsyncSync = ((descriptor: number) => {
+    count += 1;
+    return original(descriptor);
+  }) as typeof fs.fsyncSync;
+  syncBuiltinESMExports();
+  try {
+    action();
+  } finally {
+    fs.fsyncSync = original;
+    syncBuiltinESMExports();
+  }
+  return count;
+}
+
+function testIncrementalAppendAndBufferedDeltaDurability(): void {
+  const root = makeRoot();
+  const record = fixtureRecord('def-session-incremental');
+  const store = createFileDefAgentSessionStore({ root });
+  store.create(record);
+  store.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 1));
+  store.load();
+  const journalPath = path.join(root, 'sessions', record.session.defSessionId, 'events.ndjson');
+  let deltaFsyncs = -1;
+  const journalReads = countEventJournalReads(journalPath, () => {
+    deltaFsyncs = countFsyncs(() => {
+      for (let sequence = 2; sequence <= 65; sequence += 1) {
+        store.append(record.session.defSessionId, deltaEvent(record.session.defSessionId, sequence));
+      }
+    });
+  });
+  assert.equal(journalReads, 0, 'incremental append must not rescan the full event journal');
+  assert.equal(deltaFsyncs, 0, 'response.delta append must not synchronously fsync each event');
+  assert.ok(countFsyncs(() => store.flush(record.session.defSessionId)) >= 1);
+
+  const restarted = createFileDefAgentSessionStore({ root });
+  assert.equal(restarted.loadEvents(record.session.defSessionId).length, 65);
+  assert.deepEqual(
+    restarted.loadEvents(record.session.defSessionId).map((event) => event.sequence),
+    Array.from({ length: 65 }, (_, index) => index + 1),
+  );
+  rmSync(root, { recursive: true, force: true });
+}
+
+function testSequenceValidationSurvivesRejectedAppend(): void {
+  const root = makeRoot();
+  const record = fixtureRecord('def-session-sequence');
+  const store = createFileDefAgentSessionStore({ root });
+  store.create(record);
+  store.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 1));
+  expectStoreError(
+    () => store.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 3)),
+    'CORRUPT_EVENT_JOURNAL',
+  );
+  store.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 2));
+  assert.deepEqual(
+    store.loadEvents(record.session.defSessionId).map((event) => event.sequence),
+    [1, 2],
+  );
+  rmSync(root, { recursive: true, force: true });
 }
 
 function testNormalRestartRecovery(): void {
@@ -173,6 +272,29 @@ function testTruncatedTailIsIgnoredAndRepairedBeforeAppend(): void {
     readyEvent(record.session.defSessionId, 1),
     readyEvent(record.session.defSessionId, 2),
   ]);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function testCompleteTailWithoutNewlineIsRepairedBeforeAppend(): void {
+  const root = makeRoot();
+  const record = fixtureRecord('def-session-complete-tail');
+  const store = createFileDefAgentSessionStore({ root });
+  store.create(record);
+  store.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 1));
+  const journalPath = path.join(root, 'sessions', record.session.defSessionId, 'events.ndjson');
+  appendFileSync(journalPath, JSON.stringify(readyEvent(record.session.defSessionId, 2)));
+
+  const restarted = createFileDefAgentSessionStore({ root });
+  assert.deepEqual(
+    restarted.loadEvents(record.session.defSessionId).map((event) => event.sequence),
+    [1, 2],
+  );
+  restarted.append(record.session.defSessionId, readyEvent(record.session.defSessionId, 3));
+  assert.deepEqual(
+    restarted.loadEvents(record.session.defSessionId).map((event) => event.sequence),
+    [1, 2, 3],
+  );
+  assert.equal(readFileSync(journalPath, 'utf8').endsWith('\n'), true);
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -284,6 +406,9 @@ function testMissingSessionLookupIsNullable(): void {
 testNormalRestartRecovery();
 testAtomicTemporaryResidueIsIgnored();
 testTruncatedTailIsIgnoredAndRepairedBeforeAppend();
+testCompleteTailWithoutNewlineIsRepairedBeforeAppend();
+testIncrementalAppendAndBufferedDeltaDurability();
+testSequenceValidationSurvivesRejectedAppend();
 testFrontCorruptionFailsClosed();
 testDeleteIsExactAndClearsActivePointer();
 testIdAndSymlinkEscapeAreRejected();

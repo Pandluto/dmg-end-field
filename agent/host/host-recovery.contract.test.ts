@@ -11,13 +11,23 @@ import {
   asWorkspaceId,
   type Phase2ProductOperationSchema,
   type DefEvent,
+  type DefSessionId,
   type ProductBinding,
   type ProductGateway,
 } from '../core/contracts/index.ts';
 import { DeterministicFakeAgentEngine } from '../core/testing/fake-engine.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
-import { createMemoryDefAgentSessionStore } from './session-store.ts';
+import { MemoryDefAgentSessionStore } from './session-store.ts';
+
+class FlushCountingMemoryDefAgentSessionStore extends MemoryDefAgentSessionStore {
+  flushCalls = 0;
+
+  override flush(defSessionId: DefSessionId): void {
+    this.flushCalls += 1;
+    super.flush(defSessionId);
+  }
+}
 
 const binding: ProductBinding = {
   workspaceId: asWorkspaceId('workspace-recovery'),
@@ -47,7 +57,7 @@ const engineSession = await engine.createSession({
   defSessionId,
   providerProfileRef: 'default',
 });
-const store = createMemoryDefAgentSessionStore();
+const store = new FlushCountingMemoryDefAgentSessionStore();
 store.create({
   session: {
     schemaVersion: 6,
@@ -218,5 +228,36 @@ await restarted.restoreSession(defSessionId, binding);
 assert.equal(store.loadSession(defSessionId)?.session.status, 'ready');
 await restarted.deleteSession(defSessionId, binding);
 assert.equal(store.load().sessions.length, 0);
+
+const streamedSession = await restarted.createSession({ binding, providerProfileRef: 'default' });
+const responseDeltaCount = 65;
+engine.enqueueScript([
+  ...Array.from({ length: responseDeltaCount }, (_, index) => ({
+    type: 'text' as const,
+    delta: `stream-${index}`,
+  })),
+  { type: 'complete' as const },
+]);
+const flushCallsBeforeStream = store.flushCalls;
+const streamedTurn = await restarted.startTurn({
+  defSessionId: streamedSession.defSessionId,
+  clientTurnId: asClientTurnId('client-turn-streamed'),
+  userMessage: '验证流式日志持久化',
+  systemContext: 'streaming durability contract',
+  toolProjection: { revision: 1, tools: [] },
+});
+assert.equal((await restarted.waitForTurnTerminal(streamedTurn.defTurnId)).type, 'turn.completed');
+const streamedFlushCalls = store.flushCalls - flushCallsBeforeStream;
+assert.ok(streamedFlushCalls >= 1, 'streaming output must periodically flush buffered deltas');
+assert.ok(
+  streamedFlushCalls < responseDeltaCount,
+  'streaming response.delta must not flush once per delta',
+);
+assert.equal(
+  restarted.readEvents(streamedSession.defSessionId, 0, 256)
+    .filter((event) => event.type === 'response.delta').length,
+  responseDeltaCount,
+);
+await restarted.shutdown();
 
 console.log('DEF Agent Host restart recovery contract passed');

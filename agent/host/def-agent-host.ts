@@ -105,6 +105,8 @@ type ActiveTurn = {
   readonly eventStartCount: number;
   readonly eventStartCodeUnits: number;
   readonly pendingInteractionIds: Set<InteractionId>;
+  responseDeltaEventsSinceFlush: number;
+  responseDeltaCodeUnitsSinceFlush: number;
   resolveTerminal: (event: DefEvent) => void;
   resolveCancelled: () => void;
   protocolTail: Promise<void>;
@@ -132,6 +134,8 @@ type InteractionWaiter = {
 
 const INTERACTION_TIMEOUT_MS = 15 * 60 * 1_000;
 const PRODUCT_COMMAND_TIMEOUT_MS = 45_000;
+const RESPONSE_DELTA_FLUSH_EVENT_INTERVAL = 32;
+const RESPONSE_DELTA_FLUSH_CODE_UNITS = 64 * 1_024;
 
 export class DefAgentHost {
   readonly #engine: AgentEngine;
@@ -755,6 +759,8 @@ export class DefAgentHost {
       eventStartCount: record.events.length,
       eventStartCodeUnits: record.eventCodeUnits,
       pendingInteractionIds: new Set(),
+      responseDeltaEventsSinceFlush: 0,
+      responseDeltaCodeUnitsSinceFlush: 0,
       resolveTerminal,
       resolveCancelled,
       protocolTail: Promise.resolve(),
@@ -1982,6 +1988,23 @@ export class DefAgentHost {
     record.sequence = nextSequence;
     record.eventCodeUnits += eventCodeUnits;
     record.events.push(envelope);
+    if (envelope.type === 'response.delta' && active) {
+      active.responseDeltaEventsSinceFlush += 1;
+      active.responseDeltaCodeUnitsSinceFlush += eventCodeUnits;
+      if (
+        active.responseDeltaEventsSinceFlush >= RESPONSE_DELTA_FLUSH_EVENT_INTERVAL
+        || active.responseDeltaCodeUnitsSinceFlush >= RESPONSE_DELTA_FLUSH_CODE_UNITS
+      ) {
+        this.#sessionStore.flush?.(record.session.defSessionId);
+        active.responseDeltaEventsSinceFlush = 0;
+        active.responseDeltaCodeUnitsSinceFlush = 0;
+      }
+    } else if (active) {
+      // Every non-delta append is synchronously durable in the file store and
+      // therefore also flushes any response.delta bytes that precede it.
+      active.responseDeltaEventsSinceFlush = 0;
+      active.responseDeltaCodeUnitsSinceFlush = 0;
+    }
     return envelope;
   }
 

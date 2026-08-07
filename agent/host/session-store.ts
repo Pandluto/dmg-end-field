@@ -102,6 +102,8 @@ export interface DefAgentSessionStore {
   update(record: DefAgentSessionRecord): void;
   acceptClientTurn(defSessionId: DefSessionId, turn: DefAcceptedClientTurnInput): void;
   append(defSessionId: DefSessionId, event: DefEvent): void;
+  /** Flushes any response.delta bytes buffered by append. */
+  flush?(defSessionId: DefSessionId): void;
   delete(defSessionId: DefSessionId): void;
   setActive(defSessionId: DefSessionId | null): void;
 }
@@ -127,7 +129,16 @@ interface MetadataFile {
 interface JournalScan {
   readonly events: readonly DefEvent[];
   readonly validByteLength: number;
+  readonly fileByteLength: number;
   readonly tail: 'none' | 'incomplete' | 'complete-no-newline';
+}
+
+interface JournalState {
+  nextSequence: number;
+  validByteLength: number;
+  fileByteLength: number;
+  tail: JournalScan['tail'];
+  dirty: boolean;
 }
 
 const PORTABLE_ID_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,127})$/;
@@ -508,6 +519,17 @@ function serialize(value: unknown, target: string): string {
   }
 }
 
+function writeAll(descriptor: number, bytes: Buffer, target: string): void {
+  let offset = 0;
+  while (offset < bytes.length) {
+    const written = writeSync(descriptor, bytes, offset, bytes.length - offset);
+    if (written <= 0) {
+      fail('IO_ERROR', 'Unable to make progress while writing event journal', target);
+    }
+    offset += written;
+  }
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
@@ -633,16 +655,21 @@ function validateJournalBuffer(buffer: Buffer, sessionId: DefSessionId, target: 
     if (newline < 0) {
       const tailText = buffer.subarray(offset).toString('utf8');
       if (!tailText.trim()) {
-        return { events, validByteLength, tail: 'incomplete' };
+        return { events, validByteLength, fileByteLength: buffer.length, tail: 'incomplete' };
       }
       let parsed: unknown;
       try {
         parsed = JSON.parse(tailText) as unknown;
       } catch (error) {
-        return { events, validByteLength, tail: 'incomplete' };
+        return { events, validByteLength, fileByteLength: buffer.length, tail: 'incomplete' };
       }
       events.push(validateEvent(parsed, sessionId, events.length + 1, target));
-      return { events, validByteLength: buffer.length, tail: 'complete-no-newline' };
+      return {
+        events,
+        validByteLength: buffer.length,
+        fileByteLength: buffer.length,
+        tail: 'complete-no-newline',
+      };
     }
 
     const line = buffer.subarray(offset, newline).toString('utf8');
@@ -660,7 +687,7 @@ function validateJournalBuffer(buffer: Buffer, sessionId: DefSessionId, target: 
     validByteLength = offset;
   }
 
-  return { events, validByteLength, tail: 'none' };
+  return { events, validByteLength, fileByteLength: buffer.length, tail: 'none' };
 }
 
 function readJournal(target: string, sessionId: DefSessionId): JournalScan {
@@ -757,6 +784,8 @@ export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
     journal.push(checked);
   }
 
+  flush(_defSessionId: DefSessionId): void {}
+
   delete(defSessionId: DefSessionId): void {
     this.#requireSession(defSessionId);
     this.#sessions.delete(defSessionId);
@@ -801,6 +830,7 @@ export class NoopDefAgentSessionStore implements DefAgentSessionStore {
   update(_record: DefAgentSessionRecord): void {}
   acceptClientTurn(_defSessionId: DefSessionId, _turn: DefAcceptedClientTurnInput): void {}
   append(_defSessionId: DefSessionId, _event: DefEvent): void {}
+  flush(_defSessionId: DefSessionId): void {}
   delete(_defSessionId: DefSessionId): void {}
   setActive(_defSessionId: DefSessionId | null): void {}
 }
@@ -809,6 +839,7 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
   readonly root: string;
   readonly registryPath: string;
   readonly sessionsPath: string;
+  readonly #journalStates = new Map<DefSessionId, JournalState>();
 
   constructor(options: FileDefAgentSessionStoreOptions) {
     this.root = normalizePath(options.root);
@@ -827,8 +858,10 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     for (const sessionIdText of registry.sessionIds) {
       const sessionId = asDefSessionId(sessionIdText);
       const record = this.#readMetadata(sessionId);
+      const scan = readJournal(this.#eventsPath(sessionId), sessionId);
       sessions.push(record);
-      events.set(sessionId, readJournal(this.#eventsPath(sessionId), sessionId).events);
+      events.set(sessionId, scan.events);
+      this.#cacheJournalState(sessionId, scan);
     }
     return makeSnapshot(
       registry.activeSessionId === null ? null : asDefSessionId(registry.activeSessionId),
@@ -845,7 +878,9 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
 
   loadEvents(defSessionId: DefSessionId): readonly DefEvent[] {
     const id = this.#assertRegistered(defSessionId);
-    return clone(readJournal(this.#eventsPath(id), id).events);
+    const scan = readJournal(this.#eventsPath(id), id);
+    this.#cacheJournalState(id, scan);
+    return clone(scan.events);
   }
 
   loadAcceptedClientTurn(defSessionId: DefSessionId, clientTurnId: ClientTurnId): DefAcceptedClientTurn | null {
@@ -866,6 +901,13 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     }
     assertDirectory(sessionDirectory, `Session ${id} directory`, true);
     this.#createEmptyJournal(id);
+    this.#journalStates.set(id, {
+      nextSequence: 1,
+      validByteLength: 0,
+      fileByteLength: 0,
+      tail: 'none',
+      dirty: false,
+    });
     writeAtomicJson(this.#metadataPath(id), this.#toMetadata(record), sessionDirectory);
     writeAtomicJson(
       this.registryPath,
@@ -910,27 +952,76 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
   append(defSessionId: DefSessionId, event: DefEvent): void {
     const id = this.#assertRegistered(defSessionId);
     const target = this.#eventsPath(id);
-    const scan = readJournal(target, id);
-    const checked = validateEvent(event, id, scan.events.length + 1, target);
-    if (scan.tail === 'incomplete') {
-      this.#truncateJournal(target, scan.validByteLength);
+    const state = this.#getJournalState(id, target);
+    const checked = validateEvent(event, id, state.nextSequence, target);
+    if (state.tail === 'incomplete') {
+      try {
+        this.#truncateJournal(target, state.validByteLength);
+      } catch (error) {
+        this.#journalStates.delete(id);
+        throw error;
+      }
+      state.fileByteLength = state.validByteLength;
+      state.tail = 'none';
     }
 
     let descriptor: number | null = null;
     try {
-      descriptor = openSync(target, fsConstants.O_WRONLY | fsConstants.O_APPEND | fsConstants.O_CREAT, 0o600);
-      const prefix = scan.tail === 'complete-no-newline' ? '\n' : '';
+      if (!assertRegularFile(target, 'event journal', true)) {
+        fail('CORRUPT_EVENT_JOURNAL', 'Registered Session has no event journal', target);
+      }
+      descriptor = openSync(target, fsConstants.O_WRONLY | fsConstants.O_APPEND, 0o600);
+      const prefix = state.tail === 'complete-no-newline' ? '\n' : '';
       const bytes = Buffer.from(`${prefix}${serialize(checked, target)}\n`, 'utf8');
-      writeSync(descriptor, bytes, 0, bytes.length);
-      fsyncSync(descriptor);
+      writeAll(descriptor, bytes, target);
+      state.validByteLength = state.fileByteLength + bytes.length;
+      state.fileByteLength = state.validByteLength;
+      state.nextSequence = checked.sequence + 1;
+      state.tail = 'none';
+      state.dirty = true;
+      if (event.type !== 'response.delta') {
+        fsyncSync(descriptor);
+        state.dirty = false;
+      }
       chmodSync(target, 0o600);
     } catch (error) {
+      this.#journalStates.delete(id);
       if (error instanceof DefAgentSessionStoreError) throw error;
       fail('IO_ERROR', `Unable to append event journal: ${errorMessage(error)}`, target);
     } finally {
       if (descriptor !== null) closeSync(descriptor);
     }
-    syncDirectory(path.dirname(target));
+    if (event.type !== 'response.delta') {
+      try {
+        syncDirectory(path.dirname(target));
+      } catch (error) {
+        this.#journalStates.delete(id);
+        throw error;
+      }
+    }
+  }
+
+  flush(defSessionId: DefSessionId): void {
+    const id = this.#assertRegistered(defSessionId);
+    const target = this.#eventsPath(id);
+    const state = this.#getJournalState(id, target);
+    if (!state.dirty) return;
+    let descriptor: number | null = null;
+    try {
+      if (!assertRegularFile(target, 'event journal', true)) {
+        fail('CORRUPT_EVENT_JOURNAL', 'Registered Session has no event journal', target);
+      }
+      descriptor = openSync(target, fsConstants.O_WRONLY, 0o600);
+      fsyncSync(descriptor);
+      state.dirty = false;
+      syncDirectory(path.dirname(target));
+    } catch (error) {
+      this.#journalStates.delete(id);
+      if (error instanceof DefAgentSessionStoreError) throw error;
+      fail('IO_ERROR', `Unable to flush event journal: ${errorMessage(error)}`, target);
+    } finally {
+      if (descriptor !== null) closeSync(descriptor);
+    }
   }
 
   delete(defSessionId: DefSessionId): void {
@@ -946,6 +1037,7 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     // Removing the registry entry first means a crash cannot leave an active
     // pointer to a directory that has already disappeared.
     writeAtomicJson(this.registryPath, nextRegistry, this.root);
+    this.#journalStates.delete(id);
     try {
       rmSync(sessionDirectory, { recursive: true, force: false });
     } catch (error) {
@@ -969,6 +1061,37 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
       } satisfies RegistryFile,
       this.root,
     );
+  }
+
+  #cacheJournalState(id: DefSessionId, scan: JournalScan): JournalState {
+    const previous = this.#journalStates.get(id);
+    const state: JournalState = {
+      nextSequence: scan.events.length + 1,
+      validByteLength: scan.validByteLength,
+      fileByteLength: scan.fileByteLength,
+      tail: scan.tail,
+      dirty: previous?.fileByteLength === scan.fileByteLength && previous.dirty,
+    };
+    this.#journalStates.set(id, state);
+    return state;
+  }
+
+  #journalFileByteLength(target: string): number {
+    if (!assertRegularFile(target, 'event journal', true)) {
+      fail('CORRUPT_EVENT_JOURNAL', 'Registered Session has no event journal', target);
+    }
+    try {
+      return lstatSync(target).size;
+    } catch (error) {
+      if (error instanceof DefAgentSessionStoreError) throw error;
+      fail('IO_ERROR', `Unable to inspect event journal: ${errorMessage(error)}`, target);
+    }
+  }
+
+  #getJournalState(id: DefSessionId, target: string): JournalState {
+    const cached = this.#journalStates.get(id);
+    if (cached && this.#journalFileByteLength(target) === cached.fileByteLength) return cached;
+    return this.#cacheJournalState(id, readJournal(target, id));
   }
 
   #ensureLayout(): void {
