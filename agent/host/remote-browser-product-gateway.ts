@@ -57,6 +57,13 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
     const consumer = this.#consumers.requireActive(claims);
     assertConsumerIdentity(consumer, input.consumerId, input.executorLeaseId);
     assertStableIdentity(consumer.binding, input.snapshot.binding);
+    this.#consumers.heartbeat(claims, {
+      consumerId: input.consumerId,
+      executorLeaseId: input.executorLeaseId,
+      writer: true,
+      visible: true,
+      binding: input.snapshot.binding,
+    });
     this.#snapshot = input.snapshot;
     return input.snapshot;
   }

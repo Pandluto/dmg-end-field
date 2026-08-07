@@ -270,6 +270,36 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   now += 10;
   const orphanCandidate = command('command-orphan');
   await gateway.dispatch(orphanCandidate);
+  const advancedBinding = binding({
+    checkoutTargetId: 'node-b',
+    checkoutUpdatedAt: 11,
+    contentRevision: 5,
+    snapshotDigest: 'sha256:snapshot-5',
+  });
+  const advancedSnapshot = snapshot(advancedBinding);
+  gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: advancedSnapshot,
+  });
+  assert.deepEqual(registry.current()?.binding, advancedBinding);
+  assert.deepEqual(await gateway.getSnapshot(advancedBinding), advancedSnapshot);
+  const bindingBeforeRejectedPublish = registry.current()?.binding;
+  await expectHostError(() => gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: snapshot(binding({
+      timelineId: asTimelineId('another-timeline'),
+      contentRevision: 6,
+      snapshotDigest: 'sha256:rejected-snapshot',
+    })),
+  }), 'AGENT_BINDING_CONFLICT');
+  assert.deepEqual(
+    registry.current()?.binding,
+    bindingBeforeRejectedPublish,
+    'a rejected snapshot must not advance the consumer binding',
+  );
+  assert.deepEqual(await gateway.getSnapshot(advancedBinding), advancedSnapshot);
   registry.close(owner, registration);
   const nextRegistration = {
     ...registration,

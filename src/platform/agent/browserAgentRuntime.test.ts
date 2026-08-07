@@ -92,6 +92,7 @@ function makeJournal(): BrowserCommandJournalRecord {
 class FakeStore implements BrowserProductStore {
   initialized = 0;
   snapshotInputs: RuntimeSnapshotInput[] = [];
+  snapshotBinding = binding;
   claims = 0;
   result: ProductCommandResult | null = null;
   readonly events: string[];
@@ -113,7 +114,7 @@ class FakeStore implements BrowserProductStore {
 
   async createRuntimeSnapshot(input: RuntimeSnapshotInput): Promise<ProductSnapshotEnvelope> {
     this.snapshotInputs.push(input);
-    return { protocolVersion: 1, binding, capturedAt: input.capturedAt!, payload: input.payload };
+    return { protocolVersion: 1, binding: this.snapshotBinding, capturedAt: input.capturedAt!, payload: input.payload };
   }
 
   async readRuntimeSnapshot(): Promise<ProductSnapshotEnvelope | null> { return null; }
@@ -143,6 +144,7 @@ class FakeStore implements BrowserProductStore {
 
 class FakeBridge {
   active = true;
+  failSnapshotPublish = false;
   delivery: BrowserCommandDelivery | null = { cursor: 1, command: productCommand };
   readonly snapshots: BrowserSnapshotPublish[] = [];
   readonly results: BrowserCommandResultSubmission[] = [];
@@ -151,7 +153,10 @@ class FakeBridge {
   constructor(events: string[]) { this.events = events; }
   isAgentModeRoute(): boolean { return this.active; }
   getSessionCapability(): string | null { return this.active ? 'capability-runtime-1234567890' : null; }
-  async publishSnapshot(input: BrowserSnapshotPublish): Promise<void> { this.snapshots.push(input); }
+  async publishSnapshot(input: BrowserSnapshotPublish): Promise<void> {
+    if (this.failSnapshotPublish) throw new Error('snapshot publish failed');
+    this.snapshots.push(input);
+  }
   async nextCommand(): Promise<BrowserCommandDelivery | null> {
     const delivery = this.delivery;
     this.delivery = null;
@@ -196,6 +201,33 @@ assert.equal(refreshes, 1);
 assert.equal(bridge.snapshots.length, 1);
 assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
 
+const failedBinding = {
+  ...binding,
+  checkoutUpdatedAt: 101,
+  contentRevision: 101,
+  snapshotDigest: 'sha256:runtime-failed',
+};
+store.snapshotBinding = failedBinding;
+bridge.failSnapshotPublish = true;
+await assert.rejects(
+  runtime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+  }),
+  /snapshot publish failed/,
+);
+assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+assert.equal(refreshes, 1, 'a failed same-scope publish must not advance the heartbeat binding');
+bridge.failSnapshotPublish = false;
+store.snapshotBinding = binding;
+
 const enqueued: Array<{ command: unknown; id: string }> = [];
 await runtime.pullRemoteCommands((command, id) => enqueued.push({ command, id }));
 assert.deepEqual(enqueued, [{ command: { op: 'refreshSnapshot' }, id: 'command-runtime' }]);
@@ -227,6 +259,8 @@ assert.equal(
   'the empty selection workspace still needs a stable Product binding',
 );
 
+const snapshotInputsBeforeOrdinaryRoute = store.snapshotInputs.length;
+const publishedSnapshotsBeforeOrdinaryRoute = bridge.snapshots.length;
 bridge.active = false;
 await runtime.publishMainWorkbenchSnapshot({
   schemaVersion: 1,
@@ -248,7 +282,15 @@ await runtime.pushCommandResult({
   createdAt: 0,
   updatedAt: 0,
 });
-assert.equal(store.snapshotInputs.length, 2, 'ordinary pages must not touch Agent identity/snapshots');
-assert.equal(bridge.snapshots.length, 2, 'ordinary pages must not issue Agent requests');
+assert.equal(
+  store.snapshotInputs.length,
+  snapshotInputsBeforeOrdinaryRoute,
+  'ordinary pages must not touch Agent identity/snapshots',
+);
+assert.equal(
+  bridge.snapshots.length,
+  publishedSnapshotsBeforeOrdinaryRoute,
+  'ordinary pages must not issue Agent requests',
+);
 
 console.log('browserAgentRuntime seam contract tests passed');

@@ -125,15 +125,38 @@ export class BrowserAgentRuntime {
       payload: toJsonObject(snapshot),
       capturedAt: new Date(snapshot.updatedAt).toISOString(),
     });
+    const currentConsumer = this.#consumerController.getState().consumer;
+    const requiresRegistration = !currentConsumer
+      || !sameConsumerScope(currentConsumer.binding, runtimeSnapshot.binding);
+    if (requiresRegistration) {
+      this.#binding = runtimeSnapshot.binding;
+      try {
+        await this.#consumerController.refreshEligibility();
+      } catch (error) {
+        this.#binding = null;
+        throw error;
+      }
+    }
+    const consumer = this.#consumerController.getState().consumer;
+    if (!consumer) {
+      if (requiresRegistration) this.#binding = null;
+      return;
+    }
+    try {
+      await this.#bridge.publishSnapshot({
+        consumerId: consumer.consumerId,
+        executorLeaseId: consumer.executorLeaseId,
+        snapshot: runtimeSnapshot,
+      });
+    } catch (error) {
+      if (requiresRegistration) {
+        this.#binding = null;
+        await this.#consumerController.refreshEligibility().catch(() => undefined);
+      }
+      throw error;
+    }
     this.#binding = runtimeSnapshot.binding;
     await this.#consumerController.refreshEligibility();
-    const consumer = this.#consumerController.getState().consumer;
-    if (!consumer) return;
-    await this.#bridge.publishSnapshot({
-      consumerId: consumer.consumerId,
-      executorLeaseId: consumer.executorLeaseId,
-      snapshot: runtimeSnapshot,
-    });
   }
 
   async #pull(enqueue: EnqueueCommand): Promise<void> {
@@ -242,6 +265,12 @@ export class BrowserAgentRuntime {
     }
     return consumer;
   }
+}
+
+function sameConsumerScope(left: ProductBinding, right: ProductBinding): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.databaseGeneration === right.databaseGeneration
+    && left.timelineId === right.timelineId;
 }
 
 function toMainWorkbenchCommand(command: Phase2ProductCommand): MainWorkbenchCommand {
