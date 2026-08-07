@@ -136,4 +136,8 @@ assert.equal(unbound.bound, false);
 assert.equal(unbound.diffs.length, 0);
 assert.equal(unbound.report?.semanticDiff.changes.length, 0);
 
+const zeroRevisionNode = { ...node(base, base), contentRevision: 0, updatedAt: 99 };
+const zeroRevisionReview = buildAiTimelineNodeReviewProjection(zeroRevisionNode, null);
+assert.equal(zeroRevisionReview.report?.manifest.revision, 0);
+
 console.log('node review helper tests passed');

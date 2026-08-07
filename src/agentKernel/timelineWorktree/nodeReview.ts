@@ -212,7 +212,7 @@ function buildManifest(node: AiTimelineWorkNode): AiTimelineNodeReviewManifest {
     parentNodeId: node.parentNodeId || null,
     timelineId: node.timelineId,
     branchId: node.branchId,
-    revision: Number(node.contentRevision || node.updatedAt),
+    revision: Number(node.contentRevision ?? node.updatedAt),
     status: node.status,
     approvalPolicy: node.approvalPolicy,
     label: node.label,
