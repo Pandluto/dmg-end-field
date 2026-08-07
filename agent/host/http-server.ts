@@ -285,11 +285,14 @@ export class DefAgentHostHttpServer {
     }
 
     if (request.method === 'GET' && url.pathname === '/agent-host/ui/state') {
-      const ids = this.#host.getActiveIds();
+      const consumer = this.#consumers.currentFor(claims);
+      const ids = consumer
+        ? this.#host.getActiveIds()
+        : { defSessionId: null, defTurnId: null };
       const state: AgentUiState = {
         protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
         engine: this.#engine(),
-        consumer: this.#consumers.current(),
+        consumer,
         activeDefSessionId: ids.defSessionId,
         activeDefTurnId: ids.defTurnId,
       };

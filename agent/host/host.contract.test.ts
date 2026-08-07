@@ -176,6 +176,8 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     binding: binding(),
   };
   registry.register(claims('cap-a'), registration);
+  assert.equal(registry.currentFor(claims('cap-b')), null);
+  assert.equal(registry.currentFor(claims('cap-a'))?.consumerId, registration.consumerId);
   await expectHostError(() => registry.register(claims('cap-b'), {
     ...registration,
     consumerId: 'consumer-b',
@@ -525,6 +527,8 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   const hostToken = 'host_token_product_api_abcdefghijklmnop';
   const productCapability = 'ui_capability_product_abcdefghijklmnop';
   const productLaunchGrant = 'launch_grant_product_abcdefghijklmnop';
+  const observerCapability = 'ui_capability_observer_abcdefghijklmnop';
+  const observerLaunchGrant = 'launch_grant_observer_abcdefghijklmnop';
   const engine = new DeterministicFakeAgentEngine();
   const consumers = new BrowserConsumerRegistry();
   const gateway = new RemoteBrowserProductGateway(consumers);
@@ -539,7 +543,10 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     toolRegistry: tools,
     requireConsumer: () => { consumers.requireActive(); },
   });
-  const tokens = new AgentTokenAuthority({ randomToken: () => productCapability });
+  const capabilityQueue = [productCapability, observerCapability];
+  const tokens = new AgentTokenAuthority({
+    randomToken: () => capabilityQueue.shift() ?? 'ui_capability_exhausted_abcdefghijklmnop',
+  });
   const server = new DefAgentHostHttpServer({
     hostToken,
     browserOrigin,
@@ -572,6 +579,22 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     body: JSON.stringify({ launchGrant: productLaunchGrant, audience: 'workbench-ai-mode' }),
   });
   assert.equal(exchange.status, 201);
+  await fetch(`${baseUrl}/internal/launch-grants`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      grant: observerLaunchGrant,
+      origin: browserOrigin,
+      audience: 'workbench-ai-mode',
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
+  const observerExchange = await fetch(`${baseUrl}/agent-host/ui/session`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ launchGrant: observerLaunchGrant, audience: 'workbench-ai-mode' }),
+  });
+  assert.equal(observerExchange.status, 201);
   const productHeaders = {
     ...privateHeaders,
     [AGENT_UI_CAPABILITY_HEADER]: productCapability,
@@ -653,6 +676,32 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   assert.deepEqual(Object.keys(created.session.engine).sort(), ['kind', 'runtimeVersion']);
   assert.equal(JSON.stringify(created).includes('fake-engine-session'), false);
   assert.equal(JSON.stringify(created).includes('providerProfileRef'), false);
+
+  const ownerUiStateResponse = await fetch(`${baseUrl}/agent-host/ui/state`, {
+    headers: productHeaders,
+  });
+  assert.equal(ownerUiStateResponse.status, 200);
+  const ownerUiState = await ownerUiStateResponse.json() as {
+    consumer: { consumerId: string } | null;
+    activeDefSessionId: string | null;
+  };
+  assert.equal(ownerUiState.consumer?.consumerId, registration.consumerId);
+  assert.equal(ownerUiState.activeDefSessionId, created.session.defSessionId);
+  const observerUiStateResponse = await fetch(`${baseUrl}/agent-host/ui/state`, {
+    headers: {
+      ...privateHeaders,
+      [AGENT_UI_CAPABILITY_HEADER]: observerCapability,
+    },
+  });
+  assert.equal(observerUiStateResponse.status, 200);
+  const observerUiState = await observerUiStateResponse.json() as {
+    consumer: unknown;
+    activeDefSessionId: unknown;
+    activeDefTurnId: unknown;
+  };
+  assert.equal(observerUiState.consumer, null);
+  assert.equal(observerUiState.activeDefSessionId, null);
+  assert.equal(observerUiState.activeDefTurnId, null);
 
   const listResponse = await fetch(`${baseUrl}/agent-host/sessions`, { headers: productHeaders });
   const listed = await listResponse.json() as { sessions: Array<{ defSessionId: string }> };

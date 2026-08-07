@@ -112,6 +112,13 @@ export class BrowserConsumerRegistry {
     return state;
   }
 
+  currentFor(claims: AgentUiCapabilityClaims): BrowserWorkbenchConsumerState | null {
+    this.#expireStale();
+    if (!this.#active || this.#active.capabilityId !== claims.capabilityId) return null;
+    const { capabilityId: _capabilityId, ...state } = this.#active;
+    return state;
+  }
+
   clear(): void {
     const hadActiveConsumer = Boolean(this.#active);
     this.#clearExpiry();
