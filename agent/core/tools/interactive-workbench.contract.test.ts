@@ -162,6 +162,54 @@ assertWorkNodePlan(
   ['timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
 );
 
+assertWorkNodePlan(
+  await prepare('def.worknode.patch_and_validate', {
+    patch: [
+      {
+        op: 'copyButton',
+        target: { buttonId: 'button-test' },
+        buttonId: 'button-copy',
+        nodeIndex: 2,
+      },
+      {
+        op: 'replaceButton',
+        target: { buttonId: 'button-copy' },
+        skillType: 'E',
+        runtimeSkillId: 'operator-test-skill-e',
+      },
+    ],
+    label: '复制并替换技能',
+  }),
+  [
+    {
+      op: 'copyButton',
+      target: { buttonId: 'button-test' },
+      buttonId: 'button-copy',
+      nodeIndex: 2,
+    },
+    {
+      op: 'replaceButton',
+      target: { buttonId: 'button-copy' },
+      skillType: 'E',
+      runtimeSkillId: 'operator-test-skill-e',
+    },
+  ],
+  ['timeline.work-node', 'timeline.checkout'],
+);
+
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{ op: 'copyButton', target: {}, nodeIndex: 2 }],
+  }),
+  /requires buttonId, characterId, or characterName/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{ op: 'replaceButton', target: { buttonId: 'button-test' }, hidden: true }],
+  }),
+  /unexpected fields: hidden/u,
+);
+
 assert.deepEqual(
   await prepareAny('def.data.catalog.query', {
     action: 'compatibleWeapons',

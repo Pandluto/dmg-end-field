@@ -78,6 +78,119 @@ const BUFF_INPUT_SCHEMA: JsonObject = {
   },
 };
 
+const SKILL_TYPE_SCHEMA: JsonObject = { enum: ['A', 'B', 'E', 'Q', 'Dot'] };
+const PATCH_TARGET_SCHEMA: JsonObject = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    buttonId: boundedStringSchema(1, 200),
+    characterId: boundedStringSchema(1, 160),
+    characterName: boundedStringSchema(1, 160),
+    skillType: SKILL_TYPE_SCHEMA,
+    nodeIndex: boundedIntegerSchema(0, 10_000),
+    latest: { type: 'boolean' },
+  },
+  anyOf: [
+    { required: ['buttonId'] },
+    { required: ['characterId'] },
+    { required: ['characterName'] },
+  ],
+};
+const TARGET_RESISTANCE_SCHEMA: JsonObject = {
+  type: 'object',
+  minProperties: 1,
+  additionalProperties: false,
+  properties: {
+    physicalResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
+    fireResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
+    electricResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
+    iceResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
+    natureResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
+  },
+};
+const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
+  oneOf: [
+    exactSchema(['op', 'characterName'], {
+      op: { const: 'addButton' },
+      buttonId: boundedStringSchema(1, 200),
+      characterId: boundedStringSchema(1, 160),
+      characterName: boundedStringSchema(1, 160),
+      skillType: SKILL_TYPE_SCHEMA,
+      runtimeSkillId: boundedStringSchema(1, 200),
+      skillDisplayName: boundedStringSchema(1, 200),
+      staffIndex: boundedIntegerSchema(0, 100),
+      lineIndex: boundedIntegerSchema(0, 100),
+      nodeIndex: boundedIntegerSchema(0, 10_000),
+    }),
+    exactSchema(['op', 'sourceStaffIndex', 'targetStaffIndex'], {
+      op: { const: 'copyStaffLine' },
+      sourceStaffIndex: boundedIntegerSchema(0, 100),
+      targetStaffIndex: boundedIntegerSchema(0, 100),
+      preserveCharacterIdentity: { type: 'boolean' },
+      replaceTarget: { type: 'boolean' },
+    }),
+    exactSchema(['op', 'target'], { op: { const: 'removeButton' }, target: PATCH_TARGET_SCHEMA }),
+    exactSchema(['op', 'target', 'nodeIndex'], {
+      op: { const: 'moveButton' },
+      target: PATCH_TARGET_SCHEMA,
+      staffIndex: boundedIntegerSchema(0, 100),
+      nodeIndex: boundedIntegerSchema(0, 10_000),
+    }),
+    exactSchema(['op', 'target', 'nodeIndex'], {
+      op: { const: 'copyButton' },
+      target: PATCH_TARGET_SCHEMA,
+      buttonId: boundedStringSchema(1, 200),
+      staffIndex: boundedIntegerSchema(0, 100),
+      nodeIndex: boundedIntegerSchema(0, 10_000),
+      rebindCharacter: { type: 'boolean' },
+    }),
+    {
+      ...exactSchema(['op', 'target'], {
+        op: { const: 'replaceButton' },
+        target: PATCH_TARGET_SCHEMA,
+        skillType: SKILL_TYPE_SCHEMA,
+        runtimeSkillId: boundedStringSchema(1, 200),
+        skillDisplayName: boundedStringSchema(1, 200),
+        skillIconUrl: boundedStringSchema(1, 2_000),
+      }),
+      anyOf: [
+        { required: ['skillType'] },
+        { required: ['runtimeSkillId'] },
+        { required: ['skillDisplayName'] },
+        { required: ['skillIconUrl'] },
+      ],
+    },
+    {
+      ...exactSchema(['op', 'target'], {
+        op: { const: 'attachBuff' },
+        target: PATCH_TARGET_SCHEMA,
+        buffId: boundedStringSchema(1, 200),
+        buff: BUFF_INPUT_SCHEMA,
+        stackCount: boundedIntegerSchema(0, 10_000),
+      }),
+      anyOf: [{ required: ['buffId'] }, { required: ['buff'] }],
+    },
+    exactSchema(['op', 'target', 'buffId'], {
+      op: { const: 'removeBuff' },
+      target: PATCH_TARGET_SCHEMA,
+      buffId: boundedStringSchema(1, 200),
+      count: boundedIntegerSchema(1, 10_000),
+    }),
+    exactSchema(['op', 'target', 'buffId', 'stackCount'], {
+      op: { const: 'setBuffStack' },
+      target: PATCH_TARGET_SCHEMA,
+      buffId: boundedStringSchema(1, 200),
+      stackCount: boundedIntegerSchema(0, 10_000),
+    }),
+    exactSchema(['op', 'target', 'targetResistance'], {
+      op: { const: 'setTargetResistance' },
+      target: PATCH_TARGET_SCHEMA,
+      targetResistance: TARGET_RESISTANCE_SCHEMA,
+    }),
+    exactSchema(['op'], { op: { const: 'clearTimeline' } }),
+  ],
+};
+
 export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
   readonly #read = new DefReadToolRegistry();
   readonly #interactive: ReadonlyMap<string, DefInteractiveToolHandler>;
@@ -388,7 +501,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
                 type: 'array',
                 minItems: 1,
                 maxItems: MAX_ARRAY_ITEMS,
-                items: { type: 'object', additionalProperties: true },
+                items: TIMELINE_PATCH_OPERATION_SCHEMA,
               },
               label: boundedStringSchema(1, 120),
               description: boundedStringSchema(1, 500),
@@ -508,8 +621,8 @@ function stringArraySchema(minItems: number, maxItems: number, maxLength: number
 }
 
 function operatorConfigPreviewSchema(): JsonObject {
-  const level = { oneOf: [{ type: 'number' }, boundedStringSchema(1, 40)] };
-  const weaponSkillLevels = {
+  const level: JsonObject = { oneOf: [{ type: 'number' }, boundedStringSchema(1, 40)] };
+  const weaponSkillLevels: JsonObject = {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -518,7 +631,7 @@ function operatorConfigPreviewSchema(): JsonObject {
       skill3: boundedIntegerSchema(1, 20),
     },
   };
-  const operatorSkillLevels = {
+  const operatorSkillLevels: JsonObject = {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -528,7 +641,7 @@ function operatorConfigPreviewSchema(): JsonObject {
       Q: { enum: ['L9', 'M3'] },
     },
   };
-  const equipment = {
+  const equipment: JsonObject = {
     type: 'object',
     additionalProperties: false,
     properties: {
@@ -817,8 +930,7 @@ async function prepareSelectionApply(input: JsonValue): Promise<DefInteractiveTo
 
 async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToolPlan> {
   const value = exactObject(input, ['patch', 'label', 'description']);
-  const patch = objectArray(value.patch, 'patch', MAX_ARRAY_ITEMS);
-  if (!patch.length) invalid('patch must contain at least one operation');
+  const patch = parseTimelinePatchOperations(value.patch);
   const command: JsonObject = {
     op: 'applyApprovedWorkNodePatch',
     patch,
@@ -828,6 +940,202 @@ async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToo
       : {}),
   };
   return mutationPlan('应用并检出排轴修改', ['timeline.work-node', 'timeline.checkout'], command);
+}
+
+function parseTimelinePatchOperations(value: JsonValue | undefined): JsonObject[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_ARRAY_ITEMS) {
+    invalid(`patch must contain between 1 and ${MAX_ARRAY_ITEMS} operations`);
+  }
+  return value.map((entry, index) => parseTimelinePatchOperation(entry, `patch[${index}]`));
+}
+
+function parseTimelinePatchOperation(value: JsonValue, label: string): JsonObject {
+  const raw = unrestrictedObject(value, label);
+  const op = requiredEnum(raw.op, `${label}.op`, [
+    'addButton',
+    'copyStaffLine',
+    'removeButton',
+    'moveButton',
+    'copyButton',
+    'replaceButton',
+    'attachBuff',
+    'removeBuff',
+    'setBuffStack',
+    'setTargetResistance',
+    'clearTimeline',
+  ] as const);
+  if (op === 'addButton') {
+    const input = exactObjectAt(raw, label, [
+      'op', 'buttonId', 'characterId', 'characterName', 'skillType', 'runtimeSkillId',
+      'skillDisplayName', 'staffIndex', 'lineIndex', 'nodeIndex',
+    ]);
+    return {
+      op,
+      characterName: requiredString(input.characterName, `${label}.characterName`, 160),
+      ...(optionalString(input.buttonId, `${label}.buttonId`, 200) ? { buttonId: input.buttonId as string } : {}),
+      ...(optionalString(input.characterId, `${label}.characterId`, 160) ? { characterId: input.characterId as string } : {}),
+      ...(input.skillType === undefined ? {} : {
+        skillType: requiredEnum(input.skillType, `${label}.skillType`, ['A', 'B', 'E', 'Q', 'Dot'] as const),
+      }),
+      ...(optionalString(input.runtimeSkillId, `${label}.runtimeSkillId`, 200)
+        ? { runtimeSkillId: input.runtimeSkillId as string }
+        : {}),
+      ...(optionalString(input.skillDisplayName, `${label}.skillDisplayName`, 200)
+        ? { skillDisplayName: input.skillDisplayName as string }
+        : {}),
+      ...optionalIntegerProperty(input.staffIndex, 'staffIndex', label, 0, 100),
+      ...optionalIntegerProperty(input.lineIndex, 'lineIndex', label, 0, 100),
+      ...optionalIntegerProperty(input.nodeIndex, 'nodeIndex', label, 0, 10_000),
+    };
+  }
+  if (op === 'copyStaffLine') {
+    const input = exactObjectAt(raw, label, [
+      'op', 'sourceStaffIndex', 'targetStaffIndex', 'preserveCharacterIdentity', 'replaceTarget',
+    ]);
+    return {
+      op,
+      sourceStaffIndex: requiredInteger(input.sourceStaffIndex, `${label}.sourceStaffIndex`, 0, 100),
+      targetStaffIndex: requiredInteger(input.targetStaffIndex, `${label}.targetStaffIndex`, 0, 100),
+      ...optionalBooleanProperty(input.preserveCharacterIdentity, 'preserveCharacterIdentity', label),
+      ...optionalBooleanProperty(input.replaceTarget, 'replaceTarget', label),
+    };
+  }
+  if (op === 'removeButton') {
+    const input = exactObjectAt(raw, label, ['op', 'target']);
+    return { op, target: parseTimelinePatchTarget(input.target, `${label}.target`) };
+  }
+  if (op === 'moveButton' || op === 'copyButton') {
+    const allowed = op === 'copyButton'
+      ? ['op', 'target', 'buttonId', 'staffIndex', 'nodeIndex', 'rebindCharacter']
+      : ['op', 'target', 'staffIndex', 'nodeIndex'];
+    const input = exactObjectAt(raw, label, allowed);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      nodeIndex: requiredInteger(input.nodeIndex, `${label}.nodeIndex`, 0, 10_000),
+      ...optionalIntegerProperty(input.staffIndex, 'staffIndex', label, 0, 100),
+      ...(op === 'copyButton' && optionalString(input.buttonId, `${label}.buttonId`, 200)
+        ? { buttonId: input.buttonId as string }
+        : {}),
+      ...(op === 'copyButton'
+        ? optionalBooleanProperty(input.rebindCharacter, 'rebindCharacter', label)
+        : {}),
+    };
+  }
+  if (op === 'replaceButton') {
+    const input = exactObjectAt(raw, label, [
+      'op', 'target', 'skillType', 'runtimeSkillId', 'skillDisplayName', 'skillIconUrl',
+    ]);
+    const replacement: JsonObject = {
+      ...(input.skillType === undefined ? {} : {
+        skillType: requiredEnum(input.skillType, `${label}.skillType`, ['A', 'B', 'E', 'Q', 'Dot'] as const),
+      }),
+      ...(optionalString(input.runtimeSkillId, `${label}.runtimeSkillId`, 200)
+        ? { runtimeSkillId: input.runtimeSkillId as string }
+        : {}),
+      ...(optionalString(input.skillDisplayName, `${label}.skillDisplayName`, 200)
+        ? { skillDisplayName: input.skillDisplayName as string }
+        : {}),
+      ...(optionalString(input.skillIconUrl, `${label}.skillIconUrl`, 2_000)
+        ? { skillIconUrl: input.skillIconUrl as string }
+        : {}),
+    };
+    if (Object.keys(replacement).length === 0) invalid(`${label} requires at least one replacement skill field`);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      ...replacement,
+    };
+  }
+  if (op === 'attachBuff') {
+    const input = exactObjectAt(raw, label, ['op', 'target', 'buffId', 'buff', 'stackCount']);
+    const buffId = optionalString(input.buffId, `${label}.buffId`, 200);
+    const buff = input.buff === undefined ? undefined : parseTimelinePatchBuff(input.buff, `${label}.buff`);
+    if (!buffId && !buff) invalid(`${label} requires buffId or buff`);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      ...(buffId ? { buffId } : {}),
+      ...(buff ? { buff } : {}),
+      ...optionalIntegerProperty(input.stackCount, 'stackCount', label, 0, 10_000),
+    };
+  }
+  if (op === 'removeBuff' || op === 'setBuffStack') {
+    const allowed = op === 'removeBuff'
+      ? ['op', 'target', 'buffId', 'count']
+      : ['op', 'target', 'buffId', 'stackCount'];
+    const input = exactObjectAt(raw, label, allowed);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      buffId: requiredString(input.buffId, `${label}.buffId`, 200),
+      ...(op === 'removeBuff'
+        ? optionalIntegerProperty(input.count, 'count', label, 1, 10_000)
+        : { stackCount: requiredInteger(input.stackCount, `${label}.stackCount`, 0, 10_000) }),
+    };
+  }
+  if (op === 'setTargetResistance') {
+    const input = exactObjectAt(raw, label, ['op', 'target', 'targetResistance']);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      targetResistance: parseTargetResistance(input.targetResistance, `${label}.targetResistance`),
+    };
+  }
+  exactObjectAt(raw, label, ['op']);
+  return { op: 'clearTimeline' };
+}
+
+function parseTimelinePatchTarget(value: JsonValue | undefined, label: string): JsonObject {
+  const input = exactObjectAt(value, label, [
+    'buttonId', 'characterId', 'characterName', 'skillType', 'nodeIndex', 'latest',
+  ]);
+  const target: JsonObject = {
+    ...(optionalString(input.buttonId, `${label}.buttonId`, 200) ? { buttonId: input.buttonId as string } : {}),
+    ...(optionalString(input.characterId, `${label}.characterId`, 160) ? { characterId: input.characterId as string } : {}),
+    ...(optionalString(input.characterName, `${label}.characterName`, 160)
+      ? { characterName: input.characterName as string }
+      : {}),
+    ...(input.skillType === undefined ? {} : {
+      skillType: requiredEnum(input.skillType, `${label}.skillType`, ['A', 'B', 'E', 'Q', 'Dot'] as const),
+    }),
+    ...optionalIntegerProperty(input.nodeIndex, 'nodeIndex', label, 0, 10_000),
+    ...optionalBooleanProperty(input.latest, 'latest', label),
+  };
+  if (!target.buttonId && !target.characterId && !target.characterName) {
+    invalid(`${label} requires buttonId, characterId, or characterName`);
+  }
+  return target;
+}
+
+function parseTimelinePatchBuff(value: JsonValue, label: string): JsonObject {
+  const allowed = Object.keys(unrestrictedObject(BUFF_INPUT_SCHEMA.properties, 'BUFF_INPUT_SCHEMA.properties'));
+  const input = exactObjectAt(value, label, allowed);
+  requiredString(input.name, `${label}.name`, 200);
+  requiredString(input.displayName, `${label}.displayName`, 200);
+  requiredString(input.sourceName, `${label}.sourceName`, 200);
+  if (input.id !== undefined) requiredString(input.id, `${label}.id`, 200);
+  if (input.category !== undefined) {
+    requiredEnum(input.category, `${label}.category`, ['condition', 'countable', 'passive'] as const);
+  }
+  if (input.maxStacks !== undefined) requiredInteger(input.maxStacks, `${label}.maxStacks`, 1, 10_000);
+  if (input.refCount !== undefined) requiredInteger(input.refCount, `${label}.refCount`, 0, 1_000_000);
+  for (const field of ['value'] as const) {
+    if (input[field] !== undefined) requiredFiniteNumber(input[field], `${label}.${field}`, -1e12, 1e12);
+  }
+  return cloneJson(input);
+}
+
+function parseTargetResistance(value: JsonValue | undefined, label: string): JsonObject {
+  const input = exactObjectAt(value, label, [
+    'physicalResistance', 'fireResistance', 'electricResistance', 'iceResistance', 'natureResistance',
+  ]);
+  if (Object.keys(input).length === 0) invalid(`${label} requires at least one resistance field`);
+  const result: JsonObject = {};
+  for (const [key, entry] of Object.entries(input)) {
+    result[key] = requiredFiniteNumber(entry, `${label}.${key}`, -10_000, 10_000);
+  }
+  return result;
 }
 
 async function prepareTimelineButtonAddition(input: JsonValue): Promise<DefInteractiveToolPlan> {
@@ -1047,9 +1355,17 @@ function mutationPlan(
 }
 
 function exactObject(value: JsonValue, allowed: readonly string[]): JsonObject {
-  const object = unrestrictedObject(value, 'input');
+  return exactObjectAt(value, 'input', allowed);
+}
+
+function exactObjectAt(
+  value: JsonValue | undefined,
+  label: string,
+  allowed: readonly string[],
+): JsonObject {
+  const object = unrestrictedObject(value as JsonValue, label);
   const extras = Object.keys(object).filter((key) => !allowed.includes(key));
-  if (extras.length) invalid(`unexpected fields: ${extras.join(', ')}`);
+  if (extras.length) invalid(`${label} has unexpected fields: ${extras.join(', ')}`);
   return object;
 }
 
@@ -1109,6 +1425,38 @@ function requiredInteger(
     invalid(`${label} must be an integer between ${minimum} and ${maximum}`);
   }
   return value;
+}
+
+function requiredFiniteNumber(
+  value: JsonValue | undefined,
+  label: string,
+  minimum: number,
+  maximum: number,
+): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < minimum || value > maximum) {
+    invalid(`${label} must be a finite number between ${minimum} and ${maximum}`);
+  }
+  return value;
+}
+
+function optionalIntegerProperty(
+  value: JsonValue | undefined,
+  key: string,
+  label: string,
+  minimum: number,
+  maximum: number,
+): JsonObject {
+  return value === undefined
+    ? {}
+    : { [key]: requiredInteger(value, `${label}.${key}`, minimum, maximum) };
+}
+
+function optionalBooleanProperty(
+  value: JsonValue | undefined,
+  key: string,
+  label: string,
+): JsonObject {
+  return value === undefined ? {} : { [key]: requiredBoolean(value, `${label}.${key}`) };
 }
 
 function stringArray(

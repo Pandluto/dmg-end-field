@@ -91,7 +91,44 @@ assert.deepEqual(
   ['buffStackCounts', 'targetResistance'],
 );
 
-const decremented = applyTimelineWorkNodePatch(adjusted.workingPayload, [{
+const copied = applyTimelineWorkNodePatch(adjusted.workingPayload, [{
+  op: 'copyButton',
+  target: { buttonId: 'button-test' },
+  buttonId: 'button-copy',
+  nodeIndex: 3,
+}]);
+assert.equal(copied.ok, true);
+if (!copied.ok) throw new Error('copyButton fixture failed');
+const copiedButton = copied.workingPayload.skillButtonTable['button-copy'];
+assert.equal(copiedButton?.nodeIndex, 3);
+assert.deepEqual(copiedButton?.selectedBuff, ['buff-test']);
+assert.equal(copiedButton?.buffStackCounts?.['buff-test'], 4);
+assert.deepEqual(copiedButton?.resistanceConfig?.targetResistance, {
+  physicalResistance: 20,
+  fireResistance: -10,
+});
+assert.equal(copied.workingPayload.allBuffList[0]?.refCount, 2);
+
+const replaced = applyTimelineWorkNodePatch(copied.workingPayload, [{
+  op: 'replaceButton',
+  target: { buttonId: 'button-copy' },
+  skillType: 'E',
+  runtimeSkillId: 'operator-test-skill-e',
+  skillDisplayName: '测试战技',
+}]);
+assert.equal(replaced.ok, true);
+if (!replaced.ok) throw new Error('replaceButton fixture failed');
+const replacedButton = replaced.workingPayload.skillButtonTable['button-copy'];
+assert.equal(replacedButton?.skillType, 'E');
+assert.equal(replacedButton?.runtimeSkillId, 'operator-test-skill-e');
+assert.equal(replacedButton?.nodeIndex, 3);
+assert.deepEqual(replacedButton?.selectedBuff, ['buff-test']);
+assert.deepEqual(replacedButton?.resistanceConfig?.targetResistance, {
+  physicalResistance: 20,
+  fireResistance: -10,
+});
+
+const decremented = applyTimelineWorkNodePatch(replaced.workingPayload, [{
   op: 'removeBuff',
   target: { buttonId: 'button-test' },
   buffId: 'buff-test',
@@ -101,6 +138,7 @@ assert.equal(decremented.ok, true);
 if (!decremented.ok) throw new Error('removeBuff decrement fixture failed');
 assert.equal(decremented.workingPayload.skillButtonTable['button-test']?.buffStackCounts?.['buff-test'], 3);
 assert.equal(decremented.workingPayload.allBuffList.length, 1);
+assert.equal(decremented.workingPayload.allBuffList[0]?.refCount, 2);
 
 const removed = applyTimelineWorkNodePatch(decremented.workingPayload, [{
   op: 'removeButton',
@@ -108,6 +146,7 @@ const removed = applyTimelineWorkNodePatch(decremented.workingPayload, [{
 }]);
 assert.equal(removed.ok, true);
 if (!removed.ok) throw new Error('removeButton fixture failed');
-assert.equal(Object.keys(removed.workingPayload.skillButtonTable).length, 0);
-assert.equal(removed.workingPayload.allBuffList.length, 0);
+assert.deepEqual(Object.keys(removed.workingPayload.skillButtonTable), ['button-copy']);
+assert.equal(removed.workingPayload.allBuffList.length, 1);
+assert.equal(removed.workingPayload.allBuffList[0]?.refCount, 1);
 assert.equal(validateTimelinePayload(removed.workingPayload).ok, true);

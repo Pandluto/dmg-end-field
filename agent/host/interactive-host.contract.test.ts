@@ -270,11 +270,11 @@ async function createSession(host: DefAgentHost) {
     beforeRevision: 4,
     afterRevision: 5,
     browserResult: { selectedCharacters: ['洛茜'] },
-    visiblePostcondition: {
+    visiblePostcondition: JSON.parse(JSON.stringify({
       pass: true,
       contentRevision: 5,
       binding: postMutationBinding,
-    },
+    })) as JsonValue,
     completedAt: '2026-08-07T00:00:02.000Z',
   });
   const terminal = await host.waitForTurnTerminal(turn.defTurnId);

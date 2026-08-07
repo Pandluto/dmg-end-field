@@ -50,6 +50,23 @@ export type TimelineWorkNodePatchOperation =
       nodeIndex: number;
     }
   | {
+      op: 'copyButton';
+      target: TimelinePatchTarget;
+      buttonId?: string;
+      staffIndex?: number;
+      nodeIndex: number;
+      /** Rebind character identity when copying to another staff line. */
+      rebindCharacter?: boolean;
+    }
+  | {
+      op: 'replaceButton';
+      target: TimelinePatchTarget;
+      skillType?: SkillButtonType;
+      runtimeSkillId?: string;
+      skillDisplayName?: string;
+      skillIconUrl?: string;
+    }
+  | {
       op: 'attachBuff';
       target: TimelinePatchTarget;
       buffId?: string;
@@ -441,6 +458,80 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     removeTimelineButton(payload, button.id);
     insertTimelineButton(payload, button.id);
     summary.push(`Moved button ${button.characterName}-${button.skillType} to ${nextStaffIndex + 1}-${operation.nodeIndex + 1}.`);
+    return;
+  }
+
+  if (operation.op === 'copyButton') {
+    const source = findButton(payload, operation.target || {}, path);
+    const nextStaffIndex = typeof operation.staffIndex === 'number'
+      ? operation.staffIndex
+      : source.staffIndex;
+    if (!Number.isInteger(nextStaffIndex) || nextStaffIndex < 0) {
+      throw new Error(`${path}: copyButton requires a non-negative integer staffIndex`);
+    }
+    if (!Number.isInteger(operation.nodeIndex) || operation.nodeIndex < 0) {
+      throw new Error(`${path}: copyButton requires a non-negative integer nodeIndex`);
+    }
+    const targetLine = payload.timelineData.staffLines.find((line) => line.staffIndex === nextStaffIndex);
+    if (!targetLine) throw new Error(`${path}: copyButton target staff line not found: ${nextStaffIndex}`);
+    if (targetLine.buttons.some((candidate) => candidate.nodeIndex === operation.nodeIndex)) {
+      throw new Error(`${path}: copyButton target node ${operation.nodeIndex + 1} is already occupied`);
+    }
+    if (nextStaffIndex !== source.staffIndex && operation.rebindCharacter !== true) {
+      throw new Error(`${path}: copyButton across staff lines requires rebindCharacter:true`);
+    }
+    const id = operation.buttonId
+      || `ai-copy-button-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
+    if (payload.skillButtonTable[id]) throw new Error(`${path}: copyButton id already exists: ${id}`);
+    const copied = JSON.parse(JSON.stringify(source)) as SkillButtonTable[string];
+    copied.id = id;
+    copied.staffIndex = nextStaffIndex;
+    copied.lineIndex = nextStaffIndex;
+    copied.nodeIndex = operation.nodeIndex;
+    copied.nodeNumber = operation.nodeIndex + 1;
+    copied.position = {
+      ...copied.position,
+      x: 80 + operation.nodeIndex * 22,
+      y: 60 + nextStaffIndex * 300,
+    };
+    copied.createdAt = Date.now();
+    copied.updatedAt = copied.createdAt;
+    if (nextStaffIndex !== source.staffIndex) {
+      const characterId = payload.selectedCharacters[nextStaffIndex];
+      if (!characterId || !targetLine.characterName) {
+        throw new Error(`${path}: copyButton cannot resolve target staff character identity`);
+      }
+      copied.characterId = characterId;
+      copied.characterName = targetLine.characterName;
+    }
+    payload.skillButtonTable[id] = copied;
+    for (const buffId of getSelectedBuffIds(copied)) {
+      const buff = payload.allBuffList.find((candidate) => candidate.id === buffId);
+      if (!buff) throw new Error(`${path}: copyButton references missing buff ${buffId}`);
+      buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
+    }
+    insertTimelineButton(payload, id);
+    summary.push(`Copied button ${source.characterName}-${source.skillType} to ${nextStaffIndex + 1}-${operation.nodeIndex + 1}.`);
+    return;
+  }
+
+  if (operation.op === 'replaceButton') {
+    const button = findButton(payload, operation.target || {}, path);
+    const hasReplacement = operation.skillType !== undefined
+      || operation.runtimeSkillId !== undefined
+      || operation.skillDisplayName !== undefined
+      || operation.skillIconUrl !== undefined;
+    if (!hasReplacement) {
+      throw new Error(`${path}: replaceButton requires at least one replacement skill field`);
+    }
+    const beforeLabel = `${button.characterName}-${button.skillType}`;
+    if (operation.skillType !== undefined) button.skillType = operation.skillType;
+    if (operation.runtimeSkillId !== undefined) button.runtimeSkillId = operation.runtimeSkillId;
+    if (operation.skillDisplayName !== undefined) button.skillDisplayName = operation.skillDisplayName;
+    if (operation.skillIconUrl !== undefined) button.skillIconUrl = operation.skillIconUrl;
+    button.updatedAt = Date.now();
+    syncTimelineButtonFromTable(payload, button.id);
+    summary.push(`Replaced button ${beforeLabel} with ${button.characterName}-${button.skillType} while preserving its position and attached state.`);
     return;
   }
 
