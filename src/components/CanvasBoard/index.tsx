@@ -1345,7 +1345,7 @@ export function CanvasBoard({
       };
       return {
         parentNodeId: checkout.id,
-        parentRevision: Number(checkout.contentRevision || checkout.updatedAt),
+        parentRevision: Number(checkout.contentRevision ?? checkout.updatedAt),
         preparedPayload,
         finalConfig,
       };
@@ -1488,11 +1488,11 @@ export function CanvasBoard({
     }
     const client = createAiTimelineWorkNodeClient();
     const parent = await client.get(command.parentNodeId);
-    if (Number(parent.node.contentRevision || parent.node.updatedAt) !== Number(command.parentRevision)) {
+    if (operatorConfigNodeRevision(parent.node) !== Number(command.parentRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', '审批期间 checkout revision 已变化；未执行角色配置。');
     }
     const child = await client.get(command.nodeId);
-    if (Number(child.node.contentRevision || child.node.updatedAt) !== Number(command.nodeRevision)) {
+    if (operatorConfigNodeRevision(child.node) !== Number(command.nodeRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', '待审批 Work Node 已变化；未执行角色配置。');
     }
     const childTimelineValidation = validateTimelinePayload(child.node.workingPayload);
@@ -1507,9 +1507,9 @@ export function CanvasBoard({
     setResistanceRevision((value) => value + 1);
     return {
       nodeId: child.node.id,
-      nodeRevision: Number(child.node.contentRevision || child.node.updatedAt),
+      nodeRevision: operatorConfigNodeRevision(child.node),
       parentNodeId: parent.node.id,
-      parentRevision: Number(parent.node.contentRevision || parent.node.updatedAt),
+      parentRevision: operatorConfigNodeRevision(parent.node),
       appliedPayload: child.node.workingPayload,
     };
   };
@@ -1801,11 +1801,11 @@ export function CanvasBoard({
     const { node: parent } = await client.get(command.parentNodeId);
     const { node: candidate } = await client.get(command.candidateNodeId);
     if (parent.timelineId !== command.expectedTimelineId
-      || Number(parent.contentRevision || parent.updatedAt) !== Number(command.parentRevision)) {
+      || operatorConfigNodeRevision(parent) !== Number(command.parentRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback parent changed; refusing to restore a different checkout.');
     }
     if (candidate.timelineId !== command.expectedTimelineId
-      || Number(candidate.contentRevision || candidate.updatedAt) !== Number(command.candidateRevision)) {
+      || operatorConfigNodeRevision(candidate) !== Number(command.candidateRevision)) {
       throw makeOperatorConfigCommandError('checkout-changed', 'Atomic team rollback candidate changed; refusing to restore a different checkout.');
     }
     const repository = createTimelineRepositoryClient();
@@ -1837,9 +1837,9 @@ export function CanvasBoard({
     return {
       restored: true,
       parentNodeId: parent.id,
-      parentRevision: Number(parent.contentRevision || parent.updatedAt),
+      parentRevision: operatorConfigNodeRevision(parent),
       candidateNodeId: candidate.id,
-      candidateRevision: Number(candidate.contentRevision || candidate.updatedAt),
+      candidateRevision: operatorConfigNodeRevision(candidate),
       checkout: checkoutRef,
       sessionPayloadMatches,
     };
@@ -2740,7 +2740,7 @@ export function CanvasBoard({
     }
     const updated = await client.update(nodeId, {
       workingPayload: patchResult.workingPayload,
-      expectedContentRevision: Number(node.contentRevision || node.updatedAt),
+      expectedContentRevision: authoritativePreparedNodeRevision(node),
       status: 'ready',
       riskFlags: nextRiskFlags,
     });

@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 
 const sourcePath = fileURLToPath(new URL('./index.tsx', import.meta.url));
 const source = fs.readFileSync(sourcePath, 'utf8');
+assert.doesNotMatch(
+  source,
+  /contentRevision\s*\|\|/,
+  'content revision zero is authoritative and must never fall back through boolean OR',
+);
 const dispatcherStart = source.indexOf('const processMainWorkbenchCanvasCommand = async');
 const dispatcherEnd = source.indexOf('\n  useEffect(', dispatcherStart);
 
