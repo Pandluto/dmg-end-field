@@ -209,6 +209,16 @@ const comparison = await registry.execute(
 assert.equal(comparison.contract, 'DefDamageCompareV1');
 assert.deepEqual((comparison.total as JsonObject).expected, { current: 120, baseline: 100, delta: 20 });
 
+await assert.rejects(
+  registry.execute(
+    'def.data.resource.damage',
+    { action: 'aggregate', buttonId: 'button-a' },
+    context,
+  ),
+  (error: unknown) => error instanceof DefToolExecutionError
+    && error.code === 'DEF_TOOL_INPUT_INVALID',
+);
+
 const capability = await registry.execute(
   'def.capability.status',
   { businessId: 'loadout', operation: 'restore' },

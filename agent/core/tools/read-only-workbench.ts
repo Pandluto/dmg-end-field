@@ -226,6 +226,7 @@ async function readTeamLoadouts(input: JsonValue, context: DefToolExecutionConte
     'directoryCompatibilityEvidence',
   ]);
   const action = optionalLoadoutAction(args.action);
+  validateLoadoutActionInput(action, args);
   const snapshot = await readSnapshot(context);
   const payload = workbenchPayload(snapshot);
   const configs = new Map<string, JsonObject>();
@@ -298,6 +299,18 @@ function optionalLoadoutAction(value: JsonValue | undefined): 'current' | 'evalu
     throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'action is not a supported loadout fact operation');
   }
   return value;
+}
+
+function validateLoadoutActionInput(
+  action: 'current' | 'evaluate' | 'compare' | null,
+  args: JsonObject,
+): void {
+  if (action === null) return assertOnlyInputKeys(args, []);
+  if (action === 'current') return assertOnlyInputKeys(args, ['action']);
+  if (action === 'evaluate') {
+    return assertOnlyInputKeys(args, ['action', 'operatorId', 'directoryCompatibilityEvidence']);
+  }
+  return assertOnlyInputKeys(args, ['action', 'baseline', 'operatorId']);
 }
 
 function loadoutFactOptions(args: JsonObject): JsonObject {
@@ -619,6 +632,7 @@ async function readDamageReport(input: JsonValue, context: DefToolExecutionConte
     'includeCharacters',
   ]);
   const action = optionalDamageAction(args.action);
+  validateDamageActionInput(action, args);
   const snapshot = await readSnapshot(context);
   const payload = workbenchPayload(snapshot);
   if (action === 'diagnose') {
@@ -736,6 +750,21 @@ function optionalDamageAction(value: JsonValue | undefined):
     throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'action is not a supported damage report operation');
   }
   return value as Exclude<ReturnType<typeof optionalDamageAction>, null>;
+}
+
+function validateDamageActionInput(
+  action: ReturnType<typeof optionalDamageAction>,
+  args: JsonObject,
+): void {
+  if (action === null) return assertOnlyInputKeys(args, []);
+  if (action === 'current' || action === 'aggregate' || action === 'diagnose') {
+    return assertOnlyInputKeys(args, ['action']);
+  }
+  if (action === 'compare') return assertOnlyInputKeys(args, ['action', 'baseline']);
+  if (action === 'attribute' || action === 'explain') {
+    return assertOnlyInputKeys(args, ['action', 'buttonId', 'hitId']);
+  }
+  return assertOnlyInputKeys(args, ['action', 'format', 'maxRows', 'includeCharacters']);
 }
 
 function damageSelectionOptions(args: JsonObject): JsonObject {
@@ -1214,6 +1243,16 @@ function expectExactObject(value: JsonValue, allowedKeys: readonly string[]): Js
     );
   }
   return value;
+}
+
+function assertOnlyInputKeys(value: JsonObject, allowedKeys: readonly string[]): void {
+  const unsupported = Object.keys(value).filter((key) => !allowedKeys.includes(key));
+  if (unsupported.length > 0) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_INPUT_INVALID',
+      `Tool action contains unsupported fields: ${unsupported.sort().join(', ')}`,
+    );
+  }
 }
 
 function optionalBoundedString(value: JsonValue | undefined, field: string): string | null {

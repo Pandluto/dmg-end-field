@@ -144,6 +144,16 @@ assert.equal('score' in comparison, false);
 await assert.rejects(
   registry.execute(
     'def.data.resource.team_loadouts',
+    { action: 'current', operatorId: 'operator-a' },
+    context,
+  ),
+  (error: unknown) => error instanceof DefToolExecutionError
+    && error.code === 'DEF_TOOL_INPUT_INVALID',
+);
+
+await assert.rejects(
+  registry.execute(
+    'def.data.resource.team_loadouts',
     { action: 'compare', baseline: { contract: 'DefTeamLoadoutsV1' } },
     context,
   ),
