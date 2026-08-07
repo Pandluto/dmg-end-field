@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   enqueueMainWorkbenchCommand,
   enqueueMainWorkbenchCommands,
+  executeAgentProductCatalogCommand,
   getPendingMainWorkbenchCommands,
   patchMainWorkbenchCommand,
   readMainWorkbenchCommandQueue,
@@ -85,6 +86,35 @@ assert.equal(
   getPendingMainWorkbenchCommands(['refreshOperatorConfig']).length,
   0,
   'error results must not be claimed again',
+);
+
+const storageReads: string[] = [];
+const emptyCatalogStorage = {
+  getItem(key: string): string | null {
+    storageReads.push(key);
+    return null;
+  },
+};
+const catalogQueryResult = executeAgentProductCatalogCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'query',
+  domain: 'operators',
+  limit: 2,
+}, emptyCatalogStorage);
+assert.equal(catalogQueryResult.ok, true);
+assert.equal(catalogQueryResult.readOnly, true);
+assert.equal(catalogQueryResult.source, 'browser-sqlite-mirror');
+assert.deepEqual((catalogQueryResult.payload as { results: unknown[] }).results, []);
+assert.ok(storageReads.length > 0, 'catalog command must read browser persistent storage');
+
+const buildGuideResult = executeAgentProductCatalogCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'buildGuide',
+  operatorQuery: '洛茜',
+}, emptyCatalogStorage);
+assert.equal(
+  (buildGuideResult.payload as { evidence: { status: string } }).evidence.status,
+  'evidenceUnavailable',
 );
 
 console.log('Main Workbench command queue lifecycle contract: PASS');

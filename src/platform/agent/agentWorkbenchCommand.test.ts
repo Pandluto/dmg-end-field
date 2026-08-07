@@ -126,4 +126,80 @@ assert.deepEqual(parseAgentWorkbenchCommand({
   },
 });
 
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'query',
+  domain: 'operators',
+  query: '洛茜',
+  limit: 8,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'query',
+  domain: 'operators',
+  query: '洛茜',
+  limit: 8,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'compatibleWeapons',
+  operatorQuery: '洛茜',
+  weaponQuery: '单手剑',
+  limit: 4,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'compatibleWeapons',
+  operatorQuery: '洛茜',
+  weaponQuery: '单手剑',
+  limit: 4,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'gearTopologyFacts',
+  setQuery: '测试套装',
+  allowDuplicateCompatibleAccessories: true,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'gearTopologyFacts',
+  setQuery: '测试套装',
+  allowDuplicateCompatibleAccessories: true,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'gearTopologyPlan',
+  setQuery: '测试套装',
+  limit: 16,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'gearTopologyPlan',
+  setQuery: '测试套装',
+  limit: 16,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'buildGuide',
+  operatorQuery: '洛茜',
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'buildGuide',
+  operatorQuery: '洛茜',
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'query',
+  domain: 'operators',
+  approval: { mode: 'manual' },
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'compatibleWeapons',
+  operatorQuery: '洛茜',
+  limit: 0,
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'buildGuide',
+  operatorQuery: '洛茜',
+  limit: 4,
+});
+
 console.log('Agent Workbench command schema contract passed');

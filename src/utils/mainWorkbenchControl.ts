@@ -5,13 +5,65 @@ import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWork
 import type { AiTimelineNodeReviewProjection } from '../agentKernel/timelineWorktree/nodeReview';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
+import {
+  getAgentBuildGuide,
+  getCompatibleWeapons,
+  getGearTopologyFacts,
+  planGearTopology,
+  queryAgentProductCatalog,
+  readAgentProductCatalogInput,
+  type AgentCatalogDomain,
+  type AgentProductCatalogStorage,
+} from '../core/services/agentProductCatalogService';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
 export const MAIN_WORKBENCH_CONTROL_EVENT = 'def-main-workbench-control';
 export type MainWorkbenchCommandStatus = 'pending' | 'running' | 'done' | 'error';
 
+export type AgentProductCatalogAction =
+  | 'query'
+  | 'compatibleWeapons'
+  | 'gearTopologyFacts'
+  | 'gearTopologyPlan'
+  | 'buildGuide';
+
+export type AgentProductCatalogCommand =
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'query';
+      domain: AgentCatalogDomain;
+      query?: string;
+      limit?: number;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'compatibleWeapons';
+      operatorQuery: string;
+      weaponQuery?: string;
+      limit?: number;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'gearTopologyFacts';
+      setQuery: string;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'gearTopologyPlan';
+      setQuery: string;
+      limit?: number;
+      allowDuplicateCompatibleAccessories?: boolean;
+    }
+  | {
+      op: 'queryAgentProductCatalog';
+      action: 'buildGuide';
+      operatorQuery: string;
+    };
+
 export type MainWorkbenchCommand =
+  | AgentProductCatalogCommand
   | {
       op: 'selectCharacters';
       characterIds?: string[];
@@ -333,6 +385,72 @@ export type MainWorkbenchCommand =
   | {
       op: 'refreshSnapshot';
     };
+
+export interface AgentProductCatalogCommandResult {
+  ok: true;
+  readOnly: true;
+  op: 'queryAgentProductCatalog';
+  action: AgentProductCatalogAction;
+  source: 'browser-sqlite-mirror';
+  payload: unknown;
+}
+
+/**
+ * Executes the browser facts command without crossing into a mutation path.
+ * The renderer passes its persistent browser storage explicitly so this
+ * command cannot accidentally fall back to legacy Node/REST data sources.
+ */
+export function executeAgentProductCatalogCommand(
+  command: AgentProductCatalogCommand,
+  storage: AgentProductCatalogStorage = persistentLocalStorage,
+): AgentProductCatalogCommandResult {
+  const input = readAgentProductCatalogInput(storage);
+  let payload: unknown;
+  switch (command.action) {
+    case 'query':
+      payload = queryAgentProductCatalog(input, {
+        domain: command.domain,
+        query: command.query,
+        limit: command.limit,
+      });
+      break;
+    case 'compatibleWeapons':
+      payload = getCompatibleWeapons(input, {
+        operatorQuery: command.operatorQuery,
+        weaponQuery: command.weaponQuery,
+        limit: command.limit,
+      });
+      break;
+    case 'gearTopologyFacts':
+      payload = getGearTopologyFacts(input, {
+        setQuery: command.setQuery,
+        allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories === true,
+      });
+      break;
+    case 'gearTopologyPlan':
+      payload = planGearTopology(input, {
+        setQuery: command.setQuery,
+        limit: command.limit,
+        allowDuplicateCompatibleAccessories: command.allowDuplicateCompatibleAccessories === true,
+      });
+      break;
+    case 'buildGuide':
+      payload = getAgentBuildGuide(input, command.operatorQuery);
+      break;
+    default: {
+      const exhaustive: never = command;
+      throw new Error(`Unsupported agent product catalog action: ${String(exhaustive)}`);
+    }
+  }
+  return {
+    ok: true,
+    readOnly: true,
+    op: 'queryAgentProductCatalog',
+    action: command.action,
+    source: 'browser-sqlite-mirror',
+    payload,
+  };
+}
 
 export interface QueuedMainWorkbenchCommand {
   id: string;

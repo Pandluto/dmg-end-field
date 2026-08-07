@@ -94,6 +94,7 @@ import DeferredNumberInput from '../DeferredNumberInput';
 import {
   getPendingMainWorkbenchCommands,
   enqueueMainWorkbenchCommand,
+  executeAgentProductCatalogCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
@@ -2235,6 +2236,7 @@ export function CanvasBoard({
     try {
       await pullRemoteMainWorkbenchCommands();
       const commandEntry = getPendingMainWorkbenchCommands([
+        'queryAgentProductCatalog',
         'addSkillButton',
         'removeSkillButton',
         'addBuff',
@@ -2274,6 +2276,12 @@ export function CanvasBoard({
         if (settledEntry) void pushMainWorkbenchCommandResult(settledEntry);
       };
       try {
+        if (command.op === 'queryAgentProductCatalog') {
+          const result = executeAgentProductCatalogCommand(command);
+          settleCommand({ status: 'done', result });
+          return;
+        }
+
         if (command.op === 'addSkillButton') {
           const result = addSkillButtonFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });

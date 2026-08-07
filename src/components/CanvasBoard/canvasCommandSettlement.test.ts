@@ -17,7 +17,7 @@ const supportedListMatch = dispatcher.match(
 assert.ok(supportedListMatch, 'dispatcher must declare its supported command list');
 
 const supportedOps = [...supportedListMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
-assert.equal(supportedOps.length, 26, 'all 26 Canvas command operations must stay registered');
+assert.equal(supportedOps.length, 27, 'all 27 Canvas command operations must stay registered');
 assert.equal(new Set(supportedOps).size, supportedOps.length, 'supported command operations must be unique');
 
 const branchMatches = [...dispatcher.matchAll(/if \(command\.op === '([^']+)'\) \{/g)];

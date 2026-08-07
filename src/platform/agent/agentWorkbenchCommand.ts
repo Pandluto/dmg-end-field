@@ -1,6 +1,9 @@
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import type { SkillButtonType } from '../../types';
-import type { MainWorkbenchCommand } from '../../utils/mainWorkbenchControl';
+import type {
+  AgentProductCatalogCommand,
+  MainWorkbenchCommand,
+} from '../../utils/mainWorkbenchControl';
 
 const SKILL_TYPES = new Set<SkillButtonType>(['A', 'B', 'E', 'Q', 'Dot']);
 const RESISTANCE_KEYS = new Set([
@@ -28,6 +31,9 @@ export class AgentWorkbenchCommandError extends Error {
 
 export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchCommand {
   const operation = string(value.op, 'op', 100);
+  if (operation === 'queryAgentProductCatalog') {
+    return parseAgentProductCatalogCommand(value);
+  }
   if (operation === 'selectCharacters') {
     exact(value, ['op', 'characterIds', 'characterNames', 'nodeTitle', 'nodeDescription', 'openCanvas', 'approval']);
     const characterIds = optionalStringArray(value.characterIds, 'characterIds', 4, 160);
@@ -158,6 +164,73 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
     };
   }
   invalid(`Agent command operation is not allowlisted: ${operation}`);
+}
+
+function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalogCommand {
+  const action = enumValue(
+    value.action,
+    'action',
+    ['query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide'] as const,
+  );
+  if (action === 'query') {
+    exact(value, ['op', 'action', 'domain', 'query', 'limit']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      domain: enumValue(
+        value.domain,
+        'domain',
+        ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] as const,
+      ),
+      ...(optionalString(value.query, 'query', 160) ? { query: value.query as string } : {}),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 256) }),
+    };
+  }
+  if (action === 'compatibleWeapons') {
+    exact(value, ['op', 'action', 'operatorQuery', 'weaponQuery', 'limit']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      ...(optionalString(value.weaponQuery, 'weaponQuery', 160) ? { weaponQuery: value.weaponQuery as string } : {}),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 256) }),
+    };
+  }
+  if (action === 'gearTopologyFacts') {
+    exact(value, ['op', 'action', 'setQuery', 'allowDuplicateCompatibleAccessories']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      setQuery: string(value.setQuery, 'setQuery', 160),
+      ...(value.allowDuplicateCompatibleAccessories === undefined ? {} : {
+        allowDuplicateCompatibleAccessories: boolean(
+          value.allowDuplicateCompatibleAccessories,
+          'allowDuplicateCompatibleAccessories',
+        ),
+      }),
+    };
+  }
+  if (action === 'gearTopologyPlan') {
+    exact(value, ['op', 'action', 'setQuery', 'limit', 'allowDuplicateCompatibleAccessories']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      setQuery: string(value.setQuery, 'setQuery', 160),
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 256) }),
+      ...(value.allowDuplicateCompatibleAccessories === undefined ? {} : {
+        allowDuplicateCompatibleAccessories: boolean(
+          value.allowDuplicateCompatibleAccessories,
+          'allowDuplicateCompatibleAccessories',
+        ),
+      }),
+    };
+  }
+  exact(value, ['op', 'action', 'operatorQuery']);
+  return {
+    op: 'queryAgentProductCatalog',
+    action,
+    operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+  };
 }
 
 function parseBuff(value: JsonObject): Extract<MainWorkbenchCommand, { op: 'addBuff' }>['buff'] {
