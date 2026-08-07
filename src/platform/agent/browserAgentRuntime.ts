@@ -41,12 +41,29 @@ const PHASE2_ALLOWED_OPERATIONS = new Set([
 ]);
 const MUTATING_MAIN_COMMANDS = new Set<MainWorkbenchCommand['op']>([
   'selectCharacters',
+  'clearTimeline',
   'addSkillButton',
   'removeSkillButton',
   'addBuff',
+  'addBuffToButtons',
   'removeBuff',
   'setTargetResistance',
+  'saveTimelineSnapshot',
+  'restoreTimelineSnapshot',
+  'createAiTimelineWorkNodeFromCurrent',
+  'validateAiTimelineWorkNode',
+  'deleteAiTimelineWorkNode',
+  'patchAiTimelineWorkNode',
+  'patchAndValidateAiTimelineWorkNode',
   'applyApprovedWorkNodePatch',
+  'checkoutAiTimelineWorkNode',
+  'restoreAiTimelineWorkNodeBase',
+  'setOperatorWeapon',
+  'setOperatorEquipment',
+  'setOperatorConfig',
+  'applyPreparedOperatorConfig',
+  'finalizePreparedOperatorConfig',
+  'restoreAtomicTeamParent',
 ]);
 const DESKTOP_AGENT_BOOT_QUERY_KEY = '__agent_mode';
 export const AGENT_SELECTION_WORKSPACE_TIMELINE_ID = 'workspace-selection';
@@ -91,6 +108,7 @@ export class BrowserAgentRuntime {
   readonly #commandLongPollWaitMs: number;
   readonly #pendingHostResults = new Set<CommandId>();
   #binding: ProductBinding | null = null;
+  #latestSnapshot: MainWorkbenchSnapshot | null = null;
   #commandCursor = 0;
   #consumerRegistrationKey = '';
   #pendingSnapshot: PendingSnapshotPublish | null = null;
@@ -213,6 +231,7 @@ export class BrowserAgentRuntime {
       throw error;
     }
     this.#binding = runtimeSnapshot.binding;
+    this.#latestSnapshot = cloneSnapshot(snapshot);
     await this.#consumerController.refreshEligibility();
   }
 
@@ -420,25 +439,40 @@ export class BrowserAgentRuntime {
     const commandId = asCommandId(entry.id);
     const journal = await this.#store.getCommand(commandId);
     if (!journal) return;
-    const expectsMutation = entry.status === 'done' && MUTATING_MAIN_COMMANDS.has(entry.command.op);
-    const postconditionObserved = !expectsMutation
-      || await this.#waitForPostCommandSnapshot(journal.expectedDigest, journal.expectedRevision);
+    const expectedVisiblePostcondition = expectedVisiblePostconditionFromJournal(journal.command);
+    const requiresObservation = entry.status === 'done'
+      && (
+        MUTATING_MAIN_COMMANDS.has(entry.command.op)
+        || expectedVisiblePostcondition !== null
+      );
+    const observation: PostconditionObservation = entry.status === 'done'
+      ? await this.#waitForPostCommandObservation({
+          expectedDigest: journal.expectedDigest,
+          expectedRevision: journal.expectedRevision,
+          requiresNewSnapshot: requiresObservation,
+          expectedVisiblePostcondition,
+          entry,
+        })
+      : { pass: false, reason: entry.error || 'Main Workbench command failed.' };
     const currentRevision = this.#binding?.contentRevision ?? journal.expectedRevision;
-    const succeeded = entry.status === 'done' && postconditionObserved;
+    const succeeded = entry.status === 'done' && observation.pass;
     const result = await this.#store.recordCommandResult(commandId, {
       status: succeeded ? 'succeeded' : 'error',
       ...(entry.status === 'error'
         ? { code: 'MAIN_WORKBENCH_COMMAND_FAILED', message: entry.error || 'Main Workbench command failed' }
-        : !postconditionObserved
+        : !observation.pass
           ? {
               code: 'AGENT_POSTCONDITION_NOT_OBSERVED',
-              message: '工作台命令已经返回，但没有观察到新的持久化快照；为避免误报，本次不标记为成功。',
+              message: `工作台命令已经返回，但精确业务后置条件未成立；为避免误报，本次不标记为成功。${observation.reason ? ` ${observation.reason}` : ''}`,
             }
           : {}),
       beforeRevision: journal.expectedRevision,
       afterRevision: currentRevision,
       browserResult: toJsonValue(entry.result),
       visiblePostcondition: {
+        pass: observation.pass,
+        expected: expectedVisiblePostcondition,
+        observed: observation.observed ?? null,
         contentRevision: currentRevision,
         snapshotDigest: this.#binding?.snapshotDigest ?? journal.expectedDigest,
         binding: this.#binding ? { ...this.#binding } : null,
@@ -451,21 +485,54 @@ export class BrowserAgentRuntime {
     void result;
   }
 
-  async #waitForPostCommandSnapshot(expectedDigest: string, expectedRevision: number): Promise<boolean> {
-    const observed = () => Boolean(
-      this.#binding
-      && (
-        this.#binding.snapshotDigest !== expectedDigest
-        || this.#binding.contentRevision !== expectedRevision
-      )
-    );
-    if (observed()) return true;
+  async #waitForPostCommandObservation(input: {
+    readonly expectedDigest: string;
+    readonly expectedRevision: number;
+    readonly requiresNewSnapshot: boolean;
+    readonly expectedVisiblePostcondition: JsonObject | null;
+    readonly entry: QueuedMainWorkbenchCommand;
+  }): Promise<PostconditionObservation> {
+    const observe = (): PostconditionObservation => {
+      const binding = this.#binding;
+      const snapshot = this.#latestSnapshot;
+      if (!binding || !snapshot) {
+        return { pass: false, reason: '浏览器尚未发布可验证的工作台快照。' };
+      }
+      if (
+        input.requiresNewSnapshot
+        && binding.snapshotDigest === input.expectedDigest
+        && binding.contentRevision === input.expectedRevision
+      ) {
+        return { pass: false, reason: '浏览器持久化快照没有更新。' };
+      }
+      const resultObservation = evaluateCommandResultPostcondition(input.entry, snapshot);
+      if (!resultObservation.pass) return resultObservation;
+      if (input.expectedVisiblePostcondition) {
+        const projection = buildVisiblePostconditionProjection(snapshot, binding, input.entry.result);
+        if (!isJsonSubset(input.expectedVisiblePostcondition, projection)) {
+          return {
+            pass: false,
+            reason: '工具声明的可见后置条件与最新工作台快照不一致。',
+            observed: projection,
+          };
+        }
+        return { pass: true, observed: projection };
+      }
+      return {
+        pass: true,
+        observed: resultObservation.observed
+          ?? buildVisiblePostconditionProjection(snapshot, binding, input.entry.result),
+      };
+    };
+    const first = observe();
+    if (first.pass) return first;
     const deadline = Date.now() + this.#postCommandSnapshotTimeoutMs;
     while (Date.now() < deadline) {
-      if (observed()) return true;
+      const current = observe();
+      if (current.pass) return current;
       await new Promise<void>((resolve) => setTimeout(resolve, 16));
     }
-    return observed();
+    return observe();
   }
 
   async #flushPendingResults(consumerId: string, executorLeaseId: string): Promise<void> {
@@ -508,6 +575,189 @@ export class BrowserAgentRuntime {
       && current.registeredAt === expected.registeredAt,
     );
   }
+}
+
+type PostconditionObservation = {
+  readonly pass: boolean;
+  readonly reason?: string;
+  readonly observed?: JsonValue;
+};
+
+function expectedVisiblePostconditionFromJournal(command: JsonObject): JsonObject | null {
+  if (command.op !== 'workbench.execute-command') return null;
+  const payload = asJsonObject(command.payload);
+  const expected = asJsonObject(payload?.visiblePostcondition);
+  return expected ? structuredClone(expected) : null;
+}
+
+function evaluateCommandResultPostcondition(
+  entry: QueuedMainWorkbenchCommand,
+  snapshot: MainWorkbenchSnapshot,
+): PostconditionObservation {
+  const result = asJsonObject(entry.result);
+  if (!result) {
+    return entry.command.op === 'refreshSnapshot'
+      ? { pass: true }
+      : { pass: false, reason: `命令 ${entry.command.op} 没有返回可验证的业务结果。` };
+  }
+
+  const localVisiblePostcondition = asJsonObject(result.visiblePostcondition)
+    ?? asJsonObject(asJsonObject(result.checkout)?.visiblePostcondition);
+  if (localVisiblePostcondition?.pass !== undefined && localVisiblePostcondition.pass !== true) {
+    return {
+      pass: false,
+      reason: 'Canvas 返回的可见按钮后置检查没有通过。',
+      observed: localVisiblePostcondition,
+    };
+  }
+
+  if (entry.command.op === 'selectCharacters') {
+    const selected = jsonObjectArray(result.selectedCharacters);
+    const expectedIds = selected.map((character) => character.id).filter(isString).sort();
+    const expectedNames = selected.map((character) => character.name).filter(isString).sort();
+    const actualIds = snapshot.selectedCharacters.map((character) => character.id).sort();
+    const actualNames = snapshot.selectedCharacters.map((character) => character.name).sort();
+    const pass = expectedIds.length > 0
+      && sameStringArray(expectedIds, actualIds)
+      && sameStringArray(expectedNames, actualNames);
+    return {
+      pass,
+      ...(pass ? {} : { reason: '当前工作台队伍与选择命令返回的精确队伍不一致。' }),
+      observed: { selectedCharacterIds: actualIds, selectedCharacterNames: actualNames },
+    };
+  }
+
+  if (entry.command.op === 'addSkillButton') {
+    const buttonId = isString(result.buttonId) ? result.buttonId : '';
+    const pass = Boolean(buttonId) && snapshot.skillButtons.some((button) => button.id === buttonId);
+    return { pass, ...(pass ? {} : { reason: '新增技能按钮没有出现在工作台快照中。' }) };
+  }
+
+  if (entry.command.op === 'removeSkillButton') {
+    const buttonId = isString(result.buttonId) ? result.buttonId : '';
+    const pass = Boolean(buttonId) && snapshot.skillButtons.every((button) => button.id !== buttonId);
+    return { pass, ...(pass ? {} : { reason: '已删除技能按钮仍出现在工作台快照中。' }) };
+  }
+
+  if (entry.command.op === 'addBuff') {
+    const buttonId = isString(result.buttonId) ? result.buttonId : '';
+    const buffId = isString(result.buffId) ? result.buffId : '';
+    const button = snapshot.skillButtons.find((candidate) => candidate.id === buttonId);
+    const pass = Boolean(button && buffId && button.selectedBuffIds.includes(buffId));
+    return { pass, ...(pass ? {} : { reason: '新增 Buff 没有附着到目标按钮快照。' }) };
+  }
+
+  if (entry.command.op === 'removeBuff') {
+    const buttonId = isString(result.buttonId) ? result.buttonId : '';
+    const removedBuffIds = stringArrayValue(result.removedBuffIds);
+    const button = snapshot.skillButtons.find((candidate) => candidate.id === buttonId);
+    const pass = Boolean(button && removedBuffIds.length)
+      && removedBuffIds.every((buffId) => !button?.selectedBuffIds.includes(buffId));
+    return { pass, ...(pass ? {} : { reason: '已移除 Buff 仍出现在目标按钮快照中。' }) };
+  }
+
+  if (entry.command.op === 'applyApprovedWorkNodePatch') {
+    const prepared = asJsonObject(result.prepared);
+    const checkout = asJsonObject(result.checkout);
+    const visible = asJsonObject(result.visiblePostcondition) ?? asJsonObject(checkout?.visiblePostcondition);
+    const patchLength = Array.isArray(entry.command.patch) ? entry.command.patch.length : 0;
+    const expectedIds = stringArrayValue(visible?.expected);
+    const actualIds = snapshot.skillButtons.map((button) => button.id).sort();
+    const nodeId = isString(checkout?.nodeId)
+      ? checkout.nodeId
+      : isString(prepared?.nodeId)
+        ? prepared.nodeId
+        : '';
+    const pass = prepared?.ok === true
+      && prepared.patchApplied === true
+      && prepared.operationsApplied === patchLength
+      && checkout?.checkoutApplied === true
+      && visible?.pass === true
+      && expectedIds.length === actualIds.length
+      && sameStringArray([...expectedIds].sort(), actualIds)
+      && Boolean(nodeId)
+      && snapshot.checkout?.targetType === 'work-node'
+      && snapshot.checkout.targetId === nodeId;
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'Work Node 的补丁、检出记录或精确可见按钮集合没有同时成立。' }),
+      observed: {
+        checkoutTargetId: snapshot.checkout?.targetId ?? null,
+        visibleButtonIdsExact: actualIds,
+      },
+    };
+  }
+
+  if (result.ok === false) {
+    return { pass: false, reason: `命令 ${entry.command.op} 返回 ok:false。`, observed: result };
+  }
+  if (result.validation && asJsonObject(result.validation)?.ok === false) {
+    return { pass: false, reason: `命令 ${entry.command.op} 的业务校验失败。`, observed: result.validation };
+  }
+  if (result.checkoutApplied === false || result.patchApplied === false) {
+    return { pass: false, reason: `命令 ${entry.command.op} 的持久化应用步骤没有完成。`, observed: result };
+  }
+  return { pass: true };
+}
+
+function buildVisiblePostconditionProjection(
+  snapshot: MainWorkbenchSnapshot,
+  binding: ProductBinding,
+  commandResult: unknown,
+): JsonObject {
+  return {
+    ...toJsonObject(snapshot),
+    contentRevision: binding.contentRevision,
+    snapshotDigest: binding.snapshotDigest,
+    binding: { ...binding },
+    selectedCharacterIds: snapshot.selectedCharacters.map((character) => character.id).sort(),
+    selectedCharacterNames: snapshot.selectedCharacters.map((character) => character.name).sort(),
+    visibleButtonIdsExact: snapshot.skillButtons.map((button) => button.id).sort(),
+    checkoutTargetId: snapshot.checkout?.targetId ?? null,
+    commandResult: toJsonValue(commandResult),
+  };
+}
+
+function isJsonSubset(expected: JsonValue, actual: JsonValue): boolean {
+  if (Array.isArray(expected)) {
+    return Array.isArray(actual)
+      && expected.length === actual.length
+      && expected.every((entry, index) => isJsonSubset(entry, actual[index] as JsonValue));
+  }
+  if (expected && typeof expected === 'object') {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+    return Object.entries(expected).every(([key, value]) => (
+      Object.prototype.hasOwnProperty.call(actual, key)
+      && isJsonSubset(value, (actual as JsonObject)[key] as JsonValue)
+    ));
+  }
+  return Object.is(expected, actual);
+}
+
+function asJsonObject(value: unknown): JsonObject | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as JsonObject
+    : null;
+}
+
+function jsonObjectArray(value: unknown): JsonObject[] {
+  return Array.isArray(value) ? value.map(asJsonObject).filter((entry): entry is JsonObject => Boolean(entry)) : [];
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter(isString) : [];
+}
+
+function isString(value: unknown): value is string {
+  return typeof value === 'string';
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function cloneSnapshot(snapshot: MainWorkbenchSnapshot): MainWorkbenchSnapshot {
+  return JSON.parse(JSON.stringify(snapshot)) as MainWorkbenchSnapshot;
 }
 
 function snapshotMergeKey(snapshot: MainWorkbenchSnapshot): string {

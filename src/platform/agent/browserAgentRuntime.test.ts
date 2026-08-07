@@ -564,6 +564,105 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
   assert.equal(unchangedBridge.results[0]?.result.code, 'AGENT_POSTCONDITION_NOT_OBSERVED');
 }
 
+// A changed digest is not enough: the exact roster returned by Canvas must
+// also be visible in the newest persisted product snapshot.
+{
+  const mismatchedEvents: string[] = [];
+  const mismatchedBridge = new FakeBridge(mismatchedEvents);
+  mismatchedBridge.delivery = {
+    cursor: 1,
+    command: await withApprovalCapability(unsignedSelectionCommand),
+  };
+  const mismatchedStore = new FakeStore(mismatchedEvents);
+  mismatchedStore.snapshotBinding = failedBinding;
+  const mismatchedRuntime = new BrowserAgentRuntime({
+    bridge: mismatchedBridge,
+    consumerController: controller,
+    store: mismatchedStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await mismatchedRuntime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+  });
+  await mismatchedRuntime.pullRemoteCommands(() => undefined);
+  await mismatchedRuntime.pushCommandResult({
+    id: unsignedSelectionCommand.commandId,
+    command: selectionCommandPayload,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: {
+      selectedCharacters: [{ id: 'char-luoqian', name: '洛茜' }],
+      currentView: 'canvas',
+      timelineId: 'timeline-runtime',
+      nodeId: 'node-luoqian',
+    },
+  });
+  assert.equal(mismatchedBridge.results[0]?.result.status, 'error');
+  assert.match(mismatchedBridge.results[0]?.result.message ?? '', /精确队伍/u);
+}
+
+// Read-like commands with an explicit visible postcondition are verified too;
+// calculation cannot succeed while the browser still publishes a placeholder.
+{
+  const calculationCommand: Phase2ProductCommand = {
+    ...productCommand,
+    commandId: asCommandId('command-calculation-visible'),
+    toolCallId: asToolCallId('tool-calculation-visible'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: {
+        command: { op: 'calculateDamage' },
+        visiblePostcondition: { damageReportStatus: 'ready' },
+      },
+    },
+  };
+  const calculationEvents: string[] = [];
+  const calculationBridge = new FakeBridge(calculationEvents);
+  calculationBridge.delivery = { cursor: 1, command: calculationCommand };
+  const calculationStore = new FakeStore(calculationEvents);
+  calculationStore.snapshotBinding = failedBinding;
+  const calculationRuntime = new BrowserAgentRuntime({
+    bridge: calculationBridge,
+    consumerController: controller,
+    store: calculationStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await calculationRuntime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [],
+    skillButtons: [],
+    damageReportStatus: 'placeholder',
+  });
+  await calculationRuntime.pullRemoteCommands(() => undefined);
+  await calculationRuntime.pushCommandResult({
+    id: calculationCommand.commandId,
+    command: { op: 'calculateDamage' },
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: { calculated: true },
+  });
+  assert.equal(calculationBridge.results[0]?.result.status, 'error');
+  assert.match(calculationBridge.results[0]?.result.message ?? '', /可见后置条件/u);
+}
+
 // If Canvas persisted its business result before a renderer crash, the next
 // renderer recovers that result log entry and couples it to the newer
 // snapshot instead of incorrectly declaring the mutation not-executed.
@@ -588,7 +687,13 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     activeTimelineId: 'timeline-runtime',
     checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
     currentView: 'canvas',
-    selectedCharacters: [],
+    selectedCharacters: [{
+      id: 'char-luoqian',
+      name: '洛茜',
+      element: 'physical',
+      profession: '近卫',
+      librarySource: 'official',
+    }],
     skillButtons: [],
   });
   const admitted: unknown[] = [];
@@ -602,7 +707,12 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
           source: 'agent-host',
           createdAt: 100,
           updatedAt: 101,
-          result: { selectedCharacterIds: ['char-luoqian'] },
+          result: {
+            selectedCharacters: [{ id: 'char-luoqian', name: '洛茜' }],
+            currentView: 'canvas',
+            timelineId: 'timeline-runtime',
+            nodeId: 'node-luoqian',
+          },
         }
       : null,
   );
