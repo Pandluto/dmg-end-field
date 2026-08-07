@@ -362,7 +362,7 @@ const selectionOperations: readonly DefHarnessOperationDefinition[] = [
 ];
 
 const LOADOUT_WRITE_SCOPE = ['loadout.config', 'timeline.work-node', 'timeline.checkout'] as const;
-const LOADOUT_RECOMMENDATION_NOTE = 'Use browser 1.8 catalog facts and explicit evidenceUnavailable states. The historical 1.2 guide is not a fact source and must never be presented as current product truth.';
+const LOADOUT_RECOMMENDATION_NOTE = 'Use only browser 1.8 stable identities and canonical fact-key coverage. This is a deterministic relevance score, not a damage simulation: raw magnitudes and the historical 1.2 guide are never scoring authority, and PARTIAL/TIED states must remain explicit.';
 const loadoutOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'inspect',
@@ -370,7 +370,10 @@ const loadoutOperations: readonly DefHarnessOperationDefinition[] = [
   }),
   defineOperation({
     operation: 'evaluate',
-    phases: [phase('loadout-evaluate-facts', 'evidence', T.loadouts, `Call with action=evaluate and an exact operatorId when needed. Report only configuration completeness, missing slots and compatibility-evidence presence; subjective quality remains evidenceUnavailable. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'evaluate' })],
+    phases: [
+      phase('loadout-evaluate-context', 'context', T.loadouts, 'Call with action=current. Resolve the exact configured operator identity from the bound DefTeamLoadoutsV1 snapshot.', [], { action: 'current' }),
+      phase('loadout-evaluate-facts', 'evidence', T.catalog, `Call with action=evaluateLoadout and the exact operatorQuery. The Host injects the bound current loadout; never submit or reconstruct it. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'evaluateLoadout' }),
+    ],
   }),
   defineOperation({
     operation: 'resolve',
@@ -383,28 +386,28 @@ const loadoutOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'recommend',
     phases: [
       phase('loadout-recommend-context', 'context', T.loadouts, 'Call with action=current. Read the current selected operators and loadout gaps before making a recommendation.', [], { action: 'current' }),
-      phase('loadout-recommend-capability', 'evidence', T.capability, `Call with businessId=loadout and operation=recommend. Return the typed evidenceUnavailable state instead of inventing a best build. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { businessId: 'loadout', operation: 'recommend' }),
+      phase('loadout-recommend-facts', 'evidence', T.catalog, `Call with action=recommendLoadout and the exact operatorQuery. Return the bounded ranked weapon and discovered-set evidence exactly as typed. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'recommendLoadout' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_named_set',
     phases: [
       phase('loadout-named-set-context', 'context', T.loadouts, 'Call with action=current. Bind the current team and requested named set before evaluating it.', [], { action: 'current' }),
-      phase('loadout-named-set-facts', 'evidence', T.catalog, `Call with action=gearTopologyPlan and the exact setQuery. Resolve only structurally valid named-set 3+1 layouts from browser 1.8 facts; do not score operator fit. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'gearTopologyPlan' }),
+      phase('loadout-named-set-facts', 'evidence', T.catalog, `Call with action=recommendNamedSet, the exact operatorQuery and setQuery. Return only legal 3+1 candidates and their deterministic coverage evidence. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'recommendNamedSet' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_discovered_set',
     phases: [
       phase('loadout-discovered-set-context', 'context', T.loadouts, 'Call with action=current. Bind the current team before discovering compatible set candidates.', [], { action: 'current' }),
-      phase('loadout-discovered-set-facts', 'evidence', T.catalog, `Call with action=discoverGearTopologies. Enumerate every structurally valid 3+1 candidate in stable catalog order. The result is explicitly unranked and must not be described as best or compatible with an operator. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'discoverGearTopologies' }),
+      phase('loadout-discovered-set-facts', 'evidence', T.catalog, `Call with action=recommendDiscoveredSets and the exact operatorQuery. Preserve traversal bounds and all PARTIAL/TIED states. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'recommendDiscoveredSets' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_weapon',
     phases: [
       phase('loadout-weapon-context', 'context', T.loadouts, 'Call with action=current. Bind each selected operator and its weapon type before evaluating weapon candidates.', [], { action: 'current' }),
-      phase('loadout-weapon-facts', 'evidence', T.catalog, `Call with action=compatibleWeapons and the exact operatorQuery. Return weapon-type-compatible catalog facts only; do not score or rank them. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compatibleWeapons' }),
+      phase('loadout-weapon-facts', 'evidence', T.catalog, `Call with action=recommendWeapons and the exact operatorQuery. Only exact weapon-type matches may be ranked. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'recommendWeapons' }),
     ],
   }),
   defineOperation({
@@ -413,13 +416,16 @@ const loadoutOperations: readonly DefHarnessOperationDefinition[] = [
   }),
   defineOperation({
     operation: 'compare',
-    phases: [phase('loadout-compare-facts', 'evidence', T.loadouts, `Call with action=compare, the exact baseline DefTeamLoadoutsV1 capsule and operatorId when needed. Return stable field-level differences only; winner, score and rank are unavailable. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compare' })],
+    phases: [
+      phase('loadout-compare-context', 'context', T.loadouts, 'Call with action=current. Resolve the exact operator and current stable equipment identities before constructing candidate patches.', [], { action: 'current' }),
+      phase('loadout-compare-facts', 'evidence', T.catalog, `Call with action=compareLoadoutCandidates, the exact operatorQuery and two stable-id candidate patches. The Host injects the common current loadout. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compareLoadoutCandidates' }),
+    ],
   }),
   defineOperation({
     operation: 'preview',
     phases: [
       phase('loadout-preview-context', 'context', T.loadouts, 'Call with action=current. Read and bind the current loadout before preparing a candidate configuration.', [], { action: 'current' }),
-      phase('loadout-preview-facts', 'evidence', T.catalog, `Call with action=query. Resolve the candidate using browser 1.8 facts before preparing it. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'query' }),
+      phase('loadout-preview-facts', 'evidence', T.catalog, `Call with action=compareLoadoutCandidate, the exact operatorQuery and stable-id candidate patch. Continue only when identities resolve and report conflicts before preparing the Work Node. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compareLoadoutCandidate' }),
       phase('loadout-preview', 'proposal', T.loadoutPreview, 'Create a non-live proposal with an exact operator configuration, parent Work Node, revisions and semantic diff. Do not mutate the current checkout.'),
     ],
   }),

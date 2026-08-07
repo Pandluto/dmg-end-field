@@ -37,9 +37,9 @@ for (const [businessId, operations] of Object.entries(expectedOperations)) {
 }
 
 assert.deepEqual(DEF_OPERATION_CAPABILITY_STATUS_COUNTS, {
-  available: 39,
-  'fact-only': 5,
-  'evidence-unavailable': 4,
+  available: 47,
+  'fact-only': 1,
+  'evidence-unavailable': 0,
   retired: 2,
 });
 assert.equal(
@@ -47,10 +47,10 @@ assert.equal(
   50,
 );
 
-assert.equal(readDefOperationCapability('loadout', 'recommend')?.status, 'evidence-unavailable');
-assert.equal(readDefOperationCapability('loadout', 'recommend_discovered_set')?.status, 'fact-only');
-assert.equal(readDefOperationCapability('timeline', 'restore')?.status, 'evidence-unavailable');
-assert.equal(readDefOperationCapability('buff', 'restore')?.status, 'evidence-unavailable');
+assert.equal(readDefOperationCapability('loadout', 'recommend')?.status, 'available');
+assert.equal(readDefOperationCapability('loadout', 'recommend_discovered_set')?.status, 'available');
+assert.equal(readDefOperationCapability('timeline', 'restore')?.status, 'available');
+assert.equal(readDefOperationCapability('buff', 'restore')?.status, 'available');
 assert.equal(readDefOperationCapability('calculation', 'compare')?.status, 'available');
 assert.equal(readDefOperationCapability('conversation', 'respond'), null);
 
@@ -63,18 +63,18 @@ const canonicalMutationTools = new Set([
   'def.workbench.remove_skill_button',
   'def.worknode.patch_and_validate',
   'def.worknode.use',
+  'def.worknode.restore',
   'def.buff.add_to_button',
   'def.buff.remove_from_button',
 ]);
 const canonicalMutationCommands = new Set([
-  'selectCharacters',
   'applyPreparedOperatorConfigProposal',
   'prepareReviewedWorkNodeProposal',
   'checkoutAiTimelineWorkNode',
 ]);
 
 const mutatingAvailable = entries.filter((entry) => entry.status === 'available' && entry.mutatesProduct);
-assert.equal(mutatingAvailable.length, 18);
+assert.equal(mutatingAvailable.length, 20);
 for (const entry of mutatingAvailable) {
   assert.equal(
     entry.implementationRoute.some((route) => route.kind === 'tool' && canonicalMutationTools.has(route.name)),

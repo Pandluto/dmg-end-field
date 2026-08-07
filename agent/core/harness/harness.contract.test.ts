@@ -587,8 +587,23 @@ assert.deepEqual(
 );
 assert.match(
   fullOperation('loadout', 'recommend_discovered_set').phases[1]!.instructions,
-  /unranked/u,
+  /recommendDiscoveredSets/u,
 );
+assert.match(fullOperation('loadout', 'recommend').phases[1]!.instructions, /recommendLoadout/u);
+assert.match(fullOperation('loadout', 'evaluate').phases[1]!.instructions, /evaluateLoadout/u);
+assert.match(fullOperation('loadout', 'recommend_named_set').phases[1]!.instructions, /recommendNamedSet/u);
+assert.match(fullOperation('loadout', 'recommend_weapon').phases[1]!.instructions, /recommendWeapons/u);
+assert.match(fullOperation('loadout', 'compare').phases[1]!.instructions, /compareLoadoutCandidates/u);
+assert.match(fullOperation('loadout', 'preview').phases[1]!.instructions, /compareLoadoutCandidate/u);
+for (const operation of ['evaluate', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'compare']) {
+  assert.equal(
+    fullOperation('loadout', operation).phases.some((phase) => (
+      (phase.tools as readonly string[]).includes('def.data.catalog.query')
+    )),
+    true,
+    `${operation} must route through the deterministic browser 1.8 loadout service`,
+  );
+}
 assert.deepEqual(
   fullOperation('timeline', 'add').phases.flatMap((phase) => phase.tools),
   ['def.node.crud.current', 'def.data.catalog.query', 'def.workbench.add_skill_button'],

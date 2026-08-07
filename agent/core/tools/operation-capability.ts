@@ -61,12 +61,12 @@ const TOOL = {
   worknodeDiff: 'def.worknode.diff',
   worknodeValidate: 'def.worknode.validate',
   worknodeUse: 'def.worknode.use',
+  worknodeRestore: 'def.worknode.restore',
   loadoutPreview: 'def.loadout.preview',
   loadoutApplyPrepared: 'def.loadout.apply_prepared',
 } as const;
 
 const COMMAND = {
-  selection: 'selectCharacters',
   loadoutPreview: 'prepareOperatorConfigProposal',
   loadoutApply: 'applyPreparedOperatorConfigProposal',
   preparedPatch: 'prepareReviewedWorkNodeProposal',
@@ -79,10 +79,6 @@ function tool(name: string, action?: string): DefOperationCapabilityRoute {
 
 function command(name: string, action?: string): DefOperationCapabilityRoute {
   return action === undefined ? { kind: 'command', name } : { kind: 'command', name, action };
-}
-
-function pending(name: string): DefOperationCapabilityRoute {
-  return { kind: 'pending', name };
 }
 
 function available(
@@ -128,23 +124,23 @@ const ENTRIES = {
       [tool(TOOL.catalog, 'query')],
     ),
     add: available(
-      '将解析后的最终队伍交给选队伍 Tool，由 selectCharacters 创建并检出已审批节点。',
-      [tool(TOOL.selectionApply), command(COMMAND.selection)],
+      '将解析后的最终队伍交给选队伍 Tool，由受审阅 Selection Work Node 创建候选并在审批后检出。',
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
       true,
     ),
     remove: available(
       '将移除后的精确最终队伍交给 selectCharacters，其他成员与顺序由产品后置条件校验。',
-      [tool(TOOL.selectionApply), command(COMMAND.selection)],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
       true,
     ),
     replace: available(
       '将同时解析出入成员后的精确队伍交给 selectCharacters，并要求用户审批。',
-      [tool(TOOL.selectionApply), command(COMMAND.selection)],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
       true,
     ),
     reorder: available(
       'selectCharacters 接受有序最终队伍，产品后置条件会保留成员集合并核对新顺序。',
-      [tool(TOOL.selectionApply), command(COMMAND.selection)],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
       true,
     ),
     analyze: limited(
@@ -156,7 +152,7 @@ const ENTRIES = {
     ),
     apply: available(
       '将用户确认的精确最终队伍交给 selectCharacters，并验证队伍快照与工作节点后置条件。',
-      [tool(TOOL.selectionApply), command(COMMAND.selection)],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
       true,
     ),
   },
@@ -165,44 +161,29 @@ const ENTRIES = {
       '读取每名已选干员的武器、装备、套装效果和技能等级，并保留缺失配置事实。',
       [tool(TOOL.loadouts, 'current')],
     ),
-    evaluate: limited(
-      'evidence-unavailable',
-      'team_loadouts.evaluate 只验证完整性和兼容性字段；当前没有经验证的强度评价证据。',
-      'loadout.inspect',
-      [tool(TOOL.loadouts, 'evaluate')],
-      [tool(TOOL.loadouts, 'current')],
+    evaluate: available(
+      '由 Host 注入绑定的 DefTeamLoadoutsV1 当前配装，并按浏览器 1.8 canonical fact-key 覆盖进行确定性评价；结果明确不是伤害模拟。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'evaluateLoadout')],
     ),
     resolve: available(
       '先读取当前配装，再用浏览器 1.8 catalog 解析武器、装备和套装身份，不生成主观推荐。',
       [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
     ),
-    recommend: limited(
-      'evidence-unavailable',
-      '当前 build-guide 没有经验证的配装强度依据，只能明确返回不可推荐状态。',
-      'loadout.resolve',
-      [tool(TOOL.capability, 'loadout.recommend')],
-      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
+    recommend: available(
+      '按当前 1.8 干员、技能、武器和装备类型键生成有证据路径的确定性覆盖排名，并保留 PARTIAL/TIED 边界。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'recommendLoadout')],
     ),
-    recommend_named_set: limited(
-      'fact-only',
-      '只规划指定套装的合法 3+1 结构，不证明该套装适合某名干员，也不产生排名。',
-      'loadout.resolve',
-      [tool(TOOL.catalog, 'gearTopologyPlan')],
-      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
+    recommend_named_set: available(
+      '枚举指定套装所有合法 3+1 结构，并按当前干员的 canonical fact-key 覆盖进行确定性排名。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'recommendNamedSet')],
     ),
-    recommend_discovered_set: limited(
-      'fact-only',
-      '只枚举目录中结构合法的 3+1 候选，候选保持未排序且不声明干员适配度。',
-      'loadout.resolve',
-      [tool(TOOL.catalog, 'discoverGearTopologies')],
-      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
+    recommend_discovered_set: available(
+      '遍历当前目录中的合法 3+1 套装并按确定性类型键覆盖排名，同时公开遍历上限和是否穷尽。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'recommendDiscoveredSets')],
     ),
-    recommend_weapon: limited(
-      'fact-only',
-      '只返回与武器类型相符的目录事实，不生成武器强度分数、排名或最佳结论。',
-      'loadout.resolve',
-      [tool(TOOL.catalog, 'compatibleWeapons')],
-      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
+    recommend_weapon: available(
+      '只对武器类型精确相符的 1.8 目录项进行 canonical fact-key 覆盖排名，未知或歧义身份不会获得分数。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'recommendWeapons')],
     ),
     recommend_equipment: limited(
       'retired',
@@ -211,12 +192,9 @@ const ENTRIES = {
       [],
       [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'query')],
     ),
-    compare: limited(
-      'fact-only',
-      '只比较双方 capsule 中可核验的字段差异，不裁定谁更强、谁应当采用。',
-      'loadout.inspect',
-      [tool(TOOL.loadouts, 'compare')],
-      [tool(TOOL.loadouts, 'current')],
+    compare: available(
+      '以同一 Host 注入的当前配装为基线，只接受稳定武器/装备 ID 候选，并比较双方确定性类型键覆盖。',
+      [tool(TOOL.loadouts, 'current'), tool(TOOL.catalog, 'compareLoadoutCandidates')],
     ),
     preview: available(
       '用 exact operator config 创建隔离 Work Node 预览；它不改变当前 live checkout。',
@@ -282,12 +260,10 @@ const ENTRIES = {
       [tool(TOOL.worknodeUse), command(COMMAND.checkout)],
       true,
     ),
-    restore: limited(
-      'evidence-unavailable',
-      'scopedRestore helper 尚未接入现行 restore 命令解析和执行链，不能声明有安全写入路径。',
-      'pending.timeline-scoped-restore-wiring',
-      [],
-      [pending('timeline.scoped-restore-wiring')],
+    restore: available(
+      '由 def.worknode.restore 创建只包含 timeline.structure 语义范围的受审阅候选，审批后通过 prepared Work Node 命令应用。',
+      [tool(TOOL.worknodeRestore), command(COMMAND.preparedPatch, 'timeline.restore')],
+      true,
     ),
   },
   buff: {
@@ -337,12 +313,10 @@ const ENTRIES = {
       [tool(TOOL.worknodeUse), command(COMMAND.checkout)],
       true,
     ),
-    restore: limited(
-      'evidence-unavailable',
-      'scopedRestore helper 尚未接入现行 restore 命令解析和执行链，不能声明有安全 Buff 写入路径。',
-      'pending.buff-scoped-restore-wiring',
-      [],
-      [pending('buff.scoped-restore-wiring')],
+    restore: available(
+      '由 def.worknode.restore 创建只包含 buff.attachments 或 buff.resistance 的受审阅候选，审批后通过 prepared Work Node 命令应用。',
+      [tool(TOOL.worknodeRestore), command(COMMAND.preparedPatch, 'buff.restore')],
+      true,
     ),
   },
   calculation: {
