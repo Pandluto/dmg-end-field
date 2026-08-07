@@ -331,6 +331,21 @@ const COMMAND_EVENT_TYPES = new Set([
   'command.result', 'command.reconciled', 'command.orphaned',
 ]);
 
+const EVENT_BASE_KEYS = new Set([
+  'schemaVersion', 'sequence', 'occurredAt', 'defSessionId', 'type', 'payload',
+]);
+const BUSINESS_IDS = new Set(['selection', 'loadout', 'timeline', 'buff', 'calculation']);
+const OPERATION_IDS = new Set(['inspect', 'current', 'resolve', 'calculate']);
+const PHASE_KINDS = new Set(['route', 'context', 'evidence', 'response']);
+const HARNESS_TERMINAL_STATES = new Set(['completed', 'aborted']);
+const INTERACTION_KINDS = new Set(['question', 'approval']);
+const INTERACTION_STATUSES = new Set([
+  'answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale',
+]);
+const COMMAND_RESULT_STATUSES = new Set([
+  'succeeded', 'committed', 'not-executed', 'rejected', 'conflict', 'error', 'orphaned',
+]);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -353,53 +368,238 @@ function hasExactKeys(record: Record<string, unknown>, expected: ReadonlySet<str
   return keys.length === expected.size && keys.every((key) => expected.has(key));
 }
 
+function hasOnlyKeys(
+  record: Record<string, unknown>,
+  required: ReadonlySet<string>,
+  optional: ReadonlySet<string> = new Set(),
+): boolean {
+  const keys = Object.keys(record);
+  return required.size <= keys.length
+    && [...required].every((key) => keys.includes(key))
+    && keys.every((key) => required.has(key) || optional.has(key));
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
 function isSafeProductEventShape(event: Record<string, unknown>): boolean {
   const type = event.type as string;
   const payload = event.payload as Record<string, unknown>;
-  if ('diagnostics' in event) return false;
+  const requiredEventKeys = SESSION_EVENT_TYPES.has(type)
+    ? EVENT_BASE_KEYS
+    : COMMAND_EVENT_TYPES.has(type)
+      ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'toolCallId', 'commandId'])
+      : INTERACTION_EVENT_TYPES.has(type)
+        ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'interactionId', 'toolCallId'])
+        : TOOL_EVENT_TYPES.has(type)
+          ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'toolCallId'])
+          : new Set([...EVENT_BASE_KEYS, 'defTurnId']);
+  const optionalEventKeys = COMMAND_EVENT_TYPES.has(type)
+    ? new Set(['interactionId'])
+    : INTERACTION_EVENT_TYPES.has(type)
+      ? new Set(['toolCallId'])
+      : new Set<string>();
+  if (COMMAND_EVENT_TYPES.has(type)) requiredEventKeys.delete('interactionId');
+  if (INTERACTION_EVENT_TYPES.has(type)) requiredEventKeys.delete('toolCallId');
+  if (!hasOnlyKeys(event, requiredEventKeys, optionalEventKeys)) return false;
   if (!SESSION_EVENT_TYPES.has(type) && typeof event.defTurnId !== 'string') return false;
   if (TOOL_EVENT_TYPES.has(type) && typeof event.toolCallId !== 'string') return false;
-  if (INTERACTION_EVENT_TYPES.has(type) && typeof event.interactionId !== 'string') return false;
-  if (COMMAND_EVENT_TYPES.has(type) && typeof event.commandId !== 'string') return false;
+  if (INTERACTION_EVENT_TYPES.has(type)) {
+    if (typeof event.interactionId !== 'string') return false;
+    if (hasOwn(event, 'toolCallId') && typeof event.toolCallId !== 'string') return false;
+  }
+  if (COMMAND_EVENT_TYPES.has(type)) {
+    if (typeof event.commandId !== 'string') return false;
+    if (hasOwn(event, 'interactionId') && typeof event.interactionId !== 'string') return false;
+  }
   switch (type) {
     case 'session.ready':
     case 'session.recovered':
-      return hasString(payload, 'engineKind') && hasString(payload, 'engineRuntimeVersion');
+      return hasExactKeys(payload, new Set(['engineKind', 'engineRuntimeVersion']))
+        && hasString(payload, 'engineKind')
+        && hasString(payload, 'engineRuntimeVersion');
     case 'session.archived':
-      return hasString(payload, 'reason');
+      return hasExactKeys(payload, new Set(['reason'])) && hasString(payload, 'reason');
     case 'session.orphaned':
-      return hasString(payload, 'code') && hasString(payload, 'message');
+      return hasExactKeys(payload, new Set(['code', 'message']))
+        && hasString(payload, 'code')
+        && hasString(payload, 'message');
     case 'turn.accepted':
-      return hasString(payload, 'clientTurnId') && hasString(payload, 'userMessage');
+      return hasExactKeys(payload, new Set(['clientTurnId', 'userMessage']))
+        && hasString(payload, 'clientTurnId')
+        && hasString(payload, 'userMessage');
     case 'response.first-token':
-      return Object.keys(payload).length === 0;
+      return hasExactKeys(payload, new Set());
     case 'response.delta':
-      return hasString(payload, 'delta');
+      return hasExactKeys(payload, new Set(['delta'])) && hasString(payload, 'delta');
     case 'tool.requested':
-      return hasString(payload, 'name')
+      return hasExactKeys(payload, new Set(['name', 'risk', 'input']))
+        && hasString(payload, 'name')
         && ['read', 'propose', 'mutate'].includes(String(payload.risk))
         && isJsonValue(payload.input);
     case 'tool.started':
-      return hasString(payload, 'name');
+      return hasExactKeys(payload, new Set(['name'])) && hasString(payload, 'name');
     case 'tool.result':
-      return Object.prototype.hasOwnProperty.call(payload, 'result') && isJsonValue(payload.result);
+      return hasExactKeys(payload, new Set(['result'])) && isJsonValue(payload.result);
     case 'tool.error':
-      return hasString(payload, 'code')
+      return hasOnlyKeys(payload, new Set(['code', 'message']), new Set(['details']))
+        && hasString(payload, 'code')
         && hasString(payload, 'message')
-        && (payload.details === undefined || isJsonValue(payload.details));
+        && (!hasOwn(payload, 'details') || isJsonValue(payload.details));
+    case 'harness.routed':
+      return hasExactKeys(payload, new Set([
+        'businessId', 'operation', 'revision', 'sourceLineage', 'contentHash',
+      ]))
+        && typeof payload.businessId === 'string'
+        && BUSINESS_IDS.has(payload.businessId)
+        && typeof payload.operation === 'string'
+        && OPERATION_IDS.has(payload.operation)
+        && hasString(payload, 'revision')
+        && hasString(payload, 'sourceLineage')
+        && hasString(payload, 'contentHash');
+    case 'harness.phase.entered':
+      return hasExactKeys(payload, new Set([
+        'businessId', 'operation', 'phaseId', 'phaseKind',
+      ]))
+        && (payload.businessId === null
+          || (typeof payload.businessId === 'string' && BUSINESS_IDS.has(payload.businessId)))
+        && (payload.operation === null
+          || (typeof payload.operation === 'string' && OPERATION_IDS.has(payload.operation)))
+        && hasString(payload, 'phaseId')
+        && typeof payload.phaseKind === 'string'
+        && PHASE_KINDS.has(payload.phaseKind);
+    case 'harness.tool.projected':
+      return hasExactKeys(payload, new Set(['projectionRevision', 'tools']))
+        && typeof payload.projectionRevision === 'number'
+        && Number.isFinite(payload.projectionRevision)
+        && Array.isArray(payload.tools)
+        && payload.tools.every((tool) => typeof tool === 'string');
+    case 'harness.terminal':
+      return hasOnlyKeys(
+        payload,
+        new Set(['businessId', 'operation', 'phaseId', 'terminalState']),
+        new Set(['code']),
+      )
+        && (payload.businessId === null
+          || (typeof payload.businessId === 'string' && BUSINESS_IDS.has(payload.businessId)))
+        && (payload.operation === null
+          || (typeof payload.operation === 'string' && OPERATION_IDS.has(payload.operation)))
+        && hasString(payload, 'phaseId')
+        && typeof payload.terminalState === 'string'
+        && HARNESS_TERMINAL_STATES.has(payload.terminalState)
+        && (!hasOwn(payload, 'code') || typeof payload.code === 'string');
+    case 'interaction.requested':
+      return hasExactKeys(payload, new Set(['kind', 'prompt', 'expiresAt']))
+        && typeof payload.kind === 'string'
+        && INTERACTION_KINDS.has(payload.kind)
+        && hasString(payload, 'prompt')
+        && hasString(payload, 'expiresAt');
+    case 'interaction.resolved':
+      return hasOnlyKeys(payload, new Set(['status']), new Set(['value']))
+        && typeof payload.status === 'string'
+        && INTERACTION_STATUSES.has(payload.status)
+        && (!hasOwn(payload, 'value') || isJsonValue(payload.value));
+    case 'command.queued':
+    case 'command.dispatched':
+      return hasExactKeys(payload, new Set([
+        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+        'beforeRevision', 'op', 'afterRevision', 'browserReceiptDigest',
+      ]))
+        && hasString(payload, 'workspaceId')
+        && hasString(payload, 'databaseGeneration')
+        && hasString(payload, 'timelineId')
+        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
+        && typeof payload.beforeRevision === 'number'
+        && Number.isFinite(payload.beforeRevision)
+        && hasString(payload, 'op')
+        && payload.afterRevision === null
+        && payload.browserReceiptDigest === null;
+    case 'command.claimed':
+      return hasExactKeys(payload, new Set([
+        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+        'beforeRevision', 'executorLeaseId', 'afterRevision', 'browserReceiptDigest',
+      ]))
+        && hasString(payload, 'workspaceId')
+        && hasString(payload, 'databaseGeneration')
+        && hasString(payload, 'timelineId')
+        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
+        && typeof payload.beforeRevision === 'number'
+        && Number.isFinite(payload.beforeRevision)
+        && hasString(payload, 'executorLeaseId')
+        && payload.afterRevision === null
+        && hasString(payload, 'browserReceiptDigest');
+    case 'command.committed':
+      return hasExactKeys(payload, new Set([
+        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+        'beforeRevision', 'afterRevision', 'browserReceiptDigest',
+      ]))
+        && hasString(payload, 'workspaceId')
+        && hasString(payload, 'databaseGeneration')
+        && hasString(payload, 'timelineId')
+        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
+        && typeof payload.beforeRevision === 'number'
+        && Number.isFinite(payload.beforeRevision)
+        && typeof payload.afterRevision === 'number'
+        && Number.isFinite(payload.afterRevision)
+        && hasString(payload, 'browserReceiptDigest');
+    case 'command.result':
+    case 'command.reconciled':
+      return hasOnlyKeys(
+        payload,
+        new Set([
+          'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+          'beforeRevision', 'status', 'afterRevision', 'browserReceiptDigest',
+        ]),
+        new Set(['code', 'message']),
+      )
+        && hasString(payload, 'workspaceId')
+        && hasString(payload, 'databaseGeneration')
+        && hasString(payload, 'timelineId')
+        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
+        && typeof payload.beforeRevision === 'number'
+        && Number.isFinite(payload.beforeRevision)
+        && typeof payload.status === 'string'
+        && COMMAND_RESULT_STATUSES.has(payload.status)
+        && (payload.afterRevision === null
+          || (typeof payload.afterRevision === 'number' && Number.isFinite(payload.afterRevision)))
+        && (payload.browserReceiptDigest === null || typeof payload.browserReceiptDigest === 'string')
+        && (!hasOwn(payload, 'code') || typeof payload.code === 'string')
+        && (!hasOwn(payload, 'message') || typeof payload.message === 'string');
+    case 'command.orphaned':
+      return hasExactKeys(payload, new Set([
+        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+        'beforeRevision', 'code', 'message', 'afterRevision', 'browserReceiptDigest',
+      ]))
+        && hasString(payload, 'workspaceId')
+        && hasString(payload, 'databaseGeneration')
+        && hasString(payload, 'timelineId')
+        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
+        && typeof payload.beforeRevision === 'number'
+        && Number.isFinite(payload.beforeRevision)
+        && hasString(payload, 'code')
+        && hasString(payload, 'message')
+        && payload.afterRevision === null
+        && (payload.browserReceiptDigest === null || typeof payload.browserReceiptDigest === 'string');
     case 'turn.completed':
-      return payload.output === undefined || isJsonValue(payload.output);
+      return hasOnlyKeys(payload, new Set(), new Set(['output']))
+        && (!hasOwn(payload, 'output') || isJsonValue(payload.output));
     case 'turn.stopped':
-      return hasString(payload, 'code') && (payload.message === undefined || typeof payload.message === 'string');
+      return hasOnlyKeys(payload, new Set(['code']), new Set(['message']))
+        && hasString(payload, 'code')
+        && (!hasOwn(payload, 'message') || typeof payload.message === 'string');
     case 'turn.failed':
-      return hasString(payload, 'code') && hasString(payload, 'message');
+      return hasExactKeys(payload, new Set(['code', 'message']))
+        && hasString(payload, 'code')
+        && hasString(payload, 'message');
     case 'turn.interrupted':
-      return hasString(payload, 'code')
+      return hasExactKeys(payload, new Set(['code', 'message', 'reconcileRequiredCommandIds']))
+        && hasString(payload, 'code')
         && hasString(payload, 'message')
         && Array.isArray(payload.reconcileRequiredCommandIds)
         && payload.reconcileRequiredCommandIds.every((id) => typeof id === 'string');
     default:
-      return isJsonValue(payload);
+      return false;
   }
 }
 
@@ -467,7 +667,7 @@ function asDefEvent(value: unknown, defSessionId: string, afterSequence: number)
   if (
     event.schemaVersion !== 1
     || !Number.isSafeInteger(event.sequence)
-    || Number(event.sequence) <= afterSequence
+    || Number(event.sequence) !== afterSequence + 1
     || event.defSessionId !== defSessionId
     || typeof event.occurredAt !== 'string'
     || typeof event.type !== 'string'

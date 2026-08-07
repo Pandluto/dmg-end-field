@@ -88,11 +88,13 @@ function binding() {
   };
 }
 
+const EVENT_TEST_SESSION_ID = asDefSessionId('def-session-product');
+
 function productSession() {
   return {
     schemaVersion: 6,
     eventSchemaVersion: 1,
-    defSessionId: asDefSessionId('def-session-product'),
+    defSessionId: EVENT_TEST_SESSION_ID,
     host: 'workbench' as const,
     status: 'ready' as const,
     workspaceId: asWorkspaceId('workspace-test'),
@@ -105,6 +107,19 @@ function productSession() {
     createdAt: '2026-08-07T00:00:00.000Z',
     updatedAt: '2026-08-07T00:00:00.000Z',
   };
+}
+
+function bridgeForEventPage(page: unknown) {
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const session = productSession();
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response(page),
+  });
+  return { bridge, session };
 }
 
 class FakeDocument implements AgentConsumerControllerDocument {
@@ -539,6 +554,145 @@ class FakeLease implements AgentWorkspaceLease {
     bridge.readSessionEvents(session.defSessionId),
     (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
   );
+}
+
+// Event pages reject sequence gaps instead of accepting merely increasing cursors.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 3,
+    hasMore: false,
+    events: [
+      {
+        schemaVersion: 1,
+        sequence: 1,
+        occurredAt: '2026-08-07T00:00:01.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-sequence-gap',
+        type: 'response.delta',
+        payload: { delta: 'first' },
+      },
+      {
+        schemaVersion: 1,
+        sequence: 3,
+        occurredAt: '2026-08-07T00:00:03.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-sequence-gap',
+        type: 'response.delta',
+        payload: { delta: 'third' },
+      },
+    ],
+  });
+  await assert.rejects(
+    bridge.readSessionEvents(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// Event envelopes reject private top-level fields.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 1,
+    hasMore: false,
+    events: [{
+      schemaVersion: 1,
+      sequence: 1,
+      occurredAt: '2026-08-07T00:00:01.000Z',
+      defSessionId: EVENT_TEST_SESSION_ID,
+      defTurnId: 'def-turn-private-top-level',
+      type: 'turn.accepted',
+      payload: { clientTurnId: 'client-turn-private-top-level', userMessage: 'safe' },
+      privateTopLevelField: 'must be rejected',
+    }],
+  });
+  await assert.rejects(
+    bridge.readSessionEvents(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// Event payloads reject private fields even when the declared fields are valid.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 1,
+    hasMore: false,
+    events: [{
+      schemaVersion: 1,
+      sequence: 1,
+      occurredAt: '2026-08-07T00:00:01.000Z',
+      defSessionId: EVENT_TEST_SESSION_ID,
+      defTurnId: 'def-turn-private-payload',
+      type: 'response.delta',
+      payload: { delta: 'safe', privatePayloadField: 'must be rejected' },
+    }],
+  });
+  await assert.rejects(
+    bridge.readSessionEvents(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// Contract-declared optional correlation and payload fields remain accepted.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 3,
+    hasMore: false,
+    events: [
+      {
+        schemaVersion: 1,
+        sequence: 1,
+        occurredAt: '2026-08-07T00:00:01.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-optional-fields',
+        interactionId: 'interaction-optional-fields',
+        toolCallId: 'tool-optional-fields',
+        type: 'interaction.requested',
+        payload: {
+          kind: 'question',
+          prompt: '继续吗？',
+          expiresAt: '2026-08-07T00:15:01.000Z',
+        },
+      },
+      {
+        schemaVersion: 1,
+        sequence: 2,
+        occurredAt: '2026-08-07T00:00:02.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-optional-fields',
+        interactionId: 'interaction-optional-fields',
+        type: 'interaction.resolved',
+        payload: { status: 'answered', value: { answer: 'yes' } },
+      },
+      {
+        schemaVersion: 1,
+        sequence: 3,
+        occurredAt: '2026-08-07T00:00:03.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-optional-fields',
+        toolCallId: 'tool-optional-fields',
+        type: 'tool.error',
+        payload: {
+          code: 'TEST_ERROR',
+          message: 'expected test error',
+          details: { retryable: false },
+        },
+      },
+    ],
+  });
+  const page = await bridge.readSessionEvents(session.defSessionId);
+  assert.equal(page.events.length, 3);
+  assert.deepEqual(page.events[1].payload, { status: 'answered', value: { answer: 'yes' } });
 }
 
 // Safe Host conflict codes remain typed for the UI without clearing a valid capability.
