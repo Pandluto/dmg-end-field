@@ -8,7 +8,7 @@ import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorag
 import type { AiTimelineValidationIssue, AiTimelineValidationResult } from './types';
 import { validateTimelinePayload } from './validator';
 
-export type ScopedRestoreScope = 'timeline' | 'buff';
+export type ScopedRestoreScope = 'timeline' | 'buff' | 'resistance';
 
 export type ScopedRestoreFailureCode =
   | 'invalid-current-payload'
@@ -336,6 +336,31 @@ function buildBuffRestoreTable(
   }
 
   return result;
+}
+
+/**
+ * Resistance is an independent scope. Only buttons that still exist in the
+ * current timeline can be restored, and every non-resistance field remains a
+ * byte-for-byte clone of current. A missing baseline field restores absence;
+ * current-only buttons retain their current resistance.
+ */
+function buildResistanceRestoreTable(
+  current: TimelineSnapshotPayload,
+  baseline: TimelineSnapshotPayload,
+): Record<string, PersistedSkillButton> {
+  const currentTable = current.skillButtonTable as unknown as Record<string, AnyRecord>;
+  const baselineTable = baseline.skillButtonTable as unknown as Record<string, AnyRecord>;
+  return Object.fromEntries(Object.entries(currentTable).map(([buttonId, currentButton]) => {
+    const next = deepClone(currentButton);
+    const baselineButton = baselineTable[buttonId];
+    if (baselineButton) {
+      copyOptionalField(next, baselineButton, 'resistanceConfig');
+      // Preserve compatibility with payloads that persisted targetResistance
+      // directly before resistanceConfig became the canonical container.
+      copyOptionalField(next, baselineButton, 'targetResistance');
+    }
+    return [buttonId, next as unknown as PersistedSkillButton];
+  }));
 }
 
 function buildTimelineDataForTimelineRestore(
@@ -672,6 +697,14 @@ export function restoreScopedTimelinePayload(
     return inputFailure(scope, 'invalid-baseline-payload', 'Baseline', baselineValidation, baselineDuplicateIssues);
   }
 
+  if (scope === 'resistance') {
+    const restoredPayload = deepClone(current);
+    restoredPayload.skillButtonTable = buildResistanceRestoreTable(current, baseline);
+    const restoredValidation = safeValidatePayload(restoredPayload);
+    if (!restoredValidation.ok) return restoredFailure(scope, restoredValidation);
+    return { ok: true, scope, payload: restoredPayload };
+  }
+
   const restoredTable = scope === 'timeline'
     ? buildTimelineRestoreTable(current, baseline)
     : buildBuffRestoreTable(current, baseline);
@@ -740,4 +773,12 @@ export function restoreBuffScope(
   baseline: TimelineSnapshotPayload,
 ): ScopedRestoreResult {
   return restoreScopedTimelinePayload('buff', current, baseline);
+}
+
+/** Restore only baseline target resistance and preserve attachments, timeline, loadout, and runtime. */
+export function restoreResistanceScope(
+  current: TimelineSnapshotPayload,
+  baseline: TimelineSnapshotPayload,
+): ScopedRestoreResult {
+  return restoreScopedTimelinePayload('resistance', current, baseline);
 }

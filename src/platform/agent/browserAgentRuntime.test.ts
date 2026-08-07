@@ -24,13 +24,13 @@ import type {
   BrowserSnapshotPublish,
   BrowserWorkbenchConsumerState,
   Phase2ProductCommand,
+  ProductBinding,
   ProductCommandResult,
   ProductSnapshotEnvelope,
 } from '../../../agent/core/contracts/index.ts';
 import type { DefPreparedWorkNodeCandidateRefV1 } from '../../../agent/core/contracts/prepared-work-node.ts';
 import type { MainWorkbenchSnapshot } from '../../utils/mainWorkbenchControl';
 import {
-  AGENT_SELECTION_WORKSPACE_TIMELINE_ID,
   BrowserAgentRuntime,
   enterDesktopAgentModeFromWorkbench,
   exitDesktopAgentModeToWorkbench,
@@ -117,7 +117,7 @@ function preparedCandidate(
     intent: 'timeline',
     destination: 'current-timeline',
     sourceTargetId: binding.checkoutTargetId,
-    sourceRevision: 0,
+    sourceRevision: binding.contentRevision,
     candidateTimelineId: binding.timelineId,
     nodeId: 'candidate-runtime-prepared',
     nodeRevision: 0,
@@ -137,6 +137,8 @@ async function withPreparedApprovalCapability(
     readonly proposalHash?: string;
     readonly scope?: readonly string[];
     readonly binding?: typeof binding;
+    readonly expiresAt?: string;
+    readonly toolCallId?: ReturnType<typeof asToolCallId>;
   } = {},
 ): Promise<Phase2ProductCommand> {
   const claims = {
@@ -145,12 +147,12 @@ async function withPreparedApprovalCapability(
     keyEpoch: approvalSigner.verificationKey.keyEpoch,
     nonce: `nonce-${command.commandId}`,
     issuedAt: new Date(Date.now() - 1_000).toISOString(),
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    expiresAt: options.expiresAt ?? new Date(Date.now() + 60_000).toISOString(),
     interactionId: asInteractionId(`interaction-${command.commandId}`),
     commandId: command.commandId,
     defSessionId: command.defSessionId,
     defTurnId: command.defTurnId,
-    toolCallId: command.toolCallId,
+    toolCallId: options.toolCallId ?? command.toolCallId,
     proposalHash: options.proposalHash ?? candidate.proposalDigest,
     binding: options.binding ?? command.expected,
     scope: options.scope ?? candidate.scope,
@@ -248,6 +250,24 @@ class FakeStore implements BrowserProductStore {
   async reconcileCommand(): Promise<ProductCommandResult | null> { return this.result; }
 }
 
+class InputBindingStore extends FakeStore {
+  async createRuntimeSnapshot(input: RuntimeSnapshotInput): Promise<ProductSnapshotEnvelope> {
+    this.snapshotInputs.push(input);
+    return {
+      protocolVersion: 1,
+      binding: {
+        ...binding,
+        checkoutTargetId: input.checkoutTargetId,
+        checkoutUpdatedAt: input.checkoutUpdatedAt,
+        contentRevision: input.contentRevision,
+        snapshotDigest: `sha256:input-${input.contentRevision}-${input.checkoutUpdatedAt}`,
+      },
+      capturedAt: input.capturedAt!,
+      payload: input.payload,
+    };
+  }
+}
+
 class UnknownReconcileStore extends FakeStore {
   async getCommand(): Promise<BrowserCommandJournalRecord | null> { return null; }
   async reconcileCommand(): Promise<ProductCommandResult | null> { return null; }
@@ -295,14 +315,19 @@ class GatedSnapshotStore extends FakeStore {
   }
 }
 
-function runtimeSnapshotAt(revision: number): MainWorkbenchSnapshot {
+function runtimeSnapshotAt(revision: number, checkoutUpdatedAt = revision): MainWorkbenchSnapshot {
   return {
     schemaVersion: 1,
     updatedAt: revision,
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: revision },
+    checkout: {
+      targetType: 'snapshot',
+      targetId: 'checkout-runtime',
+      contentRevision: revision,
+      updatedAt: checkoutUpdatedAt,
+    },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -388,7 +413,7 @@ await runtime.publishMainWorkbenchSnapshot({
   source: 'app',
   timelineId: 'timeline-runtime',
   activeTimelineId: 'timeline-runtime',
-  checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+  checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 100, updatedAt: 100 },
   currentView: 'canvas',
   selectedCharacters: [],
   skillButtons: [],
@@ -418,7 +443,7 @@ assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
   for (let index = 1; index <= 100; index += 1) {
     await dedupRuntime.publishMainWorkbenchSnapshot({
       ...runtimeSnapshotAt(100 + index),
-      checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+      checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 100, updatedAt: 100 },
     });
   }
   assert.equal(dedupStore.snapshotInputs.length, beforeEquivalentPublishes);
@@ -434,7 +459,7 @@ assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
   };
   const reportSnapshot = {
     ...runtimeSnapshotAt(201),
-    checkout: { targetType: 'snapshot' as const, targetId: 'checkout-runtime', updatedAt: 100 },
+    checkout: { targetType: 'snapshot' as const, targetId: 'checkout-runtime', contentRevision: 100, updatedAt: 100 },
     damageReportStatus: 'ready' as const,
     damageReport: report,
   } as MainWorkbenchSnapshot;
@@ -502,6 +527,32 @@ assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
   assert.equal(coalescingBridge.snapshots.at(-1)?.snapshot.binding.snapshotDigest, 'sha256:runtime-103');
 }
 
+// Revoking authority while a snapshot is blocked in storage must cancel that
+// in-flight publication and every older queued projection.
+{
+  const revocationEvents: string[] = [];
+  const revocationBridge = new FakeBridge(revocationEvents);
+  revocationBridge.delivery = null;
+  const revocationStore = new GatedSnapshotStore(revocationEvents);
+  const revocationRuntime = new BrowserAgentRuntime({
+    bridge: revocationBridge,
+    consumerController: {
+      getState: controller.getState,
+      refreshEligibility: async () => undefined,
+    },
+    store: revocationStore,
+  });
+  const blockedPublish = revocationRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(201));
+  await revocationStore.firstSnapshotStarted;
+  const queuedPublish = revocationRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(202));
+  await revocationRuntime.suspendWritableBinding();
+  revocationStore.releaseFirstSnapshot();
+  await Promise.all([blockedPublish, queuedPublish]);
+  assert.equal(revocationRuntime.getBinding(), null);
+  assert.equal(revocationBridge.snapshots.length, 0, 'revoked projections must never reach the Host');
+  assert.equal(revocationStore.snapshotInputs.length, 1, 'queued stale projections must be discarded');
+}
+
 const failedBinding = {
   ...binding,
   checkoutUpdatedAt: 101,
@@ -517,7 +568,7 @@ await assert.rejects(
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -534,7 +585,7 @@ await runtime.publishMainWorkbenchSnapshot({
   source: 'app',
   timelineId: 'timeline-runtime',
   activeTimelineId: 'timeline-runtime',
-  checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+  checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 100, updatedAt: 100 },
   currentView: 'canvas',
   selectedCharacters: [],
   skillButtons: [],
@@ -550,7 +601,7 @@ await assert.rejects(
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -567,9 +618,13 @@ assert.equal(refreshes, 4);
 bridge.commitSnapshotBeforeFailure = false;
 store.snapshotBinding = binding;
 
-const enqueued: Array<{ command: unknown; id: string }> = [];
-await runtime.pullRemoteCommands((command, id) => enqueued.push({ command, id }));
-assert.deepEqual(enqueued, [{ command: { op: 'refreshSnapshot' }, id: 'command-runtime' }]);
+const enqueued: Array<{ command: unknown; id: string; expectedBinding: ProductBinding }> = [];
+await runtime.pullRemoteCommands((command, id, expectedBinding) => enqueued.push({ command, id, expectedBinding }));
+assert.deepEqual(enqueued, [{
+  command: { op: 'refreshSnapshot' },
+  id: 'command-runtime',
+  expectedBinding: productCommand.expected,
+}]);
 assert.equal(store.claims, 1);
 
 await runtime.pushCommandResult({
@@ -584,6 +639,7 @@ await runtime.pushCommandResult({
 assert.deepEqual(events, ['journal-result', 'host-result']);
 assert.equal(bridge.results.length, 1);
 
+const snapshotsBeforeUnboundSelection = store.snapshotInputs.length;
 await runtime.publishMainWorkbenchSnapshot({
   schemaVersion: 1,
   updatedAt: 150,
@@ -593,9 +649,21 @@ await runtime.publishMainWorkbenchSnapshot({
   skillButtons: [],
 });
 assert.equal(
-  store.snapshotInputs.at(-1)?.timelineId,
-  AGENT_SELECTION_WORKSPACE_TIMELINE_ID,
-  'the empty selection workspace still needs a stable Product binding',
+  store.snapshotInputs.length,
+  snapshotsBeforeUnboundSelection,
+  'selection without a persisted checkout must stay unbound and fail closed',
+);
+assert.equal(runtime.getBinding(), null, 'an unbound snapshot must revoke any previously writable binding');
+await runtime.publishMainWorkbenchSnapshot({
+  ...runtimeSnapshotAt(100, 777),
+  currentView: 'selection',
+});
+assert.equal(store.snapshotInputs.at(-1)?.timelineId, 'timeline-runtime');
+assert.equal(store.snapshotInputs.at(-1)?.checkoutUpdatedAt, 777);
+assert.equal(
+  store.snapshotInputs.at(-1)?.contentRevision,
+  100,
+  'authoritative target revision must not be copied from checkout.updatedAt',
 );
 
 const selectionCommandPayload = {
@@ -681,6 +749,61 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   assert.deepEqual(v2Admitted, [{ command: applyPayload, id: unsignedApplyCommand.commandId }]);
   assert.equal(v2Bridge.results.length, 0);
 
+  // Real checkouts commonly move after their target content was written.
+  // Keep checkoutUpdatedAt=777 and authoritative node/snapshot revision=100:
+  // the V2 candidate is admitted only when sourceRevision follows the latter.
+  const distinctCasStore = new InputBindingStore([]);
+  const distinctCasExpected = {
+    ...binding,
+    checkoutUpdatedAt: 777,
+    contentRevision: 100,
+    snapshotDigest: 'sha256:input-100-777',
+  };
+  const distinctCasCommand: Phase2ProductCommand = {
+    ...unsignedApplyCommand,
+    commandId: asCommandId('command-prepared-distinct-checkout-cas'),
+    toolCallId: asToolCallId('tool-prepared-distinct-checkout-cas'),
+    expected: distinctCasExpected,
+  };
+  const distinctCasBridge = new FakeBridge([]);
+  distinctCasBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(distinctCasCommand, candidate),
+  };
+  const distinctCasRuntime = new BrowserAgentRuntime({
+    bridge: distinctCasBridge,
+    consumerController: controller,
+    store: distinctCasStore,
+  });
+  await distinctCasRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100, 777));
+  const distinctCasAdmitted: unknown[] = [];
+  await distinctCasRuntime.pullRemoteCommands((command) => distinctCasAdmitted.push(command));
+  assert.deepEqual(distinctCasAdmitted, [applyPayload]);
+  assert.equal(distinctCasStore.snapshotInputs[0]?.contentRevision, 100);
+  assert.equal(distinctCasStore.snapshotInputs[0]?.checkoutUpdatedAt, 777);
+
+  const wrongMappedCandidate = preparedCandidate({ sourceRevision: 777 });
+  const wrongMappedPayload = { ...applyPayload, candidate: wrongMappedCandidate };
+  const wrongMappedCommand: Phase2ProductCommand = {
+    ...distinctCasCommand,
+    commandId: asCommandId('command-prepared-checkout-time-as-revision'),
+    toolCallId: asToolCallId('tool-prepared-checkout-time-as-revision'),
+    command: { op: 'workbench.execute-command', payload: { command: wrongMappedPayload } },
+  };
+  const wrongMappedBridge = new FakeBridge([]);
+  wrongMappedBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(wrongMappedCommand, wrongMappedCandidate),
+  };
+  const wrongMappedRuntime = new BrowserAgentRuntime({
+    bridge: wrongMappedBridge,
+    consumerController: controller,
+    store: new InputBindingStore([]),
+  });
+  await wrongMappedRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100, 777));
+  await wrongMappedRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(wrongMappedBridge.results[0]?.result.code, 'AGENT_PREPARED_CANDIDATE_BINDING_MISMATCH');
+
   const v1Events: string[] = [];
   const v1Bridge = new FakeBridge(v1Events);
   v1Bridge.delivery = {
@@ -743,6 +866,123 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   await hashRuntime.pullRemoteCommands(() => undefined);
   assert.equal(hashBridge.results[0]?.result.status, 'rejected');
   assert.equal(hashBridge.results[0]?.result.code, 'AGENT_PREPARED_PROPOSAL_HASH_MISMATCH');
+
+  const selectionCandidate = preparedCandidate({
+    intent: 'selection',
+    destination: 'new-temporary-workspace',
+    candidateTimelineId: 'prepared-selection-document-proposal-runtime-prepared',
+    scope: [
+      'selection.roster',
+      'timeline.structure',
+      'buff.attachments',
+      'buff.resistance',
+      'loadout.config',
+    ],
+  });
+  const selectionApplyPayload = {
+    op: 'applyReviewedWorkNodeProposal',
+    operation: 'selection.preview',
+    candidate: selectionCandidate,
+  } as const;
+  const selectionApplyCommand: Phase2ProductCommand = {
+    ...unsignedApplyCommand,
+    commandId: asCommandId('command-prepared-selection-new-temp'),
+    toolCallId: asToolCallId('tool-prepared-selection-new-temp'),
+    command: { op: 'workbench.execute-command', payload: { command: selectionApplyPayload } },
+  };
+  const selectionApplyBridge = new FakeBridge([]);
+  selectionApplyBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(selectionApplyCommand, selectionCandidate),
+  };
+  const selectionApplyRuntime = new BrowserAgentRuntime({
+    bridge: selectionApplyBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await selectionApplyRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  const selectionApplyAdmitted: unknown[] = [];
+  await selectionApplyRuntime.pullRemoteCommands((command) => selectionApplyAdmitted.push(command));
+  assert.deepEqual(selectionApplyAdmitted, [selectionApplyPayload]);
+
+  const wrongDestinationCandidate = {
+    ...selectionCandidate,
+    candidateTimelineId: binding.timelineId,
+  };
+  const wrongDestinationCommand: Phase2ProductCommand = {
+    ...selectionApplyCommand,
+    commandId: asCommandId('command-prepared-selection-destination-tampered'),
+    toolCallId: asToolCallId('tool-prepared-selection-destination-tampered'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: {
+        command: {
+          ...selectionApplyPayload,
+          candidate: wrongDestinationCandidate,
+        },
+      },
+    },
+  };
+  const wrongDestinationBridge = new FakeBridge([]);
+  wrongDestinationBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(wrongDestinationCommand, wrongDestinationCandidate),
+  };
+  const wrongDestinationRuntime = new BrowserAgentRuntime({
+    bridge: wrongDestinationBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await wrongDestinationRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await wrongDestinationRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(wrongDestinationBridge.results[0]?.result.code, 'AGENT_PREPARED_CANDIDATE_BINDING_MISMATCH');
+
+  const v2BoundaryCases = [
+    {
+      id: 'scope',
+      options: { scope: ['selection.roster'] },
+      expectedCode: 'AGENT_PREPARED_SCOPE_MISMATCH',
+    },
+    {
+      id: 'binding',
+      options: { binding: { ...binding, checkoutUpdatedAt: 999 } },
+      expectedCode: 'AGENT_APPROVAL_BINDING_MISMATCH',
+    },
+    {
+      id: 'correlation',
+      options: { toolCallId: asToolCallId('tool-prepared-wrong-correlation') },
+      expectedCode: 'AGENT_APPROVAL_CORRELATION_MISMATCH',
+    },
+    {
+      id: 'expired',
+      options: { expiresAt: new Date(Date.now() - 1_000).toISOString() },
+      expectedCode: 'AGENT_APPROVAL_EXPIRED',
+    },
+  ] as const;
+  for (const boundary of v2BoundaryCases) {
+    const boundaryCommand: Phase2ProductCommand = {
+      ...selectionApplyCommand,
+      commandId: asCommandId(`command-prepared-v2-${boundary.id}`),
+      toolCallId: asToolCallId(`tool-prepared-v2-${boundary.id}`),
+    };
+    const boundaryBridge = new FakeBridge([]);
+    boundaryBridge.delivery = {
+      cursor: 1,
+      command: await withPreparedApprovalCapability(
+        boundaryCommand,
+        selectionCandidate,
+        boundary.options,
+      ),
+    };
+    const boundaryRuntime = new BrowserAgentRuntime({
+      bridge: boundaryBridge,
+      consumerController: controller,
+      store: new FakeStore([]),
+    });
+    await boundaryRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+    await boundaryRuntime.pullRemoteCommands(() => undefined);
+    assert.equal(boundaryBridge.results[0]?.result.code, boundary.expectedCode);
+  }
 }
 
 // Prepare and abandon are constrained proposal/cleanup commands: they do not
@@ -780,33 +1020,78 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   assert.deepEqual(prepareAdmitted, [preparePayload]);
   assert.equal(prepareBridge.results.length, 0);
 
-  const unsupportedPreparedPayload = {
-    ...preparePayload,
+  const selectionPreparedPayload = {
+    op: 'prepareReviewedWorkNodeProposal',
+    operation: 'selection.preview',
     intent: 'selection',
-    scope: ['selection.roster'],
+    scope: [
+      'selection.roster',
+      'timeline.structure',
+      'buff.attachments',
+      'buff.resistance',
+      'loadout.config',
+    ],
+    roster: {
+      characterIds: ['operator-a'],
+      characterNames: ['测试甲'],
+      nodeTitle: '选择测试甲',
+      nodeDescription: '精确选择测试甲并创建隔离候选。',
+      openCanvas: false,
+    },
+    label: '准备选人候选',
+    description: '完整 selection scope 候选。',
+    sourceBinding: binding,
   } as const;
-  const unsupportedPreparedBridge = new FakeBridge([]);
-  unsupportedPreparedBridge.delivery = {
+  const selectionPreparedBridge = new FakeBridge([]);
+  selectionPreparedBridge.delivery = {
     cursor: 1,
     command: {
       ...prepareCommand,
-      commandId: asCommandId('command-prepared-selection-rejected'),
-      toolCallId: asToolCallId('tool-prepared-selection-rejected'),
+      commandId: asCommandId('command-prepared-selection-admitted'),
+      toolCallId: asToolCallId('tool-prepared-selection-admitted'),
       command: {
         op: 'workbench.execute-command',
-        payload: { command: unsupportedPreparedPayload },
+        payload: { command: selectionPreparedPayload },
       },
     },
   };
-  const unsupportedPreparedRuntime = new BrowserAgentRuntime({
-    bridge: unsupportedPreparedBridge,
+  const selectionPreparedRuntime = new BrowserAgentRuntime({
+    bridge: selectionPreparedBridge,
     consumerController: controller,
     store: new FakeStore([]),
   });
-  await unsupportedPreparedRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
-  await unsupportedPreparedRuntime.pullRemoteCommands(() => undefined);
-  assert.equal(unsupportedPreparedBridge.results[0]?.result.status, 'rejected');
-  assert.equal(unsupportedPreparedBridge.results[0]?.result.code, 'AGENT_COMMAND_SCHEMA_INVALID');
+  await selectionPreparedRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  const selectionPreparedAdmitted: unknown[] = [];
+  await selectionPreparedRuntime.pullRemoteCommands((command) => selectionPreparedAdmitted.push(command));
+  assert.deepEqual(selectionPreparedAdmitted, [selectionPreparedPayload]);
+
+  const wrongSelectionScopeBridge = new FakeBridge([]);
+  wrongSelectionScopeBridge.delivery = {
+    cursor: 1,
+    command: {
+      ...prepareCommand,
+      commandId: asCommandId('command-prepared-selection-scope-rejected'),
+      toolCallId: asToolCallId('tool-prepared-selection-scope-rejected'),
+      command: {
+        op: 'workbench.execute-command',
+        payload: {
+          command: {
+            ...selectionPreparedPayload,
+            scope: [...selectionPreparedPayload.scope].reverse(),
+          },
+        },
+      },
+    },
+  };
+  const wrongSelectionScopeRuntime = new BrowserAgentRuntime({
+    bridge: wrongSelectionScopeBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await wrongSelectionScopeRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await wrongSelectionScopeRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(wrongSelectionScopeBridge.results[0]?.result.status, 'rejected');
+  assert.equal(wrongSelectionScopeBridge.results[0]?.result.code, 'AGENT_PREPARED_SCOPE_INVALID');
 
   const mismatchBridge = new FakeBridge([]);
   mismatchBridge.delivery = {
@@ -835,6 +1120,82 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   await mismatchRuntime.pullRemoteCommands(() => undefined);
   assert.equal(mismatchBridge.results[0]?.result.status, 'rejected');
   assert.equal(mismatchBridge.results[0]?.result.code, 'AGENT_PREPARED_SOURCE_BINDING_MISMATCH');
+
+  const restoreCases = [
+    {
+      semanticScope: 'timeline.structure',
+      intent: 'timeline',
+      proposalScope: ['timeline.structure', 'buff.attachments', 'buff.resistance'],
+    },
+    {
+      semanticScope: 'buff.attachments',
+      intent: 'buff',
+      proposalScope: ['buff.attachments'],
+    },
+    {
+      semanticScope: 'buff.resistance',
+      intent: 'buff',
+      proposalScope: ['buff.resistance'],
+    },
+  ] as const;
+  for (const [index, restoreCase] of restoreCases.entries()) {
+    const restorePayload = {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation: `restore.scope.${index}`,
+      intent: restoreCase.intent,
+      scope: [...restoreCase.proposalScope],
+      restore: { nodeId: 'baseline-node', scope: restoreCase.semanticScope },
+      label: '准备范围恢复',
+      description: '从 baseline Work Node 的 base payload 创建隔离恢复候选。',
+      sourceBinding: binding,
+    } as const;
+    const restoreBridge = new FakeBridge([]);
+    restoreBridge.delivery = {
+      cursor: 1,
+      command: {
+        ...prepareCommand,
+        commandId: asCommandId(`command-prepared-restore-${index}`),
+        toolCallId: asToolCallId(`tool-prepared-restore-${index}`),
+        command: { op: 'workbench.execute-command', payload: { command: restorePayload } },
+      },
+    };
+    const restoreRuntime = new BrowserAgentRuntime({
+      bridge: restoreBridge,
+      consumerController: controller,
+      store: new FakeStore([]),
+    });
+    await restoreRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+    const admitted: unknown[] = [];
+    await restoreRuntime.pullRemoteCommands((command) => admitted.push(command));
+    assert.deepEqual(admitted, [restorePayload]);
+  }
+
+  const mixedPrepareBridge = new FakeBridge([]);
+  mixedPrepareBridge.delivery = {
+    cursor: 1,
+    command: {
+      ...prepareCommand,
+      commandId: asCommandId('command-prepared-mixed-rejected'),
+      toolCallId: asToolCallId('tool-prepared-mixed-rejected'),
+      command: {
+        op: 'workbench.execute-command',
+        payload: {
+          command: {
+            ...preparePayload,
+            restore: { nodeId: 'baseline-node', scope: 'timeline.structure' },
+          },
+        },
+      },
+    },
+  };
+  const mixedPrepareRuntime = new BrowserAgentRuntime({
+    bridge: mixedPrepareBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await mixedPrepareRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await mixedPrepareRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(mixedPrepareBridge.results[0]?.result.code, 'AGENT_COMMAND_SCHEMA_INVALID');
 }
 
 // The reviewed loadout mutation is admitted only with the signed capability,
@@ -896,7 +1257,7 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'work-node', targetId: 'candidate-node', updatedAt: 101 },
+    checkout: { targetType: 'work-node', targetId: 'candidate-node', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -969,7 +1330,7 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'work-node', targetId: 'candidate-node', updatedAt: 101 },
+    checkout: { targetType: 'work-node', targetId: 'candidate-node', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -1102,17 +1463,17 @@ function exactWorkNodeReceipt(input: {
 
 function makeExactWorkNodeSnapshot(
   targetId: string,
-  updatedAt: number,
+  contentRevision: number,
   buttonIds = ['button-base'],
-  checkoutUpdatedAt = updatedAt,
+  checkoutUpdatedAt = contentRevision,
 ): MainWorkbenchSnapshot {
   return {
     schemaVersion: 1,
-    updatedAt,
+    updatedAt: checkoutUpdatedAt,
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'work-node', targetId, updatedAt: checkoutUpdatedAt },
+    checkout: { targetType: 'work-node', targetId, contentRevision, updatedAt: checkoutUpdatedAt },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: buttonIds.map((id) => ({
@@ -1398,7 +1759,7 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 100, updatedAt: 100 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -1440,7 +1801,7 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -1499,7 +1860,7 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [
       { id: 'operator-b', name: '测试乙' },
@@ -1562,7 +1923,7 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [],
     skillButtons: [],
@@ -1604,7 +1965,7 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
     source: 'app',
     timelineId: 'timeline-runtime',
     activeTimelineId: 'timeline-runtime',
-    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', contentRevision: 101, updatedAt: 101 },
     currentView: 'canvas',
     selectedCharacters: [{
       id: 'char-luoqian',

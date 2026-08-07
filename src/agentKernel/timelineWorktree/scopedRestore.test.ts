@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
 import {
   restoreBuffScope,
+  restoreResistanceScope,
   restoreTimelineScope,
   type ScopedRestoreResult,
 } from './scopedRestore';
@@ -235,7 +236,9 @@ const currentBuffButton = button('button-a', 'operator-a', 0, 9, ['current-only'
   buffStackCounts: { 'current-only': 9 },
   runtimeSnapshot: { atk: 999, critRate: 0.99, critDmg: 0.99 },
 });
-const currentUnmatchedButton = button('button-current-only', 'operator-b', 1, 5, ['current-unmatched']);
+const currentUnmatchedButton = button('button-current-only', 'operator-b', 1, 5, ['current-unmatched'], {
+  resistanceConfig: { targetResistance: { physicalResistance: 55 } },
+});
 const baselineBuffButton = button('button-a', 'operator-a', 0, 1, ['baseline-shared', 'baseline-stack'], {
   runtimeSkillId: 'baseline-skill',
   skillDisplayName: '基线技能身份',
@@ -311,6 +314,44 @@ assert.deepEqual(
 );
 assert.equal(buffRestored.allBuffList.some((item) => item.id === 'baseline-ignored'), false);
 assert.equal(buffRestored.allBuffList.some((item) => item.id === 'orphan-buff'), false);
+
+const resistanceCurrentBefore = structuredClone(currentBuff);
+const resistanceBaselineBefore = structuredClone(baselineBuff);
+const resistanceRestored = mustSucceed(restoreResistanceScope(currentBuff, baselineBuff));
+assert.deepEqual(currentBuff, resistanceCurrentBefore, 'resistance restore must not mutate current input');
+assert.deepEqual(baselineBuff, resistanceBaselineBefore, 'resistance restore must not mutate baseline input');
+assert.deepEqual(resistanceRestored.selectedCharacters, currentBuff.selectedCharacters);
+assert.deepEqual(resistanceRestored.timelineData, currentBuff.timelineData, 'resistance restore must preserve timeline');
+assert.deepEqual(resistanceRestored.allBuffList, currentBuff.allBuffList, 'resistance restore must preserve attachments');
+assert.deepEqual(resistanceRestored.anomalyStateSnapshots, currentBuff.anomalyStateSnapshots);
+assert.deepEqual(resistanceRestored.characterInputMap, currentBuff.characterInputMap);
+assert.deepEqual(resistanceRestored.characterComputedMap, currentBuff.characterComputedMap);
+assert.deepEqual(resistanceRestored.characterDisplayCacheMap, currentBuff.characterDisplayCacheMap);
+assert.deepEqual(resistanceRestored.operatorConfigPageCache, currentBuff.operatorConfigPageCache);
+assert.deepEqual(resistanceRestored.skillButtonTable['button-a']?.resistanceConfig, {
+  targetResistance: { physicalResistance: 1 },
+});
+assert.deepEqual(
+  resistanceRestored.skillButtonTable['button-current-only']?.resistanceConfig,
+  { targetResistance: { physicalResistance: 55 } },
+  'a current-only button keeps its current resistance',
+);
+assert.deepEqual(resistanceRestored.skillButtonTable['button-a']?.selectedBuff, ['current-only']);
+assert.deepEqual(resistanceRestored.skillButtonTable['button-a']?.runtimeSnapshot, {
+  atk: 999,
+  critRate: 0.99,
+  critDmg: 0.99,
+});
+
+const baselineWithoutResistance = structuredClone(baselineBuff);
+delete (baselineWithoutResistance.skillButtonTable['button-a'] as AnyRecord).resistanceConfig;
+const resistanceRemoved = mustSucceed(restoreResistanceScope(currentBuff, baselineWithoutResistance));
+assert.equal(
+  resistanceRemoved.skillButtonTable['button-a']?.resistanceConfig,
+  undefined,
+  'baseline absence removes resistance only for the matching current button',
+);
+assert.deepEqual(resistanceRemoved.skillButtonTable['button-a']?.selectedBuff, ['current-only']);
 
 const sharedCurrentA = button('shared-a', 'operator-a', 0, 1, ['same-buff']);
 const sharedCurrentB = button('shared-b', 'operator-a', 0, 2, ['same-buff']);

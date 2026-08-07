@@ -77,7 +77,25 @@ const PREPARED_PROPOSAL_COMMANDS = new Set<MainWorkbenchCommand['op']>([
 const DESKTOP_AGENT_BOOT_QUERY_KEY = '__agent_mode';
 export const AGENT_SELECTION_WORKSPACE_TIMELINE_ID = 'workspace-selection';
 
-type EnqueueCommand = (command: MainWorkbenchCommand, id: string) => void;
+const SELECTION_PREPARED_SCOPE = [
+  'selection.roster',
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+  'loadout.config',
+] as const satisfies readonly PreparedWorkNodeScope[];
+
+const RESTORE_PREPARED_SCOPE = Object.freeze({
+  'timeline.structure': ['timeline.structure', 'buff.attachments', 'buff.resistance'],
+  'buff.attachments': ['buff.attachments'],
+  'buff.resistance': ['buff.resistance'],
+} as const satisfies Record<string, readonly PreparedWorkNodeScope[]>);
+
+type EnqueueCommand = (
+  command: MainWorkbenchCommand,
+  id: string,
+  expectedBinding: ProductBinding,
+) => void;
 type RecoverCommandResult = (commandId: string) => QueuedMainWorkbenchCommand | null;
 
 type SnapshotPublishWaiter = {
@@ -126,6 +144,7 @@ export class BrowserAgentRuntime {
   #pullPromise: Promise<void> | null = null;
   #pullAbortController: AbortController | null = null;
   #snapshotPublishVersion = 0;
+  #bindingAuthorityGeneration = 0;
   readonly #snapshotPublishWaiters = new Set<() => void>();
 
   constructor(options: BrowserAgentRuntimeOptions) {
@@ -148,6 +167,17 @@ export class BrowserAgentRuntime {
 
   cancelCommandPull(): void {
     this.#pullAbortController?.abort();
+  }
+
+  async suspendWritableBinding(): Promise<void> {
+    this.#bindingAuthorityGeneration += 1;
+    this.cancelCommandPull();
+    this.#binding = null;
+    this.#latestSnapshot = null;
+    const pending = this.#pendingSnapshot;
+    this.#pendingSnapshot = null;
+    if (pending) pending.waiters.forEach((waiter) => waiter.resolve());
+    if (this.isActive()) await this.#consumerController.refreshEligibility();
   }
 
   async initializeWorkspace(): Promise<void> {
@@ -207,27 +237,40 @@ export class BrowserAgentRuntime {
   }
 
   async #publishSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
+    // Writable Product bindings are CAS bindings to a persisted target, not a
+    // renderer timestamp. Selection/AppContext and Canvas must bootstrap/read
+    // that target before registration; otherwise stay fail-closed.
+    if (!snapshot.checkout) {
+      await this.suspendWritableBinding();
+      return;
+    }
+    const authorityGeneration = this.#bindingAuthorityGeneration;
+    const authorityIsCurrent = () => authorityGeneration === this.#bindingAuthorityGeneration;
     const timelineId = (
       snapshot.activeTimelineId
       || snapshot.timelineId
       || AGENT_SELECTION_WORKSPACE_TIMELINE_ID
     ).trim();
-    const checkoutUpdatedAt = snapshot.checkout?.updatedAt ?? snapshot.updatedAt;
-    const contentRevision = snapshot.checkout?.updatedAt ?? snapshot.updatedAt;
+    const checkoutUpdatedAt = snapshot.checkout.updatedAt;
+    const contentRevision = snapshot.checkout.contentRevision;
     if (
       !Number.isSafeInteger(checkoutUpdatedAt)
       || checkoutUpdatedAt < 0
       || !Number.isSafeInteger(contentRevision)
       || contentRevision < 0
-    ) return;
+    ) {
+      await this.suspendWritableBinding();
+      return;
+    }
     const runtimeSnapshot = await this.#store.createRuntimeSnapshot({
       timelineId: asTimelineId(timelineId),
-      checkoutTargetId: snapshot.checkout?.targetId ?? null,
+      checkoutTargetId: snapshot.checkout.targetId,
       checkoutUpdatedAt,
       contentRevision,
       payload: toJsonObject(snapshot),
       capturedAt: new Date(snapshot.updatedAt).toISOString(),
     });
+    if (!authorityIsCurrent()) return;
     const currentConsumer = this.#consumerController.getState().consumer;
     const requiresRegistration = !currentConsumer
       || !sameConsumerScope(currentConsumer.binding, runtimeSnapshot.binding);
@@ -239,6 +282,7 @@ export class BrowserAgentRuntime {
         this.#binding = null;
         throw error;
       }
+      if (!authorityIsCurrent()) return;
     }
     const consumer = this.#consumerController.getState().consumer;
     if (!consumer) {
@@ -251,6 +295,12 @@ export class BrowserAgentRuntime {
         executorLeaseId: consumer.executorLeaseId,
         snapshot: runtimeSnapshot,
       });
+      if (!authorityIsCurrent()) {
+        this.#binding = null;
+        this.#latestSnapshot = null;
+        if (this.isActive()) await this.#consumerController.refreshEligibility().catch(() => undefined);
+        return;
+      }
     } catch (error) {
       this.#binding = null;
       await this.#consumerController.refreshEligibility().catch(() => undefined);
@@ -422,7 +472,7 @@ export class BrowserAgentRuntime {
       this.#commandCursor = delivery.cursor;
       return;
     }
-    enqueue(localCommand, command.commandId);
+    enqueue(localCommand, command.commandId, { ...command.expected });
     this.#commandCursor = delivery.cursor;
   }
 
@@ -793,6 +843,22 @@ function evaluateCommandResultPostcondition(
       && result.workingPayloadDigest === candidate.workingPayloadDigest
       && result.diffDigest === candidate.diffDigest
       && result.proposalDigest === candidate.proposalDigest;
+    const selected = jsonObjectArray(result.selectedCharacters);
+    const expectedRosterIds = selected.map((character) => character.id).filter(isString);
+    const expectedRosterNames = selected.map((character) => character.name).filter(isString);
+    const observedRosterIds = snapshot.selectedCharacters.map((character) => character.id);
+    const observedRosterNames = snapshot.selectedCharacters.map((character) => character.name);
+    const selectionPostcondition = candidate.intent !== 'selection' || (
+      selected.length >= 1
+      && expectedRosterIds.length === selected.length
+      && expectedRosterNames.length === selected.length
+      && sameStringArray(expectedRosterIds, observedRosterIds)
+      && sameStringArray(expectedRosterNames, observedRosterNames)
+      && result.timelineId === candidate.candidateTimelineId
+      && snapshot.timelineId === candidate.candidateTimelineId
+      && snapshot.activeTimelineId === candidate.candidateTimelineId
+      && result.currentView === snapshot.currentView
+    );
     const pass = result.ok === true
       && result.applied === true
       && result.liveCheckoutTouched === true
@@ -801,17 +867,22 @@ function evaluateCommandResultPostcondition(
       && result.nodeRevision === candidate.nodeRevision
       && exactCandidate
       && exactDigests
+      && selectionPostcondition
       && postcondition?.pass === true
       && checkout?.targetType === 'work-node'
       && checkout.targetId === candidate.nodeId
       && snapshot.checkout?.targetType === 'work-node'
-      && snapshot.checkout.targetId === candidate.nodeId;
+      && snapshot.checkout.targetId === candidate.nodeId
+      && snapshot.checkout.contentRevision === candidate.nodeRevision;
     return {
       pass,
       ...(pass ? {} : { reason: 'prepared candidate apply 没有同时满足候选、四类 digest、node revision、checkout 和精确 postcondition。' }),
       observed: {
         checkout: snapshot.checkout ?? null,
         candidate: receiptCandidate ?? null,
+        selectedCharacters: snapshot.selectedCharacters,
+        currentView: snapshot.currentView ?? null,
+        timelineId: snapshot.activeTimelineId ?? snapshot.timelineId ?? null,
         postcondition: postcondition ?? null,
       },
     };
@@ -1230,7 +1301,7 @@ function snapshotMergeKey(snapshot: MainWorkbenchSnapshot): string {
     || AGENT_SELECTION_WORKSPACE_TIMELINE_ID
   ).trim();
   const checkout = snapshot.checkout;
-  const revision = checkout?.updatedAt ?? snapshot.updatedAt;
+  const revision = checkout?.contentRevision ?? 'unbound';
   let digestHint = '';
   try {
     digestHint = canonicalJson(JSON.parse(JSON.stringify(snapshot)) as JsonObject);
@@ -1241,6 +1312,7 @@ function snapshotMergeKey(snapshot: MainWorkbenchSnapshot): string {
     timelineId,
     checkout?.targetType ?? 'none',
     checkout?.targetId ?? '',
+    String(checkout?.updatedAt ?? ''),
     String(revision),
     digestHint,
   ].join('|');
@@ -1293,25 +1365,76 @@ function isPreparedWorkbenchCommandPayload(value: JsonObject): boolean {
 function isProductPreparedCandidateSupported(
   candidate: DefPreparedWorkNodeCandidateRefV1,
 ): boolean {
-  return (candidate.intent === 'timeline' || candidate.intent === 'buff')
-    && candidate.destination === 'current-timeline';
+  if (candidate.intent === 'timeline' || candidate.intent === 'buff') {
+    return candidate.destination === 'current-timeline';
+  }
+  return candidate.intent === 'selection'
+    && (candidate.destination === 'current-timeline'
+      || candidate.destination === 'new-temporary-workspace')
+    && sameStringArray(candidate.scope, SELECTION_PREPARED_SCOPE);
 }
 
 function parsePreparedWorkbenchCommand(value: JsonObject): MainWorkbenchCommand {
   if (value.op === 'prepareReviewedWorkNodeProposal') {
-    exactPreparedKeys(value, ['op', 'operation', 'intent', 'scope', 'patch', 'label', 'description', 'sourceBinding']);
+    const payloadKeys = ['patch', 'roster', 'restore'].filter((key) => (
+      Object.prototype.hasOwnProperty.call(value, key)
+    ));
+    if (payloadKeys.length !== 1) {
+      throw new AgentCommandValidationError(
+        'AGENT_COMMAND_SCHEMA_INVALID',
+        'prepareReviewedWorkNodeProposal 必须且只能包含 patch、roster、restore 之一。',
+      );
+    }
+    const payloadKey = payloadKeys[0]!;
+    exactPreparedKeys(value, [
+      'op', 'operation', 'intent', 'scope', payloadKey, 'label', 'description', 'sourceBinding',
+    ]);
     const sourceBinding = parsePreparedProductBinding(value.sourceBinding);
     const scope = parsePreparedScopeList(value.scope);
-    const patch = parsePreparedPatch(value.patch);
-    return {
-      op: 'prepareReviewedWorkNodeProposal',
+    const common = {
+      op: 'prepareReviewedWorkNodeProposal' as const,
       operation: preparedString(value.operation, 'operation', 256),
-      intent: preparedEnum(value.intent, 'intent', ['timeline', 'buff'] as const),
       scope,
-      patch: patch as Extract<MainWorkbenchCommand, { op: 'prepareReviewedWorkNodeProposal' }>['patch'],
       label: preparedString(value.label, 'label', 120),
       description: preparedString(value.description, 'description', 500),
       sourceBinding,
+    };
+    if (payloadKey === 'patch') {
+      return {
+        ...common,
+        intent: preparedEnum(value.intent, 'intent', ['timeline', 'buff'] as const),
+        patch: parsePreparedPatch(value.patch) as Extract<
+          MainWorkbenchCommand,
+          { op: 'prepareReviewedWorkNodeProposal'; patch: unknown }
+        >['patch'],
+      };
+    }
+    if (payloadKey === 'roster') {
+      if (value.intent !== 'selection' || !sameStringArray(scope, SELECTION_PREPARED_SCOPE)) {
+        throw new AgentCommandValidationError(
+          'AGENT_PREPARED_SCOPE_INVALID',
+          'selection prepare 必须使用固定顺序的完整 selection/timeline/Buff/loadout scope。',
+        );
+      }
+      return {
+        ...common,
+        intent: 'selection',
+        roster: parsePreparedRoster(value.roster),
+      };
+    }
+    const restore = parsePreparedRestore(value.restore);
+    const expectedIntent = restore.scope === 'timeline.structure' ? 'timeline' : 'buff';
+    if (value.intent !== expectedIntent
+      || !sameStringArray(scope, RESTORE_PREPARED_SCOPE[restore.scope])) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_SCOPE_INVALID',
+        'restore intent/proposal scope 与单值 semantic scope 的真实影响不一致。',
+      );
+    }
+    return {
+      ...common,
+      intent: expectedIntent,
+      restore,
     };
   }
   if (value.op === 'applyReviewedWorkNodeProposal') {
@@ -1385,6 +1508,94 @@ function parsePreparedPatch(value: JsonValue): JsonObject[] {
   return value.map((entry) => asJsonObject(entry)!) ;
 }
 
+function parsePreparedRoster(value: JsonValue): Extract<
+  MainWorkbenchCommand,
+  { op: 'prepareReviewedWorkNodeProposal'; intent: 'selection' }
+>['roster'] {
+  const roster = asJsonObject(value);
+  if (!roster) {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', 'roster 必须是对象。');
+  }
+  exactPreparedObjectKeys(
+    roster,
+    ['nodeTitle', 'nodeDescription'],
+    ['characterIds', 'characterNames', 'openCanvas'],
+  );
+  const characterIds = parsePreparedStringArray(roster.characterIds, 'characterIds');
+  const characterNames = parsePreparedStringArray(roster.characterNames, 'characterNames');
+  if (!characterIds && !characterNames) {
+    throw new AgentCommandValidationError(
+      'AGENT_COMMAND_SCHEMA_INVALID',
+      'roster 必须包含 characterIds 或 characterNames。',
+    );
+  }
+  if (characterIds && characterNames && characterIds.length !== characterNames.length) {
+    throw new AgentCommandValidationError(
+      'AGENT_COMMAND_SCHEMA_INVALID',
+      'characterIds 与 characterNames 同时提供时必须逐项等长。',
+    );
+  }
+  if (roster.openCanvas !== undefined && typeof roster.openCanvas !== 'boolean') {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', 'openCanvas 必须是 boolean。');
+  }
+  return {
+    ...(characterIds ? { characterIds } : {}),
+    ...(characterNames ? { characterNames } : {}),
+    nodeTitle: preparedString(roster.nodeTitle, 'nodeTitle', 80),
+    nodeDescription: preparedString(roster.nodeDescription, 'nodeDescription', 400),
+    ...(roster.openCanvas === undefined ? {} : { openCanvas: roster.openCanvas }),
+  };
+}
+
+function parsePreparedRestore(value: JsonValue): {
+  nodeId: string;
+  scope: keyof typeof RESTORE_PREPARED_SCOPE;
+} {
+  const restore = asJsonObject(value);
+  if (!restore) {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', 'restore 必须是对象。');
+  }
+  exactPreparedKeys(restore, ['nodeId', 'scope']);
+  return {
+    nodeId: preparedString(restore.nodeId, 'restore.nodeId', 200),
+    scope: preparedEnum(
+      restore.scope,
+      'restore.scope',
+      Object.keys(RESTORE_PREPARED_SCOPE) as Array<keyof typeof RESTORE_PREPARED_SCOPE>,
+    ),
+  };
+}
+
+function parsePreparedStringArray(value: JsonValue | undefined, label: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value) || value.length < 1 || value.length > 4) {
+    throw new AgentCommandValidationError(
+      'AGENT_COMMAND_SCHEMA_INVALID',
+      `${label} 必须包含 1-4 个精确字符串。`,
+    );
+  }
+  const result = value.map((entry, index) => preparedString(entry, `${label}[${index}]`, 160));
+  if (new Set(result).size !== result.length) {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', `${label} 不能包含重复项。`);
+  }
+  return result;
+}
+
+function exactPreparedObjectKeys(
+  value: JsonObject,
+  required: readonly string[],
+  optional: readonly string[],
+): void {
+  const actual = Object.keys(value);
+  if (required.some((key) => !Object.prototype.hasOwnProperty.call(value, key))
+    || actual.some((key) => !required.includes(key) && !optional.includes(key))) {
+    throw new AgentCommandValidationError(
+      'AGENT_COMMAND_SCHEMA_INVALID',
+      `Prepared object requires ${required.join(', ')} and only allows ${optional.join(', ')}.`,
+    );
+  }
+}
+
 function exactPreparedKeys(value: JsonObject, keys: readonly string[]): void {
   const actual = Object.keys(value);
   if (actual.length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
@@ -1448,7 +1659,7 @@ async function validateCommandApproval(
       && !isProductPreparedCandidateSupported(localCommand.candidate)) {
       throw new AgentCommandValidationError(
         'AGENT_PREPARED_TARGET_UNSUPPORTED',
-        '当前 Product prepared flow 只支持 timeline/buff intent 与 current-timeline destination。',
+        '当前 Product prepared flow 支持 current-timeline timeline/Buff，以及 current/new-temporary selection candidate。',
       );
     }
     return;
@@ -1532,17 +1743,23 @@ async function validateCommandApproval(
         'V2 capability scope 必须与 candidate.scope 完全一致。',
       );
     }
-    if (candidate.candidateTimelineId !== command.expected.timelineId
-      || command.expected.checkoutTargetId !== candidate.sourceTargetId) {
+    const sourceBindingMatches = command.expected.checkoutTargetId === candidate.sourceTargetId
+      && command.expected.contentRevision === candidate.sourceRevision;
+    const destinationMatches = candidate.destination === 'current-timeline'
+      ? candidate.candidateTimelineId === command.expected.timelineId
+      : candidate.intent === 'selection'
+        && candidate.destination === 'new-temporary-workspace'
+        && candidate.candidateTimelineId !== command.expected.timelineId;
+    if (!sourceBindingMatches || !destinationMatches) {
       throw new AgentCommandValidationError(
         'AGENT_PREPARED_CANDIDATE_BINDING_MISMATCH',
-        'V2 candidate 的 timeline/source target 与当前 Product binding 不一致。',
+        'V2 candidate 的 source target/revision 或 destination timeline 与当前 Product binding 不一致。',
       );
     }
     if (!isProductPreparedCandidateSupported(candidate)) {
       throw new AgentCommandValidationError(
         'AGENT_PREPARED_TARGET_UNSUPPORTED',
-        '当前 Product prepared flow 只支持 timeline/buff intent 与 current-timeline destination。',
+        '当前 Product prepared flow 不支持该 intent/destination/scope 组合。',
       );
     }
     return;
@@ -1768,6 +1985,10 @@ export async function exitDesktopAgentModeToWorkbench(
   const dependencies = injected ?? defaultAgentModeNavigationDependencies();
   if (!dependencies) return;
   const previousHref = dependencies.currentHref();
+  // Abort the renderer's in-flight long poll before unregistering the
+  // consumer. Without this, leaving Agent mode can retain the old 25s HTTP
+  // request even though no Product command owner remains active.
+  browserAgentRuntime.cancelCommandPull();
   await dependencies.stopConsumer().catch(() => undefined);
   dependencies.clearCapability();
   const nextHref = agentModeHref(previousHref, '/timeline');

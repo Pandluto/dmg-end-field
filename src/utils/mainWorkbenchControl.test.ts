@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import {
+  assertAgentWorkNodeCommandTimelineBoundary,
   enqueueMainWorkbenchCommand,
   enqueueMainWorkbenchCommands,
   executeAgentProductCatalogCommand,
   getPendingMainWorkbenchCommands,
   patchMainWorkbenchCommand,
+  projectMainWorkbenchWorkNodeListToTimeline,
   readMainWorkbenchCommandQueue,
+  type MainWorkbenchCommand,
+  type QueuedMainWorkbenchCommand,
   writeMainWorkbenchCommandQueue,
 } from './mainWorkbenchControl';
 
@@ -139,5 +143,95 @@ assert.equal(
   (skillFactResult.payload as { state: string }).state,
   'OPERATOR_UNRESOLVED',
 );
+
+const phase2ExpectedBinding = {
+  workspaceId: 'workspace-two-timeline',
+  databaseGeneration: 'generation-two-timeline',
+  timelineId: 'timeline-a',
+  checkoutTargetId: 'node-a',
+  checkoutUpdatedAt: 200,
+  contentRevision: 100,
+  snapshotDigest: 'sha256:timeline-a',
+} as NonNullable<Parameters<typeof enqueueMainWorkbenchCommand>[3]>;
+const persistedAgentCommand = enqueueMainWorkbenchCommand(
+  { op: 'listAiTimelineWorkNodes' },
+  'agent-host',
+  'command-list-current-timeline',
+  phase2ExpectedBinding,
+);
+assert.deepEqual(
+  readMainWorkbenchCommandQueue().find((entry) => entry.id === persistedAgentCommand.id)?.phase2ExpectedBinding,
+  phase2ExpectedBinding,
+  'the accepted Phase 2 expected binding must survive the renderer queue boundary',
+);
+
+const twoTimelineNodes = [
+  { id: 'node-a', timelineId: 'timeline-a' },
+  { id: 'node-b', timelineId: 'timeline-b' },
+];
+const projectedList = projectMainWorkbenchWorkNodeListToTimeline({
+  ok: true as const,
+  nodes: twoTimelineNodes,
+  commits: [
+    { id: 'commit-a', nodeId: 'node-a' },
+    { id: 'commit-b', nodeId: 'node-b' },
+  ],
+  heads: {
+    a: { nodeId: 'node-a', revision: 1 },
+    b: { nodeId: 'node-b', revision: 2 },
+  },
+  headNodeId: 'node-b',
+}, 'timeline-a');
+assert.deepEqual(projectedList.nodes.map((node) => node.id), ['node-a']);
+assert.deepEqual(projectedList.commits.map((commit) => commit.id), ['commit-a']);
+assert.deepEqual(Object.keys(projectedList.heads), ['a']);
+assert.equal(projectedList.headNodeId, 'node-a', 'a foreign global head must be replaced by a current-timeline head');
+
+const crossTimelineCommands: MainWorkbenchCommand[] = [
+  { op: 'readAiTimelineWorkNode', nodeId: 'node-b' },
+  { op: 'diffAiTimelineWorkNode', nodeId: 'node-b' },
+  { op: 'validateAiTimelineWorkNode', nodeId: 'node-b', repairStatus: true },
+  { op: 'deleteAiTimelineWorkNode', nodeId: 'node-b' },
+  {
+    op: 'checkoutAiTimelineWorkNode',
+    nodeId: 'node-b',
+    approval: { mode: 'manual', approvedBy: 'user' },
+  },
+  {
+    op: 'restoreAiTimelineWorkNodeBase',
+    nodeId: 'node-b',
+    approval: { mode: 'manual', approvedBy: 'user' },
+  },
+];
+const liveState = {
+  'timeline-a': { checkoutTargetId: 'node-a', payload: { buttons: ['a'] } },
+  'timeline-b': { checkoutTargetId: 'node-b', payload: { buttons: ['b'] } },
+};
+const originalLiveState = structuredClone(liveState);
+const readTwoTimelineNode = async (nodeId: string) => {
+  const node = twoTimelineNodes.find((entry) => entry.id === nodeId);
+  if (!node) throw new Error(`missing fixture node: ${nodeId}`);
+  return node;
+};
+for (const command of crossTimelineCommands) {
+  const entry: Pick<QueuedMainWorkbenchCommand, 'source' | 'command' | 'phase2ExpectedBinding'> = {
+    source: 'agent-host',
+    command,
+    phase2ExpectedBinding,
+  };
+  await assert.rejects(async () => {
+    await assertAgentWorkNodeCommandTimelineBoundary({
+      entry,
+      activeTimelineId: 'timeline-a',
+      readNode: readTwoTimelineNode,
+    });
+    liveState['timeline-a'] = { checkoutTargetId: 'node-b', payload: { buttons: ['b'] } };
+  }, /agent-worknode-timeline-mismatch/);
+  assert.deepEqual(
+    liveState,
+    originalLiveState,
+    `${command.op} must reject before either timeline checkout/payload can change`,
+  );
+}
 
 console.log('Main Workbench command queue lifecycle contract: PASS');

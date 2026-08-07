@@ -12,13 +12,19 @@ assert.ok(dispatcherEnd > dispatcherStart, 'Canvas command dispatcher boundary m
 
 const dispatcher = source.slice(dispatcherStart, dispatcherEnd);
 const supportedListMatch = dispatcher.match(
-  /getPendingMainWorkbenchCommands\(\[([\s\S]*?)\]\)\[0\]/,
+  /getPendingMainWorkbenchCommands\(\[([\s\S]*?)\]\)\.find/,
 );
 assert.ok(supportedListMatch, 'dispatcher must declare its supported command list');
 
 const supportedOps = [...supportedListMatch[1].matchAll(/'([^']+)'/g)].map((match) => match[1]);
-assert.equal(supportedOps.length, 25, 'all 25 Canvas command operations must stay registered');
+assert.equal(supportedOps.length, 24, 'all 24 Canvas-owned command operations must stay registered');
 assert.equal(new Set(supportedOps).size, supportedOps.length, 'supported command operations must be unique');
+assert.ok(!supportedOps.includes('queryAgentProductCatalog'), 'catalog reads must be owned by AppContext, not Canvas');
+assert.match(
+  dispatcher,
+  /entry\.command\.intent !== 'selection'/,
+  'Canvas must leave selection prepared commands for the AppContext owner',
+);
 
 const branchMatches = [...dispatcher.matchAll(/if \(command\.op === '([^']+)'\) \{/g)];
 const explicitBranchOps = branchMatches.map((match) => match[1]);
@@ -26,6 +32,28 @@ assert.deepEqual(
   explicitBranchOps,
   supportedOps.filter((op) => op !== 'calculateDamage'),
   'every supported operation except the shared damage fallback must keep an explicit branch',
+);
+
+const workNodeBoundaryIndex = dispatcher.indexOf('assertAgentWorkNodeCommandTimelineBoundary({');
+const firstCommandBranchIndex = dispatcher.indexOf("if (command.op === 'addSkillButton')");
+assert.ok(
+  workNodeBoundaryIndex >= 0 && workNodeBoundaryIndex < firstCommandBranchIndex,
+  'Agent Work Node timeline ownership must be checked once before any command branch can mutate Product state',
+);
+assert.match(
+  dispatcher,
+  /phase2ExpectedBinding|entry: commandEntry,[\s\S]*?activeTimelineId,[\s\S]*?readNode:/,
+  'the Product boundary must consume the exact Phase 2 binding carried with the queued command',
+);
+assert.match(
+  dispatcher,
+  /projectMainWorkbenchWorkNodeListToTimeline\(result, timelineId\)/,
+  'Agent Work Node list must project nodes, commits, and heads to the bound current timeline',
+);
+assert.match(
+  dispatcher,
+  /deletedCandidateIds\.has\(node\.id\)[\s\S]*?assertMainWorkbenchWorkNodeTimeline\(node, agentWorkNodeTimelineId, command\.op\)/,
+  'delete must prove every recursively deleted descendant remains in the bound timeline before writing',
 );
 
 branchMatches.forEach((match, index) => {
@@ -77,16 +105,6 @@ assert.doesNotMatch(
   /\b(currentView|selectedCharacters|skillButtons|staffCount)\b/,
   'the pump must not restart when the view, roster, button list, or staff count changes',
 );
-const queryBranch = dispatcher.slice(
-  dispatcher.indexOf("if (command.op === 'queryAgentProductCatalog')"),
-  dispatcher.indexOf("if (command.op === 'addSkillButton')"),
-);
-assert.doesNotMatch(
-  queryBranch,
-  /\b(currentView|selectedCharacters|skillButtons|staffCount)\b/,
-  'catalog queries must be consumed even on an empty selection page',
-);
-
 const prepareStart = source.indexOf('const prepareReviewedWorkNodeProposalFromCommand = async');
 const applyStart = source.indexOf('const applyReviewedWorkNodeProposalFromCommand = async', prepareStart);
 assert.ok(prepareStart >= 0 && applyStart > prepareStart, 'prepared prepare/apply boundaries must remain detectable');
@@ -116,7 +134,25 @@ assert.match(
 assert.match(source, /candidateBuffs:\s*mirroredCandidateBuffs/, 'published Canvas snapshots must expose candidate Buff facts');
 assert.match(source, /previousSnapshot\.candidateBuffs/, 'candidate Buff changes must participate in snapshot deduplication');
 assert.match(source, /candidateBuffRevision/, 'candidate Buff refreshes must trigger a fresh snapshot projection');
+assert.match(
+  source,
+  /authoritativeCheckoutContentRevision === null\)[\s\S]*?browserAgentRuntime\.suspendWritableBinding\(\)/,
+  'Canvas must revoke an old writable binding whenever the formal checkout revision is unavailable',
+);
+assert.match(
+  source,
+  /sameOperatorConfigPayload\(runtimePayload, node\.workingPayload\)[\s\S]*?suspendWritableBinding\(\)/,
+  'a newer Work Node revision must not be published until the visible runtime matches its payload',
+);
+assert.match(
+  source,
+  /checkout:\s*\{[\s\S]*?contentRevision: nodeRevision,[\s\S]*?updatedAt: checkout\.updatedAt/,
+  'node review refreshes must publish the authoritative Work Node revision separately from checkout time',
+);
 assert.match(source, /candidate\.destination !== 'current-timeline'/, 'unsupported prepared destinations must fail closed in Canvas');
 assert.match(source, /candidate\.intent !== 'timeline' && candidate\.intent !== 'buff'/, 'unsupported prepared intents must fail closed in Canvas');
+assert.match(source, /parsePreparedRestoreBranchId\(candidate\.proposalId, candidateNode\.branchId\)/, 'apply must re-open restore provenance');
+assert.match(source, /restoreTargetRevision !== restoreMetadata\.nodeRevision/, 'apply must CAS-check the restore baseline revision');
+assert.match(source, /applyPreparedRestoreScope\([\s\S]*?restoreTarget\.basePayload/, 'apply must rebuild scoped restore from the persisted baseline');
 
 console.log('Canvas command settlement static contract: PASS');

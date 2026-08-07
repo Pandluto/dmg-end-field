@@ -90,6 +90,45 @@ export type AgentProductCatalogCommand =
       operatorQuery: string;
     };
 
+type PreparedWorkNodePrepareCommon = {
+  op: 'prepareReviewedWorkNodeProposal';
+  operation: string;
+  scope: PreparedWorkNodeScope[];
+  label: string;
+  description: string;
+  /** Host-owned exact binding; never model-derived. */
+  sourceBinding: ProductBinding;
+};
+
+export type PrepareReviewedWorkNodeProposalCommand =
+  | (PreparedWorkNodePrepareCommon & {
+      intent: 'timeline' | 'buff';
+      patch: TimelineWorkNodePatchOperation[];
+      roster?: never;
+      restore?: never;
+    })
+  | (PreparedWorkNodePrepareCommon & {
+      intent: 'selection';
+      patch?: never;
+      roster: {
+        characterIds?: string[];
+        characterNames?: string[];
+        nodeTitle: string;
+        nodeDescription: string;
+        openCanvas?: boolean;
+      };
+      restore?: never;
+    })
+  | (PreparedWorkNodePrepareCommon & {
+      intent: 'timeline' | 'buff';
+      patch?: never;
+      roster?: never;
+      restore: {
+        nodeId: string;
+        scope: 'timeline.structure' | 'buff.attachments' | 'buff.resistance';
+      };
+    });
+
 export type MainWorkbenchCommand =
   | AgentProductCatalogCommand
   | {
@@ -256,20 +295,7 @@ export type MainWorkbenchCommand =
       dryRun?: boolean;
       checkout?: false;
     }
-  | {
-      /**
-       * Prepare one reviewed timeline/Buff patch in an isolated Work Node.
-       * `sourceBinding` is inserted by the Host and is never model-derived.
-       */
-      op: 'prepareReviewedWorkNodeProposal';
-      operation: string;
-      intent: 'timeline' | 'buff';
-      scope: PreparedWorkNodeScope[];
-      patch: TimelineWorkNodePatchOperation[];
-      label: string;
-      description: string;
-      sourceBinding: ProductBinding;
-    }
+  | PrepareReviewedWorkNodeProposalCommand
   | {
       /** Apply only the Host-supplied candidate reference; no model patch is accepted. */
       op: 'applyReviewedWorkNodeProposal';
@@ -559,8 +585,108 @@ export interface QueuedMainWorkbenchCommand {
   batchId?: string;
   batchIndex?: number;
   batchSize?: number;
+  /** Exact Phase 2 binding accepted by BrowserAgentRuntime for this Host command. */
+  phase2ExpectedBinding?: ProductBinding;
   result?: unknown;
   error?: string;
+}
+
+const AGENT_WORK_NODE_BROWSER_OPERATIONS = new Set<MainWorkbenchCommand['op']>([
+  'createAiTimelineWorkNodeFromCurrent',
+  'diffAiTimelineWorkNode',
+  'listAiTimelineWorkNodes',
+  'readAiTimelineWorkNode',
+  'validateAiTimelineWorkNode',
+  'deleteAiTimelineWorkNode',
+  'patchAiTimelineWorkNode',
+  'patchAndValidateAiTimelineWorkNode',
+  'applyApprovedWorkNodePatch',
+  'checkoutAiTimelineWorkNode',
+  'restoreAiTimelineWorkNodeBase',
+]);
+
+export function isAgentWorkNodeBrowserCommand(command: MainWorkbenchCommand): boolean {
+  return AGENT_WORK_NODE_BROWSER_OPERATIONS.has(command.op);
+}
+
+export function assertMainWorkbenchWorkNodeTimeline(
+  node: { readonly id: string; readonly timelineId: string },
+  expectedTimelineId: string,
+  operation: string,
+): void {
+  if (node.timelineId !== expectedTimelineId) {
+    throw new Error(
+      `agent-worknode-timeline-mismatch: ${operation} 拒绝访问其他排轴节点 ${node.id}。`,
+    );
+  }
+}
+
+/**
+ * Product-boundary preflight for every generic Agent Work Node command. The
+ * Host binding is persisted beside the queued command so a later snapshot or
+ * active-document change cannot silently retarget an already accepted command.
+ */
+export async function assertAgentWorkNodeCommandTimelineBoundary(input: {
+  readonly entry: Pick<QueuedMainWorkbenchCommand, 'source' | 'command' | 'phase2ExpectedBinding'>;
+  readonly activeTimelineId: string;
+  readonly readNode: (nodeId: string) => Promise<{ readonly id: string; readonly timelineId: string }>;
+}): Promise<string> {
+  const activeTimelineId = input.activeTimelineId.trim();
+  if (!activeTimelineId) {
+    throw new Error('agent-worknode-active-timeline-missing: 当前正式排轴 ID 不可用。');
+  }
+  if (input.entry.source !== 'agent-host' || !isAgentWorkNodeBrowserCommand(input.entry.command)) {
+    return activeTimelineId;
+  }
+  const expectedTimelineId = input.entry.phase2ExpectedBinding?.timelineId?.trim();
+  if (!expectedTimelineId) {
+    throw new Error('agent-worknode-expected-binding-missing: Agent Work Node 命令缺少 Phase 2 expected binding。');
+  }
+  if (expectedTimelineId !== activeTimelineId) {
+    throw new Error('agent-worknode-active-timeline-drift: Phase 2 expected timeline 已不再是当前正式排轴。');
+  }
+  const command = input.entry.command;
+  if ('timelineId' in command && command.timelineId?.trim() && command.timelineId.trim() !== expectedTimelineId) {
+    throw new Error('agent-worknode-requested-timeline-mismatch: 命令 timelineId 与 Phase 2 expected timeline 不一致。');
+  }
+  const nodeIds = new Set<string>();
+  if ('nodeId' in command && typeof command.nodeId === 'string' && command.nodeId.trim()) {
+    nodeIds.add(command.nodeId.trim());
+  }
+  if ('parentNodeId' in command && typeof command.parentNodeId === 'string' && command.parentNodeId.trim()) {
+    nodeIds.add(command.parentNodeId.trim());
+  }
+  for (const nodeId of nodeIds) {
+    const node = await input.readNode(nodeId);
+    assertMainWorkbenchWorkNodeTimeline(node, expectedTimelineId, command.op);
+  }
+  return expectedTimelineId;
+}
+
+export function projectMainWorkbenchWorkNodeListToTimeline<
+  Result extends {
+    readonly nodes: Array<{ readonly id: string; readonly timelineId: string }>;
+    readonly commits: Array<{ readonly nodeId: string }>;
+    readonly heads: Record<string, { readonly nodeId: string }>;
+    readonly headNodeId: string;
+  },
+>(result: Result, timelineId: string): Result {
+  const nodes = result.nodes.filter((node) => node.timelineId === timelineId);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const commits = result.commits.filter((commit) => nodeIds.has(commit.nodeId));
+  const heads = Object.fromEntries(
+    Object.entries(result.heads).filter(([, head]) => nodeIds.has(head.nodeId)),
+  );
+  const headNodeId = nodeIds.has(result.headNodeId)
+    ? result.headNodeId
+    : Object.values(heads)[0]?.nodeId ?? nodes[0]?.id ?? '';
+  return {
+    ...result,
+    nodes,
+    commits,
+    heads,
+    headNodeId,
+  } as Result;
 }
 
 /**
@@ -872,6 +998,9 @@ export interface MainWorkbenchSnapshot {
   checkout?: {
     targetType: 'snapshot' | 'work-node';
     targetId: string;
+    /** Authoritative target revision: Work Node contentRevision or snapshot createdAt. */
+    contentRevision: number;
+    /** Checkout movement time; never used as the target content CAS revision. */
     updatedAt: number;
   } | null;
   currentView?: 'selection' | 'canvas';
@@ -1013,6 +1142,23 @@ function generateBatchId(): string {
   return `mw-batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function normalizeQueuedProductBinding(value: unknown): ProductBinding | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const binding = value as Partial<ProductBinding>;
+  if (
+    typeof binding.workspaceId !== 'string'
+    || typeof binding.databaseGeneration !== 'string'
+    || typeof binding.timelineId !== 'string'
+    || (binding.checkoutTargetId !== null && typeof binding.checkoutTargetId !== 'string')
+    || !Number.isSafeInteger(binding.checkoutUpdatedAt)
+    || Number(binding.checkoutUpdatedAt) < 0
+    || !Number.isSafeInteger(binding.contentRevision)
+    || Number(binding.contentRevision) < 0
+    || typeof binding.snapshotDigest !== 'string'
+  ) return undefined;
+  return { ...binding } as ProductBinding;
+}
+
 function normalizeQueuedCommand(
   entry: Partial<QueuedMainWorkbenchCommand> & { command?: MainWorkbenchCommand },
   fallbackSource = 'browser',
@@ -1021,6 +1167,7 @@ function normalizeQueuedCommand(
     return null;
   }
   const now = Date.now();
+  const phase2ExpectedBinding = normalizeQueuedProductBinding(entry.phase2ExpectedBinding);
   return {
     id: typeof entry.id === 'string' && entry.id.trim() ? entry.id : generateCommandId(),
     command: entry.command,
@@ -1031,6 +1178,7 @@ function normalizeQueuedCommand(
     batchId: typeof entry.batchId === 'string' && entry.batchId.trim() ? entry.batchId : undefined,
     batchIndex: typeof entry.batchIndex === 'number' ? entry.batchIndex : undefined,
     batchSize: typeof entry.batchSize === 'number' ? entry.batchSize : undefined,
+    ...(phase2ExpectedBinding ? { phase2ExpectedBinding } : {}),
     result: entry.result,
     error: typeof entry.error === 'string' ? entry.error : undefined,
   };
@@ -1052,6 +1200,7 @@ export function enqueueMainWorkbenchCommand(
   command: MainWorkbenchCommand,
   source = 'browser',
   id?: string,
+  phase2ExpectedBinding?: ProductBinding,
 ): QueuedMainWorkbenchCommand {
   const queue = readMainWorkbenchCommandQueue();
   const existing = id ? queue.find((entry) => entry.id === id) : null;
@@ -1067,6 +1216,7 @@ export function enqueueMainWorkbenchCommand(
     source,
     createdAt: now,
     updatedAt: now,
+    ...(phase2ExpectedBinding ? { phase2ExpectedBinding: { ...phase2ExpectedBinding } } : {}),
   };
   if (source === 'agent-host') currentAgentExecutionIds.add(entry.id);
   writeMainWorkbenchCommandQueue([...queue, entry]);
@@ -1173,8 +1323,8 @@ export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
     readMainWorkbenchResultLog().map((entry) => [entry.id, entry] as const),
   );
   await browserAgentRuntime.pullRemoteCommands(
-    (command, id) => {
-      enqueueMainWorkbenchCommand(command, 'agent-host', id);
+    (command, id, expectedBinding) => {
+      enqueueMainWorkbenchCommand(command, 'agent-host', id, expectedBinding);
     },
     (commandId) => recoveredResults.get(commandId) ?? null,
   );

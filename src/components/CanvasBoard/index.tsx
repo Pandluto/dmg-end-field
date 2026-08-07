@@ -93,12 +93,15 @@ import type { PersistedSkillButton } from '../../types/storage';
 import type { HitResistanceInput } from '../../types/storage';
 import DeferredNumberInput from '../DeferredNumberInput';
 import {
+  assertAgentWorkNodeCommandTimelineBoundary,
+  assertMainWorkbenchWorkNodeTimeline,
   getPendingMainWorkbenchCommands,
   enqueueMainWorkbenchCommand,
-  executeAgentProductCatalogCommand,
+  isAgentWorkNodeBrowserCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
   projectMainWorkbenchCandidateBuff,
+  projectMainWorkbenchWorkNodeListToTimeline,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
   projectMainWorkbenchButtonState,
@@ -113,6 +116,9 @@ import {
   applyTimelineWorkNodePatch,
   buildAiTimelineNodeReviewProjection,
   emptyAiTimelineNodeReviewProjection,
+  restoreBuffScope,
+  restoreResistanceScope,
+  restoreTimelineScope,
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
@@ -125,6 +131,7 @@ import type {
   TimelineRepositoryBundleWorkNode,
   TimelineSqliteWorkspace,
 } from '../../agentKernel/timelineRepository/localTimelineClient';
+import type { AiTimelineRiskFlag } from '../../agentKernel/timelineWorktree/types';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
 import {
@@ -164,6 +171,7 @@ import type {
   PreparedWorkNodeScope,
 } from '../../../agent/core/contracts/prepared-work-node.ts';
 import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
+import { readPersistedWorkspaceCheckout } from '../../core/services/selectionWorkspaceTransition';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -212,6 +220,71 @@ function samePreparedProductBinding(left: ProductBinding, right: ProductBinding)
     && left.checkoutUpdatedAt === right.checkoutUpdatedAt
     && left.contentRevision === right.contentRevision
     && left.snapshotDigest === right.snapshotDigest;
+}
+
+type PreparedRestoreSemanticScope = 'timeline.structure' | 'buff.attachments' | 'buff.resistance';
+
+const PREPARED_RESTORE_PROPOSAL_SCOPES = Object.freeze({
+  'timeline.structure': ['timeline.structure', 'buff.attachments', 'buff.resistance'],
+  'buff.attachments': ['buff.attachments'],
+  'buff.resistance': ['buff.resistance'],
+} as const satisfies Record<PreparedRestoreSemanticScope, readonly PreparedWorkNodeScope[]>);
+
+function samePreparedScope(
+  left: readonly PreparedWorkNodeScope[],
+  right: readonly PreparedWorkNodeScope[],
+): boolean {
+  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+}
+
+function preparedRestoreBranchId(input: {
+  readonly proposalId: string;
+  readonly nodeId: string;
+  readonly nodeRevision: number;
+  readonly scope: PreparedRestoreSemanticScope;
+}): string {
+  return `prepared-${input.proposalId}-restore:${input.scope}:${input.nodeRevision}:${encodeURIComponent(input.nodeId)}`;
+}
+
+function parsePreparedRestoreBranchId(
+  proposalId: string,
+  branchId: string,
+): { readonly nodeId: string; readonly nodeRevision: number; readonly scope: PreparedRestoreSemanticScope } | null {
+  const prefix = `prepared-${proposalId}-restore:`;
+  if (!branchId.startsWith(prefix)) return null;
+  const encoded = branchId.slice(prefix.length);
+  const firstSeparator = encoded.indexOf(':');
+  const secondSeparator = encoded.indexOf(':', firstSeparator + 1);
+  if (firstSeparator < 0 || secondSeparator < 0) return null;
+  const scope = encoded.slice(0, firstSeparator) as PreparedRestoreSemanticScope;
+  const revisionText = encoded.slice(firstSeparator + 1, secondSeparator);
+  const nodeRevision = Number(revisionText);
+  if (!(scope in PREPARED_RESTORE_PROPOSAL_SCOPES)
+    || !Number.isSafeInteger(nodeRevision)
+    || nodeRevision < 0) return null;
+  try {
+    const nodeId = decodeURIComponent(encoded.slice(secondSeparator + 1));
+    return nodeId ? { nodeId, nodeRevision, scope } : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyPreparedRestoreScope(
+  scope: PreparedRestoreSemanticScope,
+  current: TimelineSnapshotPayload,
+  baseline: TimelineSnapshotPayload,
+) {
+  if (scope === 'timeline.structure') return restoreTimelineScope(current, baseline);
+  if (scope === 'buff.attachments') return restoreBuffScope(current, baseline);
+  return restoreResistanceScope(current, baseline);
+}
+
+function authoritativePreparedNodeRevision(node: { readonly contentRevision?: number }): number {
+  if (!Number.isSafeInteger(node.contentRevision) || Number(node.contentRevision) < 0) {
+    throw new Error('prepared-node-revision-invalid: Work Node 没有权威 contentRevision。');
+  }
+  return Number(node.contentRevision);
 }
 
 function serializeWorkbenchSnapshotSemantics(value: unknown, path: readonly string[] = []): string {
@@ -668,6 +741,7 @@ export function CanvasBoard({
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const [candidateBuffRevision, setCandidateBuffRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
+  const [authoritativeCheckoutContentRevision, setAuthoritativeCheckoutContentRevision] = useState<number | null>(null);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
   const [nodeReviewRefreshRevision, setNodeReviewRefreshRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
@@ -1002,6 +1076,32 @@ export function CanvasBoard({
       })
       .finally(() => setIsTimelineSessionReady(true));
   }, [refreshActiveDocument]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const expectedTimelineId = activeTimelineId;
+    const expectedCheckout = activeCheckoutRef;
+    setAuthoritativeCheckoutContentRevision(null);
+    if (!expectedCheckout || expectedCheckout.timelineId !== expectedTimelineId) return () => {
+      cancelled = true;
+    };
+    void readPersistedWorkspaceCheckout(expectedTimelineId, expectedCheckout)
+      .then((source) => {
+        const current = activeTimelineIdentityRef.current;
+        if (!cancelled
+          && current.timelineId === expectedTimelineId
+          && current.checkout === checkoutIdentity(expectedCheckout)) {
+          setAuthoritativeCheckoutContentRevision(source.contentRevision);
+        }
+      })
+      .catch(() => {
+        // Fail closed: no writable Agent binding is published without the
+        // target Work Node contentRevision / snapshot createdAt.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, nodeReviewRefreshRevision]);
 
   useEffect(() => {
     if (!isTimelineSessionReady || loadedCharacters.length === 0) return;
@@ -2767,12 +2867,15 @@ export function CanvasBoard({
       throw new Error('prepared-source-payload-drift: 正式 checkout payload 在读取期间发生变化。');
     }
     const sourceRevision = sourceNode
-      ? operatorConfigNodeRevision(sourceNode)
+      ? sourceNode.contentRevision
       : sourceSnapshot?.createdAt;
     if (typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0) {
       throw new Error('prepared-source-revision-invalid: 正式 checkout revision 无效。');
     }
     const resolvedSourceRevision = sourceRevision;
+    if (binding.contentRevision !== resolvedSourceRevision) {
+      throw new Error('prepared-binding-revision-mismatch: Product binding 没有绑定正式 target 的权威 contentRevision。');
+    }
     return {
       binding,
       checkoutRef: persistedCheckout,
@@ -2786,15 +2889,17 @@ export function CanvasBoard({
   };
 
   const validatePreparedIntentAndScope = (
-    intent: 'timeline' | 'buff',
+    intent: 'timeline' | 'buff' | 'selection',
     scope: readonly PreparedWorkNodeScope[],
     diff: ReturnType<typeof diffPreparedPayloads>,
   ) => {
     const scopeGate = checkPreparedScope(diff, scope);
     if (!scopeGate.pass) return { scopeGate, pass: false, reason: 'prepared-scope-overreach' } as const;
     const allowed = intent === 'timeline'
-      ? new Set<PreparedWorkNodeScope>(['timeline.structure'])
-      : new Set<PreparedWorkNodeScope>(['buff.attachments', 'buff.resistance']);
+      ? new Set<PreparedWorkNodeScope>(['timeline.structure', 'buff.attachments', 'buff.resistance'])
+      : intent === 'buff'
+        ? new Set<PreparedWorkNodeScope>(['buff.attachments', 'buff.resistance'])
+        : new Set<PreparedWorkNodeScope>();
     const intentViolations = diff.changes.filter((change) => {
       const required = scopeForPreparedPath(change.path);
       return required !== null && !allowed.has(required);
@@ -2855,36 +2960,90 @@ export function CanvasBoard({
           'sourceBinding 没有精确绑定当前正式 checkout；未创建 candidate。',
         );
       }
-      const trustedSkillCatalog = selectedCharacters.flatMap((character) => (
-        buildSandboxSkillsFromRuntimeTemplate(character.id).map((skill) => ({
-          characterId: character.id,
-          characterName: character.name,
-          skillId: skill.id,
-          skillType: skill.buttonType,
-          skillDisplayName: skill.displayName,
-        }))
-      ));
-      const trustedPatch = bindTrustedTimelineMutation({
-        payload: formal.payload,
-        patch: command.patch,
-        skillCatalog: trustedSkillCatalog,
-        candidateBuffs: getCandidateBuffList(),
-      });
-      const patchResult = applyTimelineWorkNodePatch(formal.payload, trustedPatch, { dryRun: false });
-      if (!patchResult.ok) {
+      if (command.intent === 'selection') {
         return preparedFailure(
           command.operation,
-          'prepared-patch-invalid',
-          patchResult.issues.map((issue) => issue.message).join('；'),
-          { issues: patchResult.issues, riskFlags: patchResult.riskFlags },
+          'prepared-selection-owner-mismatch',
+          'selection prepared command 由 AppContext 独立 owner 消费，Canvas 不执行该候选。',
         );
       }
-      const diff = diffPreparedPayloads(formal.payload, patchResult.workingPayload);
+      let workingPayload: TimelineSnapshotPayload;
+      let riskFlags: AiTimelineRiskFlag[] = [];
+      let restoreMetadata: {
+        nodeId: string;
+        nodeRevision: number;
+        scope: PreparedRestoreSemanticScope;
+      } | null = null;
+      if (command.restore) {
+        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[command.restore.scope];
+        if (!samePreparedScope(command.scope, expectedScope)
+          || command.intent !== (command.restore.scope === 'timeline.structure' ? 'timeline' : 'buff')) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-scope-mismatch',
+            'restore semantic scope、intent 与 proposal scope 的真实影响不一致。',
+          );
+        }
+        const target = (await client.get(command.restore.nodeId)).node;
+        const targetRevision = target.contentRevision;
+        if (target.timelineId !== activeTimelineId
+          || !Number.isSafeInteger(targetRevision)
+          || Number(targetRevision) < 0) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-target-invalid',
+            'restore target 不属于当前 timeline 或缺少权威 contentRevision。',
+          );
+        }
+        const restored = applyPreparedRestoreScope(command.restore.scope, formal.payload, target.basePayload);
+        if (!restored.ok) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-invalid',
+            restored.message,
+            { issues: restored.issues },
+          );
+        }
+        workingPayload = restored.payload;
+        restoreMetadata = {
+          nodeId: target.id,
+          nodeRevision: Number(targetRevision),
+          scope: command.restore.scope,
+        };
+      } else {
+        const trustedSkillCatalog = selectedCharacters.flatMap((character) => (
+          buildSandboxSkillsFromRuntimeTemplate(character.id).map((skill) => ({
+            characterId: character.id,
+            characterName: character.name,
+            skillId: skill.id,
+            skillType: skill.buttonType,
+            skillDisplayName: skill.displayName,
+          }))
+        ));
+        const trustedPatch = bindTrustedTimelineMutation({
+          payload: formal.payload,
+          patch: command.patch,
+          skillCatalog: trustedSkillCatalog,
+          candidateBuffs: getCandidateBuffList(),
+        });
+        const patchResult = applyTimelineWorkNodePatch(formal.payload, trustedPatch, { dryRun: false });
+        if (!patchResult.ok) {
+          return preparedFailure(
+            command.operation,
+            'prepared-patch-invalid',
+            patchResult.issues.map((issue) => issue.message).join('；'),
+            { issues: patchResult.issues, riskFlags: patchResult.riskFlags },
+          );
+        }
+        workingPayload = patchResult.workingPayload;
+        riskFlags = patchResult.riskFlags;
+      }
+      const diff = diffPreparedPayloads(formal.payload, workingPayload);
       if (diff.changes.length === 0) {
         return preparedFailure(
           command.operation,
           'prepared-empty-diff',
-          'patch 没有产生可审阅的 payload 变化；未创建空 candidate。',
+          'prepare request 没有产生可审阅的 payload 变化；未创建空 candidate。',
         );
       }
       const intentScope = validatePreparedIntentAndScope(command.intent, command.scope, diff);
@@ -2896,7 +3055,7 @@ export function CanvasBoard({
           { scopeGate: intentScope.scopeGate },
         );
       }
-      const preparedValidation = validateTimelinePayload(patchResult.workingPayload);
+      const preparedValidation = validateTimelinePayload(workingPayload);
       if (!preparedValidation.ok) {
         return preparedFailure(
           command.operation,
@@ -2907,27 +3066,30 @@ export function CanvasBoard({
       }
 
       const proposalId = `prepared-${generateId()}`;
+      const candidateBranchId = restoreMetadata
+        ? preparedRestoreBranchId({ proposalId, ...restoreMetadata })
+        : `prepared-${proposalId}`;
       const candidateResponse = await client.create({
         timelineId: activeTimelineId,
         parentNodeId: formal.structuralParentNodeId,
-        branchId: `prepared-${proposalId}`,
+        branchId: candidateBranchId,
         label: command.label,
         description: command.description,
         basePayload: formal.payload,
-        workingPayload: patchResult.workingPayload,
+        workingPayload,
         approvalPolicy: 'manual',
-        riskFlags: patchResult.riskFlags,
+        riskFlags,
       });
       createdCandidateId = candidateResponse.node.id;
       const readyResponse = await client.update(createdCandidateId, {
         status: 'ready',
-        expectedContentRevision: operatorConfigNodeRevision(candidateResponse.node),
+        expectedContentRevision: authoritativePreparedNodeRevision(candidateResponse.node),
       });
       let candidateNode = readyResponse.node;
-      const candidateRevision = operatorConfigNodeRevision(candidateNode);
+      const candidateRevision = authoritativePreparedNodeRevision(candidateNode);
       if (candidateNode.timelineId !== activeTimelineId
         || candidateNode.id !== createdCandidateId
-        || candidateNode.branchId !== `prepared-${proposalId}`
+        || candidateNode.branchId !== candidateBranchId
         || candidateRevision < 0
         || candidateNode.status !== 'ready') {
         throw new Error('prepared-candidate-proof-failed: 新 candidate 的身份或 revision 无法证明。');
@@ -2972,8 +3134,8 @@ export function CanvasBoard({
       candidateNode = markedResponse.node;
       if (candidateNode.id !== candidate.nodeId
         || candidateNode.timelineId !== activeTimelineId
-        || candidateNode.branchId !== `prepared-${proposalId}`
-        || operatorConfigNodeRevision(candidateNode) !== candidate.nodeRevision
+        || candidateNode.branchId !== candidateBranchId
+        || authoritativePreparedNodeRevision(candidateNode) !== candidate.nodeRevision
         || !candidateNode.description.startsWith(candidateAuditMarker)) {
         throw new Error('prepared-candidate-audit-marker-failed: candidate 的产品侧 provenance marker 无法证明。');
       }
@@ -2998,7 +3160,7 @@ export function CanvasBoard({
           reviewComplete: true,
           diffEntries: proposal.review.changes.length,
         },
-        riskFlags: patchResult.riskFlags,
+        riskFlags,
       };
     } catch (error) {
       let cleanup: Record<string, unknown> = {
@@ -3087,11 +3249,14 @@ export function CanvasBoard({
       }
       const candidateResponse = await client.get(candidate.nodeId);
       const candidateNode = candidateResponse.node;
-      const candidateRevision = operatorConfigNodeRevision(candidateNode);
+      const candidateRevision = authoritativePreparedNodeRevision(candidateNode);
       const candidateAuditMarker = `[prepared-candidate:v1:${candidate.proposalId}:${candidate.proposalDigest}]`;
+      const restoreMetadata = parsePreparedRestoreBranchId(candidate.proposalId, candidateNode.branchId);
+      const branchIsProven = candidateNode.branchId === `prepared-${candidate.proposalId}`
+        || restoreMetadata !== null;
       if (candidateNode.timelineId !== activeTimelineId
         || candidateNode.id !== candidate.nodeId
-        || candidateNode.branchId !== `prepared-${candidate.proposalId}`
+        || !branchIsProven
         || (candidateNode.parentNodeId || null) !== formal.structuralParentNodeId
         || candidateRevision !== candidate.nodeRevision
         || !candidateNode.description.startsWith(candidateAuditMarker)) {
@@ -3101,6 +3266,49 @@ export function CanvasBoard({
           'candidate node 的 timeline、branch、parent、revision 或 provenance marker 已漂移；拒绝 apply。',
           { candidate, candidatePreserved: true, observedNodeRevision: candidateRevision },
         );
+      }
+      if (restoreMetadata) {
+        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[restoreMetadata.scope];
+        const expectedIntent = restoreMetadata.scope === 'timeline.structure' ? 'timeline' : 'buff';
+        if (candidate.intent !== expectedIntent || !samePreparedScope(candidate.scope, expectedScope)) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-scope-mismatch',
+            'restore candidate 的 semantic scope、intent 与 proposal scope 不再一致。',
+            { candidate, candidatePreserved: true },
+          );
+        }
+        const restoreTarget = (await client.get(restoreMetadata.nodeId)).node;
+        const restoreTargetRevision = authoritativePreparedNodeRevision(restoreTarget);
+        if (restoreTarget.timelineId !== activeTimelineId
+          || restoreTargetRevision !== restoreMetadata.nodeRevision) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-target-revision-mismatch',
+            'restore baseline target 的 timeline/contentRevision 已漂移；拒绝 apply。',
+            {
+              candidate,
+              candidatePreserved: true,
+              expectedTargetRevision: restoreMetadata.nodeRevision,
+              observedTargetRevision: restoreTargetRevision,
+            },
+          );
+        }
+        const rebuilt = applyPreparedRestoreScope(
+          restoreMetadata.scope,
+          formal.payload,
+          restoreTarget.basePayload,
+        );
+        if (!rebuilt.ok || !sameOperatorConfigPayload(rebuilt.payload, candidateNode.workingPayload)) {
+          return preparedFailure(
+            command.operation,
+            'prepared-restore-rebuild-mismatch',
+            rebuilt.ok
+              ? 'restore candidate 重新计算后不再等于已批准 working payload。'
+              : rebuilt.message,
+            { candidate, candidatePreserved: true, ...(!rebuilt.ok ? { issues: rebuilt.issues } : {}) },
+          );
+        }
       }
       if (candidateNode.status !== 'ready') {
         return preparedFailure(
@@ -3258,7 +3466,7 @@ export function CanvasBoard({
               expectedCheckout: { targetType: 'work-node', targetId: candidateNode.id },
               observedCheckout: persistedCheckout,
               expectedNodeRevision: candidateRevision,
-              observedNodeRevision: operatorConfigNodeRevision(persistedNode),
+              observedNodeRevision: authoritativePreparedNodeRevision(persistedNode),
             });
             return finalPostcondition.pass
               ? finalPostcondition
@@ -3363,7 +3571,11 @@ export function CanvasBoard({
           };
       return preparedFailure(
         command.operation,
-        atomicError?.rollbackError ? 'prepared-atomic-rollback-failed' : 'prepared-atomic-apply-failed',
+        atomicError?.rollbackError
+          ? 'prepared-atomic-rollback-failed'
+          : atomicError
+            ? 'prepared-atomic-apply-failed'
+            : 'prepared-apply-preflight-failed',
         error instanceof Error ? error.message : String(error),
         {
           candidate,
@@ -3428,7 +3640,7 @@ export function CanvasBoard({
       const sourceSnapshot = bundle.snapshots.find((snapshot) => snapshot.id === candidate.sourceTargetId);
       const sourcePayload = sourceNode?.workingPayload || sourceSnapshot?.payload;
       const sourceRevision = sourceNode
-        ? operatorConfigNodeRevision(sourceNode)
+        ? authoritativePreparedNodeRevision(sourceNode)
         : sourceSnapshot?.createdAt;
       const expectedParentNodeId = sourceNode?.id || null;
       if (!sourcePayload || typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0
@@ -3453,13 +3665,34 @@ export function CanvasBoard({
       const diff = diffPreparedPayloads(fullTarget.basePayload, fullTarget.workingPayload);
       const diffDigest = await sha256Json(diff.changes);
       const scopeGate = checkPreparedScope(diff, candidate.scope);
+      const restoreMetadata = parsePreparedRestoreBranchId(candidate.proposalId, fullTarget.branchId);
+      const branchIsProven = fullTarget.branchId === `prepared-${candidate.proposalId}`
+        || restoreMetadata !== null;
+      let restoreProofPass = true;
+      if (restoreMetadata) {
+        const expectedScope = PREPARED_RESTORE_PROPOSAL_SCOPES[restoreMetadata.scope];
+        const expectedIntent = restoreMetadata.scope === 'timeline.structure' ? 'timeline' : 'buff';
+        const restoreTarget = (await client.get(restoreMetadata.nodeId)).node;
+        const rebuilt = applyPreparedRestoreScope(
+          restoreMetadata.scope,
+          sourcePayload,
+          restoreTarget.basePayload,
+        );
+        restoreProofPass = candidate.intent === expectedIntent
+          && samePreparedScope(candidate.scope, expectedScope)
+          && restoreTarget.timelineId === activeTimelineId
+          && authoritativePreparedNodeRevision(restoreTarget) === restoreMetadata.nodeRevision
+          && rebuilt.ok
+          && sameOperatorConfigPayload(rebuilt.payload, fullTarget.workingPayload);
+      }
       if (sourceDigest !== baseDigest
         || candidate.basePayloadDigest !== baseDigest
         || candidate.workingPayloadDigest !== workingDigest
         || candidate.diffDigest !== diffDigest
         || !scopeGate.pass
-        || candidate.nodeRevision !== operatorConfigNodeRevision(fullTarget)
-        || fullTarget.branchId !== `prepared-${candidate.proposalId}`
+        || candidate.nodeRevision !== authoritativePreparedNodeRevision(fullTarget)
+        || !branchIsProven
+        || !restoreProofPass
         || fullTarget.status !== 'ready'
         || !fullTarget.description.startsWith(candidateAuditMarker)) {
         return {
@@ -3820,7 +4053,6 @@ export function CanvasBoard({
     try {
       await pullRemoteMainWorkbenchCommands();
       const commandEntry = getPendingMainWorkbenchCommands([
-        'queryAgentProductCatalog',
         'addSkillButton',
         'removeSkillButton',
         'addBuff',
@@ -3846,7 +4078,16 @@ export function CanvasBoard({
         'prepareOperatorConfigProposal',
         'applyPreparedOperatorConfigProposal',
         'refreshSnapshot',
-      ])[0];
+      ]).find((entry) => {
+        if (entry.command.op === 'prepareReviewedWorkNodeProposal') {
+          return entry.command.intent !== 'selection';
+        }
+        if (entry.command.op === 'applyReviewedWorkNodeProposal'
+          || entry.command.op === 'abandonPreparedWorkNodeProposal') {
+          return entry.command.candidate.intent !== 'selection';
+        }
+        return true;
+      });
       if (!commandEntry) {
         return;
       }
@@ -3858,12 +4099,14 @@ export function CanvasBoard({
         if (settledEntry) void pushMainWorkbenchCommandResult(settledEntry);
       };
       try {
-        if (command.op === 'queryAgentProductCatalog') {
-          const result = executeAgentProductCatalogCommand(command);
-          settleCommand({ status: 'done', result });
-          return;
-        }
-
+        const agentWorkNodeTimelineId = commandEntry.source === 'agent-host'
+          && isAgentWorkNodeBrowserCommand(command)
+          ? await assertAgentWorkNodeCommandTimelineBoundary({
+              entry: commandEntry,
+              activeTimelineId,
+              readNode: async (nodeId) => (await createAiTimelineWorkNodeClient().get(nodeId)).node,
+            })
+          : null;
         if (command.op === 'addSkillButton') {
           const result = addSkillButtonFromWorkbenchCommand(command);
           settleCommand({ status: 'done', result });
@@ -4141,15 +4384,14 @@ export function CanvasBoard({
           switch (command.op) {
           case 'listAiTimelineWorkNodes': {
             const result = await createAiTimelineWorkNodeClient().list();
-            const timelineId = command.timelineId?.trim() || '';
-            const nodes = timelineId
-              ? result.nodes.filter((node) => node.timelineId === timelineId)
-              : result.nodes;
+            const timelineId = agentWorkNodeTimelineId || command.timelineId?.trim() || '';
+            const scopedResult = timelineId
+              ? projectMainWorkbenchWorkNodeListToTimeline(result, timelineId)
+              : result;
             settleCommand({
               status: 'done',
               result: {
-                ...result,
-                nodes,
+                ...scopedResult,
                 timelineId: timelineId || null,
               },
             });
@@ -4231,6 +4473,13 @@ export function CanvasBoard({
               if (node.parentNodeId && deletedCandidateIds.has(node.parentNodeId) && !deletedCandidateIds.has(node.id)) {
                 deletedCandidateIds.add(node.id);
                 expanded = true;
+              }
+            }
+          }
+          if (agentWorkNodeTimelineId) {
+            for (const node of before.nodes) {
+              if (deletedCandidateIds.has(node.id)) {
+                assertMainWorkbenchWorkNodeTimeline(node, agentWorkNodeTimelineId, command.op);
               }
             }
           }
@@ -4868,7 +5117,18 @@ export function CanvasBoard({
           || node.id !== checkout.targetId) {
           return;
         }
-        const nodeRevision = Number(node.contentRevision || node.updatedAt);
+        if (!Number.isSafeInteger(node.contentRevision) || Number(node.contentRevision) < 0) {
+          setAuthoritativeCheckoutContentRevision(null);
+          await browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
+          return;
+        }
+        const nodeRevision = Number(node.contentRevision);
+        const runtimePayload = getCurrentTimelineSnapshotPayload();
+        if (!runtimePayload || !sameOperatorConfigPayload(runtimePayload, node.workingPayload)) {
+          setAuthoritativeCheckoutContentRevision(null);
+          await browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
+          return;
+        }
         const previousManifest = nodeReviewRef.current?.report?.manifest;
         if (previousManifest?.nodeId === node.id
           && previousManifest.revision === nodeRevision
@@ -4877,6 +5137,7 @@ export function CanvasBoard({
         }
         const review = buildAiTimelineNodeReviewProjection(node, checkout);
         nodeReviewRef.current = review;
+        setAuthoritativeCheckoutContentRevision(nodeRevision);
         const snapshot = readMainWorkbenchSnapshot();
         if (!snapshot || snapshot.checkout?.targetType !== 'work-node'
           || snapshot.checkout.targetId !== checkout.targetId
@@ -4886,6 +5147,11 @@ export function CanvasBoard({
         const nextSnapshot: MainWorkbenchSnapshot = {
           ...snapshot,
           updatedAt: Date.now(),
+          checkout: {
+            ...snapshot.checkout,
+            contentRevision: nodeRevision,
+            updatedAt: checkout.updatedAt,
+          },
           nodeReview: review,
         };
         writeMainWorkbenchSnapshot(nextSnapshot);
@@ -5036,6 +5302,10 @@ export function CanvasBoard({
       }];
     });
     if (isCheckoutBootstrapPendingRef.current || isCheckoutMutationPendingRef.current) return;
+    if (!activeCheckoutRef || authoritativeCheckoutContentRevision === null) {
+      void browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
+      return;
+    }
     const previousSnapshot = readMainWorkbenchSnapshot();
     const nodeReview = activeCheckoutRef?.targetType === 'work-node'
       ? (nodeReviewRef.current?.bound
@@ -5044,6 +5314,11 @@ export function CanvasBoard({
         ? nodeReviewRef.current
         : null)
       : emptyAiTimelineNodeReviewProjection();
+    if (activeCheckoutRef.targetType === 'work-node'
+      && nodeReview?.report?.manifest.revision !== authoritativeCheckoutContentRevision) {
+      void browserAgentRuntime.suspendWritableBinding().catch(() => undefined);
+      return;
+    }
     const currentSignature = buildMainWorkbenchSnapshotSignature(
       mirroredSelectedCharacters,
       mirroredButtons,
@@ -5080,11 +5355,12 @@ export function CanvasBoard({
       source: 'app' as const,
       timelineId: activeTimelineId,
       activeTimelineId,
-      checkout: activeCheckoutRef ? {
+      checkout: {
         targetType: activeCheckoutRef.targetType,
         targetId: activeCheckoutRef.targetId,
+        contentRevision: authoritativeCheckoutContentRevision,
         updatedAt: activeCheckoutRef.updatedAt,
-      } : null,
+      },
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
       skillCatalog: mirroredSkillCatalog,
@@ -5103,7 +5379,7 @@ export function CanvasBoard({
     }
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, candidateBuffRevision, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, authoritativeCheckoutContentRevision, candidateBuffRevision, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;

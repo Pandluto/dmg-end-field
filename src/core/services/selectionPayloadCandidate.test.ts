@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import type { Character } from '../../types';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
-import { buildPreparedSelectionPayload } from './selectionPayloadCandidate';
+import {
+  buildPreparedSelectionPayload,
+  resolvePreparedSelectionRoster,
+} from './selectionPayloadCandidate';
 
 const characters = {
   a: { id: 'operator-a', name: '干员 A' },
@@ -64,6 +67,76 @@ function fixture(): TimelineSnapshotPayload {
 }
 
 const base = fixture();
+
+const availableCharacters = Object.values(characters) as Character[];
+const resolvedByNames = resolvePreparedSelectionRoster({
+  roster: {
+    characterNames: ['干员 B', '干员 A'],
+    nodeTitle: '调整阵容顺序',
+    nodeDescription: '严格按名称解析阵容。',
+    openCanvas: false,
+  },
+  availableCharacters,
+});
+assert.deepEqual(resolvedByNames.characters.map((character) => character.id), ['operator-b', 'operator-a']);
+assert.equal(resolvedByNames.openCanvas, false);
+const resolvedPairs = resolvePreparedSelectionRoster({
+  roster: {
+    characterIds: ['operator-a', 'operator-c'],
+    characterNames: ['干员 A', '干员 C'],
+    nodeTitle: '调整阵容',
+    nodeDescription: 'ID 与名称必须逐项指向同一干员。',
+  },
+  availableCharacters,
+});
+assert.deepEqual(resolvedPairs.characters.map((character) => character.id), ['operator-a', 'operator-c']);
+assert.equal(resolvedPairs.openCanvas, true);
+assert.throws(
+  () => resolvePreparedSelectionRoster({
+    roster: {
+      characterNames: ['干员 A', '不存在'],
+      nodeTitle: '调整阵容',
+      nodeDescription: '不得吞掉缺失项。',
+    },
+    availableCharacters,
+  }),
+  /missing: 不存在/u,
+);
+assert.throws(
+  () => resolvePreparedSelectionRoster({
+    roster: {
+      characterIds: ['operator-a', 'operator-a'],
+      nodeTitle: '调整阵容',
+      nodeDescription: '不得吞掉重复项。',
+    },
+    availableCharacters,
+  }),
+  /duplicate values/u,
+);
+assert.throws(
+  () => resolvePreparedSelectionRoster({
+    roster: {
+      characterIds: ['operator-a'],
+      characterNames: ['干员 B'],
+      nodeTitle: '调整阵容',
+      nodeDescription: '不得接受错配身份。',
+    },
+    availableCharacters,
+  }),
+  /does not identify the same operator/u,
+);
+assert.throws(
+  () => resolvePreparedSelectionRoster({
+    roster: {
+      characterNames: ['干员 A', '干员 B', '干员 C', '干员 D', '干员 E'],
+      nodeTitle: '调整阵容',
+      nodeDescription: '不得截断超过四人的阵容。',
+    },
+    availableCharacters,
+  }),
+  /between one and four/u,
+);
+
 const before = structuredClone(base);
 const reordered = buildPreparedSelectionPayload({
   basePayload: base,
