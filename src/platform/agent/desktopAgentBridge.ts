@@ -1,4 +1,7 @@
 import type {
+  AgentInteractionEnvelope,
+  AgentInteractionList,
+  AgentInteractionRespondInput,
   AgentEventPage,
   AgentHostHealth,
   AgentProductSession,
@@ -7,6 +10,7 @@ import type {
   AgentTurnAccepted,
   AgentTurnStartInput,
   AgentUiState,
+  ApprovalCapabilityVerificationKey,
   BrowserCommandDelivery,
   BrowserCommandResultSubmission,
   BrowserSnapshotPublish,
@@ -18,12 +22,20 @@ import type {
 import type {
   DefSessionId,
   DefTurnId,
+  InteractionId,
 } from '../../../agent/core/contracts/ids.ts';
 import {
   AGENT_LAUNCH_GRANT_FRAGMENT_KEY,
+  AGENT_APPROVAL_KEY_STORAGE_KEY,
   AGENT_UI_CAPABILITY_HEADER,
   AGENT_UI_CAPABILITY_STORAGE_KEY,
 } from '../../../agent/core/contracts/browser-protocol.ts';
+import type {
+  InteractionRequest,
+  InteractionResponse,
+  InteractionStateBinding,
+} from '../../../agent/core/contracts/interaction.ts';
+import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
 import type { WorkspaceLeaseRole } from '../runtime/workspaceLease';
 import { DesktopAgentBridgeError } from './desktopAgentBridgeError';
@@ -32,6 +44,7 @@ export { DesktopAgentBridgeError };
 
 export const DESKTOP_AGENT_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 export const DESKTOP_AGENT_MODE_PATH = '/timeline/ai';
+export const DESKTOP_AGENT_LAUNCH_PATH = '/agent-host/ui/launch';
 export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
@@ -91,7 +104,7 @@ export interface DesktopAgentBridgeState {
 }
 
 export interface AgentBridgeRequestOptions {
-  readonly method?: 'GET' | 'POST';
+  readonly method?: 'GET' | 'POST' | 'DELETE';
   readonly body?: unknown;
   readonly authorized?: boolean;
   readonly keepalive?: boolean;
@@ -138,6 +151,18 @@ export interface DesktopAgentConsumerSnapshot {
 
 export type DesktopAgentBridgeListener = (state: DesktopAgentBridgeState) => void;
 export type DesktopAgentConsumerListener = (state: DesktopAgentConsumerSnapshot) => void;
+
+export interface DesktopAgentLaunch {
+  readonly grant: string;
+  readonly audience: 'workbench-ai-mode';
+  readonly expiresAt: number;
+}
+
+export interface DesktopAgentLaunchDependencies {
+  readonly fetch?: AgentBridgeFetch;
+  readonly bridgeOrigin?: string;
+  readonly now?: () => number;
+}
 
 function defaultLocation(): AgentModeLocation | undefined {
   return typeof window === 'undefined' ? undefined : window.location;
@@ -187,6 +212,21 @@ function isSecureCapability(value: string | null | undefined): value is string {
   return Boolean(value && CAPABILITY_PATTERN.test(value));
 }
 
+function isApprovalVerificationKey(value: unknown): value is ApprovalCapabilityVerificationKey {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const keys = Object.keys(candidate).sort();
+  return keys.length === 3
+    && keys[0] === 'algorithm'
+    && keys[1] === 'keyEpoch'
+    && keys[2] === 'publicKeySpki'
+    && candidate.algorithm === 'Ed25519'
+    && typeof candidate.keyEpoch === 'string'
+    && /^[A-Za-z0-9_-]{16,128}$/u.test(candidate.keyEpoch)
+    && typeof candidate.publicKeySpki === 'string'
+    && /^[A-Za-z0-9_-]{32,1000}$/u.test(candidate.publicKeySpki);
+}
+
 function urlFromLocation(location: AgentModeLocation): URL {
   try {
     return new URL(location.href);
@@ -233,6 +273,244 @@ function responseData(payload: unknown): Record<string, unknown> {
   }
   if (record.data && typeof record.data === 'object') return record.data as Record<string, unknown>;
   return record;
+}
+
+const INTERACTION_RESPONSE_STATUSES = new Set<InteractionResponse['status']>([
+  'answered',
+  'approved',
+  'rejected',
+  'expired',
+  'cancelled',
+  'stale',
+]);
+
+const INTERACTION_REQUEST_BASE_KEYS = new Set([
+  'interactionId',
+  'defSessionId',
+  'defTurnId',
+  'toolCallId',
+  'prompt',
+  'createdAt',
+  'expiresAt',
+]);
+const INTERACTION_BINDING_KEYS = new Set([
+  'workspaceId',
+  'databaseGeneration',
+  'timelineId',
+  'checkoutTargetId',
+  'checkoutUpdatedAt',
+  'contentRevision',
+  'snapshotDigest',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isTimestamp(value: unknown): value is string {
+  return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
+}
+
+function isJsonValue(value: unknown, depth = 0): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (depth > 32 || !value || typeof value !== 'object') return false;
+  if (Array.isArray(value)) return value.every((entry) => isJsonValue(entry, depth + 1));
+  return Object.values(value).every((entry) => isJsonValue(entry, depth + 1));
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return isRecord(value) && isJsonValue(value);
+}
+
+function hasOnlyKeys(record: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
+  return Object.keys(record).every((key) => allowed.has(key));
+}
+
+function hasRequiredKeys(record: Record<string, unknown>, required: ReadonlySet<string>): boolean {
+  return [...required].every((key) => Object.prototype.hasOwnProperty.call(record, key));
+}
+
+function asInteractionBinding(value: unknown): InteractionStateBinding {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, INTERACTION_BINDING_KEYS)
+    || !hasRequiredKeys(value, INTERACTION_BINDING_KEYS)
+    || !isNonEmptyString(value.workspaceId)
+    || !isNonEmptyString(value.databaseGeneration)
+    || !isNonEmptyString(value.timelineId)
+    || (value.checkoutTargetId !== null && !isNonEmptyString(value.checkoutTargetId))
+    || typeof value.checkoutUpdatedAt !== 'number'
+    || !Number.isFinite(value.checkoutUpdatedAt)
+    || !Number.isSafeInteger(value.checkoutUpdatedAt)
+    || value.checkoutUpdatedAt < 0
+    || typeof value.contentRevision !== 'number'
+    || !Number.isSafeInteger(value.contentRevision)
+    || value.contentRevision < 0
+    || !isNonEmptyString(value.snapshotDigest)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 interaction 工作区绑定。', 'INVALID_HOST_RESPONSE');
+  }
+  return value as unknown as InteractionStateBinding;
+}
+
+function asInteractionRequest(value: unknown): InteractionRequest {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, new Set([...INTERACTION_REQUEST_BASE_KEYS, 'kind', 'details', 'proposalHash', 'binding', 'scope', 'proposal']))
+    || !hasRequiredKeys(value, new Set(['interactionId', 'defSessionId', 'defTurnId', 'kind', 'prompt', 'createdAt', 'expiresAt']))
+    || !isNonEmptyString(value.interactionId)
+    || !isNonEmptyString(value.defSessionId)
+    || !isNonEmptyString(value.defTurnId)
+    || (value.toolCallId !== undefined && !isNonEmptyString(value.toolCallId))
+    || !isNonEmptyString(value.prompt)
+    || !isTimestamp(value.createdAt)
+    || !isTimestamp(value.expiresAt)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 interaction。', 'INVALID_HOST_RESPONSE');
+  }
+
+  if (value.kind === 'question') {
+    const allowed = new Set([...INTERACTION_REQUEST_BASE_KEYS, 'kind', 'details']);
+    if (!hasOnlyKeys(value, allowed)
+      || (value.details !== undefined && !isJsonObject(value.details))) {
+      throw new DesktopAgentBridgeError('Agent Host 返回了无效的 question interaction。', 'INVALID_HOST_RESPONSE');
+    }
+    return value as unknown as InteractionRequest;
+  }
+
+  if (value.kind === 'approval') {
+    const allowed = new Set([...INTERACTION_REQUEST_BASE_KEYS, 'kind', 'proposalHash', 'binding', 'scope', 'proposal']);
+    if (!hasOnlyKeys(value, allowed)
+      || !isNonEmptyString(value.proposalHash)
+      || !asInteractionBindingOrFalse(value.binding)
+      || !Array.isArray(value.scope)
+      || value.scope.length === 0
+      || !value.scope.every(isNonEmptyString)
+      || !isJsonValue(value.proposal)) {
+      throw new DesktopAgentBridgeError('Agent Host 返回了无效的 approval interaction。', 'INVALID_HOST_RESPONSE');
+    }
+    return value as unknown as InteractionRequest;
+  }
+
+  throw new DesktopAgentBridgeError('Agent Host 返回了未知的 interaction 类型。', 'INVALID_HOST_RESPONSE');
+}
+
+function asInteractionBindingOrFalse(value: unknown): value is InteractionStateBinding {
+  try {
+    asInteractionBinding(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function asInteractionList(data: Record<string, unknown>): AgentInteractionList {
+  if (!hasOnlyKeys(data, new Set(['protocolVersion', 'interactions']))
+    || !hasRequiredKeys(data, new Set(['protocolVersion', 'interactions']))
+    || data.protocolVersion !== 2
+    || !Array.isArray(data.interactions)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 interaction 列表。', 'INVALID_HOST_RESPONSE');
+  }
+  return {
+    protocolVersion: 2,
+    interactions: data.interactions.map(asInteractionRequest),
+  };
+}
+
+function asInteractionRespondInput(value: unknown): AgentInteractionRespondInput {
+  if (!isRecord(value)
+    || !hasOnlyKeys(value, new Set(['status', 'value']))
+    || !hasRequiredKeys(value, new Set(['status']))
+    || typeof value.status !== 'string'
+    || !INTERACTION_RESPONSE_STATUSES.has(value.status as InteractionResponse['status'])
+    || (value.value !== undefined && !isJsonValue(value.value))) {
+    throw new DesktopAgentBridgeError('interaction 响应格式无效。', 'INVALID_INTERACTION_RESPONSE', 400);
+  }
+  return value as AgentInteractionRespondInput;
+}
+
+function asInteractionEnvelope(
+  data: Record<string, unknown>,
+  expectedInteractionId: InteractionId,
+): AgentInteractionEnvelope {
+  if (!hasOnlyKeys(data, new Set(['protocolVersion', 'interactionId', 'response']))
+    || !hasRequiredKeys(data, new Set(['protocolVersion', 'interactionId', 'response']))
+    || data.protocolVersion !== 2
+    || data.interactionId !== expectedInteractionId
+    || !isRecord(data.response)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 interaction 响应。', 'INVALID_HOST_RESPONSE');
+  }
+  const response = data.response;
+  if (!hasOnlyKeys(response, new Set(['interactionId', 'status', 'value', 'resolvedAt']))
+    || !hasRequiredKeys(response, new Set(['interactionId', 'status', 'resolvedAt']))
+    || response.interactionId !== expectedInteractionId
+    || typeof response.status !== 'string'
+    || !INTERACTION_RESPONSE_STATUSES.has(response.status as InteractionResponse['status'])
+    || !isTimestamp(response.resolvedAt)
+    || (response.value !== undefined && !isJsonValue(response.value))) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 interaction 响应。', 'INVALID_HOST_RESPONSE');
+  }
+  return data as unknown as AgentInteractionEnvelope;
+}
+
+/**
+ * Ask the Electron-owned loopback bridge for a single-use launch grant.
+ * Normal web deployments have no such bridge; the Canvas hides this desktop-only
+ * entry and this request still fails closed if called from an unsupported host.
+ */
+export async function requestDesktopAgentModeLaunch(
+  dependencies: DesktopAgentLaunchDependencies = {},
+): Promise<DesktopAgentLaunch> {
+  const fetchImpl = dependencies.fetch || defaultFetch;
+  const bridgeOrigin = dependencies.bridgeOrigin || DESKTOP_AGENT_BRIDGE_ORIGIN;
+  const now = dependencies.now || Date.now;
+  let response: AgentBridgeFetchResponse;
+  try {
+    response = await fetchImpl(`${bridgeOrigin}${DESKTOP_AGENT_LAUNCH_PATH}`, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: { accept: 'application/json' },
+    });
+  } catch (error) {
+    throw new DesktopAgentBridgeError(
+      error instanceof Error ? error.message : '桌面 Agent 服务不可访问。',
+      'AGENT_LAUNCH_UNREACHABLE',
+    );
+  }
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new DesktopAgentBridgeError(
+      readErrorMessage(payload, `无法启动 AI 模式（${response.status}）。`),
+      readErrorCode(payload, 'AGENT_LAUNCH_FAILED'),
+      response.status,
+    );
+  }
+  const root = payload && typeof payload === 'object' && !Array.isArray(payload)
+    ? payload as Record<string, unknown>
+    : null;
+  const launch = root?.launch && typeof root.launch === 'object' && !Array.isArray(root.launch)
+    ? root.launch as Record<string, unknown>
+    : null;
+  if (
+    root?.ok !== true
+    || !isSecureCapability(typeof launch?.grant === 'string' ? launch.grant : null)
+    || launch?.audience !== 'workbench-ai-mode'
+    || typeof launch.expiresAt !== 'number'
+    || !Number.isFinite(launch.expiresAt)
+    || launch.expiresAt <= now()
+  ) {
+    throw new DesktopAgentBridgeError(
+      '桌面 Agent 返回了无效的启动授权。',
+      'INVALID_AGENT_LAUNCH',
+      502,
+    );
+  }
+  return {
+    grant: launch.grant as string,
+    audience: 'workbench-ai-mode',
+    expiresAt: launch.expiresAt,
+  };
 }
 
 function asHealth(data: Record<string, unknown>): AgentHostHealth {
@@ -471,9 +749,28 @@ export class DesktopAgentBridge {
     return null;
   }
 
+  getApprovalVerificationKey(): ApprovalCapabilityVerificationKey | null {
+    if (!this.#storage) return null;
+    try {
+      const encoded = this.#storage.getItem(AGENT_APPROVAL_KEY_STORAGE_KEY);
+      if (encoded === null) return null;
+      const value = JSON.parse(encoded) as unknown;
+      if (isApprovalVerificationKey(value)) return value;
+      this.#storage.removeItem(AGENT_APPROVAL_KEY_STORAGE_KEY);
+    } catch {
+      try {
+        this.#storage.removeItem(AGENT_APPROVAL_KEY_STORAGE_KEY);
+      } catch {
+        // Storage remains fail-closed.
+      }
+    }
+    return null;
+  }
+
   clearSessionCapability(): void {
     try {
       this.#storage?.removeItem(AGENT_UI_CAPABILITY_STORAGE_KEY);
+      this.#storage?.removeItem(AGENT_APPROVAL_KEY_STORAGE_KEY);
     } catch {
       // A storage failure is already fail-closed; there is nothing safe to retain.
     }
@@ -517,20 +814,29 @@ export class DesktopAgentBridge {
     }
 
     this.#setState({ route: true, authorization: 'pending', error: null });
-    const currentCapability = this.getSessionCapability();
     let launchGrant: string | null = null;
-    if (!currentCapability) {
-      try {
-        // Scrub the launch secret before the first network await so it never
-        // lingers in the address bar, history, or an error screenshot.
-        launchGrant = this.captureLaunchGrant();
-      } catch (error) {
-        this.#setState({
-          authorization: 'failed',
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return this.#state;
-      }
+    try {
+      // Scrub the launch secret before the first network await so it never
+      // lingers in the address bar, history, or an error screenshot. Capture
+      // it even when sessionStorage already contains a capability: after a
+      // Host restart that stored capability belongs to the dead Host, while a
+      // fresh launch grant is the authoritative replacement credential.
+      launchGrant = this.captureLaunchGrant();
+    } catch (error) {
+      this.#setState({
+        authorization: 'failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return this.#state;
+    }
+    let currentCapability = this.getSessionCapability();
+    if (launchGrant) {
+      this.clearSessionCapability();
+      this.#setState({ authorization: 'pending', error: null });
+      currentCapability = null;
+    } else if (currentCapability && !this.getApprovalVerificationKey()) {
+      this.clearSessionCapability();
+      currentCapability = null;
     }
     await this.refreshHostState().catch((error: unknown) => {
       this.#setState({
@@ -605,6 +911,7 @@ export class DesktopAgentBridge {
       sessionCapability: unknown;
       audience: unknown;
       expiresAt: unknown;
+      approvalVerificationKey: unknown;
     }>;
     const capability = typeof record.capability === 'string'
       ? record.capability
@@ -618,6 +925,7 @@ export class DesktopAgentBridge {
       || typeof record.expiresAt !== 'number'
       || !Number.isFinite(record.expiresAt)
       || record.expiresAt <= this.#now()
+      || !isApprovalVerificationKey(record.approvalVerificationKey)
     ) {
       this.clearSessionCapability();
       throw new DesktopAgentBridgeError('Agent Host 返回了无效的页面授权。', 'INVALID_UI_SESSION', 502);
@@ -628,6 +936,10 @@ export class DesktopAgentBridge {
     }
     try {
       this.#storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, capability);
+      this.#storage.setItem(
+        AGENT_APPROVAL_KEY_STORAGE_KEY,
+        JSON.stringify(record.approvalVerificationKey),
+      );
     } catch (error) {
       this.clearSessionCapability();
       throw new DesktopAgentBridgeError(
@@ -731,6 +1043,55 @@ export class DesktopAgentBridge {
     return asSessionList(await this.#request('/agent-host/sessions'));
   }
 
+  async listInteractions(): Promise<readonly InteractionRequest[]> {
+    const data = await this.#request('/agent-host/interactions');
+    return asInteractionList(data).interactions;
+  }
+
+  async listPendingInteractions(): Promise<readonly InteractionRequest[]> {
+    return this.listInteractions();
+  }
+
+  async respondInteraction(
+    interactionId: InteractionId,
+    input: AgentInteractionRespondInput,
+  ): Promise<InteractionResponse> {
+    if (!isNonEmptyString(interactionId)) {
+      throw new DesktopAgentBridgeError('interactionId 无效。', 'INVALID_INTERACTION_ID', 400);
+    }
+    const responseInput = asInteractionRespondInput(input);
+    const data = await this.#request(
+      `/agent-host/interactions/${encodeURIComponent(interactionId)}/respond`,
+      { method: 'POST', body: responseInput },
+    );
+    return asInteractionEnvelope(data, interactionId).response;
+  }
+
+  async answerQuestion(interactionId: InteractionId, value: JsonValue): Promise<InteractionResponse> {
+    if (!isJsonValue(value)) {
+      throw new DesktopAgentBridgeError('question 回答必须是合法 JSON 值。', 'INVALID_INTERACTION_RESPONSE', 400);
+    }
+    return this.respondInteraction(interactionId, { status: 'answered', value });
+  }
+
+  async approveInteraction(interactionId: InteractionId): Promise<InteractionResponse> {
+    return this.respondInteraction(interactionId, { status: 'approved' });
+  }
+
+  async rejectInteraction(interactionId: InteractionId, value?: JsonValue): Promise<InteractionResponse> {
+    if (value !== undefined && !isJsonValue(value)) {
+      throw new DesktopAgentBridgeError('approval 拒绝原因必须是合法 JSON 值。', 'INVALID_INTERACTION_RESPONSE', 400);
+    }
+    return this.respondInteraction(interactionId, {
+      status: 'rejected',
+      ...(value === undefined ? {} : { value }),
+    });
+  }
+
+  async cancelInteraction(interactionId: InteractionId): Promise<InteractionResponse> {
+    return this.respondInteraction(interactionId, { status: 'cancelled' });
+  }
+
   async createSession(input: AgentSessionCreateInput = {}): Promise<AgentProductSession> {
     const data = await this.#request('/agent-host/sessions', {
       method: 'POST',
@@ -742,6 +1103,28 @@ export class DesktopAgentBridge {
   async getSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
     const data = await this.#request(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`);
     return asProductSession(data);
+  }
+
+  async archiveSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
+    const data = await this.#request(
+      `/agent-host/sessions/${encodeURIComponent(defSessionId)}/archive`,
+      { method: 'POST', body: {} },
+    );
+    return asProductSession(data);
+  }
+
+  async restoreSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
+    const data = await this.#request(
+      `/agent-host/sessions/${encodeURIComponent(defSessionId)}/restore`,
+      { method: 'POST', body: {} },
+    );
+    return asProductSession(data);
+  }
+
+  async deleteSession(defSessionId: DefSessionId): Promise<void> {
+    await this.#request(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`, {
+      method: 'DELETE',
+    });
   }
 
   async readSessionEvents(
@@ -1072,6 +1455,11 @@ export class DesktopAgentConsumerController {
     } catch (error) {
       if (this.#running && version === this.#syncVersion) {
         this.#setState({ state: 'error', error: error instanceof Error ? error.message : String(error) });
+        // A previous visible tab or a renderer that is still unloading may
+        // legitimately own the Host lease for a few more seconds. Keep the
+        // bounded heartbeat clock alive so this eligible writer retries after
+        // that lease closes or expires instead of remaining stuck forever.
+        this.#startHeartbeat();
       }
     }
   }

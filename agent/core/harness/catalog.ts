@@ -169,3 +169,170 @@ export const PHASE3_READONLY_TOOL_NAMES = [
 ] as const;
 
 export const DEF_HARNESS_ROUTE_TOOL_NAME = 'def.harness.route' as const;
+
+const askOperation = {
+  operation: 'ask',
+  entryPhase: 'ask-user',
+  phases: [
+    {
+      id: 'ask-user',
+      kind: 'interaction',
+      tools: ['def.user.ask'],
+      writes: [],
+      instructions: 'Ask one precise question only when the requested action cannot be made unambiguous from the bound snapshot.',
+      onSuccess: 'done',
+      onFailure: 'failed',
+    },
+    terminalCompleted,
+    terminalFailed,
+  ],
+} as const;
+
+function singleToolOperation(input: {
+  readonly operation: 'apply' | 'edit' | 'add' | 'remove' | 'resistance' | 'recalculate';
+  readonly phaseId: string;
+  readonly phaseKind: 'proposal' | 'mutation' | 'verification';
+  readonly toolName: string;
+  readonly writes: readonly string[];
+  readonly instructions: string;
+}) {
+  return {
+    operation: input.operation,
+    entryPhase: input.phaseId,
+    phases: [
+      {
+        id: input.phaseId,
+        kind: input.phaseKind,
+        tools: [input.toolName],
+        writes: [...input.writes],
+        instructions: input.instructions,
+        onSuccess: 'done',
+        onFailure: 'failed',
+      },
+      terminalCompleted,
+      terminalFailed,
+    ],
+  } as const;
+}
+
+/**
+ * First interactive Slim catalog. It deliberately reuses the proven read-only
+ * phases and adds only browser-owned operations that have a typed command and
+ * an observable ProductGateway result.
+ */
+export const PHASE6_INTERACTIVE_HARNESS_CATALOG = [
+  {
+    ...PHASE3_READONLY_HARNESS_CATALOG[0],
+    revision: 'v2-slim-interactive',
+    summary: 'Inspect or explicitly replace the selected roster in the current Browser Workbench.',
+    writeScope: ['selection.roster'],
+    operations: [
+      ...PHASE3_READONLY_HARNESS_CATALOG[0].operations,
+      singleToolOperation({
+        operation: 'apply',
+        phaseId: 'apply-selection',
+        phaseKind: 'mutation',
+        toolName: 'def.team.selection.apply',
+        writes: ['selection.roster'],
+        instructions: 'Apply one exact final roster only. Provide a concise nodeTitle without an [ai] prefix and a nodeDescription that explains the change. The DEF Host will pause for explicit user approval before dispatch.',
+      }),
+      askOperation,
+    ],
+  },
+  {
+    ...PHASE3_READONLY_HARNESS_CATALOG[1],
+    revision: 'v5-slim-interactive',
+    summary: 'Inspect exact current loadouts and ask a bounded clarification question when configuration intent is ambiguous.',
+    writeScope: [],
+    operations: [
+      ...PHASE3_READONLY_HARNESS_CATALOG[1].operations,
+      askOperation,
+    ],
+  },
+  {
+    ...PHASE3_READONLY_HARNESS_CATALOG[2],
+    revision: 'v14-slim-interactive',
+    summary: 'Read or explicitly edit the current timeline through browser-owned typed commands.',
+    writeScope: ['timeline.buttons', 'timeline.work-node', 'timeline.checkout', 'timeline.resistance'],
+    operations: [
+      ...PHASE3_READONLY_HARNESS_CATALOG[2].operations,
+      singleToolOperation({
+        operation: 'edit',
+        phaseId: 'edit-work-node',
+        phaseKind: 'mutation',
+        toolName: 'def.worknode.patch_and_checkout',
+        writes: ['timeline.work-node', 'timeline.checkout'],
+        instructions: 'Use a constrained patch for moves, copies, grouped changes, or resistance edits. Explicit approval is mandatory.',
+      }),
+      singleToolOperation({
+        operation: 'add',
+        phaseId: 'add-button',
+        phaseKind: 'mutation',
+        toolName: 'def.workbench.add_skill_button',
+        writes: ['timeline.buttons'],
+        instructions: 'Add exactly one unambiguous skill button. Explicit approval is mandatory.',
+      }),
+      singleToolOperation({
+        operation: 'remove',
+        phaseId: 'remove-button',
+        phaseKind: 'mutation',
+        toolName: 'def.workbench.remove_skill_button',
+        writes: ['timeline.buttons'],
+        instructions: 'Remove exactly one unambiguously identified skill button. Explicit approval is mandatory.',
+      }),
+      singleToolOperation({
+        operation: 'resistance',
+        phaseId: 'set-target-resistance',
+        phaseKind: 'mutation',
+        toolName: 'def.target.set_resistance',
+        writes: ['timeline.resistance'],
+        instructions: 'Set one exact button resistance map. Explicit approval is mandatory.',
+      }),
+      askOperation,
+    ],
+  },
+  {
+    ...PHASE3_READONLY_HARNESS_CATALOG[3],
+    revision: 'v2-slim-interactive',
+    summary: 'Resolve, add, or remove a Buff in the exact current checkout.',
+    writeScope: ['timeline.buffs'],
+    operations: [
+      ...PHASE3_READONLY_HARNESS_CATALOG[3].operations,
+      singleToolOperation({
+        operation: 'add',
+        phaseId: 'add-buff',
+        phaseKind: 'mutation',
+        toolName: 'def.buff.add_to_button',
+        writes: ['timeline.buffs'],
+        instructions: 'Attach one complete Buff to one exact button. Explicit approval is mandatory.',
+      }),
+      singleToolOperation({
+        operation: 'remove',
+        phaseId: 'remove-buff',
+        phaseKind: 'mutation',
+        toolName: 'def.buff.remove_from_button',
+        writes: ['timeline.buffs'],
+        instructions: 'Remove one exact Buff from one exact button. Explicit approval is mandatory.',
+      }),
+      askOperation,
+    ],
+  },
+  {
+    ...PHASE3_READONLY_HARNESS_CATALOG[4],
+    revision: 'v2-slim-interactive',
+    summary: 'Read the current damage report or ask the browser product to recalculate it.',
+    writeScope: [],
+    operations: [
+      ...PHASE3_READONLY_HARNESS_CATALOG[4].operations,
+      singleToolOperation({
+        operation: 'recalculate',
+        phaseId: 'recalculate-damage',
+        phaseKind: 'verification',
+        toolName: 'def.damage.calculate_and_verify',
+        writes: [],
+        instructions: 'Trigger the existing product calculator and return only its browser-generated result.',
+      }),
+      askOperation,
+    ],
+  },
+] as const satisfies readonly DefHarnessRevisionDefinition[];

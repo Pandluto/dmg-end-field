@@ -481,6 +481,18 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   const commandStopped = await host.waitForTurnTerminal(pendingTurn.defTurnId);
   assert.equal(commandStopped.type, 'turn.stopped');
   if (commandStopped.type === 'turn.stopped') assert.equal(commandStopped.payload.code, 'USER_STOPPED');
+  assert.equal(
+    gateway.nextCommand(owner, {
+      consumerId: registration.consumerId,
+      executorLeaseId: registration.executorLeaseId,
+      afterCursor: 0,
+    }),
+    null,
+    'a command cancelled before browser delivery must never be claimable after Turn stop',
+  );
+  const cancelledCommand = await gateway.reconcile(asCommandId(`command-${pendingTool}`));
+  assert.equal(cancelledCommand?.status, 'not-executed');
+  assert.equal(cancelledCommand?.code, 'AGENT_COMMAND_CANCELLED_BY_TURN');
 
   const interactionId = asInteractionId('interaction-consumer-loss');
   engine.enqueueScript([
@@ -968,6 +980,74 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   });
   assert.equal(wrongBindingAbort.status, 409, 'a consumer from another Timeline cannot address the old Turn');
   await server.stop();
+}
+
+// Session archive/restore/delete is explicit and never affects Browser product data.
+{
+  const owner = claims('cap-session-lifecycle');
+  const registry = new BrowserConsumerRegistry();
+  const registration = {
+    consumerId: 'consumer-session-lifecycle',
+    executorLeaseId: 'lease-session-lifecycle',
+    writer: true as const,
+    visible: true as const,
+    binding: binding(),
+  };
+  registry.register(owner, registration);
+  const gateway = new RemoteBrowserProductGateway(registry);
+  gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: snapshot(),
+  });
+  const baseEngine = new DeterministicFakeAgentEngine();
+  let failSessionRecovery = false;
+  const engine: AgentEngine = {
+    kind: baseEngine.kind,
+    probe: () => baseEngine.probe(),
+    createSession: (input) => baseEngine.createSession(input),
+    recoverSession: (ref) => failSessionRecovery
+      ? Promise.reject(new Error('intentional restore outage'))
+      : baseEngine.recoverSession(ref),
+    startTurn: (input) => baseEngine.startTurn(input),
+    disposeSession: (ref) => baseEngine.disposeSession(ref),
+    shutdown: () => baseEngine.shutdown(),
+  };
+  const tools = new DefReadToolRegistry();
+  const harness = new DefHarnessManager({
+    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
+  });
+  const host = new DefAgentHost({
+    engine,
+    productGateway: gateway,
+    harnessManager: harness,
+    toolRegistry: tools,
+    requireConsumer: () => { registry.requireActive(); },
+  });
+  const created = await host.createSession({ binding: binding(), providerProfileRef: 'default' });
+  assert.equal(host.archiveSession(created.defSessionId, binding()).status, 'archived');
+  assert.equal(host.archiveSession(created.defSessionId, binding()).status, 'archived');
+  await expectHostError(() => host.startHarnessTurn({
+    defSessionId: created.defSessionId,
+    userMessage: '归档会话不应继续运行',
+    binding: binding(),
+  }), 'AGENT_SESSION_STATE_INVALID');
+  assert.equal((await host.restoreSession(created.defSessionId, binding())).status, 'ready');
+  assert.equal((await host.restoreSession(created.defSessionId, binding())).status, 'ready');
+  host.archiveSession(created.defSessionId, binding());
+  failSessionRecovery = true;
+  await expectHostError(
+    () => host.restoreSession(created.defSessionId, binding()),
+    'AGENT_SESSION_RECOVERY_FAILED',
+  );
+  assert.equal(host.readSession(created.defSessionId, binding()).status, 'engine-unavailable');
+  host.archiveSession(created.defSessionId, binding());
+  failSessionRecovery = false;
+  assert.equal((await host.restoreSession(created.defSessionId, binding())).status, 'ready');
+  await host.deleteSession(created.defSessionId, binding());
+  await expectHostError(() => host.readSession(created.defSessionId), 'AGENT_SESSION_NOT_FOUND');
+  assert.equal(host.listSessions(binding()).length, 0);
+  await host.shutdown();
 }
 
 // In-memory retention is finite without truncating journals or weakening retry identity.

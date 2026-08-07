@@ -31,6 +31,7 @@
       'open-browser',
       'open-mcp-fill',
       'open-agent-mode',
+      'save-agent-profile',
       'pick-image-source',
       'pick-data-source',
       'pick-output',
@@ -72,6 +73,16 @@
         ? `引擎 ${engine.kind || 'opencode'} 不可用${engine.reason ? `：${engine.reason}` : ''}`
         : `引擎 ${engine?.kind || 'opencode'} 正在检查`;
     element('agent-status').textContent = `${runtime?.reason || 'DEF Agent Host 状态未知'} · ${engineLabel}`;
+  }
+
+  function renderAgentProfile(profile) {
+    const configured = Boolean(profile?.configured && profile?.apiKeyConfigured);
+    const status = element('agent-profile-status');
+    status.textContent = configured ? `已配置 · ${profile.modelId}` : '尚未配置';
+    status.classList.toggle('ready', configured);
+    if (profile?.baseUrl) element('agent-base-url').value = profile.baseUrl;
+    if (profile?.modelId) element('agent-model-id').value = profile.modelId;
+    element('agent-api-key').placeholder = configured ? '留空则保留已有密钥' : '请输入 API Key';
   }
 
   async function selectPath(kind) {
@@ -125,12 +136,13 @@
     }
 
     try {
-      const [capabilities, appInfo, settings, mcpState, agentState] = await Promise.all([
+      const [capabilities, appInfo, settings, mcpState, agentState, agentProfile] = await Promise.all([
         host.getCapabilities(),
         host.getAppInfo(),
         host.getSettings(),
         host.getMcpState(),
         host.getAgentState(),
+        host.getAgentProfile(),
       ]);
       state.capabilities = capabilities;
       state.appInfo = appInfo;
@@ -140,6 +152,7 @@
       element('platform').textContent = `${appInfo.platform} · ${appInfo.arch}`;
       element('agent-status').textContent = capabilities.agent.reason;
       renderAgentState(agentState);
+      renderAgentProfile(agentProfile);
       renderMcpState(mcpState);
       element('release-version').value = appInfo.version;
 
@@ -188,6 +201,27 @@
       if (!result?.ok) throw new Error(result?.error || '无法打开 AI 模式。');
       renderAgentState(result.runtime);
       setMessage('AI 模式已在系统浏览器中打开。');
+    } catch (error) {
+      setMessage(errorMessage(error), true);
+      renderAgentState(await host.getAgentState().catch(() => null));
+    } finally {
+      setBusy(false);
+    }
+  });
+  element('save-agent-profile').addEventListener('click', async () => {
+    setBusy(true);
+    setMessage('正在保存 Provider 配置并重启 Agent…');
+    try {
+      const result = await host.saveAgentProfile({
+        apiKey: element('agent-api-key').value,
+        baseUrl: element('agent-base-url').value,
+        modelId: element('agent-model-id').value,
+      });
+      if (!result?.ok) throw new Error(result?.error || 'Provider 配置保存失败。');
+      element('agent-api-key').value = '';
+      renderAgentProfile(result.profile);
+      renderAgentState(result.runtime || await host.getAgentState());
+      setMessage(`Agent Provider 已就绪：${result.profile.modelId}`);
     } catch (error) {
       setMessage(errorMessage(error), true);
       renderAgentState(await host.getAgentState().catch(() => null));

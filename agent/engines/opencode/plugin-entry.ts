@@ -24,7 +24,7 @@ type TurnState = {
     readonly safeName: OpenCodeSafeToolName;
     readonly description: string;
     readonly inputSchema: Record<string, unknown>;
-    readonly risk: 'read';
+    readonly risk: 'read' | 'propose' | 'mutate';
   }[];
 };
 
@@ -42,6 +42,10 @@ export default async function DefOpenCodeEnginePlugin(input: { readonly director
     const state = await bridge.turnState(context.sessionID, context.abort);
     if (!state.safeTools.includes(safeToolName)) {
       throw new Error(`DEF_TOOL_NOT_PROJECTED: ${safeToolName} is not available in projection ${state.projectionRevision}`);
+    }
+    const projectedTool = state.projectedTools.find((entry) => entry.safeName === safeToolName);
+    if (!projectedTool) {
+      throw new Error(`DEF_TOOL_NOT_PROJECTED: ${safeToolName} has no projected descriptor`);
     }
     const userMessageId = lastUserMessageId(context.messages);
     if (!userMessageId || userMessageId !== state.userMessageId) {
@@ -67,44 +71,23 @@ export default async function DefOpenCodeEnginePlugin(input: { readonly director
       metadata: {
         family: 'def-engine-bridge',
         projectionRevision: state.projectionRevision,
-        readOnly: true,
+        risk: projectedTool.risk,
+        readOnly: projectedTool.risk === 'read',
       },
     };
   };
 
-  return {
-    tool: {
-      def_harness_route: {
-        description: 'Route this Turn to one allowlisted DEF business operation before using a business Tool.',
-        args: {},
-        execute: execute('def_harness_route'),
-      },
-      def_node_crud_context: {
-        description: 'Read the exact current DEF Workbench context and selected roster.',
-        args: {},
-        execute: execute('def_node_crud_context'),
-      },
-      def_data_resource_team_loadouts: {
-        description: 'Read exact current loadouts for all selected DEF operators.',
-        args: {},
-        execute: execute('def_data_resource_team_loadouts'),
-      },
-      def_node_crud_current: {
-        description: 'Read the current DEF timeline checkout and stable skill-button coordinates.',
-        args: {},
-        execute: execute('def_node_crud_current'),
-      },
-      def_data_resource_buff: {
-        description: 'Resolve bounded Buff facts present in the exact current DEF Workbench snapshot.',
-        args: {},
-        execute: execute('def_data_resource_buff'),
-      },
-      def_data_resource_damage: {
-        description: 'Read the product-generated typed DEF damage report without recomputing formulas.',
-        args: {},
-        execute: execute('def_data_resource_damage'),
-      },
+  const pluginTools = Object.fromEntries(OPENCODE_TOOL_BINDINGS.map(([, safeToolName]) => [
+    safeToolName,
+    {
+      description: `DEF projected Tool ${safeToolName}`,
+      args: {},
+      execute: execute(safeToolName),
     },
+  ]));
+
+  return {
+    tool: pluginTools,
     'experimental.chat.system.transform': async (
       input: { readonly sessionID?: string },
       output: { readonly system: string[] },
@@ -123,7 +106,7 @@ export default async function DefOpenCodeEnginePlugin(input: { readonly director
     ) => {
       const state = await bridge.turnState(input.sessionID);
       if (state.safeTools.length > 1) {
-        throw new Error('DEF_PROJECTION_INVALID: only one read-only Tool may be projected per step');
+        throw new Error('DEF_PROJECTION_INVALID: only one DEF Tool may be projected per step');
       }
       if (
         state.projectedTools.length !== state.safeTools.length
@@ -233,14 +216,14 @@ function readBridgeConfiguration() {
             || !safeName
             || !safeToolNames.has(safeName)
             || typeof projected.description !== 'string'
-            || projected.risk !== 'read'
+            || !['read', 'propose', 'mutate'].includes(String(projected.risk))
             || !record(projected.inputSchema)
           ) throw new Error('DEF_BRIDGE_RESPONSE_INVALID: projected Tool is malformed');
           return {
             safeName: safeName as OpenCodeSafeToolName,
             description: projected.description,
             inputSchema: projected.inputSchema as Record<string, unknown>,
-            risk: 'read' as const,
+            risk: projected.risk as 'read' | 'propose' | 'mutate',
           };
         }),
       };

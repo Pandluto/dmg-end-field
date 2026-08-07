@@ -5,9 +5,12 @@ import { BrowserConsumerRegistry } from '../host/browser-consumer-registry.ts';
 import { DefAgentHost } from '../host/def-agent-host.ts';
 import { DefAgentHostHttpServer } from '../host/http-server.ts';
 import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gateway.ts';
+import { createFileProductCommandStore } from '../host/product-command-store.ts';
+import { createFileDefAgentSessionStore } from '../host/session-store.ts';
 import { AgentTokenAuthority } from '../host/token-authority.ts';
+import { PHASE6_INTERACTIVE_HARNESS_CATALOG } from '../core/harness/catalog.ts';
 import { DefHarnessManager } from '../core/harness/manager.ts';
-import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
+import { DefProductToolRegistry } from '../core/tools/interactive-workbench.ts';
 import { OpenCodeEngineAdapter } from '../engines/opencode/adapter.ts';
 import { FileOpenCodeProviderProfileSource } from '../engines/opencode/profile.ts';
 import type { AgentHostHealth, EngineHealth } from '../core/contracts/index.ts';
@@ -17,6 +20,8 @@ const browserOrigin = requiredEnv('DEF_AGENT_BROWSER_ORIGIN');
 const readyFile = requiredEnv('DEF_AGENT_READY_FILE');
 const engineRoot = requiredEnv('DEF_AGENT_ENGINE_ROOT');
 const engineStoreRoot = requiredEnv('DEF_AGENT_ENGINE_STORE_ROOT');
+const sessionStoreRoot = requiredEnv('DEF_AGENT_SESSION_STORE_ROOT');
+const productCommandStoreRoot = requiredEnv('DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT');
 const engineProfilePath = requiredEnv('DEF_AGENT_ENGINE_PROFILE_PATH');
 const engineDefaultProfileRef = process.env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF?.trim() || 'default';
 const parentPid = requiredPidEnv('DEF_AGENT_PARENT_PID');
@@ -41,14 +46,22 @@ const consumers = new BrowserConsumerRegistry({
     if (active) void host.abortTurn(active, 'BROWSER_CONSUMER_LOST');
   },
 });
-const gateway = new RemoteBrowserProductGateway(consumers);
-const toolRegistry = new DefReadToolRegistry();
+const gateway = new RemoteBrowserProductGateway(consumers, {
+  commandStore: createFileProductCommandStore(productCommandStoreRoot),
+  onTerminalResult: (view) => {
+    if (view.deliveryMode !== 'reconcile' || !view.result) return;
+    host?.recordReconciledProductCommandResult(view.command, view.result);
+  },
+});
+const toolRegistry = new DefProductToolRegistry();
 const harnessManager = new DefHarnessManager({
+  catalog: PHASE6_INTERACTIVE_HARNESS_CATALOG,
   resolveToolDescriptor: (name) => toolRegistry.resolveDescriptor(name),
 });
 host = new DefAgentHost({
   engine,
   productGateway: gateway,
+  sessionStore: createFileDefAgentSessionStore({ root: sessionStoreRoot }),
   harnessManager,
   toolRegistry,
   requireConsumer: () => {
@@ -69,6 +82,7 @@ const runtime = new DefAgentHostHttpServer({
   consumers,
   gateway,
   engine: () => engineState,
+  diagnostic: (message) => console.error(`[def-agent-host] ${message}`),
   onShutdownRequested: () => {
     setImmediate(() => void shutdown(0));
   },
@@ -92,6 +106,7 @@ void startRuntime().catch((error: unknown) => {
 
 async function startRuntime(): Promise<void> {
   engineState = projectEngineHealth(await engine.probe());
+  await host.initialize();
   const port = await runtime.listen(0);
   await writeReadyManifest({
     service: 'def-agent-host',

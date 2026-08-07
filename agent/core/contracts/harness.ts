@@ -14,12 +14,23 @@ export type DefHarnessOperationId =
   | 'inspect'
   | 'current'
   | 'resolve'
-  | 'calculate';
+  | 'calculate'
+  | 'apply'
+  | 'edit'
+  | 'add'
+  | 'remove'
+  | 'resistance'
+  | 'recalculate'
+  | 'ask';
 
 export type DefHarnessPhaseKind =
   | 'route'
   | 'context'
   | 'evidence'
+  | 'interaction'
+  | 'proposal'
+  | 'mutation'
+  | 'verification'
   | 'response';
 
 export type DefHarnessTerminalState = 'completed' | 'aborted';
@@ -32,7 +43,7 @@ export interface DefHarnessPhaseDefinition {
   readonly onSuccess?: string;
   readonly onFailure?: string;
   readonly terminalState?: DefHarnessTerminalState;
-  readonly writes: readonly [];
+  readonly writes: readonly string[];
 }
 
 export interface DefHarnessOperationDefinition {
@@ -48,7 +59,7 @@ export interface DefHarnessRevisionDefinition {
   readonly sourceLineage: string;
   readonly revision: string;
   readonly summary: string;
-  readonly writeScope: readonly [];
+  readonly writeScope: readonly string[];
   readonly operations: readonly DefHarnessOperationDefinition[];
 }
 

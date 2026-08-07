@@ -18,6 +18,11 @@ const {
 const { createDesktopStaticServer } = require('./static-host.cjs');
 const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 const { createAgentRuntime } = require('./agent-runtime.cjs');
+const {
+  migrateLegacyAgentProviderProfile,
+  readAgentProviderProfile,
+  writeAgentProviderProfile,
+} = require('./agent-provider-profile.cjs');
 
 const DESKTOP_HOST = '127.0.0.1';
 const DESKTOP_PORT = 31457;
@@ -89,6 +94,7 @@ let tray = null;
 let staticHost = null;
 let legacyFillRuntime = null;
 let agentRuntime = null;
+let agentProviderProfilePath = '';
 let openAgentModePromise = null;
 let allowQuit = false;
 let quitInProgress = false;
@@ -326,6 +332,7 @@ function registerIpc() {
   ipcMain.handle('desktop:get-capabilities', (event) => {
     requireTrustedSender(event);
     const mcpState = legacyFillRuntime?.state();
+    const agentState = agentRuntime?.state();
     return {
       host: 'desktop-shell',
       browserWorkspace: true,
@@ -333,8 +340,8 @@ function registerIpc() {
       agent: {
         available: true,
         framework: true,
-        engine: false,
-        reason: agentRuntime?.state().reason || 'DEF Agent Host 尚未初始化',
+        engine: agentState?.health?.engine?.state === 'ready',
+        reason: agentState?.reason || 'DEF Agent Host 尚未初始化',
       },
       mcp: {
         available: Boolean(mcpState?.ready),
@@ -392,6 +399,29 @@ function registerIpc() {
       state: 'not-started',
       reason: 'DEF Agent Host 尚未初始化。',
     };
+  });
+  ipcMain.handle('desktop:get-agent-profile', (event) => {
+    requireTrustedSender(event);
+    return readAgentProviderProfile(agentProviderProfilePath) || {
+      configured: false,
+      ref: 'default',
+      providerId: 'deepseek',
+      displayName: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com',
+      modelId: 'deepseek-chat',
+      apiKeyConfigured: false,
+    };
+  });
+  ipcMain.handle('desktop:save-agent-profile', async (event, payload) => {
+    requireTrustedSender(event);
+    try {
+      const profile = writeAgentProviderProfile(agentProviderProfilePath, payload || {});
+      if (agentRuntime?.state().running) await agentRuntime.stop();
+      const runtime = agentRuntime ? await agentRuntime.start() : null;
+      return { ok: true, profile, runtime };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
   });
   ipcMain.handle('desktop:open-agent-mode', async (event) => {
     requireTrustedSender(event);
@@ -508,11 +538,30 @@ async function startApplication() {
   const runtimeApplicationRoot = app.isPackaged
     ? path.join(process.resourcesPath, 'app.asar.unpacked')
     : APPLICATION_ROOT;
+  const developmentProfileOverride = !app.isPackaged
+    ? String(process.env.DMG_AGENT_PROVIDER_PROFILE_PATH || '').trim()
+    : '';
+  agentProviderProfilePath = developmentProfileOverride
+    ? path.resolve(developmentProfileOverride)
+    : path.join(
+      app.getPath('userData'),
+      'runtime',
+      'def-agent-provider-profiles.json',
+    );
+  if (!developmentProfileOverride) {
+    const profileMigration = migrateLegacyAgentProviderProfile(agentProviderProfilePath, [
+      path.join(app.getPath('appData'), 'dmg-end-field', 'runtime', 'def-agent', 'config.json'),
+      path.join(APPLICATION_ROOT, '.runtime', 'def-agent', 'config.json'),
+    ]);
+    if (profileMigration.migrated) diagnostic(`migrated legacy Agent provider profile from ${profileMigration.sourcePath}`);
+  } else {
+    diagnostic('using development-only Agent provider profile override');
+  }
   agentRuntime = createAgentRuntime({
     applicationRoot: runtimeApplicationRoot,
     runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
     engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-opencode-engine'),
-    engineProfilePath: path.join(app.getPath('userData'), 'runtime', 'def-agent-provider-profiles.json'),
+    engineProfilePath: agentProviderProfilePath,
     browserOrigin,
     diagnostic,
     launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {
@@ -568,12 +617,14 @@ app.on('before-quit', (event) => {
   event.preventDefault();
   if (quitInProgress) return;
   quitInProgress = true;
-  const shutdownTasks = [
-    agentRuntime?.stop(),
-    legacyFillRuntime?.stop(),
-    staticHost?.close(),
-  ].filter(Boolean);
-  void Promise.allSettled(shutdownTasks).finally(() => {
+  void (async () => {
+    // Keep the loopback bridge alive while each child receives its graceful
+    // shutdown request. The Agent goes first so active turns and journals are
+    // terminal before the browser endpoint disappears.
+    if (agentRuntime) await agentRuntime.stop().catch((error) => diagnostic(`agent shutdown failed: ${error.message}`));
+    if (legacyFillRuntime) await legacyFillRuntime.stop().catch((error) => diagnostic(`MCP shutdown failed: ${error.message}`));
+    if (staticHost) await staticHost.close().catch((error) => diagnostic(`browser bridge shutdown failed: ${error.message}`));
+  })().finally(() => {
     allowQuit = true;
     app.quit();
   });

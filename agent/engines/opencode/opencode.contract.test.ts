@@ -55,8 +55,31 @@ assert.deepEqual(
   ]),
   OPENCODE_TOOL_BINDINGS,
 );
-assert.equal(new Set(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical)).size, 6);
-assert.equal(new Set(OPENCODE_TOOL_BINDINGS.map(([, safe]) => safe)).size, 6);
+assert.deepEqual(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical), [
+  'def.harness.route',
+  'def.node.crud.context',
+  'def.data.resource.team_loadouts',
+  'def.node.crud.current',
+  'def.data.resource.buff',
+  'def.data.resource.damage',
+  'def.user.ask',
+  'def.team.selection.apply',
+  'def.workbench.add_skill_button',
+  'def.workbench.remove_skill_button',
+  'def.buff.add_to_button',
+  'def.buff.remove_from_button',
+  'def.target.set_resistance',
+  'def.worknode.patch_and_checkout',
+  'def.damage.calculate_and_verify',
+]);
+assert.equal(
+  new Set(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical)).size,
+  OPENCODE_TOOL_BINDINGS.length,
+);
+assert.equal(
+  new Set(OPENCODE_TOOL_BINDINGS.map(([, safe]) => safe)).size,
+  OPENCODE_TOOL_BINDINGS.length,
+);
 assert.throws(() => toOpenCodeSafeToolName('def.unknown'), /Unsupported DEF Tool binding/u);
 
 const routeProjection = projection(1, 'def.harness.route');
@@ -477,6 +500,66 @@ async function testAdapterAtomicProjection(): Promise<void> {
   await adapter.shutdown();
 }
 
+async function testAdapterUsesMonotonicMessageIdsAcrossTurns(): Promise<void> {
+  const runtime = new FakeOpenCodeRuntimeController();
+  const adapter = new OpenCodeEngineAdapter({
+    runtimeRoot: '/unused',
+    storeRoot: '/unused',
+    profileSource: new InMemoryOpenCodeProviderProfileSource([profile]),
+    bridge: new OpenCodePrivateBridge({ token: 'multi-turn-token-abcdefghijklmnopqrstuvwxyz' }),
+    runtimeSupervisor: runtime,
+  });
+  const session = await adapter.createSession({
+    defSessionId: asDefSessionId('def-session-multi-turn'),
+    providerProfileRef: 'default',
+  });
+  const emptyProjection = { revision: 1, tools: [] } as const;
+  const first = await adapter.startTurn({
+    engineSession: session,
+    defSessionId: asDefSessionId('def-session-multi-turn'),
+    defTurnId: asDefTurnId('def-turn-multi-turn-first'),
+    clientTurnId: asClientTurnId('client-turn-multi-turn-first'),
+    providerProfileRef: 'default',
+    systemContext: 'Multi-turn message chronology contract.',
+    userMessage: '第一轮',
+    toolProjection: emptyProjection,
+  });
+  const firstUserId = runtime.promptRequests[0]?.messageID;
+  assert.equal(typeof firstUserId, 'string');
+  assert.match(firstUserId as string, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/u);
+  const firstAssistantId = nextFixtureMessageId(firstUserId as string);
+  runtime.emit(finishedAssistantEvent(session.sessionId, firstUserId as string, firstAssistantId));
+  runtime.emit(idleEvent(session.sessionId));
+  assert.equal((await nextEvent(first.events[Symbol.asyncIterator]())).type, 'turn.completed');
+
+  // The legacy adapter could leave a newer-by-wall-clock msg_def_* user row
+  // behind after OpenCode skipped a Turn. The new generator must advance past
+  // both that row and the previous native assistant ID.
+  runtime.latestMessages = [
+    { info: { id: firstAssistantId, role: 'assistant', time: { created: Date.now() - 2 } }, parts: [] },
+    { info: { id: `msg_def_${'a'.repeat(32)}`, role: 'user', time: { created: Date.now() - 1 } }, parts: [] },
+  ];
+  const second = await adapter.startTurn({
+    engineSession: session,
+    defSessionId: asDefSessionId('def-session-multi-turn'),
+    defTurnId: asDefTurnId('def-turn-multi-turn-second'),
+    clientTurnId: asClientTurnId('client-turn-multi-turn-second'),
+    providerProfileRef: 'default',
+    systemContext: 'Multi-turn message chronology contract.',
+    userMessage: '第二轮',
+    toolProjection: emptyProjection,
+  });
+  const secondUserId = runtime.promptRequests[1]?.messageID;
+  assert.equal(typeof secondUserId, 'string');
+  assert.match(secondUserId as string, /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/u);
+  assert.ok((secondUserId as string) > firstAssistantId, '第二轮 user message ID 必须晚于上一轮 assistant');
+  const secondAssistantId = nextFixtureMessageId(secondUserId as string);
+  runtime.emit(finishedAssistantEvent(session.sessionId, secondUserId as string, secondAssistantId));
+  runtime.emit(idleEvent(session.sessionId));
+  assert.equal((await nextEvent(second.events[Symbol.asyncIterator]())).type, 'turn.completed');
+  await adapter.shutdown();
+}
+
 async function testAdapterAbortWithPendingTool(): Promise<void> {
   const bridge = new OpenCodePrivateBridge({ token: 'abort-token-abcdefghijklmnopqrstuvwxyz' });
   const runtime = new FakeOpenCodeRuntimeController();
@@ -609,14 +692,19 @@ async function testAdapterProcessCrashAndProviderRedaction(): Promise<void> {
       type: 'session.error',
       properties: {
         sessionID: providerTurn.session.sessionId,
-        error: { data: { message: 'secret-api-key-should-never-escape' } },
+        error: {
+          data: {
+            statusCode: 401,
+            message: 'Authentication failed for secret-api-key-should-never-escape',
+          },
+        },
       },
     },
   });
   const providerTerminal = await nextEvent(providerEvents);
   assert.equal(providerTerminal.type, 'turn.failed');
   if (providerTerminal.type === 'turn.failed') {
-    assert.equal(providerTerminal.message, 'OpenCode provider request failed');
+    assert.equal(providerTerminal.message, '模型服务认证失败，请在桌面 Shell 更新 API Key。');
     assert.doesNotMatch(providerTerminal.message, /secret-api-key/u);
   }
   await providerFailed.adapter.shutdown();
@@ -700,9 +788,10 @@ async function testAdapterRejectsOversizedMultilineSseFrame(): Promise<void> {
 }
 
 class FakeOpenCodeRuntimeController implements OpenCodeRuntimeController {
-  readonly #stream = new TransformStream<Uint8Array, Uint8Array>();
-  readonly #writer = this.#stream.writable.getWriter();
+  readonly #writers = new Set<WritableStreamDefaultWriter<Uint8Array>>();
   readonly #encoder = new TextEncoder();
+  readonly promptRequests: Array<Record<string, unknown>> = [];
+  latestMessages: unknown[] = [];
   running: RunningOpenCodeRuntime;
   abortRequests = 0;
   statusRequests = 0;
@@ -754,7 +843,8 @@ class FakeOpenCodeRuntimeController implements OpenCodeRuntimeController {
   }
 
   async shutdown(): Promise<void> {
-    await this.#writer.close().catch(() => undefined);
+    await Promise.all([...this.#writers].map((writer) => writer.close().catch(() => undefined)));
+    this.#writers.clear();
   }
 
   setExitHandler(handler: (error: OpenCodeEngineError) => void): void {
@@ -768,34 +858,58 @@ class FakeOpenCodeRuntimeController implements OpenCodeRuntimeController {
   }
 
   emit(value: unknown): void {
-    void this.#writer.write(this.#encoder.encode(`data: ${JSON.stringify(value)}\n\n`)).catch(() => undefined);
+    const chunk = this.#encoder.encode(`data: ${JSON.stringify(value)}\n\n`);
+    for (const writer of this.#writers) {
+      void writer.write(chunk).catch(() => this.#writers.delete(writer));
+    }
   }
 
   async endEventStream(): Promise<void> {
-    await this.#writer.close();
+    await Promise.all([...this.#writers].map((writer) => writer.close()));
+    this.#writers.clear();
   }
 
   async emitOversizedMultilineFrame(): Promise<void> {
     const line = this.#encoder.encode(`data: ${'x'.repeat(1_024)}\n`);
     for (let index = 0; index < 4_100; index += 1) {
-      try {
-        await this.#writer.write(line);
-      } catch {
-        return;
+      for (const writer of this.#writers) {
+        try {
+          await writer.write(line);
+        } catch {
+          this.#writers.delete(writer);
+        }
       }
+      if (this.#writers.size === 0) return;
     }
   }
 
   async request(pathname: string, _init?: RequestInit): Promise<Response> {
     if (pathname === '/session') return Response.json({ id: 'opencode-session-contract' });
+    if (pathname === '/session/opencode-session-contract/message?limit=8') {
+      return Response.json(this.latestMessages);
+    }
     if (pathname === '/session/opencode-session-contract' && _init?.method !== 'DELETE') {
       return Response.json({ id: 'opencode-session-contract' });
     }
     if (pathname === '/global/event') {
+      const stream = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = stream.writable.getWriter();
+      this.#writers.add(writer);
+      const abort = () => {
+        this.#writers.delete(writer);
+        void writer.abort(new DOMException('Aborted', 'AbortError')).catch(() => undefined);
+      };
+      if (_init?.signal?.aborted) abort();
+      else _init?.signal?.addEventListener('abort', abort, { once: true });
       queueMicrotask(() => this.emit({ payload: { type: 'server.connected', properties: {} } }));
-      return new Response(this.#stream.readable, { headers: { 'content-type': 'text/event-stream' } });
+      return new Response(stream.readable, { headers: { 'content-type': 'text/event-stream' } });
     }
-    if (pathname.endsWith('/prompt_async')) return new Response(null, { status: 204 });
+    if (pathname.endsWith('/prompt_async')) {
+      const requestBody = _init?.body;
+      assert.equal(typeof requestBody, 'string');
+      this.promptRequests.push(JSON.parse(requestBody as string) as Record<string, unknown>);
+      return new Response(null, { status: 204 });
+    }
     if (pathname.endsWith('/abort')) {
       this.abortRequests += 1;
       return Response.json(true);
@@ -861,6 +975,40 @@ function schemaFor(name: string): JsonObject {
   return { type: 'object', additionalProperties: false, properties: {} };
 }
 
+function nextFixtureMessageId(parentId: string): string {
+  const encoded = BigInt(`0x${parentId.slice(4, 16)}`) + 1n;
+  return `msg_${encoded.toString(16).padStart(12, '0')}${'A'.repeat(14)}`;
+}
+
+function finishedAssistantEvent(sessionId: string, parentId: string, messageId: string): unknown {
+  return {
+    directory: '/fixture/workspace',
+    payload: {
+      type: 'message.updated',
+      properties: {
+        sessionID: sessionId,
+        info: {
+          id: messageId,
+          sessionID: sessionId,
+          role: 'assistant',
+          parentID: parentId,
+          time: { created: 1, completed: 2 },
+        },
+      },
+    },
+  };
+}
+
+function idleEvent(sessionId: string): unknown {
+  return {
+    directory: '/fixture/workspace',
+    payload: {
+      type: 'session.status',
+      properties: { sessionID: sessionId, status: { type: 'idle' } },
+    },
+  };
+}
+
 async function nextEvent(iterator: AsyncIterator<import('../../core/contracts/index.ts').EngineEvent>) {
   const next = await iterator.next();
   assert.equal(next.done, false);
@@ -895,6 +1043,7 @@ try {
   await testSupervisorDoesNotReplaceUnstoppableChild(temporary);
   await testPrivateBridge();
   await testAdapterAtomicProjection();
+  await testAdapterUsesMonotonicMessageIdsAcrossTurns();
   await testAdapterAbortWithPendingTool();
   await testAdapterProcessCrashAndProviderRedaction();
   await testAdapterStreamQuarantineAndRecovery();

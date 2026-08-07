@@ -63,6 +63,65 @@
   border-left: var(--border-width) solid var(--border-color);
 }
 
+/* AI mode is part of the Canvas workbench, matching the historical embedded
+ * workbench contract. The panel and Canvas share one surface instead of using
+ * a viewport-fixed overlay. */
+.canvas-board.is-ai-mode {
+  --canvas-ai-right-width: min(50vw, 760px);
+}
+
+.canvas-board.is-ai-mode .canvas-left-zone {
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 16px 0 30px rgba(0, 0, 0, 0.08);
+  z-index: 24;
+}
+
+.canvas-board.is-ai-mode .canvas-right-zone {
+  width: var(--canvas-ai-right-width);
+  min-width: var(--canvas-ai-right-width);
+  max-width: calc(100vw - 96px);
+}
+
+.canvas-right-zone.is-ai-real-right {
+  z-index: 32;
+  opacity: 0.3;
+  background: var(--office-workspace-panel-bg);
+  box-shadow: -10px 0 18px rgba(0, 0, 0, 0.06);
+  pointer-events: none;
+}
+
+.canvas-right-zone.is-ai-panel {
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: -12px 0 22px rgba(0, 0, 0, 0.1);
+  pointer-events: auto;
+}
+
+.canvas-board.is-ai-hover-left .canvas-left-zone {
+  background: #fff;
+  z-index: 60;
+}
+
+.canvas-board.is-ai-hover-left .canvas-right-zone.is-ai-real-right {
+  z-index: 30;
+}
+
+.canvas-board.is-ai-hover-left .canvas-right-zone.is-ai-panel {
+  z-index: 34;
+}
+
+.canvas-board.is-ai-hover-right .canvas-left-zone {
+  z-index: 24;
+}
+
+.canvas-board.is-ai-hover-right .canvas-right-zone.is-ai-real-right {
+  z-index: 42;
+}
+
+.canvas-board.is-ai-hover-right .canvas-right-zone.is-ai-panel {
+  z-index: 60;
+}
+
 /* 閰嶇疆鐣岄潰鍏ㄥ睆閬僵锛氱敤浜庤仛鐒﹀彸渚ф娊灞夊苟鎵挎帴鈥滅偣鍑诲閮ㄥ叧闂€?*/
 .config-panel-overlay {
   --config-panel-width: 88vw;

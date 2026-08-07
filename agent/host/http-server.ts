@@ -8,6 +8,7 @@ import {
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
+  asInteractionId,
   asTimelineId,
   asWorkspaceId,
   type AgentHostHealth,
@@ -20,6 +21,7 @@ import {
   type BrowserWorkbenchRegistration,
   type JsonObject,
   type JsonValue,
+  type InteractionResponse,
   type ProductBinding,
   type ProductCommandResult,
 } from '../core/contracts/index.ts';
@@ -46,6 +48,7 @@ export interface DefAgentHostHttpServerOptions {
   readonly consumers: BrowserConsumerRegistry;
   readonly gateway: RemoteBrowserProductGateway;
   readonly engine: AgentHostHealth['engine'] | (() => AgentHostHealth['engine']);
+  readonly diagnostic?: (message: string) => void;
   readonly onShutdownRequested?: () => void;
 }
 
@@ -57,6 +60,7 @@ export class DefAgentHostHttpServer {
   readonly #consumers: BrowserConsumerRegistry;
   readonly #gateway: RemoteBrowserProductGateway;
   readonly #engine: () => AgentHostHealth['engine'];
+  readonly #diagnostic: (message: string) => void;
   readonly #onShutdownRequested: () => void;
   readonly #server: Server;
   #state: RuntimeState = 'starting';
@@ -72,6 +76,7 @@ export class DefAgentHostHttpServer {
     this.#gateway = options.gateway;
     const engine = options.engine;
     this.#engine = typeof engine === 'function' ? engine : () => engine;
+    this.#diagnostic = options.diagnostic ?? (() => {});
     this.#onShutdownRequested = options.onShutdownRequested ?? (() => {});
     this.#server = createServer((request, response) => {
       void this.#handle(request, response).catch((error: unknown) => {
@@ -186,7 +191,10 @@ export class DefAgentHostHttpServer {
         origin: this.#browserOrigin,
         audience: expectAudience(body.audience),
       });
-      this.#writeJson(response, 201, session);
+      this.#writeJson(response, 201, {
+        ...session,
+        approvalVerificationKey: this.#host.getApprovalVerificationKey(),
+      });
       return;
     }
 
@@ -218,7 +226,7 @@ export class DefAgentHostHttpServer {
       }
     }
 
-    const sessionMatch = /^\/agent-host\/sessions\/([^/]+)(?:\/(events|turns))?$/.exec(url.pathname);
+    const sessionMatch = /^\/agent-host\/sessions\/([^/]+)(?:\/(events|turns|archive|restore))?$/.exec(url.pathname);
     if (sessionMatch) {
       const consumer = this.#consumers.requireActive(claims);
       const defSessionId = asDefSessionId(decodeRouteId(sessionMatch[1]!, 'defSessionId'));
@@ -227,6 +235,33 @@ export class DefAgentHostHttpServer {
         this.#writeJson(response, 200, {
           protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
           session: toProductSession(this.#host.readSession(defSessionId, consumer.binding)),
+        });
+        return;
+      }
+      if (request.method === 'POST' && action === 'archive') {
+        expectExactKeys(expectRecord(await readJson(request)), []);
+        const session = this.#host.archiveSession(defSessionId, consumer.binding);
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          session: toProductSession(session),
+        });
+        return;
+      }
+      if (request.method === 'POST' && action === 'restore') {
+        expectExactKeys(expectRecord(await readJson(request)), []);
+        const session = await this.#host.restoreSession(defSessionId, consumer.binding);
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          session: toProductSession(session),
+        });
+        return;
+      }
+      if (request.method === 'DELETE' && action === '') {
+        await this.#host.deleteSession(defSessionId, consumer.binding);
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          defSessionId,
+          deleted: true,
         });
         return;
       }
@@ -280,6 +315,32 @@ export class DefAgentHostHttpServer {
         protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
         defTurnId,
         stopped: true,
+      });
+      return;
+    }
+
+    if (request.method === 'GET' && url.pathname === '/agent-host/interactions') {
+      const consumer = this.#consumers.requireActive(claims);
+      this.#writeJson(response, 200, {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        interactions: this.#host.listPendingInteractions(consumer.binding),
+      });
+      return;
+    }
+    const interactionMatch = /^\/agent-host\/interactions\/([^/]+)\/respond$/.exec(url.pathname);
+    if (interactionMatch && request.method === 'POST') {
+      const consumer = this.#consumers.requireActive(claims);
+      const interactionId = asInteractionId(decodeRouteId(interactionMatch[1]!, 'interactionId'));
+      const input = parseInteractionResponse(await readJson(request));
+      const interactionResponse = this.#host.resolveInteraction(
+        interactionId,
+        input,
+        consumer.binding,
+      );
+      this.#writeJson(response, 200, {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        interactionId,
+        response: interactionResponse,
       });
       return;
     }
@@ -389,6 +450,7 @@ export class DefAgentHostHttpServer {
 
   #writeError(response: ServerResponse, error: unknown): void {
     const known = error instanceof DefAgentHostError || isHttpError(error);
+    if (!known) this.#diagnostic(describeInternalError(error));
     const statusCode = known ? error.statusCode : 500;
     const code = known ? error.code : 'AGENT_HOST_INTERNAL_ERROR';
     const message = known && statusCode < 500
@@ -396,6 +458,24 @@ export class DefAgentHostHttpServer {
       : 'DEF Agent Host request failed';
     this.#writeJson(response, statusCode, { error: { code, message } });
   }
+}
+
+function describeInternalError(error: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    if (current instanceof Error) {
+      const code = 'code' in current && typeof current.code === 'string'
+        ? ` ${current.code}`
+        : '';
+      parts.push(`${current.name}${code}: ${current.message}`.slice(0, 800));
+      current = current.cause;
+      continue;
+    }
+    parts.push(String(current).slice(0, 800));
+    break;
+  }
+  return `internal request failed: ${parts.join(' <- ') || 'unknown error'}`;
 }
 
 type HttpError = Error & { readonly code: string; readonly statusCode: number };
@@ -484,6 +564,30 @@ function parseCommandResultSubmission(value: JsonValue): BrowserCommandResultSub
     consumerId: expectString(body.consumerId, 'consumerId'),
     executorLeaseId: expectString(body.executorLeaseId, 'executorLeaseId'),
     result,
+  };
+}
+
+function parseInteractionResponse(value: JsonValue): {
+  readonly status: InteractionResponse['status'];
+  readonly value?: JsonValue;
+} {
+  const body = expectRecord(value);
+  expectExactKeys(body, ['status', 'value']);
+  const status = expectString(body.status, 'status');
+  const allowed: readonly InteractionResponse['status'][] = [
+    'answered',
+    'approved',
+    'rejected',
+    'expired',
+    'cancelled',
+    'stale',
+  ];
+  if (!allowed.includes(status as InteractionResponse['status'])) {
+    throw httpError('AGENT_REQUEST_INVALID', 'interaction status is invalid', 400);
+  }
+  return {
+    status: status as InteractionResponse['status'],
+    ...(Object.prototype.hasOwnProperty.call(body, 'value') ? { value: body.value! } : {}),
   };
 }
 

@@ -11,6 +11,7 @@ const test = require('node:test');
 const {
   AGENT_BRIDGE_PREFIX,
   BROWSER_ORIGIN_HEADER,
+  BROWSER_LAUNCH_PATH,
   GRANT_PATH,
   HEALTH_PATH,
   HOST_TOKEN_HEADER,
@@ -280,6 +281,11 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     assert.equal(fixture.calls[0].env.DEF_AGENT_READY_FILE, fixture.runtime.readyFile);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_ROOT, fixture.runtime.engineRoot);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_STORE_ROOT, fixture.runtime.engineStoreRoot);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_SESSION_STORE_ROOT, fixture.runtime.sessionStoreRoot);
+    assert.equal(
+      fixture.calls[0].env.DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT,
+      fixture.runtime.productCommandStoreRoot,
+    );
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_PROFILE_PATH, fixture.runtime.engineProfilePath);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF, 'default');
     assert.equal(fixture.calls[0].env.DEF_AGENT_PARENT_PID, String(process.pid));
@@ -463,6 +469,48 @@ test('browser proxy only owns /agent-host/**, enforces origin, and never forward
     }, denied), true);
     assert.equal(denied.statusCode, 403);
     assert.match(denied.body.toString('utf8'), /agent-origin-denied/u);
+  } finally {
+    await fixture.runtime.stop();
+    fixture.cleanup();
+  }
+});
+
+test('the embedded workbench button obtains one one-time grant from Electron and rejects every other origin', async () => {
+  const fixture = await createFixture();
+  try {
+    const denied = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'POST',
+      url: BROWSER_LAUNCH_PATH,
+      headers: {},
+    }, denied), true);
+    assert.equal(denied.statusCode, 403);
+    assert.equal(fixture.launchCount, 0, 'a missing browser origin must never lazy-start the Host');
+
+    const response = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'POST',
+      url: BROWSER_LAUNCH_PATH,
+      headers: { origin: 'http://127.0.0.1:31457' },
+    }, response), true);
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.headers['access-control-allow-origin'], 'http://127.0.0.1:31457');
+    assert.equal(fixture.launchCount, 1);
+    assert.equal(fixture.grants.length, 1);
+    const payload = JSON.parse(response.body.toString('utf8'));
+    assert.equal(payload.ok, true);
+    assert.equal(payload.launch.audience, 'workbench-ai-mode');
+    assert.match(payload.launch.grant, /^[A-Za-z0-9_-]{20,200}$/u);
+    assert.doesNotMatch(JSON.stringify(fixture.runtime.state()), new RegExp(payload.launch.grant, 'u'));
+
+    const methodDenied = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'GET',
+      url: BROWSER_LAUNCH_PATH,
+      headers: { origin: 'http://127.0.0.1:31457' },
+    }, methodDenied), true);
+    assert.equal(methodDenied.statusCode, 405);
+    assert.equal(fixture.grants.length, 1);
   } finally {
     await fixture.runtime.stop();
     fixture.cleanup();

@@ -78,9 +78,23 @@ export interface ProductWaitOptions {
   readonly timeoutMs?: number;
 }
 
+export interface ProductCommandCancelOptions {
+  readonly code?: string;
+  readonly message?: string;
+}
+
 export interface ProductGateway<Schema extends ProductOperationSchema> {
   getSnapshot(binding: ProductBinding): Promise<ProductSnapshotEnvelope>;
   dispatch(command: ProductCommandEnvelope<Schema>): Promise<ProductCommandReceipt>;
   awaitResult(commandId: CommandId, options?: ProductWaitOptions): Promise<ProductCommandResult>;
   reconcile(commandId: CommandId): Promise<ProductCommandResult | null>;
+  /**
+   * Atomically terminalize commands that have not yet been delivered to a
+   * Product consumer. Once delivery starts, the Product owns completion and
+   * the Host must reconcile its receipt instead of pretending it was stopped.
+   */
+  cancelPending?(
+    defTurnId: DefTurnId,
+    options?: ProductCommandCancelOptions,
+  ): Promise<readonly ProductCommandResult[]>;
 }

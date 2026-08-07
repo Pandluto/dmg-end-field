@@ -3,8 +3,11 @@ import type {
   CommandId,
   DefSessionId,
   DefTurnId,
+  InteractionId,
   ToolCallId,
 } from './ids.ts';
+import type { InteractionRequest, InteractionResponse } from './interaction.ts';
+import type { JsonObject, JsonValue } from './json.ts';
 import type { DefEvent } from './events.ts';
 import type { DefSessionV6 } from './session.ts';
 import type {
@@ -34,12 +37,17 @@ export const DEF_AGENT_IN_MEMORY_LIMITS = Object.freeze({
 export const AGENT_UI_CAPABILITY_HEADER = 'x-dmg-agent-ui-capability' as const;
 export const AGENT_LAUNCH_GRANT_FRAGMENT_KEY = '__agent_launch_grant' as const;
 export const AGENT_UI_CAPABILITY_STORAGE_KEY = 'dmg.desktop.agent-ui-session.v1' as const;
+export const AGENT_APPROVAL_KEY_STORAGE_KEY = 'dmg.desktop.agent-approval-key.v1' as const;
 
 export type AgentLaunchAudience = 'workbench-ai-mode';
 
 export type Phase2ProductOperationSchema = {
   'workbench.refresh-snapshot': {
     readonly reason: 'agent-read';
+  };
+  'workbench.execute-command': {
+    readonly command: JsonObject;
+    readonly visiblePostcondition?: JsonObject;
   };
 };
 
@@ -74,6 +82,13 @@ export type AgentUiSession = {
   readonly capability: string;
   readonly audience: AgentLaunchAudience;
   readonly expiresAt: number;
+  readonly approvalVerificationKey: ApprovalCapabilityVerificationKey;
+};
+
+export type ApprovalCapabilityVerificationKey = {
+  readonly algorithm: 'Ed25519';
+  readonly keyEpoch: string;
+  readonly publicKeySpki: string;
 };
 
 export type BrowserWorkbenchRegistration = {
@@ -106,6 +121,22 @@ export type AgentUiState = {
   readonly consumer: BrowserWorkbenchConsumerState | null;
   readonly activeDefSessionId: DefSessionId | null;
   readonly activeDefTurnId: DefTurnId | null;
+};
+
+export type AgentInteractionList = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly interactions: readonly InteractionRequest[];
+};
+
+export type AgentInteractionRespondInput = {
+  readonly status: InteractionResponse['status'];
+  readonly value?: JsonValue;
+};
+
+export type AgentInteractionEnvelope = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly interactionId: InteractionId;
+  readonly response: InteractionResponse;
 };
 
 export type AgentProductSession = Omit<DefSessionV6, 'engine'> & {
@@ -165,6 +196,13 @@ export type BrowserSnapshotPublish = {
 export type BrowserCommandDelivery = {
   readonly cursor: number;
   readonly command: Phase2ProductCommand;
+  /**
+   * `execute` is used only for a command accepted by the current Host
+   * process. A command loaded after a Host restart is always `reconcile`.
+   * The field stays optional for older test seams/clients; new Host
+   * deliveries always include it.
+   */
+  readonly mode?: 'execute' | 'reconcile';
 };
 
 export type BrowserCommandResultSubmission = {

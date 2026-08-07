@@ -36,6 +36,14 @@ const BASE_KEYS = ['schemaVersion', 'sequence', 'occurredAt', 'defSessionId', 't
 const COMMAND_BINDING_KEYS = [
   'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId', 'beforeRevision',
 ];
+const HARNESS_OPERATIONS = [
+  'inspect', 'current', 'resolve', 'calculate',
+  'apply', 'edit', 'add', 'remove', 'resistance', 'recalculate', 'ask',
+];
+const HARNESS_PHASE_KINDS = [
+  'route', 'context', 'evidence', 'interaction',
+  'proposal', 'mutation', 'verification', 'response',
+];
 
 function record(value: unknown): value is RecordValue {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -142,16 +150,16 @@ export function isSafeProductEventShape(event: RecordValue): boolean {
     case 'harness.routed':
       return exact(payload, ['businessId', 'operation', 'revision', 'sourceLineage', 'contentHash'])
         && oneOf(payload.businessId, ['selection', 'loadout', 'timeline', 'buff', 'calculation'])
-        && oneOf(payload.operation, ['inspect', 'current', 'resolve', 'calculate'])
+        && oneOf(payload.operation, HARNESS_OPERATIONS)
         && string(payload, 'revision') && string(payload, 'sourceLineage') && string(payload, 'contentHash');
     case 'harness.phase.entered':
       return exact(payload, ['businessId', 'operation', 'phaseId', 'phaseKind'])
         && (payload.businessId === null
           || oneOf(payload.businessId, ['selection', 'loadout', 'timeline', 'buff', 'calculation']))
         && (payload.operation === null
-          || oneOf(payload.operation, ['inspect', 'current', 'resolve', 'calculate']))
+          || oneOf(payload.operation, HARNESS_OPERATIONS))
         && string(payload, 'phaseId')
-        && oneOf(payload.phaseKind, ['route', 'context', 'evidence', 'response']);
+        && oneOf(payload.phaseKind, HARNESS_PHASE_KINDS);
     case 'harness.tool.projected':
       return exact(payload, ['projectionRevision', 'tools'])
         && finite(payload.projectionRevision)
@@ -162,7 +170,7 @@ export function isSafeProductEventShape(event: RecordValue): boolean {
         && (payload.businessId === null
           || oneOf(payload.businessId, ['selection', 'loadout', 'timeline', 'buff', 'calculation']))
         && (payload.operation === null
-          || oneOf(payload.operation, ['inspect', 'current', 'resolve', 'calculate']))
+          || oneOf(payload.operation, HARNESS_OPERATIONS))
         && string(payload, 'phaseId')
         && oneOf(payload.terminalState, ['completed', 'aborted'])
         && (!own(payload, 'code') || typeof payload.code === 'string');

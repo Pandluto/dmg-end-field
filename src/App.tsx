@@ -16,11 +16,6 @@ import { AppShell } from './components/WebApp/AppShell';
 import { DataWorkspacePage } from './components/WebApp/DataWorkspacePage';
 import { SettingsPage } from './components/WebApp/SettingsPage';
 import { StartPage } from './components/WebApp/StartPage';
-import { AgentModeOverlay } from './components/AgentMode';
-import {
-  desktopAgentBridge,
-  desktopAgentConsumerController,
-} from './platform/agent/browserAgentRuntime';
 import {
   APP_ROUTE_PATHS,
   getCurrentAppPath,
@@ -37,6 +32,23 @@ const loadDamageReportPptPage = () => import('./components/DamageReportPptPage')
 const loadImageManagerPage = () => import('./components/ImageManagerPage');
 const loadOperatorConfigPage = () => import('./components/OperatorConfigPage');
 const loadMcpFillPage = () => import('./components/McpFillPage');
+const loadAgentModePanel = async () => {
+  const [{ AgentModeOverlay }, runtime] = await Promise.all([
+    import('./components/AgentMode'),
+    import('./platform/agent/browserAgentRuntime'),
+  ]);
+  return {
+    default: ({ onOpenWorkNodePanel }: { onOpenWorkNodePanel?: () => void }) => (
+      <AgentModeOverlay
+        embedded
+        bridge={runtime.desktopAgentBridge}
+        consumerController={runtime.desktopAgentConsumerController}
+        onOpenWorkNodePanel={onOpenWorkNodePanel}
+        onExit={() => void runtime.exitDesktopAgentModeToWorkbench()}
+      />
+    ),
+  };
+};
 
 const WorkbenchFrame = lazy(async () => ({
   default: (await loadWorkbenchFrame()).WorkbenchFrame,
@@ -65,6 +77,7 @@ const OperatorConfigPage = lazy(async () => ({
 const McpFillPage = lazy(async () => ({
   default: (await loadMcpFillPage()).McpFillPage,
 }));
+const AgentModePanel = lazy(loadAgentModePanel);
 
 const routePreloaders = [
   loadWorkbenchFrame,
@@ -231,7 +244,6 @@ function App() {
 
   let page: ReactNode;
   let overlay: ReactNode = null;
-  let agentOverlay: ReactNode = null;
   if (isOverlayPath(currentPath)) {
     page = workspaceActivated ? <WorkbenchFrame /> : <IdleWorkbenchBackdrop />;
     if (currentPath === APP_ROUTE_PATHS.dataWorkspace) overlay = <DataWorkspacePage />;
@@ -252,11 +264,16 @@ function App() {
   } else if (currentPath === APP_ROUTE_PATHS.operatorConfig) {
     page = <OperatorConfigPage />;
   } else if (currentPath === APP_ROUTE_PATHS.agentMode) {
-    page = <WorkbenchFrame />;
-    agentOverlay = (
-      <AgentModeOverlay
-        bridge={desktopAgentBridge}
-        consumerController={desktopAgentConsumerController}
+    page = (
+      <WorkbenchFrame
+        isAgentMode
+        agentModePanel={({ onOpenWorkNodePanel }) => (
+          <AgentModePanel
+            onOpenWorkNodePanel={onOpenWorkNodePanel
+              ? () => void onOpenWorkNodePanel()
+              : undefined}
+          />
+        )}
       />
     );
   } else {
@@ -266,7 +283,7 @@ function App() {
 
   return (
     <div className="app">
-      <AppShell currentPath={currentPath} overlay={overlay} agentOverlay={agentOverlay}>
+      <AppShell currentPath={currentPath} overlay={overlay}>
         <RouteLoadBoundary key={currentPath}>
           <Suspense fallback={<PageLoadingFallback />}>{page}</Suspense>
         </RouteLoadBoundary>

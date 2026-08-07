@@ -130,6 +130,7 @@ const approvalClaims: ApprovalCapabilityClaims = {
     databaseGeneration,
     timelineId,
     checkoutTargetId: null,
+    checkoutUpdatedAt: 0,
     contentRevision: 1,
     snapshotDigest: 'sha256:snapshot',
   },

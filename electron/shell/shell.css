@@ -247,6 +247,21 @@ code {
   gap: 12px;
 }
 
+.agent-profile-fields {
+  display: grid;
+  grid-template-columns: 1.15fr 1.35fr 1fr;
+  gap: 12px;
+}
+
+.agent-profile-panel .description {
+  margin-top: -7px;
+}
+
+.agent-profile-panel .ready {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .path-field > span:last-child {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -283,6 +298,10 @@ footer {
   }
 
   .release-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-profile-fields {
     grid-template-columns: 1fr;
   }
 }

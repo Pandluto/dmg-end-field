@@ -190,8 +190,10 @@ assert.equal(manager.listRevisions().every((revision) => revision.contentHash.st
 
   const writingCatalog = structuredClone(PHASE3_READONLY_HARNESS_CATALOG) as unknown as Array<{
     writeScope: string[];
+    operations: Array<{ phases: Array<{ writes: string[] }> }>;
   }>;
-  writingCatalog[0]!.writeScope = ['selection'];
+  writingCatalog[0]!.writeScope = ['selection.roster'];
+  writingCatalog[0]!.operations[0]!.phases[0]!.writes = ['selection.roster'];
   expectCatalogInvalid(writingCatalog as unknown as readonly DefHarnessRevisionDefinition[]);
 }
 

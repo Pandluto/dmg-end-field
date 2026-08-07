@@ -87,7 +87,7 @@ const routePhase: DefHarnessPhaseDefinition = {
   kind: 'route',
   tools: [DEF_HARNESS_ROUTE_TOOL_NAME],
   writes: [],
-  instructions: 'Choose exactly one allowlisted business and operation. Do not combine businesses or request a mutation.',
+  instructions: 'Choose exactly one allowlisted business and operation. Do not combine businesses.',
 };
 
 export class DefHarnessManager {
@@ -104,6 +104,16 @@ export class DefHarnessManager {
     readonly catalog?: readonly DefHarnessRevisionDefinition[];
   }) {
     this.#resolveToolDescriptor = options.resolveToolDescriptor;
+    this.#catalog = validateCatalog(
+      cloneCatalog(options.catalog ?? PHASE3_READONLY_HARNESS_CATALOG),
+      this.#resolveToolDescriptor,
+    );
+    const businessIds = [...this.#catalog.keys()];
+    const operationIds = [...new Set(
+      [...this.#catalog.values()].flatMap((entry) => (
+        entry.definition.operations.map((operation) => operation.operation)
+      )),
+    )];
     this.#routeDescriptor = {
       name: DEF_HARNESS_ROUTE_TOOL_NAME,
       description: 'Route this Turn to one allowlisted DEF business operation.',
@@ -113,16 +123,12 @@ export class DefHarnessManager {
         additionalProperties: false,
         required: ['businessId', 'operation'],
         properties: {
-          businessId: { enum: ['selection', 'loadout', 'timeline', 'buff', 'calculation'] },
-          operation: { enum: ['inspect', 'current', 'resolve', 'calculate'] },
+          businessId: { enum: businessIds },
+          operation: { enum: operationIds },
         },
       },
     };
-    this.#catalog = validateCatalog(
-      cloneCatalog(options.catalog ?? PHASE3_READONLY_HARNESS_CATALOG),
-      this.#resolveToolDescriptor,
-    );
-    this.#catalogRevision = `phase3-readonly:${sha256(canonicalJson(
+    this.#catalogRevision = `def-harness:${sha256(canonicalJson(
       [...this.#catalog.values()].map((record) => record.revision) as unknown as JsonValue,
     ))}`;
   }
@@ -141,10 +147,15 @@ export class DefHarnessManager {
         `${definition.businessId}: ${definition.operations.map((entry) => entry.operation).join(', ')}`
       ))
       .join('\n');
+    const interactive = [...this.#catalog.values()].some(({ definition }) => definition.writeScope.length > 0);
     return [
-      'You are running inside the DEF Harness read-only phase.',
+      `You are running inside the DEF Harness ${interactive ? 'interactive' : 'read-only'} phase.`,
       `Call ${DEF_HARNESS_ROUTE_TOOL_NAME} before any business Tool.`,
-      'Choose one business and one operation. Mutation, cross-business routing and unlisted tools are unavailable.',
+      'Choose one business and one operation. Cross-business routing and unlisted tools are unavailable.',
+      ...(interactive ? [
+        'Mutation Tools never apply directly: the DEF Host pauses for an explicit user approval bound to the exact proposal and browser snapshot.',
+        'If the target is ambiguous, choose the ask operation instead of guessing.',
+      ] : ['Mutation is unavailable in this catalog.']),
       routes,
     ].join('\n');
   }
@@ -475,15 +486,15 @@ function validateCatalog(
   }
   const result = new Map<DefHarnessBusinessId, CatalogRecord>();
   for (const definition of definitions) {
-    if (definition.writeScope.length > 0 || definition.operations.length === 0) {
-      throw new DefHarnessError('HARNESS_CATALOG_INVALID', `${definition.businessId} must be read-only and non-empty`);
+    if (definition.operations.length === 0) {
+      throw new DefHarnessError('HARNESS_CATALOG_INVALID', `${definition.businessId} must be non-empty`);
     }
     const operations = new Map<DefHarnessOperationId, DefHarnessOperationDefinition>();
     for (const operation of definition.operations) {
       if (operations.has(operation.operation)) {
         throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Duplicate operation ${definition.businessId}.${operation.operation}`);
       }
-      validateOperation(definition.businessId, operation, resolveTool);
+      validateOperation(definition.businessId, operation, definition.writeScope, resolveTool);
       operations.set(operation.operation, operation);
     }
     const contentHash = `sha256:${sha256(canonicalJson(definition as unknown as JsonValue))}`;
@@ -504,6 +515,7 @@ function validateCatalog(
 function validateOperation(
   businessId: DefHarnessBusinessId,
   operation: DefHarnessOperationDefinition,
+  writeScope: readonly string[],
   resolveTool: ToolDescriptorResolver,
 ): void {
   const phases = new Map<string, DefHarnessPhaseDefinition>();
@@ -511,13 +523,24 @@ function validateOperation(
     if (phases.has(phase.id)) {
       throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Duplicate phase ${businessId}.${operation.operation}.${phase.id}`);
     }
-    if (phase.writes.length > 0) {
-      throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Phase ${phase.id} is not read-only`);
-    }
     for (const toolName of phase.tools) {
       const descriptor = resolveTool(toolName);
-      if (!descriptor || descriptor.risk !== 'read') {
-        throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Phase ${phase.id} has an unknown or non-read Tool: ${toolName}`);
+      if (!descriptor) {
+        throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Phase ${phase.id} has an unknown Tool: ${toolName}`);
+      }
+      if (descriptor.risk === 'mutate' && phase.writes.length === 0) {
+        throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Mutation phase ${phase.id} must declare a write scope`);
+      }
+      if (descriptor.risk !== 'mutate' && phase.writes.length > 0) {
+        throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Non-mutation phase ${phase.id} cannot declare writes`);
+      }
+    }
+    for (const write of phase.writes) {
+      if (!writeScope.includes(write)) {
+        throw new DefHarnessError(
+          'HARNESS_CATALOG_INVALID',
+          `Phase ${phase.id} writes outside ${businessId} scope: ${write}`,
+        );
       }
     }
     phases.set(phase.id, phase);

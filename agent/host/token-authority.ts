@@ -57,7 +57,7 @@ export class AgentTokenAuthority {
     readonly grant: string;
     readonly origin: string;
     readonly audience: AgentLaunchAudience;
-  }): AgentUiSession {
+  }): Omit<AgentUiSession, 'approvalVerificationKey'> {
     const digest = tokenDigest(input.grant);
     const record = this.#launchGrants.get(digest);
     this.#launchGrants.delete(digest);

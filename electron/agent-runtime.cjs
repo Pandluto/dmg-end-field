@@ -17,12 +17,14 @@ const DEFAULT_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_POLL_INTERVAL_MS = 50;
 const DEFAULT_HEALTH_TIMEOUT_MS = 1_000;
 const DEFAULT_PROXY_TIMEOUT_MS = 30_000;
+const DEFAULT_SESSION_CREATE_PROXY_TIMEOUT_MS = 90_000;
 const DEFAULT_STOP_TIMEOUT_MS = 5_000;
 const DEFAULT_GRANT_TTL_MS = 30_000;
 const MAX_PROXY_BODY_BYTES = 4 * 1024 * 1024;
 const HEALTH_PATH = '/internal/health';
 const GRANT_PATH = '/internal/launch-grants';
 const SHUTDOWN_PATH = '/internal/shutdown';
+const BROWSER_LAUNCH_PATH = '/agent-host/ui/launch';
 
 class AgentRuntimeError extends Error {
   constructor(code, message, statusCode = 500) {
@@ -53,6 +55,12 @@ function createAgentRuntime(options = {}) {
   const engineStoreRoot = path.resolve(String(
     options.engineStoreRoot || path.join(runtimeRoot, 'opencode'),
   ));
+  const sessionStoreRoot = path.resolve(String(
+    options.sessionStoreRoot || path.join(runtimeRoot, 'session-store'),
+  ));
+  const productCommandStoreRoot = path.resolve(String(
+    options.productCommandStoreRoot || path.join(runtimeRoot, 'product-commands'),
+  ));
   const engineProfilePath = path.resolve(String(
     options.engineProfilePath || path.join(runtimeRoot, 'provider-profiles.json'),
   ));
@@ -73,6 +81,10 @@ function createAgentRuntime(options = {}) {
   const pollIntervalMs = positiveInteger(options.pollIntervalMs, DEFAULT_POLL_INTERVAL_MS);
   const healthTimeoutMs = positiveInteger(options.healthTimeoutMs, DEFAULT_HEALTH_TIMEOUT_MS);
   const proxyTimeoutMs = positiveInteger(options.proxyTimeoutMs, DEFAULT_PROXY_TIMEOUT_MS);
+  const sessionCreateProxyTimeoutMs = positiveInteger(
+    options.sessionCreateProxyTimeoutMs,
+    DEFAULT_SESSION_CREATE_PROXY_TIMEOUT_MS,
+  );
   const stopTimeoutMs = positiveInteger(options.stopTimeoutMs, DEFAULT_STOP_TIMEOUT_MS);
   const grantTtlMs = positiveInteger(options.grantTtlMs, DEFAULT_GRANT_TTL_MS);
 
@@ -161,6 +173,9 @@ function createAgentRuntime(options = {}) {
       resolveChildExit = resolve;
     });
 
+    attachDiagnosticStream(nextChild.stdout, 'stdout');
+    attachDiagnosticStream(nextChild.stderr, 'stderr');
+
     addOnce(nextChild, 'spawn', () => {
       if (child !== nextChild) return;
       if (Number.isInteger(nextChild.pid) && nextChild.pid > 0) childPid = nextChild.pid;
@@ -195,6 +210,25 @@ function createAgentRuntime(options = {}) {
         lastError = `Agent Host 进程已退出（code=${code ?? '-'}, signal=${signal || '-'}）。`;
         diagnostic(`agent host crashed code=${code ?? '-'} signal=${signal || '-'}`);
       }
+    });
+  }
+
+  function attachDiagnosticStream(stream, label) {
+    if (!stream || typeof stream.on !== 'function') return;
+    let buffered = '';
+    stream.on('data', (chunk) => {
+      buffered = `${buffered}${String(chunk)}`.slice(-8_192);
+      const lines = buffered.split(/\r?\n/u);
+      buffered = lines.pop() || '';
+      for (const line of lines) {
+        const message = line.trim();
+        if (message) diagnostic(`agent host ${label}: ${message.slice(0, 2_000)}`);
+      }
+    });
+    stream.on('end', () => {
+      const message = buffered.trim();
+      if (message) diagnostic(`agent host ${label}: ${message.slice(0, 2_000)}`);
+      buffered = '';
     });
   }
 
@@ -573,6 +607,47 @@ function createAgentRuntime(options = {}) {
       return true;
     }
 
+    // The historic workbench owns its AI-mode button.  That page still must not
+    // mint a Host capability by itself: it asks the Electron-owned loopback
+    // bridge for a one-time launch grant, and only the exact configured browser
+    // origin may read it.  This keeps the entry embedded in Canvas without
+    // exposing Electron IPC or a reusable secret to normal web builds.
+    if (pathname === BROWSER_LAUNCH_PATH) {
+      const method = String(request.method || 'GET').toUpperCase();
+      if (method !== 'POST') {
+        writeBrowserJson(response, 405, {
+          ok: false,
+          error: { code: 'agent-launch-method-not-allowed', message: 'AI 模式只能由工作台按钮启动。' },
+        }, browserOrigin);
+        return true;
+      }
+      if (requestOriginValue !== browserOrigin) {
+        writeBrowserJson(response, 403, {
+          ok: false,
+          error: { code: 'agent-launch-origin-required', message: 'AI 模式启动来源无效。' },
+        }, browserOrigin);
+        return true;
+      }
+      try {
+        const launch = await issueLaunchGrant({ origin: browserOrigin });
+        writeBrowserJson(response, 201, {
+          ok: true,
+          launch: {
+            grant: launch.grant,
+            audience: launch.audience,
+            expiresAt: launch.expiresAt,
+          },
+        }, browserOrigin);
+      } catch (error) {
+        const statusCode = Number.isInteger(error?.statusCode) ? error.statusCode : 503;
+        writeBrowserJson(response, statusCode, {
+          ok: false,
+          error: { code: error?.code || 'agent-launch-failed', message: messageOf(error) },
+        }, browserOrigin);
+      }
+      return true;
+    }
+
     const runtime = startPromise ? await startPromise : state();
     if (!runtime.ready || !privateOrigin) {
       writeJson(response, 503, {
@@ -595,15 +670,22 @@ function createAgentRuntime(options = {}) {
     }
 
     try {
+      const requestMethod = String(request.method || 'GET').toUpperCase();
+      const requestTimeoutMs = requestMethod === 'POST' && pathname === '/agent-host/sessions'
+        ? sessionCreateProxyTimeoutMs
+        : proxyTimeoutMs;
       const upstream = await fetchWithTimeout(
         `${privateOrigin}${requestTarget(request)}`,
         {
-          method: String(request.method || 'GET').toUpperCase(),
+          method: requestMethod,
           headers: proxyRequestHeaders(request, browserOrigin, hostToken),
           ...(body === undefined ? {} : { body }),
         },
-        proxyTimeoutMs,
+        requestTimeoutMs,
       );
+      if (!isResponseOk(upstream)) {
+        diagnostic(`agent proxy ${requestMethod} ${pathname} returned HTTP ${upstream.status}`);
+      }
       await writeUpstreamResponse(response, upstream, browserOrigin);
     } catch (error) {
       writeJson(response, 502, {
@@ -745,6 +827,8 @@ function createAgentRuntime(options = {}) {
       DEF_AGENT_PARENT_PID: String(process.pid),
       DEF_AGENT_ENGINE_ROOT: engineRoot,
       DEF_AGENT_ENGINE_STORE_ROOT: engineStoreRoot,
+      DEF_AGENT_SESSION_STORE_ROOT: sessionStoreRoot,
+      DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT: productCommandStoreRoot,
       DEF_AGENT_ENGINE_PROFILE_PATH: engineProfilePath,
       DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF: engineDefaultProfileRef,
     });
@@ -761,6 +845,8 @@ function createAgentRuntime(options = {}) {
     get servicePath() { return servicePath; },
     get engineRoot() { return engineRoot; },
     get engineStoreRoot() { return engineStoreRoot; },
+    get sessionStoreRoot() { return sessionStoreRoot; },
+    get productCommandStoreRoot() { return productCommandStoreRoot; },
     get engineProfilePath() { return engineProfilePath; },
     get browserOrigin() { return browserOrigin; },
   });
@@ -1100,9 +1186,16 @@ function writeJson(response, statusCode, body) {
   response.end(value);
 }
 
+function writeBrowserJson(response, statusCode, body, browserOrigin) {
+  response.setHeader('Access-Control-Allow-Origin', browserOrigin);
+  response.setHeader('Vary', 'Origin');
+  writeJson(response, statusCode, body);
+}
+
 module.exports = {
   AGENT_BRIDGE_PREFIX,
   AGENT_BRIDGE_ROOT,
+  BROWSER_LAUNCH_PATH,
   BROWSER_ORIGIN_HEADER,
   GRANT_PATH,
   HEALTH_PATH,

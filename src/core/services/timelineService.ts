@@ -125,7 +125,7 @@ function rebuildOccupiedNodes(buttons: SkillButtonData[]): number[] {
     .sort((left, right) => left - right);
 }
 
-function buildTimelineButtonsFromSkillButtonTable(
+export function buildTimelineButtonsFromSkillButtonTable(
   skillButtonTable: Record<string, PersistedSkillButton>,
   nextCharacters: { id?: string; name: string }[]
 ): StaffLineData[] {
@@ -149,6 +149,7 @@ function buildTimelineButtonsFromSkillButtonTable(
         skillDisplayName: button.skillDisplayName,
         skillIconUrl: button.skillIconUrl,
         customHits: button.customHits,
+        buffIds: [...(button.selectedBuff || [])],
       }))
       .sort((left, right) => left.nodeIndex - right.nodeIndex);
 

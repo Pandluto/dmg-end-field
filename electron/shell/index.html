@@ -60,6 +60,34 @@
         </article>
       </section>
 
+      <section class="panel agent-profile-panel">
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">Agent 模型</p>
+            <h2>OpenCode Provider</h2>
+          </div>
+          <span id="agent-profile-status">尚未配置</span>
+        </div>
+        <p class="description">用于主工作台 AI 模式。密钥只写入本机权限受限的配置文件，不进入浏览器存储。</p>
+        <div class="agent-profile-fields">
+          <label class="field">
+            <span>API Key</span>
+            <input id="agent-api-key" type="password" autocomplete="off" placeholder="留空则保留已有密钥" />
+          </label>
+          <label class="field">
+            <span>Base URL</span>
+            <input id="agent-base-url" type="url" autocomplete="off" value="https://api.deepseek.com" />
+          </label>
+          <label class="field">
+            <span>Model ID</span>
+            <input id="agent-model-id" autocomplete="off" value="deepseek-chat" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="primary" id="save-agent-profile" type="button">保存并重启 Agent</button>
+        </div>
+      </section>
+
       <section class="panel">
         <div class="panel-heading">
           <div>

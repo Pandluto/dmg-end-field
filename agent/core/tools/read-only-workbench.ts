@@ -98,6 +98,21 @@ export class DefReadToolRegistry {
     assertNotAborted(context);
     return cloneJson(result);
   }
+
+  executeRead(
+    name: string,
+    input: JsonValue,
+    context: DefToolExecutionContext,
+  ): Promise<JsonValue> {
+    return this.execute(name, input, context);
+  }
+
+  async prepareInteractive(): Promise<never> {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_UNSUPPORTED',
+      'The read-only DEF Tool registry does not expose interactive Tools',
+    );
+  }
 }
 
 function createHandler(

@@ -121,6 +121,11 @@ import type {
 } from '../../agentKernel/timelineRepository/localTimelineClient';
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
+import {
+  enterDesktopAgentModeFromWorkbench,
+  exitDesktopAgentModeToWorkbench,
+} from '../../platform/agent/browserAgentRuntime';
+import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -488,6 +493,10 @@ function buildSandboxSkillsFromRuntimeTemplate(characterId: string): SandboxSkil
 interface CanvasBoardProps {
   activeSkillButtonId?: string | null;
   isWorkbenchTopZoneOpen?: boolean;
+  isAgentMode?: boolean;
+  agentModePanel?: React.ReactNode | ((controls: {
+    onOpenWorkNodePanel?: () => void | Promise<void>;
+  }) => React.ReactNode);
   onOpenOperatorConfig?: (characterId: string) => void;
   workbenchControl?: React.ReactNode;
   bottomRightControl?: React.ReactNode;
@@ -496,6 +505,8 @@ interface CanvasBoardProps {
 export function CanvasBoard({
   activeSkillButtonId = null,
   isWorkbenchTopZoneOpen = false,
+  isAgentMode = false,
+  agentModePanel = null,
   onOpenOperatorConfig,
   workbenchControl,
   bottomRightControl,
@@ -524,6 +535,8 @@ export function CanvasBoard({
   const [restorePanelTab, setRestorePanelTab] = useState<'local' | 'shared' | 'sqlite'>('local');
   const [isBrowseMode, setIsBrowseMode] = useState(false);
   const [isInspectMode, setIsInspectMode] = useState(false);
+  const [isAgentModeLaunching, setIsAgentModeLaunching] = useState(false);
+  const [aiHoverZone, setAiHoverZone] = useState<'left' | 'right'>('right');
   const [isWorkNodePanelOpen, setIsWorkNodePanelOpen] = useState(false);
   const [workNodeRefreshKey, setWorkNodeRefreshKey] = useState(0);
   const [workNodeCameraResetKey, setWorkNodeCameraResetKey] = useState(0);
@@ -2210,6 +2223,7 @@ export function CanvasBoard({
         'diffAiTimelineWorkNode',
         'patchAiTimelineWorkNode',
         'patchAndValidateAiTimelineWorkNode',
+        'applyApprovedWorkNodePatch',
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
         'refreshOperatorConfig',
@@ -2526,6 +2540,46 @@ export function CanvasBoard({
             status: result.ok ? 'done' : 'error',
             result,
             ...(result.ok ? {} : { error: result.issues?.map((issue) => issue.message).join('；') || 'patch_and_validate failed' }),
+          });
+          return;
+        }
+
+        if (command.op === 'applyApprovedWorkNodePatch') {
+          const prepared = await patchAndValidateAiTimelineWorkNodeFromCommand({
+            op: 'patchAndValidateAiTimelineWorkNode',
+            patch: command.patch,
+            label: command.label,
+            description: command.description,
+            approvalPolicy: 'manual',
+          });
+          if (!prepared.ok) {
+            settleCommand({
+              status: 'error',
+              result: prepared,
+              error: prepared.issues?.map((issue) => issue.message).join('；') || 'Work Node patch validation failed',
+            });
+            return;
+          }
+          const checkout = await checkoutAiTimelineWorkNodeFromCommand({
+            op: 'checkoutAiTimelineWorkNode',
+            nodeId: prepared.nodeId,
+            reload: false,
+            approval: {
+              mode: 'manual',
+              approvedBy: 'user',
+              rationale: 'Approved in the embedded DEF AI mode.',
+            },
+          });
+          if (!checkout.checkoutApplied) {
+            throw new Error(checkout.checkoutMarkError || 'Work Node checkout was not applied');
+          }
+          settleCommand({
+            status: 'done',
+            result: {
+              prepared,
+              checkout,
+              visiblePostcondition: checkout.visiblePostcondition,
+            },
           });
           return;
         }
@@ -2905,7 +2959,7 @@ export function CanvasBoard({
   }, [setSessionWorkingPayload]);
 
   const { draggingState, mousePosition, handleSandboxDragStart, handleButtonMouseDown } = useCanvasDrag({
-    disabled: false,
+    disabled: isAgentMode,
     config: canvasConfig,
     canvasWidth,
     staffCount,
@@ -2943,6 +2997,20 @@ export function CanvasBoard({
     document.addEventListener('visibilitychange', publishWhenVisible);
     return () => document.removeEventListener('visibilitychange', publishWhenVisible);
   }, []);
+
+  useEffect(() => {
+    if (!isAgentMode) {
+      setAiHoverZone('right');
+      return undefined;
+    }
+    const updateHoverZone = (clientX: number) => {
+      const panelWidth = Math.min(window.innerWidth * 0.5, 760, Math.max(0, window.innerWidth - 96));
+      setAiHoverZone(clientX >= window.innerWidth - panelWidth ? 'right' : 'left');
+    };
+    const handlePointerMove = (event: PointerEvent) => updateHoverZone(event.clientX);
+    window.addEventListener('pointermove', handlePointerMove, { passive: true });
+    return () => window.removeEventListener('pointermove', handlePointerMove);
+  }, [isAgentMode]);
 
   useEffect(() => {
     if (currentView !== 'canvas') {
@@ -4071,9 +4139,26 @@ export function CanvasBoard({
     }
   };
 
+  const handleToggleAgentMode = async () => {
+    if (isAgentModeLaunching) return;
+    setIsAgentModeLaunching(true);
+    setWorkNodeSaveNotice(isAgentMode ? '正在退出 AI 模式…' : '正在启动 AI 模式…');
+    try {
+      if (isAgentMode) await exitDesktopAgentModeToWorkbench();
+      else await enterDesktopAgentModeFromWorkbench();
+    } catch (error) {
+      setWorkNodeSaveNotice(error instanceof Error ? error.message : String(error));
+      window.setTimeout(() => setWorkNodeSaveNotice(''), 4_200);
+      setIsAgentModeLaunching(false);
+    }
+  };
+
   const canvasBoardClassName = [
     'canvas-board',
     isWorkbenchTopZoneOpen ? 'has-top-zone' : '',
+    isAgentMode ? 'is-ai-mode' : '',
+    isAgentMode && aiHoverZone === 'left' ? 'is-ai-hover-left' : '',
+    isAgentMode && aiHoverZone === 'right' ? 'is-ai-hover-right' : '',
   ]
     .filter(Boolean)
     .join(' ');
@@ -4093,9 +4178,15 @@ export function CanvasBoard({
       isInspectMode={isInspectMode}
       onInspectStart={() => setIsInspectMode(true)}
       onInspectEnd={() => setIsInspectMode(false)}
+      isAiMode={isAgentMode}
+      showAiMode={isAgentMode || isDesktopWebHost()}
+      onToggleAiMode={() => void handleToggleAgentMode()}
       onOpenWorkNodePanel={openWorkNodePanel}
     />
   );
+  const renderedAgentModePanel = typeof agentModePanel === 'function'
+    ? agentModePanel({ onOpenWorkNodePanel: openWorkNodePanel })
+    : agentModePanel;
 
   return (
     <div className={canvasBoardClassName}>
@@ -4129,14 +4220,25 @@ export function CanvasBoard({
             isDraggingActive={Boolean(draggingState)}
             isBrowseMode={isBrowseMode}
             isInspectMode={isInspectMode}
-            isDragDisabled={false}
+            isDragDisabled={isAgentMode}
             resistanceRevision={resistanceRevision}
           />
         </div>
 
-        <aside className="canvas-right-zone is-skill-sandbox">
-          {rightWorkbenchContent}
-        </aside>
+        {isAgentMode ? (
+          <>
+            <aside className="canvas-right-zone is-ai-real-right is-skill-sandbox">
+              {rightWorkbenchContent}
+            </aside>
+            <aside className="canvas-right-zone is-ai-panel">
+              {renderedAgentModePanel}
+            </aside>
+          </>
+        ) : (
+          <aside className="canvas-right-zone is-skill-sandbox">
+            {rightWorkbenchContent}
+          </aside>
+        )}
 
         <div className="canvas-bottom-zone">
           <div className="canvas-bottom-zone-left">

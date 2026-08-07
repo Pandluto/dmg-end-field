@@ -22,6 +22,7 @@ export const OPENCODE_BINARY_VERSION = '0.0.0--202608061828' as const;
 export const OPENCODE_SOURCE_REF = 'codex/def-opencode-spec9-2-implementation@bcea5f12' as const;
 const OPENCODE_INTERNAL_PROVIDER_ID = 'def-openai-compatible';
 const OPENCODE_PROCESS_MANIFEST_SCHEMA_VERSION = 2;
+const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
 
 export interface OpenCodeRuntimeManifest {
   readonly schemaVersion: typeof OPENCODE_RUNTIME_MANIFEST_SCHEMA_VERSION;
@@ -111,7 +112,10 @@ export class OpenCodeRuntimeSupervisor {
     this.#expectPluginReady = options.expectPluginReady;
     this.#fetch = options.fetch ?? fetch;
     this.#onExit = options.onExit ?? (() => {});
-    this.#startupTimeoutMs = options.startupTimeoutMs ?? 30_000;
+    // A first launch may initialize OpenCode's database and load the DEF
+    // plugin under a packaged Electron utility process.  Real desktop cold
+    // starts can exceed 30 seconds even though the runtime is healthy.
+    this.#startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS;
     this.#stopGraceTimeoutMs = options.stopGraceTimeoutMs ?? 5_000;
     this.#stopKillTimeoutMs = options.stopKillTimeoutMs ?? 1_000;
     this.#spawnProcess = options.spawnProcess ?? spawn;
@@ -313,7 +317,11 @@ export class OpenCodeRuntimeSupervisor {
   ): Promise<Response> {
     const headers = new Headers(init.headers);
     headers.set('Authorization', authorization);
-    headers.set('x-opencode-directory', directory);
+    // The WHATWG Headers implementation only accepts ByteString values.  The
+    // desktop user-data path can contain Chinese (for example our product
+    // name), so follow the OpenCode SDK contract and percent-encode the
+    // workspace header; the server decodes it before resolving the instance.
+    headers.set('x-opencode-directory', encodeURIComponent(directory));
     headers.set('Accept', headers.get('Accept') ?? 'application/json');
     if (init.body !== undefined && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
     return this.#fetch(new URL(pathname, origin), { ...init, headers });

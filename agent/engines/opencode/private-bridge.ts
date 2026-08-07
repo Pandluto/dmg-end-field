@@ -21,7 +21,7 @@ export interface OpenCodeBridgeTurnState {
     readonly safeName: OpenCodeSafeToolName;
     readonly description: string;
     readonly inputSchema: JsonObject;
-    readonly risk: 'read';
+    readonly risk: 'read' | 'propose' | 'mutate';
   }[];
 }
 

@@ -11,6 +11,7 @@ import {
   asTimelineId,
   asWorkspaceId,
   type DefEvent,
+  type Phase2ProductCommand,
   type Phase2ProductOperationSchema,
   type ProductBinding,
   type ProductGateway,
@@ -18,7 +19,8 @@ import {
   type JsonObject,
 } from '../../core/contracts/index.ts';
 import { DefHarnessManager } from '../../core/harness/manager.ts';
-import { DefReadToolRegistry } from '../../core/tools/read-only-workbench.ts';
+import { PHASE6_INTERACTIVE_HARNESS_CATALOG } from '../../core/harness/catalog.ts';
+import { DefProductToolRegistry } from '../../core/tools/interactive-workbench.ts';
 import { BrowserConsumerRegistry } from '../../host/browser-consumer-registry.ts';
 import { DefAgentHost } from '../../host/def-agent-host.ts';
 import {
@@ -99,9 +101,79 @@ const blackboxCases = [
     }],
     answer: '当前总期望伤害为 1234.5。',
   },
+  {
+    id: 'selection-question',
+    userMessage: '如果队伍不明确，请问我选择甲还是乙。',
+    route: { businessId: 'selection', operation: 'ask' },
+    tools: [{
+      safeName: 'def_user_ask',
+      canonicalName: 'def.user.ask',
+      description: 'Ask the user one explicit question and wait for the answer in the DEF AI panel.',
+      input: { prompt: '请选择测试队伍', options: ['甲', '乙'] },
+    }],
+    interaction: { kind: 'question', status: 'answered', value: '乙' },
+    answer: '用户选择了乙。',
+  },
+  {
+    id: 'selection-apply',
+    userMessage: '请把队伍明确改成洛茜。',
+    route: { businessId: 'selection', operation: 'apply' },
+    tools: [{
+      safeName: 'def_team_selection_apply',
+      canonicalName: 'def.team.selection.apply',
+      description: 'Replace the selected roster with one exact one-to-four operator roster after explicit user approval.',
+      input: {
+        characterNames: ['洛茜'],
+        nodeTitle: '调整阵容：仅保留洛茜',
+        nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
+        openCanvas: true,
+      },
+    }],
+    interaction: { kind: 'approval', status: 'approved' },
+    command: {
+      op: 'selectCharacters',
+      characterNames: ['洛茜'],
+      nodeTitle: '调整阵容：仅保留洛茜',
+      nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
+      openCanvas: true,
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        rationale: 'Approved in the embedded DEF AI mode.',
+      },
+    },
+    answer: '已按批准把队伍改成洛茜。',
+  },
 ] as const;
 
-const providerPlan = blackboxCases.flatMap((scenario) => [
+const sameSessionCases = [
+  {
+    id: 'same-session-first',
+    userMessage: '同一个对话里的第一轮：读取当前选择。',
+    route: { businessId: 'selection', operation: 'inspect' },
+    tools: [{
+      safeName: 'def_node_crud_context',
+      canonicalName: 'def.node.crud.context',
+      description: 'Read the bound current Workbench context and selected roster.',
+      input: {},
+    }],
+    answer: '同一会话第一轮完成：当前为测试干员。',
+  },
+  {
+    id: 'same-session-second',
+    userMessage: '不要新建对话，继续读取一次当前选择。',
+    route: { businessId: 'selection', operation: 'inspect' },
+    tools: [{
+      safeName: 'def_node_crud_context',
+      canonicalName: 'def.node.crud.context',
+      description: 'Read the bound current Workbench context and selected roster.',
+      input: {},
+    }],
+    answer: '同一会话第二轮也完成：当前仍为测试干员。',
+  },
+] as const;
+
+const providerPlan = [...blackboxCases, ...sameSessionCases].flatMap((scenario) => [
   {
     scenarioId: scenario.id,
     safeName: 'def_harness_route',
@@ -113,8 +185,11 @@ const providerPlan = blackboxCases.flatMap((scenario) => [
 ]);
 
 async function run(): Promise<void> {
-  const tools = new DefReadToolRegistry();
-  const harness = new DefHarnessManager({ resolveToolDescriptor: (name) => tools.resolveDescriptor(name) });
+  const tools = new DefProductToolRegistry();
+  const harness = new DefHarnessManager({
+    catalog: PHASE6_INTERACTIVE_HARNESS_CATALOG,
+    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
+  });
   const schemaInspection = harness.beginTurn({
     defSessionId: asDefSessionId('def-session-schema-inspection'),
     defTurnId: asDefTurnId('def-turn-schema-inspection'),
@@ -127,9 +202,16 @@ async function run(): Promise<void> {
     schemas.set(toOpenCodeSafeToolName(descriptor.name), descriptor.inputSchema);
   }
   const provider = await startProviderStub(schemas);
-  const storeRoot = await mkdtemp(join(tmpdir(), 'def-opencode-real-blackbox-'));
+  // Keep a non-ASCII segment in the real runtime path. Electron places this
+  // directory beneath the Chinese product name on both development and
+  // packaged installs, and the OpenCode directory header must remain valid.
+  const storeRoot = await mkdtemp(join(tmpdir(), '终末地-opencode-real-blackbox-'));
   const binding = fixtureBinding();
-  const consumers = new BrowserConsumerRegistry();
+  // This blackbox intentionally exercises a cold, non-ASCII runtime path. It
+  // has no browser heartbeat loop, so keep its synthetic consumer alive for
+  // the bounded 60-second turn assertions instead of conflating cold-start
+  // time with the production 5-second heartbeat contract.
+  const consumers = new BrowserConsumerRegistry({ heartbeatTtlMs: 120_000 });
   const remoteProduct = new RemoteBrowserProductGateway(consumers);
   let snapshotReads = 0;
   const product: ProductGateway<Phase2ProductOperationSchema> = {
@@ -295,6 +377,81 @@ async function run(): Promise<void> {
           defSessionId: session.defSessionId,
           userMessage: scenario.userMessage,
         });
+        if ('interaction' in scenario) {
+          const interaction = await withTimeout((async () => {
+            for (;;) {
+              const interactionResponse = await fetch(
+                `${productBaseUrl}/agent-host/interactions`,
+                { headers: productHeaders },
+              );
+              assert.equal(interactionResponse.status, 200);
+              const body = await interactionResponse.json() as {
+                interactions: Array<{
+                  interactionId: string;
+                  defSessionId: string;
+                  kind: string;
+                }>;
+              };
+              const pending = body.interactions.find((entry) => entry.defSessionId === session.defSessionId);
+              if (pending) return pending;
+              await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+            }
+          })(), 60_000);
+          assert.equal(interaction.kind, scenario.interaction.kind);
+          const interactionResponse = await fetch(
+            `${productBaseUrl}/agent-host/interactions/${interaction.interactionId}/respond`,
+            {
+              method: 'POST',
+              headers: productHeaders,
+              body: JSON.stringify({
+                status: scenario.interaction.status,
+                ...('value' in scenario.interaction ? { value: scenario.interaction.value } : {}),
+              }),
+            },
+          );
+          assert.equal(interactionResponse.status, 200);
+        }
+        if ('command' in scenario) {
+          const delivery = await withTimeout((async () => {
+            for (;;) {
+              const commandResponse = await fetch(
+                `${productBaseUrl}/agent-host/workbench/commands/next?consumerId=${consumer.consumerId}&executorLeaseId=${consumer.executorLeaseId}&afterCursor=0`,
+                { headers: productHeaders },
+              );
+              assert.equal(commandResponse.status, 200);
+              const body = await commandResponse.json() as {
+                delivery: null | { cursor: number; command: Phase2ProductCommand };
+              };
+              if (body.delivery) return body.delivery;
+              await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+            }
+          })(), 60_000);
+          assert.equal(delivery.command.command.op, 'workbench.execute-command');
+          assert.deepEqual(delivery.command.command.payload.command, scenario.command);
+          assert.equal(typeof delivery.command.approvalCapability, 'string');
+          const resultResponse = await fetch(
+            `${productBaseUrl}/agent-host/workbench/commands/${delivery.command.commandId}/result`,
+            {
+              method: 'POST',
+              headers: productHeaders,
+              body: JSON.stringify({
+                consumerId: consumer.consumerId,
+                executorLeaseId: consumer.executorLeaseId,
+                result: {
+                  commandId: delivery.command.commandId,
+                  status: 'succeeded',
+                  beforeRevision: delivery.command.expected.contentRevision,
+                  afterRevision: delivery.command.expected.contentRevision + 1,
+                  browserResult: { selectedCharacters: ['洛茜'] },
+                  visiblePostcondition: { contentRevision: delivery.command.expected.contentRevision + 1 },
+                  executorLeaseId: consumer.executorLeaseId,
+                  completedAt: new Date().toISOString(),
+                },
+              }),
+            },
+          );
+          assert.equal(resultResponse.status, 200);
+        }
         terminal = await withTimeout(host.waitForTurnTerminal(turn.defTurnId), 60_000).catch((error: unknown) => {
           console.error(JSON.stringify({
             scenario: scenario.id,
@@ -334,11 +491,51 @@ async function run(): Promise<void> {
         answer,
       });
     }
+    const sameSession = await host.createSession({ binding, providerProfileRef: 'blackbox' });
+    for (const scenario of sameSessionCases) {
+      const turn = await host.startHarnessTurn({
+        defSessionId: sameSession.defSessionId,
+        userMessage: scenario.userMessage,
+      });
+      const terminal = await withTimeout(host.waitForTurnTerminal(turn.defTurnId), 60_000).catch((error: unknown) => {
+        console.error(JSON.stringify({
+          scenario: scenario.id,
+          providerToolSets: provider.toolSets,
+          providerFailure: provider.failure?.stack ?? null,
+          events: host.readEvents(sameSession.defSessionId),
+        }, null, 2));
+        throw error;
+      });
+      const events = host.readEvents(sameSession.defSessionId).filter((event) => (
+        'defTurnId' in event && event.defTurnId === turn.defTurnId
+      ));
+      assert.equal(terminal.type, 'turn.completed', JSON.stringify(events, null, 2));
+      assert.deepEqual(
+        events.filter((event) => event.type === 'tool.requested').map((event) => event.payload.name),
+        ['def.harness.route', ...scenario.tools.map((tool) => tool.canonicalName)],
+      );
+      assert.deepEqual(
+        events.filter((event) => event.type === 'harness.tool.projected').map((event) => event.payload.tools),
+        [['def.harness.route'], ...scenario.tools.map((tool) => [tool.canonicalName]), []],
+      );
+      const answer = events
+        .filter((event) => event.type === 'response.delta')
+        .map((event) => event.payload.delta)
+        .join('');
+      assert.equal(answer, scenario.answer);
+      results.push({
+        scenario: scenario.id,
+        engineTools: events
+          .filter((event) => event.type === 'tool.requested')
+          .map((event) => event.payload.name),
+        answer,
+      });
+    }
     assert.equal(provider.failure, null, provider.failure?.stack);
     assert.equal(provider.requestCount, providerPlan.length);
-    assert.equal(snapshotReads, 6);
+    assert.equal(snapshotReads, 10);
     console.log(JSON.stringify({
-      result: 'real OpenCode five-route blackbox passed (calculation via Product HTTP API)',
+      result: 'real OpenCode read/question/approval/mutation/multi-turn blackbox passed',
       runtimeVersion: '1.17.11-def.1',
       providerRequests: provider.requestCount,
       results,

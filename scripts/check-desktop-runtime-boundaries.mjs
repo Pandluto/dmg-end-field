@@ -97,6 +97,7 @@ const handledChannels = [...mainSource.matchAll(/ipcMain\.handle\('([^']+)'/g)]
 assert.deepEqual(handledChannels, [
   'desktop:build-data-release',
   'desktop:build-image-release',
+  'desktop:get-agent-profile',
   'desktop:get-agent-state',
   'desktop:get-app-info',
   'desktop:get-capabilities',
@@ -110,6 +111,7 @@ assert.deepEqual(handledChannels, [
   'desktop:pick-release-output',
   'desktop:quit',
   'desktop:reveal-path',
+  'desktop:save-agent-profile',
   'desktop:set-scale',
 ]);
 assert.match(mainSource, /contextIsolation:\s*true/);

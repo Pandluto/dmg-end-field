@@ -221,6 +221,30 @@
   overflow: hidden;
 }
 
+/* A fresh desktop profile opens AI mode before a team exists. Keep the AI
+ * surface visible beside team selection so the Shell action never appears to
+ * do nothing, then let WorkbenchFrame move both surfaces to the timeline once
+ * the first operator is selected. */
+.selection-workbench-layout.is-ai-mode {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 50vw, 760px);
+}
+
+.selection-workbench-layout.is-ai-mode .selection-middle-zone {
+  grid-column: 1;
+  border-right: 1px solid var(--office-border, rgba(0, 0, 0, 0.18));
+}
+
+.selection-agent-mode-panel {
+  grid-column: 2;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: -12px 0 22px rgba(0, 0, 0, 0.1);
+}
+
 /* 杂志风 IDE 主题覆盖 */
 .workbench-frame {
   background: var(--bg-primary);

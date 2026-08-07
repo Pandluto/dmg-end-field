@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  AGENT_APPROVAL_KEY_STORAGE_KEY,
   AGENT_LAUNCH_GRANT_FRAGMENT_KEY,
   AGENT_UI_CAPABILITY_HEADER,
   AGENT_UI_CAPABILITY_STORAGE_KEY,
@@ -9,6 +10,7 @@ import {
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
+  asInteractionId,
   asTimelineId,
   asWorkspaceId,
 } from '../../../agent/core/contracts/ids.ts';
@@ -16,6 +18,7 @@ import {
   createDesktopAgentBridge,
   createDesktopAgentConsumerController,
   DesktopAgentBridgeError,
+  requestDesktopAgentModeLaunch,
   type AgentBridgeFetchResponse,
   type AgentBridgeHistory,
   type AgentBridgeStorage,
@@ -37,6 +40,24 @@ class MemoryStorage implements AgentBridgeStorage {
   removeItem(key: string): void {
     this.values.delete(key);
   }
+}
+
+const TEST_UI_CAPABILITY = 'ui-capability-12345678901234567890';
+const TEST_APPROVAL_VERIFICATION_KEY = Object.freeze({
+  algorithm: 'Ed25519' as const,
+  keyEpoch: 'approval-bridge-test',
+  publicKeySpki: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+});
+
+function authorizeStorage(
+  storage: MemoryStorage,
+  capability = TEST_UI_CAPABILITY,
+): void {
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, capability);
+  storage.setItem(
+    AGENT_APPROVAL_KEY_STORAGE_KEY,
+    JSON.stringify(TEST_APPROVAL_VERIFICATION_KEY),
+  );
 }
 
 function makeLocation(raw: string) {
@@ -76,6 +97,43 @@ function settleAsyncWork(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
+{
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const launch = await requestDesktopAgentModeLaunch({
+    now: () => 100,
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      return response({
+        ok: true,
+        launch: {
+          grant: 'launch-grant-12345678901234567890',
+          audience: 'workbench-ai-mode',
+          expiresAt: 200,
+        },
+      }, 201);
+    },
+  });
+  assert.equal(launch.grant, 'launch-grant-12345678901234567890');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.url, 'http://127.0.0.1:31457/agent-host/ui/launch');
+  assert.equal(calls[0]?.init?.method, 'POST');
+
+  await assert.rejects(
+    () => requestDesktopAgentModeLaunch({
+      now: () => 300,
+      fetch: async () => response({
+        ok: true,
+        launch: {
+          grant: 'launch-grant-12345678901234567890',
+          audience: 'workbench-ai-mode',
+          expiresAt: 200,
+        },
+      }, 201),
+    }),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_AGENT_LAUNCH',
+  );
+}
+
 function binding() {
   return {
     workspaceId: asWorkspaceId('workspace-test'),
@@ -112,7 +170,7 @@ function productSession() {
 function bridgeForEventPage(page: unknown) {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const session = productSession();
   const bridge = createDesktopAgentBridge({
     location,
@@ -220,9 +278,10 @@ class FakeLease implements AgentWorkspaceLease {
         return response({
           ok: true,
           protocolVersion: 2,
-          capability: 'ui-capability-12345678901234567890',
+          capability: TEST_UI_CAPABILITY,
           audience: 'workbench-ai-mode',
           expiresAt: 10_000,
+          approvalVerificationKey: TEST_APPROVAL_VERIFICATION_KEY,
         });
       }
       return response({
@@ -242,15 +301,78 @@ class FakeLease implements AgentWorkspaceLease {
   assert.equal(state.authorization, 'authorized');
   assert.equal(strictModeState.authorization, 'authorized');
   assert.equal(state.host, 'ready');
-  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), 'ui-capability-12345678901234567890');
+  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), TEST_UI_CAPABILITY);
+  assert.deepEqual(
+    JSON.parse(storage.getItem(AGENT_APPROVAL_KEY_STORAGE_KEY) || 'null'),
+    TEST_APPROVAL_VERIFICATION_KEY,
+  );
   assert.equal(history.lastUrl, '/#/timeline/ai');
   assert.equal(calls.some((call) => call.init?.body?.toString().includes('launch-grant')), true);
   assert.equal(calls.filter((call) => call.url.endsWith('/ui/session')).length, 1);
-  assert.equal(storage.values.size, 1);
+  assert.equal(storage.values.size, 2);
   assert.equal(storage.values.has('dmg.desktop.agent-launch-grant.v1'), false);
   await assert.rejects(
     bridge.exchangeLaunchGrant('launch-grant-12345678901234567890'),
     (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_LAUNCH_GRANT_CONSUMED',
+  );
+}
+
+// A Shell launch after Host restart must replace the dead Host's capability
+// instead of trusting the same tab's surviving sessionStorage entry.
+{
+  const location = makeLocation(
+    `http://127.0.0.1:31457/#/timeline/ai?${AGENT_LAUNCH_GRANT_FRAGMENT_KEY}=replacement-launch-grant-1234567890`,
+  );
+  const history = makeHistory(location);
+  const storage = new MemoryStorage();
+  const staleCapability = 'stale-ui-capability-12345678901234567890';
+  const replacementCapability = 'replacement-ui-capability-123456789012345';
+  authorizeStorage(storage, staleCapability);
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const bridge = createDesktopAgentBridge({
+    location,
+    history,
+    sessionStorage: storage,
+    now: () => 1_000,
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith('/health')) {
+        return response({
+          service: 'def-agent-host',
+          protocolVersion: 2,
+          runtimeSchemaVersion: 1,
+          state: 'ready',
+          engine: { kind: 'opencode', state: 'ready', runtimeVersion: 'fixture' },
+        });
+      }
+      if (url.endsWith('/ui/session')) {
+        return response({
+          protocolVersion: 2,
+          capability: replacementCapability,
+          audience: 'workbench-ai-mode',
+          expiresAt: 10_000,
+          approvalVerificationKey: TEST_APPROVAL_VERIFICATION_KEY,
+        }, 201);
+      }
+      return response({
+        protocolVersion: 2,
+        engine: { kind: 'opencode', state: 'ready', runtimeVersion: 'fixture' },
+        consumer: null,
+        activeDefSessionId: null,
+        activeDefTurnId: null,
+      });
+    },
+  });
+
+  const state = await bridge.initialize();
+  assert.equal(state.authorization, 'authorized');
+  assert.equal(history.lastUrl, '/#/timeline/ai');
+  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), replacementCapability);
+  assert.equal(calls.filter((call) => call.url.endsWith('/ui/session')).length, 1);
+  const uiStateCall = calls.find((call) => call.url.endsWith('/ui/state'));
+  assert.equal(
+    (uiStateCall?.init?.headers as Record<string, string>)[AGENT_UI_CAPABILITY_HEADER],
+    replacementCapability,
   );
 }
 
@@ -279,7 +401,7 @@ class FakeLease implements AgentWorkspaceLease {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const history = makeHistory(location);
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const document = new FakeDocument();
   const lease = new FakeLease();
   let nextTimer = 1;
@@ -348,12 +470,184 @@ class FakeLease implements AgentWorkspaceLease {
   await controller.stop();
 }
 
+// Interaction routes use the same scoped UI capability and accept both
+// question and approval requests through one strictly validated list.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  const capability = 'ui-capability-12345678901234567890';
+  authorizeStorage(storage, capability);
+  const calls: Array<{ url: string; init?: RequestInit }> = [];
+  const questionId = asInteractionId('interaction-question');
+  const approvalId = asInteractionId('interaction-approval');
+  const interactionList = {
+    protocolVersion: 2,
+    interactions: [
+      {
+        interactionId: questionId,
+        defSessionId: asDefSessionId('def-session-interaction'),
+        defTurnId: asDefTurnId('def-turn-question'),
+        toolCallId: 'tool-question',
+        kind: 'question',
+        prompt: '选择一个模式',
+        details: { choices: ['safe', 'fast'] },
+        createdAt: '2026-08-07T00:00:00.000Z',
+        expiresAt: '2026-08-07T00:15:00.000Z',
+      },
+      {
+        interactionId: approvalId,
+        defSessionId: asDefSessionId('def-session-interaction'),
+        defTurnId: asDefTurnId('def-turn-approval'),
+        kind: 'approval',
+        prompt: '确认应用这次排轴修改？',
+        createdAt: '2026-08-07T00:00:01.000Z',
+        expiresAt: '2026-08-07T00:15:01.000Z',
+        proposalHash: 'sha256:proposal',
+        binding: binding(),
+        scope: ['timeline.patch', 'timeline.checkout'],
+        proposal: { nodeId: 'node-1', changes: [{ type: 'replace' }] },
+      },
+    ],
+  };
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith('/agent-host/interactions')) return response(interactionList);
+      const body = JSON.parse(String(init?.body || '{}')) as { status?: string; value?: unknown };
+      const status = body.status === 'answered'
+        ? 'answered'
+        : body.status === 'approved'
+          ? 'approved'
+          : body.status === 'rejected'
+            ? 'rejected'
+            : 'cancelled';
+      const interactionId = url.includes('interaction-question') ? questionId : approvalId;
+      return response({
+        protocolVersion: 2,
+        interactionId,
+        response: {
+          interactionId,
+          status,
+          ...(body.value === undefined ? {} : { value: body.value }),
+          resolvedAt: '2026-08-07T00:00:02.000Z',
+        },
+      });
+    },
+  });
+
+  const pending = await bridge.listPendingInteractions();
+  assert.equal(pending.length, 2);
+  assert.equal(pending[0]?.kind, 'question');
+  assert.equal(pending[1]?.kind, 'approval');
+  assert.equal(calls[0]?.url, 'http://127.0.0.1:31457/agent-host/interactions');
+  assert.equal(calls[0]?.init?.method, 'GET');
+  assert.equal(
+    (calls[0]?.init?.headers as Record<string, string>)[AGENT_UI_CAPABILITY_HEADER],
+    capability,
+  );
+
+  const answer = await bridge.answerQuestion(questionId, 'safe');
+  assert.equal(answer.status, 'answered');
+  const approve = await bridge.approveInteraction(approvalId);
+  assert.equal(approve.status, 'approved');
+  const reject = await bridge.rejectInteraction(approvalId, { reason: 'not now' });
+  assert.equal(reject.status, 'rejected');
+  const cancel = await bridge.cancelInteraction(approvalId);
+  assert.equal(cancel.status, 'cancelled');
+  const responseCalls = calls.slice(1);
+  assert.equal(responseCalls.length, 4);
+  assert.equal(responseCalls[0]?.url, 'http://127.0.0.1:31457/agent-host/interactions/interaction-question/respond');
+  assert.equal(responseCalls[0]?.init?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(responseCalls[0]?.init?.body)), {
+    status: 'answered',
+    value: 'safe',
+  });
+  assert.deepEqual(JSON.parse(String(responseCalls[1]?.init?.body)), { status: 'approved' });
+  assert.deepEqual(JSON.parse(String(responseCalls[2]?.init?.body)), {
+    status: 'rejected',
+    value: { reason: 'not now' },
+  });
+  assert.deepEqual(JSON.parse(String(responseCalls[3]?.init?.body)), { status: 'cancelled' });
+}
+
+// Interaction list validation rejects unknown fields, malformed bindings,
+// invalid JSON values, and invalid response envelopes before UI code can use them.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
+  const makeBridge = (payload: unknown) => createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response(payload),
+  });
+  const baseQuestion = {
+    interactionId: 'interaction-invalid',
+    defSessionId: 'def-session-invalid',
+    defTurnId: 'def-turn-invalid',
+    kind: 'question',
+    prompt: '问题',
+    createdAt: '2026-08-07T00:00:00.000Z',
+    expiresAt: '2026-08-07T00:15:00.000Z',
+  };
+
+  await assert.rejects(
+    makeBridge({ protocolVersion: 2, interactions: [{ ...baseQuestion, unexpected: true }] }).listInteractions(),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+  await assert.rejects(
+    makeBridge({
+      protocolVersion: 2,
+      interactions: [{
+        ...baseQuestion,
+        kind: 'approval',
+        proposalHash: 'sha256:proposal',
+        binding: { ...binding(), checkoutUpdatedAt: undefined },
+        scope: ['timeline.patch'],
+        proposal: { okay: true },
+      }],
+    }).listInteractions(),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+
+  const bridge = makeBridge({
+    protocolVersion: 2,
+    interactionId: 'interaction-invalid',
+    response: {
+      interactionId: 'interaction-invalid',
+      status: 'pending',
+      resolvedAt: '2026-08-07T00:00:00.000Z',
+    },
+  });
+  await assert.rejects(
+    bridge.respondInteraction(asInteractionId('interaction-invalid'), { status: 'approved' }),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+
+  await assert.rejects(
+    bridge.respondInteraction(
+      asInteractionId('interaction-invalid'),
+      { status: 'pending' } as never,
+    ),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_INTERACTION_RESPONSE',
+  );
+  await assert.rejects(
+    bridge.respondInteraction(
+      asInteractionId('interaction-invalid'),
+      { status: 'approved', value: BigInt(1) } as never,
+    ),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_INTERACTION_RESPONSE',
+  );
+}
+
 // A new checkout/revision must update the active consumer immediately instead of
 // waiting for the periodic heartbeat before a Product Turn can use the snapshot.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const document = new FakeDocument();
   const lease = new FakeLease();
   let currentBinding: ReturnType<typeof binding> | null = binding();
@@ -425,7 +719,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const calls: Array<{ url: URL; init?: RequestInit }> = [];
   const session = productSession();
   const defTurnId = asDefTurnId('def-turn-product');
@@ -443,6 +737,15 @@ class FakeLease implements AgentWorkspaceLease {
         return response({ protocolVersion: 2, session }, 201);
       }
       if (url.pathname === `/agent-host/sessions/${session.defSessionId}`) {
+        if (init?.method === 'DELETE') {
+          return response({ protocolVersion: 2, defSessionId: session.defSessionId, deleted: true });
+        }
+        return response({ protocolVersion: 2, session });
+      }
+      if (url.pathname === `/agent-host/sessions/${session.defSessionId}/archive`) {
+        return response({ protocolVersion: 2, session: { ...session, status: 'archived' } });
+      }
+      if (url.pathname === `/agent-host/sessions/${session.defSessionId}/restore`) {
         return response({ protocolVersion: 2, session });
       }
       if (url.pathname.endsWith('/events')) {
@@ -481,6 +784,9 @@ class FakeLease implements AgentWorkspaceLease {
   assert.equal((await bridge.listSessions())[0].defSessionId, session.defSessionId);
   assert.equal((await bridge.createSession({ providerProfileRef: 'default' })).defSessionId, session.defSessionId);
   assert.equal((await bridge.getSession(session.defSessionId)).engine.runtimeVersion, '1.0.0');
+  assert.equal((await bridge.archiveSession(session.defSessionId)).status, 'archived');
+  assert.equal((await bridge.restoreSession(session.defSessionId)).status, 'ready');
+  await bridge.deleteSession(session.defSessionId);
   assert.equal((await bridge.readSessionEvents(session.defSessionId)).events[0].type, 'turn.accepted');
   assert.equal((await bridge.startTurn(session.defSessionId, {
     clientTurnId,
@@ -511,7 +817,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const session = productSession();
   const requestedClientTurnId = asClientTurnId('client-turn-requested');
   const bridge = createDesktopAgentBridge({
@@ -537,7 +843,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const session = productSession();
   const bridge = createDesktopAgentBridge({
     location,
@@ -576,7 +882,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const session = productSession();
   const bridge = createDesktopAgentBridge({
     location,
@@ -744,11 +1050,74 @@ class FakeLease implements AgentWorkspaceLease {
   assert.deepEqual(page.events[1].payload, { status: 'answered', value: { answer: 'yes' } });
 }
 
+// Interactive Harness operation and phase names must reach the embedded UI;
+// otherwise a valid ask/approval Turn would be rejected as an unsafe event page.
+{
+  const { bridge, session } = bridgeForEventPage({
+    protocolVersion: 2,
+    defSessionId: EVENT_TEST_SESSION_ID,
+    afterSequence: 0,
+    nextSequence: 3,
+    hasMore: false,
+    events: [
+      {
+        schemaVersion: 1,
+        sequence: 1,
+        occurredAt: '2026-08-07T00:00:01.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-interactive-events',
+        type: 'harness.routed',
+        payload: {
+          businessId: 'selection',
+          operation: 'apply',
+          revision: 'v2-slim-interactive',
+          sourceLineage: 'selection@v1',
+          contentHash: 'sha256:test-interactive',
+        },
+      },
+      {
+        schemaVersion: 1,
+        sequence: 2,
+        occurredAt: '2026-08-07T00:00:02.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-interactive-events',
+        type: 'harness.phase.entered',
+        payload: {
+          businessId: 'selection',
+          operation: 'apply',
+          phaseId: 'apply-selection',
+          phaseKind: 'mutation',
+        },
+      },
+      {
+        schemaVersion: 1,
+        sequence: 3,
+        occurredAt: '2026-08-07T00:00:03.000Z',
+        defSessionId: EVENT_TEST_SESSION_ID,
+        defTurnId: 'def-turn-interactive-events',
+        type: 'harness.terminal',
+        payload: {
+          businessId: 'selection',
+          operation: 'apply',
+          phaseId: 'done',
+          terminalState: 'completed',
+        },
+      },
+    ],
+  });
+  const page = await bridge.readSessionEvents(session.defSessionId);
+  assert.deepEqual(page.events.map((event) => event.type), [
+    'harness.routed',
+    'harness.phase.entered',
+    'harness.terminal',
+  ]);
+}
+
 // Safe Host conflict codes remain typed for the UI without clearing a valid capability.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const bridge = createDesktopAgentBridge({
     location,
     sessionStorage: storage,
@@ -774,7 +1143,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const bridge = createDesktopAgentBridge({
     location,
     sessionStorage: storage,
@@ -785,6 +1154,7 @@ class FakeLease implements AgentWorkspaceLease {
     (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_UNAUTHORIZED',
   );
   assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), null);
+  assert.equal(storage.getItem(AGENT_APPROVAL_KEY_STORAGE_KEY), null);
   assert.equal(bridge.getState().authorization, 'missing');
 }
 
@@ -792,7 +1162,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const document = new FakeDocument();
   const lease = new FakeLease();
   let heartbeat: (() => void) | null = null;
@@ -863,10 +1233,74 @@ class FakeLease implements AgentWorkspaceLease {
   await controller.stop();
 }
 
+// An initial conflict with an unloading/expired writer must not strand the new
+// visible tab. The same bounded heartbeat clock retries registration without
+// stealing the still-live consumer.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
+  const document = new FakeDocument();
+  const lease = new FakeLease();
+  let retry: (() => void) | null = null;
+  let registerCount = 0;
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (url) => {
+      if (url.endsWith('/workbench/register')) {
+        registerCount += 1;
+        if (registerCount === 1) {
+          return response({
+            error: {
+              code: 'AGENT_CONSUMER_CONFLICT',
+              message: 'Another Browser Workbench consumer is already active',
+            },
+          }, 409);
+        }
+        return response({
+          consumer: {
+            consumerId: 'consumer-initial-retry',
+            executorLeaseId: 'executor-initial-retry',
+            binding: binding(),
+            registeredAt: 1,
+            heartbeatExpiresAt: 30_000,
+          },
+        });
+      }
+      return response({ ok: true });
+    },
+  });
+  const controller = createDesktopAgentConsumerController({
+    bridge,
+    workspaceLease: lease,
+    document,
+    getBinding: binding,
+    consumerId: 'consumer-initial-retry',
+    executorLeaseId: 'executor-initial-retry',
+    heartbeatIntervalMs: 5_000,
+    setInterval: (handler) => {
+      retry = handler;
+      return handler;
+    },
+    clearInterval: () => undefined,
+  });
+
+  await controller.start();
+  assert.equal(registerCount, 1);
+  assert.equal(controller.getState().state, 'error');
+  retry?.();
+  await settleAsyncWork();
+  assert.equal(registerCount, 2, 'the eligible writer must retry after an initial lease conflict');
+  assert.equal(controller.getState().state, 'registered');
+  assert.equal(controller.getState().error, null);
+  await controller.stop();
+}
+
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
   const document = new FakeDocument();
   const lease = new FakeLease();
   const calls: string[] = [];
@@ -927,7 +1361,7 @@ class FakeLease implements AgentWorkspaceLease {
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
   const storage = new MemoryStorage();
-  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  authorizeStorage(storage);
   const document = new FakeDocument();
   document.visibilityState = 'hidden';
   const lease = new FakeLease();

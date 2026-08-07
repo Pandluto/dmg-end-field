@@ -8,6 +8,15 @@ export const OPENCODE_TOOL_BINDINGS = [
   ['def.node.crud.current', 'def_node_crud_current'],
   ['def.data.resource.buff', 'def_data_resource_buff'],
   ['def.data.resource.damage', 'def_data_resource_damage'],
+  ['def.user.ask', 'def_user_ask'],
+  ['def.team.selection.apply', 'def_team_selection_apply'],
+  ['def.workbench.add_skill_button', 'def_workbench_add_skill_button'],
+  ['def.workbench.remove_skill_button', 'def_workbench_remove_skill_button'],
+  ['def.buff.add_to_button', 'def_buff_add_to_button'],
+  ['def.buff.remove_from_button', 'def_buff_remove_from_button'],
+  ['def.target.set_resistance', 'def_target_set_resistance'],
+  ['def.worknode.patch_and_checkout', 'def_worknode_patch_and_checkout'],
+  ['def.damage.calculate_and_verify', 'def_damage_calculate_and_verify'],
 ] as const;
 
 export type DefCanonicalToolName = typeof OPENCODE_TOOL_BINDINGS[number][0];
@@ -53,14 +62,14 @@ export interface ProjectedOpenCodeTool {
   readonly safeName: OpenCodeSafeToolName;
   readonly description: string;
   readonly inputSchema: JsonObject;
-  readonly risk: 'read';
+  readonly risk: 'read' | 'propose' | 'mutate';
 }
 
 export function projectOpenCodeTools(input: EngineToolProjectionInput): readonly ProjectedOpenCodeTool[] {
   return input.tools.map((descriptor) => {
     const safeName = toOpenCodeSafeToolName(descriptor.name);
-    if (descriptor.risk !== 'read') {
-      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', `OpenCode Tool ${descriptor.name} is not read-only`);
+    if (!['read', 'propose', 'mutate'].includes(descriptor.risk)) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', `OpenCode Tool ${descriptor.name} has an unsupported risk`);
     }
     if (
       descriptor.inputSchema.type !== 'object'
@@ -79,7 +88,7 @@ export function projectOpenCodeTools(input: EngineToolProjectionInput): readonly
       safeName,
       description: descriptor.description,
       inputSchema: descriptor.inputSchema,
-      risk: 'read',
+      risk: descriptor.risk,
     };
   });
 }

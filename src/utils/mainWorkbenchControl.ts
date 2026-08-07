@@ -154,6 +154,17 @@ export type MainWorkbenchCommand =
       checkout?: false;
     }
   | {
+      /**
+       * Agent-only composite used after one exact DEF approval. It creates or
+       * updates an isolated Work Node, validates it, then performs the manual
+       * checkout in the same foreground renderer command.
+       */
+      op: 'applyApprovedWorkNodePatch';
+      patch: TimelineWorkNodePatchOperation[];
+      label?: string;
+      description?: string;
+    }
+  | {
       op: 'checkoutAiTimelineWorkNode';
       nodeId: string;
       commitId?: string;
@@ -426,6 +437,11 @@ function canUseLocalStorage(): boolean {
 // changes. Browser SQLite is only a recovery mirror for this transient state;
 // the in-page copy is authoritative after the first write.
 const memoryJsonStorage = new Map<string, unknown>();
+// Agent commands are deliberately granted renderer execution only by the
+// current page load after BrowserAgentRuntime receives an execute delivery.
+// Persisted agent-host queue entries from an earlier page/process therefore
+// cannot be picked up and executed again after a reload.
+const currentAgentExecutionIds = new Set<string>();
 
 function readJsonStorage<T>(key: string, fallback: T): T {
   if (memoryJsonStorage.has(key)) {
@@ -507,6 +523,7 @@ export function enqueueMainWorkbenchCommand(
   const queue = readMainWorkbenchCommandQueue();
   const existing = id ? queue.find((entry) => entry.id === id) : null;
   if (existing) {
+    if (source === 'agent-host') currentAgentExecutionIds.add(existing.id);
     return existing;
   }
   const now = Date.now();
@@ -518,6 +535,7 @@ export function enqueueMainWorkbenchCommand(
     createdAt: now,
     updatedAt: now,
   };
+  if (source === 'agent-host') currentAgentExecutionIds.add(entry.id);
   writeMainWorkbenchCommandQueue([...queue, entry]);
   emitControlEvent();
   return entry;
@@ -546,6 +564,9 @@ export function enqueueMainWorkbenchCommands(
       };
     });
   if (!entries.length) return [];
+  if (source === 'agent-host') {
+    for (const entry of entries) currentAgentExecutionIds.add(entry.id);
+  }
   writeMainWorkbenchCommandQueue([...readMainWorkbenchCommandQueue(), ...entries]);
   emitControlEvent();
   return entries;
@@ -556,7 +577,9 @@ export function getPendingMainWorkbenchCommands(
 ): QueuedMainWorkbenchCommand[] {
   const supported = new Set(supportedOps);
   return readMainWorkbenchCommandQueue().filter((entry) =>
-    entry.status === 'pending' && supported.has(entry.command.op)
+    entry.status === 'pending'
+      && supported.has(entry.command.op)
+      && (entry.source !== 'agent-host' || currentAgentExecutionIds.has(entry.id))
   );
 }
 
@@ -589,6 +612,14 @@ export function appendMainWorkbenchResult(entry: QueuedMainWorkbenchCommand): vo
   writeJsonStorage(MAIN_WORKBENCH_RESULT_LOG_KEY, next);
 }
 
+export function readMainWorkbenchResultLog(): QueuedMainWorkbenchCommand[] {
+  const raw = readJsonStorage<unknown>(MAIN_WORKBENCH_RESULT_LOG_KEY, []);
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry) => normalizeQueuedCommand(entry as Partial<QueuedMainWorkbenchCommand>))
+    .filter((entry): entry is QueuedMainWorkbenchCommand => Boolean(entry));
+}
+
 export function readMainWorkbenchSnapshot(): MainWorkbenchSnapshot | null {
   return readJsonStorage<MainWorkbenchSnapshot | null>(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
 }
@@ -598,9 +629,15 @@ export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): voi
 }
 
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
-  await browserAgentRuntime.pullRemoteCommands((command, id) => {
-    enqueueMainWorkbenchCommand(command, 'agent-host', id);
-  });
+  const recoveredResults = new Map(
+    readMainWorkbenchResultLog().map((entry) => [entry.id, entry] as const),
+  );
+  await browserAgentRuntime.pullRemoteCommands(
+    (command, id) => {
+      enqueueMainWorkbenchCommand(command, 'agent-host', id);
+    },
+    (commandId) => recoveredResults.get(commandId) ?? null,
+  );
 }
 
 export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchCommand): Promise<void> {

@@ -70,8 +70,19 @@ const MAX_TOOL_RESULT_BYTES = 4_194_304;
 const MAX_SSE_BUFFER_BYTES = 4_194_304;
 const ABORT_TIMEOUT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 15_000;
+// OpenCode initializes its project-scoped plugin and database on the first
+// session created for an isolated workspace.  That cold path can legitimately
+// exceed the normal request timeout on desktop builds, so session creation has
+// its own wider bound instead of leaving a successfully-starting runtime behind
+// a false HTTP 500 in the product UI.
+const SESSION_CREATE_TIMEOUT_MS = 60_000;
 const RECOVERY_IDLE_TIMEOUT_MS = 5_000;
 const ASSISTANT_CORRELATION_TIMEOUT_MS = 5_000;
+const RECENT_MESSAGE_LOOKBACK = 8;
+const MESSAGE_ID_CLOCK_WAIT_MS = 1_000;
+const OPENCODE_ID_TIME_MASK = (1n << 48n) - 1n;
+const OPENCODE_ID_TIME_MULTIPLIER = 0x1000n;
+const OPENCODE_ID_RANDOM_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
 
 export interface OpenCodeEngineAdapterOptions {
   readonly runtimeRoot: string;
@@ -130,7 +141,7 @@ export class OpenCodeEngineAdapter implements AgentEngine {
     const runtime = await this.#runtime.start(input.providerProfileRef);
     const response = await runtime.request('/session', {
       method: 'POST',
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: AbortSignal.timeout(SESSION_CREATE_TIMEOUT_MS),
       body: JSON.stringify({
         title: `DEF ${input.defSessionId}`,
         agent: 'def-engine',
@@ -333,7 +344,7 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
   readonly #acceptedToolResults = new Map<ToolCallId, string>();
   readonly #acceptedProjections = new Map<number, string>();
   readonly #toolCalls = new Map<string, ToolCallRecord>();
-  readonly #userMessageId = `msg_def_${randomBytes(16).toString('hex')}`;
+  #userMessageId = '';
   readonly #turnLease = randomBytes(32).toString('base64url');
   readonly #assistantMessageIds = new Set<string>();
   readonly #assistantProjectionById = new Map<string, number>();
@@ -374,6 +385,10 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
   async begin(): Promise<void> {
     ensureBoundedUtf8(this.#input.systemContext, MAX_PROMPT_BYTES, 'OpenCode system context');
     ensureBoundedUtf8(this.#input.userMessage, MAX_PROMPT_BYTES, 'OpenCode user message');
+    this.#userMessageId = await nextOpenCodeUserMessageId(
+      this.#runtime,
+      this.ref.session.sessionId,
+    );
     this.#bridge.register(this.ref.session.sessionId, this);
     const connected = deferred<void>();
     void this.#consumeEvents(connected);
@@ -658,7 +673,7 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
       const time = record(info.time);
       if (typeof time?.completed === 'number') this.#currentAssistantCompleted = true;
       if (info.error !== undefined) {
-        this.fail('OPENCODE_PROVIDER_FAILED', 'OpenCode provider request failed');
+        this.fail('OPENCODE_PROVIDER_FAILED', publicProviderFailure(info.error));
         return;
       }
       if (this.#idleSeen) this.#completeFromIdle();
@@ -686,7 +701,7 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
       if (properties.sessionID !== this.ref.session.sessionId) return;
       this.fail(
         'OPENCODE_PROVIDER_FAILED',
-        'OpenCode provider request failed',
+        publicProviderFailure(properties.error),
       );
       return;
     }
@@ -924,12 +939,76 @@ function assistantCorrelationError(messageId: string): OpenCodeEngineError {
   );
 }
 
-async function requiredJsonResponse(response: Response, code: string): Promise<unknown> {
+async function nextOpenCodeUserMessageId(
+  runtime: RunningOpenCodeRuntime,
+  sessionId: string,
+): Promise<string> {
+  const response = await runtime.request(
+    `/session/${encodeURIComponent(sessionId)}/message?limit=${RECENT_MESSAGE_LOOKBACK}`,
+    { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+  );
+  const body = await requiredJsonResponse(
+    response,
+    'OPENCODE_MESSAGE_HISTORY_FAILED',
+    MAX_RESPONSE_BYTES,
+  );
+  if (!Array.isArray(body) || body.length > RECENT_MESSAGE_LOOKBACK) {
+    throw new OpenCodeEngineError(
+      'OPENCODE_RESPONSE_INVALID',
+      'OpenCode recent message history is invalid',
+    );
+  }
+  const recentIds = body.map((message) => {
+    const id = requiredId(record(record(message)?.info)?.id, 'OpenCode recent message id');
+    if (!id.startsWith('msg')) {
+      throw new OpenCodeEngineError(
+        'OPENCODE_RESPONSE_INVALID',
+        'OpenCode recent message id has an invalid prefix',
+      );
+    }
+    return id;
+  });
+  const latestId = recentIds.reduce<string | null>(
+    (latest, id) => latest === null || id > latest ? id : latest,
+    null,
+  );
+  const deadline = Date.now() + MESSAGE_ID_CLOCK_WAIT_MS;
+  for (;;) {
+    // Keep the user ID one millisecond behind wall clock. The OpenCode process
+    // creates the assistant after accepting this request, so its native
+    // MessageID.ascending() remains strictly newer even though the two
+    // processes do not share the generator's in-memory counter.
+    const candidate = createOpenCodeAscendingMessageId(Date.now() - 1);
+    if (latestId === null || candidate > latestId) return candidate;
+    if (Date.now() >= deadline) {
+      throw new OpenCodeEngineError(
+        'OPENCODE_RESPONSE_INVALID',
+        'OpenCode message chronology did not advance',
+      );
+    }
+    await new Promise<void>((resolveWait) => setTimeout(resolveWait, 1));
+  }
+}
+
+function createOpenCodeAscendingMessageId(timestamp: number): string {
+  const encoded = (BigInt(timestamp) * OPENCODE_ID_TIME_MULTIPLIER) & OPENCODE_ID_TIME_MASK;
+  const time = encoded.toString(16).padStart(12, '0');
+  const bytes = randomBytes(14);
+  let suffix = '';
+  for (const byte of bytes) suffix += OPENCODE_ID_RANDOM_ALPHABET.charAt(byte % OPENCODE_ID_RANDOM_ALPHABET.length);
+  return `msg_${time}${suffix}`;
+}
+
+async function requiredJsonResponse(
+  response: Response,
+  code: string,
+  maxBytes = MAX_PROMPT_BYTES,
+): Promise<unknown> {
   if (!response.ok) {
     throw new OpenCodeEngineError('OPENCODE_HTTP_FAILED', `${code} (HTTP ${response.status})`);
   }
   try {
-    const text = await readBoundedResponseText(response, MAX_PROMPT_BYTES);
+    const text = await readBoundedResponseText(response, maxBytes);
     return JSON.parse(text);
   } catch {
     throw new OpenCodeEngineError('OPENCODE_RESPONSE_INVALID', `${code} returned invalid JSON`);
@@ -1088,6 +1167,28 @@ function publicTurnFailure(message: string): string {
   const compact = message.replace(/\s+/gu, ' ').trim();
   if (!compact) return 'OpenCode Engine Turn failed';
   return compact.slice(0, 240);
+}
+
+function publicProviderFailure(value: unknown): string {
+  const error = record(value);
+  const data = record(error?.data);
+  const statusCode = typeof data?.statusCode === 'number' ? data.statusCode : null;
+  if (statusCode === 401 || statusCode === 403) {
+    return '模型服务认证失败，请在桌面 Shell 更新 API Key。';
+  }
+  if (statusCode === 404) {
+    return '模型或接口地址不存在，请检查桌面 Shell 中的 Base URL 与 Model ID。';
+  }
+  if (statusCode === 429) {
+    return '模型服务限流或额度不足，请稍后重试或检查账户额度。';
+  }
+  if (statusCode === 400 || statusCode === 422) {
+    return '模型服务拒绝了请求，请检查桌面 Shell 中的 Provider 配置。';
+  }
+  if (statusCode !== null && statusCode >= 500) {
+    return '模型服务暂时不可用，请稍后重试。';
+  }
+  return 'OpenCode provider request failed';
 }
 
 function ensureBoundedUtf8(value: string, maxBytes: number, label: string): void {

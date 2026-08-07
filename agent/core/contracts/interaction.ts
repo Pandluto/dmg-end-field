@@ -25,6 +25,7 @@ export interface InteractionStateBinding {
   readonly databaseGeneration: DatabaseGeneration;
   readonly timelineId: TimelineId;
   readonly checkoutTargetId: string | null;
+  readonly checkoutUpdatedAt: number;
   readonly contentRevision: number;
   readonly snapshotDigest: string;
 }

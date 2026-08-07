@@ -6,26 +6,36 @@ import {
   type BrowserSnapshotPublish,
   type BrowserWorkbenchConsumerState,
   type CommandId,
+  type DefTurnId,
   type JsonValue,
   type Phase2ProductCommand,
   type Phase2ProductOperationSchema,
   type ProductBinding,
   type ProductCommandReceipt,
+  type ProductCommandCancelOptions,
   type ProductCommandResult,
   type ProductGateway,
   type ProductSnapshotEnvelope,
   type ProductWaitOptions,
 } from '../core/contracts/index.ts';
+import { dirname, resolve } from 'node:path';
 import type { AgentUiCapabilityClaims } from './token-authority.ts';
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
 import { DefAgentHostError } from './errors.ts';
+import {
+  createFileProductCommandStore,
+  createMemoryProductCommandStore,
+  type ProductCommandDeliveryMode,
+  type ProductCommandStore,
+} from './product-command-store.ts';
 
 type QueuedCommand = {
   readonly cursor: number;
   readonly command: Phase2ProductCommand;
   readonly fingerprint: string;
   readonly acceptedAt: string;
-  status: 'queued' | 'dispatched' | 'terminal';
+  status: 'queued' | 'dispatched' | 'reconciling' | 'terminal';
+  deliveryMode: ProductCommandDeliveryMode;
   result: ProductCommandResult | null;
 };
 
@@ -35,9 +45,20 @@ type ResultWaiter = {
   readonly timer: ReturnType<typeof setTimeout> | null;
 };
 
+export type RemoteProductCommandView = {
+  readonly cursor: number;
+  readonly command: Phase2ProductCommand;
+  readonly acceptedAt: string;
+  readonly status: QueuedCommand['status'];
+  readonly deliveryMode: ProductCommandDeliveryMode;
+  readonly result: ProductCommandResult | null;
+};
+
 export class RemoteBrowserProductGateway implements ProductGateway<Phase2ProductOperationSchema> {
   readonly #consumers: BrowserConsumerRegistry;
   readonly #clock: () => number;
+  readonly #commandStore: ProductCommandStore;
+  readonly #onTerminalResult: ((view: RemoteProductCommandView) => void) | null;
   readonly #commands = new Map<CommandId, QueuedCommand>();
   readonly #waiters = new Map<CommandId, Set<ResultWaiter>>();
   #snapshot: ProductSnapshotEnvelope | null = null;
@@ -45,10 +66,34 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
 
   constructor(
     consumers: BrowserConsumerRegistry,
-    options: { readonly clock?: () => number } = {},
+    options: {
+      readonly clock?: () => number;
+      readonly commandStore?: ProductCommandStore;
+      /**
+       * Durable Host-journal hook. It is deliberately invoked again when the
+       * browser retries an identical terminal result, allowing a prior journal
+       * write failure to catch up without ever replaying the Product command.
+       */
+      readonly onTerminalResult?: (view: RemoteProductCommandView) => void;
+    } = {},
   ) {
     this.#consumers = consumers;
     this.#clock = options.clock ?? Date.now;
+    this.#commandStore = options.commandStore ?? defaultProductCommandStore();
+    this.#onTerminalResult = options.onTerminalResult ?? null;
+    this.#commandStore.initialize();
+    for (const record of this.#commandStore.list()) {
+      this.#commands.set(record.command.commandId, {
+        cursor: record.cursor,
+        command: record.command,
+        fingerprint: record.fingerprint,
+        acceptedAt: record.acceptedAt,
+        status: record.status,
+        deliveryMode: record.deliveryMode,
+        result: record.result,
+      });
+      this.#cursor = Math.max(this.#cursor, record.cursor);
+    }
   }
 
   publishSnapshot(
@@ -110,14 +155,17 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
       );
     }
     const acceptedAt = new Date(this.#clock()).toISOString();
+    const persisted = this.#commandStore.accept(command, acceptedAt);
     this.#commands.set(command.commandId, {
-      cursor: ++this.#cursor,
-      command,
-      fingerprint,
-      acceptedAt,
-      status: 'queued',
-      result: null,
+      cursor: persisted.cursor,
+      command: persisted.command,
+      fingerprint: persisted.fingerprint,
+      acceptedAt: persisted.acceptedAt,
+      status: persisted.status,
+      deliveryMode: persisted.deliveryMode,
+      result: persisted.result,
     });
+    this.#cursor = Math.max(this.#cursor, persisted.cursor);
     return { commandId: command.commandId, status: 'queued', acceptedAt };
   }
 
@@ -135,8 +183,15 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
       .filter((entry) => entry.status !== 'terminal' && entry.cursor > input.afterCursor)
       .sort((left, right) => left.cursor - right.cursor)[0];
     if (!next) return null;
-    next.status = 'dispatched';
-    return { cursor: next.cursor, command: next.command };
+    const persisted = this.#commandStore.markDispatched(next.command.commandId);
+    next.status = persisted.status;
+    next.deliveryMode = persisted.deliveryMode;
+    next.result = persisted.result;
+    return {
+      cursor: next.cursor,
+      command: next.command,
+      mode: next.deliveryMode,
+    };
   }
 
   submitResult(
@@ -160,6 +215,7 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
           `Product command ${input.result.commandId} already has another result`,
         );
       }
+      this.#notifyTerminalResult(command);
       return command.result;
     }
     const generationChanged = (
@@ -173,15 +229,66 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
         `Product command ${input.result.commandId} belongs to another browser generation`,
       );
     }
-    command.status = 'terminal';
-    command.result = input.result;
-    const waiters = this.#waiters.get(input.result.commandId);
-    this.#waiters.delete(input.result.commandId);
+    return this.#recordTerminalResult(command, input.result);
+  }
+
+  async cancelPending(
+    defTurnId: DefTurnId,
+    options: ProductCommandCancelOptions = {},
+  ): Promise<readonly ProductCommandResult[]> {
+    const results: ProductCommandResult[] = [];
+    for (const command of this.#commands.values()) {
+      if (
+        command.command.defTurnId !== defTurnId
+        || command.status !== 'queued'
+        || command.result
+      ) continue;
+      const result: ProductCommandResult = {
+        commandId: command.command.commandId,
+        status: 'not-executed',
+        code: options.code ?? 'AGENT_COMMAND_CANCELLED_BY_TURN',
+        message: options.message ?? 'Turn stopped before the Product command was delivered.',
+        beforeRevision: command.command.expected.contentRevision,
+        afterRevision: command.command.expected.contentRevision,
+        browserResult: { cancelledBeforeDelivery: true },
+        completedAt: new Date(this.#clock()).toISOString(),
+      };
+      results.push(this.#recordTerminalResult(command, result));
+    }
+    return results;
+  }
+
+  #recordTerminalResult(command: QueuedCommand, result: ProductCommandResult): ProductCommandResult {
+    const persisted = this.#commandStore.recordResult(command.command.commandId, result);
+    if (!persisted.result) {
+      throw new DefAgentHostError(
+        'AGENT_COMMAND_CONFLICT',
+        `Product command ${command.command.commandId} has no persisted terminal result`,
+      );
+    }
+    command.status = persisted.status;
+    command.deliveryMode = persisted.deliveryMode;
+    command.result = persisted.result;
+    this.#notifyTerminalResult(command);
+    const waiters = this.#waiters.get(command.command.commandId);
+    this.#waiters.delete(command.command.commandId);
     for (const waiter of waiters ?? []) {
       if (waiter.timer) clearTimeout(waiter.timer);
-      waiter.resolve(input.result);
+      waiter.resolve(persisted.result);
     }
-    return input.result;
+    return persisted.result;
+  }
+
+  #notifyTerminalResult(command: QueuedCommand): void {
+    if (!command.result || !this.#onTerminalResult) return;
+    this.#onTerminalResult({
+      cursor: command.cursor,
+      command: command.command,
+      acceptedAt: command.acceptedAt,
+      status: command.status,
+      deliveryMode: command.deliveryMode,
+      result: command.result,
+    });
   }
 
   async awaitResult(
@@ -225,18 +332,16 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
     return command.result;
   }
 
-  getCommand(commandId: CommandId): {
-    readonly cursor: number;
-    readonly command: Phase2ProductCommand;
-    readonly status: QueuedCommand['status'];
-    readonly result: ProductCommandResult | null;
-  } | null {
+  /** Read-only recovery view used by Host diagnostics and await/reconcile code. */
+  getCommand(commandId: CommandId): RemoteProductCommandView | null {
     const entry = this.#commands.get(commandId);
     if (!entry) return null;
     return {
       cursor: entry.cursor,
       command: entry.command,
+      acceptedAt: entry.acceptedAt,
       status: entry.status,
+      deliveryMode: entry.deliveryMode,
       result: entry.result,
     };
   }
@@ -252,6 +357,14 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
     this.#commands.clear();
     this.#snapshot = null;
   }
+}
+
+function defaultProductCommandStore(): ProductCommandStore {
+  const configuredRoot = process.env.DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT?.trim();
+  const readyFile = process.env.DEF_AGENT_READY_FILE?.trim();
+  const root = configuredRoot
+    || (readyFile ? `${dirname(resolve(readyFile))}/product-commands` : '');
+  return root ? createFileProductCommandStore(root) : createMemoryProductCommandStore();
 }
 
 function sameBinding(left: ProductBinding, right: ProductBinding): boolean {
