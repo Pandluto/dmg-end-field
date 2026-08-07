@@ -64,12 +64,21 @@ type SessionRecord = {
   session: DefSessionV6;
   binding: ProductBinding;
   providerProfileRef: string;
+  /**
+   * A persisted Engine ref is not usable in a fresh Host until it has been
+   * recovered. New sessions are created in the current Engine and therefore
+   * start with this flag cleared.
+   */
+  engineRecoveryRequired: boolean;
+  recoveryPromise: Promise<SessionRecoveryOutcome> | null;
   sequence: number;
   eventCodeUnits: number;
   acceptedTurns: number;
   events: DefEvent[];
   clientTurns: Map<ClientTurnId, ClientTurnRecord>;
 };
+
+type SessionRecoveryOutcome = 'ready' | 'missing' | 'unavailable' | 'skipped';
 
 type ClientTurnRecord = {
   readonly userMessage: string;
@@ -233,6 +242,8 @@ export class DefAgentHost {
         session: cloneSession(stored.session),
         binding: structuredClone(stored.binding),
         providerProfileRef: stored.providerProfileRef,
+        engineRecoveryRequired: isEngineRecoveryRequired(stored.session.status),
+        recoveryPromise: null,
         sequence: events.at(-1)?.sequence ?? 0,
         eventCodeUnits: events.reduce((total, event) => total + JSON.stringify(event).length, 0),
         acceptedTurns: events.filter((event) => event.type === 'turn.accepted').length,
@@ -261,77 +272,156 @@ export class DefAgentHost {
   }
 
   async #recoverStoredSessions(): Promise<void> {
-    for (const record of [...this.#sessions.values()]) {
-      this.#interruptAbandonedTurns(record);
-      if (record.session.status === 'deleting') {
-        try {
-          await this.#engine.disposeSession(record.session.engine);
-          this.#sessionStore.delete(record.session.defSessionId);
-          this.#sessions.delete(record.session.defSessionId);
-          if (this.#activeSessionId === record.session.defSessionId) this.#activeSessionId = null;
-          continue;
-        } catch (error) {
-          this.#replaceSession(record, {
-            ...record.session,
-            status: 'delete-failed',
-            updatedAt: new Date(this.#clock()).toISOString(),
-          });
-        }
-      }
+    const active = this.#activeSessionId
+      ? this.#sessions.get(this.#activeSessionId) ?? null
+      : null;
 
-      try {
-        const recovered = await this.#engine.recoverSession(record.session.engine);
-        if (recovered.status === 'recovered') {
-          const nextStatus = record.session.status === 'archived' ? 'archived' : 'ready';
-          this.#replaceSession(record, {
-            ...record.session,
-            status: nextStatus,
-            engine: recovered.ref,
-            updatedAt: new Date(this.#clock()).toISOString(),
-          });
-          this.#append(record, {
-            type: 'session.recovered',
-            payload: {
-              engineKind: recovered.ref.kind,
-              engineRuntimeVersion: recovered.ref.runtimeVersion,
-            },
-          });
-          continue;
-        }
-        const message = recovered.status === 'missing'
-          ? 'The persisted Engine Session no longer exists'
-          : recovered.message;
-        this.#replaceSession(record, {
-          ...record.session,
-          status: 'orphaned',
-          updatedAt: new Date(this.#clock()).toISOString(),
-        });
-        this.#append(record, {
-          type: 'session.orphaned',
-          payload: {
-            code: recovered.status === 'missing' ? 'ENGINE_SESSION_MISSING' : recovered.code,
-            message,
-          },
-        });
-      } catch (error) {
-        this.#replaceSession(record, {
-          ...record.session,
-          status: 'engine-unavailable',
-          updatedAt: new Date(this.#clock()).toISOString(),
-        });
-        this.#append(record, {
-          type: 'session.orphaned',
-          payload: {
-            code: 'ENGINE_RECOVERY_UNAVAILABLE',
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
+    // Reconcile the active Session before declaring the Host initialized. The
+    // rest of the historical registry is intentionally not on this critical
+    // path: a cold OpenCode runtime must not be opened once per old Session.
+    if (active) {
+      this.#interruptAbandonedTurns(active);
+      if (active.session.status === 'deleting') {
+        await this.#finishDeletingSession(active);
+      } else {
+        await this.#recoverSessionIfNeeded(active);
       }
     }
+
+    // Journal cleanup is still required for old Sessions, but it is not
+    // allowed to delay Host ready. It never performs Engine recovery.
+    this.#scheduleHistoricalReconciliation(active?.session.defSessionId ?? null);
     if (this.#activeSessionId && !this.#sessions.has(this.#activeSessionId)) {
       this.#activeSessionId = null;
       this.#sessionStore.setActive(null);
     }
+  }
+
+  #scheduleHistoricalReconciliation(activeSessionId: DefSessionId | null): void {
+    const timer = setTimeout(() => {
+      void this.#reconcileHistoricalSessions(activeSessionId).catch(() => undefined);
+    }, 0);
+    timer.unref?.();
+  }
+
+  async #reconcileHistoricalSessions(activeSessionId: DefSessionId | null): Promise<void> {
+    for (const record of [...this.#sessions.values()]) {
+      if (this.#shutdown) return;
+      if (this.#sessions.get(record.session.defSessionId) !== record) continue;
+      if (record.session.defSessionId === activeSessionId) continue;
+      this.#interruptAbandonedTurns(record);
+      if (record.session.status === 'deleting') {
+        await this.#finishDeletingSession(record);
+      }
+      // Yield between historical records so a large registry cannot monopolize
+      // the event loop after the Host has already reported ready.
+      await Promise.resolve();
+    }
+  }
+
+  async #finishDeletingSession(record: SessionRecord): Promise<void> {
+    if (record.session.status !== 'deleting') return;
+    try {
+      await this.#engine.disposeSession(record.session.engine);
+      if (!this.#sessions.has(record.session.defSessionId)) return;
+      this.#sessionStore.delete(record.session.defSessionId);
+      this.#sessions.delete(record.session.defSessionId);
+      if (this.#activeSessionId === record.session.defSessionId) {
+        this.#activeSessionId = null;
+        this.#sessionStore.setActive(null);
+      }
+    } catch {
+      this.#replaceSession(record, {
+        ...record.session,
+        status: 'delete-failed',
+        updatedAt: new Date(this.#clock()).toISOString(),
+      });
+    }
+  }
+
+  async #recoverSessionIfNeeded(
+    record: SessionRecord,
+    options: { readonly restoreArchived?: boolean } = {},
+  ): Promise<SessionRecoveryOutcome> {
+    const restoringArchived = options.restoreArchived === true;
+    if (record.recoveryPromise) return record.recoveryPromise;
+    if (record.session.status === 'archived' && !restoringArchived) return 'skipped';
+    if (!record.engineRecoveryRequired && record.session.status === 'ready') return 'ready';
+    if (!isEngineRecoveryRequired(record.session.status) && !restoringArchived) return 'skipped';
+
+    const recovery = this.#recoverSession(record);
+    record.recoveryPromise = recovery;
+    try {
+      return await recovery;
+    } finally {
+      if (record.recoveryPromise === recovery) record.recoveryPromise = null;
+    }
+  }
+
+  async #recoverSession(
+    record: SessionRecord,
+  ): Promise<SessionRecoveryOutcome> {
+    let recovered;
+    try {
+      recovered = await this.#engine.recoverSession(record.session.engine);
+    } catch (error) {
+      // Shutdown must not turn a late Engine response into a false
+      // session.recovered event. Keep the persisted Session retryable.
+      if (this.#shutdown || record.session.status === 'deleting' || !this.#sessions.has(record.session.defSessionId)) {
+        return 'skipped';
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.#replaceSession(record, {
+        ...record.session,
+        status: 'engine-unavailable',
+        updatedAt: new Date(this.#clock()).toISOString(),
+      });
+      this.#append(record, {
+        type: 'session.orphaned',
+        payload: { code: 'ENGINE_RECOVERY_UNAVAILABLE', message },
+      });
+      record.engineRecoveryRequired = true;
+      return 'unavailable';
+    }
+
+    if (this.#shutdown || record.session.status === 'deleting' || !this.#sessions.has(record.session.defSessionId)) {
+      return 'skipped';
+    }
+    if (recovered.status === 'recovered') {
+      this.#replaceSession(record, {
+        ...record.session,
+        status: 'ready',
+        engine: recovered.ref,
+        updatedAt: new Date(this.#clock()).toISOString(),
+      });
+      this.#append(record, {
+        type: 'session.recovered',
+        payload: {
+          engineKind: recovered.ref.kind,
+          engineRuntimeVersion: recovered.ref.runtimeVersion,
+        },
+      });
+      record.engineRecoveryRequired = false;
+      return 'ready';
+    }
+
+    const message = recovered.status === 'missing'
+      ? 'The persisted Engine Session no longer exists'
+      : recovered.message;
+    this.#replaceSession(record, {
+      ...record.session,
+      status: 'orphaned',
+      updatedAt: new Date(this.#clock()).toISOString(),
+    });
+    this.#append(record, {
+      type: 'session.orphaned',
+      payload: {
+        code: recovered.status === 'missing' ? 'ENGINE_SESSION_MISSING' : recovered.code,
+        message,
+      },
+    });
+    record.engineRecoveryRequired = false;
+    return 'missing';
   }
 
   #interruptAbandonedTurns(record: SessionRecord): void {
@@ -443,6 +533,8 @@ export class DefAgentHost {
       session,
       binding: input.binding,
       providerProfileRef: input.providerProfileRef,
+      engineRecoveryRequired: false,
+      recoveryPromise: null,
       sequence: 0,
       eventCodeUnits: 0,
       acceptedTurns: 0,
@@ -500,6 +592,8 @@ export class DefAgentHost {
       }
       return previous.state === 'pending' ? previous.promise : previous.result;
     }
+    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+    this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#assertTurnAvailable();
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const defTurnId = this.#ids.turn();
@@ -595,6 +689,8 @@ export class DefAgentHost {
       }
       return previous.state === 'pending' ? previous.promise : previous.result;
     }
+    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+    this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#assertTurnAvailable();
     this.#assertSessionCanStartTurn(record, input.userMessage);
     if (input.binding) {
@@ -956,6 +1052,7 @@ export class DefAgentHost {
       status: 'archived',
       updatedAt: new Date(this.#clock()).toISOString(),
     });
+    record.engineRecoveryRequired = false;
     this.#append(record, {
       type: 'session.archived',
       payload: { reason },
@@ -980,60 +1077,10 @@ export class DefAgentHost {
         `DEF Session ${defSessionId} cannot be restored from ${record.session.status}`,
       );
     }
-    let recovered;
-    try {
-      recovered = await this.#engine.recoverSession(record.session.engine);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.#replaceSession(record, {
-        ...record.session,
-        status: 'engine-unavailable',
-        updatedAt: new Date(this.#clock()).toISOString(),
-      });
-      this.#append(record, {
-        type: 'session.orphaned',
-        payload: { code: 'ENGINE_RECOVERY_UNAVAILABLE', message },
-      });
-      throw new DefAgentHostError(
-        'AGENT_SESSION_RECOVERY_FAILED',
-        `DEF Session ${defSessionId} could not restore its Engine session: ${message}`,
-        503,
-      );
-    }
-    if (recovered.status !== 'recovered') {
-      const code = recovered.status === 'missing' ? 'ENGINE_SESSION_MISSING' : recovered.code;
-      const message = recovered.status === 'missing'
-        ? 'The persisted Engine Session no longer exists'
-        : recovered.message;
-      this.#replaceSession(record, {
-        ...record.session,
-        status: 'orphaned',
-        updatedAt: new Date(this.#clock()).toISOString(),
-      });
-      this.#append(record, {
-        type: 'session.orphaned',
-        payload: { code, message },
-      });
-      throw new DefAgentHostError(
-        'AGENT_SESSION_RECOVERY_FAILED',
-        `DEF Session ${defSessionId} could not restore its Engine session: ${message}`,
-        409,
-      );
-    }
-    this.#replaceSession(record, {
-      ...record.session,
-      status: 'ready',
-      engine: recovered.ref,
-      updatedAt: new Date(this.#clock()).toISOString(),
-    });
+    record.engineRecoveryRequired = true;
+    const outcome = await this.#recoverSessionIfNeeded(record, { restoreArchived: true });
+    this.#assertRecoveryOutcome(record, outcome);
     this.#setActiveSession(defSessionId);
-    this.#append(record, {
-      type: 'session.recovered',
-      payload: {
-        engineKind: recovered.ref.kind,
-        engineRuntimeVersion: recovered.ref.runtimeVersion,
-      },
-    });
     return cloneSession(record.session);
   }
 
@@ -1179,6 +1226,11 @@ export class DefAgentHost {
     this.#shutdown = true;
     if (this.#startingTurn) this.#startingTurn.abortCode ??= 'HOST_SHUTDOWN';
     if (this.#activeTurn) await this.abortTurn(this.#activeTurn.defTurnId, 'HOST_SHUTDOWN');
+    await Promise.allSettled(
+      [...this.#sessions.values()]
+        .map((record) => record.recoveryPromise)
+        .filter((promise): promise is Promise<SessionRecoveryOutcome> => promise !== null),
+    );
     await this.#engine.shutdown();
   }
 
@@ -2140,6 +2192,24 @@ export class DefAgentHost {
     }
   }
 
+  #assertRecoveryOutcome(record: SessionRecord, outcome: SessionRecoveryOutcome): void {
+    if (outcome === 'ready') return;
+    if (outcome === 'skipped') {
+      throw new DefAgentHostError(
+        'AGENT_SESSION_STATE_INVALID',
+        `DEF Session ${record.session.defSessionId} cannot start while its Engine recovery is unavailable`,
+      );
+    }
+    const message = outcome === 'missing'
+      ? 'The persisted Engine Session no longer exists'
+      : 'The Engine Session could not be recovered because the Engine is unavailable';
+    throw new DefAgentHostError(
+      'AGENT_SESSION_RECOVERY_FAILED',
+      `DEF Session ${record.session.defSessionId} could not recover its Engine session: ${message}`,
+      outcome === 'unavailable' ? 503 : 409,
+    );
+  }
+
   #beginStartingTurn(record: SessionRecord, defTurnId: DefTurnId): StartingTurn {
     const starting: StartingTurn = { session: record, defTurnId, abortCode: null };
     this.#startingTurn = starting;
@@ -2189,6 +2259,12 @@ export class DefAgentHost {
   }
 
   #assertSessionIdle(record: SessionRecord, action: string): void {
+    if (record.recoveryPromise) {
+      throw new DefAgentHostError(
+        'AGENT_TURN_BUSY',
+        `DEF Session ${record.session.defSessionId} cannot ${action} while its Engine is recovering`,
+      );
+    }
     if (
       this.#startingTurn?.session === record
       || (this.#activeTurn?.session === record && !this.#activeTurn.settled)
@@ -2296,6 +2372,10 @@ function isTerminalReserveEvent(event: DefEvent): boolean {
     || event.type === 'harness.terminal'
   ) return true;
   return event.type === 'harness.tool.projected' && event.payload.tools.length === 0;
+}
+
+function isEngineRecoveryRequired(status: DefSessionV6['status']): boolean {
+  return status === 'ready' || status === 'engine-unavailable';
 }
 
 function isTurnTerminalEvent(event: DefEvent): event is Extract<DefEvent, {

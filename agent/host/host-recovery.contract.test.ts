@@ -9,6 +9,8 @@ import {
   asTimelineId,
   asToolCallId,
   asWorkspaceId,
+  type EngineRecoveryResult,
+  type EngineSessionRef,
   type Phase2ProductOperationSchema,
   type DefEvent,
   type DefSessionId,
@@ -19,6 +21,46 @@ import { DeterministicFakeAgentEngine } from '../core/testing/fake-engine.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
 import { MemoryDefAgentSessionStore } from './session-store.ts';
+
+class CountingRecoveryEngine extends DeterministicFakeAgentEngine {
+  readonly recoverCalls: string[] = [];
+  readonly failRecoveryFor = new Set<string>();
+
+  override async recoverSession(ref: EngineSessionRef): Promise<EngineRecoveryResult> {
+    this.recoverCalls.push(ref.sessionId);
+    if (this.failRecoveryFor.has(ref.sessionId)) {
+      throw new Error(`recovery unavailable for ${ref.sessionId}`);
+    }
+    return super.recoverSession(ref);
+  }
+}
+
+class GatedRecoveryEngine extends CountingRecoveryEngine {
+  readonly started: Promise<void>;
+  #resolveStarted: () => void = () => {};
+  readonly #gate: Promise<void>;
+  #releaseGate: () => void = () => {};
+
+  constructor() {
+    super();
+    this.started = new Promise<void>((resolve) => {
+      this.#resolveStarted = resolve;
+    });
+    this.#gate = new Promise<void>((resolve) => {
+      this.#releaseGate = resolve;
+    });
+  }
+
+  release(): void {
+    this.#releaseGate();
+  }
+
+  override async recoverSession(ref: EngineSessionRef): Promise<EngineRecoveryResult> {
+    this.#resolveStarted();
+    await this.#gate;
+    return super.recoverSession(ref);
+  }
+}
 
 class FlushCountingMemoryDefAgentSessionStore extends MemoryDefAgentSessionStore {
   flushCalls = 0;
@@ -259,5 +301,199 @@ assert.equal(
   responseDeltaCount,
 );
 await restarted.shutdown();
+
+async function seedStoredSession(
+  engine: DeterministicFakeAgentEngine,
+  store: MemoryDefAgentSessionStore,
+  defSessionId: DefSessionId,
+  status: 'ready' | 'archived',
+): Promise<EngineSessionRef> {
+  const engineSession = await engine.createSession({
+    defSessionId,
+    providerProfileRef: 'default',
+  });
+  store.create({
+    session: {
+      schemaVersion: 6,
+      eventSchemaVersion: 1,
+      defSessionId,
+      host: 'workbench',
+      status,
+      workspaceId: binding.workspaceId,
+      lastDatabaseGeneration: binding.databaseGeneration,
+      timelineId: binding.timelineId,
+      axisBindingId: null,
+      boundNodeId: binding.checkoutTargetId,
+      engine: engineSession,
+      harness: { stateVersion: 1, revision: 'recovery-contract-v1' },
+      createdAt: '2026-08-07T00:00:00.000Z',
+      updatedAt: '2026-08-07T00:00:00.000Z',
+    },
+    binding,
+    providerProfileRef: 'default',
+    acceptedClientTurns: [],
+  });
+  store.append(defSessionId, {
+    schemaVersion: 1,
+    sequence: 1,
+    occurredAt: '2026-08-07T00:00:01.000Z',
+    defSessionId,
+    type: 'session.ready',
+    payload: { engineKind: engineSession.kind, engineRuntimeVersion: engineSession.runtimeVersion },
+  });
+  return engineSession;
+}
+
+const lazyEngine = new CountingRecoveryEngine();
+const lazyStore = new MemoryDefAgentSessionStore();
+const lazyActiveId = asDefSessionId('def-session-lazy-active');
+const lazyHistoryId = asDefSessionId('def-session-lazy-history');
+const lazyArchivedId = asDefSessionId('def-session-lazy-archived');
+const lazyActiveEngineSession = await seedStoredSession(lazyEngine, lazyStore, lazyActiveId, 'ready');
+const lazyHistoryEngineSession = await seedStoredSession(lazyEngine, lazyStore, lazyHistoryId, 'ready');
+const lazyArchivedEngineSession = await seedStoredSession(lazyEngine, lazyStore, lazyArchivedId, 'archived');
+lazyStore.setActive(lazyActiveId);
+
+const lazyHost = new DefAgentHost({
+  engine: lazyEngine,
+  productGateway: unavailableGateway,
+  sessionStore: lazyStore,
+  requireConsumer: () => undefined,
+});
+await lazyHost.initialize();
+
+// Startup only recovers the active Session. Historical and archived Sessions
+// must remain untouched until the user actually selects them.
+assert.deepEqual(lazyEngine.recoverCalls, [lazyActiveEngineSession.sessionId]);
+assert.equal(lazyHost.readSession(lazyHistoryId).status, 'ready');
+assert.equal(lazyHost.readSession(lazyArchivedId).status, 'archived');
+assert.equal(
+  lazyHost.readEvents(lazyArchivedId, 0, 256).filter((event) => event.type === 'session.recovered').length,
+  0,
+);
+
+// The first real use of a historical Session performs one lazy recovery. A
+// later turn uses the recovered ref and does not call Engine recovery again.
+lazyEngine.enqueueScript([{ type: 'complete' }, { type: 'complete' }]);
+const lazyFirstTurn = await lazyHost.startTurn({
+  defSessionId: lazyHistoryId,
+  clientTurnId: asClientTurnId('client-turn-lazy-first'),
+  userMessage: '首次使用历史会话',
+  systemContext: 'lazy recovery contract',
+  toolProjection: { revision: 1, tools: [] },
+});
+assert.equal((await lazyHost.waitForTurnTerminal(lazyFirstTurn.defTurnId)).type, 'turn.completed');
+const lazySecondTurn = await lazyHost.startTurn({
+  defSessionId: lazyHistoryId,
+  clientTurnId: asClientTurnId('client-turn-lazy-second'),
+  userMessage: '再次使用历史会话',
+  systemContext: 'lazy recovery contract',
+  toolProjection: { revision: 1, tools: [] },
+});
+assert.equal((await lazyHost.waitForTurnTerminal(lazySecondTurn.defTurnId)).type, 'turn.completed');
+assert.deepEqual(lazyEngine.recoverCalls, [
+  lazyActiveEngineSession.sessionId,
+  lazyHistoryEngineSession.sessionId,
+]);
+
+// Archived recovery is an explicit restore operation, never an initialization
+// side effect.
+await lazyHost.restoreSession(lazyArchivedId, binding);
+assert.equal(lazyHost.readSession(lazyArchivedId).status, 'ready');
+assert.equal(
+  lazyHost.readEvents(lazyArchivedId, 0, 256).filter((event) => event.type === 'session.recovered').length,
+  1,
+);
+assert.deepEqual(lazyEngine.recoverCalls, [
+  lazyActiveEngineSession.sessionId,
+  lazyHistoryEngineSession.sessionId,
+  lazyArchivedEngineSession.sessionId,
+]);
+await lazyHost.shutdown();
+
+const failedRecoveryEngine = new CountingRecoveryEngine();
+const failedRecoveryStore = new MemoryDefAgentSessionStore();
+const failedRecoveryId = asDefSessionId('def-session-lazy-failed');
+const failedRecoveryEngineSession = await seedStoredSession(
+  failedRecoveryEngine,
+  failedRecoveryStore,
+  failedRecoveryId,
+  'ready',
+);
+failedRecoveryEngine.failRecoveryFor.add(failedRecoveryEngineSession.sessionId);
+const failedRecoveryHost = new DefAgentHost({
+  engine: failedRecoveryEngine,
+  productGateway: unavailableGateway,
+  sessionStore: failedRecoveryStore,
+  requireConsumer: () => undefined,
+});
+await failedRecoveryHost.initialize();
+assert.deepEqual(failedRecoveryEngine.recoverCalls, []);
+await assert.rejects(
+  () => failedRecoveryHost.startTurn({
+    defSessionId: failedRecoveryId,
+    clientTurnId: asClientTurnId('client-turn-lazy-failed-1'),
+    userMessage: '触发失败恢复',
+    systemContext: 'lazy recovery failure contract',
+    toolProjection: { revision: 1, tools: [] },
+  }),
+  (error: unknown) => error instanceof DefAgentHostError
+    && error.code === 'AGENT_SESSION_RECOVERY_FAILED',
+);
+assert.equal(failedRecoveryHost.readSession(failedRecoveryId).status, 'engine-unavailable');
+const failedEvent = failedRecoveryHost.readEvents(failedRecoveryId, 0, 256)
+  .find((event) => event.type === 'session.orphaned');
+assert.equal(failedEvent?.type, 'session.orphaned');
+if (failedEvent?.type === 'session.orphaned') {
+  assert.equal(failedEvent.payload.code, 'ENGINE_RECOVERY_UNAVAILABLE');
+}
+failedRecoveryEngine.failRecoveryFor.delete(failedRecoveryEngineSession.sessionId);
+failedRecoveryEngine.enqueueScript([{ type: 'complete' }]);
+const recoveredAfterFailure = await failedRecoveryHost.startTurn({
+  defSessionId: failedRecoveryId,
+  clientTurnId: asClientTurnId('client-turn-lazy-failed-2'),
+  userMessage: '失败后重试恢复',
+  systemContext: 'lazy recovery failure contract',
+  toolProjection: { revision: 1, tools: [] },
+});
+assert.equal((await failedRecoveryHost.waitForTurnTerminal(recoveredAfterFailure.defTurnId)).type, 'turn.completed');
+assert.deepEqual(failedRecoveryEngine.recoverCalls, [
+  failedRecoveryEngineSession.sessionId,
+  failedRecoveryEngineSession.sessionId,
+]);
+await failedRecoveryHost.shutdown();
+
+const gatedRecoveryEngine = new GatedRecoveryEngine();
+const gatedRecoveryStore = new MemoryDefAgentSessionStore();
+const gatedRecoveryId = asDefSessionId('def-session-gated-recovery');
+await seedStoredSession(gatedRecoveryEngine, gatedRecoveryStore, gatedRecoveryId, 'ready');
+const gatedRecoveryHost = new DefAgentHost({
+  engine: gatedRecoveryEngine,
+  productGateway: unavailableGateway,
+  sessionStore: gatedRecoveryStore,
+  requireConsumer: () => undefined,
+});
+await gatedRecoveryHost.initialize();
+const gatedTurn = gatedRecoveryHost.startTurn({
+  defSessionId: gatedRecoveryId,
+  clientTurnId: asClientTurnId('client-turn-gated-recovery'),
+  userMessage: '验证关闭期间的恢复竞态',
+  systemContext: 'shutdown recovery contract',
+  toolProjection: { revision: 1, tools: [] },
+});
+await gatedRecoveryEngine.started;
+await assert.rejects(
+  () => gatedRecoveryHost.deleteSession(gatedRecoveryId, binding),
+  (error: unknown) => error instanceof DefAgentHostError && error.code === 'AGENT_TURN_BUSY',
+);
+const gatedShutdown = gatedRecoveryHost.shutdown();
+gatedRecoveryEngine.release();
+await assert.rejects(gatedTurn);
+await gatedShutdown;
+assert.equal(
+  gatedRecoveryHost.readEvents(gatedRecoveryId, 0, 256)
+    .filter((event) => event.type === 'session.recovered').length,
+  0,
+);
 
 console.log('DEF Agent Host restart recovery contract passed');
