@@ -444,12 +444,18 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     assert.ok(eventResponse.body);
     const eventReader = eventResponse.body.getReader();
     try {
-      const asked = await readSseUntil(
+      const streamed = await readSseUntil(
         eventReader,
-        (text) => text.includes('question.asked') && text.includes('permission.asked'),
+        (text) => text.includes('question.asked')
+          && text.includes('permission.asked')
+          && text.includes('"status":{"type":"idle"}'),
       );
-      assert.match(asked, /请选择检查范围/u);
-      assert.match(asked, /确认修改当前时间轴/u);
+      assert.match(streamed, /请选择检查范围/u);
+      assert.match(streamed, /确认修改当前时间轴/u);
+      assert.match(streamed, /已删除 \*\*bzb6ptf17\*\*，继续。/u);
+      assert.match(streamed, /def_workbench_remove_skill_button/u);
+      assert.doesNotMatch(streamed, /DSML/u);
+      assert.doesNotMatch(streamed, /parameter name/u);
 
       const questionDecisionResponse = await fetch(
         `${gateway.origin}/api/native/question/${encodeURIComponent(questionId)}/reply`,
@@ -978,9 +984,114 @@ function openEventStream(signal?: AbortSignal | null): Response {
       else signal?.addEventListener('abort', close, { once: true });
       queueMicrotask(() => {
         if (closed) return;
-        controller.enqueue(encoder.encode(
-          'event: message\ndata: {"payload":{"id":"evt_upstream","type":"server.connected","properties":{}}}\n\n',
-        ));
+        const frames = [
+          testNativeEventFrame({
+            type: 'server.connected',
+            properties: {},
+          }),
+          testNativeEventFrame({
+            type: 'message.updated',
+            properties: {
+              info: {
+                id: 'msg_streaming_assistant',
+                sessionID: 'ses_native_ui',
+                role: 'assistant',
+                time: { created: 1 },
+              },
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part_streaming_answer',
+                sessionID: 'ses_native_ui',
+                messageID: 'msg_streaming_assistant',
+                type: 'text',
+                text: '',
+              },
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.delta',
+            properties: {
+              sessionID: 'ses_native_ui',
+              messageID: 'msg_streaming_assistant',
+              partID: 'part_streaming_answer',
+              field: 'text',
+              delta: '已删除 **bzb6ptf17**，继续。<',
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.delta',
+            properties: {
+              sessionID: 'ses_native_ui',
+              messageID: 'msg_streaming_assistant',
+              partID: 'part_streaming_answer',
+              field: 'text',
+              delta: '｜｜DS',
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.delta',
+            properties: {
+              sessionID: 'ses_native_ui',
+              messageID: 'msg_streaming_assistant',
+              partID: 'part_streaming_answer',
+              field: 'text',
+              delta: 'ML｜｜tool_calls><｜｜DSML｜｜invoke name="def_workbench_remove_skill_button"><｜｜DSML｜｜parameter name="buttonId">k1n3s6ze4</｜｜DSML｜｜parameter></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part_streaming_tool',
+                sessionID: 'ses_native_ui',
+                messageID: 'msg_streaming_assistant',
+                type: 'tool',
+                callID: 'call_streaming_tool',
+                tool: 'def_workbench_remove_skill_button',
+                state: { status: 'completed', output: 'typed tool event remains visible' },
+              },
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                id: 'part_streaming_answer',
+                sessionID: 'ses_native_ui',
+                messageID: 'msg_streaming_assistant',
+                type: 'text',
+                text: '已删除 **bzb6ptf17**，继续。<｜｜DSML｜｜tool_calls><｜｜DSML｜｜invoke name="def_workbench_remove_skill_button"></｜｜DSML｜｜invoke></｜｜DSML｜｜tool_calls>',
+              },
+            },
+          }),
+          testNativeEventFrame({
+            type: 'message.updated',
+            properties: {
+              info: {
+                id: 'msg_streaming_assistant',
+                sessionID: 'ses_native_ui',
+                role: 'assistant',
+                time: { created: 1, completed: 2 },
+              },
+            },
+          }),
+          testNativeEventFrame({
+            type: 'session.status',
+            properties: { sessionID: 'ses_native_ui', status: { type: 'idle' } },
+          }),
+        ];
+        const splitAt = Math.floor(frames[4].length / 2);
+        const chunks = [
+          ...frames.slice(0, 4),
+          frames[4].slice(0, splitAt),
+          frames[4].slice(splitAt),
+          ...frames.slice(5),
+        ];
+        for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
       });
     },
     cancel() {
@@ -988,6 +1099,10 @@ function openEventStream(signal?: AbortSignal | null): Response {
     },
   });
   return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+}
+
+function testNativeEventFrame(payload: unknown): string {
+  return `event: message\ndata: ${JSON.stringify({ directory: '/tmp/def-native-ui-workspace', payload })}\n\n`;
 }
 
 async function readSseUntil(

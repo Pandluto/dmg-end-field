@@ -15,7 +15,10 @@ import {
   type JsonValue,
   type ProductBinding,
 } from '../core/contracts/index.ts';
-import { sanitizeAgentCompletedText } from '../core/output-sanitizer.ts';
+import {
+  partitionAgentStreamingText,
+  sanitizeAgentCompletedText,
+} from '../core/output-sanitizer.ts';
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
@@ -874,6 +877,7 @@ export class OpenCodeNativeUiGateway {
 
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
+    const assistantText = new NativeAssistantEventTextSanitizer();
     let buffer = '';
     try {
       for (;;) {
@@ -883,7 +887,9 @@ export class OpenCodeNativeUiGateway {
         const parsed = takeSseFrames(buffer);
         buffer = parsed.rest;
         for (const frame of parsed.frames) {
-          if (!closed) response.write(frame);
+          for (const safeFrame of assistantText.rewrite(frame)) {
+            if (!closed) response.write(safeFrame);
+          }
         }
         if (Buffer.byteLength(buffer) > 4_194_304) {
           throw new Error('OpenCode global event frame is too large');
@@ -892,7 +898,12 @@ export class OpenCodeNativeUiGateway {
       buffer += decoder.decode();
       const parsed = takeSseFrames(buffer);
       for (const frame of parsed.frames) {
-        if (!closed) response.write(frame);
+        for (const safeFrame of assistantText.rewrite(frame)) {
+          if (!closed) response.write(safeFrame);
+        }
+      }
+      for (const safeFrame of assistantText.flush()) {
+        if (!closed) response.write(safeFrame);
       }
       if (!closed) response.end();
     } catch (error) {
@@ -1592,6 +1603,204 @@ function takeSseFrames(value: string): { readonly frames: readonly string[]; rea
     rest = rest.slice(end);
   }
   return { frames, rest };
+}
+
+type ParsedNativeSseFrame = {
+  readonly frame: string;
+  readonly dataStart: number;
+  readonly dataEnd: number;
+  readonly envelope: Record<string, unknown>;
+};
+
+type NativeStreamingTextPart = {
+  readonly directory: string;
+  readonly sessionId: string;
+  readonly messageId: string;
+  readonly partId: string;
+  type: string;
+  pending: string;
+  suppressing: boolean;
+};
+
+/**
+ * The native UI applies message.part.delta immediately, before a completed
+ * transcript response can be sanitized. Keep the minimum state required to
+ * stop private DSML/XML serialization at the SSE boundary while leaving real
+ * OpenCode tool, permission, question, and reasoning events untouched.
+ */
+class NativeAssistantEventTextSanitizer {
+  readonly #messageRoles = new Map<string, string>();
+  readonly #parts = new Map<string, NativeStreamingTextPart>();
+
+  rewrite(frame: string): readonly string[] {
+    const parsed = parseNativeSseFrame(frame);
+    if (!parsed) return [frame];
+    const payload = isRecord(parsed.envelope.payload) ? parsed.envelope.payload : null;
+    const properties = payload && isRecord(payload.properties) ? payload.properties : null;
+    if (!payload || !properties || typeof payload.type !== 'string') return [frame];
+    const directory = typeof parsed.envelope.directory === 'string' ? parsed.envelope.directory : '';
+
+    if (payload.type === 'message.updated') {
+      const info = isRecord(properties.info) ? properties.info : null;
+      if (!info || typeof info.id !== 'string' || typeof info.sessionID !== 'string') return [frame];
+      const messageKey = nativeMessageStreamKey(directory, info.sessionID, info.id);
+      if (typeof info.role === 'string') this.#messageRoles.set(messageKey, info.role);
+      const completed = isRecord(info.time) && typeof info.time.completed === 'number';
+      return completed
+        ? [...this.#flushMessage(directory, info.sessionID, info.id), frame]
+        : [frame];
+    }
+
+    if (payload.type === 'message.part.updated') {
+      const part = isRecord(properties.part) ? properties.part : null;
+      if (!part
+        || typeof part.id !== 'string'
+        || typeof part.messageID !== 'string'
+        || typeof part.sessionID !== 'string'
+        || typeof part.type !== 'string') return [frame];
+      const key = nativePartStreamKey(directory, part.sessionID, part.messageID, part.id);
+      const state = this.#parts.get(key) ?? {
+        directory,
+        sessionId: part.sessionID,
+        messageId: part.messageID,
+        partId: part.id,
+        type: part.type,
+        pending: '',
+        suppressing: false,
+      };
+      state.type = part.type;
+      this.#parts.set(key, state);
+      if (part.type !== 'text' || !this.#isAssistant(state) || typeof part.text !== 'string') return [frame];
+
+      const partition = partitionAgentStreamingText(part.text);
+      state.pending = partition.pending;
+      state.suppressing = partition.internalMarkupStarted;
+      part.text = partition.internalMarkupStarted
+        ? sanitizeAgentCompletedText(part.text)
+        : partition.safe;
+      return [rewriteNativeSseFrame(parsed)];
+    }
+
+    if (payload.type === 'message.part.delta') {
+      if (properties.field !== 'text'
+        || typeof properties.delta !== 'string'
+        || typeof properties.partID !== 'string'
+        || typeof properties.messageID !== 'string'
+        || typeof properties.sessionID !== 'string') return [frame];
+      const state = this.#parts.get(nativePartStreamKey(
+        directory,
+        properties.sessionID,
+        properties.messageID,
+        properties.partID,
+      ));
+      if (!state || state.type !== 'text' || !this.#isAssistant(state)) return [frame];
+      if (state.suppressing) return [];
+
+      const partition = partitionAgentStreamingText(state.pending + properties.delta);
+      state.pending = partition.pending;
+      state.suppressing = partition.internalMarkupStarted;
+      if (!partition.safe) return [];
+      properties.delta = partition.safe;
+      return [rewriteNativeSseFrame(parsed)];
+    }
+
+    if (payload.type === 'message.part.removed') {
+      if (typeof properties.partID === 'string'
+        && typeof properties.messageID === 'string'
+        && typeof properties.sessionID === 'string') {
+        this.#parts.delete(nativePartStreamKey(
+          directory,
+          properties.sessionID,
+          properties.messageID,
+          properties.partID,
+        ));
+      }
+      return [frame];
+    }
+
+    if (payload.type === 'message.removed') {
+      if (typeof properties.messageID === 'string' && typeof properties.sessionID === 'string') {
+        this.#dropMessage(directory, properties.sessionID, properties.messageID);
+      }
+      return [frame];
+    }
+
+    return [frame];
+  }
+
+  flush(): readonly string[] {
+    const frames = [...this.#parts.values()].flatMap((state) => this.#flushPart(state));
+    this.#parts.clear();
+    this.#messageRoles.clear();
+    return frames;
+  }
+
+  #isAssistant(state: NativeStreamingTextPart): boolean {
+    return this.#messageRoles.get(nativeMessageStreamKey(
+      state.directory,
+      state.sessionId,
+      state.messageId,
+    )) === 'assistant';
+  }
+
+  #flushMessage(directory: string, sessionId: string, messageId: string): readonly string[] {
+    const frames: string[] = [];
+    for (const state of this.#parts.values()) {
+      if (state.directory !== directory || state.sessionId !== sessionId || state.messageId !== messageId) continue;
+      frames.push(...this.#flushPart(state));
+    }
+    return frames;
+  }
+
+  #flushPart(state: NativeStreamingTextPart): readonly string[] {
+    if (state.suppressing || !state.pending || !this.#isAssistant(state)) return [];
+    const delta = state.pending;
+    state.pending = '';
+    return [nativeEventFrame(state.directory, {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: state.sessionId,
+        messageID: state.messageId,
+        partID: state.partId,
+        field: 'text',
+        delta,
+      },
+    })];
+  }
+
+  #dropMessage(directory: string, sessionId: string, messageId: string): void {
+    this.#messageRoles.delete(nativeMessageStreamKey(directory, sessionId, messageId));
+    for (const [key, state] of this.#parts) {
+      if (state.directory === directory && state.sessionId === sessionId && state.messageId === messageId) {
+        this.#parts.delete(key);
+      }
+    }
+  }
+}
+
+function parseNativeSseFrame(frame: string): ParsedNativeSseFrame | null {
+  const match = /(^|\r?\n)(data:[\t ]?)([^\r\n]*)/u.exec(frame);
+  if (!match || match.index === undefined) return null;
+  const dataStart = match.index + match[1].length + match[2].length;
+  const dataEnd = dataStart + match[3].length;
+  try {
+    const envelope = JSON.parse(match[3]) as unknown;
+    return isRecord(envelope) ? { frame, dataStart, dataEnd, envelope } : null;
+  } catch {
+    return null;
+  }
+}
+
+function rewriteNativeSseFrame(parsed: ParsedNativeSseFrame): string {
+  return `${parsed.frame.slice(0, parsed.dataStart)}${JSON.stringify(parsed.envelope)}${parsed.frame.slice(parsed.dataEnd)}`;
+}
+
+function nativeMessageStreamKey(directory: string, sessionId: string, messageId: string): string {
+  return `${directory}\u0000${sessionId}\u0000${messageId}`;
+}
+
+function nativePartStreamKey(directory: string, sessionId: string, messageId: string, partId: string): string {
+  return `${nativeMessageStreamKey(directory, sessionId, messageId)}\u0000${partId}`;
 }
 
 function decodePathSegment(value: string): string {
