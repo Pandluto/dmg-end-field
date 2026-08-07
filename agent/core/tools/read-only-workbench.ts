@@ -23,6 +23,12 @@ import {
   type DamageReportOperationResult,
   type DefDamageReportCapsule,
 } from './damage-report-operations.ts';
+import {
+  compareFacts as compareLoadoutFacts,
+  evaluateFacts as evaluateLoadoutFacts,
+  validateLoadoutCapsule,
+  type LoadoutFactResult,
+} from './loadout-fact-operations.ts';
 import { operationCapabilityJson } from './operation-capability.ts';
 
 export const DEF_DAMAGE_REPORT_VERSION = 'damage-report-v1' as const;
@@ -52,8 +58,17 @@ export class DefReadToolRegistry {
       createHandler(
         descriptor(
           'def.data.resource.team_loadouts',
-          'Read exact current loadouts for all selected operators.',
-          emptyObjectSchema(),
+          'Read, validate, evaluate completeness or compare exact current loadout facts without ranking equipment.',
+          {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              action: { type: 'string', enum: ['current', 'evaluate', 'compare'] },
+              baseline: { type: 'object' },
+              operatorId: { type: 'string', maxLength: 256 },
+              directoryCompatibilityEvidence: {},
+            },
+          },
         ),
         readTeamLoadouts,
       ),
@@ -203,7 +218,13 @@ async function readContext(input: JsonValue, context: DefToolExecutionContext): 
 }
 
 async function readTeamLoadouts(input: JsonValue, context: DefToolExecutionContext): Promise<JsonValue> {
-  expectExactObject(input, []);
+  const args = expectExactObject(input, [
+    'action',
+    'baseline',
+    'operatorId',
+    'directoryCompatibilityEvidence',
+  ]);
+  const action = optionalLoadoutAction(args.action);
   const snapshot = await readSnapshot(context);
   const payload = workbenchPayload(snapshot);
   const configs = new Map<string, JsonObject>();
@@ -232,13 +253,69 @@ async function readTeamLoadouts(input: JsonValue, context: DefToolExecutionConte
       configured: Boolean(config),
     };
   });
-  return {
+  const capsule = {
     contract: 'DefTeamLoadoutsV1',
     binding: bindingJson(snapshot.binding),
     complete: missingCharacterIds.length === 0,
     missingCharacterIds,
     operators,
   };
+  if (action === null) return capsule;
+  const validated = validateLoadoutCapsule(capsule);
+  if (!validated.ok) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_PRODUCT_SNAPSHOT_INVALID',
+      `Projected loadout facts are malformed: ${validated.error.code}: ${validated.error.message}`,
+    );
+  }
+  if (action === 'current') return validated.value as unknown as JsonValue;
+  const options = loadoutFactOptions(args);
+  if (action === 'evaluate') {
+    return unwrapLoadoutFactOperation(evaluateLoadoutFacts(validated.value, options)) as unknown as JsonValue;
+  }
+  if (!isRecord(args.baseline)) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_INPUT_INVALID',
+      'baseline must be a DefTeamLoadoutsV1 object when action is compare',
+    );
+  }
+  const baseline = validateLoadoutCapsule(args.baseline);
+  if (!baseline.ok) {
+    throw new DefToolExecutionError(
+      'DEF_TOOL_INPUT_INVALID',
+      `Baseline loadout facts are malformed: ${baseline.error.code}: ${baseline.error.message}`,
+    );
+  }
+  return unwrapLoadoutFactOperation(
+    compareLoadoutFacts(baseline.value, validated.value, options),
+  ) as unknown as JsonValue;
+}
+
+function optionalLoadoutAction(value: JsonValue | undefined): 'current' | 'evaluate' | 'compare' | null {
+  if (value === undefined) return null;
+  if (value !== 'current' && value !== 'evaluate' && value !== 'compare') {
+    throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'action is not a supported loadout fact operation');
+  }
+  return value;
+}
+
+function loadoutFactOptions(args: JsonObject): JsonObject {
+  const options: JsonObject = {};
+  if (args.operatorId !== undefined) {
+    options.operatorId = requiredInputString(args.operatorId, 'operatorId', 256);
+  }
+  if (args.directoryCompatibilityEvidence !== undefined) {
+    options.directoryCompatibilityEvidence = args.directoryCompatibilityEvidence;
+  }
+  return options;
+}
+
+function unwrapLoadoutFactOperation(result: LoadoutFactResult<unknown>): unknown {
+  if (result.ok) return result.value;
+  throw new DefToolExecutionError(
+    'DEF_TOOL_INPUT_INVALID',
+    `${result.error.code}: ${result.error.message}`,
+  );
 }
 
 async function readCurrentTimeline(input: JsonValue, context: DefToolExecutionContext): Promise<JsonValue> {
