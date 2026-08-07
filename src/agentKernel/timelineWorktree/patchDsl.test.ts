@@ -91,6 +91,50 @@ assert.deepEqual(
   ['buffStackCounts', 'targetResistance'],
 );
 
+const sourceButton = adjusted.workingPayload.skillButtonTable['button-test'];
+if (!sourceButton) throw new Error('copyButton source fixture is missing');
+sourceButton.runtimeSkillId = 'operator-test-skill-a';
+sourceButton.skillDisplayName = '测试普攻';
+sourceButton.skillIconUrl = '/skills/test-a.svg';
+sourceButton.customHits = [{
+  key: 'hit-1',
+  displayName: '测试命中',
+  multiplier: 1.25,
+  levels: { L9: 1.25 },
+  element: 'physical',
+  skillType: 'A',
+}];
+sourceButton.anomalyConfig = {
+  selectedStatuses: [{
+    id: 'abnormal-status',
+    key: 'conductive',
+    label: '导电',
+    kind: 'state',
+    category: 'magic',
+    level: 2,
+    primaryText: '异常状态',
+    secondaryText: '源按钮异常状态',
+    selectedBuffIds: ['buff-test'],
+  }],
+  selectedDamages: [],
+  selectedStateSnapshotIds: [7],
+};
+sourceButton.panelConfig = {
+  selectedBuff: ['buff-test'],
+  globallyDisabledBuffIds: ['buff-test'],
+  manualDisabledBuffIdsBySegmentKey: { 'normal-hit-1': ['buff-test'] },
+  manualBuffStackCountsBySegmentKey: { 'normal-hit-1': { 'buff-test': 1 } },
+  manualDisabledHitKeys: ['hit-1'],
+};
+sourceButton.runtimeSnapshot = {
+  atk: 123,
+  critRate: 0.2,
+  critDmg: 1.5,
+  characterComputed: null,
+};
+const sourceBeforeCopy = JSON.parse(JSON.stringify(sourceButton));
+const buffsBeforeCopy = JSON.parse(JSON.stringify(adjusted.workingPayload.allBuffList));
+
 const copied = applyTimelineWorkNodePatch(adjusted.workingPayload, [{
   op: 'copyButton',
   target: { buttonId: 'button-test' },
@@ -100,14 +144,32 @@ const copied = applyTimelineWorkNodePatch(adjusted.workingPayload, [{
 assert.equal(copied.ok, true);
 if (!copied.ok) throw new Error('copyButton fixture failed');
 const copiedButton = copied.workingPayload.skillButtonTable['button-copy'];
+if (!copiedButton) throw new Error('copyButton target fixture is missing');
+assert.notDeepEqual(copiedButton, sourceButton);
+assert.equal(copiedButton.id, 'button-copy');
+assert.equal(copiedButton.characterId, sourceButton.characterId);
+assert.equal(copiedButton.characterName, sourceButton.characterName);
+assert.equal(copiedButton.skillType, sourceButton.skillType);
+assert.equal(copiedButton.runtimeSkillId, sourceButton.runtimeSkillId);
+assert.equal(copiedButton.skillDisplayName, sourceButton.skillDisplayName);
+assert.equal(copiedButton.skillIconUrl, sourceButton.skillIconUrl);
+assert.deepEqual(copiedButton.customHits, sourceButton.customHits);
+assert.equal(copiedButton.staffIndex, 0);
+assert.equal(copiedButton.lineIndex, 0);
 assert.equal(copiedButton?.nodeIndex, 3);
-assert.deepEqual(copiedButton?.selectedBuff, ['buff-test']);
-assert.equal(copiedButton?.buffStackCounts?.['buff-test'], 4);
-assert.deepEqual(copiedButton?.resistanceConfig?.targetResistance, {
-  physicalResistance: 20,
-  fireResistance: -10,
-});
-assert.equal(copied.workingPayload.allBuffList[0]?.refCount, 2);
+assert.deepEqual(copiedButton.position, { x: 146, y: 60 });
+assert.deepEqual(copiedButton.selectedBuff, []);
+assert.deepEqual(copiedButton.buffStackCounts ?? {}, {});
+assert.equal(copiedButton.anomalyConfig, undefined);
+assert.equal(copiedButton.resistanceConfig, undefined);
+assert.equal(copiedButton.panelConfig, undefined);
+assert.equal(copiedButton.runtimeSnapshot, undefined);
+assert.deepEqual(adjusted.workingPayload.skillButtonTable['button-test'], sourceBeforeCopy);
+assert.deepEqual(adjusted.workingPayload.allBuffList, buffsBeforeCopy);
+assert.deepEqual(copied.workingPayload.skillButtonTable['button-test'], sourceButton);
+assert.deepEqual(copied.workingPayload.skillButtonTable['button-test'], sourceBeforeCopy);
+assert.deepEqual(copied.workingPayload.allBuffList, buffsBeforeCopy);
+assert.equal(copied.workingPayload.allBuffList[0]?.refCount, 1);
 
 const replaced = applyTimelineWorkNodePatch(copied.workingPayload, [{
   op: 'replaceButton',
@@ -122,11 +184,8 @@ const replacedButton = replaced.workingPayload.skillButtonTable['button-copy'];
 assert.equal(replacedButton?.skillType, 'E');
 assert.equal(replacedButton?.runtimeSkillId, 'operator-test-skill-e');
 assert.equal(replacedButton?.nodeIndex, 3);
-assert.deepEqual(replacedButton?.selectedBuff, ['buff-test']);
-assert.deepEqual(replacedButton?.resistanceConfig?.targetResistance, {
-  physicalResistance: 20,
-  fireResistance: -10,
-});
+assert.deepEqual(replacedButton?.selectedBuff, []);
+assert.equal(replacedButton?.resistanceConfig, undefined);
 
 const decremented = applyTimelineWorkNodePatch(replaced.workingPayload, [{
   op: 'removeBuff',
@@ -138,7 +197,7 @@ assert.equal(decremented.ok, true);
 if (!decremented.ok) throw new Error('removeBuff decrement fixture failed');
 assert.equal(decremented.workingPayload.skillButtonTable['button-test']?.buffStackCounts?.['buff-test'], 3);
 assert.equal(decremented.workingPayload.allBuffList.length, 1);
-assert.equal(decremented.workingPayload.allBuffList[0]?.refCount, 2);
+assert.equal(decremented.workingPayload.allBuffList[0]?.refCount, 1);
 
 const removed = applyTimelineWorkNodePatch(decremented.workingPayload, [{
   op: 'removeButton',
@@ -147,6 +206,5 @@ const removed = applyTimelineWorkNodePatch(decremented.workingPayload, [{
 assert.equal(removed.ok, true);
 if (!removed.ok) throw new Error('removeButton fixture failed');
 assert.deepEqual(Object.keys(removed.workingPayload.skillButtonTable), ['button-copy']);
-assert.equal(removed.workingPayload.allBuffList.length, 1);
-assert.equal(removed.workingPayload.allBuffList[0]?.refCount, 1);
+assert.equal(removed.workingPayload.allBuffList.length, 0);
 assert.equal(validateTimelinePayload(removed.workingPayload).ok, true);

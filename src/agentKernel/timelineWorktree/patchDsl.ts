@@ -204,6 +204,50 @@ function detachAllButtonBuffs(payload: TimelineSnapshotPayload, button: SkillBut
   for (const buffId of getSelectedBuffIds(button)) decrementBuffReference(payload, buffId);
 }
 
+/**
+ * copyButton copies the skill/placement contract only.
+ *
+ * The fields below are the persisted skill identity and timeline structure
+ * used by the old CanvasBoard copy flow: character identity, skill identity,
+ * hit definition, and the requested placement. Buffs and per-button runtime
+ * state are deliberately not part of a copied button. In particular, do not
+ * spread the source button here: selectedBuff, buffStackCounts, anomalyConfig,
+ * resistanceConfig, panelConfig, and runtimeSnapshot all describe the source
+ * instance and would otherwise leak into the new one.
+ */
+function buildCopiedSkillButton(
+  source: SkillButtonTable[string],
+  id: string,
+  staffIndex: number,
+  nodeIndex: number,
+): SkillButtonTable[string] {
+  const timestamp = Date.now();
+  return {
+    id,
+    characterId: source.characterId,
+    characterName: source.characterName,
+    skillType: source.skillType,
+    staffIndex,
+    lineIndex: staffIndex,
+    nodeIndex,
+    nodeNumber: nodeIndex + 1,
+    position: {
+      x: 80 + nodeIndex * 22,
+      y: 60 + staffIndex * 300,
+    },
+    runtimeSkillId: source.runtimeSkillId,
+    skillDisplayName: source.skillDisplayName,
+    skillIconUrl: source.skillIconUrl,
+    customHits: source.customHits?.map((hit) => ({
+      ...hit,
+      ...(hit.levels ? { levels: { ...hit.levels } } : {}),
+    })),
+    selectedBuff: [],
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  };
+}
+
 function findStaffLineByCharacter(payload: TimelineSnapshotPayload, characterName: string) {
   return payload.timelineData.staffLines.find((line) => line.characterName === characterName);
 }
@@ -483,19 +527,7 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
     const id = operation.buttonId
       || `ai-copy-button-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`;
     if (payload.skillButtonTable[id]) throw new Error(`${path}: copyButton id already exists: ${id}`);
-    const copied = JSON.parse(JSON.stringify(source)) as SkillButtonTable[string];
-    copied.id = id;
-    copied.staffIndex = nextStaffIndex;
-    copied.lineIndex = nextStaffIndex;
-    copied.nodeIndex = operation.nodeIndex;
-    copied.nodeNumber = operation.nodeIndex + 1;
-    copied.position = {
-      ...copied.position,
-      x: 80 + operation.nodeIndex * 22,
-      y: 60 + nextStaffIndex * 300,
-    };
-    copied.createdAt = Date.now();
-    copied.updatedAt = copied.createdAt;
+    const copied = buildCopiedSkillButton(source, id, nextStaffIndex, operation.nodeIndex);
     if (nextStaffIndex !== source.staffIndex) {
       const characterId = payload.selectedCharacters[nextStaffIndex];
       if (!characterId || !targetLine.characterName) {
@@ -505,11 +537,6 @@ function applyPatchOperation(payload: TimelineSnapshotPayload, operation: Timeli
       copied.characterName = targetLine.characterName;
     }
     payload.skillButtonTable[id] = copied;
-    for (const buffId of getSelectedBuffIds(copied)) {
-      const buff = payload.allBuffList.find((candidate) => candidate.id === buffId);
-      if (!buff) throw new Error(`${path}: copyButton references missing buff ${buffId}`);
-      buff.refCount = Math.max(1, Number(buff.refCount || 0) + 1);
-    }
     insertTimelineButton(payload, id);
     summary.push(`Copied button ${source.characterName}-${source.skillType} to ${nextStaffIndex + 1}-${operation.nodeIndex + 1}.`);
     return;
