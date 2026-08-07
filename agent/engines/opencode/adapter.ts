@@ -22,6 +22,7 @@ import {
   type EngineTurnHandle,
   type EngineTurnInput,
   type EngineTurnRef,
+  type EngineUserAttachment,
   type JsonValue,
   type ToolCallId,
 } from '../../core/contracts/index.ts';
@@ -75,6 +76,8 @@ type PendingOpenCodeDelta = {
 };
 
 const MAX_PROMPT_BYTES = 1_048_576;
+const MAX_USER_ATTACHMENTS = 4;
+const MAX_USER_ATTACHMENT_BYTES = 8 * 1_048_576;
 const MAX_RESPONSE_BYTES = 4_194_304;
 const MAX_TOOL_RESULT_BYTES = 4_194_304;
 const MAX_SSE_BUFFER_BYTES = 4_194_304;
@@ -414,6 +417,7 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
   async begin(): Promise<void> {
     ensureBoundedUtf8(this.#input.systemContext, MAX_PROMPT_BYTES, 'OpenCode system context');
     ensureBoundedUtf8(this.#input.userMessage, MAX_PROMPT_BYTES, 'OpenCode user message');
+    const attachments = validateUserAttachments(this.#input.userAttachments);
     this.#userMessageId = this.#input.engineUserMessageId
       ?? await nextOpenCodeUserMessageId(this.#runtime, this.ref.session.sessionId);
     this.#bridge.register(this.ref.session.sessionId, this);
@@ -430,7 +434,10 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
           messageID: this.#userMessageId,
           agent: 'def-engine',
           tools,
-          parts: [{ type: 'text', text: this.#input.userMessage }],
+          parts: [
+            { type: 'text', text: this.#input.userMessage },
+            ...attachments,
+          ],
         }),
       },
     );
@@ -1263,6 +1270,54 @@ function ensureBoundedUtf8(value: string, maxBytes: number, label: string): void
   if (Buffer.byteLength(value) > maxBytes) {
     throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', `${label} is too large`);
   }
+}
+
+const USER_ATTACHMENT_MIMES = new Set([
+  'application/pdf',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/plain',
+]);
+
+function validateUserAttachments(
+  value: readonly EngineUserAttachment[] | undefined,
+): readonly EngineUserAttachment[] {
+  const attachments = value ?? [];
+  if (attachments.length > MAX_USER_ATTACHMENTS) {
+    throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', 'OpenCode user attachment count is too large');
+  }
+  let totalBytes = 0;
+  return attachments.map((attachment) => {
+    const mime = attachment.mime.trim().toLowerCase();
+    if (!USER_ATTACHMENT_MIMES.has(mime)) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', `OpenCode attachment MIME is not supported: ${mime}`);
+    }
+    const filename = attachment.filename.trim();
+    if (
+      !filename
+      || filename.length > 240
+      || filename.includes('\u0000')
+      || filename.includes('/')
+      || filename.includes('\\')
+    ) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', 'OpenCode attachment filename is invalid');
+    }
+    const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/u.exec(attachment.url);
+    if (!match || match[1]?.toLowerCase() !== mime || match[2]!.length % 4 !== 0) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', 'OpenCode attachment data URL is invalid');
+    }
+    const bytes = Buffer.from(match[2]!, 'base64');
+    if (bytes.toString('base64') !== match[2]) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', 'OpenCode attachment base64 is invalid');
+    }
+    totalBytes += bytes.length;
+    if (totalBytes > MAX_USER_ATTACHMENT_BYTES) {
+      throw new OpenCodeEngineError('OPENCODE_BRIDGE_INVALID', 'OpenCode user attachments are too large');
+    }
+    return { type: 'file' as const, mime, filename, url: attachment.url };
+  });
 }
 
 function boundedCanonicalJson(value: JsonValue, maxBytes: number, label: string): string {

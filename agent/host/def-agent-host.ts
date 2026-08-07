@@ -23,6 +23,7 @@ import {
   type EngineMessageId,
   type EngineToolProjectionInput,
   type EngineTurnHandle,
+  type EngineUserAttachment,
   type DefInteractiveToolPlan,
   type DefWorkbenchToolRegistry,
   type InteractionId,
@@ -72,6 +73,7 @@ type SessionRecord = {
 
 type ClientTurnRecord = {
   readonly userMessage: string;
+  readonly attachmentDigest: string | null;
 } & (
   | { readonly state: 'pending'; readonly promise: Promise<TurnStartResult> }
   | {
@@ -235,6 +237,7 @@ export class DefAgentHost {
           turn.clientTurnId,
           {
             userMessage: turn.userMessage,
+            attachmentDigest: turn.attachmentDigest ?? null,
             state: 'accepted' as const,
             result: structuredClone(turn.result),
             acceptedAt: turn.acceptedAt,
@@ -484,7 +487,7 @@ export class DefAgentHost {
     const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
     const previous = record.clientTurns.get(clientTurnId);
     if (previous) {
-      if (previous.userMessage !== input.userMessage) {
+      if (previous.userMessage !== input.userMessage || previous.attachmentDigest !== null) {
         throw new DefAgentHostError(
           'AGENT_CLIENT_TURN_CONFLICT',
           `Client Turn ${clientTurnId} was already used with another message`,
@@ -533,6 +536,7 @@ export class DefAgentHost {
         });
         record.clientTurns.set(clientTurnId, {
           userMessage: input.userMessage,
+          attachmentDigest: null,
           state: 'accepted',
           result,
           acceptedAt,
@@ -555,6 +559,7 @@ export class DefAgentHost {
     readonly userMessage: string;
     readonly clientTurnId?: ClientTurnId;
     readonly engineUserMessageId?: EngineMessageId;
+    readonly userAttachments?: readonly EngineUserAttachment[];
     readonly binding?: ProductBinding;
   }): Promise<TurnStartResult> {
     this.#assertRunning();
@@ -569,10 +574,15 @@ export class DefAgentHost {
     if (input.binding) {
       assertStableSessionBinding(record.session, input.binding);
     }
+    const userAttachments = cloneUserAttachments(input.userAttachments);
+    const attachmentDigest = digestUserAttachments(userAttachments);
     const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
     const previous = record.clientTurns.get(clientTurnId);
     if (previous) {
-      if (previous.userMessage !== input.userMessage) {
+      if (
+        previous.userMessage !== input.userMessage
+        || previous.attachmentDigest !== attachmentDigest
+      ) {
         throw new DefAgentHostError(
           'AGENT_CLIENT_TURN_CONFLICT',
           `Client Turn ${clientTurnId} was already used with another message`,
@@ -605,9 +615,12 @@ export class DefAgentHost {
       clientTurnId,
       userMessage: input.userMessage,
       engineUserMessageId: input.engineUserMessageId,
+      userAttachments,
+      attachmentDigest,
     });
     record.clientTurns.set(clientTurnId, {
       userMessage: input.userMessage,
+      attachmentDigest,
       state: 'pending',
       promise,
     });
@@ -620,6 +633,7 @@ export class DefAgentHost {
           ?? new Date(this.#clock()).toISOString();
         record.clientTurns.set(clientTurnId, {
           userMessage: input.userMessage,
+          attachmentDigest,
           state: 'accepted',
           result,
           acceptedAt,
@@ -642,6 +656,8 @@ export class DefAgentHost {
       readonly clientTurnId: ClientTurnId;
       readonly userMessage: string;
       readonly engineUserMessageId?: EngineMessageId;
+      readonly userAttachments: readonly EngineUserAttachment[];
+      readonly attachmentDigest: string | null;
     },
   ): Promise<TurnStartResult> {
     const defTurnId = this.#ids.turn();
@@ -661,6 +677,7 @@ export class DefAgentHost {
           engineUserMessageId: input.engineUserMessageId,
           systemContext: harnessManager.buildRoutingSystemContext(),
           userMessage: input.userMessage,
+          ...(input.userAttachments.length > 0 ? { userAttachments: input.userAttachments } : {}),
           providerProfileRef: record.providerProfileRef,
           toolProjection: started.transaction.projection,
           context: bindingContext(record.binding),
@@ -689,6 +706,7 @@ export class DefAgentHost {
         this.#sessionStore.acceptClientTurn(record.session.defSessionId, {
           clientTurnId: input.clientTurnId,
           userMessage: input.userMessage,
+          ...(input.attachmentDigest ? { attachmentDigest: input.attachmentDigest } : {}),
           result: { defTurnId, clientTurnId: input.clientTurnId },
           acceptedAt: new Date(this.#clock()).toISOString(),
         });
@@ -2204,6 +2222,7 @@ export class DefAgentHost {
       acceptedClientTurns.push({
         clientTurnId,
         userMessage: turn.userMessage,
+        ...(turn.attachmentDigest ? { attachmentDigest: turn.attachmentDigest } : {}),
         result: structuredClone(turn.result),
         acceptedAt: turn.acceptedAt,
       });
@@ -2215,6 +2234,28 @@ export class DefAgentHost {
       acceptedClientTurns,
     };
   }
+}
+
+function cloneUserAttachments(
+  attachments: readonly EngineUserAttachment[] | undefined,
+): readonly EngineUserAttachment[] {
+  return (attachments ?? []).map((attachment) => ({
+    type: 'file',
+    mime: attachment.mime,
+    filename: attachment.filename,
+    url: attachment.url,
+  }));
+}
+
+function digestUserAttachments(attachments: readonly EngineUserAttachment[]): string | null {
+  if (attachments.length === 0) return null;
+  const value: JsonValue = attachments.map((attachment) => ({
+    type: attachment.type,
+    mime: attachment.mime,
+    filename: attachment.filename,
+    url: attachment.url,
+  }));
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
 function isTerminalReserveEvent(event: DefEvent): boolean {

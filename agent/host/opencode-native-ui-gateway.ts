@@ -6,6 +6,10 @@ import {
   asClientTurnId,
   asEngineMessageId,
   type DefSessionId,
+  type EngineUserAttachment,
+  type InteractionRequest,
+  type InteractionResponse,
+  type JsonValue,
   type ProductBinding,
 } from '../core/contracts/index.ts';
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
@@ -13,7 +17,11 @@ import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
 import type { AgentUiCapabilityClaims } from './token-authority.ts';
 
-const MAX_REQUEST_BYTES = 1_048_576;
+const MAX_REQUEST_BYTES = 12 * 1_048_576;
+const MAX_USER_ATTACHMENTS = 4;
+const MAX_USER_ATTACHMENT_BYTES = 8 * 1_048_576;
+const INTERACTION_POLL_MS = 250;
+const RESOLUTION_MEMORY_MS = 60_000;
 const TOKEN_TTL_MS = 8 * 60 * 60 * 1_000;
 const TOKEN_COOKIE = 'def_native_ui';
 const MESSAGE_ID_PATTERN = /^msg_[0-9a-f]{12}[0-9A-Za-z]{14}$/u;
@@ -36,6 +44,48 @@ const MIME_TYPES: Readonly<Record<string, string>> = {
 
 type NativeUiTokenRecord = {
   readonly claims: AgentUiCapabilityClaims;
+  readonly expiresAt: number;
+};
+
+type NativeQuestionRequest = {
+  readonly id: string;
+  readonly sessionID: string;
+  readonly questions: readonly [{
+    readonly header: string;
+    readonly question: string;
+    readonly options: readonly { readonly label: string; readonly description: string }[];
+    readonly multiple: false;
+    readonly custom: true;
+  }];
+};
+
+type NativePermissionRequest = {
+  readonly id: string;
+  readonly sessionID: string;
+  readonly permission: 'def_mutation';
+  readonly patterns: readonly string[];
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly always: readonly [];
+};
+
+type NativeInteractionProjection =
+  | {
+      readonly kind: 'question';
+      readonly interaction: Extract<InteractionRequest, { readonly kind: 'question' }>;
+      readonly sessionID: string;
+      readonly payload: NativeQuestionRequest;
+      readonly fingerprint: string;
+    }
+  | {
+      readonly kind: 'approval';
+      readonly interaction: Extract<InteractionRequest, { readonly kind: 'approval' }>;
+      readonly sessionID: string;
+      readonly payload: NativePermissionRequest;
+      readonly fingerprint: string;
+    };
+
+type RememberedResolution = {
+  readonly response: InteractionResponse;
   readonly expiresAt: number;
 };
 
@@ -81,6 +131,7 @@ export class OpenCodeNativeUiGateway {
   readonly #randomToken: () => string;
   readonly #diagnostic: (message: string) => void;
   readonly #tokens = new Map<string, NativeUiTokenRecord>();
+  readonly #resolutions = new Map<string, RememberedResolution>();
   readonly #server: Server;
   #origin = '';
   #stopPromise: Promise<void> | null = null;
@@ -128,6 +179,7 @@ export class OpenCodeNativeUiGateway {
     if (this.#stopPromise) return this.#stopPromise;
     this.#stopPromise = (async () => {
       this.#tokens.clear();
+      this.#resolutions.clear();
       if (!this.#server.listening) return;
       await new Promise<void>((resolveClose, reject) => {
         this.#server.close((error) => error ? reject(error) : resolveClose());
@@ -310,6 +362,42 @@ export class OpenCodeNativeUiGateway {
       return;
     }
 
+    const questionDecision = /^\/api\/native\/question\/([^/]+)\/(reply|ignore|stop)$/u.exec(url.pathname);
+    if (request.method === 'POST' && questionDecision) {
+      const body = expectRecord(await readJson(request));
+      const projection = this.#requireInteraction(
+        decodePathSegment(questionDecision[1]!),
+        'question',
+        access.binding,
+      );
+      if (body.sessionID !== projection.sessionID) {
+        throw new DefAgentHostError(
+          'AGENT_INTERACTION_CONFLICT',
+          'Question does not belong to the visible OpenCode Session',
+          409,
+        );
+      }
+      const action = questionDecision[2]!;
+      if (action === 'stop') {
+        await this.#host.abortTurn(projection.interaction.defTurnId, 'USER_STOPPED', access.binding);
+      } else {
+        const resolution = action === 'reply'
+          ? this.#host.resolveInteraction(
+              projection.interaction.interactionId,
+              { status: 'answered', value: readQuestionAnswer(body.answers) },
+              access.binding,
+            )
+          : this.#host.resolveInteraction(
+              projection.interaction.interactionId,
+              { status: 'cancelled' },
+              access.binding,
+            );
+        this.#rememberResolution(resolution);
+      }
+      this.#writeJson(response, 200, { ok: true });
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/native/node-review') {
       this.#writeJson(response, 200, { ok: true, bound: false, diffs: [], report: null });
       return;
@@ -325,20 +413,70 @@ export class OpenCodeNativeUiGateway {
     access: NativeUiAccess,
   ): Promise<void> {
     const method = request.method ?? 'GET';
+    if (method === 'GET' && url.pathname === '/global/event') {
+      await this.#streamGlobalEvents(request, response, url, access);
+      return;
+    }
+    if (method === 'GET' && (url.pathname === '/question' || url.pathname === '/permission')) {
+      const kind = url.pathname === '/question' ? 'question' : 'approval';
+      const pending = this.#projectInteractions(access.binding)
+        .filter((projection) => projection.kind === kind)
+        .map((projection) => projection.payload);
+      this.#writeJson(response, 200, pending);
+      return;
+    }
+
     const sessionRoute = /^\/session\/([^/]+)(?:\/(.*))?$/u.exec(url.pathname);
     const routeSession = sessionRoute && sessionRoute[1] !== 'status'
       ? this.#sessionForEngine(decodeURIComponent(sessionRoute[1]!), access.binding)
       : null;
 
+    const permissionDecision = /^\/session\/([^/]+)\/permissions\/([^/]+)$/u.exec(url.pathname);
+    if (method === 'POST' && permissionDecision) {
+      const session = this.#sessionForEngine(decodePathSegment(permissionDecision[1]!), access.binding);
+      const projection = this.#requireInteraction(
+        decodePathSegment(permissionDecision[2]!),
+        'approval',
+        access.binding,
+      );
+      if (projection.sessionID !== session.engine.sessionId) {
+        throw new DefAgentHostError(
+          'AGENT_INTERACTION_CONFLICT',
+          'Approval does not belong to the visible OpenCode Session',
+          409,
+        );
+      }
+      const body = expectRecord(await readJson(request));
+      if (body.response === 'always') {
+        throw new DefAgentHostError(
+          'AGENT_NATIVE_UI_MUTATION_DENIED',
+          'DEF approvals are intentionally single-use',
+          400,
+        );
+      }
+      if (body.response !== 'once' && body.response !== 'reject') {
+        throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Permission response is invalid', 400);
+      }
+      const resolution = this.#host.resolveInteraction(
+        projection.interaction.interactionId,
+        { status: body.response === 'once' ? 'approved' : 'rejected' },
+        access.binding,
+      );
+      this.#rememberResolution(resolution);
+      this.#writeJson(response, 200, true);
+      return;
+    }
+
     if (method === 'POST' && sessionRoute && ['prompt_async', 'message'].includes(sessionRoute[2] ?? '')) {
       if (!routeSession) throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', 'Native session was not found', 404);
       const body = expectRecord(await readJson(request));
       const messageId = expectNativeMessageId(body.messageID);
-      const userMessage = readPromptText(body.parts);
+      const prompt = readPromptParts(body.parts);
       const clientTurnId = asClientTurnId(`native-${messageId}`);
       await this.#host.startHarnessTurn({
         defSessionId: routeSession.defSessionId,
-        userMessage,
+        userMessage: prompt.userMessage,
+        ...(prompt.userAttachments.length > 0 ? { userAttachments: prompt.userAttachments } : {}),
         clientTurnId,
         engineUserMessageId: asEngineMessageId(messageId),
         binding: access.binding,
@@ -431,6 +569,209 @@ export class OpenCodeNativeUiGateway {
         headers: { accept: String(request.headers.accept ?? 'application/json') },
       }),
     );
+  }
+
+  #projectInteractions(binding: ProductBinding): readonly NativeInteractionProjection[] {
+    const sessions = new Map(this.#host.listSessions(binding).map((session) => [
+      session.defSessionId,
+      session.engine.sessionId,
+    ]));
+    const projections: NativeInteractionProjection[] = [];
+    for (const interaction of this.#host.listPendingInteractions(binding)) {
+      const sessionID = sessions.get(interaction.defSessionId);
+      if (!sessionID) continue;
+      if (interaction.kind === 'question') {
+        const options = readQuestionOptions(interaction.details?.options);
+        const payload: NativeQuestionRequest = {
+          id: interaction.interactionId,
+          sessionID,
+          questions: [{
+            header: readQuestionHeader(interaction.details?.header),
+            question: interaction.prompt,
+            options: options.map((label) => ({ label, description: '' })),
+            multiple: false,
+            custom: true,
+          }],
+        };
+        projections.push({
+          kind: 'question' as const,
+          interaction,
+          sessionID,
+          payload,
+          fingerprint: JSON.stringify(payload),
+        });
+        continue;
+      }
+      const payload: NativePermissionRequest = {
+        id: interaction.interactionId,
+        sessionID,
+        permission: 'def_mutation',
+        patterns: approvalPatterns(interaction),
+        metadata: {
+          proposalHash: interaction.proposalHash,
+          scope: [...interaction.scope],
+          proposal: structuredClone(interaction.proposal),
+          binding: structuredClone(interaction.binding),
+          expiresAt: interaction.expiresAt,
+        },
+        always: [],
+      };
+      projections.push({
+        kind: 'approval' as const,
+        interaction,
+        sessionID,
+        payload,
+        fingerprint: JSON.stringify(payload),
+      });
+    }
+    return projections;
+  }
+
+  #requireInteraction(
+    interactionId: string,
+    kind: 'question',
+    binding: ProductBinding,
+  ): Extract<NativeInteractionProjection, { readonly kind: 'question' }>;
+  #requireInteraction(
+    interactionId: string,
+    kind: 'approval',
+    binding: ProductBinding,
+  ): Extract<NativeInteractionProjection, { readonly kind: 'approval' }>;
+  #requireInteraction(
+    interactionId: string,
+    kind: NativeInteractionProjection['kind'],
+    binding: ProductBinding,
+  ): NativeInteractionProjection {
+    const projection = this.#projectInteractions(binding)
+      .find((candidate) => candidate.interaction.interactionId === interactionId);
+    if (!projection) {
+      throw new DefAgentHostError('AGENT_INTERACTION_NOT_FOUND', 'Native interaction is no longer pending', 404);
+    }
+    if (projection.kind !== kind) {
+      throw new DefAgentHostError(
+        'AGENT_INTERACTION_CONFLICT',
+        'Native interaction kind does not match the requested action',
+        409,
+      );
+    }
+    return projection;
+  }
+
+  #rememberResolution(response: InteractionResponse): void {
+    this.#resolutions.set(response.interactionId, {
+      response: structuredClone(response),
+      expiresAt: this.#clock() + RESOLUTION_MEMORY_MS,
+    });
+  }
+
+  #sweepResolutions(): void {
+    const now = this.#clock();
+    for (const [interactionId, resolution] of this.#resolutions) {
+      if (resolution.expiresAt <= now) this.#resolutions.delete(interactionId);
+    }
+  }
+
+  async #streamGlobalEvents(
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL,
+    access: NativeUiAccess,
+  ): Promise<void> {
+    const abortController = new AbortController();
+    const upstream = await this.#engine.requestNativeUi(`${url.pathname}${url.search}`, {
+      method: 'GET',
+      headers: { accept: 'text/event-stream' },
+      signal: abortController.signal,
+    });
+    if (!upstream.ok || !upstream.body) {
+      await this.#proxyEngineResponse(response, upstream);
+      return;
+    }
+
+    const directory = await this.#engine.nativeUiDirectory();
+    response.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+      'X-Content-Type-Options': 'nosniff',
+    });
+
+    let closed = false;
+    let previous = new Map<string, NativeInteractionProjection>();
+    const close = (): void => {
+      if (closed) return;
+      closed = true;
+      abortController.abort();
+    };
+    request.once('aborted', close);
+    response.once('close', close);
+
+    const synchronize = (): void => {
+      if (closed) return;
+      this.#sweepResolutions();
+      const current = new Map<string, NativeInteractionProjection>(this.#projectInteractions(access.binding).map((projection) => [
+        projection.interaction.interactionId,
+        projection,
+      ]));
+      for (const [interactionId, projection] of current) {
+        if (previous.get(interactionId)?.fingerprint === projection.fingerprint) continue;
+        response.write(nativeEventFrame(directory, nativeAskedEvent(projection)));
+      }
+      for (const [interactionId, projection] of previous) {
+        if (current.has(interactionId)) continue;
+        response.write(nativeEventFrame(
+          directory,
+          nativeResolvedEvent(projection, this.#resolutions.get(interactionId)?.response),
+        ));
+      }
+      previous = current;
+    };
+
+    synchronize();
+    const interval = setInterval(() => {
+      try {
+        synchronize();
+      } catch (error) {
+        this.#diagnostic(`AGENT_NATIVE_UI_EVENT_SYNC_FAILED: ${error instanceof Error ? error.message : String(error)}`);
+        response.destroy(error instanceof Error ? error : new Error(String(error)));
+        close();
+      }
+    }, INTERACTION_POLL_MS);
+
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        const parsed = takeSseFrames(buffer);
+        buffer = parsed.rest;
+        for (const frame of parsed.frames) {
+          if (!closed) response.write(frame);
+        }
+        if (Buffer.byteLength(buffer) > 4_194_304) {
+          throw new Error('OpenCode global event frame is too large');
+        }
+      }
+      buffer += decoder.decode();
+      const parsed = takeSseFrames(buffer);
+      for (const frame of parsed.frames) {
+        if (!closed) response.write(frame);
+      }
+      if (!closed) response.end();
+    } catch (error) {
+      if (!closed) response.destroy(error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      clearInterval(interval);
+      close();
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+      request.off('aborted', close);
+      response.off('close', close);
+    }
   }
 
   async #proxyEngineResponse(response: ServerResponse, upstream: Response): Promise<void> {
@@ -542,7 +883,7 @@ export class OpenCodeNativeUiGateway {
     const source = readFileSync(this.#indexPath, 'utf8');
     const profile = safeJson(embeddedProfile());
     const nativeSession = safeJson({ sessionID: session.engineSessionId, directory: session.directory });
-    const bootstrap = `<script>window.__DEF_EMBEDDED_PROFILE__=${profile};window.__DEF_NATIVE_SESSION__=${nativeSession};try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};document.title="DEF · 排轴助手";</script>`;
+    const bootstrap = `<script>window.__DEF_EMBEDDED_PROFILE__=${profile};window.__DEF_NATIVE_SESSION__=${nativeSession};document.documentElement.dataset.defHost="workbench";try{localStorage.setItem("opencode.settings.dat:defaultServerUrl",location.origin)}catch{};document.title="DEF · 排轴助手";</script><style id="def-native-host-style">html[data-def-host="workbench"] [data-slot="permission-footer-actions"]>button:nth-child(2){display:none!important}</style>`;
     return source
       .replace('<title>OpenCode</title>', '<title>DEF · 排轴助手</title>')
       .replace('</head>', `${bootstrap}</head>`);
@@ -614,24 +955,213 @@ function isOpenCodeApiPath(pathname: string): boolean {
   ].some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-function readPromptText(parts: unknown): string {
+const USER_ATTACHMENT_MIMES = new Set([
+  'application/pdf',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/plain',
+]);
+
+function readPromptParts(parts: unknown): {
+  readonly userMessage: string;
+  readonly userAttachments: readonly EngineUserAttachment[];
+} {
   if (!Array.isArray(parts)) {
     throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native prompt parts must be an array', 400);
   }
   const textParts: string[] = [];
+  const userAttachments: EngineUserAttachment[] = [];
+  let attachmentBytes = 0;
   for (const part of parts) {
-    if (!isRecord(part) || part.type !== 'text' || typeof part.text !== 'string') {
+    if (!isRecord(part)) {
+      throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native prompt part is invalid', 400);
+    }
+    if (part.type === 'text' && typeof part.text === 'string') {
+      textParts.push(part.text);
+      continue;
+    }
+    if (part.type !== 'file') {
       throw new DefAgentHostError(
         'AGENT_REQUEST_INVALID',
-        'Native OpenCode attachments are not supported by the DEF Host yet',
+        'Only text and uploaded file parts are supported by the DEF Host',
         400,
       );
     }
-    textParts.push(part.text);
+    if (userAttachments.length >= MAX_USER_ATTACHMENTS) {
+      throw new DefAgentHostError('AGENT_REQUEST_TOO_LARGE', 'Too many native prompt attachments', 413);
+    }
+    const attachment = readUserAttachment(part, userAttachments.length);
+    attachmentBytes += attachment.bytes;
+    if (attachmentBytes > MAX_USER_ATTACHMENT_BYTES) {
+      throw new DefAgentHostError('AGENT_REQUEST_TOO_LARGE', 'Native prompt attachments are too large', 413);
+    }
+    userAttachments.push(attachment.value);
   }
-  const text = textParts.join('\n').trim();
-  if (!text) throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native prompt text is required', 400);
-  return text;
+  const userMessage = textParts.join('\n').trim();
+  if (!userMessage) throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native prompt text is required', 400);
+  return { userMessage, userAttachments };
+}
+
+function readUserAttachment(
+  part: Record<string, unknown>,
+  index: number,
+): { readonly value: EngineUserAttachment; readonly bytes: number } {
+  if (typeof part.mime !== 'string' || typeof part.url !== 'string') {
+    throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native attachment metadata is invalid', 400);
+  }
+  const mime = part.mime.trim().toLowerCase();
+  if (!USER_ATTACHMENT_MIMES.has(mime)) {
+    throw new DefAgentHostError('AGENT_REQUEST_INVALID', `Native attachment MIME is not supported: ${mime}`, 400);
+  }
+  const match = /^data:([^;,]+);base64,([A-Za-z0-9+/]*={0,2})$/u.exec(part.url);
+  if (!match || match[1]?.toLowerCase() !== mime || match[2]!.length % 4 !== 0) {
+    throw new DefAgentHostError(
+      'AGENT_REQUEST_INVALID',
+      'Native attachments must be matching base64 data URLs; paths and remote URLs are disabled',
+      400,
+    );
+  }
+  const bytes = Buffer.from(match[2]!, 'base64');
+  if (bytes.toString('base64') !== match[2]) {
+    throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native attachment base64 is invalid', 400);
+  }
+  return {
+    value: {
+      type: 'file',
+      mime,
+      filename: normalizeAttachmentFilename(part.filename, mime, index),
+      url: part.url,
+    },
+    bytes: bytes.length,
+  };
+}
+
+function normalizeAttachmentFilename(value: unknown, mime: string, index: number): string {
+  const fallbackExtension = mime === 'application/pdf'
+    ? 'pdf'
+    : mime === 'text/plain'
+      ? 'txt'
+      : mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'bin';
+  if (typeof value !== 'string') return `attachment-${index + 1}.${fallbackExtension}`;
+  const basename = value.split(/[\\/]/u).at(-1)?.replace(/[\u0000-\u001f\u007f]/gu, '').trim() ?? '';
+  return basename ? basename.slice(0, 240) : `attachment-${index + 1}.${fallbackExtension}`;
+}
+
+function readQuestionAnswer(value: unknown): JsonValue {
+  if (!Array.isArray(value) || value.length !== 1 || !Array.isArray(value[0])) {
+    throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native question answer is invalid', 400);
+  }
+  const answers = value[0];
+  if (
+    answers.length !== 1
+    || typeof answers[0] !== 'string'
+    || !answers[0].trim()
+    || answers[0].length > 8_000
+  ) {
+    throw new DefAgentHostError('AGENT_REQUEST_INVALID', 'Native question requires one bounded answer', 400);
+  }
+  return answers[0].trim();
+}
+
+function readQuestionOptions(value: JsonValue | undefined): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((option) => (
+    typeof option === 'string' && option.trim() ? [option.trim().slice(0, 200)] : []
+  )).slice(0, 8);
+}
+
+function readQuestionHeader(value: JsonValue | undefined): string {
+  return typeof value === 'string' && value.trim()
+    ? value.trim().slice(0, 80)
+    : '需要回答';
+}
+
+function approvalPatterns(
+  interaction: Extract<InteractionRequest, { readonly kind: 'approval' }>,
+): readonly string[] {
+  const patterns = [interaction.prompt];
+  if (interaction.scope.length > 0) patterns.push(`作用范围：${interaction.scope.join('、')}`);
+  const proposal = JSON.stringify(interaction.proposal, null, 2);
+  patterns.push(`变更提案：\n${proposal.length > 6_000 ? `${proposal.slice(0, 6_000)}…` : proposal}`);
+  return patterns;
+}
+
+function nativeAskedEvent(projection: NativeInteractionProjection) {
+  return {
+    id: `evt_def_${randomBytes(12).toString('hex')}`,
+    type: projection.kind === 'question' ? 'question.asked' : 'permission.asked',
+    properties: projection.payload,
+  };
+}
+
+function nativeResolvedEvent(
+  projection: NativeInteractionProjection,
+  resolution: InteractionResponse | undefined,
+) {
+  if (projection.kind === 'question') {
+    if (resolution?.status === 'answered') {
+      return {
+        id: `evt_def_${randomBytes(12).toString('hex')}`,
+        type: 'question.replied',
+        properties: {
+          sessionID: projection.sessionID,
+          requestID: projection.interaction.interactionId,
+          answers: [[questionAnswerText(resolution.value)]],
+        },
+      };
+    }
+    return {
+      id: `evt_def_${randomBytes(12).toString('hex')}`,
+      type: 'question.rejected',
+      properties: {
+        sessionID: projection.sessionID,
+        requestID: projection.interaction.interactionId,
+      },
+    };
+  }
+  return {
+    id: `evt_def_${randomBytes(12).toString('hex')}`,
+    type: 'permission.replied',
+    properties: {
+      sessionID: projection.sessionID,
+      requestID: projection.interaction.interactionId,
+      reply: resolution?.status === 'approved' ? 'once' : 'reject',
+    },
+  };
+}
+
+function questionAnswerText(value: JsonValue | undefined): string {
+  if (typeof value === 'string') return value;
+  return value === undefined ? '' : JSON.stringify(value);
+}
+
+function nativeEventFrame(directory: string, payload: unknown): string {
+  return `event: message\ndata: ${JSON.stringify({ directory, payload })}\n\n`;
+}
+
+function takeSseFrames(value: string): { readonly frames: readonly string[]; readonly rest: string } {
+  const frames: string[] = [];
+  let rest = value;
+  for (;;) {
+    const separator = /\r?\n\r?\n/u.exec(rest);
+    if (!separator || separator.index === undefined) break;
+    const end = separator.index + separator[0].length;
+    frames.push(rest.slice(0, end));
+    rest = rest.slice(end);
+  }
+  return { frames, rest };
+}
+
+function decodePathSegment(value: string): string {
+  try {
+    const decoded = decodeURIComponent(value).trim();
+    if (!decoded || decoded.includes('/') || decoded.includes('\u0000')) throw new Error('invalid segment');
+    return decoded;
+  } catch {
+    throw new DefAgentHostError('AGENT_NATIVE_UI_ROUTE_INVALID', 'Native UI path segment is invalid', 400);
+  }
 }
 
 function expectNativeMessageId(value: unknown): string {

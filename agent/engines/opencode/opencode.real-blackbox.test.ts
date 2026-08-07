@@ -35,10 +35,19 @@ import { InMemoryOpenCodeProviderProfileSource } from './profile.ts';
 import { toOpenCodeSafeToolName } from './tool-bindings.ts';
 
 const routeDescription = 'Route this Turn to one allowlisted DEF business operation.';
+const attachmentText = 'DEF_NATIVE_ATTACHMENT_OK';
+const attachmentFilename = 'def-native-attachment-test.txt';
+const attachmentFixture = {
+  type: 'file',
+  mime: 'text/plain',
+  filename: attachmentFilename,
+  url: `data:text/plain;base64,${Buffer.from(attachmentText).toString('base64')}`,
+} as const;
 const blackboxCases = [
   {
     id: 'selection',
     userMessage: '请告诉我当前选择了哪些干员。',
+    userAttachments: [attachmentFixture],
     route: { businessId: 'selection', operation: 'inspect' },
     tools: [{
       safeName: 'def_node_crud_context',
@@ -378,6 +387,7 @@ async function run(): Promise<void> {
         const turn = await host.startHarnessTurn({
           defSessionId: session.defSessionId,
           userMessage: scenario.userMessage,
+          ...('userAttachments' in scenario ? { userAttachments: scenario.userAttachments } : {}),
         });
         if ('interaction' in scenario) {
           const interaction = await withTimeout((async () => {
@@ -587,6 +597,11 @@ async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject
     toolSets.push(names);
     const expected = providerPlan[requestIndex];
     assert.ok(expected, `Unexpected provider request ${requestIndex + 1}`);
+    if (expected.scenarioId === 'selection') {
+      const messages = JSON.stringify(record.messages);
+      assert.equal(messages.includes(attachmentText), true, 'text attachment must reach the provider as text');
+      assert.equal(messages.includes(attachmentFilename), true, 'text attachment filename must reach the provider');
+    }
     const hasTool = 'safeName' in expected && typeof expected.safeName === 'string';
     const expectedNames = hasTool ? [expected.safeName] : [];
     assert.deepEqual(names, expectedNames);

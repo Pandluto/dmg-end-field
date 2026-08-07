@@ -1,5 +1,4 @@
 import {
-  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -8,16 +7,8 @@ import type {
   AgentNativeUiLaunch,
   AgentProductSession,
 } from '../../../agent/core/contracts/browser-protocol';
-import type {
-  DefSessionId,
-  InteractionId,
-} from '../../../agent/core/contracts/ids';
-import type {
-  InteractionRequest,
-  InteractionResponse,
-  JsonValue,
-  ProductBinding,
-} from '../../../agent/core/contracts';
+import type { DefSessionId } from '../../../agent/core/contracts/ids';
+import type { ProductBinding } from '../../../agent/core/contracts';
 import {
   createDesktopAgentBridge,
   createDesktopAgentConsumerController,
@@ -46,16 +37,6 @@ export interface AgentModeOverlayProps {
   readonly onOpenWorkNodePanel?: () => void;
 }
 
-type InteractionResponseAction = 'answered' | 'approved' | 'rejected' | 'cancelled';
-
-function formatJson(value: unknown): string {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 function operationMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -71,104 +52,6 @@ function chooseSession(
   return [...sessions]
     .filter((session) => session.status === 'ready')
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
-}
-
-function InteractionDock({
-  interactions,
-  busyId,
-  drafts,
-  error,
-  onDraft,
-  onRespond,
-}: {
-  readonly interactions: readonly InteractionRequest[];
-  readonly busyId: InteractionId | null;
-  readonly drafts: Readonly<Record<string, string>>;
-  readonly error: string | null;
-  readonly onDraft: (id: InteractionId, value: string) => void;
-  readonly onRespond: (
-    id: InteractionId,
-    status: InteractionResponseAction,
-    value?: JsonValue,
-  ) => void;
-}) {
-  if (!interactions.length && !error) return null;
-  return (
-    <section className="agent-native-interaction-dock" aria-label="待处理的 AI 操作">
-      {error && <p className="agent-native-interaction-error" role="alert">{error}</p>}
-      {interactions.map((interaction) => {
-        const id = interaction.interactionId as InteractionId;
-        const busy = busyId !== null;
-        const options = interaction.kind === 'question'
-          && Array.isArray(interaction.details?.options)
-          && interaction.details.options.every((item) => typeof item === 'string')
-          ? interaction.details.options as string[]
-          : [];
-        return (
-          <article key={id} className="agent-native-interaction-card" data-kind={interaction.kind}>
-            <header>
-              <strong>{interaction.kind === 'question' ? '需要回答' : '需要确认'}</strong>
-              <span>DEF Host</span>
-            </header>
-            <p>{interaction.prompt}</p>
-            {interaction.kind === 'approval' && (
-              <details open>
-                <summary>查看变更提案</summary>
-                <pre>{formatJson(interaction.proposal)}</pre>
-              </details>
-            )}
-            {interaction.kind === 'question' ? (
-              <div className="agent-native-interaction-answer">
-                {options.length > 0 && (
-                  <div className="agent-native-interaction-options">
-                    {options.map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        disabled={busy}
-                        onClick={() => onRespond(id, 'answered', option)}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <textarea
-                  rows={2}
-                  maxLength={8_000}
-                  value={drafts[id] ?? ''}
-                  disabled={busy}
-                  placeholder="输入回答"
-                  onChange={(event) => onDraft(id, event.target.value)}
-                />
-                <div className="agent-native-interaction-actions">
-                  <button
-                    type="button"
-                    disabled={busy || !(drafts[id] ?? '').trim()}
-                    onClick={() => onRespond(id, 'answered', (drafts[id] ?? '').trim())}
-                  >
-                    提交
-                  </button>
-                  <button type="button" disabled={busy} onClick={() => onRespond(id, 'cancelled')}>
-                    取消
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="agent-native-interaction-actions">
-                <button type="button" disabled={busy} onClick={() => onRespond(id, 'approved')}>
-                  批准
-                </button>
-                <button type="button" disabled={busy} onClick={() => onRespond(id, 'rejected')}>
-                  拒绝
-                </button>
-              </div>
-            )}
-          </article>
-        );
-      })}
-    </section>
-  );
 }
 
 export function AgentModeOverlay({
@@ -207,10 +90,6 @@ export function AgentModeOverlay({
   const [launchRevision, setLaunchRevision] = useState(0);
   const [status, setStatus] = useState('正在连接 OpenCode…');
   const [error, setError] = useState<string | null>(null);
-  const [interactions, setInteractions] = useState<readonly InteractionRequest[]>([]);
-  const [interactionBusyId, setInteractionBusyId] = useState<InteractionId | null>(null);
-  const [interactionDrafts, setInteractionDrafts] = useState<Record<string, string>>({});
-  const [interactionError, setInteractionError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -294,65 +173,6 @@ export function AgentModeOverlay({
     launchRevision,
   ]);
 
-  const refreshInteractions = useCallback(async () => {
-    if (!connected) return;
-    const pending = await bridge.listPendingInteractions();
-    setInteractions(pending);
-  }, [bridge, connected]);
-
-  useEffect(() => {
-    if (!connected) {
-      setInteractions([]);
-      return;
-    }
-    let disposed = false;
-    const refresh = async () => {
-      try {
-        const pending = await bridge.listPendingInteractions();
-        if (!disposed) {
-          setInteractions(pending);
-          setInteractionError(null);
-        }
-      } catch (cause) {
-        if (!disposed) setInteractionError(operationMessage(cause));
-      }
-    };
-    void refresh();
-    const handle = window.setInterval(() => void refresh(), 750);
-    return () => {
-      disposed = true;
-      window.clearInterval(handle);
-    };
-  }, [bridge, connected]);
-
-  const respondInteraction = async (
-    interactionId: InteractionId,
-    action: InteractionResponseAction,
-    value?: JsonValue,
-  ) => {
-    setInteractionBusyId(interactionId);
-    setInteractionError(null);
-    try {
-      let response: InteractionResponse;
-      if (action === 'answered') response = await bridge.answerQuestion(interactionId, value ?? '');
-      else if (action === 'approved') response = await bridge.approveInteraction(interactionId);
-      else if (action === 'rejected') response = await bridge.rejectInteraction(interactionId, value);
-      else response = await bridge.cancelInteraction(interactionId);
-      if (response.status === 'answered' || response.status === 'approved' || response.status === 'rejected' || response.status === 'cancelled') {
-        setInteractionDrafts((current) => {
-          const next = { ...current };
-          delete next[interactionId];
-          return next;
-        });
-      }
-      await refreshInteractions();
-    } catch (cause) {
-      setInteractionError(operationMessage(cause));
-    } finally {
-      setInteractionBusyId(null);
-    }
-  };
-
   const rootClassName = [
     'agent-mode-overlay',
     'agent-native-opencode-host',
@@ -409,14 +229,6 @@ export function AgentModeOverlay({
         </div>
       )}
 
-      <InteractionDock
-        interactions={interactions}
-        busyId={interactionBusyId}
-        drafts={interactionDrafts}
-        error={interactionError}
-        onDraft={(id, value) => setInteractionDrafts((current) => ({ ...current, [id]: value }))}
-        onRespond={(id, action, value) => void respondInteraction(id, action, value)}
-      />
     </aside>
   );
 }

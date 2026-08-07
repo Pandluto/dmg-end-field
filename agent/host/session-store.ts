@@ -63,6 +63,8 @@ export class DefAgentSessionStoreError extends Error {
 export interface DefAcceptedClientTurn {
   readonly clientTurnId: ClientTurnId;
   readonly userMessage: string;
+  /** SHA-256 only; attachment bytes remain owned by the Engine transcript. */
+  readonly attachmentDigest?: string;
   readonly result: {
     readonly defTurnId: DefTurnId;
     readonly clientTurnId: ClientTurnId;
@@ -324,6 +326,13 @@ function assertDateText(value: unknown, label: string): string {
   return text;
 }
 
+function assertSha256(value: unknown, label: string): string {
+  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/u.test(value)) {
+    fail('INVALID_RECORD', `${label} must be a lowercase SHA-256 digest`, null);
+  }
+  return value;
+}
+
 function assertBinding(value: unknown, session: DefSessionV6 | null = null): ProductBinding {
   if (!isRecord(value)) fail('INVALID_RECORD', 'ProductBinding must be an object', null);
   const binding: ProductBinding = {
@@ -418,6 +427,9 @@ function assertAcceptedClientTurns(value: unknown): readonly DefAcceptedClientTu
     return {
       clientTurnId,
       userMessage: assertText(entry.userMessage, `acceptedClientTurns[${index}].userMessage`),
+      ...(entry.attachmentDigest === undefined
+        ? {}
+        : { attachmentDigest: assertSha256(entry.attachmentDigest, `acceptedClientTurns[${index}].attachmentDigest`) }),
       result: {
         defTurnId: asDefTurnId(assertIdentifier(entry.result.defTurnId, `acceptedClientTurns[${index}].result.defTurnId`)),
         clientTurnId: resultClientTurnId,
@@ -447,6 +459,9 @@ function validateAcceptedClientTurn(value: DefAcceptedClientTurnInput): DefAccep
   return {
     clientTurnId,
     userMessage: assertText(value.userMessage, 'userMessage'),
+    ...(value.attachmentDigest === undefined
+      ? {}
+      : { attachmentDigest: assertSha256(value.attachmentDigest, 'attachmentDigest') }),
     result: {
       defTurnId: asDefTurnId(assertIdentifier(value.result.defTurnId, 'result.defTurnId')),
       clientTurnId: resultClientTurnId,
@@ -672,10 +687,6 @@ function makeSnapshot(
   };
 }
 
-function equalTurn(left: DefAcceptedClientTurn, right: DefAcceptedClientTurn): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
   readonly #sessions = new Map<DefSessionId, DefAgentSessionRecord>();
   readonly #events = new Map<DefSessionId, DefEvent[]>();
@@ -723,7 +734,11 @@ export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
     const turn = validateAcceptedClientTurn(input);
     const existing = record.acceptedClientTurns.find((entry) => entry.clientTurnId === turn.clientTurnId);
     if (existing) {
-      if (!equalTurn(existing, turn) && (existing.userMessage !== turn.userMessage || existing.result.defTurnId !== turn.result.defTurnId)) {
+      if (
+        existing.userMessage !== turn.userMessage
+        || (existing.attachmentDigest ?? null) !== (turn.attachmentDigest ?? null)
+        || existing.result.defTurnId !== turn.result.defTurnId
+      ) {
         fail('CLIENT_TURN_CONFLICT', `Client Turn ${turn.clientTurnId} was already accepted with another result`, turn.clientTurnId);
       }
       return;
@@ -877,7 +892,11 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     const turn = validateAcceptedClientTurn(input);
     const existing = record.acceptedClientTurns.find((entry) => entry.clientTurnId === turn.clientTurnId);
     if (existing) {
-      if (!equalTurn(existing, turn) && (existing.userMessage !== turn.userMessage || existing.result.defTurnId !== turn.result.defTurnId)) {
+      if (
+        existing.userMessage !== turn.userMessage
+        || (existing.attachmentDigest ?? null) !== (turn.attachmentDigest ?? null)
+        || existing.result.defTurnId !== turn.result.defTurnId
+      ) {
         fail('CLIENT_TURN_CONFLICT', `Client Turn ${turn.clientTurnId} was already accepted with another result`, turn.clientTurnId);
       }
       return;

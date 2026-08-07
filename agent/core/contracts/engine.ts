@@ -60,6 +60,18 @@ export interface EngineToolProjectionInput {
   readonly tools: readonly EngineToolDescriptor[];
 }
 
+/**
+ * A browser-selected attachment that is intentionally forwarded to the
+ * configured model provider. Host adapters must only accept bounded data URLs;
+ * local file paths and remote URLs are never part of this contract.
+ */
+export interface EngineUserAttachment {
+  readonly type: 'file';
+  readonly mime: string;
+  readonly filename: string;
+  readonly url: string;
+}
+
 export interface EngineTurnInput {
   readonly engineSession: EngineSessionRef;
   readonly defSessionId: DefSessionId;
@@ -74,6 +86,7 @@ export interface EngineTurnInput {
   readonly engineUserMessageId?: EngineMessageId;
   readonly systemContext: string;
   readonly userMessage: string;
+  readonly userAttachments?: readonly EngineUserAttachment[];
   readonly providerProfileRef: string;
   readonly toolProjection: EngineToolProjectionInput;
   readonly context?: JsonObject;

@@ -321,9 +321,24 @@ async function testAdapterAtomicProjection(): Promise<void> {
     providerProfileRef: 'default',
     systemContext: 'Route, then calculate.',
     userMessage: '算一下当前伤害',
+    userAttachments: [{
+      type: 'file',
+      mime: 'image/png',
+      filename: 'timeline.png',
+      url: 'data:image/png;base64,iVBORw0KGgo=',
+    }],
     toolProjection: routeProjection,
   } as const;
   const handle = await adapter.startTurn(turnInput);
+  assert.deepEqual(runtime.promptRequests[0]?.parts, [
+    { type: 'text', text: turnInput.userMessage },
+    {
+      type: 'file',
+      mime: 'image/png',
+      filename: 'timeline.png',
+      url: 'data:image/png;base64,iVBORw0KGgo=',
+    },
+  ]);
   const iterator = handle.events[Symbol.asyncIterator]();
   const headers = {
     'x-def-opencode-bridge-token': bridge.token,

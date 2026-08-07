@@ -8,10 +8,15 @@ import {
   DEF_SESSION_SCHEMA_VERSION,
   asDatabaseGeneration,
   asDefSessionId,
+  asDefTurnId,
   asEngineSessionId,
+  asInteractionId,
   asTimelineId,
+  asToolCallId,
   asWorkspaceId,
   type DefSessionV6,
+  type InteractionRequest,
+  type InteractionResponse,
   type ProductBinding,
 } from '../core/contracts/index.ts';
 import type { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
@@ -57,6 +62,8 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     heartbeatExpiresAt: Date.now() + 60_000,
   };
   const started: unknown[] = [];
+  const resolved: InteractionResponse[] = [];
+  let pending: InteractionRequest[] = [];
   const upstreamRequests: string[] = [];
   const host = {
     readSession(defSessionId: string) {
@@ -74,10 +81,28 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       started.push(input);
       return { defTurnId: 'def-turn-native-ui', clientTurnId: 'native-message' };
     },
+    listPendingInteractions() {
+      return pending;
+    },
+    resolveInteraction(interactionId: string, input: { status: InteractionResponse['status']; value?: unknown }) {
+      const interaction = pending.find((candidate) => candidate.interactionId === interactionId);
+      assert.ok(interaction);
+      pending = pending.filter((candidate) => candidate.interactionId !== interactionId);
+      const response = {
+        interactionId: interaction.interactionId,
+        status: input.status,
+        ...(Object.prototype.hasOwnProperty.call(input, 'value') ? { value: input.value } : {}),
+        resolvedAt: '2026-08-08T00:00:01.000Z',
+      } as InteractionResponse;
+      resolved.push(response);
+      return response;
+    },
     getActiveIds() {
       return { defSessionId: null, defTurnId: null };
     },
-    async abortTurn() {},
+    async abortTurn(defTurnId: string) {
+      pending = pending.filter((candidate) => candidate.defTurnId !== defTurnId);
+    },
   } as unknown as DefAgentHost;
   const consumers = {
     requireActive(candidate?: AgentUiCapabilityClaims) {
@@ -92,8 +117,9 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     async nativeUiDirectory() {
       return '/tmp/def-native-ui-workspace';
     },
-    async requestNativeUi(pathname: string) {
+    async requestNativeUi(pathname: string, init?: RequestInit) {
       upstreamRequests.push(pathname);
+      if (pathname === '/global/event') return openEventStream(init?.signal);
       if (pathname === '/global/config') {
         return Response.json({ theme: 'system' });
       }
@@ -131,7 +157,9 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
 
     const indexResponse = await fetch(launch.src, { headers: { accept: 'text/html' } });
     assert.equal(indexResponse.status, 200);
-    assert.match(await indexResponse.text(), /__DEF_EMBEDDED_PROFILE__/u);
+    const indexHtml = await indexResponse.text();
+    assert.match(indexHtml, /__DEF_EMBEDDED_PROFILE__/u);
+    assert.match(indexHtml, /permission-footer-actions/u);
     assert.match(indexResponse.headers.get('set-cookie') ?? '', /def_native_ui=/u);
 
     const fontResponse = await fetch(`${gateway.origin}/font.woff`);
@@ -157,10 +185,130 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     assert.equal(messageResponse.status, 200);
     assert.equal(messageResponse.headers.get('x-next-cursor'), 'cursor-native-ui');
 
+    const interactionTurnId = asDefTurnId('def-turn-native-interaction');
+    const questionId = asInteractionId('question-native-ui');
+    const approvalId = asInteractionId('approval-native-ui');
+    pending = [
+      {
+        interactionId: questionId,
+        defSessionId: session.defSessionId,
+        defTurnId: interactionTurnId,
+        toolCallId: asToolCallId('tool-question-native-ui'),
+        kind: 'question',
+        prompt: '请选择检查范围',
+        details: { options: ['当前按钮', '整条时间轴'] },
+        createdAt: '2026-08-08T00:00:00.000Z',
+        expiresAt: '2026-08-08T00:15:00.000Z',
+      },
+      {
+        interactionId: approvalId,
+        defSessionId: session.defSessionId,
+        defTurnId: interactionTurnId,
+        toolCallId: asToolCallId('tool-approval-native-ui'),
+        kind: 'approval',
+        prompt: '确认修改当前时间轴',
+        proposalHash: 'a'.repeat(64),
+        binding: { ...binding },
+        scope: ['timeline.write'],
+        proposal: { operation: 'update-node', nodeId: 'node-1' },
+        createdAt: '2026-08-08T00:00:00.000Z',
+        expiresAt: '2026-08-08T00:15:00.000Z',
+      },
+    ];
+
+    const questionResponse = await fetch(`${gateway.origin}/question`, {
+      headers: { authorization: `Basic ${authToken}` },
+    });
+    const questions = await questionResponse.json() as Array<Record<string, unknown>>;
+    assert.equal(questions.length, 1);
+    assert.equal(questions[0]?.id, questionId);
+    assert.equal(questions[0]?.sessionID, session.engine.sessionId);
+
+    const permissionResponse = await fetch(`${gateway.origin}/permission`, {
+      headers: { authorization: `Basic ${authToken}` },
+    });
+    const permissions = await permissionResponse.json() as Array<Record<string, unknown>>;
+    assert.equal(permissions.length, 1);
+    assert.equal(permissions[0]?.id, approvalId);
+    assert.deepEqual(permissions[0]?.always, []);
+
+    const eventAbort = new AbortController();
+    const eventResponse = await fetch(`${gateway.origin}/global/event`, {
+      headers: { authorization: `Basic ${authToken}` },
+      signal: eventAbort.signal,
+    });
+    assert.equal(eventResponse.status, 200);
+    assert.ok(eventResponse.body);
+    const eventReader = eventResponse.body.getReader();
+    try {
+      const asked = await readSseUntil(
+        eventReader,
+        (text) => text.includes('question.asked') && text.includes('permission.asked'),
+      );
+      assert.match(asked, /请选择检查范围/u);
+      assert.match(asked, /确认修改当前时间轴/u);
+
+      const questionDecisionResponse = await fetch(
+        `${gateway.origin}/api/native/question/${encodeURIComponent(questionId)}/reply`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Basic ${authToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            sessionID: session.engine.sessionId,
+            questions,
+            answers: [['整条时间轴']],
+          }),
+        },
+      );
+      assert.equal(questionDecisionResponse.status, 200);
+      assert.deepEqual(resolved.at(-1), {
+        interactionId: questionId,
+        status: 'answered',
+        value: '整条时间轴',
+        resolvedAt: '2026-08-08T00:00:01.000Z',
+      });
+      assert.match(await readSseUntil(eventReader, (text) => text.includes('question.replied')), /整条时间轴/u);
+
+      const persistentApprovalResponse = await fetch(
+        `${gateway.origin}/session/${session.engine.sessionId}/permissions/${encodeURIComponent(approvalId)}`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Basic ${authToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ response: 'always' }),
+        },
+      );
+      assert.equal(persistentApprovalResponse.status, 400);
+
+      const approvalDecisionResponse = await fetch(
+        `${gateway.origin}/session/${session.engine.sessionId}/permissions/${encodeURIComponent(approvalId)}`,
+        {
+          method: 'POST',
+          headers: {
+            authorization: `Basic ${authToken}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ response: 'once' }),
+        },
+      );
+      assert.equal(approvalDecisionResponse.status, 200);
+      assert.equal(await approvalDecisionResponse.json(), true);
+      assert.equal(resolved.at(-1)?.status, 'approved');
+      assert.match(await readSseUntil(eventReader, (text) => text.includes('permission.replied')), /"reply":"once"/u);
+    } finally {
+      eventAbort.abort();
+      await eventReader.cancel().catch(() => undefined);
+    }
+
     const unauthorizedResponse = await fetch(`${gateway.origin}/session`);
     assert.equal(unauthorizedResponse.status, 401);
 
-    const unsupportedAttachmentResponse = await fetch(`${gateway.origin}/session/ses_native_ui/prompt_async`, {
+    const attachmentResponse = await fetch(`${gateway.origin}/session/ses_native_ui/prompt_async`, {
       method: 'POST',
       headers: {
         authorization: `Basic ${authToken}`,
@@ -170,12 +318,47 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
         messageID: 'msg_000000000002ABCDEFGHIJKLMN',
         parts: [
           { type: 'text', text: '检查附件' },
-          { type: 'file', mime: 'text/plain', url: 'data:text/plain;base64,dGVzdA==' },
+          {
+            type: 'file',
+            mime: 'text/plain',
+            filename: '/private/Test Notes.txt',
+            url: 'data:text/plain;base64,dGVzdA==',
+          },
         ],
       }),
     });
-    assert.equal(unsupportedAttachmentResponse.status, 400);
-    assert.equal(started.length, 0);
+    assert.equal(attachmentResponse.status, 204);
+    assert.equal(started.length, 1);
+    assert.deepEqual(started[0], {
+      defSessionId: session.defSessionId,
+      userMessage: '检查附件',
+      userAttachments: [{
+        type: 'file',
+        mime: 'text/plain',
+        filename: 'Test Notes.txt',
+        url: 'data:text/plain;base64,dGVzdA==',
+      }],
+      clientTurnId: 'native-msg_000000000002ABCDEFGHIJKLMN',
+      engineUserMessageId: 'msg_000000000002ABCDEFGHIJKLMN',
+      binding,
+    });
+
+    const remoteAttachmentResponse = await fetch(`${gateway.origin}/session/ses_native_ui/prompt_async`, {
+      method: 'POST',
+      headers: {
+        authorization: `Basic ${authToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        messageID: 'msg_000000000003ABCDEFGHIJKLMN',
+        parts: [
+          { type: 'text', text: '拒绝远程附件' },
+          { type: 'file', mime: 'image/png', filename: 'remote.png', url: 'https://example.com/remote.png' },
+        ],
+      }),
+    });
+    assert.equal(remoteAttachmentResponse.status, 400);
+    assert.equal(started.length, 1);
 
     const promptResponse = await fetch(`${gateway.origin}/session/ses_native_ui/prompt_async`, {
       method: 'POST',
@@ -189,8 +372,8 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       }),
     });
     assert.equal(promptResponse.status, 204);
-    assert.equal(started.length, 1);
-    assert.deepEqual(started[0], {
+    assert.equal(started.length, 2);
+    assert.deepEqual(started[1], {
       defSessionId: session.defSessionId,
       userMessage: '检查当前排轴',
       clientTurnId: 'native-msg_000000000001ABCDEFGHIJKLMN',
@@ -202,6 +385,61 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     await rm(uiRoot, { recursive: true, force: true });
   }
 });
+
+function openEventStream(signal?: AbortSignal | null): Response {
+  const encoder = new TextEncoder();
+  let closed = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // The reader may already have cancelled the fixture stream.
+        }
+      };
+      if (signal?.aborted) close();
+      else signal?.addEventListener('abort', close, { once: true });
+      queueMicrotask(() => {
+        if (closed) return;
+        controller.enqueue(encoder.encode(
+          'event: message\ndata: {"payload":{"id":"evt_upstream","type":"server.connected","properties":{}}}\n\n',
+        ));
+      });
+    },
+    cancel() {
+      closed = true;
+    },
+  });
+  return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
+}
+
+async function readSseUntil(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  predicate: (text: string) => boolean,
+): Promise<string> {
+  const decoder = new TextDecoder();
+  const deadline = Date.now() + 3_000;
+  let text = '';
+  while (!predicate(text)) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new Error(`Timed out waiting for SSE frame: ${text}`);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const chunk = await Promise.race([
+      reader.read(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`Timed out waiting for SSE frame: ${text}`)), remaining);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+    if (chunk.done) throw new Error(`SSE stream ended early: ${text}`);
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text;
+}
 
 function makeSession(
   binding: ProductBinding,

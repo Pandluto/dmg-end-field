@@ -1152,6 +1152,14 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
       defSessionId: retainedSession.defSessionId,
       userMessage: `retained-turn-${index}`,
       clientTurnId: asClientTurnId(`retained-client-turn-${index}`),
+      ...(index === 0 ? {
+        userAttachments: [{
+          type: 'file' as const,
+          mime: 'text/plain',
+          filename: 'fixture.txt',
+          url: 'data:text/plain;base64,Zml4dHVyZQ==',
+        }],
+      } : {}),
     });
     if (index === 0) firstRetainedTurnId = turn.defTurnId;
     const terminal = await host.waitForTurnTerminal(turn.defTurnId);
@@ -1164,6 +1172,12 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     defSessionId: retainedSession.defSessionId,
     userMessage: 'retained-turn-0',
     clientTurnId: asClientTurnId('retained-client-turn-0'),
+    userAttachments: [{
+      type: 'file',
+      mime: 'text/plain',
+      filename: 'fixture.txt',
+      url: 'data:text/plain;base64,Zml4dHVyZQ==',
+    }],
   });
   assert.equal(
     retriedRetainedTurn.defTurnId,
@@ -1174,6 +1188,17 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     defSessionId: retainedSession.defSessionId,
     userMessage: 'retained-turn-0-conflict',
     clientTurnId: asClientTurnId('retained-client-turn-0'),
+  }), 'AGENT_CLIENT_TURN_CONFLICT');
+  await expectHostError(() => host.startHarnessTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-0',
+    clientTurnId: asClientTurnId('retained-client-turn-0'),
+    userAttachments: [{
+      type: 'file',
+      mime: 'text/plain',
+      filename: 'fixture.txt',
+      url: 'data:text/plain;base64,Y2hhbmdlZA==',
+    }],
   }), 'AGENT_CLIENT_TURN_CONFLICT');
   await expectHostError(() => host.startHarnessTurn({
     defSessionId: retainedSession.defSessionId,
