@@ -125,10 +125,60 @@ function snapshot(payloadOverrides: Partial<JsonObject> = {}): ProductSnapshotEn
       }],
       damageReport: {
         generatedAt: 30,
+        totalDamage: 1234.5,
         totalExpected: 1234.5,
         totalNonCrit: 1000,
         buttonCount: 1,
-        buttons: [{ id: 'button-a', characterId: 'char-a', expected: 1234.5, nonCrit: 1000 }],
+        buttons: [{
+          id: 'button-a',
+          characterId: 'char-a',
+          groupLabel: '第1组',
+          orderLabel: '01',
+          characterName: '测试甲',
+          skillName: '测试甲技能',
+          skillType: 'A',
+          damage: 1234.5,
+          expected: 1234.5,
+          nonCrit: 1000,
+          share: 1,
+          hits: [{
+            id: 'button-a-hit-1',
+            title: '主伤害',
+            sourceKind: 'normal',
+            damageSourceLabel: '主伤害',
+            skillTypeLabel: 'A',
+            elementLabel: '火',
+            damage: 1234.5,
+            expected: 1234.5,
+            nonCrit: 1000,
+            resistanceZone: 0.9,
+            resistance: {
+              baseResistance: 10,
+              corrosion: 0,
+              resistanceIgnore: 0,
+              effectiveResistance: 10,
+              resistanceZone: 0.9,
+              formulaText: '产品生成的抗性说明',
+            },
+            buffs: [],
+          }],
+        }],
+        characters: [{
+          characterId: 'char-a',
+          characterName: '测试甲',
+          weaponName: '测试武器',
+          weaponPotentialMode: '满潜',
+          level: 90,
+          skillLevels: ['A M3'],
+          attributeLines: ['攻击 500'],
+          equipmentLines: ['测试护甲'],
+          skills: [{
+            id: 'skill-a-a',
+            title: 'A / 测试甲技能',
+            meta: '等级 M3 Hit 1',
+            hitLines: ['button-a-hit-1 / 主伤害'],
+          }],
+        }],
       },
       ...payloadOverrides,
     },
@@ -464,6 +514,11 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   assert.match(definition.revision, /-v17-full-matrix$/u);
   assert.match(definition.sourceLineage, /old-stable:bcea5f12a3148737e7a9b799d2fa4e0170ffe0bb/u);
   for (const operation of definition.operations) {
+    assert.equal(
+      new Set(operation.phases.map((phase) => phase.id)).size,
+      operation.phases.length,
+      `${businessId}.${operation.operation} contains a duplicate phase id`,
+    );
     for (const phase of operation.phases) {
       if (phase.terminalState) {
         assert.equal(phase.tools.length, 0);
@@ -486,6 +541,34 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     }
   }
 }
+const fullOperation = (businessId: string, operation: string) => PHASE7_FULL_HARNESS_CATALOG
+  .find((entry) => entry.businessId === businessId)!
+  .operations.find((entry) => entry.operation === operation)!;
+assert.deepEqual(
+  fullOperation('loadout', 'restore').phases.flatMap((phase) => phase.tools),
+  ['def.capability.status'],
+  'retired loadout-only restore must not expose whole-Work-Node mutation',
+);
+assert.deepEqual(
+  fullOperation('loadout', 'recommend_equipment').phases.flatMap((phase) => phase.tools),
+  ['def.capability.status'],
+);
+assert.match(
+  fullOperation('loadout', 'recommend_discovered_set').phases[1]!.instructions,
+  /unranked/u,
+);
+assert.deepEqual(
+  fullOperation('timeline', 'add').phases.flatMap((phase) => phase.tools),
+  ['def.node.crud.current', 'def.data.catalog.query', 'def.workbench.add_skill_button'],
+);
+assert.deepEqual(
+  fullOperation('timeline', 'replace').phases.flatMap((phase) => phase.tools),
+  ['def.node.crud.current', 'def.data.catalog.query', 'def.worknode.patch_and_validate'],
+);
+assert.deepEqual(
+  fullOperation('calculation', 'diagnose').phases.flatMap((phase) => phase.tools),
+  ['def.node.crud.context', 'def.data.resource.damage'],
+);
 const conversation = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === 'conversation')!;
 assert.deepEqual(conversation.operations.map((operation) => operation.operation), ['respond']);
 assert.equal(fullHarnessManager.listRevisions().length, 6);
@@ -912,7 +995,7 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   );
 }
 
-assert.equal(registry.listDescriptors().length, 5);
+assert.equal(registry.listDescriptors().length, 6);
 assert.deepEqual(manager.listRevisions(), managerAgain.listRevisions());
 assert.equal(manager.catalogRevision, managerAgain.catalogRevision);
 assert.equal(manager.listRevisions().every((revision) => revision.contentHash.startsWith('sha256:')), true);
@@ -1143,8 +1226,11 @@ const buffResult = await registry.execute(
   { query: '攻击' },
   executionContext,
 ) as JsonObject;
-assert.equal(buffResult.candidateCount, 1);
-assert.deepEqual((buffResult.candidates as JsonObject[])[0]?.sourceKinds, ['button', 'equipment']);
+assert.equal(buffResult.candidateCount, 2);
+assert.deepEqual(
+  (buffResult.candidates as JsonObject[]).flatMap((candidate) => candidate.sourceKinds as string[]).sort(),
+  ['button', 'equipment'],
+);
 
 const damageResult = await registry.execute('def.data.resource.damage', {}, executionContext) as JsonObject;
 assert.equal(damageResult.formulaVersion, 'damage-report-v1');

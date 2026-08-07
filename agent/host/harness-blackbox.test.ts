@@ -42,6 +42,66 @@ function binding(overrides: Partial<ProductBinding> = {}): ProductBinding {
   };
 }
 
+function damageReportFixture(): JsonObject {
+  return {
+    generatedAt: 30,
+    totalDamage: 1234.5,
+    totalExpected: 1234.5,
+    totalNonCrit: 1000,
+    buttonCount: 1,
+    buttons: [{
+      id: 'button-a',
+      characterId: 'char-a',
+      groupLabel: '第1组',
+      orderLabel: '01',
+      characterName: '测试甲',
+      skillName: '测试甲技能',
+      skillType: 'A',
+      damage: 1234.5,
+      expected: 1234.5,
+      nonCrit: 1000,
+      share: 1,
+      hits: [{
+        id: 'button-a-hit-1',
+        title: '主伤害',
+        sourceKind: 'normal',
+        damageSourceLabel: '主伤害',
+        skillTypeLabel: 'A',
+        elementLabel: '火',
+        damage: 1234.5,
+        expected: 1234.5,
+        nonCrit: 1000,
+        resistanceZone: 0.9,
+        resistance: {
+          baseResistance: 10,
+          corrosion: 0,
+          resistanceIgnore: 0,
+          effectiveResistance: 10,
+          resistanceZone: 0.9,
+          formulaText: '产品生成的抗性说明',
+        },
+        buffs: [],
+      }],
+    }],
+    characters: [{
+      characterId: 'char-a',
+      characterName: '测试甲',
+      weaponName: '测试武器',
+      weaponPotentialMode: '满潜',
+      level: 90,
+      skillLevels: ['A M3'],
+      attributeLines: ['攻击 500'],
+      equipmentLines: ['测试护甲'],
+      skills: [{
+        id: 'skill-a-a',
+        title: 'A / 测试甲技能',
+        meta: '等级 M3 Hit 1',
+        hitLines: ['button-a-hit-1 / 主伤害'],
+      }],
+    }],
+  };
+}
+
 function snapshot(expectedBinding = binding()): ProductSnapshotEnvelope {
   return {
     protocolVersion: 1,
@@ -128,13 +188,7 @@ function snapshot(expectedBinding = binding()): ProductSnapshotEnvelope {
         }],
         operatorSkillLevels: { A: 'M3', E: 'L9' },
       }],
-      damageReport: {
-        generatedAt: 30,
-        totalExpected: 1234.5,
-        totalNonCrit: 1000,
-        buttonCount: 1,
-        buttons: [{ id: 'button-a', characterId: 'char-a', expected: 1234.5, nonCrit: 1000 }],
-      },
+      damageReport: damageReportFixture(),
     },
   };
 }
@@ -297,13 +351,7 @@ function expectedResult(toolName: string): JsonValue {
       formulaVersion: 'damage-report-v1',
       statisticalScope: 'current-workbench-snapshot',
       schemeDigest: 'sha256:phase3-snapshot',
-      report: {
-        generatedAt: 30,
-        totalExpected: 1234.5,
-        totalNonCrit: 1000,
-        buttonCount: 1,
-        buttons: [{ id: 'button-a', characterId: 'char-a', expected: 1234.5, nonCrit: 1000 }],
-      },
+      report: damageReportFixture(),
     };
   }
   throw new Error(`Missing golden result for ${toolName}`);
