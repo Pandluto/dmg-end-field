@@ -88,6 +88,7 @@ export class DefReadToolRegistry {
             type: 'object',
             additionalProperties: false,
             properties: {
+              action: { type: 'string', enum: ['resolve', 'source', 'coverage'] },
               query: { type: 'string', maxLength: 200 },
               buttonId: { type: 'string', maxLength: 200 },
             },
@@ -370,7 +371,8 @@ function projectCurrentNodeIdentity(
 }
 
 async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext): Promise<JsonValue> {
-  const args = expectExactObject(input, ['query', 'buttonId']);
+  const args = expectExactObject(input, ['action', 'query', 'buttonId']);
+  const action = optionalBuffAction(args.action);
   const query = optionalBoundedString(args.query, 'query');
   const buttonId = optionalBoundedString(args.buttonId, 'buttonId');
   const normalizedQuery = query?.toLowerCase() ?? '';
@@ -481,6 +483,22 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
     })),
     evidenceTruncated: candidate.evidenceTruncated,
   }));
+  if (action === 'coverage') {
+    return projectBuffCoverage(payload, snapshot.binding, query, buttonId);
+  }
+  if (action === 'source') {
+    return {
+      contract: 'DefBuffSourceFactsV1',
+      schemaVersion: 1,
+      binding: bindingJson(snapshot.binding),
+      query: query ?? null,
+      buttonId: buttonId ?? null,
+      state: all.length === 0 ? 'NOT_FOUND' : all.length === 1 ? 'READY' : 'AMBIGUOUS',
+      candidateCount: all.length,
+      truncated: all.length > MAX_BUFF_CANDIDATES,
+      candidates: bounded,
+    };
+  }
   return {
     contract: 'DefBuffCandidatesV1',
     schemaVersion: 2,
@@ -490,6 +508,103 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
     candidateCount: all.length,
     truncated: all.length > MAX_BUFF_CANDIDATES,
     candidates: bounded,
+  };
+}
+
+function optionalBuffAction(value: JsonValue | undefined): 'resolve' | 'source' | 'coverage' {
+  if (value === undefined) return 'resolve';
+  if (value !== 'resolve' && value !== 'source' && value !== 'coverage') {
+    throw new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', 'action is not a supported Buff fact operation');
+  }
+  return value;
+}
+
+function projectBuffCoverage(
+  payload: WorkbenchPayload,
+  binding: ProductBinding,
+  query: string | null,
+  requestedButtonId: string | null,
+): JsonObject {
+  const normalizedQuery = query?.toLowerCase() ?? '';
+  let attachmentCount = 0;
+  const buttons = payload.skillButtons.flatMap((button) => {
+    const buttonId = requiredString(button.id, 'skillButton.id');
+    if (requestedButtonId && requestedButtonId !== buttonId) return [];
+    const selectedBuffIds = stringArray(
+      button.selectedBuffIds ?? button.selectedBuff ?? [],
+      'skillButton.selectedBuffIds',
+    );
+    const rawBuffs = optionalObjectArray(button.selectedBuffs, 'skillButton.selectedBuffs');
+    const projectedBuffs = rawBuffs.map(projectBuffFacts);
+    const factsById = new Map(projectedBuffs.flatMap((facts) => {
+      const id = stringOrNull(facts.id);
+      return id ? [[id, facts] as const] : [];
+    }));
+    const stacks = projectEffectiveStackCounts(button, selectedBuffIds, projectedBuffs);
+    const panelConfig = isRecord(button.panelConfig) ? button.panelConfig : {};
+    const globallyDisabled = new Set(stringArray(
+      panelConfig.globallyDisabledBuffIds ?? button.globallyDisabledBuffIds ?? [],
+      'skillButton.globallyDisabledBuffIds',
+    ));
+    const disabledBySegment = projectStringMap(
+      panelConfig.manualDisabledBuffIdsBySegmentKey ?? button.manualDisabledBuffIdsBySegmentKey,
+    );
+    const stacksBySegment = projectSegmentNumberMap(
+      panelConfig.manualBuffStackCountsBySegmentKey ?? button.manualBuffStackCountsBySegmentKey,
+    );
+    const attachments = selectedBuffIds.flatMap((buffId) => {
+      const facts = factsById.get(buffId) ?? projectBuffFacts({ id: buffId });
+      if (normalizedQuery && ![
+        buffId,
+        stringOrNull(facts.name),
+        stringOrNull(facts.displayName),
+        stringOrNull(facts.sourceName),
+        stringOrNull(facts.source),
+        stringOrNull(facts.condition),
+      ].filter((value): value is string => Boolean(value)).some((value) => value.toLowerCase().includes(normalizedQuery))) {
+        return [];
+      }
+      const disabledSegmentKeys = Object.entries(disabledBySegment)
+        .filter(([, ids]) => Array.isArray(ids) && ids.includes(buffId))
+        .map(([segmentKey]) => segmentKey)
+        .sort(compareText);
+      const manualStackCountsBySegmentKey = Object.fromEntries(
+        Object.entries(stacksBySegment)
+          .flatMap(([segmentKey, counts]) => (
+            isRecord(counts) && Object.prototype.hasOwnProperty.call(counts, buffId)
+              ? [[segmentKey, numberOrNull(counts[buffId])] as const]
+              : []
+          ))
+          .sort(([left], [right]) => compareText(left, right)),
+      );
+      return [{
+        buffId,
+        facts,
+        stackCount: numberOrNull(stacks.counts[buffId]),
+        stackSource: stringOrNull(stacks.sources[buffId]),
+        globallyDisabled: globallyDisabled.has(buffId),
+        disabledSegmentKeys,
+        manualStackCountsBySegmentKey,
+      }];
+    });
+    attachmentCount += attachments.length;
+    return [{
+      buttonId,
+      characterId: requiredString(button.characterId, 'skillButton.characterId'),
+      characterName: requiredString(button.characterName, 'skillButton.characterName'),
+      attachmentCount: attachments.length,
+      attachments,
+    }];
+  });
+  return {
+    contract: 'DefBuffCoverageV1',
+    schemaVersion: 1,
+    binding: bindingJson(binding),
+    query: query ?? null,
+    buttonId: requestedButtonId ?? null,
+    buttonCount: buttons.length,
+    attachmentCount,
+    buttons,
   };
 }
 

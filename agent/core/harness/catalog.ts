@@ -512,21 +512,21 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'inspect',
     phases: [
       phase('buff-inspect-current', 'context', T.current, 'Read the current button Buff attachments and stable button identities.'),
-      phase('buff-inspect-resource', 'evidence', T.buff, 'Resolve the displayed Buffs and preserve stack counts, conditions, source and evidence status.'),
+      phase('buff-inspect-resource', 'evidence', T.buff, 'Call with action=coverage. Return each displayed Buff attachment with stack counts, disabled state, conditions, target, source and evidence status.'),
     ],
   }),
   defineOperation({
     operation: 'resolve',
     phases: [
       phase('buff-resolve-current', 'context', T.current, 'Bind the current button, operator and checkout before resolving a Buff.'),
-      phase('buff-resolve-resource', 'evidence', T.buff, 'Resolve only Buff facts present in the bound snapshot and identify ambiguous or unavailable evidence explicitly.'),
+      phase('buff-resolve-resource', 'evidence', T.buff, 'Call with action=resolve. Resolve only Buff facts present in the bound snapshot and identify ambiguous or unavailable evidence explicitly.'),
     ],
   }),
   defineOperation({
     operation: 'source',
     phases: [
       phase('buff-source-current', 'context', T.current, 'Read the exact button attachment and current equipment/set context.'),
-      phase('buff-source-resource', 'evidence', T.buff, 'Trace Buff source, owner, condition and stack semantics from the typed browser resource; do not invent source lineage.'),
+      phase('buff-source-resource', 'evidence', T.buff, 'Call with action=source and the exact query/buttonId. Trace Buff source, owner, condition and stack semantics; READY requires one exact candidate and AMBIGUOUS must not be guessed.'),
     ],
   }),
   defineOperation({
@@ -568,7 +568,7 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'coverage',
     phases: [
       phase('buff-coverage-current', 'context', T.current, 'Read all buttons and their Buff attachments in the current checkout.'),
-      phase('buff-coverage-resource', 'evidence', T.buff, 'Report typed Buff coverage by button, source, condition and stack state; unavailable evidence must remain explicit.'),
+      phase('buff-coverage-resource', 'evidence', T.buff, 'Call with action=coverage. Report typed Buff coverage by button, source, condition, target, effective stack and disabled segment state; unavailable evidence must remain explicit.'),
     ],
   }),
   defineOperation({

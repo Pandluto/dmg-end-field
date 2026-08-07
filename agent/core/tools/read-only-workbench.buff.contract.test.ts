@@ -301,6 +301,42 @@ for (const candidate of candidates) {
   assert.deepEqual(JSON.parse(JSON.stringify(candidate)), candidate);
 }
 
+const ambiguousSource = await registry.execute(
+  'def.data.resource.buff',
+  { action: 'source', query: '易伤' },
+  context,
+) as JsonObject;
+assert.equal(ambiguousSource.contract, 'DefBuffSourceFactsV1');
+assert.equal(ambiguousSource.state, 'AMBIGUOUS');
+assert.equal(ambiguousSource.candidateCount, 2);
+
+const exactSource = await registry.execute(
+  'def.data.resource.buff',
+  { action: 'source', query: '易伤', buttonId: 'button-a' },
+  context,
+) as JsonObject;
+assert.equal(exactSource.state, 'READY');
+assert.equal(exactSource.candidateCount, 1);
+
+const coverage = await registry.execute(
+  'def.data.resource.buff',
+  { action: 'coverage', buttonId: 'button-a' },
+  context,
+) as JsonObject;
+assert.equal(coverage.contract, 'DefBuffCoverageV1');
+assert.equal(coverage.buttonCount, 1);
+assert.equal(coverage.attachmentCount, 3);
+const coveredAttachments = ((coverage.buttons as JsonObject[])[0]!.attachments as JsonObject[]);
+const coveredSkill = coveredAttachments.find((attachment) => attachment.buffId === skillBuff.id)!;
+const coveredStack = coveredAttachments.find((attachment) => attachment.buffId === stackBuff.id)!;
+const coveredSparse = coveredAttachments.find((attachment) => attachment.buffId === sparseBuff.id)!;
+assert.equal(coveredSkill.stackCount, 1);
+assert.equal(coveredSkill.stackSource, 'persisted');
+assert.deepEqual(coveredSkill.disabledSegmentKeys, ['normal-hit-2']);
+assert.equal(coveredStack.stackCount, 3);
+assert.deepEqual(coveredStack.manualStackCountsBySegmentKey, { 'normal-hit-2': 2 });
+assert.equal(coveredSparse.globallyDisabled, true);
+
 // The bound result remains bounded even when the snapshot contains more than
 // the response limit; callers can distinguish truncation from an empty source.
 const manyBuffs = Array.from({ length: 201 }, (_, index) => ({
