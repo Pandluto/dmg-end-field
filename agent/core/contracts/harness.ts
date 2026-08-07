@@ -2,6 +2,19 @@ import type { DefSessionId, DefTurnId } from './ids.ts';
 import type { EngineToolProjectionInput } from './engine.ts';
 
 export const DEF_HARNESS_STATE_VERSION = 2 as const;
+export const DEF_HARNESS_PERSISTED_TRANSACTION_VERSION = 1 as const;
+
+/**
+ * Harness metadata is deliberately much smaller than the browser Product
+ * snapshot.  The phase definition is always rebuilt from the current
+ * catalog; only bounded, auditable facts are persisted here.
+ */
+export const DEF_HARNESS_PERSISTENCE_LIMITS = Object.freeze({
+  maxTransactionsPerSession: 64,
+  maxTraceEntriesPerTransaction: 2_048,
+  maxSnapshotCodeUnits: 512 * 1_024,
+  maxSessionCodeUnits: 2 * 1_024 * 1_024,
+});
 
 export type DefHarnessBusinessId =
   | 'conversation'
@@ -143,6 +156,14 @@ export interface DefHarnessTransactionSnapshot {
   readonly plan: DefHarnessPlanSnapshot | null;
 }
 
+export interface DefHarnessResumeInput {
+  readonly sourceTransactionId: string;
+  readonly defSessionId: DefSessionId;
+  readonly defTurnId: DefTurnId;
+  readonly expectedCatalogRevision: string;
+  readonly expectedBindingSnapshotDigest: string;
+}
+
 export type DefHarnessPlanTraceEvent =
   | {
       readonly type: 'plan.created';
@@ -172,6 +193,12 @@ export type DefHarnessTraceEntry =
     }
   | {
       readonly sequence: number;
+      readonly type: 'harness.resumed';
+      readonly sourceTransactionId: string;
+      readonly sourceDefTurnId: DefTurnId;
+    }
+  | {
+      readonly sequence: number;
       readonly type: 'harness.phase.entered';
       readonly businessId: DefHarnessBusinessId | null;
       readonly operation: DefHarnessOperationId | null;
@@ -197,5 +224,42 @@ export type DefHarnessTraceEntry =
 
 export interface DefHarnessTransition {
   readonly transaction: DefHarnessTransactionSnapshot;
+  readonly trace: readonly DefHarnessTraceEntry[];
+}
+
+export interface DefHarnessInterruption {
+  readonly code: string;
+  readonly message: string;
+  readonly occurredAt: string;
+}
+
+export type DefHarnessPersistedTransactionStatus =
+  | DefHarnessTransactionStatus
+  | 'interrupted';
+
+/**
+ * Versioned JSON contract for a persisted Harness transaction.  Do not add
+ * operationDefinition, callbacks, descriptors or any other executable
+ * object to this shape.  The manager resolves those from its live catalog on
+ * restore and rejects a stale or tampered snapshot.
+ */
+export interface DefHarnessPersistedTransaction {
+  readonly schemaVersion: typeof DEF_HARNESS_PERSISTED_TRANSACTION_VERSION;
+  readonly catalogRevision: string;
+  readonly bindingSnapshotDigest: string | null;
+  readonly transactionId: string;
+  readonly defSessionId: DefSessionId;
+  readonly defTurnId: DefTurnId;
+  readonly status: DefHarnessPersistedTransactionStatus;
+  readonly businessId: DefHarnessBusinessId | null;
+  readonly operation: DefHarnessOperationId | null;
+  readonly revision: DefHarnessRevisionRef | null;
+  readonly phaseId: string;
+  readonly phaseKind: DefHarnessPhaseKind;
+  readonly projectionRevision: number;
+  readonly terminalState: DefHarnessTerminalState | null;
+  readonly interruption: DefHarnessInterruption | null;
+  readonly resumedFromTransactionId: string | null;
+  readonly plan: DefHarnessPlanSnapshot | null;
   readonly trace: readonly DefHarnessTraceEntry[];
 }

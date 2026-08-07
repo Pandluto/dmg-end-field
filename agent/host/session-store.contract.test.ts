@@ -21,6 +21,7 @@ import {
   asDatabaseGeneration,
   asTimelineId,
   asWorkspaceId,
+  type DefHarnessPersistedTransaction,
   type DefEvent,
   type DefSessionV6,
   type ProductBinding,
@@ -83,6 +84,48 @@ function fixtureRecord(id = 'def-session-contract'): DefAgentSessionRecord {
     binding,
     providerProfileRef: 'profile-contract',
     acceptedClientTurns: [],
+    harnessTransactions: [],
+  };
+}
+
+function routingHarnessTransaction(
+  defSessionId: DefSessionV6['defSessionId'],
+  defTurnId = 'turn-harness-persisted',
+): DefHarnessPersistedTransaction {
+  return {
+    schemaVersion: 1,
+    catalogRevision: 'def-harness:contract-catalog',
+    bindingSnapshotDigest: null,
+    transactionId: `harness:${defTurnId}`,
+    defSessionId,
+    defTurnId: asDefTurnId(defTurnId),
+    status: 'routing',
+    businessId: null,
+    operation: null,
+    revision: null,
+    phaseId: 'route',
+    phaseKind: 'route',
+    projectionRevision: 1,
+    terminalState: null,
+    interruption: null,
+    resumedFromTransactionId: null,
+    plan: null,
+    trace: [
+      {
+        sequence: 1,
+        type: 'harness.phase.entered',
+        businessId: null,
+        operation: null,
+        phaseId: 'route',
+        phaseKind: 'route',
+      },
+      {
+        sequence: 2,
+        type: 'harness.tool.projected',
+        projectionRevision: 1,
+        tools: ['def.harness.route'],
+      },
+    ],
   };
 }
 
@@ -237,6 +280,42 @@ function testNormalRestartRecovery(): void {
     acceptedTurn(),
   );
   assert.equal(readFileSync(path.join(root, 'sessions', record.session.defSessionId, 'metadata.json'), 'utf8').includes('provider-secret'), false);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function testHarnessMetadataRestartMigrationAndLimits(): void {
+  const root = makeRoot();
+  const record = fixtureRecord('def-session-harness-metadata');
+  const persisted = routingHarnessTransaction(record.session.defSessionId);
+  const store = createFileDefAgentSessionStore({ root });
+  store.create({ ...record, harnessTransactions: [persisted] });
+  const restarted = createFileDefAgentSessionStore({ root });
+  assert.deepEqual(restarted.loadSession(record.session.defSessionId)?.harnessTransactions, [persisted]);
+  const metadataPath = path.join(root, 'sessions', record.session.defSessionId, 'metadata.json');
+  const metadata = JSON.parse(readFileSync(metadataPath, 'utf8')) as Record<string, unknown>;
+  assert.equal(JSON.stringify(metadata).includes('apiKey'), false);
+  assert.equal(JSON.stringify(metadata).includes('provider-secret'), false);
+
+  // A schema-v1 record remains readable and is normalized to an empty
+  // Harness state. The next atomic update writes schema-v2 metadata.
+  delete metadata.harnessTransactions;
+  metadata.schemaVersion = 1;
+  writeFileSync(metadataPath, JSON.stringify(metadata));
+  const migrated = createFileDefAgentSessionStore({ root });
+  const migratedRecord = migrated.loadSession(record.session.defSessionId)!;
+  assert.deepEqual(migratedRecord.harnessTransactions, []);
+  migrated.update(migratedRecord);
+  assert.equal(JSON.parse(readFileSync(metadataPath, 'utf8')).schemaVersion, 2);
+
+  const oversized = JSON.parse(readFileSync(metadataPath, 'utf8')) as {
+    harnessTransactions: Array<{ trace: unknown[] }>;
+  };
+  oversized.harnessTransactions = [{
+    ...persisted,
+    trace: Array.from({ length: 2_049 }, () => persisted.trace[0]),
+  }];
+  writeFileSync(metadataPath, JSON.stringify(oversized));
+  expectStoreError(() => migrated.load(), 'CORRUPT_METADATA');
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -404,6 +483,7 @@ function testMissingSessionLookupIsNullable(): void {
 }
 
 testNormalRestartRecovery();
+testHarnessMetadataRestartMigrationAndLimits();
 testAtomicTemporaryResidueIsIgnored();
 testTruncatedTailIsIgnoredAndRepairedBeforeAppend();
 testCompleteTailWithoutNewlineIsRepairedBeforeAppend();

@@ -19,6 +19,7 @@ import type {
   DefHarnessBusinessId,
   DefHarnessOperationId,
   DefHarnessPhaseKind,
+  DefHarnessPlanTraceEvent,
   DefHarnessTerminalState,
 } from './harness.ts';
 
@@ -76,6 +77,11 @@ export interface DefEventPayloadMap {
     readonly revision: string;
     readonly sourceLineage: string;
     readonly contentHash: string;
+    readonly planEvents?: readonly DefHarnessPlanTraceEvent[];
+  };
+  'harness.resumed': {
+    readonly sourceTransactionId: string;
+    readonly sourceDefTurnId: DefTurnId;
   };
   'harness.phase.entered': {
     readonly businessId: DefHarnessBusinessId | null;
@@ -93,6 +99,7 @@ export interface DefEventPayloadMap {
     readonly phaseId: string;
     readonly terminalState: DefHarnessTerminalState;
     readonly code?: string;
+    readonly planEvents?: readonly DefHarnessPlanTraceEvent[];
   };
   'interaction.requested': {
     readonly kind: InteractionKind;
@@ -186,6 +193,7 @@ export interface DefEventCorrelationMap {
   'tool.result': DefToolCorrelation;
   'tool.error': DefToolCorrelation;
   'harness.routed': DefTurnCorrelation;
+  'harness.resumed': DefTurnCorrelation;
   'harness.phase.entered': DefTurnCorrelation;
   'harness.tool.projected': DefTurnCorrelation;
   'harness.terminal': DefTurnCorrelation;

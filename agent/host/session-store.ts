@@ -23,6 +23,9 @@ import {
   asEngineSessionId,
   asTimelineId,
   asWorkspaceId,
+  DEF_HARNESS_PERSISTED_TRANSACTION_VERSION,
+  DEF_HARNESS_PERSISTENCE_LIMITS,
+  type DefHarnessPersistedTransaction,
   type ClientTurnId,
   type DefEvent,
   type DefSessionId,
@@ -30,8 +33,9 @@ import {
   type DefTurnId,
   type ProductBinding,
 } from '../core/contracts/index.ts';
+import { validateDefHarnessPersistedTransaction } from '../core/harness/manager.ts';
 
-export const DEF_AGENT_SESSION_STORE_SCHEMA_VERSION = 1 as const;
+export const DEF_AGENT_SESSION_STORE_SCHEMA_VERSION = 2 as const;
 
 export type DefAgentSessionStoreErrorCode =
   | 'INVALID_ROOT'
@@ -82,6 +86,8 @@ export interface DefAgentSessionRecord {
   /** This is a profile reference only. Provider credentials must never be placed here. */
   readonly providerProfileRef: string;
   readonly acceptedClientTurns: readonly DefAcceptedClientTurn[];
+  /** Optional on input for schema-v1 compatibility; stores always return an array. */
+  readonly harnessTransactions?: readonly DefHarnessPersistedTransaction[];
 }
 
 export interface DefAgentSessionStoreSnapshot {
@@ -113,7 +119,7 @@ export interface FileDefAgentSessionStoreOptions {
 }
 
 interface RegistryFile {
-  readonly schemaVersion: typeof DEF_AGENT_SESSION_STORE_SCHEMA_VERSION;
+  readonly schemaVersion: 1 | typeof DEF_AGENT_SESSION_STORE_SCHEMA_VERSION;
   readonly activeSessionId: string | null;
   readonly sessionIds: readonly string[];
 }
@@ -124,6 +130,7 @@ interface MetadataFile {
   readonly binding: ProductBinding;
   readonly providerProfileRef: string;
   readonly acceptedClientTurns: readonly DefAcceptedClientTurn[];
+  readonly harnessTransactions: readonly DefHarnessPersistedTransaction[];
 }
 
 interface JournalScan {
@@ -160,6 +167,7 @@ const EVENT_TYPES: ReadonlySet<string> = new Set([
   'tool.result',
   'tool.error',
   'harness.routed',
+  'harness.resumed',
   'harness.phase.entered',
   'harness.tool.projected',
   'harness.terminal',
@@ -456,7 +464,51 @@ function validateRecord(value: unknown): DefAgentSessionRecord {
   const binding = assertBinding(value.binding, session);
   const providerProfileRef = assertProfileRef(value.providerProfileRef);
   const acceptedClientTurns = assertAcceptedClientTurns(value.acceptedClientTurns ?? []);
-  return { session, binding, providerProfileRef, acceptedClientTurns };
+  const harnessTransactions = assertHarnessTransactions(
+    value.harnessTransactions ?? [],
+    session.defSessionId,
+  );
+  return { session, binding, providerProfileRef, acceptedClientTurns, harnessTransactions };
+}
+
+function assertHarnessTransactions(
+  value: unknown,
+  expectedSessionId: DefSessionId,
+): readonly DefHarnessPersistedTransaction[] {
+  if (!Array.isArray(value)) fail('INVALID_RECORD', 'harnessTransactions must be an array', null);
+  if (value.length > DEF_HARNESS_PERSISTENCE_LIMITS.maxTransactionsPerSession) {
+    fail('INVALID_RECORD', 'harnessTransactions exceeds the per-Session limit', null);
+  }
+  const transactions: DefHarnessPersistedTransaction[] = [];
+  const seen = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    let transaction: DefHarnessPersistedTransaction;
+    try {
+      transaction = validateDefHarnessPersistedTransaction(entry);
+    } catch (error) {
+      fail(
+        'INVALID_RECORD',
+        `harnessTransactions[${index}] is invalid: ${error instanceof Error ? error.message : String(error)}`,
+        null,
+      );
+    }
+    if (transaction.defSessionId !== expectedSessionId) {
+      fail('INVALID_RECORD', `harnessTransactions[${index}] belongs to another Session`, null);
+    }
+    if (seen.has(transaction.transactionId)) {
+      fail('INVALID_RECORD', `harnessTransactions contains duplicate ${transaction.transactionId}`, null);
+    }
+    seen.add(transaction.transactionId);
+    if (transaction.schemaVersion !== DEF_HARNESS_PERSISTED_TRANSACTION_VERSION) {
+      fail('INVALID_RECORD', `harnessTransactions[${index}] has an unsupported schema`, null);
+    }
+    transactions.push(transaction);
+  }
+  const codeUnits = JSON.stringify(transactions).length;
+  if (codeUnits > DEF_HARNESS_PERSISTENCE_LIMITS.maxSessionCodeUnits) {
+    fail('INVALID_RECORD', 'harnessTransactions exceeds the Session metadata size limit', null);
+  }
+  return transactions;
 }
 
 function validateAcceptedClientTurn(value: DefAcceptedClientTurnInput): DefAcceptedClientTurn {
@@ -596,7 +648,7 @@ function readJsonFile(target: string, kind: 'registry' | 'metadata'): unknown | 
 }
 
 function validateRegistry(value: unknown, target: string): RegistryFile {
-  if (!isRecord(value) || value.schemaVersion !== DEF_AGENT_SESSION_STORE_SCHEMA_VERSION) {
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== DEF_AGENT_SESSION_STORE_SCHEMA_VERSION)) {
     fail('CORRUPT_REGISTRY', 'Unsupported session registry schema', target);
   }
   if (!Array.isArray(value.sessionIds)) fail('CORRUPT_REGISTRY', 'Registry sessionIds must be an array', target);
@@ -627,7 +679,7 @@ function validateRegistry(value: unknown, target: string): RegistryFile {
 }
 
 function validateMetadata(value: unknown, expectedSessionId: DefSessionId, target: string): DefAgentSessionRecord {
-  if (!isRecord(value) || value.schemaVersion !== DEF_AGENT_SESSION_STORE_SCHEMA_VERSION) {
+  if (!isRecord(value) || (value.schemaVersion !== 1 && value.schemaVersion !== DEF_AGENT_SESSION_STORE_SCHEMA_VERSION)) {
     fail('CORRUPT_METADATA', 'Unsupported Session metadata schema', target);
   }
   let record: DefAgentSessionRecord;
@@ -1166,6 +1218,7 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
       binding: record.binding,
       providerProfileRef: record.providerProfileRef,
       acceptedClientTurns: record.acceptedClientTurns,
+      harnessTransactions: record.harnessTransactions ?? [],
     };
   }
 

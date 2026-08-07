@@ -3,6 +3,7 @@ import {
   DEF_EVENT_SCHEMA_VERSION,
   DEF_AGENT_IN_MEMORY_LIMITS,
   DEF_SESSION_SCHEMA_VERSION,
+  DEF_HARNESS_STATE_VERSION,
   asClientTurnId,
   asCommandId,
   asDefSessionId,
@@ -15,6 +16,7 @@ import {
   type CommandId,
   type DefEvent,
   type DefHarnessTraceEntry,
+  type DefHarnessTransition,
   type DefSessionId,
   type DefSessionV6,
   type DefTurnId,
@@ -25,6 +27,7 @@ import {
   type EngineTurnHandle,
   type EngineUserAttachment,
   type DefInteractiveToolPlan,
+  type DefHarnessPersistedTransaction,
   type DefWorkbenchToolRegistry,
   type InteractionId,
   type InteractionRequest,
@@ -237,8 +240,10 @@ export class DefAgentHost {
         `Session store contains more than ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} Sessions`,
       );
     }
+    const persistedHarnessTransactions: DefHarnessPersistedTransaction[] = [];
     for (const stored of snapshot.sessions) {
       const events = [...(snapshot.events.get(stored.session.defSessionId) ?? [])];
+      persistedHarnessTransactions.push(...(stored.harnessTransactions ?? []));
       const record: SessionRecord = {
         session: cloneSession(stored.session),
         binding: structuredClone(stored.binding),
@@ -267,6 +272,24 @@ export class DefAgentHost {
         }
       }
     }
+    if (persistedHarnessTransactions.length > 0 && !this.#harnessManager) {
+      throw new DefAgentHostError(
+        'AGENT_SESSION_RECOVERY_FAILED',
+        'Persisted Harness transactions require a configured Harness Manager',
+        503,
+      );
+    }
+    if (this.#harnessManager && persistedHarnessTransactions.length > 0) {
+      try {
+        this.#harnessManager.restorePersistedTransactions(persistedHarnessTransactions);
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_SESSION_RECOVERY_FAILED',
+          `Persisted Harness state was rejected: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+    }
     this.#activeSessionId = snapshot.activeSessionId && this.#sessions.has(snapshot.activeSessionId)
       ? snapshot.activeSessionId
       : null;
@@ -281,6 +304,7 @@ export class DefAgentHost {
     // rest of the historical registry is intentionally not on this critical
     // path: a cold OpenCode runtime must not be opened once per old Session.
     if (active) {
+      this.#reconcilePersistedHarnessTrace(active);
       this.#interruptAbandonedTurns(active);
       if (active.session.status === 'deleting') {
         await this.#finishDeletingSession(active);
@@ -310,6 +334,7 @@ export class DefAgentHost {
       if (this.#shutdown) return;
       if (this.#sessions.get(record.session.defSessionId) !== record) continue;
       if (record.session.defSessionId === activeSessionId) continue;
+      this.#reconcilePersistedHarnessTrace(record);
       this.#interruptAbandonedTurns(record);
       if (record.session.status === 'deleting') {
         await this.#finishDeletingSession(record);
@@ -425,6 +450,28 @@ export class DefAgentHost {
     return 'missing';
   }
 
+  #reconcilePersistedHarnessTrace(record: SessionRecord): void {
+    if (!this.#harnessManager) return;
+    let projected = false;
+    const persistedTransactions = this.#harnessManager.exportPersistedTransactions(record.session.defSessionId);
+    for (const persisted of persistedTransactions) {
+      let eventCursor = 0;
+      for (const entry of persisted.trace) {
+        const matchingIndex = record.events.findIndex((event, index) => (
+          index >= eventCursor && harnessTraceMatchesEvent(event, persisted.defTurnId, entry)
+        ));
+        if (matchingIndex >= 0) {
+          eventCursor = matchingIndex + 1;
+          continue;
+        }
+        this.#appendHarnessTraceForTurn(record, persisted.defTurnId, [entry]);
+        eventCursor = record.events.length;
+        projected = true;
+      }
+    }
+    if (projected) this.#persistRecord(record);
+  }
+
   #interruptAbandonedTurns(record: SessionRecord): void {
     const terminalTurns = new Set<DefTurnId>();
     const acceptedTurns = new Set<DefTurnId>();
@@ -463,6 +510,29 @@ export class DefAgentHost {
         payload: { status: 'stale' },
       });
     }
+    const interruptedHarnessTransactions: DefTurnId[] = [];
+    if (this.#harnessManager) {
+      const persistedTransactions = this.#harnessManager.exportPersistedTransactions(record.session.defSessionId);
+      for (const persisted of persistedTransactions) {
+        if (persisted.status !== 'routing' && persisted.status !== 'active') continue;
+        const transition = this.#harnessManager.interrupt(persisted.transactionId, {
+          code: 'HOST_RESTARTED',
+          message: 'The Harness transaction was interrupted while the Agent Host restarted',
+          occurredAt: new Date(this.#clock()).toISOString(),
+        });
+        // The Turn journal may already have a terminal event if the process
+        // crashed between the Engine terminal and metadata update. In that
+        // case the metadata is repaired without duplicating the projection.
+        const hasHarnessTerminal = record.events.some((event) => (
+          event.type === 'harness.terminal' && event.defTurnId === persisted.defTurnId
+        ));
+        if (!hasHarnessTerminal) {
+          this.#persistRecord(record);
+          this.#appendHarnessTraceForTurn(record, persisted.defTurnId, transition.trace);
+        }
+        interruptedHarnessTransactions.push(persisted.defTurnId);
+      }
+    }
     for (const defTurnId of acceptedTurns) {
       if (terminalTurns.has(defTurnId)) continue;
       const terminal = this.#append(record, {
@@ -475,6 +545,23 @@ export class DefAgentHost {
         },
       });
       this.#settledTurns.set(defTurnId, { session: record, terminal });
+      terminalTurns.add(defTurnId);
+    }
+    for (const defTurnId of interruptedHarnessTransactions) {
+      if (!terminalTurns.has(defTurnId)) {
+        const terminal = this.#append(record, {
+          type: 'turn.interrupted',
+          defTurnId,
+          payload: {
+            code: 'HOST_RESTARTED',
+            message: 'The Agent Host restarted before this Turn reached a terminal state',
+            reconcileRequiredCommandIds: [...(unresolvedCommands.get(defTurnId) ?? [])],
+          },
+        });
+        this.#settledTurns.set(defTurnId, { session: record, terminal });
+        terminalTurns.add(defTurnId);
+      }
+      this.#persistRecord(record);
     }
   }
 
@@ -524,7 +611,7 @@ export class DefAgentHost {
       boundNodeId: input.binding.checkoutTargetId,
       engine,
       harness: {
-        stateVersion: 1,
+        stateVersion: DEF_HARNESS_STATE_VERSION,
         revision: this.#harnessManager?.catalogRevision ?? 'phase2-browser-product-gateway',
       },
       createdAt: now,
@@ -750,6 +837,109 @@ export class DefAgentHost {
     }
   }
 
+  /**
+   * Explicitly continue one interrupted Harness transaction. Restart recovery
+   * never calls this method. The binding is intentionally required and must
+   * exactly match the persisted browser snapshot; the manager creates a new
+   * transaction and the normal Engine/approval path handles all subsequent
+   * Tools.
+   */
+  async resumeHarnessTurn(input: {
+    readonly defSessionId: DefSessionId;
+    readonly sourceTransactionId: string;
+    readonly userMessage: string;
+    readonly binding: ProductBinding;
+    readonly clientTurnId?: ClientTurnId;
+    readonly engineUserMessageId?: EngineMessageId;
+    readonly userAttachments?: readonly EngineUserAttachment[];
+  }): Promise<TurnStartResult> {
+    this.#assertRunning();
+    this.#assertInitialized();
+    this.#requireConsumer();
+    const harnessManager = this.#requireHarnessManager();
+    this.#requireToolRegistry();
+    const record = this.#sessions.get(input.defSessionId);
+    if (!record) {
+      throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
+    }
+    assertStableSessionBinding(record.session, input.binding);
+    if (!sameExactProductBinding(record.binding, input.binding)) {
+      throw new DefAgentHostError(
+        'AGENT_BINDING_CONFLICT',
+        'Harness resume requires the exact browser binding that was persisted with the interrupted transaction',
+        409,
+      );
+    }
+    const userAttachments = cloneUserAttachments(input.userAttachments);
+    const attachmentDigest = digestUserAttachments(userAttachments);
+    const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
+    const previous = record.clientTurns.get(clientTurnId);
+    if (previous) {
+      if (
+        previous.userMessage !== input.userMessage
+        || previous.attachmentDigest !== attachmentDigest
+      ) {
+        throw new DefAgentHostError(
+          'AGENT_CLIENT_TURN_CONFLICT',
+          `Client Turn ${clientTurnId} was already used with another message`,
+          409,
+        );
+      }
+      return previous.state === 'pending' ? previous.promise : previous.result;
+    }
+    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+    this.#assertRecoveryOutcome(record, recoveryOutcome);
+    this.#assertTurnAvailable();
+    this.#assertSessionCanStartTurn(record, input.userMessage);
+    const promise = this.#startHarnessTurn(record, harnessManager, {
+      clientTurnId,
+      userMessage: input.userMessage,
+      engineUserMessageId: input.engineUserMessageId,
+      userAttachments,
+      attachmentDigest,
+      createHarnessTransaction: (defTurnId) => harnessManager.resumeFromInterrupted({
+        sourceTransactionId: input.sourceTransactionId,
+        defSessionId: input.defSessionId,
+        defTurnId,
+        expectedCatalogRevision: harnessManager.catalogRevision,
+        expectedBindingSnapshotDigest: input.binding.snapshotDigest,
+      }),
+      systemContext: [
+        harnessManager.buildRoutingSystemContext(),
+        'This is an explicit continuation of an interrupted Harness transaction. Preserve the completed plan steps and continue only from the projected current step. Do not repeat completed steps. Any proposal or mutation must go through the normal fresh approval flow.',
+      ].join('\n'),
+    });
+    record.clientTurns.set(clientTurnId, {
+      userMessage: input.userMessage,
+      attachmentDigest,
+      state: 'pending',
+      promise,
+    });
+    try {
+      const result = await promise;
+      const current = record.clientTurns.get(clientTurnId);
+      if (current?.state === 'pending' && current.promise === promise) {
+        const acceptedAt = this.#sessionStore
+          .loadAcceptedClientTurn(record.session.defSessionId, clientTurnId)?.acceptedAt
+          ?? new Date(this.#clock()).toISOString();
+        record.clientTurns.set(clientTurnId, {
+          userMessage: input.userMessage,
+          attachmentDigest,
+          state: 'accepted',
+          result,
+          acceptedAt,
+        });
+      }
+      return result;
+    } catch (error) {
+      const current = record.clientTurns.get(clientTurnId);
+      if (current?.state === 'pending' && current.promise === promise) {
+        record.clientTurns.delete(clientTurnId);
+      }
+      throw error;
+    }
+  }
+
   async #startHarnessTurn(
     record: SessionRecord,
     harnessManager: DefHarnessManager,
@@ -759,24 +949,39 @@ export class DefAgentHost {
       readonly engineUserMessageId?: EngineMessageId;
       readonly userAttachments: readonly EngineUserAttachment[];
       readonly attachmentDigest: string | null;
+      readonly createHarnessTransaction?: (defTurnId: DefTurnId) => DefHarnessTransition;
+      readonly systemContext?: string;
     },
   ): Promise<TurnStartResult> {
     const defTurnId = this.#ids.turn();
     const starting = this.#beginStartingTurn(record, defTurnId);
     try {
-      const started = harnessManager.beginTurn({
-        defSessionId: record.session.defSessionId,
-        defTurnId,
-      });
+      let started: DefHarnessTransition;
+      try {
+        started = input.createHarnessTransaction
+          ? input.createHarnessTransaction(defTurnId)
+          : harnessManager.beginTurn({
+              defSessionId: record.session.defSessionId,
+              defTurnId,
+              bindingSnapshotDigest: record.binding.snapshotDigest,
+            });
+      } catch (error) {
+        this.#persistPrunedHarnessSessions();
+        throw error;
+      }
       let handle: EngineTurnHandle;
       try {
+        // Persist the routing transaction before the Engine can emit a
+        // request. A crash during Engine startup is therefore still visible
+        // as an interrupted Harness transaction after restart.
+        this.#persistRecord(record);
         handle = await this.#engine.startTurn({
           engineSession: record.session.engine,
           defSessionId: record.session.defSessionId,
           defTurnId,
           clientTurnId: input.clientTurnId,
           engineUserMessageId: input.engineUserMessageId,
-          systemContext: harnessManager.buildRoutingSystemContext(),
+          systemContext: input.systemContext ?? harnessManager.buildRoutingSystemContext(),
           userMessage: input.userMessage,
           ...(input.userAttachments.length > 0 ? { userAttachments: input.userAttachments } : {}),
           providerProfileRef: record.providerProfileRef,
@@ -789,10 +994,12 @@ export class DefAgentHost {
           throw cancellation.error;
         }
       } catch (error) {
-        harnessManager.abort(
+        const aborted = harnessManager.abort(
           started.transaction.transactionId,
           starting.abortCode ?? 'ENGINE_START_FAILED',
         );
+        this.#persistRecord(record);
+        this.#appendHarnessTraceForTurn(record, defTurnId, aborted.trace);
         throw error;
       }
       this.#startingTurn = null;
@@ -812,7 +1019,9 @@ export class DefAgentHost {
           acceptedAt: new Date(this.#clock()).toISOString(),
         });
       } catch (error) {
-        harnessManager.abort(started.transaction.transactionId, 'AGENT_EVENT_CAPACITY_REACHED');
+        const aborted = harnessManager.abort(started.transaction.transactionId, 'AGENT_EVENT_CAPACITY_REACHED');
+        this.#persistRecord(record);
+        this.#appendHarnessTraceForTurn(record, defTurnId, aborted.trace);
         await handle.abort({ code: 'AGENT_EVENT_CAPACITY_REACHED' }).catch(() => undefined);
         throw error;
       }
@@ -2097,25 +2306,49 @@ export class DefAgentHost {
   }
 
   #appendHarnessTrace(active: ActiveTurn, trace: readonly DefHarnessTraceEntry[]): void {
+    // Metadata is the recovery source of truth. Write the new immutable
+    // snapshot before projecting its trace into the append-only UI journal;
+    // startup can safely replay any projection suffix after a crash.
+    this.#persistRecord(active.session);
+    this.#appendHarnessTraceForTurn(active.session, active.defTurnId, trace);
+  }
+
+  #appendHarnessTraceForTurn(
+    record: SessionRecord,
+    defTurnId: DefTurnId,
+    trace: readonly DefHarnessTraceEntry[],
+  ): void {
     for (const entry of trace) {
       if (entry.type === 'harness.routed') {
-        this.#append(active.session, {
+        this.#append(record, {
           type: entry.type,
-          defTurnId: active.defTurnId,
+          defTurnId,
           payload: {
             businessId: entry.businessId,
             operation: entry.operation,
             revision: entry.revision.revision,
             sourceLineage: entry.revision.sourceLineage,
             contentHash: entry.revision.contentHash,
+            ...(entry.planEvents ? { planEvents: structuredClone(entry.planEvents) } : {}),
+          },
+        });
+        continue;
+      }
+      if (entry.type === 'harness.resumed') {
+        this.#append(record, {
+          type: entry.type,
+          defTurnId,
+          payload: {
+            sourceTransactionId: entry.sourceTransactionId,
+            sourceDefTurnId: entry.sourceDefTurnId,
           },
         });
         continue;
       }
       if (entry.type === 'harness.phase.entered') {
-        this.#append(active.session, {
+        this.#append(record, {
           type: entry.type,
-          defTurnId: active.defTurnId,
+          defTurnId,
           payload: {
             businessId: entry.businessId,
             operation: entry.operation,
@@ -2126,9 +2359,9 @@ export class DefAgentHost {
         continue;
       }
       if (entry.type === 'harness.tool.projected') {
-        this.#append(active.session, {
+        this.#append(record, {
           type: entry.type,
-          defTurnId: active.defTurnId,
+          defTurnId,
           payload: {
             projectionRevision: entry.projectionRevision,
             tools: entry.tools,
@@ -2136,15 +2369,16 @@ export class DefAgentHost {
         });
         continue;
       }
-      this.#append(active.session, {
+      this.#append(record, {
         type: entry.type,
-        defTurnId: active.defTurnId,
+        defTurnId,
         payload: {
           businessId: entry.businessId,
           operation: entry.operation,
           phaseId: entry.phaseId,
           terminalState: entry.terminalState,
           ...(entry.code ? { code: entry.code } : {}),
+          ...(entry.planEvents ? { planEvents: structuredClone(entry.planEvents) } : {}),
         },
       });
     }
@@ -2339,6 +2573,7 @@ export class DefAgentHost {
     const previous = record.session;
     record.session = session;
     try {
+      this.#persistPrunedHarnessSessions(record.session.defSessionId);
       this.#sessionStore.update(this.#toStoredRecord(record));
     } catch (error) {
       record.session = previous;
@@ -2347,7 +2582,24 @@ export class DefAgentHost {
   }
 
   #persistRecord(record: SessionRecord): void {
+    this.#persistPrunedHarnessSessions(record.session.defSessionId);
     this.#sessionStore.update(this.#toStoredRecord(record));
+  }
+
+  /**
+   * A bounded Harness manager may prune terminal evidence from another
+   * Session when a new transaction is accepted. Keep that Session's metadata
+   * in lockstep too, otherwise a restart could resurrect pruned records or
+   * reject the whole Host for exceeding its global retention cap.
+   */
+  #persistPrunedHarnessSessions(exceptSessionId: DefSessionId | null = null): void {
+    const pruned = this.#harnessManager?.consumePrunedSessionIds() ?? [];
+    for (const defSessionId of pruned) {
+      if (defSessionId === exceptSessionId) continue;
+      const record = this.#sessions.get(defSessionId);
+      if (!record) continue;
+      this.#sessionStore.update(this.#toStoredRecord(record));
+    }
   }
 
   #toStoredRecord(record: SessionRecord): DefAgentSessionRecord {
@@ -2367,6 +2619,7 @@ export class DefAgentHost {
       binding: structuredClone(record.binding),
       providerProfileRef: record.providerProfileRef,
       acceptedClientTurns,
+      harnessTransactions: this.#harnessManager?.exportPersistedTransactions(record.session.defSessionId) ?? [],
     };
   }
 }
@@ -2462,6 +2715,48 @@ function productBindingFromResult(result: ProductCommandResult): ProductBinding 
     return null;
   }
   return structuredClone(raw) as unknown as ProductBinding;
+}
+
+function harnessTraceMatchesEvent(
+  event: DefEvent,
+  defTurnId: DefTurnId,
+  entry: DefHarnessTraceEntry,
+): boolean {
+  if (!('defTurnId' in event) || event.defTurnId !== defTurnId || event.type !== entry.type) return false;
+  if (entry.type === 'harness.routed' && event.type === 'harness.routed') {
+    return event.payload.businessId === entry.businessId
+      && event.payload.operation === entry.operation
+      && event.payload.revision === entry.revision.revision
+      && event.payload.sourceLineage === entry.revision.sourceLineage
+      && event.payload.contentHash === entry.revision.contentHash
+      && canonicalJson((event.payload.planEvents ?? null) as unknown as JsonValue)
+        === canonicalJson((entry.planEvents ?? null) as unknown as JsonValue);
+  }
+  if (entry.type === 'harness.resumed' && event.type === 'harness.resumed') {
+    return event.payload.sourceTransactionId === entry.sourceTransactionId
+      && event.payload.sourceDefTurnId === entry.sourceDefTurnId;
+  }
+  if (entry.type === 'harness.phase.entered' && event.type === 'harness.phase.entered') {
+    return event.payload.businessId === entry.businessId
+      && event.payload.operation === entry.operation
+      && event.payload.phaseId === entry.phaseId
+      && event.payload.phaseKind === entry.phaseKind;
+  }
+  if (entry.type === 'harness.tool.projected' && event.type === 'harness.tool.projected') {
+    return event.payload.projectionRevision === entry.projectionRevision
+      && canonicalJson(event.payload.tools as unknown as JsonValue)
+        === canonicalJson(entry.tools as unknown as JsonValue);
+  }
+  if (entry.type === 'harness.terminal' && event.type === 'harness.terminal') {
+    return event.payload.businessId === entry.businessId
+      && event.payload.operation === entry.operation
+      && event.payload.phaseId === entry.phaseId
+      && event.payload.terminalState === entry.terminalState
+      && (event.payload.code ?? null) === (entry.code ?? null)
+      && canonicalJson((event.payload.planEvents ?? null) as unknown as JsonValue)
+        === canonicalJson((entry.planEvents ?? null) as unknown as JsonValue);
+  }
+  return false;
 }
 
 function sameExactProductBinding(left: ProductBinding, right: ProductBinding): boolean {

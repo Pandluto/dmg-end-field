@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   DEF_AGENT_IN_MEMORY_LIMITS,
+  DEF_HARNESS_PERSISTENCE_LIMITS,
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
@@ -227,6 +228,215 @@ function readPlanEvents(
   return harness.getTrace(transactionId).flatMap((entry) => (
     'planEvents' in entry ? entry.planEvents ?? [] : []
   ));
+}
+
+// Persisted Harness snapshots are a strict, executable-free boundary. A new
+// Manager must rebuild definitions from its catalog and reject the whole
+// batch if any transaction or plan step is stale.
+{
+  const source = createFullHarnessManager();
+  const started = source.beginTurn({
+    defSessionId: asDefSessionId('session-persisted-harness'),
+    defTurnId: asDefTurnId('turn-persisted-harness'),
+  });
+  const routed = source.route(started.transaction.transactionId, {
+    steps: [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'preview' },
+    ],
+  });
+  const persisted = source.exportPersistedTransactions(routed.transaction.defSessionId);
+  assert.equal(persisted.length, 1);
+  assert.equal(persisted[0]?.schemaVersion, 1);
+  assert.equal(persisted[0]?.catalogRevision, source.catalogRevision);
+  assert.equal(persisted[0]?.plan?.currentIndex, 0);
+  assert.ok((persisted[0]?.trace.length ?? 0) > 0);
+  assert.ok(Object.isFrozen(persisted));
+  assert.ok(Object.isFrozen(persisted[0]));
+  assert.ok(Object.isFrozen(persisted[0]?.trace));
+  assert.equal(JSON.stringify(persisted).includes('operationDefinition'), false);
+  assert.equal(JSON.stringify(persisted).includes('function'), false);
+
+  const restored = createFullHarnessManager();
+  restored.restorePersistedTransactions(JSON.parse(JSON.stringify(persisted)));
+  assert.deepEqual(restored.exportPersistedTransactions(), persisted);
+  assert.deepEqual(
+    restored.getTransaction(routed.transaction.transactionId).projection.tools.map((tool) => tool.name),
+    ['def.node.crud.context'],
+  );
+
+  const badCatalog = structuredClone(persisted) as unknown as Array<{
+    catalogRevision: string;
+    transactionId: string;
+    defTurnId: string;
+  }>;
+  badCatalog[0]!.catalogRevision = 'def-harness:stale';
+  badCatalog[0]!.transactionId = 'harness:turn-persisted-harness-other';
+  badCatalog[0]!.defTurnId = 'turn-persisted-harness-other';
+  const atomicRestore = createFullHarnessManager();
+  assert.throws(
+    () => atomicRestore.restorePersistedTransactions([...persisted, badCatalog[0]! as never]),
+    (error: unknown) => error instanceof DefHarnessError && error.code === 'HARNESS_PERSISTED_CATALOG_MISMATCH',
+  );
+  await expectHarnessError(
+    () => atomicRestore.getTransaction(routed.transaction.transactionId),
+    'HARNESS_TRANSACTION_NOT_FOUND',
+  );
+
+  const staleStep = structuredClone(persisted) as unknown as Array<{
+    plan: { steps: Array<{ revision: { sourceLineage: string } }> };
+  }>;
+  staleStep[0]!.plan.steps[0]!.revision.sourceLineage = 'old-stable:stale';
+  await expectHarnessError(
+    () => createFullHarnessManager().restorePersistedTransactions(staleStep as never),
+    'HARNESS_PERSISTED_CATALOG_MISMATCH',
+  );
+
+  const oversized = structuredClone(persisted) as unknown as Array<{ trace: unknown[] }>;
+  oversized[0]!.trace = Array.from(
+    { length: DEF_HARNESS_PERSISTENCE_LIMITS.maxTraceEntriesPerTransaction + 1 },
+    () => persisted[0]!.trace[0],
+  );
+  await expectHarnessError(
+    () => createFullHarnessManager().restorePersistedTransactions(oversized as never),
+    'HARNESS_PERSISTED_LIMIT',
+  );
+
+  let terminal = routed.transaction;
+  while (terminal.status === 'active') {
+    terminal = source.completeTool(terminal.transactionId, {
+      toolName: terminal.projection.tools[0]!.name,
+      status: 'succeeded',
+    }).transaction;
+  }
+  assert.equal(terminal.status, 'completed');
+  const terminalPersisted = source.exportPersistedTransactions()[0]!;
+  const terminalRestored = createFullHarnessManager();
+  terminalRestored.restorePersistedTransaction(JSON.parse(JSON.stringify(terminalPersisted)));
+  assert.equal(terminalRestored.getTransaction(terminal.transactionId).status, 'completed');
+  assert.deepEqual(terminalRestored.exportPersistedTransactions(), [terminalPersisted]);
+}
+
+// Interrupted cross-business plans are only resumable through an explicit
+// new Turn. The source evidence stays terminal, completed steps remain
+// attached to the new transaction, and the current step starts from its
+// catalog entry phase so proposal/mutation approval is requested again.
+{
+  const resumeManager = createFullHarnessManager();
+  const sessionId = asDefSessionId('session-explicit-resume');
+  const sourceStarted = resumeManager.beginTurn({
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-explicit-resume-source'),
+    bindingSnapshotDigest: 'sha256:resume-binding',
+  });
+  const sourceRouted = resumeManager.route(sourceStarted.transaction.transactionId, {
+    steps: [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
+  });
+  const firstStepDone = resumeManager.completeTool(sourceRouted.transaction.transactionId, {
+    toolName: sourceRouted.transaction.projection.tools[0]!.name,
+    status: 'succeeded',
+  });
+  const interrupted = resumeManager.interrupt(firstStepDone.transaction.transactionId, {
+    code: 'HOST_RESTARTED',
+    message: 'test interruption',
+    occurredAt: '2026-08-08T00:00:00.000Z',
+  });
+  const sourcePersisted = resumeManager.exportPersistedTransactions(sessionId)
+    .find((transaction) => transaction.transactionId === interrupted.transaction.transactionId)!;
+  assert.equal(sourcePersisted.status, 'interrupted');
+  assert.deepEqual(sourcePersisted.plan?.completedSteps.map((step) => step.index), [0]);
+  assert.equal(sourcePersisted.plan?.currentIndex, 1);
+
+  await expectHarnessError(
+    () => resumeManager.resumeFromInterrupted({
+      sourceTransactionId: sourcePersisted.transactionId,
+      defSessionId: sessionId,
+      defTurnId: asDefTurnId('turn-explicit-resume-catalog-mismatch'),
+      expectedCatalogRevision: 'def-harness:stale',
+      expectedBindingSnapshotDigest: 'sha256:resume-binding',
+    }),
+    'HARNESS_PERSISTED_CATALOG_MISMATCH',
+  );
+  await expectHarnessError(
+    () => resumeManager.resumeFromInterrupted({
+      sourceTransactionId: sourcePersisted.transactionId,
+      defSessionId: sessionId,
+      defTurnId: asDefTurnId('turn-explicit-resume-binding-mismatch'),
+      expectedCatalogRevision: resumeManager.catalogRevision,
+      expectedBindingSnapshotDigest: 'sha256:changed-binding',
+    }),
+    'HARNESS_RESUME_BINDING_MISMATCH',
+  );
+
+  const resumed = resumeManager.resumeFromInterrupted({
+    sourceTransactionId: sourcePersisted.transactionId,
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-explicit-resume-new'),
+    expectedCatalogRevision: resumeManager.catalogRevision,
+    expectedBindingSnapshotDigest: 'sha256:resume-binding',
+  });
+  assert.equal(resumed.transaction.transactionId, 'harness:turn-explicit-resume-new');
+  assert.equal(resumed.transaction.status, 'active');
+  assert.equal(resumed.transaction.plan?.currentIndex, 1);
+  assert.deepEqual(resumed.transaction.plan?.completedSteps.map((step) => step.index), [0]);
+  assert.equal(resumed.transaction.businessId, 'timeline');
+  assert.equal(resumed.transaction.operation, 'preview');
+  assert.deepEqual(
+    resumed.trace.map((entry) => entry.type),
+    ['harness.resumed', 'harness.routed', 'harness.phase.entered', 'harness.tool.projected'],
+  );
+  const resumedPersisted = resumeManager.exportPersistedTransactions(sessionId)
+    .find((transaction) => transaction.transactionId === resumed.transaction.transactionId)!;
+  assert.equal(resumedPersisted.resumedFromTransactionId, sourcePersisted.transactionId);
+  assert.equal(resumedPersisted.bindingSnapshotDigest, 'sha256:resume-binding');
+  assert.deepEqual(
+    readPlanEvents(resumeManager, resumed.transaction.transactionId)
+      .filter((event) => event.type === 'step.completed')
+      .map((event) => event.step.index),
+    [0],
+  );
+
+  let resumedCurrent = resumed.transaction;
+  while (resumedCurrent.status === 'active') {
+    resumedCurrent = resumeManager.completeTool(resumedCurrent.transactionId, {
+      toolName: resumedCurrent.projection.tools[0]!.name,
+      status: 'succeeded',
+    }).transaction;
+  }
+  assert.equal(resumedCurrent.status, 'completed');
+  assert.deepEqual(resumedCurrent.plan?.completedSteps.map((step) => step.index), [0, 1, 2]);
+
+  await expectHarnessError(
+    () => resumeManager.resumeFromInterrupted({
+      sourceTransactionId: sourcePersisted.transactionId,
+      defSessionId: sessionId,
+      defTurnId: asDefTurnId('turn-explicit-resume-new'),
+      expectedCatalogRevision: resumeManager.catalogRevision,
+      expectedBindingSnapshotDigest: 'sha256:resume-binding',
+    }),
+    'HARNESS_RESUME_INVALID',
+  );
+
+  const activeSourceManager = createFullHarnessManager();
+  const activeSource = activeSourceManager.beginTurn({
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-explicit-resume-active-source'),
+    bindingSnapshotDigest: 'sha256:resume-binding',
+  });
+  await expectHarnessError(
+    () => activeSourceManager.resumeFromInterrupted({
+      sourceTransactionId: activeSource.transaction.transactionId,
+      defSessionId: sessionId,
+      defTurnId: asDefTurnId('turn-explicit-resume-active-target'),
+      expectedCatalogRevision: activeSourceManager.catalogRevision,
+      expectedBindingSnapshotDigest: 'sha256:resume-binding',
+    }),
+    'HARNESS_RESUME_INVALID',
+  );
 }
 
 // The old stable operation matrix is exact: the only additions to each
@@ -769,6 +979,8 @@ for (const [index, parity] of PHASE3_READONLY_PARITY_CASES.entries()) {
     defTurnId: asDefTurnId('turn-harness-retention-newest'),
   });
   assert.equal(boundedManager.getTransaction(newest.transaction.transactionId).status, 'routing');
+  assert.deepEqual(boundedManager.consumePrunedSessionIds(), ['session-harness-retention']);
+  assert.deepEqual(boundedManager.consumePrunedSessionIds(), []);
   await expectHarnessError(
     () => boundedManager.getTransaction(oldestTransactionId),
     'HARNESS_TRANSACTION_NOT_FOUND',

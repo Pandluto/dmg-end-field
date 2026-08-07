@@ -18,6 +18,8 @@ import {
   type ProductGateway,
 } from '../core/contracts/index.ts';
 import { DeterministicFakeAgentEngine } from '../core/testing/fake-engine.ts';
+import { DefHarnessManager } from '../core/harness/manager.ts';
+import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
 import { MemoryDefAgentSessionStore } from './session-store.ts';
@@ -85,6 +87,32 @@ const unavailableGateway: ProductGateway<Phase2ProductOperationSchema> = {
   async getSnapshot() { throw new Error('not used'); },
   async dispatch() { throw new Error('not used'); },
   async awaitResult() { throw new Error('not used'); },
+  async reconcile() { return null; },
+};
+
+let harnessRecoveryMutationDispatches = 0;
+const harnessRecoveryGateway: ProductGateway<Phase2ProductOperationSchema> = {
+  async getSnapshot(requestedBinding) {
+    return {
+      protocolVersion: 1,
+      binding: structuredClone(requestedBinding),
+      capturedAt: '2026-08-08T00:00:00.000Z',
+      payload: {
+        schemaVersion: 1,
+        currentView: 'canvas',
+        activeTimelineId: requestedBinding.timelineId,
+        timelineId: requestedBinding.timelineId,
+        selectedCharacters: [],
+        skillButtons: [],
+        operatorConfigs: [],
+      },
+    };
+  },
+  async dispatch() {
+    harnessRecoveryMutationDispatches += 1;
+    throw new Error('mutation is not part of this resume contract');
+  },
+  async awaitResult() { throw new Error('mutation is not part of this resume contract'); },
   async reconcile() { return null; },
 };
 
@@ -495,5 +523,166 @@ assert.equal(
     .filter((event) => event.type === 'session.recovered').length,
   0,
 );
+
+// A persisted cross-business plan survives a Host reconstruction as evidence,
+// but an active survivor is never resumed automatically. Startup converts it
+// into an explicitly interrupted transaction and leaves every uncompleted
+// step in the plan for inspection.
+const harnessRecoveryEngine = new CountingRecoveryEngine();
+const harnessRecoveryStore = new MemoryDefAgentSessionStore();
+const harnessRecoveryId = asDefSessionId('def-session-harness-recovery');
+const harnessRecoveryTurnId = asDefTurnId('def-turn-harness-recovery');
+const harnessRecoveryClientId = asClientTurnId('client-turn-harness-recovery');
+const harnessRecoveryEngineSession = await harnessRecoveryEngine.createSession({
+  defSessionId: harnessRecoveryId,
+  providerProfileRef: 'default',
+});
+const harnessRecoveryTools = new DefReadToolRegistry();
+const harnessRecoverySource = new DefHarnessManager({
+  resolveToolDescriptor: (name) => harnessRecoveryTools.resolveDescriptor(name),
+});
+const harnessRecoveryStarted = harnessRecoverySource.beginTurn({
+  defSessionId: harnessRecoveryId,
+  defTurnId: harnessRecoveryTurnId,
+  bindingSnapshotDigest: binding.snapshotDigest,
+});
+const harnessRecoveryRouted = harnessRecoverySource.route(
+  harnessRecoveryStarted.transaction.transactionId,
+  {
+    steps: [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'current' },
+    ],
+  },
+);
+const harnessRecoveryPersisted = harnessRecoverySource.exportPersistedTransactions(harnessRecoveryId);
+harnessRecoveryStore.create({
+  session: {
+    schemaVersion: 6,
+    eventSchemaVersion: 1,
+    defSessionId: harnessRecoveryId,
+    host: 'workbench',
+    status: 'ready',
+    workspaceId: binding.workspaceId,
+    lastDatabaseGeneration: binding.databaseGeneration,
+    timelineId: binding.timelineId,
+    axisBindingId: null,
+    boundNodeId: binding.checkoutTargetId,
+    engine: harnessRecoveryEngineSession,
+    harness: {
+      stateVersion: 2,
+      revision: harnessRecoverySource.catalogRevision,
+    },
+    createdAt: '2026-08-07T00:00:00.000Z',
+    updatedAt: '2026-08-07T00:00:00.000Z',
+  },
+  binding,
+  providerProfileRef: 'default',
+  acceptedClientTurns: [{
+    clientTurnId: harnessRecoveryClientId,
+    userMessage: '恢复这个跨业务计划',
+    result: { defTurnId: harnessRecoveryTurnId, clientTurnId: harnessRecoveryClientId },
+    acceptedAt: '2026-08-07T00:00:02.000Z',
+  }],
+  harnessTransactions: harnessRecoveryPersisted,
+});
+harnessRecoveryStore.append(harnessRecoveryId, {
+  schemaVersion: 1,
+  sequence: 1,
+  occurredAt: '2026-08-07T00:00:01.000Z',
+  defSessionId: harnessRecoveryId,
+  type: 'session.ready',
+  payload: {
+    engineKind: harnessRecoveryEngineSession.kind,
+    engineRuntimeVersion: harnessRecoveryEngineSession.runtimeVersion,
+  },
+});
+harnessRecoveryStore.append(harnessRecoveryId, {
+  schemaVersion: 1,
+  sequence: 2,
+  occurredAt: '2026-08-07T00:00:02.000Z',
+  defSessionId: harnessRecoveryId,
+  defTurnId: harnessRecoveryTurnId,
+  type: 'turn.accepted',
+  payload: {
+    clientTurnId: harnessRecoveryClientId,
+    userMessage: '恢复这个跨业务计划',
+  },
+});
+harnessRecoveryStore.setActive(harnessRecoveryId);
+const harnessRecoveryManager = new DefHarnessManager({
+  resolveToolDescriptor: (name) => harnessRecoveryTools.resolveDescriptor(name),
+});
+const harnessRecoveryHost = new DefAgentHost({
+  engine: harnessRecoveryEngine,
+  productGateway: harnessRecoveryGateway,
+  sessionStore: harnessRecoveryStore,
+  harnessManager: harnessRecoveryManager,
+  toolRegistry: harnessRecoveryTools,
+  requireConsumer: () => undefined,
+});
+await harnessRecoveryHost.initialize();
+const harnessRecoveryState = harnessRecoveryManager.exportPersistedTransactions(harnessRecoveryId)[0]!;
+assert.equal(harnessRecoveryState.status, 'interrupted');
+assert.equal(harnessRecoveryState.interruption?.code, 'HOST_RESTARTED');
+assert.deepEqual(harnessRecoveryState.plan?.steps.map((step) => `${step.businessId}.${step.operation}`), [
+  'selection.inspect',
+  'timeline.current',
+]);
+assert.equal(harnessRecoveryState.plan?.currentIndex, 0);
+assert.ok(harnessRecoveryState.trace.some((entry) => entry.type === 'harness.terminal'));
+assert.equal(
+  harnessRecoveryHost.readEvents(harnessRecoveryId, 0, 256)
+    .filter((event) => event.type === 'turn.interrupted').length,
+  1,
+);
+assert.equal(
+  harnessRecoveryHost.readEvents(harnessRecoveryId, 0, 256)
+    .filter((event) => event.type === 'harness.terminal').length,
+  1,
+);
+assert.equal(
+  harnessRecoveryStore.loadSession(harnessRecoveryId)?.harnessTransactions?.[0]?.status,
+  'interrupted',
+);
+assert.equal(harnessRecoveryRouted.transaction.plan?.currentIndex, 0);
+
+// Resume is a separate, explicit Host API. The new Engine Turn starts from
+// the preserved current step, while the old interrupted transaction remains
+// immutable audit evidence and no mutation gateway method is reached.
+harnessRecoveryEngine.enqueueScript([
+  {
+    type: 'tool',
+    toolCallId: asToolCallId('resume-selection-context'),
+    name: 'def.node.crud.context',
+    input: {},
+  },
+  {
+    type: 'tool',
+    toolCallId: asToolCallId('resume-timeline-current'),
+    name: 'def.node.crud.current',
+    input: {},
+  },
+  { type: 'complete', output: { resumed: true } },
+]);
+const resumedTurn = await harnessRecoveryHost.resumeHarnessTurn({
+  defSessionId: harnessRecoveryId,
+  sourceTransactionId: harnessRecoveryRouted.transaction.transactionId,
+  userMessage: '明确继续上一次跨业务计划',
+  clientTurnId: asClientTurnId('client-turn-harness-resumed'),
+  binding,
+});
+assert.equal((await harnessRecoveryHost.waitForTurnTerminal(resumedTurn.defTurnId)).type, 'turn.completed');
+const resumedState = harnessRecoveryManager.exportPersistedTransactions(harnessRecoveryId)
+  .find((transaction) => transaction.defTurnId === resumedTurn.defTurnId)!;
+assert.equal(resumedState.status, 'completed');
+assert.equal(resumedState.resumedFromTransactionId, harnessRecoveryRouted.transaction.transactionId);
+assert.equal(
+  harnessRecoveryHost.readEvents(harnessRecoveryId, 0, 256)
+    .filter((event) => event.type === 'harness.resumed').length,
+  1,
+);
+assert.equal(harnessRecoveryMutationDispatches, 0);
+await harnessRecoveryHost.shutdown();
 
 console.log('DEF Agent Host restart recovery contract passed');
