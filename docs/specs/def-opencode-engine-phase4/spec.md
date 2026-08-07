@@ -1,5 +1,7 @@
 # OpenCode EngineAdapter Phase 4 Spec
 
+> 历史阶段说明（2026-08-08）：本文“不恢复原生 OpenCode UI”的 UI 结论已被 [ADR-0008](../../architecture/decisions/0008-native-opencode-ui.md) 取代。本文仍约束 EngineAdapter、依赖方向、旧 Sidecar/REST/Node SQLite 禁止回流等边界；其中把原生 UI 列为禁止项或 Non-Goal 的条目不再是现行产品要求。
+
 ## Status
 
 实施完成，验证通过。
@@ -79,14 +81,14 @@ Electron → Host lifecycle and private filesystem paths only
 - 浏览器知道 OpenCode 端口、token、Session ID、provider secret 或插件协议；
 - Electron 理解 Harness phase 或业务 Tool；
 - OpenCode plugin直接读取产品数据、SQLite、Work Node 或旧 REST；
-- 任意旧 `17321/17322`、Sidecar、AI CLI 或原生 OpenCode UI 回归。
+- 任意旧 `17321/17322`、Sidecar、AI CLI 回归；原生 OpenCode UI 仅允许按 ADR-0008 通过受控本机网关宿主，不能恢复旧的业务直连。
 
 ## Non-Goals
 
 本阶段不做：
 
 - 不新增聊天框、会话列表、消息发送按钮或公开 Browser Turn API；
-- 不恢复 AI CLI、bare OpenCode UI 或 iframe；
+- 不恢复 AI CLI 或不受控的 bare OpenCode UI；受控 iframe 宿主按 ADR-0008 执行；
 - 不实现 Question/Approval UI、mutation/proposal Tool 或产品写操作；
 - 不实现 Provider 设置界面、凭据迁移或系统钥匙串；
 - 不实现 Session/Event Journal 的跨 Host 持久化；

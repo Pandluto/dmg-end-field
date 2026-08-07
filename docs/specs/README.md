@@ -1,6 +1,6 @@
 # Spec 总索引
 
-本页只索引仍会约束 1.8 LTS 产品行为的规格。旧 AI CLI、旧 Sidecar/REST、Node 业务 SQLite 与原生 OpenCode UI 已经退役；新的桌面 Agent、Harness、OpenCode EngineAdapter 和独立 Legacy Fill MCP 只按下列窄边界恢复。
+本页只索引仍会约束 1.8 LTS 产品行为的规格。旧 AI CLI、旧 Sidecar/REST 与 Node 业务 SQLite 已经退役；桌面 AI 模式复用锁定版本的原生 OpenCode UI，现行决策以 [ADR-0008](../architecture/decisions/0008-native-opencode-ui.md) 为准。新的桌面 Agent、Harness、OpenCode EngineAdapter 和独立 Legacy Fill MCP 继续遵守浏览器 SQLite 唯一业务事实源的边界。
 
 ## 数据、排轴与工作台
 
@@ -47,6 +47,7 @@
 - [DEF Harness 与五业务只读 Tool Phase 3 验证记录](./def-agent-harness-phase3/validation.md)
 - [OpenCode EngineAdapter Phase 4](./def-opencode-engine-phase4/spec.md)
 - [OpenCode EngineAdapter Phase 4 Tasks](./def-opencode-engine-phase4/tasks.md)
+- [ADR-0008：AI 模式复用原生 OpenCode UI](../architecture/decisions/0008-native-opencode-ui.md)
 
 ## 目录内文件约定
 
