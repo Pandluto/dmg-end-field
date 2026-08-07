@@ -41,7 +41,12 @@ class ControlledProductGateway implements ProductGateway<Phase2ProductOperationS
     protocolVersion: 1,
     binding: productBinding,
     capturedAt: '2026-08-07T00:00:00.000Z',
-    payload: { schemaVersion: 1, selectedCharacters: [] },
+    payload: {
+      schemaVersion: 1,
+      selectedCharacters: [],
+      skillButtons: [],
+      operatorConfigs: [],
+    },
   };
 
   async getSnapshot(binding: ProductBinding): Promise<ProductSnapshotEnvelope> {
@@ -210,6 +215,12 @@ async function createSession(host: DefAgentHost) {
     },
     {
       type: 'tool',
+      toolCallId: asToolCallId('context-selection-apply'),
+      name: 'def.node.crud.context',
+      input: {},
+    },
+    {
+      type: 'tool',
       toolCallId: asToolCallId('apply-selection'),
       name: 'def.team.selection.apply',
       input: {
@@ -246,24 +257,6 @@ async function createSession(host: DefAgentHost) {
   assert.equal(claims.interactionId, approval.interactionId);
   assert.equal(claims.commandId, command.commandId);
   assert.deepEqual(claims.scope, approval.scope);
-  gateway.settle({
-    commandId: command.commandId,
-    status: 'succeeded',
-    beforeRevision: 4,
-    afterRevision: 5,
-    browserResult: { selectedCharacters: ['洛茜'] },
-    visiblePostcondition: { contentRevision: 5 },
-    completedAt: '2026-08-07T00:00:02.000Z',
-  });
-  const terminal = await host.waitForTurnTerminal(turn.defTurnId);
-  assert.equal(terminal.type, 'turn.completed');
-  const events = host.readEvents(session.defSessionId);
-  assert.equal(events.some((event) => event.type === 'command.queued'), true);
-  assert.equal(events.some((event) => event.type === 'command.result' && event.payload.status === 'succeeded'), true);
-
-  // A successful mutation may move the checkout within the same Timeline.
-  // The next Turn must atomically adopt that authoritative Browser binding
-  // instead of persisting a new checkout beside stale Session metadata.
   const postMutationBinding: ProductBinding = {
     ...productBinding,
     checkoutTargetId: 'node-ai-selection',
@@ -271,6 +264,28 @@ async function createSession(host: DefAgentHost) {
     contentRevision: 5,
     snapshotDigest: 'sha256:interactive-5',
   };
+  gateway.settle({
+    commandId: command.commandId,
+    status: 'succeeded',
+    beforeRevision: 4,
+    afterRevision: 5,
+    browserResult: { selectedCharacters: ['洛茜'] },
+    visiblePostcondition: {
+      pass: true,
+      contentRevision: 5,
+      binding: postMutationBinding,
+    },
+    completedAt: '2026-08-07T00:00:02.000Z',
+  });
+  const terminal = await host.waitForTurnTerminal(turn.defTurnId);
+  assert.equal(terminal.type, 'turn.completed');
+  const events = host.readEvents(session.defSessionId);
+  assert.equal(events.some((event) => event.type === 'command.queued'), true);
+  assert.equal(events.some((event) => event.type === 'command.result' && event.payload.status === 'succeeded'), true);
+  assert.equal(host.readSession(session.defSessionId, postMutationBinding).boundNodeId, 'node-ai-selection');
+
+  // A successful mutation has already moved the Session to the exact Browser
+  // binding. The next Turn can use it without a manual rebinding repair.
   gateway.snapshot = {
     protocolVersion: 1,
     binding: postMutationBinding,
@@ -424,6 +439,12 @@ async function createSession(host: DefAgentHost) {
       toolCallId: asToolCallId('route-rejected-selection'),
       name: 'def.harness.route',
       input: { businessId: 'selection', operation: 'apply' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('context-rejected-selection'),
+      name: 'def.node.crud.context',
+      input: {},
     },
     {
       type: 'tool',

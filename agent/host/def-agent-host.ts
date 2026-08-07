@@ -1217,6 +1217,10 @@ export class DefAgentHost {
         ...(result.message ? { message: result.message } : {}),
       },
     });
+    if (result.status === 'succeeded' || result.status === 'committed') {
+      const nextBinding = productBindingFromResult(result);
+      if (nextBinding) this.#adoptProductBinding(record, nextBinding);
+    }
     return true;
   }
 
@@ -1902,6 +1906,8 @@ export class DefAgentHost {
         JSON.parse(JSON.stringify(result)) as JsonValue,
       );
     }
+    const nextBinding = productBindingFromResult(result);
+    if (nextBinding) this.#adoptProductBinding(active.session, nextBinding);
     return {
       contract: 'DefProductCommandResultV1',
       commandId: result.commandId,
@@ -1911,6 +1917,28 @@ export class DefAgentHost {
       browserResult: result.browserResult ?? null,
       visiblePostcondition: result.visiblePostcondition ?? null,
     };
+  }
+
+  #adoptProductBinding(record: SessionRecord, binding: ProductBinding): void {
+    if (sameExactProductBinding(record.binding, binding)) return;
+    const previousBinding = record.binding;
+    const previousSession = record.session;
+    record.binding = structuredClone(binding);
+    record.session = {
+      ...record.session,
+      workspaceId: binding.workspaceId,
+      lastDatabaseGeneration: binding.databaseGeneration,
+      timelineId: binding.timelineId,
+      boundNodeId: binding.checkoutTargetId,
+      updatedAt: new Date(this.#clock()).toISOString(),
+    };
+    try {
+      this.#persistRecord(record);
+    } catch (error) {
+      record.binding = previousBinding;
+      record.session = previousSession;
+      throw error;
+    }
   }
 
   #prepareHarnessToolFailure(
@@ -2405,6 +2433,45 @@ function bindingContext(binding: ProductBinding): JsonObject {
     contentRevision: binding.contentRevision,
     snapshotDigest: binding.snapshotDigest,
   };
+}
+
+function productBindingFromResult(result: ProductCommandResult): ProductBinding | null {
+  const visible = result.visiblePostcondition;
+  if (!visible || typeof visible !== 'object' || Array.isArray(visible)) return null;
+  if (Object.prototype.hasOwnProperty.call(visible, 'pass') && visible.pass !== true) return null;
+  const raw = visible.binding;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (
+    typeof raw.workspaceId !== 'string'
+    || !raw.workspaceId.trim()
+    || typeof raw.databaseGeneration !== 'string'
+    || !raw.databaseGeneration.trim()
+    || typeof raw.timelineId !== 'string'
+    || !raw.timelineId.trim()
+    || (raw.checkoutTargetId !== null && typeof raw.checkoutTargetId !== 'string')
+    || typeof raw.checkoutUpdatedAt !== 'number'
+    || !Number.isSafeInteger(raw.checkoutUpdatedAt)
+    || raw.checkoutUpdatedAt < 0
+    || typeof raw.contentRevision !== 'number'
+    || !Number.isSafeInteger(raw.contentRevision)
+    || raw.contentRevision < 0
+    || typeof raw.snapshotDigest !== 'string'
+    || !raw.snapshotDigest.trim()
+    || (result.afterRevision !== null && result.afterRevision !== raw.contentRevision)
+  ) {
+    return null;
+  }
+  return structuredClone(raw) as unknown as ProductBinding;
+}
+
+function sameExactProductBinding(left: ProductBinding, right: ProductBinding): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.databaseGeneration === right.databaseGeneration
+    && left.timelineId === right.timelineId
+    && left.checkoutTargetId === right.checkoutTargetId
+    && left.checkoutUpdatedAt === right.checkoutUpdatedAt
+    && left.contentRevision === right.contentRevision
+    && left.snapshotDigest === right.snapshotDigest;
 }
 
 function stableSessionBindingMatches(session: DefSessionV6, binding: ProductBinding): boolean {
