@@ -15,7 +15,6 @@ import type {
   BrowserWorkbenchRegistration,
   DEF_AGENT_PROTOCOL_VERSION,
 } from '../../../agent/core/contracts/browser-protocol.ts';
-import type { DefEvent } from '../../../agent/core/contracts/events.ts';
 import type {
   DefSessionId,
   DefTurnId,
@@ -27,12 +26,16 @@ import {
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
 import type { WorkspaceLeaseRole } from '../runtime/workspaceLease';
+import { DesktopAgentBridgeError } from './desktopAgentBridgeError';
+
+export { DesktopAgentBridgeError };
 
 export const DESKTOP_AGENT_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 export const DESKTOP_AGENT_MODE_PATH = '/timeline/ai';
 export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
+const loadProtocolValidation = () => import('./desktopAgentEventValidation');
 
 type AgentModeLocation = Pick<Location, 'href' | 'pathname' | 'search' | 'hash'>;
 
@@ -136,17 +139,6 @@ export interface DesktopAgentConsumerSnapshot {
 export type DesktopAgentBridgeListener = (state: DesktopAgentBridgeState) => void;
 export type DesktopAgentConsumerListener = (state: DesktopAgentConsumerSnapshot) => void;
 
-export class DesktopAgentBridgeError extends Error {
-  constructor(
-    message: string,
-    readonly code: string,
-    readonly status = 0,
-  ) {
-    super(message);
-    this.name = 'DesktopAgentBridgeError';
-  }
-}
-
 function defaultLocation(): AgentModeLocation | undefined {
   return typeof window === 'undefined' ? undefined : window.location;
 }
@@ -243,8 +235,7 @@ function responseData(payload: unknown): Record<string, unknown> {
   return record;
 }
 
-function asHealth(payload: unknown): AgentHostHealth {
-  const data = responseData(payload);
+function asHealth(data: Record<string, unknown>): AgentHostHealth {
   const candidate = data.health && typeof data.health === 'object' ? data.health : data;
   if (!candidate || typeof candidate !== 'object') {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的健康状态。', 'INVALID_HOST_RESPONSE');
@@ -264,8 +255,7 @@ function asHealth(payload: unknown): AgentHostHealth {
   return health as AgentHostHealth;
 }
 
-function asUiState(payload: unknown): AgentUiState {
-  const data = responseData(payload);
+function asUiState(data: Record<string, unknown>): AgentUiState {
   const candidate = data.state && typeof data.state === 'object' ? data.state : data;
   if (
     !candidate
@@ -278,8 +268,7 @@ function asUiState(payload: unknown): AgentUiState {
   return candidate as AgentUiState;
 }
 
-function asConsumerState(payload: unknown): BrowserWorkbenchConsumerState {
-  const data = responseData(payload);
+function asConsumerState(data: Record<string, unknown>): BrowserWorkbenchConsumerState {
   const candidate = data.consumer && typeof data.consumer === 'object' ? data.consumer : data;
   if (
     !candidate
@@ -306,305 +295,12 @@ const PRODUCT_SESSION_KEYS = new Set([
 const PRODUCT_ENGINE_KEYS = new Set(['kind', 'runtimeVersion']);
 const PRODUCT_HARNESS_KEYS = new Set(['stateVersion', 'revision']);
 
-const EVENT_TYPES = new Set([
-  'session.ready', 'session.recovered', 'session.archived', 'session.orphaned',
-  'turn.accepted', 'response.first-token', 'response.delta', 'tool.requested',
-  'tool.started', 'tool.result', 'tool.error', 'harness.routed',
-  'harness.phase.entered', 'harness.tool.projected', 'harness.terminal',
-  'interaction.requested', 'interaction.resolved', 'command.queued',
-  'command.dispatched', 'command.claimed', 'command.committed', 'command.result',
-  'command.reconciled', 'command.orphaned', 'turn.completed', 'turn.stopped',
-  'turn.interrupted', 'turn.failed',
-]);
-
-const SESSION_EVENT_TYPES = new Set([
-  'session.ready', 'session.recovered', 'session.archived', 'session.orphaned',
-]);
-const TOOL_EVENT_TYPES = new Set([
-  'tool.requested', 'tool.started', 'tool.result', 'tool.error',
-  'command.queued', 'command.dispatched', 'command.claimed', 'command.committed',
-  'command.result', 'command.reconciled', 'command.orphaned',
-]);
-const INTERACTION_EVENT_TYPES = new Set(['interaction.requested', 'interaction.resolved']);
-const COMMAND_EVENT_TYPES = new Set([
-  'command.queued', 'command.dispatched', 'command.claimed', 'command.committed',
-  'command.result', 'command.reconciled', 'command.orphaned',
-]);
-
-const EVENT_BASE_KEYS = new Set([
-  'schemaVersion', 'sequence', 'occurredAt', 'defSessionId', 'type', 'payload',
-]);
-const BUSINESS_IDS = new Set(['selection', 'loadout', 'timeline', 'buff', 'calculation']);
-const OPERATION_IDS = new Set(['inspect', 'current', 'resolve', 'calculate']);
-const PHASE_KINDS = new Set(['route', 'context', 'evidence', 'response']);
-const HARNESS_TERMINAL_STATES = new Set(['completed', 'aborted']);
-const INTERACTION_KINDS = new Set(['question', 'approval']);
-const INTERACTION_STATUSES = new Set([
-  'answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale',
-]);
-const COMMAND_RESULT_STATUSES = new Set([
-  'succeeded', 'committed', 'not-executed', 'rejected', 'conflict', 'error', 'orphaned',
-]);
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
-}
-
-function isJsonValue(value: unknown, depth = 0): boolean {
-  if (depth > 32) return false;
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (Array.isArray(value)) return value.every((entry) => isJsonValue(entry, depth + 1));
-  if (!isRecord(value)) return false;
-  return Object.values(value).every((entry) => isJsonValue(entry, depth + 1));
-}
-
-function hasString(record: Record<string, unknown>, key: string): boolean {
-  return typeof record[key] === 'string';
-}
-
 function hasExactKeys(record: Record<string, unknown>, expected: ReadonlySet<string>): boolean {
   const keys = Object.keys(record);
   return keys.length === expected.size && keys.every((key) => expected.has(key));
 }
 
-function hasOnlyKeys(
-  record: Record<string, unknown>,
-  required: ReadonlySet<string>,
-  optional: ReadonlySet<string> = new Set(),
-): boolean {
-  const keys = Object.keys(record);
-  return required.size <= keys.length
-    && [...required].every((key) => keys.includes(key))
-    && keys.every((key) => required.has(key) || optional.has(key));
-}
-
-function hasOwn(record: Record<string, unknown>, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(record, key);
-}
-
-function isSafeProductEventShape(event: Record<string, unknown>): boolean {
-  const type = event.type as string;
-  const payload = event.payload as Record<string, unknown>;
-  const requiredEventKeys = SESSION_EVENT_TYPES.has(type)
-    ? EVENT_BASE_KEYS
-    : COMMAND_EVENT_TYPES.has(type)
-      ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'toolCallId', 'commandId'])
-      : INTERACTION_EVENT_TYPES.has(type)
-        ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'interactionId', 'toolCallId'])
-        : TOOL_EVENT_TYPES.has(type)
-          ? new Set([...EVENT_BASE_KEYS, 'defTurnId', 'toolCallId'])
-          : new Set([...EVENT_BASE_KEYS, 'defTurnId']);
-  const optionalEventKeys = COMMAND_EVENT_TYPES.has(type)
-    ? new Set(['interactionId'])
-    : INTERACTION_EVENT_TYPES.has(type)
-      ? new Set(['toolCallId'])
-      : new Set<string>();
-  if (COMMAND_EVENT_TYPES.has(type)) requiredEventKeys.delete('interactionId');
-  if (INTERACTION_EVENT_TYPES.has(type)) requiredEventKeys.delete('toolCallId');
-  if (!hasOnlyKeys(event, requiredEventKeys, optionalEventKeys)) return false;
-  if (!SESSION_EVENT_TYPES.has(type) && typeof event.defTurnId !== 'string') return false;
-  if (TOOL_EVENT_TYPES.has(type) && typeof event.toolCallId !== 'string') return false;
-  if (INTERACTION_EVENT_TYPES.has(type)) {
-    if (typeof event.interactionId !== 'string') return false;
-    if (hasOwn(event, 'toolCallId') && typeof event.toolCallId !== 'string') return false;
-  }
-  if (COMMAND_EVENT_TYPES.has(type)) {
-    if (typeof event.commandId !== 'string') return false;
-    if (hasOwn(event, 'interactionId') && typeof event.interactionId !== 'string') return false;
-  }
-  switch (type) {
-    case 'session.ready':
-    case 'session.recovered':
-      return hasExactKeys(payload, new Set(['engineKind', 'engineRuntimeVersion']))
-        && hasString(payload, 'engineKind')
-        && hasString(payload, 'engineRuntimeVersion');
-    case 'session.archived':
-      return hasExactKeys(payload, new Set(['reason'])) && hasString(payload, 'reason');
-    case 'session.orphaned':
-      return hasExactKeys(payload, new Set(['code', 'message']))
-        && hasString(payload, 'code')
-        && hasString(payload, 'message');
-    case 'turn.accepted':
-      return hasExactKeys(payload, new Set(['clientTurnId', 'userMessage']))
-        && hasString(payload, 'clientTurnId')
-        && hasString(payload, 'userMessage');
-    case 'response.first-token':
-      return hasExactKeys(payload, new Set());
-    case 'response.delta':
-      return hasExactKeys(payload, new Set(['delta'])) && hasString(payload, 'delta');
-    case 'tool.requested':
-      return hasExactKeys(payload, new Set(['name', 'risk', 'input']))
-        && hasString(payload, 'name')
-        && ['read', 'propose', 'mutate'].includes(String(payload.risk))
-        && isJsonValue(payload.input);
-    case 'tool.started':
-      return hasExactKeys(payload, new Set(['name'])) && hasString(payload, 'name');
-    case 'tool.result':
-      return hasExactKeys(payload, new Set(['result'])) && isJsonValue(payload.result);
-    case 'tool.error':
-      return hasOnlyKeys(payload, new Set(['code', 'message']), new Set(['details']))
-        && hasString(payload, 'code')
-        && hasString(payload, 'message')
-        && (!hasOwn(payload, 'details') || isJsonValue(payload.details));
-    case 'harness.routed':
-      return hasExactKeys(payload, new Set([
-        'businessId', 'operation', 'revision', 'sourceLineage', 'contentHash',
-      ]))
-        && typeof payload.businessId === 'string'
-        && BUSINESS_IDS.has(payload.businessId)
-        && typeof payload.operation === 'string'
-        && OPERATION_IDS.has(payload.operation)
-        && hasString(payload, 'revision')
-        && hasString(payload, 'sourceLineage')
-        && hasString(payload, 'contentHash');
-    case 'harness.phase.entered':
-      return hasExactKeys(payload, new Set([
-        'businessId', 'operation', 'phaseId', 'phaseKind',
-      ]))
-        && (payload.businessId === null
-          || (typeof payload.businessId === 'string' && BUSINESS_IDS.has(payload.businessId)))
-        && (payload.operation === null
-          || (typeof payload.operation === 'string' && OPERATION_IDS.has(payload.operation)))
-        && hasString(payload, 'phaseId')
-        && typeof payload.phaseKind === 'string'
-        && PHASE_KINDS.has(payload.phaseKind);
-    case 'harness.tool.projected':
-      return hasExactKeys(payload, new Set(['projectionRevision', 'tools']))
-        && typeof payload.projectionRevision === 'number'
-        && Number.isFinite(payload.projectionRevision)
-        && Array.isArray(payload.tools)
-        && payload.tools.every((tool) => typeof tool === 'string');
-    case 'harness.terminal':
-      return hasOnlyKeys(
-        payload,
-        new Set(['businessId', 'operation', 'phaseId', 'terminalState']),
-        new Set(['code']),
-      )
-        && (payload.businessId === null
-          || (typeof payload.businessId === 'string' && BUSINESS_IDS.has(payload.businessId)))
-        && (payload.operation === null
-          || (typeof payload.operation === 'string' && OPERATION_IDS.has(payload.operation)))
-        && hasString(payload, 'phaseId')
-        && typeof payload.terminalState === 'string'
-        && HARNESS_TERMINAL_STATES.has(payload.terminalState)
-        && (!hasOwn(payload, 'code') || typeof payload.code === 'string');
-    case 'interaction.requested':
-      return hasExactKeys(payload, new Set(['kind', 'prompt', 'expiresAt']))
-        && typeof payload.kind === 'string'
-        && INTERACTION_KINDS.has(payload.kind)
-        && hasString(payload, 'prompt')
-        && hasString(payload, 'expiresAt');
-    case 'interaction.resolved':
-      return hasOnlyKeys(payload, new Set(['status']), new Set(['value']))
-        && typeof payload.status === 'string'
-        && INTERACTION_STATUSES.has(payload.status)
-        && (!hasOwn(payload, 'value') || isJsonValue(payload.value));
-    case 'command.queued':
-    case 'command.dispatched':
-      return hasExactKeys(payload, new Set([
-        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
-        'beforeRevision', 'op', 'afterRevision', 'browserReceiptDigest',
-      ]))
-        && hasString(payload, 'workspaceId')
-        && hasString(payload, 'databaseGeneration')
-        && hasString(payload, 'timelineId')
-        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
-        && typeof payload.beforeRevision === 'number'
-        && Number.isFinite(payload.beforeRevision)
-        && hasString(payload, 'op')
-        && payload.afterRevision === null
-        && payload.browserReceiptDigest === null;
-    case 'command.claimed':
-      return hasExactKeys(payload, new Set([
-        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
-        'beforeRevision', 'executorLeaseId', 'afterRevision', 'browserReceiptDigest',
-      ]))
-        && hasString(payload, 'workspaceId')
-        && hasString(payload, 'databaseGeneration')
-        && hasString(payload, 'timelineId')
-        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
-        && typeof payload.beforeRevision === 'number'
-        && Number.isFinite(payload.beforeRevision)
-        && hasString(payload, 'executorLeaseId')
-        && payload.afterRevision === null
-        && hasString(payload, 'browserReceiptDigest');
-    case 'command.committed':
-      return hasExactKeys(payload, new Set([
-        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
-        'beforeRevision', 'afterRevision', 'browserReceiptDigest',
-      ]))
-        && hasString(payload, 'workspaceId')
-        && hasString(payload, 'databaseGeneration')
-        && hasString(payload, 'timelineId')
-        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
-        && typeof payload.beforeRevision === 'number'
-        && Number.isFinite(payload.beforeRevision)
-        && typeof payload.afterRevision === 'number'
-        && Number.isFinite(payload.afterRevision)
-        && hasString(payload, 'browserReceiptDigest');
-    case 'command.result':
-    case 'command.reconciled':
-      return hasOnlyKeys(
-        payload,
-        new Set([
-          'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
-          'beforeRevision', 'status', 'afterRevision', 'browserReceiptDigest',
-        ]),
-        new Set(['code', 'message']),
-      )
-        && hasString(payload, 'workspaceId')
-        && hasString(payload, 'databaseGeneration')
-        && hasString(payload, 'timelineId')
-        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
-        && typeof payload.beforeRevision === 'number'
-        && Number.isFinite(payload.beforeRevision)
-        && typeof payload.status === 'string'
-        && COMMAND_RESULT_STATUSES.has(payload.status)
-        && (payload.afterRevision === null
-          || (typeof payload.afterRevision === 'number' && Number.isFinite(payload.afterRevision)))
-        && (payload.browserReceiptDigest === null || typeof payload.browserReceiptDigest === 'string')
-        && (!hasOwn(payload, 'code') || typeof payload.code === 'string')
-        && (!hasOwn(payload, 'message') || typeof payload.message === 'string');
-    case 'command.orphaned':
-      return hasExactKeys(payload, new Set([
-        'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
-        'beforeRevision', 'code', 'message', 'afterRevision', 'browserReceiptDigest',
-      ]))
-        && hasString(payload, 'workspaceId')
-        && hasString(payload, 'databaseGeneration')
-        && hasString(payload, 'timelineId')
-        && (payload.checkoutTargetId === null || typeof payload.checkoutTargetId === 'string')
-        && typeof payload.beforeRevision === 'number'
-        && Number.isFinite(payload.beforeRevision)
-        && hasString(payload, 'code')
-        && hasString(payload, 'message')
-        && payload.afterRevision === null
-        && (payload.browserReceiptDigest === null || typeof payload.browserReceiptDigest === 'string');
-    case 'turn.completed':
-      return hasOnlyKeys(payload, new Set(), new Set(['output']))
-        && (!hasOwn(payload, 'output') || isJsonValue(payload.output));
-    case 'turn.stopped':
-      return hasOnlyKeys(payload, new Set(['code']), new Set(['message']))
-        && hasString(payload, 'code')
-        && (!hasOwn(payload, 'message') || typeof payload.message === 'string');
-    case 'turn.failed':
-      return hasExactKeys(payload, new Set(['code', 'message']))
-        && hasString(payload, 'code')
-        && hasString(payload, 'message');
-    case 'turn.interrupted':
-      return hasExactKeys(payload, new Set(['code', 'message', 'reconcileRequiredCommandIds']))
-        && hasString(payload, 'code')
-        && hasString(payload, 'message')
-        && Array.isArray(payload.reconcileRequiredCommandIds)
-        && payload.reconcileRequiredCommandIds.every((id) => typeof id === 'string');
-    default:
-      return false;
-  }
-}
-
-function asProductSession(payload: unknown): AgentProductSession {
-  const data = responseData(payload);
+function asProductSession(data: Record<string, unknown>): AgentProductSession {
   const candidate = data.session && typeof data.session === 'object' ? data.session : data;
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的会话。', 'INVALID_HOST_RESPONSE');
@@ -647,8 +343,7 @@ function asProductSession(payload: unknown): AgentProductSession {
   return session as unknown as AgentProductSession;
 }
 
-function asSessionList(payload: unknown): readonly AgentProductSession[] {
-  const data = responseData(payload);
+function asSessionList(data: Record<string, unknown>): readonly AgentProductSession[] {
   if (
     !hasExactKeys(data, new Set(['protocolVersion', 'sessions']))
     || data.protocolVersion !== 2
@@ -657,92 +352,6 @@ function asSessionList(payload: unknown): readonly AgentProductSession[] {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的会话列表。', 'INVALID_HOST_RESPONSE');
   }
   return data.sessions.map((session) => asProductSession({ session }));
-}
-
-function asDefEvent(value: unknown, defSessionId: string, afterSequence: number): DefEvent {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的事件。', 'INVALID_HOST_RESPONSE');
-  }
-  const event = value as Record<string, unknown>;
-  if (
-    event.schemaVersion !== 1
-    || !Number.isSafeInteger(event.sequence)
-    || Number(event.sequence) !== afterSequence + 1
-    || event.defSessionId !== defSessionId
-    || typeof event.occurredAt !== 'string'
-    || typeof event.type !== 'string'
-    || !EVENT_TYPES.has(event.type)
-    || !event.payload
-    || typeof event.payload !== 'object'
-    || Array.isArray(event.payload)
-    || !isSafeProductEventShape(event)
-  ) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了不兼容的事件。', 'INVALID_HOST_RESPONSE');
-  }
-  return event as unknown as DefEvent;
-}
-
-function asEventPage(
-  payload: unknown,
-  expectedSessionId: DefSessionId,
-  expectedAfterSequence: number,
-  limit: number,
-): AgentEventPage {
-  const data = responseData(payload);
-  if (
-    !hasExactKeys(data, new Set([
-      'protocolVersion', 'defSessionId', 'afterSequence', 'nextSequence', 'hasMore', 'events',
-    ]))
-    ||
-    data.protocolVersion !== 2
-    || data.defSessionId !== expectedSessionId
-    || data.afterSequence !== expectedAfterSequence
-    || !Number.isSafeInteger(data.nextSequence)
-    || Number(data.nextSequence) < expectedAfterSequence
-    || typeof data.hasMore !== 'boolean'
-    || !Array.isArray(data.events)
-    || data.events.length > limit
-  ) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的事件页。', 'INVALID_HOST_RESPONSE');
-  }
-  let cursor = expectedAfterSequence;
-  const events = data.events.map((event) => {
-    const parsed = asDefEvent(event, expectedSessionId, cursor);
-    cursor = parsed.sequence;
-    return parsed;
-  });
-  if (data.nextSequence !== cursor) {
-    throw new DesktopAgentBridgeError('Agent Host 事件游标不连续。', 'INVALID_HOST_RESPONSE');
-  }
-  return { ...data, events } as unknown as AgentEventPage;
-}
-
-function asTurnAccepted(payload: unknown, expectedSessionId: DefSessionId): AgentTurnAccepted {
-  const data = responseData(payload);
-  if (
-    !hasExactKeys(data, new Set(['protocolVersion', 'defSessionId', 'defTurnId', 'clientTurnId']))
-    ||
-    data.protocolVersion !== 2
-    || data.defSessionId !== expectedSessionId
-    || typeof data.defTurnId !== 'string'
-    || typeof data.clientTurnId !== 'string'
-  ) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Turn。', 'INVALID_HOST_RESPONSE');
-  }
-  return data as unknown as AgentTurnAccepted;
-}
-
-function asTurnAbortResult(payload: unknown, expectedTurnId: DefTurnId): AgentTurnAbortResult {
-  const data = responseData(payload);
-  if (
-    !hasExactKeys(data, new Set(['protocolVersion', 'defTurnId', 'stopped']))
-    || data.protocolVersion !== 2
-    || data.defTurnId !== expectedTurnId
-    || data.stopped !== true
-  ) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的停止结果。', 'INVALID_HOST_RESPONSE');
-  }
-  return data as unknown as AgentTurnAbortResult;
 }
 
 function makeOpaqueId(prefix: string): string {
@@ -1147,7 +756,8 @@ export class DesktopAgentBridge {
     const data = await this.#request(
       `/agent-host/sessions/${encodeURIComponent(defSessionId)}/events?${query}`,
     );
-    return asEventPage(data, defSessionId, afterSequence, limit);
+    const { parseProductEventPage } = await loadProtocolValidation();
+    return parseProductEventPage(data, defSessionId, afterSequence, limit);
   }
 
   async startTurn(
@@ -1158,7 +768,8 @@ export class DesktopAgentBridge {
       `/agent-host/sessions/${encodeURIComponent(defSessionId)}/turns`,
       { method: 'POST', body: input },
     );
-    return asTurnAccepted(data, defSessionId);
+    const { parseTurnAccepted } = await loadProtocolValidation();
+    return parseTurnAccepted(data, defSessionId);
   }
 
   async abortTurn(defTurnId: DefTurnId): Promise<AgentTurnAbortResult> {
@@ -1166,7 +777,8 @@ export class DesktopAgentBridge {
       `/agent-host/turns/${encodeURIComponent(defTurnId)}/abort`,
       { method: 'POST', body: {} },
     );
-    return asTurnAbortResult(data, defTurnId);
+    const { parseTurnAbortResult } = await loadProtocolValidation();
+    return parseTurnAbortResult(data, defTurnId);
   }
 
   async refreshHostState(): Promise<AgentHostHealth> {
