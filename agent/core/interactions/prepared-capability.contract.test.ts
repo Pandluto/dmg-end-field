@@ -15,10 +15,6 @@ import {
   InteractionBroker,
   InteractionBrokerError,
 } from './interaction-broker.ts';
-import {
-  ApprovalCapabilitySigner,
-  verifyApprovalCapabilityToken,
-} from '../../host/approval-capability-signer.ts';
 import type {
   DefPreparedWorkNodeCandidateRefV1,
   DefPreparedWorkNodeReviewV1,
@@ -159,10 +155,7 @@ const largeReview = {
 const largeRecord = broker.register(approval('large-review', { candidateReview: largeReview }));
 assert.equal((largeRecord.request as Extract<InteractionRequest, { kind: 'approval' }>).candidateReview?.changes.length, 1);
 broker.approve(largeRecord.request.interactionId);
-const signer = new ApprovalCapabilitySigner({ keyEpoch: 'epoch-capability-v2' });
 const largeClaims = broker.issueApprovalCapability(largeRecord.request.interactionId, asCommandId('command-large'));
-const token = signer.sign(largeClaims);
-assert.equal(token.includes('review-only-'), false);
-assert.deepEqual(verifyApprovalCapabilityToken(token, signer.verificationKey), largeClaims);
+assert.equal('candidateReview' in largeClaims, false);
 
 console.log('[prepared-capability.contract.test] all assertions passed');

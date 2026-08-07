@@ -50,4 +50,32 @@ const otherSigner = new ApprovalCapabilitySigner({ keyEpoch: 'approval-contract-
 assert.throws(() => verifyApprovalCapabilityToken(token, otherSigner.verificationKey));
 assert.throws(() => signer.sign({ ...claims, keyEpoch: 'approval-contract-x' }));
 
+const preparedClaims: ApprovalCapabilityClaims = {
+  ...claims,
+  schemaVersion: 2,
+  candidate: {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: 1,
+    proposalId: 'proposal-contract',
+    intent: 'timeline',
+    destination: 'current-timeline',
+    sourceTargetId: 'node-contract',
+    sourceRevision: 2,
+    candidateTimelineId: 'timeline-contract',
+    nodeId: 'prepared-node-contract',
+    nodeRevision: 0,
+    basePayloadDigest: `sha256:${'a'.repeat(64)}`,
+    workingPayloadDigest: `sha256:${'b'.repeat(64)}`,
+    diffDigest: `sha256:${'c'.repeat(64)}`,
+    proposalDigest: `sha256:${'d'.repeat(64)}`,
+    scope: ['timeline.structure'],
+  },
+};
+const preparedToken = signer.sign(preparedClaims);
+assert.deepEqual(verifyApprovalCapabilityToken(preparedToken, signer.verificationKey), preparedClaims);
+assert.throws(() => signer.sign({
+  ...preparedClaims,
+  candidateReview: { summary: 'review must not enter the signed capability' },
+} as unknown as ApprovalCapabilityClaims));
+
 console.log('Approval capability signer contract passed');
