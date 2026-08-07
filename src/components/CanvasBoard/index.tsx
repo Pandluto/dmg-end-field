@@ -4121,8 +4121,14 @@ export function CanvasBoard({
     const previousSignature = previousSnapshot
       ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs, previousSnapshot.skillCatalog)
       : '';
+    const previousDamageReportIsComplete = Boolean(
+      previousSnapshot?.damageReport
+      && typeof previousSnapshot.damageReport.totalDamage === 'number'
+      && Array.isArray(previousSnapshot.damageReport.characters),
+    );
     const canReusePreviousDamageReport = computedDamageReport.buttonCount === 0 &&
       mirroredButtons.length > 0 &&
+      previousDamageReportIsComplete &&
       previousSnapshot?.damageReport &&
       previousSnapshot.damageReport.buttonCount === mirroredButtons.length &&
       previousSignature === currentSignature;
@@ -4144,14 +4150,10 @@ export function CanvasBoard({
       selectedCharacters: mirroredSelectedCharacters,
       skillCatalog: mirroredSkillCatalog,
       skillButtons: mirroredButtons,
-      damageReportStatus: 'ready' as const,
-      damageReport: {
-        generatedAt: damageReport.generatedAt,
-        totalExpected: damageReport.totalExpected,
-        totalNonCrit: damageReport.totalNonCrit,
-        buttonCount: damageReport.buttonCount,
-        buttons: damageReport.buttons,
-      },
+      damageReportStatus: damageReport.buttonCount === mirroredButtons.length
+        ? 'ready' as const
+        : 'placeholder' as const,
+      damageReport,
       operatorConfigs: mirroredOperatorConfigs,
       nodeReview,
     };

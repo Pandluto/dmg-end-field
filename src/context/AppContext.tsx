@@ -105,7 +105,11 @@ function buildSelectionWorkbenchSnapshot(
       };
     });
   const previousDamageReport = previousSnapshot?.damageReport;
-  const canReuseDamageReport = Boolean(previousDamageReport) &&
+  const canReuseDamageReport = Boolean(
+    previousDamageReport
+    && typeof previousDamageReport.totalDamage === 'number'
+    && Array.isArray(previousDamageReport.characters),
+  ) &&
     previousSnapshot?.skillButtons?.length === mirroredButtons.length &&
     previousDamageReport?.buttonCount === mirroredButtons.length;
 
@@ -125,13 +129,7 @@ function buildSelectionWorkbenchSnapshot(
     damageReportStatus: 'placeholder',
     damageReport: canReuseDamageReport && previousDamageReport
       ? previousDamageReport
-      : {
-          generatedAt: 0,
-          totalExpected: 0,
-          totalNonCrit: 0,
-          buttonCount: mirroredButtons.length,
-          buttons: [],
-        },
+      : undefined,
     operatorConfigs: (previousSnapshot?.operatorConfigs ?? []).filter((config) =>
       selectedKeys.has(config.characterId) || selectedKeys.has(config.characterName)
     ),

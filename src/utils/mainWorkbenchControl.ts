@@ -831,7 +831,7 @@ export interface MainWorkbenchSnapshot {
   }>;
   /** Explicitly distinguishes a Canvas-generated report from selection-page carry/placeholder data. */
   damageReportStatus: 'ready' | 'placeholder';
-  damageReport?: Pick<DamageReportSnapshot, 'generatedAt' | 'totalExpected' | 'totalNonCrit' | 'buttonCount' | 'buttons'>;
+  damageReport?: DamageReportSnapshot;
   operatorConfigs?: Array<{
     characterId: string;
     characterName: string;
