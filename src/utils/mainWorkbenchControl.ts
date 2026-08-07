@@ -1,6 +1,9 @@
 import type { Character, SkillButtonType } from '../types';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
-import type { SkillButtonBuff } from '../types/storage';
+import type {
+  SkillButtonBuff,
+  SkillButtonPanelConfig,
+} from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
 import type { AiTimelineNodeReviewProjection } from '../agentKernel/timelineWorktree/nodeReview';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
@@ -495,6 +498,287 @@ export interface QueuedMainWorkbenchCommand {
   error?: string;
 }
 
+/**
+ * The browser-to-Agent boundary must contain facts, not renderer objects.
+ * Every optional Buff field is represented explicitly as null so a missing
+ * field cannot be mistaken for a value the model is allowed to infer.
+ */
+export interface MainWorkbenchBuffProjection {
+  schemaVersion: 2 | null;
+  id: string | null;
+  name: string | null;
+  displayName: string | null;
+  sourceName: string | null;
+  level: string | null;
+  type: string | null;
+  value: number | null;
+  description: string | null;
+  source: string | null;
+  condition: string | null;
+  category: string | null;
+  effectKind: string | null;
+  ownerBuffDomain: string | null;
+  ownerCharacterId: string | null;
+  ownerBuffGroup: string | null;
+  maxStacks: number | null;
+  refCount: number | null;
+  multiplier: { coefficient: number | null } | null;
+  target: {
+    mode: string | null;
+    key: string | null;
+    skillType: string | null;
+    element: string | null;
+  } | null;
+  valueMode: string | null;
+  derivedValue: {
+    source: string | null;
+    perPointValue: number | null;
+  } | null;
+  extraHitConfig: {
+    key: string | null;
+    damageType: string | null;
+    skillType: string | null;
+    baseMultiplier: number | null;
+    imbalanceValue: number | null;
+    cooldownSeconds: number | null;
+    trigger: string | null;
+  } | null;
+}
+
+export interface MainWorkbenchButtonStateProjection {
+  selectedBuffIds: string[];
+  selectedBuffs: MainWorkbenchBuffProjection[];
+  /** Effective current count per selected Buff, including default counts. */
+  currentStackCounts: Record<string, number | null>;
+  /** Whether a stack count was persisted or came from the product default rule. */
+  currentStackCountSources: Record<string, 'persisted' | 'default-max-stacks' | 'default-one' | 'unavailable'>;
+  globallyDisabledBuffIds: string[];
+  manualDisabledBuffIdsBySegmentKey: Record<string, string[]>;
+  manualBuffStackCountsBySegmentKey: Record<string, Record<string, number>>;
+  manualDisabledHitKeys: string[];
+  targetResistance: Record<string, number | null>;
+}
+
+const MAIN_WORKBENCH_RESISTANCE_KEYS = [
+  'physicalResistance',
+  'fireResistance',
+  'electricResistance',
+  'iceResistance',
+  'natureResistance',
+] as const;
+
+function finiteNumberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' ? value : null;
+}
+
+function projectTarget(target: SkillButtonBuff['target'] | null | undefined): MainWorkbenchBuffProjection['target'] {
+  if (!target || typeof target !== 'object') return null;
+  return {
+    mode: stringOrNull(target.mode),
+    key: 'key' in target ? stringOrNull(target.key) : null,
+    skillType: 'skillType' in target ? stringOrNull(target.skillType) : null,
+    element: 'element' in target ? stringOrNull(target.element) : null,
+  };
+}
+
+/** Convert a runtime Buff entity into a JSON-safe, inference-free fact row. */
+export function projectMainWorkbenchBuff(
+  buff: SkillButtonBuff | null | undefined,
+): MainWorkbenchBuffProjection {
+  if (!buff) {
+    return {
+      schemaVersion: null,
+      id: null,
+      name: null,
+      displayName: null,
+      sourceName: null,
+      level: null,
+      type: null,
+      value: null,
+      description: null,
+      source: null,
+      condition: null,
+      category: null,
+      effectKind: null,
+      ownerBuffDomain: null,
+      ownerCharacterId: null,
+      ownerBuffGroup: null,
+      maxStacks: null,
+      refCount: null,
+      multiplier: null,
+      target: null,
+      valueMode: null,
+      derivedValue: null,
+      extraHitConfig: null,
+    };
+  }
+
+  return {
+    schemaVersion: buff.schemaVersion === 2 ? 2 : null,
+    id: stringOrNull(buff.id),
+    name: stringOrNull(buff.name),
+    displayName: stringOrNull(buff.displayName),
+    sourceName: stringOrNull(buff.sourceName),
+    level: stringOrNull(buff.level),
+    type: stringOrNull(buff.type),
+    value: finiteNumberOrNull(buff.value),
+    description: stringOrNull(buff.description),
+    source: stringOrNull(buff.source),
+    condition: stringOrNull(buff.condition),
+    category: stringOrNull(buff.category),
+    effectKind: stringOrNull(buff.effectKind),
+    ownerBuffDomain: stringOrNull(buff.ownerBuffDomain),
+    ownerCharacterId: stringOrNull(buff.ownerCharacterId),
+    ownerBuffGroup: stringOrNull(buff.ownerBuffGroup),
+    maxStacks: finiteNumberOrNull(buff.maxStacks),
+    refCount: finiteNumberOrNull(buff.refCount),
+    multiplier: buff.multiplier && typeof buff.multiplier === 'object'
+      ? { coefficient: finiteNumberOrNull(buff.multiplier.coefficient) }
+      : null,
+    target: projectTarget(buff.target),
+    valueMode: stringOrNull(buff.valueMode),
+    derivedValue: buff.derivedValue && typeof buff.derivedValue === 'object'
+      ? {
+          source: stringOrNull(buff.derivedValue.source),
+          perPointValue: finiteNumberOrNull(buff.derivedValue.perPointValue),
+        }
+      : null,
+    extraHitConfig: buff.extraHitConfig && typeof buff.extraHitConfig === 'object'
+      ? {
+          key: stringOrNull(buff.extraHitConfig.key),
+          damageType: stringOrNull(buff.extraHitConfig.damageType),
+          skillType: stringOrNull(buff.extraHitConfig.skillType),
+          baseMultiplier: finiteNumberOrNull(buff.extraHitConfig.baseMultiplier),
+          imbalanceValue: finiteNumberOrNull(buff.extraHitConfig.imbalanceValue),
+          cooldownSeconds: finiteNumberOrNull(buff.extraHitConfig.cooldownSeconds),
+          trigger: stringOrNull(buff.extraHitConfig.trigger),
+        }
+      : null,
+  };
+}
+
+function projectTargetResistance(value: unknown): Record<string, number | null> {
+  const source = value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+  const keys = new Set<string>([
+    ...MAIN_WORKBENCH_RESISTANCE_KEYS,
+    ...Object.keys(source),
+  ]);
+  return Object.fromEntries(
+    [...keys]
+      .sort()
+      .map((key) => [key, finiteNumberOrNull(source[key])]),
+  );
+}
+
+function projectStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+}
+
+function projectStringArrayMap(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([segmentKey]) => typeof segmentKey === 'string')
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([segmentKey, buffIds]) => [segmentKey, projectStringArray(buffIds)]),
+  );
+}
+
+function projectNumberMap(value: unknown): Record<string, number> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([, count]) => typeof count === 'number' && Number.isFinite(count))
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([buffId, count]) => [buffId, count as number]),
+  );
+}
+
+function effectiveStackCount(
+  buff: MainWorkbenchBuffProjection,
+  rawCount: number | null,
+): { value: number; source: 'persisted' | 'default-max-stacks' | 'default-one' } {
+  const maxStacks = buff.category === 'countable' && buff.maxStacks !== null && buff.maxStacks > 0
+    ? Math.floor(buff.maxStacks)
+    : 1;
+  if (rawCount !== null) {
+    return {
+      value: Math.min(maxStacks, Math.max(0, Math.floor(rawCount))),
+      source: 'persisted',
+    };
+  }
+  return buff.category === 'countable'
+    ? { value: maxStacks, source: 'default-max-stacks' }
+    : { value: 1, source: 'default-one' };
+}
+
+/**
+ * Project all button-scoped Buff facts and controls in one JSON-safe shape.
+ * `selectedBuffIds` remains authoritative even when an old snapshot references
+ * a missing Buff entity; that missing entity is represented by an empty facts
+ * list rather than silently being invented.
+ */
+export function projectMainWorkbenchButtonState(input: {
+  selectedBuffIds?: readonly string[] | null;
+  selectedBuffs?: readonly (SkillButtonBuff | null | undefined)[] | null;
+  buffStackCounts?: Record<string, unknown> | null;
+  panelConfig?: Partial<SkillButtonPanelConfig> | null;
+  targetResistance?: unknown;
+}): MainWorkbenchButtonStateProjection {
+  const selectedBuffIds = projectStringArray(input.selectedBuffIds);
+  const selectedBuffs = (input.selectedBuffs ?? [])
+    .filter((buff): buff is SkillButtonBuff => Boolean(buff))
+    .map(projectMainWorkbenchBuff);
+  const factsById = new Map(
+    selectedBuffs
+      .filter((buff) => typeof buff.id === 'string')
+      .map((buff) => [buff.id as string, buff]),
+  );
+  const rawStackCounts = projectNumberMap(input.buffStackCounts);
+  const currentStackCounts: Record<string, number | null> = {};
+  const currentStackCountSources: MainWorkbenchButtonStateProjection['currentStackCountSources'] = {};
+  for (const buffId of selectedBuffIds) {
+    const buff = factsById.get(buffId);
+    if (!buff) {
+      currentStackCounts[buffId] = rawStackCounts[buffId] ?? null;
+      currentStackCountSources[buffId] = rawStackCounts[buffId] === undefined ? 'unavailable' : 'persisted';
+      continue;
+    }
+    const resolved = effectiveStackCount(buff, rawStackCounts[buffId] ?? null);
+    currentStackCounts[buffId] = resolved.value;
+    currentStackCountSources[buffId] = resolved.source;
+  }
+  for (const [buffId, count] of Object.entries(rawStackCounts)) {
+    if (!(buffId in currentStackCounts)) {
+      currentStackCounts[buffId] = count;
+      currentStackCountSources[buffId] = 'persisted';
+    }
+  }
+  return {
+    selectedBuffIds,
+    selectedBuffs,
+    currentStackCounts,
+    currentStackCountSources,
+    globallyDisabledBuffIds: projectStringArray(input.panelConfig?.globallyDisabledBuffIds),
+    manualDisabledBuffIdsBySegmentKey: projectStringArrayMap(input.panelConfig?.manualDisabledBuffIdsBySegmentKey),
+    manualBuffStackCountsBySegmentKey: Object.fromEntries(
+      Object.entries(input.panelConfig?.manualBuffStackCountsBySegmentKey ?? {})
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([segmentKey, counts]) => [segmentKey, projectNumberMap(counts)]),
+    ),
+    manualDisabledHitKeys: projectStringArray(input.panelConfig?.manualDisabledHitKeys),
+    targetResistance: projectTargetResistance(input.targetResistance),
+  };
+}
+
 export interface MainWorkbenchSnapshot {
   schemaVersion: 1;
   updatedAt: number;
@@ -536,20 +820,14 @@ export interface MainWorkbenchSnapshot {
     nodeIndex?: number;
     nodeNumber?: number;
     selectedBuffIds: string[];
-    selectedBuffs?: Array<{
-      id: string;
-      name?: string;
-      displayName?: string;
-      sourceName?: string;
-      level?: string;
-      type?: string;
-      value?: number;
-      description?: string;
-      source?: string;
-      condition?: string;
-      category?: string;
-      effectKind?: string;
-    }>;
+    selectedBuffs?: MainWorkbenchBuffProjection[];
+    currentStackCounts?: Record<string, number | null>;
+    currentStackCountSources?: MainWorkbenchButtonStateProjection['currentStackCountSources'];
+    globallyDisabledBuffIds?: string[];
+    manualDisabledBuffIdsBySegmentKey?: Record<string, string[]>;
+    manualBuffStackCountsBySegmentKey?: Record<string, Record<string, number>>;
+    manualDisabledHitKeys?: string[];
+    targetResistance?: Record<string, number | null>;
   }>;
   /** Explicitly distinguishes a Canvas-generated report from selection-page carry/placeholder data. */
   damageReportStatus: 'ready' | 'placeholder';

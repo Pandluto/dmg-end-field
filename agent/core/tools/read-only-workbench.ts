@@ -1,5 +1,6 @@
 import {
   DefToolExecutionError,
+  canonicalJson,
   type DefToolDescriptor,
   type DefToolExecutionContext,
   type DefToolHandler,
@@ -11,6 +12,7 @@ import {
 
 export const DEF_DAMAGE_REPORT_VERSION = 'damage-report-v1' as const;
 const MAX_BUFF_CANDIDATES = 200;
+const MAX_BUFF_EVIDENCE_PER_CANDIDATE = 200;
 
 type WorkbenchPayload = {
   readonly raw: JsonObject;
@@ -51,7 +53,7 @@ export class DefReadToolRegistry {
       createHandler(
         descriptor(
           'def.data.resource.buff',
-          'Resolve bounded Buff facts present in the current Workbench snapshot.',
+          'Resolve bounded, snapshot-bound Buff facts including source, condition, stack, target and owner evidence.',
           {
             type: 'object',
             additionalProperties: false,
@@ -198,23 +200,11 @@ async function readCurrentTimeline(input: JsonValue, context: DefToolExecutionCo
   const snapshot = await readSnapshot(context);
   const payload = workbenchPayload(snapshot);
   const buttons = payload.skillButtons
-    .map((button) => ({
-      id: requiredString(button.id, 'skillButton.id'),
-      characterId: requiredString(button.characterId, 'skillButton.characterId'),
-      characterName: requiredString(button.characterName, 'skillButton.characterName'),
-      skillType: requiredString(button.skillType, 'skillButton.skillType'),
-      runtimeSkillId: stringOrNull(button.runtimeSkillId),
-      skillDisplayName: stringOrNull(button.skillDisplayName),
-      staffIndex: finiteNumber(button.staffIndex, 'skillButton.staffIndex'),
-      lineIndex: finiteNumber(button.lineIndex, 'skillButton.lineIndex'),
-      persistenceStaffIndex: finiteNumber(button.persistenceStaffIndex, 'skillButton.persistenceStaffIndex'),
-      persistenceNodeIndex: finiteNumber(button.persistenceNodeIndex, 'skillButton.persistenceNodeIndex'),
-      selectedBuffCount: stringArray(button.selectedBuffIds, 'skillButton.selectedBuffIds').length,
-    }))
+    .map(projectCurrentTimelineButton)
     .sort((left, right) => (
-      left.persistenceStaffIndex - right.persistenceStaffIndex
-      || left.persistenceNodeIndex - right.persistenceNodeIndex
-      || left.id.localeCompare(right.id)
+      Number(left.persistenceStaffIndex) - Number(right.persistenceStaffIndex)
+      || Number(left.persistenceNodeIndex) - Number(right.persistenceNodeIndex)
+      || String(left.id).localeCompare(String(right.id))
     ));
   return {
     contract: 'DefCurrentTimelineV1',
@@ -244,11 +234,7 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
     const characterId = requiredString(button.characterId, 'skillButton.characterId');
     for (const buff of optionalObjectArray(button.selectedBuffs, 'skillButton.selectedBuffs')) {
       collectBuff(candidates, {
-        id: stringOrNull(buff.id),
-        label: stringOrNull(buff.displayName) ?? stringOrNull(buff.name) ?? stringOrNull(buff.id) ?? 'unnamed-buff',
-        type: stringOrNull(buff.type),
-        value: numberOrNull(buff.value),
-        sourceLabel: stringOrNull(buff.sourceName) ?? stringOrNull(buff.source),
+        facts: projectBuffFacts(buff),
         sourceKind: 'button',
         buttonId: currentButtonId,
         characterId,
@@ -262,11 +248,23 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
       for (const equipment of optionalObjectArray(config.equipment, 'operatorConfig.equipment')) {
         for (const effect of optionalObjectArray(equipment.effects, 'equipment.effects')) {
           collectBuff(candidates, {
-            id: stringOrNull(effect.effectId),
-            label: stringOrNull(effect.label) ?? stringOrNull(effect.effectId) ?? 'unnamed-equipment-effect',
-            type: stringOrNull(effect.typeKey),
-            value: numberOrNull(effect.value),
-            sourceLabel: stringOrNull(equipment.name),
+            facts: projectBuffFacts({
+              id: effect.effectId,
+              name: effect.label,
+              displayName: effect.label,
+              sourceName: equipment.name,
+              source: equipment.name,
+              type: effect.typeKey,
+              value: effect.value,
+              description: null,
+              condition: null,
+              category: effect.category,
+              effectKind: effect.effectKind,
+              ownerBuffDomain: 'equipment',
+              ownerCharacterId: characterId,
+              ownerBuffGroup: null,
+              refCount: null,
+            }),
             sourceKind: 'equipment',
             buttonId: null,
             characterId,
@@ -275,11 +273,23 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
       }
       for (const setBuff of optionalObjectArray(config.setBuffs, 'operatorConfig.setBuffs')) {
         collectBuff(candidates, {
-          id: stringOrNull(setBuff.effectId),
-          label: stringOrNull(setBuff.label) ?? stringOrNull(setBuff.effectId) ?? 'unnamed-set-effect',
-          type: stringOrNull(setBuff.typeKey),
-          value: numberOrNull(setBuff.value),
-          sourceLabel: stringOrNull(setBuff.gearSetName),
+          facts: projectBuffFacts({
+            id: setBuff.effectId,
+            name: setBuff.label,
+            displayName: setBuff.label,
+            sourceName: setBuff.gearSetName,
+            source: setBuff.gearSetName,
+            type: setBuff.typeKey,
+            value: setBuff.value,
+            description: null,
+            condition: null,
+            category: setBuff.category,
+            effectKind: setBuff.effectKind,
+            ownerBuffDomain: 'equipment',
+            ownerCharacterId: characterId,
+            ownerBuffGroup: 'threePiece',
+            refCount: null,
+          }),
           sourceKind: 'set',
           buttonId: null,
           characterId,
@@ -291,7 +301,16 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
   const all = [...candidates.values()]
     .filter((candidate) => {
       if (!normalizedQuery) return true;
-      return [candidate.id, candidate.label, candidate.type, ...candidate.sourceLabels]
+      return [
+        candidate.id,
+        candidate.label,
+        candidate.type,
+        ...candidate.sourceLabels,
+        stringOrNull(candidate.facts.description),
+        stringOrNull(candidate.facts.condition),
+        stringOrNull(candidate.facts.ownerBuffDomain),
+        stringOrNull(candidate.facts.ownerBuffGroup),
+      ]
         .filter((value): value is string => Boolean(value))
         .some((value) => value.toLowerCase().includes(normalizedQuery));
     })
@@ -305,9 +324,16 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
     sourceLabels: [...candidate.sourceLabels].sort(),
     buttonIds: [...candidate.buttonIds].sort(),
     characterIds: [...candidate.characterIds].sort(),
+    facts: candidate.facts,
+    evidence: candidate.evidence.map((evidence) => ({
+      ...evidence,
+      snapshotBinding: bindingJson(snapshot.binding),
+    })),
+    evidenceTruncated: candidate.evidenceTruncated,
   }));
   return {
     contract: 'DefBuffCandidatesV1',
+    schemaVersion: 2,
     binding: bindingJson(snapshot.binding),
     query: query ?? null,
     buttonId: buttonId ?? null,
@@ -450,6 +476,223 @@ function projectCharacter(value: JsonObject): JsonObject {
   };
 }
 
+/**
+ * Project every Buff field at the read boundary. This intentionally does not
+ * return the source object: old snapshots can contain undefined/partial
+ * records, while the Agent must receive explicit nulls and plain JSON values.
+ */
+function projectBuffFacts(value: JsonObject | null | undefined): JsonObject {
+  const buff = value ?? {};
+  const target = isRecord(buff.target) ? buff.target : null;
+  const multiplier = isRecord(buff.multiplier) ? buff.multiplier : null;
+  const derivedValue = isRecord(buff.derivedValue) ? buff.derivedValue : null;
+  const extraHitConfig = isRecord(buff.extraHitConfig) ? buff.extraHitConfig : null;
+  return {
+    schemaVersion: buff.schemaVersion === 2 ? 2 : null,
+    id: stringOrNull(buff.id),
+    name: stringOrNull(buff.name),
+    displayName: stringOrNull(buff.displayName),
+    sourceName: stringOrNull(buff.sourceName),
+    level: stringOrNull(buff.level),
+    type: stringOrNull(buff.type),
+    value: numberOrNull(buff.value),
+    description: stringOrNull(buff.description),
+    source: stringOrNull(buff.source),
+    condition: stringOrNull(buff.condition),
+    category: stringOrNull(buff.category),
+    effectKind: stringOrNull(buff.effectKind),
+    ownerBuffDomain: stringOrNull(buff.ownerBuffDomain),
+    ownerCharacterId: stringOrNull(buff.ownerCharacterId),
+    ownerBuffGroup: stringOrNull(buff.ownerBuffGroup),
+    maxStacks: numberOrNull(buff.maxStacks),
+    refCount: numberOrNull(buff.refCount),
+    multiplier: multiplier
+      ? { coefficient: numberOrNull(multiplier.coefficient) }
+      : null,
+    target: target
+      ? {
+          mode: stringOrNull(target.mode),
+          key: stringOrNull(target.key),
+          skillType: stringOrNull(target.skillType),
+          element: stringOrNull(target.element),
+        }
+      : null,
+    valueMode: stringOrNull(buff.valueMode),
+    derivedValue: derivedValue
+      ? {
+          source: stringOrNull(derivedValue.source),
+          perPointValue: numberOrNull(derivedValue.perPointValue),
+        }
+      : null,
+    extraHitConfig: extraHitConfig
+      ? {
+          key: stringOrNull(extraHitConfig.key),
+          damageType: stringOrNull(extraHitConfig.damageType),
+          skillType: stringOrNull(extraHitConfig.skillType),
+          baseMultiplier: numberOrNull(extraHitConfig.baseMultiplier),
+          imbalanceValue: numberOrNull(extraHitConfig.imbalanceValue),
+          cooldownSeconds: numberOrNull(extraHitConfig.cooldownSeconds),
+          trigger: stringOrNull(extraHitConfig.trigger),
+        }
+      : null,
+  };
+}
+
+function projectResistance(value: JsonValue | undefined): JsonObject {
+  const resistance = isRecord(value) ? value : {};
+  const keys = new Set([
+    'physicalResistance',
+    'fireResistance',
+    'electricResistance',
+    'iceResistance',
+    'natureResistance',
+    ...Object.keys(resistance),
+  ]);
+  return Object.fromEntries(
+    [...keys]
+      .sort(compareText)
+      .map((key) => [key, numberOrNull(resistance[key])]),
+  );
+}
+
+function projectNumberMap(value: JsonValue | undefined): JsonObject {
+  const record = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    Object.entries(record)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([key, count]) => [key, numberOrNull(count)]),
+  );
+}
+
+function projectSegmentNumberMap(value: JsonValue | undefined): JsonObject {
+  const record = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    Object.entries(record)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([segmentKey, counts]) => [segmentKey, projectNumberMap(counts)]),
+  );
+}
+
+function projectStringMap(value: JsonValue | undefined): JsonObject {
+  const record = isRecord(value) ? value : {};
+  return Object.fromEntries(
+    Object.entries(record)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([key, values]) => [key, Array.isArray(values)
+        ? values.filter((entry): entry is string => typeof entry === 'string')
+        : []]),
+  );
+}
+
+function projectEffectiveStackCounts(
+  button: JsonObject,
+  selectedBuffIds: readonly string[],
+  selectedBuffs: readonly JsonObject[],
+): { counts: JsonObject; sources: JsonObject } {
+  const raw = isRecord(button.currentStackCounts)
+    ? button.currentStackCounts
+    : isRecord(button.buffStackCounts)
+      ? button.buffStackCounts
+      : {};
+  const declaredSources = isRecord(button.currentStackCountSources)
+    ? button.currentStackCountSources
+    : {};
+  const factsById = new Map<string, JsonObject>();
+  selectedBuffs.forEach((buff) => {
+    const id = stringOrNull(buff.id);
+    if (id) factsById.set(id, buff);
+  });
+  const result: JsonObject = {};
+  const sources: JsonObject = {};
+  const acceptedSources = new Set([
+    'persisted',
+    'default-max-stacks',
+    'default-one',
+    'unavailable',
+  ]);
+  selectedBuffIds.forEach((buffId) => {
+    if (Object.prototype.hasOwnProperty.call(raw, buffId)) {
+      result[buffId] = numberOrNull(raw[buffId]);
+      const declaredSource = stringOrNull(declaredSources[buffId]);
+      sources[buffId] = declaredSource && acceptedSources.has(declaredSource)
+        ? declaredSource
+        : result[buffId] === null ? 'unavailable' : 'persisted';
+      return;
+    }
+    const buff = factsById.get(buffId);
+    const maxStacks = buff
+      && buff.category === 'countable'
+      && typeof buff.maxStacks === 'number'
+      && Number.isFinite(buff.maxStacks)
+      && buff.maxStacks > 0
+      ? Math.floor(buff.maxStacks)
+      : 1;
+    result[buffId] = buff ? maxStacks : null;
+    sources[buffId] = buff
+      ? buff.category === 'countable' ? 'default-max-stacks' : 'default-one'
+      : 'unavailable';
+  });
+  Object.entries(raw).forEach(([buffId, count]) => {
+    if (!Object.prototype.hasOwnProperty.call(result, buffId)) {
+      result[buffId] = numberOrNull(count);
+      const declaredSource = stringOrNull(declaredSources[buffId]);
+      sources[buffId] = declaredSource && acceptedSources.has(declaredSource)
+        ? declaredSource
+        : result[buffId] === null ? 'unavailable' : 'persisted';
+    }
+  });
+  return {
+    counts: Object.fromEntries(Object.entries(result).sort(([left], [right]) => compareText(left, right))),
+    sources: Object.fromEntries(Object.entries(sources).sort(([left], [right]) => compareText(left, right))),
+  };
+}
+
+function projectCurrentTimelineButton(button: JsonObject): JsonObject {
+  const selectedBuffIds = stringArray(
+    button.selectedBuffIds ?? button.selectedBuff ?? [],
+    'skillButton.selectedBuffIds',
+  );
+  const selectedBuffs = optionalObjectArray(button.selectedBuffs, 'skillButton.selectedBuffs')
+    .map(projectBuffFacts);
+  const stackProjection = projectEffectiveStackCounts(button, selectedBuffIds, selectedBuffs);
+  const panelConfig = isRecord(button.panelConfig) ? button.panelConfig : {};
+  const targetResistance = button.targetResistance ?? (
+    isRecord(button.resistanceConfig) ? button.resistanceConfig.targetResistance : undefined
+  );
+  return {
+    id: requiredString(button.id, 'skillButton.id'),
+    characterId: requiredString(button.characterId, 'skillButton.characterId'),
+    characterName: requiredString(button.characterName, 'skillButton.characterName'),
+    skillType: requiredString(button.skillType, 'skillButton.skillType'),
+    runtimeSkillId: stringOrNull(button.runtimeSkillId),
+    skillDisplayName: stringOrNull(button.skillDisplayName),
+    staffIndex: finiteNumber(button.staffIndex, 'skillButton.staffIndex'),
+    lineIndex: finiteNumber(button.lineIndex, 'skillButton.lineIndex'),
+    persistenceStaffIndex: finiteNumber(button.persistenceStaffIndex, 'skillButton.persistenceStaffIndex'),
+    persistenceNodeIndex: finiteNumber(button.persistenceNodeIndex, 'skillButton.persistenceNodeIndex'),
+    selectedBuffIds,
+    selectedBuffCount: selectedBuffIds.length,
+    selectedBuffs,
+    currentStackCounts: stackProjection.counts,
+    currentStackCountSources: stackProjection.sources,
+    globallyDisabledBuffIds: stringArray(
+      panelConfig.globallyDisabledBuffIds ?? button.globallyDisabledBuffIds ?? [],
+      'skillButton.globallyDisabledBuffIds',
+    ),
+    manualDisabledBuffIdsBySegmentKey: projectStringMap(
+      panelConfig.manualDisabledBuffIdsBySegmentKey ?? button.manualDisabledBuffIdsBySegmentKey,
+    ),
+    manualBuffStackCountsBySegmentKey: projectSegmentNumberMap(
+      panelConfig.manualBuffStackCountsBySegmentKey ?? button.manualBuffStackCountsBySegmentKey,
+    ),
+    manualDisabledHitKeys: stringArray(
+      panelConfig.manualDisabledHitKeys ?? button.manualDisabledHitKeys ?? [],
+      'skillButton.manualDisabledHitKeys',
+    ),
+    targetResistance: projectResistance(targetResistance),
+  };
+}
+
 function bindingJson(binding: ProductBinding): JsonObject {
   return {
     workspaceId: binding.workspaceId,
@@ -468,41 +711,84 @@ type MutableBuffCandidate = {
   readonly label: string;
   readonly type: string | null;
   readonly value: number | null;
+  readonly facts: JsonObject;
   readonly sourceKinds: Set<string>;
   readonly sourceLabels: Set<string>;
   readonly buttonIds: Set<string>;
   readonly characterIds: Set<string>;
+  readonly evidence: MutableBuffEvidence[];
+  evidenceTruncated: boolean;
+};
+
+type MutableBuffEvidence = {
+  readonly sourceKind: 'button' | 'equipment' | 'set';
+  readonly buttonId: string | null;
+  readonly characterId: string;
+  readonly sourceName: string | null;
+  readonly source: string | null;
+  readonly ownerBuffDomain: string | null;
+  readonly ownerCharacterId: string | null;
+  readonly ownerBuffGroup: string | null;
 };
 
 function collectBuff(
   candidates: Map<string, MutableBuffCandidate>,
   input: {
-    readonly id: string | null;
-    readonly label: string;
-    readonly type: string | null;
-    readonly value: number | null;
-    readonly sourceLabel: string | null;
+    readonly facts: JsonObject;
     readonly sourceKind: 'button' | 'equipment' | 'set';
     readonly buttonId: string | null;
     readonly characterId: string;
   },
 ): void {
-  const key = [input.id ?? '', input.label, input.type ?? '', input.value ?? ''].join('\u0000');
+  const id = stringOrNull(input.facts.id);
+  const label = stringOrNull(input.facts.displayName)
+    ?? stringOrNull(input.facts.name)
+    ?? id
+    ?? 'unnamed-buff';
+  const type = stringOrNull(input.facts.type);
+  const value = numberOrNull(input.facts.value);
+  const sourceName = stringOrNull(input.facts.sourceName);
+  const source = stringOrNull(input.facts.source);
+  // Include every fact in the identity. In particular, same-name Buffs with
+  // different source/owner/condition/target are distinct candidates.
+  const key = canonicalJson(input.facts);
   const existing = candidates.get(key) ?? {
     key,
-    id: input.id,
-    label: input.label,
-    type: input.type,
-    value: input.value,
+    id,
+    label,
+    type,
+    value,
+    facts: input.facts,
     sourceKinds: new Set<string>(),
     sourceLabels: new Set<string>(),
     buttonIds: new Set<string>(),
     characterIds: new Set<string>(),
+    evidence: [],
+    evidenceTruncated: false,
   };
   existing.sourceKinds.add(input.sourceKind);
-  if (input.sourceLabel) existing.sourceLabels.add(input.sourceLabel);
+  if (sourceName) existing.sourceLabels.add(sourceName);
+  if (source) existing.sourceLabels.add(source);
   if (input.buttonId) existing.buttonIds.add(input.buttonId);
   existing.characterIds.add(input.characterId);
+  const evidence: MutableBuffEvidence = {
+    sourceKind: input.sourceKind,
+    buttonId: input.buttonId,
+    characterId: input.characterId,
+    sourceName,
+    source,
+    ownerBuffDomain: stringOrNull(input.facts.ownerBuffDomain),
+    ownerCharacterId: stringOrNull(input.facts.ownerCharacterId),
+    ownerBuffGroup: stringOrNull(input.facts.ownerBuffGroup),
+  };
+  const evidenceKey = canonicalJson(evidence as unknown as JsonObject);
+  if (!existing.evidence.some((entry) => canonicalJson(entry as unknown as JsonObject) === evidenceKey)) {
+    if (existing.evidence.length < MAX_BUFF_EVIDENCE_PER_CANDIDATE) {
+      existing.evidence.push(evidence);
+    } else {
+      existing.evidenceTruncated = true;
+    }
+  }
   candidates.set(key, existing);
 }
 

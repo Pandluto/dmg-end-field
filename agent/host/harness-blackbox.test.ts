@@ -263,18 +263,28 @@ function expectedResult(toolName: string): JsonValue {
   if (toolName === 'def.data.resource.buff') {
     return {
       contract: 'DefBuffCandidatesV1',
+      schemaVersion: 2,
       binding: bindingJson(),
       query: '攻击',
       buttonId: null,
-      candidateCount: 1,
+      candidateCount: 2,
       truncated: false,
       candidates: [{
         id: 'buff-attack',
         label: '攻击提升',
         type: 'attackPercent',
         value: 0.2,
-        sourceKinds: ['button', 'equipment'],
-        sourceLabels: ['测试护甲', '测试来源'],
+        sourceKinds: ['equipment'],
+        sourceLabels: ['测试护甲'],
+        buttonIds: [],
+        characterIds: ['char-a'],
+      }, {
+        id: 'buff-attack',
+        label: '攻击提升',
+        type: 'attackPercent',
+        value: 0.2,
+        sourceKinds: ['button'],
+        sourceLabels: ['fixture', '测试来源'],
         buttonIds: ['button-a'],
         characterIds: ['char-a'],
       }],
@@ -509,7 +519,45 @@ for (const [caseIndex, parity] of PHASE3_READONLY_PARITY_CASES.entries()) {
     const toolResult: EngineToolResultInput | undefined = trace.toolResults[toolIndex + 1];
     assert.equal(toolResult?.status, 'succeeded');
     if (toolResult?.status === 'succeeded') {
-      assert.deepEqual(toolResult.result, expectedResult(toolName));
+      const expected = expectedResult(toolName);
+      if (toolName === 'def.node.crud.current') {
+        const actual = toolResult.result as JsonObject;
+        const legacyProjection = {
+          ...actual,
+          buttons: (actual.buttons as JsonObject[]).map((button) => ({
+            id: button.id,
+            characterId: button.characterId,
+            characterName: button.characterName,
+            skillType: button.skillType,
+            runtimeSkillId: button.runtimeSkillId,
+            skillDisplayName: button.skillDisplayName,
+            staffIndex: button.staffIndex,
+            lineIndex: button.lineIndex,
+            persistenceStaffIndex: button.persistenceStaffIndex,
+            persistenceNodeIndex: button.persistenceNodeIndex,
+            selectedBuffCount: button.selectedBuffCount,
+          })),
+        };
+        assert.deepEqual(legacyProjection, expected);
+      } else if (toolName === 'def.data.resource.buff') {
+        const actual = toolResult.result as JsonObject;
+        const legacyProjection = {
+          ...actual,
+          candidates: (actual.candidates as JsonObject[]).map((candidate) => ({
+            id: candidate.id,
+            label: candidate.label,
+            type: candidate.type,
+            value: candidate.value,
+            sourceKinds: candidate.sourceKinds,
+            sourceLabels: candidate.sourceLabels,
+            buttonIds: candidate.buttonIds,
+            characterIds: candidate.characterIds,
+          })),
+        };
+        assert.deepEqual(legacyProjection, expected);
+      } else {
+        assert.deepEqual(toolResult.result, expected);
+      }
     }
   }
 

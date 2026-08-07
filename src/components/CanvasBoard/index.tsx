@@ -99,6 +99,7 @@ import {
   pullRemoteMainWorkbenchCommands,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
+  projectMainWorkbenchButtonState,
   readMainWorkbenchSnapshot,
   writeMainWorkbenchSnapshot,
   type MainWorkbenchCommand,
@@ -334,6 +335,37 @@ function buildMainWorkbenchSnapshotSignature(
         nodeIndex: button.nodeIndex,
         nodeNumber: button.nodeNumber,
         selectedBuffIds: [...button.selectedBuffIds].sort(),
+        selectedBuffs: (button.selectedBuffs ?? []).map((buff) => ({
+          ...buff,
+          target: buff.target ? { ...buff.target } : null,
+          multiplier: buff.multiplier ? { ...buff.multiplier } : null,
+          derivedValue: buff.derivedValue ? { ...buff.derivedValue } : null,
+          extraHitConfig: buff.extraHitConfig ? { ...buff.extraHitConfig } : null,
+        })),
+        currentStackCounts: Object.fromEntries(
+          Object.entries(button.currentStackCounts ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+        ),
+        currentStackCountSources: Object.fromEntries(
+          Object.entries(button.currentStackCountSources ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+        ),
+        globallyDisabledBuffIds: [...(button.globallyDisabledBuffIds ?? [])].sort(),
+        manualDisabledBuffIdsBySegmentKey: Object.fromEntries(
+          Object.entries(button.manualDisabledBuffIdsBySegmentKey ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, ids]) => [key, [...ids].sort()]),
+        ),
+        manualBuffStackCountsBySegmentKey: Object.fromEntries(
+          Object.entries(button.manualBuffStackCountsBySegmentKey ?? {})
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([key, counts]) => [
+              key,
+              Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right))),
+            ]),
+        ),
+        manualDisabledHitKeys: [...(button.manualDisabledHitKeys ?? [])].sort(),
+        targetResistance: Object.fromEntries(
+          Object.entries(button.targetResistance ?? {}).sort(([left], [right]) => left.localeCompare(right)),
+        ),
       })),
     operatorConfigs: [...operatorConfigs]
       .sort((a, b) => a.characterId.localeCompare(b.characterId))
@@ -3968,9 +4000,19 @@ export function CanvasBoard({
     const computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
     const operatorConfigCache = getOperatorConfigPageCache();
     const persistedButtonTable = getSkillButtonTable();
+    const projectButtonState = (buttonId: string, persistedButton: PersistedSkillButton | undefined) => (
+      projectMainWorkbenchButtonState({
+        selectedBuffIds: persistedButton?.selectedBuff ?? [],
+        selectedBuffs: getBuffsByButtonId(buttonId),
+        buffStackCounts: persistedButton?.buffStackCounts,
+        panelConfig: persistedButton?.panelConfig,
+        targetResistance: persistedButton?.resistanceConfig?.targetResistance,
+      })
+    );
     const mirroredButtons: MainWorkbenchSnapshot['skillButtons'] = skillButtons.length > 0
       ? skillButtons.map((button) => {
           const persistedButton = persistedButtonTable[button.id];
+          const buttonState = projectButtonState(button.id, persistedButton);
           return {
             id: button.id,
             characterId: button.characterId,
@@ -3984,26 +4026,13 @@ export function CanvasBoard({
             persistenceNodeIndex: button.staffIndex * GRID_NODE_COUNT + (button.nodeIndex ?? 0),
             nodeIndex: button.nodeIndex,
             nodeNumber: button.nodeNumber,
-            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
-            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
-              id: buff.id,
-              name: buff.name,
-              displayName: buff.displayName,
-              sourceName: buff.sourceName,
-              level: buff.level,
-              type: buff.type,
-              value: buff.value,
-              description: buff.description,
-              source: buff.source,
-              condition: buff.condition,
-              category: buff.category,
-              effectKind: buff.effectKind,
-            })),
+            ...buttonState,
           };
         })
-      : timelineButtons.length > 0
+        : timelineButtons.length > 0
         ? timelineButtons.map((button) => {
           const persistedButton = persistedButtonTable[button.id];
+          const buttonState = projectButtonState(button.id, persistedButton);
           return {
             id: button.id,
             characterId: persistedButton?.characterId ?? button.characterName,
@@ -4017,21 +4046,7 @@ export function CanvasBoard({
             persistenceNodeIndex: button.nodeIndex,
             nodeIndex: button.nodeIndex % GRID_NODE_COUNT,
             nodeNumber: calculateNodeNumber(button.nodeIndex % GRID_NODE_COUNT),
-            selectedBuffIds: [...(persistedButton?.selectedBuff ?? [])],
-            selectedBuffs: getBuffsByButtonId(button.id).map((buff) => ({
-              id: buff.id,
-              name: buff.name,
-              displayName: buff.displayName,
-              sourceName: buff.sourceName,
-              level: buff.level,
-              type: buff.type,
-              value: buff.value,
-              description: buff.description,
-              source: buff.source,
-              condition: buff.condition,
-              category: buff.category,
-              effectKind: buff.effectKind,
-            })),
+            ...buttonState,
           };
         })
       : [];
