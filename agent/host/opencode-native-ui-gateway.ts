@@ -400,7 +400,20 @@ export class OpenCodeNativeUiGateway {
     }
 
     if (request.method === 'GET' && url.pathname === '/api/native/node-review') {
-      this.#writeJson(response, 200, { ok: true, bound: false, diffs: [], report: null });
+      const engineSessionId = url.searchParams.get('sessionID')?.trim() ?? '';
+      if (!engineSessionId) {
+        throw new DefAgentHostError(
+          'AGENT_NATIVE_UI_SESSION_REQUIRED',
+          'Work Node review requires the visible OpenCode Session',
+          400,
+        );
+      }
+      this.#sessionForEngine(engineSessionId, access.binding);
+      const snapshot = await this.#host.readProductSnapshot(access.binding);
+      this.#writeJson(response, 200, {
+        ok: true,
+        ...readNodeReviewProjection(snapshot.payload),
+      });
       return;
     }
 
@@ -967,7 +980,7 @@ function embeddedProfile() {
       sessionCreate: true,
       sessionList: true,
       sessionArchive: true,
-      nodeReview: false,
+      nodeReview: true,
       nodeFiles: false,
       nodeApproval: false,
       modelSelect: false,
@@ -981,6 +994,26 @@ function embeddedProfile() {
       settingsShortcuts: false,
     },
   } as const;
+}
+
+function readNodeReviewProjection(payload: unknown): {
+  readonly bound: boolean;
+  readonly diffs: readonly JsonValue[];
+  readonly report: JsonValue | null;
+} {
+  if (!isRecord(payload) || !isRecord(payload.nodeReview)) {
+    return { bound: false, diffs: [], report: null };
+  }
+  const review = payload.nodeReview;
+  return {
+    bound: review.bound === true,
+    diffs: Array.isArray(review.diffs)
+      ? structuredClone(review.diffs) as JsonValue[]
+      : [],
+    report: review.report === null || isRecord(review.report)
+      ? structuredClone(review.report as JsonValue | null)
+      : null,
+  };
 }
 
 function isOpenCodeApiPath(pathname: string): boolean {

@@ -36,6 +36,7 @@ import {
   type ProductCommandEnvelope,
   type ProductCommandResult,
   type ProductGateway,
+  type ProductSnapshotEnvelope,
 } from '../core/contracts/index.ts';
 import { DefHarnessError, DefHarnessManager } from '../core/harness/manager.ts';
 import { DefToolExecutionError } from '../core/contracts/tool.ts';
@@ -1028,6 +1029,13 @@ export class DefAgentHost {
     const record = this.#requireSession(defSessionId);
     if (binding) assertStableSessionBinding(record.session, binding);
     return cloneSession(record.session);
+  }
+
+  /** Read the browser-owned Product projection without exposing the Gateway. */
+  async readProductSnapshot(binding: ProductBinding): Promise<ProductSnapshotEnvelope> {
+    this.#assertRunning();
+    this.#assertInitialized();
+    return this.#productGateway.getSnapshot(binding);
   }
 
   archiveSession(

@@ -68,6 +68,22 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
   let sessionState = session;
   let pending: InteractionRequest[] = [];
   const upstreamRequests: string[] = [];
+  const nodeReview = {
+    bound: true,
+    diffs: [{
+      file: 'node/working/timeline.json',
+      before: '{}\n',
+      after: '{\n  "changed": true\n}\n',
+      additions: 2,
+      deletions: 1,
+    }],
+    report: {
+      manifest: { nodeId: 'node-native-ui', revision: 2 },
+      validation: { valid: true, ok: true, issues: [] },
+      semanticDiff: { changes: [] },
+      risk: { riskFlags: [] },
+    },
+  };
   const host = {
     readSession(defSessionId: string) {
       assert.equal(defSessionId, session.defSessionId);
@@ -78,6 +94,15 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     },
     async createSession() {
       return sessionState;
+    },
+    async readProductSnapshot(expected: ProductBinding) {
+      assert.deepEqual(expected, binding);
+      return {
+        protocolVersion: 1,
+        binding,
+        capturedAt: '2026-08-08T00:00:00.000Z',
+        payload: { nodeReview },
+      };
     },
     archiveSession(defSessionId: string, expected?: ProductBinding) {
       assert.equal(defSessionId, session.defSessionId);
@@ -209,6 +234,23 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     assert.match(indexHtml, /__DEF_EMBEDDED_PROFILE__/u);
     assert.match(indexHtml, /permission-footer-actions/u);
     assert.match(indexResponse.headers.get('set-cookie') ?? '', /def_native_ui=/u);
+
+    const bootstrapResponse = await fetch(
+      `${gateway.origin}/api/native/bootstrap?sessionID=${encodeURIComponent(session.engine.sessionId)}`,
+      { headers: { authorization: `Basic ${authToken}` } },
+    );
+    assert.equal(bootstrapResponse.status, 200);
+    const bootstrap = await bootstrapResponse.json() as {
+      profile?: { features?: { nodeReview?: boolean } };
+    };
+    assert.equal(bootstrap.profile?.features?.nodeReview, true);
+
+    const nodeReviewResponse = await fetch(
+      `${gateway.origin}/api/native/node-review?sessionID=${encodeURIComponent(session.engine.sessionId)}`,
+      { headers: { authorization: `Basic ${authToken}` } },
+    );
+    assert.equal(nodeReviewResponse.status, 200);
+    assert.deepEqual(await nodeReviewResponse.json(), { ok: true, ...nodeReview });
 
     const fontResponse = await fetch(`${gateway.origin}/font.woff`);
     assert.equal(fontResponse.status, 200);
