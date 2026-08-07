@@ -87,11 +87,43 @@ function authoritativeNodeRevision(node: { readonly contentRevision?: number }):
   return Number(node.contentRevision);
 }
 
-function authoritativeSnapshotRevision(snapshot: { readonly createdAt: number }): number {
-  if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
-    throw new Error('prepared-source-revision-invalid: snapshot 没有权威 createdAt revision。');
+const SNAPSHOT_REVISION_MASK = (1n << 52n) - 1n;
+
+/**
+ * ProductBinding keeps contentRevision as a safe integer, while snapshots
+ * already have a stable SHA-256 content identity. Fold the full digest into
+ * that protocol-sized integer; the full digest remains the snapshot digest.
+ */
+export function snapshotContentRevisionFromDigest(payloadHash: string): number {
+  const match = /^sha256:([0-9a-f]{64})$/iu.exec(payloadHash.trim());
+  if (!match) throw new Error('prepared-source-revision-invalid: snapshot payload digest 无效。');
+  let revision = 0n;
+  const hex = match[1]!;
+  for (let index = 0; index < hex.length; index += 13) {
+    revision = ((revision << 7n) ^ BigInt(`0x${hex.slice(index, index + 13)}`)) & SNAPSHOT_REVISION_MASK;
   }
-  return snapshot.createdAt;
+  return Number(revision);
+}
+
+export async function snapshotContentRevisionFromPayload(
+  payload: TimelineSnapshotPayload,
+): Promise<number> {
+  return snapshotContentRevisionFromDigest(await sha256Json(payload));
+}
+
+async function authoritativeSnapshotRevision(snapshot: {
+  readonly createdAt: number;
+  readonly payload?: TimelineSnapshotPayload;
+}): Promise<number> {
+  if (!Number.isSafeInteger(snapshot.createdAt) || snapshot.createdAt < 0) {
+    throw new Error('prepared-source-revision-invalid: snapshot createdAt 无效。');
+  }
+  // Re-hash the validated payload so a stale/missing stored hash cannot make
+  // two different payloads share one source revision.
+  if (!snapshot.payload) {
+    throw new Error('prepared-source-revision-invalid: snapshot payload 缺失。');
+  }
+  return snapshotContentRevisionFromPayload(snapshot.payload);
 }
 
 /** Read one exact persisted checkout and its authoritative target CAS revision. */
@@ -122,7 +154,7 @@ export async function readPersistedWorkspaceCheckout(
   const contentRevision = sourceNode
     ? authoritativeNodeRevision(sourceNode)
     : sourceSnapshot
-      ? authoritativeSnapshotRevision(sourceSnapshot)
+      ? await authoritativeSnapshotRevision(sourceSnapshot)
       : (() => { throw new Error('prepared-source-target-missing: checkout target 不存在。'); })();
   return {
     document: bundle.document,
@@ -1093,6 +1125,16 @@ export async function applyReviewedSelectionProposal(
       );
     }
 
+    // The node count is only a non-authoritative summary. Read it before the
+    // commit point so a later summary read can never turn a successful apply
+    // into an error.
+    const candidateTimelineNodeCount = (await client.list()).nodes
+      .filter((node) => node.timelineId === candidate.candidateTimelineId)
+      .length;
+    // markCheckoutApplied returns the authoritative node/commit facts. Keep
+    // those facts for the result projection instead of reading them back
+    // after the atomic transaction has committed.
+    let appliedNode = candidateNode;
     const committed = await client.commit(candidateNode.id, {
       label: candidateNode.label,
       riskFlags: candidateNode.riskFlags,
@@ -1175,6 +1217,7 @@ export async function applyReviewedSelectionProposal(
           appliedBy: 'user',
           rationale: 'selection candidate 可见后置条件已通过，应用正式 checkout。',
         });
+        appliedNode = marked.node;
         return {
           applied: marked.commit.id === commitId
             && marked.commit.checkoutApplied
@@ -1260,9 +1303,11 @@ export async function applyReviewedSelectionProposal(
           }
         : {}),
     });
-    const list = await client.list();
-    const reviewNode = (await client.get(candidate.nodeId)).node;
-    const review = buildAiTimelineNodeReviewProjection(reviewNode, targetCheckoutRef);
+    // From this point onward the live checkout, applied ledger and final
+    // postcondition are already committed. Do not perform another client
+    // list/get here: the projection is built from the facts returned by the
+    // commit-stage writes above.
+    const review = buildAiTimelineNodeReviewProjection(appliedNode, targetCheckoutRef);
     return {
       ok: true as const,
       applied: true as const,
@@ -1283,7 +1328,7 @@ export async function applyReviewedSelectionProposal(
       currentView: targetView,
       timelineId: candidate.candidateTimelineId,
       transition: candidate.destination === 'current-timeline' ? 'horizontal-branch' as const : 'new-temporary-workspace' as const,
-      nodeCount: list.nodes.filter((node) => node.timelineId === candidate.candidateTimelineId).length,
+      nodeCount: candidateTimelineNodeCount,
       nodeReview: review,
       cleanupWarning: activation.cleanupWarning,
       postcondition: {
