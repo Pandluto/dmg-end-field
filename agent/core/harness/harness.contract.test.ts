@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  DEF_AGENT_IN_MEMORY_LIMITS,
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
@@ -288,6 +289,31 @@ for (const [index, parity] of PHASE3_READONLY_PARITY_CASES.entries()) {
   await expectHarnessError(
     () => manager.commitPrepared(preparedCompletion),
     'HARNESS_TRANSITION_CONFLICT',
+  );
+}
+
+// Terminal Harness transactions are retained for recent diagnostics but pruned at a hard ceiling.
+{
+  const boundedManager = new DefHarnessManager({
+    resolveToolDescriptor: (name) => registry.resolveDescriptor(name),
+  });
+  let oldestTransactionId = '';
+  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxHarnessTransactionsPerHost; index += 1) {
+    const started = boundedManager.beginTurn({
+      defSessionId: asDefSessionId('session-harness-retention'),
+      defTurnId: asDefTurnId(`turn-harness-retention-${index}`),
+    });
+    if (index === 0) oldestTransactionId = started.transaction.transactionId;
+    boundedManager.abort(started.transaction.transactionId, 'RETENTION_FIXTURE');
+  }
+  const newest = boundedManager.beginTurn({
+    defSessionId: asDefSessionId('session-harness-retention'),
+    defTurnId: asDefTurnId('turn-harness-retention-newest'),
+  });
+  assert.equal(boundedManager.getTransaction(newest.transaction.transactionId).status, 'routing');
+  await expectHarnessError(
+    () => boundedManager.getTransaction(oldestTransactionId),
+    'HARNESS_TRANSACTION_NOT_FOUND',
   );
 }
 

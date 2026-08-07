@@ -18,6 +18,19 @@ export const DEF_AGENT_PROTOCOL_VERSION = 2 as const;
 export const DEF_AGENT_RUNTIME_SCHEMA_VERSION = 1 as const;
 export const DEF_AGENT_COMMAND_SCHEMA_VERSION = 1 as const;
 
+export const DEF_AGENT_IN_MEMORY_LIMITS = Object.freeze({
+  maxSessionsPerHost: 16,
+  maxTurnsPerSession: 64,
+  maxEventsPerSession: 4_096,
+  maxEventCodeUnitsPerSession: 4 * 1_024 * 1_024,
+  maxEventsPerTurn: 1_024,
+  maxEventCodeUnitsPerTurn: 1 * 1_024 * 1_024,
+  terminalEventReserve: 32,
+  terminalCodeUnitReserve: 64 * 1_024,
+  maxHarnessTransactionsPerHost: 1_024,
+  maxProductCommandsPerHost: 4_096,
+});
+
 export const AGENT_UI_CAPABILITY_HEADER = 'x-dmg-agent-ui-capability' as const;
 export const AGENT_LAUNCH_GRANT_FRAGMENT_KEY = '__agent_launch_grant' as const;
 export const AGENT_UI_CAPABILITY_STORAGE_KEY = 'dmg.desktop.agent-ui-session.v1' as const;

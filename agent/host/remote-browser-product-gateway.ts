@@ -1,4 +1,5 @@
 import {
+  DEF_AGENT_IN_MEMORY_LIMITS,
   canonicalJson,
   type BrowserCommandDelivery,
   type BrowserCommandResultSubmission,
@@ -101,6 +102,12 @@ export class RemoteBrowserProductGateway implements ProductGateway<Phase2Product
         status: existing.status === 'queued' ? 'queued' : existing.status === 'dispatched' ? 'dispatched' : 'reconciling',
         acceptedAt: existing.acceptedAt,
       };
+    }
+    if (this.#commands.size >= DEF_AGENT_IN_MEMORY_LIMITS.maxProductCommandsPerHost) {
+      throw new DefAgentHostError(
+        'AGENT_COMMAND_CAPACITY_REACHED',
+        `This Agent Host keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxProductCommandsPerHost} Product commands`,
+      );
     }
     const acceptedAt = new Date(this.#clock()).toISOString();
     this.#commands.set(command.commandId, {

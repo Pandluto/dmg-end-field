@@ -24,6 +24,57 @@ function acceptedEvent(defSessionId: DefSessionId, sequence: number, suffix: str
   };
 }
 
+// A defensive client-side ceiling prevents an incompatible Host from growing the transcript forever.
+{
+  const defSessionId = asDefSessionId('poller-session-capacity');
+  let scheduledRetries = 0;
+  const poller = new AgentEventPoller({
+    reader: {
+      async readSessionEvents(_session, afterSequence = 0) {
+        return page(defSessionId, afterSequence, [
+          acceptedEvent(defSessionId, 1, 'capacity-one'),
+          acceptedEvent(defSessionId, 2, 'capacity-two'),
+          acceptedEvent(defSessionId, 3, 'capacity-three'),
+        ]);
+      },
+    },
+    maxEvents: 2,
+    setTimeout: () => { scheduledRetries += 1; return 1; },
+    clearTimeout: () => undefined,
+  });
+  poller.setSession(defSessionId);
+  poller.start();
+  await poller.refresh();
+  assert.equal(poller.getState().status, 'error');
+  assert.match(poller.getState().error ?? '', /2 条内存上限/);
+  assert.equal(poller.getState().events.length, 0);
+  assert.equal(scheduledRetries, 0, 'a terminal capacity error must not retry forever');
+  poller.stop();
+}
+
+// The transcript also has a serialized-size ceiling, not only an event-count ceiling.
+{
+  const defSessionId = asDefSessionId('poller-session-byte-capacity');
+  const poller = new AgentEventPoller({
+    reader: {
+      async readSessionEvents(_session, afterSequence = 0) {
+        return page(defSessionId, afterSequence, [acceptedEvent(defSessionId, 1, 'large')]);
+      },
+    },
+    maxEvents: 10,
+    maxEventCodeUnits: 10,
+    setTimeout: () => 1,
+    clearTimeout: () => undefined,
+  });
+  poller.setSession(defSessionId);
+  poller.start();
+  await poller.refresh();
+  assert.equal(poller.getState().status, 'error');
+  assert.match(poller.getState().error ?? '', /10 字符内存上限/);
+  assert.equal(poller.getState().events.length, 0);
+  poller.stop();
+}
+
 function page(
   defSessionId: DefSessionId,
   afterSequence: number,

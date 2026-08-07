@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import {
+  DEF_AGENT_IN_MEMORY_LIMITS,
   canonicalJson,
   type DefHarnessBusinessId,
   type DefHarnessOperationDefinition,
@@ -29,7 +30,8 @@ export type DefHarnessErrorCode =
   | 'HARNESS_TRANSITION_CONFLICT'
   | 'HARNESS_ROUTE_INVALID'
   | 'HARNESS_ROUTE_UNSUPPORTED'
-  | 'HARNESS_TOOL_NOT_PROJECTED';
+  | 'HARNESS_TOOL_NOT_PROJECTED'
+  | 'HARNESS_TRANSACTION_CAPACITY';
 
 export class DefHarnessError extends Error {
   readonly code: DefHarnessErrorCode;
@@ -154,6 +156,13 @@ export class DefHarnessManager {
     const transactionId = `harness:${input.defTurnId}`;
     if (this.#transactions.has(transactionId)) {
       throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Harness transaction already exists: ${transactionId}`);
+    }
+    this.#pruneTerminalTransactions();
+    if (this.#transactions.size >= DEF_AGENT_IN_MEMORY_LIMITS.maxHarnessTransactionsPerHost) {
+      throw new DefHarnessError(
+        'HARNESS_TRANSACTION_CAPACITY',
+        'Harness transaction retention is full',
+      );
     }
     const record: TransactionRecord = {
       transactionId,
@@ -317,6 +326,16 @@ export class DefHarnessManager {
 
   getTrace(transactionId: string): readonly DefHarnessTraceEntry[] {
     return [...this.#requireTransaction(transactionId).trace];
+  }
+
+  #pruneTerminalTransactions(): void {
+    if (this.#transactions.size < DEF_AGENT_IN_MEMORY_LIMITS.maxHarnessTransactionsPerHost) return;
+    for (const [transactionId, record] of this.#transactions) {
+      if (!record.terminalState) continue;
+      this.#preparedTransitions.delete(transactionId);
+      this.#transactions.delete(transactionId);
+      if (this.#transactions.size < DEF_AGENT_IN_MEMORY_LIMITS.maxHarnessTransactionsPerHost) return;
+    }
   }
 
   #stage(

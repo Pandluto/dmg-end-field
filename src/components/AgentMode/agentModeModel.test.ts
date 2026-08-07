@@ -141,5 +141,23 @@ assert.throws(
       payload: {},
     }),
   ]),
-  /strictly increasing/,
+  /contiguous/,
+);
+
+assert.throws(
+  () => projectAgentTranscript([
+    event({
+      sequence: 1,
+      type: 'turn.accepted',
+      defTurnId: firstTurnId,
+      payload: { clientTurnId: asClientTurnId('client-gap'), userMessage: '不能跳号。' },
+    }),
+    event({
+      sequence: 3,
+      type: 'turn.completed',
+      defTurnId: firstTurnId,
+      payload: {},
+    }),
+  ]),
+  /contiguous/,
 );

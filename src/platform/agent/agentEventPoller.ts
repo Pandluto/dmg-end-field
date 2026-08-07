@@ -1,4 +1,7 @@
-import type { AgentEventPage } from '../../../agent/core/contracts/browser-protocol';
+import {
+  DEF_AGENT_IN_MEMORY_LIMITS,
+  type AgentEventPage,
+} from '../../../agent/core/contracts/browser-protocol';
 import type { DefEvent } from '../../../agent/core/contracts/events';
 import type { DefSessionId } from '../../../agent/core/contracts/ids';
 
@@ -24,6 +27,8 @@ export interface AgentEventPollerOptions {
   readonly reader: AgentEventReader;
   readonly intervalMs?: number;
   readonly errorIntervalMs?: number;
+  readonly maxEvents?: number;
+  readonly maxEventCodeUnits?: number;
   readonly setTimeout?: (handler: () => void, timeout: number) => unknown;
   readonly clearTimeout?: (handle: unknown) => void;
 }
@@ -32,6 +37,8 @@ export class AgentEventPoller {
   readonly #reader: AgentEventReader;
   readonly #intervalMs: number;
   readonly #errorIntervalMs: number;
+  readonly #maxEvents: number;
+  readonly #maxEventCodeUnits: number;
   readonly #setTimeout: (handler: () => void, timeout: number) => unknown;
   readonly #clearTimeout: (handle: unknown) => void;
   readonly #listeners = new Set<(snapshot: AgentEventPollerSnapshot) => void>();
@@ -47,11 +54,15 @@ export class AgentEventPoller {
   #pollPromise: Promise<void> | null = null;
   #pollGeneration = -1;
   #generation = 0;
+  #eventCodeUnits = 0;
 
   constructor(options: AgentEventPollerOptions) {
     this.#reader = options.reader;
     this.#intervalMs = options.intervalMs ?? 300;
     this.#errorIntervalMs = options.errorIntervalMs ?? 1_000;
+    this.#maxEvents = options.maxEvents ?? DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerSession;
+    this.#maxEventCodeUnits = options.maxEventCodeUnits
+      ?? DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerSession;
     this.#setTimeout = options.setTimeout ?? ((handler, timeout) => window.setTimeout(handler, timeout));
     this.#clearTimeout = options.clearTimeout ?? ((handle) => window.clearTimeout(handle as number));
   }
@@ -70,6 +81,7 @@ export class AgentEventPoller {
     if (this.#snapshot.defSessionId === defSessionId) return;
     this.#generation += 1;
     this.#cancelTimer();
+    this.#eventCodeUnits = 0;
     this.#snapshot = {
       defSessionId,
       cursor: 0,
@@ -136,6 +148,21 @@ export class AgentEventPoller {
         );
         if (generation !== this.#generation || this.#snapshot.defSessionId !== defSessionId) return;
         if (page.events.length) {
+          const pageCodeUnits = page.events.reduce(
+            (total, event) => total + JSON.stringify(event).length,
+            0,
+          );
+          if (this.#snapshot.events.length + page.events.length > this.#maxEvents) {
+            throw new AgentEventPollerCapacityError(
+              `当前会话事件超过 ${this.#maxEvents} 条内存上限，已停止继续加载。`,
+            );
+          }
+          if (this.#eventCodeUnits + pageCodeUnits > this.#maxEventCodeUnits) {
+            throw new AgentEventPollerCapacityError(
+              `当前会话事件超过 ${this.#maxEventCodeUnits} 字符内存上限，已停止继续加载。`,
+            );
+          }
+          this.#eventCodeUnits += pageCodeUnits;
           this.#snapshot = {
             ...this.#snapshot,
             cursor: page.nextSequence,
@@ -160,7 +187,11 @@ export class AgentEventPoller {
         error: error instanceof Error ? error.message : String(error),
       };
       this.#emit();
-      if (this.#running) this.#schedule(this.#errorIntervalMs);
+      if (error instanceof AgentEventPollerCapacityError) {
+        this.#running = false;
+      } else if (this.#running) {
+        this.#schedule(this.#errorIntervalMs);
+      }
     }
   }
 
@@ -180,5 +211,12 @@ export class AgentEventPoller {
 
   #emit(): void {
     for (const listener of this.#listeners) listener(this.#snapshot);
+  }
+}
+
+class AgentEventPollerCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AgentEventPollerCapacityError';
   }
 }

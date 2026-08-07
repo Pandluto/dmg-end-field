@@ -16,7 +16,7 @@ Complete.
 - AI 模式继续挂载完整 `WorkbenchFrame`，当前标签仍是浏览器 SQLite/OPFS 的唯一 writer 与 BrowserWorkbench consumer。
 - Electron 只代理 `/agent-host/**`，浏览器只持有当前标签的 `AgentUiCapability`。
 - Session、Turn 和 Event 的权威状态位于 `DefAgentHost`；OpenCode 只存在于 `AgentEngine` 适配器内部。
-- 本阶段 Session/Event 仍是 Host 进程内状态。Host 重启后的持久化恢复、归档与历史迁移留给后续阶段，不在 UI 中伪装为已支持。
+- 本阶段 Session/Event 仍是 Host 进程内状态，并采用硬容量上限与满额背压；不会滚动删除 Event。Host 重启后的持久化恢复、归档与历史迁移留给后续阶段，不在 UI 中伪装为已支持。
 - Question、Approval、mutation、会话删除/归档、Provider 凭据编辑不属于本阶段。
 
 ## Product HTTP API
@@ -41,6 +41,8 @@ Complete.
 - `turn.accepted` 事件记录原始用户消息，使 transcript 完全由 Event Journal 投影，不由 React 维护第二份权威聊天记录。
 - Event feed 使用 cursor JSON polling，不在本阶段暴露 SSE。Electron 代理仍会缓冲响应；在实现真正流式代理前不得伪装 SSE。
 - Event 响应每次最多 256 条、JSON 总体受 Host 响应边界限制；非法或超前 cursor 返回 typed request error。
+- Product 协议维持 v2、Event schema 维持 v1。每个 Host 最多保留 16 个 Session；每 Session 最多 64 个已接受 Turn、4096 条 Event 和 4 Mi code units；每 Turn 最多 1024 条 Event 和 1 Mi code units，并为确定终态预留 32 条/64 Ki code units。
+- 满额时拒绝新 Session/Turn，或只终止超额的当前 Turn；不得 `shift`/`slice` 旧 Event。旧 `clientTurnId` 重试与已结束 Turn 的重复 abort 必须在容量检查前保持幂等。
 - Session API 永远不返回 provider secret、Host token、OpenCode URL、engine authorization、内部路径或 raw provider error。
 
 ## Host model additions
@@ -52,6 +54,8 @@ Complete.
 - `readEvents(defSessionId, afterSequence, limit)`；
 - client Turn correlation / retry lookup；
 - active Turn 与 terminal 查询所需的稳定 metadata。
+
+Turn 结束后必须立即释放 Engine handle、AbortController 和协议锁，只保留轻量 terminal tombstone；成功的 `clientTurnId` 从 Promise 压缩为 `userMessage + TurnStartResult`。Harness terminal transaction 与 Product command 也必须受 Host 级硬上限约束。
 
 Session 必须精确匹配当前 consumer 的 `workspaceId`、`databaseGeneration` 与 `timelineId`。checkout/revision 可以在两轮之间变化，但新 Turn 启动前仍由 Browser snapshot/consumer binding 提供当前产品上下文；不允许跨 Timeline 静默复用 Session。
 
@@ -65,6 +69,7 @@ Session 必须精确匹配当前 consumer 的 `workspaceId`、`databaseGeneratio
 - 首次进入：consumer/binding/engine 均 ready 后，若当前 Timeline 没有 Session，显示明确“新建会话”；不自动伪造会话；
 - 发送后立即以 Host 返回的 `turn.accepted` 为准，React 不预写“已发送成功”；网络不确定时用同一 `clientTurnId` 重试；
 - Event polling 在页面隐藏、授权失效、consumer 丢失或组件卸载时停止；恢复后从最后 sequence 继续；
+- Event poller 必须同时限制累计条数与序列化体积；越界后 fail-closed 并停止自动重试，不得截断 transcript；
 - response delta 按同一 `defTurnId` 合并；Tool 卡按 `toolCallId` 合并；一个 Turn 只显示一个 terminal；
 - Markdown 仅用于 assistant 最终/累积文本，禁止 raw HTML；Tool input/result 默认折叠，避免大对象压垮布局；
 - engine unavailable、无 consumer、无 binding、Session conflict 和 Turn failure 都显示可理解的中文状态，不显示“引擎待接入”。
@@ -86,12 +91,14 @@ Session 必须精确匹配当前 consumer 的 `workspaceId`、`databaseGeneratio
 5. Fake Engine 纵向测试：UI 使用同一桥合同完成 create → send → events → terminal → second turn → abort。
 6. 真实 OpenCode 纵向测试：至少一条 calculation 路线通过新 Product HTTP API，最终中文文本来自 Event Journal。
 7. 回归：`npm run check`、Electron supervisor、package boundary、普通 Slim route、MCP 与 Browser SQLite 不回归。
+8. 容量：Session/Turn/Journal/Harness/command 达到边界后稳定背压；旧重试、terminal wait/abort、连续 cursor 和唯一终态不回归。
 
 ## Acceptance
 
 - 用户从 Shell 打开 `/timeline/ai` 后，可以在 Slim Workbench 内创建真实 DEF Session 并完成五业务只读对话。
 - UI 的所有消息、Tool 与终态都能从 Host Event Journal 重建；刷新 React state 不产生第二份聊天事实。
 - 发送、停止、网络重试和 active Turn 冲突有确定语义；同一 `clientTurnId` 不创建第二轮。
+- Host 长时间运行的内存状态有明确上限；满额不静默丢历史，也不保留已结束 Turn 的 Engine 重对象。
 - 浏览器 bundle 和网络请求中没有 OpenCode 私有协议或 secret。
 - 普通 Web LTS 不显示入口，不依赖 Agent 才能运行。
 - AI CLI 和旧 AI 栈继续保持退役。

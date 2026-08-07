@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   AGENT_UI_CAPABILITY_HEADER,
+  DEF_AGENT_IN_MEMORY_LIMITS,
+  asClientTurnId,
   asCommandId,
   asDatabaseGeneration,
   asDefSessionId,
@@ -9,6 +11,7 @@ import {
   asTimelineId,
   asToolCallId,
   asWorkspaceId,
+  type AgentEngine,
   type Phase2ProductCommand,
   type ProductBinding,
   type ProductCommandResult,
@@ -323,6 +326,37 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
       completedAt: '2026-08-07T00:00:02.000Z',
     },
   }).status, 'orphaned');
+  gateway.clear();
+}
+
+// Product command retention is bounded while existing command retries keep their identity.
+{
+  const owner = claims('cap-command-retention');
+  const registry = new BrowserConsumerRegistry();
+  const registration = {
+    consumerId: 'consumer-command-retention',
+    executorLeaseId: 'lease-command-retention',
+    writer: true as const,
+    visible: true as const,
+    binding: binding(),
+  };
+  registry.register(owner, registration);
+  const gateway = new RemoteBrowserProductGateway(registry);
+  gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: snapshot(),
+  });
+  const first = command('command-retention-0');
+  await gateway.dispatch(first);
+  for (let index = 1; index < DEF_AGENT_IN_MEMORY_LIMITS.maxProductCommandsPerHost; index += 1) {
+    await gateway.dispatch(command(`command-retention-${index}`));
+  }
+  assert.equal((await gateway.dispatch(first)).commandId, first.commandId);
+  await expectHostError(
+    () => gateway.dispatch(command('command-retention-overflow')),
+    'AGENT_COMMAND_CAPACITY_REACHED',
+  );
   gateway.clear();
 }
 
@@ -889,6 +923,16 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     method: 'POST', headers: productHeaders, body: JSON.stringify({}),
   });
   assert.equal(secondAbort.status, 200, 'abort must be idempotent for a known settled Turn');
+  const terminalRetryResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    { method: 'POST', headers: productHeaders, body: JSON.stringify(turnBody) },
+  );
+  assert.equal(terminalRetryResponse.status, 202);
+  assert.equal(
+    (await terminalRetryResponse.json() as { defTurnId: string }).defTurnId,
+    started.defTurnId,
+    'a compact accepted clientTurn record must preserve retry identity after terminal settlement',
+  );
 
   const changedRegistration = {
     ...registration,
@@ -924,6 +968,177 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   });
   assert.equal(wrongBindingAbort.status, 409, 'a consumer from another Timeline cannot address the old Turn');
   await server.stop();
+}
+
+// In-memory retention is finite without truncating journals or weakening retry identity.
+{
+  const owner = claims('cap-retention');
+  const registry = new BrowserConsumerRegistry();
+  const registration = {
+    consumerId: 'consumer-retention',
+    executorLeaseId: 'lease-retention',
+    writer: true as const,
+    visible: true as const,
+    binding: binding(),
+  };
+  registry.register(owner, registration);
+  const gateway = new RemoteBrowserProductGateway(registry);
+  gateway.publishSnapshot(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    snapshot: snapshot(),
+  });
+  const baseEngine = new DeterministicFakeAgentEngine();
+  const capacityAbortCodes: string[] = [];
+  const engine: AgentEngine = {
+    kind: baseEngine.kind,
+    probe: () => baseEngine.probe(),
+    createSession: (input) => baseEngine.createSession(input),
+    recoverSession: (ref) => baseEngine.recoverSession(ref),
+    startTurn: async (input) => {
+      const handle = await baseEngine.startTurn(input);
+      const trackCapacityAbort = input.userMessage.startsWith('填满事件日志');
+      return {
+        ref: handle.ref,
+        events: handle.events,
+        submitToolResult: (result) => handle.submitToolResult(result),
+        submitToolResultAndUpdateProjection: (result, projection) => (
+          handle.submitToolResultAndUpdateProjection(result, projection)
+        ),
+        submitInteractionResult: (result) => handle.submitInteractionResult(result),
+        updateToolProjection: (projection) => handle.updateToolProjection(projection),
+        abort: async (reason) => {
+          if (trackCapacityAbort) capacityAbortCodes.push(reason.code);
+          return handle.abort(reason);
+        },
+      };
+    },
+    compact: (ref) => baseEngine.compact(ref),
+    disposeSession: (ref) => baseEngine.disposeSession(ref),
+    shutdown: () => baseEngine.shutdown(),
+  };
+  const tools = new DefReadToolRegistry();
+  const harness = new DefHarnessManager({
+    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
+  });
+  const host = new DefAgentHost({
+    engine,
+    productGateway: gateway,
+    harnessManager: harness,
+    toolRegistry: tools,
+    requireConsumer: () => { registry.requireActive(); },
+  });
+  const sessions = [];
+  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost; index += 1) {
+    sessions.push(await host.createSession({
+      binding: binding(),
+      providerProfileRef: `retention-profile-${index}`,
+    }));
+  }
+  await expectHostError(() => host.createSession({
+    binding: binding(),
+    providerProfileRef: 'retention-profile-overflow',
+  }), 'AGENT_SESSION_LIMIT_REACHED');
+
+  const retainedSession = sessions[0]!;
+  let firstRetainedTurnId: ReturnType<typeof asDefTurnId> | null = null;
+  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxTurnsPerSession; index += 1) {
+    baseEngine.enqueueScript([{ type: 'complete' }]);
+    const turn = await host.startHarnessTurn({
+      defSessionId: retainedSession.defSessionId,
+      userMessage: `retained-turn-${index}`,
+      clientTurnId: asClientTurnId(`retained-client-turn-${index}`),
+    });
+    if (index === 0) firstRetainedTurnId = turn.defTurnId;
+    const terminal = await host.waitForTurnTerminal(turn.defTurnId);
+    assert.equal(terminal.type, 'turn.failed');
+    await host.abortTurn(turn.defTurnId, 'IDEMPOTENT_AFTER_SETTLEMENT');
+    assert.equal(await host.waitForTurnTerminal(turn.defTurnId), terminal);
+  }
+  assert.ok(firstRetainedTurnId);
+  const retriedRetainedTurn = await host.startHarnessTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-0',
+    clientTurnId: asClientTurnId('retained-client-turn-0'),
+  });
+  assert.equal(
+    retriedRetainedTurn.defTurnId,
+    firstRetainedTurnId,
+    'an old retry must win over a full Session capacity check',
+  );
+  await expectHostError(() => host.startHarnessTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-0-conflict',
+    clientTurnId: asClientTurnId('retained-client-turn-0'),
+  }), 'AGENT_CLIENT_TURN_CONFLICT');
+  await expectHostError(() => host.startHarnessTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-overflow',
+    clientTurnId: asClientTurnId('retained-client-turn-overflow'),
+  }), 'AGENT_SESSION_TURN_LIMIT_REACHED');
+
+  const journalSession = sessions[1]!;
+  for (let index = 0; index < 4; index += 1) {
+    baseEngine.enqueueScript([
+      ...Array.from(
+        { length: DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerTurn + 64 },
+        () => ({ type: 'text' as const, delta: 'bounded-delta' }),
+      ),
+      { type: 'complete' as const },
+    ]);
+    const journalTurn = await host.startTurn({
+      defSessionId: journalSession.defSessionId,
+      userMessage: `填满事件日志-${index}`,
+      systemContext: 'retention contract',
+      toolProjection: { revision: 1, tools: [] },
+    });
+    const journalTerminal = await host.waitForTurnTerminal(journalTurn.defTurnId);
+    assert.equal(journalTerminal.type, 'turn.failed');
+    if (journalTerminal.type === 'turn.failed') {
+      assert.equal(
+        journalTerminal.payload.code,
+        index < 3 ? 'AGENT_TURN_OUTPUT_LIMIT' : 'AGENT_EVENT_CAPACITY_REACHED',
+      );
+    }
+    assert.equal(
+      capacityAbortCodes.length,
+      index + 1,
+      'each over-capacity Turn must abort its Engine handle exactly once',
+    );
+  }
+  assert.deepEqual(capacityAbortCodes, [
+    'AGENT_TURN_OUTPUT_LIMIT',
+    'AGENT_TURN_OUTPUT_LIMIT',
+    'AGENT_TURN_OUTPUT_LIMIT',
+    'AGENT_EVENT_CAPACITY_REACHED',
+  ]);
+  const retainedEvents = [];
+  let retainedCursor = 0;
+  while (true) {
+    const page = host.readEvents(journalSession.defSessionId, retainedCursor, 256);
+    retainedEvents.push(...page);
+    if (page.length < 256) break;
+    retainedCursor = page.at(-1)!.sequence;
+  }
+  assert.ok(retainedEvents.length <= DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerSession);
+  assert.ok(
+    retainedEvents.reduce((total, event) => total + JSON.stringify(event).length, 0)
+      <= DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerSession,
+  );
+  assert.equal(retainedEvents.at(-1)?.type, 'turn.failed');
+  assert.equal(
+    retainedEvents.filter((event) => event.type === 'turn.failed').length,
+    4,
+    'each accepted over-capacity Turn must have one terminal Event',
+  );
+  retainedEvents.forEach((event, index) => assert.equal(event.sequence, index + 1));
+  await expectHostError(() => host.startTurn({
+    defSessionId: journalSession.defSessionId,
+    userMessage: '日志已满后不得静默截断',
+    systemContext: 'retention contract',
+    toolProjection: { revision: 1, tools: [] },
+  }), 'AGENT_EVENT_CAPACITY_REACHED');
+  await host.shutdown();
 }
 
 console.log('DEF_AGENT_HOST_PHASE2_CONTRACT_OK');

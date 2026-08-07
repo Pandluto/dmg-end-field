@@ -1,5 +1,6 @@
 import {
   DEF_EVENT_SCHEMA_VERSION,
+  DEF_AGENT_IN_MEMORY_LIMITS,
   DEF_SESSION_SCHEMA_VERSION,
   asClientTurnId,
   asCommandId,
@@ -40,12 +41,18 @@ type SessionRecord = {
   binding: ProductBinding;
   providerProfileRef: string;
   sequence: number;
+  eventCodeUnits: number;
+  acceptedTurns: number;
   events: DefEvent[];
-  clientTurns: Map<ClientTurnId, {
-    readonly userMessage: string;
-    readonly promise: Promise<TurnStartResult>;
-  }>;
+  clientTurns: Map<ClientTurnId, ClientTurnRecord>;
 };
+
+type ClientTurnRecord = {
+  readonly userMessage: string;
+} & (
+  | { readonly state: 'pending'; readonly promise: Promise<TurnStartResult> }
+  | { readonly state: 'accepted'; readonly result: TurnStartResult }
+);
 
 type TurnStartResult = {
   readonly defTurnId: DefTurnId;
@@ -66,11 +73,18 @@ type ActiveTurn = {
   readonly abortController: AbortController;
   readonly terminal: Promise<DefEvent>;
   readonly cancelled: Promise<void>;
+  readonly eventStartCount: number;
+  readonly eventStartCodeUnits: number;
   resolveTerminal: (event: DefEvent) => void;
   resolveCancelled: () => void;
   protocolTail: Promise<void>;
   abortRequested: boolean;
   settled: boolean;
+};
+
+type SettledTurn = {
+  readonly session: SessionRecord;
+  readonly terminal: DefEvent;
 };
 
 type IdFactory = {
@@ -89,6 +103,7 @@ export class DefAgentHost {
   readonly #ids: IdFactory;
   readonly #sessions = new Map<DefSessionId, SessionRecord>();
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
+  readonly #settledTurns = new Map<DefTurnId, SettledTurn>();
   #activeTurn: ActiveTurn | null = null;
   #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
@@ -128,6 +143,12 @@ export class DefAgentHost {
   }): Promise<DefSessionV6> {
     this.#assertRunning();
     this.#requireConsumer();
+    if (this.#sessions.size >= DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost) {
+      throw new DefAgentHostError(
+        'AGENT_SESSION_LIMIT_REACHED',
+        `This Agent Host keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} in-memory Sessions`,
+      );
+    }
     const defSessionId = this.#ids.session();
     const engine = await this.#engine.createSession({
       defSessionId,
@@ -163,6 +184,8 @@ export class DefAgentHost {
       binding: input.binding,
       providerProfileRef: input.providerProfileRef,
       sequence: 0,
+      eventCodeUnits: 0,
+      acceptedTurns: 0,
       events: [],
       clientTurns: new Map(),
     };
@@ -192,6 +215,7 @@ export class DefAgentHost {
     if (!record) {
       throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
     }
+    this.#assertSessionCanStartTurn(record, input.userMessage);
     const defTurnId = this.#ids.turn();
     const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
     const starting = this.#beginStartingTurn(record, defTurnId);
@@ -213,14 +237,20 @@ export class DefAgentHost {
         throw cancellation.error;
       }
       this.#startingTurn = null;
-      const active = this.#createActiveTurn(record, defTurnId, handle, null);
       this.#activeSessionId = record.session.defSessionId;
       this.#touchSession(record);
-      this.#append(record, {
-        type: 'turn.accepted',
-        defTurnId,
-        payload: { clientTurnId, userMessage: input.userMessage },
-      });
+      try {
+        this.#append(record, {
+          type: 'turn.accepted',
+          defTurnId,
+          payload: { clientTurnId, userMessage: input.userMessage },
+        });
+      } catch (error) {
+        await handle.abort({ code: 'AGENT_EVENT_CAPACITY_REACHED' }).catch(() => undefined);
+        throw error;
+      }
+      record.acceptedTurns += 1;
+      const active = this.#createActiveTurn(record, defTurnId, handle, null);
       void this.#pump(active);
       return { defTurnId, clientTurnId };
     } finally {
@@ -255,19 +285,34 @@ export class DefAgentHost {
           409,
         );
       }
-      return previous.promise;
+      return previous.state === 'pending' ? previous.promise : previous.result;
     }
     this.#assertTurnAvailable();
+    this.#assertSessionCanStartTurn(record, input.userMessage);
     if (input.binding) record.binding = input.binding;
     const promise = this.#startHarnessTurn(record, harnessManager, {
       clientTurnId,
       userMessage: input.userMessage,
     });
-    record.clientTurns.set(clientTurnId, { userMessage: input.userMessage, promise });
+    record.clientTurns.set(clientTurnId, {
+      userMessage: input.userMessage,
+      state: 'pending',
+      promise,
+    });
     try {
-      return await promise;
+      const result = await promise;
+      const current = record.clientTurns.get(clientTurnId);
+      if (current?.state === 'pending' && current.promise === promise) {
+        record.clientTurns.set(clientTurnId, {
+          userMessage: input.userMessage,
+          state: 'accepted',
+          result,
+        });
+      }
+      return result;
     } catch (error) {
-      if (record.clientTurns.get(clientTurnId)?.promise === promise) {
+      const current = record.clientTurns.get(clientTurnId);
+      if (current?.state === 'pending' && current.promise === promise) {
         record.clientTurns.delete(clientTurnId);
       }
       throw error;
@@ -312,19 +357,26 @@ export class DefAgentHost {
         throw error;
       }
       this.#startingTurn = null;
+      this.#activeSessionId = record.session.defSessionId;
+      this.#touchSession(record);
+      try {
+        this.#append(record, {
+          type: 'turn.accepted',
+          defTurnId,
+          payload: { clientTurnId: input.clientTurnId, userMessage: input.userMessage },
+        });
+      } catch (error) {
+        harnessManager.abort(started.transaction.transactionId, 'AGENT_EVENT_CAPACITY_REACHED');
+        await handle.abort({ code: 'AGENT_EVENT_CAPACITY_REACHED' }).catch(() => undefined);
+        throw error;
+      }
+      record.acceptedTurns += 1;
       const active = this.#createActiveTurn(
         record,
         defTurnId,
         handle,
         started.transaction.transactionId,
       );
-      this.#activeSessionId = record.session.defSessionId;
-      this.#touchSession(record);
-      this.#append(record, {
-        type: 'turn.accepted',
-        defTurnId,
-        payload: { clientTurnId: input.clientTurnId, userMessage: input.userMessage },
-      });
       this.#appendHarnessTrace(active, started.trace);
       void this.#pump(active);
       return { defTurnId, clientTurnId: input.clientTurnId };
@@ -355,6 +407,8 @@ export class DefAgentHost {
       abortController: new AbortController(),
       terminal,
       cancelled,
+      eventStartCount: record.events.length,
+      eventStartCodeUnits: record.eventCodeUnits,
       resolveTerminal,
       resolveCancelled,
       protocolTail: Promise.resolve(),
@@ -401,6 +455,11 @@ export class DefAgentHost {
     }
     const active = this.#turns.get(defTurnId);
     if (!active) {
+      const settled = this.#settledTurns.get(defTurnId);
+      if (settled) {
+        if (binding) assertStableSessionBinding(settled.session.session, binding);
+        return;
+      }
       throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
     }
     if (binding) assertStableSessionBinding(active.session.session, binding);
@@ -429,14 +488,16 @@ export class DefAgentHost {
 
   waitForTurnTerminal(defTurnId: DefTurnId): Promise<DefEvent> {
     const turn = this.#turns.get(defTurnId);
-    if (!turn) {
+    if (turn) return turn.terminal;
+    const settled = this.#settledTurns.get(defTurnId);
+    if (!settled) {
       return Promise.reject(new DefAgentHostError(
         'AGENT_TURN_NOT_FOUND',
         `DEF Turn ${defTurnId} does not exist`,
         404,
       ));
     }
-    return turn.terminal;
+    return Promise.resolve(settled.terminal);
   }
 
   listSessions(binding?: ProductBinding): readonly DefSessionV6[] {
@@ -541,6 +602,13 @@ export class DefAgentHost {
       }
     } catch (error) {
       if (active.settled) return;
+      const failureCode = error instanceof DefAgentHostError
+        && (
+          error.code === 'AGENT_EVENT_CAPACITY_REACHED'
+          || error.code === 'AGENT_TURN_OUTPUT_LIMIT'
+        )
+        ? error.code
+        : 'HOST_EVENT_LOOP_FAILED';
       active.abortRequested = true;
       active.abortController.abort();
       await this.#withTurnProtocolLock(active, async () => {
@@ -548,12 +616,12 @@ export class DefAgentHost {
         if (active.harnessTransactionId) {
           const transition = this.#requireHarnessManager().abort(
             active.harnessTransactionId,
-            'HOST_EVENT_LOOP_FAILED',
+            failureCode,
           );
           this.#appendHarnessTrace(active, transition.trace);
         }
         try {
-          await active.handle.abort({ code: 'HOST_EVENT_LOOP_FAILED' });
+          await active.handle.abort({ code: failureCode });
         } catch {
           // The original event-loop failure remains the authoritative terminal error.
         }
@@ -561,7 +629,7 @@ export class DefAgentHost {
           type: 'turn.failed',
           defTurnId: active.defTurnId,
           payload: {
-            code: 'HOST_EVENT_LOOP_FAILED',
+            code: failureCode,
             message: error instanceof Error ? error.message : String(error),
           },
         });
@@ -846,22 +914,54 @@ export class DefAgentHost {
     if (active.settled) return;
     active.settled = true;
     active.abortController.abort();
+    this.#turns.delete(active.defTurnId);
+    this.#settledTurns.set(active.defTurnId, { session: active.session, terminal });
+    if (this.#activeTurn === active) this.#activeTurn = null;
     active.resolveCancelled();
     active.resolveTerminal(terminal);
-    if (this.#activeTurn === active) this.#activeTurn = null;
   }
 
   #append<Type extends DefEvent['type']>(
     record: SessionRecord,
     event: DefEventInput<Type>,
   ): Extract<DefEvent, { type: Type }> {
+    const nextSequence = record.sequence + 1;
     const envelope = {
       schemaVersion: DEF_EVENT_SCHEMA_VERSION,
-      sequence: ++record.sequence,
+      sequence: nextSequence,
       occurredAt: new Date(this.#clock()).toISOString(),
       defSessionId: record.session.defSessionId,
       ...event,
     } as unknown as Extract<DefEvent, { type: Type }>;
+    const eventCodeUnits = JSON.stringify(envelope).length;
+    const usesTerminalReserve = isTerminalReserveEvent(envelope);
+    const eventLimit = DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerSession
+      - (usesTerminalReserve ? 0 : DEF_AGENT_IN_MEMORY_LIMITS.terminalEventReserve);
+    const codeUnitLimit = DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerSession
+      - (usesTerminalReserve ? 0 : DEF_AGENT_IN_MEMORY_LIMITS.terminalCodeUnitReserve);
+    const active = this.#activeTurn?.session === record ? this.#activeTurn : null;
+    const exceedsTurnLimit = Boolean(active && !usesTerminalReserve && (
+      record.events.length + 1 - active.eventStartCount > DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerTurn
+      || record.eventCodeUnits + eventCodeUnits - active.eventStartCodeUnits
+        > DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerTurn
+    ));
+    if (
+      record.events.length + 1 > eventLimit
+      || record.eventCodeUnits + eventCodeUnits > codeUnitLimit
+    ) {
+      throw new DefAgentHostError(
+        'AGENT_EVENT_CAPACITY_REACHED',
+        `DEF Session ${record.session.defSessionId} reached its in-memory Event Journal capacity`,
+      );
+    }
+    if (exceedsTurnLimit) {
+      throw new DefAgentHostError(
+        'AGENT_TURN_OUTPUT_LIMIT',
+        `DEF Turn output reached its in-memory Event limit in Session ${record.session.defSessionId}`,
+      );
+    }
+    record.sequence = nextSequence;
+    record.eventCodeUnits += eventCodeUnits;
     record.events.push(envelope);
     return envelope;
   }
@@ -959,6 +1059,29 @@ export class DefAgentHost {
     }
   }
 
+  #assertSessionCanStartTurn(record: SessionRecord, userMessage: string): void {
+    if (record.acceptedTurns >= DEF_AGENT_IN_MEMORY_LIMITS.maxTurnsPerSession) {
+      throw new DefAgentHostError(
+        'AGENT_SESSION_TURN_LIMIT_REACHED',
+        `DEF Session ${record.session.defSessionId} keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxTurnsPerSession} Turns`,
+      );
+    }
+    const eventSoftLimit = DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerSession
+      - DEF_AGENT_IN_MEMORY_LIMITS.terminalEventReserve;
+    const codeUnitSoftLimit = DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerSession
+      - DEF_AGENT_IN_MEMORY_LIMITS.terminalCodeUnitReserve;
+    const acceptedTurnHeadroom = JSON.stringify(userMessage).length + 4_096;
+    if (
+      record.events.length + 4 > eventSoftLimit
+      || record.eventCodeUnits + acceptedTurnHeadroom > codeUnitSoftLimit
+    ) {
+      throw new DefAgentHostError(
+        'AGENT_EVENT_CAPACITY_REACHED',
+        `DEF Session ${record.session.defSessionId} has no room for another Turn`,
+      );
+    }
+  }
+
   #beginStartingTurn(record: SessionRecord, defTurnId: DefTurnId): StartingTurn {
     const starting: StartingTurn = { session: record, defTurnId, abortCode: null };
     this.#startingTurn = starting;
@@ -1015,6 +1138,17 @@ export class DefAgentHost {
       updatedAt: new Date(this.#clock()).toISOString(),
     };
   }
+}
+
+function isTerminalReserveEvent(event: DefEvent): boolean {
+  if (
+    event.type === 'turn.completed'
+    || event.type === 'turn.stopped'
+    || event.type === 'turn.interrupted'
+    || event.type === 'turn.failed'
+    || event.type === 'harness.terminal'
+  ) return true;
+  return event.type === 'harness.tool.projected' && event.payload.tools.length === 0;
 }
 
 function bindingContext(binding: ProductBinding): JsonObject {

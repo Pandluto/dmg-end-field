@@ -7,8 +7,9 @@ import {
   type KeyboardEvent,
 } from 'react';
 import ReactMarkdown from 'react-markdown';
-import type {
-  AgentProductSession,
+import {
+  DEF_AGENT_IN_MEMORY_LIMITS,
+  type AgentProductSession,
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import {
   asClientTurnId,
@@ -79,6 +80,28 @@ function makeClientTurnId(): ClientTurnId {
     return asClientTurnId(`client-turn-${crypto.randomUUID()}`);
   }
   return asClientTurnId(`client-turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
+}
+
+function userFacingAgentError(error: unknown): string {
+  const code = error && typeof error === 'object' && 'code' in error
+    ? String((error as { code?: unknown }).code || '')
+    : '';
+  if (code === 'AGENT_SESSION_LIMIT_REACHED') {
+    return `本次 Agent Host 最多保留 ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} 个会话；重启桌面端可开始新的临时会话。`;
+  }
+  if (code === 'AGENT_SESSION_TURN_LIMIT_REACHED') {
+    return `当前会话已达到 ${DEF_AGENT_IN_MEMORY_LIMITS.maxTurnsPerSession} 轮，请新建会话继续。`;
+  }
+  if (code === 'AGENT_EVENT_CAPACITY_REACHED') {
+    return '当前会话的临时事件记录已满；现有记录仍完整保留，请新建会话继续。';
+  }
+  if (code === 'AGENT_TURN_OUTPUT_LIMIT') {
+    return '本轮输出过长，已安全停止；当前会话仍可继续发送下一条消息。';
+  }
+  if (code === 'AGENT_COMMAND_CAPACITY_REACHED') {
+    return '本次 Agent Host 的浏览器指令记录已满，请重启桌面端后继续。';
+  }
+  return error instanceof Error ? error.message : String(error);
 }
 
 function sessionLabel(session: AgentProductSession, index: number): string {
@@ -248,7 +271,7 @@ export function AgentModeOverlay({
         ));
       })
       .catch((error: unknown) => {
-        if (active) setOperationError(error instanceof Error ? error.message : String(error));
+        if (active) setOperationError(userFacingAgentError(error));
       })
       .finally(() => {
         if (active) setLoadingSessions(false);
@@ -312,7 +335,7 @@ export function AgentModeOverlay({
       setSessions((current) => [session, ...current.filter((item) => item.defSessionId !== session.defSessionId)]);
       setActiveSessionId(session.defSessionId);
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
+      setOperationError(userFacingAgentError(error));
     } finally {
       setBusyAction(null);
     }
@@ -344,7 +367,7 @@ export function AgentModeOverlay({
       setInput('');
       await poller.refresh();
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
+      setOperationError(userFacingAgentError(error));
     } finally {
       setBusyAction(null);
     }
@@ -358,7 +381,7 @@ export function AgentModeOverlay({
       await bridge.abortTurn(activeTurn.defTurnId);
       await poller.refresh();
     } catch (error) {
-      setOperationError(error instanceof Error ? error.message : String(error));
+      setOperationError(userFacingAgentError(error));
     } finally {
       setBusyAction(null);
     }

@@ -47,6 +47,15 @@ Complete.
 - [x] 独立高智能审查无未关闭 P0/P1。
 - [x] 更新 validation 归档并提交实现。
 
+## Phase 6：独立审查治理收口
+
+- [x] 修复 starting Turn 在 consumer loss、显式停止和 Host shutdown 下的取消竞态与错误归因。
+- [x] Event page 强制连续 sequence，并精确校验 Event/payload/correlation 字段。
+- [x] UI state 按 capability owner 隔离；consumer binding 与 Browser snapshot 原子发布。
+- [x] settled Turn 压成 terminal tombstone，成功 clientTurn 压成结果记录。
+- [x] 为 Session、Turn、Event、Harness、Product command 和前端 transcript 建立硬容量与满额背压。
+- [x] 边界压力测试、整仓回归与第二轮独立审查通过。
+
 ## Exit condition
 
 本阶段结束时，Slim AI 模式已经能真实使用五业务只读 Agent，但仍不支持写操作、Question/Approval 或跨 Host 重启恢复。下一阶段再建设 InteractionBroker 与 mutation。

@@ -104,8 +104,8 @@ export function projectAgentTranscript(events: readonly DefEvent[]): readonly Ag
   };
 
   for (const event of events) {
-    if (!Number.isSafeInteger(event.sequence) || event.sequence <= previousSequence) {
-      throw new Error('DEF Event Journal sequence must be strictly increasing.');
+    if (!Number.isSafeInteger(event.sequence) || event.sequence !== previousSequence + 1) {
+      throw new Error('DEF Event Journal sequence must be contiguous.');
     }
     if (defSessionId !== null && event.defSessionId !== defSessionId) {
       throw new Error('DEF Event Journal cannot mix sessions.');
