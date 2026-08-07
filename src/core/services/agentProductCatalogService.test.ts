@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
   AGENT_PRODUCT_CATALOG_STORAGE_KEYS,
   buildAgentProductCatalog,
+  discoverGearTopologies,
   getAgentBuildGuide,
   getCompatibleWeapons,
   getGearTopologyFacts,
@@ -254,10 +255,27 @@ assert.deepEqual(
 );
 assert.equal(topologyPlan.recommendation.status, 'evidenceUnavailable');
 
+const discoveredTopologies = discoverGearTopologies(input, {
+  limit: 8,
+  combinationsPerSet: 2,
+});
+assert.equal(discoveredTopologies.state, 'READY');
+assert.equal(discoveredTopologies.evaluatedSetCount, 2);
+assert.equal(discoveredTopologies.validSetCount, 1);
+assert.equal(discoveredTopologies.candidateSets.results[0]?.id, topologyFacts.targetSet?.id);
+assert.equal(discoveredTopologies.candidateSets.results[0]?.combinations.resultCount, 2);
+assert.equal(discoveredTopologies.ranking, 'unranked-facts-only');
+assert.equal(discoveredTopologies.recommendation.status, 'evidenceUnavailable');
+assert.equal(JSON.stringify(discoveredTopologies).includes('score'), false);
+assert.equal(JSON.stringify(discoveredTopologies).includes('rankValue'), false);
+
 const noOffSetInput: AgentProductCatalogInput = { ...input, equipment: { gearSets: { 'target-set': equipmentLibrary.gearSets['target-set'] } } };
 const noOffSetPlan = planGearTopology(noOffSetInput, { setQuery: '目标套装' });
 assert.equal(noOffSetPlan.state, 'NO_VALID_3_PLUS_1');
 assert.equal(noOffSetPlan.combinations.queryCount, 0);
+const noOffSetDiscovery = discoverGearTopologies(noOffSetInput);
+assert.equal(noOffSetDiscovery.state, 'NO_VALID_3_PLUS_1');
+assert.equal(noOffSetDiscovery.candidateSets.resultCount, 0);
 
 const storageCatalog = readAgentProductCatalog({ storage: createFixtureStorage(input), limit: 1 });
 assert.equal(storageCatalog.operators.catalogCount, 3);

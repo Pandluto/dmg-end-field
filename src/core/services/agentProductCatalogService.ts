@@ -291,6 +291,24 @@ export interface AgentGearTopologyPlan {
   recommendation: AgentEvidenceUnavailable;
 }
 
+export interface AgentDiscoveredGearTopologyCandidate {
+  id: string;
+  name: string;
+  state: 'READY';
+  facts: AgentGearTopologyFacts;
+  combinations: AgentCatalogEnvelope<AgentGearTopologyCombination>;
+}
+
+export interface AgentDiscoveredGearTopologies {
+  source: AgentProductCatalogSource;
+  state: 'READY' | 'NO_VALID_3_PLUS_1';
+  evaluatedSetCount: number;
+  validSetCount: number;
+  candidateSets: AgentCatalogEnvelope<AgentDiscoveredGearTopologyCandidate>;
+  ranking: 'unranked-facts-only';
+  recommendation: AgentEvidenceUnavailable;
+}
+
 export interface AgentBuildGuideResult {
   source: AgentProductCatalogSource;
   operator: AgentOperatorResolution;
@@ -1066,6 +1084,54 @@ export function planGearTopology(
     state,
     facts: state === facts.state ? facts : { ...facts, state },
     combinations,
+    ranking: 'unranked-facts-only',
+    recommendation: createEvidenceUnavailable('subjective recommendation'),
+  };
+}
+
+/**
+ * Enumerate every structurally valid 3+1 target set from the current browser
+ * catalog. This is discovery, not recommendation: candidates remain in stable
+ * catalog order and intentionally carry no score, rank, or operator-fit claim.
+ */
+export function discoverGearTopologies(
+  input: AgentProductCatalogInput,
+  request: {
+    limit?: number;
+    combinationsPerSet?: number;
+    allowDuplicateCompatibleAccessories?: boolean;
+  } = {},
+): AgentDiscoveredGearTopologies {
+  const sources = normalizeSources(input);
+  const candidates = sources.fullSets
+    .map((set): AgentDiscoveredGearTopologyCandidate | null => {
+      const plan = planGearTopology(input, {
+        setQuery: set.gearSetId,
+        limit: request.combinationsPerSet,
+        allowDuplicateCompatibleAccessories: request.allowDuplicateCompatibleAccessories,
+      });
+      if (plan.state !== 'READY' || !plan.facts.targetSet) return null;
+      return {
+        id: plan.facts.targetSet.id,
+        name: plan.facts.targetSet.name,
+        state: 'READY',
+        facts: plan.facts,
+        combinations: plan.combinations,
+      };
+    })
+    .filter((candidate): candidate is AgentDiscoveredGearTopologyCandidate => Boolean(candidate));
+  const candidateSets = buildCatalogEnvelope(
+    candidates,
+    '',
+    request.limit,
+    ['id', 'name'],
+  );
+  return {
+    source: AGENT_PRODUCT_CATALOG_SOURCE,
+    state: candidates.length > 0 ? 'READY' : 'NO_VALID_3_PLUS_1',
+    evaluatedSetCount: sources.fullSets.length,
+    validSetCount: candidates.length,
+    candidateSets,
     ranking: 'unranked-facts-only',
     recommendation: createEvidenceUnavailable('subjective recommendation'),
   };
