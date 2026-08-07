@@ -7,6 +7,7 @@ import {
   asEngineMessageId,
   PREPARED_WORK_NODE_LIMITS,
   type DefSessionId,
+  type DefSessionV6,
   type EngineUserAttachment,
   type InteractionRequest,
   type InteractionResponse,
@@ -91,6 +92,55 @@ type RememberedResolution = {
   readonly expiresAt: number;
 };
 
+type NativeSessionMutation = {
+  readonly action: 'archive' | 'restore';
+  readonly archivedAt: number | null;
+};
+
+type NativeSessionMutationSide = 'host' | 'upstream';
+
+type NativeSessionCompensation = {
+  readonly attempted: boolean;
+  readonly succeeded: boolean;
+  readonly side: NativeSessionMutationSide | null;
+};
+
+/**
+ * A native session PATCH is a two-store transaction.  This error deliberately
+ * lives in the Gateway instead of the Host error union: it describes a
+ * cross-store failure and must never be mistaken for a successful upstream
+ * OpenCode response or a normal DEF session-state rejection.
+ */
+class NativeUiSessionTransactionError extends Error {
+  readonly code = 'AGENT_NATIVE_UI_SESSION_TRANSACTION_FAILED';
+  readonly statusCode = 502;
+  readonly action: NativeSessionMutation['action'];
+  readonly failedSide: NativeSessionMutationSide;
+  readonly compensation: NativeSessionCompensation;
+
+  constructor(
+    action: NativeSessionMutation['action'],
+    failedSide: NativeSessionMutationSide,
+    compensation: NativeSessionCompensation,
+    cause: unknown,
+  ) {
+    const actionLabel = action === 'archive' ? '归档' : '恢复';
+    const causeMessage = cause instanceof Error && cause.message
+      ? ` 原因：${cause.message}`
+      : '';
+    const compensationLabel = !compensation.attempted
+      ? '未执行补偿'
+      : compensation.succeeded
+        ? `已补偿${compensation.side === 'host' ? ' DEF Host' : ' OpenCode'}`
+        : `补偿${compensation.side === 'host' ? ' DEF Host' : ' OpenCode'}失败`;
+    super(`Native UI Session ${actionLabel}事务失败（${failedSide === 'host' ? 'DEF Host' : 'OpenCode'}）：${compensationLabel}。${causeMessage}`);
+    this.name = 'NativeUiSessionTransactionError';
+    this.action = action;
+    this.failedSide = failedSide;
+    this.compensation = compensation;
+  }
+}
+
 export type OpenCodeNativeUiLaunch = {
   readonly src: string;
   readonly defSessionId: DefSessionId;
@@ -134,6 +184,7 @@ export class OpenCodeNativeUiGateway {
   readonly #diagnostic: (message: string) => void;
   readonly #tokens = new Map<string, NativeUiTokenRecord>();
   readonly #resolutions = new Map<string, RememberedResolution>();
+  readonly #sessionMutationLocks = new Map<string, Promise<void>>();
   readonly #server: Server;
   #origin = '';
   #stopPromise: Promise<void> | null = null;
@@ -182,6 +233,7 @@ export class OpenCodeNativeUiGateway {
     this.#stopPromise = (async () => {
       this.#tokens.clear();
       this.#resolutions.clear();
+      this.#sessionMutationLocks.clear();
       if (!this.#server.listening) return;
       await new Promise<void>((resolveClose, reject) => {
         this.#server.close((error) => error ? reject(error) : resolveClose());
@@ -548,11 +600,17 @@ export class OpenCodeNativeUiGateway {
     if (method === 'PATCH' && sessionRoute && !sessionRoute[2]) {
       if (!routeSession) throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', 'Native session was not found', 404);
       const body = expectRecord(await readJson(request));
-      const archive = isNativeSessionArchiveUpdate(body);
-      if (!archive && !Object.keys(body).every((key) => key === 'title')) {
+      const mutation = readNativeSessionMutation(body);
+      if (!mutation && !Object.keys(body).every((key) => key === 'title')) {
         throw new DefAgentHostError('AGENT_NATIVE_UI_MUTATION_DENIED', 'Only native session titles may be updated directly', 403);
       }
-      if (archive) this.#host.archiveSession(routeSession.defSessionId, access.binding);
+      if (mutation) {
+        const upstream = await this.#withSessionMutationLock(routeSession.defSessionId, () => (
+          this.#mutateNativeSession(routeSession, access, body, mutation)
+        ));
+        await this.#proxyEngineResponse(response, upstream);
+        return;
+      }
       await this.#proxyEngineResponse(response, await this.#engine.requestNativeUi(
         `${url.pathname}${url.search}`,
         { method, body: JSON.stringify(body), headers: { 'content-type': 'application/json' } },
@@ -578,6 +636,7 @@ export class OpenCodeNativeUiGateway {
       const sessions = Array.isArray(body)
         ? body.filter((value) => isRecord(value) && typeof value.id === 'string' && allowed.has(value.id))
         : [];
+      await this.#appendMissingArchivedSessions(sessions, access.binding);
       this.#writeJson(response, upstream.status, sessions);
       return;
     }
@@ -857,6 +916,137 @@ export class OpenCodeNativeUiGateway {
     }
   }
 
+  async #withSessionMutationLock<T>(
+    defSessionId: DefSessionId,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const previous = this.#sessionMutationLocks.get(defSessionId) ?? Promise.resolve();
+    const queued = previous.catch(() => undefined).then(operation);
+    const tail = queued.then(() => undefined, () => undefined);
+    this.#sessionMutationLocks.set(defSessionId, tail);
+    try {
+      return await queued;
+    } finally {
+      if (this.#sessionMutationLocks.get(defSessionId) === tail) {
+        this.#sessionMutationLocks.delete(defSessionId);
+      }
+    }
+  }
+
+  async #mutateNativeSession(
+    routeSession: DefSessionV6,
+    access: NativeUiAccess,
+    body: Record<string, unknown>,
+    mutation: NativeSessionMutation,
+  ): Promise<Response> {
+    const current = this.#host.readSession(routeSession.defSessionId, access.binding);
+    const pathname = `/session/${encodeURIComponent(routeSession.engine.sessionId)}`;
+    if (mutation.action === 'archive') {
+      const hostChanged = current.status !== 'archived';
+      this.#host.archiveSession(routeSession.defSessionId, access.binding);
+      try {
+        const upstream = await this.#requestNativeSessionMutation(pathname, body);
+        return upstream;
+      } catch (error) {
+        const compensation = hostChanged
+          ? await this.#compensateHostRestore(routeSession.defSessionId, access.binding)
+          : noCompensation();
+        throw new NativeUiSessionTransactionError('archive', 'upstream', compensation, error);
+      }
+    }
+
+    let upstream: Response;
+    try {
+      upstream = await this.#requestNativeSessionMutation(pathname, body);
+    } catch (error) {
+      throw new NativeUiSessionTransactionError('restore', 'upstream', noCompensation(), error);
+    }
+    const hostChanged = current.status === 'archived';
+    try {
+      await this.#host.restoreSession(routeSession.defSessionId, access.binding);
+      return upstream;
+    } catch (error) {
+      const compensation = hostChanged
+        ? await this.#compensateUpstream(
+            pathname,
+            inverseNativeSessionMutation(mutation, this.#clock()),
+          )
+        : noCompensation();
+      throw new NativeUiSessionTransactionError(
+        'restore',
+        'host',
+        hostChanged ? compensation : noCompensation(),
+        error,
+      );
+    }
+  }
+
+  async #requestNativeSessionMutation(pathname: string, body: Record<string, unknown>): Promise<Response> {
+    let response: Response;
+    try {
+      response = await this.#engine.requestNativeUi(pathname, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      });
+    } catch (error) {
+      throw new Error(`OpenCode upstream Session PATCH 请求失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`OpenCode upstream Session PATCH 返回 HTTP ${response.status}`);
+    }
+    return response;
+  }
+
+  async #compensateHostRestore(
+    defSessionId: DefSessionId,
+    binding: ProductBinding,
+  ): Promise<NativeSessionCompensation> {
+    try {
+      await this.#host.restoreSession(defSessionId, binding);
+      return { attempted: true, succeeded: true, side: 'host' };
+    } catch (error) {
+      this.#diagnostic(`AGENT_NATIVE_UI_SESSION_COMPENSATION_FAILED: Host restore failed: ${error instanceof Error ? error.message : String(error)}`);
+      return { attempted: true, succeeded: false, side: 'host' };
+    }
+  }
+
+  async #compensateUpstream(
+    pathname: string,
+    body: Record<string, unknown>,
+  ): Promise<NativeSessionCompensation> {
+    try {
+      await this.#requestNativeSessionMutation(pathname, body);
+      return { attempted: true, succeeded: true, side: 'upstream' };
+    } catch (error) {
+      this.#diagnostic(`AGENT_NATIVE_UI_SESSION_COMPENSATION_FAILED: OpenCode restore failed: ${error instanceof Error ? error.message : String(error)}`);
+      return { attempted: true, succeeded: false, side: 'upstream' };
+    }
+  }
+
+  async #appendMissingArchivedSessions(
+    sessions: Record<string, unknown>[],
+    binding: ProductBinding,
+  ): Promise<void> {
+    const present = new Set(sessions.map((session) => session.id).filter((id): id is string => typeof id === 'string'));
+    for (const session of this.#host.listSessions(binding)) {
+      if (session.status !== 'archived' || present.has(session.engine.sessionId)) continue;
+      try {
+        const detail = await this.#engine.requestNativeUi(
+          `/session/${encodeURIComponent(session.engine.sessionId)}`,
+        );
+        if (!detail.ok) continue;
+        const value = await detail.json() as unknown;
+        if (!isRecord(value) || value.id !== session.engine.sessionId) continue;
+        sessions.push(value);
+        present.add(session.engine.sessionId);
+      } catch (error) {
+        this.#diagnostic(`AGENT_NATIVE_UI_ARCHIVED_SESSION_DISCOVERY_FAILED: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
   #requireAccess(request: IncomingMessage, url: URL): NativeUiAccess {
     this.#sweepTokens();
     const queryToken = readAuthToken(url.searchParams.get('auth_token'));
@@ -960,11 +1150,25 @@ export class OpenCodeNativeUiGateway {
       response.destroy(error instanceof Error ? error : new Error(String(error)));
       return;
     }
-    const status = error instanceof DefAgentHostError ? error.statusCode : 500;
-    const code = error instanceof DefAgentHostError ? error.code : 'AGENT_NATIVE_UI_FAILED';
-    const message = error instanceof DefAgentHostError ? error.message : 'OpenCode native UI request failed';
+    const transaction = error instanceof NativeUiSessionTransactionError ? error : null;
+    const status = transaction?.statusCode ?? (error instanceof DefAgentHostError ? error.statusCode : 500);
+    const code = transaction?.code ?? (error instanceof DefAgentHostError ? error.code : 'AGENT_NATIVE_UI_FAILED');
+    const message = transaction?.message ?? (error instanceof DefAgentHostError ? error.message : 'OpenCode native UI request failed');
     this.#diagnostic(`${code}: ${error instanceof Error ? error.message : String(error)}`);
-    this.#writeJson(response, status, { ok: false, error: { code, message } });
+    this.#writeJson(response, status, {
+      ok: false,
+      error: {
+        code,
+        message,
+        ...(transaction
+          ? {
+              action: transaction.action,
+              failedSide: transaction.failedSide,
+              compensation: transaction.compensation,
+            }
+          : {}),
+      },
+    });
   }
 }
 
@@ -1352,11 +1556,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
 
-function isNativeSessionArchiveUpdate(value: Record<string, unknown>): boolean {
-  if (!Object.keys(value).every((key) => key === 'title' || key === 'time')) return false;
-  if (value.title !== undefined && typeof value.title !== 'string') return false;
-  if (!isRecord(value.time) || !Object.keys(value.time).every((key) => key === 'archived')) return false;
-  return typeof value.time.archived === 'number' && Number.isFinite(value.time.archived);
+function readNativeSessionMutation(value: Record<string, unknown>): NativeSessionMutation | null {
+  if (!Object.keys(value).every((key) => key === 'title' || key === 'time')) return null;
+  if (value.title !== undefined && typeof value.title !== 'string') return null;
+  if (!isRecord(value.time) || !Object.keys(value.time).every((key) => key === 'archived')) return null;
+  if (typeof value.time.archived === 'number' && Number.isFinite(value.time.archived)) {
+    return { action: 'archive', archivedAt: value.time.archived };
+  }
+  if (value.time.archived === null) {
+    return { action: 'restore', archivedAt: null };
+  }
+  return null;
+}
+
+function inverseNativeSessionMutation(
+  mutation: NativeSessionMutation,
+  clock: number,
+): Record<string, unknown> {
+  return {
+    time: {
+      archived: mutation.action === 'archive' ? null : clock,
+    },
+  };
+}
+
+function noCompensation(): NativeSessionCompensation {
+  return { attempted: false, succeeded: false, side: null };
 }
 
 function readAuthToken(value: string | null): string {

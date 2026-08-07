@@ -202,7 +202,11 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
         ], { headers: { 'x-next-cursor': 'cursor-native-ui' } });
       }
       if (pathname.startsWith('/session/ses_native_ui')) {
-        return Response.json({ id: 'ses_native_ui', title: 'DEF' });
+        return Response.json({
+          id: 'ses_native_ui',
+          title: 'DEF',
+          ...(upstreamArchived ? { time: { archived: 2 } } : {}),
+        });
       }
       if (pathname.startsWith('/session')) {
         return Response.json(upstreamArchived ? [] : [
@@ -586,13 +590,21 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       headers: { authorization: `Basic ${authToken}` },
     });
     assert.equal(archivedListResponse.status, 200);
-    assert.deepEqual(await archivedListResponse.json(), []);
+    assert.deepEqual(await archivedListResponse.json(), [{
+      id: 'ses_native_ui',
+      title: 'DEF',
+      time: { archived: 2 },
+    }]);
 
     const archivedReadResponse = await fetch(`${gateway.origin}/session/ses_native_ui`, {
       headers: { authorization: `Basic ${authToken}` },
     });
     assert.equal(archivedReadResponse.status, 200);
-    assert.deepEqual(await archivedReadResponse.json(), { id: 'ses_native_ui', title: 'DEF' });
+    assert.deepEqual(await archivedReadResponse.json(), {
+      id: 'ses_native_ui',
+      title: 'DEF',
+      time: { archived: 2 },
+    });
 
     const deleteResponse = await fetch(`${gateway.origin}/session/ses_native_ui`, {
       method: 'DELETE',
@@ -606,6 +618,312 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     await rm(uiRoot, { recursive: true, force: true });
   }
 });
+
+test('native session archive failure compensates a successful DEF Host archive', async () => {
+  const fixture = await createSessionMutationFixture({ failUpstreamArchive: true });
+  try {
+    const response = await fixture.patch(1_754_598_402_000);
+    assert.equal(response.status, 502);
+    const body = await response.json() as {
+      readonly ok: boolean;
+      readonly error: {
+        readonly code: string;
+        readonly action: string;
+        readonly failedSide: string;
+        readonly compensation: NativeSessionCompensationJson;
+        readonly message: string;
+      };
+    };
+    assert.equal(body.ok, false);
+    assert.equal(body.error.code, 'AGENT_NATIVE_UI_SESSION_TRANSACTION_FAILED');
+    assert.equal(body.error.action, 'archive');
+    assert.equal(body.error.failedSide, 'upstream');
+    assert.deepEqual(body.error.compensation, {
+      attempted: true,
+      succeeded: true,
+      side: 'host',
+    });
+    assert.match(body.error.message, /归档事务失败/u);
+    assert.equal(fixture.sessionState().status, 'ready');
+    assert.equal(fixture.upstreamArchived(), false);
+    assert.deepEqual(fixture.hostActions, ['archive', 'restore']);
+    assert.deepEqual(fixture.upstreamUpdates, [{ time: { archived: 1_754_598_402_000 } }]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('native session restore accepts null, compensates upstream when Host restore fails, and is rediscoverable', async () => {
+  const fixture = await createSessionMutationFixture();
+  try {
+    const archiveResponse = await fixture.patch(1_754_598_402_000);
+    assert.equal(archiveResponse.status, 200);
+    assert.equal(fixture.sessionState().status, 'archived');
+
+    const archivedList = await fixture.list();
+    assert.deepEqual(archivedList, [{
+      id: 'ses_transaction',
+      title: 'Transaction fixture',
+      time: { archived: 1_754_598_402_000 },
+    }]);
+
+    fixture.failHostRestore = true;
+    const restoreResponse = await fixture.patch(null);
+    assert.equal(restoreResponse.status, 502);
+    const restoreFailure = await restoreResponse.json() as {
+      readonly ok: boolean;
+      readonly error: {
+        readonly code: string;
+        readonly action: string;
+        readonly failedSide: string;
+        readonly compensation: NativeSessionCompensationJson;
+      };
+    };
+    assert.equal(restoreFailure.ok, false);
+    assert.equal(restoreFailure.error.code, 'AGENT_NATIVE_UI_SESSION_TRANSACTION_FAILED');
+    assert.equal(restoreFailure.error.action, 'restore');
+    assert.equal(restoreFailure.error.failedSide, 'host');
+    assert.deepEqual(restoreFailure.error.compensation, {
+      attempted: true,
+      succeeded: true,
+      side: 'upstream',
+    });
+    assert.equal(fixture.sessionState().status, 'archived');
+    assert.equal(fixture.upstreamArchived(), true);
+    assert.deepEqual(fixture.hostActions, ['archive', 'restore']);
+    assert.deepEqual(fixture.upstreamUpdates, [
+      { time: { archived: 1_754_598_402_000 } },
+      { time: { archived: null } },
+      { time: { archived: 1_754_598_403_000 } },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('native session restore commits both stores after an explicit archived null PATCH', async () => {
+  const fixture = await createSessionMutationFixture();
+  try {
+    assert.equal((await fixture.patch(1_754_598_402_000)).status, 200);
+    const response = await fixture.patch(null);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), {
+      id: 'ses_transaction',
+      title: 'Transaction fixture',
+      time: { archived: null },
+    });
+    assert.equal(fixture.sessionState().status, 'ready');
+    assert.equal(fixture.upstreamArchived(), false);
+    assert.deepEqual(fixture.hostActions, ['archive', 'restore']);
+    assert.deepEqual(fixture.upstreamUpdates, [
+      { time: { archived: 1_754_598_402_000 } },
+      { time: { archived: null } },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('native session restore leaves Host archived when upstream rejects unarchive', async () => {
+  const fixture = await createSessionMutationFixture({ failUpstreamRestore: true });
+  try {
+    assert.equal((await fixture.patch(1_754_598_402_000)).status, 200);
+    const response = await fixture.patch(null);
+    assert.equal(response.status, 502);
+    const body = await response.json() as {
+      readonly error: {
+        readonly failedSide: string;
+        readonly compensation: NativeSessionCompensationJson;
+      };
+    };
+    assert.equal(body.error.failedSide, 'upstream');
+    assert.deepEqual(body.error.compensation, {
+      attempted: false,
+      succeeded: false,
+      side: null,
+    });
+    assert.equal(fixture.sessionState().status, 'archived');
+    assert.equal(fixture.upstreamArchived(), true);
+    assert.deepEqual(fixture.hostActions, ['archive']);
+    assert.deepEqual(fixture.upstreamUpdates, [
+      { time: { archived: 1_754_598_402_000 } },
+      { time: { archived: null } },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
+type NativeSessionCompensationJson = {
+  readonly attempted: boolean;
+  readonly succeeded: boolean;
+  readonly side: string | null;
+};
+
+type SessionMutationFixture = {
+  readonly gateway: OpenCodeNativeUiGateway;
+  readonly sessionState: () => DefSessionV6;
+  readonly upstreamArchived: () => boolean;
+  readonly hostActions: string[];
+  readonly upstreamUpdates: unknown[];
+  readonly patch: (archivedAt: number | null) => Promise<Response>;
+  readonly list: () => Promise<unknown>;
+  readonly close: () => Promise<void>;
+  failHostRestore: boolean;
+};
+
+async function createSessionMutationFixture(options: {
+  readonly failUpstreamArchive?: boolean;
+  readonly failUpstreamRestore?: boolean;
+} = {}): Promise<SessionMutationFixture> {
+  const uiRoot = await mkdtemp(join(tmpdir(), 'def-native-session-transaction-test-'));
+  await writeFile(join(uiRoot, 'index.html'), '<html><head><title>OpenCode</title></head><body>native-ui</body></html>');
+  const binding: ProductBinding = {
+    workspaceId: asWorkspaceId('workspace-native-transaction'),
+    databaseGeneration: asDatabaseGeneration('generation-native-transaction'),
+    timelineId: asTimelineId('timeline-native-transaction'),
+    checkoutTargetId: null,
+    checkoutUpdatedAt: 1,
+    contentRevision: 1,
+    snapshotDigest: 'digest-native-transaction',
+  };
+  const session = makeSession(binding, 'def-session-transaction', 'ses_transaction');
+  const claims: AgentUiCapabilityClaims = {
+    capabilityId: 'capability-native-transaction',
+    origin: 'http://127.0.0.1:31457',
+    audience: 'workbench-ai-mode',
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+  };
+  const consumer = {
+    consumerId: 'consumer-native-transaction',
+    executorLeaseId: 'lease-native-transaction',
+    binding,
+    registeredAt: Date.now(),
+    heartbeatExpiresAt: Date.now() + 60_000,
+  };
+  let sessionState = session;
+  let upstreamArchived = false;
+  let failHostRestore = false;
+  const hostActions: string[] = [];
+  const upstreamUpdates: unknown[] = [];
+  const host = {
+    readSession(defSessionId: string, expected?: ProductBinding) {
+      assert.equal(defSessionId, session.defSessionId);
+      if (expected) assert.deepEqual(expected, binding);
+      return sessionState;
+    },
+    listSessions(expected?: ProductBinding) {
+      if (expected) assert.deepEqual(expected, binding);
+      return [sessionState];
+    },
+    archiveSession(defSessionId: string, expected?: ProductBinding) {
+      assert.equal(defSessionId, session.defSessionId);
+      if (expected) assert.deepEqual(expected, binding);
+      hostActions.push('archive');
+      sessionState = { ...sessionState, status: 'archived', updatedAt: '2026-08-08T00:00:02.000Z' };
+      return sessionState;
+    },
+    async restoreSession(defSessionId: string, expected?: ProductBinding) {
+      assert.equal(defSessionId, session.defSessionId);
+      if (expected) assert.deepEqual(expected, binding);
+      hostActions.push('restore');
+      if (failHostRestore) throw new Error('fixture Host restore failure');
+      sessionState = { ...sessionState, status: 'ready', updatedAt: '2026-08-08T00:00:03.000Z' };
+      return sessionState;
+    },
+  } as unknown as DefAgentHost;
+  const engine = {
+    async nativeUiDirectory() {
+      return '/tmp/def-native-transaction';
+    },
+    async requestNativeUi(pathname: string, init?: RequestInit) {
+      if (pathname === '/session/ses_transaction' && init?.method === 'PATCH') {
+        const body = JSON.parse(String(init.body)) as { time: { archived: number | null } };
+        upstreamUpdates.push(body);
+        const restoring = body.time.archived === null;
+        if ((restoring && options.failUpstreamRestore) || (!restoring && options.failUpstreamArchive)) {
+          return Response.json({ error: 'fixture upstream failure' }, { status: 503 });
+        }
+        upstreamArchived = !restoring;
+        return Response.json({
+          id: 'ses_transaction',
+          title: 'Transaction fixture',
+          time: { archived: upstreamArchived ? 1_754_598_402_000 : null },
+        });
+      }
+      if (pathname === '/session') {
+        return Response.json(upstreamArchived
+          ? [{ id: 'ses_transaction', title: 'Transaction fixture', time: { archived: 1_754_598_402_000 } }]
+          : [{ id: 'ses_transaction', title: 'Transaction fixture' }]);
+      }
+      if (pathname === '/session/ses_transaction') {
+        return Response.json({
+          id: 'ses_transaction',
+          title: 'Transaction fixture',
+          ...(upstreamArchived ? { time: { archived: 1_754_598_402_000 } } : {}),
+        });
+      }
+      return Response.json({ ok: true });
+    },
+  } satisfies OpenCodeNativeUiEngine;
+  const consumers = {
+    requireActive(candidate?: AgentUiCapabilityClaims) {
+      assert.equal(candidate?.capabilityId, claims.capabilityId);
+      return consumer;
+    },
+    currentFor(candidate: AgentUiCapabilityClaims) {
+      return candidate.capabilityId === claims.capabilityId ? consumer : null;
+    },
+  } as unknown as BrowserConsumerRegistry;
+  const gateway = new OpenCodeNativeUiGateway({
+    uiRoot,
+    browserOrigin: 'http://127.0.0.1:31457',
+    host,
+    engine,
+    consumers,
+    clock: () => 1_754_598_403_000,
+    randomToken: () => 'native-transaction-token-12345678901234567890',
+  });
+  await gateway.listen(0);
+  const launch = await gateway.launch(session.defSessionId, claims);
+  const authToken = new URL(launch.src).searchParams.get('auth_token');
+  assert.ok(authToken);
+  return {
+    gateway,
+    sessionState: () => sessionState,
+    upstreamArchived: () => upstreamArchived,
+    hostActions,
+    upstreamUpdates,
+    get failHostRestore() {
+      return failHostRestore;
+    },
+    set failHostRestore(value: boolean) {
+      failHostRestore = value;
+    },
+    async patch(archivedAt: number | null) {
+      return fetch(`${gateway.origin}/session/ses_transaction`, {
+        method: 'PATCH',
+        headers: {
+          authorization: `Basic ${authToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ time: { archived: archivedAt } }),
+      });
+    },
+    async list() {
+      const response = await fetch(`${gateway.origin}/session`, {
+        headers: { authorization: `Basic ${authToken}` },
+      });
+      assert.equal(response.status, 200);
+      return response.json();
+    },
+    async close() {
+      await gateway.stop();
+      await rm(uiRoot, { recursive: true, force: true });
+    },
+  };
+}
 
 function openEventStream(signal?: AbortSignal | null): Response {
   const encoder = new TextEncoder();

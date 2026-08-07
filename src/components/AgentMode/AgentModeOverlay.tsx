@@ -54,6 +54,20 @@ function chooseSession(
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
 }
 
+/**
+ * OpenCode's native sidebar intentionally removes archived sessions and has no
+ * restore action.  Keep the recovery list in the DEF shell so recovery is
+ * explicit and never silently creates a replacement session.
+ */
+export function archivedSessionsForRecovery(
+  sessions: readonly AgentProductSession[],
+): readonly AgentProductSession[] {
+  return sessions
+    .filter((session) => session.status === 'archived')
+    .slice()
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+}
+
 export function AgentModeOverlay({
   bridge: injectedBridge,
   consumerController: injectedConsumerController,
@@ -88,6 +102,8 @@ export function AgentModeOverlay({
   );
   const [launch, setLaunch] = useState<AgentNativeUiLaunch | null>(null);
   const [launchRevision, setLaunchRevision] = useState(0);
+  const [archivedSessions, setArchivedSessions] = useState<readonly AgentProductSession[]>([]);
+  const [restoringSessionId, setRestoringSessionId] = useState<DefSessionId | null>(null);
   const [status, setStatus] = useState('正在连接 OpenCode…');
   const [error, setError] = useState<string | null>(null);
 
@@ -141,8 +157,14 @@ export function AgentModeOverlay({
         bridge.listSessions(),
       ]);
       if (disposed) return;
+      const archived = archivedSessionsForRecovery(listed);
+      setArchivedSessions(archived);
       let selected = chooseSession(listed, uiState.activeDefSessionId);
       if (!selected) {
+        if (archived.length > 0) {
+          setStatus('发现已归档会话，请先选择恢复。');
+          return;
+        }
         if (bridgeState.engine?.state !== 'ready') {
           throw new Error(bridgeState.engine?.reason || 'OpenCode 引擎尚未就绪。');
         }
@@ -174,6 +196,26 @@ export function AgentModeOverlay({
     launchRevision,
   ]);
 
+  const restoreArchivedSession = async (session: AgentProductSession): Promise<void> => {
+    if (restoringSessionId) return;
+    setRestoringSessionId(session.defSessionId);
+    setError(null);
+    setStatus('正在恢复已归档会话…');
+    try {
+      const restored = await bridge.restoreSession(session.defSessionId);
+      setArchivedSessions((current) => current.filter((candidate) => candidate.defSessionId !== session.defSessionId));
+      setStatus('正在打开恢复的 OpenCode 会话…');
+      const nextLaunch = await bridge.launchNativeUi(restored.defSessionId);
+      setLaunch(nextLaunch);
+      setStatus('');
+    } catch (cause) {
+      setError(operationMessage(cause));
+      setStatus('恢复失败，请重试。');
+    } finally {
+      setRestoringSessionId(null);
+    }
+  };
+
   const rootClassName = [
     'agent-mode-overlay',
     'agent-native-opencode-host',
@@ -201,6 +243,54 @@ export function AgentModeOverlay({
           </button>
         )}
       </div>
+
+      {archivedSessions.length > 0 && (
+        <section
+          aria-label="已归档 AI 会话"
+          style={{
+            position: 'absolute',
+            zIndex: 4,
+            top: 48,
+            left: 12,
+            right: 12,
+            maxHeight: 180,
+            overflow: 'auto',
+            padding: '10px 12px',
+            border: '1px solid rgba(17, 17, 17, .16)',
+            borderRadius: 8,
+            background: 'rgba(250, 250, 250, .94)',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, .1)',
+            backdropFilter: 'blur(10px)',
+          }}
+        >
+          <strong style={{ display: 'block', font: '600 12px/1.4 system-ui, sans-serif' }}>
+            已归档会话
+          </strong>
+          <p style={{ margin: '3px 0 8px', color: '#6f6f6a', font: '400 11px/1.45 system-ui, sans-serif' }}>
+            原版 OpenCode 没有恢复入口，请手动选择要恢复的会话。
+          </p>
+          <div style={{ display: 'grid', gap: 5 }}>
+            {archivedSessions.map((session) => (
+              <div
+                key={session.defSessionId}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+              >
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', font: '400 11px/1.4 system-ui, sans-serif' }}>
+                  {session.defSessionId}
+                </span>
+                <button
+                  type="button"
+                  disabled={restoringSessionId !== null}
+                  onClick={() => void restoreArchivedSession(session)}
+                  style={{ flex: '0 0 auto', border: '1px solid #b6b6b0', borderRadius: 5, padding: '3px 8px', color: '#272724', background: '#fff', cursor: 'pointer', font: '500 11px/1.3 system-ui, sans-serif' }}
+                >
+                  {restoringSessionId === session.defSessionId ? '恢复中…' : '恢复'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {launch && !visibleError ? (
         <iframe
