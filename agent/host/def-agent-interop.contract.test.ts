@@ -366,6 +366,12 @@ try {
     },
     {
       type: 'tool',
+      toolCallId: asToolCallId('context-approval'),
+      name: 'def.node.crud.context',
+      input: {},
+    },
+    {
+      type: 'tool',
       toolCallId: asToolCallId('apply-selection'),
       name: 'def.team.selection.apply',
       input: {
