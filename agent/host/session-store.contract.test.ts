@@ -211,6 +211,23 @@ function countFsyncs(action: () => void): number {
   return count;
 }
 
+function countEventJournalOpens(journalPath: string, action: () => void): number {
+  const original = fs.openSync;
+  let count = 0;
+  fs.openSync = ((...args: Parameters<typeof fs.openSync>) => {
+    if (path.resolve(String(args[0])) === path.resolve(journalPath)) count += 1;
+    return Reflect.apply(original, fs, args) as number;
+  }) as typeof fs.openSync;
+  syncBuiltinESMExports();
+  try {
+    action();
+  } finally {
+    fs.openSync = original;
+    syncBuiltinESMExports();
+  }
+  return count;
+}
+
 function testIncrementalAppendAndBufferedDeltaDurability(): void {
   const root = makeRoot();
   const record = fixtureRecord('def-session-incremental');
@@ -220,14 +237,18 @@ function testIncrementalAppendAndBufferedDeltaDurability(): void {
   store.load();
   const journalPath = path.join(root, 'sessions', record.session.defSessionId, 'events.ndjson');
   let deltaFsyncs = -1;
+  let deltaOpens = -1;
   const journalReads = countEventJournalReads(journalPath, () => {
-    deltaFsyncs = countFsyncs(() => {
-      for (let sequence = 2; sequence <= 65; sequence += 1) {
-        store.append(record.session.defSessionId, deltaEvent(record.session.defSessionId, sequence));
-      }
+    deltaOpens = countEventJournalOpens(journalPath, () => {
+      deltaFsyncs = countFsyncs(() => {
+        for (let sequence = 2; sequence <= 65; sequence += 1) {
+          store.append(record.session.defSessionId, deltaEvent(record.session.defSessionId, sequence));
+        }
+      });
     });
   });
   assert.equal(journalReads, 0, 'incremental append must not rescan the full event journal');
+  assert.equal(deltaOpens, 0, 'streaming deltas must be batched before opening the journal');
   assert.equal(deltaFsyncs, 0, 'response.delta append must not synchronously fsync each event');
   assert.ok(countFsyncs(() => store.flush(record.session.defSessionId)) >= 1);
 
@@ -241,6 +262,18 @@ function testIncrementalAppendAndBufferedDeltaDurability(): void {
     restarted.loadEventPage(record.session.defSessionId, 60, 5).map((event) => event.sequence),
     [61, 62, 63, 64, 65],
   );
+  const paged = createFileDefAgentSessionStore({ root });
+  const pageReads = countEventJournalReads(journalPath, () => {
+    assert.deepEqual(
+      paged.loadEventPage(record.session.defSessionId, 0, 5).map((event) => event.sequence),
+      [1, 2, 3, 4, 5],
+    );
+    assert.deepEqual(
+      paged.loadEventPage(record.session.defSessionId, 5, 5).map((event) => event.sequence),
+      [6, 7, 8, 9, 10],
+    );
+  });
+  assert.equal(pageReads, 1, 'validated journal pages must reuse one bounded in-memory cache');
   rmSync(root, { recursive: true, force: true });
 }
 
