@@ -128,6 +128,31 @@ let currentSnapshot: ProductSnapshotEnvelope = {
       profession: '近卫',
       librarySource: 'local',
     }],
+    candidateBuffs: [{
+      schemaVersion: 2,
+      id: null,
+      name: 'candidate-unattached',
+      displayName: '未附加候选 Buff',
+      sourceName: '洛茜天赋',
+      level: 'M3',
+      type: 'attackPercent',
+      value: 0.25,
+      description: '来自浏览器候选目录的完整定义',
+      source: '洛茜',
+      condition: '技能命中后',
+      category: 'countable',
+      effectKind: 'modifier',
+      ownerBuffDomain: 'operator',
+      ownerCharacterId: 'operator-a',
+      ownerBuffGroup: 'talent',
+      maxStacks: 3,
+      refCount: null,
+      multiplier: null,
+      target: null,
+      valueMode: 'fixed',
+      derivedValue: null,
+      extraHitConfig: null,
+    }],
     skillButtons: [{
       id: 'button-a',
       characterId: 'operator-a',
@@ -318,6 +343,41 @@ const exactSource = await registry.execute(
 assert.equal(exactSource.state, 'READY');
 assert.equal(exactSource.candidateCount, 1);
 
+const unattachedCandidate = await registry.execute(
+  'def.data.resource.buff',
+  { action: 'resolve', query: '未附加候选 Buff' },
+  context,
+) as JsonObject;
+assert.equal(unattachedCandidate.candidateCount, 1);
+const unattachedRow = (unattachedCandidate.candidates as JsonObject[])[0]!;
+assert.deepEqual((unattachedRow.facts as JsonObject), {
+  schemaVersion: 2,
+  id: null,
+  name: 'candidate-unattached',
+  displayName: '未附加候选 Buff',
+  sourceName: '洛茜天赋',
+  level: 'M3',
+  type: 'attackPercent',
+  value: 0.25,
+  description: '来自浏览器候选目录的完整定义',
+  source: '洛茜',
+  condition: '技能命中后',
+  category: 'countable',
+  effectKind: 'modifier',
+  ownerBuffDomain: 'operator',
+  ownerCharacterId: 'operator-a',
+  ownerBuffGroup: 'talent',
+  maxStacks: 3,
+  refCount: null,
+  multiplier: null,
+  target: null,
+  valueMode: 'fixed',
+  derivedValue: null,
+  extraHitConfig: null,
+});
+assert.deepEqual(unattachedRow.sourceKinds, ['candidate']);
+assert.equal(((unattachedRow.evidence as JsonObject[])[0]!).characterId, 'operator-a');
+
 const coverage = await registry.execute(
   'def.data.resource.buff',
   { action: 'coverage', buttonId: 'button-a' },
@@ -352,6 +412,7 @@ currentSnapshot = {
   ...currentSnapshot,
   payload: {
     ...currentSnapshot.payload,
+    candidateBuffs: [],
     operatorConfigs: [],
     skillButtons: [{
       ...(currentSnapshot.payload.skillButtons as JsonObject[])[0]!,

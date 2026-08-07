@@ -408,6 +408,15 @@ async function resolveBuffs(input: JsonValue, context: DefToolExecutionContext):
   }
 
   if (!buttonId) {
+    for (const candidateBuff of optionalObjectArray(payload.raw.candidateBuffs, 'candidateBuffs')) {
+      const facts = projectBuffFacts(candidateBuff);
+      collectBuff(candidates, {
+        facts,
+        sourceKind: 'candidate',
+        buttonId: null,
+        characterId: stringOrNull(facts.ownerCharacterId) ?? 'unbound-candidate',
+      });
+    }
     for (const config of payload.operatorConfigs) {
       const characterId = requiredString(config.characterId, 'operatorConfig.characterId');
       for (const equipment of optionalObjectArray(config.equipment, 'operatorConfig.equipment')) {
@@ -1160,7 +1169,7 @@ type MutableBuffCandidate = {
 };
 
 type MutableBuffEvidence = {
-  readonly sourceKind: 'button' | 'equipment' | 'set';
+  readonly sourceKind: 'button' | 'candidate' | 'equipment' | 'set';
   readonly buttonId: string | null;
   readonly characterId: string;
   readonly sourceName: string | null;
@@ -1174,7 +1183,7 @@ function collectBuff(
   candidates: Map<string, MutableBuffCandidate>,
   input: {
     readonly facts: JsonObject;
-    readonly sourceKind: 'button' | 'equipment' | 'set';
+    readonly sourceKind: 'button' | 'candidate' | 'equipment' | 'set';
     readonly buttonId: string | null;
     readonly characterId: string;
   },
