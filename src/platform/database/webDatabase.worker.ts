@@ -9,6 +9,7 @@ import sqlite3InitModule, {
 type SqlStatement = {
   sql: string;
   bind?: SqlValue[];
+  requireChanges?: boolean;
 };
 
 type DatabaseRequest =
@@ -138,6 +139,8 @@ function migrateSchema(): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS idx_timeline_work_nodes_document
       ON timeline_work_nodes(timeline_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_timeline_work_nodes_scope
+      ON timeline_work_nodes(timeline_id, id);
 
     CREATE TABLE IF NOT EXISTS timeline_work_node_commits (
       id TEXT PRIMARY KEY,
@@ -156,6 +159,8 @@ function migrateSchema(): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS idx_timeline_commits_document
       ON timeline_work_node_commits(timeline_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_timeline_commits_node
+      ON timeline_work_node_commits(timeline_id, node_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS timeline_work_node_patches (
       id TEXT PRIMARY KEY,
@@ -169,6 +174,8 @@ function migrateSchema(): void {
     ) STRICT;
     CREATE INDEX IF NOT EXISTS idx_timeline_patches_node
       ON timeline_work_node_patches(node_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_timeline_patches_scope
+      ON timeline_work_node_patches(timeline_id, node_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS timeline_checkout_refs (
       timeline_id TEXT PRIMARY KEY REFERENCES timeline_documents(id) ON DELETE CASCADE,
@@ -318,13 +325,19 @@ async function handleRequest(request: DatabaseRequest): Promise<unknown> {
       runStatement(request.statement, false);
       return { changes: requireDatabase().changes(false) };
     case 'batch':
-      return requireDatabase().transaction(() => {
+      return requireDatabase().transaction('IMMEDIATE', () => {
         let changes = 0;
-        for (const statement of request.statements) {
+        const statementChanges: number[] = [];
+        for (const [index, statement] of request.statements.entries()) {
           runStatement(statement, false);
-          changes += requireDatabase().changes(false);
+          const statementChangeCount = requireDatabase().changes(false);
+          statementChanges.push(statementChangeCount);
+          changes += statementChangeCount;
+          if (statement.requireChanges && statementChangeCount === 0) {
+            throw new Error(`WEB_DATABASE_REQUIRED_CHANGE:${index}`);
+          }
         }
-        return { changes };
+        return { changes, statementChanges };
       });
     case 'export': {
       requireDatabase().exec('PRAGMA optimize;');
