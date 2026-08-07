@@ -253,6 +253,20 @@ export interface DefHarnessTransition {
   readonly trace: readonly DefHarnessTraceEntry[];
 }
 
+/**
+ * Completion facts supplied by the Host after a projected Tool finishes.
+ *
+ * A successful mutation may include the Product binding digest observed after
+ * the command committed.  The Harness persists that digest as the new
+ * authoritative resume identity.  Read-only phases may repeat the current
+ * digest for bookkeeping, but may never advance it.
+ */
+export interface DefHarnessToolCompletionInput {
+  readonly toolName: string;
+  readonly status: 'succeeded' | 'failed';
+  readonly bindingSnapshotDigest?: string;
+}
+
 export interface DefHarnessInterruption {
   readonly code: string;
   readonly message: string;

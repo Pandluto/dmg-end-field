@@ -23,6 +23,7 @@ import {
   type DefHarnessResumeInput,
   type DefHarnessRouteInput,
   type DefHarnessTraceEntry,
+  type DefHarnessToolCompletionInput,
   type DefHarnessTransactionSnapshot,
   type DefHarnessTransition,
   type DefSessionId,
@@ -661,14 +662,14 @@ export class DefHarnessManager {
 
   completeTool(
     transactionId: string,
-    input: { readonly toolName: string; readonly status: 'succeeded' | 'failed' },
+    input: DefHarnessToolCompletionInput,
   ): DefHarnessTransition {
     return this.commitPrepared(this.prepareToolCompletion(transactionId, input));
   }
 
   prepareToolCompletion(
     transactionId: string,
-    input: { readonly toolName: string; readonly status: 'succeeded' | 'failed' },
+    input: DefHarnessToolCompletionInput,
   ): DefHarnessPreparedTransition {
     const record = this.#requireTransaction(transactionId);
     this.#assertLive(record);
@@ -677,6 +678,24 @@ export class DefHarnessManager {
     }
     const operationDefinition = record.operationDefinition;
     this.assertToolProjected(transactionId, input.toolName);
+    const reportedBindingSnapshotDigest = input.bindingSnapshotDigest === undefined
+      ? undefined
+      : completionBindingDigest(input.bindingSnapshotDigest);
+    const mutationCompleted = input.status === 'succeeded' && record.phase.kind === 'mutation';
+    if (reportedBindingSnapshotDigest !== undefined) {
+      if (input.status !== 'succeeded') {
+        throw new DefHarnessError(
+          'HARNESS_TOOL_INPUT_INVALID',
+          'A failed Tool completion cannot advance the Product binding',
+        );
+      }
+      if (!mutationCompleted && reportedBindingSnapshotDigest !== record.bindingSnapshotDigest) {
+        throw new DefHarnessError(
+          'HARNESS_TOOL_INPUT_INVALID',
+          'Only a successful mutation may advance the Product binding',
+        );
+      }
+    }
     const target = input.status === 'succeeded' ? record.phase.onSuccess : record.phase.onFailure;
     if (!target) {
       throw new DefHarnessError(
@@ -686,6 +705,12 @@ export class DefHarnessManager {
     }
     const candidate = cloneTransactionRecord(record);
     const traceOffset = candidate.trace.length;
+    if (mutationCompleted && reportedBindingSnapshotDigest !== undefined) {
+      // This is deliberately staged with the Harness transition.  A stale
+      // prepared transition cannot move the binding, and a failed mutation
+      // never receives the post-command digest.
+      candidate.bindingSnapshotDigest = reportedBindingSnapshotDigest;
+    }
     const targetPhase = requirePhase(operationDefinition, target);
     candidate.projectionRevision += 1;
     if (input.status === 'failed' || targetPhase.terminalState === 'aborted') {
@@ -1644,6 +1669,22 @@ function boundedString(value: unknown, label: string, max = 512): string {
     || value.includes('\u0000')
   ) {
     throw new DefHarnessError('HARNESS_PERSISTED_INVALID', `${label} must be bounded text`);
+  }
+  return value;
+}
+
+function completionBindingDigest(value: unknown): string {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > 512
+    || value !== value.trim()
+    || value.includes('\u0000')
+  ) {
+    throw new DefHarnessError(
+      'HARNESS_TOOL_INPUT_INVALID',
+      'completion.bindingSnapshotDigest must be bounded text',
+    );
   }
   return value;
 }

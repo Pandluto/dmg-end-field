@@ -489,6 +489,143 @@ function readPlanEvents(
   );
 }
 
+// A cross-business mutation advances the persisted binding exactly once. A
+// restart therefore resumes the next plan step against the post-mutation
+// binding, while an external binding change or a read-only attempt to forge a
+// new digest is rejected before the transaction moves.
+{
+  const sessionId = asDefSessionId('session-mutation-binding-resume');
+  const beforeDigest = 'sha256:mutation-binding-before';
+  const afterDigest = 'sha256:mutation-binding-after';
+  const sourceManager = createFullHarnessManager();
+  const started = sourceManager.beginTurn({
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-mutation-binding-source'),
+    bindingSnapshotDigest: beforeDigest,
+  });
+  const routed = sourceManager.route(started.transaction.transactionId, {
+    steps: [
+      { businessId: 'selection', operation: 'add' },
+      { businessId: 'timeline', operation: 'current' },
+    ],
+  });
+  const mutationContext = sourceManager.completeTool(routed.transaction.transactionId, {
+    toolName: 'def.node.crud.context',
+    status: 'succeeded',
+  });
+  assert.equal(
+    sourceManager.exportPersistedTransactions(sessionId)[0]?.bindingSnapshotDigest,
+    beforeDigest,
+    'a read-only context step must not advance the binding',
+  );
+  const mutationDone = sourceManager.completeTool(mutationContext.transaction.transactionId, {
+    toolName: 'def.team.selection.apply',
+    status: 'succeeded',
+    bindingSnapshotDigest: afterDigest,
+  });
+  const afterMutationPersisted = sourceManager.exportPersistedTransactions(sessionId)[0]!;
+  assert.equal(afterMutationPersisted.bindingSnapshotDigest, afterDigest);
+  assert.equal(mutationDone.transaction.plan?.currentIndex, 1);
+  assert.deepEqual(mutationDone.transaction.plan?.completedSteps.map((step) => step.index), [0]);
+
+  const interrupted = sourceManager.interrupt(mutationDone.transaction.transactionId, {
+    code: 'HOST_RESTARTED',
+    message: 'restart after first mutation',
+    occurredAt: '2026-08-08T00:10:00.000Z',
+  });
+  const persisted = sourceManager.exportPersistedTransactions(sessionId)
+    .find((transaction) => transaction.transactionId === interrupted.transaction.transactionId)!;
+  assert.equal(persisted.bindingSnapshotDigest, afterDigest);
+
+  const restartedManager = createFullHarnessManager();
+  restartedManager.restorePersistedTransaction(JSON.parse(JSON.stringify(persisted)));
+  await expectHarnessError(
+    () => restartedManager.resumeFromInterrupted({
+      sourceTransactionId: persisted.transactionId,
+      defSessionId: sessionId,
+      defTurnId: asDefTurnId('turn-mutation-binding-external-change'),
+      expectedCatalogRevision: restartedManager.catalogRevision,
+      expectedBindingSnapshotDigest: 'sha256:external-change',
+    }),
+    'HARNESS_RESUME_BINDING_MISMATCH',
+  );
+  const resumed = restartedManager.resumeFromInterrupted({
+    sourceTransactionId: persisted.transactionId,
+    defSessionId: sessionId,
+    defTurnId: asDefTurnId('turn-mutation-binding-resumed'),
+    expectedCatalogRevision: restartedManager.catalogRevision,
+    expectedBindingSnapshotDigest: afterDigest,
+  });
+  assert.equal(resumed.transaction.businessId, 'timeline');
+  assert.equal(resumed.transaction.operation, 'current');
+  assert.equal(resumed.transaction.plan?.currentIndex, 1);
+  assert.deepEqual(resumed.transaction.plan?.completedSteps.map((step) => step.index), [0]);
+  assert.equal(
+    restartedManager.exportPersistedTransactions(sessionId)
+      .find((transaction) => transaction.transactionId === resumed.transaction.transactionId)
+      ?.bindingSnapshotDigest,
+    afterDigest,
+  );
+
+  await expectHarnessError(
+    () => restartedManager.completeTool(resumed.transaction.transactionId, {
+      toolName: 'def.node.crud.current',
+      status: 'succeeded',
+      bindingSnapshotDigest: 'sha256:read-only-forgery',
+    }),
+    'HARNESS_TOOL_INPUT_INVALID',
+  );
+  const resumedCompleted = restartedManager.completeTool(resumed.transaction.transactionId, {
+    toolName: 'def.node.crud.current',
+    status: 'succeeded',
+  });
+  assert.equal(resumedCompleted.transaction.status, 'completed');
+  assert.equal(
+    restartedManager.exportPersistedTransactions(sessionId)
+      .find((transaction) => transaction.transactionId === resumed.transaction.transactionId)
+      ?.bindingSnapshotDigest,
+    afterDigest,
+    'a read-only completion must retain the authoritative post-mutation digest',
+  );
+}
+
+// Schema-v1 journals written before the completion digest input existed do
+// not contain any new field. They remain readable and resume with their
+// original transaction-level binding identity.
+{
+  const legacyManager = createFullHarnessManager();
+  const started = legacyManager.beginTurn({
+    defSessionId: asDefSessionId('session-legacy-binding-journal'),
+    defTurnId: asDefTurnId('turn-legacy-binding-journal'),
+    bindingSnapshotDigest: 'sha256:legacy-binding',
+  });
+  const routed = legacyManager.route(started.transaction.transactionId, {
+    businessId: 'timeline',
+    operation: 'current',
+  });
+  const legacyJournal = structuredClone(legacyManager.exportPersistedTransactions()[0]) as unknown as Record<string, unknown>;
+  delete legacyJournal.clarificationPlan;
+  const restored = createFullHarnessManager();
+  restored.restorePersistedTransaction(legacyJournal as never);
+  assert.equal(
+    restored.getTransaction(routed.transaction.transactionId).projection.tools[0]?.name,
+    'def.node.crud.current',
+  );
+  const interrupted = restored.interrupt(routed.transaction.transactionId, {
+    code: 'HOST_RESTARTED',
+    message: 'legacy journal restart',
+    occurredAt: '2026-08-08T00:11:00.000Z',
+  });
+  const resumed = restored.resumeFromInterrupted({
+    sourceTransactionId: interrupted.transaction.transactionId,
+    defSessionId: asDefSessionId('session-legacy-binding-journal'),
+    defTurnId: asDefTurnId('turn-legacy-binding-resumed'),
+    expectedCatalogRevision: restored.catalogRevision,
+    expectedBindingSnapshotDigest: 'sha256:legacy-binding',
+  });
+  assert.equal(resumed.transaction.operation, 'current');
+}
+
 // The old stable operation matrix is exact: the only additions to each
 // business are its clarification route, while direct conversation remains a
 // separate business with respond.
