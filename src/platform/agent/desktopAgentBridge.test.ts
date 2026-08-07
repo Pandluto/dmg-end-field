@@ -470,6 +470,72 @@ class FakeLease implements AgentWorkspaceLease {
   await controller.stop();
 }
 
+// A capability exchange advances the Host epoch. The workbench consumer must
+// be recreated against the restarted Host instead of retaining an in-memory
+// registration that only existed in the old Host process.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
+  const document = new FakeDocument();
+  const lease = new FakeLease();
+  let registerCount = 0;
+  let closeCount = 0;
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    now: () => 1_000,
+    fetch: async (url) => {
+      if (url.endsWith('/workbench/register')) {
+        registerCount += 1;
+        return response({
+          consumer: {
+            consumerId: `consumer-epoch-${registerCount}`,
+            executorLeaseId: `executor-epoch-${registerCount}`,
+            binding: binding(),
+            registeredAt: 1,
+            heartbeatExpiresAt: 20_000 + registerCount,
+          },
+        });
+      }
+      if (url.endsWith('/workbench/close')) {
+        closeCount += 1;
+        return response({ ok: true });
+      }
+      if (url.endsWith('/ui/session')) {
+        return response({
+          protocolVersion: 2,
+          capability: 'epoch-ui-capability-12345678901234567890',
+          audience: 'workbench-ai-mode',
+          expiresAt: 10_000,
+          approvalVerificationKey: TEST_APPROVAL_VERIFICATION_KEY,
+        }, 201);
+      }
+      return response({ ok: true });
+    },
+  });
+  const controller = createDesktopAgentConsumerController({
+    bridge,
+    workspaceLease: lease,
+    document,
+    getBinding: binding,
+    consumerId: 'consumer-epoch',
+    executorLeaseId: 'executor-epoch',
+    setInterval: () => 1,
+    clearInterval: () => undefined,
+  });
+
+  await controller.start();
+  assert.equal(registerCount, 1);
+  await bridge.exchangeLaunchGrant('epoch-launch-grant-12345678901234567890');
+  await settleAsyncWork();
+  await controller.refreshEligibility();
+  assert.equal(registerCount, 2);
+  assert.equal(closeCount, 1);
+  assert.equal(controller.getState().consumer?.consumerId, 'consumer-epoch-2');
+  await controller.stop();
+}
+
 // Interaction routes use the same scoped UI capability and accept both
 // question and approval requests through one strictly validated list.
 {
@@ -1193,12 +1259,119 @@ class FakeLease implements AgentWorkspaceLease {
     fetch: async () => response({ error: { message: 'capability expired' } }, 403),
   });
   await assert.rejects(
-    bridge.listSessions(),
+    bridge.startTurn(asDefSessionId('def-session-expired'), {
+      clientTurnId: asClientTurnId('client-turn-expired'),
+      userMessage: 'expired capability',
+    }),
     (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_UNAUTHORIZED',
   );
   assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), null);
   assert.equal(storage.getItem(AGENT_APPROVAL_KEY_STORAGE_KEY), null);
   assert.equal(bridge.getState().authorization, 'missing');
+}
+
+// A live AI page renews its capability once after the Host epoch changes,
+// then retries the read that observed the 403. The iframe can be relaunched
+// from capabilityRevision without a document reload.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage, 'stale-ui-capability-12345678901234567890');
+  let uiStateCalls = 0;
+  let launchCalls = 0;
+  let exchangeCalls = 0;
+  const freshCapability = 'fresh-ui-capability-12345678901234567890';
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    now: () => 1_000,
+    fetch: async (rawUrl, init) => {
+      const url = new URL(rawUrl);
+      if (url.pathname === '/agent-host/ui/state') {
+        uiStateCalls += 1;
+        if (uiStateCalls === 1) return response({ error: { message: 'old Host epoch' } }, 403);
+        assert.equal((init?.headers as Record<string, string>)[AGENT_UI_CAPABILITY_HEADER], freshCapability);
+        return response({
+          protocolVersion: 2,
+          engine: { kind: 'opencode', state: 'ready', runtimeVersion: 'fixture' },
+          consumer: null,
+          activeDefSessionId: null,
+          activeDefTurnId: null,
+        });
+      }
+      if (url.pathname === '/agent-host/ui/launch') {
+        launchCalls += 1;
+        return response({
+          ok: true,
+          launch: {
+            grant: 'fresh-launch-grant-12345678901234567890',
+            audience: 'workbench-ai-mode',
+            expiresAt: 10_000,
+          },
+        }, 201);
+      }
+      if (url.pathname === '/agent-host/ui/session') {
+        exchangeCalls += 1;
+        const body = JSON.parse(String(init?.body));
+        assert.equal(body.audience, 'workbench-ai-mode');
+        assert.equal(body.launchGrant, 'fresh-launch-grant-12345678901234567890');
+        return response({
+          protocolVersion: 2,
+          capability: freshCapability,
+          audience: 'workbench-ai-mode',
+          expiresAt: 10_000,
+          approvalVerificationKey: TEST_APPROVAL_VERIFICATION_KEY,
+        }, 201);
+      }
+      return response({ error: { message: 'unexpected request' } }, 404);
+    },
+  });
+
+  const state = await bridge.refreshUiState();
+  assert.equal(state.engine.state, 'ready');
+  assert.equal(launchCalls, 1);
+  assert.equal(exchangeCalls, 1);
+  assert.equal(uiStateCalls, 2);
+  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), freshCapability);
+  assert.equal(storage.values.has('dmg.desktop.agent-launch-grant.v1'), false);
+  assert.equal(bridge.getState().authorization, 'authorized');
+  assert.equal(bridge.getState().capabilityRevision, 1);
+  await bridge.refreshUiState();
+  assert.equal(launchCalls, 1, 'a healthy capability must not trigger another grant');
+}
+
+// A failed reauthorization is terminal for automatic recovery. The page gets
+// one clear error and never spins a grant/403 loop; an explicit UI retry can
+// call retryAuthorization later.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage, 'stale-ui-capability-22345678901234567890');
+  let launchCalls = 0;
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (rawUrl) => {
+      const url = new URL(rawUrl);
+      if (url.pathname === '/agent-host/ui/state') return response({ error: { message: 'old Host epoch' } }, 403);
+      if (url.pathname === '/agent-host/ui/launch') {
+        launchCalls += 1;
+        return response({ error: { code: 'AGENT_RUNTIME_UNAVAILABLE', message: 'Agent Host 尚未就绪。' } }, 503);
+      }
+      return response({ error: { message: 'unexpected request' } }, 404);
+    },
+  });
+  await assert.rejects(
+    bridge.refreshUiState(),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_RUNTIME_UNAVAILABLE',
+  );
+  assert.equal(launchCalls, 1);
+  assert.equal(bridge.getState().authorization, 'failed');
+  await assert.rejects(
+    bridge.refreshUiState(),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_REAUTH_EXHAUSTED',
+  );
+  assert.equal(launchCalls, 1, 'failed automatic recovery must not loop');
 }
 
 // A stale heartbeat after sleep must re-register without a visibility event or reload.

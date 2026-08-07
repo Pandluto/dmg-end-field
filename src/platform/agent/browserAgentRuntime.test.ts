@@ -1064,6 +1064,72 @@ for (const [index, invalidCommand] of invalidCommands.entries()) {
   assert.match(mismatchedBridge.results[0]?.result.message ?? '', /精确队伍/u);
 }
 
+// Roster order is an exact postcondition. The same member set in the wrong
+// order must not make a reorder command appear successful.
+{
+  const orderedPayload = {
+    ...selectionCommandPayload,
+    characterNames: ['测试甲', '测试乙'],
+    nodeTitle: '调整阵容顺序：测试甲、测试乙',
+  } as const;
+  const orderedCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-selection-ordered'),
+    toolCallId: asToolCallId('tool-selection-ordered'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: { command: orderedPayload },
+    },
+  };
+  const orderedEvents: string[] = [];
+  const orderedBridge = new FakeBridge(orderedEvents);
+  const signedOrderedCommand = await withApprovalCapability(orderedCommand);
+  orderedBridge.delivery = { cursor: 1, command: signedOrderedCommand };
+  const orderedStore = new FakeStore(orderedEvents);
+  orderedStore.snapshotBinding = failedBinding;
+  const orderedRuntime = new BrowserAgentRuntime({
+    bridge: orderedBridge,
+    consumerController: controller,
+    store: orderedStore,
+    postCommandSnapshotTimeoutMs: 0,
+  });
+  await orderedRuntime.publishMainWorkbenchSnapshot({
+    schemaVersion: 1,
+    updatedAt: 101,
+    source: 'app',
+    timelineId: 'timeline-runtime',
+    activeTimelineId: 'timeline-runtime',
+    checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 101 },
+    currentView: 'canvas',
+    selectedCharacters: [
+      { id: 'operator-b', name: '测试乙' },
+      { id: 'operator-a', name: '测试甲' },
+    ],
+    skillButtons: [],
+  });
+  await orderedRuntime.pullRemoteCommands(() => undefined);
+  await orderedRuntime.pushCommandResult({
+    id: signedOrderedCommand.commandId,
+    command: orderedPayload,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: {
+      selectedCharacters: [
+        { id: 'operator-a', name: '测试甲' },
+        { id: 'operator-b', name: '测试乙' },
+      ],
+      currentView: 'canvas',
+      timelineId: 'timeline-runtime',
+      nodeId: 'node-ordered',
+    },
+  });
+  assert.equal(orderedBridge.results[0]?.result.status, 'error');
+  assert.equal(orderedBridge.results[0]?.result.code, 'AGENT_POSTCONDITION_NOT_OBSERVED');
+  assert.match(orderedBridge.results[0]?.result.message ?? '', /顺序/u);
+}
+
 // Read-like commands with an explicit visible postcondition are verified too;
 // calculation cannot succeed while the browser still publishes a placeholder.
 {

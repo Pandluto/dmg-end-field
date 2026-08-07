@@ -592,3 +592,94 @@ test('invalid ready manifest cannot turn a non-loopback or fixed public host int
     fixture.cleanup();
   }
 });
+
+test('Provider replacement is rejected while a persisted Turn or interaction is active', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.runtime.start();
+    const sessionId = 'session-provider-gate';
+    const sessionRoot = path.join(fixture.runtime.sessionStoreRoot, 'sessions', sessionId);
+    fs.mkdirSync(sessionRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(fixture.runtime.sessionStoreRoot, 'registry.json'),
+      JSON.stringify({ schemaVersion: 2, activeSessionId: sessionId, sessionIds: [sessionId] }),
+    );
+    const eventsPath = path.join(sessionRoot, 'events.ndjson');
+    fs.writeFileSync(eventsPath, [
+      JSON.stringify({ type: 'turn.accepted', defTurnId: 'turn-provider-gate' }),
+      JSON.stringify({
+        type: 'interaction.requested',
+        defTurnId: 'turn-provider-gate',
+        interactionId: 'interaction-provider-gate',
+      }),
+    ].join('\n') + '\n');
+    const blocked = fixture.runtime.getProviderUpdateSafety();
+    assert.equal(blocked.allowed, false);
+    assert.equal(blocked.code, 'AGENT_PROVIDER_UPDATE_BLOCKED');
+    assert.match(blocked.reason, /问题或审批/u);
+
+    fs.writeFileSync(eventsPath, [
+      JSON.stringify({ type: 'turn.accepted', defTurnId: 'turn-provider-gate' }),
+      JSON.stringify({
+        type: 'interaction.requested',
+        defTurnId: 'turn-provider-gate',
+        interactionId: 'interaction-provider-gate',
+      }),
+      JSON.stringify({
+        type: 'interaction.resolved',
+        defTurnId: 'turn-provider-gate',
+        interactionId: 'interaction-provider-gate',
+      }),
+      JSON.stringify({ type: 'turn.completed', defTurnId: 'turn-provider-gate' }),
+    ].join('\n') + '\n');
+    assert.deepEqual(fixture.runtime.getProviderUpdateSafety(), {
+      allowed: true,
+      code: null,
+      reason: null,
+    });
+
+    fs.rmSync(eventsPath);
+    const unknown = fixture.runtime.getProviderUpdateSafety();
+    assert.equal(unknown.allowed, false);
+    assert.equal(unknown.code, 'AGENT_PROVIDER_UPDATE_STATE_UNKNOWN');
+  } finally {
+    await fixture.runtime.stop();
+    fixture.cleanup();
+  }
+});
+
+test('Provider update reservation blocks new Turns and launch grants until it is released', async () => {
+  const fixture = await createFixture();
+  try {
+    await fixture.runtime.start();
+    const reservation = fixture.runtime.beginProviderUpdate();
+    assert.equal(reservation.allowed, true);
+    assert.ok(reservation.lease);
+    assert.equal(fixture.runtime.getProviderUpdateSafety().code, 'AGENT_PROVIDER_UPDATE_IN_PROGRESS');
+
+    const turnResponse = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'POST',
+      url: '/agent-host/sessions/session-provider-gate/turns',
+      headers: { origin: 'http://127.0.0.1:31457' },
+    }, turnResponse), true);
+    assert.equal(turnResponse.statusCode, 409);
+    assert.equal(turnResponse.headers['access-control-allow-origin'], 'http://127.0.0.1:31457');
+    assert.match(turnResponse.body.toString('utf8'), /新的 Turn/u);
+
+    const launchResponse = createResponseCapture();
+    assert.equal(await fixture.runtime.handleBrowserRequest({
+      method: 'POST',
+      url: '/agent-host/ui/launch',
+      headers: { origin: 'http://127.0.0.1:31457' },
+    }, launchResponse), true);
+    assert.equal(launchResponse.statusCode, 409);
+    assert.match(launchResponse.body.toString('utf8'), /等待当前切换完成/u);
+
+    fixture.runtime.endProviderUpdate(reservation.lease);
+    assert.equal(fixture.runtime.getProviderUpdateSafety().allowed, true);
+  } finally {
+    await fixture.runtime.stop();
+    fixture.cleanup();
+  }
+});

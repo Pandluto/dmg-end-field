@@ -210,18 +210,24 @@
   });
   element('save-agent-profile').addEventListener('click', async () => {
     setBusy(true);
-    setMessage('正在保存 Provider 配置并重启 Agent…');
+    setMessage('正在验证 Provider 配置并安全切换 Agent…');
     try {
       const result = await host.saveAgentProfile({
         apiKey: element('agent-api-key').value,
         baseUrl: element('agent-base-url').value,
         modelId: element('agent-model-id').value,
       });
-      if (!result?.ok) throw new Error(result?.error || 'Provider 配置保存失败。');
+      if (!result?.ok) {
+        const error = new Error(result?.error || 'Provider 配置保存失败。');
+        error.code = result?.code || 'AGENT_PROVIDER_UPDATE_FAILED';
+        throw error;
+      }
       element('agent-api-key').value = '';
       renderAgentProfile(result.profile);
       renderAgentState(result.runtime || await host.getAgentState());
-      setMessage(`Agent Provider 已就绪：${result.profile.modelId}`);
+      setMessage(result.changed === false
+        ? `Agent Provider 未发生变化：${result.profile.modelId}`
+        : `Agent Provider 已验证并切换：${result.profile.modelId}`);
     } catch (error) {
       setMessage(errorMessage(error), true);
       renderAgentState(await host.getAgentState().catch(() => null));

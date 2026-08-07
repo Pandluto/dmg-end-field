@@ -167,6 +167,7 @@ export function AgentModeOverlay({
     bridge,
     bridgeState.engine?.reason,
     bridgeState.engine?.state,
+    bridgeState.capabilityRevision,
     connected,
     consumerState.error,
     consumerState.state,
@@ -216,11 +217,20 @@ export function AgentModeOverlay({
           {visibleError && (
             <button
               type="button"
-              onClick={() => {
+              onClick={async () => {
                 setError(null);
                 setLaunch(null);
                 setLaunchRevision((current) => current + 1);
-                void bridge.refreshUiState().then(() => consumerController.refreshEligibility());
+                setStatus(bridgeState.authorization === 'authorized'
+                  ? '正在刷新 Agent 状态…'
+                  : '正在向桌面 Shell 重新申请 AI 模式授权…');
+                try {
+                  if (bridgeState.authorization === 'authorized') await bridge.refreshUiState();
+                  else await bridge.retryAuthorization();
+                  await consumerController.refreshEligibility();
+                } catch (cause) {
+                  setError(operationMessage(cause));
+                }
               }}
             >
               重试

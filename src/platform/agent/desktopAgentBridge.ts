@@ -50,6 +50,11 @@ export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
 export const DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS = 25_000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
+const AUTHORIZATION_FAILURE_CODES = new Set([
+  'AGENT_UI_CAPABILITY_INVALID',
+  'AGENT_ORIGIN_DENIED',
+  'AGENT_UNAUTHORIZED',
+]);
 const loadProtocolValidation = () => import('./desktopAgentEventValidation');
 
 type AgentModeLocation = Pick<Location, 'href' | 'pathname' | 'search' | 'hash'>;
@@ -100,6 +105,8 @@ export type DesktopAgentHostState =
 export interface DesktopAgentBridgeState {
   readonly route: boolean;
   readonly authorization: DesktopAgentAuthorizationState;
+  /** Increments only after a fresh Host capability is exchanged. */
+  readonly capabilityRevision: number;
   readonly host: DesktopAgentHostState;
   readonly engine: AgentHostHealth['engine'] | null;
   readonly error: string | null;
@@ -737,10 +744,13 @@ export class DesktopAgentBridge {
   #pendingLaunchGrant: string | null = null;
   #captureAttempted = false;
   #launchGrantExchangeAttempted = false;
+  #reauthorizationAttempted = false;
+  #reauthorizationPromise: Promise<string> | null = null;
   #initializePromise: Promise<DesktopAgentBridgeState> | null = null;
   #state: DesktopAgentBridgeState = {
     route: false,
     authorization: 'pending',
+    capabilityRevision: 0,
     host: 'pending',
     engine: null,
     error: null,
@@ -808,6 +818,52 @@ export class DesktopAgentBridge {
       // A storage failure is already fail-closed; there is nothing safe to retain.
     }
     this.#setState({ authorization: 'missing', error: null });
+  }
+
+  /**
+   * Re-authorize this already-open AI page after the Host epoch changed.
+   * Exactly one automatic attempt is allowed per bridge instance; callers may
+   * explicitly use retryAuthorization after presenting the failure to a user.
+   */
+  reauthorize(): Promise<string> {
+    if (!this.isAgentModeRoute()) {
+      return Promise.reject(new DesktopAgentBridgeError('当前页面不是 AI 模式。', 'AGENT_ROUTE_REQUIRED', 403));
+    }
+    if (this.#reauthorizationPromise) return this.#reauthorizationPromise;
+    if (this.#reauthorizationAttempted) {
+      return Promise.reject(new DesktopAgentBridgeError(
+        'AI 模式重授权失败，请点击“重试”再次尝试。',
+        'AGENT_REAUTH_EXHAUSTED',
+        403,
+      ));
+    }
+    this.#reauthorizationAttempted = true;
+    const promise = (async () => {
+      this.clearSessionCapability();
+      this.#setState({ authorization: 'pending', error: null });
+      try {
+        const launch = await requestDesktopAgentModeLaunch({
+          fetch: this.#fetch,
+          bridgeOrigin: this.#origin,
+          now: this.#now,
+        });
+        return await this.#exchangeLaunchGrant(launch.grant, true);
+      } catch (error) {
+        this.clearSessionCapability();
+        const cause = error instanceof Error ? error.message : 'AI 模式重授权失败。';
+        this.#setState({ authorization: 'failed', error: cause });
+        throw error;
+      }
+    })().finally(() => {
+      if (this.#reauthorizationPromise === promise) this.#reauthorizationPromise = null;
+    });
+    this.#reauthorizationPromise = promise;
+    return promise;
+  }
+
+  retryAuthorization(): Promise<string> {
+    this.#reauthorizationAttempted = false;
+    return this.reauthorize();
   }
 
   captureLaunchGrant(): string | null {
@@ -909,6 +965,10 @@ export class DesktopAgentBridge {
   }
 
   async exchangeLaunchGrant(launchGrant?: string): Promise<string> {
+    return this.#exchangeLaunchGrant(launchGrant, false);
+  }
+
+  async #exchangeLaunchGrant(launchGrant: string | undefined, allowReauthorization: boolean): Promise<string> {
     if (!this.isAgentModeRoute()) {
       throw new DesktopAgentBridgeError('当前页面不是 AI 模式。', 'AGENT_ROUTE_REQUIRED', 403);
     }
@@ -917,7 +977,7 @@ export class DesktopAgentBridge {
     if (!isSecureCapability(grant)) {
       throw new DesktopAgentBridgeError('AI 模式授权缺失或格式无效。', 'AGENT_LAUNCH_GRANT_INVALID', 403);
     }
-    if (this.#launchGrantExchangeAttempted) {
+    if (this.#launchGrantExchangeAttempted && !allowReauthorization) {
       throw new DesktopAgentBridgeError('AI 模式授权已经被本页面消费。', 'AGENT_LAUNCH_GRANT_CONSUMED', 403);
     }
     this.#launchGrantExchangeAttempted = true;
@@ -981,7 +1041,11 @@ export class DesktopAgentBridge {
         500,
       );
     }
-    this.#setState({ authorization: 'authorized', error: null });
+    this.#setState({
+      authorization: 'authorized',
+      capabilityRevision: this.#state.capabilityRevision + 1,
+      error: null,
+    });
     return capability;
   }
 
@@ -997,7 +1061,7 @@ export class DesktopAgentBridge {
   }
 
   async getUiState(): Promise<AgentUiState> {
-    const data = await this.#request('/agent-host/ui/state');
+    const data = await this.#requestWithReauthorization('/agent-host/ui/state');
     const state = asUiState(data);
     this.#setState({
       authorization: 'authorized',
@@ -1008,7 +1072,7 @@ export class DesktopAgentBridge {
   }
 
   async registerConsumer(input: BrowserWorkbenchRegistration): Promise<BrowserWorkbenchConsumerState> {
-    const data = await this.#request('/agent-host/workbench/register', {
+    const data = await this.#requestWithReauthorization('/agent-host/workbench/register', {
       method: 'POST',
       body: input,
     });
@@ -1016,7 +1080,7 @@ export class DesktopAgentBridge {
   }
 
   async heartbeatConsumer(input: BrowserWorkbenchHeartbeat): Promise<BrowserWorkbenchConsumerState> {
-    const data = await this.#request('/agent-host/workbench/heartbeat', {
+    const data = await this.#requestWithReauthorization('/agent-host/workbench/heartbeat', {
       method: 'POST',
       body: input,
     });
@@ -1052,7 +1116,7 @@ export class DesktopAgentBridge {
     if (input.waitMs && Number.isSafeInteger(input.waitMs) && input.waitMs > 0) {
       query.set('waitMs', String(input.waitMs));
     }
-    const data = await this.#request(`/agent-host/workbench/commands/next?${query}`);
+    const data = await this.#requestWithReauthorization(`/agent-host/workbench/commands/next?${query}`);
     if (data.delivery === null) return null;
     const candidate = (
       data.delivery && typeof data.delivery === 'object' ? data.delivery : data
@@ -1077,11 +1141,11 @@ export class DesktopAgentBridge {
   }
 
   async listSessions(): Promise<readonly AgentProductSession[]> {
-    return asSessionList(await this.#request('/agent-host/sessions'));
+    return asSessionList(await this.#requestWithReauthorization('/agent-host/sessions'));
   }
 
   async listInteractions(): Promise<readonly InteractionRequest[]> {
-    const data = await this.#request('/agent-host/interactions');
+    const data = await this.#requestWithReauthorization('/agent-host/interactions');
     return asInteractionList(data).interactions;
   }
 
@@ -1138,7 +1202,7 @@ export class DesktopAgentBridge {
   }
 
   async launchNativeUi(defSessionId: DefSessionId): Promise<AgentNativeUiLaunch> {
-    const data = await this.#request('/agent-host/native-ui/launch', {
+    const data = await this.#requestWithReauthorization('/agent-host/native-ui/launch', {
       method: 'POST',
       body: { defSessionId },
     });
@@ -1146,7 +1210,7 @@ export class DesktopAgentBridge {
   }
 
   async getSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
-    const data = await this.#request(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`);
+    const data = await this.#requestWithReauthorization(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`);
     return asProductSession(data);
   }
 
@@ -1181,7 +1245,7 @@ export class DesktopAgentBridge {
       afterSequence: String(afterSequence),
       limit: String(limit),
     });
-    const data = await this.#request(
+    const data = await this.#requestWithReauthorization(
       `/agent-host/sessions/${encodeURIComponent(defSessionId)}/events?${query}`,
     );
     const { parseProductEventPage } = await loadProtocolValidation();
@@ -1217,6 +1281,26 @@ export class DesktopAgentBridge {
     return this.getUiState();
   }
 
+  async #requestWithReauthorization(
+    path: string,
+    options: AgentBridgeRequestOptions = {},
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await this.#request(path, options);
+    } catch (error) {
+      if (!(error instanceof DesktopAgentBridgeError)
+        || error.code !== 'AGENT_UNAUTHORIZED'
+        || options.authorized === false) {
+        throw error;
+      }
+      await this.reauthorize();
+      // The retry is deliberately outside another recovery wrapper. A bad
+      // grant or a second 403 becomes a visible terminal error instead of a
+      // request/reauthorization loop.
+      return this.#request(path, options);
+    }
+  }
+
   async #request(path: string, options: AgentBridgeRequestOptions = {}): Promise<Record<string, unknown>> {
     const authorized = options.authorized !== false;
     let capability: string | null = null;
@@ -1247,12 +1331,18 @@ export class DesktopAgentBridge {
     }
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      if (authorized && (response.status === 401 || response.status === 403)) this.clearSessionCapability();
+      const responseCode = readErrorCode(payload, 'HOST_REQUEST_FAILED');
+      const authorizationFailure = response.status === 401
+        || (response.status === 403 && (
+          responseCode === 'HOST_REQUEST_FAILED'
+          || AUTHORIZATION_FAILURE_CODES.has(responseCode)
+        ));
+      if (authorized && authorizationFailure) this.clearSessionCapability();
       throw new DesktopAgentBridgeError(
         readErrorMessage(payload, `Agent Host 请求失败（${response.status}）。`),
-        response.status === 401 || response.status === 403
+        authorizationFailure
           ? 'AGENT_UNAUTHORIZED'
-          : readErrorCode(payload, 'HOST_REQUEST_FAILED'),
+          : responseCode,
         response.status,
       );
     }
@@ -1284,9 +1374,20 @@ export class DesktopAgentConsumerController {
   readonly #listeners = new Set<DesktopAgentConsumerListener>();
   readonly #onVisibilityChange = () => { void this.#synchronize(); };
   readonly #onPageExit = () => { void this.stop(true); };
+  readonly #onBridgeState = (state: DesktopAgentBridgeState) => {
+    if (
+      this.#running
+      && this.#consumer
+      && state.capabilityRevision !== this.#consumerCapabilityRevision
+    ) {
+      void this.#synchronize();
+    }
+  };
   #leaseUnsubscribe: (() => void) | null = null;
+  #bridgeUnsubscribe: (() => void) | null = null;
   #heartbeatHandle: unknown = null;
   #consumer: BrowserWorkbenchConsumerState | null = null;
+  #consumerCapabilityRevision = -1;
   #running = false;
   #syncVersion = 0;
   #synchronizeRequested = false;
@@ -1332,6 +1433,7 @@ export class DesktopAgentConsumerController {
     this.#document.addEventListener('visibilitychange', this.#onVisibilityChange);
     this.#document.addEventListener('pagehide', this.#onPageExit);
     this.#document.addEventListener('beforeunload', this.#onPageExit);
+    this.#bridgeUnsubscribe = this.#bridge.subscribe(this.#onBridgeState);
     this.#leaseUnsubscribe = this.#workspaceLease.subscribe?.(() => { void this.#synchronize(); }) || null;
     return this.#synchronize();
   }
@@ -1342,6 +1444,8 @@ export class DesktopAgentConsumerController {
 
   async stop(keepalive = false): Promise<void> {
     if (!this.#running && !this.#consumer) {
+      this.#bridgeUnsubscribe?.();
+      this.#bridgeUnsubscribe = null;
       this.#setState({ state: 'closed', visible: this.isVisible(), role: this.#workspaceLease.getRole() });
       return;
     }
@@ -1353,9 +1457,12 @@ export class DesktopAgentConsumerController {
     this.#document.removeEventListener('beforeunload', this.#onPageExit);
     this.#leaseUnsubscribe?.();
     this.#leaseUnsubscribe = null;
+    this.#bridgeUnsubscribe?.();
+    this.#bridgeUnsubscribe = null;
     this.#clearHeartbeat();
     const consumer = this.#consumer;
     this.#consumer = null;
+    this.#consumerCapabilityRevision = -1;
     if (consumer) {
       try {
         await this.#bridge.closeConsumer({
@@ -1389,6 +1496,10 @@ export class DesktopAgentConsumerController {
     const visible = this.isVisible();
     const role = this.#workspaceLease.getRole();
     this.#setState({ visible, role });
+    const capabilityRevision = this.#bridge.getState().capabilityRevision;
+    if (this.#consumer && this.#consumerCapabilityRevision !== capabilityRevision) {
+      await this.#closeCurrentConsumer();
+    }
     if (!this.#bridge.isAgentModeRoute()) {
       const closePromise = this.#closeCurrentConsumer();
       if (this.#running && version === this.#syncVersion) {
@@ -1457,16 +1568,21 @@ export class DesktopAgentConsumerController {
             consumerId: next.consumerId,
             executorLeaseId: next.executorLeaseId,
           }, false).catch(() => undefined);
-          if (this.#consumer === current) this.#consumer = null;
+          if (this.#consumer === current) {
+            this.#consumer = null;
+            this.#consumerCapabilityRevision = -1;
+          }
           return;
         }
         if (this.#consumer === current) {
           this.#consumer = next;
+          this.#consumerCapabilityRevision = this.#bridge.getState().capabilityRevision;
           this.#setState({ state: 'registered', visible: true, role: 'writer', consumer: next, error: null });
         }
       } catch (error) {
         if (this.#running && version === this.#syncVersion && this.#consumer === current) {
           this.#consumer = null;
+          this.#consumerCapabilityRevision = -1;
           this.#setState({ state: 'error', consumer: null, error: error instanceof Error ? error.message : String(error) });
           this.#synchronizeRequested = true;
         }
@@ -1495,6 +1611,7 @@ export class DesktopAgentConsumerController {
         return;
       }
       this.#consumer = consumer;
+      this.#consumerCapabilityRevision = this.#bridge.getState().capabilityRevision;
       this.#startHeartbeat();
       this.#setState({ state: 'registered', visible: true, role: 'writer', consumer, error: null });
     } catch (error) {
@@ -1527,6 +1644,10 @@ export class DesktopAgentConsumerController {
       await this.#synchronize();
       return;
     }
+    if (this.#consumerCapabilityRevision !== this.#bridge.getState().capabilityRevision) {
+      await this.#synchronize();
+      return;
+    }
     if (
       !this.#bridge.isAgentModeRoute()
       || !this.isVisible()
@@ -1556,16 +1677,21 @@ export class DesktopAgentConsumerController {
           consumerId: next.consumerId,
           executorLeaseId: next.executorLeaseId,
         }).catch(() => undefined);
-        if (this.#consumer === current) this.#consumer = null;
+        if (this.#consumer === current) {
+          this.#consumer = null;
+          this.#consumerCapabilityRevision = -1;
+        }
         return;
       }
       if (this.#consumer === current) {
         this.#consumer = next;
+        this.#consumerCapabilityRevision = this.#bridge.getState().capabilityRevision;
         this.#setState({ state: 'registered', visible: true, role: 'writer', consumer: next, error: null });
       }
     } catch (error) {
       if (this.#consumer !== current || !this.#running) return;
       this.#consumer = null;
+      this.#consumerCapabilityRevision = -1;
       this.#setState({ state: 'error', consumer: null, error: error instanceof Error ? error.message : String(error) });
       await this.#synchronize();
     }
@@ -1575,6 +1701,7 @@ export class DesktopAgentConsumerController {
     this.#clearHeartbeat();
     const consumer = this.#consumer;
     this.#consumer = null;
+    this.#consumerCapabilityRevision = -1;
     if (!consumer) return;
     await this.#bridge.closeConsumer({
       consumerId: consumer.consumerId,

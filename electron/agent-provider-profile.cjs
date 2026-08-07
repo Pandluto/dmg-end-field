@@ -62,6 +62,130 @@ function writeAgentProviderProfile(filePath, input, options = {}) {
   return readAgentProviderProfile(filePath, { fs });
 }
 
+/**
+ * Replace one already-staged profile with the target profile atomically.
+ * The previous file is kept until finalizeAgentProviderProfileSwap is called,
+ * so a failed Host restart can restore the exact previous bytes.
+ */
+function swapAgentProviderProfile(candidatePath, targetPath, options = {}) {
+  const fs = options.fs || fsModule;
+  assertRegularProfileFile(fs, candidatePath, '候选 Provider 配置');
+  const targetExists = existsAsRegularProfileFile(fs, targetPath);
+  const backupPath = `${targetPath}.${process.pid}.${crypto.randomBytes(6).toString('hex')}.bak`;
+  let previousMoved = false;
+  try {
+    if (targetExists) {
+      fs.renameSync(targetPath, backupPath);
+      previousMoved = true;
+    }
+    fs.renameSync(candidatePath, targetPath);
+    if (process.platform !== 'win32') fs.chmodSync(targetPath, 0o600);
+    return Object.freeze({
+      candidatePath,
+      targetPath,
+      backupPath: previousMoved ? backupPath : null,
+      hadPrevious: previousMoved,
+    });
+  } catch (error) {
+    try {
+      if (previousMoved && !fs.existsSync(targetPath)) fs.renameSync(backupPath, targetPath);
+    } catch {
+      // Preserve the original commit error. The caller will surface the
+      // rollback failure separately if it cannot restore the old profile.
+    }
+    throw error;
+  }
+}
+
+function finalizeAgentProviderProfileSwap(transaction, options = {}) {
+  const fs = options.fs || fsModule;
+  if (!transaction?.backupPath) return;
+  fs.rmSync(transaction.backupPath, { force: true });
+}
+
+function rollbackAgentProviderProfileSwap(transaction, options = {}) {
+  const fs = options.fs || fsModule;
+  if (!transaction || typeof transaction.targetPath !== 'string') {
+    throw new TypeError('Provider 配置回滚事务无效。');
+  }
+  if (fs.existsSync(transaction.targetPath)) fs.rmSync(transaction.targetPath, { force: true });
+  if (transaction.backupPath && fs.existsSync(transaction.backupPath)) {
+    fs.renameSync(transaction.backupPath, transaction.targetPath);
+    if (process.platform !== 'win32') fs.chmodSync(transaction.targetPath, 0o600);
+  } else if (transaction.hadPrevious) {
+    throw new Error('旧 Provider 配置备份不存在。');
+  }
+}
+
+/**
+ * Verify credentials and the selected model without creating a billable
+ * conversation. The /models endpoint is part of the OpenAI-compatible
+ * provider contract used by the DEF OpenCode adapter.
+ */
+async function probeAgentProviderProfile(filePath, options = {}) {
+  const profile = readAgentProviderProfile(filePath, {
+    fs: options.fs || fsModule,
+    includeSecret: true,
+  });
+  if (!profile?.apiKey) throw providerProbeError('AGENT_PROVIDER_AUTH_FAILED', 'Provider API Key 不可用。');
+  const fetchImpl = options.fetch || globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw providerProbeError('AGENT_PROVIDER_PROBE_UNAVAILABLE', '当前环境没有可用的 Provider 检查能力。');
+  }
+  const timeoutMs = positiveInteger(options.timeoutMs, 8_000);
+  const endpoint = `${profile.baseUrl.replace(/\/+$/u, '')}/models`;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  const timer = setTimeout(() => controller?.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: 'GET',
+      headers: {
+        accept: 'application/json',
+        authorization: `Bearer ${profile.apiKey}`,
+      },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw providerProbeError('AGENT_PROVIDER_PROBE_TIMEOUT', 'Provider 检查超时，配置未提交。');
+    }
+    throw providerProbeError('AGENT_PROVIDER_PROBE_FAILED', 'Provider 检查失败，配置未提交。');
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw providerProbeError('AGENT_PROVIDER_AUTH_FAILED', 'Provider API Key 验证失败，旧配置仍在使用。');
+  }
+  if (!response.ok) {
+    throw providerProbeError('AGENT_PROVIDER_PROBE_FAILED', 'Provider 模型目录不可用，配置未提交。');
+  }
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    throw providerProbeError('AGENT_PROVIDER_PROBE_FAILED', 'Provider 模型目录响应无效，配置未提交。');
+  }
+  const models = Array.isArray(body?.data)
+    ? body.data
+      .filter((item) => item && typeof item === 'object' && typeof item.id === 'string')
+      .map((item) => item.id)
+    : [];
+  if (!models.includes(profile.modelId)) {
+    throw providerProbeError('AGENT_PROVIDER_MODEL_UNAVAILABLE', '所选模型不在 Provider 当前可用目录中，配置未提交。');
+  }
+  return {
+    configured: true,
+    ref: profile.ref,
+    providerId: profile.providerId,
+    displayName: profile.displayName,
+    baseUrl: profile.baseUrl,
+    modelId: profile.modelId,
+    apiKeyConfigured: true,
+    verified: true,
+  };
+}
+
 function migrateLegacyAgentProviderProfile(filePath, legacyPaths, options = {}) {
   const fs = options.fs || fsModule;
   const current = readAgentProviderProfile(filePath, { fs });
@@ -107,7 +231,7 @@ function normalizeProfile(input) {
   const providerId = portableIdentifier(input.providerId, 'Provider ID');
   const displayName = boundedString(input.displayName, 'Provider 名称');
   const baseUrl = normalizeBaseUrl(input.baseUrl);
-  const modelId = boundedString(input.modelId, '模型 ID');
+  const modelId = boundedString(input.modelId, '模型 ID', 256);
   const apiKey = boundedString(input.apiKey, 'Provider API Key');
   return { ref, providerId, displayName, baseUrl, modelId, apiKey };
 }
@@ -124,11 +248,52 @@ function normalizeBaseUrl(value) {
   return raw;
 }
 
-function boundedString(value, label) {
+function boundedString(value, label, maxLength = 4_096) {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`${label}不能为空。`);
   const normalized = value.trim();
-  if (normalized.length > 4_096) throw new Error(`${label}过长。`);
+  if (normalized.length > maxLength) throw new Error(`${label}过长。`);
   return normalized;
+}
+
+function assertRegularProfileFile(fs, filePath, label) {
+  let info;
+  try {
+    info = fs.lstatSync(filePath);
+  } catch (error) {
+    throw new Error(`${label}不可读取。`);
+  }
+  if (!info.isFile() || info.isSymbolicLink()) throw new Error(`${label}必须是普通文件。`);
+}
+
+function existsAsRegularProfileFile(fs, filePath) {
+  try {
+    assertRegularProfileFile(fs, filePath, 'Provider 配置');
+    return true;
+  } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    try {
+      const info = fs.lstatSync(filePath);
+      if (info.isSymbolicLink()) throw new Error('Provider 配置不能是符号链接。');
+      if (!info.isFile()) throw new Error('Provider 配置必须是普通文件。');
+      return true;
+    } catch (nestedError) {
+      if (nestedError?.code === 'ENOENT') return false;
+      throw nestedError;
+    }
+  }
+}
+
+function providerProbeError(code, message) {
+  const error = new Error(message);
+  error.code = code;
+  error.statusCode = 502;
+  return error;
+}
+
+function positiveInteger(value, fallback) {
+  if (value === undefined) return fallback;
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error('Provider 检查超时时间无效。');
+  return value;
 }
 
 function portableIdentifier(value, label) {
@@ -140,6 +305,10 @@ function portableIdentifier(value, label) {
 module.exports = {
   DEFAULT_DEEPSEEK_MODEL_ID,
   migrateLegacyAgentProviderProfile,
+  finalizeAgentProviderProfileSwap,
+  probeAgentProviderProfile,
   readAgentProviderProfile,
+  rollbackAgentProviderProfileSwap,
+  swapAgentProviderProfile,
   writeAgentProviderProfile,
 };

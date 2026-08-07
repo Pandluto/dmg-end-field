@@ -607,16 +607,20 @@ function evaluateCommandResultPostcondition(
 
   if (entry.command.op === 'selectCharacters') {
     const selected = jsonObjectArray(result.selectedCharacters);
-    const expectedIds = selected.map((character) => character.id).filter(isString).sort();
-    const expectedNames = selected.map((character) => character.name).filter(isString).sort();
-    const actualIds = snapshot.selectedCharacters.map((character) => character.id).sort();
-    const actualNames = snapshot.selectedCharacters.map((character) => character.name).sort();
+    // Roster order is product data. Sorting here used to let a failed reorder
+    // pass as long as the member set stayed the same.
+    const expectedIds = selected.map((character) => character.id).filter(isString);
+    const expectedNames = selected.map((character) => character.name).filter(isString);
+    const actualIds = snapshot.selectedCharacters.map((character) => character.id);
+    const actualNames = snapshot.selectedCharacters.map((character) => character.name);
     const pass = expectedIds.length > 0
+      && expectedIds.length === selected.length
+      && expectedNames.length === selected.length
       && sameStringArray(expectedIds, actualIds)
       && sameStringArray(expectedNames, actualNames);
     return {
       pass,
-      ...(pass ? {} : { reason: '当前工作台队伍与选择命令返回的精确队伍不一致。' }),
+      ...(pass ? {} : { reason: '当前工作台队伍或成员顺序与选择命令返回的精确队伍不一致。' }),
       observed: { selectedCharacterIds: actualIds, selectedCharacterNames: actualNames },
     };
   }

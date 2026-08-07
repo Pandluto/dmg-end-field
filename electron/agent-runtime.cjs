@@ -120,6 +120,7 @@ function createAgentRuntime(options = {}) {
   let stopPromise = null;
   let stopRequested = false;
   let launchError = null;
+  let providerUpdateLease = null;
 
   function state() {
     const running = Boolean(child && !childExited);
@@ -142,6 +143,70 @@ function createAgentRuntime(options = {}) {
               ? 'DEF Agent Host 尚未启动'
               : 'DEF Agent Host 未运行'),
     };
+  }
+
+  /**
+   * Provider replacement is a Host restart. Read only the persisted DEF
+   * event journals before allowing that restart, so a pending question,
+   * approval, or active Turn cannot be silently orphaned. The session store
+   * contains no Provider credentials; malformed state fails closed.
+   */
+  function inspectProviderUpdateSafety() {
+    const running = Boolean(child && !childExited);
+    if (!running) return { allowed: true, code: null, reason: null };
+    try {
+      const activity = readPersistedAgentActivity(fs, sessionStoreRoot);
+      if (activity.pendingInteractions > 0) {
+        return {
+          allowed: false,
+          code: 'AGENT_PROVIDER_UPDATE_BLOCKED',
+          reason: '当前 Agent 正在等待问题或审批，请先处理或停止当前 Turn。',
+        };
+      }
+      if (activity.activeTurns > 0) {
+        return {
+          allowed: false,
+          code: 'AGENT_PROVIDER_UPDATE_BLOCKED',
+          reason: '当前 Agent Turn 尚未结束，请先处理或停止当前 Turn。',
+        };
+      }
+      return { allowed: true, code: null, reason: null };
+    } catch {
+      return {
+        allowed: false,
+        code: 'AGENT_PROVIDER_UPDATE_STATE_UNKNOWN',
+        reason: '无法确认当前 Agent Turn 状态，Provider 更新已安全拒绝。',
+      };
+    }
+  }
+
+  function getProviderUpdateSafety() {
+    if (providerUpdateLease) {
+      return {
+        allowed: false,
+        code: 'AGENT_PROVIDER_UPDATE_IN_PROGRESS',
+        reason: 'Provider 更新正在进行，请等待当前切换完成。',
+      };
+    }
+    return inspectProviderUpdateSafety();
+  }
+
+  /**
+   * Reserve the update window before the candidate probe. This synchronous
+   * gate closes the race between the safety check and stopping the real Host:
+   * new Turns are rejected while the old Host remains available, while an
+   * already active Turn can still finish or be explicitly stopped.
+   */
+  function beginProviderUpdate() {
+    if (providerUpdateLease) return getProviderUpdateSafety();
+    const safety = inspectProviderUpdateSafety();
+    if (!safety.allowed) return safety;
+    providerUpdateLease = Object.freeze({});
+    return { allowed: true, code: null, reason: null, lease: providerUpdateLease };
+  }
+
+  function endProviderUpdate(lease) {
+    if (providerUpdateLease && lease === providerUpdateLease) providerUpdateLease = null;
   }
 
   function clearReadyFile() {
@@ -578,6 +643,13 @@ function createAgentRuntime(options = {}) {
     audience = 'workbench-ai-mode',
     ttlMs = grantTtlMs,
   } = {}) {
+    if (providerUpdateLease) {
+      throw new AgentRuntimeError(
+        'AGENT_PROVIDER_UPDATE_IN_PROGRESS',
+        'Provider 更新正在进行，请等待当前切换完成后再打开 AI 模式。',
+        409,
+      );
+    }
     const targetOrigin = normalizeOrigin(origin);
     if (audience !== 'workbench-ai-mode') {
       throw new AgentRuntimeError('AGENT_LAUNCH_AUDIENCE_INVALID', 'Agent AI 模式 audience 不合法', 400);
@@ -621,6 +693,16 @@ function createAgentRuntime(options = {}) {
     // origin may read it.  This keeps the entry embedded in Canvas without
     // exposing Electron IPC or a reusable secret to normal web builds.
     if (pathname === BROWSER_LAUNCH_PATH) {
+      if (providerUpdateLease) {
+        writeBrowserJson(response, 409, {
+          ok: false,
+          error: {
+            code: 'AGENT_PROVIDER_UPDATE_IN_PROGRESS',
+            message: 'Provider 更新正在进行，请等待当前切换完成后再打开 AI 模式。',
+          },
+        }, browserOrigin);
+        return true;
+      }
       const method = String(request.method || 'GET').toUpperCase();
       if (method !== 'POST') {
         writeBrowserJson(response, 405, {
@@ -653,6 +735,21 @@ function createAgentRuntime(options = {}) {
           error: { code: error?.code || 'agent-launch-failed', message: messageOf(error) },
         }, browserOrigin);
       }
+      return true;
+    }
+
+    if (
+      providerUpdateLease
+      && String(request.method || 'GET').toUpperCase() === 'POST'
+      && /^\/agent-host\/sessions\/[^/]+\/turns$/u.test(pathname)
+    ) {
+      writeBrowserJson(response, 409, {
+        ok: false,
+        error: {
+          code: 'AGENT_PROVIDER_UPDATE_IN_PROGRESS',
+          message: 'Provider 更新正在进行，请等待当前切换完成后再开始新的 Turn。',
+        },
+      }, browserOrigin);
       return true;
     }
 
@@ -848,6 +945,9 @@ function createAgentRuntime(options = {}) {
 
   return Object.freeze({
     state,
+    getProviderUpdateSafety,
+    beginProviderUpdate,
+    endProviderUpdate,
     start,
     stop,
     issueLaunchGrant,
@@ -963,6 +1063,49 @@ function defaultInspectProcessIdentity(pid) {
   const normalized = String(result.stdout || '').trim().replace(/\s+/gu, ' ');
   if (!normalized) return null;
   return `sha256:${crypto.createHash('sha256').update(normalized).digest('hex')}`;
+}
+
+function readPersistedAgentActivity(fs, sessionStoreRoot) {
+  const registryPath = path.join(sessionStoreRoot, 'registry.json');
+  if (!fs.existsSync(registryPath)) return { activeTurns: 0, pendingInteractions: 0 };
+  const registry = JSON.parse(String(fs.readFileSync(registryPath, 'utf8')));
+  if (!registry || typeof registry !== 'object' || !Array.isArray(registry.sessionIds)) {
+    throw new Error('Agent session registry is invalid');
+  }
+  if (registry.sessionIds.length > 64) throw new Error('Agent session registry is too large');
+  const activeTurns = new Set();
+  const pendingInteractions = new Map();
+  for (const sessionId of registry.sessionIds) {
+    if (typeof sessionId !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(sessionId)) {
+      throw new Error('Agent session id is invalid');
+    }
+    const eventsPath = path.join(sessionStoreRoot, 'sessions', sessionId, 'events.ndjson');
+    if (!fs.existsSync(eventsPath)) throw new Error('Agent event journal is missing');
+    const source = String(fs.readFileSync(eventsPath, 'utf8'));
+    if (Buffer.byteLength(source, 'utf8') > 4 * 1024 * 1024) throw new Error('Agent event journal is too large');
+    for (const line of source.split('\n')) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      if (!event || typeof event !== 'object' || typeof event.type !== 'string') {
+        throw new Error('Agent event is invalid');
+      }
+      const turnId = typeof event.defTurnId === 'string' ? event.defTurnId : null;
+      if (event.type === 'turn.accepted' && turnId) activeTurns.add(turnId);
+      if (
+        turnId
+        && ['turn.completed', 'turn.stopped', 'turn.interrupted', 'turn.failed'].includes(event.type)
+      ) {
+        activeTurns.delete(turnId);
+      }
+      if (event.type === 'interaction.requested' && typeof event.interactionId === 'string') {
+        pendingInteractions.set(event.interactionId, turnId);
+      }
+      if (event.type === 'interaction.resolved' && typeof event.interactionId === 'string') {
+        pendingInteractions.delete(event.interactionId);
+      }
+    }
+  }
+  return { activeTurns: activeTurns.size, pendingInteractions: pendingInteractions.size };
 }
 
 function defaultLaunchService({ servicePath, cwd, env }) {

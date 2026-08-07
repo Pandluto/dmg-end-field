@@ -20,10 +20,11 @@ const { createLegacyFillRuntime } = require('./legacy-fill-runtime.cjs');
 const { createAgentRuntime } = require('./agent-runtime.cjs');
 const {
   DEFAULT_DEEPSEEK_MODEL_ID,
+  probeAgentProviderProfile,
   migrateLegacyAgentProviderProfile,
   readAgentProviderProfile,
-  writeAgentProviderProfile,
 } = require('./agent-provider-profile.cjs');
+const { updateAgentProviderProfile } = require('./agent-provider-transaction.cjs');
 
 const DESKTOP_HOST = '127.0.0.1';
 const DESKTOP_PORT = 31457;
@@ -96,6 +97,7 @@ let tray = null;
 let staticHost = null;
 let legacyFillRuntime = null;
 let agentRuntime = null;
+let agentRuntimeOptions = null;
 let agentProviderProfilePath = '';
 let openAgentModePromise = null;
 let allowQuit = false;
@@ -217,6 +219,31 @@ async function openAgentMode() {
     openAgentModePromise = null;
   });
   return openAgentModePromise;
+}
+
+function createCandidateAgentRuntime({ candidateProfilePath, candidateRoot }) {
+  if (!agentRuntimeOptions) throw new Error('DEF Agent Host 尚未初始化。');
+  return createAgentRuntime({
+    ...agentRuntimeOptions,
+    runtimeRoot: path.join(candidateRoot, 'host'),
+    engineStoreRoot: path.join(candidateRoot, 'engine'),
+    sessionStoreRoot: path.join(candidateRoot, 'sessions'),
+    productCommandStoreRoot: path.join(candidateRoot, 'product-commands'),
+    engineProfilePath: candidateProfilePath,
+  });
+}
+
+async function saveAgentProviderProfile(payload) {
+  if (!agentRuntime || !agentRuntimeOptions) {
+    throw new Error('DEF Agent Host 尚未初始化。');
+  }
+  return updateAgentProviderProfile({
+    profilePath: agentProviderProfilePath,
+    payload,
+    runtime: agentRuntime,
+    probeProfile: (candidatePath) => probeAgentProviderProfile(candidatePath),
+    createCandidateRuntime,
+  });
 }
 
 function updateTrayMenu() {
@@ -418,12 +445,19 @@ function registerIpc() {
   ipcMain.handle('desktop:save-agent-profile', async (event, payload) => {
     requireTrustedSender(event);
     try {
-      const profile = writeAgentProviderProfile(agentProviderProfilePath, payload || {});
-      if (agentRuntime?.state().running) await agentRuntime.stop();
-      const runtime = agentRuntime ? await agentRuntime.start() : null;
-      return { ok: true, profile, runtime };
+      const result = await saveAgentProviderProfile(payload || {});
+      return {
+        ok: true,
+        profile: result.profile,
+        runtime: result.runtime,
+        changed: result.changed,
+      };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      return {
+        ok: false,
+        code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_UPDATE_FAILED',
+        error: error instanceof Error ? error.message : 'Provider 更新失败，旧配置仍在使用。',
+      };
     }
   });
   ipcMain.handle('desktop:open-agent-mode', async (event) => {
@@ -564,10 +598,12 @@ async function startApplication() {
   } else {
     diagnostic('using development-only Agent provider profile override');
   }
-  agentRuntime = createAgentRuntime({
+  agentRuntimeOptions = {
     applicationRoot: runtimeApplicationRoot,
     runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
     engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-opencode-engine'),
+    sessionStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'session-store'),
+    productCommandStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'product-commands'),
     engineProfilePath: agentProviderProfilePath,
     browserOrigin,
     diagnostic,
@@ -577,7 +613,8 @@ async function startApplication() {
       stdio: 'pipe',
       serviceName: 'DEF Agent Host',
     }),
-  });
+  };
+  agentRuntime = createAgentRuntime(agentRuntimeOptions);
   registerIpc();
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false);
