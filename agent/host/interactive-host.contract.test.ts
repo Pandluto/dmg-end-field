@@ -906,7 +906,11 @@ for (const [suffix, proposalOptions] of [
       type: 'tool',
       toolCallId: asToolCallId('loadout-preview-catalog'),
       name: 'def.data.catalog.query',
-      input: { action: 'query', domain: 'weapons', query: '测试武器' },
+      input: {
+        action: 'compareLoadoutCandidate',
+        operatorQuery: 'operator-luoxi',
+        candidate: { weaponId: 'weapon-test' },
+      },
     },
     {
       type: 'tool',
@@ -932,6 +936,19 @@ for (const [suffix, proposalOptions] of [
   assert.equal(catalogCommand.command.op, 'workbench.execute-command');
   if (catalogCommand.command.op !== 'workbench.execute-command') throw new Error('expected loadout catalog command');
   assert.equal(catalogCommand.command.payload.command.op, 'queryAgentProductCatalog');
+  assert.deepEqual(catalogCommand.command.payload.command, {
+    op: 'queryAgentProductCatalog',
+    action: 'compareLoadoutCandidate',
+    operatorQuery: 'operator-luoxi',
+    candidate: { weaponId: 'weapon-test' },
+    currentLoadout: {
+      contract: 'DefTeamLoadoutsV1',
+      binding: productBinding,
+      complete: true,
+      missingCharacterIds: [],
+      operators: [],
+    },
+  });
   gateway.settle({
     commandId: catalogCommand.commandId,
     status: 'succeeded',
