@@ -278,6 +278,11 @@ assert.deepEqual(buffRestored.operatorConfigPageCache, currentBuff.operatorConfi
 assert.deepEqual(Object.keys(buffRestored.skillButtonTable), ['button-a', 'button-current-only']);
 assert.equal(buffRestored.skillButtonTable['button-a']?.nodeIndex, 9, 'Buff restore keeps current placement');
 assert.equal(buffRestored.skillButtonTable['button-a']?.runtimeSkillId, 'current-skill');
+assert.deepEqual(
+  buffRestored.skillButtonTable['button-a']?.runtimeSnapshot,
+  { atk: 999, critRate: 0.99, critDmg: 0.99 },
+  'Buff restore must preserve the current loadout-derived runtime snapshot',
+);
 assert.deepEqual(buffRestored.skillButtonTable['button-a']?.selectedBuff, ['baseline-shared', 'baseline-stack']);
 assert.deepEqual(buffRestored.skillButtonTable['button-a']?.buffStackCounts, {
   'baseline-shared': 2,
@@ -327,6 +332,59 @@ const sharedResult = mustSucceed(restoreBuffScope(sharedCurrent, sharedBaseline)
 assert.equal(sharedResult.allBuffList[0]?.refCount, 2, 'shared Buff refCount must count button references');
 assert.deepEqual(sharedResult.skillButtonTable['shared-a']?.buffStackCounts, { 'same-buff': 3 });
 assert.deepEqual(sharedResult.skillButtonTable['shared-b']?.buffStackCounts, { 'same-buff': 4 });
+
+const currentAnomalyCommon = button('anomaly-common', 'operator-a', 0, 1, [], {
+  anomalyConfig: { selectedStatuses: [], selectedDamages: [], selectedStateSnapshotIds: [7] },
+});
+const currentAnomalyOnly = button('anomaly-current-only', 'operator-b', 1, 2, [], {
+  anomalyConfig: { selectedStatuses: [], selectedDamages: [], selectedStateSnapshotIds: [7] },
+});
+const baselineAnomalyCommon = button('anomaly-common', 'operator-a', 0, 1, [], {
+  anomalyConfig: { selectedStatuses: [], selectedDamages: [], selectedStateSnapshotIds: [7] },
+});
+const currentAnomalyPayload = makePayload({
+  buttons: [currentAnomalyCommon, currentAnomalyOnly],
+  buffs: [],
+});
+currentAnomalyPayload.anomalyStateSnapshots = [{
+  id: 7,
+  key: 'conductive',
+  label: '当前导电',
+  level: 1,
+  sourceButtonId: 'anomaly-current-only',
+  sourceCharacterId: 'operator-b',
+  sourceCharacterName: '测试员 B',
+  sourceSkillStrengthSnapshot: 10,
+  effectValue: 10,
+  primaryText: 'current',
+  secondaryText: 'current',
+  createdAt: 10,
+}];
+const baselineAnomalyPayload = makePayload({ buttons: [baselineAnomalyCommon], buffs: [] });
+baselineAnomalyPayload.anomalyStateSnapshots = [{
+  id: 7,
+  key: 'corrosion',
+  label: '基线腐蚀',
+  level: 2,
+  sourceButtonId: 'anomaly-common',
+  sourceCharacterId: 'operator-a',
+  sourceCharacterName: '测试员 A',
+  sourceSkillStrengthSnapshot: 20,
+  effectValue: 20,
+  primaryText: 'baseline',
+  secondaryText: 'baseline',
+  createdAt: 20,
+}];
+const anomalyRestored = mustSucceed(restoreBuffScope(currentAnomalyPayload, baselineAnomalyPayload));
+assert.deepEqual(
+  anomalyRestored.skillButtonTable['anomaly-common']?.anomalyConfig?.selectedStateSnapshotIds,
+  [7],
+);
+const remappedCurrentOnlyId = anomalyRestored.skillButtonTable['anomaly-current-only']
+  ?.anomalyConfig?.selectedStateSnapshotIds[0];
+assert.equal(remappedCurrentOnlyId, 8, 'a conflicting current-only anomaly snapshot must receive a stable new id');
+assert.equal(anomalyRestored.anomalyStateSnapshots.find((item) => item.id === 7)?.label, '基线腐蚀');
+assert.equal(anomalyRestored.anomalyStateSnapshots.find((item) => item.id === 8)?.label, '当前导电');
 
 const invalidBaseline = structuredClone(baselineTimeline);
 delete (invalidBaseline.skillButtonTable as AnyRecord)['button-restored'];

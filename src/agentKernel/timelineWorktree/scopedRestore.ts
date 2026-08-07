@@ -61,8 +61,10 @@ const BUTTON_BUFF_STATE_KEYS = [
   'buffStackCounts',
   'anomalyConfig',
   'panelConfig',
-  'runtimeSnapshot',
 ] as const;
+
+/** Derived from the current loadout/calculation input, never owned by Buff restore. */
+const BUTTON_DERIVED_RUNTIME_KEYS = ['runtimeSnapshot'] as const;
 
 const PANEL_BUFF_STATE_KEYS = [
   'selectedBuff',
@@ -251,7 +253,6 @@ function applyBuffStateFromBaseline(
   copyOptionalField(target, baseline, 'selectedBuff');
   copyOptionalField(target, baseline, 'buffStackCounts');
   copyOptionalField(target, baseline, 'anomalyConfig');
-  copyOptionalField(target, baseline, 'runtimeSnapshot');
 
   const panelConfig = mergeBuffPanelConfigForRestore(current.panelConfig, baseline.panelConfig);
   if (panelConfig) target.panelConfig = panelConfig;
@@ -308,6 +309,7 @@ function buildTimelineRestoreTable(
       // Timeline restore must not smuggle baseline Buff/runtime state into a
       // newly restored button. Buff scope owns that state separately.
       copyFields(next, undefined, BUTTON_BUFF_STATE_KEYS);
+      copyFields(next, undefined, BUTTON_DERIVED_RUNTIME_KEYS);
       copyOptionalField(next, undefined, 'resistanceConfig');
     }
     normalizeButtonBuffState(next);
@@ -477,6 +479,114 @@ function preferredBuffSourcesForBuffRestore(
   return preferred;
 }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+  if (!value || typeof value !== 'object') return JSON.stringify(value);
+  return `{${Object.entries(value as AnyRecord)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+    .join(',')}}`;
+}
+
+function selectedAnomalySnapshotIds(button: AnyRecord | undefined): number[] {
+  const anomalyConfig = isRecord(button?.anomalyConfig) ? button.anomalyConfig : undefined;
+  const value = anomalyConfig?.selectedStateSnapshotIds;
+  return Array.isArray(value)
+    ? value.filter((id): id is number => Number.isSafeInteger(id) && id >= 0)
+    : [];
+}
+
+/**
+ * Buff restore changes anomaly state only for buttons that exist in both the
+ * current and baseline payload. Current-only buttons keep their current
+ * snapshot objects. If a shared numeric id now denotes different snapshots,
+ * the current-only reference is deterministically remapped before the
+ * baseline version takes that id.
+ */
+function restoreBuffAnomalySnapshots(
+  current: TimelineSnapshotPayload,
+  baseline: TimelineSnapshotPayload,
+  restoredTable: Record<string, PersistedSkillButton>,
+): { snapshots: TimelineSnapshotPayload['anomalyStateSnapshots']; issues: AiTimelineValidationIssue[] } {
+  const currentTable = current.skillButtonTable as unknown as Record<string, AnyRecord>;
+  const baselineTable = baseline.skillButtonTable as unknown as Record<string, AnyRecord>;
+  const currentById = new Map(current.anomalyStateSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const baselineById = new Map(baseline.anomalyStateSnapshots.map((snapshot) => [snapshot.id, snapshot]));
+  const resultById = new Map(current.anomalyStateSnapshots.map((snapshot) => [snapshot.id, deepClone(snapshot)]));
+  const resultOrder = current.anomalyStateSnapshots.map((snapshot) => snapshot.id);
+  const issues: AiTimelineValidationIssue[] = [];
+  let nextId = Math.max(
+    0,
+    ...current.anomalyStateSnapshots.map((snapshot) => snapshot.id),
+    ...baseline.anomalyStateSnapshots.map((snapshot) => snapshot.id),
+  ) + 1;
+
+  const commonBaselineIds = new Set<number>();
+  for (const buttonId of Object.keys(restoredTable)) {
+    if (!currentTable[buttonId] || !baselineTable[buttonId]) continue;
+    for (const snapshotId of selectedAnomalySnapshotIds(baselineTable[buttonId])) {
+      commonBaselineIds.add(snapshotId);
+    }
+  }
+
+  for (const [buttonId, restoredButton] of Object.entries(restoredTable)) {
+    if (baselineTable[buttonId]) continue;
+    const currentButton = currentTable[buttonId];
+    const currentIds = selectedAnomalySnapshotIds(currentButton);
+    const remappedIds = currentIds.map((snapshotId) => {
+      if (!commonBaselineIds.has(snapshotId)) return snapshotId;
+      const currentSnapshot = currentById.get(snapshotId);
+      const baselineSnapshot = baselineById.get(snapshotId);
+      if (!currentSnapshot || !baselineSnapshot || stableJson(currentSnapshot) === stableJson(baselineSnapshot)) {
+        return snapshotId;
+      }
+      const remappedId = nextId;
+      nextId += 1;
+      resultById.set(remappedId, { ...deepClone(currentSnapshot), id: remappedId });
+      resultOrder.push(remappedId);
+      return remappedId;
+    });
+    if (isRecord((restoredButton as unknown as AnyRecord).anomalyConfig)) {
+      (restoredButton as unknown as AnyRecord).anomalyConfig = {
+        ...deepClone((restoredButton as unknown as AnyRecord).anomalyConfig as AnyRecord),
+        selectedStateSnapshotIds: remappedIds,
+      };
+    }
+  }
+
+  for (const snapshotId of commonBaselineIds) {
+    const baselineSnapshot = baselineById.get(snapshotId);
+    if (!baselineSnapshot) {
+      issues.push({
+        code: 'unresolved-anomaly-snapshot-reference',
+        message: `Baseline button references missing anomaly state snapshot ${snapshotId}.`,
+      });
+      continue;
+    }
+    if (!resultById.has(snapshotId)) resultOrder.push(snapshotId);
+    resultById.set(snapshotId, deepClone(baselineSnapshot));
+  }
+
+  for (const [buttonId, button] of Object.entries(restoredTable)) {
+    for (const snapshotId of selectedAnomalySnapshotIds(button as unknown as AnyRecord)) {
+      if (resultById.has(snapshotId)) continue;
+      issues.push({
+        code: 'unresolved-anomaly-snapshot-reference',
+        message: `Restored button ${buttonId} references missing anomaly state snapshot ${snapshotId}.`,
+        path: `skillButtonTable.${buttonId}.anomalyConfig.selectedStateSnapshotIds`,
+      });
+    }
+  }
+
+  return {
+    snapshots: resultOrder.flatMap((snapshotId) => {
+      const snapshot = resultById.get(snapshotId);
+      return snapshot ? [snapshot] : [];
+    }),
+    issues,
+  };
+}
+
 function safeValidatePayload(value: unknown): AiTimelineValidationResult {
   if (!isRecord(value)) {
     return {
@@ -588,11 +698,17 @@ export function restoreScopedTimelinePayload(
 
   if (scope === 'timeline') {
     restoredPayload.selectedCharacters = deepClone(current.selectedCharacters);
+    restoredPayload.anomalyStateSnapshots = deepClone(current.anomalyStateSnapshots);
     restoredPayload.characterInputMap = deepClone(current.characterInputMap);
     restoredPayload.operatorConfigPageCache = deepClone(current.operatorConfigPageCache);
     restoredPayload.timelineData = buildTimelineDataForTimelineRestore(current, baseline, restoredTable);
   } else {
+    const restoredAnomalies = restoreBuffAnomalySnapshots(current, baseline, restoredTable);
+    if (restoredAnomalies.issues.length > 0) {
+      return restoredFailure(scope, { ok: true, issues: [] }, restoredAnomalies.issues);
+    }
     restoredPayload.selectedCharacters = deepClone(current.selectedCharacters);
+    restoredPayload.anomalyStateSnapshots = restoredAnomalies.snapshots;
     restoredPayload.timelineData = buildTimelineDataForBuffRestore(current, restoredTable);
     restoredPayload.characterInputMap = deepClone(current.characterInputMap);
     restoredPayload.characterComputedMap = deepClone(current.characterComputedMap);
