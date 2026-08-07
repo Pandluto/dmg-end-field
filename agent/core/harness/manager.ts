@@ -3,9 +3,13 @@ import {
   DEF_AGENT_IN_MEMORY_LIMITS,
   canonicalJson,
   type DefHarnessBusinessId,
+  type DefHarnessCompletedPlanStep,
   type DefHarnessOperationDefinition,
   type DefHarnessOperationId,
   type DefHarnessPhaseDefinition,
+  type DefHarnessPlanSnapshot,
+  type DefHarnessPlanStep,
+  type DefHarnessPlanTraceEvent,
   type DefHarnessRevisionDefinition,
   type DefHarnessRevisionRef,
   type DefHarnessRouteInput,
@@ -49,6 +53,17 @@ type CatalogRecord = {
   readonly operations: ReadonlyMap<DefHarnessOperationId, DefHarnessOperationDefinition>;
 };
 
+type ResolvedPlanStep = DefHarnessPlanStep & {
+  readonly revision: DefHarnessRevisionRef;
+  readonly operationDefinition: DefHarnessOperationDefinition;
+};
+
+type TransactionPlanRecord = {
+  readonly steps: readonly ResolvedPlanStep[];
+  currentIndex: number;
+  readonly completedSteps: DefHarnessCompletedPlanStep[];
+};
+
 type TransactionRecord = {
   readonly transactionId: string;
   readonly defSessionId: DefSessionId;
@@ -61,6 +76,7 @@ type TransactionRecord = {
   phase: DefHarnessPhaseDefinition;
   projectionRevision: number;
   terminalState: DefHarnessTransactionSnapshot['terminalState'];
+  plan: TransactionPlanRecord | null;
   traceSequence: number;
   readonly trace: DefHarnessTraceEntry[];
 };
@@ -82,12 +98,15 @@ type PreparedTransitionRecord = {
   readonly transition: DefHarnessTransition;
 };
 
+const MIN_HARNESS_PLAN_STEPS = 1;
+const MAX_HARNESS_PLAN_STEPS = 8;
+
 const routePhase: DefHarnessPhaseDefinition = {
   id: 'route',
   kind: 'route',
   tools: [DEF_HARNESS_ROUTE_TOOL_NAME],
   writes: [],
-  instructions: 'Choose exactly one allowlisted business and operation. Do not combine businesses.',
+  instructions: `Choose one allowlisted business operation, or submit one ordered ${MIN_HARNESS_PLAN_STEPS}-${MAX_HARNESS_PLAN_STEPS} step plan when the same user Turn clearly requires multiple business operations. Validate the entire plan before any business Tool runs.`,
 };
 
 export class DefHarnessManager {
@@ -116,16 +135,41 @@ export class DefHarnessManager {
     )];
     this.#routeDescriptor = {
       name: DEF_HARNESS_ROUTE_TOOL_NAME,
-      description: 'Route this Turn to one allowlisted DEF business operation.',
+      description: 'Route this Turn to one allowlisted DEF business operation. For an ordered cross-business Turn, submit one bounded plan.',
       risk: 'read',
       inputSchema: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['businessId', 'operation'],
-        properties: {
-          businessId: { enum: businessIds },
-          operation: { enum: operationIds },
-        },
+        oneOf: [
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['businessId', 'operation'],
+            properties: {
+              businessId: { enum: businessIds },
+              operation: { enum: operationIds },
+            },
+          },
+          {
+            type: 'object',
+            additionalProperties: false,
+            required: ['steps'],
+            properties: {
+              steps: {
+                type: 'array',
+                minItems: MIN_HARNESS_PLAN_STEPS,
+                maxItems: MAX_HARNESS_PLAN_STEPS,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['businessId', 'operation'],
+                  properties: {
+                    businessId: { enum: businessIds },
+                    operation: { enum: operationIds },
+                  },
+                },
+              },
+            },
+          },
+        ],
       },
     };
     this.#catalogRevision = `def-harness:${sha256(canonicalJson(
@@ -151,7 +195,9 @@ export class DefHarnessManager {
     return [
       `You are running inside the DEF Harness ${interactive ? 'interactive' : 'read-only'} phase.`,
       `Call ${DEF_HARNESS_ROUTE_TOOL_NAME} before any business Tool.`,
-      'Choose one business and one operation. Use conversation.respond for greetings, acknowledgements, capability questions, prior-result questions, or any direct response that needs no business Tool.',
+      'For a single business action, submit {businessId, operation}. When one user Turn clearly requires two or more ordered business actions, submit one {steps:[...]} plan up front; the Harness will advance it deterministically without another route guess.',
+      `Plans contain ${MIN_HARNESS_PLAN_STEPS}-${MAX_HARNESS_PLAN_STEPS} allowlisted steps. Do not repeat a step, mix conversation.respond with business work, or put ask inside a multi-step plan. If clarification is needed, route one ask first, then submit the resolved plan after the answer.`,
+      'Use conversation.respond for greetings, acknowledgements, capability questions, prior-result questions, or any direct response that needs no business Tool.',
       ...(interactive ? [
         'Mutation Tools never apply directly: the DEF Host pauses for an explicit user approval bound to the exact proposal and browser snapshot.',
         'If the target is ambiguous, choose the ask operation instead of guessing.',
@@ -187,6 +233,7 @@ export class DefHarnessManager {
       phase: routePhase,
       projectionRevision: 1,
       terminalState: null,
+      plan: null,
       traceSequence: 0,
       trace: [],
     };
@@ -211,35 +258,41 @@ export class DefHarnessManager {
     }
     this.assertToolProjected(transactionId, DEF_HARNESS_ROUTE_TOOL_NAME);
     const input = parseRouteInput(rawInput);
-    const catalog = this.#catalog.get(input.businessId);
-    const operation = catalog?.operations.get(input.operation);
-    if (!catalog || !operation) {
-      throw new DefHarnessError(
-        'HARNESS_ROUTE_UNSUPPORTED',
-        `Unsupported Phase 3 route: ${input.businessId}.${input.operation}`,
-      );
+    const requestedSteps = routeInputSteps(input);
+    validatePlanShape(requestedSteps);
+    if (clarificationReroute && requestedSteps.some((step) => step.operation === 'ask')) {
+      throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'A clarification answer must reroute to a concrete operation, not another ask step');
     }
+    // Resolve every route before cloning or staging the transaction. A bad
+    // later step therefore cannot leave a partially accepted plan behind.
+    const resolvedSteps = this.#resolvePlanSteps(requestedSteps);
     const candidate = cloneTransactionRecord(record);
     const traceOffset = candidate.trace.length;
-    candidate.status = 'active';
-    candidate.businessId = input.businessId;
-    candidate.operation = input.operation;
-    candidate.revision = catalog.revision;
-    candidate.operationDefinition = operation;
-    candidate.phase = requirePhase(operation, operation.entryPhase);
     candidate.projectionRevision += 1;
-    candidate.trace.push({
-      sequence: ++candidate.traceSequence,
-      type: 'harness.routed',
-      businessId: input.businessId,
-      operation: input.operation,
-      revision: catalog.revision,
-    });
-    this.#recordPhaseAndProjection(candidate);
-    if (candidate.phase.terminalState) {
-      candidate.terminalState = candidate.phase.terminalState;
-      candidate.status = candidate.phase.terminalState === 'completed' ? 'completed' : 'aborted';
-      this.#recordTerminal(candidate);
+    if (initialRoute) {
+      candidate.plan = {
+        steps: resolvedSteps,
+        currentIndex: 0,
+        completedSteps: [],
+      };
+      this.#activatePlanStep(candidate, 0, [planCreatedEvent(candidate.plan)]);
+    } else {
+      const priorPlan = requirePlan(candidate);
+      const completedAsk = completedCurrentPlanStep(priorPlan);
+      const completedSteps = [...priorPlan.completedSteps, completedAsk];
+      const steps = [
+        ...priorPlan.steps.slice(0, priorPlan.currentIndex + 1),
+        ...resolvedSteps,
+      ];
+      candidate.plan = {
+        steps,
+        currentIndex: priorPlan.currentIndex + 1,
+        completedSteps,
+      };
+      this.#activatePlanStep(candidate, candidate.plan.currentIndex, [
+        { type: 'step.completed', step: completedAsk },
+        planCreatedEvent(candidate.plan),
+      ]);
     }
     return this.#stage(record, candidate, traceOffset);
   }
@@ -260,6 +313,7 @@ export class DefHarnessManager {
     if (record.status !== 'active' || !record.operationDefinition) {
       throw new DefHarnessError('HARNESS_TOOL_NOT_PROJECTED', 'Business Tool requested before Harness routing');
     }
+    const operationDefinition = record.operationDefinition;
     this.assertToolProjected(transactionId, input.toolName);
     const target = input.status === 'succeeded' ? record.phase.onSuccess : record.phase.onFailure;
     if (!target) {
@@ -270,14 +324,37 @@ export class DefHarnessManager {
     }
     const candidate = cloneTransactionRecord(record);
     const traceOffset = candidate.trace.length;
-    candidate.phase = requirePhase(candidate.operationDefinition!, target);
+    const targetPhase = requirePhase(operationDefinition, target);
     candidate.projectionRevision += 1;
-    if (candidate.phase.terminalState) {
-      candidate.terminalState = candidate.phase.terminalState;
-      candidate.status = candidate.phase.terminalState === 'completed' ? 'completed' : 'aborted';
+    if (input.status === 'failed' || targetPhase.terminalState === 'aborted') {
+      candidate.phase = targetPhase;
+      candidate.status = 'aborted';
+      candidate.terminalState = 'aborted';
+      this.#recordPhaseAndProjection(candidate);
+      this.#recordTerminal(candidate, undefined, [failedCurrentPlanStepEvent(requirePlan(candidate))]);
+      return this.#stage(record, candidate, traceOffset);
     }
+
+    if (targetPhase.terminalState === 'completed') {
+      const plan = requirePlan(candidate);
+      const completedStep = completedCurrentPlanStep(plan);
+      plan.completedSteps.push(completedStep);
+      const nextIndex = plan.currentIndex + 1;
+      if (nextIndex < plan.steps.length) {
+        this.#activatePlanStep(candidate, nextIndex, [{ type: 'step.completed', step: completedStep }]);
+      } else {
+        plan.currentIndex = plan.steps.length;
+        candidate.phase = targetPhase;
+        candidate.status = 'completed';
+        candidate.terminalState = 'completed';
+        this.#recordPhaseAndProjection(candidate);
+        this.#recordTerminal(candidate, undefined, [{ type: 'step.completed', step: completedStep }]);
+      }
+      return this.#stage(record, candidate, traceOffset);
+    }
+
+    candidate.phase = targetPhase;
     this.#recordPhaseAndProjection(candidate);
-    if (candidate.terminalState) this.#recordTerminal(candidate);
     return this.#stage(record, candidate, traceOffset);
   }
 
@@ -302,7 +379,10 @@ export class DefHarnessManager {
       projectionRevision: candidate.projectionRevision,
       tools: [],
     });
-    this.#recordTerminal(candidate, code);
+    const planEvents = candidate.plan && candidate.plan.currentIndex < candidate.plan.steps.length
+      ? [failedCurrentPlanStepEvent(candidate.plan, code)]
+      : [];
+    this.#recordTerminal(candidate, code, planEvents);
     return this.#stage(record, candidate, traceOffset);
   }
 
@@ -346,6 +426,80 @@ export class DefHarnessManager {
 
   getTrace(transactionId: string): readonly DefHarnessTraceEntry[] {
     return [...this.#requireTransaction(transactionId).trace];
+  }
+
+  #resolvePlanSteps(steps: readonly DefHarnessPlanStep[]): readonly ResolvedPlanStep[] {
+    return steps.map((step) => {
+      const catalog = this.#catalog.get(step.businessId);
+      const operationDefinition = catalog?.operations.get(step.operation);
+      if (!catalog || !operationDefinition) {
+        throw new DefHarnessError(
+          'HARNESS_ROUTE_UNSUPPORTED',
+          `Unsupported Harness route: ${step.businessId}.${step.operation}`,
+        );
+      }
+      return {
+        businessId: step.businessId,
+        operation: step.operation,
+        revision: catalog.revision,
+        operationDefinition,
+      };
+    });
+  }
+
+  #activatePlanStep(
+    record: TransactionRecord,
+    index: number,
+    planEvents: readonly DefHarnessPlanTraceEvent[] = [],
+  ): void {
+    const plan = requirePlan(record);
+    let nextIndex = index;
+    let nextPlanEvents = planEvents;
+    while (true) {
+      const step = plan.steps[nextIndex];
+      if (!step) {
+        throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Harness plan step is missing at index ${nextIndex}`);
+      }
+      plan.currentIndex = nextIndex;
+      record.status = 'active';
+      record.terminalState = null;
+      record.businessId = step.businessId;
+      record.operation = step.operation;
+      record.revision = step.revision;
+      record.operationDefinition = step.operationDefinition;
+      record.phase = requirePhase(step.operationDefinition, step.operationDefinition.entryPhase);
+      record.trace.push({
+        sequence: ++record.traceSequence,
+        type: 'harness.routed',
+        businessId: step.businessId,
+        operation: step.operation,
+        revision: step.revision,
+        ...(nextPlanEvents.length > 0 ? { planEvents: clonePlanTraceEvents(nextPlanEvents) } : {}),
+      });
+      if (!record.phase.terminalState) {
+        this.#recordPhaseAndProjection(record);
+        return;
+      }
+      if (record.phase.terminalState === 'aborted') {
+        record.status = 'aborted';
+        record.terminalState = 'aborted';
+        this.#recordPhaseAndProjection(record);
+        this.#recordTerminal(record, undefined, [failedCurrentPlanStepEvent(plan)]);
+        return;
+      }
+      const completedStep = completedCurrentPlanStep(plan);
+      plan.completedSteps.push(completedStep);
+      nextIndex += 1;
+      if (nextIndex >= plan.steps.length) {
+        plan.currentIndex = plan.steps.length;
+        record.status = 'completed';
+        record.terminalState = 'completed';
+        this.#recordPhaseAndProjection(record);
+        this.#recordTerminal(record, undefined, [{ type: 'step.completed', step: completedStep }]);
+        return;
+      }
+      nextPlanEvents = [{ type: 'step.completed', step: completedStep }];
+    }
   }
 
   #pruneTerminalTransactions(): void {
@@ -404,7 +558,11 @@ export class DefHarnessManager {
     return record.trace.slice(offset);
   }
 
-  #recordTerminal(record: TransactionRecord, code?: string): void {
+  #recordTerminal(
+    record: TransactionRecord,
+    code?: string,
+    planEvents: readonly DefHarnessPlanTraceEvent[] = [],
+  ): void {
     record.trace.push({
       sequence: ++record.traceSequence,
       type: 'harness.terminal',
@@ -413,6 +571,7 @@ export class DefHarnessManager {
       phaseId: record.phase.id,
       terminalState: record.terminalState ?? 'aborted',
       ...(code ? { code } : {}),
+      ...(planEvents.length > 0 ? { planEvents: clonePlanTraceEvents(planEvents) } : {}),
     });
   }
 
@@ -429,6 +588,7 @@ export class DefHarnessManager {
       phaseKind: record.phase.kind,
       projection: this.#projection(record),
       terminalState: record.terminalState,
+      plan: record.plan ? immutablePlanSnapshot(record.plan) : null,
     };
   }
 
@@ -472,11 +632,47 @@ function parseRouteInput(value: JsonValue): DefHarnessRouteInput {
     throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'Harness route input must be an object');
   }
   const keys = Object.keys(value);
-  if (keys.length !== 2 || !keys.includes('businessId') || !keys.includes('operation')) {
-    throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'Harness route accepts only businessId and operation');
+  if (keys.length === 2 && keys.includes('businessId') && keys.includes('operation')) {
+    return parseRouteStep(value, 'Harness route');
   }
-  if (typeof value.businessId !== 'string' || typeof value.operation !== 'string') {
-    throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'Harness route businessId and operation must be strings');
+  if (keys.length === 1 && keys[0] === 'steps') {
+    if (
+      !Array.isArray(value.steps)
+      || value.steps.length < MIN_HARNESS_PLAN_STEPS
+      || value.steps.length > MAX_HARNESS_PLAN_STEPS
+    ) {
+      throw new DefHarnessError(
+        'HARNESS_ROUTE_INVALID',
+        `Harness plan steps must contain ${MIN_HARNESS_PLAN_STEPS}-${MAX_HARNESS_PLAN_STEPS} items`,
+      );
+    }
+    return {
+      steps: value.steps.map((step, index) => parseRouteStep(step, `Harness plan step ${index}`)),
+    };
+  }
+  throw new DefHarnessError(
+    'HARNESS_ROUTE_INVALID',
+    'Harness route accepts only {businessId, operation} or {steps:[{businessId, operation}]}',
+  );
+}
+
+function parseRouteStep(value: JsonValue, label: string): DefHarnessPlanStep {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DefHarnessError('HARNESS_ROUTE_INVALID', `${label} must be an object`);
+  }
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('businessId') || !keys.includes('operation')) {
+    throw new DefHarnessError('HARNESS_ROUTE_INVALID', `${label} accepts only businessId and operation`);
+  }
+  if (
+    typeof value.businessId !== 'string'
+    || value.businessId.length < 1
+    || value.businessId.length > 80
+    || typeof value.operation !== 'string'
+    || value.operation.length < 1
+    || value.operation.length > 120
+  ) {
+    throw new DefHarnessError('HARNESS_ROUTE_INVALID', `${label} businessId and operation must be bounded strings`);
   }
   return {
     businessId: value.businessId as DefHarnessBusinessId,
@@ -484,11 +680,41 @@ function parseRouteInput(value: JsonValue): DefHarnessRouteInput {
   };
 }
 
+function routeInputSteps(input: DefHarnessRouteInput): readonly DefHarnessPlanStep[] {
+  return 'steps' in input ? input.steps : [input];
+}
+
+function validatePlanShape(steps: readonly DefHarnessPlanStep[]): void {
+  if (steps.length < MIN_HARNESS_PLAN_STEPS || steps.length > MAX_HARNESS_PLAN_STEPS) {
+    throw new DefHarnessError(
+      'HARNESS_ROUTE_INVALID',
+      `Harness plan must contain ${MIN_HARNESS_PLAN_STEPS}-${MAX_HARNESS_PLAN_STEPS} steps`,
+    );
+  }
+  const seen = new Set<string>();
+  for (const step of steps) {
+    const key = `${step.businessId}\u0000${step.operation}`;
+    if (seen.has(key)) {
+      throw new DefHarnessError(
+        'HARNESS_ROUTE_INVALID',
+        `Harness plan repeats ${step.businessId}.${step.operation}`,
+      );
+    }
+    seen.add(key);
+  }
+  if (steps.length > 1 && steps.some((step) => step.businessId === 'conversation' || step.operation === 'respond')) {
+    throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'conversation.respond must be the only step in its plan');
+  }
+  if (steps.length > 1 && steps.some((step) => step.operation === 'ask')) {
+    throw new DefHarnessError('HARNESS_ROUTE_INVALID', 'ask must be routed alone before submitting a resolved plan');
+  }
+}
+
 function validateCatalog(
   definitions: readonly DefHarnessRevisionDefinition[],
   resolveTool: ToolDescriptorResolver,
 ): ReadonlyMap<DefHarnessBusinessId, CatalogRecord> {
-  const expected = ['buff', 'calculation', 'loadout', 'selection', 'timeline'];
+  const expected: readonly DefHarnessBusinessId[] = ['buff', 'calculation', 'loadout', 'selection', 'timeline'];
   const actual = definitions.map((definition) => definition.businessId).sort();
   const extras = actual.filter((businessId) => !expected.includes(businessId) && businessId !== 'conversation');
   if (expected.some((businessId) => !actual.includes(businessId)) || extras.length > 0) {
@@ -614,6 +840,109 @@ function requirePhase(
   return phase;
 }
 
+function requirePlan(record: TransactionRecord): TransactionPlanRecord {
+  if (!record.plan) {
+    throw new DefHarnessError('HARNESS_CATALOG_INVALID', 'Active Harness transaction has no plan');
+  }
+  return record.plan;
+}
+
+function completedCurrentPlanStep(plan: TransactionPlanRecord): DefHarnessCompletedPlanStep {
+  const step = plan.steps[plan.currentIndex];
+  if (!step) {
+    throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Harness plan has no current step at ${plan.currentIndex}`);
+  }
+  return {
+    index: plan.currentIndex,
+    businessId: step.businessId,
+    operation: step.operation,
+    revision: { ...step.revision },
+  };
+}
+
+function failedCurrentPlanStepEvent(
+  plan: TransactionPlanRecord,
+  code?: string,
+): DefHarnessPlanTraceEvent {
+  const step = plan.steps[plan.currentIndex];
+  if (!step) {
+    throw new DefHarnessError('HARNESS_CATALOG_INVALID', `Harness plan has no failed step at ${plan.currentIndex}`);
+  }
+  return {
+    type: 'step.failed',
+    stepIndex: plan.currentIndex,
+    step: { businessId: step.businessId, operation: step.operation },
+    revision: { ...step.revision },
+    ...(code ? { code } : {}),
+  };
+}
+
+function planCreatedEvent(plan: TransactionPlanRecord): DefHarnessPlanTraceEvent {
+  return {
+    type: 'plan.created',
+    steps: plan.steps.map((step, index) => ({
+      index,
+      businessId: step.businessId,
+      operation: step.operation,
+      revision: { ...step.revision },
+    })),
+    currentIndex: plan.currentIndex,
+  };
+}
+
+function immutablePlanSnapshot(plan: TransactionPlanRecord): DefHarnessPlanSnapshot {
+  const steps = Object.freeze(plan.steps.map((step, index) => Object.freeze({
+    index,
+    businessId: step.businessId,
+    operation: step.operation,
+    revision: Object.freeze({ ...step.revision }),
+  })));
+  const completedSteps = Object.freeze(plan.completedSteps.map((step) => Object.freeze({
+    index: step.index,
+    businessId: step.businessId,
+    operation: step.operation,
+    revision: Object.freeze({ ...step.revision }),
+  })));
+  return Object.freeze({
+    steps,
+    currentIndex: plan.currentIndex,
+    completedSteps,
+  });
+}
+
+function clonePlanTraceEvents(
+  events: readonly DefHarnessPlanTraceEvent[],
+): readonly DefHarnessPlanTraceEvent[] {
+  return events.map((event) => {
+    if (event.type === 'plan.created') {
+      return {
+        type: event.type,
+        steps: event.steps.map((step) => ({
+          ...step,
+          revision: { ...step.revision },
+        })),
+        currentIndex: event.currentIndex,
+      };
+    }
+    if (event.type === 'step.completed') {
+      return {
+        type: event.type,
+        step: {
+          ...event.step,
+          revision: { ...event.step.revision },
+        },
+      };
+    }
+    return {
+      type: event.type,
+      stepIndex: event.stepIndex,
+      step: { ...event.step },
+      revision: { ...event.revision },
+      ...(event.code ? { code: event.code } : {}),
+    };
+  });
+}
+
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -628,6 +957,17 @@ function cloneTransactionRecord(record: TransactionRecord): TransactionRecord {
   return {
     ...record,
     revision: record.revision ? { ...record.revision } : null,
+    plan: record.plan ? {
+      steps: record.plan.steps.map((step) => ({
+        ...step,
+        revision: { ...step.revision },
+      })),
+      currentIndex: record.plan.currentIndex,
+      completedSteps: record.plan.completedSteps.map((step) => ({
+        ...step,
+        revision: { ...step.revision },
+      })),
+    } : null,
     trace: [...record.trace],
   };
 }

@@ -1,7 +1,7 @@
 import type { DefSessionId, DefTurnId } from './ids.ts';
 import type { EngineToolProjectionInput } from './engine.ts';
 
-export const DEF_HARNESS_STATE_VERSION = 1 as const;
+export const DEF_HARNESS_STATE_VERSION = 2 as const;
 
 export type DefHarnessBusinessId =
   | 'conversation'
@@ -95,9 +95,31 @@ export interface DefHarnessRevisionRef {
   readonly contentHash: string;
 }
 
-export interface DefHarnessRouteInput {
+export interface DefHarnessPlanStep {
   readonly businessId: DefHarnessBusinessId;
   readonly operation: DefHarnessOperationId;
+}
+
+export interface DefHarnessSingleRouteInput extends DefHarnessPlanStep {}
+
+export interface DefHarnessPlanRouteInput {
+  readonly steps: readonly DefHarnessPlanStep[];
+}
+
+export type DefHarnessRouteInput = DefHarnessSingleRouteInput | DefHarnessPlanRouteInput;
+
+export interface DefHarnessPlannedStep extends DefHarnessPlanStep {
+  readonly index: number;
+  readonly revision: DefHarnessRevisionRef;
+}
+
+export interface DefHarnessCompletedPlanStep extends DefHarnessPlannedStep {}
+
+export interface DefHarnessPlanSnapshot {
+  readonly steps: readonly DefHarnessPlannedStep[];
+  /** Zero-based active step, or steps.length after successful completion. */
+  readonly currentIndex: number;
+  readonly completedSteps: readonly DefHarnessCompletedPlanStep[];
 }
 
 export type DefHarnessTransactionStatus =
@@ -118,7 +140,26 @@ export interface DefHarnessTransactionSnapshot {
   readonly phaseKind: DefHarnessPhaseKind;
   readonly projection: EngineToolProjectionInput;
   readonly terminalState: DefHarnessTerminalState | null;
+  readonly plan: DefHarnessPlanSnapshot | null;
 }
+
+export type DefHarnessPlanTraceEvent =
+  | {
+      readonly type: 'plan.created';
+      readonly steps: readonly DefHarnessPlannedStep[];
+      readonly currentIndex: number;
+    }
+  | {
+      readonly type: 'step.completed';
+      readonly step: DefHarnessCompletedPlanStep;
+    }
+  | {
+      readonly type: 'step.failed';
+      readonly stepIndex: number;
+      readonly step: DefHarnessPlanStep;
+      readonly revision: DefHarnessRevisionRef;
+      readonly code?: string;
+    };
 
 export type DefHarnessTraceEntry =
   | {
@@ -127,6 +168,7 @@ export type DefHarnessTraceEntry =
       readonly businessId: DefHarnessBusinessId;
       readonly operation: DefHarnessOperationId;
       readonly revision: DefHarnessRevisionRef;
+      readonly planEvents?: readonly DefHarnessPlanTraceEvent[];
     }
   | {
       readonly sequence: number;
@@ -150,6 +192,7 @@ export type DefHarnessTraceEntry =
       readonly phaseId: string;
       readonly terminalState: DefHarnessTerminalState;
       readonly code?: string;
+      readonly planEvents?: readonly DefHarnessPlanTraceEvent[];
     };
 
 export interface DefHarnessTransition {

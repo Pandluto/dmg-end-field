@@ -9,6 +9,7 @@ import {
   asWorkspaceId,
   canonicalJson,
   DefToolExecutionError,
+  type DefHarnessPlanTraceEvent,
   type DefHarnessRevisionDefinition,
   type DefToolDescriptor,
   type DefToolExecutionContext,
@@ -212,6 +213,22 @@ const fullHarnessManager = new DefHarnessManager({
   resolveToolDescriptor: fullStubResolver,
 });
 
+function createFullHarnessManager(): DefHarnessManager {
+  return new DefHarnessManager({
+    catalog: PHASE7_FULL_HARNESS_CATALOG,
+    resolveToolDescriptor: fullStubResolver,
+  });
+}
+
+function readPlanEvents(
+  harness: DefHarnessManager,
+  transactionId: string,
+): readonly DefHarnessPlanTraceEvent[] {
+  return harness.getTrace(transactionId).flatMap((entry) => (
+    'planEvents' in entry ? entry.planEvents ?? [] : []
+  ));
+}
+
 // The old stable operation matrix is exact: the only additions to each
 // business are its clarification route, while direct conversation remains a
 // separate business with respond.
@@ -251,7 +268,7 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
         assert.deepEqual(phase.writes, [], `${businessId}.${operation.operation}.${phase.id} read/proposal cannot declare writes`);
       }
       for (const write of phase.writes) {
-        assert.ok(definition.writeScope.includes(write), `${businessId}.${operation.operation} writes outside its scope: ${write}`);
+        assert.ok((definition.writeScope as readonly string[]).includes(write), `${businessId}.${operation.operation} writes outside its scope: ${write}`);
       }
       if ((businessId === 'timeline' || businessId === 'buff') && descriptor.risk === 'mutate') {
         assert.ok(phase.writes.includes('timeline.work-node'), `${businessId}.${operation.operation} must write through a Work Node`);
@@ -287,8 +304,8 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   }
 }
 
-// A clarification answer re-enters the requested business operation instead
-// of ending after def.user.ask. This is the critical multi-stage route guard.
+// A clarification answer can submit the now-resolved plan and then advances
+// without another route guess.
 {
   const started = fullHarnessManager.beginTurn({
     defSessionId: asDefSessionId('session-full-ask-reroute'),
@@ -305,11 +322,19 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   });
   assert.deepEqual(rerouteReady.transaction.projection.tools.map((tool) => tool.name), [DEF_HARNESS_ROUTE_TOOL_NAME]);
   const rerouted = fullHarnessManager.route(rerouteReady.transaction.transactionId, {
-    businessId: 'timeline',
-    operation: 'preview',
+    steps: [
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
   });
   assert.equal(rerouted.transaction.businessId, 'timeline');
   assert.equal(rerouted.transaction.operation, 'preview');
+  assert.deepEqual(rerouted.transaction.plan?.steps.map(({ businessId, operation }) => ({ businessId, operation })), [
+    { businessId: 'selection', operation: 'ask' },
+    { businessId: 'timeline', operation: 'preview' },
+    { businessId: 'calculation', operation: 'calculate' },
+  ]);
+  assert.deepEqual(rerouted.transaction.plan?.completedSteps.map((step) => step.index), [0]);
   assert.deepEqual(rerouted.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.current']);
   let completed = rerouted.transaction;
   while (completed.status === 'active') {
@@ -321,6 +346,268 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
     }).transaction;
   }
   assert.equal(completed.status, 'completed');
+  assert.equal(completed.plan?.currentIndex, 3);
+  assert.deepEqual(completed.plan?.completedSteps.map((step) => step.index), [0, 1, 2]);
+  assert.deepEqual(
+    readPlanEvents(fullHarnessManager, completed.transactionId).map((event) => event.type),
+    ['plan.created', 'step.completed', 'plan.created', 'step.completed', 'step.completed'],
+  );
+}
+
+// Three businesses execute in one deterministic Turn. An operation terminal
+// projects the next operation immediately instead of exposing an empty Tool
+// projection or asking the Engine to route again.
+{
+  const planManager = createFullHarnessManager();
+  const started = planManager.beginTurn({
+    defSessionId: asDefSessionId('session-cross-business-plan'),
+    defTurnId: asDefTurnId('turn-cross-business-plan'),
+  });
+  assert.equal(started.transaction.plan, null);
+  const routeSchema = started.transaction.projection.tools[0]!.inputSchema;
+  assert.ok(Array.isArray(routeSchema.oneOf));
+  assert.match(planManager.buildRoutingSystemContext(), /steps:\[\.\.\.\].*1-8/su);
+
+  const routed = planManager.route(started.transaction.transactionId, {
+    steps: [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
+  });
+  assert.equal(routed.transaction.projection.revision, 2);
+  assert.deepEqual(routed.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.context']);
+  assert.deepEqual(
+    routed.transaction.plan?.steps.map(({ businessId, operation }) => ({ businessId, operation })),
+    [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
+  );
+  assert.equal(routed.transaction.plan?.currentIndex, 0);
+  assert.deepEqual(routed.transaction.plan?.completedSteps, []);
+  assert.deepEqual(routed.transaction.plan?.steps.map((step) => step.index), [0, 1, 2]);
+  assert.equal(routed.transaction.plan?.steps.every((step) => step.revision.contentHash.startsWith('sha256:')), true);
+  assert.ok(Object.isFrozen(routed.transaction.plan));
+  assert.ok(Object.isFrozen(routed.transaction.plan?.steps));
+  assert.throws(() => {
+    (routed.transaction.plan!.steps as unknown as Array<{ businessId: string; operation: string }>).push({
+      businessId: 'buff',
+      operation: 'inspect',
+    });
+  }, TypeError);
+  const serialized = JSON.stringify(routed.transaction);
+  assert.deepEqual(JSON.parse(serialized).plan.steps, routed.transaction.plan?.steps);
+  assert.equal(serialized.includes('operationDefinition'), false);
+
+  const timelineStarted = planManager.completeTool(routed.transaction.transactionId, {
+    toolName: 'def.node.crud.context',
+    status: 'succeeded',
+  });
+  assert.equal(timelineStarted.transaction.projection.revision, 3);
+  assert.equal(timelineStarted.transaction.businessId, 'timeline');
+  assert.deepEqual(timelineStarted.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.current']);
+  assert.equal(timelineStarted.transaction.plan?.currentIndex, 1);
+  assert.deepEqual(timelineStarted.transaction.plan?.completedSteps.map((step) => step.operation), ['inspect']);
+
+  const timelineDiff = planManager.completeTool(timelineStarted.transaction.transactionId, {
+    toolName: 'def.node.crud.current',
+    status: 'succeeded',
+  });
+  assert.equal(timelineDiff.transaction.projection.revision, 4);
+  assert.deepEqual(timelineDiff.transaction.projection.tools.map((tool) => tool.name), ['def.worknode.diff']);
+
+  const calculationStarted = planManager.completeTool(timelineDiff.transaction.transactionId, {
+    toolName: 'def.worknode.diff',
+    status: 'succeeded',
+  });
+  assert.equal(calculationStarted.transaction.projection.revision, 5);
+  assert.equal(calculationStarted.transaction.businessId, 'calculation');
+  assert.deepEqual(calculationStarted.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.context']);
+
+  const damageProjected = planManager.completeTool(calculationStarted.transaction.transactionId, {
+    toolName: 'def.node.crud.context',
+    status: 'succeeded',
+  });
+  assert.equal(damageProjected.transaction.projection.revision, 6);
+  assert.deepEqual(damageProjected.transaction.projection.tools.map((tool) => tool.name), ['def.data.resource.damage']);
+
+  const completed = planManager.completeTool(damageProjected.transaction.transactionId, {
+    toolName: 'def.data.resource.damage',
+    status: 'succeeded',
+  });
+  assert.equal(completed.transaction.status, 'completed');
+  assert.equal(completed.transaction.projection.revision, 7);
+  assert.deepEqual(completed.transaction.projection.tools, []);
+  assert.equal(completed.transaction.plan?.currentIndex, 3);
+  assert.deepEqual(completed.transaction.plan?.completedSteps.map((step) => step.index), [0, 1, 2]);
+
+  const trace = planManager.getTrace(completed.transaction.transactionId);
+  assert.deepEqual(trace.map((entry) => entry.sequence), Array.from({ length: trace.length }, (_, index) => index + 1));
+  assert.deepEqual(
+    trace.filter((entry) => entry.type === 'harness.tool.projected').map((entry) => entry.projectionRevision),
+    [1, 2, 3, 4, 5, 6, 7],
+  );
+  assert.deepEqual(
+    trace.filter((entry) => entry.type === 'harness.tool.projected').map((entry) => entry.tools),
+    [
+      [DEF_HARNESS_ROUTE_TOOL_NAME],
+      ['def.node.crud.context'],
+      ['def.node.crud.current'],
+      ['def.worknode.diff'],
+      ['def.node.crud.context'],
+      ['def.data.resource.damage'],
+      [],
+    ],
+  );
+  assert.deepEqual(
+    trace.filter((entry) => entry.type === 'harness.routed').map((entry) => `${entry.businessId}.${entry.operation}`),
+    ['selection.inspect', 'timeline.preview', 'calculation.calculate'],
+  );
+  assert.deepEqual(
+    readPlanEvents(planManager, completed.transaction.transactionId).map((event) => event.type),
+    ['plan.created', 'step.completed', 'step.completed', 'step.completed'],
+  );
+}
+
+// A failed step closes the whole plan and never projects a later business.
+{
+  const planManager = createFullHarnessManager();
+  const started = planManager.beginTurn({
+    defSessionId: asDefSessionId('session-plan-failure'),
+    defTurnId: asDefTurnId('turn-plan-failure'),
+  });
+  const routed = planManager.route(started.transaction.transactionId, {
+    steps: [
+      { businessId: 'selection', operation: 'inspect' },
+      { businessId: 'timeline', operation: 'preview' },
+      { businessId: 'calculation', operation: 'calculate' },
+    ],
+  });
+  const timelineStarted = planManager.completeTool(routed.transaction.transactionId, {
+    toolName: 'def.node.crud.context',
+    status: 'succeeded',
+  });
+  const failed = planManager.completeTool(timelineStarted.transaction.transactionId, {
+    toolName: 'def.node.crud.current',
+    status: 'failed',
+  });
+  assert.equal(failed.transaction.status, 'aborted');
+  assert.equal(failed.transaction.terminalState, 'aborted');
+  assert.deepEqual(failed.transaction.projection.tools, []);
+  assert.equal(failed.transaction.plan?.currentIndex, 1);
+  assert.deepEqual(failed.transaction.plan?.completedSteps.map((step) => step.index), [0]);
+  assert.deepEqual(
+    planManager.getTrace(failed.transaction.transactionId)
+      .filter((entry) => entry.type === 'harness.routed')
+      .map((entry) => entry.businessId),
+    ['selection', 'timeline'],
+  );
+  const events = readPlanEvents(planManager, failed.transaction.transactionId);
+  assert.deepEqual(events.map((event) => event.type), ['plan.created', 'step.completed', 'step.failed']);
+  const failure = events.at(-1)!;
+  assert.equal(failure.type, 'step.failed');
+  if (failure.type === 'step.failed') assert.equal(failure.stepIndex, 1);
+  await expectHarnessError(
+    () => planManager.completeTool(failed.transaction.transactionId, {
+      toolName: 'def.worknode.diff',
+      status: 'succeeded',
+    }),
+    'HARNESS_TRANSACTION_TERMINAL',
+  );
+}
+
+// Invalid plans are rejected before staging: a bad eighth/later route cannot
+// alter the current projection, plan, trace or prepared-transition slot.
+{
+  const planManager = createFullHarnessManager();
+  const started = planManager.beginTurn({
+    defSessionId: asDefSessionId('session-plan-atomic-reject'),
+    defTurnId: asDefTurnId('turn-plan-atomic-reject'),
+  });
+  const transactionId = started.transaction.transactionId;
+  const baselineSnapshot = JSON.stringify(planManager.getTransaction(transactionId));
+  const baselineTrace = JSON.stringify(planManager.getTrace(transactionId));
+  const invalidCases: readonly { readonly input: JsonObject; readonly code: string }[] = [
+    { input: { steps: [] }, code: 'HARNESS_ROUTE_INVALID' },
+    {
+      input: {
+        steps: Array.from({ length: 9 }, (_, index) => ({
+          businessId: 'selection',
+          operation: index % 2 === 0 ? 'inspect' : 'search',
+        })),
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        steps: [
+          { businessId: 'selection', operation: 'inspect' },
+          { businessId: 'selection', operation: 'inspect' },
+        ],
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        steps: [
+          { businessId: 'selection', operation: 'inspect', unexpected: true },
+        ],
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        steps: [
+          { businessId: 'conversation', operation: 'respond' },
+          { businessId: 'selection', operation: 'inspect' },
+        ],
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        steps: [
+          { businessId: 'selection', operation: 'ask' },
+          { businessId: 'timeline', operation: 'current' },
+        ],
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+    {
+      input: {
+        steps: [
+          { businessId: 'selection', operation: 'inspect' },
+          { businessId: 'timeline', operation: 'calculate' },
+        ],
+      },
+      code: 'HARNESS_ROUTE_UNSUPPORTED',
+    },
+    {
+      input: {
+        steps: [{ businessId: 'selection', operation: 'inspect' }],
+        unexpected: true,
+      },
+      code: 'HARNESS_ROUTE_INVALID',
+    },
+  ];
+  for (const invalid of invalidCases) {
+    await expectHarnessError(
+      () => planManager.prepareRoute(transactionId, invalid.input),
+      invalid.code,
+    );
+    assert.equal(JSON.stringify(planManager.getTransaction(transactionId)), baselineSnapshot);
+    assert.equal(JSON.stringify(planManager.getTrace(transactionId)), baselineTrace);
+  }
+  const valid = planManager.route(transactionId, {
+    steps: [{ businessId: 'selection', operation: 'inspect' }],
+  });
+  assert.equal(valid.transaction.status, 'active');
+  assert.deepEqual(
+    valid.transaction.plan?.steps.map(({ businessId, operation }) => ({ businessId, operation })),
+    [{ businessId: 'selection', operation: 'inspect' }],
+  );
 }
 
 assert.equal(registry.listDescriptors().length, 5);
@@ -370,6 +657,11 @@ for (const [index, parity] of PHASE3_READONLY_PARITY_CASES.entries()) {
     operation: parity.operation,
   });
   assert.equal(routed.transaction.revision?.sourceLineage, parity.sourceLineage);
+  assert.deepEqual(routed.transaction.plan?.steps.map(({ businessId, operation }) => ({ businessId, operation })), [{
+    businessId: parity.businessId,
+    operation: parity.operation,
+  }]);
+  assert.equal(routed.transaction.plan?.currentIndex, 0);
   const observed: string[] = [];
   let current = routed.transaction;
   for (const toolName of parity.toolSequence) {
@@ -383,6 +675,8 @@ for (const [index, parity] of PHASE3_READONLY_PARITY_CASES.entries()) {
   assert.deepEqual(observed, parity.toolSequence);
   assert.equal(current.status, 'completed');
   assert.equal(current.terminalState, 'completed');
+  assert.equal(current.plan?.currentIndex, 1);
+  assert.deepEqual(current.plan?.completedSteps.map((step) => step.index), [0]);
   assert.deepEqual(current.projection.tools, []);
   await expectHarnessError(
     () => manager.completeTool(current.transactionId, {
