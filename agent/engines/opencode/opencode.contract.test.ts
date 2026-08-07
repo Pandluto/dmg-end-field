@@ -85,6 +85,7 @@ assert.deepEqual(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical), [
   'def.node.crud.current',
   'def.data.resource.buff',
   'def.data.resource.damage',
+  'def.capability.status',
   'def.user.ask',
   'def.data.catalog.query',
   'def.worknode.list',

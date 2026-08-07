@@ -8,6 +8,7 @@ export const OPENCODE_TOOL_BINDINGS = [
   ['def.node.crud.current', 'def_node_crud_current'],
   ['def.data.resource.buff', 'def_data_resource_buff'],
   ['def.data.resource.damage', 'def_data_resource_damage'],
+  ['def.capability.status', 'def_capability_status'],
   ['def.user.ask', 'def_user_ask'],
   ['def.data.catalog.query', 'def_data_catalog_query'],
   ['def.worknode.list', 'def_worknode_list'],
