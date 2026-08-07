@@ -754,6 +754,23 @@ test('native session restore leaves Host archived when upstream rejects unarchiv
   }
 });
 
+test('native recovery API uses the same Gateway transaction as the OpenCode PATCH path', async () => {
+  const fixture = await createSessionMutationFixture();
+  try {
+    assert.equal((await fixture.patch(1_754_598_402_000)).status, 200);
+    const restored = await fixture.restoreViaGateway();
+    assert.equal(restored.status, 'ready');
+    assert.equal(fixture.upstreamArchived(), false);
+    assert.deepEqual(fixture.hostActions, ['archive', 'restore']);
+    assert.deepEqual(fixture.upstreamUpdates, [
+      { time: { archived: 1_754_598_402_000 } },
+      { time: { archived: null } },
+    ]);
+  } finally {
+    await fixture.close();
+  }
+});
+
 type NativeSessionCompensationJson = {
   readonly attempted: boolean;
   readonly succeeded: boolean;
@@ -767,6 +784,7 @@ type SessionMutationFixture = {
   readonly hostActions: string[];
   readonly upstreamUpdates: unknown[];
   readonly patch: (archivedAt: number | null) => Promise<Response>;
+  readonly restoreViaGateway: () => Promise<DefSessionV6>;
   readonly list: () => Promise<unknown>;
   readonly close: () => Promise<void>;
   failHostRestore: boolean;
@@ -910,6 +928,9 @@ async function createSessionMutationFixture(options: {
         },
         body: JSON.stringify({ time: { archived: archivedAt } }),
       });
+    },
+    async restoreViaGateway() {
+      return gateway.restoreSession(session.defSessionId, claims);
     },
     async list() {
       const response = await fetch(`${gateway.origin}/session`, {

@@ -12,6 +12,9 @@ import {
   asToolCallId,
   asWorkspaceId,
   type AgentEngine,
+  type AgentNativeUiLaunch,
+  type DefSessionId,
+  type DefSessionV6,
   type Phase2ProductCommand,
   type ProductBinding,
   type ProductCommandResult,
@@ -545,6 +548,40 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     productGateway: gateway,
     requireConsumer: () => { consumers.requireActive(); },
   });
+  const nativeRestoreCalls: string[] = [];
+  const nativeUi = {
+    async launch(defSessionId: DefSessionId): Promise<AgentNativeUiLaunch> {
+      return { defSessionId, src: 'http://127.0.0.1:1/native' };
+    },
+    async restoreSession(defSessionId: DefSessionId, receivedClaims: AgentUiCapabilityClaims): Promise<DefSessionV6> {
+      assert.equal(receivedClaims.origin, browserOrigin);
+      assert.equal(receivedClaims.audience, 'workbench-ai-mode');
+      nativeRestoreCalls.push(defSessionId);
+      return {
+        schemaVersion: 6,
+        eventSchemaVersion: 1,
+        defSessionId,
+        host: 'workbench',
+        status: 'ready',
+        workspaceId: binding().workspaceId,
+        lastDatabaseGeneration: binding().databaseGeneration,
+        timelineId: binding().timelineId,
+        axisBindingId: null,
+        boundNodeId: null,
+        engine: {
+          kind: 'opencode',
+          sessionId: 'ses-native-restore' as DefSessionV6['engine']['sessionId'],
+          runtimeVersion: 'test',
+          storeSchemaVersion: 1,
+        },
+        harness: { stateVersion: 1, revision: 'test' },
+        createdAt: '2026-08-08T00:00:00.000Z',
+        updatedAt: '2026-08-08T00:00:00.000Z',
+      };
+    },
+    async stop(): Promise<void> {},
+  };
+  const diagnostics: string[] = [];
   const tokens = new AgentTokenAuthority({ randomToken: () => capability });
   const server = new DefAgentHostHttpServer({
     hostToken,
@@ -553,7 +590,9 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     tokens,
     consumers,
     gateway,
+    nativeUi,
     engine: { kind: 'pending', state: 'pending', reason: 'contract fixture' },
+    diagnostic: (message) => diagnostics.push(message),
   });
   const port = await server.listen(0);
   const baseUrl = `http://127.0.0.1:${port}`;
@@ -602,6 +641,19 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   });
   assert.equal(uiState.status, 200);
   assert.equal((await uiState.json() as { consumer: unknown }).consumer, null);
+  const nativeRestore = await fetch(`${baseUrl}/agent-host/native-ui/restore`, {
+    method: 'POST',
+    headers: {
+      ...privateHeaders,
+      [AGENT_UI_CAPABILITY_HEADER]: capability,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ defSessionId: 'def-session-native-restore' }),
+  });
+  const nativeRestoreBody = await nativeRestore.json() as { session?: { status: string }; message?: string };
+  assert.equal(nativeRestore.status, 200, `${JSON.stringify(nativeRestoreBody)} diagnostics=${diagnostics.join(' | ')}`);
+  assert.equal(nativeRestoreBody.session?.status, 'ready');
+  assert.deepEqual(nativeRestoreCalls, ['def-session-native-restore']);
   const unknown = await fetch(`${baseUrl}/agent-host/not-real`, {
     headers: { ...privateHeaders, [AGENT_UI_CAPABILITY_HEADER]: capability },
   });

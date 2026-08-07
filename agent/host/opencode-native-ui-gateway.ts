@@ -261,6 +261,29 @@ export class OpenCodeNativeUiGateway {
     };
   }
 
+  /**
+   * Restore a session from the DEF shell's explicit recovery surface.  This
+   * deliberately enters the same transaction used by native OpenCode's
+   * PATCH /session/:id { time: { archived: null } } path; the shell must not
+   * call DefAgentHost.restoreSession directly and leave OpenCode archived.
+   */
+  async restoreSession(defSessionId: DefSessionId, claims: AgentUiCapabilityClaims): Promise<DefSessionV6> {
+    const consumer = this.#consumers.requireActive(claims);
+    const session = this.#host.readSession(defSessionId, consumer.binding);
+    const routeSession = this.#sessionForEngine(session.engine.sessionId, consumer.binding);
+    const access: NativeUiAccess = { token: '', binding: consumer.binding };
+    const upstream = await this.#withSessionMutationLock(routeSession.defSessionId, () => (
+      this.#mutateNativeSession(
+        routeSession,
+        access,
+        { time: { archived: null } },
+        { action: 'restore', archivedAt: null },
+      )
+    ));
+    await upstream.arrayBuffer().catch(() => undefined);
+    return this.#host.readSession(defSessionId, consumer.binding);
+  }
+
   async #handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('Referrer-Policy', 'no-referrer');

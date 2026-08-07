@@ -46,6 +46,10 @@ type RuntimeState = 'starting' | 'ready' | 'stopping' | 'error';
 
 type NativeAgentUiGateway = {
   launch(defSessionId: DefSessionId, claims: AgentUiCapabilityClaims): Promise<AgentNativeUiLaunch>;
+  restoreSession(
+    defSessionId: DefSessionId,
+    claims: AgentUiCapabilityClaims,
+  ): Promise<import('../core/contracts/index.ts').DefSessionV6>;
   stop(): Promise<void>;
 };
 
@@ -227,6 +231,20 @@ export class DefAgentHostHttpServer {
       this.#writeJson(response, 201, {
         protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
         launch: await this.#nativeUi.launch(defSessionId, claims),
+      });
+      return;
+    }
+    if (request.method === 'POST' && url.pathname === '/agent-host/native-ui/restore') {
+      if (!this.#nativeUi) {
+        throw new DefAgentHostError('AGENT_NATIVE_UI_ROUTE_NOT_FOUND', 'OpenCode native UI is unavailable', 503);
+      }
+      const body = expectRecord(await readJson(request));
+      expectExactKeys(body, ['defSessionId']);
+      const defSessionId = asDefSessionId(expectPortableId(body.defSessionId, 'defSessionId', 200));
+      const session = await this.#nativeUi.restoreSession(defSessionId, claims);
+      this.#writeJson(response, 200, {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        session: toProductSession(session),
       });
       return;
     }

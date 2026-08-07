@@ -202,7 +202,7 @@ export function AgentModeOverlay({
     setError(null);
     setStatus('正在恢复已归档会话…');
     try {
-      const restored = await bridge.restoreSession(session.defSessionId);
+      const restored = await bridge.restoreNativeUiSession(session.defSessionId);
       setArchivedSessions((current) => current.filter((candidate) => candidate.defSessionId !== session.defSessionId));
       setStatus('正在打开恢复的 OpenCode 会话…');
       const nextLaunch = await bridge.launchNativeUi(restored.defSessionId);

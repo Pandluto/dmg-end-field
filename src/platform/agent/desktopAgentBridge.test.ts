@@ -811,6 +811,9 @@ class FakeLease implements AgentWorkspaceLease {
           },
         }, 201);
       }
+      if (url.pathname === '/agent-host/native-ui/restore' && init?.method === 'POST') {
+        return response({ protocolVersion: 2, session });
+      }
       if (url.pathname === `/agent-host/sessions/${session.defSessionId}`) {
         if (init?.method === 'DELETE') {
           return response({ protocolVersion: 2, defSessionId: session.defSessionId, deleted: true });
@@ -865,6 +868,7 @@ class FakeLease implements AgentWorkspaceLease {
   assert.equal((await bridge.getSession(session.defSessionId)).engine.runtimeVersion, '1.0.0');
   assert.equal((await bridge.archiveSession(session.defSessionId)).status, 'archived');
   assert.equal((await bridge.restoreSession(session.defSessionId)).status, 'ready');
+  assert.equal((await bridge.restoreNativeUiSession(session.defSessionId)).status, 'ready');
   await bridge.deleteSession(session.defSessionId);
   assert.equal((await bridge.readSessionEvents(session.defSessionId)).events[0].type, 'turn.accepted');
   assert.equal((await bridge.startTurn(session.defSessionId, {
@@ -879,6 +883,8 @@ class FakeLease implements AgentWorkspaceLease {
   assert.deepEqual(JSON.parse(String(createCall?.init?.body)), { providerProfileRef: 'default' });
   const nativeUiCall = calls.find((call) => call.url.pathname === '/agent-host/native-ui/launch');
   assert.deepEqual(JSON.parse(String(nativeUiCall?.init?.body)), { defSessionId: session.defSessionId });
+  const nativeUiRestoreCall = calls.find((call) => call.url.pathname === '/agent-host/native-ui/restore');
+  assert.deepEqual(JSON.parse(String(nativeUiRestoreCall?.init?.body)), { defSessionId: session.defSessionId });
   const turnCall = calls.find((call) => call.url.pathname.endsWith('/turns'));
   assert.deepEqual(JSON.parse(String(turnCall?.init?.body)), {
     clientTurnId,

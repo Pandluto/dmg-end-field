@@ -1250,6 +1250,19 @@ export class DesktopAgentBridge {
     return asProductSession(data);
   }
 
+  /**
+   * Restore from the native OpenCode recovery surface.  The Host route behind
+   * this method delegates to OpenCodeNativeUiGateway, which atomically clears
+   * OpenCode time.archived and restores the DEF Session with compensation.
+   */
+  async restoreNativeUiSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
+    const data = await this.#requestWithReauthorization('/agent-host/native-ui/restore', {
+      method: 'POST',
+      body: { defSessionId },
+    });
+    return asProductSession(data);
+  }
+
   async deleteSession(defSessionId: DefSessionId): Promise<void> {
     await this.#request(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`, {
       method: 'DELETE',
