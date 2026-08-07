@@ -10,6 +10,7 @@ import {
   canonicalJson,
   DefToolExecutionError,
   type DefHarnessRevisionDefinition,
+  type DefToolDescriptor,
   type DefToolExecutionContext,
   type JsonObject,
   type ProductBinding,
@@ -18,8 +19,11 @@ import {
 import { PHASE3_READONLY_PARITY_CASES } from '../testing/fixtures/phase3-readonly-parity.ts';
 import { DefReadToolRegistry } from '../tools/read-only-workbench.ts';
 import {
+  DEF_HARNESS_CANONICAL_TOOL_NAMES,
+  DEF_HARNESS_FULL_OPERATION_MATRIX,
   DEF_HARNESS_ROUTE_TOOL_NAME,
   PHASE3_READONLY_HARNESS_CATALOG,
+  PHASE7_FULL_HARNESS_CATALOG,
 } from './catalog.ts';
 import { DefHarnessError, DefHarnessManager } from './manager.ts';
 
@@ -160,6 +164,164 @@ const manager = new DefHarnessManager({
 const managerAgain = new DefHarnessManager({
   resolveToolDescriptor: (name) => registry.resolveDescriptor(name),
 });
+
+const expectedFullOperationMatrix = {
+  selection: ['inspect', 'search', 'add', 'remove', 'replace', 'reorder', 'analyze', 'apply'],
+  loadout: ['inspect', 'evaluate', 'resolve', 'recommend', 'recommend_named_set', 'recommend_discovered_set', 'recommend_weapon', 'recommend_equipment', 'compare', 'preview', 'apply', 'restore'],
+  timeline: ['current', 'inspect', 'add', 'remove', 'move', 'replace', 'copy', 'validate', 'preview', 'apply', 'restore'],
+  buff: ['inspect', 'resolve', 'source', 'add', 'remove', 'replace', 'batch', 'stack', 'coverage', 'apply', 'restore'],
+  calculation: ['calculate', 'aggregate', 'compare', 'attribute', 'diagnose', 'export', 'explain', 'skill_fact'],
+} as const;
+
+// The full matrix intentionally uses a resolver stub here. The product
+// registry is wired in a later phase, but the Harness contract must already
+// prove that no operation disappears while that wiring is in progress.
+const fullMutationTools = new Set([
+  'def.team.selection.apply',
+  'def.workbench.add_skill_button',
+  'def.workbench.remove_skill_button',
+  'def.buff.add_to_button',
+  'def.buff.remove_from_button',
+  'def.target.set_resistance',
+  'def.worknode.patch_and_validate',
+  'def.worknode.delete',
+  'def.worknode.use',
+  'def.worknode.restore',
+  'def.loadout.apply_prepared',
+]);
+const fullStubResolver = (name: string): DefToolDescriptor | null => {
+  if (name === DEF_HARNESS_ROUTE_TOOL_NAME) {
+    return {
+      name,
+      description: 'Harness route contract stub',
+      risk: 'read',
+      inputSchema: { type: 'object', additionalProperties: false },
+    };
+  }
+  if (!(DEF_HARNESS_CANONICAL_TOOL_NAMES as readonly string[]).includes(name)) return null;
+  return {
+    name,
+    description: `Harness contract stub for ${name}`,
+    risk: fullMutationTools.has(name) ? 'mutate' : name === 'def.user.ask' ? 'propose' : 'read',
+    inputSchema: { type: 'object', additionalProperties: false },
+  };
+};
+
+const fullHarnessManager = new DefHarnessManager({
+  catalog: PHASE7_FULL_HARNESS_CATALOG,
+  resolveToolDescriptor: fullStubResolver,
+});
+
+// The old stable operation matrix is exact: the only additions to each
+// business are its clarification route, while direct conversation remains a
+// separate business with respond.
+assert.deepEqual(DEF_HARNESS_FULL_OPERATION_MATRIX, expectedFullOperationMatrix);
+assert.equal(
+  Object.values(expectedFullOperationMatrix).flat().length,
+  50,
+  'the audited matrix must contain exactly 50 old stable operations',
+);
+for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof typeof expectedFullOperationMatrix>) {
+  const definition = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === businessId)!;
+  const expectedOperations = expectedFullOperationMatrix[businessId];
+  const actualOperations = definition.operations
+    .filter((operation) => operation.operation !== 'ask')
+    .map((operation) => operation.operation);
+  assert.deepEqual(actualOperations, expectedOperations, `${businessId} must not silently drop an old operation`);
+  assert.equal(
+    definition.operations.filter((operation) => operation.operation === 'ask').length,
+    1,
+    `${businessId} must retain one clarification route`,
+  );
+  assert.equal(new Set(actualOperations).size, expectedOperations.length, `${businessId} contains a duplicate operation`);
+  assert.match(definition.revision, /-v17-full-matrix$/u);
+  assert.match(definition.sourceLineage, /old-stable:bcea5f12a3148737e7a9b799d2fa4e0170ffe0bb/u);
+  for (const operation of definition.operations) {
+    for (const phase of operation.phases) {
+      if (phase.terminalState) {
+        assert.equal(phase.tools.length, 0);
+        continue;
+      }
+      assert.equal(phase.tools.length, 1, `${businessId}.${operation.operation}.${phase.id} must expose one active Tool`);
+      const descriptor = fullStubResolver(phase.tools[0]!);
+      assert.ok(descriptor);
+      if (descriptor.risk === 'mutate') {
+        assert.ok(phase.writes.length > 0, `${businessId}.${operation.operation}.${phase.id} mutation must declare scope`);
+      } else {
+        assert.deepEqual(phase.writes, [], `${businessId}.${operation.operation}.${phase.id} read/proposal cannot declare writes`);
+      }
+      for (const write of phase.writes) {
+        assert.ok(definition.writeScope.includes(write), `${businessId}.${operation.operation} writes outside its scope: ${write}`);
+      }
+      if ((businessId === 'timeline' || businessId === 'buff') && descriptor.risk === 'mutate') {
+        assert.ok(phase.writes.includes('timeline.work-node'), `${businessId}.${operation.operation} must write through a Work Node`);
+      }
+    }
+  }
+}
+const conversation = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === 'conversation')!;
+assert.deepEqual(conversation.operations.map((operation) => operation.operation), ['respond']);
+assert.equal(fullHarnessManager.listRevisions().length, 6);
+
+// Every listed operation has a success path to a terminal state. This catches
+// a newly added phase whose success transition accidentally ends in a dead
+// branch, while the manager's failure path is checked by its existing tests.
+for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof typeof expectedFullOperationMatrix>) {
+  const definition = PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === businessId)!;
+  for (const operation of definition.operations) {
+    const started = fullHarnessManager.beginTurn({
+      defSessionId: asDefSessionId(`session-full-${businessId}-${operation.operation}`),
+      defTurnId: asDefTurnId(`turn-full-${businessId}-${operation.operation}`),
+    });
+    let current = fullHarnessManager.route(started.transaction.transactionId, { businessId, operation: operation.operation }).transaction;
+    while (current.status === 'active') {
+      const toolName = current.projection.tools[0]?.name;
+      assert.ok(toolName, `${businessId}.${operation.operation} lost its active Tool`);
+      current = fullHarnessManager.completeTool(current.transactionId, {
+        toolName,
+        status: 'succeeded',
+      }).transaction;
+    }
+    assert.equal(current.status, 'completed', `${businessId}.${operation.operation} must reach completed`);
+    assert.equal(current.terminalState, 'completed');
+  }
+}
+
+// A clarification answer re-enters the requested business operation instead
+// of ending after def.user.ask. This is the critical multi-stage route guard.
+{
+  const started = fullHarnessManager.beginTurn({
+    defSessionId: asDefSessionId('session-full-ask-reroute'),
+    defTurnId: asDefTurnId('turn-full-ask-reroute'),
+  });
+  const asked = fullHarnessManager.route(started.transaction.transactionId, {
+    businessId: 'selection',
+    operation: 'ask',
+  });
+  assert.deepEqual(asked.transaction.projection.tools.map((tool) => tool.name), ['def.user.ask']);
+  const rerouteReady = fullHarnessManager.completeTool(asked.transaction.transactionId, {
+    toolName: 'def.user.ask',
+    status: 'succeeded',
+  });
+  assert.deepEqual(rerouteReady.transaction.projection.tools.map((tool) => tool.name), [DEF_HARNESS_ROUTE_TOOL_NAME]);
+  const rerouted = fullHarnessManager.route(rerouteReady.transaction.transactionId, {
+    businessId: 'timeline',
+    operation: 'preview',
+  });
+  assert.equal(rerouted.transaction.businessId, 'timeline');
+  assert.equal(rerouted.transaction.operation, 'preview');
+  assert.deepEqual(rerouted.transaction.projection.tools.map((tool) => tool.name), ['def.node.crud.current']);
+  let completed = rerouted.transaction;
+  while (completed.status === 'active') {
+    const toolName = completed.projection.tools[0]?.name;
+    assert.ok(toolName);
+    completed = fullHarnessManager.completeTool(completed.transactionId, {
+      toolName,
+      status: 'succeeded',
+    }).transaction;
+  }
+  assert.equal(completed.status, 'completed');
+}
 
 assert.equal(registry.listDescriptors().length, 5);
 assert.deepEqual(manager.listRevisions(), managerAgain.listRevisions());
