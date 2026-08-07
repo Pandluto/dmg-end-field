@@ -2,7 +2,7 @@
 
 ## Status
 
-Implemented; two external validation gates remain.
+Implemented and locally validated; independent review remains.
 
 ## Goal
 

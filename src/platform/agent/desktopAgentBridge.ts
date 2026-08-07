@@ -617,6 +617,7 @@ export class DesktopAgentBridge {
   #pendingLaunchGrant: string | null = null;
   #captureAttempted = false;
   #launchGrantExchangeAttempted = false;
+  #initializePromise: Promise<DesktopAgentBridgeState> | null = null;
   #state: DesktopAgentBridgeState = {
     route: false,
     authorization: 'pending',
@@ -685,7 +686,16 @@ export class DesktopAgentBridge {
     }
   }
 
-  async initialize(): Promise<DesktopAgentBridgeState> {
+  initialize(): Promise<DesktopAgentBridgeState> {
+    if (this.#initializePromise) return this.#initializePromise;
+    const promise = this.#initializeOnce().finally(() => {
+      if (this.#initializePromise === promise) this.#initializePromise = null;
+    });
+    this.#initializePromise = promise;
+    return promise;
+  }
+
+  async #initializeOnce(): Promise<DesktopAgentBridgeState> {
     if (!this.isAgentModeRoute()) {
       this.#setState({
         route: false,

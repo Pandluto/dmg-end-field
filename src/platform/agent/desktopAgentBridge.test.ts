@@ -220,12 +220,17 @@ class FakeLease implements AgentWorkspaceLease {
     },
   });
 
-  const state = await bridge.initialize();
+  const firstInitialize = bridge.initialize();
+  const strictModeInitialize = bridge.initialize();
+  assert.equal(strictModeInitialize, firstInitialize, 'concurrent StrictMode initialization must share one grant exchange');
+  const [state, strictModeState] = await Promise.all([firstInitialize, strictModeInitialize]);
   assert.equal(state.authorization, 'authorized');
+  assert.equal(strictModeState.authorization, 'authorized');
   assert.equal(state.host, 'ready');
   assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), 'ui-capability-12345678901234567890');
   assert.equal(history.lastUrl, '/#/timeline/ai');
   assert.equal(calls.some((call) => call.init?.body?.toString().includes('launch-grant')), true);
+  assert.equal(calls.filter((call) => call.url.endsWith('/ui/session')).length, 1);
   assert.equal(storage.values.size, 1);
   assert.equal(storage.values.has('dmg.desktop.agent-launch-grant.v1'), false);
   await assert.rejects(

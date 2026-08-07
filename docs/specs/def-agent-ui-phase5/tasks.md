@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation complete; environment validation pending.
+Implementation and local validation complete; independent review pending.
 
 ## Phase 0：合同冻结
 
@@ -43,7 +43,7 @@ Implementation complete; environment validation pending.
 ## Phase 5：交付
 
 - [x] `npm run typecheck`、相关测试与 `npm run check` 通过。
-- [ ] 本地 `/timeline/ai` 手工/浏览器截图检查通过。
+- [x] 本地 `/timeline/ai` 手工/浏览器截图检查通过。
 - [ ] 独立高智能审查无未关闭 P0/P1。
 - [x] 更新 validation 归档并提交实现。
 
