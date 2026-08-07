@@ -767,6 +767,9 @@ for (const businessId of Object.keys(expectedFullOperationMatrix) as Array<keyof
   });
   assert.equal(started.transaction.plan, null);
   const routeSchema = started.transaction.projection.tools[0]!.inputSchema;
+  assert.equal(routeSchema.type, 'object');
+  assert.equal(routeSchema.additionalProperties, false);
+  assert.ok(routeSchema.properties && typeof routeSchema.properties === 'object');
   assert.ok(Array.isArray(routeSchema.oneOf));
   assert.match(planManager.buildRoutingSystemContext(), /steps:\[\.\.\.\].*1-8/su);
 

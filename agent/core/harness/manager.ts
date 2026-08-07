@@ -159,6 +159,50 @@ export class DefHarnessManager {
       description: 'Route this Turn to one allowlisted DEF business operation. An ask route must include its bounded resume target. For an ordered cross-business Turn, submit one bounded plan.',
       risk: 'read',
       inputSchema: {
+        // OpenCode only accepts top-level closed object Tool schemas. Keep the
+        // discriminated oneOf branches below, but also declare their complete
+        // property union here so the real engine can project this descriptor.
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          businessId: { enum: businessIds },
+          operation: { enum: operationIds },
+          resume: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['steps'],
+            properties: {
+              steps: {
+                type: 'array',
+                minItems: MIN_HARNESS_PLAN_STEPS,
+                maxItems: MAX_HARNESS_PLAN_STEPS - 1,
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['businessId', 'operation'],
+                  properties: {
+                    businessId: { enum: businessIds },
+                    operation: { enum: nonAskOperationIds },
+                  },
+                },
+              },
+            },
+          },
+          steps: {
+            type: 'array',
+            minItems: MIN_HARNESS_PLAN_STEPS,
+            maxItems: MAX_HARNESS_PLAN_STEPS,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['businessId', 'operation'],
+              properties: {
+                businessId: { enum: businessIds },
+                operation: { enum: nonAskOperationIds },
+              },
+            },
+          },
+        },
         oneOf: [
           {
             type: 'object',
