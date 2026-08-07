@@ -472,6 +472,37 @@ async function testAdapterAtomicProjection(): Promise<void> {
   runtime.emit({
     directory: runtime.running.directory,
     payload: {
+      type: 'message.part.updated',
+      properties: {
+        sessionID: session.sessionId,
+        part: {
+          id: 'part-answer-reasoning',
+          sessionID: session.sessionId,
+          messageID: 'message-answer',
+          type: 'reasoning',
+          text: '',
+        },
+      },
+    },
+  });
+  runtime.emit({
+    directory: runtime.running.directory,
+    payload: {
+      type: 'message.part.delta',
+      properties: {
+        sessionID: session.sessionId,
+        messageID: 'message-answer',
+        partID: 'part-answer-reasoning',
+        field: 'text',
+        delta: '内部推理不应显示',
+      },
+    },
+  });
+  // Cover the real provider ordering where a delta may arrive before its
+  // PartUpdated discriminator.
+  runtime.emit({
+    directory: runtime.running.directory,
+    payload: {
       type: 'message.part.delta',
       properties: {
         sessionID: session.sessionId,
@@ -485,12 +516,29 @@ async function testAdapterAtomicProjection(): Promise<void> {
   runtime.emit({
     directory: runtime.running.directory,
     payload: {
+      type: 'message.part.updated',
+      properties: {
+        sessionID: session.sessionId,
+        part: {
+          id: 'part-answer',
+          sessionID: session.sessionId,
+          messageID: 'message-answer',
+          type: 'text',
+          text: '完成',
+        },
+      },
+    },
+  });
+  runtime.emit({
+    directory: runtime.running.directory,
+    payload: {
       type: 'session.status',
       properties: { sessionID: session.sessionId, status: { type: 'idle' } },
     },
   });
   const delta = await nextEvent(iterator);
   assert.equal(delta.type, 'response.delta');
+  if (delta.type === 'response.delta') assert.equal(delta.delta, '完成');
   const terminal = await nextEvent(iterator);
   assert.equal(terminal.type, 'turn.completed');
   assert.equal((await iterator.next()).done, true);

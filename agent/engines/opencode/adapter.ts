@@ -64,6 +64,16 @@ type SessionRecord = {
   detached: boolean;
 };
 
+type OpenCodePartMetadata = {
+  readonly messageId: string;
+  readonly type: string;
+};
+
+type PendingOpenCodeDelta = {
+  readonly partId: string;
+  readonly delta: string;
+};
+
 const MAX_PROMPT_BYTES = 1_048_576;
 const MAX_RESPONSE_BYTES = 4_194_304;
 const MAX_TOOL_RESULT_BYTES = 4_194_304;
@@ -349,7 +359,8 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
   readonly #assistantMessageIds = new Set<string>();
   readonly #assistantProjectionById = new Map<string, number>();
   readonly #assistantWaiters = new Map<string, Set<Deferred<void>>>();
-  readonly #pendingDeltas = new Map<string, string[]>();
+  readonly #partMetadata = new Map<string, OpenCodePartMetadata>();
+  readonly #pendingDeltas = new Map<string, PendingOpenCodeDelta[]>();
   #projection: EngineToolProjectionInput;
   #pendingTool: ToolCallRecord | null = null;
   #terminal: EngineTerminalEvent | null = null;
@@ -683,18 +694,36 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
       if (properties.sessionID !== this.ref.session.sessionId || properties.field !== 'text') return;
       if (typeof properties.delta !== 'string' || !properties.delta) return;
       const messageId = requiredId(properties.messageID, 'OpenCode message id');
-      if (!this.#assistantMessageIds.has(messageId)) {
-        const queued = this.#pendingDeltas.get(messageId) ?? [];
-        queued.push(properties.delta);
-        this.#pendingDeltaBytes += Buffer.byteLength(properties.delta);
-        if (this.#pendingDeltaBytes > MAX_RESPONSE_BYTES) {
-          this.fail('OPENCODE_RESPONSE_TOO_LARGE', 'OpenCode response exceeded the configured limit');
-          return;
-        }
-        this.#pendingDeltas.set(messageId, queued);
+      const partId = requiredId(properties.partID, 'OpenCode part id');
+      const metadata = this.#partMetadata.get(partId);
+      if (metadata && metadata.messageId !== messageId) {
+        this.fail('OPENCODE_EVENT_INVALID', 'OpenCode part changed its owning message');
+        return;
+      }
+      // OpenCode emits both final text and private model reasoning through
+      // message.part.delta with field="text". PartUpdated is the authoritative
+      // discriminator; never expose a non-text part to the DEF transcript.
+      if (metadata?.type !== undefined && metadata.type !== 'text') return;
+      if (!metadata || !this.#assistantMessageIds.has(messageId)) {
+        this.#queuePendingDelta(messageId, partId, properties.delta);
         return;
       }
       this.#appendDelta(messageId, properties.delta);
+      return;
+    }
+    if (type === 'message.part.updated') {
+      const part = record(properties.part);
+      if (!part || (part.sessionID ?? properties.sessionID) !== this.ref.session.sessionId) return;
+      const messageId = requiredId(part.messageID, 'OpenCode part message id');
+      const partId = requiredId(part.id, 'OpenCode part id');
+      if (typeof part.type !== 'string' || !part.type) return;
+      const previous = this.#partMetadata.get(partId);
+      if (previous && (previous.messageId !== messageId || previous.type !== part.type)) {
+        this.fail('OPENCODE_EVENT_INVALID', 'OpenCode part metadata changed after publication');
+        return;
+      }
+      this.#partMetadata.set(partId, { messageId, type: part.type });
+      this.#flushPendingDeltas(messageId);
       return;
     }
     if (type === 'session.error') {
@@ -729,11 +758,33 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
     const deltas = this.#pendingDeltas.get(messageId);
     if (!deltas) return;
     this.#pendingDeltas.delete(messageId);
-    this.#pendingDeltaBytes -= deltas.reduce((total, delta) => total + Buffer.byteLength(delta), 0);
-    for (const delta of deltas) {
+    this.#pendingDeltaBytes -= deltas.reduce((total, item) => total + Buffer.byteLength(item.delta), 0);
+    for (const item of deltas) {
       if (this.#terminal) return;
-      this.#appendDelta(messageId, delta);
+      const metadata = this.#partMetadata.get(item.partId);
+      if (!metadata) {
+        this.#queuePendingDelta(messageId, item.partId, item.delta);
+        continue;
+      }
+      if (metadata.messageId !== messageId) {
+        this.fail('OPENCODE_EVENT_INVALID', 'OpenCode part changed its owning message');
+        return;
+      }
+      if (metadata.type === 'text' && this.#assistantMessageIds.has(messageId)) {
+        this.#appendDelta(messageId, item.delta);
+      }
     }
+  }
+
+  #queuePendingDelta(messageId: string, partId: string, delta: string): void {
+    const queued = this.#pendingDeltas.get(messageId) ?? [];
+    queued.push({ partId, delta });
+    this.#pendingDeltaBytes += Buffer.byteLength(delta);
+    if (this.#pendingDeltaBytes > MAX_RESPONSE_BYTES) {
+      this.fail('OPENCODE_RESPONSE_TOO_LARGE', 'OpenCode response exceeded the configured limit');
+      return;
+    }
+    this.#pendingDeltas.set(messageId, queued);
   }
 
   #appendDelta(messageId: string, delta: string): void {
@@ -770,6 +821,7 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
     if (!event || !isEngineTerminalEvent(event)) throw new Error('OpenCode terminal event projection failed');
     this.#terminal = event;
     this.#lifecycle = 'terminal';
+    this.#partMetadata.clear();
     this.#pendingDeltas.clear();
     this.#pendingDeltaBytes = 0;
     for (const waiters of this.#assistantWaiters.values()) {

@@ -27,6 +27,14 @@ async function handleRequest(request, response) {
   const toolNames = tools
     .map((tool) => tool?.function?.name)
     .filter((name) => typeof name === 'string');
+  if (toolNames.length > 0) {
+    if (body?.thinking?.type !== 'disabled') {
+      throw new Error('DeepSeek Tool phases must disable thinking before sending tool_choice');
+    }
+    if (body.parallel_tool_calls !== false) {
+      throw new Error('DeepSeek Tool phases must disable parallel tool calls');
+    }
+  }
   const latestUserMessage = [...(Array.isArray(body.messages) ? body.messages : [])]
     .reverse()
     .find((message) => message?.role === 'user')?.content || '';
@@ -158,8 +166,8 @@ async function writeTestProfile(filePath, port) {
     schemaVersion: 1,
     profiles: [{
       ref: 'default',
-      providerId: 'def-ui-e2e',
-      displayName: 'DEF UI E2E',
+      providerId: 'deepseek',
+      displayName: 'DEF DeepSeek Protocol UI E2E',
       baseUrl: `http://127.0.0.1:${port}/v1`,
       modelId,
       apiKey: 'def-ui-e2e-local-only',

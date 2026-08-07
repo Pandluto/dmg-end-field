@@ -228,8 +228,10 @@ async function run(): Promise<void> {
     storeRoot,
     profileSource: new InMemoryOpenCodeProviderProfileSource([{
       ref: 'blackbox',
-      providerId: 'blackbox',
-      displayName: 'DEF Deterministic Blackbox',
+      // Exercise the same provider-specific path used by the desktop default.
+      // DeepSeek V4 rejects tool_choice while thinking mode is enabled.
+      providerId: 'deepseek',
+      displayName: 'DEF DeepSeek Protocol Blackbox',
       baseUrl: `${provider.origin}/v1`,
       modelId: 'def-deterministic-model',
       apiKey: 'blackbox-local-key',
@@ -589,6 +591,20 @@ async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject
     const expectedNames = hasTool ? [expected.safeName] : [];
     assert.deepEqual(names, expectedNames);
     if (hasTool) {
+      assert.deepEqual(
+        record.thinking,
+        { type: 'disabled' },
+        'DeepSeek projected Tool phases must disable thinking before forcing tool_choice',
+      );
+      assert.equal(
+        record.parallel_tool_calls,
+        false,
+        'DeepSeek projected Tool phases must remain single-call',
+      );
+      assert.ok(
+        record.tool_choice,
+        'DeepSeek projected Tool phases must keep the Harness-enforced tool choice',
+      );
       const fn = asRecord(asRecord(definitions[0]).function);
       assert.equal(typeof fn.description, 'string');
       assert.equal(
@@ -600,6 +616,10 @@ async function startProviderStub(expectedSchemas: ReadonlyMap<string, JsonObject
         expectedSchemas.get(expected.safeName),
         `${expected.safeName} 必须把 Harness 的动态 schema 原样送到 provider`,
       );
+    } else {
+      assert.equal(record.thinking, undefined);
+      assert.equal(record.parallel_tool_calls, undefined);
+      assert.equal(record.tool_choice, undefined);
     }
     response.statusCode = 200;
     response.setHeader('content-type', 'text/event-stream; charset=utf-8');

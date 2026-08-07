@@ -20,7 +20,6 @@ export const OPENCODE_UPSTREAM_VERSION = '1.17.11' as const;
 export const OPENCODE_RUNTIME_VERSION = '1.17.11-def.1' as const;
 export const OPENCODE_BINARY_VERSION = '0.0.0--202608061828' as const;
 export const OPENCODE_SOURCE_REF = 'codex/def-opencode-spec9-2-implementation@bcea5f12' as const;
-const OPENCODE_INTERNAL_PROVIDER_ID = 'def-openai-compatible';
 const OPENCODE_PROCESS_MANIFEST_SCHEMA_VERSION = 2;
 const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
 
@@ -753,6 +752,7 @@ function buildRuntimeEnvironment(input: {
     OPENCODE_DISABLE_PROJECT_CONFIG: '1',
     OPENCODE_DISABLE_SHARE: '1',
     OPENCODE_DISABLE_AUTOUPDATE: '1',
+    OPENCODE_DISABLE_MODELS_FETCH: '1',
     OPENCODE_DISABLE_DEFAULT_PLUGINS: '1',
     OPENCODE_DISABLE_EXTERNAL_SKILLS: '1',
     OPENCODE_DISABLE_LSP_DOWNLOAD: '1',
@@ -768,7 +768,11 @@ function buildRuntimeEnvironment(input: {
 }
 
 function buildOpenCodeConfig(profile: OpenCodeProviderProfile, pluginPath: string): Record<string, unknown> {
-  const modelRef = `${OPENCODE_INTERNAL_PROVIDER_ID}/${profile.modelId}`;
+  // Keep the stable provider identity from the DEF profile. The pinned
+  // OpenCode runtime uses it for provider-specific request compatibility
+  // (notably DeepSeek thinking-mode tool calls); flattening every profile to
+  // an internal OpenAI-compatible id silently bypasses those adapters.
+  const modelRef = `${profile.providerId}/${profile.modelId}`;
   const deny = {
     bash: 'deny', edit: 'deny', read: 'deny', write: 'deny', grep: 'deny', glob: 'deny',
     task: 'deny', todowrite: 'deny', webfetch: 'deny', websearch: 'deny', lsp: 'deny',
@@ -782,7 +786,7 @@ function buildOpenCodeConfig(profile: OpenCodeProviderProfile, pluginPath: strin
     plugin: [pathToFileURL(pluginPath).href],
     permission: deny,
     provider: {
-      [OPENCODE_INTERNAL_PROVIDER_ID]: {
+      [profile.providerId]: {
         name: profile.displayName,
         npm: '@ai-sdk/openai-compatible',
         options: {
