@@ -1645,10 +1645,9 @@ class NativeAssistantEventTextSanitizer {
       if (!info || typeof info.id !== 'string' || typeof info.sessionID !== 'string') return [frame];
       const messageKey = nativeMessageStreamKey(directory, info.sessionID, info.id);
       if (typeof info.role === 'string') this.#messageRoles.set(messageKey, info.role);
-      const completed = isRecord(info.time) && typeof info.time.completed === 'number';
-      return completed
-        ? [...this.#flushMessage(directory, info.sessionID, info.id), frame]
-        : [frame];
+      // OpenCode can publish message.completed before its final PartUpdated
+      // and PartDelta events. Session idle is the first safe flush boundary.
+      return [frame];
     }
 
     if (payload.type === 'message.part.updated') {
@@ -1725,6 +1724,23 @@ class NativeAssistantEventTextSanitizer {
       return [frame];
     }
 
+    if (payload.type === 'session.status') {
+      const status = isRecord(properties.status) ? properties.status : null;
+      if (typeof properties.sessionID === 'string' && status?.type === 'idle') {
+        return [...this.#flushSession(directory, properties.sessionID), frame];
+      }
+      return [frame];
+    }
+
+    if (payload.type === 'session.deleted') {
+      const info = isRecord(properties.info) ? properties.info : null;
+      const sessionId = typeof info?.id === 'string'
+        ? info.id
+        : typeof properties.sessionID === 'string' ? properties.sessionID : null;
+      if (sessionId) this.#dropSession(directory, sessionId);
+      return [frame];
+    }
+
     return [frame];
   }
 
@@ -1743,11 +1759,15 @@ class NativeAssistantEventTextSanitizer {
     )) === 'assistant';
   }
 
-  #flushMessage(directory: string, sessionId: string, messageId: string): readonly string[] {
+  #flushSession(directory: string, sessionId: string): readonly string[] {
     const frames: string[] = [];
-    for (const state of this.#parts.values()) {
-      if (state.directory !== directory || state.sessionId !== sessionId || state.messageId !== messageId) continue;
+    for (const [key, state] of this.#parts) {
+      if (state.directory !== directory || state.sessionId !== sessionId) continue;
       frames.push(...this.#flushPart(state));
+      this.#parts.delete(key);
+    }
+    for (const key of this.#messageRoles.keys()) {
+      if (key.startsWith(`${directory}\u0000${sessionId}\u0000`)) this.#messageRoles.delete(key);
     }
     return frames;
   }
@@ -1774,6 +1794,15 @@ class NativeAssistantEventTextSanitizer {
       if (state.directory === directory && state.sessionId === sessionId && state.messageId === messageId) {
         this.#parts.delete(key);
       }
+    }
+  }
+
+  #dropSession(directory: string, sessionId: string): void {
+    for (const [key, state] of this.#parts) {
+      if (state.directory === directory && state.sessionId === sessionId) this.#parts.delete(key);
+    }
+    for (const key of this.#messageRoles.keys()) {
+      if (key.startsWith(`${directory}\u0000${sessionId}\u0000`)) this.#messageRoles.delete(key);
     }
   }
 }
