@@ -90,8 +90,15 @@ type SessionRecord = {
   engineRecoveryRequired: boolean;
   recoveryPromise: Promise<SessionRecoveryOutcome> | null;
   sequence: number;
+  /** Number of events durably committed to the Session journal. */
+  persistedEventCount: number;
+  /** Code-unit size of the durable journal, independent of the RAM window. */
+  persistedEventCodeUnits: number;
+  /** Code-unit size of the currently retained RAM window. */
   eventCodeUnits: number;
   acceptedTurns: number;
+  eventsLoaded: boolean;
+  eventsReconciled: boolean;
   events: DefEvent[];
   clientTurns: Map<ClientTurnId, ClientTurnRecord>;
 };
@@ -186,6 +193,10 @@ const PRODUCT_COMMAND_TIMEOUT_MS = 45_000;
 const RESPONSE_DELTA_FLUSH_EVENT_INTERVAL = 32;
 const RESPONSE_DELTA_FLUSH_CODE_UNITS = 64 * 1_024;
 
+function countsAgainstActiveSessionCapacity(session: DefSessionV6): boolean {
+  return session.status !== 'archived';
+}
+
 export class DefAgentHost {
   readonly #engine: AgentEngine;
   readonly #productGateway: ProductGateway<Phase2ProductOperationSchema>;
@@ -270,16 +281,27 @@ export class DefAgentHost {
   }
 
   #loadStoredSessions(): void {
-    const snapshot = this.#sessionStore.load();
-    if (snapshot.sessions.length > DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost) {
+    // Metadata for every Session is needed for the session list, but only the
+    // active journal is on the cold-start path. Historical/archived journals
+    // are opened by #ensureEventsLoaded when the user selects one.
+    const snapshot = this.#sessionStore.load({ eventLoad: 'active' });
+    const activeSessionCount = snapshot.sessions.filter((stored) => (
+      countsAgainstActiveSessionCapacity(stored.session)
+    )).length;
+    if (activeSessionCount > DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost) {
       throw new DefAgentHostError(
         'AGENT_SESSION_LIMIT_REACHED',
-        `Session store contains more than ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} Sessions`,
+        `Session store contains more than ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} active Sessions`,
       );
     }
     const persistedHarnessTransactions: DefHarnessPersistedTransaction[] = [];
     for (const stored of snapshot.sessions) {
+      const eventsLoaded = snapshot.events.has(stored.session.defSessionId);
       const events = [...(snapshot.events.get(stored.session.defSessionId) ?? [])];
+      const persistedEventCodeUnits = events.reduce(
+        (total, event) => total + JSON.stringify(event).length,
+        0,
+      );
       persistedHarnessTransactions.push(...(stored.harnessTransactions ?? []));
       const record: SessionRecord = {
         session: cloneSession(stored.session),
@@ -288,8 +310,14 @@ export class DefAgentHost {
         engineRecoveryRequired: isEngineRecoveryRequired(stored.session.status),
         recoveryPromise: null,
         sequence: events.at(-1)?.sequence ?? 0,
-        eventCodeUnits: events.reduce((total, event) => total + JSON.stringify(event).length, 0),
-        acceptedTurns: events.filter((event) => event.type === 'turn.accepted').length,
+        persistedEventCount: events.length,
+        persistedEventCodeUnits,
+        eventCodeUnits: persistedEventCodeUnits,
+        acceptedTurns: eventsLoaded
+          ? events.filter((event) => event.type === 'turn.accepted').length
+          : stored.acceptedClientTurns.length,
+        eventsLoaded,
+        eventsReconciled: false,
         events,
         clientTurns: new Map(stored.acceptedClientTurns.map((turn) => [
           turn.clientTurnId,
@@ -343,11 +371,13 @@ export class DefAgentHost {
     if (active) {
       this.#reconcilePersistedHarnessTrace(active);
       this.#interruptAbandonedTurns(active);
+      active.eventsReconciled = true;
       if (active.session.status === 'deleting') {
         await this.#finishDeletingSession(active);
       } else {
         await this.#recoverSessionIfNeeded(active);
       }
+      this.#trimEventWindow(active);
     }
 
     // Journal cleanup is still required for old Sessions, but it is not
@@ -371,8 +401,9 @@ export class DefAgentHost {
       if (this.#shutdown) return;
       if (this.#sessions.get(record.session.defSessionId) !== record) continue;
       if (record.session.defSessionId === activeSessionId) continue;
-      this.#reconcilePersistedHarnessTrace(record);
-      this.#interruptAbandonedTurns(record);
+      // Do not open historical event journals during startup. A historical
+      // Session is reconciled by #ensureEventsLoaded when it is opened or
+      // restored; deleting a half-finished record needs only its metadata.
       if (record.session.status === 'deleting') {
         await this.#finishDeletingSession(record);
       }
@@ -424,6 +455,7 @@ export class DefAgentHost {
   async #recoverSession(
     record: SessionRecord,
   ): Promise<SessionRecoveryOutcome> {
+    this.#ensureEventsLoaded(record);
     let recovered;
     try {
       recovered = await this.#engine.recoverSession(record.session.engine);
@@ -609,13 +641,15 @@ export class DefAgentHost {
     this.#assertRunning();
     this.#assertInitialized();
     this.#requireConsumer();
+    const activeSessionCount = [...this.#sessions.values()]
+      .filter((record) => countsAgainstActiveSessionCapacity(record.session)).length;
     if (
-      this.#sessions.size + this.#pendingSessionCreations
+      activeSessionCount + this.#pendingSessionCreations
       >= DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost
     ) {
       throw new DefAgentHostError(
         'AGENT_SESSION_LIMIT_REACHED',
-        `This Agent Host keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} in-memory Sessions`,
+        `This Agent Host keeps at most ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} active Sessions`,
       );
     }
     const defSessionId = this.#ids.session();
@@ -661,8 +695,12 @@ export class DefAgentHost {
       engineRecoveryRequired: false,
       recoveryPromise: null,
       sequence: 0,
+      persistedEventCount: 0,
+      persistedEventCodeUnits: 0,
       eventCodeUnits: 0,
       acceptedTurns: 0,
+      eventsLoaded: true,
+      eventsReconciled: true,
       events: [],
       clientTurns: new Map(),
     };
@@ -719,6 +757,7 @@ export class DefAgentHost {
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
+    this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const defTurnId = this.#ids.turn();
@@ -816,6 +855,7 @@ export class DefAgentHost {
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
+    this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     this.#assertSessionCanStartTurn(record, input.userMessage);
     if (input.binding) {
@@ -954,6 +994,7 @@ export class DefAgentHost {
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
+    this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const interruptedSource = harnessManager.getTransaction(input.sourceTransactionId);
@@ -1209,8 +1250,8 @@ export class DefAgentHost {
       abortController: new AbortController(),
       terminal,
       cancelled,
-      eventStartCount: record.events.length,
-      eventStartCodeUnits: record.eventCodeUnits,
+      eventStartCount: record.persistedEventCount,
+      eventStartCodeUnits: record.persistedEventCodeUnits,
       pendingInteractionIds: new Set(),
       responseDeltaEventsSinceFlush: 0,
       responseDeltaCodeUnitsSinceFlush: 0,
@@ -1372,7 +1413,30 @@ export class DefAgentHost {
   waitForTurnTerminal(defTurnId: DefTurnId): Promise<DefEvent> {
     const turn = this.#turns.get(defTurnId);
     if (turn) return turn.terminal;
-    const settled = this.#settledTurns.get(defTurnId);
+    let settled = this.#settledTurns.get(defTurnId);
+    if (!settled) {
+      // A terminal event may belong to a historical Session whose journal was
+      // intentionally kept cold at startup. Loading it here is explicit and
+      // preserves the old wait-for-terminal API without eager archive I/O.
+      for (const record of this.#sessions.values()) {
+        if (!record.eventsLoaded) this.#ensureEventsLoaded(record);
+        let terminal = record.events.find((event) => (
+          'defTurnId' in event && event.defTurnId === defTurnId && isTurnTerminalEvent(event)
+        ));
+        if (!terminal && record.events[0]?.sequence > 1) {
+          this.#ensureFullEventHistory(record);
+          terminal = record.events.find((event) => (
+            'defTurnId' in event && event.defTurnId === defTurnId && isTurnTerminalEvent(event)
+          ));
+          this.#trimEventWindow(record);
+        }
+        if (terminal) {
+          settled = { session: record, terminal };
+          this.#settledTurns.set(defTurnId, settled);
+          break;
+        }
+      }
+    }
     if (!settled) {
       return Promise.reject(new DefAgentHostError(
         'AGENT_TURN_NOT_FOUND',
@@ -1413,6 +1477,7 @@ export class DefAgentHost {
     const record = this.#requireSession(defSessionId);
     if (binding) assertStableSessionBinding(record.session, binding);
     this.#assertSessionIdle(record, 'archive');
+    this.#ensureEventsLoaded(record);
     if (record.session.status === 'archived') return cloneSession(record.session);
     if (record.session.status !== 'ready' && record.session.status !== 'engine-unavailable') {
       throw new DefAgentHostError(
@@ -1448,6 +1513,14 @@ export class DefAgentHost {
       throw new DefAgentHostError(
         'AGENT_SESSION_STATE_INVALID',
         `DEF Session ${defSessionId} cannot be restored from ${record.session.status}`,
+      );
+    }
+    const activeSessionCount = [...this.#sessions.values()]
+      .filter((entry) => countsAgainstActiveSessionCapacity(entry.session)).length;
+    if (activeSessionCount >= DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost) {
+      throw new DefAgentHostError(
+        'AGENT_SESSION_LIMIT_REACHED',
+        `Restoring ${defSessionId} would exceed the ${DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost} active Session limit`,
       );
     }
     record.engineRecoveryRequired = true;
@@ -1497,12 +1570,21 @@ export class DefAgentHost {
   ): readonly DefEvent[] {
     const record = this.#requireSession(defSessionId);
     if (binding) assertStableSessionBinding(record.session, binding);
+    this.#ensureEventsLoaded(record);
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0 || afterSequence > record.sequence) {
       throw new DefAgentHostError('AGENT_EVENT_CURSOR_INVALID', 'Event cursor is outside this Session journal', 400);
     }
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 256) {
       throw new DefAgentHostError('AGENT_EVENT_LIMIT_INVALID', 'Event page limit must be between 1 and 256', 400);
     }
+    const firstRetainedSequence = record.events[0]?.sequence ?? record.sequence + 1;
+    if (afterSequence >= firstRetainedSequence - 1) {
+      return record.events
+        .filter((event) => event.sequence > afterSequence)
+        .slice(0, limit);
+    }
+    const page = this.#sessionStore.loadEventPage?.(defSessionId, afterSequence, limit);
+    if (page) return page;
     return record.events
       .filter((event) => event.sequence > afterSequence)
       .slice(0, limit);
@@ -1528,6 +1610,7 @@ export class DefAgentHost {
     }
     const record = this.#sessions.get(command.defSessionId);
     if (!record) return false;
+    this.#ensureFullEventHistory(record);
     const alreadyTerminal = record.events.some((event) => (
       (event.type === 'command.result'
         || event.type === 'command.reconciled'
@@ -1983,7 +2066,10 @@ export class DefAgentHost {
     }
 
     const resolvedMutation = plan.command.op === 'applyPreparedOperatorConfigProposal'
-      ? loadoutApplyMutationFromHistory(active.session, active.defTurnId, plan, snapshot.binding)
+      ? (() => {
+        this.#ensureFullEventHistory(active.session);
+        return loadoutApplyMutationFromHistory(active.session, active.defTurnId, plan, snapshot.binding);
+      })()
       : { command: plan.command, proposal: plan.proposal };
     const interactionId = this.#ids.interaction();
     const createdAt = new Date(this.#clock()).toISOString();
@@ -2661,6 +2747,86 @@ export class DefAgentHost {
     return null;
   }
 
+  #ensureEventsLoaded(record: SessionRecord): void {
+    if (!record.eventsLoaded) {
+      this.#replaceEventHistory(record, this.#sessionStore.loadEvents(record.session.defSessionId));
+    }
+    if (!record.eventsReconciled) {
+      this.#reconcilePersistedHarnessTrace(record);
+      this.#interruptAbandonedTurns(record);
+      record.eventsReconciled = true;
+    }
+    this.#trimEventWindow(record);
+  }
+
+  /**
+   * A small set of recovery/mutation paths still needs historical evidence,
+   * for example replaying a prepared proposal. It is intentionally explicit:
+   * ordinary startup and ordinary event-page reads never retain this full
+   * array.
+   */
+  #ensureFullEventHistory(record: SessionRecord): void {
+    if (!record.eventsLoaded || this.#sessionStore.loadEventPage) {
+      this.#replaceEventHistory(
+        record,
+        this.#sessionStore.loadEvents(record.session.defSessionId),
+      );
+    }
+    if (!record.eventsReconciled) {
+      this.#reconcilePersistedHarnessTrace(record);
+      this.#interruptAbandonedTurns(record);
+      record.eventsReconciled = true;
+    }
+  }
+
+  #replaceEventHistory(record: SessionRecord, events: readonly DefEvent[]): void {
+    record.eventsLoaded = true;
+    record.events = [...events];
+    record.sequence = record.events.at(-1)?.sequence ?? 0;
+    record.persistedEventCount = record.events.length;
+    record.persistedEventCodeUnits = record.events.reduce(
+      (total, event) => total + JSON.stringify(event).length,
+      0,
+    );
+    record.eventCodeUnits = record.persistedEventCodeUnits;
+    record.acceptedTurns = Math.max(
+      record.acceptedTurns,
+      record.events.filter((event) => event.type === 'turn.accepted').length,
+    );
+    for (const event of record.events) {
+      if (isTurnTerminalEvent(event)) {
+        this.#settledTurns.set(event.defTurnId, { session: record, terminal: event });
+      }
+    }
+  }
+
+  #trimEventWindow(record: SessionRecord): void {
+    // A non-persistent compatibility store has no way to page events back
+    // after trimming. Keep its legacy unbounded in-memory behavior rather
+    // than silently making old events unreadable.
+    if (!this.#sessionStore.loadEventPage) return;
+    const maxEvents = DEF_AGENT_IN_MEMORY_LIMITS.maxRetainedEventsPerSession;
+    const maxCodeUnits = DEF_AGENT_IN_MEMORY_LIMITS.maxRetainedEventCodeUnitsPerSession;
+    if (record.events.length <= maxEvents && record.eventCodeUnits <= maxCodeUnits) return;
+
+    let first = Math.max(0, record.events.length - maxEvents);
+    let retainedCodeUnits = record.events
+      .slice(first)
+      .reduce((total, event) => total + JSON.stringify(event).length, 0);
+    while (retainedCodeUnits > maxCodeUnits && first < record.events.length - 1) {
+      retainedCodeUnits -= JSON.stringify(record.events[first]!).length;
+      first += 1;
+    }
+    record.events = record.events.slice(first);
+    record.eventCodeUnits = retainedCodeUnits;
+    const firstRetainedSequence = record.events[0]?.sequence ?? Number.MAX_SAFE_INTEGER;
+    for (const [defTurnId, settled] of this.#settledTurns) {
+      if (settled.session === record && settled.terminal.sequence < firstRetainedSequence) {
+        this.#settledTurns.delete(defTurnId);
+      }
+    }
+  }
+
   #settle(active: ActiveTurn, terminal: DefEvent): void {
     if (active.settled) return;
     active.settled = true;
@@ -2692,13 +2858,13 @@ export class DefAgentHost {
       - (usesTerminalReserve ? 0 : DEF_AGENT_IN_MEMORY_LIMITS.terminalCodeUnitReserve);
     const active = this.#activeTurn?.session === record ? this.#activeTurn : null;
     const exceedsTurnLimit = Boolean(active && !usesTerminalReserve && (
-      record.events.length + 1 - active.eventStartCount > DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerTurn
-      || record.eventCodeUnits + eventCodeUnits - active.eventStartCodeUnits
+      record.persistedEventCount + 1 - active.eventStartCount > DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerTurn
+      || record.persistedEventCodeUnits + eventCodeUnits - active.eventStartCodeUnits
         > DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerTurn
     ));
     if (
-      record.events.length + 1 > eventLimit
-      || record.eventCodeUnits + eventCodeUnits > codeUnitLimit
+      record.persistedEventCount + 1 > eventLimit
+      || record.persistedEventCodeUnits + eventCodeUnits > codeUnitLimit
     ) {
       throw new DefAgentHostError(
         'AGENT_EVENT_CAPACITY_REACHED',
@@ -2713,8 +2879,11 @@ export class DefAgentHost {
     }
     this.#sessionStore.append(record.session.defSessionId, envelope);
     record.sequence = nextSequence;
+    record.persistedEventCount += 1;
+    record.persistedEventCodeUnits += eventCodeUnits;
     record.eventCodeUnits += eventCodeUnits;
     record.events.push(envelope);
+    this.#trimEventWindow(record);
     if (envelope.type === 'response.delta' && active) {
       active.responseDeltaEventsSinceFlush += 1;
       active.responseDeltaCodeUnitsSinceFlush += eventCodeUnits;
@@ -2882,8 +3051,8 @@ export class DefAgentHost {
       - DEF_AGENT_IN_MEMORY_LIMITS.terminalCodeUnitReserve;
     const acceptedTurnHeadroom = JSON.stringify(userMessage).length + 4_096;
     if (
-      record.events.length + 4 > eventSoftLimit
-      || record.eventCodeUnits + acceptedTurnHeadroom > codeUnitSoftLimit
+      record.persistedEventCount + 4 > eventSoftLimit
+      || record.persistedEventCodeUnits + acceptedTurnHeadroom > codeUnitSoftLimit
     ) {
       throw new DefAgentHostError(
         'AGENT_EVENT_CAPACITY_REACHED',

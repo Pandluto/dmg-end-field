@@ -8,12 +8,14 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   unlinkSync,
   writeSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 import path from 'node:path';
 import {
   asClientTurnId,
@@ -96,10 +98,25 @@ export interface DefAgentSessionStoreSnapshot {
   readonly events: ReadonlyMap<DefSessionId, readonly DefEvent[]>;
 }
 
+/**
+ * Controls how much of the append-only event journal is loaded with the
+ * metadata snapshot. The default remains `all` for older callers; the Host
+ * uses `active` during startup so historical journals stay cold.
+ */
+export interface DefAgentSessionStoreLoadOptions {
+  readonly eventLoad?: 'all' | 'active' | 'none';
+}
+
 export interface DefAgentSessionStore {
-  load(): DefAgentSessionStoreSnapshot;
+  load(options?: DefAgentSessionStoreLoadOptions): DefAgentSessionStoreSnapshot;
   loadSession(defSessionId: DefSessionId): DefAgentSessionRecord | null;
   loadEvents(defSessionId: DefSessionId): readonly DefEvent[];
+  /** Reads one bounded page without changing the durable journal. */
+  loadEventPage?(
+    defSessionId: DefSessionId,
+    afterSequence: number,
+    limit: number,
+  ): readonly DefEvent[];
   loadAcceptedClientTurn(
     defSessionId: DefSessionId,
     clientTurnId: ClientTurnId,
@@ -754,6 +771,80 @@ function readJournal(target: string, sessionId: DefSessionId): JournalScan {
   }
 }
 
+/**
+ * Read only one event page from a journal. Validation still walks the journal
+ * in sequence order, so a corrupt prefix or a reordered event cannot be
+ * hidden by pagination, while the returned array stays bounded.
+ */
+function readJournalPage(
+  target: string,
+  sessionId: DefSessionId,
+  afterSequence: number,
+  limit: number,
+): readonly DefEvent[] {
+  if (!assertRegularFile(target, 'event journal', true)) {
+    fail('CORRUPT_EVENT_JOURNAL', 'Registered Session has no event journal', target);
+  }
+  let descriptor: number | null = null;
+  const decoder = new StringDecoder('utf8');
+  const chunk = Buffer.allocUnsafe(64 * 1_024);
+  const page: DefEvent[] = [];
+  let pending = '';
+  let expectedSequence = 1;
+
+  const consume = (line: string): void => {
+    if (!line.trim()) {
+      fail('CORRUPT_EVENT_JOURNAL', 'Event journal contains an empty record', target);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line) as unknown;
+    } catch (error) {
+      fail('CORRUPT_EVENT_JOURNAL', `Event journal contains invalid JSON: ${errorMessage(error)}`, target);
+    }
+    const event = validateEvent(parsed, sessionId, expectedSequence, target);
+    expectedSequence += 1;
+    if (event.sequence > afterSequence && page.length < limit) page.push(event);
+  };
+
+  try {
+    descriptor = openSync(target, fsConstants.O_RDONLY);
+    while (true) {
+      const bytesRead = readSync(descriptor, chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      pending += decoder.write(chunk.subarray(0, bytesRead));
+      let newline = pending.indexOf('\n');
+      while (newline >= 0) {
+        const line = pending.slice(0, newline);
+        pending = pending.slice(newline + 1);
+        consume(line);
+        newline = pending.indexOf('\n');
+      }
+    }
+    pending += decoder.end();
+    if (pending.trim()) {
+      // Match readJournal's crash-tolerance contract: a complete final JSON
+      // record without a newline is valid; an incomplete tail is ignored and
+      // will be repaired by the next append.
+      try {
+        consume(pending);
+      } catch (error) {
+        if (!(error instanceof DefAgentSessionStoreError)
+          || error.code !== 'CORRUPT_EVENT_JOURNAL'
+          || !/invalid JSON/u.test(error.message)) {
+          throw error;
+        }
+      }
+    }
+    return clone(page);
+  } catch (error) {
+    if (error instanceof DefAgentSessionStoreError) throw error;
+    return fail('CORRUPT_EVENT_JOURNAL', `Unable to read event journal: ${errorMessage(error)}`, target);
+  } finally {
+    if (descriptor !== null) closeSync(descriptor);
+  }
+}
+
 function makeSnapshot(
   activeSessionId: DefSessionId | null,
   sessions: readonly DefAgentSessionRecord[],
@@ -771,8 +862,14 @@ export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
   readonly #events = new Map<DefSessionId, DefEvent[]>();
   #activeSessionId: DefSessionId | null = null;
 
-  load(): DefAgentSessionStoreSnapshot {
-    return makeSnapshot(this.#activeSessionId, [...this.#sessions.values()], this.#events);
+  load(options: DefAgentSessionStoreLoadOptions = {}): DefAgentSessionStoreSnapshot {
+    const eventLoad = options.eventLoad ?? 'all';
+    const events = eventLoad === 'all'
+      ? this.#events
+      : eventLoad === 'active' && this.#activeSessionId !== null
+        ? new Map([[this.#activeSessionId, this.#events.get(this.#activeSessionId) ?? []]])
+        : new Map<DefSessionId, readonly DefEvent[]>();
+    return makeSnapshot(this.#activeSessionId, [...this.#sessions.values()], events);
   }
 
   loadSession(defSessionId: DefSessionId): DefAgentSessionRecord | null {
@@ -784,6 +881,19 @@ export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
   loadEvents(defSessionId: DefSessionId): readonly DefEvent[] {
     assertPortableId(defSessionId, 'defSessionId', 'INVALID_SESSION_ID');
     return clone(this.#events.get(defSessionId) ?? []);
+  }
+
+  loadEventPage(defSessionId: DefSessionId, afterSequence: number, limit: number): readonly DefEvent[] {
+    assertPortableId(defSessionId, 'defSessionId', 'INVALID_SESSION_ID');
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      fail('INVALID_RECORD', 'afterSequence must be a non-negative safe integer', null);
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      fail('INVALID_RECORD', 'limit must be a positive safe integer', null);
+    }
+    return clone((this.#events.get(defSessionId) ?? [])
+      .filter((event) => event.sequence > afterSequence)
+      .slice(0, limit));
   }
 
   loadAcceptedClientTurn(defSessionId: DefSessionId, clientTurnId: ClientTurnId): DefAcceptedClientTurn | null {
@@ -859,7 +969,7 @@ export class MemoryDefAgentSessionStore implements DefAgentSessionStore {
 }
 
 export class NoopDefAgentSessionStore implements DefAgentSessionStore {
-  load(): DefAgentSessionStoreSnapshot {
+  load(_options?: DefAgentSessionStoreLoadOptions): DefAgentSessionStoreSnapshot {
     return makeSnapshot(null, [], new Map());
   }
 
@@ -903,17 +1013,25 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     assertDirectory(this.sessionsPath, 'session store sessions directory', true);
   }
 
-  load(): DefAgentSessionStoreSnapshot {
+  load(options: DefAgentSessionStoreLoadOptions = {}): DefAgentSessionStoreSnapshot {
     const registry = this.#readRegistry();
+    const eventLoad = options.eventLoad ?? 'all';
+    const eventSessionIds = eventLoad === 'all'
+      ? new Set(registry.sessionIds)
+      : eventLoad === 'active' && registry.activeSessionId !== null
+        ? new Set([registry.activeSessionId])
+        : new Set<string>();
     const sessions: DefAgentSessionRecord[] = [];
     const events = new Map<DefSessionId, readonly DefEvent[]>();
     for (const sessionIdText of registry.sessionIds) {
       const sessionId = asDefSessionId(sessionIdText);
       const record = this.#readMetadata(sessionId);
-      const scan = readJournal(this.#eventsPath(sessionId), sessionId);
       sessions.push(record);
-      events.set(sessionId, scan.events);
-      this.#cacheJournalState(sessionId, scan);
+      if (eventSessionIds.has(sessionIdText)) {
+        const scan = readJournal(this.#eventsPath(sessionId), sessionId);
+        events.set(sessionId, scan.events);
+        this.#cacheJournalState(sessionId, scan);
+      }
     }
     return makeSnapshot(
       registry.activeSessionId === null ? null : asDefSessionId(registry.activeSessionId),
@@ -933,6 +1051,17 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     const scan = readJournal(this.#eventsPath(id), id);
     this.#cacheJournalState(id, scan);
     return clone(scan.events);
+  }
+
+  loadEventPage(defSessionId: DefSessionId, afterSequence: number, limit: number): readonly DefEvent[] {
+    const id = this.#assertRegistered(defSessionId);
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) {
+      fail('INVALID_RECORD', 'afterSequence must be a non-negative safe integer', null);
+    }
+    if (!Number.isSafeInteger(limit) || limit < 1) {
+      fail('INVALID_RECORD', 'limit must be a positive safe integer', null);
+    }
+    return readJournalPage(this.#eventsPath(id), id, afterSequence, limit);
   }
 
   loadAcceptedClientTurn(defSessionId: DefSessionId, clientTurnId: ClientTurnId): DefAcceptedClientTurn | null {

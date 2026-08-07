@@ -23,6 +23,7 @@ import {
   asWorkspaceId,
   type DefHarnessPersistedTransaction,
   type DefEvent,
+  type DefSessionId,
   type DefSessionV6,
   type ProductBinding,
 } from '../core/contracts/index.ts';
@@ -236,6 +237,10 @@ function testIncrementalAppendAndBufferedDeltaDurability(): void {
     restarted.loadEvents(record.session.defSessionId).map((event) => event.sequence),
     Array.from({ length: 65 }, (_, index) => index + 1),
   );
+  assert.deepEqual(
+    restarted.loadEventPage(record.session.defSessionId, 60, 5).map((event) => event.sequence),
+    [61, 62, 63, 64, 65],
+  );
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -281,6 +286,46 @@ function testNormalRestartRecovery(): void {
     acceptedTurn(),
   );
   assert.equal(readFileSync(path.join(root, 'sessions', record.session.defSessionId, 'metadata.json'), 'utf8').includes('provider-secret'), false);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function testHistoricalJournalsAreColdAndPagesRemainValidated(): void {
+  const root = makeRoot();
+  const active = fixtureRecord('def-session-active-cold-start');
+  const store = createFileDefAgentSessionStore({ root });
+  store.create(active);
+  store.append(active.session.defSessionId, readyEvent(active.session.defSessionId, 1));
+  store.setActive(active.session.defSessionId);
+
+  const archivedIds: DefSessionId[] = [];
+  for (let index = 0; index < 100; index += 1) {
+    const archived = fixtureRecord(`def-session-archived-${index}`);
+    const archivedRecord = {
+      ...archived,
+      session: { ...archived.session, status: 'archived' as const },
+    };
+    store.create(archivedRecord);
+    store.append(archived.session.defSessionId, readyEvent(archived.session.defSessionId, 1));
+    archivedIds.push(archived.session.defSessionId);
+  }
+
+  const firstArchivedJournal = path.join(root, 'sessions', archivedIds[0]!, 'events.ndjson');
+  const snapshots: ReturnType<typeof store.load>[] = [];
+  const archivedReads = countEventJournalReads(firstArchivedJournal, () => {
+    snapshots.push(store.load({ eventLoad: 'active' }));
+  });
+  const snapshot = snapshots[0]!;
+  assert.equal(archivedReads, 0, 'active startup loading must not open archived events.ndjson files');
+  assert.equal(snapshot?.sessions.length, 101);
+  assert.equal(snapshot?.events.has(active.session.defSessionId), true);
+  assert.equal(snapshot?.events.has(archivedIds[0]!), false);
+
+  const noEventSnapshot = store.load({ eventLoad: 'none' });
+  assert.equal(noEventSnapshot.events.size, 0);
+  assert.deepEqual(
+    store.loadEventPage(active.session.defSessionId, 0, 1).map((event) => event.sequence),
+    [1],
+  );
   rmSync(root, { recursive: true, force: true });
 }
 
@@ -484,6 +529,7 @@ function testMissingSessionLookupIsNullable(): void {
 }
 
 testNormalRestartRecovery();
+testHistoricalJournalsAreColdAndPagesRemainValidated();
 testHarnessMetadataRestartMigrationAndLimits();
 testAtomicTemporaryResidueIsIgnored();
 testTruncatedTailIsIgnoredAndRepairedBeforeAppend();

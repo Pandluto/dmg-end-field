@@ -22,12 +22,22 @@ export const DEF_AGENT_RUNTIME_SCHEMA_VERSION = 1 as const;
 export const DEF_AGENT_COMMAND_SCHEMA_VERSION = 1 as const;
 
 export const DEF_AGENT_IN_MEMORY_LIMITS = Object.freeze({
+  /**
+   * This is the active-session admission limit. Archived sessions remain
+   * addressable and are deliberately excluded by the Host before this value
+   * is checked. Keep the field name for protocol-v2 compatibility.
+   */
   maxSessionsPerHost: 16,
-  maxTurnsPerSession: 64,
-  maxEventsPerSession: 4_096,
-  maxEventCodeUnitsPerSession: 4 * 1_024 * 1_024,
-  maxEventsPerTurn: 1_024,
-  maxEventCodeUnitsPerTurn: 1 * 1_024 * 1_024,
+  /** Persisted safety ceilings; normal history is paged, not kept in RAM. */
+  maxTurnsPerSession: 4_096,
+  maxEventsPerSession: 1_048_576,
+  maxEventCodeUnitsPerSession: 256 * 1_024 * 1_024,
+  /** Per-turn safety ceilings, intentionally separate from session history. */
+  maxEventsPerTurn: 16_384,
+  maxEventCodeUnitsPerTurn: 16 * 1_024 * 1_024,
+  /** Retained in-memory window; older events remain in the durable journal. */
+  maxRetainedEventsPerSession: 2_048,
+  maxRetainedEventCodeUnitsPerSession: 8 * 1_024 * 1_024,
   terminalEventReserve: 32,
   terminalCodeUnitReserve: 64 * 1_024,
   maxHarnessTransactionsPerHost: 1_024,

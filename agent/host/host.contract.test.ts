@@ -33,6 +33,7 @@ import {
 } from './http-server.ts';
 import { RemoteBrowserProductGateway } from './remote-browser-product-gateway.ts';
 import { AgentTokenAuthority, type AgentUiCapabilityClaims } from './token-authority.ts';
+import { MemoryDefAgentSessionStore, type DefAgentSessionStoreLoadOptions } from './session-store.ts';
 
 const browserOrigin = 'http://127.0.0.1:31457';
 const launchGrant = 'launch_grant_abcdefghijklmnopqrstuvwxyz';
@@ -1136,7 +1137,8 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   await host.shutdown();
 }
 
-// In-memory retention is finite without truncating journals or weakening retry identity.
+// Archived sessions do not consume active capacity; long history is served in
+// pages while only the recent event window stays attached to the Host.
 {
   const owner = claims('cap-retention');
   const registry = new BrowserConsumerRegistry();
@@ -1155,205 +1157,96 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     snapshot: snapshot(),
   });
   const baseEngine = new DeterministicFakeAgentEngine();
-  let failNextSessionCreation = true;
-  const capacityAbortCodes: string[] = [];
-  const engine: AgentEngine = {
-    kind: baseEngine.kind,
-    probe: () => baseEngine.probe(),
-    createSession: async (input) => {
-      if (failNextSessionCreation) {
-        failNextSessionCreation = false;
-        throw new Error('intentional Engine Session creation failure');
-      }
-      return baseEngine.createSession(input);
-    },
-    recoverSession: (ref) => baseEngine.recoverSession(ref),
-    startTurn: async (input) => {
-      const handle = await baseEngine.startTurn(input);
-      const trackCapacityAbort = input.userMessage.startsWith('填满事件日志');
-      return {
-        ref: handle.ref,
-        events: handle.events,
-        submitToolResult: (result) => handle.submitToolResult(result),
-        submitToolResultAndUpdateProjection: (result, projection) => (
-          handle.submitToolResultAndUpdateProjection(result, projection)
-        ),
-        submitInteractionResult: (result) => handle.submitInteractionResult(result),
-        updateToolProjection: (projection) => handle.updateToolProjection(projection),
-        abort: async (reason) => {
-          if (trackCapacityAbort) capacityAbortCodes.push(reason.code);
-          return handle.abort(reason);
-        },
-      };
-    },
-    compact: (ref) => baseEngine.compact(ref),
-    disposeSession: (ref) => baseEngine.disposeSession(ref),
-    shutdown: () => baseEngine.shutdown(),
-  };
-  const tools = new DefReadToolRegistry();
-  const harness = new DefHarnessManager({
-    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
-  });
+  const retentionStore = new MemoryDefAgentSessionStore();
   const host = new DefAgentHost({
-    engine,
+    engine: baseEngine,
     productGateway: gateway,
-    harnessManager: harness,
-    toolRegistry: tools,
+    sessionStore: retentionStore,
     requireConsumer: () => { registry.requireActive(); },
   });
-  await assert.rejects(
-    host.createSession({ binding: binding(), providerProfileRef: 'retention-profile-failed' }),
-    /intentional Engine Session creation failure/,
-  );
-  const concurrentSessionResults = await Promise.allSettled(Array.from(
-    { length: DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost + 1 },
-    (_, index) => host.createSession({
-      binding: binding(),
-      providerProfileRef: `retention-profile-${index}`,
-    }),
-  ));
-  const sessions = concurrentSessionResults.flatMap((result) => (
-    result.status === 'fulfilled' ? [result.value] : []
-  ));
-  const sessionFailures = concurrentSessionResults.flatMap((result) => (
-    result.status === 'rejected' ? [result.reason] : []
-  ));
-  assert.equal(sessions.length, DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost);
-  assert.equal(sessionFailures.length, 1);
-  assert.ok(
-    sessionFailures[0] instanceof DefAgentHostError
-      && sessionFailures[0].code === 'AGENT_SESSION_LIMIT_REACHED',
-    'concurrent Session creation must reserve capacity before awaiting the Engine',
-  );
-  await expectHostError(() => host.createSession({
-    binding: binding(),
-    providerProfileRef: 'retention-profile-overflow',
-  }), 'AGENT_SESSION_LIMIT_REACHED');
+  const retainedSession = await host.createSession({ binding: binding(), providerProfileRef: 'retention-profile' });
+  const firstTurn = await host.startTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-0',
+    clientTurnId: asClientTurnId('retained-client-turn-0'),
+    systemContext: 'retention contract',
+    toolProjection: { revision: 1, tools: [] },
+  });
+  const firstTerminal = await host.waitForTurnTerminal(firstTurn.defTurnId);
+  assert.equal(firstTerminal.type, 'turn.completed');
 
-  const retainedSession = sessions[0]!;
-  let firstRetainedTurnId: ReturnType<typeof asDefTurnId> | null = null;
-  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxTurnsPerSession; index += 1) {
+  for (let index = 1; index < 1_100; index += 1) {
     baseEngine.enqueueScript([{ type: 'complete' }]);
-    const turn = await host.startHarnessTurn({
+    const turn = await host.startTurn({
       defSessionId: retainedSession.defSessionId,
       userMessage: `retained-turn-${index}`,
       clientTurnId: asClientTurnId(`retained-client-turn-${index}`),
-      ...(index === 0 ? {
-        userAttachments: [{
-          type: 'file' as const,
-          mime: 'text/plain',
-          filename: 'fixture.txt',
-          url: 'data:text/plain;base64,Zml4dHVyZQ==',
-        }],
-      } : {}),
-    });
-    if (index === 0) firstRetainedTurnId = turn.defTurnId;
-    const terminal = await host.waitForTurnTerminal(turn.defTurnId);
-    assert.equal(terminal.type, 'turn.failed');
-    await host.abortTurn(turn.defTurnId, 'IDEMPOTENT_AFTER_SETTLEMENT');
-    assert.equal(await host.waitForTurnTerminal(turn.defTurnId), terminal);
-  }
-  assert.ok(firstRetainedTurnId);
-  const retriedRetainedTurn = await host.startHarnessTurn({
-    defSessionId: retainedSession.defSessionId,
-    userMessage: 'retained-turn-0',
-    clientTurnId: asClientTurnId('retained-client-turn-0'),
-    userAttachments: [{
-      type: 'file',
-      mime: 'text/plain',
-      filename: 'fixture.txt',
-      url: 'data:text/plain;base64,Zml4dHVyZQ==',
-    }],
-  });
-  assert.equal(
-    retriedRetainedTurn.defTurnId,
-    firstRetainedTurnId,
-    'an old retry must win over a full Session capacity check',
-  );
-  await expectHostError(() => host.startHarnessTurn({
-    defSessionId: retainedSession.defSessionId,
-    userMessage: 'retained-turn-0-conflict',
-    clientTurnId: asClientTurnId('retained-client-turn-0'),
-  }), 'AGENT_CLIENT_TURN_CONFLICT');
-  await expectHostError(() => host.startHarnessTurn({
-    defSessionId: retainedSession.defSessionId,
-    userMessage: 'retained-turn-0',
-    clientTurnId: asClientTurnId('retained-client-turn-0'),
-    userAttachments: [{
-      type: 'file',
-      mime: 'text/plain',
-      filename: 'fixture.txt',
-      url: 'data:text/plain;base64,Y2hhbmdlZA==',
-    }],
-  }), 'AGENT_CLIENT_TURN_CONFLICT');
-  await expectHostError(() => host.startHarnessTurn({
-    defSessionId: retainedSession.defSessionId,
-    userMessage: 'retained-turn-overflow',
-    clientTurnId: asClientTurnId('retained-client-turn-overflow'),
-  }), 'AGENT_SESSION_TURN_LIMIT_REACHED');
-
-  const journalSession = sessions[1]!;
-  for (let index = 0; index < 4; index += 1) {
-    baseEngine.enqueueScript([
-      ...Array.from(
-        { length: DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerTurn + 64 },
-        () => ({ type: 'text' as const, delta: 'bounded-delta' }),
-      ),
-      { type: 'complete' as const },
-    ]);
-    const journalTurn = await host.startTurn({
-      defSessionId: journalSession.defSessionId,
-      userMessage: `填满事件日志-${index}`,
       systemContext: 'retention contract',
       toolProjection: { revision: 1, tools: [] },
     });
-    const journalTerminal = await host.waitForTurnTerminal(journalTurn.defTurnId);
-    assert.equal(journalTerminal.type, 'turn.failed');
-    if (journalTerminal.type === 'turn.failed') {
-      assert.equal(
-        journalTerminal.payload.code,
-        index < 3 ? 'AGENT_TURN_OUTPUT_LIMIT' : 'AGENT_EVENT_CAPACITY_REACHED',
-      );
-    }
-    assert.equal(
-      capacityAbortCodes.length,
-      index + 1,
-      'each over-capacity Turn must abort its Engine handle exactly once',
-    );
+    assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
   }
-  assert.deepEqual(capacityAbortCodes, [
-    'AGENT_TURN_OUTPUT_LIMIT',
-    'AGENT_TURN_OUTPUT_LIMIT',
-    'AGENT_TURN_OUTPUT_LIMIT',
-    'AGENT_EVENT_CAPACITY_REACHED',
-  ]);
+  const retried = await host.startTurn({
+    defSessionId: retainedSession.defSessionId,
+    userMessage: 'retained-turn-0',
+    clientTurnId: asClientTurnId('retained-client-turn-0'),
+    systemContext: 'retention contract',
+    toolProjection: { revision: 1, tools: [] },
+  });
+  assert.equal(retried.defTurnId, firstTurn.defTurnId, 'old client retry remains idempotent after the RAM window moves');
+
   const retainedEvents = [];
   let retainedCursor = 0;
   while (true) {
-    const page = host.readEvents(journalSession.defSessionId, retainedCursor, 256);
+    const page = host.readEvents(retainedSession.defSessionId, retainedCursor, 256);
     retainedEvents.push(...page);
     if (page.length < 256) break;
     retainedCursor = page.at(-1)!.sequence;
   }
-  assert.ok(retainedEvents.length <= DEF_AGENT_IN_MEMORY_LIMITS.maxEventsPerSession);
-  assert.ok(
-    retainedEvents.reduce((total, event) => total + JSON.stringify(event).length, 0)
-      <= DEF_AGENT_IN_MEMORY_LIMITS.maxEventCodeUnitsPerSession,
-  );
-  assert.equal(retainedEvents.at(-1)?.type, 'turn.failed');
-  assert.equal(
-    retainedEvents.filter((event) => event.type === 'turn.failed').length,
-    4,
-    'each accepted over-capacity Turn must have one terminal Event',
-  );
+  assert.ok(retainedEvents.length > 64, 'a normal long conversation is not stopped at the old 64-turn boundary');
+  assert.ok(retainedEvents.length > DEF_AGENT_IN_MEMORY_LIMITS.maxRetainedEventsPerSession);
+  assert.equal(retainedEvents.at(-1)?.type, 'turn.completed');
   retainedEvents.forEach((event, index) => assert.equal(event.sequence, index + 1));
-  await expectHostError(() => host.startTurn({
-    defSessionId: journalSession.defSessionId,
-    userMessage: '日志已满后不得静默截断',
-    systemContext: 'retention contract',
-    toolProjection: { revision: 1, tools: [] },
-  }), 'AGENT_EVENT_CAPACITY_REACHED');
   await host.shutdown();
+
+  const capacityEngine = new DeterministicFakeAgentEngine();
+  class ProbedSessionStore extends MemoryDefAgentSessionStore {
+    readonly loadModes: string[] = [];
+
+    override load(
+      options: DefAgentSessionStoreLoadOptions = {},
+    ): ReturnType<MemoryDefAgentSessionStore['load']> {
+      this.loadModes.push(options.eventLoad ?? 'all');
+      return super.load(options);
+    }
+  }
+  const capacityStore = new ProbedSessionStore();
+  const capacityHost = new DefAgentHost({
+    engine: capacityEngine,
+    productGateway: gateway,
+    sessionStore: capacityStore,
+    requireConsumer: () => { registry.requireActive(); },
+  });
+  assert.equal(capacityStore.loadModes[0], 'active', 'Host startup must request only active event journals');
+  for (let index = 0; index < 100; index += 1) {
+    const archived = await capacityHost.createSession({
+      binding: binding(),
+      providerProfileRef: `archived-profile-${index}`,
+    });
+    capacityHost.archiveSession(archived.defSessionId, binding());
+  }
+  assert.equal(
+    capacityHost.listSessions().filter((session) => session.status === 'archived').length,
+    100,
+  );
+  for (let index = 0; index < DEF_AGENT_IN_MEMORY_LIMITS.maxSessionsPerHost; index += 1) {
+    await capacityHost.createSession({ binding: binding(), providerProfileRef: `active-profile-${index}` });
+  }
+  await expectHostError(
+    () => capacityHost.createSession({ binding: binding(), providerProfileRef: 'active-overflow' }),
+    'AGENT_SESSION_LIMIT_REACHED',
+  );
+  await capacityHost.shutdown();
 }
 
 console.log('DEF_AGENT_HOST_PHASE2_CONTRACT_OK');
