@@ -3,8 +3,11 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import {
   AGENT_UI_CAPABILITY_HEADER,
   DEF_AGENT_PROTOCOL_VERSION,
+  asClientTurnId,
   asCommandId,
   asDatabaseGeneration,
+  asDefSessionId,
+  asDefTurnId,
   asTimelineId,
   asWorkspaceId,
   type AgentHostHealth,
@@ -30,6 +33,7 @@ export const AGENT_HOST_INTERNAL_TOKEN_HEADER = 'x-dmg-agent-host-token';
 export const AGENT_HOST_PROXY_ORIGIN_HEADER = 'x-dmg-agent-browser-origin';
 
 const MAX_REQUEST_BYTES = 1_048_576;
+const MAX_PRODUCT_EVENT_PAGE_BYTES = 8_388_608;
 const UI_AUDIENCE: AgentLaunchAudience = 'workbench-ai-mode';
 
 type RuntimeState = 'starting' | 'ready' | 'stopping' | 'error';
@@ -187,6 +191,99 @@ export class DefAgentHostHttpServer {
     }
 
     const claims = this.#requireUiCapability(request);
+    if (url.pathname === '/agent-host/sessions') {
+      const consumer = this.#consumers.requireActive(claims);
+      if (request.method === 'GET') {
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          sessions: this.#host.listSessions(consumer.binding).map(toProductSession),
+        });
+        return;
+      }
+      if (request.method === 'POST') {
+        const body = expectRecord(await readJson(request));
+        expectExactKeys(body, ['providerProfileRef']);
+        const providerProfileRef = body.providerProfileRef === undefined
+          ? 'default'
+          : expectPortableId(body.providerProfileRef, 'providerProfileRef', 128);
+        const session = await this.#host.createSession({
+          binding: consumer.binding,
+          providerProfileRef,
+        });
+        this.#writeJson(response, 201, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          session: toProductSession(session),
+        });
+        return;
+      }
+    }
+
+    const sessionMatch = /^\/agent-host\/sessions\/([^/]+)(?:\/(events|turns))?$/.exec(url.pathname);
+    if (sessionMatch) {
+      const consumer = this.#consumers.requireActive(claims);
+      const defSessionId = asDefSessionId(decodeRouteId(sessionMatch[1]!, 'defSessionId'));
+      const action = sessionMatch[2] ?? '';
+      if (request.method === 'GET' && action === '') {
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          session: toProductSession(this.#host.readSession(defSessionId, consumer.binding)),
+        });
+        return;
+      }
+      if (request.method === 'GET' && action === 'events') {
+        const afterSequence = parseNonNegativeInteger(
+          url.searchParams.get('afterSequence') ?? '0',
+          'afterSequence',
+        );
+        const limit = parsePositiveInteger(url.searchParams.get('limit') ?? '256', 'limit', 256);
+        const events = boundedProductEvents(this.#host
+          .readEvents(defSessionId, afterSequence, limit, consumer.binding)
+          .map(toProductEvent));
+        const nextSequence = events.at(-1)?.sequence ?? afterSequence;
+        const hasMore = this.#host.readEvents(defSessionId, nextSequence, 1, consumer.binding).length > 0;
+        this.#writeJson(response, 200, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          defSessionId,
+          afterSequence,
+          nextSequence,
+          hasMore,
+          events,
+        });
+        return;
+      }
+      if (request.method === 'POST' && action === 'turns') {
+        const body = expectRecord(await readJson(request));
+        expectExactKeys(body, ['clientTurnId', 'userMessage']);
+        const userMessage = expectBoundedMessage(body.userMessage);
+        const clientTurnId = asClientTurnId(expectPortableId(body.clientTurnId, 'clientTurnId', 200));
+        const turn = await this.#host.startHarnessTurn({
+          defSessionId,
+          userMessage,
+          clientTurnId,
+          binding: consumer.binding,
+        });
+        this.#writeJson(response, 202, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          defSessionId,
+          ...turn,
+        });
+        return;
+      }
+    }
+
+    const turnAbortMatch = /^\/agent-host\/turns\/([^/]+)\/abort$/.exec(url.pathname);
+    if (turnAbortMatch && request.method === 'POST') {
+      const consumer = this.#consumers.requireActive(claims);
+      const defTurnId = asDefTurnId(decodeRouteId(turnAbortMatch[1]!, 'defTurnId'));
+      await this.#host.abortTurn(defTurnId, 'USER_STOPPED', consumer.binding);
+      this.#writeJson(response, 200, {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        defTurnId,
+        stopped: true,
+      });
+      return;
+    }
+
     if (request.method === 'GET' && url.pathname === '/agent-host/ui/state') {
       const ids = this.#host.getActiveIds();
       const state: AgentUiState = {
@@ -459,6 +556,80 @@ function parseNonNegativeInteger(value: string, field: string): number {
     throw httpError('AGENT_REQUEST_INVALID', `${field} must be a non-negative integer`, 400);
   }
   return result;
+}
+
+function parsePositiveInteger(value: string, field: string, maximum: number): number {
+  const result = Number(value);
+  if (!Number.isSafeInteger(result) || result < 1 || result > maximum) {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} must be an integer between 1 and ${maximum}`, 400);
+  }
+  return result;
+}
+
+function expectPortableId(value: JsonValue | undefined, field: string, maximum: number): string {
+  const result = expectString(value, field).trim();
+  if (result.length > maximum || !/^[A-Za-z0-9._:-]+$/u.test(result)) {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} is not a portable identifier`, 400);
+  }
+  return result;
+}
+
+function expectBoundedMessage(value: JsonValue | undefined): string {
+  const result = expectString(value, 'userMessage').trim();
+  if (!result || result.length > 16_000) {
+    throw httpError('AGENT_REQUEST_INVALID', 'userMessage must contain between 1 and 16000 characters', 400);
+  }
+  return result;
+}
+
+function expectExactKeys(record: Record<string, JsonValue>, allowed: readonly string[]): void {
+  const allowedKeys = new Set(allowed);
+  if (Object.keys(record).some((key) => !allowedKeys.has(key))) {
+    throw httpError('AGENT_REQUEST_INVALID', 'Request contains unsupported fields', 400);
+  }
+}
+
+function decodeRouteId(value: string, field: string): string {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    throw httpError('AGENT_REQUEST_INVALID', `${field} route segment is invalid`, 400);
+  }
+  return expectPortableId(decoded, field, 200);
+}
+
+function toProductSession(session: import('../core/contracts/index.ts').DefSessionV6) {
+  const { engine, ...product } = session;
+  return {
+    ...product,
+    engine: {
+      kind: engine.kind,
+      runtimeVersion: engine.runtimeVersion,
+    },
+  };
+}
+
+function toProductEvent(event: import('../core/contracts/index.ts').DefEvent) {
+  const { diagnostics: _diagnostics, ...product } = event;
+  return product;
+}
+
+function boundedProductEvents<
+  Event extends ReturnType<typeof toProductEvent>,
+>(events: readonly Event[]): readonly Event[] {
+  const page: Event[] = [];
+  let bytes = 2;
+  for (const event of events) {
+    const eventBytes = Buffer.byteLength(JSON.stringify(event)) + (page.length ? 1 : 0);
+    if (page.length && bytes + eventBytes > MAX_PRODUCT_EVENT_PAGE_BYTES) break;
+    if (!page.length && bytes + eventBytes > MAX_PRODUCT_EVENT_PAGE_BYTES) {
+      throw new DefAgentHostError('AGENT_EVENT_LIMIT_INVALID', 'A single Event exceeds the Product page boundary', 413);
+    }
+    page.push(event);
+    bytes += eventBytes;
+  }
+  return page;
 }
 
 function headerValue(request: IncomingMessage, name: string): string | null {

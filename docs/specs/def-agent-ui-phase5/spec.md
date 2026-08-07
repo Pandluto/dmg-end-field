@@ -2,7 +2,7 @@
 
 ## Status
 
-Ready for implementation.
+Implemented; two external validation gates remain.
 
 ## Goal
 
@@ -96,4 +96,3 @@ Session 必须精确匹配当前 consumer 的 `workspaceId`、`databaseGeneratio
 - 普通 Web LTS 不显示入口，不依赖 Agent 才能运行。
 - AI CLI 和旧 AI 栈继续保持退役。
 - 自动测试、真实 OpenCode HTTP 纵向黑盒和独立审查无未关闭 P0/P1。
-

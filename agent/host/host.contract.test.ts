@@ -15,6 +15,8 @@ import {
   type ProductSnapshotEnvelope,
 } from '../core/contracts/index.ts';
 import { DeterministicFakeAgentEngine } from '../core/testing/fake-engine.ts';
+import { DefHarnessManager } from '../core/harness/manager.ts';
+import { DefReadToolRegistry } from '../core/tools/read-only-workbench.ts';
 import { BrowserConsumerRegistry } from './browser-consumer-registry.ts';
 import { DefAgentHost } from './def-agent-host.ts';
 import { DefAgentHostError } from './errors.ts';
@@ -515,6 +517,333 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   });
   assert.equal(unknown.status, 404);
   assert.equal(unknown.headers.get('cache-control'), 'no-store');
+  await server.stop();
+}
+
+// Product HTTP API owns Session/Turn/Event identity, retries, cursors, and binding safety.
+{
+  const hostToken = 'host_token_product_api_abcdefghijklmnop';
+  const productCapability = 'ui_capability_product_abcdefghijklmnop';
+  const productLaunchGrant = 'launch_grant_product_abcdefghijklmnop';
+  const engine = new DeterministicFakeAgentEngine();
+  const consumers = new BrowserConsumerRegistry();
+  const gateway = new RemoteBrowserProductGateway(consumers);
+  const tools = new DefReadToolRegistry();
+  const harness = new DefHarnessManager({
+    resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
+  });
+  const host = new DefAgentHost({
+    engine,
+    productGateway: gateway,
+    harnessManager: harness,
+    toolRegistry: tools,
+    requireConsumer: () => { consumers.requireActive(); },
+  });
+  const tokens = new AgentTokenAuthority({ randomToken: () => productCapability });
+  const server = new DefAgentHostHttpServer({
+    hostToken,
+    browserOrigin,
+    host,
+    tokens,
+    consumers,
+    gateway,
+    engine: { kind: 'fake-product-engine', state: 'ready' },
+  });
+  const port = await server.listen(0);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const privateHeaders = {
+    [AGENT_HOST_INTERNAL_TOKEN_HEADER]: hostToken,
+    [AGENT_HOST_PROXY_ORIGIN_HEADER]: browserOrigin,
+  };
+
+  await fetch(`${baseUrl}/internal/launch-grants`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      grant: productLaunchGrant,
+      origin: browserOrigin,
+      audience: 'workbench-ai-mode',
+      expiresAt: Date.now() + 30_000,
+    }),
+  });
+  const exchange = await fetch(`${baseUrl}/agent-host/ui/session`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ launchGrant: productLaunchGrant, audience: 'workbench-ai-mode' }),
+  });
+  assert.equal(exchange.status, 201);
+  const productHeaders = {
+    ...privateHeaders,
+    [AGENT_UI_CAPABILITY_HEADER]: productCapability,
+    'content-type': 'application/json',
+  };
+
+  const missingConsumer = await fetch(`${baseUrl}/agent-host/sessions`, { headers: productHeaders });
+  assert.equal(missingConsumer.status, 409, 'Product API requires the current visible writer consumer');
+
+  const productBinding = binding({
+    workspaceId: asWorkspaceId('workspace-product-api'),
+    databaseGeneration: asDatabaseGeneration('generation-product-api'),
+    timelineId: asTimelineId('timeline-product-api'),
+    checkoutTargetId: 'node-product-api',
+    checkoutUpdatedAt: 7,
+    contentRevision: 7,
+    snapshotDigest: 'sha256:product-api',
+  });
+  const registration = {
+    consumerId: 'consumer-product-api',
+    executorLeaseId: 'lease-product-api',
+    writer: true as const,
+    visible: true as const,
+    binding: productBinding,
+  };
+  const registerResponse = await fetch(`${baseUrl}/agent-host/workbench/register`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify(registration),
+  });
+  assert.equal(registerResponse.status, 201);
+  const productSnapshot: ProductSnapshotEnvelope = {
+    protocolVersion: 1,
+    binding: productBinding,
+    capturedAt: '2026-08-07T00:00:00.000Z',
+    payload: {
+      schemaVersion: 1,
+      updatedAt: 7,
+      source: 'app',
+      timelineId: productBinding.timelineId,
+      activeTimelineId: productBinding.timelineId,
+      currentView: 'canvas',
+      damageReportStatus: 'pending',
+      checkout: { targetType: 'work-node', targetId: 'node-product-api', updatedAt: 7 },
+      selectedCharacters: [],
+      skillButtons: [],
+      operatorConfigs: [],
+    },
+  };
+  const snapshotResponse = await fetch(`${baseUrl}/agent-host/workbench/snapshot`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify({
+      consumerId: registration.consumerId,
+      executorLeaseId: registration.executorLeaseId,
+      snapshot: productSnapshot,
+    }),
+  });
+  assert.equal(snapshotResponse.status, 200);
+
+  const forgedSessionBinding = await fetch(`${baseUrl}/agent-host/sessions`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify({ binding: productBinding }),
+  });
+  assert.equal(forgedSessionBinding.status, 400, 'the browser cannot submit its own Session binding');
+
+  const createResponse = await fetch(`${baseUrl}/agent-host/sessions`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify({}),
+  });
+  assert.equal(createResponse.status, 201);
+  const created = await createResponse.json() as {
+    protocolVersion: number;
+    session: { defSessionId: string; engine: Record<string, unknown> };
+  };
+  assert.equal(created.protocolVersion, 2);
+  assert.deepEqual(Object.keys(created.session.engine).sort(), ['kind', 'runtimeVersion']);
+  assert.equal(JSON.stringify(created).includes('fake-engine-session'), false);
+  assert.equal(JSON.stringify(created).includes('providerProfileRef'), false);
+
+  const listResponse = await fetch(`${baseUrl}/agent-host/sessions`, { headers: productHeaders });
+  const listed = await listResponse.json() as { sessions: Array<{ defSessionId: string }> };
+  assert.deepEqual(listed.sessions.map((session) => session.defSessionId), [created.session.defSessionId]);
+  const readResponse = await fetch(`${baseUrl}/agent-host/sessions/${created.session.defSessionId}`, {
+    headers: productHeaders,
+  });
+  assert.equal(readResponse.status, 200);
+
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('product-route'),
+      name: 'def.harness.route',
+      input: { businessId: 'selection', operation: 'inspect' },
+    },
+    { type: 'projection', revision: 2 },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('product-context'),
+      name: 'def.node.crud.context',
+      input: {},
+    },
+    { type: 'projection', revision: 3 },
+    { type: 'text', delta: '产品 API 已读取当前工作区。' },
+    { type: 'complete', output: { ok: true } },
+  ]);
+  const turnBody = {
+    clientTurnId: 'client-turn-product-api',
+    userMessage: '读取当前工作区',
+  };
+  const emptyMessageResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    {
+      method: 'POST',
+      headers: productHeaders,
+      body: JSON.stringify({ clientTurnId: 'client-turn-empty-api', userMessage: '   ' }),
+    },
+  );
+  assert.equal(emptyMessageResponse.status, 400);
+  const forgedTurnBinding = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    {
+      method: 'POST',
+      headers: productHeaders,
+      body: JSON.stringify({ ...turnBody, binding: productBinding }),
+    },
+  );
+  assert.equal(forgedTurnBinding.status, 400);
+  const startResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    { method: 'POST', headers: productHeaders, body: JSON.stringify(turnBody) },
+  );
+  assert.equal(startResponse.status, 202);
+  const started = await startResponse.json() as { defTurnId: string; clientTurnId: string };
+  assert.equal(started.clientTurnId, turnBody.clientTurnId);
+
+  const retryResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    { method: 'POST', headers: productHeaders, body: JSON.stringify(turnBody) },
+  );
+  assert.equal(retryResponse.status, 202);
+  assert.equal((await retryResponse.json() as { defTurnId: string }).defTurnId, started.defTurnId);
+  const conflictResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    {
+      method: 'POST',
+      headers: productHeaders,
+      body: JSON.stringify({ ...turnBody, userMessage: '同一个 ID 的另一条消息' }),
+    },
+  );
+  assert.equal(conflictResponse.status, 409);
+  assert.equal(
+    (await conflictResponse.json() as { error: { code: string } }).error.code,
+    'AGENT_CLIENT_TURN_CONFLICT',
+  );
+
+  type ProductJournal = {
+    afterSequence: number;
+    nextSequence: number;
+    hasMore: boolean;
+    events: Array<{
+      type: string;
+      defTurnId?: string;
+      payload: Record<string, unknown>;
+    }>;
+  };
+  let journal: ProductJournal | null = null;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const response = await fetch(
+      `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/events?afterSequence=0&limit=256`,
+      { headers: productHeaders },
+    );
+    assert.equal(response.status, 200);
+    journal = await response.json() as ProductJournal;
+    if (journal?.events.some((event) => event.type === 'turn.completed')) break;
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.ok(journal?.events.some((event) => (
+    event.type === 'turn.accepted'
+    && event.defTurnId === started.defTurnId
+    && event.payload.userMessage === turnBody.userMessage
+  )));
+  assert.equal(
+    journal?.events.filter((event) => event.type === 'response.delta')
+      .map((event) => event.payload.delta).join(''),
+    '产品 API 已读取当前工作区。',
+  );
+  assert.ok(journal?.events.some((event) => event.type === 'turn.completed'));
+
+  const boundedPageResponse = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/events?afterSequence=0&limit=2`,
+    { headers: productHeaders },
+  );
+  const boundedPage = await boundedPageResponse.json() as { events: unknown[]; hasMore: boolean; nextSequence: number };
+  assert.equal(boundedPage.events.length, 2);
+  assert.equal(boundedPage.hasMore, true);
+  const futureCursor = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/events?afterSequence=${(journal?.nextSequence || 0) + 1}`,
+    { headers: productHeaders },
+  );
+  assert.equal(futureCursor.status, 400);
+  assert.equal(
+    (await futureCursor.json() as { error: { code: string } }).error.code,
+    'AGENT_EVENT_CURSOR_INVALID',
+  );
+  const invalidLimit = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/events?afterSequence=0&limit=257`,
+    { headers: productHeaders },
+  );
+  assert.equal(invalidLimit.status, 400);
+
+  engine.enqueueScript([{
+    type: 'interaction',
+    interactionId: asInteractionId('product-abort-interaction'),
+    interactionKind: 'question',
+    prompt: '等待用户停止',
+  }]);
+  const abortStart = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+    {
+      method: 'POST',
+      headers: productHeaders,
+      body: JSON.stringify({ clientTurnId: 'client-turn-abort-api', userMessage: '等待并停止' }),
+    },
+  );
+  assert.equal(abortStart.status, 202);
+  const abortTurn = await abortStart.json() as { defTurnId: string };
+  const abortUrl = `${baseUrl}/agent-host/turns/${abortTurn.defTurnId}/abort`;
+  const firstAbort = await fetch(abortUrl, {
+    method: 'POST', headers: productHeaders, body: JSON.stringify({}),
+  });
+  assert.equal(firstAbort.status, 200);
+  const secondAbort = await fetch(abortUrl, {
+    method: 'POST', headers: productHeaders, body: JSON.stringify({}),
+  });
+  assert.equal(secondAbort.status, 200, 'abort must be idempotent for a known settled Turn');
+
+  const changedRegistration = {
+    ...registration,
+    binding: {
+      ...productBinding,
+      timelineId: asTimelineId('another-product-timeline'),
+    },
+  };
+  const closeResponse = await fetch(`${baseUrl}/agent-host/workbench/close`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify({
+      consumerId: registration.consumerId,
+      executorLeaseId: registration.executorLeaseId,
+    }),
+  });
+  assert.equal(closeResponse.status, 200);
+  const changedRegisterResponse = await fetch(`${baseUrl}/agent-host/workbench/register`, {
+    method: 'POST', headers: productHeaders, body: JSON.stringify(changedRegistration),
+  });
+  assert.equal(changedRegisterResponse.status, 201);
+  const wrongBindingRead = await fetch(
+    `${baseUrl}/agent-host/sessions/${created.session.defSessionId}`,
+    { headers: productHeaders },
+  );
+  assert.equal(wrongBindingRead.status, 409);
+  assert.equal(
+    (await wrongBindingRead.json() as { error: { code: string } }).error.code,
+    'AGENT_BINDING_CONFLICT',
+  );
+  const wrongBindingAbort = await fetch(abortUrl, {
+    method: 'POST', headers: productHeaders, body: JSON.stringify({}),
+  });
+  assert.equal(wrongBindingAbort.status, 409, 'a consumer from another Timeline cannot address the old Turn');
   await server.stop();
 }
 

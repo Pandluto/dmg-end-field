@@ -52,7 +52,10 @@ export interface DefEventPayloadMap {
   };
   'session.archived': { readonly reason: string };
   'session.orphaned': { readonly code: string; readonly message: string };
-  'turn.accepted': { readonly clientTurnId: ClientTurnId };
+  'turn.accepted': {
+    readonly clientTurnId: ClientTurnId;
+    readonly userMessage: string;
+  };
   'response.first-token': EmptyEventPayload;
   'response.delta': { readonly delta: string };
   'tool.requested': {

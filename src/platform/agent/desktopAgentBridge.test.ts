@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
 import {
   AGENT_LAUNCH_GRANT_FRAGMENT_KEY,
+  AGENT_UI_CAPABILITY_HEADER,
   AGENT_UI_CAPABILITY_STORAGE_KEY,
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import {
+  asClientTurnId,
   asDatabaseGeneration,
+  asDefSessionId,
+  asDefTurnId,
   asTimelineId,
   asWorkspaceId,
 } from '../../../agent/core/contracts/ids.ts';
@@ -81,6 +85,25 @@ function binding() {
     checkoutUpdatedAt: 10,
     contentRevision: 2,
     snapshotDigest: 'sha256:test-snapshot',
+  };
+}
+
+function productSession() {
+  return {
+    schemaVersion: 6,
+    eventSchemaVersion: 1,
+    defSessionId: asDefSessionId('def-session-product'),
+    host: 'workbench' as const,
+    status: 'ready' as const,
+    workspaceId: asWorkspaceId('workspace-test'),
+    lastDatabaseGeneration: asDatabaseGeneration('generation-test'),
+    timelineId: asTimelineId('timeline-test'),
+    axisBindingId: null,
+    boundNodeId: null,
+    engine: { kind: 'engine-adapter', runtimeVersion: '1.0.0' },
+    harness: { stateVersion: 1, revision: 'harness-test' },
+    createdAt: '2026-08-07T00:00:00.000Z',
+    updatedAt: '2026-08-07T00:00:00.000Z',
   };
 }
 
@@ -303,6 +326,258 @@ class FakeLease implements AgentWorkspaceLease {
   assert.equal(controller.getState().state, 'blocked');
 
   await controller.stop();
+}
+
+// A new checkout/revision must update the active consumer immediately instead of
+// waiting for the periodic heartbeat before a Product Turn can use the snapshot.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const document = new FakeDocument();
+  const lease = new FakeLease();
+  let currentBinding = binding();
+  const heartbeatBindings: ReturnType<typeof binding>[] = [];
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (url, init) => {
+      if (url.endsWith('/workbench/register')) {
+        return response({
+          consumer: {
+            consumerId: 'consumer-binding-refresh',
+            executorLeaseId: 'executor-binding-refresh',
+            binding: currentBinding,
+            registeredAt: 1,
+            heartbeatExpiresAt: 20_000,
+          },
+        });
+      }
+      if (url.endsWith('/workbench/heartbeat')) {
+        const body = JSON.parse(String(init?.body)) as { binding: ReturnType<typeof binding> };
+        heartbeatBindings.push(body.binding);
+        return response({
+          consumer: {
+            consumerId: 'consumer-binding-refresh',
+            executorLeaseId: 'executor-binding-refresh',
+            binding: body.binding,
+            registeredAt: 1,
+            heartbeatExpiresAt: 30_000,
+          },
+        });
+      }
+      return response({ ok: true });
+    },
+  });
+  const controller = createDesktopAgentConsumerController({
+    bridge,
+    workspaceLease: lease,
+    document,
+    getBinding: () => currentBinding,
+    consumerId: 'consumer-binding-refresh',
+    executorLeaseId: 'executor-binding-refresh',
+    setInterval: () => 1,
+    clearInterval: () => undefined,
+  });
+
+  await controller.start();
+  currentBinding = {
+    ...currentBinding,
+    checkoutTargetId: 'node-updated',
+    checkoutUpdatedAt: 11,
+    contentRevision: 3,
+    snapshotDigest: 'sha256:updated-snapshot',
+  };
+  await controller.refreshEligibility();
+  assert.deepEqual(heartbeatBindings, [currentBinding]);
+  assert.deepEqual(controller.getState().consumer?.binding, currentBinding);
+  await controller.stop();
+}
+
+// Product Session/Turn/Event calls use only the scoped Product protocol.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const calls: Array<{ url: URL; init?: RequestInit }> = [];
+  const session = productSession();
+  const defTurnId = asDefTurnId('def-turn-product');
+  const clientTurnId = asClientTurnId('client-turn-product');
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (rawUrl, init) => {
+      const url = new URL(rawUrl);
+      calls.push({ url, init });
+      if (url.pathname === '/agent-host/sessions' && (init?.method || 'GET') === 'GET') {
+        return response({ protocolVersion: 2, sessions: [session] });
+      }
+      if (url.pathname === '/agent-host/sessions' && init?.method === 'POST') {
+        return response({ protocolVersion: 2, session }, 201);
+      }
+      if (url.pathname === `/agent-host/sessions/${session.defSessionId}`) {
+        return response({ protocolVersion: 2, session });
+      }
+      if (url.pathname.endsWith('/events')) {
+        return response({
+          protocolVersion: 2,
+          defSessionId: session.defSessionId,
+          afterSequence: 0,
+          nextSequence: 1,
+          hasMore: false,
+          events: [{
+            schemaVersion: 1,
+            sequence: 1,
+            occurredAt: '2026-08-07T00:00:01.000Z',
+            defSessionId: session.defSessionId,
+            defTurnId,
+            type: 'turn.accepted',
+            payload: { clientTurnId, userMessage: '检查当前工作区' },
+          }],
+        });
+      }
+      if (url.pathname.endsWith('/turns')) {
+        return response({
+          protocolVersion: 2,
+          defSessionId: session.defSessionId,
+          defTurnId,
+          clientTurnId,
+        }, 202);
+      }
+      if (url.pathname === `/agent-host/turns/${defTurnId}/abort`) {
+        return response({ protocolVersion: 2, defTurnId, stopped: true });
+      }
+      return response({ error: { message: 'unexpected request' } }, 404);
+    },
+  });
+
+  assert.equal((await bridge.listSessions())[0].defSessionId, session.defSessionId);
+  assert.equal((await bridge.createSession({ providerProfileRef: 'default' })).defSessionId, session.defSessionId);
+  assert.equal((await bridge.getSession(session.defSessionId)).engine.runtimeVersion, '1.0.0');
+  assert.equal((await bridge.readSessionEvents(session.defSessionId)).events[0].type, 'turn.accepted');
+  assert.equal((await bridge.startTurn(session.defSessionId, {
+    clientTurnId,
+    userMessage: '检查当前工作区',
+  })).defTurnId, defTurnId);
+  assert.equal((await bridge.abortTurn(defTurnId)).stopped, true);
+
+  const createCall = calls.find((call) => (
+    call.url.pathname === '/agent-host/sessions' && call.init?.method === 'POST'
+  ));
+  assert.deepEqual(JSON.parse(String(createCall?.init?.body)), { providerProfileRef: 'default' });
+  const turnCall = calls.find((call) => call.url.pathname.endsWith('/turns'));
+  assert.deepEqual(JSON.parse(String(turnCall?.init?.body)), {
+    clientTurnId,
+    userMessage: '检查当前工作区',
+  });
+  assert.equal(calls.every((call) => {
+    const body = String(call.init?.body || '');
+    return !body.includes('workspaceId') && !body.includes('databaseGeneration') && !body.includes('engine');
+  }), true, 'the browser must not submit ProductBinding or engine-private fields');
+  assert.equal(calls.every((call) => (
+    (call.init?.headers as Record<string, string>)[AGENT_UI_CAPABILITY_HEADER]
+      === 'ui-capability-12345678901234567890'
+  )), true);
+}
+
+// Engine-private identities in a Product response fail closed.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const session = productSession();
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response({
+      protocolVersion: 2,
+      session: {
+        ...session,
+        engine: { ...session.engine, sessionId: 'private-engine-session' },
+      },
+    }),
+  });
+  await assert.rejects(
+    bridge.getSession(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// Event diagnostics cannot smuggle Engine identities into the Product UI.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const session = productSession();
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response({
+      protocolVersion: 2,
+      defSessionId: session.defSessionId,
+      afterSequence: 0,
+      nextSequence: 1,
+      hasMore: false,
+      events: [{
+        schemaVersion: 1,
+        sequence: 1,
+        occurredAt: '2026-08-07T00:00:01.000Z',
+        defSessionId: session.defSessionId,
+        defTurnId: 'def-turn-private-diagnostics',
+        type: 'response.delta',
+        payload: { delta: 'unsafe' },
+        diagnostics: { engineSessionId: 'private-engine-session' },
+      }],
+    }),
+  });
+  await assert.rejects(
+    bridge.readSessionEvents(session.defSessionId),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'INVALID_HOST_RESPONSE',
+  );
+}
+
+// Safe Host conflict codes remain typed for the UI without clearing a valid capability.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response({
+      error: { code: 'AGENT_CLIENT_TURN_CONFLICT', message: 'client turn conflict' },
+    }, 409),
+  });
+  await assert.rejects(
+    bridge.startTurn(asDefSessionId('def-session-conflict'), {
+      clientTurnId: asClientTurnId('client-turn-conflict'),
+      userMessage: 'conflict',
+    }),
+    (error: unknown) => (
+      error instanceof DesktopAgentBridgeError
+      && error.code === 'AGENT_CLIENT_TURN_CONFLICT'
+      && error.status === 409
+    ),
+  );
+  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), 'ui-capability-12345678901234567890');
+}
+
+// A rejected capability is removed from this tab immediately.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  storage.setItem(AGENT_UI_CAPABILITY_STORAGE_KEY, 'ui-capability-12345678901234567890');
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async () => response({ error: { message: 'capability expired' } }, 403),
+  });
+  await assert.rejects(
+    bridge.listSessions(),
+    (error: unknown) => error instanceof DesktopAgentBridgeError && error.code === 'AGENT_UNAUTHORIZED',
+  );
+  assert.equal(storage.getItem(AGENT_UI_CAPABILITY_STORAGE_KEY), null);
+  assert.equal(bridge.getState().authorization, 'missing');
 }
 
 // A stale heartbeat after sleep must re-register without a visibility event or reload.

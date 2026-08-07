@@ -4,24 +4,30 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  AGENT_UI_CAPABILITY_HEADER,
   asDatabaseGeneration,
   asDefSessionId,
   asDefTurnId,
   asTimelineId,
   asWorkspaceId,
-  type CommandId,
+  type DefEvent,
   type Phase2ProductOperationSchema,
   type ProductBinding,
-  type ProductCommandEnvelope,
-  type ProductCommandReceipt,
-  type ProductCommandResult,
   type ProductGateway,
   type ProductSnapshotEnvelope,
   type JsonObject,
 } from '../../core/contracts/index.ts';
 import { DefHarnessManager } from '../../core/harness/manager.ts';
 import { DefReadToolRegistry } from '../../core/tools/read-only-workbench.ts';
+import { BrowserConsumerRegistry } from '../../host/browser-consumer-registry.ts';
 import { DefAgentHost } from '../../host/def-agent-host.ts';
+import {
+  AGENT_HOST_INTERNAL_TOKEN_HEADER,
+  AGENT_HOST_PROXY_ORIGIN_HEADER,
+  DefAgentHostHttpServer,
+} from '../../host/http-server.ts';
+import { RemoteBrowserProductGateway } from '../../host/remote-browser-product-gateway.ts';
+import { AgentTokenAuthority } from '../../host/token-authority.ts';
 import { OpenCodeEngineAdapter } from './adapter.ts';
 import { InMemoryOpenCodeProviderProfileSource } from './profile.ts';
 import { toOpenCodeSafeToolName } from './tool-bindings.ts';
@@ -123,7 +129,18 @@ async function run(): Promise<void> {
   const provider = await startProviderStub(schemas);
   const storeRoot = await mkdtemp(join(tmpdir(), 'def-opencode-real-blackbox-'));
   const binding = fixtureBinding();
-  const product = new FixtureProductGateway(fixtureSnapshot(binding));
+  const consumers = new BrowserConsumerRegistry();
+  const remoteProduct = new RemoteBrowserProductGateway(consumers);
+  let snapshotReads = 0;
+  const product: ProductGateway<Phase2ProductOperationSchema> = {
+    async getSnapshot(expected) {
+      snapshotReads += 1;
+      return remoteProduct.getSnapshot(expected);
+    },
+    dispatch: (command) => remoteProduct.dispatch(command),
+    awaitResult: (commandId, options) => remoteProduct.awaitResult(commandId, options),
+    reconcile: (commandId) => remoteProduct.reconcile(commandId),
+  };
   const engine = new OpenCodeEngineAdapter({
     runtimeRoot: resolve('dist/agent/engine/opencode'),
     storeRoot,
@@ -144,8 +161,73 @@ async function run(): Promise<void> {
     productGateway: product,
     harnessManager: harness,
     toolRegistry: tools,
-    requireConsumer: () => {},
+    requireConsumer: () => { consumers.requireActive(); },
   });
+  const browserOrigin = 'http://127.0.0.1:31457';
+  const hostToken = 'opencode_blackbox_host_token_1234567890';
+  const launchGrant = 'opencode_blackbox_launch_grant_123456';
+  const capability = 'opencode_blackbox_ui_capability_123456';
+  const tokens = new AgentTokenAuthority({ randomToken: () => capability });
+  const productServer = new DefAgentHostHttpServer({
+    hostToken,
+    browserOrigin,
+    host,
+    tokens,
+    consumers,
+    gateway: remoteProduct,
+    engine: { kind: 'opencode', state: 'ready' },
+  });
+  const productPort = await productServer.listen(0);
+  const productBaseUrl = `http://127.0.0.1:${productPort}`;
+  const privateHeaders = {
+    [AGENT_HOST_INTERNAL_TOKEN_HEADER]: hostToken,
+    [AGENT_HOST_PROXY_ORIGIN_HEADER]: browserOrigin,
+  };
+  const grantResponse = await fetch(`${productBaseUrl}/internal/launch-grants`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      grant: launchGrant,
+      origin: browserOrigin,
+      audience: 'workbench-ai-mode',
+      expiresAt: Date.now() + 60_000,
+    }),
+  });
+  assert.equal(grantResponse.status, 201);
+  const exchangeResponse = await fetch(`${productBaseUrl}/agent-host/ui/session`, {
+    method: 'POST',
+    headers: { ...privateHeaders, 'content-type': 'application/json' },
+    body: JSON.stringify({ launchGrant, audience: 'workbench-ai-mode' }),
+  });
+  assert.equal(exchangeResponse.status, 201);
+  const productHeaders = {
+    ...privateHeaders,
+    [AGENT_UI_CAPABILITY_HEADER]: capability,
+    'content-type': 'application/json',
+  };
+  const consumer = {
+    consumerId: 'consumer-opencode-blackbox',
+    executorLeaseId: 'lease-opencode-blackbox',
+    writer: true as const,
+    visible: true as const,
+    binding,
+  };
+  const consumerResponse = await fetch(`${productBaseUrl}/agent-host/workbench/register`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify(consumer),
+  });
+  assert.equal(consumerResponse.status, 201);
+  const snapshotResponse = await fetch(`${productBaseUrl}/agent-host/workbench/snapshot`, {
+    method: 'POST',
+    headers: productHeaders,
+    body: JSON.stringify({
+      consumerId: consumer.consumerId,
+      executorLeaseId: consumer.executorLeaseId,
+      snapshot: fixtureSnapshot(binding),
+    }),
+  });
+  assert.equal(snapshotResponse.status, 200);
 
   try {
     assert.deepEqual(await engine.probe(), {
@@ -155,21 +237,76 @@ async function run(): Promise<void> {
     });
     const results = [];
     for (const scenario of blackboxCases) {
-      const session = await host.createSession({ binding, providerProfileRef: 'blackbox' });
-      const turn = await host.startHarnessTurn({
-        defSessionId: session.defSessionId,
-        userMessage: scenario.userMessage,
-      });
-      const terminal = await withTimeout(host.waitForTurnTerminal(turn.defTurnId), 60_000).catch((error: unknown) => {
-        console.error(JSON.stringify({
-          scenario: scenario.id,
-          providerToolSets: provider.toolSets,
-          providerFailure: provider.failure?.stack ?? null,
-          events: host.readEvents(session.defSessionId),
-        }, null, 2));
-        throw error;
-      });
-      const events = host.readEvents(session.defSessionId);
+      let events: readonly DefEvent[];
+      let terminal: DefEvent | undefined;
+      if (scenario.id === 'calculation') {
+        const createResponse = await fetch(`${productBaseUrl}/agent-host/sessions`, {
+          method: 'POST',
+          headers: productHeaders,
+          body: JSON.stringify({ providerProfileRef: 'blackbox' }),
+        });
+        assert.equal(createResponse.status, 201);
+        const created = await createResponse.json() as {
+          session: { defSessionId: string; engine: Record<string, unknown> };
+        };
+        assert.deepEqual(Object.keys(created.session.engine).sort(), ['kind', 'runtimeVersion']);
+        const startResponse = await fetch(
+          `${productBaseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,
+          {
+            method: 'POST',
+            headers: productHeaders,
+            body: JSON.stringify({
+              clientTurnId: 'client-turn-real-opencode-http',
+              userMessage: scenario.userMessage,
+            }),
+          },
+        );
+        assert.equal(startResponse.status, 202);
+        const started = await startResponse.json() as { defTurnId: string };
+        events = await withTimeout((async () => {
+          for (;;) {
+            const eventResponse = await fetch(
+              `${productBaseUrl}/agent-host/sessions/${created.session.defSessionId}/events?afterSequence=0&limit=256`,
+              { headers: productHeaders },
+            );
+            assert.equal(eventResponse.status, 200);
+            const page = await eventResponse.json() as { events: DefEvent[] };
+            if (page.events.some((event) => (
+              'defTurnId' in event
+              && event.defTurnId === started.defTurnId
+              && ['turn.completed', 'turn.failed', 'turn.stopped', 'turn.interrupted'].includes(event.type)
+            ))) return page.events;
+            await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+          }
+        })(), 60_000);
+        terminal = [...events].reverse().find((event) => (
+          'defTurnId' in event
+          && event.defTurnId === started.defTurnId
+          && ['turn.completed', 'turn.failed', 'turn.stopped', 'turn.interrupted'].includes(event.type)
+        ));
+        const accepted = events.find((event) => (
+          event.type === 'turn.accepted' && event.defTurnId === started.defTurnId
+        ));
+        assert.equal(accepted?.type, 'turn.accepted');
+        if (accepted?.type === 'turn.accepted') assert.equal(accepted.payload.userMessage, scenario.userMessage);
+      } else {
+        const session = await host.createSession({ binding, providerProfileRef: 'blackbox' });
+        const turn = await host.startHarnessTurn({
+          defSessionId: session.defSessionId,
+          userMessage: scenario.userMessage,
+        });
+        terminal = await withTimeout(host.waitForTurnTerminal(turn.defTurnId), 60_000).catch((error: unknown) => {
+          console.error(JSON.stringify({
+            scenario: scenario.id,
+            providerToolSets: provider.toolSets,
+            providerFailure: provider.failure?.stack ?? null,
+            events: host.readEvents(session.defSessionId),
+          }, null, 2));
+          throw error;
+        });
+        events = host.readEvents(session.defSessionId);
+      }
+      assert.ok(terminal, JSON.stringify(events, null, 2));
       assert.equal(terminal.type, 'turn.completed', JSON.stringify(events, null, 2));
       assert.equal(provider.failure, null, provider.failure?.stack);
       assert.deepEqual(
@@ -199,43 +336,17 @@ async function run(): Promise<void> {
     }
     assert.equal(provider.failure, null, provider.failure?.stack);
     assert.equal(provider.requestCount, providerPlan.length);
-    assert.equal(product.snapshotReads, 6);
+    assert.equal(snapshotReads, 6);
     console.log(JSON.stringify({
-      result: 'real OpenCode five-route blackbox passed',
+      result: 'real OpenCode five-route blackbox passed (calculation via Product HTTP API)',
       runtimeVersion: '1.17.11-def.1',
       providerRequests: provider.requestCount,
       results,
     }, null, 2));
   } finally {
-    await host.shutdown().catch(() => undefined);
+    await productServer.stop().catch(() => undefined);
     await provider.stop();
     await rm(storeRoot, { recursive: true, force: true });
-  }
-}
-
-class FixtureProductGateway implements ProductGateway<Phase2ProductOperationSchema> {
-  readonly #snapshot: ProductSnapshotEnvelope;
-  snapshotReads = 0;
-
-  constructor(snapshot: ProductSnapshotEnvelope) {
-    this.#snapshot = snapshot;
-  }
-
-  async getSnapshot(_binding: ProductBinding): Promise<ProductSnapshotEnvelope> {
-    this.snapshotReads += 1;
-    return this.#snapshot;
-  }
-
-  async dispatch(_command: ProductCommandEnvelope<Phase2ProductOperationSchema>): Promise<ProductCommandReceipt> {
-    throw new Error('Real read-only blackbox must not dispatch product mutations');
-  }
-
-  async awaitResult(_commandId: CommandId): Promise<ProductCommandResult> {
-    throw new Error('Real read-only blackbox must not wait for product mutations');
-  }
-
-  async reconcile(_commandId: CommandId): Promise<ProductCommandResult | null> {
-    throw new Error('Real read-only blackbox must not reconcile product mutations');
   }
 }
 

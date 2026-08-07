@@ -174,7 +174,7 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
     captureLogs(agentPage, 'agent');
     await agentPage.goto(agentUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     try {
-      await agentPage.getByRole('complementary', { name: 'AI 模式状态' }).waitFor({ timeout: 30_000 });
+      await agentPage.getByRole('complementary', { name: 'AI 模式' }).waitFor({ timeout: 30_000 });
     } catch (error) {
       const diagnostics = await agentPage.evaluate(async () => {
         const capability = window.sessionStorage.getItem('dmg.desktop.agent-ui-session.v1') || '';
@@ -236,6 +236,10 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
     const agentPresentation = await agentPage.evaluate(async () => ({
       visibility: document.visibilityState,
       body: document.body.innerText.slice(0, 4_000),
+      panel: (() => {
+        const bounds = document.querySelector('.agent-mode-overlay')?.getBoundingClientRect();
+        return bounds ? { width: bounds.width, height: bounds.height, top: bounds.top, right: bounds.right } : null;
+      })(),
       locks: typeof navigator.locks?.query === 'function' ? await navigator.locks.query() : null,
     }));
     assert.equal(agentState.engine?.kind, 'opencode');
@@ -245,6 +249,10 @@ async function inspectBrowserWorkspace({ workspaceUrl, mcpUrl, clientConfigPath,
       true,
       `Agent consumer binding is incomplete: ${JSON.stringify({ agentState, agentPresentation, agentTraffic })}`,
     );
+    assert.ok(agentPresentation.panel, 'Slim AI 工作面板没有渲染');
+    assert.ok(agentPresentation.panel.width >= 400 && agentPresentation.panel.width <= 460, 'AI 工作面板宽度异常');
+    assert.ok(agentPresentation.panel.height >= 600, 'AI 工作面板没有使用可用浏览器高度');
+    assert.doesNotMatch(agentPresentation.body, /引擎待接入/u, '真实引擎阶段仍显示旧占位文案');
     await agentPage.close();
 
     const reviewPage = await context.newPage();

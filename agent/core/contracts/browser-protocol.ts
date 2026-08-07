@@ -1,9 +1,12 @@
 import type {
+  ClientTurnId,
   CommandId,
   DefSessionId,
   DefTurnId,
   ToolCallId,
 } from './ids.ts';
+import type { DefEvent } from './events.ts';
+import type { DefSessionV6 } from './session.ts';
 import type {
   ProductBinding,
   ProductCommandEnvelope,
@@ -90,6 +93,54 @@ export type AgentUiState = {
   readonly consumer: BrowserWorkbenchConsumerState | null;
   readonly activeDefSessionId: DefSessionId | null;
   readonly activeDefTurnId: DefTurnId | null;
+};
+
+export type AgentProductSession = Omit<DefSessionV6, 'engine'> & {
+  readonly engine: {
+    readonly kind: string;
+    readonly runtimeVersion: string;
+  };
+};
+
+export type AgentSessionList = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly sessions: readonly AgentProductSession[];
+};
+
+export type AgentSessionCreateInput = {
+  readonly providerProfileRef?: string;
+};
+
+export type AgentSessionEnvelope = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly session: AgentProductSession;
+};
+
+export type AgentEventPage = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly defSessionId: DefSessionId;
+  readonly afterSequence: number;
+  readonly nextSequence: number;
+  readonly hasMore: boolean;
+  readonly events: readonly DefEvent[];
+};
+
+export type AgentTurnStartInput = {
+  readonly clientTurnId: ClientTurnId;
+  readonly userMessage: string;
+};
+
+export type AgentTurnAccepted = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly defSessionId: DefSessionId;
+  readonly defTurnId: DefTurnId;
+  readonly clientTurnId: ClientTurnId;
+};
+
+export type AgentTurnAbortResult = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly defTurnId: DefTurnId;
+  readonly stopped: true;
 };
 
 export type BrowserSnapshotPublish = {

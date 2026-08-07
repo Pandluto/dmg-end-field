@@ -41,6 +41,15 @@ type SessionRecord = {
   providerProfileRef: string;
   sequence: number;
   events: DefEvent[];
+  clientTurns: Map<ClientTurnId, {
+    readonly userMessage: string;
+    readonly promise: Promise<TurnStartResult>;
+  }>;
+};
+
+type TurnStartResult = {
+  readonly defTurnId: DefTurnId;
+  readonly clientTurnId: ClientTurnId;
 };
 
 type ActiveTurn = {
@@ -75,6 +84,7 @@ export class DefAgentHost {
   readonly #sessions = new Map<DefSessionId, SessionRecord>();
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
   #activeTurn: ActiveTurn | null = null;
+  #activeSessionId: DefSessionId | null = null;
   #turnStarting = false;
   #shutdown = false;
 
@@ -148,8 +158,10 @@ export class DefAgentHost {
       providerProfileRef: input.providerProfileRef,
       sequence: 0,
       events: [],
+      clientTurns: new Map(),
     };
     this.#sessions.set(defSessionId, record);
+    this.#activeSessionId = defSessionId;
     this.#append(record, {
       type: 'session.ready',
       payload: {
@@ -190,10 +202,12 @@ export class DefAgentHost {
         context: bindingContext(record.binding),
       });
       const active = this.#createActiveTurn(record, defTurnId, handle, null);
+      this.#activeSessionId = record.session.defSessionId;
+      this.#touchSession(record);
       this.#append(record, {
         type: 'turn.accepted',
         defTurnId,
-        payload: { clientTurnId },
+        payload: { clientTurnId, userMessage: input.userMessage },
       });
       void this.#pump(active);
       return { defTurnId, clientTurnId };
@@ -206,20 +220,56 @@ export class DefAgentHost {
     readonly defSessionId: DefSessionId;
     readonly userMessage: string;
     readonly clientTurnId?: ClientTurnId;
-  }): Promise<{ readonly defTurnId: DefTurnId; readonly clientTurnId: ClientTurnId }> {
+    readonly binding?: ProductBinding;
+  }): Promise<TurnStartResult> {
     this.#assertRunning();
     this.#requireConsumer();
-    this.#assertTurnAvailable();
     const harnessManager = this.#requireHarnessManager();
     this.#requireToolRegistry();
     const record = this.#sessions.get(input.defSessionId);
     if (!record) {
       throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${input.defSessionId} does not exist`, 404);
     }
+    if (input.binding) {
+      assertStableSessionBinding(record.session, input.binding);
+    }
+    const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
+    const previous = record.clientTurns.get(clientTurnId);
+    if (previous) {
+      if (previous.userMessage !== input.userMessage) {
+        throw new DefAgentHostError(
+          'AGENT_CLIENT_TURN_CONFLICT',
+          `Client Turn ${clientTurnId} was already used with another message`,
+          409,
+        );
+      }
+      return previous.promise;
+    }
+    this.#assertTurnAvailable();
+    if (input.binding) record.binding = input.binding;
     this.#turnStarting = true;
+    const promise = this.#startHarnessTurn(record, harnessManager, {
+      clientTurnId,
+      userMessage: input.userMessage,
+    });
+    record.clientTurns.set(clientTurnId, { userMessage: input.userMessage, promise });
+    try {
+      return await promise;
+    } catch (error) {
+      if (record.clientTurns.get(clientTurnId)?.promise === promise) {
+        record.clientTurns.delete(clientTurnId);
+      }
+      throw error;
+    }
+  }
+
+  async #startHarnessTurn(
+    record: SessionRecord,
+    harnessManager: DefHarnessManager,
+    input: { readonly clientTurnId: ClientTurnId; readonly userMessage: string },
+  ): Promise<TurnStartResult> {
     try {
       const defTurnId = this.#ids.turn();
-      const clientTurnId = input.clientTurnId ?? this.#ids.clientTurn();
       const started = harnessManager.beginTurn({
         defSessionId: record.session.defSessionId,
         defTurnId,
@@ -230,7 +280,7 @@ export class DefAgentHost {
           engineSession: record.session.engine,
           defSessionId: record.session.defSessionId,
           defTurnId,
-          clientTurnId,
+          clientTurnId: input.clientTurnId,
           systemContext: harnessManager.buildRoutingSystemContext(),
           userMessage: input.userMessage,
           providerProfileRef: record.providerProfileRef,
@@ -247,14 +297,16 @@ export class DefAgentHost {
         handle,
         started.transaction.transactionId,
       );
+      this.#activeSessionId = record.session.defSessionId;
+      this.#touchSession(record);
       this.#append(record, {
         type: 'turn.accepted',
         defTurnId,
-        payload: { clientTurnId },
+        payload: { clientTurnId: input.clientTurnId, userMessage: input.userMessage },
       });
       this.#appendHarnessTrace(active, started.trace);
       void this.#pump(active);
-      return { defTurnId, clientTurnId };
+      return { defTurnId, clientTurnId: input.clientTurnId };
     } finally {
       this.#turnStarting = false;
     }
@@ -315,9 +367,18 @@ export class DefAgentHost {
     });
   }
 
-  async abortTurn(defTurnId: DefTurnId, code = 'USER_STOPPED'): Promise<void> {
+  async abortTurn(
+    defTurnId: DefTurnId,
+    code = 'USER_STOPPED',
+    binding?: ProductBinding,
+  ): Promise<void> {
     const active = this.#turns.get(defTurnId);
-    if (!active || this.#activeTurn !== active) {
+    if (!active) {
+      throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
+    }
+    if (binding) assertStableSessionBinding(active.session.session, binding);
+    if (active.settled) return;
+    if (this.#activeTurn !== active) {
       throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${defTurnId} does not exist`, 404);
     }
     active.abortRequested = true;
@@ -351,17 +412,41 @@ export class DefAgentHost {
     return turn.terminal;
   }
 
-  readEvents(defSessionId: DefSessionId, afterSequence = 0): readonly DefEvent[] {
-    const record = this.#sessions.get(defSessionId);
-    if (!record) {
-      throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${defSessionId} does not exist`, 404);
+  listSessions(binding?: ProductBinding): readonly DefSessionV6[] {
+    return [...this.#sessions.values()]
+      .filter((record) => !binding || stableSessionBindingMatches(record.session, binding))
+      .map((record) => cloneSession(record.session))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  readSession(defSessionId: DefSessionId, binding?: ProductBinding): DefSessionV6 {
+    const record = this.#requireSession(defSessionId);
+    if (binding) assertStableSessionBinding(record.session, binding);
+    return cloneSession(record.session);
+  }
+
+  readEvents(
+    defSessionId: DefSessionId,
+    afterSequence = 0,
+    limit = 256,
+    binding?: ProductBinding,
+  ): readonly DefEvent[] {
+    const record = this.#requireSession(defSessionId);
+    if (binding) assertStableSessionBinding(record.session, binding);
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0 || afterSequence > record.sequence) {
+      throw new DefAgentHostError('AGENT_EVENT_CURSOR_INVALID', 'Event cursor is outside this Session journal', 400);
     }
-    return record.events.filter((event) => event.sequence > afterSequence);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 256) {
+      throw new DefAgentHostError('AGENT_EVENT_LIMIT_INVALID', 'Event page limit must be between 1 and 256', 400);
+    }
+    return record.events
+      .filter((event) => event.sequence > afterSequence)
+      .slice(0, limit);
   }
 
   getActiveIds(): { readonly defSessionId: DefSessionId | null; readonly defTurnId: DefTurnId | null } {
     return {
-      defSessionId: this.#activeTurn?.session.session.defSessionId ?? null,
+      defSessionId: this.#activeTurn?.session.session.defSessionId ?? this.#activeSessionId,
       defTurnId: this.#activeTurn?.defTurnId ?? null,
     };
   }
@@ -843,6 +928,23 @@ export class DefAgentHost {
       throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench already has an active or starting turn');
     }
   }
+
+  #requireSession(defSessionId: DefSessionId): SessionRecord {
+    const record = this.#sessions.get(defSessionId);
+    if (!record) {
+      throw new DefAgentHostError('AGENT_SESSION_NOT_FOUND', `DEF Session ${defSessionId} does not exist`, 404);
+    }
+    return record;
+  }
+
+  #touchSession(record: SessionRecord): void {
+    record.session = {
+      ...record.session,
+      lastDatabaseGeneration: record.binding.databaseGeneration,
+      boundNodeId: record.binding.checkoutTargetId,
+      updatedAt: new Date(this.#clock()).toISOString(),
+    };
+  }
 }
 
 function bindingContext(binding: ProductBinding): JsonObject {
@@ -855,6 +957,30 @@ function bindingContext(binding: ProductBinding): JsonObject {
     contentRevision: binding.contentRevision,
     snapshotDigest: binding.snapshotDigest,
   };
+}
+
+function stableSessionBindingMatches(session: DefSessionV6, binding: ProductBinding): boolean {
+  return session.workspaceId === binding.workspaceId
+    && session.lastDatabaseGeneration === binding.databaseGeneration
+    && session.timelineId === binding.timelineId;
+}
+
+function cloneSession(session: DefSessionV6): DefSessionV6 {
+  return {
+    ...session,
+    engine: { ...session.engine },
+    harness: { ...session.harness },
+  };
+}
+
+function assertStableSessionBinding(session: DefSessionV6, binding: ProductBinding): void {
+  if (!stableSessionBindingMatches(session, binding)) {
+    throw new DefAgentHostError(
+      'AGENT_BINDING_CONFLICT',
+      'DEF Session does not belong to the active browser workspace and Timeline',
+      409,
+    );
+  }
 }
 
 function harnessToolFailure(error: unknown): {

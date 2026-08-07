@@ -1,5 +1,11 @@
 import type {
+  AgentEventPage,
   AgentHostHealth,
+  AgentProductSession,
+  AgentSessionCreateInput,
+  AgentTurnAbortResult,
+  AgentTurnAccepted,
+  AgentTurnStartInput,
   AgentUiState,
   BrowserCommandDelivery,
   BrowserCommandResultSubmission,
@@ -9,6 +15,11 @@ import type {
   BrowserWorkbenchRegistration,
   DEF_AGENT_PROTOCOL_VERSION,
 } from '../../../agent/core/contracts/browser-protocol.ts';
+import type { DefEvent } from '../../../agent/core/contracts/events.ts';
+import type {
+  DefSessionId,
+  DefTurnId,
+} from '../../../agent/core/contracts/ids.ts';
 import {
   AGENT_LAUNCH_GRANT_FRAGMENT_KEY,
   AGENT_UI_CAPABILITY_HEADER,
@@ -214,6 +225,14 @@ function readErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function readErrorCode(payload: unknown, fallback: string): string {
+  if (!payload || typeof payload !== 'object') return fallback;
+  const error = (payload as Record<string, unknown>).error;
+  if (!error || typeof error !== 'object') return fallback;
+  const code = (error as Record<string, unknown>).code;
+  return typeof code === 'string' && /^[A-Z0-9_]{3,100}$/.test(code) ? code : fallback;
+}
+
 function responseData(payload: unknown): Record<string, unknown> {
   if (!payload || typeof payload !== 'object') return {};
   const record = payload as Record<string, unknown>;
@@ -272,6 +291,258 @@ function asConsumerState(payload: unknown): BrowserWorkbenchConsumerState {
     throw new DesktopAgentBridgeError('Agent Host 返回了无效的 consumer 状态。', 'INVALID_HOST_RESPONSE');
   }
   return candidate as BrowserWorkbenchConsumerState;
+}
+
+const SESSION_STATUSES = new Set([
+  'binding-pending', 'creating', 'create-failed', 'ready', 'engine-unavailable',
+  'archived', 'binding-missing', 'orphaned', 'deleting', 'delete-failed',
+]);
+
+const PRODUCT_SESSION_KEYS = new Set([
+  'schemaVersion', 'eventSchemaVersion', 'defSessionId', 'host', 'status',
+  'workspaceId', 'lastDatabaseGeneration', 'timelineId', 'axisBindingId',
+  'boundNodeId', 'engine', 'harness', 'createdAt', 'updatedAt',
+]);
+const PRODUCT_ENGINE_KEYS = new Set(['kind', 'runtimeVersion']);
+const PRODUCT_HARNESS_KEYS = new Set(['stateVersion', 'revision']);
+
+const EVENT_TYPES = new Set([
+  'session.ready', 'session.recovered', 'session.archived', 'session.orphaned',
+  'turn.accepted', 'response.first-token', 'response.delta', 'tool.requested',
+  'tool.started', 'tool.result', 'tool.error', 'harness.routed',
+  'harness.phase.entered', 'harness.tool.projected', 'harness.terminal',
+  'interaction.requested', 'interaction.resolved', 'command.queued',
+  'command.dispatched', 'command.claimed', 'command.committed', 'command.result',
+  'command.reconciled', 'command.orphaned', 'turn.completed', 'turn.stopped',
+  'turn.interrupted', 'turn.failed',
+]);
+
+const SESSION_EVENT_TYPES = new Set([
+  'session.ready', 'session.recovered', 'session.archived', 'session.orphaned',
+]);
+const TOOL_EVENT_TYPES = new Set([
+  'tool.requested', 'tool.started', 'tool.result', 'tool.error',
+  'command.queued', 'command.dispatched', 'command.claimed', 'command.committed',
+  'command.result', 'command.reconciled', 'command.orphaned',
+]);
+const INTERACTION_EVENT_TYPES = new Set(['interaction.requested', 'interaction.resolved']);
+const COMMAND_EVENT_TYPES = new Set([
+  'command.queued', 'command.dispatched', 'command.claimed', 'command.committed',
+  'command.result', 'command.reconciled', 'command.orphaned',
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isJsonValue(value: unknown, depth = 0): boolean {
+  if (depth > 32) return false;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((entry) => isJsonValue(entry, depth + 1));
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((entry) => isJsonValue(entry, depth + 1));
+}
+
+function hasString(record: Record<string, unknown>, key: string): boolean {
+  return typeof record[key] === 'string';
+}
+
+function hasExactKeys(record: Record<string, unknown>, expected: ReadonlySet<string>): boolean {
+  const keys = Object.keys(record);
+  return keys.length === expected.size && keys.every((key) => expected.has(key));
+}
+
+function isSafeProductEventShape(event: Record<string, unknown>): boolean {
+  const type = event.type as string;
+  const payload = event.payload as Record<string, unknown>;
+  if ('diagnostics' in event) return false;
+  if (!SESSION_EVENT_TYPES.has(type) && typeof event.defTurnId !== 'string') return false;
+  if (TOOL_EVENT_TYPES.has(type) && typeof event.toolCallId !== 'string') return false;
+  if (INTERACTION_EVENT_TYPES.has(type) && typeof event.interactionId !== 'string') return false;
+  if (COMMAND_EVENT_TYPES.has(type) && typeof event.commandId !== 'string') return false;
+  switch (type) {
+    case 'session.ready':
+    case 'session.recovered':
+      return hasString(payload, 'engineKind') && hasString(payload, 'engineRuntimeVersion');
+    case 'session.archived':
+      return hasString(payload, 'reason');
+    case 'session.orphaned':
+      return hasString(payload, 'code') && hasString(payload, 'message');
+    case 'turn.accepted':
+      return hasString(payload, 'clientTurnId') && hasString(payload, 'userMessage');
+    case 'response.first-token':
+      return Object.keys(payload).length === 0;
+    case 'response.delta':
+      return hasString(payload, 'delta');
+    case 'tool.requested':
+      return hasString(payload, 'name')
+        && ['read', 'propose', 'mutate'].includes(String(payload.risk))
+        && isJsonValue(payload.input);
+    case 'tool.started':
+      return hasString(payload, 'name');
+    case 'tool.result':
+      return Object.prototype.hasOwnProperty.call(payload, 'result') && isJsonValue(payload.result);
+    case 'tool.error':
+      return hasString(payload, 'code')
+        && hasString(payload, 'message')
+        && (payload.details === undefined || isJsonValue(payload.details));
+    case 'turn.completed':
+      return payload.output === undefined || isJsonValue(payload.output);
+    case 'turn.stopped':
+      return hasString(payload, 'code') && (payload.message === undefined || typeof payload.message === 'string');
+    case 'turn.failed':
+      return hasString(payload, 'code') && hasString(payload, 'message');
+    case 'turn.interrupted':
+      return hasString(payload, 'code')
+        && hasString(payload, 'message')
+        && Array.isArray(payload.reconcileRequiredCommandIds)
+        && payload.reconcileRequiredCommandIds.every((id) => typeof id === 'string');
+    default:
+      return isJsonValue(payload);
+  }
+}
+
+function asProductSession(payload: unknown): AgentProductSession {
+  const data = responseData(payload);
+  const candidate = data.session && typeof data.session === 'object' ? data.session : data;
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的会话。', 'INVALID_HOST_RESPONSE');
+  }
+  const session = candidate as Record<string, unknown>;
+  const engine = session.engine;
+  const harness = session.harness;
+  if (
+    !hasExactKeys(session, PRODUCT_SESSION_KEYS)
+    || session.schemaVersion !== 6
+    || session.eventSchemaVersion !== 1
+    || typeof session.defSessionId !== 'string'
+    || session.host !== 'workbench'
+    || typeof session.status !== 'string'
+    || !SESSION_STATUSES.has(session.status)
+    || typeof session.workspaceId !== 'string'
+    || typeof session.lastDatabaseGeneration !== 'string'
+    || typeof session.timelineId !== 'string'
+    || (session.axisBindingId !== null && typeof session.axisBindingId !== 'string')
+    || (session.boundNodeId !== null && typeof session.boundNodeId !== 'string')
+    || typeof session.createdAt !== 'string'
+    || typeof session.updatedAt !== 'string'
+    || !engine
+    || typeof engine !== 'object'
+    || Array.isArray(engine)
+    || !hasExactKeys(engine as Record<string, unknown>, PRODUCT_ENGINE_KEYS)
+    || typeof (engine as Record<string, unknown>).kind !== 'string'
+    || typeof (engine as Record<string, unknown>).runtimeVersion !== 'string'
+    || 'sessionId' in engine
+    || 'storeSchemaVersion' in engine
+    || !harness
+    || typeof harness !== 'object'
+    || Array.isArray(harness)
+    || !hasExactKeys(harness as Record<string, unknown>, PRODUCT_HARNESS_KEYS)
+    || typeof (harness as Record<string, unknown>).stateVersion !== 'number'
+    || typeof (harness as Record<string, unknown>).revision !== 'string'
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了不兼容的会话。', 'INVALID_HOST_RESPONSE');
+  }
+  return session as unknown as AgentProductSession;
+}
+
+function asSessionList(payload: unknown): readonly AgentProductSession[] {
+  const data = responseData(payload);
+  if (
+    !hasExactKeys(data, new Set(['protocolVersion', 'sessions']))
+    || data.protocolVersion !== 2
+    || !Array.isArray(data.sessions)
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的会话列表。', 'INVALID_HOST_RESPONSE');
+  }
+  return data.sessions.map((session) => asProductSession({ session }));
+}
+
+function asDefEvent(value: unknown, defSessionId: string, afterSequence: number): DefEvent {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的事件。', 'INVALID_HOST_RESPONSE');
+  }
+  const event = value as Record<string, unknown>;
+  if (
+    event.schemaVersion !== 1
+    || !Number.isSafeInteger(event.sequence)
+    || Number(event.sequence) <= afterSequence
+    || event.defSessionId !== defSessionId
+    || typeof event.occurredAt !== 'string'
+    || typeof event.type !== 'string'
+    || !EVENT_TYPES.has(event.type)
+    || !event.payload
+    || typeof event.payload !== 'object'
+    || Array.isArray(event.payload)
+    || !isSafeProductEventShape(event)
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了不兼容的事件。', 'INVALID_HOST_RESPONSE');
+  }
+  return event as unknown as DefEvent;
+}
+
+function asEventPage(
+  payload: unknown,
+  expectedSessionId: DefSessionId,
+  expectedAfterSequence: number,
+  limit: number,
+): AgentEventPage {
+  const data = responseData(payload);
+  if (
+    !hasExactKeys(data, new Set([
+      'protocolVersion', 'defSessionId', 'afterSequence', 'nextSequence', 'hasMore', 'events',
+    ]))
+    ||
+    data.protocolVersion !== 2
+    || data.defSessionId !== expectedSessionId
+    || data.afterSequence !== expectedAfterSequence
+    || !Number.isSafeInteger(data.nextSequence)
+    || Number(data.nextSequence) < expectedAfterSequence
+    || typeof data.hasMore !== 'boolean'
+    || !Array.isArray(data.events)
+    || data.events.length > limit
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的事件页。', 'INVALID_HOST_RESPONSE');
+  }
+  let cursor = expectedAfterSequence;
+  const events = data.events.map((event) => {
+    const parsed = asDefEvent(event, expectedSessionId, cursor);
+    cursor = parsed.sequence;
+    return parsed;
+  });
+  if (data.nextSequence !== cursor) {
+    throw new DesktopAgentBridgeError('Agent Host 事件游标不连续。', 'INVALID_HOST_RESPONSE');
+  }
+  return { ...data, events } as unknown as AgentEventPage;
+}
+
+function asTurnAccepted(payload: unknown, expectedSessionId: DefSessionId): AgentTurnAccepted {
+  const data = responseData(payload);
+  if (
+    !hasExactKeys(data, new Set(['protocolVersion', 'defSessionId', 'defTurnId', 'clientTurnId']))
+    ||
+    data.protocolVersion !== 2
+    || data.defSessionId !== expectedSessionId
+    || typeof data.defTurnId !== 'string'
+    || typeof data.clientTurnId !== 'string'
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Turn。', 'INVALID_HOST_RESPONSE');
+  }
+  return data as unknown as AgentTurnAccepted;
+}
+
+function asTurnAbortResult(payload: unknown, expectedTurnId: DefTurnId): AgentTurnAbortResult {
+  const data = responseData(payload);
+  if (
+    !hasExactKeys(data, new Set(['protocolVersion', 'defTurnId', 'stopped']))
+    || data.protocolVersion !== 2
+    || data.defTurnId !== expectedTurnId
+    || data.stopped !== true
+  ) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的停止结果。', 'INVALID_HOST_RESPONSE');
+  }
+  return data as unknown as AgentTurnAbortResult;
 }
 
 function makeOpaqueId(prefix: string): string {
@@ -637,6 +908,57 @@ export class DesktopAgentBridge {
     });
   }
 
+  async listSessions(): Promise<readonly AgentProductSession[]> {
+    return asSessionList(await this.#request('/agent-host/sessions'));
+  }
+
+  async createSession(input: AgentSessionCreateInput = {}): Promise<AgentProductSession> {
+    const data = await this.#request('/agent-host/sessions', {
+      method: 'POST',
+      body: input,
+    });
+    return asProductSession(data);
+  }
+
+  async getSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
+    const data = await this.#request(`/agent-host/sessions/${encodeURIComponent(defSessionId)}`);
+    return asProductSession(data);
+  }
+
+  async readSessionEvents(
+    defSessionId: DefSessionId,
+    afterSequence = 0,
+    limit = 256,
+  ): Promise<AgentEventPage> {
+    const query = new URLSearchParams({
+      afterSequence: String(afterSequence),
+      limit: String(limit),
+    });
+    const data = await this.#request(
+      `/agent-host/sessions/${encodeURIComponent(defSessionId)}/events?${query}`,
+    );
+    return asEventPage(data, defSessionId, afterSequence, limit);
+  }
+
+  async startTurn(
+    defSessionId: DefSessionId,
+    input: AgentTurnStartInput,
+  ): Promise<AgentTurnAccepted> {
+    const data = await this.#request(
+      `/agent-host/sessions/${encodeURIComponent(defSessionId)}/turns`,
+      { method: 'POST', body: input },
+    );
+    return asTurnAccepted(data, defSessionId);
+  }
+
+  async abortTurn(defTurnId: DefTurnId): Promise<AgentTurnAbortResult> {
+    const data = await this.#request(
+      `/agent-host/turns/${encodeURIComponent(defTurnId)}/abort`,
+      { method: 'POST', body: {} },
+    );
+    return asTurnAbortResult(data, defTurnId);
+  }
+
   async refreshHostState(): Promise<AgentHostHealth> {
     return this.getHealth();
   }
@@ -678,7 +1000,9 @@ export class DesktopAgentBridge {
       if (authorized && (response.status === 401 || response.status === 403)) this.clearSessionCapability();
       throw new DesktopAgentBridgeError(
         readErrorMessage(payload, `Agent Host 请求失败（${response.status}）。`),
-        response.status === 401 || response.status === 403 ? 'AGENT_UNAUTHORIZED' : 'HOST_REQUEST_FAILED',
+        response.status === 401 || response.status === 403
+          ? 'AGENT_UNAUTHORIZED'
+          : readErrorCode(payload, 'HOST_REQUEST_FAILED'),
         response.status,
       );
     }
@@ -863,7 +1187,42 @@ export class DesktopAgentConsumerController {
     if (this.#consumer && !sameConsumerScope(this.#consumer.binding, binding)) {
       await this.#closeCurrentConsumer();
     }
-    if (this.#consumer) return;
+    if (this.#consumer) {
+      if (sameProductBinding(this.#consumer.binding, binding)) return;
+      const current = this.#consumer;
+      try {
+        const next = await this.#bridge.heartbeatConsumer({
+          consumerId: current.consumerId,
+          executorLeaseId: current.executorLeaseId,
+          writer: true,
+          visible: true,
+          binding,
+        });
+        const stillEligible = this.#running
+          && version === this.#syncVersion
+          && this.isVisible()
+          && this.#workspaceLease.getRole() === 'writer';
+        if (!stillEligible) {
+          await this.#bridge.closeConsumer({
+            consumerId: next.consumerId,
+            executorLeaseId: next.executorLeaseId,
+          }, false).catch(() => undefined);
+          if (this.#consumer === current) this.#consumer = null;
+          return;
+        }
+        if (this.#consumer === current) {
+          this.#consumer = next;
+          this.#setState({ state: 'registered', visible: true, role: 'writer', consumer: next, error: null });
+        }
+      } catch (error) {
+        if (this.#running && version === this.#syncVersion && this.#consumer === current) {
+          this.#consumer = null;
+          this.#setState({ state: 'error', consumer: null, error: error instanceof Error ? error.message : String(error) });
+          this.#synchronizeRequested = true;
+        }
+      }
+      return;
+    }
 
     this.#setState({ state: 'registering', error: null });
     try {
@@ -990,6 +1349,14 @@ function sameConsumerScope(left: ProductBinding, right: ProductBinding): boolean
   return left.workspaceId === right.workspaceId
     && left.databaseGeneration === right.databaseGeneration
     && left.timelineId === right.timelineId;
+}
+
+function sameProductBinding(left: ProductBinding, right: ProductBinding): boolean {
+  return sameConsumerScope(left, right)
+    && left.checkoutTargetId === right.checkoutTargetId
+    && left.checkoutUpdatedAt === right.checkoutUpdatedAt
+    && left.contentRevision === right.contentRevision
+    && left.snapshotDigest === right.snapshotDigest;
 }
 
 export function createDesktopAgentConsumerController(
