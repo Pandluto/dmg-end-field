@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { listPackage } from '@electron/asar';
 import { inspectRuntimeCode } from './opencode-runtime-contract.mjs';
+import { readOpenCodeUiLock, verifyOpenCodeUiTree } from './opencode-ui-contract.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const defaultAppPath = path.join(projectRoot, 'release', 'mac-arm64', '终末地伤害工作台.app');
@@ -31,6 +32,8 @@ for (const required of [
   '/dist/agent/engine/opencode/plugin.mjs',
   '/dist/agent/engine/opencode/LICENSE',
   '/dist/agent/engine/opencode/bin/darwin-arm64/opencode-1.17.11',
+  '/dist/agent/ui/index.html',
+  '/dist/agent/ui/def-opencode-ui.json',
   '/electron/agent-runtime.cjs',
   '/electron/main.cjs',
   '/electron/legacy-fill-runtime.cjs',
@@ -73,10 +76,15 @@ for (const required of [
   'dist/agent/engine/opencode/plugin.mjs',
   'dist/agent/engine/opencode/LICENSE',
   'dist/agent/engine/opencode/bin/darwin-arm64/opencode-1.17.11',
+  'dist/agent/ui/index.html',
+  'dist/agent/ui/def-opencode-ui.json',
 ]) {
   const unpackedPath = path.join(unpackedRoot, required);
   assert.ok(fs.statSync(unpackedPath).isFile(), `桌面包缺少可执行 MCP 运行文件：${unpackedPath}`);
 }
+
+const nativeUiRoot = path.join(unpackedRoot, 'dist', 'agent', 'ui');
+verifyOpenCodeUiTree(nativeUiRoot, readOpenCodeUiLock().artifact);
 
 const engineRoot = path.join(unpackedRoot, 'dist', 'agent', 'engine', 'opencode');
 const engineManifest = JSON.parse(fs.readFileSync(path.join(engineRoot, 'manifest.json'), 'utf8'));

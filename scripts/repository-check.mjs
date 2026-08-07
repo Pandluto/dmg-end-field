@@ -163,6 +163,7 @@ const allowedAgentFiles = new Set([
   'agent/engines/opencode/errors.ts',
   'agent/engines/opencode/opencode.contract.test.ts',
   'agent/engines/opencode/opencode.real-blackbox.test.ts',
+  'agent/engines/opencode/native-ui-lock.json',
   'agent/engines/opencode/plugin-entry.ts',
   'agent/engines/opencode/private-bridge.ts',
   'agent/engines/opencode/profile.ts',
@@ -179,6 +180,8 @@ const allowedAgentFiles = new Set([
   'agent/host/harness-blackbox.test.ts',
   'agent/host/http-server.ts',
   'agent/host/interactive-host.contract.test.ts',
+  'agent/host/opencode-native-ui-gateway.test.ts',
+  'agent/host/opencode-native-ui-gateway.ts',
   'agent/host/product-command-store.contract.test.ts',
   'agent/host/product-command-store.ts',
   'agent/host/remote-browser-product-gateway.ts',
@@ -189,6 +192,8 @@ const allowedAgentFiles = new Set([
   'agent/runtime/pending-agent-engine.ts',
 ]);
 const removedRuntimeFiles = new Set([
+  'src/components/AgentMode/agentModeModel.test.ts',
+  'src/components/AgentMode/agentModeModel.ts',
   'src/utils/localBridge.ts',
   'src/utils/localDataBridge.ts',
   'src/utils/workbenchRendererCapability.ts',
@@ -242,6 +247,7 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
   }
   if (!file.endsWith('.ts')) continue;
   const isOpenCodeEngine = file.startsWith('agent/engines/opencode/');
+  const isOpenCodeUiGatewayTest = file === 'agent/host/opencode-native-ui-gateway.test.ts';
   const dependencyInspection = inspectTypeScriptDependencies(content, file);
   for (const label of dependencyInspection.uninspectable) {
     fail(`Agent core contains an uninspectable ${label}: ${file}`);
@@ -251,7 +257,12 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
       fail(`Agent runtime imports a deferred or retired runtime (${specifier}): ${file}`);
       continue;
     }
-    if (/opencode/i.test(specifier) && !isOpenCodeEngine && file !== 'agent/runtime/host-entry.ts') {
+    if (
+      /opencode/i.test(specifier)
+      && !isOpenCodeEngine
+      && !isOpenCodeUiGatewayTest
+      && file !== 'agent/runtime/host-entry.ts'
+    ) {
       fail(`Agent runtime imports OpenCode outside its adapter boundary (${specifier}): ${file}`);
       continue;
     }
@@ -322,6 +333,17 @@ for (const dependency of forbiddenDependencies) {
     fail(`removed runtime dependency returned: ${dependency}`);
   }
 }
+
+const agentModeOverlay = fs.readFileSync(
+  path.join(root, 'src', 'components', 'AgentMode', 'AgentModeOverlay.tsx'),
+  'utf8',
+);
+for (const required of ['launchNativeUi', 'agent-native-opencode-frame', '<iframe']) {
+  if (!agentModeOverlay.includes(required)) fail(`AI mode no longer hosts the native OpenCode UI: missing ${required}`);
+}
+for (const forbidden of ['ReactMarkdown', 'projectAgentTranscript', 'readSessionEvents(', 'startTurn(']) {
+  if (agentModeOverlay.includes(forbidden)) fail(`AI mode reintroduced a custom transcript path: ${forbidden}`);
+}
 for (const dependency of ['@modelcontextprotocol/sdk', 'esbuild', 'zod']) {
   if (!packageJson.devDependencies?.[dependency]) {
     fail(`Legacy Fill MCP development dependency is missing: ${dependency}`);
@@ -366,6 +388,9 @@ if (
   || packageJson.scripts?.['agent:runtime:verify'] !== 'node scripts/verify-opencode-runtime.mjs'
 ) {
   fail('OpenCode runtime prepare/verify scripts are missing or invalid');
+}
+if (packageJson.scripts?.['agent:ui:prepare'] !== 'node scripts/prepare-opencode-ui.mjs') {
+  fail('OpenCode native UI prepare script is missing or invalid');
 }
 if (packageJson.scripts?.['electron:smoke:agent-package'] !== 'node scripts/check-packaged-agent-host.mjs') {
   fail('Packaged OpenCode Agent Host smoke script is missing or invalid');

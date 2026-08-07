@@ -144,6 +144,24 @@ export class OpenCodeEngineAdapter implements AgentEngine {
     return this.#runtime.probe(this.#probeProfileRef);
   }
 
+  /**
+   * Read-only/native-UI gateway access to the version-locked OpenCode server.
+   * Callers never receive its private origin or Basic credential; every
+   * request still passes through the Runtime supervisor, which injects both.
+   */
+  async requestNativeUi(pathname: string, init: RequestInit = {}): Promise<Response> {
+    this.#assertRunning();
+    await this.#bridge.start();
+    const runtime = await this.#runtime.start(this.#probeProfileRef);
+    return runtime.request(pathname, init);
+  }
+
+  async nativeUiDirectory(): Promise<string> {
+    this.#assertRunning();
+    await this.#bridge.start();
+    return (await this.#runtime.start(this.#probeProfileRef)).directory;
+  }
+
   async createSession(input: EngineSessionCreateInput): Promise<EngineSessionRef> {
     this.#assertRunning();
     this.#assertProfileRef(input.providerProfileRef);
@@ -396,10 +414,8 @@ class OpenCodeTurnHandle implements EngineTurnHandle, OpenCodeBridgeTurnControll
   async begin(): Promise<void> {
     ensureBoundedUtf8(this.#input.systemContext, MAX_PROMPT_BYTES, 'OpenCode system context');
     ensureBoundedUtf8(this.#input.userMessage, MAX_PROMPT_BYTES, 'OpenCode user message');
-    this.#userMessageId = await nextOpenCodeUserMessageId(
-      this.#runtime,
-      this.ref.session.sessionId,
-    );
+    this.#userMessageId = this.#input.engineUserMessageId
+      ?? await nextOpenCodeUserMessageId(this.#runtime, this.ref.session.sessionId);
     this.#bridge.register(this.ref.session.sessionId, this);
     const connected = deferred<void>();
     void this.#consumeEvents(connected);

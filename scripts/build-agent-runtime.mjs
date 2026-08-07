@@ -9,6 +9,10 @@ import {
   verifyArtifact,
   verifyDarwinCodeSignature,
 } from './opencode-runtime-contract.mjs';
+import {
+  resolveOpenCodeUiLayout,
+  verifyOpenCodeUiTree,
+} from './opencode-ui-contract.mjs';
 
 const projectRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const entryPoint = path.join(projectRoot, 'agent', 'runtime', 'host-entry.ts');
@@ -17,6 +21,7 @@ const outputDirectory = path.join(projectRoot, 'dist', 'agent');
 const outputFile = path.join(outputDirectory, 'host-entry.cjs');
 const engineOutputDirectory = path.join(outputDirectory, 'engine', 'opencode');
 const pluginOutputFile = path.join(engineOutputDirectory, 'plugin.mjs');
+const nativeUiOutputDirectory = path.join(outputDirectory, 'ui');
 
 if (!fs.existsSync(entryPoint)) {
   throw new Error(`缺少 DEF Agent Host runtime entry：${entryPoint}`);
@@ -52,6 +57,7 @@ await Promise.all([
 ]);
 
 const layout = resolveCacheLayout(projectRoot);
+const nativeUiLayout = resolveOpenCodeUiLayout(projectRoot);
 verifyArtifact(layout.binaryPath, layout.lock.binary, 'binary');
 verifyDarwinCodeSignature(layout.binaryPath, layout.lock.target);
 verifyArtifact(layout.licensePath, layout.lock.license, 'license');
@@ -69,6 +75,9 @@ fs.chmodSync(binaryOutputFile, 0o755);
 verifyDarwinCodeSignature(binaryOutputFile, layout.lock.target);
 fs.copyFileSync(layout.licensePath, licenseOutputFile);
 fs.copyFileSync(layout.lockPath, path.join(engineOutputDirectory, 'runtime-lock.json'));
+verifyOpenCodeUiTree(nativeUiLayout.cachePath, nativeUiLayout.lock.artifact);
+fs.cpSync(nativeUiLayout.cachePath, nativeUiOutputDirectory, { recursive: true });
+verifyOpenCodeUiTree(nativeUiOutputDirectory, nativeUiLayout.lock.artifact);
 
 const binaryCode = inspectRuntimeCode(binaryOutputFile, layout.lock.target);
 const manifest = {
@@ -99,6 +108,9 @@ fs.writeFileSync(
 process.stdout.write(`[build-agent-runtime] built ${path.relative(projectRoot, outputFile)}\n`);
 process.stdout.write(
   `[build-agent-runtime] bundled OpenCode ${manifest.runtimeVersion} for ${manifest.target}\n`,
+);
+process.stdout.write(
+  `[build-agent-runtime] bundled native OpenCode UI ${nativeUiLayout.lock.upstreamVersion}\n`,
 );
 
 function sha256(filePath) {

@@ -160,6 +160,16 @@ export type AgentSessionEnvelope = {
   readonly session: AgentProductSession;
 };
 
+export type AgentNativeUiLaunch = {
+  readonly src: string;
+  readonly defSessionId: DefSessionId;
+};
+
+export type AgentNativeUiLaunchEnvelope = {
+  readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
+  readonly launch: AgentNativeUiLaunch;
+};
+
 export type AgentEventPage = {
   readonly protocolVersion: typeof DEF_AGENT_PROTOCOL_VERSION;
   readonly defSessionId: DefSessionId;

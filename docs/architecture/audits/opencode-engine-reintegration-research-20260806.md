@@ -1,5 +1,7 @@
 # OpenCode 引擎回迁与可替换 Agent 架构调研
 
+> 2026-08-07 决策更新：本文关于“另建 Slim React Agent UI、原生 OpenCode UI 不进入产品”的结论已被 [ADR-0008](../decisions/0008-native-opencode-ui.md) 取代。Engine、Host、Harness 和 ProductGateway 的解耦边界继续有效；产品 AI 模式改为通过受控网关宿主同版本的原生 OpenCode UI。
+
 日期：2026-08-06
 
 性质：开工前调研，不是 Spec，不是 Tasks，也不代表已经开始迁移

@@ -20,6 +20,7 @@ import {
   type DefTurnId,
   type EngineEvent,
   type EngineInteractionResultInput,
+  type EngineMessageId,
   type EngineToolProjectionInput,
   type EngineTurnHandle,
   type DefInteractiveToolPlan,
@@ -553,6 +554,7 @@ export class DefAgentHost {
     readonly defSessionId: DefSessionId;
     readonly userMessage: string;
     readonly clientTurnId?: ClientTurnId;
+    readonly engineUserMessageId?: EngineMessageId;
     readonly binding?: ProductBinding;
   }): Promise<TurnStartResult> {
     this.#assertRunning();
@@ -602,6 +604,7 @@ export class DefAgentHost {
     const promise = this.#startHarnessTurn(record, harnessManager, {
       clientTurnId,
       userMessage: input.userMessage,
+      engineUserMessageId: input.engineUserMessageId,
     });
     record.clientTurns.set(clientTurnId, {
       userMessage: input.userMessage,
@@ -635,7 +638,11 @@ export class DefAgentHost {
   async #startHarnessTurn(
     record: SessionRecord,
     harnessManager: DefHarnessManager,
-    input: { readonly clientTurnId: ClientTurnId; readonly userMessage: string },
+    input: {
+      readonly clientTurnId: ClientTurnId;
+      readonly userMessage: string;
+      readonly engineUserMessageId?: EngineMessageId;
+    },
   ): Promise<TurnStartResult> {
     const defTurnId = this.#ids.turn();
     const starting = this.#beginStartingTurn(record, defTurnId);
@@ -651,6 +658,7 @@ export class DefAgentHost {
           defSessionId: record.session.defSessionId,
           defTurnId,
           clientTurnId: input.clientTurnId,
+          engineUserMessageId: input.engineUserMessageId,
           systemContext: harnessManager.buildRoutingSystemContext(),
           userMessage: input.userMessage,
           providerProfileRef: record.providerProfileRef,

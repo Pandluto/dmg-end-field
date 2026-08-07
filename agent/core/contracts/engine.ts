@@ -65,6 +65,13 @@ export interface EngineTurnInput {
   readonly defSessionId: DefSessionId;
   readonly clientTurnId: ClientTurnId;
   readonly defTurnId: DefTurnId;
+  /**
+   * OpenCode's native UI publishes an optimistic user message before its
+   * prompt request completes.  When present, the adapter must use that exact
+   * native message id so the upstream UI can reconcile the optimistic row
+   * with the Engine-owned transcript instead of rendering a duplicate.
+   */
+  readonly engineUserMessageId?: EngineMessageId;
   readonly systemContext: string;
   readonly userMessage: string;
   readonly providerProfileRef: string;

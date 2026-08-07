@@ -19,12 +19,16 @@ const unpackedAgentRoot = path.join(
 );
 const hostEntry = path.join(unpackedAgentRoot, 'host-entry.cjs');
 const engineRoot = path.join(unpackedAgentRoot, 'engine', 'opencode');
+const nativeUiRoot = path.join(unpackedAgentRoot, 'ui');
 assert.equal(fs.statSync(hostEntry).isFile(), true, `缺少 packaged Agent Host：${hostEntry}`);
 assert.equal(fs.statSync(engineRoot).isDirectory(), true, `缺少 packaged OpenCode Engine：${engineRoot}`);
+assert.equal(fs.statSync(path.join(nativeUiRoot, 'index.html')).isFile(), true, `缺少 packaged OpenCode UI：${nativeUiRoot}`);
 
 const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'def-packaged-agent-smoke-'));
 const readyFile = path.join(temporaryRoot, 'ready.json');
 const engineStoreRoot = path.join(temporaryRoot, 'engine-store');
+const sessionStoreRoot = path.join(temporaryRoot, 'session-store');
+const productCommandStoreRoot = path.join(temporaryRoot, 'product-command-store');
 const missingProfilePath = path.join(temporaryRoot, 'missing-provider-profile.json');
 const hostToken = randomBytes(32).toString('base64url');
 const child = spawn(process.execPath, [hostEntry], {
@@ -37,7 +41,10 @@ const child = spawn(process.execPath, [hostEntry], {
     DEF_AGENT_BROWSER_ORIGIN: 'http://127.0.0.1:31457',
     DEF_AGENT_READY_FILE: readyFile,
     DEF_AGENT_ENGINE_ROOT: engineRoot,
+    DEF_AGENT_NATIVE_UI_ROOT: nativeUiRoot,
     DEF_AGENT_ENGINE_STORE_ROOT: engineStoreRoot,
+    DEF_AGENT_SESSION_STORE_ROOT: sessionStoreRoot,
+    DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT: productCommandStoreRoot,
     DEF_AGENT_ENGINE_PROFILE_PATH: missingProfilePath,
     DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF: 'default',
     DEF_AGENT_PARENT_PID: String(process.pid),

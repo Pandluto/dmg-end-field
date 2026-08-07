@@ -52,6 +52,9 @@ function createAgentRuntime(options = {}) {
   const engineRoot = path.resolve(String(
     options.engineRoot || path.join(applicationRoot, 'dist', 'agent', 'engine', 'opencode'),
   ));
+  const nativeUiRoot = path.resolve(String(
+    options.nativeUiRoot || path.join(applicationRoot, 'dist', 'agent', 'ui'),
+  ));
   const engineStoreRoot = path.resolve(String(
     options.engineStoreRoot || path.join(runtimeRoot, 'opencode'),
   ));
@@ -826,6 +829,7 @@ function createAgentRuntime(options = {}) {
       DEF_AGENT_READY_FILE: readyFile,
       DEF_AGENT_PARENT_PID: String(process.pid),
       DEF_AGENT_ENGINE_ROOT: engineRoot,
+      DEF_AGENT_NATIVE_UI_ROOT: nativeUiRoot,
       DEF_AGENT_ENGINE_STORE_ROOT: engineStoreRoot,
       DEF_AGENT_SESSION_STORE_ROOT: sessionStoreRoot,
       DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT: productCommandStoreRoot,
@@ -844,6 +848,7 @@ function createAgentRuntime(options = {}) {
     get readyFile() { return readyFile; },
     get servicePath() { return servicePath; },
     get engineRoot() { return engineRoot; },
+    get nativeUiRoot() { return nativeUiRoot; },
     get engineStoreRoot() { return engineStoreRoot; },
     get sessionStoreRoot() { return sessionStoreRoot; },
     get productCommandStoreRoot() { return productCommandStoreRoot; },

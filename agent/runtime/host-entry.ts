@@ -8,6 +8,7 @@ import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gate
 import { createFileProductCommandStore } from '../host/product-command-store.ts';
 import { createFileDefAgentSessionStore } from '../host/session-store.ts';
 import { AgentTokenAuthority } from '../host/token-authority.ts';
+import { OpenCodeNativeUiGateway } from '../host/opencode-native-ui-gateway.ts';
 import { PHASE6_INTERACTIVE_HARNESS_CATALOG } from '../core/harness/catalog.ts';
 import { DefHarnessManager } from '../core/harness/manager.ts';
 import { DefProductToolRegistry } from '../core/tools/interactive-workbench.ts';
@@ -23,6 +24,7 @@ const engineStoreRoot = requiredEnv('DEF_AGENT_ENGINE_STORE_ROOT');
 const sessionStoreRoot = requiredEnv('DEF_AGENT_SESSION_STORE_ROOT');
 const productCommandStoreRoot = requiredEnv('DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT');
 const engineProfilePath = requiredEnv('DEF_AGENT_ENGINE_PROFILE_PATH');
+const nativeUiRoot = requiredEnv('DEF_AGENT_NATIVE_UI_ROOT');
 const engineDefaultProfileRef = process.env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF?.trim() || 'default';
 const parentPid = requiredPidEnv('DEF_AGENT_PARENT_PID');
 const FORCED_SHUTDOWN_TIMEOUT_MS = 8_000;
@@ -68,6 +70,15 @@ host = new DefAgentHost({
     consumers.requireActive();
   },
 });
+const nativeUi = new OpenCodeNativeUiGateway({
+  uiRoot: nativeUiRoot,
+  browserOrigin,
+  host,
+  engine,
+  consumers,
+  providerProfileRef: engineDefaultProfileRef,
+  diagnostic: (message) => console.error(`[def-opencode-ui] ${message}`),
+});
 
 let shuttingDown = false;
 const parentWatch = setInterval(() => {
@@ -81,6 +92,7 @@ const runtime = new DefAgentHostHttpServer({
   tokens,
   consumers,
   gateway,
+  nativeUi,
   engine: () => engineState,
   diagnostic: (message) => console.error(`[def-agent-host] ${message}`),
   onShutdownRequested: () => {
@@ -107,6 +119,7 @@ void startRuntime().catch((error: unknown) => {
 async function startRuntime(): Promise<void> {
   engineState = projectEngineHealth(await engine.probe());
   await host.initialize();
+  await nativeUi.listen(0);
   const port = await runtime.listen(0);
   await writeReadyManifest({
     service: 'def-agent-host',

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "name": "def-opencode-native-ui",
+  "upstreamVersion": "1.17.11",
+  "upstreamTag": "v1.17.11",
+  "upstreamCommit": "67aec2212010d67775c35e696d8b8b54902eb338",
+  "sourceRef": "codex/def-opencode-spec9-2-implementation@65373e2481f0d2d420560b4fbdccae6a30d94b4c",
+  "sourceHash": "c26e2adb1ccc7ea6d547347bf788116d06a92898060d28567f951303e51552a7",
+  "artifact": {
+    "cachePath": "agent/runtime/opencode-ui",
+    "runtimePath": "ui",
+    "files": 857,
+    "bytes": 28793036,
+    "sha256": "1cf43ddae81988136da7b8d09d6854d6fb8821b0f8c97b3b4895cadfe8f2811f"
+  }
+}

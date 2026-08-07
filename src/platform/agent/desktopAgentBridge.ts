@@ -2,6 +2,7 @@ import type {
   AgentInteractionEnvelope,
   AgentInteractionList,
   AgentInteractionRespondInput,
+  AgentNativeUiLaunch,
   AgentEventPage,
   AgentHostHealth,
   AgentProductSession,
@@ -17,7 +18,6 @@ import type {
   BrowserWorkbenchConsumerState,
   BrowserWorkbenchHeartbeat,
   BrowserWorkbenchRegistration,
-  DEF_AGENT_PROTOCOL_VERSION,
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import type {
   DefSessionId,
@@ -27,6 +27,7 @@ import type {
 import {
   AGENT_LAUNCH_GRANT_FRAGMENT_KEY,
   AGENT_APPROVAL_KEY_STORAGE_KEY,
+  DEF_AGENT_PROTOCOL_VERSION,
   AGENT_UI_CAPABILITY_HEADER,
   AGENT_UI_CAPABILITY_STORAGE_KEY,
 } from '../../../agent/core/contracts/browser-protocol.ts';
@@ -632,6 +633,37 @@ function asSessionList(data: Record<string, unknown>): readonly AgentProductSess
   return data.sessions.map((session) => asProductSession({ session }));
 }
 
+function asNativeUiLaunch(data: Record<string, unknown>, expectedSessionId: DefSessionId): AgentNativeUiLaunch {
+  if (!hasOnlyKeys(data, new Set(['protocolVersion', 'launch']))
+    || data.protocolVersion !== DEF_AGENT_PROTOCOL_VERSION
+    || !isRecord(data.launch)
+    || !hasOnlyKeys(data.launch, new Set(['src', 'defSessionId']))
+    || data.launch.defSessionId !== expectedSessionId
+    || !isNonEmptyString(data.launch.src)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的原生 OpenCode UI 地址。', 'INVALID_HOST_RESPONSE');
+  }
+  let url: URL;
+  try {
+    url = new URL(data.launch.src);
+  } catch {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的原生 OpenCode UI 地址。', 'INVALID_HOST_RESPONSE');
+  }
+  if (
+    url.protocol !== 'http:'
+    || url.hostname !== '127.0.0.1'
+    || !url.port
+    || url.username
+    || url.password
+    || !url.pathname.includes('/session/')
+  ) {
+    throw new DesktopAgentBridgeError('原生 OpenCode UI 地址不在受信任的本机网关。', 'INVALID_HOST_RESPONSE');
+  }
+  return {
+    src: url.toString(),
+    defSessionId: expectedSessionId,
+  };
+}
+
 function makeOpaqueId(prefix: string): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return `${prefix}-${crypto.randomUUID()}`;
@@ -1098,6 +1130,14 @@ export class DesktopAgentBridge {
       body: input,
     });
     return asProductSession(data);
+  }
+
+  async launchNativeUi(defSessionId: DefSessionId): Promise<AgentNativeUiLaunch> {
+    const data = await this.#request('/agent-host/native-ui/launch', {
+      method: 'POST',
+      body: { defSessionId },
+    });
+    return asNativeUiLaunch(data, defSessionId);
   }
 
   async getSession(defSessionId: DefSessionId): Promise<AgentProductSession> {

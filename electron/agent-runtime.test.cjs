@@ -280,6 +280,7 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     assert.equal(fixture.calls[0].env.DEF_AGENT_BROWSER_ORIGIN, 'http://127.0.0.1:31457');
     assert.equal(fixture.calls[0].env.DEF_AGENT_READY_FILE, fixture.runtime.readyFile);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_ROOT, fixture.runtime.engineRoot);
+    assert.equal(fixture.calls[0].env.DEF_AGENT_NATIVE_UI_ROOT, fixture.runtime.nativeUiRoot);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_STORE_ROOT, fixture.runtime.engineStoreRoot);
     assert.equal(fixture.calls[0].env.DEF_AGENT_SESSION_STORE_ROOT, fixture.runtime.sessionStoreRoot);
     assert.equal(

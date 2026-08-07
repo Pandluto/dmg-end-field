@@ -14,11 +14,13 @@ import {
   type AgentHostHealth,
   type AgentLaunchAudience,
   type AgentLaunchGrantRegistration,
+  type AgentNativeUiLaunch,
   type AgentUiState,
   type BrowserCommandResultSubmission,
   type BrowserSnapshotPublish,
   type BrowserWorkbenchHeartbeat,
   type BrowserWorkbenchRegistration,
+  type DefSessionId,
   type JsonObject,
   type JsonValue,
   type InteractionResponse,
@@ -40,6 +42,11 @@ const UI_AUDIENCE: AgentLaunchAudience = 'workbench-ai-mode';
 
 type RuntimeState = 'starting' | 'ready' | 'stopping' | 'error';
 
+type NativeAgentUiGateway = {
+  launch(defSessionId: DefSessionId, claims: AgentUiCapabilityClaims): Promise<AgentNativeUiLaunch>;
+  stop(): Promise<void>;
+};
+
 export interface DefAgentHostHttpServerOptions {
   readonly hostToken: string;
   readonly browserOrigin: string;
@@ -47,6 +54,7 @@ export interface DefAgentHostHttpServerOptions {
   readonly tokens: AgentTokenAuthority;
   readonly consumers: BrowserConsumerRegistry;
   readonly gateway: RemoteBrowserProductGateway;
+  readonly nativeUi?: NativeAgentUiGateway;
   readonly engine: AgentHostHealth['engine'] | (() => AgentHostHealth['engine']);
   readonly diagnostic?: (message: string) => void;
   readonly onShutdownRequested?: () => void;
@@ -59,6 +67,7 @@ export class DefAgentHostHttpServer {
   readonly #tokens: AgentTokenAuthority;
   readonly #consumers: BrowserConsumerRegistry;
   readonly #gateway: RemoteBrowserProductGateway;
+  readonly #nativeUi: NativeAgentUiGateway | null;
   readonly #engine: () => AgentHostHealth['engine'];
   readonly #diagnostic: (message: string) => void;
   readonly #onShutdownRequested: () => void;
@@ -74,6 +83,7 @@ export class DefAgentHostHttpServer {
     this.#tokens = options.tokens;
     this.#consumers = options.consumers;
     this.#gateway = options.gateway;
+    this.#nativeUi = options.nativeUi ?? null;
     const engine = options.engine;
     this.#engine = typeof engine === 'function' ? engine : () => engine;
     this.#diagnostic = options.diagnostic ?? (() => {});
@@ -123,6 +133,7 @@ export class DefAgentHostHttpServer {
     this.#tokens.clear();
     this.#consumers.clear();
     this.#gateway.clear('DEF Agent Host stopped');
+    await this.#nativeUi?.stop();
     await this.#host.shutdown();
     if (this.#server.listening) {
       await new Promise<void>((resolve, reject) => {
@@ -199,6 +210,19 @@ export class DefAgentHostHttpServer {
     }
 
     const claims = this.#requireUiCapability(request);
+    if (request.method === 'POST' && url.pathname === '/agent-host/native-ui/launch') {
+      if (!this.#nativeUi) {
+        throw new DefAgentHostError('AGENT_NATIVE_UI_ROUTE_NOT_FOUND', 'OpenCode native UI is unavailable', 503);
+      }
+      const body = expectRecord(await readJson(request));
+      expectExactKeys(body, ['defSessionId']);
+      const defSessionId = asDefSessionId(expectPortableId(body.defSessionId, 'defSessionId', 200));
+      this.#writeJson(response, 201, {
+        protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+        launch: await this.#nativeUi.launch(defSessionId, claims),
+      });
+      return;
+    }
     if (url.pathname === '/agent-host/sessions') {
       const consumer = this.#consumers.requireActive(claims);
       if (request.method === 'GET') {

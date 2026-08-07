@@ -736,6 +736,15 @@ class FakeLease implements AgentWorkspaceLease {
       if (url.pathname === '/agent-host/sessions' && init?.method === 'POST') {
         return response({ protocolVersion: 2, session }, 201);
       }
+      if (url.pathname === '/agent-host/native-ui/launch' && init?.method === 'POST') {
+        return response({
+          protocolVersion: 2,
+          launch: {
+            defSessionId: session.defSessionId,
+            src: 'http://127.0.0.1:45678/workbench/session/native?auth_token=opaque',
+          },
+        }, 201);
+      }
       if (url.pathname === `/agent-host/sessions/${session.defSessionId}`) {
         if (init?.method === 'DELETE') {
           return response({ protocolVersion: 2, defSessionId: session.defSessionId, deleted: true });
@@ -783,6 +792,10 @@ class FakeLease implements AgentWorkspaceLease {
 
   assert.equal((await bridge.listSessions())[0].defSessionId, session.defSessionId);
   assert.equal((await bridge.createSession({ providerProfileRef: 'default' })).defSessionId, session.defSessionId);
+  assert.equal(
+    (await bridge.launchNativeUi(session.defSessionId)).src,
+    'http://127.0.0.1:45678/workbench/session/native?auth_token=opaque',
+  );
   assert.equal((await bridge.getSession(session.defSessionId)).engine.runtimeVersion, '1.0.0');
   assert.equal((await bridge.archiveSession(session.defSessionId)).status, 'archived');
   assert.equal((await bridge.restoreSession(session.defSessionId)).status, 'ready');
@@ -798,6 +811,8 @@ class FakeLease implements AgentWorkspaceLease {
     call.url.pathname === '/agent-host/sessions' && call.init?.method === 'POST'
   ));
   assert.deepEqual(JSON.parse(String(createCall?.init?.body)), { providerProfileRef: 'default' });
+  const nativeUiCall = calls.find((call) => call.url.pathname === '/agent-host/native-ui/launch');
+  assert.deepEqual(JSON.parse(String(nativeUiCall?.init?.body)), { defSessionId: session.defSessionId });
   const turnCall = calls.find((call) => call.url.pathname.endsWith('/turns'));
   assert.deepEqual(JSON.parse(String(turnCall?.init?.body)), {
     clientTurnId,
