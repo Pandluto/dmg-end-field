@@ -80,6 +80,19 @@ assert.ok(
   deleteReviewIndex >= 0 && deleteWriteIndex > deleteReviewIndex,
   'the complete reviewed subtree identity must be verified before the repository delete',
 );
+const abandonStart = source.indexOf('const abandonPreparedWorkNodeProposalFromCommand = async');
+const abandonEnd = source.indexOf('\n  const restoreAiTimelineWorkNodeBaseFromCommand', abandonStart);
+const abandonSource = source.slice(abandonStart, abandonEnd);
+assert.match(
+  abandonSource,
+  /client\.delete\([\s\S]*?target\.timelineId[\s\S]*?contentRevision: authoritativePreparedNodeRevision\(target\)[\s\S]*?updatedAt: target\.updatedAt/,
+  'prepared cleanup must atomically reject a descendant or revision added after its safety review',
+);
+assert.match(
+  abandonSource,
+  /if \(!target\)[\s\S]*?cleanup\('deleted', 'candidate 已不存在/,
+  'an already absent recovered candidate must settle cleanup instead of blocking the Session forever',
+);
 
 branchMatches.forEach((match, index) => {
   const branchStart = match.index ?? 0;

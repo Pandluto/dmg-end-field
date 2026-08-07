@@ -3659,13 +3659,23 @@ export function CanvasBoard({
       const client = createAiTimelineWorkNodeClient();
       const before = await client.list();
       const target = before.nodes.find((node) => node.id === candidate.nodeId);
-      if (!target || target.timelineId !== candidate.candidateTimelineId || target.timelineId !== activeTimelineId) {
+      if (!target) {
+        return {
+          ok: true as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('deleted', 'candidate 已不存在，无残留节点需要删除。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidateDeleted: true },
+        };
+      }
+      if (target.timelineId !== candidate.candidateTimelineId || target.timelineId !== activeTimelineId) {
         return {
           ok: false as const,
           liveCheckoutTouched: false as const,
           deleted: false as const,
           candidate,
-          cleanup: cleanup('failed', 'candidate 不存在或 timeline 不匹配，未执行删除。'),
+          cleanup: cleanup('preserved', 'candidate timeline 不匹配，按 fail-closed 保留。'),
           postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
         };
       }
@@ -3762,7 +3772,17 @@ export function CanvasBoard({
           postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
         };
       }
-      const deleted = await client.delete(target.id);
+      const deleted = await client.delete(
+        target.id,
+        target.timelineId,
+        {
+          nodes: [{
+            id: target.id,
+            contentRevision: authoritativePreparedNodeRevision(target),
+            updatedAt: target.updatedAt,
+          }],
+        },
+      );
       const stillExists = deleted.nodes.some((node) => node.id === target.id);
       if (stillExists) {
         return {

@@ -634,6 +634,212 @@ export class DefAgentHost {
     }
   }
 
+  #stalePreparedCleanupRequests(record: SessionRecord): Array<{
+    request: Extract<DefEvent, { type: 'interaction.requested' }>;
+    hasUnsettledCommand: boolean;
+  }> {
+    const requests = new Map<InteractionId, Extract<DefEvent, { type: 'interaction.requested' }>>();
+    const latestResolutions = new Map<InteractionId, Extract<DefEvent, { type: 'interaction.resolved' }>>();
+    const commandStates = new Map<InteractionId, Set<CommandId>>();
+    for (const event of record.events) {
+      if (event.type === 'interaction.requested'
+        && event.payload.candidate
+        && event.payload.cleanup?.status === 'pending') {
+        requests.set(event.interactionId, event);
+      }
+      if (event.type === 'interaction.resolved') {
+        latestResolutions.set(event.interactionId, event);
+      }
+      if (event.type === 'command.queued' && event.interactionId) {
+        const commands = commandStates.get(event.interactionId) ?? new Set<CommandId>();
+        commands.add(event.commandId);
+        commandStates.set(event.interactionId, commands);
+      }
+      if ((event.type === 'command.result'
+        || event.type === 'command.reconciled'
+        || event.type === 'command.orphaned') && event.interactionId) {
+        commandStates.get(event.interactionId)?.delete(event.commandId);
+      }
+    }
+    return [...requests.values()].flatMap((request) => {
+      const resolution = latestResolutions.get(request.interactionId);
+      if (resolution?.payload.cleanup
+        && resolution.payload.cleanup.status !== 'pending') return [];
+      // Only an approval that was still pending when restart marked it stale
+      // is eligible. Approved/rejected interactions may already have an apply
+      // receipt and are left to ordinary command reconciliation.
+      if (resolution?.payload.status !== 'stale') return [];
+      return [{
+        request,
+        hasUnsettledCommand: (commandStates.get(request.interactionId)?.size ?? 0) > 0,
+      }];
+    });
+  }
+
+  async #cleanupStalePreparedCandidates(
+    record: SessionRecord,
+    expected: ProductBinding,
+  ): Promise<void> {
+    const pending = this.#stalePreparedCleanupRequests(record);
+    if (pending.length === 0) return;
+    for (const entry of pending) {
+      const request = entry.request;
+      const candidate = request.payload.candidate;
+      if (!candidate || !request.toolCallId) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Interrupted prepared approval is missing its candidate or Tool identity; manual Work Node review is required.',
+          409,
+        );
+      }
+      if (entry.hasUnsettledCommand) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_RECONCILE_REQUIRED',
+          'Interrupted prepared candidate already has an uncertain cleanup/apply command; reconcile it before starting another Turn.',
+          409,
+        );
+      }
+      let snapshot: ProductSnapshotEnvelope;
+      try {
+        snapshot = await this.#productGateway.getSnapshot(expected);
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Interrupted prepared candidate cannot be cleaned against the current Product binding: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+      if (!sameExactProductBinding(snapshot.binding, expected)) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          'Interrupted prepared candidate cleanup requires the exact visible Product binding.',
+          409,
+        );
+      }
+      const commandId = asCommandId(`command-recovery-cleanup-${createHash('sha256')
+        .update(`${record.session.defSessionId}:${request.interactionId}`)
+        .digest('hex')
+        .slice(0, 32)}`);
+      const command: ProductCommandEnvelope<Phase2ProductOperationSchema> = {
+        protocolVersion: 1,
+        commandId,
+        defSessionId: record.session.defSessionId,
+        defTurnId: request.defTurnId,
+        toolCallId: request.toolCallId,
+        expected,
+        command: {
+          op: 'workbench.execute-command',
+          payload: {
+            command: {
+              op: 'abandonPreparedWorkNodeProposal',
+              candidate: candidateAsJson(candidate),
+              reason: 'Host restart interrupted the prepared approval before a user decision.',
+            },
+          },
+        },
+      };
+      const correlation = {
+        defTurnId: request.defTurnId,
+        toolCallId: request.toolCallId,
+        interactionId: request.interactionId,
+        commandId,
+      };
+      const bindingPayload = {
+        workspaceId: expected.workspaceId,
+        databaseGeneration: expected.databaseGeneration,
+        timelineId: expected.timelineId,
+        checkoutTargetId: expected.checkoutTargetId,
+        beforeRevision: expected.contentRevision,
+      };
+      let result: ProductCommandResult | null = null;
+      try {
+        await this.#productGateway.dispatch(command);
+        this.#append(record, {
+          type: 'command.queued',
+          ...correlation,
+          payload: {
+            ...bindingPayload,
+            op: command.command.op,
+            afterRevision: null,
+            browserReceiptDigest: null,
+          },
+        });
+        this.#append(record, {
+          type: 'command.dispatched',
+          ...correlation,
+          payload: {
+            ...bindingPayload,
+            op: command.command.op,
+            afterRevision: null,
+            browserReceiptDigest: null,
+          },
+        });
+        try {
+          result = await this.#productGateway.awaitResult(commandId, {
+            timeoutMs: PRODUCT_COMMAND_TIMEOUT_MS,
+          });
+        } catch {
+          result = await this.#productGateway.reconcile(commandId).catch(() => null);
+        }
+      } catch (error) {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Interrupted prepared candidate cleanup could not be dispatched: ${error instanceof Error ? error.message : String(error)}`,
+          409,
+        );
+      }
+      if (!result) {
+        this.#append(record, {
+          type: 'command.orphaned',
+          ...correlation,
+          payload: {
+            ...bindingPayload,
+            code: 'PREPARED_RECOVERY_CLEANUP_UNCERTAIN',
+            message: 'No terminal browser receipt was available for recovered candidate cleanup.',
+            afterRevision: null,
+            browserReceiptDigest: null,
+          },
+        });
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_RECONCILE_REQUIRED',
+          'Recovered prepared candidate cleanup has no terminal browser receipt; manual Work Node review is required.',
+          409,
+        );
+      }
+      const receipt = (result.browserResult ?? result.visiblePostcondition ?? null) as JsonValue;
+      const browserReceiptDigest = createHash('sha256')
+        .update(canonicalJson(receipt))
+        .digest('hex');
+      this.#append(record, {
+        type: 'command.result',
+        ...correlation,
+        payload: {
+          ...bindingPayload,
+          status: result.status,
+          afterRevision: result.afterRevision,
+          browserReceiptDigest,
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.message ? { message: result.message } : {}),
+        },
+      });
+      const audit = preparedCleanupAuditFromReconciledResult(result, candidate);
+      this.#append(record, {
+        type: 'interaction.resolved',
+        defTurnId: request.defTurnId,
+        interactionId: request.interactionId,
+        toolCallId: request.toolCallId,
+        payload: { status: 'stale', cleanup: audit },
+      });
+      if (audit.status !== 'deleted' && audit.status !== 'abandoned') {
+        throw new DefAgentHostError(
+          'AGENT_PREPARED_RECOVERY_BLOCKED',
+          `Interrupted prepared candidate was not safely removed: ${audit.reason ?? audit.status}`,
+          409,
+        );
+      }
+    }
+  }
+
   async createSession(input: {
     readonly binding: ProductBinding;
     readonly providerProfileRef: string;
@@ -753,12 +959,17 @@ export class DefAgentHost {
           409,
         );
       }
-      return previous.state === 'pending' ? previous.promise : previous.result;
+      if (previous.state === 'pending') return previous.promise;
+      if (record.eventsLoaded
+        && record.eventsReconciled
+        && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    await this.#cleanupStalePreparedCandidates(record, record.binding);
+    if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const defTurnId = this.#ids.turn();
     const starting = this.#beginStartingTurn(record, defTurnId);
@@ -851,12 +1062,17 @@ export class DefAgentHost {
           409,
         );
       }
-      return previous.state === 'pending' ? previous.promise : previous.result;
+      if (previous.state === 'pending') return previous.promise;
+      if (record.eventsLoaded
+        && record.eventsReconciled
+        && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    await this.#cleanupStalePreparedCandidates(record, input.binding ?? record.binding);
+    if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     if (input.binding) {
       const previousBinding = record.binding;
@@ -990,12 +1206,17 @@ export class DefAgentHost {
           409,
         );
       }
-      return previous.state === 'pending' ? previous.promise : previous.result;
+      if (previous.state === 'pending') return previous.promise;
+      if (record.eventsLoaded
+        && record.eventsReconciled
+        && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
     const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    await this.#cleanupStalePreparedCandidates(record, input.binding);
+    if (previous) return previous.result;
     this.#assertSessionCanStartTurn(record, input.userMessage);
     const interruptedSource = harnessManager.getTransaction(input.sourceTransactionId);
     const questionAnswerContext = input.questionAnswer === undefined

@@ -407,6 +407,168 @@ async function seedStoredSession(
   return engineSession;
 }
 
+// A crash while a prepared candidate is waiting for approval must delete that
+// exact candidate before any retry can start another Engine Turn. The cleanup
+// result is journaled once and later Turns do not dispatch a duplicate.
+{
+  const cleanupEngine = new CountingRecoveryEngine();
+  const cleanupStore = new MemoryDefAgentSessionStore();
+  const cleanupSessionId = asDefSessionId('def-session-prepared-cleanup');
+  const cleanupTurnId = asDefTurnId('def-turn-prepared-cleanup');
+  const cleanupInteractionId = asInteractionId('interaction-prepared-cleanup');
+  const cleanupToolCallId = asToolCallId('tool-prepared-cleanup');
+  await seedStoredSession(cleanupEngine, cleanupStore, cleanupSessionId, 'ready');
+  const cleanupCandidate = {
+    contract: 'DefPreparedWorkNodeCandidateRefV1' as const,
+    schemaVersion: 1 as const,
+    proposalId: 'proposal-prepared-cleanup',
+    intent: 'timeline' as const,
+    destination: 'current-timeline' as const,
+    sourceTargetId: binding.checkoutTargetId!,
+    sourceRevision: binding.contentRevision,
+    candidateTimelineId: binding.timelineId,
+    nodeId: 'node-prepared-cleanup',
+    nodeRevision: 0,
+    basePayloadDigest: `sha256:${'1'.repeat(64)}`,
+    workingPayloadDigest: `sha256:${'2'.repeat(64)}`,
+    diffDigest: `sha256:${'3'.repeat(64)}`,
+    proposalDigest: `sha256:${'4'.repeat(64)}`,
+    scope: ['timeline.structure'] as const,
+  };
+  cleanupStore.append(cleanupSessionId, {
+    schemaVersion: 1,
+    sequence: 2,
+    occurredAt: '2026-08-07T00:00:02.000Z',
+    defSessionId: cleanupSessionId,
+    defTurnId: cleanupTurnId,
+    type: 'turn.accepted',
+    payload: {
+      clientTurnId: asClientTurnId('client-turn-prepared-crashed'),
+      userMessage: 'prepare then crash',
+    },
+  });
+  cleanupStore.append(cleanupSessionId, {
+    schemaVersion: 1,
+    sequence: 3,
+    occurredAt: '2026-08-07T00:00:03.000Z',
+    defSessionId: cleanupSessionId,
+    defTurnId: cleanupTurnId,
+    interactionId: cleanupInteractionId,
+    toolCallId: cleanupToolCallId,
+    type: 'interaction.requested',
+    payload: {
+      kind: 'approval',
+      prompt: 'apply prepared candidate?',
+      expiresAt: '2026-08-07T00:15:03.000Z',
+      proposal: { operation: 'timeline.add' },
+      candidate: cleanupCandidate,
+      cleanup: {
+        contract: 'DefPreparedWorkNodeCleanupAuditV1',
+        schemaVersion: 1,
+        proposalId: cleanupCandidate.proposalId,
+        nodeId: cleanupCandidate.nodeId,
+        candidateTimelineId: cleanupCandidate.candidateTimelineId,
+        status: 'pending',
+      },
+    },
+  });
+  cleanupStore.setActive(cleanupSessionId);
+  const dispatchedCleanupCommands: Array<Parameters<NonNullable<
+    ProductGateway<Phase2ProductOperationSchema>['dispatch']
+  >>[0]> = [];
+  const cleanupGateway: ProductGateway<Phase2ProductOperationSchema> = {
+    async getSnapshot(requestedBinding) {
+      return {
+        protocolVersion: 1,
+        binding: structuredClone(requestedBinding),
+        capturedAt: '2026-08-08T00:00:00.000Z',
+        payload: {},
+      };
+    },
+    async dispatch(command) {
+      dispatchedCleanupCommands.push(command);
+      return {
+        commandId: command.commandId,
+        status: 'queued',
+        acceptedAt: '2026-08-08T00:00:01.000Z',
+      };
+    },
+    async awaitResult(commandId) {
+      return {
+        commandId,
+        status: 'succeeded',
+        beforeRevision: binding.contentRevision,
+        afterRevision: binding.contentRevision,
+        browserResult: {
+          ok: true,
+          cleanup: {
+            contract: 'DefPreparedWorkNodeCleanupAuditV1',
+            schemaVersion: 1,
+            proposalId: cleanupCandidate.proposalId,
+            nodeId: cleanupCandidate.nodeId,
+            candidateTimelineId: cleanupCandidate.candidateTimelineId,
+            status: 'deleted',
+            reason: 'recovery cleanup test',
+          },
+        },
+        completedAt: '2026-08-08T00:00:02.000Z',
+      };
+    },
+    async reconcile() { return null; },
+  };
+  const cleanupHost = new DefAgentHost({
+    engine: cleanupEngine,
+    productGateway: cleanupGateway,
+    sessionStore: cleanupStore,
+    requireConsumer: () => undefined,
+  });
+  await cleanupHost.initialize();
+  cleanupEngine.enqueueScript([{ type: 'complete' }, { type: 'complete' }]);
+  const firstAfterCleanup = await cleanupHost.startTurn({
+    defSessionId: cleanupSessionId,
+    clientTurnId: asClientTurnId('client-turn-after-prepared-cleanup'),
+    userMessage: 'retry after restart',
+    systemContext: 'prepared cleanup recovery contract',
+    toolProjection: { revision: 1, tools: [] },
+  });
+  assert.equal((await cleanupHost.waitForTurnTerminal(firstAfterCleanup.defTurnId)).type, 'turn.completed');
+  assert.equal(dispatchedCleanupCommands.length, 1);
+  assert.equal(dispatchedCleanupCommands[0]?.command.op, 'workbench.execute-command');
+  const dispatchedCleanupPayload = dispatchedCleanupCommands[0]?.command.op === 'workbench.execute-command'
+    ? dispatchedCleanupCommands[0].command.payload
+    : null;
+  assert.equal(
+    dispatchedCleanupPayload?.command.op,
+    'abandonPreparedWorkNodeProposal',
+  );
+  assert.equal(dispatchedCleanupCommands[0]?.approvalCapability, undefined);
+  const cleanupEvents = cleanupHost.readEvents(cleanupSessionId, 0, 256);
+  const cleanupResolution = cleanupEvents.find((event) => (
+    event.type === 'interaction.resolved'
+      && event.interactionId === cleanupInteractionId
+      && event.payload.cleanup?.status === 'deleted'
+  ));
+  assert.equal(cleanupResolution?.type, 'interaction.resolved');
+  const cleanupResultIndex = cleanupEvents.findIndex((event) => (
+    event.type === 'command.result' && event.interactionId === cleanupInteractionId
+  ));
+  const retryAcceptedIndex = cleanupEvents.findIndex((event) => (
+    event.type === 'turn.accepted' && event.defTurnId === firstAfterCleanup.defTurnId
+  ));
+  assert.ok(cleanupResultIndex >= 0 && retryAcceptedIndex > cleanupResultIndex);
+
+  const secondAfterCleanup = await cleanupHost.startTurn({
+    defSessionId: cleanupSessionId,
+    clientTurnId: asClientTurnId('client-turn-after-prepared-cleanup-2'),
+    userMessage: 'ordinary next turn',
+    systemContext: 'prepared cleanup idempotency contract',
+    toolProjection: { revision: 1, tools: [] },
+  });
+  assert.equal((await cleanupHost.waitForTurnTerminal(secondAfterCleanup.defTurnId)).type, 'turn.completed');
+  assert.equal(dispatchedCleanupCommands.length, 1, 'terminal cleanup audit must prevent duplicate dispatch');
+  await cleanupHost.shutdown();
+}
+
 const lazyEngine = new CountingRecoveryEngine();
 const lazyStore = new MemoryDefAgentSessionStore();
 const lazyActiveId = asDefSessionId('def-session-lazy-active');
