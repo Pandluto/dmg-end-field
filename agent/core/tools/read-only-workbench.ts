@@ -213,7 +213,7 @@ async function readContext(input: JsonValue, context: DefToolExecutionContext): 
       skillButtons: payload.skillButtons.length,
       operatorConfigs: payload.operatorConfigs.length,
     },
-    damageReportAvailable: isDamageReportReady(payload),
+    damageReportAvailable: isDamageReportReady(payload, snapshot.binding),
   };
 }
 
@@ -686,9 +686,9 @@ function requireReadyDamageReport(payload: WorkbenchPayload): JsonObject {
   return report;
 }
 
-function isDamageReportReady(payload: WorkbenchPayload): boolean {
+function isDamageReportReady(payload: WorkbenchPayload, binding: ProductBinding): boolean {
   try {
-    requireReadyDamageReport(payload);
+    buildValidatedDamageReportCapsule(payload, binding);
     return true;
   } catch {
     return false;

@@ -234,6 +234,12 @@ const malformed = await registry.execute(
   context,
 ) as JsonObject;
 assert.equal(malformed.status, 'malformed');
+const malformedContext = await registry.execute(
+  'def.node.crud.context',
+  {},
+  context,
+) as JsonObject;
+assert.equal(malformedContext.damageReportAvailable, false);
 
 await assert.rejects(
   registry.execute('def.data.resource.damage', { action: 'aggregate' }, context),
