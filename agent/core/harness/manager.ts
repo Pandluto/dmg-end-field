@@ -49,6 +49,7 @@ export type DefHarnessErrorCode =
   | 'HARNESS_ROUTE_INVALID'
   | 'HARNESS_ROUTE_UNSUPPORTED'
   | 'HARNESS_TOOL_NOT_PROJECTED'
+  | 'HARNESS_TOOL_INPUT_INVALID'
   | 'HARNESS_TRANSACTION_CAPACITY';
 
 export class DefHarnessError extends Error {
@@ -796,6 +797,37 @@ export class DefHarnessManager {
         'HARNESS_TOOL_NOT_PROJECTED',
         `Tool ${toolName} is not projected in Harness phase ${record.phase.id}`,
       );
+    }
+  }
+
+  /**
+   * Validate only the phase-declared routing identity before a Tool handler
+   * can read Product state or dispatch a command. Detailed Tool schemas still
+   * belong to the Tool registry; this guard prevents a projected multi-action
+   * Tool from silently executing the wrong action in the current phase.
+   */
+  assertToolInput(transactionId: string, input: JsonValue): void {
+    const record = this.#requireTransaction(transactionId);
+    this.#assertLive(record);
+    if (record.status !== 'active') {
+      throw new DefHarnessError('HARNESS_TOOL_NOT_PROJECTED', 'Harness Tool input was submitted outside an active phase');
+    }
+    const required = record.phase.requiredInput;
+    if (!required) return;
+    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
+      throw new DefHarnessError(
+        'HARNESS_TOOL_INPUT_INVALID',
+        `Tool input for Harness phase ${record.phase.id} must declare its required routing fields`,
+      );
+    }
+    const object = input as Record<string, unknown>;
+    for (const [field, prefix] of Object.entries(required)) {
+      if (typeof prefix !== 'string' || typeof object[field] !== 'string' || object[field] !== prefix) {
+        throw new DefHarnessError(
+          'HARNESS_TOOL_INPUT_INVALID',
+          `Tool input for Harness phase ${record.phase.id} must have ${field} equal to ${prefix}`,
+        );
+      }
     }
   }
 

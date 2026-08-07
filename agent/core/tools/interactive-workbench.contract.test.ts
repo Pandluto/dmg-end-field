@@ -75,19 +75,34 @@ async function prepare(name: string, input: JsonValue) {
   return plan as Extract<DefInteractiveToolPlan, { kind: 'mutation' }>;
 }
 
-function assertWorkNodePlan(
-  plan: Extract<DefInteractiveToolPlan, { kind: 'mutation' }>,
-  expectedPatch: readonly unknown[],
-  expectedScope: readonly string[],
-): void {
-  assert.deepEqual(plan.scope, expectedScope);
-  assert.equal(plan.command.op, 'applyApprovedWorkNodePatch');
-  assert.deepEqual(plan.command.patch, expectedPatch);
-  assert.deepEqual(plan.proposal, { command: plan.command, scope: plan.scope });
+async function preparePrepared(name: string, input: JsonValue) {
+  const plan = await prepareAny(name, input);
+  assert.equal(plan.kind, 'prepared-mutation', `${name} must use Host-prepared candidate approval`);
+  return plan as Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>;
 }
 
-assertWorkNodePlan(
-  await prepare('def.workbench.add_skill_button', {
+function assertPreparedPlan(
+  plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>,
+  expectedPatch: readonly unknown[],
+  expectedScope: readonly string[],
+  expectedOperation: string,
+  expectedIntent: 'timeline' | 'buff',
+): void {
+  assert.deepEqual(plan.scope, expectedScope);
+  assert.equal(plan.prepareCommand.op, 'prepareReviewedWorkNodeProposal');
+  assert.equal(plan.prepareCommand.operation, expectedOperation);
+  assert.equal(plan.prepareCommand.intent, expectedIntent);
+  assert.deepEqual(plan.prepareCommand.scope, expectedScope);
+  assert.deepEqual(plan.prepareCommand.patch, expectedPatch);
+  assert.equal(plan.applyOperation, 'applyReviewedWorkNodeProposal');
+  assert.equal(plan.cleanupOperation, 'abandonPreparedWorkNodeProposal');
+  assert.equal(Object.prototype.hasOwnProperty.call(plan, 'candidate'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plan, 'proposal'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(plan, 'command'), false);
+}
+
+assertPreparedPlan(
+  await preparePrepared('def.workbench.add_skill_button', {
     buttonId: 'button-new',
     characterId: 'operator-test',
     characterName: '测试干员',
@@ -104,13 +119,17 @@ assertWorkNodePlan(
     staffIndex: 0,
     nodeIndex: 1,
   }],
-  ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+  ['timeline.structure'],
+  'timeline.add',
+  'timeline',
 );
 
-assertWorkNodePlan(
-  await prepare('def.workbench.remove_skill_button', { buttonId: 'button-test' }),
+assertPreparedPlan(
+  await preparePrepared('def.workbench.remove_skill_button', { buttonId: 'button-test' }),
   [{ op: 'removeButton', target: { buttonId: 'button-test' } }],
-  ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+  ['timeline.structure'],
+  'timeline.remove',
+  'timeline',
 );
 
 const buff = {
@@ -124,33 +143,39 @@ const buff = {
   type: 'attackPercent',
   value: 0.2,
 };
-assertWorkNodePlan(
-  await prepare('def.buff.add_to_button', { buttonId: 'button-test', buff }),
+assertPreparedPlan(
+  await preparePrepared('def.buff.add_to_button', { buttonId: 'button-test', buff }),
   [{ op: 'attachBuff', target: { buttonId: 'button-test' }, buffId: 'buff-new', buff }],
-  ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+  ['buff.attachments'],
+  'buff.add',
+  'buff',
 );
 
-assertWorkNodePlan(
-  await prepare('def.buff.remove_from_button', {
+assertPreparedPlan(
+  await preparePrepared('def.buff.remove_from_button', {
     buttonId: 'button-test',
     displayName: '叠层 Buff',
     count: 1,
   }),
   [{ op: 'removeBuff', target: { buttonId: 'button-test' }, buffId: 'buff-stack', count: 1 }],
-  ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+  ['buff.attachments'],
+  'buff.remove',
+  'buff',
 );
 
-assertWorkNodePlan(
-  await prepare('def.buff.remove_from_button', { buttonId: 'button-test', all: true }),
+assertPreparedPlan(
+  await preparePrepared('def.buff.remove_from_button', { buttonId: 'button-test', all: true }),
   [
     { op: 'removeBuff', target: { buttonId: 'button-test' }, buffId: 'buff-stack' },
     { op: 'removeBuff', target: { buttonId: 'button-test' }, buffId: 'buff-passive' },
   ],
-  ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+  ['buff.attachments'],
+  'buff.remove',
+  'buff',
 );
 
-assertWorkNodePlan(
-  await prepare('def.target.set_resistance', {
+assertPreparedPlan(
+  await preparePrepared('def.target.set_resistance', {
     buttonId: 'button-test',
     targetResistance: { physicalResistance: 20, fireResistance: -10 },
   }),
@@ -159,11 +184,13 @@ assertWorkNodePlan(
     target: { buttonId: 'button-test' },
     targetResistance: { physicalResistance: 20, fireResistance: -10 },
   }],
-  ['timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
+  ['buff.resistance'],
+  'buff.resistance',
+  'buff',
 );
 
-assertWorkNodePlan(
-  await prepare('def.worknode.patch_and_validate', {
+assertPreparedPlan(
+  await preparePrepared('def.worknode.patch_and_validate', {
     patch: [
       {
         op: 'copyButton',
@@ -194,7 +221,139 @@ assertWorkNodePlan(
       runtimeSkillId: 'operator-test-skill-e',
     },
   ],
-  ['timeline.work-node', 'timeline.checkout'],
+  ['timeline.structure'],
+  'timeline.patch',
+  'timeline',
+);
+
+assertPreparedPlan(
+  await preparePrepared('def.worknode.patch_and_validate', {
+    patch: [
+      {
+        op: 'setBuffStack',
+        target: { buttonId: 'button-test' },
+        buffId: 'buff-stack',
+        stackCount: 2,
+        segmentKey: 'phase-1',
+      },
+      {
+        op: 'replaceBuff',
+        target: { buttonId: 'button-test' },
+        buffId: 'buff-stack',
+        replacementBuffId: 'buff-passive',
+        preserveStack: true,
+        preserveDisabled: false,
+      },
+    ],
+  }),
+  [
+    {
+      op: 'setBuffStack',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      stackCount: 2,
+      segmentKey: 'phase-1',
+    },
+    {
+      op: 'replaceBuff',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      replacementBuffId: 'buff-passive',
+      preserveStack: true,
+      preserveDisabled: false,
+    },
+  ],
+  ['buff.attachments'],
+  'timeline.patch',
+  'buff',
+);
+
+const replacementBuff = {
+  name: 'buff-replacement',
+  displayName: '替换 Buff',
+  sourceName: '测试来源',
+  category: 'countable',
+  maxStacks: 4,
+};
+assertPreparedPlan(
+  await preparePrepared('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'replaceBuff',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      buff: replacementBuff,
+      stackCount: 1,
+    }],
+  }),
+  [{
+    op: 'replaceBuff',
+    target: { buttonId: 'button-test' },
+    buffId: 'buff-stack',
+    buff: replacementBuff,
+    stackCount: 1,
+  }],
+  ['buff.attachments'],
+  'timeline.patch',
+  'buff',
+);
+
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'setBuffStack',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      stackCount: 0,
+    }],
+  }),
+  /stackCount must be an integer between 1 and 10000/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'setBuffStack',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      stackCount: 1,
+      segmentKey: 'x'.repeat(201),
+    }],
+  }),
+  /segmentKey must be a non-empty string of at most 200 characters/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'setBuffStack',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      stackCount: 1,
+      unexpected: true,
+    }],
+  }),
+  /unexpected fields: unexpected/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'replaceBuff',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      replacementBuffId: 'buff-passive',
+      buff: replacementBuff,
+    }],
+  }),
+  /requires exactly one of replacementBuffId or buff/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.patch_and_validate', {
+    patch: [{
+      op: 'replaceBuff',
+      target: { buttonId: 'button-test' },
+      buffId: 'buff-stack',
+      hidden: true,
+    }],
+  }),
+  /unexpected fields: hidden/u,
 );
 
 await assert.rejects(
@@ -301,6 +460,95 @@ assert.deepEqual(usePlan.command, {
   },
 });
 
+const previewPlan = await prepareAny('def.worknode.diff', { candidateNodeId: 'node-candidate' });
+assert.deepEqual(previewPlan, {
+  kind: 'command',
+  command: { op: 'diffAiTimelineWorkNode', nodeId: 'node-candidate' },
+});
+await assert.rejects(
+  () => prepareAny('def.worknode.diff', { nodeId: 'node-candidate' }),
+  /unexpected fields: nodeId/u,
+);
+
+const selectionPlan = await preparePrepared('def.team.selection.apply', {
+  characterNames: ['测试干员'],
+  nodeTitle: '调整阵容',
+  nodeDescription: '仅保留测试干员',
+  openCanvas: true,
+});
+assert.deepEqual(selectionPlan.scope, [
+  'selection.roster',
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+  'loadout.config',
+]);
+assert.deepEqual(selectionPlan.prepareCommand, {
+  op: 'prepareReviewedWorkNodeProposal',
+  operation: 'selection.apply',
+  intent: 'selection',
+  scope: [
+    'selection.roster',
+    'timeline.structure',
+    'buff.attachments',
+    'buff.resistance',
+    'loadout.config',
+  ],
+  roster: {
+    characterNames: ['测试干员'],
+    nodeTitle: '调整阵容',
+    nodeDescription: '仅保留测试干员',
+    openCanvas: true,
+  },
+  label: '调整阵容',
+  description: '仅保留测试干员',
+});
+assert.equal(Object.prototype.hasOwnProperty.call(selectionPlan.prepareCommand, 'patch'), false);
+assert.equal(selectionPlan.applyOperation, 'applyReviewedWorkNodeProposal');
+assert.equal(selectionPlan.cleanupOperation, 'abandonPreparedWorkNodeProposal');
+
+const scopedRestore = await preparePrepared('def.worknode.restore', {
+  nodeId: 'node-baseline',
+  scope: 'timeline.structure',
+});
+assert.deepEqual(scopedRestore.scope, [
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+]);
+assert.deepEqual(scopedRestore.prepareCommand, {
+  op: 'prepareReviewedWorkNodeProposal',
+  operation: 'timeline.restore',
+  intent: 'timeline',
+  scope: ['timeline.structure', 'buff.attachments', 'buff.resistance'],
+  restore: {
+    nodeId: 'node-baseline',
+    scope: 'timeline.structure',
+  },
+  label: '恢复 timeline.structure 范围',
+  description: '仅恢复 Work Node node-baseline 的 timeline.structure 数据，不覆盖其他范围。',
+});
+assert.equal(Object.prototype.hasOwnProperty.call(scopedRestore.prepareCommand, 'patch'), false);
+const buffRestore = await preparePrepared('def.worknode.restore', {
+  nodeId: 'node-buff-baseline',
+  scope: 'buff.attachments',
+});
+assert.deepEqual(buffRestore.scope, ['buff.attachments']);
+assert.equal(buffRestore.prepareCommand.operation, 'buff.restore');
+assert.equal(buffRestore.prepareCommand.intent, 'buff');
+assert.deepEqual(buffRestore.prepareCommand.restore, {
+  nodeId: 'node-buff-baseline',
+  scope: 'buff.attachments',
+});
+await assert.rejects(
+  () => prepareAny('def.worknode.restore', { nodeId: 'node-baseline' }),
+  /unexpected fields|scope must contain|scope must be one of/u,
+);
+await assert.rejects(
+  () => prepareAny('def.worknode.restore', { nodeId: 'node-baseline', scope: ['timeline.structure'] }),
+  /schema|scope|invalid/u,
+);
+
 const loadoutPreview = await prepareAny('def.loadout.preview', {
   characterId: 'operator-test',
   weaponName: '测试武器',
@@ -328,7 +576,6 @@ const loadoutApply = await prepare('def.loadout.apply_prepared', {
   nodeId: 'node-candidate',
   nodeRevision: 11,
   proposalDigest: 'sha256:0123456789abcdef',
-  finalConfig,
 });
 assert.deepEqual(loadoutApply.scope, [
   'loadout.config',
@@ -336,5 +583,16 @@ assert.deepEqual(loadoutApply.scope, [
   'timeline.checkout',
 ]);
 assert.deepEqual(loadoutApply.proposal, { command: loadoutApply.command, scope: loadoutApply.scope });
+await assert.rejects(
+  () => prepareAny('def.loadout.apply_prepared', {
+    parentNodeId: 'node-parent',
+    parentRevision: 10,
+    nodeId: 'node-candidate',
+    nodeRevision: 11,
+    proposalDigest: 'sha256:0123456789abcdef',
+    finalConfig,
+  }),
+  /unexpected fields: finalConfig/u,
+);
 
 console.log('DEF_INTERACTIVE_WORKBENCH_TOOL_CONTRACT_OK');

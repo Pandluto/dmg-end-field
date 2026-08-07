@@ -553,6 +553,38 @@ assert.deepEqual(
   fullOperation('loadout', 'recommend_equipment').phases.flatMap((phase) => phase.tools),
   ['def.capability.status'],
 );
+assert.deepEqual(
+  PHASE7_FULL_HARNESS_CATALOG.find((entry) => entry.businessId === 'selection')?.writeScope,
+  [
+    'selection.roster',
+    'timeline.buttons',
+    'timeline.buffs',
+    'timeline.resistance',
+    'loadout.config',
+    'timeline.work-node',
+    'timeline.checkout',
+  ],
+);
+for (const operation of ['add', 'remove', 'replace', 'reorder', 'apply']) {
+  const phaseDefinition = fullOperation('selection', operation).phases.find((phase) => phase.kind === 'mutation');
+  assert.deepEqual(phaseDefinition?.writes, [
+    'selection.roster',
+    'timeline.buttons',
+    'timeline.buffs',
+    'timeline.resistance',
+    'loadout.config',
+    'timeline.work-node',
+    'timeline.checkout',
+  ]);
+}
+assert.deepEqual(
+  fullOperation('timeline', 'restore').phases.find((phase) => phase.kind === 'mutation')?.writes,
+  ['timeline.buttons', 'timeline.buffs', 'timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
+);
+assert.deepEqual(
+  fullOperation('buff', 'restore').phases.find((phase) => phase.kind === 'mutation')?.writes,
+  ['timeline.buffs', 'timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
+);
 assert.match(
   fullOperation('loadout', 'recommend_discovered_set').phases[1]!.instructions,
   /unranked/u,

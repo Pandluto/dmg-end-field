@@ -7,6 +7,8 @@ import {
   type DefWorkbenchToolRegistry,
   type JsonObject,
   type JsonValue,
+  type PreparedWorkNodeIntent,
+  type PreparedWorkNodeScope,
 } from '../contracts/index.ts';
 import { DefReadToolRegistry } from './read-only-workbench.ts';
 
@@ -176,11 +178,28 @@ const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
       buffId: boundedStringSchema(1, 200),
       count: boundedIntegerSchema(1, 10_000),
     }),
+    {
+      ...exactSchema(['op', 'target', 'buffId'], {
+        op: { const: 'replaceBuff' },
+        target: PATCH_TARGET_SCHEMA,
+        buffId: boundedStringSchema(1, 200),
+        replacementBuffId: boundedStringSchema(1, 200),
+        buff: BUFF_INPUT_SCHEMA,
+        stackCount: boundedIntegerSchema(1, 10_000),
+        preserveStack: { type: 'boolean' },
+        preserveDisabled: { type: 'boolean' },
+      }),
+      oneOf: [
+        { required: ['replacementBuffId'], not: { required: ['buff'] } },
+        { required: ['buff'], not: { required: ['replacementBuffId'] } },
+      ],
+    },
     exactSchema(['op', 'target', 'buffId', 'stackCount'], {
       op: { const: 'setBuffStack' },
       target: PATCH_TARGET_SCHEMA,
       buffId: boundedStringSchema(1, 200),
-      stackCount: boundedIntegerSchema(0, 10_000),
+      stackCount: boundedIntegerSchema(1, 10_000),
+      segmentKey: boundedStringSchema(1, 200),
     }),
     exactSchema(['op', 'target', 'targetResistance'], {
       op: { const: 'setTargetResistance' },
@@ -275,11 +294,11 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.diff',
-          'Read the semantic diff for one exact browser SQLite Work Node.',
+          'Read the semantic diff for one exact isolated candidate Work Node. This is a reference-only preview; it never previews the live checkout.',
           'propose',
           objectSchema({
-            required: ['nodeId'],
-            properties: { nodeId: boundedStringSchema(1, 200) },
+            required: ['candidateNodeId'],
+            properties: { candidateNodeId: boundedStringSchema(1, 200) },
           }),
         ),
         prepareWorkNodeDiff,
@@ -326,11 +345,14 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.restore',
-          'Restore the exact base payload of one Work Node after explicit user approval.',
+          'Restore only explicitly scoped data from one Work Node after explicit user approval. Whole-payload restore is not supported.',
           'mutate',
           objectSchema({
-            required: ['nodeId'],
-            properties: { nodeId: boundedStringSchema(1, 200) },
+            required: ['nodeId', 'scope'],
+            properties: {
+              nodeId: boundedStringSchema(1, 200),
+              scope: { enum: [...SCOPED_RESTORE_SCOPES] },
+            },
           }),
         ),
         prepareWorkNodeRestore,
@@ -347,17 +369,16 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.loadout.apply_prepared',
-          'Apply one unchanged prepared operator-configuration Work Node after explicit user approval and exact revision checks.',
+          'Apply one unchanged prepared operator-configuration proposal from a previous completed Turn. The Host supplies the persisted finalConfig; the model cannot submit it.',
           'mutate',
           objectSchema({
-            required: ['parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest', 'finalConfig'],
+            required: ['parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest'],
             properties: {
               parentNodeId: boundedStringSchema(1, 200),
               parentRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
               nodeId: boundedStringSchema(1, 200),
               nodeRevision: boundedIntegerSchema(0, Number.MAX_SAFE_INTEGER),
               proposalDigest: boundedStringSchema(16, 200),
-              finalConfig: { type: 'object', additionalProperties: true },
             },
           }),
         ),
@@ -779,10 +800,13 @@ async function prepareWorkNodeRead(input: JsonValue): Promise<DefInteractiveTool
 }
 
 async function prepareWorkNodeDiff(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, ['nodeId']);
+  const value = exactObject(input, ['candidateNodeId']);
   return {
     kind: 'command',
-    command: { op: 'diffAiTimelineWorkNode', nodeId: requiredString(value.nodeId, 'nodeId', 200) },
+    command: {
+      op: 'diffAiTimelineWorkNode',
+      nodeId: requiredString(value.candidateNodeId, 'candidateNodeId', 200),
+    },
   };
 }
 
@@ -828,21 +852,46 @@ async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolP
   );
 }
 
+const SCOPED_RESTORE_SCOPES = [
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+] as const satisfies readonly PreparedWorkNodeScope[];
+
+const TIMELINE_RESTORE_PREPARED_SCOPE = [
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+] as const satisfies readonly PreparedWorkNodeScope[];
+
+const SELECTION_PREPARED_SCOPE = [
+  'selection.roster',
+  'timeline.structure',
+  'buff.attachments',
+  'buff.resistance',
+  'loadout.config',
+] as const satisfies readonly PreparedWorkNodeScope[];
+
+function requiredScopedRestoreScope(value: JsonValue | undefined, label: string): PreparedWorkNodeScope {
+  return requiredEnum(value, label, SCOPED_RESTORE_SCOPES);
+}
+
 async function prepareWorkNodeRestore(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, ['nodeId']);
+  const value = exactObject(input, ['nodeId', 'scope']);
   const nodeId = requiredString(value.nodeId, 'nodeId', 200);
-  return mutationPlan(
+  const scope = requiredScopedRestoreScope(value.scope, 'scope');
+  const intent: PreparedWorkNodeIntent = scope === 'timeline.structure' ? 'timeline' : 'buff';
+  const preparedScope: readonly PreparedWorkNodeScope[] = scope === 'timeline.structure'
+    ? TIMELINE_RESTORE_PREPARED_SCOPE
+    : [scope];
+  return explicitWorkNodeMutationPlan(
     `恢复 Work Node ${nodeId} 的基线`,
-    ['timeline.work-node', 'timeline.checkout'],
-    {
-      op: 'restoreAiTimelineWorkNodeBase',
-      nodeId,
-      reload: false,
-      approval: {
-        approvedBy: 'user',
-        rationale: 'Approved in the embedded DEF AI mode.',
-      },
-    },
+    intent,
+    intent === 'timeline' ? 'timeline.restore' : 'buff.restore',
+    preparedScope,
+    { restore: { nodeId, scope } },
+    `恢复 ${scope} 范围`,
+    `仅恢复 Work Node ${nodeId} 的 ${scope} 数据，不覆盖其他范围。`,
   );
 }
 
@@ -886,10 +935,9 @@ async function prepareLoadoutPreview(input: JsonValue): Promise<DefInteractiveTo
 
 async function prepareLoadoutApply(input: JsonValue): Promise<DefInteractiveToolPlan> {
   const value = exactObject(input, [
-    'parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest', 'finalConfig',
+    'parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest',
   ]);
   const nodeId = requiredString(value.nodeId, 'nodeId', 200);
-  const finalConfig = unrestrictedObject(value.finalConfig, 'finalConfig');
   const command: JsonObject = {
     op: 'applyPreparedOperatorConfigProposal',
     parentNodeId: requiredString(value.parentNodeId, 'parentNodeId', 200),
@@ -897,7 +945,6 @@ async function prepareLoadoutApply(input: JsonValue): Promise<DefInteractiveTool
     nodeId,
     nodeRevision: requiredInteger(value.nodeRevision, 'nodeRevision', 0, Number.MAX_SAFE_INTEGER),
     proposalDigest: requiredString(value.proposalDigest, 'proposalDigest', 200),
-    finalConfig,
     approval: {
       mode: 'manual',
       approvedBy: 'user',
@@ -942,34 +989,37 @@ async function prepareSelectionApply(input: JsonValue): Promise<DefInteractiveTo
     invalid('nodeTitle must describe the change and must not use the [ai] fixed prefix');
   }
   const nodeDescription = requiredString(value.nodeDescription, 'nodeDescription', 400);
-  const command: JsonObject = {
-    op: 'selectCharacters',
+  const roster: JsonObject = {
     ...(characterIds ? { characterIds } : {}),
     ...(characterNames ? { characterNames } : {}),
     nodeTitle,
     nodeDescription,
     ...(value.openCanvas === undefined ? {} : { openCanvas: requiredBoolean(value.openCanvas, 'openCanvas') }),
-    approval: {
-      mode: 'manual',
-      approvedBy: 'user',
-      rationale: 'Approved in the embedded DEF AI mode.',
-    },
   };
-  return mutationPlan('应用新的干员队伍', ['selection.roster'], command);
+  return explicitWorkNodeMutationPlan(
+    '应用新的干员队伍',
+    'selection',
+    'selection.apply',
+    SELECTION_PREPARED_SCOPE,
+    { roster },
+    nodeTitle,
+    nodeDescription,
+  );
 }
 
 async function prepareWorkNodePatch(input: JsonValue): Promise<DefInteractiveToolPlan> {
   const value = exactObject(input, ['patch', 'label', 'description']);
   const patch = parseTimelinePatchOperations(value.patch);
-  const command: JsonObject = {
-    op: 'applyApprovedWorkNodePatch',
+  const scope = scopesForTimelinePatch(patch);
+  return workNodeMutationPlan(
+    '应用并检出排轴修改',
+    preparedIntentForScope(scope),
+    'timeline.patch',
+    scope,
     patch,
-    ...(optionalString(value.label, 'label', 120) ? { label: value.label as string } : {}),
-    ...(optionalString(value.description, 'description', 500)
-      ? { description: value.description as string }
-      : {}),
-  };
-  return mutationPlan('应用并检出排轴修改', ['timeline.work-node', 'timeline.checkout'], command);
+    optionalString(value.label, 'label', 120),
+    optionalString(value.description, 'description', 500),
+  );
 }
 
 function parseTimelinePatchOperations(value: JsonValue | undefined): JsonObject[] {
@@ -990,6 +1040,7 @@ function parseTimelinePatchOperation(value: JsonValue, label: string): JsonObjec
     'replaceButton',
     'attachBuff',
     'removeBuff',
+    'replaceBuff',
     'setBuffStack',
     'setTargetResistance',
     'clearTimeline',
@@ -1090,18 +1141,45 @@ function parseTimelinePatchOperation(value: JsonValue, label: string): JsonObjec
       ...optionalIntegerProperty(input.stackCount, 'stackCount', label, 0, 10_000),
     };
   }
-  if (op === 'removeBuff' || op === 'setBuffStack') {
-    const allowed = op === 'removeBuff'
-      ? ['op', 'target', 'buffId', 'count']
-      : ['op', 'target', 'buffId', 'stackCount'];
-    const input = exactObjectAt(raw, label, allowed);
+  if (op === 'replaceBuff') {
+    const input = exactObjectAt(raw, label, [
+      'op', 'target', 'buffId', 'replacementBuffId', 'buff', 'stackCount', 'preserveStack', 'preserveDisabled',
+    ]);
+    const replacementBuffId = optionalString(input.replacementBuffId, `${label}.replacementBuffId`, 200);
+    const buff = input.buff === undefined ? undefined : parseTimelinePatchBuff(input.buff, `${label}.buff`);
+    if ((replacementBuffId === undefined) === (buff === undefined)) {
+      invalid(`${label} requires exactly one of replacementBuffId or buff`);
+    }
     return {
       op,
       target: parseTimelinePatchTarget(input.target, `${label}.target`),
       buffId: requiredString(input.buffId, `${label}.buffId`, 200),
-      ...(op === 'removeBuff'
-        ? optionalIntegerProperty(input.count, 'count', label, 1, 10_000)
-        : { stackCount: requiredInteger(input.stackCount, `${label}.stackCount`, 0, 10_000) }),
+      ...(replacementBuffId === undefined ? {} : { replacementBuffId }),
+      ...(buff === undefined ? {} : { buff }),
+      ...optionalIntegerProperty(input.stackCount, 'stackCount', label, 1, 10_000),
+      ...optionalBooleanProperty(input.preserveStack, 'preserveStack', label),
+      ...optionalBooleanProperty(input.preserveDisabled, 'preserveDisabled', label),
+    };
+  }
+  if (op === 'removeBuff') {
+    const input = exactObjectAt(raw, label, ['op', 'target', 'buffId', 'count']);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      buffId: requiredString(input.buffId, `${label}.buffId`, 200),
+      ...optionalIntegerProperty(input.count, 'count', label, 1, 10_000),
+    };
+  }
+  if (op === 'setBuffStack') {
+    const input = exactObjectAt(raw, label, ['op', 'target', 'buffId', 'stackCount', 'segmentKey']);
+    return {
+      op,
+      target: parseTimelinePatchTarget(input.target, `${label}.target`),
+      buffId: requiredString(input.buffId, `${label}.buffId`, 200),
+      stackCount: requiredInteger(input.stackCount, `${label}.stackCount`, 1, 10_000),
+      ...(input.segmentKey === undefined
+        ? {}
+        : { segmentKey: requiredString(input.segmentKey, `${label}.segmentKey`, 200) }),
     };
   }
   if (op === 'setTargetResistance') {
@@ -1114,6 +1192,38 @@ function parseTimelinePatchOperation(value: JsonValue, label: string): JsonObjec
   }
   exactObjectAt(raw, label, ['op']);
   return { op: 'clearTimeline' };
+}
+
+function scopesForTimelinePatch(patch: readonly JsonObject[]): PreparedWorkNodeScope[] {
+  const scopes = new Set<PreparedWorkNodeScope>();
+  for (const operation of patch) {
+    switch (operation.op) {
+      case 'attachBuff':
+      case 'removeBuff':
+      case 'replaceBuff':
+      case 'setBuffStack':
+        scopes.add('buff.attachments');
+        break;
+      case 'setTargetResistance':
+        scopes.add('buff.resistance');
+        break;
+      default:
+        scopes.add('timeline.structure');
+        break;
+    }
+  }
+  const order: readonly PreparedWorkNodeScope[] = [
+    'timeline.structure',
+    'buff.attachments',
+    'buff.resistance',
+  ];
+  return order.filter((scope) => scopes.has(scope));
+}
+
+function preparedIntentForScope(scope: readonly PreparedWorkNodeScope[]): 'timeline' | 'buff' {
+  return scope.every((entry) => entry === 'buff.attachments' || entry === 'buff.resistance')
+    ? 'buff'
+    : 'timeline';
 }
 
 function parseTimelinePatchTarget(value: JsonValue | undefined, label: string): JsonObject {
@@ -1187,7 +1297,9 @@ async function prepareTimelineButtonAddition(input: JsonValue): Promise<DefInter
   };
   return workNodeMutationPlan(
     '添加技能按钮',
-    ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+    'timeline',
+    'timeline.add',
+    ['timeline.structure'],
     [patch],
     `添加 ${characterName} 技能按钮`,
     `在隔离工作节点中添加 ${characterName} 的技能按钮，校验语义变更后检出。`,
@@ -1202,7 +1314,9 @@ async function prepareBuffAddition(input: JsonValue): Promise<DefInteractiveTool
     ?? requiredString(buff.name, 'buff.name', 200);
   return workNodeMutationPlan(
     '添加 Buff',
-    ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+    'buff',
+    'buff.add',
+    ['buff.attachments'],
     [{
       op: 'attachBuff',
       target: { buttonId },
@@ -1259,7 +1373,9 @@ async function prepareBuffRemoval(
     : requiredInteger(value.count, 'count', 1, 100);
   return workNodeMutationPlan(
     buffIds.length === 1 ? '移除 Buff' : `移除 ${buffIds.length} 个 Buff`,
-    ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'],
+    'buff',
+    'buff.remove',
+    ['buff.attachments'],
     buffIds.map((buffId) => ({
       op: 'removeBuff',
       target: { buttonId },
@@ -1277,7 +1393,9 @@ async function prepareTargetResistance(input: JsonValue): Promise<DefInteractive
   const targetResistance = unrestrictedObject(value.targetResistance, 'targetResistance');
   return workNodeMutationPlan(
     '设置目标抗性',
-    ['timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
+    'buff',
+    'buff.resistance',
+    ['buff.resistance'],
     [{ op: 'setTargetResistance', target: { buttonId }, targetResistance }],
     '设置目标抗性',
     `在隔离工作节点中修改按钮 ${buttonId} 的目标抗性，校验后检出。`,
@@ -1306,7 +1424,9 @@ async function prepareTimelineButtonRemoval(
     };
     return workNodeMutationPlan(
       '移除 1 个技能按钮',
-      ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+      'timeline',
+      'timeline.remove',
+      ['timeline.structure'],
       [{ op: 'removeButton', target }],
       optionalString(value.label, 'label', 120) ?? '移除技能按钮',
       optionalString(value.description, 'description', 500)
@@ -1338,7 +1458,9 @@ async function prepareTimelineButtonRemoval(
     ?? `从当前排轴移除 ${buttonIds.length} 个已确认的技能按钮，并由工作节点验证变更。`;
   return workNodeMutationPlan(
     buttonIds.length === 1 ? '移除 1 个技能按钮' : `批量移除 ${buttonIds.length} 个技能按钮`,
-    ['timeline.buttons', 'timeline.work-node', 'timeline.checkout'],
+    'timeline',
+    'timeline.remove',
+    ['timeline.structure'],
     buttonIds.map((buttonId) => ({ op: 'removeButton', target: { buttonId } })),
     label,
     description,
@@ -1357,17 +1479,49 @@ async function prepareDamageCalculation(input: JsonValue): Promise<DefInteractiv
 
 function workNodeMutationPlan(
   prompt: string,
-  scope: readonly string[],
+  intent: 'timeline' | 'buff',
+  operation: string,
+  scope: readonly PreparedWorkNodeScope[],
   patch: readonly JsonObject[],
-  label: string,
-  description: string,
+  label?: string,
+  description?: string,
 ): DefInteractiveToolPlan {
-  return mutationPlan(prompt, scope, {
-    op: 'applyApprovedWorkNodePatch',
-    patch: [...patch],
+  return explicitWorkNodeMutationPlan(
+    prompt,
+    intent,
+    operation,
+    scope,
+    { patch: [...patch] },
     label,
     description,
-  });
+  );
+}
+
+function explicitWorkNodeMutationPlan(
+  prompt: string,
+  intent: PreparedWorkNodeIntent,
+  operation: string,
+  scope: readonly PreparedWorkNodeScope[],
+  payload: Readonly<Partial<Pick<JsonObject, 'patch' | 'roster' | 'restore'>>>,
+  label?: string,
+  description?: string,
+): Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }> {
+  return {
+    kind: 'prepared-mutation',
+    prompt: label ? `${label}：${prompt}` : prompt,
+    scope: [...scope],
+    prepareCommand: {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation,
+      intent,
+      scope: [...scope],
+      ...cloneJson(payload),
+      ...(label === undefined ? {} : { label }),
+      ...(description === undefined ? {} : { description }),
+    },
+    applyOperation: 'applyReviewedWorkNodeProposal',
+    cleanupOperation: 'abandonPreparedWorkNodeProposal',
+  };
 }
 
 function mutationPlan(

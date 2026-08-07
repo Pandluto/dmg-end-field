@@ -10,6 +10,12 @@ import {
   asDefTurnId,
   asInteractionId,
   canonicalJson,
+  clonePreparedWorkNodeCandidateRef,
+  clonePreparedWorkNodeReview,
+  isPreparedWorkNodeCleanupAudit,
+  isPreparedWorkNodeCandidateRef,
+  isPreparedWorkNodeProposal,
+  PREPARED_WORK_NODE_SCOPES,
   type AgentEngine,
   type ApprovalCapabilityVerificationKey,
   type ClientTurnId,
@@ -29,6 +35,10 @@ import {
   type DefInteractiveToolPlan,
   type DefHarnessPersistedTransaction,
   type DefHarnessTransactionSnapshot,
+  type DefPreparedWorkNodeCandidateRefV1,
+  type DefPreparedWorkNodeCleanupAuditV1,
+  type DefPreparedWorkNodeProposalV1,
+  type DefPreparedWorkNodeReviewV1,
   type DefWorkbenchToolRegistry,
   type InteractionId,
   type InteractionRequest,
@@ -41,6 +51,8 @@ import {
   type ProductCommandResult,
   type ProductGateway,
   type ProductSnapshotEnvelope,
+  type PreparedWorkNodeIntent,
+  type PreparedWorkNodeScope,
 } from '../core/contracts/index.ts';
 import { DefHarnessError, DefHarnessManager } from '../core/harness/manager.ts';
 import { classifyDeterministicHarnessIntent } from '../core/harness/deterministic-router.ts';
@@ -193,6 +205,7 @@ export class DefAgentHost {
   #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
   #pendingSessionCreations = 0;
+  #pendingInteractionsRevision = 0;
   #initialized = false;
   #initializing: Promise<void> | null = null;
   #shutdown = false;
@@ -1244,6 +1257,14 @@ export class DefAgentHost {
       .map((entry) => structuredClone(entry.request));
   }
 
+  /**
+   * Cheap change token for native UI polling. Consumers should call
+   * listPendingInteractions only after this value changes.
+   */
+  getPendingInteractionsRevision(): number {
+    return this.#pendingInteractionsRevision;
+  }
+
   resolveInteraction(
     interactionId: InteractionId,
     input: { readonly status: InteractionResponse['status']; readonly value?: JsonValue },
@@ -1278,6 +1299,7 @@ export class DefAgentHost {
       throw interactionHostError(error);
     }
     if (before.status === 'pending') {
+      this.#pendingInteractionsRevision += 1;
       this.#append(record, {
         type: 'interaction.resolved',
         defTurnId: before.request.defTurnId,
@@ -1560,6 +1582,32 @@ export class DefAgentHost {
         ...(result.message ? { message: result.message } : {}),
       },
     });
+    if (queued.interactionId) {
+      const cleanupCandidate = preparedCleanupCandidateFromCommand(command);
+      if (cleanupCandidate && !record.events.some((event) => (
+        event.type === 'interaction.resolved'
+        && event.interactionId === queued.interactionId
+        && event.payload.cleanup !== undefined
+      ))) {
+        const priorResolution = [...record.events].reverse().find((event): event is Extract<DefEvent, {
+          type: 'interaction.resolved';
+        }> => (
+          event.type === 'interaction.resolved'
+          && event.interactionId === queued.interactionId
+        ));
+        const cleanup = preparedCleanupAuditFromReconciledResult(result, cleanupCandidate);
+        this.#append(record, {
+          type: 'interaction.resolved',
+          defTurnId: command.defTurnId,
+          interactionId: queued.interactionId,
+          toolCallId: command.toolCallId,
+          payload: {
+            status: priorResolution?.payload.status ?? 'stale',
+            cleanup,
+          },
+        });
+      }
+    }
     if (result.status === 'succeeded' || result.status === 'committed') {
       const nextBinding = productBindingFromResult(result);
       if (nextBinding) this.#adoptProductBinding(record, nextBinding);
@@ -1785,6 +1833,7 @@ export class DefAgentHost {
       // can touch the Browser ProductGateway.
       harnessManager.assertToolProjected(transactionId, event.name);
       if (event.name !== 'def.harness.route') {
+        harnessManager.assertToolInput(transactionId, event.input);
         const descriptor = toolRegistry.resolveDescriptor(event.name);
         if (!descriptor) {
           throw new DefAgentHostError('AGENT_TOOL_UNSUPPORTED', `Unsupported DEF Tool: ${event.name}`);
@@ -1929,10 +1978,17 @@ export class DefAgentHost {
       });
     }
 
+    if (plan.kind === 'prepared-mutation') {
+      return this.#executePreparedMutation(active, event, plan, snapshot.binding);
+    }
+
+    const resolvedMutation = plan.command.op === 'applyPreparedOperatorConfigProposal'
+      ? loadoutApplyMutationFromHistory(active.session, active.defTurnId, plan, snapshot.binding)
+      : { command: plan.command, proposal: plan.proposal };
     const interactionId = this.#ids.interaction();
     const createdAt = new Date(this.#clock()).toISOString();
     const proposalHash = createHash('sha256')
-      .update(canonicalJson(plan.proposal))
+      .update(canonicalJson(resolvedMutation.proposal))
       .digest('hex');
     const request: InteractionRequest = {
       interactionId,
@@ -1944,7 +2000,7 @@ export class DefAgentHost {
       proposalHash,
       binding: { ...snapshot.binding },
       scope: [...plan.scope],
-      proposal: structuredClone(plan.proposal),
+      proposal: structuredClone(resolvedMutation.proposal),
       createdAt,
       expiresAt: new Date(this.#clock() + INTERACTION_TIMEOUT_MS).toISOString(),
     };
@@ -1976,9 +2032,226 @@ export class DefAgentHost {
       commandId,
       interactionId,
       expected: request.binding,
-      command: plan.command,
+      command: resolvedMutation.command,
       approvalCapability,
       ...(plan.visiblePostcondition ? { visiblePostcondition: plan.visiblePostcondition } : {}),
+    });
+  }
+
+  async #executePreparedMutation(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>,
+    pinnedBinding: ProductBinding,
+  ): Promise<JsonValue> {
+    const preparedPlan = readPreparedMutationPlan(plan);
+    const prepareCommand: JsonObject = {
+      ...preparedPlan.command,
+      // The Engine only supplies the patch plan. The source binding is pinned
+      // from the just-read Product snapshot immediately before dispatch.
+      sourceBinding: productBindingAsJson(pinnedBinding),
+    };
+    const prepareResult = await this.#dispatchProductCommand(active, event, {
+      expected: pinnedBinding,
+      command: prepareCommand,
+    });
+    const rawProposal = preparedProposalFromCommandResult(prepareResult);
+    let proposal: DefPreparedWorkNodeProposalV1;
+    try {
+      if (!isPreparedWorkNodeProposal(rawProposal)) {
+        throw new DefToolExecutionError(
+          'DEF_PRODUCT_COMMAND_FAILED',
+          'Product prepare result is not a complete DefPreparedWorkNodeProposalV1',
+        );
+      }
+      proposal = structuredClone(rawProposal);
+      assertPreparedProposalMatchesPlan(proposal, preparedPlan, pinnedBinding);
+    } catch (error) {
+      // A structurally complete but inconsistent Product result may still have
+      // created an isolated candidate. Use only its compact, schema-checked
+      // identity for best-effort cleanup and preserve the validation error.
+      if (isPreparedWorkNodeProposal(rawProposal)) {
+        await this.#cleanupPreparedMutation(
+          active,
+          event,
+          plan,
+          candidateFromProposal(rawProposal),
+          pinnedBinding,
+          undefined,
+          'invalid-prepare-proposal',
+        );
+      }
+      throw error;
+    }
+
+    const candidate = candidateFromProposal(proposal);
+    const interactionId = this.#ids.interaction();
+    const createdAt = new Date(this.#clock()).toISOString();
+    const request: Extract<InteractionRequest, { kind: 'approval' }> = {
+      interactionId,
+      defSessionId: active.session.session.defSessionId,
+      defTurnId: active.defTurnId,
+      toolCallId: event.toolCallId,
+      kind: 'approval',
+      prompt: plan.prompt,
+      proposalHash: candidate.proposalDigest,
+      binding: { ...pinnedBinding },
+      scope: [...candidate.scope],
+      proposal: structuredClone(proposal) as unknown as JsonValue,
+      candidate: clonePreparedWorkNodeCandidateRef(candidate),
+      candidateReview: clonePreparedWorkNodeReview(proposal.review),
+      createdAt,
+      expiresAt: new Date(this.#clock() + INTERACTION_TIMEOUT_MS).toISOString(),
+    };
+    const response = await this.#requestInteraction(active, request);
+    if (response.status !== 'approved') {
+      await this.#cleanupPreparedMutation(
+        active,
+        event,
+        plan,
+        candidate,
+        request.binding,
+        interactionId,
+        `interaction-${response.status}`,
+        response.status,
+      );
+      throw interactionToolFailure(response);
+    }
+
+    try {
+      // Approval is not a binding refresh. Re-read the exact pinned binding
+      // and fail closed if the Browser moved while the card was open.
+      let exactSnapshot: ProductSnapshotEnvelope;
+      try {
+        exactSnapshot = await this.#productGateway.getSnapshot(request.binding);
+      } catch (error) {
+        throw new DefToolExecutionError(
+          'DEF_INTERACTION_STALE',
+          `Prepared Work Node approval binding could not be re-read: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      if (!sameExactProductBinding(exactSnapshot.binding, request.binding)) {
+        throw new DefToolExecutionError(
+          'DEF_INTERACTION_STALE',
+          'Prepared Work Node approval binding changed before apply',
+        );
+      }
+      const commandId = this.#ids.command();
+      const claims = this.#interactionBroker.issueApprovalCapability(interactionId, commandId);
+      const consumedClaims = this.#interactionBroker.consumePreparedApprovalCapability(claims, candidate, {
+        interactionId,
+        commandId,
+        defSessionId: active.session.session.defSessionId,
+        defTurnId: active.defTurnId,
+        toolCallId: event.toolCallId,
+        proposalHash: candidate.proposalDigest,
+        binding: request.binding,
+        scope: request.scope,
+      });
+      const approvalCapability = this.#approvalCapabilitySigner.sign(consumedClaims);
+      return await this.#dispatchProductCommand(active, event, {
+        commandId,
+        interactionId,
+        expected: request.binding,
+        command: {
+          op: plan.applyOperation,
+          operation: preparedPlan.operation,
+          candidate: candidateAsJson(candidate),
+        },
+        approvalCapability,
+        ...(plan.visiblePostcondition ? { visiblePostcondition: plan.visiblePostcondition } : {}),
+      });
+    } catch (error) {
+      await this.#cleanupPreparedMutation(
+        active,
+        event,
+        plan,
+        candidate,
+        request.binding,
+        interactionId,
+        `apply-failed: ${error instanceof Error ? error.message : String(error)}`,
+        'approved',
+      );
+      throw error;
+    }
+  }
+
+  async #cleanupPreparedMutation(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>,
+    candidate: DefPreparedWorkNodeCandidateRefV1,
+    expected: ProductBinding,
+    interactionId: InteractionId | undefined,
+    reason: string,
+    resolutionStatus: Exclude<InteractionResponse['status'], 'pending'> | undefined = undefined,
+  ): Promise<DefPreparedWorkNodeCleanupAuditV1> {
+    let audit: DefPreparedWorkNodeCleanupAuditV1;
+    let current: ProductSnapshotEnvelope;
+    try {
+      current = await this.#productGateway.getSnapshot(expected);
+    } catch (error) {
+      audit = preparedCleanupAudit(
+        candidate,
+        'preserved',
+        `${reason}; cleanup skipped because the pinned Product binding could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.#appendPreparedCleanupAudit(active, event, interactionId, resolutionStatus, audit);
+      return audit;
+    }
+    if (!sameExactProductBinding(current.binding, expected)) {
+      audit = preparedCleanupAudit(
+        candidate,
+        'preserved',
+        `${reason}; cleanup skipped because the pinned Product binding is stale`,
+      );
+      this.#appendPreparedCleanupAudit(active, event, interactionId, resolutionStatus, audit);
+      return audit;
+    }
+    try {
+      const cleanupResult = await this.#dispatchProductCommand(active, event, {
+        interactionId,
+        expected,
+        command: {
+          op: plan.cleanupOperation,
+          candidate: candidateAsJson(candidate),
+          reason: reason.slice(0, 2_000),
+        },
+        allowAfterCancellation: true,
+      });
+      // The Product cleanup command is expected to return a typed audit. The
+      // dispatch result itself is not enough to claim that the candidate was
+      // deleted, so parse and verify the browser receipt before recording it.
+      audit = preparedCleanupAuditFromCommandResult(cleanupResult, candidate)
+        ?? preparedCleanupAudit(candidate, 'failed', `${reason}; cleanup did not return a typed audit`);
+    } catch (error) {
+      const status = isBindingConflictError(error) ? 'preserved' : 'failed';
+      audit = preparedCleanupAudit(
+        candidate,
+        status,
+        `${reason}; cleanup ${status === 'preserved' ? 'skipped because the Product binding is stale' : 'failed'}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      this.#appendPreparedCleanupAudit(active, event, interactionId, resolutionStatus, audit);
+      return audit;
+    }
+    this.#appendPreparedCleanupAudit(active, event, interactionId, resolutionStatus, audit);
+    return audit;
+  }
+
+  #appendPreparedCleanupAudit(
+    active: ActiveTurn,
+    event: Extract<EngineEvent, { type: 'tool.requested' }>,
+    interactionId: InteractionId | undefined,
+    resolutionStatus: Exclude<InteractionResponse['status'], 'pending'> | undefined,
+    audit: DefPreparedWorkNodeCleanupAuditV1,
+  ): void {
+    if (!interactionId || !resolutionStatus) return;
+    this.#append(active.session, {
+      type: 'interaction.resolved',
+      defTurnId: active.defTurnId,
+      interactionId,
+      toolCallId: event.toolCallId,
+      payload: { status: resolutionStatus, cleanup: audit },
     });
   }
 
@@ -1992,6 +2265,7 @@ export class DefAgentHost {
     } catch (error) {
       throw interactionHostError(error);
     }
+    this.#pendingInteractionsRevision += 1;
     this.#append(active.session, {
       type: 'interaction.requested',
       defTurnId: active.defTurnId,
@@ -2001,6 +2275,23 @@ export class DefAgentHost {
         kind: request.kind,
         prompt: request.prompt,
         expiresAt: request.expiresAt,
+        ...(request.kind === 'approval' && request.candidate
+          ? {
+              proposal: structuredClone(request.proposal),
+              candidate: clonePreparedWorkNodeCandidateRef(request.candidate),
+              ...(request.candidateReview
+                ? { candidateReview: clonePreparedWorkNodeReview(request.candidateReview) }
+                : {}),
+              cleanup: {
+                contract: 'DefPreparedWorkNodeCleanupAuditV1' as const,
+                schemaVersion: 1 as const,
+                proposalId: request.candidate.proposalId,
+                nodeId: request.candidate.nodeId,
+                candidateTimelineId: request.candidate.candidateTimelineId,
+                status: 'pending' as const,
+              },
+            }
+          : {}),
       },
     });
     if (registered.response) {
@@ -2028,6 +2319,7 @@ export class DefAgentHost {
         if (current.status === 'pending') {
           try {
             expired = this.#interactionBroker.expire(request.interactionId);
+            this.#pendingInteractionsRevision += 1;
           } catch {
             return;
           }
@@ -2082,6 +2374,7 @@ export class DefAgentHost {
         }
       }
       if (resolved.response) {
+        if (current.status === 'pending') this.#pendingInteractionsRevision += 1;
         this.#append(active.session, {
           type: 'interaction.resolved',
           defTurnId: active.defTurnId,
@@ -2104,6 +2397,7 @@ export class DefAgentHost {
       readonly command: JsonObject;
       readonly approvalCapability?: string;
       readonly visiblePostcondition?: JsonObject;
+      readonly allowAfterCancellation?: boolean;
     },
   ): Promise<JsonValue> {
     const commandId = input.commandId ?? this.#ids.command();
@@ -2167,10 +2461,12 @@ export class DefAgentHost {
         .awaitResult(commandId, { timeoutMs: PRODUCT_COMMAND_TIMEOUT_MS })
         .then((result) => ({ kind: 'result' as const, result }))
         .catch((error: unknown) => ({ kind: 'error' as const, error }));
-      const outcome = await Promise.race([
-        wait,
-        active.cancelled.then(() => ({ kind: 'cancelled' as const })),
-      ]);
+      const outcome = input.allowAfterCancellation
+        ? await wait
+        : await Promise.race([
+            wait,
+            active.cancelled.then(() => ({ kind: 'cancelled' as const })),
+          ]);
       if (outcome.kind === 'cancelled') {
         throw new DefToolExecutionError('DEF_TOOL_ABORTED', 'Product command was cancelled with the Turn');
       }
@@ -2907,6 +3203,517 @@ function harnessTraceMatchesEvent(
         === canonicalJson((entry.planEvents ?? null) as unknown as JsonValue);
   }
   return false;
+}
+
+type PreparedMutationPlanDetails = {
+  readonly operation: string;
+  readonly intent: PreparedWorkNodeIntent;
+  readonly scope: readonly PreparedWorkNodeScope[];
+  readonly command: JsonObject;
+};
+
+type LoadoutApplyIdentity = {
+  readonly parentNodeId: string;
+  readonly parentRevision: number;
+  readonly nodeId: string;
+  readonly nodeRevision: number;
+  readonly proposalDigest: string;
+};
+
+type PersistedLoadoutProposal = LoadoutApplyIdentity & {
+  readonly finalConfig: JsonObject;
+  readonly proposal: JsonObject;
+  readonly previewTurnId: DefTurnId;
+  readonly previewToolCallId: Extract<EngineEvent, { type: 'tool.requested' }>['toolCallId'];
+};
+
+function loadoutApplyMutationFromHistory(
+  session: SessionRecord,
+  currentTurnId: DefTurnId,
+  plan: Extract<DefInteractiveToolPlan, { kind: 'mutation' }>,
+  binding: ProductBinding,
+): { readonly command: JsonObject; readonly proposal: JsonValue } {
+  const requested = readLoadoutApplyIdentity(plan.command);
+  const consumed = new Set<string>();
+  for (const event of session.events) {
+    if (event.type !== 'tool.requested' || event.defTurnId === currentTurnId) continue;
+    if (event.payload.name !== 'def.loadout.apply_prepared') continue;
+    const input = isJsonObjectValue(event.payload.input) ? event.payload.input : null;
+    if (typeof input?.proposalDigest === 'string') consumed.add(input.proposalDigest);
+  }
+  if (consumed.has(requested.proposalDigest)) {
+    throw preparedPlanError('The loadout prepared proposal has already been consumed');
+  }
+
+  const completedTurns = new Set<DefTurnId>(
+    session.events
+      .filter((event): event is Extract<DefEvent, { type: 'turn.completed' }> => event.type === 'turn.completed')
+      .map((event) => event.defTurnId),
+  );
+  for (let index = session.events.length - 1; index >= 0; index -= 1) {
+    const resultEvent = session.events[index];
+    if (resultEvent?.type !== 'tool.result' || resultEvent.defTurnId === currentTurnId) continue;
+    const previewRequest = session.events
+      .slice(0, index)
+      .reverse()
+      .find((event): event is Extract<DefEvent, { type: 'tool.requested' }> => (
+        event.type === 'tool.requested'
+          && event.toolCallId === resultEvent.toolCallId
+          && event.payload.name === 'def.loadout.preview'
+      ));
+    if (!previewRequest || !completedTurns.has(previewRequest.defTurnId)) continue;
+    const persisted = persistedLoadoutProposalFromResult(
+      resultEvent.payload.result,
+      previewRequest,
+    );
+    if (!persisted || persisted.proposalDigest !== requested.proposalDigest) continue;
+    assertLoadoutApplyIdentityMatches(persisted, requested);
+    const queued = session.events.find((event): event is Extract<DefEvent, { type: 'command.queued' }> => (
+      event.type === 'command.queued' && event.toolCallId === previewRequest.toolCallId
+    ));
+    if (!queued || !loadoutCommandBindingMatches(queued.payload, binding)) {
+      throw preparedPlanError('The persisted loadout proposal is stale for the current Product binding');
+    }
+    if (
+      persisted.parentRevision !== binding.contentRevision
+      || (binding.checkoutTargetId !== null && persisted.parentNodeId !== binding.checkoutTargetId)
+    ) {
+      throw preparedPlanError('The persisted loadout proposal parent revision or checkout is stale');
+    }
+    const command: JsonObject = {
+      op: 'applyPreparedOperatorConfigProposal',
+      parentNodeId: persisted.parentNodeId,
+      parentRevision: persisted.parentRevision,
+      nodeId: persisted.nodeId,
+      nodeRevision: persisted.nodeRevision,
+      proposalDigest: persisted.proposalDigest,
+      finalConfig: structuredClone(persisted.finalConfig),
+      approval: {
+        mode: 'manual',
+        approvedBy: 'user',
+        rationale: 'Approved in the embedded DEF AI mode.',
+      },
+    };
+    return {
+      command,
+      proposal: {
+        contract: 'DefPreparedLoadoutProposalV1',
+        schemaVersion: 1,
+        previewTurnId: persisted.previewTurnId,
+        previewToolCallId: persisted.previewToolCallId,
+        source: structuredClone(persisted.proposal),
+        command: structuredClone(command),
+        scope: [...plan.scope],
+      },
+    };
+  }
+  throw preparedPlanError('No unchanged prepared loadout proposal from a previous completed Turn matches proposalDigest');
+}
+
+function readLoadoutApplyIdentity(command: JsonObject): LoadoutApplyIdentity {
+  return {
+    parentNodeId: readPreparedPlanString(command.parentNodeId, 'parentNodeId', 200),
+    parentRevision: readPreparedPlanRevision(command.parentRevision, 'parentRevision'),
+    nodeId: readPreparedPlanString(command.nodeId, 'nodeId', 200),
+    nodeRevision: readPreparedPlanRevision(command.nodeRevision, 'nodeRevision'),
+    proposalDigest: readPreparedPlanString(command.proposalDigest, 'proposalDigest', 200),
+  };
+}
+
+function readPreparedPlanRevision(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw preparedPlanError('Prepared loadout ' + field + ' is invalid');
+  }
+  return value;
+}
+
+function persistedLoadoutProposalFromResult(
+  result: JsonValue,
+  previewRequest: Extract<DefEvent, { type: 'tool.requested' }>,
+): PersistedLoadoutProposal | null {
+  const wrapper = isJsonObjectValue(result) && isJsonObjectValue(result.browserResult)
+    ? result.browserResult
+    : result;
+  if (!isJsonObjectValue(wrapper)) return null;
+  const source = isJsonObjectValue(wrapper.proposal) ? wrapper.proposal : wrapper;
+  const candidate = isJsonObjectValue(source.candidate) ? source.candidate : source;
+  const finalConfig = isJsonObjectValue(source.finalConfig)
+    ? source.finalConfig
+    : isJsonObjectValue(candidate.finalConfig)
+      ? candidate.finalConfig
+      : null;
+  if (!finalConfig) return null;
+  const parentNodeId = boundedLoadoutId(candidate.parentNodeId);
+  const nodeId = boundedLoadoutId(candidate.nodeId);
+  const proposalDigest = boundedLoadoutDigest(candidate.proposalDigest);
+  const parentRevision = boundedLoadoutRevision(candidate.parentRevision);
+  const nodeRevision = boundedLoadoutRevision(candidate.nodeRevision);
+  if (!parentNodeId || !nodeId || !proposalDigest || parentRevision === null || nodeRevision === null) return null;
+  const proposal = structuredClone(source);
+  if (!Object.prototype.hasOwnProperty.call(proposal, 'finalConfig')) proposal.finalConfig = structuredClone(finalConfig);
+  return {
+    parentNodeId,
+    parentRevision,
+    nodeId,
+    nodeRevision,
+    proposalDigest,
+    finalConfig: structuredClone(finalConfig),
+    proposal,
+    previewTurnId: previewRequest.defTurnId,
+    previewToolCallId: previewRequest.toolCallId,
+  };
+}
+
+function assertLoadoutApplyIdentityMatches(
+  persisted: PersistedLoadoutProposal,
+  requested: LoadoutApplyIdentity,
+): void {
+  for (const field of ['parentNodeId', 'parentRevision', 'nodeId', 'nodeRevision', 'proposalDigest'] as const) {
+    if (persisted[field] !== requested[field]) {
+      throw preparedPlanError('Loadout apply identity does not match the persisted proposal');
+    }
+  }
+}
+
+function loadoutCommandBindingMatches(
+  payload: Extract<DefEvent, { type: 'command.queued' }>['payload'],
+  binding: ProductBinding,
+): boolean {
+  return payload.workspaceId === binding.workspaceId
+    && payload.databaseGeneration === binding.databaseGeneration
+    && payload.timelineId === binding.timelineId
+    && payload.checkoutTargetId === binding.checkoutTargetId
+    && payload.beforeRevision === binding.contentRevision;
+}
+
+function boundedLoadoutId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= 200 ? value : null;
+}
+
+function boundedLoadoutDigest(value: unknown): string | null {
+  return typeof value === 'string' && /^sha256:[0-9a-f]{16,128}$/u.test(value) ? value : null;
+}
+
+function boundedLoadoutRevision(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function readPreparedMutationPlan(
+  plan: Extract<DefInteractiveToolPlan, { kind: 'prepared-mutation' }>,
+): PreparedMutationPlanDetails {
+  const command = plan.prepareCommand;
+  const operation = readPreparedPlanString(command.operation, 'operation', 256);
+  const intent = readPreparedPlanIntent(command.intent);
+  const planScope = readPreparedPlanScopeList(plan.scope, 'plan.scope');
+  const commandScope = readPreparedPlanScopeList(command.scope, 'prepareCommand.scope');
+  if (!sameStringArray(planScope, commandScope)) {
+    throw preparedPlanError('Prepared mutation plan scope does not match its prepare command');
+  }
+  const payloadKeys = ['patch', 'roster', 'restore'] as const;
+  const presentPayloadKeys = payloadKeys.filter((key) => Object.prototype.hasOwnProperty.call(command, key));
+  if (presentPayloadKeys.length !== 1) {
+    throw preparedPlanError('Prepared mutation plan must contain exactly one patch, roster, or restore request');
+  }
+  const payloadKey = presentPayloadKeys[0]!;
+  let payload: JsonValue;
+  if (payloadKey === 'patch') {
+    if (!Array.isArray(command.patch) || command.patch.length === 0
+      || !command.patch.every(isJsonObjectValue)) {
+      throw preparedPlanError('Prepared mutation plan patch must be a non-empty JSON object array');
+    }
+    payload = command.patch.map((entry) => structuredClone(entry));
+  } else {
+    if (!isJsonObjectValue(command[payloadKey])) {
+      throw preparedPlanError(`Prepared mutation plan ${payloadKey} request must be a JSON object`);
+    }
+    payload = structuredClone(command[payloadKey]);
+  }
+  const commandWithOnlyHostOwnedFields: JsonObject = {
+    op: 'prepareReviewedWorkNodeProposal',
+    operation,
+    intent,
+    scope: [...planScope],
+    [payloadKey]: payload,
+    ...(readPreparedOptionalPlanString(command.label, 'label', 120) === undefined
+      ? {}
+      : { label: readPreparedOptionalPlanString(command.label, 'label', 120)! }),
+    ...(readPreparedOptionalPlanString(command.description, 'description', 500) === undefined
+      ? {}
+      : { description: readPreparedOptionalPlanString(command.description, 'description', 500)! }),
+  };
+  return {
+    operation,
+    intent,
+    scope: planScope,
+    command: commandWithOnlyHostOwnedFields,
+  };
+}
+
+function readPreparedPlanString(value: unknown, field: string, maxLength: number): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > maxLength || !value.trim()) {
+    throw preparedPlanError(`Prepared mutation ${field} is invalid`);
+  }
+  return value;
+}
+
+function readPreparedOptionalPlanString(
+  value: unknown,
+  field: string,
+  maxLength: number,
+): string | undefined {
+  if (value === undefined) return undefined;
+  return readPreparedPlanString(value, field, maxLength);
+}
+
+function readPreparedPlanIntent(value: unknown): PreparedWorkNodeIntent {
+  if (value === 'timeline' || value === 'buff' || value === 'selection' || value === 'loadout') return value;
+  throw preparedPlanError('Prepared mutation intent is invalid');
+}
+
+function readPreparedPlanScopeList(
+  value: unknown,
+  field: string,
+): PreparedWorkNodeScope[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > PREPARED_WORK_NODE_SCOPES.length) {
+    throw preparedPlanError(`Prepared mutation ${field} is invalid`);
+  }
+  if (!value.every((scope): scope is PreparedWorkNodeScope => (
+    typeof scope === 'string'
+      && (PREPARED_WORK_NODE_SCOPES as readonly string[]).includes(scope)
+  ))) {
+    throw preparedPlanError(`Prepared mutation ${field} contains an unknown scope`);
+  }
+  if (new Set(value).size !== value.length) {
+    throw preparedPlanError(`Prepared mutation ${field} contains duplicate scopes`);
+  }
+  return [...value];
+}
+
+function preparedProposalFromCommandResult(result: JsonValue): unknown {
+  if (isPreparedWorkNodeProposal(result)) return result;
+  if (!isJsonObjectValue(result) || !Object.prototype.hasOwnProperty.call(result, 'browserResult')) return null;
+  return result.browserResult;
+}
+
+function candidateFromProposal(
+  proposal: DefPreparedWorkNodeProposalV1,
+): DefPreparedWorkNodeCandidateRefV1 {
+  return {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: proposal.schemaVersion,
+    proposalId: proposal.proposalId,
+    intent: proposal.intent,
+    destination: proposal.destination,
+    sourceTargetId: proposal.sourceTargetId,
+    sourceRevision: proposal.sourceRevision,
+    candidateTimelineId: proposal.candidateTimelineId,
+    nodeId: proposal.nodeId,
+    nodeRevision: proposal.nodeRevision,
+    basePayloadDigest: proposal.basePayloadDigest,
+    workingPayloadDigest: proposal.workingPayloadDigest,
+    diffDigest: proposal.diffDigest,
+    proposalDigest: proposal.proposalDigest,
+    scope: [...proposal.scope],
+  };
+}
+
+function candidateAsJson(candidate: DefPreparedWorkNodeCandidateRefV1): JsonObject {
+  return {
+    contract: candidate.contract,
+    schemaVersion: candidate.schemaVersion,
+    proposalId: candidate.proposalId,
+    intent: candidate.intent,
+    destination: candidate.destination,
+    sourceTargetId: candidate.sourceTargetId,
+    sourceRevision: candidate.sourceRevision,
+    candidateTimelineId: candidate.candidateTimelineId,
+    nodeId: candidate.nodeId,
+    nodeRevision: candidate.nodeRevision,
+    basePayloadDigest: candidate.basePayloadDigest,
+    workingPayloadDigest: candidate.workingPayloadDigest,
+    diffDigest: candidate.diffDigest,
+    proposalDigest: candidate.proposalDigest,
+    scope: [...candidate.scope],
+  };
+}
+
+function preparedCleanupAudit(
+  candidate: DefPreparedWorkNodeCandidateRefV1,
+  status: DefPreparedWorkNodeCleanupAuditV1['status'],
+  reason: string,
+): DefPreparedWorkNodeCleanupAuditV1 {
+  return {
+    contract: 'DefPreparedWorkNodeCleanupAuditV1',
+    schemaVersion: 1,
+    proposalId: candidate.proposalId,
+    nodeId: candidate.nodeId,
+    candidateTimelineId: candidate.candidateTimelineId,
+    status,
+    reason: reason.slice(0, 2_000),
+  };
+}
+
+function preparedCleanupAuditFromCommandResult(
+  result: JsonValue,
+  candidate: DefPreparedWorkNodeCandidateRefV1,
+): DefPreparedWorkNodeCleanupAuditV1 | null {
+  const browserResult = isJsonObjectValue(result) && Object.prototype.hasOwnProperty.call(result, 'browserResult')
+    ? result.browserResult
+    : result;
+  const object = isJsonObjectValue(browserResult) ? browserResult : null;
+  const raw = object && isJsonObjectValue(object.cleanup) ? object.cleanup : browserResult;
+  if (!isPreparedWorkNodeCleanupAudit(raw)
+    || raw.proposalId !== candidate.proposalId
+    || raw.nodeId !== candidate.nodeId
+    || raw.candidateTimelineId !== candidate.candidateTimelineId) {
+    return null;
+  }
+  return structuredClone(raw);
+}
+
+function preparedCleanupCandidateFromCommand(
+  command: ProductCommandEnvelope<Phase2ProductOperationSchema>,
+): DefPreparedWorkNodeCandidateRefV1 | null {
+  if (command.command.op !== 'workbench.execute-command') return null;
+  const inner = isJsonObjectValue(command.command.payload.command)
+    ? command.command.payload.command
+    : null;
+  if (!inner || inner.op !== 'abandonPreparedWorkNodeProposal') return null;
+  return isPreparedWorkNodeCandidateRef(inner.candidate)
+    ? clonePreparedWorkNodeCandidateRef(inner.candidate)
+    : null;
+}
+
+function preparedCleanupAuditFromReconciledResult(
+  result: ProductCommandResult,
+  candidate: DefPreparedWorkNodeCandidateRefV1,
+): DefPreparedWorkNodeCleanupAuditV1 {
+  const typed = preparedCleanupAuditFromCommandResult(
+    result.browserResult ?? result.visiblePostcondition ?? null,
+    candidate,
+  );
+  if (typed && typed.status !== 'pending' && typed.status !== 'abandoned') return typed;
+  const reason = result.message ?? result.code ?? `reconciled cleanup ended as ${result.status}`;
+  const status = result.status === 'not-executed' || isBindingConflictError(result.message ?? result.code ?? '')
+    ? 'preserved'
+    : 'failed';
+  return preparedCleanupAudit(candidate, status, `Recovered cleanup result (${result.status}): ${reason}`);
+}
+
+function isBindingConflictError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /binding|revision|stale|conflict/i.test(message);
+}
+
+function productBindingAsJson(binding: ProductBinding): JsonObject {
+  return {
+    workspaceId: binding.workspaceId,
+    databaseGeneration: binding.databaseGeneration,
+    timelineId: binding.timelineId,
+    checkoutTargetId: binding.checkoutTargetId,
+    checkoutUpdatedAt: binding.checkoutUpdatedAt,
+    contentRevision: binding.contentRevision,
+    snapshotDigest: binding.snapshotDigest,
+  };
+}
+
+function assertPreparedProposalMatchesPlan(
+  proposal: DefPreparedWorkNodeProposalV1,
+  plan: PreparedMutationPlanDetails,
+  pinnedBinding: ProductBinding,
+): void {
+  const candidate = candidateFromProposal(proposal);
+  const review: DefPreparedWorkNodeReviewV1 = proposal.review;
+  if (!sameExactProductBinding(proposal.sourceBinding, pinnedBinding)) {
+    throw preparedProposalError('Prepared proposal sourceBinding does not match the pinned Product binding');
+  }
+  if (proposal.intent !== plan.intent) {
+    throw preparedProposalError('Prepared proposal intent does not match the prepare command');
+  }
+  if (!sameStringArray(proposal.scope, plan.scope)) {
+    throw preparedProposalError('Prepared proposal scope does not match the prepare command');
+  }
+  if (proposal.destination === 'current-timeline') {
+    if (proposal.candidateTimelineId !== pinnedBinding.timelineId) {
+      throw preparedProposalError('Prepared current-timeline proposal must use the pinned Product Timeline');
+    }
+  } else if (proposal.destination === 'new-temporary-workspace') {
+    if (proposal.intent !== 'selection') {
+      throw preparedProposalError('Only selection proposals may use a new temporary workspace');
+    }
+    if (proposal.candidateTimelineId === pinnedBinding.timelineId) {
+      throw preparedProposalError('Prepared temporary selection proposal must use a new Product Timeline');
+    }
+  } else {
+    throw preparedProposalError('Prepared proposal destination is invalid');
+  }
+  if ((pinnedBinding.checkoutTargetId !== null
+      && proposal.sourceTargetId !== pinnedBinding.checkoutTargetId)
+    || proposal.sourceRevision !== pinnedBinding.contentRevision) {
+    throw preparedProposalError('Prepared proposal source revision or target does not match the pinned Product binding');
+  }
+  if (
+    proposal.sourceCheckout.timelineId !== pinnedBinding.timelineId
+    || proposal.sourceCheckout.targetId !== proposal.sourceTargetId
+    || proposal.sourceCheckout.revision !== proposal.sourceRevision
+    || proposal.sourceCheckout.payloadDigest !== proposal.basePayloadDigest
+  ) {
+    throw preparedProposalError('Prepared proposal source checkout is inconsistent with its binding and candidate');
+  }
+  const changes = review.changes as unknown as JsonValue;
+  const expectedDiffDigest = preparedJsonDigest(changes);
+  if (proposal.diffDigest !== expectedDiffDigest) {
+    throw preparedProposalError('Prepared proposal diffDigest does not match the reviewed changes');
+  }
+  const summary = review.summary;
+  if (
+    summary.addedPathCount !== review.changes.filter((change) => change.kind === 'added').length
+    || summary.removedPathCount !== review.changes.filter((change) => change.kind === 'removed').length
+    || summary.changedPathCount !== review.changes.filter((change) => change.kind === 'changed').length
+  ) {
+    throw preparedProposalError('Prepared proposal review summary does not match the reviewed changes');
+  }
+  const { proposalDigest: _proposalDigest, ...candidateWithoutProposalDigest } = candidateAsJson(candidate);
+  const expectedProposalDigest = preparedJsonDigest({
+    operation: plan.operation,
+    intent: candidate.intent,
+    candidate: candidateWithoutProposalDigest,
+    scope: [...candidate.scope],
+  });
+  if (proposal.proposalDigest !== expectedProposalDigest) {
+    throw preparedProposalError('Prepared proposal proposalDigest does not match the prepare operation and candidate');
+  }
+}
+
+function preparedJsonDigest(value: JsonValue): string {
+  return `sha256:${createHash('sha256').update(canonicalJson(value)).digest('hex')}`;
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isJsonObjectValue(value: unknown): value is JsonObject {
+  return isJsonValueValue(value) && value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isJsonValueValue(value: unknown, depth = 0): value is JsonValue {
+  if (depth > 32) return false;
+  if (value === null || typeof value === 'boolean' || typeof value === 'string') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return value.every((entry) => isJsonValueValue(entry, depth + 1));
+  if (typeof value !== 'object') return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Object.values(value).every((entry) => isJsonValueValue(entry, depth + 1));
+}
+
+function preparedPlanError(message: string): DefToolExecutionError {
+  return new DefToolExecutionError('DEF_TOOL_INPUT_INVALID', message);
+}
+
+function preparedProposalError(message: string): DefToolExecutionError {
+  return new DefToolExecutionError('DEF_PRODUCT_COMMAND_FAILED', message);
 }
 
 function sameExactProductBinding(left: ProductBinding, right: ProductBinding): boolean {

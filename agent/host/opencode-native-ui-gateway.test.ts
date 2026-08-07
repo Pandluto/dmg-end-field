@@ -15,6 +15,8 @@ import {
   asToolCallId,
   asWorkspaceId,
   type DefSessionV6,
+  type DefPreparedWorkNodeCandidateRefV1,
+  type DefPreparedWorkNodeReviewV1,
   type InteractionRequest,
   type InteractionResponse,
   type ProductBinding,
@@ -250,7 +252,12 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
       { headers: { authorization: `Basic ${authToken}` } },
     );
     assert.equal(nodeReviewResponse.status, 200);
-    assert.deepEqual(await nodeReviewResponse.json(), { ok: true, ...nodeReview });
+    assert.deepEqual(await nodeReviewResponse.json(), {
+      ok: true,
+      bound: true,
+      diffs: nodeReview.diffs,
+      report: nodeReview.report,
+    });
 
     const fontResponse = await fetch(`${gateway.origin}/font.woff`);
     assert.equal(fontResponse.status, 200);
@@ -281,6 +288,48 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     const interactionTurnId = asDefTurnId('def-turn-native-interaction');
     const questionId = asInteractionId('question-native-ui');
     const approvalId = asInteractionId('approval-native-ui');
+    const nativeCandidate: DefPreparedWorkNodeCandidateRefV1 = {
+      contract: 'DefPreparedWorkNodeCandidateRefV1',
+      schemaVersion: 1,
+      proposalId: 'proposal-native-ui',
+      intent: 'selection',
+      destination: 'new-temporary-workspace',
+      sourceTargetId: 'node-native-ui',
+      sourceRevision: 1,
+      candidateTimelineId: 'timeline-native-ui-candidate',
+      nodeId: 'node-native-ui-candidate',
+      nodeRevision: 2,
+      basePayloadDigest: `sha256:${'1'.repeat(64)}`,
+      workingPayloadDigest: `sha256:${'2'.repeat(64)}`,
+      diffDigest: `sha256:${'3'.repeat(64)}`,
+      proposalDigest: `sha256:${'4'.repeat(64)}`,
+      scope: [
+        'selection.roster',
+        'timeline.structure',
+        'buff.attachments',
+        'buff.resistance',
+        'loadout.config',
+      ],
+    };
+    const nativeReview: DefPreparedWorkNodeReviewV1 = {
+      contract: 'DefPreparedWorkNodeReviewV1',
+      schemaVersion: 1,
+      manifest: {
+        proposalId: nativeCandidate.proposalId,
+        nodeId: nativeCandidate.nodeId,
+        nodeRevision: nativeCandidate.nodeRevision,
+        diffDigest: nativeCandidate.diffDigest,
+        proposalDigest: nativeCandidate.proposalDigest,
+        scope: [...nativeCandidate.scope],
+      },
+      summary: { addedPathCount: 0, removedPathCount: 0, changedPathCount: 1 },
+      changes: [{
+        path: '/timelineData/nested/value',
+        kind: 'changed',
+        before: { nested: { value: 1 } },
+        after: { nested: { value: 2 } },
+      }],
+    };
     pending = [
       {
         interactionId: questionId,
@@ -302,8 +351,16 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
         prompt: '确认修改当前时间轴',
         proposalHash: 'a'.repeat(64),
         binding: { ...binding },
-        scope: ['timeline.write'],
+        scope: [
+          'selection.roster',
+          'timeline.structure',
+          'buff.attachments',
+          'buff.resistance',
+          'loadout.config',
+        ],
         proposal: { operation: 'update-node', nodeId: 'node-1' },
+        candidate: nativeCandidate,
+        candidateReview: nativeReview,
         createdAt: '2026-08-08T00:00:00.000Z',
         expiresAt: '2026-08-08T00:15:00.000Z',
       },
@@ -324,6 +381,41 @@ test('native OpenCode UI keeps transcript reads upstream and routes prompts thro
     assert.equal(permissions.length, 1);
     assert.equal(permissions[0]?.id, approvalId);
     assert.deepEqual(permissions[0]?.always, []);
+    const patterns = permissions[0]?.patterns as string[];
+    const patternText = patterns.join('\n');
+    assert.match(patternText, /候选标签：确认修改当前时间轴/u);
+    assert.match(patternText, /selection\.roster/u);
+    assert.match(patternText, /timeline\.structure/u);
+    assert.match(patternText, /buff\.attachments/u);
+    assert.match(patternText, /buff\.resistance/u);
+    assert.match(patternText, /loadout\.config/u);
+    assert.match(patternText, /source target=node-native-ui revision=1/u);
+    assert.match(patternText, /candidate timeline=timeline-native-ui-candidate node=node-native-ui-candidate revision=2/u);
+    assert.match(patternText, /proposalDigest=sha256:444444/u);
+    assert.match(patternText, /diffDigest=sha256:333333/u);
+    assert.match(patternText, /\/timelineData\/nested\/value/u);
+    assert.match(patternText, /before: \{/u);
+    assert.match(patternText, /after: \{/u);
+    assert.match(patternText, /过期提示/u);
+
+    const candidateReviewResponse = await fetch(
+      `${gateway.origin}/api/native/node-review?sessionID=${encodeURIComponent(session.engine.sessionId)}`,
+      { headers: { authorization: `Basic ${authToken}` } },
+    );
+    assert.equal(candidateReviewResponse.status, 200);
+    assert.deepEqual(await candidateReviewResponse.json(), { ok: true, candidateReview: nativeReview });
+
+    const secondApproval: InteractionRequest = {
+      ...(pending.find((candidate) => candidate.interactionId === approvalId) as Extract<InteractionRequest, { kind: 'approval' }>),
+      interactionId: asInteractionId('approval-native-ui-2'),
+    };
+    pending = [...pending, secondApproval];
+    const conflictReviewResponse = await fetch(
+      `${gateway.origin}/api/native/node-review?sessionID=${encodeURIComponent(session.engine.sessionId)}`,
+      { headers: { authorization: `Basic ${authToken}` } },
+    );
+    assert.equal(conflictReviewResponse.status, 409);
+    pending = pending.filter((candidate) => candidate.interactionId !== secondApproval.interactionId);
 
     const eventAbort = new AbortController();
     const eventResponse = await fetch(`${gateway.origin}/global/event`, {

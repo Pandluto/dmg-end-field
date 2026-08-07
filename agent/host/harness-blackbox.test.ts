@@ -347,19 +347,26 @@ function expectedResult(toolName: string): JsonValue {
   }
   if (toolName === 'def.data.resource.damage') {
     return {
-      contract: 'DefDamageReportV1',
-      binding: bindingJson(),
+      contract: 'DefDamageCurrentV1',
       formulaVersion: 'damage-report-v1',
       statisticalScope: 'current-workbench-snapshot',
       schemeDigest: 'sha256:phase3-snapshot',
-      report: damageReportFixture(),
+      generatedAt: 30,
+      buttonScope: ['button-a'],
+      buttonCount: 1,
+      totalDamage: 1234.5,
+      totalExpected: 1234.5,
+      totalNonCrit: 1000,
     };
   }
   throw new Error(`Missing golden result for ${toolName}`);
 }
 
 function toolInput(toolName: string): JsonValue {
-  return toolName === 'def.data.resource.buff' ? { query: '攻击' } : {};
+  if (toolName === 'def.data.resource.buff') return { action: 'resolve', query: '攻击' };
+  if (toolName === 'def.data.resource.damage') return { action: 'current' };
+  if (toolName === 'def.data.resource.team_loadouts') return { action: 'current' };
+  return {};
 }
 
 function turnEvents(events: readonly DefEvent[], defTurnId: string): readonly DefEvent[] {
@@ -660,6 +667,47 @@ if (illegalToolError?.type === 'tool.error') {
   assert.equal(illegalToolError.payload.code, 'HARNESS_TOOL_NOT_PROJECTED');
 }
 assert.equal(gatewaySnapshotReads, readsBeforeOutOfPhaseTool);
+
+// A projected multi-action Tool must reject an exact-action mismatch before
+// its handler can read ProductGateway or advance the phase.
+const readsBeforeWrongAction = gatewaySnapshotReads;
+engine.enqueueScript([
+  {
+    type: 'tool',
+    toolCallId: asToolCallId('route-wrong-action'),
+    name: 'def.harness.route',
+    input: { businessId: 'calculation', operation: 'calculate' },
+  },
+  { type: 'projection', revision: 2 },
+  {
+    type: 'tool',
+    toolCallId: asToolCallId('context-wrong-action'),
+    name: 'def.node.crud.context',
+    input: {},
+  },
+  { type: 'projection', revision: 3 },
+  {
+    type: 'tool',
+    toolCallId: asToolCallId('damage-wrong-action'),
+    name: 'def.data.resource.damage',
+    input: { action: 'aggregate-evil' },
+  },
+  { type: 'projection', revision: 4 },
+  { type: 'complete' },
+]);
+const wrongActionTurn = await host.startHarnessTurn({
+  defSessionId: session.defSessionId,
+  userMessage: '使用错误 damage action',
+});
+const wrongActionTerminal = await host.waitForTurnTerminal(wrongActionTurn.defTurnId);
+assert.equal(wrongActionTerminal.type, 'turn.failed');
+const wrongActionEvents = turnEvents(host.readEvents(session.defSessionId), wrongActionTurn.defTurnId);
+const wrongActionError = wrongActionEvents.find((event) => event.type === 'tool.error');
+assert.equal(wrongActionError?.type, 'tool.error');
+if (wrongActionError?.type === 'tool.error') {
+  assert.equal(wrongActionError.payload.code, 'HARNESS_TOOL_INPUT_INVALID');
+}
+assert.equal(gatewaySnapshotReads, readsBeforeWrongAction + 1);
 
 // A Browser snapshot that advanced beyond the Session binding fails closed.
 const advancedBinding = binding({

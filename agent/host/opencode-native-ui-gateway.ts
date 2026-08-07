@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path';
 import {
   asClientTurnId,
   asEngineMessageId,
+  PREPARED_WORK_NODE_LIMITS,
   type DefSessionId,
   type EngineUserAttachment,
   type InteractionRequest,
@@ -408,12 +409,26 @@ export class OpenCodeNativeUiGateway {
           400,
         );
       }
-      this.#sessionForEngine(engineSessionId, access.binding);
-      const snapshot = await this.#host.readProductSnapshot(access.binding);
-      this.#writeJson(response, 200, {
-        ok: true,
-        ...readNodeReviewProjection(snapshot.payload),
-      });
+      const session = this.#sessionForEngine(engineSessionId, access.binding);
+      const pendingApprovals = this.#projectInteractions(access.binding)
+        .filter((projection) => projection.kind === 'approval' && projection.sessionID === session.engine.sessionId);
+      if (pendingApprovals.length > 1) {
+        throw new DefAgentHostError(
+          'AGENT_INTERACTION_CONFLICT',
+          'The visible OpenCode Session has multiple pending approval reviews',
+          409,
+        );
+      }
+      const candidateReview = pendingApprovals[0]?.kind === 'approval'
+        ? pendingApprovals[0].interaction.candidateReview
+        : undefined;
+      const review = candidateReview
+        ? { ok: true, candidateReview: structuredClone(candidateReview) }
+        : {
+            ok: true,
+            ...readNodeReviewProjection((await this.#host.readProductSnapshot(access.binding)).payload),
+          };
+      this.#writeJson(response, 200, review);
       return;
     }
 
@@ -730,6 +745,7 @@ export class OpenCodeNativeUiGateway {
 
     let closed = false;
     let previous = new Map<string, NativeInteractionProjection>();
+    let previousHostRevision: number | undefined;
     const close = (): void => {
       if (closed) return;
       closed = true;
@@ -741,6 +757,8 @@ export class OpenCodeNativeUiGateway {
     const synchronize = (): void => {
       if (closed) return;
       this.#sweepResolutions();
+      const hostRevision = readHostInteractionRevision(this.#host);
+      if (hostRevision !== null && previousHostRevision === hostRevision) return;
       const current = new Map<string, NativeInteractionProjection>(this.#projectInteractions(access.binding).map((projection) => [
         projection.interaction.interactionId,
         projection,
@@ -757,6 +775,7 @@ export class OpenCodeNativeUiGateway {
         ));
       }
       previous = current;
+      if (hostRevision !== null) previousHostRevision = hostRevision;
     };
 
     synchronize();
@@ -971,6 +990,16 @@ type NativeUiAccess = {
   readonly binding: ProductBinding;
 };
 
+function readHostInteractionRevision(host: DefAgentHost): number | null {
+  const candidate = host as unknown as {
+    readonly getPendingInteractionsRevision?: () => unknown;
+  };
+  const revision = candidate.getPendingInteractionsRevision?.();
+  return typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0
+    ? revision
+    : null;
+}
+
 function embeddedProfile() {
   return {
     schemaVersion: 1,
@@ -1155,11 +1184,60 @@ function readQuestionHeader(value: JsonValue | undefined): string {
 function approvalPatterns(
   interaction: Extract<InteractionRequest, { readonly kind: 'approval' }>,
 ): readonly string[] {
-  const patterns = [interaction.prompt];
+  const patterns = [`候选标签：${interaction.prompt}`];
   if (interaction.scope.length > 0) patterns.push(`作用范围：${interaction.scope.join('、')}`);
-  const proposal = JSON.stringify(interaction.proposal, null, 2);
-  patterns.push(`变更提案：\n${proposal.length > 6_000 ? `${proposal.slice(0, 6_000)}…` : proposal}`);
+  if (interaction.candidate) {
+    const candidate = interaction.candidate;
+    patterns.push([
+      '候选版本：',
+      `source target=${candidate.sourceTargetId} revision=${candidate.sourceRevision}`,
+      `source binding revision=${interaction.binding.contentRevision}`,
+      `candidate timeline=${candidate.candidateTimelineId} node=${candidate.nodeId} revision=${candidate.nodeRevision}`,
+    ].join('\n'));
+    patterns.push([
+      '候选摘要：',
+      `scope=${candidate.scope.join('、')}`,
+      `proposalDigest=${candidate.proposalDigest}`,
+      `diffDigest=${candidate.diffDigest}`,
+    ].join('\n'));
+    if (interaction.candidateReview) patterns.push(formatCandidateReview(interaction.candidateReview));
+    patterns.push('过期提示：批准前 Host 会重读精确 source binding；checkout、revision 或 digest 变化会使本次审批失效。候选在批准前不会触碰 live checkout。');
+  } else {
+    const proposal = JSON.stringify(interaction.proposal, null, 2);
+    patterns.push(`变更提案：\n${proposal.length > 6_000 ? `${proposal.slice(0, 6_000)}…` : proposal}`);
+  }
   return patterns;
+}
+
+function formatCandidateReview(
+  review: NonNullable<Extract<InteractionRequest, { readonly kind: 'approval' }>['candidateReview']>,
+): string {
+  const lines = [
+    '嵌套路径差异（before → after）：',
+    `summary: +${review.summary.addedPathCount} -${review.summary.removedPathCount} ~${review.summary.changedPathCount}`,
+  ];
+  for (const change of review.changes) {
+    const before = Object.prototype.hasOwnProperty.call(change, 'before')
+      ? formatReviewJson(change.before)
+      : '∅';
+    const after = Object.prototype.hasOwnProperty.call(change, 'after')
+      ? formatReviewJson(change.after)
+      : '∅';
+    lines.push(`[${change.kind}] ${change.path}\nbefore: ${before}\nafter: ${after}`);
+  }
+  const rendered = lines.join('\n');
+  return rendered.length <= PREPARED_WORK_NODE_LIMITS.maxReviewCodeUnits
+    ? rendered
+    : `${rendered.slice(0, PREPARED_WORK_NODE_LIMITS.maxReviewCodeUnits)}\n…审阅差异已按上限截断…`;
+}
+
+function formatReviewJson(value: JsonValue | undefined): string {
+  if (value === undefined) return '∅';
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return '[unserializable]';
+  }
 }
 
 function nativeAskedEvent(projection: NativeInteractionProjection) {

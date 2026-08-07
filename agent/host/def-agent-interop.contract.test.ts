@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import {
   asDatabaseGeneration,
+  canonicalJson,
   asDefTurnId,
   asTimelineId,
   asToolCallId,
   asWorkspaceId,
+  type DefPreparedWorkNodeProposalV1,
+  type JsonValue,
   type ProductBinding,
   type ProductSnapshotEnvelope,
 } from '../core/contracts/index.ts';
@@ -66,6 +70,76 @@ function snapshot(): ProductSnapshotEnvelope {
       skillButtons: [],
       operatorConfigs: [],
     },
+  };
+}
+
+function preparedSelectionProposal(): DefPreparedWorkNodeProposalV1 {
+  const sourceTargetId = productBinding.checkoutTargetId ?? 'node-interop';
+  const changes = [{
+    path: '/selectedCharacters/0/name',
+    kind: 'changed' as const,
+    before: '测试甲' as JsonValue,
+    after: '测试乙' as JsonValue,
+  }];
+  const digest = (value: JsonValue): string => (
+    'sha256:' + createHash('sha256').update(canonicalJson(value)).digest('hex')
+  );
+  const candidateWithoutDigest = {
+    contract: 'DefPreparedWorkNodeCandidateRefV1' as const,
+    schemaVersion: 1 as const,
+    proposalId: 'proposal-interop-selection',
+    intent: 'selection' as const,
+    destination: 'new-temporary-workspace' as const,
+    sourceTargetId,
+    sourceRevision: productBinding.contentRevision,
+    candidateTimelineId: 'timeline-interop-selection-candidate',
+    nodeId: 'candidate-interop-selection',
+    nodeRevision: 1,
+    basePayloadDigest: 'sha256:' + '1'.repeat(64),
+    workingPayloadDigest: 'sha256:' + '2'.repeat(64),
+    diffDigest: digest(changes as unknown as JsonValue),
+    scope: [
+      'selection.roster',
+      'timeline.structure',
+      'buff.attachments',
+      'buff.resistance',
+      'loadout.config',
+    ] as const,
+  };
+  const proposalDigest = digest({
+    operation: 'selection.apply',
+    intent: candidateWithoutDigest.intent,
+    candidate: candidateWithoutDigest,
+    scope: [...candidateWithoutDigest.scope],
+  } as unknown as JsonValue);
+  const candidate = { ...candidateWithoutDigest, proposalDigest };
+  return {
+    ...candidate,
+    contract: 'DefPreparedWorkNodeProposalV1',
+    sourceBinding: { ...productBinding },
+    sourceCheckout: {
+      timelineId: productBinding.timelineId,
+      targetType: 'work-node',
+      targetId: sourceTargetId,
+      revision: productBinding.contentRevision,
+      payloadDigest: candidate.basePayloadDigest,
+    },
+    structuralParentNodeId: null,
+    review: {
+      contract: 'DefPreparedWorkNodeReviewV1',
+      schemaVersion: 1,
+      manifest: {
+        proposalId: candidate.proposalId,
+        nodeId: candidate.nodeId,
+        nodeRevision: candidate.nodeRevision,
+        diffDigest: candidate.diffDigest,
+        proposalDigest: candidate.proposalDigest,
+        scope: [...candidate.scope],
+      },
+      summary: { addedPathCount: 0, removedPathCount: 0, changedPathCount: 1 },
+      changes,
+    },
+    liveCheckoutTouched: false,
   };
 }
 
@@ -394,6 +468,28 @@ try {
   );
   assert.equal(approvalStart.status, 202);
   const approvalTurnId = (approvalStart.body as { turn: { defTurnId: string } }).turn.defTurnId;
+  const prepareDelivery = await waitFor(
+    () => gateway.nextCommand(owner, {
+      consumerId: registration.consumerId,
+      executorLeaseId: registration.executorLeaseId,
+      afterCursor: 0,
+    }) ?? undefined,
+    'selection prepare command was not delivered',
+  );
+  assert.equal(prepareDelivery?.command.command.op, 'workbench.execute-command');
+  if (!prepareDelivery) throw new Error('expected selection prepare delivery');
+  gateway.submitResult(owner, {
+    consumerId: registration.consumerId,
+    executorLeaseId: registration.executorLeaseId,
+    result: {
+      commandId: prepareDelivery.command.commandId,
+      status: 'succeeded',
+      beforeRevision: productBinding.contentRevision,
+      afterRevision: productBinding.contentRevision,
+      browserResult: preparedSelectionProposal() as unknown as JsonValue,
+      completedAt: '2026-08-08T00:00:01.000Z',
+    },
+  });
   const pendingApproval = await waitFor(
     () => host.listPendingInteractions(productBinding)[0],
     'approval interaction was not published',
@@ -408,7 +504,13 @@ try {
   assert.equal(openApproval?.kind, 'approval');
   assert.equal(openApproval?.status, 'open');
   assert.ok(openApproval?.approval?.proposalHash);
-  assert.deepEqual(openApproval?.approval?.scope, ['selection.roster']);
+  assert.deepEqual(openApproval?.approval?.scope, [
+    'selection.roster',
+    'timeline.structure',
+    'buff.attachments',
+    'buff.resistance',
+    'loadout.config',
+  ]);
   const stop = await request(
     baseUrl,
     `/agent-host/interop/v1/sessions/${sessionPath}/turns/${encodeURIComponent(approvalTurnId)}/stop`,

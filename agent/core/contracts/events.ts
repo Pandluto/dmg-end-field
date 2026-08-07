@@ -17,6 +17,7 @@ import type { JsonValue } from './json.ts';
 import type {
   DefPreparedWorkNodeCandidateRefV1,
   DefPreparedWorkNodeCleanupAuditV1,
+  DefPreparedWorkNodeReviewV1,
 } from './prepared-work-node.ts';
 import type { ProductCommandResultStatus } from './product.ts';
 import type {
@@ -110,11 +111,14 @@ export interface DefEventPayloadMap {
     readonly prompt: string;
     readonly expiresAt: string;
     readonly candidate?: DefPreparedWorkNodeCandidateRefV1;
+    readonly candidateReview?: DefPreparedWorkNodeReviewV1;
+    readonly proposal?: JsonValue;
     readonly cleanup?: DefPreparedWorkNodeCleanupAuditV1;
   };
   'interaction.resolved': {
     readonly status: Exclude<InteractionStatus, 'pending'>;
     readonly value?: JsonValue;
+    readonly cleanup?: DefPreparedWorkNodeCleanupAuditV1;
   };
   'command.queued': DefCommandBindingPayload & {
     readonly op: string;

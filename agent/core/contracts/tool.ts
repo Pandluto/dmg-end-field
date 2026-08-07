@@ -3,8 +3,6 @@ import type { DefSessionId, DefTurnId, ToolCallId } from './ids.ts';
 import type { JsonObject, JsonValue } from './json.ts';
 import type { ProductBinding, ProductSnapshotEnvelope } from './product.ts';
 import type {
-  DefPreparedWorkNodeCandidateRefV1,
-  DefPreparedWorkNodeReviewV1,
   PreparedWorkNodeScope,
 } from './prepared-work-node.ts';
 
@@ -52,20 +50,16 @@ export type DefInteractiveToolPlan =
     }
   | {
       /**
-       * A data-only handoff for a candidate that has already been prepared.
-       * Canvas commands are intentionally not implied by this contract yet.
+       * A Host-mediated proposal flow. The initial plan describes how the
+       * Product should prepare the candidate; the candidate itself is returned
+       * by that Product command and is never supplied by the Engine.
        */
       readonly kind: 'prepared-mutation';
       readonly prompt: string;
-      readonly proposal: JsonValue;
-      readonly candidate: DefPreparedWorkNodeCandidateRefV1;
-      readonly candidateReview: DefPreparedWorkNodeReviewV1;
       readonly scope: readonly PreparedWorkNodeScope[];
       readonly prepareCommand: JsonObject;
-      readonly applyOperation: 'applyReviewedWorkNodeProposal' | 'applyReviewedSelectionProposal';
+      readonly applyOperation: 'applyReviewedWorkNodeProposal';
       readonly cleanupOperation: 'abandonPreparedWorkNodeProposal';
-      readonly command: JsonObject;
-      readonly followUp?: 'checkout-prepared-work-node';
       readonly visiblePostcondition?: JsonObject;
     };
 

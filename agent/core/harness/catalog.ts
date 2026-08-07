@@ -3,6 +3,7 @@ import type {
   DefHarnessOperationId,
   DefHarnessPhaseDefinition,
   DefHarnessPhaseKind,
+  DefHarnessRequiredInput,
   DefHarnessRevisionDefinition,
 } from '../contracts/index.ts';
 
@@ -131,7 +132,8 @@ export const PHASE3_READONLY_HARNESS_CATALOG = [
           kind: 'context',
           tools: [T.loadouts],
           writes: [],
-          instructions: 'Read the selected team loadouts once and preserve missing configuration as an explicit incomplete result.',
+          instructions: 'Call with action=current. Read the selected team loadouts once and preserve missing configuration as an explicit incomplete result.',
+          requiredInput: { action: 'current' },
           onSuccess: 'done',
           onFailure: 'failed',
         },
@@ -183,7 +185,8 @@ export const PHASE3_READONLY_HARNESS_CATALOG = [
           kind: 'evidence',
           tools: [T.buff],
           writes: [],
-          instructions: 'Resolve only Buff facts present in the bound current snapshot. Empty candidates do not prove catalog absence.',
+          instructions: 'Call with action=resolve. Resolve only Buff facts present in the bound current snapshot. Empty candidates do not prove catalog absence.',
+          requiredInput: { action: 'resolve' },
           onSuccess: 'done',
           onFailure: 'failed',
         },
@@ -218,7 +221,8 @@ export const PHASE3_READONLY_HARNESS_CATALOG = [
           kind: 'evidence',
           tools: [T.damage],
           writes: [],
-          instructions: 'Read the product-generated typed damage report once. Never recompute or repair formula output in the Harness.',
+          instructions: 'Call with action=current. Read the product-generated typed damage report once. Never recompute or repair formula output in the Harness.',
+          requiredInput: { action: 'current' },
           onSuccess: 'done',
           onFailure: 'failed',
         },
@@ -243,6 +247,7 @@ type PhaseSpec = {
   readonly kind: DefHarnessPhaseKind;
   readonly tool: string;
   readonly instructions: string;
+  readonly requiredInput?: DefHarnessRequiredInput;
   readonly writes?: readonly string[];
 };
 
@@ -252,8 +257,9 @@ function phase(
   tool: string,
   instructions: string,
   writes: readonly string[] = [],
+  requiredInput?: DefHarnessRequiredInput,
 ): PhaseSpec {
-  return { id, kind, tool, instructions, writes };
+  return { id, kind, tool, instructions, writes, requiredInput };
 }
 
 function defineOperation(input: {
@@ -267,6 +273,7 @@ function defineOperation(input: {
     tools: [entry.tool],
     writes: [...(entry.writes ?? [])],
     instructions: entry.instructions,
+    ...(entry.requiredInput ? { requiredInput: { ...entry.requiredInput } } : {}),
     onSuccess: index + 1 < input.phases.length ? input.phases[index + 1]!.id : 'done',
     onFailure: 'failed',
   }));
@@ -291,7 +298,15 @@ function askOperation(): DefHarnessOperationDefinition {
   });
 }
 
-const SELECTION_WRITE_SCOPE = ['selection.roster'] as const;
+const SELECTION_WRITE_SCOPE = [
+  'selection.roster',
+  'timeline.buttons',
+  'timeline.buffs',
+  'timeline.resistance',
+  'loadout.config',
+  'timeline.work-node',
+  'timeline.checkout',
+] as const;
 const selectionOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'inspect',
@@ -299,7 +314,7 @@ const selectionOperations: readonly DefHarnessOperationDefinition[] = [
   }),
   defineOperation({
     operation: 'search',
-    phases: [phase('selection-search', 'evidence', T.catalog, 'Search only the browser 1.8 operator catalog. Return bounded matches and mark truncated or unavailable evidence explicitly.')],
+    phases: [phase('selection-search', 'evidence', T.catalog, 'Call with action=query. Search only the browser 1.8 operator catalog. Return bounded matches and mark truncated or unavailable evidence explicitly.', [], { action: 'query' })],
   }),
   defineOperation({
     operation: 'add',
@@ -333,7 +348,7 @@ const selectionOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'analyze',
     phases: [
       phase('selection-analyze-context', 'context', T.context, 'Bind the current selected roster and snapshot before analysis.'),
-      phase('selection-analyze-catalog', 'evidence', T.catalog, 'Analyze the selected roster with browser 1.8 catalog facts only; distinguish unavailable recommendations from established facts.'),
+      phase('selection-analyze-catalog', 'evidence', T.catalog, 'Call with action=buildGuide. Analyze the selected roster with browser 1.8 catalog facts only; distinguish unavailable recommendations from established facts.', [], { action: 'buildGuide' }),
     ],
   }),
   defineOperation({
@@ -351,73 +366,72 @@ const LOADOUT_RECOMMENDATION_NOTE = 'Use browser 1.8 catalog facts and explicit 
 const loadoutOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'inspect',
-    phases: [phase('loadout-inspect', 'context', T.loadouts, 'Read exact current weapons, equipment, set effects and skill levels for every selected operator. Preserve incomplete records explicitly.')],
+    phases: [phase('loadout-inspect', 'context', T.loadouts, 'Call with action=current. Read exact current weapons, equipment, set effects and skill levels for every selected operator. Preserve incomplete records explicitly.', [], { action: 'current' })],
   }),
   defineOperation({
     operation: 'evaluate',
-    phases: [phase('loadout-evaluate-facts', 'evidence', T.loadouts, `Call with action=evaluate and an exact operatorId when needed. Report only configuration completeness, missing slots and compatibility-evidence presence; subjective quality remains evidenceUnavailable. ${LOADOUT_RECOMMENDATION_NOTE}`)],
+    phases: [phase('loadout-evaluate-facts', 'evidence', T.loadouts, `Call with action=evaluate and an exact operatorId when needed. Report only configuration completeness, missing slots and compatibility-evidence presence; subjective quality remains evidenceUnavailable. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'evaluate' })],
   }),
   defineOperation({
     operation: 'resolve',
     phases: [
-      phase('loadout-resolve-context', 'context', T.loadouts, 'Read the current loadout slots before resolving requested weapon or equipment identities.'),
-      phase('loadout-resolve-facts', 'evidence', T.catalog, `Resolve names and compatibility from the browser 1.8 catalog. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-resolve-context', 'context', T.loadouts, 'Call with action=current. Read the current loadout slots before resolving requested weapon or equipment identities.', [], { action: 'current' }),
+      phase('loadout-resolve-facts', 'evidence', T.catalog, `Call with action=query. Resolve names and compatibility from the browser 1.8 catalog. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'query' }),
     ],
   }),
   defineOperation({
     operation: 'recommend',
     phases: [
-      phase('loadout-recommend-context', 'context', T.loadouts, 'Read the current selected operators and loadout gaps before making a recommendation.'),
-      phase('loadout-recommend-capability', 'evidence', T.capability, `Call with businessId=loadout and operation=recommend. Return the typed evidenceUnavailable state instead of inventing a best build. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-recommend-context', 'context', T.loadouts, 'Call with action=current. Read the current selected operators and loadout gaps before making a recommendation.', [], { action: 'current' }),
+      phase('loadout-recommend-capability', 'evidence', T.capability, `Call with businessId=loadout and operation=recommend. Return the typed evidenceUnavailable state instead of inventing a best build. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { businessId: 'loadout', operation: 'recommend' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_named_set',
     phases: [
-      phase('loadout-named-set-context', 'context', T.loadouts, 'Bind the current team and requested named set before evaluating it.'),
-      phase('loadout-named-set-facts', 'evidence', T.catalog, `Call with action=gearTopologyPlan and the exact setQuery. Resolve only structurally valid named-set 3+1 layouts from browser 1.8 facts; do not score operator fit. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-named-set-context', 'context', T.loadouts, 'Call with action=current. Bind the current team and requested named set before evaluating it.', [], { action: 'current' }),
+      phase('loadout-named-set-facts', 'evidence', T.catalog, `Call with action=gearTopologyPlan and the exact setQuery. Resolve only structurally valid named-set 3+1 layouts from browser 1.8 facts; do not score operator fit. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'gearTopologyPlan' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_discovered_set',
     phases: [
-      phase('loadout-discovered-set-context', 'context', T.loadouts, 'Bind the current team before discovering compatible set candidates.'),
-      phase('loadout-discovered-set-facts', 'evidence', T.catalog, `Call with action=discoverGearTopologies. Enumerate every structurally valid 3+1 candidate in stable catalog order. The result is explicitly unranked and must not be described as best or compatible with an operator. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-discovered-set-context', 'context', T.loadouts, 'Call with action=current. Bind the current team before discovering compatible set candidates.', [], { action: 'current' }),
+      phase('loadout-discovered-set-facts', 'evidence', T.catalog, `Call with action=discoverGearTopologies. Enumerate every structurally valid 3+1 candidate in stable catalog order. The result is explicitly unranked and must not be described as best or compatible with an operator. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'discoverGearTopologies' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_weapon',
     phases: [
-      phase('loadout-weapon-context', 'context', T.loadouts, 'Bind each selected operator and its weapon type before evaluating weapon candidates.'),
-      phase('loadout-weapon-facts', 'evidence', T.catalog, `Call with action=compatibleWeapons and the exact operatorQuery. Return weapon-type-compatible catalog facts only; do not score or rank them. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-weapon-context', 'context', T.loadouts, 'Call with action=current. Bind each selected operator and its weapon type before evaluating weapon candidates.', [], { action: 'current' }),
+      phase('loadout-weapon-facts', 'evidence', T.catalog, `Call with action=compatibleWeapons and the exact operatorQuery. Return weapon-type-compatible catalog facts only; do not score or rank them. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compatibleWeapons' }),
     ],
   }),
   defineOperation({
     operation: 'recommend_equipment',
-    phases: [phase('loadout-equipment-retired', 'evidence', T.capability, 'Call with businessId=loadout and operation=recommend_equipment. This legacy alias is retired; return only the typed retirement and replacement information.')],
+    phases: [phase('loadout-equipment-retired', 'evidence', T.capability, 'Call with businessId=loadout and operation=recommend_equipment. This legacy alias is retired; return only the typed retirement and replacement information.', [], { businessId: 'loadout', operation: 'recommend_equipment' })],
   }),
   defineOperation({
     operation: 'compare',
-    phases: [phase('loadout-compare-facts', 'evidence', T.loadouts, `Call with action=compare, the exact baseline DefTeamLoadoutsV1 capsule and operatorId when needed. Return stable field-level differences only; winner, score and rank are unavailable. ${LOADOUT_RECOMMENDATION_NOTE}`)],
+    phases: [phase('loadout-compare-facts', 'evidence', T.loadouts, `Call with action=compare, the exact baseline DefTeamLoadoutsV1 capsule and operatorId when needed. Return stable field-level differences only; winner, score and rank are unavailable. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'compare' })],
   }),
   defineOperation({
     operation: 'preview',
     phases: [
-      phase('loadout-preview-context', 'context', T.loadouts, 'Read and bind the current loadout before preparing a candidate configuration.'),
-      phase('loadout-preview-facts', 'evidence', T.catalog, `Resolve the candidate using browser 1.8 facts before preparing it. ${LOADOUT_RECOMMENDATION_NOTE}`),
+      phase('loadout-preview-context', 'context', T.loadouts, 'Call with action=current. Read and bind the current loadout before preparing a candidate configuration.', [], { action: 'current' }),
+      phase('loadout-preview-facts', 'evidence', T.catalog, `Call with action=query. Resolve the candidate using browser 1.8 facts before preparing it. ${LOADOUT_RECOMMENDATION_NOTE}`, [], { action: 'query' }),
       phase('loadout-preview', 'proposal', T.loadoutPreview, 'Create a non-live proposal with an exact operator configuration, parent Work Node, revisions and semantic diff. Do not mutate the current checkout.'),
     ],
   }),
   defineOperation({
     operation: 'apply',
     phases: [
-      phase('loadout-apply-preview', 'proposal', T.loadoutPreview, 'Require an explicit preview of the exact candidate configuration before approval; reject direct unreviewed application.'),
       phase('loadout-apply-prepared', 'mutation', T.loadoutApplyPrepared, 'Apply only the approved prepared loadout proposal after validating its token, parent revision, Work Node revision and exact visible postcondition.', LOADOUT_WRITE_SCOPE),
     ],
   }),
   defineOperation({
     operation: 'restore',
-    phases: [phase('loadout-restore-retired', 'evidence', T.capability, 'Call with businessId=loadout and operation=restore. Loadout-only restore is retired because whole-Work-Node restore would overwrite unrelated Timeline, Buff or roster state.')],
+    phases: [phase('loadout-restore-retired', 'evidence', T.capability, 'Call with businessId=loadout and operation=restore. Loadout-only restore is retired because whole-Work-Node restore would overwrite unrelated Timeline, Buff or roster state.', [], { businessId: 'loadout', operation: 'restore' })],
   }),
   askOperation(),
 ];
@@ -441,7 +455,7 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'add',
     phases: [
       phase('timeline-add-context', 'context', T.current, 'Read the current timeline and resolve one unambiguous insertion position.'),
-      phase('timeline-add-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact, the exact operatorQuery and skillQuery (and hitQuery if supplied). Continue only when the trusted operator-scoped catalog returns state=READY; never fabricate runtimeSkillId, type, name or hit identity.'),
+      phase('timeline-add-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact, the exact operatorQuery and skillQuery (and hitQuery if supplied). Continue only when the trusted operator-scoped catalog returns state=READY; never fabricate runtimeSkillId, type, name or hit identity.', [], { action: 'skillFact' }),
       phase('timeline-add', 'mutation', T.addSkill, 'Add exactly the skill identity returned by the immediately preceding trusted skillFact result through the browser Work Node mutation, then require approval and an exact visible button postcondition.', timelineMutationWrites),
     ],
   }),
@@ -463,7 +477,7 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'replace',
     phases: [
       phase('timeline-replace-context', 'context', T.current, 'Read the current button and resolve the exact replacement skill and preserved fields.'),
-      phase('timeline-replace-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact and the target button operator plus requested skill. Continue only on state=READY and use that exact trusted identity; never invent replacement skill fields.'),
+      phase('timeline-replace-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact and the target button operator plus requested skill. Continue only on state=READY and use that exact trusted identity; never invent replacement skill fields.', [], { action: 'skillFact' }),
       phase('timeline-replace', 'mutation', T.patch, 'Apply only the exact replacement skill returned by the preceding trusted skillFact result through a validated Work Node and preserve unrelated buttons, Buffs and resistance.', timelineMutationWrites),
     ],
   }),
@@ -485,7 +499,7 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'preview',
     phases: [
       phase('timeline-preview-current', 'context', T.current, 'Read the current timeline baseline before preparing a preview.'),
-      phase('timeline-preview-diff', 'evidence', T.worknodeDiff, 'Return the exact Work Node diff, additions/deletions and semantic risk without using or checking out the node.'),
+      phase('timeline-preview-diff', 'evidence', T.worknodeDiff, 'Require candidateNodeId for an isolated Work Node created or selected for this preview. Return its exact diff, additions/deletions and semantic risk; never call this a preview of the live checkout.'),
     ],
   }),
   defineOperation({
@@ -499,40 +513,41 @@ const timelineOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'restore',
     phases: [
       phase('timeline-restore-read', 'context', T.worknodeRead, 'Read the explicitly named baseline Work Node and verify its source lineage. Do not infer or silently choose a node.'),
-      phase('timeline-restore', 'mutation', T.worknodeRestore, 'Restore only that explicit Work Node baseline after approval, with exact checkout, buttons, Buffs and resistance verification.', TIMELINE_WRITE_SCOPE),
+      phase('timeline-restore', 'mutation', T.worknodeRestore, 'Call def.worknode.restore with exactly one semantic scope=timeline.structure. The prepared candidate scope includes timeline.structure, buff.attachments and buff.resistance because restoring structure may remove current buttons and their attached Buff/resistance fields; never submit a whole-payload restore.', TIMELINE_WRITE_SCOPE),
     ],
   }),
   askOperation(),
 ];
 
-const BUFF_WRITE_SCOPE = ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'] as const;
+const BUFF_WRITE_SCOPE = ['timeline.buffs', 'timeline.resistance', 'timeline.work-node', 'timeline.checkout'] as const;
 const buffMutationWrites = ['timeline.buffs', 'timeline.work-node', 'timeline.checkout'] as const;
 const buffOperations: readonly DefHarnessOperationDefinition[] = [
   defineOperation({
     operation: 'inspect',
     phases: [
       phase('buff-inspect-current', 'context', T.current, 'Read the current button Buff attachments and stable button identities.'),
-      phase('buff-inspect-resource', 'evidence', T.buff, 'Call with action=coverage. Return each displayed Buff attachment with stack counts, disabled state, conditions, target, source and evidence status.'),
+      phase('buff-inspect-resource', 'evidence', T.buff, 'Call with action=coverage. Return each displayed Buff attachment with stack counts, disabled state, conditions, target, source and evidence status.', [], { action: 'coverage' }),
     ],
   }),
   defineOperation({
     operation: 'resolve',
     phases: [
       phase('buff-resolve-current', 'context', T.current, 'Bind the current button, operator and checkout before resolving a Buff.'),
-      phase('buff-resolve-resource', 'evidence', T.buff, 'Call with action=resolve. Resolve only Buff facts present in the bound snapshot and identify ambiguous or unavailable evidence explicitly.'),
+      phase('buff-resolve-resource', 'evidence', T.buff, 'Call with action=resolve. Resolve only Buff facts present in the bound snapshot and identify ambiguous or unavailable evidence explicitly.', [], { action: 'resolve' }),
     ],
   }),
   defineOperation({
     operation: 'source',
     phases: [
       phase('buff-source-current', 'context', T.current, 'Read the exact button attachment and current equipment/set context.'),
-      phase('buff-source-resource', 'evidence', T.buff, 'Call with action=source and the exact query/buttonId. Trace Buff source, owner, condition and stack semantics; READY requires one exact candidate and AMBIGUOUS must not be guessed.'),
+      phase('buff-source-resource', 'evidence', T.buff, 'Call with action=source and the exact query/buttonId. Trace Buff source, owner, condition and stack semantics; READY requires one exact candidate and AMBIGUOUS must not be guessed.', [], { action: 'source' }),
     ],
   }),
   defineOperation({
     operation: 'add',
     phases: [
       phase('buff-add-context', 'context', T.current, 'Read the exact target button and resolve the complete Buff payload before mutation.'),
+      phase('buff-add-resolve', 'evidence', T.buff, 'Call with action=resolve before accepting any inline Buff object. Use only the exact bound Product evidence; do not let the mutation Tool invent Buff identity or semantics.', [], { action: 'resolve' }),
       phase('buff-add', 'mutation', T.addBuff, 'Attach one complete Buff through one isolated validated Work Node with explicit approval and exact attachment postcondition.', buffMutationWrites),
     ],
   }),
@@ -547,6 +562,7 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'replace',
     phases: [
       phase('buff-replace-context', 'context', T.current, 'Read the target button and existing Buff attachments before constructing the replacement.'),
+      phase('buff-replace-resolve', 'evidence', T.buff, 'Call with action=resolve before accepting replacementBuffId or an inline replacement Buff. Use only exact bound Product evidence for the replacement semantics.', [], { action: 'resolve' }),
       phase('buff-replace', 'mutation', T.patch, 'Replace the exact Buff through a constrained validated Work Node, preserving stack and target semantics not requested to change.', buffMutationWrites),
     ],
   }),
@@ -568,7 +584,7 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'coverage',
     phases: [
       phase('buff-coverage-current', 'context', T.current, 'Read all buttons and their Buff attachments in the current checkout.'),
-      phase('buff-coverage-resource', 'evidence', T.buff, 'Call with action=coverage. Report typed Buff coverage by button, source, condition, target, effective stack and disabled segment state; unavailable evidence must remain explicit.'),
+      phase('buff-coverage-resource', 'evidence', T.buff, 'Call with action=coverage. Report typed Buff coverage by button, source, condition, target, effective stack and disabled segment state; unavailable evidence must remain explicit.', [], { action: 'coverage' }),
     ],
   }),
   defineOperation({
@@ -582,7 +598,7 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'restore',
     phases: [
       phase('buff-restore-read', 'context', T.worknodeRead, 'Read the explicitly named Buff baseline Work Node and verify its source lineage.'),
-      phase('buff-restore', 'mutation', T.worknodeRestore, 'Restore only the explicit Buff Work Node baseline after approval and verify exact Buff attachments and checkout.', BUFF_WRITE_SCOPE),
+      phase('buff-restore', 'mutation', T.worknodeRestore, 'Call def.worknode.restore with exactly one semantic scope=buff.attachments or scope=buff.resistance. The candidate scope remains the selected single Buff boundary; never submit a whole-payload restore.', BUFF_WRITE_SCOPE),
     ],
   }),
   askOperation(),
@@ -594,54 +610,54 @@ const calculationOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'calculate',
     phases: [
       phase('calculation-context', 'context', T.context, 'Bind the exact current snapshot, selected roster, timeline checkout and digest before reading damage.'),
-      phase('calculation-report', 'evidence', T.damage, 'Read the browser-generated typed damage report with the backward-compatible empty input. Never reimplement or repair formulas in the Harness.'),
+      phase('calculation-report', 'evidence', T.damage, 'Call with action=current. Read the browser-generated typed damage report. Never reimplement or repair formulas in the Harness.', [], { action: 'current' }),
     ],
   }),
   defineOperation({
     operation: 'aggregate',
     phases: [
       phase('calculation-aggregate-context', 'context', T.context, 'Bind the exact current calculation context and checkout.'),
-      phase('calculation-aggregate-report', 'evidence', T.damage, 'Call with action=aggregate. Read product-generated aggregate damage results and preserve per-button and per-character attribution.'),
+      phase('calculation-aggregate-report', 'evidence', T.damage, 'Call with action=aggregate. Read product-generated aggregate damage results and preserve per-button and per-character attribution.', [], { action: 'aggregate' }),
     ],
   }),
   defineOperation({
     operation: 'compare',
     phases: [
       phase('calculation-compare-context', 'context', T.context, 'Bind the current calculation baseline before comparison.'),
-      phase('calculation-compare-report', 'evidence', T.damage, 'Call with action=compare and the exact baseline DefDamageReportV1 capsule. Return deterministic deltas only; reject incompatible formula, statistical or button scopes.'),
+      phase('calculation-compare-report', 'evidence', T.damage, 'Call with action=compare and the exact baseline DefDamageReportV1 capsule. Return deterministic deltas only; reject incompatible formula, statistical or button scopes.', [], { action: 'compare' }),
     ],
   }),
   defineOperation({
     operation: 'attribute',
     phases: [
       phase('calculation-attribute-context', 'context', T.context, 'Bind the exact current buttons, Buffs and checkout before attribution.'),
-      phase('calculation-attribute-report', 'evidence', T.damage, 'Call with action=attribute and exact buttonId/hitId when requested. Read typed hit, resistance, Buff and multiplier-zone attribution without recomputation.'),
+      phase('calculation-attribute-report', 'evidence', T.damage, 'Call with action=attribute and exact buttonId/hitId when requested. Read typed hit, resistance, Buff and multiplier-zone attribution without recomputation.', [], { action: 'attribute' }),
     ],
   }),
   defineOperation({
     operation: 'diagnose',
     phases: [
       phase('calculation-diagnose-context', 'context', T.context, 'Bind the current calculation context and requested diagnosis target.'),
-      phase('calculation-diagnose', 'verification', T.damage, 'Call with action=diagnose. Distinguish a missing report from a malformed product report without triggering a write or patching formulas.'),
+      phase('calculation-diagnose', 'verification', T.damage, 'Call with action=diagnose. Distinguish a missing report from a malformed product report without triggering a write or patching formulas.', [], { action: 'diagnose' }),
     ],
   }),
   defineOperation({
     operation: 'export',
     phases: [
       phase('calculation-export-context', 'context', T.context, 'Bind the current calculation snapshot and report identity before preparing an export result.'),
-      phase('calculation-export-report', 'evidence', T.damage, 'Call with action=export and the requested bounded format/options. Return the deterministic typed representation without creating an untracked file or inventing fields.'),
+      phase('calculation-export-report', 'evidence', T.damage, 'Call with action=export and the requested bounded format/options. Return the deterministic typed representation without creating an untracked file or inventing fields.', [], { action: 'export' }),
     ],
   }),
   defineOperation({
     operation: 'explain',
     phases: [
       phase('calculation-explain-context', 'context', T.context, 'Bind the exact current inputs and checkout before explaining a result.'),
-      phase('calculation-explain-report', 'evidence', T.damage, 'Call with action=explain and exact buttonId/hitId when requested. Explain only values, resistance and multiplier zones already present in the typed product report.'),
+      phase('calculation-explain-report', 'evidence', T.damage, 'Call with action=explain and exact buttonId/hitId when requested. Explain only values, resistance and multiplier zones already present in the typed product report.', [], { action: 'explain' }),
     ],
   }),
   defineOperation({
     operation: 'skill_fact',
-    phases: [phase('calculation-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact, exact operatorQuery and skillQuery, plus hitQuery when supplied. Return only the operator-scoped trusted skill/hit fact and typed ambiguity state; do not use the old 1.2 guide as truth.')],
+    phases: [phase('calculation-skill-fact', 'evidence', T.catalog, 'Call with action=skillFact, exact operatorQuery and skillQuery, plus hitQuery when supplied. Return only the operator-scoped trusted skill/hit fact and typed ambiguity state; do not use the old 1.2 guide as truth.', [], { action: 'skillFact' })],
   }),
   askOperation(),
 ];

@@ -73,11 +73,23 @@ export type DefHarnessPhaseKind =
 
 export type DefHarnessTerminalState = 'completed' | 'aborted';
 
+/**
+ * Minimal phase-local input guard for multi-action Tools. Values are exact
+ * strings so a catalog can bind one action without persisting an
+ * executable schema in a Harness transaction.
+ */
+export interface DefHarnessRequiredInput {
+  readonly action?: string;
+  readonly businessId?: string;
+  readonly operation?: string;
+}
+
 export interface DefHarnessPhaseDefinition {
   readonly id: string;
   readonly kind: DefHarnessPhaseKind;
   readonly tools: readonly string[];
   readonly instructions: string;
+  readonly requiredInput?: DefHarnessRequiredInput;
   readonly onSuccess?: string;
   readonly onFailure?: string;
   readonly terminalState?: DefHarnessTerminalState;

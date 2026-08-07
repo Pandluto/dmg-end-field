@@ -125,6 +125,23 @@ const clientTurnId = asClientTurnId('client-turn-recovery');
 const interactionId = asInteractionId('interaction-recovery');
 const toolCallId = asToolCallId('tool-recovery');
 const commandId = asCommandId('command-recovery');
+const recoveryCandidate = {
+  contract: 'DefPreparedWorkNodeCandidateRefV1',
+  schemaVersion: 1,
+  proposalId: 'proposal-recovery',
+  intent: 'timeline',
+  destination: 'new-temporary-workspace',
+  sourceTargetId: 'node-recovery',
+  sourceRevision: binding.contentRevision,
+  candidateTimelineId: 'timeline-candidate-recovery',
+  nodeId: 'node-candidate-recovery',
+  nodeRevision: 1,
+  basePayloadDigest: `sha256:${'a'.repeat(64)}`,
+  workingPayloadDigest: `sha256:${'b'.repeat(64)}`,
+  diffDigest: `sha256:${'c'.repeat(64)}`,
+  proposalDigest: `sha256:${'d'.repeat(64)}`,
+  scope: ['timeline.structure'],
+};
 const engineSession = await engine.createSession({
   defSessionId,
   providerProfileRef: 'default',
@@ -248,7 +265,13 @@ const recoveredCommand = {
   expected: binding,
   command: {
     op: 'workbench.execute-command' as const,
-    payload: { command: { op: 'setSelection', characterNames: ['洛茜'] } },
+    payload: {
+      command: {
+        op: 'abandonPreparedWorkNodeProposal',
+        candidate: recoveryCandidate,
+        reason: 'recovery audit contract',
+      },
+    },
   },
 };
 const recoveredResult = {
@@ -270,6 +293,16 @@ const reconciled = host.readEvents(defSessionId, 0, 256).find((event): event is 
 assert.equal(reconciled?.payload.status, 'not-executed');
 assert.equal(reconciled?.payload.afterRevision, binding.contentRevision);
 assert.match(reconciled?.payload.browserReceiptDigest ?? '', /^[a-f0-9]{64}$/u);
+const reconciledCleanup = host.readEvents(defSessionId, 0, 256).find((event) => (
+  event.type === 'interaction.resolved'
+    && event.interactionId === interactionId
+    && event.payload.cleanup !== undefined
+));
+assert.equal(reconciledCleanup?.type, 'interaction.resolved');
+if (reconciledCleanup?.type === 'interaction.resolved') {
+  assert.equal(reconciledCleanup.payload.cleanup?.status, 'preserved');
+  assert.match(reconciledCleanup.payload.cleanup?.reason ?? '', /not-executed/u);
+}
 
 const replay = await host.startTurn({
   defSessionId,
