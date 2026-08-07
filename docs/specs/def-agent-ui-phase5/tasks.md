@@ -54,7 +54,8 @@ Complete.
 - [x] UI state 按 capability owner 隔离；consumer binding 与 Browser snapshot 原子发布。
 - [x] settled Turn 压成 terminal tombstone，成功 clientTurn 压成结果记录。
 - [x] 为 Session、Turn、Event、Harness、Product command 和前端 transcript 建立硬容量与满额背压。
-- [x] 边界压力测试、整仓回归与第二轮独立审查通过。
+- [x] 关闭并发 Session 配额、snapshot 响应丢失、取消首因、Turn ID 和空分页五项终审问题。
+- [x] 边界压力测试、整仓回归与同一位 Sol xhigh 最终独立复验通过，无 P0/P1/P2。
 
 ## Exit condition
 

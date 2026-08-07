@@ -23,7 +23,7 @@ Phase 5 的代码和自动化纵向链路已经完成：Slim React AI 模式现�
 - 完整实现后 `npm run check`：通过；覆盖整仓类型、Web/SQLite/计算测试、Agent Core/Host/Harness、Electron supervisor、真实 OpenCode、Slim build、原子 Service Worker 与离线工作区。
 - `npm run test:agent-engine:opencode`：通过；真实 OpenCode 五业务黑盒中 calculation 使用新 Product HTTP API，16 次 provider request 全部得到预期中文结果。
 - `npm run electron:smoke:agent-package`：通过；未配置 provider profile 时按合同报告 engine unavailable，不泄露内部身份。
-- 最终审计修复后再次执行 `npm run typecheck`、`npm test`、`npm run test:agent-host`：全部通过；StrictMode 并发初始化修复后又执行一次 `npm run typecheck` 与 `npm test`，均通过。
+- 最终终审返修后从头执行 `npm run check`：全部通过；包含整仓类型与测试、Agent Core/Host/Harness/Supervisor、真实 OpenCode 五业务路由、Timeline smoke、完整本地构建、原子 Service Worker 和离线工作区。
 - Browser bridge 回归覆盖 Product 请求体、精确 Session/Turn/Page envelope、Event diagnostics 拒绝、typed conflict 与失权清 capability。
 - Event poller 回归覆盖多页追赶、停止保留 cursor、失败重试和切换 Session 时丢弃在途旧事件。
 - Transcript model 回归覆盖用户消息、assistant delta、Tool requested/started/result/error、terminal first-wins、单调 sequence 与 active Turn。
@@ -41,12 +41,18 @@ Phase 5 的代码和自动化纵向链路已经完成：Slim React AI 模式现�
 8. `/agent-host/ui/state` 只向 active consumer 的 capability 返回 consumer、Session 和 Turn identity；另一份合法 capability 只能看到 Engine readiness。
 9. Browser snapshot 发布现在在 Host 内同步推进 consumer binding；同范围更新不再先 heartbeat 后传快照，失败发布不会通过后续 heartbeat 偷跑新 binding。
 10. settled Turn 立即释放 Engine 重对象，成功 `clientTurnId` 压缩为结果记录；Session/Event/Harness/command/transcript 全部采用有限容量与确定背压，不删除旧 Event，因此协议仍为 v2。
+11. Session 容量现在在等待 Engine 前预留，17 路并发创建稳定得到 16 成功、1 限流；Engine 创建失败会在 `finally` 释放名额。
+12. snapshot 已在 Host 提交但响应丢失时，浏览器会把本地 binding 置空并关闭 consumer，旧 heartbeat 不再有机会把 Host binding 回滚到旧 revision。
+13. starting Turn 的首个取消原因保持权威；`USER_STOPPED` 后再丢 consumer 时，Engine、Harness 与调用方仍一致报告 `USER_STOPPED`。
+14. Turn 接受响应必须精确回显请求的 `clientTurnId`；`hasMore=true` 的空 Event 页必须 fail-closed，不能让 poller 无进展循环。
 
 ## 独立审查
 
-Sol xhigh 首轮报告 1 个 P1 和后续治理 P2。P1 已修复并加入延迟 Engine start + consumer close 黑盒回归；随后逐项完成 starting shutdown/error、owner state、原子 snapshot、Event fail-closed 和有限 retention。第二轮只读容量审查确认应采用“硬上限 + 满额背压”、不得滚动截断 Event，且无需升级协议；实现与该结论一致。审查者未修改文件。
+Sol xhigh 首轮报告 1 个 P1 和后续治理 P2。P1 已修复并加入延迟 Engine start + consumer close 黑盒回归；随后逐项完成 starting shutdown/error、owner state、原子 snapshot、Event fail-closed 和有限 retention。第二轮只读容量审查确认应采用“硬上限 + 满额背压”、不得滚动截断 Event，且无需升级协议；实现与该结论一致。
 
-复审通过：`npm run typecheck:agent`、`npm run test:agent-harness`、`npm run test:agent-host`、`npm test`。本次修复没有改动 OpenCode adapter 或 Product HTTP 路径，因此未重复运行真实模型黑盒。
+最终全局终审又实际复现 1 个 P1、4 个 P2：并发 Session 绕过容量、snapshot 成功但响应丢失后旧 heartbeat 回滚 binding、显式停止原因被随后 consumer loss 覆盖、Turn 响应未核对请求 `clientTurnId`、`hasMore=true` 空页不推进。提交 `12d17b4a` 全部关闭后，同一位 Sol xhigh 逐项反向复现并确认无 P0/P1/P2，也未发现返修引入的新问题。所有独立审查均为只读，审查者未修改文件。
+
+最终复验重新执行完整 `npm run check`，真实 OpenCode 五业务黑盒共发出 16 次 provider request 并全部通过；原子壳 `entryGzip=184298`，低于 184320 B 门禁。
 
 ## 边界确认
 
@@ -65,3 +71,6 @@ Sol xhigh 首轮报告 1 个 P1 和后续治理 P2。P1 已修复并加入延迟
 | UI state capability owner 隔离 | 完成 |
 | Event 连续序号与精确字段校验 | 完成 |
 | settled Turn、clientTurn、Journal、Harness、command、transcript 容量策略 | 完成 |
+| 并发 Session 名额预留与 Engine 失败释放 | 完成 |
+| snapshot 不确定提交后的 consumer fail-closed | 完成 |
+| 取消首因、Turn ID 与空分页严格关联 | 完成 |
