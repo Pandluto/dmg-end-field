@@ -14,6 +14,10 @@ import type {
 } from './ids.ts';
 import type { InteractionKind, InteractionStatus } from './interaction.ts';
 import type { JsonValue } from './json.ts';
+import type {
+  DefPreparedWorkNodeCandidateRefV1,
+  DefPreparedWorkNodeCleanupAuditV1,
+} from './prepared-work-node.ts';
 import type { ProductCommandResultStatus } from './product.ts';
 import type {
   DefHarnessBusinessId,
@@ -105,6 +109,8 @@ export interface DefEventPayloadMap {
     readonly kind: InteractionKind;
     readonly prompt: string;
     readonly expiresAt: string;
+    readonly candidate?: DefPreparedWorkNodeCandidateRefV1;
+    readonly cleanup?: DefPreparedWorkNodeCleanupAuditV1;
   };
   'interaction.resolved': {
     readonly status: Exclude<InteractionStatus, 'pending'>;

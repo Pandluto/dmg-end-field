@@ -7,12 +7,22 @@ import type {
 } from '../contracts/ids.ts';
 import type {
   ApprovalCapabilityClaims,
+  ApprovalCapabilityClaimsV2,
   InteractionKind,
   InteractionRequest,
   InteractionResponse,
   InteractionStateBinding,
   InteractionStatus,
 } from '../contracts/interaction.ts';
+import {
+  interactionRequestCandidateIsValid,
+  isApprovalCapabilityClaimsShape,
+} from '../contracts/interaction.ts';
+import {
+  clonePreparedWorkNodeCandidateRef,
+  clonePreparedWorkNodeReview,
+  type DefPreparedWorkNodeCandidateRefV1,
+} from '../contracts/prepared-work-node.ts';
 import type { JsonObject, JsonValue } from '../contracts/json.ts';
 
 export type InteractionBrokerErrorCode =
@@ -26,6 +36,7 @@ export type InteractionBrokerErrorCode =
   | 'INTERACTION_RESPONSE_CONFLICT'
   | 'INTERACTION_CAPABILITY_UNAVAILABLE'
   | 'INTERACTION_CAPABILITY_INVALID'
+  | 'INTERACTION_CAPABILITY_VERSION_UNSUPPORTED'
   | 'INTERACTION_CAPABILITY_BINDING_MISMATCH'
   | 'INTERACTION_CAPABILITY_COMMAND_CONFLICT'
   | 'INTERACTION_CAPABILITY_CONSUMED'
@@ -72,6 +83,8 @@ export interface ApprovalCapabilityExpectation {
   readonly proposalHash?: string;
   readonly binding?: InteractionStateBinding;
   readonly scope?: readonly string[];
+  readonly candidate?: DefPreparedWorkNodeCandidateRefV1;
+  readonly prepared?: boolean;
 }
 
 export interface InteractionBrokerOptions {
@@ -293,8 +306,7 @@ export class InteractionBroker {
       );
     }
 
-    const claims: ApprovalCapabilityClaims = {
-      schemaVersion: 1,
+    const claimsBase: Omit<Extract<ApprovalCapabilityClaims, { schemaVersion: 1 }>, 'schemaVersion'> = {
       audience: 'browser-product-gateway',
       keyEpoch: this.#keyEpoch,
       nonce,
@@ -309,6 +321,13 @@ export class InteractionBroker {
       binding: cloneBinding(interaction.request.binding),
       scope: [...interaction.request.scope],
     };
+    const claims: ApprovalCapabilityClaims = interaction.request.candidate
+      ? {
+          ...claimsBase,
+          schemaVersion: 2,
+          candidate: clonePreparedWorkNodeCandidateRef(interaction.request.candidate),
+        }
+      : { ...claimsBase, schemaVersion: 1 };
     interaction.capability = { claims, state: 'issued' };
     this.#usedNonces.add(nonce);
     return cloneClaims(claims);
@@ -349,6 +368,37 @@ export class InteractionBroker {
     located.capability.state = 'consumed';
     delete located.capability.invalidationReason;
     return cloneClaims(validated);
+  }
+
+  validatePreparedApprovalCapability(
+    claims: ApprovalCapabilityClaims,
+    candidate: DefPreparedWorkNodeCandidateRefV1,
+    expected: Omit<ApprovalCapabilityExpectation, 'candidate' | 'prepared'> = {},
+  ): ApprovalCapabilityClaimsV2 {
+    const validated = this.validateApprovalCapability(claims, {
+      ...expected,
+      candidate,
+      prepared: true,
+    });
+    if (validated.schemaVersion !== 2) {
+      throw new InteractionBrokerError(
+        'INTERACTION_CAPABILITY_VERSION_UNSUPPORTED',
+        'Prepared Work Node apply requires an Approval Capability V2 candidate binding',
+      );
+    }
+    return validated;
+  }
+
+  consumePreparedApprovalCapability(
+    claims: ApprovalCapabilityClaims,
+    candidate: DefPreparedWorkNodeCandidateRefV1,
+    expected: Omit<ApprovalCapabilityExpectation, 'candidate' | 'prepared'> = {},
+  ): ApprovalCapabilityClaimsV2 {
+    const validated = this.validatePreparedApprovalCapability(claims, candidate, expected);
+    const located = this.#locateCapability(validated);
+    located.capability.state = 'consumed';
+    delete located.capability.invalidationReason;
+    return cloneClaims(validated) as ApprovalCapabilityClaimsV2;
   }
 
   invalidateApprovalCapability(claims: ApprovalCapabilityClaims): void {
@@ -507,12 +557,24 @@ export class InteractionBroker {
         'Approval request must include a valid binding and scope',
       );
     }
+    if (!interactionRequestCandidateIsValid(request)) {
+      throw new InteractionBrokerError(
+        'INTERACTION_REQUEST_INVALID',
+        'Approval request candidate or candidate review is malformed or mismatched',
+      );
+    }
   }
 
   #assertExpectedClaims(
     claims: ApprovalCapabilityClaims,
     expected: ApprovalCapabilityExpectation,
   ): void {
+    if (expected.prepared === true && claims.schemaVersion !== 2) {
+      throw new InteractionBrokerError(
+        'INTERACTION_CAPABILITY_VERSION_UNSUPPORTED',
+        'Prepared Work Node apply requires an Approval Capability V2 candidate binding',
+      );
+    }
     if (expected.interactionId !== undefined && claims.interactionId !== expected.interactionId) {
       this.#throwBindingMismatch('interactionId');
     }
@@ -536,6 +598,11 @@ export class InteractionBroker {
     }
     if (expected.scope !== undefined && !sameStringArray(claims.scope, expected.scope)) {
       this.#throwBindingMismatch('scope');
+    }
+    if (expected.candidate !== undefined) {
+      if (claims.schemaVersion !== 2 || stableSerialize(claims.candidate) !== stableSerialize(expected.candidate)) {
+        this.#throwBindingMismatch('candidate');
+      }
     }
   }
 
@@ -569,7 +636,7 @@ export class InteractionBroker {
     readonly interaction: StoredInteraction;
     readonly capability: StoredCapability;
   } {
-    if (!isApprovalCapabilityClaims(claims)) {
+    if (!isApprovalCapabilityClaimsShape(claims)) {
       throw new InteractionBrokerError(
         'INTERACTION_CAPABILITY_INVALID',
         'Approval capability claims are malformed',
@@ -669,6 +736,12 @@ function cloneRequest(request: InteractionRequest): InteractionRequest {
     binding: cloneBinding(request.binding),
     scope: [...request.scope],
     proposal: cloneJsonValue(request.proposal),
+    ...(request.candidate
+      ? { candidate: clonePreparedWorkNodeCandidateRef(request.candidate) }
+      : {}),
+    ...(request.candidateReview
+      ? { candidateReview: clonePreparedWorkNodeReview(request.candidateReview) }
+      : {}),
   };
 }
 
@@ -683,6 +756,9 @@ function cloneClaims(claims: ApprovalCapabilityClaims): ApprovalCapabilityClaims
     ...claims,
     binding: cloneBinding(claims.binding),
     scope: [...claims.scope],
+    ...(claims.schemaVersion === 2
+      ? { candidate: clonePreparedWorkNodeCandidateRef(claims.candidate) }
+      : {}),
   };
 }
 
@@ -749,36 +825,6 @@ function isBinding(value: unknown): value is InteractionStateBinding {
     && Number.isSafeInteger(binding.contentRevision)
     && typeof binding.snapshotDigest === 'string'
     && binding.snapshotDigest.trim() !== '';
-}
-
-function isApprovalCapabilityClaims(value: unknown): value is ApprovalCapabilityClaims {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
-  const claims = value as Record<string, unknown>;
-  return claims.schemaVersion === 1
-    && claims.audience === 'browser-product-gateway'
-    && typeof claims.keyEpoch === 'string'
-    && claims.keyEpoch.trim() !== ''
-    && typeof claims.nonce === 'string'
-    && claims.nonce.trim() !== ''
-    && typeof claims.issuedAt === 'string'
-    && Number.isFinite(timestamp(claims.issuedAt))
-    && typeof claims.expiresAt === 'string'
-    && Number.isFinite(timestamp(claims.expiresAt))
-    && typeof claims.interactionId === 'string'
-    && claims.interactionId.trim() !== ''
-    && typeof claims.commandId === 'string'
-    && claims.commandId.trim() !== ''
-    && typeof claims.defSessionId === 'string'
-    && claims.defSessionId.trim() !== ''
-    && typeof claims.defTurnId === 'string'
-    && claims.defTurnId.trim() !== ''
-    && typeof claims.toolCallId === 'string'
-    && claims.toolCallId.trim() !== ''
-    && typeof claims.proposalHash === 'string'
-    && claims.proposalHash.trim() !== ''
-    && isBinding(claims.binding)
-    && Array.isArray(claims.scope)
-    && claims.scope.every((scope) => typeof scope === 'string' && scope.trim() !== '');
 }
 
 function stableSerialize(value: unknown): string {

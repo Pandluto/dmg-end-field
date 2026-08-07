@@ -640,6 +640,10 @@ export class OpenCodeNativeUiGateway {
           proposal: structuredClone(interaction.proposal),
           binding: structuredClone(interaction.binding),
           expiresAt: interaction.expiresAt,
+          ...(interaction.candidate ? { candidate: structuredClone(interaction.candidate) } : {}),
+          ...(interaction.candidateReview
+            ? { candidateReview: structuredClone(interaction.candidateReview) }
+            : {}),
         },
         always: [],
       };

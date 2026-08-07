@@ -6,5 +6,6 @@ export * from './ids.ts';
 export * from './interaction.ts';
 export * from './json.ts';
 export * from './product.ts';
+export * from './prepared-work-node.ts';
 export * from './session.ts';
 export * from './tool.ts';

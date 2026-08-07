@@ -36,6 +36,13 @@ import type {
   InteractionResponse,
   InteractionStateBinding,
 } from '../../../agent/core/contracts/interaction.ts';
+import {
+  interactionRequestCandidateIsValid,
+} from '../../../agent/core/contracts/interaction.ts';
+import {
+  isPreparedWorkNodeCandidateRef,
+  isPreparedWorkNodeReview,
+} from '../../../agent/core/contracts/prepared-work-node.ts';
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
 import type { WorkspaceLeaseRole } from '../runtime/workspaceLease';
@@ -367,7 +374,10 @@ function asInteractionBinding(value: unknown): InteractionStateBinding {
 
 function asInteractionRequest(value: unknown): InteractionRequest {
   if (!isRecord(value)
-    || !hasOnlyKeys(value, new Set([...INTERACTION_REQUEST_BASE_KEYS, 'kind', 'details', 'proposalHash', 'binding', 'scope', 'proposal']))
+    || !hasOnlyKeys(value, new Set([
+      ...INTERACTION_REQUEST_BASE_KEYS,
+      'kind', 'details', 'proposalHash', 'binding', 'scope', 'proposal', 'candidate', 'candidateReview',
+    ]))
     || !hasRequiredKeys(value, new Set(['interactionId', 'defSessionId', 'defTurnId', 'kind', 'prompt', 'createdAt', 'expiresAt']))
     || !isNonEmptyString(value.interactionId)
     || !isNonEmptyString(value.defSessionId)
@@ -389,14 +399,20 @@ function asInteractionRequest(value: unknown): InteractionRequest {
   }
 
   if (value.kind === 'approval') {
-    const allowed = new Set([...INTERACTION_REQUEST_BASE_KEYS, 'kind', 'proposalHash', 'binding', 'scope', 'proposal']);
+    const allowed = new Set([
+      ...INTERACTION_REQUEST_BASE_KEYS,
+      'kind', 'proposalHash', 'binding', 'scope', 'proposal', 'candidate', 'candidateReview',
+    ]);
     if (!hasOnlyKeys(value, allowed)
       || !isNonEmptyString(value.proposalHash)
       || !asInteractionBindingOrFalse(value.binding)
       || !Array.isArray(value.scope)
       || value.scope.length === 0
       || !value.scope.every(isNonEmptyString)
-      || !isJsonValue(value.proposal)) {
+      || !isJsonValue(value.proposal)
+      || (value.candidate !== undefined && !isPreparedWorkNodeCandidateRef(value.candidate))
+      || (value.candidateReview !== undefined && !isPreparedWorkNodeReview(value.candidateReview))
+      || !interactionRequestCandidateIsValid(value as unknown as Extract<InteractionRequest, { kind: 'approval' }>)) {
       throw new DesktopAgentBridgeError('Agent Host 返回了无效的 approval interaction。', 'INVALID_HOST_RESPONSE');
     }
     return value as unknown as InteractionRequest;

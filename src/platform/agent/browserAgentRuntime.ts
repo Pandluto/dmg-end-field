@@ -4,12 +4,13 @@ import {
   type CommandId,
 } from '../../../agent/core/contracts/ids.ts';
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
-import type {
-  ApprovalCapabilityClaims,
-  ApprovalCapabilityVerificationKey,
-  Phase2ProductCommand,
-  ProductBinding,
-  ProductCommandResult,
+import {
+  isApprovalCapabilityClaimsShape,
+  type ApprovalCapabilityClaims,
+  type ApprovalCapabilityVerificationKey,
+  type Phase2ProductCommand,
+  type ProductBinding,
+  type ProductCommandResult,
 } from '../../../agent/core/contracts/index.ts';
 import { canonicalJson } from '../../../agent/core/contracts/json.ts';
 import type {
@@ -1078,6 +1079,12 @@ async function validateCommandApproval(
     );
   }
   const claims = await decodeApprovalCapability(command.approvalCapability, verificationKey);
+  if (claims.schemaVersion === 2) {
+    throw new AgentCommandValidationError(
+      'AGENT_PREPARED_APPROVAL_UNSUPPORTED',
+      '当前浏览器命令桥尚未接入 prepared Work Node apply，不能执行候选凭据。',
+    );
+  }
   if (
     claims.commandId !== command.commandId
     || claims.defSessionId !== command.defSessionId
@@ -1201,46 +1208,7 @@ function decodeBase64Url(value: string): ArrayBuffer {
 }
 
 function isApprovalCapabilityClaims(value: unknown): value is ApprovalCapabilityClaims {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const candidate = value as Record<string, unknown>;
-  const expectedKeys = [
-    'schemaVersion',
-    'audience',
-    'keyEpoch',
-    'nonce',
-    'issuedAt',
-    'expiresAt',
-    'interactionId',
-    'commandId',
-    'defSessionId',
-    'defTurnId',
-    'toolCallId',
-    'proposalHash',
-    'binding',
-    'scope',
-  ];
-  return Object.keys(candidate).length === expectedKeys.length
-    && expectedKeys.every((key) => Object.prototype.hasOwnProperty.call(candidate, key))
-    && candidate.schemaVersion === 1
-    && candidate.audience === 'browser-product-gateway'
-    && ['keyEpoch', 'nonce', 'issuedAt', 'expiresAt', 'interactionId', 'commandId', 'defSessionId', 'defTurnId', 'toolCallId', 'proposalHash']
-      .every((key) => typeof candidate[key] === 'string' && Boolean((candidate[key] as string).trim()))
-    && isProductBinding(candidate.binding)
-    && Array.isArray(candidate.scope)
-    && candidate.scope.length > 0
-    && candidate.scope.every((entry) => typeof entry === 'string' && Boolean(entry.trim()));
-}
-
-function isProductBinding(value: unknown): value is ProductBinding {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const binding = value as Record<string, unknown>;
-  return typeof binding.workspaceId === 'string'
-    && typeof binding.databaseGeneration === 'string'
-    && typeof binding.timelineId === 'string'
-    && (binding.checkoutTargetId === null || typeof binding.checkoutTargetId === 'string')
-    && Number.isSafeInteger(binding.checkoutUpdatedAt)
-    && Number.isSafeInteger(binding.contentRevision)
-    && typeof binding.snapshotDigest === 'string';
+  return isApprovalCapabilityClaimsShape(value);
 }
 
 function sameProductBinding(left: ProductBinding, right: ProductBinding): boolean {

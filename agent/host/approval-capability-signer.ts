@@ -11,6 +11,7 @@ import {
   type ApprovalCapabilityClaims,
   type ApprovalCapabilityVerificationKey,
   type JsonValue,
+  isApprovalCapabilityClaimsShape,
 } from '../core/contracts/index.ts';
 
 const TOKEN_VERSION = 'v1';
@@ -47,6 +48,9 @@ export class ApprovalCapabilitySigner {
   }
 
   sign(claims: ApprovalCapabilityClaims): string {
+    if (!isApprovalCapabilityClaimsShape(claims)) {
+      throw new TypeError('Approval claims are malformed');
+    }
     if (claims.keyEpoch !== this.verificationKey.keyEpoch) {
       throw new TypeError('Approval claims keyEpoch does not match the signing key');
     }
@@ -84,9 +88,10 @@ export function verifyApprovalCapabilityToken(
     throw new TypeError('Approval capability signature is invalid');
   }
   const payload = Buffer.from(segments[1]!, 'base64url').toString('utf8');
-  const claims = JSON.parse(payload) as ApprovalCapabilityClaims;
+  const claims = JSON.parse(payload) as unknown;
   if (
-    canonicalJson(claims as unknown as JsonValue) !== payload
+    !isApprovalCapabilityClaimsShape(claims)
+    || canonicalJson(claims as unknown as JsonValue) !== payload
     || claims.keyEpoch !== descriptor.keyEpoch
   ) throw new TypeError('Approval capability payload is not canonical or belongs to another key');
   return claims;

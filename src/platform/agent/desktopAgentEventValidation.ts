@@ -5,6 +5,10 @@ import type {
 } from '../../../agent/core/contracts/browser-protocol.ts';
 import type { DefEvent } from '../../../agent/core/contracts/events.ts';
 import type { ClientTurnId, DefSessionId, DefTurnId } from '../../../agent/core/contracts/ids.ts';
+import {
+  isPreparedWorkNodeCandidateRef,
+  isPreparedWorkNodeCleanupAudit,
+} from '../../../agent/core/contracts/prepared-work-node.ts';
 import { DesktopAgentBridgeError } from './desktopAgentBridgeError';
 
 type RecordValue = Record<string, unknown>;
@@ -175,9 +179,12 @@ export function isSafeProductEventShape(event: RecordValue): boolean {
         && oneOf(payload.terminalState, ['completed', 'aborted'])
         && (!own(payload, 'code') || typeof payload.code === 'string');
     case 'interaction.requested':
-      return exact(payload, ['kind', 'prompt', 'expiresAt'])
+      return exact(payload, ['kind', 'prompt', 'expiresAt'], ['candidate', 'cleanup'])
         && oneOf(payload.kind, ['question', 'approval'])
-        && string(payload, 'prompt') && string(payload, 'expiresAt');
+        && string(payload, 'prompt') && string(payload, 'expiresAt')
+        && (!own(payload, 'candidate') || isPreparedWorkNodeCandidateRef(payload.candidate))
+        && (!own(payload, 'cleanup') || isPreparedWorkNodeCleanupAudit(payload.cleanup))
+        && (payload.kind === 'approval' || (!own(payload, 'candidate') && !own(payload, 'cleanup')));
     case 'interaction.resolved':
       return exact(payload, ['status'], ['value'])
         && oneOf(payload.status, ['answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale'])
