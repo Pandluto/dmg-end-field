@@ -176,6 +176,32 @@ assert.deepEqual(parseAgentWorkbenchCommand({
 });
 assert.deepEqual(parseAgentWorkbenchCommand({
   op: 'queryAgentProductCatalog',
+  action: 'discoverGearTopologies',
+  limit: 32,
+  combinationsPerSet: 8,
+  allowDuplicateCompatibleAccessories: true,
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'discoverGearTopologies',
+  limit: 32,
+  combinationsPerSet: 8,
+  allowDuplicateCompatibleAccessories: true,
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
+  action: 'skillFact',
+  operatorQuery: '洛茜',
+  skillQuery: '沸腾狼血',
+  hitQuery: '第一段',
+}), {
+  op: 'queryAgentProductCatalog',
+  action: 'skillFact',
+  operatorQuery: '洛茜',
+  skillQuery: '沸腾狼血',
+  hitQuery: '第一段',
+});
+assert.deepEqual(parseAgentWorkbenchCommand({
+  op: 'queryAgentProductCatalog',
   action: 'buildGuide',
   operatorQuery: '洛茜',
 }), {
@@ -200,6 +226,16 @@ rejected({
   action: 'buildGuide',
   operatorQuery: '洛茜',
   limit: 4,
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'discoverGearTopologies',
+  combinationsPerSet: 0,
+});
+rejected({
+  op: 'queryAgentProductCatalog',
+  action: 'skillFact',
+  operatorQuery: '洛茜',
 });
 
 const proposal = parseAgentWorkbenchCommand({

@@ -429,7 +429,15 @@ function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalog
   const action = enumValue(
     value.action,
     'action',
-    ['query', 'compatibleWeapons', 'gearTopologyFacts', 'gearTopologyPlan', 'buildGuide'] as const,
+    [
+      'query',
+      'compatibleWeapons',
+      'gearTopologyFacts',
+      'gearTopologyPlan',
+      'discoverGearTopologies',
+      'skillFact',
+      'buildGuide',
+    ] as const,
   );
   if (action === 'query') {
     exact(value, ['op', 'action', 'domain', 'query', 'limit']);
@@ -482,6 +490,39 @@ function parseAgentProductCatalogCommand(value: JsonObject): AgentProductCatalog
           'allowDuplicateCompatibleAccessories',
         ),
       }),
+    };
+  }
+  if (action === 'discoverGearTopologies') {
+    exact(value, [
+      'op',
+      'action',
+      'limit',
+      'combinationsPerSet',
+      'allowDuplicateCompatibleAccessories',
+    ]);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      ...(value.limit === undefined ? {} : { limit: integer(value.limit, 'limit', 1, 256) }),
+      ...(value.combinationsPerSet === undefined ? {} : {
+        combinationsPerSet: integer(value.combinationsPerSet, 'combinationsPerSet', 1, 256),
+      }),
+      ...(value.allowDuplicateCompatibleAccessories === undefined ? {} : {
+        allowDuplicateCompatibleAccessories: boolean(
+          value.allowDuplicateCompatibleAccessories,
+          'allowDuplicateCompatibleAccessories',
+        ),
+      }),
+    };
+  }
+  if (action === 'skillFact') {
+    exact(value, ['op', 'action', 'operatorQuery', 'skillQuery', 'hitQuery']);
+    return {
+      op: 'queryAgentProductCatalog',
+      action,
+      operatorQuery: string(value.operatorQuery, 'operatorQuery', 160),
+      skillQuery: string(value.skillQuery, 'skillQuery', 160),
+      ...(optionalString(value.hitQuery, 'hitQuery', 160) ? { hitQuery: value.hitQuery as string } : {}),
     };
   }
   exact(value, ['op', 'action', 'operatorQuery']);
