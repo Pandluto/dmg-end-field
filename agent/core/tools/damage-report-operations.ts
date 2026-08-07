@@ -34,7 +34,7 @@ export type JsonValue = JsonPrimitive | readonly JsonValue[] | { readonly [key: 
 
 export interface DefDamageReportBinding {
   readonly workspaceId: string;
-  readonly databaseGeneration: number;
+  readonly databaseGeneration: string;
   readonly timelineId: string;
   readonly checkoutTargetId: string | null;
   readonly checkoutUpdatedAt: number;
@@ -530,7 +530,7 @@ function parseBinding(value: unknown, path: string): DefDamageReportBinding {
   ], path);
   return {
     workspaceId: requiredString(record.workspaceId, `${path}.workspaceId`, MAX_SHORT_STRING_LENGTH),
-    databaseGeneration: requiredFiniteNumber(record.databaseGeneration, `${path}.databaseGeneration`, { integer: true, min: 0 }),
+    databaseGeneration: requiredString(record.databaseGeneration, `${path}.databaseGeneration`, MAX_SHORT_STRING_LENGTH),
     timelineId: requiredString(record.timelineId, `${path}.timelineId`, MAX_SHORT_STRING_LENGTH),
     checkoutTargetId: requiredStringOrNull(record.checkoutTargetId, `${path}.checkoutTargetId`, MAX_SHORT_STRING_LENGTH),
     checkoutUpdatedAt: requiredFiniteNumber(record.checkoutUpdatedAt, `${path}.checkoutUpdatedAt`, { integer: true, min: 0 }),

@@ -123,7 +123,7 @@ function capsule(options: {
     contract: 'DefDamageReportV1',
     binding: {
       workspaceId: 'workspace-test',
-      databaseGeneration: 2,
+      databaseGeneration: 'generation-damage-fixture',
       timelineId: 'timeline-test',
       checkoutTargetId: 'node-test',
       checkoutUpdatedAt: 100,
