@@ -336,9 +336,36 @@ async function readCurrentTimeline(input: JsonValue, context: DefToolExecutionCo
       ?? stringOrNull(payload.raw.timelineId)
       ?? snapshot.binding.timelineId,
     checkout: objectOrNull(payload.raw.checkout),
+    currentNode: projectCurrentNodeIdentity(payload.raw.nodeReview, payload.raw.checkout),
     contentRevision: snapshot.binding.contentRevision,
     buttonCount: buttons.length,
     buttons,
+  };
+}
+
+function projectCurrentNodeIdentity(
+  nodeReviewValue: JsonValue | undefined,
+  checkoutValue: JsonValue | undefined,
+): JsonObject | null {
+  const checkout = isRecord(checkoutValue) ? checkoutValue : null;
+  const nodeReview = isRecord(nodeReviewValue) ? nodeReviewValue : null;
+  const report = nodeReview && isRecord(nodeReview.report) ? nodeReview.report : null;
+  const manifest = report && isRecord(report.manifest) ? report.manifest : null;
+  if (!manifest || checkout?.targetType !== 'work-node') return null;
+  const nodeId = stringOrNull(manifest.nodeId);
+  const checkoutTargetId = stringOrNull(checkout.targetId);
+  if (!nodeId || !checkoutTargetId || nodeId !== checkoutTargetId) return null;
+  return {
+    bound: nodeReview?.bound === true,
+    nodeId,
+    parentNodeId: stringOrNull(manifest.parentNodeId),
+    timelineId: stringOrNull(manifest.timelineId),
+    branchId: stringOrNull(manifest.branchId),
+    revision: numberOrNull(manifest.revision),
+    status: stringOrNull(manifest.status),
+    approvalPolicy: stringOrNull(manifest.approvalPolicy),
+    label: stringOrNull(manifest.label),
+    description: stringOrNull(manifest.description),
   };
 }
 

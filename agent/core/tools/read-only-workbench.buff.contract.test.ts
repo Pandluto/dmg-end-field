@@ -103,6 +103,24 @@ let currentSnapshot: ProductSnapshotEnvelope = {
   payload: {
     schemaVersion: 1,
     currentView: 'canvas',
+    checkout: { targetType: 'work-node', targetId: 'node-buff-facts', updatedAt: 42 },
+    nodeReview: {
+      bound: true,
+      diffs: [],
+      report: {
+        manifest: {
+          nodeId: 'node-buff-facts',
+          parentNodeId: 'node-parent',
+          timelineId: 'timeline-buff-facts',
+          branchId: 'branch-main',
+          revision: 0,
+          status: 'ready',
+          approvalPolicy: 'manual',
+          label: '测试工作节点',
+          description: '节点身份投影',
+        },
+      },
+    },
     selectedCharacters: [{
       id: 'operator-a',
       name: '洛茜',
@@ -176,6 +194,18 @@ const context: DefToolExecutionContext = {
 const registry = new DefReadToolRegistry();
 const timeline = await registry.execute('def.node.crud.current', {}, context) as JsonObject;
 const button = (timeline.buttons as JsonObject[])[0]!;
+assert.deepEqual(timeline.currentNode, {
+  bound: true,
+  nodeId: 'node-buff-facts',
+  parentNodeId: 'node-parent',
+  timelineId: 'timeline-buff-facts',
+  branchId: 'branch-main',
+  revision: 0,
+  status: 'ready',
+  approvalPolicy: 'manual',
+  label: '测试工作节点',
+  description: '节点身份投影',
+});
 assert.equal(button.selectedBuffCount, 3);
 assert.deepEqual(button.selectedBuffIds, [
   skillBuff.id,

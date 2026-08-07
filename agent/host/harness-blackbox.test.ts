@@ -282,6 +282,7 @@ function expectedResult(toolName: string): JsonValue {
       binding: bindingJson(),
       timelineId: 'timeline-phase3',
       checkout: { targetType: 'work-node', targetId: 'node-phase3', updatedAt: 30 },
+      currentNode: null,
       contentRevision: 30,
       buttonCount: 2,
       buttons: [
