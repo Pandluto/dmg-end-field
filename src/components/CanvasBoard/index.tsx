@@ -5188,7 +5188,17 @@ export function CanvasBoard({
     const currentSkillButtonIds = skillButtons.length > 0
       ? skillButtons.map((button) => button.id)
       : timelineButtons.map((button) => button.id);
-    const computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
+    let computedDamageReport: ReturnType<typeof buildDamageReportSnapshot> | null = null;
+    let damageReportDiagnostic: MainWorkbenchSnapshot['damageReportDiagnostic'];
+    try {
+      computedDamageReport = buildDamageReportSnapshot({ buttonIds: currentSkillButtonIds });
+    } catch (error) {
+      damageReportDiagnostic = {
+        status: 'formula-error',
+        code: 'DAMAGE_REPORT_FORMULA_ERROR',
+        message: (error instanceof Error ? error.message : String(error)).slice(0, 1_000),
+      };
+    }
     const operatorConfigCache = getOperatorConfigPageCache();
     const persistedButtonTable = getSkillButtonTable();
     const projectButtonState = (buttonId: string, persistedButton: PersistedSkillButton | undefined) => (
@@ -5340,15 +5350,18 @@ export function CanvasBoard({
       && typeof previousSnapshot.damageReport.totalDamage === 'number'
       && Array.isArray(previousSnapshot.damageReport.characters),
     );
-    const canReusePreviousDamageReport = computedDamageReport.buttonCount === 0 &&
+    const canReusePreviousDamageReport = computedDamageReport !== null &&
+      computedDamageReport.buttonCount === 0 &&
       mirroredButtons.length > 0 &&
       previousDamageReportIsComplete &&
       previousSnapshot?.damageReport &&
       previousSnapshot.damageReport.buttonCount === mirroredButtons.length &&
       previousSignature === currentSignature;
-    const damageReport = canReusePreviousDamageReport && previousSnapshot?.damageReport
-      ? previousSnapshot.damageReport
-      : computedDamageReport;
+    const damageReport = damageReportDiagnostic
+      ? undefined
+      : canReusePreviousDamageReport && previousSnapshot?.damageReport
+        ? previousSnapshot.damageReport
+        : computedDamageReport ?? undefined;
     const snapshot = {
       schemaVersion: 1 as const,
       updatedAt: Date.now(),
@@ -5366,10 +5379,13 @@ export function CanvasBoard({
       skillCatalog: mirroredSkillCatalog,
       candidateBuffs: mirroredCandidateBuffs,
       skillButtons: mirroredButtons,
-      damageReportStatus: damageReport.buttonCount === mirroredButtons.length
-        ? 'ready' as const
-        : 'placeholder' as const,
-      damageReport,
+      damageReportStatus: damageReportDiagnostic
+        ? 'formula-error' as const
+        : damageReport?.buttonCount === mirroredButtons.length
+          ? 'ready' as const
+          : 'placeholder' as const,
+      ...(damageReport ? { damageReport } : {}),
+      ...(damageReportDiagnostic ? { damageReportDiagnostic } : {}),
       operatorConfigs: mirroredOperatorConfigs,
       nodeReview,
     };

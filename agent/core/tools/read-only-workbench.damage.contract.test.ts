@@ -235,6 +235,61 @@ const missing = await registry.execute(
 ) as JsonObject;
 assert.equal(missing.status, 'missing');
 
+currentSnapshot = snapshot(report());
+(currentSnapshot.payload as JsonObject).currentView = 'selection';
+(currentSnapshot.payload as JsonObject).damageReportStatus = 'placeholder';
+const wrongView = await registry.execute(
+  'def.data.resource.damage',
+  { action: 'diagnose' },
+  context,
+) as JsonObject;
+assert.equal(wrongView.status, 'missing');
+assert.equal(wrongView.code, 'DAMAGE_REPORT_VIEW_NOT_CANVAS');
+
+currentSnapshot = snapshot({
+  generatedAt: 1_700_000_000_000,
+  totalDamage: 0,
+  totalExpected: 0,
+  totalNonCrit: 0,
+  buttonCount: 0,
+  buttons: [],
+  characters: [],
+});
+(currentSnapshot.payload as JsonObject).skillButtons = [];
+const noButtons = await registry.execute(
+  'def.data.resource.damage',
+  { action: 'diagnose' },
+  context,
+) as JsonObject;
+assert.equal(noButtons.status, 'missing');
+assert.equal(noButtons.code, 'DAMAGE_REPORT_NO_SKILL_BUTTONS');
+
+currentSnapshot = snapshot(report());
+(currentSnapshot.payload as JsonObject).damageReportStatus = 'placeholder';
+const stale = await registry.execute(
+  'def.data.resource.damage',
+  { action: 'diagnose' },
+  context,
+) as JsonObject;
+assert.equal(stale.status, 'stale');
+assert.equal(stale.code, 'DAMAGE_REPORT_STALE');
+
+currentSnapshot = snapshot(null);
+(currentSnapshot.payload as JsonObject).damageReportStatus = 'formula-error';
+(currentSnapshot.payload as JsonObject).damageReportDiagnostic = {
+  status: 'formula-error',
+  code: 'DAMAGE_REPORT_FORMULA_ERROR',
+  message: '测试公式失败',
+};
+const formulaError = await registry.execute(
+  'def.data.resource.damage',
+  { action: 'diagnose' },
+  context,
+) as JsonObject;
+assert.equal(formulaError.status, 'formula-error');
+assert.equal(formulaError.code, 'DAMAGE_REPORT_FORMULA_ERROR');
+assert.equal(formulaError.message, '测试公式失败');
+
 const malformedReport = report();
 malformedReport.totalExpected = 121;
 currentSnapshot = snapshot(malformedReport);

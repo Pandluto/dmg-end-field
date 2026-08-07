@@ -1210,9 +1210,14 @@ export interface MainWorkbenchSnapshot {
     manualDisabledHitKeys?: string[];
     targetResistance?: Record<string, number | null>;
   }>;
-  /** Explicitly distinguishes a Canvas-generated report from selection-page carry/placeholder data. */
-  damageReportStatus: 'ready' | 'placeholder';
+  /** Explicitly distinguishes a Canvas-generated report from carry/stale/error data. */
+  damageReportStatus: 'ready' | 'placeholder' | 'formula-error';
   damageReport?: DamageReportSnapshot;
+  damageReportDiagnostic?: {
+    status: 'missing' | 'stale' | 'malformed' | 'formula-error';
+    code: string;
+    message: string;
+  };
   operatorConfigs?: Array<{
     characterId: string;
     characterName: string;

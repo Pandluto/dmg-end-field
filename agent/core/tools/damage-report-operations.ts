@@ -1283,6 +1283,11 @@ function diagnosticCode(status: DefDamageDiagnosticStatus): string {
   }
 }
 
+function preservedDiagnosticCode(value: string | undefined): string | null {
+  if (!value || value.length > MAX_SHORT_STRING_LENGTH) return null;
+  return /^DAMAGE_REPORT_[A-Z0-9_]+$/u.test(value) ? value : null;
+}
+
 function diagnosticDefaultMessage(status: DefDamageDiagnosticStatus): string {
   switch (status) {
     case 'ready': return 'A validated product damage report is available.';
@@ -1345,7 +1350,7 @@ export function diagnoseDamageReport(input: unknown): DamageReportOperationResul
       return success({
         contract: DEF_DAMAGE_REPORT_DIAGNOSTIC_CONTRACT,
         status,
-        code: diagnosticCode(status),
+        code: preservedDiagnosticCode(source.value.code) ?? diagnosticCode(status),
         message: source.value.message ?? diagnosticDefaultMessage(status),
       });
     }

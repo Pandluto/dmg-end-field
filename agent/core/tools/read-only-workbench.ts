@@ -728,12 +728,62 @@ function diagnoseSnapshotDamageReport(
   payload: WorkbenchPayload,
   binding: ProductBinding,
 ): JsonValue {
-  if (
-    payload.raw.currentView !== 'canvas'
-    || payload.raw.damageReportStatus !== 'ready'
-    || !isRecord(payload.raw.damageReport)
-  ) {
-    return unwrapDamageOperation(diagnoseDamageReport(null)) as unknown as JsonValue;
+  if (payload.raw.currentView !== 'canvas') {
+    return unwrapDamageOperation(diagnoseDamageReport({
+      status: 'missing',
+      code: 'DAMAGE_REPORT_VIEW_NOT_CANVAS',
+      message: 'The bound Workbench snapshot is not on the Canvas damage-calculation view.',
+    })) as unknown as JsonValue;
+  }
+  if (payload.skillButtons.length === 0) {
+    return unwrapDamageOperation(diagnoseDamageReport({
+      status: 'missing',
+      code: 'DAMAGE_REPORT_NO_SKILL_BUTTONS',
+      message: 'The current Canvas has no skill buttons to calculate.',
+    })) as unknown as JsonValue;
+  }
+  if (isRecord(payload.raw.damageReportDiagnostic)) {
+    return unwrapDamageOperation(
+      diagnoseDamageReport(payload.raw.damageReportDiagnostic),
+    ) as unknown as JsonValue;
+  }
+  if (payload.raw.damageReportStatus === 'formula-error') {
+    return unwrapDamageOperation(diagnoseDamageReport({
+      status: 'formula-error',
+      code: 'DAMAGE_REPORT_FORMULA_ERROR',
+      message: 'The Canvas failed while calculating the current damage report.',
+    })) as unknown as JsonValue;
+  }
+  if (payload.raw.damageReportStatus === 'placeholder') {
+    return unwrapDamageOperation(diagnoseDamageReport(isRecord(payload.raw.damageReport)
+      ? {
+          status: 'stale',
+          code: 'DAMAGE_REPORT_STALE',
+          message: 'The available damage report belongs to an earlier or incomplete Workbench projection.',
+        }
+      : {
+          status: 'missing',
+          code: 'DAMAGE_REPORT_MISSING',
+          message: 'The current Canvas has not generated a damage report yet.',
+        })) as unknown as JsonValue;
+  }
+  if (!isRecord(payload.raw.damageReport) && (
+    payload.raw.damageReportStatus === undefined
+    || payload.raw.damageReportStatus === 'idle'
+    || payload.raw.damageReportStatus === 'missing'
+  )) {
+    return unwrapDamageOperation(diagnoseDamageReport({
+      status: 'missing',
+      code: 'DAMAGE_REPORT_MISSING',
+      message: 'The current Canvas has not generated a damage report yet.',
+    })) as unknown as JsonValue;
+  }
+  if (payload.raw.damageReportStatus !== 'ready' || !isRecord(payload.raw.damageReport)) {
+    return unwrapDamageOperation(diagnoseDamageReport({
+      status: 'malformed',
+      code: 'DAMAGE_REPORT_MALFORMED',
+      message: 'The Workbench published an inconsistent damage-report status or payload.',
+    })) as unknown as JsonValue;
   }
   return unwrapDamageOperation(
     diagnoseDamageReport(damageReportCapsule(payload.raw.damageReport, binding)),

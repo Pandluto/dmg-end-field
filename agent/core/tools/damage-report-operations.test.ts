@@ -250,6 +250,23 @@ assert.equal(expectOk(diagnoseDamageReport(null)).status, 'missing');
 assert.equal(expectOk(diagnoseDamageReport({ status: 'stale' })).status, 'stale');
 assert.equal(expectOk(diagnoseDamageReport({ status: 'malformed' })).status, 'malformed');
 assert.equal(expectOk(diagnoseDamageReport({ error: { code: 'DEF_DAMAGE_REPORT_FORMULA_ERROR', message: '公式失败' } })).status, 'formula-error');
+assert.deepEqual(
+  expectOk(diagnoseDamageReport({
+    status: 'missing',
+    code: 'DAMAGE_REPORT_NO_SKILL_BUTTONS',
+    message: '没有技能按钮',
+  })),
+  {
+    contract: 'DefDamageDiagnosticV1',
+    status: 'missing',
+    code: 'DAMAGE_REPORT_NO_SKILL_BUTTONS',
+    message: '没有技能按钮',
+  },
+);
+assert.equal(
+  expectOk(diagnoseDamageReport({ status: 'missing', code: 'UNTRUSTED_CODE' })).code,
+  'DAMAGE_REPORT_MISSING',
+);
 assert.equal(expectOk(diagnoseDamageReport(current)).status, 'ready');
 assert.equal(expectOk(diagnoseDamageReport({ contract: 'DefDamageReportV1' })).status, 'malformed');
 
