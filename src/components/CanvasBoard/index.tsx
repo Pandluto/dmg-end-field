@@ -107,6 +107,8 @@ import {
   createAiTimelineWorkNodeClient,
   diffTimelinePayloads,
   applyTimelineWorkNodePatch,
+  buildAiTimelineNodeReviewProjection,
+  emptyAiTimelineNodeReviewProjection,
   validateTimelinePayload,
 } from '../../agentKernel/timelineWorktree';
 import { buildAiTimelineCheckoutDecision } from '../../agentKernel/timelineWorktree/checkoutDecision.mjs';
@@ -183,6 +185,27 @@ const BATCH_RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['iceResistance', '寒冷'],
   ['natureResistance', '自然'],
 ];
+
+// Kept as a separate typed extension so older Canvas dispatcher contracts can
+// continue to enumerate the original mutation set while the browser-only
+// Work Node management commands remain available to the same queue.
+const CANVAS_WORK_NODE_MANAGEMENT_COMMANDS = [
+  'listAiTimelineWorkNodes',
+  'readAiTimelineWorkNode',
+  'validateAiTimelineWorkNode',
+  'deleteAiTimelineWorkNode',
+] as const;
+
+type CanvasWorkNodeManagementCommand = Extract<
+  MainWorkbenchCommand,
+  { op: typeof CANVAS_WORK_NODE_MANAGEMENT_COMMANDS[number] }
+>;
+
+function isCanvasWorkNodeManagementCommand(
+  command: MainWorkbenchCommand,
+): command is CanvasWorkNodeManagementCommand {
+  return (CANVAS_WORK_NODE_MANAGEMENT_COMMANDS as readonly string[]).includes(command.op);
+}
 
 type PatchAiTimelineWorkNodeCommandResult =
   | {
@@ -550,6 +573,7 @@ export function CanvasBoard({
   const [resistanceRevision, setResistanceRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
+  const [nodeReviewRefreshRevision, setNodeReviewRefreshRevision] = useState(0);
   const [isTimelineSessionReady, setIsTimelineSessionReady] = useState(false);
   const [timelineSessionError, setTimelineSessionError] = useState('');
   const activeTimelineArchiveLibrary = restorePanelTab === 'local'
@@ -572,6 +596,8 @@ export function CanvasBoard({
   const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
+  const nodeReviewRef = useRef<MainWorkbenchSnapshot['nodeReview']>(null);
+  const nodeReviewRequestRef = useRef(0);
   const timelineNameRequestRef = useRef<Promise<string | null> | null>(null);
   const timelineNameResolverRef = useRef<((value: string | null) => void) | null>(null);
   const activeTimelineIdentityRef = useRef({
@@ -2221,6 +2247,7 @@ export function CanvasBoard({
         'listTimelineSnapshots',
         'createAiTimelineWorkNodeFromCurrent',
         'diffAiTimelineWorkNode',
+        ...CANVAS_WORK_NODE_MANAGEMENT_COMMANDS,
         'patchAiTimelineWorkNode',
         'patchAndValidateAiTimelineWorkNode',
         'applyApprovedWorkNodePatch',
@@ -2520,6 +2547,142 @@ export function CanvasBoard({
           return;
         }
 
+        if (isCanvasWorkNodeManagementCommand(command)) {
+          switch (command.op) {
+          case 'listAiTimelineWorkNodes': {
+            const result = await createAiTimelineWorkNodeClient().list();
+            const timelineId = command.timelineId?.trim() || '';
+            const nodes = timelineId
+              ? result.nodes.filter((node) => node.timelineId === timelineId)
+              : result.nodes;
+            settleCommand({
+              status: 'done',
+              result: {
+                ...result,
+                nodes,
+                timelineId: timelineId || null,
+              },
+            });
+            return;
+          }
+          case 'readAiTimelineWorkNode': {
+            const result = await createAiTimelineWorkNodeClient().get(command.nodeId);
+            if (command.includePayload === false) {
+              const { basePayload: _basePayload, workingPayload: _workingPayload, ...node } = result.node;
+              settleCommand({
+                status: 'done',
+                result: { ...result, node },
+              });
+              return;
+            }
+            settleCommand({ status: 'done', result });
+            return;
+          }
+          case 'validateAiTimelineWorkNode': {
+            const client = createAiTimelineWorkNodeClient();
+            const { node } = await client.get(command.nodeId);
+            const validation = validateTimelinePayload(node.workingPayload);
+            let nextNode = node;
+            let repairedStatus = false;
+            // Validation is intentionally allowed to repair only the repository
+            // lifecycle marker. It never changes payload or formal checkout.
+            if (command.repairStatus !== false && validation.ok && node.status === 'open') {
+              nextNode = (await client.update(node.id, { status: 'ready' })).node;
+              repairedStatus = true;
+              setNodeReviewRefreshRevision((revision) => revision + 1);
+            }
+            const diff = diffTimelinePayloads(nextNode.basePayload, nextNode.workingPayload);
+            const checkoutDecision = buildAiTimelineCheckoutDecision({
+              approvalPolicy: nextNode.approvalPolicy,
+              riskFlags: nextNode.riskFlags,
+              diff,
+            });
+            settleCommand({
+              status: validation.ok ? 'done' : 'error',
+              result: {
+                ok: validation.ok,
+                nodeId: nextNode.id,
+                status: nextNode.status,
+                contentRevision: nextNode.contentRevision,
+                validation,
+                repairedStatus,
+                diff,
+                checkoutDecision,
+                path: 'browser-sqlite://timeline-work-nodes',
+              },
+              ...(validation.ok ? {} : {
+                error: validation.issues.map((issue) => issue.message).join('；'),
+              }),
+            });
+            return;
+          }
+          case 'deleteAiTimelineWorkNode': {
+          const client = createAiTimelineWorkNodeClient();
+          const before = await client.list();
+          const target = before.nodes.find((node) => node.id === command.nodeId);
+          if (!target) {
+            const result = {
+              ok: false as const,
+              deleted: false as const,
+              nodeId: command.nodeId,
+              deletedNodeIds: [] as string[],
+              protected: false as const,
+              code: 'ai-worknode-not-found',
+              message: `AI timeline work node not found: ${command.nodeId}`,
+            };
+            settleCommand({ status: 'error', result, error: result.message });
+            return;
+          }
+          const deletedCandidateIds = new Set([target.id]);
+          let expanded = true;
+          while (expanded) {
+            expanded = false;
+            for (const node of before.nodes) {
+              if (node.parentNodeId && deletedCandidateIds.has(node.parentNodeId) && !deletedCandidateIds.has(node.id)) {
+                deletedCandidateIds.add(node.id);
+                expanded = true;
+              }
+            }
+          }
+          const checkout = await createTimelineRepositoryClient().getCheckoutRef(target.timelineId);
+          if (checkout?.targetType === 'work-node' && deletedCandidateIds.has(checkout.targetId)) {
+            const result = {
+              ok: false as const,
+              deleted: false as const,
+              nodeId: command.nodeId,
+              deletedNodeIds: [] as string[],
+              protected: true as const,
+              checkoutNodeId: checkout.targetId,
+              code: 'timeline-work-node-current-checkout-protected',
+              message: 'Cannot delete the current Work Node path. Checkout another target first.',
+            };
+            settleCommand({ status: 'error', result, error: result.message });
+            return;
+          }
+          const deleted = await client.delete(command.nodeId);
+          const remainingIds = new Set(deleted.nodes.map((node) => node.id));
+          const deletedNodeIds = before.nodes
+            .filter((node) => !remainingIds.has(node.id))
+            .map((node) => node.id);
+          settleCommand({
+            status: 'done',
+            result: {
+              ok: true,
+              deleted: true,
+              nodeId: command.nodeId,
+              deletedNodeIds,
+              protected: false,
+              remainingNodeCount: deleted.nodes.length,
+              path: deleted.path,
+            },
+          });
+          return;
+          }
+          default:
+            return;
+          }
+        }
+
         if (command.op === 'patchAiTimelineWorkNode') {
           const result = await patchAiTimelineWorkNodeFromCommand(command);
           if ('issues' in result) {
@@ -2530,6 +2693,7 @@ export function CanvasBoard({
             });
             return;
           }
+          setNodeReviewRefreshRevision((revision) => revision + 1);
           settleCommand({ status: 'done', result });
           return;
         }
@@ -2541,6 +2705,7 @@ export function CanvasBoard({
             result,
             ...(result.ok ? {} : { error: result.issues?.map((issue) => issue.message).join('；') || 'patch_and_validate failed' }),
           });
+          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
           return;
         }
 
@@ -2592,6 +2757,7 @@ export function CanvasBoard({
 
         if (command.op === 'restoreAiTimelineWorkNodeBase') {
           const result = await restoreAiTimelineWorkNodeBaseFromCommand(command);
+          setNodeReviewRefreshRevision((revision) => revision + 1);
           settleCommand({ status: 'done', result });
           return;
         }
@@ -3044,6 +3210,75 @@ export function CanvasBoard({
     return () => window.removeEventListener('pointermove', handlePointerMove);
   }, [isAgentMode]);
 
+  // The Native UI used to read node/working/* from a materialized Node DB.
+  // The browser now owns the same review projection in SQLite. Every request
+  // is keyed by the checkout identity and a local generation so a slower read
+  // from the previous checkout cannot overwrite the current snapshot.
+  useEffect(() => {
+    const requestId = ++nodeReviewRequestRef.current;
+    let cancelled = false;
+    const checkout = activeCheckoutRef;
+    const isCurrentWorkNode = checkout?.targetType === 'work-node';
+    if (!isTimelineSessionReady || currentView !== 'canvas' || document.visibilityState !== 'visible' || !isCurrentWorkNode) {
+      nodeReviewRef.current = isCurrentWorkNode ? null : emptyAiTimelineNodeReviewProjection();
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    nodeReviewRef.current = null;
+    let latestReadId = 0;
+    const refresh = async () => {
+      const readId = ++latestReadId;
+      try {
+        const { node } = await createAiTimelineWorkNodeClient().get(checkout.targetId);
+        const currentIdentity = activeTimelineIdentityRef.current;
+        if (cancelled
+          || requestId !== nodeReviewRequestRef.current
+          || readId !== latestReadId
+          || currentIdentity.timelineId !== activeTimelineId
+          || currentIdentity.checkout !== checkoutIdentity(checkout)
+          || node.timelineId !== activeTimelineId
+          || node.id !== checkout.targetId) {
+          return;
+        }
+        const nodeRevision = Number(node.contentRevision || node.updatedAt);
+        const previousManifest = nodeReviewRef.current?.report?.manifest;
+        if (previousManifest?.nodeId === node.id
+          && previousManifest.revision === nodeRevision
+          && previousManifest.updatedAt === node.updatedAt) {
+          return;
+        }
+        const review = buildAiTimelineNodeReviewProjection(node, checkout);
+        nodeReviewRef.current = review;
+        const snapshot = readMainWorkbenchSnapshot();
+        if (!snapshot || snapshot.checkout?.targetType !== 'work-node'
+          || snapshot.checkout.targetId !== checkout.targetId
+          || snapshot.activeTimelineId !== activeTimelineId) {
+          return;
+        }
+        const nextSnapshot: MainWorkbenchSnapshot = {
+          ...snapshot,
+          updatedAt: Date.now(),
+          nodeReview: review,
+        };
+        writeMainWorkbenchSnapshot(nextSnapshot);
+        await pushMainWorkbenchSnapshot(nextSnapshot);
+      } catch {
+        // A deleted or concurrently replaced node is represented by the next
+        // checkout/snapshot generation; do not publish an error as old data.
+      }
+    };
+    void refresh();
+    const revisionTimer = window.setInterval(() => {
+      void refresh();
+    }, 1500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(revisionTimer);
+    };
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, isTimelineSessionReady, nodeReviewRefreshRevision, projectionVisibilityRevision]);
+
   useEffect(() => {
     if (currentView !== 'canvas') {
       return;
@@ -3191,6 +3426,13 @@ export function CanvasBoard({
     });
     if (isCheckoutBootstrapPendingRef.current || isCheckoutMutationPendingRef.current) return;
     const previousSnapshot = readMainWorkbenchSnapshot();
+    const nodeReview = activeCheckoutRef?.targetType === 'work-node'
+      ? (nodeReviewRef.current?.bound
+        && nodeReviewRef.current.report?.manifest.nodeId === activeCheckoutRef.targetId
+        && nodeReviewRef.current.report.manifest.timelineId === activeTimelineId
+        ? nodeReviewRef.current
+        : null)
+      : emptyAiTimelineNodeReviewProjection();
     const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs, mirroredSkillCatalog);
     const previousSignature = previousSnapshot
       ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs, previousSnapshot.skillCatalog)
@@ -3227,10 +3469,11 @@ export function CanvasBoard({
         buttons: damageReport.buttons,
       },
       operatorConfigs: mirroredOperatorConfigs,
+      nodeReview,
     };
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;

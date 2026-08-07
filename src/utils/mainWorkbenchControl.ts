@@ -2,6 +2,7 @@ import type { Character, SkillButtonType } from '../types';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
 import type { SkillButtonBuff } from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
+import type { AiTimelineNodeReviewProjection } from '../agentKernel/timelineWorktree/nodeReview';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
@@ -132,6 +133,28 @@ export type MainWorkbenchCommand =
     }
   | {
       op: 'diffAiTimelineWorkNode';
+      nodeId: string;
+    }
+  | {
+      /** Read the browser SQLite Work Node index without touching checkout. */
+      op: 'listAiTimelineWorkNodes';
+      timelineId?: string;
+    }
+  | {
+      /** Read one browser SQLite Work Node. This command never hydrates Canvas. */
+      op: 'readAiTimelineWorkNode';
+      nodeId: string;
+      includePayload?: boolean;
+    }
+  | {
+      /** Validate a Work Node and optionally repair only its status to ready. */
+      op: 'validateAiTimelineWorkNode';
+      nodeId: string;
+      repairStatus?: boolean;
+    }
+  | {
+      /** Delete a Work Node subtree through the browser repository constraint. */
+      op: 'deleteAiTimelineWorkNode';
       nodeId: string;
     }
   | {
@@ -420,6 +443,8 @@ export interface MainWorkbenchSnapshot {
     }>;
     operatorSkillLevels?: { A?: 'L9' | 'M3'; B?: 'L9' | 'M3'; E?: 'L9' | 'M3'; Q?: 'L9' | 'M3'; Dot?: 'L9' | 'M3' };
   }>;
+  /** Current checkout Work Node review, projected from browser SQLite. */
+  nodeReview?: AiTimelineNodeReviewProjection | null;
   lastCommand?: {
     id: string;
     op: MainWorkbenchCommand['op'];

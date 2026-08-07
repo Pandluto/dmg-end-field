@@ -49,8 +49,11 @@ function buffMap(payload: TimelineSnapshotPayload) {
 }
 
 function compareField(changes: TimelineButtonFieldChange[], field: string, before: unknown, after: unknown) {
-  const beforeValue = Array.isArray(before) ? JSON.stringify(before) : before;
-  const afterValue = Array.isArray(after) ? JSON.stringify(after) : after;
+  // Work Node payloads are reconstructed from SQLite, so structurally equal
+  // objects do not retain reference identity. Compare a stable representation
+  // or an unchanged node would report empty stack/resistance objects as edits.
+  const beforeValue = before && typeof before === 'object' ? stableJson(before) : before;
+  const afterValue = after && typeof after === 'object' ? stableJson(after) : after;
   if (beforeValue === afterValue) return;
   changes.push({ field, before, after });
 }
