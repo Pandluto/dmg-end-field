@@ -27,6 +27,7 @@ import type {
   ProductCommandResult,
   ProductSnapshotEnvelope,
 } from '../../../agent/core/contracts/index.ts';
+import type { DefPreparedWorkNodeCandidateRefV1 } from '../../../agent/core/contracts/prepared-work-node.ts';
 import type { MainWorkbenchSnapshot } from '../../utils/mainWorkbenchControl';
 import {
   AGENT_SELECTION_WORKSPACE_TIMELINE_ID,
@@ -97,6 +98,63 @@ async function withApprovalCapability(
     proposalHash,
     binding: command.expected,
     scope,
+  };
+  return {
+    ...command,
+    approvalCapability: approvalSigner.sign(claims),
+  };
+}
+
+const preparedDigest = `sha256:${'c'.repeat(64)}`;
+
+function preparedCandidate(
+  overrides: Partial<DefPreparedWorkNodeCandidateRefV1> = {},
+): DefPreparedWorkNodeCandidateRefV1 {
+  return {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: 1,
+    proposalId: 'proposal-runtime-prepared',
+    intent: 'timeline',
+    destination: 'current-timeline',
+    sourceTargetId: binding.checkoutTargetId,
+    sourceRevision: 0,
+    candidateTimelineId: binding.timelineId,
+    nodeId: 'candidate-runtime-prepared',
+    nodeRevision: 0,
+    basePayloadDigest: preparedDigest,
+    workingPayloadDigest: `sha256:${'d'.repeat(64)}`,
+    diffDigest: `sha256:${'e'.repeat(64)}`,
+    proposalDigest: `sha256:${'f'.repeat(64)}`,
+    scope: ['timeline.structure'],
+    ...overrides,
+  };
+}
+
+async function withPreparedApprovalCapability(
+  command: Phase2ProductCommand,
+  candidate: DefPreparedWorkNodeCandidateRefV1,
+  options: {
+    readonly proposalHash?: string;
+    readonly scope?: readonly string[];
+    readonly binding?: typeof binding;
+  } = {},
+): Promise<Phase2ProductCommand> {
+  const claims = {
+    schemaVersion: 2 as const,
+    audience: 'browser-product-gateway' as const,
+    keyEpoch: approvalSigner.verificationKey.keyEpoch,
+    nonce: `nonce-${command.commandId}`,
+    issuedAt: new Date(Date.now() - 1_000).toISOString(),
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    interactionId: asInteractionId(`interaction-${command.commandId}`),
+    commandId: command.commandId,
+    defSessionId: command.defSessionId,
+    defTurnId: command.defTurnId,
+    toolCallId: command.toolCallId,
+    proposalHash: options.proposalHash ?? candidate.proposalDigest,
+    binding: options.binding ?? command.expected,
+    scope: options.scope ?? candidate.scope,
+    candidate,
   };
   return {
     ...command,
@@ -272,7 +330,7 @@ class FakeBridge {
     if (this.failSnapshotPublish) throw new Error('snapshot publish failed');
     this.snapshots.push(input);
   }
-  async nextCommand(): Promise<BrowserCommandDelivery | null> {
+  async nextCommand(_input?: { readonly signal?: AbortSignal }): Promise<BrowserCommandDelivery | null> {
     const delivery = this.delivery;
     this.delivery = null;
     return delivery;
@@ -280,6 +338,29 @@ class FakeBridge {
   async submitCommandResult(input: BrowserCommandResultSubmission): Promise<void> {
     this.events.push('host-result');
     this.results.push(input);
+  }
+}
+
+class BlockingCommandBridge extends FakeBridge {
+  started = false;
+  aborted = false;
+
+  override nextCommand(input?: { readonly signal?: AbortSignal }): Promise<BrowserCommandDelivery | null> {
+    this.started = true;
+    return new Promise<BrowserCommandDelivery | null>((resolve) => {
+      const signal = input?.signal;
+      if (!signal) {
+        resolve(null);
+        return;
+      }
+      const finish = () => {
+        this.aborted = true;
+        signal.removeEventListener('abort', finish);
+        resolve(null);
+      };
+      if (signal.aborted) finish();
+      else signal.addEventListener('abort', finish, { once: true });
+    });
   }
 }
 
@@ -315,6 +396,83 @@ await runtime.publishMainWorkbenchSnapshot({
 assert.equal(refreshes, 1);
 assert.equal(bridge.snapshots.length, 1);
 assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+
+// Re-render churn changes only snapshot/row timestamps. It must not cause a
+// second runtime hash, SQLite write, or Host publication. A real damage report
+// value change remains publishable even when generatedAt also changes.
+{
+  const dedupEvents: string[] = [];
+  const dedupBridge = new FakeBridge(dedupEvents);
+  dedupBridge.delivery = null;
+  const dedupStore = new FakeStore(dedupEvents);
+  const dedupRuntime = new BrowserAgentRuntime({
+    bridge: dedupBridge,
+    consumerController: {
+      getState: controller.getState,
+      refreshEligibility: async () => undefined,
+    },
+    store: dedupStore,
+  });
+  await dedupRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  const beforeEquivalentPublishes = dedupStore.snapshotInputs.length;
+  for (let index = 1; index <= 100; index += 1) {
+    await dedupRuntime.publishMainWorkbenchSnapshot({
+      ...runtimeSnapshotAt(100 + index),
+      checkout: { targetType: 'snapshot', targetId: 'checkout-runtime', updatedAt: 100 },
+    });
+  }
+  assert.equal(dedupStore.snapshotInputs.length, beforeEquivalentPublishes);
+
+  const report = {
+    generatedAt: 1,
+    totalDamage: 10,
+    totalExpected: 12,
+    totalNonCrit: 8,
+    buttonCount: 0,
+    buttons: [],
+    characters: [],
+  };
+  const reportSnapshot = {
+    ...runtimeSnapshotAt(201),
+    checkout: { targetType: 'snapshot' as const, targetId: 'checkout-runtime', updatedAt: 100 },
+    damageReportStatus: 'ready' as const,
+    damageReport: report,
+  } as MainWorkbenchSnapshot;
+  await dedupRuntime.publishMainWorkbenchSnapshot(reportSnapshot);
+  assert.equal(dedupStore.snapshotInputs.length, beforeEquivalentPublishes + 1);
+  await dedupRuntime.publishMainWorkbenchSnapshot({
+    ...reportSnapshot,
+    updatedAt: 202,
+    damageReport: { ...report, generatedAt: 2 },
+  });
+  assert.equal(dedupStore.snapshotInputs.length, beforeEquivalentPublishes + 1);
+  await dedupRuntime.publishMainWorkbenchSnapshot({
+    ...reportSnapshot,
+    updatedAt: 203,
+    damageReport: { ...report, generatedAt: 3, totalDamage: 11 },
+  });
+  assert.equal(dedupStore.snapshotInputs.length, beforeEquivalentPublishes + 2);
+}
+
+// Exiting AI mode aborts an in-flight Host long-poll. The browser runtime must
+// settle promptly and must not leave a pull promise that a later state change
+// can accidentally reuse.
+{
+  const blockedEvents: string[] = [];
+  const blockedBridge = new BlockingCommandBridge(blockedEvents);
+  blockedBridge.delivery = null;
+  const blockedRuntime = new BrowserAgentRuntime({
+    bridge: blockedBridge,
+    consumerController: controller,
+    store: new FakeStore(blockedEvents),
+  });
+  const pull = blockedRuntime.pullRemoteCommands(() => undefined);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  assert.equal(blockedBridge.started, true);
+  blockedRuntime.cancelCommandPull();
+  await pull;
+  assert.equal(blockedBridge.aborted, true);
+}
 
 // Consecutive snapshots that are waiting behind one in-flight publish keep
 // only the newest binding/revision/digest candidate.
@@ -487,6 +645,196 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
     id: unsignedSelectionCommand.commandId,
   }]);
   assert.equal(approvalBridge.results.length, 0);
+}
+
+// Prepared apply is the only renderer mutation that accepts an Approval
+// Capability V2. The signed candidate, proposal hash, scope, binding, and
+// command candidate all have to be byte-for-byte equivalent; V1 cannot cross
+// this boundary.
+{
+  const candidate = preparedCandidate();
+  const applyPayload = {
+    op: 'applyReviewedWorkNodeProposal',
+    operation: 'timeline.preview',
+    candidate,
+  } as const;
+  const unsignedApplyCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-prepared-v2-admitted'),
+    toolCallId: asToolCallId('tool-prepared-v2-admitted'),
+    command: { op: 'workbench.execute-command', payload: { command: applyPayload } },
+  };
+  const v2Events: string[] = [];
+  const v2Bridge = new FakeBridge(v2Events);
+  v2Bridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(unsignedApplyCommand, candidate),
+  };
+  const v2Runtime = new BrowserAgentRuntime({
+    bridge: v2Bridge,
+    consumerController: controller,
+    store: new FakeStore(v2Events),
+  });
+  await v2Runtime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  const v2Admitted: Array<{ command: unknown; id: string }> = [];
+  await v2Runtime.pullRemoteCommands((command, id) => v2Admitted.push({ command, id }));
+  assert.deepEqual(v2Admitted, [{ command: applyPayload, id: unsignedApplyCommand.commandId }]);
+  assert.equal(v2Bridge.results.length, 0);
+
+  const v1Events: string[] = [];
+  const v1Bridge = new FakeBridge(v1Events);
+  v1Bridge.delivery = {
+    cursor: 1,
+    command: await withApprovalCapability({
+      ...unsignedApplyCommand,
+      commandId: asCommandId('command-prepared-v1-rejected'),
+      toolCallId: asToolCallId('tool-prepared-v1-rejected'),
+    }),
+  };
+  const v1Runtime = new BrowserAgentRuntime({
+    bridge: v1Bridge,
+    consumerController: controller,
+    store: new FakeStore(v1Events),
+  });
+  await v1Runtime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await v1Runtime.pullRemoteCommands(() => undefined);
+  assert.equal(v1Bridge.results[0]?.result.status, 'rejected');
+  assert.equal(v1Bridge.results[0]?.result.code, 'AGENT_PREPARED_APPROVAL_REQUIRED');
+
+  const tamperedEvents: string[] = [];
+  const tamperedBridge = new FakeBridge(tamperedEvents);
+  const tamperedCommand: Phase2ProductCommand = {
+    ...unsignedApplyCommand,
+    commandId: asCommandId('command-prepared-v2-tampered-candidate'),
+    toolCallId: asToolCallId('tool-prepared-v2-tampered-candidate'),
+    command: {
+      op: 'workbench.execute-command',
+      payload: { command: { ...applyPayload, candidate: { ...candidate, nodeId: 'forged-candidate' } } },
+    },
+  };
+  tamperedBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(tamperedCommand, candidate),
+  };
+  const tamperedRuntime = new BrowserAgentRuntime({
+    bridge: tamperedBridge,
+    consumerController: controller,
+    store: new FakeStore(tamperedEvents),
+  });
+  await tamperedRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await tamperedRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(tamperedBridge.results[0]?.result.status, 'rejected');
+  assert.equal(tamperedBridge.results[0]?.result.code, 'AGENT_PREPARED_CANDIDATE_MISMATCH');
+
+  const hashEvents: string[] = [];
+  const hashBridge = new FakeBridge(hashEvents);
+  hashBridge.delivery = {
+    cursor: 1,
+    command: await withPreparedApprovalCapability(unsignedApplyCommand, candidate, {
+      proposalHash: `sha256:${'0'.repeat(64)}`,
+    }),
+  };
+  const hashRuntime = new BrowserAgentRuntime({
+    bridge: hashBridge,
+    consumerController: controller,
+    store: new FakeStore(hashEvents),
+  });
+  await hashRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await hashRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(hashBridge.results[0]?.result.status, 'rejected');
+  assert.equal(hashBridge.results[0]?.result.code, 'AGENT_PREPARED_PROPOSAL_HASH_MISMATCH');
+}
+
+// Prepare and abandon are constrained proposal/cleanup commands: they do not
+// ask for user approval, but prepare still requires the Host-inserted source
+// binding. This also keeps the empty-roster/selection-page command owner on
+// the same independent runtime pull path.
+{
+  const preparePayload = {
+    op: 'prepareReviewedWorkNodeProposal',
+    operation: 'timeline.preview',
+    intent: 'timeline',
+    scope: ['timeline.structure'],
+    patch: [{ op: 'clearTimeline' }],
+    label: '准备候选',
+    description: '仅创建隔离候选供审阅。',
+    sourceBinding: binding,
+  } as const;
+  const prepareCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-prepared-no-approval'),
+    toolCallId: asToolCallId('tool-prepared-no-approval'),
+    command: { op: 'workbench.execute-command', payload: { command: preparePayload } },
+  };
+  const prepareEvents: string[] = [];
+  const prepareBridge = new FakeBridge(prepareEvents);
+  prepareBridge.delivery = { cursor: 1, command: prepareCommand };
+  const prepareRuntime = new BrowserAgentRuntime({
+    bridge: prepareBridge,
+    consumerController: controller,
+    store: new FakeStore(prepareEvents),
+  });
+  await prepareRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  const prepareAdmitted: unknown[] = [];
+  await prepareRuntime.pullRemoteCommands((command) => prepareAdmitted.push(command));
+  assert.deepEqual(prepareAdmitted, [preparePayload]);
+  assert.equal(prepareBridge.results.length, 0);
+
+  const unsupportedPreparedPayload = {
+    ...preparePayload,
+    intent: 'selection',
+    scope: ['selection.roster'],
+  } as const;
+  const unsupportedPreparedBridge = new FakeBridge([]);
+  unsupportedPreparedBridge.delivery = {
+    cursor: 1,
+    command: {
+      ...prepareCommand,
+      commandId: asCommandId('command-prepared-selection-rejected'),
+      toolCallId: asToolCallId('tool-prepared-selection-rejected'),
+      command: {
+        op: 'workbench.execute-command',
+        payload: { command: unsupportedPreparedPayload },
+      },
+    },
+  };
+  const unsupportedPreparedRuntime = new BrowserAgentRuntime({
+    bridge: unsupportedPreparedBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await unsupportedPreparedRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await unsupportedPreparedRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(unsupportedPreparedBridge.results[0]?.result.status, 'rejected');
+  assert.equal(unsupportedPreparedBridge.results[0]?.result.code, 'AGENT_COMMAND_SCHEMA_INVALID');
+
+  const mismatchBridge = new FakeBridge([]);
+  mismatchBridge.delivery = {
+    cursor: 1,
+    command: {
+      ...prepareCommand,
+      commandId: asCommandId('command-prepared-binding-mismatch'),
+      toolCallId: asToolCallId('tool-prepared-binding-mismatch'),
+      command: {
+        op: 'workbench.execute-command',
+        payload: {
+          command: {
+            ...preparePayload,
+            sourceBinding: { ...binding, contentRevision: binding.contentRevision + 1 },
+          },
+        },
+      },
+    },
+  };
+  const mismatchRuntime = new BrowserAgentRuntime({
+    bridge: mismatchBridge,
+    consumerController: controller,
+    store: new FakeStore([]),
+  });
+  await mismatchRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await mismatchRuntime.pullRemoteCommands(() => undefined);
+  assert.equal(mismatchBridge.results[0]?.result.status, 'rejected');
+  assert.equal(mismatchBridge.results[0]?.result.code, 'AGENT_PREPARED_SOURCE_BINDING_MISMATCH');
 }
 
 // The reviewed loadout mutation is admitted only with the signed capability,
@@ -663,6 +1011,55 @@ const unsignedSelectionCommand: Phase2ProductCommand = {
   assert.equal(failedLoadoutBridge.results[0]?.result.code, 'AGENT_POSTCONDITION_NOT_OBSERVED');
 }
 
+// A mutating result waits on the snapshot publication event rather than a
+// fixed 16ms polling loop. Publishing the exact visible button shortly after
+// the result starts should complete well before the legacy 1.5s timeout.
+{
+  const eventEvents: string[] = [];
+  const eventBridge = new FakeBridge(eventEvents);
+  const eventPayload = {
+    op: 'removeSkillButton',
+    buttonId: 'button-event',
+    latest: false,
+  } as const;
+  const eventCommand: Phase2ProductCommand = {
+    ...unsignedSelectionCommand,
+    commandId: asCommandId('command-snapshot-event-wait'),
+    toolCallId: asToolCallId('tool-snapshot-event-wait'),
+    command: { op: 'workbench.execute-command', payload: { command: eventPayload } },
+  };
+  eventBridge.delivery = { cursor: 1, command: await withApprovalCapability(eventCommand) };
+  const eventStore = new FakeStore(eventEvents);
+  eventStore.snapshotBinding = {
+    ...binding,
+    checkoutUpdatedAt: 101,
+    contentRevision: 101,
+    snapshotDigest: 'sha256:event-101',
+  };
+  const eventRuntime = new BrowserAgentRuntime({
+    bridge: eventBridge,
+    consumerController: controller,
+    store: eventStore,
+  });
+  await eventRuntime.publishMainWorkbenchSnapshot(runtimeSnapshotAt(100));
+  await eventRuntime.pullRemoteCommands(() => undefined);
+  const startedAt = Date.now();
+  const resultPromise = eventRuntime.pushCommandResult({
+    id: eventCommand.commandId,
+    command: eventPayload as never,
+    status: 'done',
+    source: 'agent-host',
+    createdAt: 100,
+    updatedAt: 101,
+    result: { buttonId: 'button-event' },
+  });
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  await eventRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('event-node', 101, [], 101));
+  await resultPromise;
+  assert.ok(Date.now() - startedAt < 1_000, 'snapshot event should wake the postcondition waiter promptly');
+  assert.equal(eventBridge.results[0]?.result.status, 'succeeded');
+}
+
 function exactWorkNodeReceipt(input: {
   readonly checkoutTargetId: string;
   readonly checkoutUpdatedAt: number;
@@ -764,7 +1161,7 @@ function makeExactWorkNodeSnapshot(
   await restoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 300));
   await restoreRuntime.pullRemoteCommands(() => undefined);
   restoreStore.snapshotBinding = { ...binding, checkoutUpdatedAt: 301, contentRevision: 301, snapshotDigest: 'sha256:restore-301' };
-  await restoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 301, ['button-base'], 300));
+  await restoreRuntime.publishMainWorkbenchSnapshot(makeExactWorkNodeSnapshot('base-node', 301, ['button-base'], 301));
   const visiblePostcondition = exactWorkNodeReceipt({
     checkoutTargetId: 'base-node',
     checkoutUpdatedAt: 300,
@@ -786,7 +1183,7 @@ function makeExactWorkNodeSnapshot(
       status: 'ready',
       rollbackApplied: true,
       rollbackMarkError: null,
-      checkout: { timelineId: 'timeline-runtime', targetType: 'work-node', targetId: 'base-node', updatedAt: 300 },
+      checkout: { timelineId: 'timeline-runtime', targetType: 'work-node', targetId: 'base-node', updatedAt: 301 },
       checkoutTargetRevision: 8,
       basePayloadDigest: 'sha256:payload-base',
       visiblePostcondition,

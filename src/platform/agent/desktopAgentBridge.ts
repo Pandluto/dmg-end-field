@@ -124,6 +124,7 @@ export interface AgentBridgeRequestOptions {
   readonly body?: unknown;
   readonly authorized?: boolean;
   readonly keepalive?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface AgentConsumerControllerDocument {
@@ -1123,6 +1124,7 @@ export class DesktopAgentBridge {
     readonly executorLeaseId: string;
     readonly afterCursor: number;
     readonly waitMs?: number;
+    readonly signal?: AbortSignal;
   }): Promise<BrowserCommandDelivery | null> {
     const query = new URLSearchParams({
       consumerId: input.consumerId,
@@ -1132,7 +1134,9 @@ export class DesktopAgentBridge {
     if (input.waitMs && Number.isSafeInteger(input.waitMs) && input.waitMs > 0) {
       query.set('waitMs', String(input.waitMs));
     }
-    const data = await this.#requestWithReauthorization(`/agent-host/workbench/commands/next?${query}`);
+    const data = await this.#requestWithReauthorization(`/agent-host/workbench/commands/next?${query}`, {
+      signal: input.signal,
+    });
     if (data.delivery === null) return null;
     const candidate = (
       data.delivery && typeof data.delivery === 'object' ? data.delivery : data
@@ -1338,8 +1342,10 @@ export class DesktopAgentBridge {
         headers,
         ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
         ...(options.keepalive ? { keepalive: true } : {}),
+        ...(options.signal ? { signal: options.signal } : {}),
       });
     } catch (error) {
+      if (isAbortError(error)) throw error;
       throw new DesktopAgentBridgeError(
         error instanceof Error ? error.message : '无法连接 Agent Host。',
         'AGENT_HOST_UNREACHABLE',
@@ -1369,6 +1375,10 @@ export class DesktopAgentBridge {
     this.#state = { ...this.#state, ...patch };
     for (const listener of this.#listeners) listener(this.#state);
   }
+}
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { name?: unknown }).name === 'AbortError');
 }
 
 export function createDesktopAgentBridge(

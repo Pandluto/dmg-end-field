@@ -6,13 +6,24 @@ import {
 import type { JsonObject, JsonValue } from '../../../agent/core/contracts/json.ts';
 import {
   isApprovalCapabilityClaimsShape,
+  isPreparedWorkNodeCandidateRef,
+  isPreparedWorkNodeProposal,
+  PREPARED_WORK_NODE_SCOPES,
   type ApprovalCapabilityClaims,
   type ApprovalCapabilityVerificationKey,
   type Phase2ProductCommand,
   type ProductBinding,
   type ProductCommandResult,
 } from '../../../agent/core/contracts/index.ts';
+import type {
+  DefPreparedWorkNodeCandidateRefV1,
+  PreparedWorkNodeScope,
+} from '../../../agent/core/contracts/prepared-work-node.ts';
 import { canonicalJson } from '../../../agent/core/contracts/json.ts';
+import {
+  preparedWorkNodeCandidateRefFromProposal,
+  samePreparedWorkNodeCandidate,
+} from './preparedWorkNodeProposal';
 import type {
   MainWorkbenchCommand,
   MainWorkbenchSnapshot,
@@ -57,6 +68,11 @@ const MUTATING_MAIN_COMMANDS = new Set<MainWorkbenchCommand['op']>([
   'checkoutAiTimelineWorkNode',
   'restoreAiTimelineWorkNodeBase',
   'applyPreparedOperatorConfigProposal',
+  'applyReviewedWorkNodeProposal',
+]);
+const PREPARED_PROPOSAL_COMMANDS = new Set<MainWorkbenchCommand['op']>([
+  'prepareReviewedWorkNodeProposal',
+  'abandonPreparedWorkNodeProposal',
 ]);
 const DESKTOP_AGENT_BOOT_QUERY_KEY = '__agent_mode';
 export const AGENT_SELECTION_WORKSPACE_TIMELINE_ID = 'workspace-selection';
@@ -108,6 +124,9 @@ export class BrowserAgentRuntime {
   #publishPromise: Promise<void> | null = null;
   #resultChain = Promise.resolve();
   #pullPromise: Promise<void> | null = null;
+  #pullAbortController: AbortController | null = null;
+  #snapshotPublishVersion = 0;
+  readonly #snapshotPublishWaiters = new Set<() => void>();
 
   constructor(options: BrowserAgentRuntimeOptions) {
     this.#bridge = options.bridge;
@@ -127,6 +146,10 @@ export class BrowserAgentRuntime {
     return this.#binding;
   }
 
+  cancelCommandPull(): void {
+    this.#pullAbortController?.abort();
+  }
+
   async initializeWorkspace(): Promise<void> {
     if (!this.isActive()) return;
     await this.#store.initialize();
@@ -134,6 +157,9 @@ export class BrowserAgentRuntime {
 
   publishMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
     if (!this.isActive()) return Promise.resolve();
+    if (this.#binding && this.#latestSnapshot && sameMainWorkbenchSnapshotSemantics(this.#latestSnapshot, snapshot)) {
+      return Promise.resolve();
+    }
     const promise = new Promise<void>((resolve, reject) => {
       const pending = this.#pendingSnapshot;
       if (!pending) {
@@ -159,9 +185,16 @@ export class BrowserAgentRuntime {
   ): Promise<void> {
     if (!this.isActive()) return Promise.resolve();
     if (this.#pullPromise) return this.#pullPromise;
-    this.#pullPromise = this.#pull(enqueue, recoverCommandResult).finally(() => {
-      this.#pullPromise = null;
-    });
+    const abortController = new AbortController();
+    this.#pullAbortController = abortController;
+    this.#pullPromise = this.#pull(enqueue, recoverCommandResult, abortController.signal)
+      .catch((error) => {
+        if (!isAbortError(error)) throw error;
+      })
+      .finally(() => {
+        if (this.#pullAbortController === abortController) this.#pullAbortController = null;
+        this.#pullPromise = null;
+      });
     return this.#pullPromise;
   }
 
@@ -225,6 +258,7 @@ export class BrowserAgentRuntime {
     }
     this.#binding = runtimeSnapshot.binding;
     this.#latestSnapshot = cloneSnapshot(snapshot);
+    this.#signalSnapshotPublished();
     await this.#consumerController.refreshEligibility();
   }
 
@@ -257,17 +291,48 @@ export class BrowserAgentRuntime {
     if (this.#pendingSnapshot) this.#startSnapshotPublishLoop();
   }
 
-  async #pull(enqueue: EnqueueCommand, recoverCommandResult: RecoverCommandResult): Promise<void> {
+  #signalSnapshotPublished(): void {
+    this.#snapshotPublishVersion += 1;
+    const waiters = [...this.#snapshotPublishWaiters];
+    this.#snapshotPublishWaiters.clear();
+    waiters.forEach((resolve) => resolve());
+  }
+
+  #waitForSnapshotPublication(afterVersion: number, timeoutMs: number): Promise<boolean> {
+    if (this.#snapshotPublishVersion > afterVersion) return Promise.resolve(true);
+    if (timeoutMs <= 0) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const finish = (published: boolean) => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timer);
+        this.#snapshotPublishWaiters.delete(onPublished);
+        resolve(published);
+      };
+      const onPublished = () => finish(this.#snapshotPublishVersion > afterVersion);
+      const timer = globalThis.setTimeout(() => finish(false), timeoutMs);
+      this.#snapshotPublishWaiters.add(onPublished);
+    });
+  }
+
+  async #pull(
+    enqueue: EnqueueCommand,
+    recoverCommandResult: RecoverCommandResult,
+    signal: AbortSignal,
+  ): Promise<void> {
     const consumer = this.#currentConsumer();
     if (!consumer) return;
     await this.#flushPendingResults(consumer.consumerId, consumer.executorLeaseId);
     if (!this.#isCurrentConsumer(consumer)) return;
-    const delivery = await this.#bridge.nextCommand({
+    const nextCommandInput = {
       consumerId: consumer.consumerId,
       executorLeaseId: consumer.executorLeaseId,
       afterCursor: this.#commandCursor,
       waitMs: this.#commandLongPollWaitMs,
-    });
+      signal,
+    } as Parameters<BrowserAgentRuntimeOptions['bridge']['nextCommand']>[0] & { readonly signal: AbortSignal };
+    const delivery = await raceWithAbort(this.#bridge.nextCommand(nextCommandInput), signal);
     if (!this.#isCurrentConsumer(consumer)) return;
     if (!delivery) return;
     const command = delivery.command;
@@ -520,10 +585,14 @@ export class BrowserAgentRuntime {
     const first = observe();
     if (first.pass) return first;
     const deadline = Date.now() + this.#postCommandSnapshotTimeoutMs;
+    let observedSnapshotVersion = this.#snapshotPublishVersion;
     while (Date.now() < deadline) {
+      const remainingMs = Math.max(0, deadline - Date.now());
+      const published = await this.#waitForSnapshotPublication(observedSnapshotVersion, remainingMs);
+      if (!published) break;
+      observedSnapshotVersion = this.#snapshotPublishVersion;
       const current = observe();
       if (current.pass) return current;
-      await new Promise<void>((resolve) => setTimeout(resolve, 16));
     }
     return observe();
   }
@@ -570,6 +639,69 @@ export class BrowserAgentRuntime {
   }
 }
 
+function sameMainWorkbenchSnapshotSemantics(
+  left: MainWorkbenchSnapshot,
+  right: MainWorkbenchSnapshot,
+): boolean {
+  return serializeMainWorkbenchSnapshotSemantics(left) === serializeMainWorkbenchSnapshotSemantics(right);
+}
+
+function serializeMainWorkbenchSnapshotSemantics(snapshot: MainWorkbenchSnapshot): string {
+  const { updatedAt: _updatedAt, ...semanticSnapshot } = snapshot;
+  return canonicalJson(serializeSemanticJson(semanticSnapshot));
+}
+
+function serializeSemanticJson(value: unknown, path: readonly string[] = []): JsonValue {
+  if (Array.isArray(value)) return value.map((entry) => serializeSemanticJson(entry, path));
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const result: Record<string, JsonValue> = {};
+    for (const key of Object.keys(record).sort()) {
+      if (key === 'generatedAt') continue;
+      if (key === 'updatedAt' && !(path.length === 1 && path[0] === 'checkout')) continue;
+      result[key] = serializeSemanticJson(record[key], [...path, key]);
+    }
+    return result;
+  }
+  return value === undefined ? null : value as JsonValue;
+}
+
+function isAbortError(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && (error as { name?: unknown }).name === 'AbortError');
+}
+
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    return Promise.reject(makeAbortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      cleanup();
+      void promise.catch(() => undefined);
+      reject(makeAbortError());
+    };
+    const cleanup = () => signal.removeEventListener('abort', onAbort);
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        cleanup();
+        resolve(value);
+      },
+      (error) => {
+        cleanup();
+        reject(error);
+      },
+    );
+  });
+}
+
+function makeAbortError(): Error {
+  const error = new Error('Agent command pull aborted.');
+  error.name = 'AbortError';
+  return error;
+}
+
 type PostconditionObservation = {
   readonly pass: boolean;
   readonly reason?: string;
@@ -601,6 +733,103 @@ function evaluateCommandResultPostcondition(
       pass: false,
       reason: 'Canvas 返回的可见按钮后置检查没有通过。',
       observed: localVisiblePostcondition,
+    };
+  }
+
+  if (entry.command.op === 'prepareReviewedWorkNodeProposal') {
+    const proposal = result.proposal;
+    const candidate = asJsonObject(result.candidate);
+    const proposalCandidate = isPreparedWorkNodeProposal(proposal)
+      ? preparedWorkNodeCandidateRefFromProposal(proposal)
+      : null;
+    if (result.ok === false) {
+      const postcondition = asJsonObject(result.postcondition);
+      const pass = result.liveCheckoutTouched === false
+        && postcondition?.pass === true
+        && !proposal
+        && !candidate;
+      return {
+        pass,
+        ...(pass ? {} : { reason: 'prepare failure 没有证明 live checkout 未触碰且没有返回伪造候选。' }),
+        observed: postcondition ?? null,
+      };
+    }
+    const pass = result.ok === true
+      && result.liveCheckoutTouched === false
+      && isPreparedWorkNodeProposal(proposal)
+      && Boolean(candidate)
+      && Boolean(proposalCandidate)
+      && sameJsonValue(candidate!, proposalCandidate!);
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'prepared proposal 没有同时提供完整 review、候选引用和 liveCheckoutTouched=false。' }),
+      observed: {
+        liveCheckoutTouched: result.liveCheckoutTouched ?? null,
+        candidate: candidate ?? null,
+        proposal,
+      },
+    };
+  }
+
+  if (entry.command.op === 'applyReviewedWorkNodeProposal') {
+    const candidate = entry.command.candidate;
+    const receiptCandidate = asJsonObject(result.candidate);
+    const checkout = asJsonObject(result.checkout);
+    const postcondition = asJsonObject(result.postcondition)
+      ?? asJsonObject(result.visiblePostcondition);
+    if (result.ok === false) {
+      const pass = postcondition?.pass === true
+        && typeof result.liveCheckoutTouched === 'boolean'
+        && result.candidate !== undefined
+        && sameJsonValue(receiptCandidate!, candidate);
+      return {
+        pass,
+        ...(pass ? {} : { reason: 'apply failure 没有返回与命令一致的候选或精确 rollback postcondition。' }),
+        observed: postcondition ?? null,
+      };
+    }
+    const exactCandidate = Boolean(receiptCandidate) && sameJsonValue(receiptCandidate!, candidate);
+    const exactDigests = result.basePayloadDigest === candidate.basePayloadDigest
+      && result.workingPayloadDigest === candidate.workingPayloadDigest
+      && result.diffDigest === candidate.diffDigest
+      && result.proposalDigest === candidate.proposalDigest;
+    const pass = result.ok === true
+      && result.applied === true
+      && result.liveCheckoutTouched === true
+      && result.checkoutApplied === true
+      && result.nodeId === candidate.nodeId
+      && result.nodeRevision === candidate.nodeRevision
+      && exactCandidate
+      && exactDigests
+      && postcondition?.pass === true
+      && checkout?.targetType === 'work-node'
+      && checkout.targetId === candidate.nodeId
+      && snapshot.checkout?.targetType === 'work-node'
+      && snapshot.checkout.targetId === candidate.nodeId;
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'prepared candidate apply 没有同时满足候选、四类 digest、node revision、checkout 和精确 postcondition。' }),
+      observed: {
+        checkout: snapshot.checkout ?? null,
+        candidate: receiptCandidate ?? null,
+        postcondition: postcondition ?? null,
+      },
+    };
+  }
+
+  if (entry.command.op === 'abandonPreparedWorkNodeProposal') {
+    const cleanup = asJsonObject(result.cleanup);
+    const status = cleanup?.status;
+    const pass = (result.ok === true || result.ok === false)
+      && Boolean(cleanup)
+      && cleanup?.proposalId === entry.command.candidate.proposalId
+      && cleanup?.nodeId === entry.command.candidate.nodeId
+      && cleanup?.candidateTimelineId === entry.command.candidate.candidateTimelineId
+      && ['deleted', 'preserved', 'failed'].includes(String(status));
+    return {
+      pass,
+      ...(pass ? {} : { reason: 'prepared candidate cleanup 没有返回与候选绑定的 typed audit。' }),
+      observed: cleanup ?? null,
     };
   }
 
@@ -1036,7 +1265,11 @@ function sameConsumerScope(left: ProductBinding, right: ProductBinding): boolean
 function toMainWorkbenchCommand(command: Phase2ProductCommand): MainWorkbenchCommand {
   if (command.command.op === 'workbench.refresh-snapshot') return { op: 'refreshSnapshot' };
   if (command.command.op === 'workbench.execute-command') {
-    return parseAgentWorkbenchCommand(command.command.payload.command);
+    const payloadCommand = command.command.payload.command;
+    if (isPreparedWorkbenchCommandPayload(payloadCommand)) {
+      return parsePreparedWorkbenchCommand(payloadCommand);
+    }
+    return parseAgentWorkbenchCommand(payloadCommand);
   }
   throw new Error('Unsupported Phase 2 operation');
 }
@@ -1051,11 +1284,175 @@ class AgentCommandValidationError extends Error {
   }
 }
 
+function isPreparedWorkbenchCommandPayload(value: JsonObject): boolean {
+  return value.op === 'prepareReviewedWorkNodeProposal'
+    || value.op === 'applyReviewedWorkNodeProposal'
+    || value.op === 'abandonPreparedWorkNodeProposal';
+}
+
+function isProductPreparedCandidateSupported(
+  candidate: DefPreparedWorkNodeCandidateRefV1,
+): boolean {
+  return (candidate.intent === 'timeline' || candidate.intent === 'buff')
+    && candidate.destination === 'current-timeline';
+}
+
+function parsePreparedWorkbenchCommand(value: JsonObject): MainWorkbenchCommand {
+  if (value.op === 'prepareReviewedWorkNodeProposal') {
+    exactPreparedKeys(value, ['op', 'operation', 'intent', 'scope', 'patch', 'label', 'description', 'sourceBinding']);
+    const sourceBinding = parsePreparedProductBinding(value.sourceBinding);
+    const scope = parsePreparedScopeList(value.scope);
+    const patch = parsePreparedPatch(value.patch);
+    return {
+      op: 'prepareReviewedWorkNodeProposal',
+      operation: preparedString(value.operation, 'operation', 256),
+      intent: preparedEnum(value.intent, 'intent', ['timeline', 'buff'] as const),
+      scope,
+      patch: patch as Extract<MainWorkbenchCommand, { op: 'prepareReviewedWorkNodeProposal' }>['patch'],
+      label: preparedString(value.label, 'label', 120),
+      description: preparedString(value.description, 'description', 500),
+      sourceBinding,
+    };
+  }
+  if (value.op === 'applyReviewedWorkNodeProposal') {
+    exactPreparedKeys(value, ['op', 'operation', 'candidate']);
+    if (!isPreparedWorkNodeCandidateRef(value.candidate)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_CANDIDATE_INVALID',
+        'applyReviewedWorkNodeProposal 的 candidate 引用格式无效。',
+      );
+    }
+    return {
+      op: 'applyReviewedWorkNodeProposal',
+      operation: preparedString(value.operation, 'operation', 256),
+      candidate: structuredClone(value.candidate),
+    };
+  }
+  exactPreparedKeys(value, ['op', 'candidate', 'reason']);
+  if (!isPreparedWorkNodeCandidateRef(value.candidate)) {
+    throw new AgentCommandValidationError(
+      'AGENT_PREPARED_CANDIDATE_INVALID',
+      'abandonPreparedWorkNodeProposal 的 candidate 引用格式无效。',
+    );
+  }
+  return {
+    op: 'abandonPreparedWorkNodeProposal',
+    candidate: structuredClone(value.candidate),
+    reason: preparedString(value.reason, 'reason', 500),
+  };
+}
+
+function parsePreparedProductBinding(value: JsonValue): ProductBinding {
+  const binding = asJsonObject(value);
+  if (!binding) throw new AgentCommandValidationError('AGENT_PREPARED_SOURCE_BINDING_INVALID', 'sourceBinding 必须是对象。');
+  exactPreparedKeys(binding, [
+    'workspaceId', 'databaseGeneration', 'timelineId', 'checkoutTargetId',
+    'checkoutUpdatedAt', 'contentRevision', 'snapshotDigest',
+  ]);
+  if (!isString(binding.workspaceId) || !binding.workspaceId.trim()
+    || !isString(binding.databaseGeneration) || !binding.databaseGeneration.trim()
+    || !isString(binding.timelineId) || !binding.timelineId.trim()
+    || (binding.checkoutTargetId !== null && (!isString(binding.checkoutTargetId) || !binding.checkoutTargetId.trim()))
+    || !safeNonNegativeInteger(binding.checkoutUpdatedAt)
+    || !safeNonNegativeInteger(binding.contentRevision)
+    || !isString(binding.snapshotDigest) || !binding.snapshotDigest.trim()) {
+    throw new AgentCommandValidationError('AGENT_PREPARED_SOURCE_BINDING_INVALID', 'sourceBinding 字段不满足 binding 约束。');
+  }
+  return binding as unknown as ProductBinding;
+}
+
+function parsePreparedScopeList(value: JsonValue): PreparedWorkNodeScope[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > PREPARED_WORK_NODE_SCOPES.length) {
+    throw new AgentCommandValidationError('AGENT_PREPARED_SCOPE_INVALID', 'scope 必须包含 1-5 个已知且不重复的 scope。');
+  }
+  const scope = value.map((entry, index) => {
+    if (typeof entry !== 'string' || !(PREPARED_WORK_NODE_SCOPES as readonly string[]).includes(entry)) {
+      throw new AgentCommandValidationError('AGENT_PREPARED_SCOPE_INVALID', `scope[${index}] 不是受支持的 prepared scope。`);
+    }
+    return entry as PreparedWorkNodeScope;
+  });
+  if (new Set(scope).size !== scope.length) {
+    throw new AgentCommandValidationError('AGENT_PREPARED_SCOPE_INVALID', 'scope 不能包含重复项。');
+  }
+  return scope;
+}
+
+function parsePreparedPatch(value: JsonValue): JsonObject[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 64
+    || value.some((entry) => !asJsonObject(entry))) {
+    throw new AgentCommandValidationError('AGENT_PREPARED_PATCH_INVALID', 'patch 必须包含 1-64 个 JSON 操作对象。');
+  }
+  return value.map((entry) => asJsonObject(entry)!) ;
+}
+
+function exactPreparedKeys(value: JsonObject, keys: readonly string[]): void {
+  const actual = Object.keys(value);
+  if (actual.length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) {
+    throw new AgentCommandValidationError(
+      'AGENT_COMMAND_SCHEMA_INVALID',
+      `Prepared command fields must be exactly: ${keys.join(', ')}.`,
+    );
+  }
+}
+
+function preparedString(value: JsonValue | undefined, label: string, maxLength: number): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > maxLength || value.includes('\u0000')) {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', `${label} 必须是长度不超过 ${maxLength} 的非空字符串。`);
+  }
+  return value.trim();
+}
+
+function preparedEnum<const Value extends string>(
+  value: JsonValue | undefined,
+  label: string,
+  allowed: readonly Value[],
+): Value {
+  if (typeof value !== 'string' || !allowed.includes(value as Value)) {
+    throw new AgentCommandValidationError('AGENT_COMMAND_SCHEMA_INVALID', `${label} 值无效。`);
+  }
+  return value as Value;
+}
+
+function safeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  try {
+    return canonicalJson(toJsonValue(left)) === canonicalJson(toJsonValue(right));
+  } catch {
+    return false;
+  }
+}
+
 async function validateCommandApproval(
   command: Phase2ProductCommand,
   localCommand: MainWorkbenchCommand,
   verificationKey: ApprovalCapabilityVerificationKey | null,
 ): Promise<void> {
+  if (PREPARED_PROPOSAL_COMMANDS.has(localCommand.op)) {
+    if (command.approvalCapability) {
+      throw new AgentCommandValidationError(
+        'AGENT_APPROVAL_UNEXPECTED',
+        `${localCommand.op} 是受限的 proposal/cleanup 命令，不接受用户批准凭据。`,
+      );
+    }
+    if (localCommand.op === 'prepareReviewedWorkNodeProposal'
+      && !sameProductBinding(localCommand.sourceBinding, command.expected)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_SOURCE_BINDING_MISMATCH',
+        'prepare 命令的 Host sourceBinding 与当前 Product binding 不一致。',
+      );
+    }
+    if (localCommand.op === 'abandonPreparedWorkNodeProposal'
+      && !isProductPreparedCandidateSupported(localCommand.candidate)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_TARGET_UNSUPPORTED',
+        '当前 Product prepared flow 只支持 timeline/buff intent 与 current-timeline destination。',
+      );
+    }
+    return;
+  }
   const mutating = MUTATING_MAIN_COMMANDS.has(localCommand.op);
   if (!mutating) {
     if (command.approvalCapability) {
@@ -1079,12 +1476,6 @@ async function validateCommandApproval(
     );
   }
   const claims = await decodeApprovalCapability(command.approvalCapability, verificationKey);
-  if (claims.schemaVersion === 2) {
-    throw new AgentCommandValidationError(
-      'AGENT_PREPARED_APPROVAL_UNSUPPORTED',
-      '当前浏览器命令桥尚未接入 prepared Work Node apply，不能执行候选凭据。',
-    );
-  }
   if (
     claims.commandId !== command.commandId
     || claims.defSessionId !== command.defSessionId
@@ -1113,6 +1504,53 @@ async function validateCommandApproval(
     throw new AgentCommandValidationError(
       'AGENT_APPROVAL_EXPIRED',
       '批准凭据已经过期。',
+    );
+  }
+  if (claims.schemaVersion === 2) {
+    if (localCommand.op !== 'applyReviewedWorkNodeProposal') {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_APPROVAL_UNSUPPORTED',
+        `V2 prepared capability 不能用于 ${localCommand.op}。`,
+      );
+    }
+    const candidate = localCommand.candidate;
+    if (!samePreparedWorkNodeCandidate(claims.candidate, candidate)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_CANDIDATE_MISMATCH',
+        'V2 capability candidate 与 apply 命令 candidate 不完全一致。',
+      );
+    }
+    if (claims.proposalHash !== candidate.proposalDigest) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_PROPOSAL_HASH_MISMATCH',
+        'V2 capability proposalHash 必须等于 candidate.proposalDigest。',
+      );
+    }
+    if (!sameStringArray(claims.scope, candidate.scope)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_SCOPE_MISMATCH',
+        'V2 capability scope 必须与 candidate.scope 完全一致。',
+      );
+    }
+    if (candidate.candidateTimelineId !== command.expected.timelineId
+      || command.expected.checkoutTargetId !== candidate.sourceTargetId) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_CANDIDATE_BINDING_MISMATCH',
+        'V2 candidate 的 timeline/source target 与当前 Product binding 不一致。',
+      );
+    }
+    if (!isProductPreparedCandidateSupported(candidate)) {
+      throw new AgentCommandValidationError(
+        'AGENT_PREPARED_TARGET_UNSUPPORTED',
+        '当前 Product prepared flow 只支持 timeline/buff intent 与 current-timeline destination。',
+      );
+    }
+    return;
+  }
+  if (localCommand.op === 'applyReviewedWorkNodeProposal') {
+    throw new AgentCommandValidationError(
+      'AGENT_PREPARED_APPROVAL_REQUIRED',
+      'prepared Work Node apply 必须使用绑定完整 candidate 的 V2 capability。',
     );
   }
   const proposal = {

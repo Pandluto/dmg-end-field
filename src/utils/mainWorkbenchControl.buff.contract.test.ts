@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import {
+  projectMainWorkbenchCandidateBuff,
   projectMainWorkbenchBuff,
   projectMainWorkbenchButtonState,
 } from './mainWorkbenchControl';
 import type { SkillButtonBuff } from '../types/storage';
+import type { CandidateBuff } from '../core/domain/buff';
 
 const buff: SkillButtonBuff = {
   schemaVersion: 2,
@@ -52,6 +54,56 @@ assert.deepEqual(projected.target, {
 });
 assert.deepEqual(projected.extraHitConfig, buff.extraHitConfig);
 assert.doesNotThrow(() => JSON.stringify(projected));
+
+const candidateBuff: CandidateBuff = {
+  schemaVersion: 2,
+  name: 'unattached-candidate',
+  displayName: '未附加候选 Buff',
+  sourceName: '可信天赋',
+  level: 'M3',
+  type: 'attackPercent',
+  value: 0.25,
+  description: '来自浏览器候选目录的完整定义',
+  source: '可信干员',
+  condition: '技能命中后',
+  category: 'countable',
+  effectKind: 'modifier',
+  ownerBuffDomain: 'operator',
+  ownerCharacterId: 'operator-a',
+  ownerBuffGroup: 'talent',
+  maxStacks: 3,
+  multiplier: { coefficient: 1.1 },
+  valueMode: 'fixed',
+  derivedValue: undefined,
+  extraHitConfig: undefined,
+};
+const candidateProjected = projectMainWorkbenchCandidateBuff(candidateBuff);
+assert.deepEqual(candidateProjected, {
+  schemaVersion: 2,
+  id: null,
+  name: 'unattached-candidate',
+  displayName: '未附加候选 Buff',
+  sourceName: '可信天赋',
+  level: 'M3',
+  type: 'attackPercent',
+  value: 0.25,
+  description: '来自浏览器候选目录的完整定义',
+  source: '可信干员',
+  condition: '技能命中后',
+  category: 'countable',
+  effectKind: 'modifier',
+  ownerBuffDomain: 'operator',
+  ownerCharacterId: 'operator-a',
+  ownerBuffGroup: 'talent',
+  maxStacks: 3,
+  refCount: null,
+  multiplier: { coefficient: 1.1 },
+  target: null,
+  valueMode: 'fixed',
+  derivedValue: null,
+  extraHitConfig: null,
+});
+assert.doesNotThrow(() => JSON.stringify(candidateProjected));
 
 const state = projectMainWorkbenchButtonState({
   selectedBuffIds: [buff.id, 'missing-buff'],

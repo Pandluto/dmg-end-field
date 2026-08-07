@@ -922,6 +922,42 @@ class FakeLease implements AgentWorkspaceLease {
   assert.equal(calls[0]?.searchParams.get('waitMs'), '25000');
 }
 
+// The renderer can cancel an outstanding command long-poll. The signal must
+// reach fetch unchanged, and an AbortError must remain an AbortError instead
+// of being relabeled as a transport outage.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
+  const controller = new AbortController();
+  let receivedSignal: AbortSignal | undefined;
+  const abortError = Object.assign(new Error('aborted by test'), { name: 'AbortError' });
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (_rawUrl, init) => {
+      receivedSignal = init?.signal;
+      return new Promise<AgentBridgeFetchResponse>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(abortError), { once: true });
+      });
+    },
+  });
+  const pending = bridge.nextCommand({
+    consumerId: 'consumer-abort',
+    executorLeaseId: 'lease-abort',
+    afterCursor: 17,
+    waitMs: 25_000,
+    signal: controller.signal,
+  });
+  await settleAsyncWork();
+  assert.equal(receivedSignal, controller.signal);
+  controller.abort();
+  await assert.rejects(
+    pending,
+    (error: unknown) => error === abortError && !(error instanceof DesktopAgentBridgeError),
+  );
+}
+
 // A Turn response must echo the request clientTurnId exactly.
 {
   const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');

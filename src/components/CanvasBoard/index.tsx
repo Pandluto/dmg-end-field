@@ -70,6 +70,7 @@ import {
   setOperatorConfigPageCache,
   setSelectedCharacterIds,
 } from '../../utils/storage';
+import { getCandidateBuffList } from '../../core/repositories';
 import {
   applyTimelineSnapshotPayload,
   buildTimelineBundleV2,
@@ -97,6 +98,7 @@ import {
   executeAgentProductCatalogCommand,
   patchMainWorkbenchCommand,
   pullRemoteMainWorkbenchCommands,
+  projectMainWorkbenchCandidateBuff,
   pushMainWorkbenchCommandResult,
   pushMainWorkbenchSnapshot,
   projectMainWorkbenchButtonState,
@@ -126,6 +128,7 @@ import type {
 import { useTimelineSession } from '../../agentKernel/timelineRepository/useTimelineSession';
 import { runTimelineArchiveConversionForReload } from './timelineArchiveConversionFlow';
 import {
+  browserAgentRuntime,
   enterDesktopAgentModeFromWorkbench,
   exitDesktopAgentModeToWorkbench,
 } from '../../platform/agent/browserAgentRuntime';
@@ -144,6 +147,23 @@ import {
   runAtomicWorkNodeRestore,
   verifyWorkNodeDeleteLedger,
 } from '../../platform/agent/workNodeAtomicSettlement';
+import {
+  buildPreparedWorkNodeProposal,
+  checkPreparedScope,
+  diffPreparedPayloads,
+  preparedWorkNodeCandidateRefFromProposal,
+  runAtomicPreparedWorkNodeApply,
+  sha256Json,
+  scopeForPreparedPath,
+  validatePreparedWorkNodeCandidate,
+  validatePreparedWorkNodeProposal,
+  PreparedWorkNodeAtomicApplyError,
+} from '../../platform/agent/preparedWorkNodeProposal';
+import { bindTrustedTimelineMutation } from '../../platform/agent/trustedTimelineMutation';
+import type {
+  PreparedWorkNodeScope,
+} from '../../../agent/core/contracts/prepared-work-node.ts';
+import type { ProductBinding } from '../../../agent/core/contracts/product.ts';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
   return `timeline-document-${snapshotId}`;
@@ -182,6 +202,31 @@ function hasCheckpointPayloadChanged(
 function checkoutIdentity(checkoutRef: TimelineCheckoutRef | null): string {
   if (!checkoutRef) return 'none';
   return `${checkoutRef.timelineId}:${checkoutRef.targetType}:${checkoutRef.targetId}`;
+}
+
+function samePreparedProductBinding(left: ProductBinding, right: ProductBinding): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.databaseGeneration === right.databaseGeneration
+    && left.timelineId === right.timelineId
+    && left.checkoutTargetId === right.checkoutTargetId
+    && left.checkoutUpdatedAt === right.checkoutUpdatedAt
+    && left.contentRevision === right.contentRevision
+    && left.snapshotDigest === right.snapshotDigest;
+}
+
+function serializeWorkbenchSnapshotSemantics(value: unknown, path: readonly string[] = []): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => serializeWorkbenchSnapshotSemantics(entry, path)).join(',')}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value as Record<string, unknown>)
+      .filter((key) => key !== 'generatedAt'
+        && (key !== 'updatedAt' || (path.length === 1 && path[0] === 'checkout')))
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${serializeWorkbenchSnapshotSemantics((value as Record<string, unknown>)[key], [...path, key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 const EMPTY_BATCH_TARGET_RESISTANCE: Required<HitResistanceInput> = {
@@ -303,6 +348,7 @@ function buildMainWorkbenchSnapshotSignature(
   skillButtons: MainWorkbenchSnapshot['skillButtons'],
   operatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = [],
   skillCatalog: MainWorkbenchSnapshot['skillCatalog'] = [],
+  candidateBuffs: MainWorkbenchSnapshot['candidateBuffs'] = [],
 ): string {
   return JSON.stringify({
     selectedCharacters: selectedCharacters.map((character) => ({
@@ -319,6 +365,8 @@ function buildMainWorkbenchSnapshotSignature(
         skillDisplayName: skill.skillDisplayName,
         source: skill.source,
       })),
+    candidateBuffs: [...candidateBuffs]
+      .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
     skillButtons: [...skillButtons]
       .sort((a, b) => a.id.localeCompare(b.id))
       .map((button) => ({
@@ -618,6 +666,7 @@ export function CanvasBoard({
     EMPTY_BATCH_TARGET_RESISTANCE
   );
   const [resistanceRevision, setResistanceRevision] = useState(0);
+  const [candidateBuffRevision, setCandidateBuffRevision] = useState(0);
   const [checkoutBootstrapRevision, setCheckoutBootstrapRevision] = useState(0);
   const [checkoutRenderRevision, setCheckoutRenderRevision] = useState(0);
   const [nodeReviewRefreshRevision, setNodeReviewRefreshRevision] = useState(0);
@@ -640,6 +689,7 @@ export function CanvasBoard({
   } = useTimelineSession();
   const shareImportInputRef = useRef<HTMLInputElement>(null);
   const isProcessingWorkbenchCommandRef = useRef(false);
+  const processMainWorkbenchCanvasCommandRef = useRef<(() => Promise<void>) | null>(null);
   const isCheckoutMutationPendingRef = useRef(false);
   const checkoutBootstrapIdentityRef = useRef<string | null>(null);
   const isCheckoutBootstrapPendingRef = useRef(true);
@@ -658,6 +708,14 @@ export function CanvasBoard({
     isTemporary: activeTimelineIsTemporary,
   };
   const temporaryPromotionRef = useRef(activeTimelineIsTemporary);
+
+  const refreshCandidateBuffsForCharacters = useCallback(async (
+    characters: Parameters<typeof refreshAvailableCandidateBuffsForCharacters>[0],
+  ) => {
+    const next = await refreshAvailableCandidateBuffsForCharacters(characters);
+    setCandidateBuffRevision((revision) => revision + 1);
+    return next;
+  }, []);
 
   const canvasWidth = useCanvasWidth(canvasConfig.canvasWidthPercent);
   useSelectStart();
@@ -1720,7 +1778,7 @@ export function CanvasBoard({
         [character.id]: nextSnapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
@@ -1741,7 +1799,7 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
@@ -1784,7 +1842,7 @@ export function CanvasBoard({
         [character.id]: patchResult.snapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? patchResult.snapshot;
@@ -1820,7 +1878,7 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
@@ -1898,7 +1956,7 @@ export function CanvasBoard({
         [character.id]: nextSnapshot,
       });
       const refreshResult = await refreshOperatorConfigSnapshotsForCharacters([character]);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       const persistence = await persistOperatorConfigCheckout(checkout.id);
       setResistanceRevision((value) => value + 1);
       const refreshedSnapshot = getOperatorConfigPageCache()[character.id] ?? nextSnapshot;
@@ -1945,7 +2003,7 @@ export function CanvasBoard({
       };
     } catch (error) {
       setOperatorConfigPageCache(cache);
-      await refreshAvailableCandidateBuffsForCharacters([character]);
+      await refreshCandidateBuffsForCharacters([character]);
       throw error;
     }
   };
@@ -2649,6 +2707,825 @@ export function CanvasBoard({
     };
   };
 
+  const assertPreparedCurrentBinding = (expectedTargetId?: string): ProductBinding => {
+    const binding = browserAgentRuntime.getBinding();
+    if (!binding) {
+      throw new Error('prepared-binding-unavailable: 当前浏览器没有可验证的 Product binding。');
+    }
+    if (!activeCheckoutRef || activeCheckoutRef.timelineId !== activeTimelineId) {
+      throw new Error('prepared-checkout-unavailable: 当前正式 SQLite 没有可验证的 checkout。');
+    }
+    if (binding.timelineId !== activeTimelineId
+      || binding.checkoutTargetId !== activeCheckoutRef.targetId
+      || binding.checkoutUpdatedAt !== activeCheckoutRef.updatedAt) {
+      throw new Error('prepared-binding-stale: Product binding 与正式 checkout 不一致。');
+    }
+    if (expectedTargetId !== undefined && binding.checkoutTargetId !== expectedTargetId) {
+      throw new Error('prepared-source-target-mismatch: 当前 binding 不再指向 candidate 的 source target。');
+    }
+    return binding;
+  };
+
+  const readPreparedFormalCheckout = async (expectedTargetId?: string) => {
+    const checkoutRef = activeCheckoutRef;
+    if (!checkoutRef || checkoutRef.timelineId !== activeTimelineId) {
+      throw new Error('prepared-checkout-unavailable: 当前正式 SQLite 没有可验证的 checkout。');
+    }
+    const binding = assertPreparedCurrentBinding(expectedTargetId);
+    const formal = await readFormalCheckoutPayload(activeTimelineId, checkoutRef);
+    if (formal.checkoutRef.timelineId !== activeTimelineId
+      || formal.checkoutRef.targetType !== checkoutRef.targetType
+      || formal.checkoutRef.targetId !== checkoutRef.targetId
+      || formal.checkoutRef.updatedAt !== checkoutRef.updatedAt) {
+      throw new Error('prepared-checkout-drift: 读取正式 checkout 期间 target 或 revision 发生变化。');
+    }
+    const repository = createTimelineRepositoryClient();
+    const bundle = await repository.exportDocumentBundle(activeTimelineId);
+    const persistedCheckout = bundle.checkoutRef;
+    if (!persistedCheckout
+      || persistedCheckout.timelineId !== activeTimelineId
+      || persistedCheckout.targetType !== checkoutRef.targetType
+      || persistedCheckout.targetId !== checkoutRef.targetId
+      || persistedCheckout.updatedAt !== checkoutRef.updatedAt) {
+      throw new Error('prepared-checkout-drift: 正式 SQLite checkout 在校验期间发生变化。');
+    }
+    const sourceNode = checkoutRef.targetType === 'work-node'
+      ? bundle.workNodes.find((node) => node.id === checkoutRef.targetId)
+      : null;
+    const sourceSnapshot = checkoutRef.targetType === 'snapshot'
+      ? bundle.snapshots.find((snapshot) => snapshot.id === checkoutRef.targetId)
+      : null;
+    const bundlePayload = sourceNode?.workingPayload || sourceSnapshot?.payload;
+    if (!bundlePayload) {
+      throw new Error('prepared-source-payload-missing: 当前正式 checkout payload 不存在。');
+    }
+    const [formalDigest, bundleDigest] = await Promise.all([
+      sha256Json(formal.payload),
+      sha256Json(bundlePayload),
+    ]);
+    if (formalDigest !== bundleDigest) {
+      throw new Error('prepared-source-payload-drift: 正式 checkout payload 在读取期间发生变化。');
+    }
+    const sourceRevision = sourceNode
+      ? operatorConfigNodeRevision(sourceNode)
+      : sourceSnapshot?.createdAt;
+    if (typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0) {
+      throw new Error('prepared-source-revision-invalid: 正式 checkout revision 无效。');
+    }
+    const resolvedSourceRevision = sourceRevision;
+    return {
+      binding,
+      checkoutRef: persistedCheckout,
+      payload: formal.payload,
+      payloadDigest: formalDigest,
+      sourceRevision: resolvedSourceRevision,
+      structuralParentNodeId: sourceNode?.id || null,
+      sourceNode,
+      sourceSnapshot,
+    };
+  };
+
+  const validatePreparedIntentAndScope = (
+    intent: 'timeline' | 'buff',
+    scope: readonly PreparedWorkNodeScope[],
+    diff: ReturnType<typeof diffPreparedPayloads>,
+  ) => {
+    const scopeGate = checkPreparedScope(diff, scope);
+    if (!scopeGate.pass) return { scopeGate, pass: false, reason: 'prepared-scope-overreach' } as const;
+    const allowed = intent === 'timeline'
+      ? new Set<PreparedWorkNodeScope>(['timeline.structure'])
+      : new Set<PreparedWorkNodeScope>(['buff.attachments', 'buff.resistance']);
+    const intentViolations = diff.changes.filter((change) => {
+      const required = scopeForPreparedPath(change.path);
+      return required !== null && !allowed.has(required);
+    });
+    if (intentViolations.length > 0) {
+      return {
+        scopeGate,
+        pass: false,
+        reason: `prepared-intent-overreach: ${intent} 不能修改 ${intentViolations.map((change) => change.path).join(', ')}`,
+      } as const;
+    }
+    return { scopeGate, pass: true } as const;
+  };
+
+  const preparedFailure = (
+    operation: string,
+    code: string,
+    message: string,
+    extra: Record<string, unknown> = {},
+  ) => ({
+    ok: false as const,
+    applied: false,
+    operation,
+    code,
+    message,
+    liveCheckoutTouched: false as const,
+    rollbackApplied: false,
+    candidatePreserved: false,
+    postcondition: {
+      pass: true,
+      checkoutUnchanged: true,
+      liveCheckoutTouched: false,
+      reason: message,
+    },
+    ...extra,
+  });
+
+  const prepareReviewedWorkNodeProposalFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'prepareReviewedWorkNodeProposal' }>,
+  ) => {
+    let createdCandidateId: string | null = null;
+    const client = createAiTimelineWorkNodeClient();
+    try {
+      const formal = await readPreparedFormalCheckout();
+      if (!samePreparedProductBinding(formal.binding, command.sourceBinding)) {
+        return preparedFailure(
+          command.operation,
+          'prepared-source-binding-mismatch',
+          'Host sourceBinding 与当前正式 Product binding 不完全一致；未创建 candidate。',
+        );
+      }
+      if (command.sourceBinding.timelineId !== activeTimelineId
+        || command.sourceBinding.checkoutTargetId !== formal.checkoutRef.targetId
+        || command.sourceBinding.checkoutUpdatedAt !== formal.checkoutRef.updatedAt) {
+        return preparedFailure(
+          command.operation,
+          'prepared-source-binding-mismatch',
+          'sourceBinding 没有精确绑定当前正式 checkout；未创建 candidate。',
+        );
+      }
+      const trustedSkillCatalog = selectedCharacters.flatMap((character) => (
+        buildSandboxSkillsFromRuntimeTemplate(character.id).map((skill) => ({
+          characterId: character.id,
+          characterName: character.name,
+          skillId: skill.id,
+          skillType: skill.buttonType,
+          skillDisplayName: skill.displayName,
+        }))
+      ));
+      const trustedPatch = bindTrustedTimelineMutation({
+        payload: formal.payload,
+        patch: command.patch,
+        skillCatalog: trustedSkillCatalog,
+        candidateBuffs: getCandidateBuffList(),
+      });
+      const patchResult = applyTimelineWorkNodePatch(formal.payload, trustedPatch, { dryRun: false });
+      if (!patchResult.ok) {
+        return preparedFailure(
+          command.operation,
+          'prepared-patch-invalid',
+          patchResult.issues.map((issue) => issue.message).join('；'),
+          { issues: patchResult.issues, riskFlags: patchResult.riskFlags },
+        );
+      }
+      const diff = diffPreparedPayloads(formal.payload, patchResult.workingPayload);
+      if (diff.changes.length === 0) {
+        return preparedFailure(
+          command.operation,
+          'prepared-empty-diff',
+          'patch 没有产生可审阅的 payload 变化；未创建空 candidate。',
+        );
+      }
+      const intentScope = validatePreparedIntentAndScope(command.intent, command.scope, diff);
+      if (!intentScope.pass) {
+        return preparedFailure(
+          command.operation,
+          intentScope.reason.startsWith('prepared-scope') ? 'prepared-scope-overreach' : 'prepared-intent-overreach',
+          intentScope.reason,
+          { scopeGate: intentScope.scopeGate },
+        );
+      }
+      const preparedValidation = validateTimelinePayload(patchResult.workingPayload);
+      if (!preparedValidation.ok) {
+        return preparedFailure(
+          command.operation,
+          'prepared-working-payload-invalid',
+          preparedValidation.issues.map((issue) => issue.message).join('；'),
+          { validation: preparedValidation },
+        );
+      }
+
+      const proposalId = `prepared-${generateId()}`;
+      const candidateResponse = await client.create({
+        timelineId: activeTimelineId,
+        parentNodeId: formal.structuralParentNodeId,
+        branchId: `prepared-${proposalId}`,
+        label: command.label,
+        description: command.description,
+        basePayload: formal.payload,
+        workingPayload: patchResult.workingPayload,
+        approvalPolicy: 'manual',
+        riskFlags: patchResult.riskFlags,
+      });
+      createdCandidateId = candidateResponse.node.id;
+      const readyResponse = await client.update(createdCandidateId, {
+        status: 'ready',
+        expectedContentRevision: operatorConfigNodeRevision(candidateResponse.node),
+      });
+      let candidateNode = readyResponse.node;
+      const candidateRevision = operatorConfigNodeRevision(candidateNode);
+      if (candidateNode.timelineId !== activeTimelineId
+        || candidateNode.id !== createdCandidateId
+        || candidateNode.branchId !== `prepared-${proposalId}`
+        || candidateRevision < 0
+        || candidateNode.status !== 'ready') {
+        throw new Error('prepared-candidate-proof-failed: 新 candidate 的身份或 revision 无法证明。');
+      }
+      const proposal = await buildPreparedWorkNodeProposal({
+        operation: command.operation,
+        proposalId,
+        intent: command.intent,
+        destination: 'current-timeline',
+        sourceTargetId: formal.checkoutRef.targetId,
+        sourceRevision: formal.sourceRevision,
+        candidateTimelineId: activeTimelineId,
+        nodeId: candidateNode.id,
+        nodeRevision: candidateRevision,
+        scope: [...command.scope],
+        sourceBinding: command.sourceBinding,
+        sourceCheckout: {
+          timelineId: activeTimelineId,
+          targetType: formal.checkoutRef.targetType,
+          targetId: formal.checkoutRef.targetId,
+          revision: formal.sourceRevision,
+          payloadDigest: formal.payloadDigest,
+        },
+        structuralParentNodeId: formal.structuralParentNodeId,
+        basePayload: candidateNode.basePayload,
+        workingPayload: candidateNode.workingPayload,
+      });
+      const finalValidation = await validatePreparedWorkNodeProposal(proposal, {
+        operation: command.operation,
+        basePayload: candidateNode.basePayload,
+        workingPayload: candidateNode.workingPayload,
+      });
+      if (!finalValidation.ok) {
+        throw new Error(`prepared-proposal-proof-failed: ${finalValidation.issues.join('；')}`);
+      }
+      const candidate = preparedWorkNodeCandidateRefFromProposal(proposal);
+      const candidateAuditMarker = `[prepared-candidate:v1:${proposalId}:${proposal.proposalDigest}]`;
+      const markedResponse = await client.update(candidateNode.id, {
+        status: 'ready',
+        description: `${candidateAuditMarker} ${command.description}`,
+      });
+      candidateNode = markedResponse.node;
+      if (candidateNode.id !== candidate.nodeId
+        || candidateNode.timelineId !== activeTimelineId
+        || candidateNode.branchId !== `prepared-${proposalId}`
+        || operatorConfigNodeRevision(candidateNode) !== candidate.nodeRevision
+        || !candidateNode.description.startsWith(candidateAuditMarker)) {
+        throw new Error('prepared-candidate-audit-marker-failed: candidate 的产品侧 provenance marker 无法证明。');
+      }
+      return {
+        ok: true as const,
+        kind: 'prepared-work-node-proposal' as const,
+        operation: command.operation,
+        liveCheckoutTouched: false as const,
+        candidate,
+        proposal,
+        candidateNode: {
+          nodeId: candidateNode.id,
+          nodeRevision: candidateRevision,
+          status: candidateNode.status,
+          branchId: candidateNode.branchId,
+        },
+        postcondition: {
+          pass: true,
+          liveCheckoutTouched: false,
+          checkoutUnchanged: true,
+          candidateStored: true,
+          reviewComplete: true,
+          diffEntries: proposal.review.changes.length,
+        },
+        riskFlags: patchResult.riskFlags,
+      };
+    } catch (error) {
+      let cleanup: Record<string, unknown> = {
+        status: 'failed',
+        reason: 'candidate 未创建或无法证明可安全清理。',
+      };
+      if (createdCandidateId) {
+        try {
+          const current = await client.list();
+          const node = current.nodes.find((entry) => entry.id === createdCandidateId);
+          const descendants = current.nodes.filter((entry) => entry.parentNodeId === createdCandidateId);
+          const checkout = await createTimelineRepositoryClient().getCheckoutRef(activeTimelineId);
+          const commits = current.commits.filter((entry) => entry.nodeId === createdCandidateId);
+          if (node && node.branchId.startsWith('prepared-') && descendants.length === 0
+            && (!checkout || checkout.targetId !== createdCandidateId)
+            && commits.length === 0) {
+            const deleted = await client.delete(createdCandidateId);
+            const preserved = deleted.nodes.some((entry) => entry.id === createdCandidateId);
+            cleanup = preserved
+              ? { status: 'failed', reason: 'candidate 删除后的 ledger 仍保留该节点。' }
+              : { status: 'deleted', reason: 'prepare 失败后删除未 checkout 的空 candidate。' };
+          } else {
+            cleanup = {
+              status: 'preserved',
+              reason: 'candidate 存在 lineage、checkout 或 commit 证据，按 fail-closed 保留。',
+            };
+          }
+        } catch (cleanupError) {
+          cleanup = {
+            status: 'failed',
+            reason: `prepare 失败后的 candidate cleanup 失败：${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`,
+          };
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      return preparedFailure(command.operation, 'prepared-proposal-failed', message, { cleanup });
+    }
+  };
+
+  const applyReviewedWorkNodeProposalFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'applyReviewedWorkNodeProposal' }>,
+  ) => {
+    const candidate = command.candidate;
+    let liveCheckoutTouched = false;
+    let commitId: string | null = null;
+    let finalPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
+    let rollbackPostcondition: Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null = null;
+    let targetCheckoutRef: TimelineCheckoutRef | null = null;
+    const client = createAiTimelineWorkNodeClient();
+    try {
+      if (candidate.destination !== 'current-timeline') {
+        return preparedFailure(
+          command.operation,
+          'prepared-destination-unsupported',
+          'prepared candidate destination 不是 current-timeline；拒绝 apply。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+      if (candidate.intent !== 'timeline' && candidate.intent !== 'buff') {
+        return preparedFailure(
+          command.operation,
+          'prepared-intent-unsupported',
+          '当前产品侧 prepared apply 只接受 timeline 或 buff candidate。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+      const formal = await readPreparedFormalCheckout(candidate.sourceTargetId);
+      if (candidate.candidateTimelineId !== activeTimelineId
+        || candidate.sourceTargetId !== formal.checkoutRef.targetId
+        || candidate.sourceRevision !== formal.sourceRevision) {
+        return preparedFailure(
+          command.operation,
+          'prepared-source-revision-mismatch',
+          '当前 formal checkout 的 target/revision 与 candidate 不一致；live checkout 未触碰。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+      const currentPayload = getCurrentTimelineSnapshotPayload();
+      if (!currentPayload || !sameOperatorConfigPayload(currentPayload, formal.payload)) {
+        return preparedFailure(
+          command.operation,
+          'prepared-live-source-mismatch',
+          '当前 Canvas payload 与正式 source checkout 不一致；拒绝 apply。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+      const candidateResponse = await client.get(candidate.nodeId);
+      const candidateNode = candidateResponse.node;
+      const candidateRevision = operatorConfigNodeRevision(candidateNode);
+      const candidateAuditMarker = `[prepared-candidate:v1:${candidate.proposalId}:${candidate.proposalDigest}]`;
+      if (candidateNode.timelineId !== activeTimelineId
+        || candidateNode.id !== candidate.nodeId
+        || candidateNode.branchId !== `prepared-${candidate.proposalId}`
+        || (candidateNode.parentNodeId || null) !== formal.structuralParentNodeId
+        || candidateRevision !== candidate.nodeRevision
+        || !candidateNode.description.startsWith(candidateAuditMarker)) {
+        return preparedFailure(
+          command.operation,
+          'prepared-candidate-identity-mismatch',
+          'candidate node 的 timeline、branch、parent、revision 或 provenance marker 已漂移；拒绝 apply。',
+          { candidate, candidatePreserved: true, observedNodeRevision: candidateRevision },
+        );
+      }
+      if (candidateNode.status !== 'ready') {
+        return preparedFailure(
+          command.operation,
+          'prepared-candidate-not-available',
+          `candidate 当前状态为 ${candidateNode.status}，不能再次 apply。`,
+          { candidate, candidatePreserved: true },
+        );
+      }
+      const candidateValidation = validateTimelinePayload(candidateNode.workingPayload);
+      if (!candidateValidation.ok) {
+        return preparedFailure(
+          command.operation,
+          'prepared-candidate-payload-invalid',
+          candidateValidation.issues.map((issue) => issue.message).join('；'),
+          { candidate, candidatePreserved: true, validation: candidateValidation },
+        );
+      }
+      const candidateDiff = diffPreparedPayloads(candidateNode.basePayload, candidateNode.workingPayload);
+      if (candidateDiff.changes.length === 0) {
+        return preparedFailure(
+          command.operation,
+          'prepared-empty-candidate',
+          'candidate 没有可应用的 diff；拒绝 apply。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+      const intentScope = validatePreparedIntentAndScope(candidate.intent, candidate.scope, candidateDiff);
+      if (!intentScope.pass) {
+        return preparedFailure(
+          command.operation,
+          intentScope.reason.startsWith('prepared-scope') ? 'prepared-scope-overreach' : 'prepared-intent-overreach',
+          intentScope.reason,
+          { candidate, candidatePreserved: true, scopeGate: intentScope.scopeGate },
+        );
+      }
+      const candidateProof = await validatePreparedWorkNodeCandidate(candidate, {
+        operation: command.operation,
+        basePayload: candidateNode.basePayload,
+        workingPayload: candidateNode.workingPayload,
+        sourceTargetId: formal.checkoutRef.targetId,
+        sourceRevision: formal.sourceRevision,
+        candidateTimelineId: activeTimelineId,
+        nodeId: candidateNode.id,
+        nodeRevision: candidateRevision,
+      });
+      if (!candidateProof.ok) {
+        return preparedFailure(
+          command.operation,
+          'prepared-candidate-digest-mismatch',
+          candidateProof.issues.join('；'),
+          { candidate, candidatePreserved: true, issues: candidateProof.issues },
+        );
+      }
+      const sourceDigest = await sha256Json(formal.payload);
+      const storedBaseDigest = await sha256Json(candidateNode.basePayload);
+      if (sourceDigest !== storedBaseDigest) {
+        return preparedFailure(
+          command.operation,
+          'prepared-base-payload-mismatch',
+          'candidate base payload 不再等于当前 formal source payload；拒绝 apply。',
+          { candidate, candidatePreserved: true },
+        );
+      }
+
+      const committed = await client.commit(candidateNode.id, {
+        label: `Apply ${candidateNode.label}`,
+        riskFlags: candidateNode.riskFlags,
+        approval: {
+          mode: 'manual',
+          approvedAt: Date.now(),
+          approvedBy: 'user',
+          rationale: 'V2 prepared candidate 已通过 Host capability、binding、revision、scope 与 digest 校验。',
+        },
+      });
+      commitId = committed.commit.id;
+      if (committed.commit.nodeId !== candidateNode.id
+        || !sameOperatorConfigPayload(committed.commit.appliedPayload, candidateNode.workingPayload)
+        || !sameOperatorConfigPayload(committed.commit.basePayload, candidateNode.basePayload)) {
+        return preparedFailure(
+          command.operation,
+          'prepared-commit-payload-mismatch',
+          'SQLite commit payload 没有精确绑定 candidate；live checkout 未触碰。',
+          { candidate, candidatePreserved: true, commitId },
+        );
+      }
+
+      const previousCheckoutRef = { ...formal.checkoutRef };
+      const previousDocument = { id: activeTimelineId, label: activeTimelineLabel };
+      const previousVisibleIds = Object.keys(formal.payload.skillButtonTable || {}).sort();
+      const candidateVisibleIds = Object.keys(candidateNode.workingPayload.skillButtonTable || {}).sort();
+      isCheckoutMutationPendingRef.current = true;
+      liveCheckoutTouched = true;
+      try {
+        await runAtomicPreparedWorkNodeApply({
+          applyTarget: async () => {
+            hydrateCheckoutRuntime(candidateNode.workingPayload, { flushRender: true });
+            refreshWorkbenchAfterCheckout();
+          },
+          verifyVisibleTarget: async () => {
+            if (document.visibilityState !== 'visible') {
+              return { pass: false, reason: '前台 Canvas 不可见' };
+            }
+            const visible = await waitForVisibleCanvasButtons(candidateVisibleIds);
+            const postcondition = await buildWorkNodePayloadPostcondition({
+              expectedPayload: candidateNode.workingPayload,
+              actualPayload: getCurrentTimelineSnapshotPayload(),
+              expectedVisibleButtonIds: candidateVisibleIds,
+              actualVisibleButtonIds: visible.actual,
+            });
+            return postcondition.pass
+              ? postcondition
+              : { pass: false, reason: postcondition.failures.join('；'), observed: postcondition };
+          },
+          persistCheckout: async () => {
+            targetCheckoutRef = {
+              timelineId: activeTimelineId,
+              targetType: 'work-node',
+              targetId: candidateNode.id,
+              updatedAt: Date.now(),
+            };
+            await createTimelineRepositoryClient().setCheckoutRef(targetCheckoutRef);
+            activateTimeline({
+              document: previousDocument,
+              checkoutRef: targetCheckoutRef,
+              workingPayload: candidateNode.workingPayload,
+            });
+          },
+          persistAppliedLedger: async () => {
+            if (!targetCheckoutRef) throw new Error('prepared checkout ref 未生成。');
+            const marked = await client.markCheckoutApplied(candidateNode.id, {
+              commitId: commitId!,
+              appliedAt: targetCheckoutRef.updatedAt,
+              appliedBy: 'user',
+              rationale: 'prepared candidate visible postcondition 已通过，已原子应用正式 checkout。',
+            });
+            const applied = marked.node.id === candidateNode.id
+              && marked.commit.id === commitId
+              && marked.commit.checkoutApplied
+              && Number(marked.commit.checkout?.appliedAt) === targetCheckoutRef.updatedAt
+              && sameOperatorConfigPayload(marked.commit.appliedPayload, candidateNode.workingPayload);
+            return { applied };
+          },
+          verifyPersistedTarget: async () => {
+            if (!targetCheckoutRef) return { pass: false, reason: 'prepared checkout ref 未生成' };
+            const repository = createTimelineRepositoryClient();
+            const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
+            const persistedNode = (await client.get(candidateNode.id)).node;
+            const visible = await waitForVisibleCanvasButtons(candidateVisibleIds);
+            finalPostcondition = await buildWorkNodePayloadPostcondition({
+              expectedPayload: candidateNode.workingPayload,
+              actualPayload: getCurrentTimelineSnapshotPayload(),
+              expectedVisibleButtonIds: candidateVisibleIds,
+              actualVisibleButtonIds: visible.actual,
+              expectedCheckout: { targetType: 'work-node', targetId: candidateNode.id },
+              observedCheckout: persistedCheckout,
+              expectedNodeRevision: candidateRevision,
+              observedNodeRevision: operatorConfigNodeRevision(persistedNode),
+            });
+            return finalPostcondition.pass
+              ? finalPostcondition
+              : { pass: false, reason: finalPostcondition.failures.join('；'), observed: finalPostcondition };
+          },
+          restorePreviousState: async () => {
+            const failures: string[] = [];
+            const repository = createTimelineRepositoryClient();
+            try {
+              await repository.setCheckoutRef(previousCheckoutRef);
+            } catch (error) {
+              failures.push(`恢复原 checkout 失败：${error instanceof Error ? error.message : String(error)}`);
+            }
+            try {
+              activateTimeline({
+                document: previousDocument,
+                checkoutRef: previousCheckoutRef,
+                workingPayload: formal.payload,
+              });
+              hydrateCheckoutRuntime(formal.payload, { flushRender: true });
+              refreshWorkbenchAfterCheckout();
+              const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
+              if (!visible.pass) failures.push('恢复原 live checkout 后可见按钮集合不一致。');
+            } catch (error) {
+              failures.push(`恢复原 live checkout 失败：${error instanceof Error ? error.message : String(error)}`);
+            }
+            try {
+              await client.markRollbackApplied(candidateNode.id, {
+                appliedAt: Date.now(),
+                appliedBy: 'system',
+                rationale: 'prepared candidate apply 失败，已恢复原 live checkout；候选保留供审计。',
+              });
+            } catch (error) {
+              failures.push(`candidate rollback audit 失败：${error instanceof Error ? error.message : String(error)}`);
+            }
+            if (failures.length > 0) throw new Error(failures.join('；'));
+          },
+          verifyPreviousState: async () => {
+            const repository = createTimelineRepositoryClient();
+            const persistedCheckout = await repository.getCheckoutRef(activeTimelineId);
+            const visible = await waitForVisibleCanvasButtons(previousVisibleIds);
+            rollbackPostcondition = await buildWorkNodePayloadPostcondition({
+              expectedPayload: formal.payload,
+              actualPayload: getCurrentTimelineSnapshotPayload(),
+              expectedVisibleButtonIds: previousVisibleIds,
+              actualVisibleButtonIds: visible.actual,
+              expectedCheckout: {
+                targetType: previousCheckoutRef.targetType,
+                targetId: previousCheckoutRef.targetId,
+              },
+              observedCheckout: persistedCheckout,
+              expectedNodeRevision: formal.sourceRevision,
+              observedNodeRevision: formal.sourceRevision,
+            });
+            return rollbackPostcondition.pass
+              ? rollbackPostcondition
+              : { pass: false, reason: rollbackPostcondition.failures.join('；'), observed: rollbackPostcondition };
+          },
+        });
+      } finally {
+        isCheckoutMutationPendingRef.current = false;
+        setProjectionVisibilityRevision((revision) => revision + 1);
+      }
+
+      const receiptPostcondition = finalPostcondition as Awaited<ReturnType<typeof buildWorkNodePayloadPostcondition>> | null;
+      if (!targetCheckoutRef || receiptPostcondition?.pass !== true) {
+        throw new Error('prepared apply 成功后没有形成可验证的 checkout/postcondition receipt。');
+      }
+      return {
+        ok: true as const,
+        applied: true as const,
+        operation: command.operation,
+        liveCheckoutTouched: true as const,
+        rollbackApplied: false as const,
+        candidate,
+        nodeId: candidateNode.id,
+        nodeRevision: candidateRevision,
+        commitId,
+        basePayloadDigest: candidate.basePayloadDigest,
+        workingPayloadDigest: candidate.workingPayloadDigest,
+        diffDigest: candidate.diffDigest,
+        proposalDigest: candidate.proposalDigest,
+        checkout: targetCheckoutRef,
+        checkoutApplied: true as const,
+        postcondition: receiptPostcondition,
+      };
+    } catch (error) {
+      const atomicError = error instanceof PreparedWorkNodeAtomicApplyError ? error : null;
+      const rollbackApplied = Boolean(atomicError && !atomicError.rollbackError);
+      const postcondition = atomicError
+        ? (rollbackPostcondition || {
+            pass: rollbackApplied,
+            checkoutRestored: rollbackApplied,
+            liveCheckoutTouched: true,
+            reason: atomicError.message,
+          })
+        : {
+            pass: true,
+            checkoutUnchanged: !liveCheckoutTouched,
+            liveCheckoutTouched,
+            reason: error instanceof Error ? error.message : String(error),
+          };
+      return preparedFailure(
+        command.operation,
+        atomicError?.rollbackError ? 'prepared-atomic-rollback-failed' : 'prepared-atomic-apply-failed',
+        error instanceof Error ? error.message : String(error),
+        {
+          candidate,
+          candidatePreserved: true,
+          liveCheckoutTouched,
+          rollbackApplied,
+          commitId,
+          postcondition,
+        },
+      );
+    }
+  };
+
+  const abandonPreparedWorkNodeProposalFromCommand = async (
+    command: Extract<MainWorkbenchCommand, { op: 'abandonPreparedWorkNodeProposal' }>,
+  ) => {
+    const candidate = command.candidate;
+    const cleanup = (
+      status: 'deleted' | 'preserved' | 'failed',
+      reason: string,
+    ) => ({
+      contract: 'DefPreparedWorkNodeCleanupAuditV1' as const,
+      schemaVersion: 1 as const,
+      proposalId: candidate.proposalId,
+      nodeId: candidate.nodeId,
+      candidateTimelineId: candidate.candidateTimelineId,
+      status,
+      reason,
+    });
+    try {
+      const binding = browserAgentRuntime.getBinding();
+      if (!binding
+        || binding.timelineId !== activeTimelineId
+        || candidate.candidateTimelineId !== activeTimelineId
+        || candidate.destination !== 'current-timeline'
+        || (candidate.intent !== 'timeline' && candidate.intent !== 'buff')) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('preserved', '候选不属于当前已绑定的 current-timeline，无法证明可安全清理。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      const client = createAiTimelineWorkNodeClient();
+      const before = await client.list();
+      const target = before.nodes.find((node) => node.id === candidate.nodeId);
+      if (!target || target.timelineId !== candidate.candidateTimelineId || target.timelineId !== activeTimelineId) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('failed', 'candidate 不存在或 timeline 不匹配，未执行删除。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      const repository = createTimelineRepositoryClient();
+      const bundle = await repository.exportDocumentBundle(candidate.candidateTimelineId);
+      const sourceNode = bundle.workNodes.find((node) => node.id === candidate.sourceTargetId);
+      const sourceSnapshot = bundle.snapshots.find((snapshot) => snapshot.id === candidate.sourceTargetId);
+      const sourcePayload = sourceNode?.workingPayload || sourceSnapshot?.payload;
+      const sourceRevision = sourceNode
+        ? operatorConfigNodeRevision(sourceNode)
+        : sourceSnapshot?.createdAt;
+      const expectedParentNodeId = sourceNode?.id || null;
+      if (!sourcePayload || typeof sourceRevision !== 'number' || !Number.isSafeInteger(sourceRevision) || sourceRevision < 0
+        || candidate.sourceRevision !== sourceRevision
+        || (target.parentNodeId || null) !== expectedParentNodeId) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('preserved', 'source target、source revision 或 structural parent 无法证明，按 fail-closed 保留。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      const fullTarget = (await client.get(target.id)).node;
+      const [sourceDigest, baseDigest, workingDigest] = await Promise.all([
+        sha256Json(sourcePayload),
+        sha256Json(fullTarget.basePayload),
+        sha256Json(fullTarget.workingPayload),
+      ]);
+      const candidateAuditMarker = `[prepared-candidate:v1:${candidate.proposalId}:${candidate.proposalDigest}]`;
+      const diff = diffPreparedPayloads(fullTarget.basePayload, fullTarget.workingPayload);
+      const diffDigest = await sha256Json(diff.changes);
+      const scopeGate = checkPreparedScope(diff, candidate.scope);
+      if (sourceDigest !== baseDigest
+        || candidate.basePayloadDigest !== baseDigest
+        || candidate.workingPayloadDigest !== workingDigest
+        || candidate.diffDigest !== diffDigest
+        || !scopeGate.pass
+        || candidate.nodeRevision !== operatorConfigNodeRevision(fullTarget)
+        || fullTarget.branchId !== `prepared-${candidate.proposalId}`
+        || fullTarget.status !== 'ready'
+        || !fullTarget.description.startsWith(candidateAuditMarker)) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('preserved', 'candidate payload、scope、branch、status、revision 或 provenance marker 无法与引用完整匹配，按 fail-closed 保留。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      const descendants = before.nodes.filter((node) => node.parentNodeId === target.id);
+      const checkout = await repository.getCheckoutRef(candidate.candidateTimelineId);
+      const commits = before.commits.filter((commit) => commit.nodeId === target.id);
+      const auditEvents = await repository.listAuditEvents(candidate.candidateTimelineId, 500);
+      const auditWindowComplete = auditEvents.length < 500;
+      const hasHistoricalCheckout = auditEvents.some((event) => (
+        event.subjectId === target.id
+        && (event.subjectType === 'checkout' || event.eventType === 'checkout.updated' || event.eventType === 'work-node.base-restored')
+      ));
+      if (descendants.length > 0
+        || (checkout?.targetType === 'work-node' && checkout.targetId === target.id)
+        || commits.length > 0
+        || !auditWindowComplete
+        || hasHistoricalCheckout) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('preserved', '存在 checkout、commit、后代或不完整的历史审计证据，绝不删除。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      const deleted = await client.delete(target.id);
+      const stillExists = deleted.nodes.some((node) => node.id === target.id);
+      if (stillExists) {
+        return {
+          ok: false as const,
+          liveCheckoutTouched: false as const,
+          deleted: false as const,
+          candidate,
+          cleanup: cleanup('failed', '删除调用完成但 candidate 仍存在，未伪报成功。'),
+          postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+        };
+      }
+      return {
+        ok: true as const,
+        liveCheckoutTouched: false as const,
+        deleted: true as const,
+        candidate,
+        cleanup: cleanup('deleted', command.reason),
+        postcondition: { pass: true, liveCheckoutTouched: false, candidateDeleted: true },
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        liveCheckoutTouched: false as const,
+        deleted: false as const,
+        candidate,
+        cleanup: cleanup('failed', error instanceof Error ? error.message : String(error)),
+        postcondition: { pass: true, liveCheckoutTouched: false, candidatePreserved: true },
+      };
+    }
+  };
+
   const restoreAiTimelineWorkNodeBaseFromCommand = async (
     command: Extract<MainWorkbenchCommand, { op: 'restoreAiTimelineWorkNodeBase' }>,
   ) => {
@@ -2959,6 +3836,9 @@ export function CanvasBoard({
         ...CANVAS_WORK_NODE_MANAGEMENT_COMMANDS,
         'patchAiTimelineWorkNode',
         'patchAndValidateAiTimelineWorkNode',
+        'prepareReviewedWorkNodeProposal',
+        'applyReviewedWorkNodeProposal',
+        'abandonPreparedWorkNodeProposal',
         'applyApprovedWorkNodePatch',
         'checkoutAiTimelineWorkNode',
         'restoreAiTimelineWorkNodeBase',
@@ -3440,6 +4320,39 @@ export function CanvasBoard({
           return;
         }
 
+        if (command.op === 'prepareReviewedWorkNodeProposal') {
+          const result = await prepareReviewedWorkNodeProposalFromCommand(command);
+          settleCommand({
+            status: result.ok ? 'done' : 'error',
+            result,
+            ...(result.ok ? {} : { error: result.message }),
+          });
+          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
+          return;
+        }
+
+        if (command.op === 'applyReviewedWorkNodeProposal') {
+          const result = await applyReviewedWorkNodeProposalFromCommand(command);
+          settleCommand({
+            status: result.ok ? 'done' : 'error',
+            result,
+            ...(result.ok ? {} : { error: result.message }),
+          });
+          if (result.ok) setNodeReviewRefreshRevision((revision) => revision + 1);
+          return;
+        }
+
+        if (command.op === 'abandonPreparedWorkNodeProposal') {
+          const result = await abandonPreparedWorkNodeProposalFromCommand(command);
+          settleCommand({
+            status: result.ok && result.cleanup.status === 'deleted' ? 'done' : 'error',
+            result,
+            ...(result.ok && result.cleanup.status === 'deleted' ? {} : { error: result.cleanup.reason }),
+          });
+          if (result.cleanup.status === 'deleted') setNodeReviewRefreshRevision((revision) => revision + 1);
+          return;
+        }
+
         if (command.op === 'applyApprovedWorkNodePatch') {
           const prepared = await patchAndValidateAiTimelineWorkNodeFromCommand({
             op: 'patchAndValidateAiTimelineWorkNode',
@@ -3839,55 +4752,67 @@ export function CanvasBoard({
     moveTimelineButtonToStaff: moveSkillButtonToStaff,
   });
 
+  processMainWorkbenchCanvasCommandRef.current = processMainWorkbenchCanvasCommand;
+
   useEffect(() => {
-    if (!isAgentMode || currentView !== 'canvas' || selectedCharacters.length === 0) {
+    if (!isAgentMode) {
+      browserAgentRuntime.cancelCommandPull();
       return undefined;
     }
     let stopped = false;
-    const yieldToBrowser = () => new Promise<void>((resolve) => {
-      window.setTimeout(resolve, 0);
-    });
-    const runCommandPullLoop = async () => {
-      while (!stopped) {
-        if (document.visibilityState !== 'visible') {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
-          continue;
+    let running = false;
+    let retryDelay = 100;
+    let timer: number | null = null;
+    const schedule = (delay: number) => {
+      if (stopped || timer !== null) return;
+      timer = window.setTimeout(() => {
+        timer = null;
+        void runOnce();
+      }, Math.max(25, Math.min(delay, 1000)));
+    };
+    const runOnce = async () => {
+      if (stopped || running || document.visibilityState !== 'visible') {
+        if (!stopped && document.visibilityState !== 'visible') schedule(250);
+        return;
+      }
+      running = true;
+      try {
+        await processMainWorkbenchCanvasCommandRef.current?.();
+        retryDelay = 100;
+        schedule(25);
+      } catch (error) {
+        if (!stopped) {
+          console.warn('[CanvasBoard] Agent command pull failed; recovery path will retry.', error);
+          schedule(retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 1000);
         }
-        try {
-          await processMainWorkbenchCanvasCommand();
-        } catch (error) {
-          if (!stopped) {
-            console.warn('[CanvasBoard] Agent command pull failed; recovery path will retry.', error);
-          }
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
-        }
-        await yieldToBrowser();
+      } finally {
+        running = false;
       }
     };
-    void runCommandPullLoop();
     const handleControlEvent = () => {
-      void processMainWorkbenchCanvasCommand();
+      if (running) {
+        schedule(50);
+        return;
+      }
+      void runOnce();
     };
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
-        void processMainWorkbenchCanvasCommand();
+        void runOnce();
       }
     };
-    // The Agent bridge keeps the command request open and wakes it from the
-    // Host when a Product command is dispatched. This timer is deliberately
-    // retained only as a recovery path for a dropped long-poll/event request.
-    const timer = window.setInterval(() => {
-      void processMainWorkbenchCanvasCommand();
-    }, 1200);
+    void runOnce();
     window.addEventListener('def-main-workbench-control', handleControlEvent);
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => {
-      window.clearInterval(timer);
       stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
+      browserAgentRuntime.cancelCommandPull();
       window.removeEventListener('def-main-workbench-control', handleControlEvent);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentView, isAgentMode, selectedCharacters, skillButtons, staffCount]);
+  }, [isAgentMode]);
 
   useEffect(() => {
     const publishWhenVisible = () => {
@@ -4068,6 +4993,8 @@ export function CanvasBoard({
         source: skill.source,
       }));
     });
+    const mirroredCandidateBuffs: NonNullable<MainWorkbenchSnapshot['candidateBuffs']> = getCandidateBuffList()
+      .map((buff) => projectMainWorkbenchCandidateBuff(buff));
     const mirroredOperatorConfigs: MainWorkbenchSnapshot['operatorConfigs'] = selectedCharacters.flatMap((character) => {
       const configSnapshot = operatorConfigCache[character.id];
       if (!configSnapshot) return [];
@@ -4117,9 +5044,21 @@ export function CanvasBoard({
         ? nodeReviewRef.current
         : null)
       : emptyAiTimelineNodeReviewProjection();
-    const currentSignature = buildMainWorkbenchSnapshotSignature(mirroredSelectedCharacters, mirroredButtons, mirroredOperatorConfigs, mirroredSkillCatalog);
+    const currentSignature = buildMainWorkbenchSnapshotSignature(
+      mirroredSelectedCharacters,
+      mirroredButtons,
+      mirroredOperatorConfigs,
+      mirroredSkillCatalog,
+      mirroredCandidateBuffs,
+    );
     const previousSignature = previousSnapshot
-      ? buildMainWorkbenchSnapshotSignature(previousSnapshot.selectedCharacters, previousSnapshot.skillButtons, previousSnapshot.operatorConfigs, previousSnapshot.skillCatalog)
+      ? buildMainWorkbenchSnapshotSignature(
+          previousSnapshot.selectedCharacters,
+          previousSnapshot.skillButtons,
+          previousSnapshot.operatorConfigs,
+          previousSnapshot.skillCatalog,
+          previousSnapshot.candidateBuffs,
+        )
       : '';
     const previousDamageReportIsComplete = Boolean(
       previousSnapshot?.damageReport
@@ -4149,6 +5088,7 @@ export function CanvasBoard({
       currentView,
       selectedCharacters: mirroredSelectedCharacters,
       skillCatalog: mirroredSkillCatalog,
+      candidateBuffs: mirroredCandidateBuffs,
       skillButtons: mirroredButtons,
       damageReportStatus: damageReport.buttonCount === mirroredButtons.length
         ? 'ready' as const
@@ -4157,9 +5097,13 @@ export function CanvasBoard({
       operatorConfigs: mirroredOperatorConfigs,
       nodeReview,
     };
+    if (previousSnapshot
+      && serializeWorkbenchSnapshotSemantics(previousSnapshot) === serializeWorkbenchSnapshotSemantics(snapshot)) {
+      return;
+    }
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, candidateBuffRevision, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
@@ -5083,7 +6027,7 @@ export function CanvasBoard({
       const refreshedCharacters = await refreshSelectedCharacters();
       const charactersForRefresh = refreshedCharacters.length > 0 ? refreshedCharacters : selectedCharacters;
       await refreshOperatorConfigSnapshotsForCharacters(charactersForRefresh);
-      await refreshAvailableCandidateBuffsForCharacters(
+      await refreshCandidateBuffsForCharacters(
         charactersForRefresh.map((character) => ({
           id: character.id,
           name: character.name,
@@ -5105,7 +6049,10 @@ export function CanvasBoard({
     setIsAgentModeLaunching(true);
     setWorkNodeSaveNotice(isAgentMode ? '正在退出 AI 模式…' : '正在启动 AI 模式…');
     try {
-      if (isAgentMode) await exitDesktopAgentModeToWorkbench();
+      if (isAgentMode) {
+        browserAgentRuntime.cancelCommandPull();
+        await exitDesktopAgentModeToWorkbench();
+      }
       else await enterDesktopAgentModeFromWorkbench();
     } catch (error) {
       setWorkNodeSaveNotice(error instanceof Error ? error.message : String(error));

@@ -3,6 +3,7 @@ import {
   type JsonValue,
 } from '../../../agent/core/contracts/json.ts';
 import {
+  isPreparedWorkNodeCandidateRef,
   isPreparedWorkNodeProposal,
   isPreparedWorkNodeReview,
   preparedWorkNodeReviewMatchesCandidate,
@@ -21,6 +22,44 @@ const MAX_NODES = 20_000;
 const MAX_STRING_CODE_UNITS = 16_384;
 const MAX_ARRAY_ITEMS = 4_096;
 const MAX_OBJECT_KEYS = 4_096;
+
+// TimelineSnapshotPayload stores Buff attachment/state in three places: the
+// top-level allBuffList/anomalyStateSnapshots archives, the mirrored
+// timelineData button buffIds, and the skillButtonTable button state.  Keep
+// this list explicit so a new persisted Buff control cannot silently fall
+// through to timeline.structure.
+const PREPARED_BUFF_ATTACHMENT_SEGMENTS = new Set([
+  'allBuffList',
+  'anomalyStateSnapshots',
+  'buffIds',
+  'selectedBuff',
+  'selectedBuffIds',
+  'selectedBuffs',
+  'buffStackCounts',
+  'buffStackCount',
+  'buffStackCountsByHitKey',
+  'currentStackCount',
+  'currentStackCounts',
+  'currentStackCountSources',
+  'anomalyConfig',
+  'selectedStatuses',
+  'selectedDamages',
+  'selectedStateSnapshotIds',
+  'panelConfig',
+  'globallyDisabledBuffIds',
+  'manualDisabledBuffIdsBySegmentKey',
+  'manualBuffStackCountsBySegmentKey',
+  'manualDisabledHitKeys',
+  'runtimeSnapshot',
+  'buffMap',
+  'buffList',
+]);
+
+const PREPARED_BUFF_RESISTANCE_SEGMENTS = new Set([
+  'resistanceConfig',
+  'targetResistance',
+  'resistance',
+]);
 
 type Missing = typeof MISSING;
 const MISSING = Symbol('prepared-work-node-missing');
@@ -68,6 +107,44 @@ export type PreparedProposalValidationResult =
       readonly issues: readonly string[];
     };
 
+export type PreparedCandidateValidationResult =
+  | {
+      readonly ok: true;
+      readonly candidate: DefPreparedWorkNodeCandidateRefV1;
+      readonly diff: PreparedPayloadDiffResult;
+      readonly scopeGate: PreparedScopeGateResult;
+    }
+  | {
+      readonly ok: false;
+      readonly issues: readonly string[];
+    };
+
+export type PreparedAtomicVerification = {
+  readonly pass: boolean;
+  readonly reason?: string;
+  readonly postcondition?: unknown;
+};
+
+export class PreparedWorkNodeAtomicApplyError extends Error {
+  readonly primaryError: Error;
+  readonly rollbackError: Error | null;
+
+  constructor(primaryError: unknown, rollbackError: unknown = null) {
+    const primary = primaryError instanceof Error ? primaryError : new Error(String(primaryError));
+    const rollback = rollbackError === null
+      ? null
+      : rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError));
+    super(
+      `${primary.message}${rollback
+        ? `；恢复 live checkout 失败：${rollback.message}`
+        : '；已恢复 live checkout，候选节点保留供审计。'}`,
+    );
+    this.name = 'PreparedWorkNodeAtomicApplyError';
+    this.primaryError = primary;
+    this.rollbackError = rollback;
+  }
+}
+
 export async function sha256Json(value: unknown): Promise<string> {
   assertBoundedJson(value, 'value');
   if (!globalThis.crypto?.subtle) throw new Error('Web Crypto is required for prepared Work Node proposals.');
@@ -99,23 +176,49 @@ export function scopeForPreparedPath(path: string): PreparedWorkNodeScope | null
   if (root === 'operatorConfigPageCache' || root === 'characterInputMap' || root === 'characterComputedMap' || root === 'characterDisplayCacheMap') {
     return 'loadout.config';
   }
-  if (root === 'allBuffList') return 'buff.attachments';
-  if (root === 'anomalyStateSnapshots') return null;
+  if (root === 'allBuffList' || root === 'anomalyStateSnapshots') return 'buff.attachments';
   if (root === 'skillButtonTable' || root === 'timelineData') {
-    if (segments.some((segment) => (
-      segment === 'resistanceConfig' || segment === 'targetResistance' || segment === 'resistance'
-    ))) return 'buff.resistance';
-    if (segments.some((segment) => (
-      segment === 'selectedBuff'
-      || segment === 'selectedBuffIds'
-      || segment === 'buffStackCounts'
-      || segment === 'buffStackCountsByHitKey'
-      || segment === 'selectedBuffs'
-      || segment === 'buffMap'
-    ))) return 'buff.attachments';
+    if (segments.some((segment) => PREPARED_BUFF_RESISTANCE_SEGMENTS.has(segment))) return 'buff.resistance';
+    if (segments.some((segment) => PREPARED_BUFF_ATTACHMENT_SEGMENTS.has(segment))) return 'buff.attachments';
     return 'timeline.structure';
   }
   return null;
+}
+
+function collectPreparedValueScopes(value: JsonValue, path: string, scopes: Set<PreparedWorkNodeScope>): void {
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      const scope = scopeForPreparedPath(path);
+      if (scope) scopes.add(scope);
+      return;
+    }
+    value.forEach((entry, index) => collectPreparedValueScopes(entry, appendPointer(path, String(index)), scopes));
+    return;
+  }
+  if (value !== null && typeof value === 'object') {
+    const entries = Object.entries(value);
+    const meaningfulEntries = entries.filter(([key]) => !IGNORED_METADATA_KEYS.has(key));
+    if (meaningfulEntries.length === 0) {
+      const scope = scopeForPreparedPath(path);
+      if (scope) scopes.add(scope);
+      return;
+    }
+    meaningfulEntries.forEach(([key, entry]) => collectPreparedValueScopes(entry, appendPointer(path, key), scopes));
+    return;
+  }
+  const scope = scopeForPreparedPath(path);
+  if (scope) scopes.add(scope);
+}
+
+function scopesForPreparedChange(change: DefPreparedWorkNodePathChangeV1): PreparedWorkNodeScope[] {
+  const scopes = new Set<PreparedWorkNodeScope>();
+  if (change.before !== undefined) collectPreparedValueScopes(change.before, change.path, scopes);
+  if (change.after !== undefined) collectPreparedValueScopes(change.after, change.path, scopes);
+  if (scopes.size === 0) {
+    const direct = scopeForPreparedPath(change.path);
+    if (direct) scopes.add(direct);
+  }
+  return [...scopes];
 }
 
 export function checkPreparedScope(
@@ -123,14 +226,24 @@ export function checkPreparedScope(
   scope: readonly PreparedWorkNodeScope[],
 ): PreparedScopeGateResult {
   const granted = new Set(scope);
-  const violations = diff.changes.flatMap((change) => {
-    const requiredScope = scopeForPreparedPath(change.path);
-    if (requiredScope !== null && granted.has(requiredScope)) return [];
-    return [{
-      path: change.path,
-      requiredScope,
-      reason: requiredScope === null ? 'unscoped-path' as const : 'scope-not-granted' as const,
-    }];
+  const violations: PreparedScopeViolation[] = [];
+  diff.changes.forEach((change) => {
+    const requiredScopes = scopesForPreparedChange(change);
+    if (requiredScopes.length === 0) {
+      violations.push({
+        path: change.path,
+        requiredScope: null,
+        reason: 'unscoped-path' as const,
+      });
+      return;
+    }
+    requiredScopes
+      .filter((requiredScope) => !granted.has(requiredScope))
+      .forEach((requiredScope) => violations.push({
+        path: change.path,
+        requiredScope,
+        reason: 'scope-not-granted' as const,
+      }));
   });
   return { pass: violations.length === 0, violations };
 }
@@ -238,7 +351,7 @@ export async function validatePreparedWorkNodeProposal(
   }
   assertBoundedJson(options.basePayload, 'basePayload');
   assertBoundedJson(options.workingPayload, 'workingPayload');
-  const candidate = candidateRefFromProposal(proposal);
+  const candidate = preparedWorkNodeCandidateRefFromProposal(proposal);
   const diff = diffPreparedPayloads(options.basePayload, options.workingPayload);
   const scopeGate = checkPreparedScope(diff, proposal.scope);
   const [baseDigest, workingDigest, diffDigest, proposalDigest] = await Promise.all([
@@ -267,6 +380,141 @@ export async function validatePreparedWorkNodeProposal(
   ) issues.push('review summary does not match the complete recursive payload diff');
   if (!scopeGate.pass) issues.push('proposal diff exceeds its declared scope');
   return issues.length === 0 ? { ok: true, diff, scopeGate } : { ok: false, issues };
+}
+
+/**
+ * Re-validate the compact candidate reference against the payload currently
+ * stored in the browser Work Node.  This is deliberately independent from a
+ * model patch: apply callers can only provide the candidate reference and the
+ * operation that was used to create its proposal digest.
+ */
+export async function validatePreparedWorkNodeCandidate(
+  candidate: unknown,
+  options: {
+    readonly operation: string;
+    readonly basePayload: unknown;
+    readonly workingPayload: unknown;
+    readonly sourceTargetId?: string;
+    readonly sourceRevision?: number;
+    readonly candidateTimelineId?: string;
+    readonly nodeId?: string;
+    readonly nodeRevision?: number;
+  },
+): Promise<PreparedCandidateValidationResult> {
+  if (!isPreparedWorkNodeCandidateRef(candidate)) {
+    return { ok: false, issues: ['candidate reference shape is invalid'] };
+  }
+  const issues: string[] = [];
+  try {
+    assertBoundedJson(options.basePayload, 'basePayload');
+    assertBoundedJson(options.workingPayload, 'workingPayload');
+    const diff = diffPreparedPayloads(options.basePayload, options.workingPayload);
+    const scopeGate = checkPreparedScope(diff, candidate.scope);
+    const [baseDigest, workingDigest, diffDigest, proposalDigest] = await Promise.all([
+      sha256Json(options.basePayload),
+      sha256Json(options.workingPayload),
+      sha256Json(diff.changes),
+      computePreparedWorkNodeProposalDigest(options.operation, candidate),
+    ]);
+    if (candidate.basePayloadDigest !== baseDigest) issues.push('base payload digest mismatch');
+    if (candidate.workingPayloadDigest !== workingDigest) issues.push('working payload digest mismatch');
+    if (candidate.diffDigest !== diffDigest) issues.push('diff digest mismatch');
+    if (candidate.proposalDigest !== proposalDigest) issues.push('proposal digest mismatch');
+    if (options.sourceTargetId !== undefined && candidate.sourceTargetId !== options.sourceTargetId) {
+      issues.push('source target mismatch');
+    }
+    if (options.sourceRevision !== undefined && candidate.sourceRevision !== options.sourceRevision) {
+      issues.push('source revision mismatch');
+    }
+    if (options.candidateTimelineId !== undefined && candidate.candidateTimelineId !== options.candidateTimelineId) {
+      issues.push('candidate timeline mismatch');
+    }
+    if (options.nodeId !== undefined && candidate.nodeId !== options.nodeId) {
+      issues.push('candidate node mismatch');
+    }
+    if (options.nodeRevision !== undefined && candidate.nodeRevision !== options.nodeRevision) {
+      issues.push('candidate node revision mismatch');
+    }
+    if (!scopeGate.pass) issues.push('candidate diff exceeds its declared scope');
+    return issues.length === 0
+      ? { ok: true, candidate, diff, scopeGate }
+      : { ok: false, issues };
+  } catch (error) {
+    return {
+      ok: false,
+      issues: [error instanceof Error ? error.message : String(error)],
+    };
+  }
+}
+
+export function preparedWorkNodeCandidateRefFromProposal(
+  proposal: DefPreparedWorkNodeProposalV1,
+): DefPreparedWorkNodeCandidateRefV1 {
+  return {
+    contract: 'DefPreparedWorkNodeCandidateRefV1',
+    schemaVersion: 1,
+    proposalId: proposal.proposalId,
+    intent: proposal.intent,
+    destination: proposal.destination,
+    sourceTargetId: proposal.sourceTargetId,
+    sourceRevision: proposal.sourceRevision,
+    candidateTimelineId: proposal.candidateTimelineId,
+    nodeId: proposal.nodeId,
+    nodeRevision: proposal.nodeRevision,
+    basePayloadDigest: proposal.basePayloadDigest,
+    workingPayloadDigest: proposal.workingPayloadDigest,
+    diffDigest: proposal.diffDigest,
+    proposalDigest: proposal.proposalDigest,
+    scope: [...proposal.scope],
+  };
+}
+
+export function samePreparedWorkNodeCandidate(
+  left: DefPreparedWorkNodeCandidateRefV1,
+  right: DefPreparedWorkNodeCandidateRefV1,
+): boolean {
+  return canonicalJson(left as unknown as JsonValue) === canonicalJson(right as unknown as JsonValue);
+}
+
+/**
+ * The only live-state transaction primitive used by prepared apply.  Every
+ * callback after `applyTarget` is covered by the same restore-and-verify path,
+ * including failures while persisting the checkout marker itself.
+ */
+export async function runAtomicPreparedWorkNodeApply(input: {
+  readonly applyTarget: () => Promise<void>;
+  readonly verifyVisibleTarget: () => Promise<PreparedAtomicVerification>;
+  readonly persistCheckout: () => Promise<void>;
+  readonly persistAppliedLedger: () => Promise<{ readonly applied: boolean }>;
+  readonly verifyPersistedTarget: () => Promise<PreparedAtomicVerification>;
+  readonly restorePreviousState: () => Promise<void>;
+  readonly verifyPreviousState: () => Promise<PreparedAtomicVerification>;
+}): Promise<void> {
+  try {
+    await input.applyTarget();
+    await requirePreparedVerification(input.verifyVisibleTarget(), '候选 payload 的可见状态校验失败');
+    await input.persistCheckout();
+    const ledger = await input.persistAppliedLedger();
+    if (!ledger.applied) throw new Error('候选 checkout ledger 没有返回 applied=true。');
+    await requirePreparedVerification(input.verifyPersistedTarget(), '候选 checkout 的最终后置条件未成立');
+  } catch (primaryError) {
+    let rollbackError: Error | null = null;
+    try {
+      await input.restorePreviousState();
+      await requirePreparedVerification(input.verifyPreviousState(), '原 live checkout 的恢复后置条件未成立');
+    } catch (error) {
+      rollbackError = error instanceof Error ? error : new Error(String(error));
+    }
+    throw new PreparedWorkNodeAtomicApplyError(primaryError, rollbackError);
+  }
+}
+
+async function requirePreparedVerification(
+  verification: PreparedAtomicVerification | Promise<PreparedAtomicVerification>,
+  prefix: string,
+): Promise<void> {
+  const result = await verification;
+  if (!result.pass) throw new Error(`${prefix}${result.reason ? `：${result.reason}` : ''}`);
 }
 
 export function assertBoundedJson(value: unknown, label: string): asserts value is JsonValue {
@@ -368,24 +616,4 @@ function cloneJson(value: JsonValue): JsonValue {
     return result;
   }
   return value;
-}
-
-function candidateRefFromProposal(proposal: DefPreparedWorkNodeProposalV1): DefPreparedWorkNodeCandidateRefV1 {
-  return {
-    contract: 'DefPreparedWorkNodeCandidateRefV1',
-    schemaVersion: 1,
-    proposalId: proposal.proposalId,
-    intent: proposal.intent,
-    destination: proposal.destination,
-    sourceTargetId: proposal.sourceTargetId,
-    sourceRevision: proposal.sourceRevision,
-    candidateTimelineId: proposal.candidateTimelineId,
-    nodeId: proposal.nodeId,
-    nodeRevision: proposal.nodeRevision,
-    basePayloadDigest: proposal.basePayloadDigest,
-    workingPayloadDigest: proposal.workingPayloadDigest,
-    diffDigest: proposal.diffDigest,
-    proposalDigest: proposal.proposalDigest,
-    scope: [...proposal.scope],
-  };
 }

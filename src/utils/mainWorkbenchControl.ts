@@ -1,4 +1,5 @@
 import type { Character, SkillButtonType } from '../types';
+import type { CandidateBuff } from '../core/domain/buff';
 import type { DamageReportSnapshot } from '../core/services/damageReportService';
 import type {
   SkillButtonBuff,
@@ -6,6 +7,11 @@ import type {
 } from '../types/storage';
 import type { TimelineWorkNodePatchOperation } from '../agentKernel/timelineWorktree/patchDsl';
 import type { AiTimelineNodeReviewProjection } from '../agentKernel/timelineWorktree/nodeReview';
+import type {
+  DefPreparedWorkNodeCandidateRefV1,
+  PreparedWorkNodeScope,
+} from '../../agent/core/contracts/prepared-work-node.ts';
+import type { ProductBinding } from '../../agent/core/contracts/product.ts';
 import { persistentLocalStorage } from '../platform/storage/persistentStorage';
 import { browserAgentRuntime } from '../platform/agent/browserAgentRuntime';
 import {
@@ -20,6 +26,7 @@ import {
   type AgentCatalogDomain,
   type AgentProductCatalogStorage,
 } from '../core/services/agentProductCatalogService';
+import { getCandidateBuffList } from '../core/repositories';
 export const MAIN_WORKBENCH_COMMAND_QUEUE_KEY = 'def.main-workbench.command-queue.v1';
 export const MAIN_WORKBENCH_RESULT_LOG_KEY = 'def.main-workbench.result-log.v1';
 export const MAIN_WORKBENCH_SNAPSHOT_KEY = 'def.main-workbench.snapshot.v1';
@@ -248,6 +255,32 @@ export type MainWorkbenchCommand =
       patch: TimelineWorkNodePatchOperation[];
       dryRun?: boolean;
       checkout?: false;
+    }
+  | {
+      /**
+       * Prepare one reviewed timeline/Buff patch in an isolated Work Node.
+       * `sourceBinding` is inserted by the Host and is never model-derived.
+       */
+      op: 'prepareReviewedWorkNodeProposal';
+      operation: string;
+      intent: 'timeline' | 'buff';
+      scope: PreparedWorkNodeScope[];
+      patch: TimelineWorkNodePatchOperation[];
+      label: string;
+      description: string;
+      sourceBinding: ProductBinding;
+    }
+  | {
+      /** Apply only the Host-supplied candidate reference; no model patch is accepted. */
+      op: 'applyReviewedWorkNodeProposal';
+      operation: string;
+      candidate: DefPreparedWorkNodeCandidateRefV1;
+    }
+  | {
+      /** Clean up only a candidate that can be proven never to have been checked out. */
+      op: 'abandonPreparedWorkNodeProposal';
+      candidate: DefPreparedWorkNodeCandidateRefV1;
+      reason: string;
     }
   | {
       /**
@@ -619,7 +652,7 @@ function projectTarget(target: SkillButtonBuff['target'] | null | undefined): Ma
 
 /** Convert a runtime Buff entity into a JSON-safe, inference-free fact row. */
 export function projectMainWorkbenchBuff(
-  buff: SkillButtonBuff | null | undefined,
+  buff: SkillButtonBuff | CandidateBuff | null | undefined,
 ): MainWorkbenchBuffProjection {
   if (!buff) {
     return {
@@ -651,7 +684,7 @@ export function projectMainWorkbenchBuff(
 
   return {
     schemaVersion: buff.schemaVersion === 2 ? 2 : null,
-    id: stringOrNull(buff.id),
+    id: 'id' in buff ? stringOrNull(buff.id) : null,
     name: stringOrNull(buff.name),
     displayName: stringOrNull(buff.displayName),
     sourceName: stringOrNull(buff.sourceName),
@@ -667,11 +700,11 @@ export function projectMainWorkbenchBuff(
     ownerCharacterId: stringOrNull(buff.ownerCharacterId),
     ownerBuffGroup: stringOrNull(buff.ownerBuffGroup),
     maxStacks: finiteNumberOrNull(buff.maxStacks),
-    refCount: finiteNumberOrNull(buff.refCount),
+    refCount: 'refCount' in buff ? finiteNumberOrNull(buff.refCount) : null,
     multiplier: buff.multiplier && typeof buff.multiplier === 'object'
       ? { coefficient: finiteNumberOrNull(buff.multiplier.coefficient) }
       : null,
-    target: projectTarget(buff.target),
+    target: 'target' in buff ? projectTarget(buff.target) : null,
     valueMode: stringOrNull(buff.valueMode),
     derivedValue: buff.derivedValue && typeof buff.derivedValue === 'object'
       ? {
@@ -690,6 +723,22 @@ export function projectMainWorkbenchBuff(
           trigger: stringOrNull(buff.extraHitConfig.trigger),
         }
       : null,
+  };
+}
+
+/** Convert a browser candidate Buff into the same complete, inference-free row.
+ * Candidate Buffs are intentionally unbound: id, refCount, and target remain
+ * null until a trusted timeline mutation binds them to a button.
+ */
+export function projectMainWorkbenchCandidateBuff(
+  buff: CandidateBuff | null | undefined,
+): MainWorkbenchBuffProjection {
+  const projected = projectMainWorkbenchBuff(buff);
+  return {
+    ...projected,
+    id: null,
+    refCount: null,
+    target: null,
   };
 }
 
@@ -836,6 +885,8 @@ export interface MainWorkbenchSnapshot {
     skillDisplayName: string;
     source?: string;
   }>;
+  /** Trusted, currently available candidate Buff facts, including unattached rows. */
+  candidateBuffs?: MainWorkbenchBuffProjection[];
   skillButtons: Array<{
     id: string;
     characterId: string;
@@ -1106,8 +1157,15 @@ export function readMainWorkbenchSnapshot(): MainWorkbenchSnapshot | null {
   return readJsonStorage<MainWorkbenchSnapshot | null>(MAIN_WORKBENCH_SNAPSHOT_KEY, null);
 }
 
+function withCurrentCandidateBuffProjection(snapshot: MainWorkbenchSnapshot): MainWorkbenchSnapshot {
+  return {
+    ...snapshot,
+    candidateBuffs: getCandidateBuffList().map((buff) => projectMainWorkbenchCandidateBuff(buff)),
+  };
+}
+
 export function writeMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): void {
-  writeJsonStorage(MAIN_WORKBENCH_SNAPSHOT_KEY, snapshot);
+  writeJsonStorage(MAIN_WORKBENCH_SNAPSHOT_KEY, withCurrentCandidateBuffProjection(snapshot));
 }
 
 export async function pullRemoteMainWorkbenchCommands(): Promise<void> {
@@ -1127,5 +1185,5 @@ export async function pushMainWorkbenchCommandResult(entry: QueuedMainWorkbenchC
 }
 
 export async function pushMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
-  await browserAgentRuntime.publishMainWorkbenchSnapshot(snapshot);
+  await browserAgentRuntime.publishMainWorkbenchSnapshot(withCurrentCandidateBuffProjection(snapshot));
 }
