@@ -453,6 +453,7 @@ try {
       toolCallId: asToolCallId('apply-selection'),
       name: 'def.team.selection.apply',
       input: {
+        operation: 'apply',
         characterNames: ['测试乙'],
         nodeTitle: '调整测试队伍',
         nodeDescription: '将当前队伍调整为测试乙。',

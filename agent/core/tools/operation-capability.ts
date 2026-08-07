@@ -125,22 +125,22 @@ const ENTRIES = {
     ),
     add: available(
       '将解析后的最终队伍交给选队伍 Tool，由受审阅 Selection Work Node 创建候选并在审批后检出。',
-      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.add')],
       true,
     ),
     remove: available(
       '将移除后的精确最终队伍交给 selectCharacters，其他成员与顺序由产品后置条件校验。',
-      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.remove')],
       true,
     ),
     replace: available(
       '将同时解析出入成员后的精确队伍交给 selectCharacters，并要求用户审批。',
-      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.replace')],
       true,
     ),
     reorder: available(
       'selectCharacters 接受有序最终队伍，产品后置条件会保留成员集合并核对新顺序。',
-      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.apply')],
+      [tool(TOOL.selectionApply), command(COMMAND.preparedPatch, 'selection.reorder')],
       true,
     ),
     analyze: limited(

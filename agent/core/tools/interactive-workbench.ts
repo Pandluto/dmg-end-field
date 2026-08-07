@@ -508,11 +508,12 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.team.selection.apply',
-          'Replace the selected roster with one exact one-to-four operator roster after explicit user approval.',
+          'Apply one exact add/remove/replace/reorder/final-roster operation through a reviewed Selection Work Node.',
           'mutate',
           objectSchema({
-            required: ['nodeTitle', 'nodeDescription'],
+            required: ['operation', 'nodeTitle', 'nodeDescription'],
             properties: {
+              operation: { enum: ['add', 'remove', 'replace', 'reorder', 'apply'] },
               characterIds: stringArraySchema(1, 4, 160),
               characterNames: stringArraySchema(1, 4, 160),
               nodeTitle: boundedStringSchema(1, 80),
@@ -1185,12 +1186,18 @@ async function prepareQuestion(input: JsonValue): Promise<DefInteractiveToolPlan
 
 async function prepareSelectionApply(input: JsonValue): Promise<DefInteractiveToolPlan> {
   const value = exactObject(input, [
+    'operation',
     'characterIds',
     'characterNames',
     'nodeTitle',
     'nodeDescription',
     'openCanvas',
   ]);
+  const operation = requiredEnum(
+    value.operation,
+    'operation',
+    ['add', 'remove', 'replace', 'reorder', 'apply'] as const,
+  );
   const characterIds = optionalStringArray(value.characterIds, 'characterIds', 4, 160);
   const characterNames = optionalStringArray(value.characterNames, 'characterNames', 4, 160);
   if (!characterIds?.length && !characterNames?.length) {
@@ -1211,7 +1218,7 @@ async function prepareSelectionApply(input: JsonValue): Promise<DefInteractiveTo
   return explicitWorkNodeMutationPlan(
     '应用新的干员队伍',
     'selection',
-    'selection.apply',
+    `selection.${operation}`,
     SELECTION_PREPARED_SCOPE,
     { roster },
     nodeTitle,

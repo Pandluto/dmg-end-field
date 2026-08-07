@@ -320,28 +320,28 @@ const selectionOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'add',
     phases: [
       phase('selection-add-context', 'context', T.context, 'Read the current roster and resolve the requested addition against the current snapshot before writing.'),
-      phase('selection-add', 'mutation', T.selectionApply, 'Apply one exact final roster containing the requested new operator. The typed mutation must create, validate and expose its Work Node before approval.', SELECTION_WRITE_SCOPE),
+      phase('selection-add', 'mutation', T.selectionApply, 'Call with operation=add and one exact final roster containing only the requested new operator addition. The Product must reject any removal, replacement or reorder before candidate creation.', SELECTION_WRITE_SCOPE),
     ],
   }),
   defineOperation({
     operation: 'remove',
     phases: [
       phase('selection-remove-context', 'context', T.context, 'Read the current roster and resolve the exact operator to remove; never remove by an ambiguous display name.'),
-      phase('selection-remove', 'mutation', T.selectionApply, 'Apply one exact final roster with the requested operator removed. Keep all unrelated selected operators unchanged and require explicit approval.', SELECTION_WRITE_SCOPE),
+      phase('selection-remove', 'mutation', T.selectionApply, 'Call with operation=remove and one exact final roster with only the requested operator removed. Keep all unrelated selected operators and order unchanged.', SELECTION_WRITE_SCOPE),
     ],
   }),
   defineOperation({
     operation: 'replace',
     phases: [
       phase('selection-replace-context', 'context', T.context, 'Read the current roster before resolving both the outgoing and incoming operator identities.'),
-      phase('selection-replace', 'mutation', T.selectionApply, 'Apply one exact replacement roster and retain unrelated roster order where the product supports it. Require explicit approval.', SELECTION_WRITE_SCOPE),
+      phase('selection-replace', 'mutation', T.selectionApply, 'Call with operation=replace. Exactly one roster slot must change from one stable operator to another; all unrelated slots remain exact.', SELECTION_WRITE_SCOPE),
     ],
   }),
   defineOperation({
     operation: 'reorder',
     phases: [
       phase('selection-reorder-context', 'context', T.context, 'Read the current roster and preserve every selected operator while resolving the requested order.'),
-      phase('selection-reorder', 'mutation', T.selectionApply, 'Apply one exact reordered roster only; do not use reorder as an opportunity to add or remove operators.', SELECTION_WRITE_SCOPE),
+      phase('selection-reorder', 'mutation', T.selectionApply, 'Call with operation=reorder. The Product requires the exact same stable member set and a changed order; no add, remove or replacement is accepted.', SELECTION_WRITE_SCOPE),
     ],
   }),
   defineOperation({
@@ -355,7 +355,7 @@ const selectionOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'apply',
     phases: [
       phase('selection-apply-context', 'context', T.context, 'Read and bind the current roster before applying a user-requested final roster.'),
-      phase('selection-apply', 'mutation', T.selectionApply, 'Apply the exact approved roster through the typed selection mutation and report its Work Node and visible postcondition.', SELECTION_WRITE_SCOPE),
+      phase('selection-apply', 'mutation', T.selectionApply, 'Call with operation=apply. Apply the exact approved final roster through the typed selection mutation and report its Work Node and visible postcondition.', SELECTION_WRITE_SCOPE),
     ],
   }),
   askOperation(),

@@ -679,6 +679,7 @@ await assert.rejects(
 );
 
 const selectionPlan = await preparePrepared('def.team.selection.apply', {
+  operation: 'apply',
   characterNames: ['测试干员'],
   nodeTitle: '调整阵容',
   nodeDescription: '仅保留测试干员',

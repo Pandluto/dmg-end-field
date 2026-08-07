@@ -544,6 +544,81 @@ export type PrepareReviewedSelectionProposalInput = {
   readonly availableCharacters: readonly Character[];
 };
 
+export type PreparedSelectionOperation =
+  | 'selection.add'
+  | 'selection.remove'
+  | 'selection.replace'
+  | 'selection.reorder'
+  | 'selection.apply';
+
+export type PreparedSelectionSemanticGate =
+  | { readonly pass: true }
+  | { readonly pass: false; readonly code: string; readonly reason: string };
+
+function sameStringSequence(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+/** Product-layer semantic gate; prompts and approval text are not authority. */
+export function validatePreparedSelectionSemantics(
+  operation: string,
+  currentIds: readonly string[],
+  nextIds: readonly string[],
+): PreparedSelectionSemanticGate {
+  const fail = (reason: string): PreparedSelectionSemanticGate => ({
+    pass: false,
+    code: 'prepared-selection-operation-mismatch',
+    reason,
+  });
+  if (new Set(currentIds).size !== currentIds.length || new Set(nextIds).size !== nextIds.length) {
+    return fail('selection roster contains duplicate stable operator ids.');
+  }
+  if (sameStringSequence(currentIds, nextIds)) {
+    return fail('selection operation must produce a non-empty roster change.');
+  }
+  const currentSet = new Set(currentIds);
+  const nextSet = new Set(nextIds);
+  const added = nextIds.filter((id) => !currentSet.has(id));
+  const removed = currentIds.filter((id) => !nextSet.has(id));
+  const retainedBefore = currentIds.filter((id) => nextSet.has(id));
+  const retainedAfter = nextIds.filter((id) => currentSet.has(id));
+  switch (operation as PreparedSelectionOperation) {
+    case 'selection.add':
+      return added.length === 1
+        && removed.length === 0
+        && nextIds.length === currentIds.length + 1
+        && sameStringSequence(retainedBefore, retainedAfter)
+        ? { pass: true }
+        : fail('selection.add must add exactly one operator without removing or reordering retained operators.');
+    case 'selection.remove':
+      return removed.length === 1
+        && added.length === 0
+        && nextIds.length + 1 === currentIds.length
+        && sameStringSequence(retainedBefore, retainedAfter)
+        ? { pass: true }
+        : fail('selection.remove must remove exactly one operator without adding or reordering retained operators.');
+    case 'selection.replace': {
+      const changedSlots = currentIds.filter((id, index) => id !== nextIds[index]).length;
+      return currentIds.length === nextIds.length
+        && added.length === 1
+        && removed.length === 1
+        && changedSlots === 1
+        ? { pass: true }
+        : fail('selection.replace must replace exactly one operator in the same roster slot.');
+    }
+    case 'selection.reorder':
+      return currentIds.length === nextIds.length
+        && added.length === 0
+        && removed.length === 0
+        ? { pass: true }
+        : fail('selection.reorder must preserve the exact stable member set and only change order.');
+    case 'selection.apply':
+      return { pass: true };
+    default:
+      return fail(`unsupported selection operation: ${operation}`);
+  }
+}
+
 async function cleanupFailedPreparedSelectionCreation(input: {
   readonly proposalId: string;
   readonly candidateTimelineId: string | null;
@@ -655,6 +730,18 @@ export async function prepareReviewedSelectionProposal(
       roster: input.roster,
       availableCharacters: input.availableCharacters,
     });
+    const semanticGate = validatePreparedSelectionSemantics(
+      input.operation,
+      source.payload.selectedCharacters,
+      resolved.characters.map((character) => character.id),
+    );
+    if (!semanticGate.pass) {
+      return preparedSelectionFailure(
+        input.operation,
+        semanticGate.code,
+        semanticGate.reason,
+      );
+    }
     const preparedPayload = buildPreparedSelectionPayload({
       basePayload: source.payload,
       nextCharacters: resolved.characters,

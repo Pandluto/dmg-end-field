@@ -250,6 +250,7 @@ function enqueuePreparedSelection(
       toolCallId: asToolCallId(`apply-prepared-selection-${suffix}`),
       name: 'def.team.selection.apply',
       input: {
+        operation: 'apply',
         characterNames: ['洛茜'],
         nodeTitle: '调整阵容：仅保留洛茜',
         nodeDescription: '记录候选 selection Work Node 变更。',
@@ -462,6 +463,7 @@ function cleanupBrowserResult(
       toolCallId: asToolCallId('apply-selection'),
       name: 'def.team.selection.apply',
       input: {
+        operation: 'apply',
         characterNames: ['洛茜'],
         nodeTitle: '调整阵容：仅保留洛茜',
         nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
@@ -1350,6 +1352,7 @@ await assertPreparedProposalTamperRejected('scope', (proposal) => ({
       toolCallId: asToolCallId('reject-selection'),
       name: 'def.team.selection.apply',
       input: {
+        operation: 'apply',
         characterNames: ['洛茜'],
         nodeTitle: '调整阵容：仅保留洛茜',
         nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',

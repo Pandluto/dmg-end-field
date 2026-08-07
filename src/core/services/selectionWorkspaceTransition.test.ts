@@ -6,6 +6,7 @@ import {
   runPreparedSelectionActivationTransaction,
   snapshotContentRevisionFromPayload,
   snapshotContentRevisionFromDigest,
+  validatePreparedSelectionSemantics,
 } from './selectionWorkspaceTransition';
 
 {
@@ -171,5 +172,30 @@ assert.equal(
   snapshotContentRevisionFromDigest('sha256:' + 'a'.repeat(64)),
   snapshotContentRevisionFromDigest('sha256:' + 'a'.repeat(64)),
 );
+
+const semanticCases = [
+  ['selection.add', ['a', 'b'], ['a', 'b', 'c'], true],
+  ['selection.add', ['a', 'b'], ['b', 'a', 'c'], false],
+  ['selection.add', ['a', 'b'], ['a', 'c'], false],
+  ['selection.remove', ['a', 'b', 'c'], ['a', 'c'], true],
+  ['selection.remove', ['a', 'b', 'c'], ['c', 'a'], false],
+  ['selection.remove', ['a', 'b'], ['a', 'c'], false],
+  ['selection.replace', ['a', 'b', 'c'], ['a', 'd', 'c'], true],
+  ['selection.replace', ['a', 'b', 'c'], ['d', 'a', 'c'], false],
+  ['selection.replace', ['a', 'b'], ['c', 'd'], false],
+  ['selection.reorder', ['a', 'b', 'c'], ['c', 'a', 'b'], true],
+  ['selection.reorder', ['a', 'b'], ['a', 'c'], false],
+  ['selection.reorder', ['a', 'b'], ['a', 'b'], false],
+  ['selection.apply', ['a', 'b'], ['c'], true],
+  ['selection.unknown', ['a'], ['b'], false],
+] as const;
+for (const [operation, currentIds, nextIds, expectedPass] of semanticCases) {
+  assert.equal(
+    validatePreparedSelectionSemantics(operation, currentIds, nextIds).pass,
+    expectedPass,
+    operation,
+  );
+}
+assert.match(prepareSource, /validatePreparedSelectionSemantics\(/);
 
 console.log('Prepared selection workspace transaction contract: PASS');

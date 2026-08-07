@@ -154,8 +154,9 @@ const blackboxCases = [
     }, {
       safeName: 'def_team_selection_apply',
       canonicalName: 'def.team.selection.apply',
-      description: 'Replace the selected roster with one exact one-to-four operator roster after explicit user approval.',
+      description: 'Apply one exact add/remove/replace/reorder/final-roster operation through a reviewed Selection Work Node.',
       input: {
+        operation: 'apply',
         characterNames: ['洛茜'],
         nodeTitle: '调整阵容：仅保留洛茜',
         nodeDescription: '将当前队伍调整为仅保留洛茜，并记录本次 AI 修改。',
