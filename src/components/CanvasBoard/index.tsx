@@ -136,6 +136,7 @@ import {
   digestJson,
   equalOperatorConfigFinalConfig,
   normalizeOperatorConfigFinalConfig,
+  rollbackOperatorConfigProposal,
 } from '../../platform/agent/operatorConfigProposal';
 
 function getLegacySnapshotTimelineId(snapshotId: string): string {
@@ -1533,23 +1534,31 @@ export function CanvasBoard({
             targetId: parent.id,
             updatedAt: Date.now(),
           };
-          hydrateCheckoutRuntime(parent.workingPayload, { flushRender: true });
-          setSessionWorkingPayload(parent.workingPayload, 'checkout');
-          await repository.setCheckoutRef(rollbackCheckoutRef);
-          const document = parent.timelineId === activeTimelineId
-            ? { id: activeTimelineId, label: activeTimelineLabel }
-            : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId)
-              || { id: parent.timelineId, label: parent.label };
-          activateTimeline({ document, checkoutRef: rollbackCheckoutRef, workingPayload: parent.workingPayload });
-          refreshWorkbenchAfterCheckout();
-          const restoredPayload = getCurrentTimelineSnapshotPayload();
-          if (!restoredPayload || !sameOperatorConfigPayload(restoredPayload, parent.workingPayload)) {
-            throw new Error('rollback payload does not exactly equal parent payload');
-          }
-          await client.markRollbackApplied(candidate.id, {
-            appliedAt: rollbackCheckoutRef.updatedAt,
-            appliedBy: 'system',
-            rationale: '配装原子应用失败，已恢复 exact parent checkout；候选节点保留供审计。',
+          await rollbackOperatorConfigProposal({
+            restoreLiveParent: async () => {
+              hydrateCheckoutRuntime(parent.workingPayload, { flushRender: true });
+              setSessionWorkingPayload(parent.workingPayload, 'checkout');
+            },
+            restoreCheckout: async () => {
+              await repository.setCheckoutRef(rollbackCheckoutRef);
+              const document = parent.timelineId === activeTimelineId
+                ? { id: activeTimelineId, label: activeTimelineLabel }
+                : (await repository.listDocuments()).find((entry) => entry.id === parent.timelineId)
+                  || { id: parent.timelineId, label: parent.label };
+              activateTimeline({ document, checkoutRef: rollbackCheckoutRef, workingPayload: parent.workingPayload });
+              refreshWorkbenchAfterCheckout();
+            },
+            verifyParentRestored: async () => {
+              const restoredPayload = getCurrentTimelineSnapshotPayload();
+              return Boolean(restoredPayload && sameOperatorConfigPayload(restoredPayload, parent.workingPayload));
+            },
+            markCandidateRollback: async () => {
+              await client.markRollbackApplied(candidate.id, {
+                appliedAt: rollbackCheckoutRef.updatedAt,
+                appliedBy: 'system',
+                rationale: '配装原子应用失败，已恢复 exact parent checkout；候选节点保留供审计。',
+              });
+            },
           });
         } catch (rollbackFailure) {
           rollbackError = rollbackFailure instanceof Error ? rollbackFailure.message : String(rollbackFailure);

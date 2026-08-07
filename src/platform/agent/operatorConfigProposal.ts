@@ -265,6 +265,27 @@ export async function buildOperatorConfigProposalDigest(input: {
   });
 }
 
+/**
+ * Runs the irreversible part of an atomic rollback in a fixed order.  The
+ * Canvas supplies the browser-SQLite and renderer operations; keeping the
+ * orchestration here makes the failure contract directly testable:
+ * candidate audit data is marked rolled back only after the exact parent
+ * payload and checkout have both been observed again.
+ */
+export async function rollbackOperatorConfigProposal(input: {
+  restoreLiveParent: () => Promise<void>;
+  restoreCheckout: () => Promise<void>;
+  verifyParentRestored: () => Promise<boolean>;
+  markCandidateRollback: () => Promise<void>;
+}): Promise<void> {
+  await input.restoreLiveParent();
+  await input.restoreCheckout();
+  if (!await input.verifyParentRestored()) {
+    throw new Error('operator-config-parent-rollback-postcondition-failed');
+  }
+  await input.markCandidateRollback();
+}
+
 export function asJsonValue(value: unknown): JsonValue {
   return JSON.parse(stableJson(value)) as JsonValue;
 }

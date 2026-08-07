@@ -8,6 +8,7 @@ import {
   digestJson,
   equalOperatorConfigFinalConfig,
   normalizeOperatorConfigFinalConfig,
+  rollbackOperatorConfigProposal,
 } from './operatorConfigProposal';
 
 function payload(weaponName = '旧武器'): TimelineSnapshotPayload {
@@ -149,5 +150,38 @@ assert.ok(failedPreservation.changedPaths.includes('timelineData'));
 
 assert.equal((await digestJson(base)) !== await digestJson(working), true);
 
-console.log('Operator config proposal lifecycle contract passed');
+// The actual Canvas rollback orchestration restores live payload first, then
+// formal checkout, and only then marks the candidate as rolled back.  If the
+// exact parent postcondition fails, the candidate remains committed/auditable
+// and the helper must not claim a successful rollback.
+{
+  let live = 'candidate';
+  let checkout = 'candidate';
+  let candidateAuditState = 'committed';
+  const events: string[] = [];
+  await rollbackOperatorConfigProposal({
+    restoreLiveParent: async () => { events.push('restore-live'); live = 'parent'; },
+    restoreCheckout: async () => { events.push('restore-checkout'); checkout = 'parent'; },
+    verifyParentRestored: async () => {
+      events.push('verify-parent');
+      return live === 'parent' && checkout === 'parent';
+    },
+    markCandidateRollback: async () => { events.push('mark-candidate-rollback'); candidateAuditState = 'ready'; },
+  });
+  assert.deepEqual(events, ['restore-live', 'restore-checkout', 'verify-parent', 'mark-candidate-rollback']);
+  assert.equal(candidateAuditState, 'ready');
 
+  candidateAuditState = 'committed';
+  await assert.rejects(
+    rollbackOperatorConfigProposal({
+      restoreLiveParent: async () => { live = 'parent'; },
+      restoreCheckout: async () => { checkout = 'parent'; },
+      verifyParentRestored: async () => false,
+      markCandidateRollback: async () => { candidateAuditState = 'ready'; },
+    }),
+    /parent-rollback-postcondition-failed/u,
+  );
+  assert.equal(candidateAuditState, 'committed', 'a failed rollback must retain the candidate audit state');
+}
+
+console.log('Operator config proposal lifecycle contract passed');
