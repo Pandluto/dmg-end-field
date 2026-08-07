@@ -373,6 +373,7 @@ assert.deepEqual(
   await prepareAny('def.data.catalog.query', {
     action: 'compatibleWeapons',
     operatorQuery: '测试干员',
+    weaponQuery: '测试剑',
     limit: 8,
   }),
   {
@@ -381,6 +382,7 @@ assert.deepEqual(
       op: 'queryAgentProductCatalog',
       action: 'compatibleWeapons',
       operatorQuery: '测试干员',
+      weaponQuery: '测试剑',
       limit: 8,
     },
   },
@@ -427,7 +429,7 @@ await assert.rejects(
     action: 'skillFact',
     operatorQuery: '测试干员',
   }),
-  /skillFact requires operatorQuery and skillQuery/u,
+  /skillQuery must be a non-empty string/u,
 );
 
 await assert.rejects(
@@ -437,6 +439,24 @@ await assert.rejects(
     query: '过'.repeat(161),
   }),
   /query must be a non-empty string of at most 160 characters/u,
+);
+
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'gearTopologyFacts',
+    setQuery: '测试套装',
+    limit: 4,
+  }),
+  /unexpected fields: limit/u,
+);
+
+await assert.rejects(
+  () => prepareAny('def.data.catalog.query', {
+    action: 'compatibleWeapons',
+    operatorQuery: '测试干员',
+    query: '错误字段',
+  }),
+  /unexpected fields: query/u,
 );
 
 assert.deepEqual(

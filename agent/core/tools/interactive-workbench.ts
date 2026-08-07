@@ -110,6 +110,74 @@ const TARGET_RESISTANCE_SCHEMA: JsonObject = {
     natureResistance: { type: 'number', minimum: -10_000, maximum: 10_000 },
   },
 };
+const CATALOG_QUERY_PROPERTIES: JsonObject = {
+  action: { enum: [
+    'query',
+    'compatibleWeapons',
+    'gearTopologyFacts',
+    'gearTopologyPlan',
+    'discoverGearTopologies',
+    'skillFact',
+    'buildGuide',
+  ] },
+  domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
+  query: boundedStringSchema(1, 160),
+  operatorQuery: boundedStringSchema(1, 160),
+  weaponQuery: boundedStringSchema(1, 160),
+  skillQuery: boundedStringSchema(1, 160),
+  hitQuery: boundedStringSchema(1, 160),
+  setQuery: boundedStringSchema(1, 160),
+  limit: boundedIntegerSchema(1, 256),
+  combinationsPerSet: boundedIntegerSchema(1, 256),
+  allowDuplicateCompatibleAccessories: { type: 'boolean' },
+};
+const PRODUCT_CATALOG_QUERY_SCHEMA: JsonObject = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['action'],
+  properties: cloneJson(CATALOG_QUERY_PROPERTIES),
+  oneOf: [
+    exactSchema(['action', 'domain'], {
+      action: { const: 'query' },
+      domain: CATALOG_QUERY_PROPERTIES.domain!,
+      query: CATALOG_QUERY_PROPERTIES.query!,
+      limit: CATALOG_QUERY_PROPERTIES.limit!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'compatibleWeapons' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      weaponQuery: CATALOG_QUERY_PROPERTIES.weaponQuery!,
+      limit: CATALOG_QUERY_PROPERTIES.limit!,
+    }),
+    exactSchema(['action', 'setQuery'], {
+      action: { const: 'gearTopologyFacts' },
+      setQuery: CATALOG_QUERY_PROPERTIES.setQuery!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action', 'setQuery'], {
+      action: { const: 'gearTopologyPlan' },
+      setQuery: CATALOG_QUERY_PROPERTIES.setQuery!,
+      limit: CATALOG_QUERY_PROPERTIES.limit!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action'], {
+      action: { const: 'discoverGearTopologies' },
+      limit: CATALOG_QUERY_PROPERTIES.limit!,
+      combinationsPerSet: CATALOG_QUERY_PROPERTIES.combinationsPerSet!,
+      allowDuplicateCompatibleAccessories: CATALOG_QUERY_PROPERTIES.allowDuplicateCompatibleAccessories!,
+    }),
+    exactSchema(['action', 'operatorQuery', 'skillQuery'], {
+      action: { const: 'skillFact' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+      skillQuery: CATALOG_QUERY_PROPERTIES.skillQuery!,
+      hitQuery: CATALOG_QUERY_PROPERTIES.hitQuery!,
+    }),
+    exactSchema(['action', 'operatorQuery'], {
+      action: { const: 'buildGuide' },
+      operatorQuery: CATALOG_QUERY_PROPERTIES.operatorQuery!,
+    }),
+  ],
+};
 const TIMELINE_PATCH_OPERATION_SCHEMA: JsonObject = {
   oneOf: [
     exactSchema(['op', 'characterName'], {
@@ -241,29 +309,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
           'def.data.catalog.query',
           'Query bounded 1.8 browser-owned operator, skill, weapon, equipment, gear-set, compatibility, 3+1, or evidence-availability facts.',
           'propose',
-          objectSchema({
-            required: ['action'],
-            properties: {
-              action: { enum: [
-                'query',
-                'compatibleWeapons',
-                'gearTopologyFacts',
-                'gearTopologyPlan',
-                'discoverGearTopologies',
-                'skillFact',
-                'buildGuide',
-              ] },
-              domain: { enum: ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] },
-              query: boundedStringSchema(1, 160),
-              operatorQuery: boundedStringSchema(1, 160),
-              skillQuery: boundedStringSchema(1, 160),
-              hitQuery: boundedStringSchema(1, 160),
-              setQuery: boundedStringSchema(1, 160),
-              limit: boundedIntegerSchema(1, 256),
-              combinationsPerSet: boundedIntegerSchema(1, 256),
-              allowDuplicateCompatibleAccessories: { type: 'boolean' },
-            },
-          }),
+          PRODUCT_CATALOG_QUERY_SCHEMA,
         ),
         prepareProductCatalogQuery,
       ),
@@ -715,12 +761,11 @@ function operatorConfigPreviewSchema(): JsonObject {
 }
 
 async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteractiveToolPlan> {
-  const value = exactObject(input, [
-    'action', 'domain', 'query', 'operatorQuery', 'skillQuery', 'hitQuery', 'setQuery', 'limit',
-    'combinationsPerSet',
-    'allowDuplicateCompatibleAccessories',
+  const union = exactObject(input, [
+    'action', 'domain', 'query', 'operatorQuery', 'weaponQuery', 'skillQuery', 'hitQuery', 'setQuery',
+    'limit', 'combinationsPerSet', 'allowDuplicateCompatibleAccessories',
   ]);
-  const action = requiredEnum(value.action, 'action', [
+  const action = requiredEnum(union.action, 'action', [
     'query',
     'compatibleWeapons',
     'gearTopologyFacts',
@@ -729,48 +774,52 @@ async function prepareProductCatalogQuery(input: JsonValue): Promise<DefInteract
     'skillFact',
     'buildGuide',
   ] as const);
-  if (action === 'query' && value.domain === undefined) invalid('catalog query requires domain');
-  if ((action === 'compatibleWeapons' || action === 'buildGuide') && value.operatorQuery === undefined) {
-    invalid(`${action} requires operatorQuery`);
+  const allowedByAction = {
+    query: ['action', 'domain', 'query', 'limit'],
+    compatibleWeapons: ['action', 'operatorQuery', 'weaponQuery', 'limit'],
+    gearTopologyFacts: ['action', 'setQuery', 'allowDuplicateCompatibleAccessories'],
+    gearTopologyPlan: ['action', 'setQuery', 'limit', 'allowDuplicateCompatibleAccessories'],
+    discoverGearTopologies: ['action', 'limit', 'combinationsPerSet', 'allowDuplicateCompatibleAccessories'],
+    skillFact: ['action', 'operatorQuery', 'skillQuery', 'hitQuery'],
+    buildGuide: ['action', 'operatorQuery'],
+  } as const;
+  const value = exactObject(input, allowedByAction[action]);
+  const command: JsonObject = { op: 'queryAgentProductCatalog', action };
+  if (action === 'query') {
+    command.domain = requiredEnum(
+      value.domain,
+      'domain',
+      ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] as const,
+    );
+    const query = optionalString(value.query, 'query', 160);
+    if (query) command.query = query;
+  } else if (action === 'compatibleWeapons') {
+    command.operatorQuery = requiredString(value.operatorQuery, 'operatorQuery', 160);
+    const weaponQuery = optionalString(value.weaponQuery, 'weaponQuery', 160);
+    if (weaponQuery) command.weaponQuery = weaponQuery;
+  } else if (action === 'gearTopologyFacts' || action === 'gearTopologyPlan') {
+    command.setQuery = requiredString(value.setQuery, 'setQuery', 160);
+  } else if (action === 'skillFact') {
+    command.operatorQuery = requiredString(value.operatorQuery, 'operatorQuery', 160);
+    command.skillQuery = requiredString(value.skillQuery, 'skillQuery', 160);
+    const hitQuery = optionalString(value.hitQuery, 'hitQuery', 160);
+    if (hitQuery) command.hitQuery = hitQuery;
+  } else if (action === 'buildGuide') {
+    command.operatorQuery = requiredString(value.operatorQuery, 'operatorQuery', 160);
   }
-  if ((action === 'gearTopologyFacts' || action === 'gearTopologyPlan') && value.setQuery === undefined) {
-    invalid(`${action} requires setQuery`);
+  if (value.limit !== undefined) command.limit = requiredInteger(value.limit, 'limit', 1, 256);
+  if (value.combinationsPerSet !== undefined) {
+    command.combinationsPerSet = requiredInteger(value.combinationsPerSet, 'combinationsPerSet', 1, 256);
   }
-  if (action === 'skillFact' && (value.operatorQuery === undefined || value.skillQuery === undefined)) {
-    invalid('skillFact requires operatorQuery and skillQuery');
+  if (value.allowDuplicateCompatibleAccessories !== undefined) {
+    command.allowDuplicateCompatibleAccessories = requiredBoolean(
+      value.allowDuplicateCompatibleAccessories,
+      'allowDuplicateCompatibleAccessories',
+    );
   }
   return {
     kind: 'command',
-    command: {
-      op: 'queryAgentProductCatalog',
-      action,
-      ...(value.domain === undefined
-        ? {}
-        : { domain: requiredEnum(value.domain, 'domain', ['operators', 'skills', 'weapons', 'equipment', 'gearSets'] as const) }),
-      ...(optionalString(value.query, 'query', 160) ? { query: value.query as string } : {}),
-      ...(optionalString(value.operatorQuery, 'operatorQuery', 160)
-        ? { operatorQuery: value.operatorQuery as string }
-        : {}),
-      ...(optionalString(value.skillQuery, 'skillQuery', 160)
-        ? { skillQuery: value.skillQuery as string }
-        : {}),
-      ...(optionalString(value.hitQuery, 'hitQuery', 160)
-        ? { hitQuery: value.hitQuery as string }
-        : {}),
-      ...(optionalString(value.setQuery, 'setQuery', 160) ? { setQuery: value.setQuery as string } : {}),
-      ...(value.limit === undefined ? {} : { limit: requiredInteger(value.limit, 'limit', 1, 256) }),
-      ...(value.combinationsPerSet === undefined
-        ? {}
-        : { combinationsPerSet: requiredInteger(value.combinationsPerSet, 'combinationsPerSet', 1, 256) }),
-      ...(value.allowDuplicateCompatibleAccessories === undefined
-        ? {}
-        : {
-            allowDuplicateCompatibleAccessories: requiredBoolean(
-              value.allowDuplicateCompatibleAccessories,
-              'allowDuplicateCompatibleAccessories',
-            ),
-          }),
-    },
+    command,
   };
 }
 
