@@ -69,6 +69,16 @@ const ZERO_USAGE: RuntimeUsage = Object.freeze({
 const DEFAULT_MAX_TURNS = 64;
 const MAX_PROVIDER_STRING_CODE_UNITS = 1 * 1_024 * 1_024;
 const MAX_PROVIDER_CONTENT_INDEX = 65_536;
+const MAX_PROVIDER_METADATA_CODE_UNITS = 4_096;
+const MAX_TOOL_NAME_CODE_UNITS = 256;
+const MAX_TOOL_ARGUMENT_CODE_UNITS = 256 * 1_024;
+const MAX_TOOL_DESCRIPTION_CODE_UNITS = 16 * 1_024;
+const MAX_TOOL_COUNT = 256;
+const MAX_JSON_DEPTH = 16;
+const MAX_JSON_NODES = 16_384;
+const MAX_JSON_CONTAINER_ITEMS = 4_096;
+const MAX_JSON_STRING_CODE_UNITS = 64 * 1_024;
+const MAX_JSON_TOTAL_CODE_UNITS = 256 * 1_024;
 
 export interface AgentLoopInput {
   readonly sessionId: RuntimeSessionId;
@@ -148,6 +158,7 @@ interface AssembledToolCall {
   readonly started: boolean;
   readonly ended: boolean;
   readonly malformedReason?: string;
+  readonly malformedCode?: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED';
 }
 
 interface MutableToolCall {
@@ -156,6 +167,9 @@ interface MutableToolCall {
   started: boolean;
   ended: boolean;
   malformedReason?: string;
+  malformedCode?: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED';
+  nameOverflow: boolean;
+  argumentsOverflow: boolean;
 }
 
 interface MutableContentState {
@@ -181,6 +195,7 @@ interface AssistantAccumulator {
   modelId: string;
   responseId?: string;
   responseStarted: boolean;
+  contentCodeUnits: number;
   usage: RuntimeUsage;
   stopReason: RuntimeAssistantStopReason;
   diagnostic?: RuntimeAssistantMessage['diagnostic'];
@@ -192,7 +207,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   const signal = combineAbortSignals(input.signal, controller.signal);
   const context = [...input.messages];
   const turns: RuntimeTurnId[] = [];
-  let projection = cloneProjection(input.tools);
+  let projection: RuntimeToolProjection = { revision: 0, tools: [] };
   let terminal: RuntimeRunTerminal = { status: 'failed', code: 'RUNTIME_FAILED', message: 'Run failed.' };
   let started = false;
   let currentTurn: RuntimeTurnId | null = null;
@@ -200,6 +215,9 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   let assistantIndex = 0;
 
   try {
+    // Clone before the first await so a Host-side mutation cannot race initial
+    // projection acceptance.
+    projection = cloneProjection(input.tools);
     validateLoopInput(input, context, projection);
     await controller.start();
     started = true;
@@ -313,36 +331,47 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   } catch (error) {
     terminal = terminalFromError(error, signal);
     if (started && currentTurn !== null) {
-      await closeOpenTurnAfterFailure(
-        controller,
-        input,
-        currentTurn,
-        context,
-        terminal,
-        assistantIndex,
-        signal,
-      );
+      try {
+        await closeOpenTurnAfterFailure(
+          controller,
+          input,
+          currentTurn,
+          context,
+          terminal,
+          assistantIndex,
+        );
+      } catch (_repairError) {
+        // Strict controller recovery below still guarantees the sole run.end.
+      }
+    }
+    if (!started && controller.status === 'created') {
+      try {
+        await controller.start();
+        started = true;
+      } catch (startError) {
+        terminal = terminalFromError(startError, signal);
+      }
     }
   } finally {
     signal.cleanup();
-  }
-
-  if (!started) {
-    // start() can only fail before it has published a run. A fresh controller
-    // is still returned so callers can inspect the deterministic failure.
-    terminal = terminalFromError(
-      new AgentLoopFailure('RUNTIME_RUN_START_FAILED', 'Runtime run could not start.'),
-      signal,
-    );
   }
 
   if (controller.status === 'running') {
     try {
       await controller.finish(terminal);
     } catch (error) {
-      // A controller protocol failure is terminal itself; preserve the first
-      // safe terminal rather than trying to emit a second run.end.
       terminal = terminalFromError(error, signal);
+      const failureTerminal = terminal.status === 'completed'
+        ? { status: 'failed' as const, code: 'RUNTIME_TERMINAL_REPAIR_FAILED', message: 'Runtime terminal repair failed.' }
+        : terminal;
+      if (controller.status === 'running') {
+        try {
+          await controller.finishAfterFailure(failureTerminal);
+        } catch (_repairError) {
+          // finish() reserves before dispatch; if that happened, its terminal
+          // remains the unique selection even if publication itself failed.
+        }
+      }
     }
   }
 
@@ -470,6 +499,7 @@ async function streamAssistantResponse(options: {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_LATE_EVENT', 'The model emitted an event after its terminal.');
       }
       if (event.type === 'response.done' || event.type === 'response.error') {
+        if (event.type === 'response.done') validateSuccessfulProviderTerminal(accumulator, event.stopReason);
         providerTerminal = event;
         if (event.type === 'response.error') {
           accumulator.diagnostic = diagnosticFromFailure(event.failure, input.connection.apiKey);
@@ -478,7 +508,7 @@ async function streamAssistantResponse(options: {
         } else {
           accumulator.providerId = input.connection.providerId;
           accumulator.modelId = event.responseModel?.trim() || accumulator.modelId;
-          accumulator.usage = event.usage;
+          accumulator.usage = cloneUsage(event.usage);
           accumulator.stopReason = event.stopReason;
           if (event.responseId !== undefined) accumulator.responseId = event.responseId;
         }
@@ -567,6 +597,7 @@ function createAccumulator(
     providerId: input.connection.providerId,
     modelId: input.connection.modelId,
     responseStarted: false,
+    contentCodeUnits: 0,
     usage: ZERO_USAGE,
     stopReason: 'stop',
   };
@@ -647,6 +678,12 @@ async function applyProviderEvent(
   signal: CombinedAbortSignal,
 ): Promise<void> {
   if (signal.aborted) throw createAbortError(signal);
+  if (event.type !== 'response.start' && !accumulator.responseStarted) {
+    throw new AgentLoopFailure(
+      'RUNTIME_PROVIDER_RESPONSE_START_MISSING',
+      'The model emitted response content before response.start.',
+    );
+  }
   switch (event.type) {
     case 'response.start':
       if (accumulator.responseStarted) {
@@ -689,23 +726,23 @@ async function applyProviderEvent(
     case 'tool-call.delta': {
       const state = requireToolState(accumulator, event.contentIndex);
       if (state.ended) throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_LATE_EVENT', 'The model emitted Tool data after tool-call.end.');
-      state.block = {
-        ...state.block,
-        name: state.block.name + event.nameDelta,
-      };
-      state.rawArguments += event.argumentsDelta;
-      if (state.rawArguments.length > MAX_PROVIDER_STRING_CODE_UNITS) {
-        state.malformedReason = 'Tool arguments exceeded the bounded stream size.';
+      if (state.block.toolCallId !== event.toolCallId) {
+        throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_ID_CONFLICT', 'The model changed a Tool call id.');
       }
-      await emitProviderToolDelta(
-        controller,
-        input,
-        accumulator.assistantId,
-        state.block.id,
-        event.toolCallId,
-        event.nameDelta,
-        event.argumentsDelta,
-      );
+      const acceptedNameDelta = appendToolNameDelta(state, event.nameDelta);
+      const acceptedArgumentsDelta = appendToolArgumentsDelta(state, event.argumentsDelta);
+      accumulator.content[event.contentIndex] = state.block;
+      if (acceptedNameDelta || acceptedArgumentsDelta) {
+        await emitProviderToolDelta(
+          controller,
+          input,
+          accumulator.assistantId,
+          state.block.id,
+          event.toolCallId,
+          acceptedNameDelta,
+          acceptedArgumentsDelta,
+        );
+      }
       return;
     }
     case 'tool-call.end':
@@ -760,10 +797,14 @@ async function appendTextState(
   controller: RuntimeRunController,
   type: 'text' | 'thinking',
 ): Promise<void> {
-  state.text += delta;
-  if (state.text.length > MAX_PROVIDER_STRING_CODE_UNITS) {
+  if (
+    delta.length > MAX_PROVIDER_STRING_CODE_UNITS - state.text.length
+    || delta.length > MAX_PROVIDER_STRING_CODE_UNITS - accumulator.contentCodeUnits
+  ) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_CONTENT_TOO_LARGE', 'The model content exceeded the bounded stream size.');
   }
+  state.text += delta;
+  accumulator.contentCodeUnits += delta.length;
   const block = accumulator.content[state.contentIndex];
   if (!block || (block.type !== 'text' && block.type !== 'thinking')) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_CONTENT_INVALID', 'The model content block was invalid.');
@@ -810,11 +851,15 @@ function startToolCall(
   if (accumulator.states.has(contentIndex) || accumulator.toolCallIds.has(toolCallId)) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_DUPLICATE', 'The model emitted a duplicate Tool call.');
   }
+  if (accumulator.toolCalls.length >= MAX_TOOL_COUNT) {
+    throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_LIMIT', 'The model emitted too many Tool calls.');
+  }
+  const acceptedName = boundedToolName(name);
   const block: RuntimeToolCallBlock = {
     type: 'tool-call',
     id: asRuntimeContentId(contentIdFor(accumulator.assistantId, contentIndex)),
     toolCallId,
-    name,
+    name: acceptedName.value,
     arguments: {},
   };
   const state: MutableToolCall = {
@@ -822,7 +867,16 @@ function startToolCall(
     rawArguments: '',
     started: true,
     ended: false,
-    ...(name.trim() ? {} : { malformedReason: 'Tool name is empty.' }),
+    nameOverflow: acceptedName.overflow,
+    argumentsOverflow: false,
+    ...(acceptedName.overflow || acceptedName.invalid
+      ? {
+          malformedReason: acceptedName.overflow
+            ? 'Tool name exceeded the bounded stream size.'
+            : 'Tool name contained invalid control characters.',
+          malformedCode: 'RUNTIME_TOOL_MALFORMED' as const,
+        }
+      : {}),
   };
   accumulator.states.set(contentIndex, state);
   accumulator.toolCalls.push(state);
@@ -838,6 +892,57 @@ function requireToolState(accumulator: AssistantAccumulator, contentIndex: numbe
   return state;
 }
 
+function appendToolNameDelta(state: MutableToolCall, delta: string): string {
+  if (state.nameOverflow) return '';
+  const sanitized = delta.replace(/[\u0000-\u001f\u007f]/gu, '');
+  if (sanitized !== delta) {
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name contained invalid control characters.');
+  }
+  const remaining = Math.max(0, MAX_TOOL_NAME_CODE_UNITS - state.block.name.length);
+  const accepted = sanitized.slice(0, remaining);
+  if (sanitized.length > remaining) {
+    state.nameOverflow = true;
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name exceeded the bounded stream size.');
+  }
+  if (accepted) state.block = { ...state.block, name: state.block.name + accepted };
+  return accepted;
+}
+
+function appendToolArgumentsDelta(state: MutableToolCall, delta: string): string {
+  if (state.argumentsOverflow) return '';
+  const remaining = Math.max(0, MAX_TOOL_ARGUMENT_CODE_UNITS - state.rawArguments.length);
+  const accepted = delta.slice(0, remaining);
+  if (accepted) state.rawArguments += accepted;
+  if (delta.length > remaining) {
+    state.argumentsOverflow = true;
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool arguments exceeded the bounded stream size.');
+  }
+  return accepted;
+}
+
+function markToolMalformed(
+  state: MutableToolCall,
+  code: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED',
+  reason: string,
+): void {
+  if (state.malformedReason === undefined) state.malformedReason = reason;
+  if (state.malformedCode === undefined) state.malformedCode = code;
+}
+
+function boundedToolName(value: string): {
+  readonly value: string;
+  readonly overflow: boolean;
+  readonly invalid: boolean;
+} {
+  const bounded = value.slice(0, MAX_TOOL_NAME_CODE_UNITS);
+  const safe = bounded.replace(/[\u0000-\u001f\u007f]/gu, '');
+  return {
+    value: safe,
+    overflow: value.length > MAX_TOOL_NAME_CODE_UNITS,
+    invalid: safe !== bounded,
+  };
+}
+
 function endToolCall(
   accumulator: AssistantAccumulator,
   contentIndex: number,
@@ -851,12 +956,17 @@ function endToolCall(
     if (accumulator.toolCallIds.has(toolCallId)) {
       throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_DUPLICATE', 'The model emitted a duplicate Tool call.');
     }
+    if (accumulator.toolCalls.length >= MAX_TOOL_COUNT) {
+      throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_LIMIT', 'The model emitted too many Tool calls.');
+    }
+    const acceptedName = boundedToolName(name);
+    const acceptedArguments = cloneBoundedJsonObject(rawArgumentsValue);
     const block: RuntimeToolCallBlock = {
       type: 'tool-call',
       id: asRuntimeContentId(contentIdFor(accumulator.assistantId, contentIndex)),
       toolCallId,
-      name,
-      arguments: isJsonObject(rawArgumentsValue) ? rawArgumentsValue : {},
+      name: acceptedName.value,
+      arguments: acceptedArguments ?? {},
     };
     state = {
       block,
@@ -864,11 +974,15 @@ function endToolCall(
       started: false,
       ended: true,
       malformedReason: 'Tool call ended without tool-call.start.',
+      malformedCode: 'RUNTIME_TOOL_MALFORMED',
+      nameOverflow: acceptedName.overflow,
+      argumentsOverflow: acceptedArguments === undefined,
     };
     accumulator.states.set(contentIndex, state);
     accumulator.toolCalls.push(state);
     accumulator.toolCallIds.add(toolCallId);
     accumulator.content[contentIndex] = block;
+    return;
   }
   if (!('block' in state)) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_CONTENT_ORDER_INVALID', 'A Tool call reused a text content index.');
@@ -879,21 +993,44 @@ function endToolCall(
   if (state.block.toolCallId !== toolCallId) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_ID_CONFLICT', 'The model changed a Tool call id.');
   }
-  if (name !== state.block.name) state.malformedReason = 'Tool name did not match its streamed name.';
-  if (!isJsonObject(rawArgumentsValue)) {
-    state.malformedReason = 'Tool arguments were not a JSON object.';
+  const acceptedName = boundedToolName(name);
+  if (acceptedName.overflow || acceptedName.invalid) {
+    markToolMalformed(
+      state,
+      'RUNTIME_TOOL_MALFORMED',
+      acceptedName.overflow
+        ? 'Tool name exceeded the bounded stream size.'
+        : 'Tool name contained invalid control characters.',
+    );
+  }
+  const streamedName = state.block.name;
+  const finalName = acceptedName.value || streamedName;
+  if (acceptedName.value && streamedName && acceptedName.value !== streamedName) {
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name did not match its streamed name.');
+  }
+  if (!finalName.trim()) {
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name was empty after tool-call.end.');
+  }
+  const acceptedArguments = cloneBoundedJsonObject(rawArgumentsValue);
+  if (acceptedArguments === undefined) {
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool arguments were not bounded JSON.');
+    state.block = { ...state.block, name: finalName };
+    accumulator.content[contentIndex] = state.block;
   } else {
-    state.block = { ...state.block, name, arguments: rawArgumentsValue };
+    state.block = { ...state.block, name: finalName, arguments: acceptedArguments };
     accumulator.content[contentIndex] = state.block;
   }
-  if (state.rawArguments) {
+  if (state.argumentsOverflow) {
+    markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool arguments exceeded the bounded stream size.');
+  } else if (state.rawArguments) {
     try {
       const parsed: unknown = JSON.parse(state.rawArguments);
-      if (!isJsonObject(parsed) || !jsonValuesEqual(parsed, rawArgumentsValue)) {
-        state.malformedReason = 'Tool arguments did not match their streamed JSON.';
+      const acceptedParsed = cloneBoundedJsonObject(parsed);
+      if (acceptedParsed === undefined || acceptedArguments === undefined || !jsonValuesEqual(acceptedParsed, acceptedArguments)) {
+        markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool arguments did not match their streamed JSON.');
       }
     } catch (_error) {
-      state.malformedReason = 'Tool arguments were malformed JSON.';
+      markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool arguments were malformed JSON.');
     }
   }
   state.ended = true;
@@ -904,16 +1041,58 @@ function finalizeToolCalls(
   stopReason: Exclude<RuntimeAssistantStopReason, 'error' | 'aborted'>,
 ): readonly AssembledToolCall[] {
   return accumulator.toolCalls.map((state) => {
-    if (!state.ended) state.malformedReason = state.malformedReason ?? 'Tool call was truncated before tool-call.end.';
-    if (stopReason === 'length') state.malformedReason = state.malformedReason ?? 'Tool call was truncated by the model output limit.';
+    if (!state.ended) {
+      markToolMalformed(state, 'RUNTIME_TOOL_TRUNCATED', 'Tool call was truncated before tool-call.end.');
+    }
+    if (!state.block.name.trim()) {
+      markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name was empty after tool-call.end.');
+    }
+    if (stopReason === 'length') {
+      state.malformedReason = 'Tool call was truncated by the model output limit.';
+      state.malformedCode = 'RUNTIME_TOOL_TRUNCATED';
+    }
     return {
       block: state.block,
       rawArguments: state.rawArguments,
       started: state.started,
       ended: state.ended,
       ...(state.malformedReason === undefined ? {} : { malformedReason: state.malformedReason }),
+      ...(state.malformedCode === undefined ? {} : { malformedCode: state.malformedCode }),
     };
   });
+}
+
+function validateSuccessfulProviderTerminal(
+  accumulator: AssistantAccumulator,
+  stopReason: Exclude<RuntimeAssistantStopReason, 'error' | 'aborted'>,
+): void {
+  if (!accumulator.responseStarted) {
+    throw new AgentLoopFailure(
+      'RUNTIME_PROVIDER_RESPONSE_START_MISSING',
+      'The model emitted response.done without response.start.',
+    );
+  }
+  for (const state of accumulator.states.values()) {
+    if ('type' in state && !state.ended) {
+      throw new AgentLoopFailure(
+        'RUNTIME_PROVIDER_CONTENT_UNFINISHED',
+        'The model emitted response.done before ending every text or thinking block.',
+      );
+    }
+  }
+  const toolCount = accumulator.toolCalls.length;
+  if (stopReason === 'tool-use' && toolCount === 0) {
+    throw new AgentLoopFailure(
+      'RUNTIME_PROVIDER_STOP_REASON_CONFLICT',
+      'The model reported tool-use without a Tool call.',
+    );
+  }
+  if (toolCount > 0 && stopReason !== 'tool-use' && stopReason !== 'length') {
+    throw new AgentLoopFailure(
+      'RUNTIME_PROVIDER_STOP_REASON_CONFLICT',
+      'The model emitted Tool calls with an incompatible stop reason.',
+    );
+  }
 }
 
 async function executeToolCall(options: {
@@ -930,10 +1109,35 @@ async function executeToolCall(options: {
 }> {
   const { input, controller, signal, turnId, call, projection } = options;
   const descriptor = projection.tools.find((tool) => tool.name === call.block.name);
+  const argumentFailure = descriptor
+    ? validateToolArguments(call.block.arguments, descriptor.inputSchema)
+    : undefined;
   const invalidReason = call.malformedReason
-    ?? (descriptor ? validateToolArguments(call.block.arguments, descriptor.inputSchema) : 'Tool is not in the active projection.');
+    ?? (descriptor ? argumentFailure : 'Tool is not in the active projection.');
+  const invalidCode = call.malformedCode
+    ?? (descriptor ? 'RUNTIME_TOOL_ARGUMENTS_INVALID' : 'RUNTIME_TOOL_NOT_PROJECTED');
   if (invalidReason) {
-    const message = createSyntheticToolFailureMessage(input, turnId, call.block, invalidReason);
+    // Pi e47b8e37a6211ebd0b2942fa87059d64f81eec02 emits a deterministic
+    // tool_execution_start -> tool_execution_end -> ToolResult lifecycle even
+    // when preparation fails or a response was truncated. DEF keeps that UI
+    // ordering while deliberately skipping the Host bridge.
+    await emit(controller, {
+      type: 'tool.start',
+      runId: input.runId,
+      defTurnId: input.defTurnId,
+      turnId,
+      call: call.block,
+    });
+    const message = createSyntheticToolFailureMessage(input, turnId, call.block, invalidCode, invalidReason);
+    await emit(controller, {
+      type: 'tool.end',
+      runId: input.runId,
+      defTurnId: input.defTurnId,
+      turnId,
+      toolCallId: call.block.toolCallId,
+      result: message.result,
+      nextProjectionRevision: projection.revision,
+    });
     await emitToolResultMessage(controller, input, message);
     return { projection, message };
   }
@@ -946,20 +1150,44 @@ async function executeToolCall(options: {
     call: call.block,
   });
 
-  const updatePromises: Promise<unknown>[] = [];
+  const updatePromises: Promise<void>[] = [];
   let acceptingUpdates = true;
+  let updateFailure: AgentLoopFailure | undefined;
   const onUpdate = (update: RuntimeToolUpdate): void | Promise<void> => {
-    if (!acceptingUpdates || signal.aborted || update.toolCallId !== call.block.toolCallId) return;
+    if (!acceptingUpdates || signal.aborted) return;
+    if (!isRecord(update) || update.toolCallId !== call.block.toolCallId) {
+      updateFailure ??= new AgentLoopFailure(
+        'RUNTIME_TOOL_UPDATE_INVALID',
+        'The Tool bridge emitted an update for a different Tool call.',
+      );
+      return;
+    }
+    const detail = cloneBoundedJsonValue(update.detail);
+    if (detail === undefined) {
+      updateFailure ??= new AgentLoopFailure(
+        'RUNTIME_TOOL_UPDATE_INVALID',
+        'The Tool bridge emitted an update outside the bounded JSON contract.',
+      );
+      return;
+    }
     const promise = emit(controller, {
       type: 'tool.update',
       runId: input.runId,
       defTurnId: input.defTurnId,
       turnId,
       toolCallId: update.toolCallId,
-      detail: update.detail,
-    });
+      detail,
+    }).then(
+      () => undefined,
+      () => {
+        updateFailure ??= new AgentLoopFailure(
+          'RUNTIME_TOOL_UPDATE_INVALID',
+          'The Tool bridge update could not be accepted by the Runtime.',
+        );
+      },
+    );
     updatePromises.push(promise);
-    return promise.then(() => undefined);
+    return promise;
   };
 
   let settlement: RuntimeToolSettlement;
@@ -976,21 +1204,23 @@ async function executeToolCall(options: {
       signal,
       onUpdate,
     );
-    settlement = await awaitWithAbort(pending, signal);
+    const returnedSettlement = await awaitWithAbort(pending, signal);
     acceptingUpdates = false;
-    await Promise.allSettled(updatePromises);
+    await Promise.all(updatePromises);
+    if (updateFailure) throw updateFailure;
     if (signal.aborted) throw createAbortError(signal);
-    validateSettlement(settlement, call.block.toolCallId);
+    settlement = cloneSettlement(returnedSettlement, call.block.toolCallId, projection.revision);
   } catch (error) {
     acceptingUpdates = false;
-    await Promise.allSettled(updatePromises);
-    const terminal = isAbortError(error) || signal.aborted
+    await Promise.all(updatePromises);
+    const acceptedError = updateFailure ?? error;
+    const terminal = isAbortError(acceptedError) || signal.aborted
       ? abortTerminal(signal)
       : {
           status: 'failed' as const,
-          code: error instanceof AgentLoopFailure ? error.code : 'RUNTIME_TOOL_BRIDGE_FAILED',
-          message: error instanceof AgentLoopFailure
-            ? error.messageForTerminal
+          code: acceptedError instanceof AgentLoopFailure ? acceptedError.code : 'RUNTIME_TOOL_BRIDGE_FAILED',
+          message: acceptedError instanceof AgentLoopFailure
+            ? acceptedError.messageForTerminal
             : 'The Tool bridge failed before returning an atomic settlement.',
         };
     const reason = terminal.status === 'aborted'
@@ -998,7 +1228,17 @@ async function executeToolCall(options: {
       : terminal.status === 'failed'
         ? terminal.message
         : 'The Tool bridge failed before returning an atomic settlement.';
-    const message = createSyntheticToolFailureMessage(input, turnId, call.block, reason);
+    const message = createSyntheticToolFailureMessage(
+      input,
+      turnId,
+      call.block,
+      terminal.status === 'aborted'
+        ? 'RUNTIME_TOOL_ABORTED'
+        : terminal.status === 'failed'
+          ? terminal.code
+          : 'RUNTIME_TOOL_FAILED',
+      reason,
+    );
     await emit(controller, {
       type: 'tool.end',
       runId: input.runId,
@@ -1035,22 +1275,19 @@ async function executeToolCall(options: {
     defTurnId: input.defTurnId,
     message,
   });
-  return { projection: cloneProjection(settlement.nextProjection), message };
+  return { projection: settlement.nextProjection, message };
 }
 
 function createSyntheticToolFailureMessage(
   input: AgentLoopInput,
   turnId: RuntimeTurnId,
   call: RuntimeToolCallBlock,
+  code: string,
   reason: string,
 ): RuntimeToolResultMessage {
   const result: RuntimeToolResultPayload = {
     status: 'failed',
-    code: reason.includes('active projection')
-      ? 'RUNTIME_TOOL_NOT_PROJECTED'
-      : reason.includes('truncated') || reason.includes('output limit')
-        ? 'RUNTIME_TOOL_TRUNCATED'
-        : 'RUNTIME_TOOL_ARGUMENTS_INVALID',
+    code: safeCode(code, 'RUNTIME_TOOL_FAILED'),
     message: safeProviderMessage(reason, input.connection.apiKey),
   };
   return createToolResultMessage(input, turnId, call, result);
@@ -1114,7 +1351,6 @@ async function closeOpenTurnAfterFailure(
   context: RuntimeMessage[],
   terminal: RuntimeRunTerminal,
   assistantIndex: number,
-  signal: CombinedAbortSignal,
 ): Promise<void> {
   if (controller.status !== 'running') return;
   const existingAssistant = [...context].reverse().find(
@@ -1172,7 +1408,6 @@ async function closeOpenTurnAfterFailure(
       message: assistant,
     });
   }
-  if (signal.aborted && terminal.status !== 'aborted') return;
   try {
     await finishTurn(controller, input, turnId, assistant, []);
   } catch (_error) {
@@ -1232,7 +1467,12 @@ function validateProviderEvent(event: ProviderStreamEvent): ProviderStreamEvent 
   }
   if (event.type === 'response.done' || event.type === 'response.error') {
     if (event.type === 'response.done') {
-      if (!['stop', 'length', 'tool-use'].includes(event.stopReason) || !validUsage(event.usage)) {
+      if (
+        !['stop', 'length', 'tool-use'].includes(event.stopReason)
+        || !validUsage(event.usage)
+        || !optionalBoundedProviderMetadata(event.responseId)
+        || !optionalBoundedProviderMetadata(event.responseModel)
+      ) {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_TERMINAL_INVALID', 'The model terminal was malformed.');
       }
     } else if (!validProviderFailure(event.failure)) {
@@ -1241,34 +1481,40 @@ function validateProviderEvent(event: ProviderStreamEvent): ProviderStreamEvent 
     return event;
   }
   if (event.type === 'response.start') {
-    if (event.responseId !== undefined && typeof event.responseId !== 'string') throw invalidProviderEvent();
-    if (event.responseModel !== undefined && typeof event.responseModel !== 'string') throw invalidProviderEvent();
+    if (!optionalBoundedProviderMetadata(event.responseId) || !optionalBoundedProviderMetadata(event.responseModel)) {
+      throw invalidProviderEvent();
+    }
     return event;
   }
   if ('contentIndex' in event) validateContentIndex(event.contentIndex);
   switch (event.type) {
     case 'text.delta':
     case 'thinking.delta':
-      if (typeof event.delta !== 'string') throw invalidProviderEvent();
+      if (typeof event.delta !== 'string' || event.delta.length > MAX_PROVIDER_STRING_CODE_UNITS) throw invalidProviderEvent();
       break;
     case 'text.end':
     case 'thinking.end':
-      if (typeof event.text !== 'string') throw invalidProviderEvent();
+      if (typeof event.text !== 'string' || event.text.length > MAX_PROVIDER_STRING_CODE_UNITS) throw invalidProviderEvent();
+      if (event.type === 'thinking.end' && event.redacted !== undefined && typeof event.redacted !== 'boolean') {
+        throw invalidProviderEvent();
+      }
       break;
     case 'tool-call.start':
-      if (typeof event.name !== 'string' || !nonEmptyString(event.toolCallId)) throw invalidProviderEvent();
+      if (typeof event.name !== 'string' || !boundedNonEmptyString(event.toolCallId, 256)) throw invalidProviderEvent();
       break;
     case 'tool-call.delta':
-      if (!nonEmptyString(event.toolCallId) || typeof event.nameDelta !== 'string' || typeof event.argumentsDelta !== 'string') {
+      if (!boundedNonEmptyString(event.toolCallId, 256) || typeof event.nameDelta !== 'string' || typeof event.argumentsDelta !== 'string') {
         throw invalidProviderEvent();
       }
       break;
     case 'tool-call.end':
-      if (!nonEmptyString(event.toolCallId) || typeof event.name !== 'string') throw invalidProviderEvent();
+      if (!boundedNonEmptyString(event.toolCallId, 256) || typeof event.name !== 'string') throw invalidProviderEvent();
       break;
     case 'text.start':
     case 'thinking.start':
       break;
+    default:
+      throw invalidProviderEvent();
   }
   return event;
 }
@@ -1291,13 +1537,31 @@ function optionalUsageNumber(value: unknown): boolean {
   return value === undefined || isNonNegativeInteger(value);
 }
 
+function cloneUsage(value: RuntimeUsage): RuntimeUsage {
+  return {
+    inputTokens: value.inputTokens,
+    outputTokens: value.outputTokens,
+    totalTokens: value.totalTokens,
+    ...(value.reasoningTokens === undefined ? {} : { reasoningTokens: value.reasoningTokens }),
+    ...(value.cacheReadTokens === undefined ? {} : { cacheReadTokens: value.cacheReadTokens }),
+    ...(value.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: value.cacheWriteTokens }),
+  };
+}
+
 function validProviderFailure(value: ProviderFailure): boolean {
   return isRecord(value)
-    && typeof value.kind === 'string'
+    && ['authentication', 'bad-request', 'rate-limit', 'server', 'network', 'context-overflow', 'malformed-response', 'aborted', 'unknown'].includes(value.kind)
     && typeof value.code === 'string'
+    && value.code.length <= 128
     && typeof value.message === 'string'
+    && value.message.length <= MAX_PROVIDER_METADATA_CODE_UNITS
     && typeof value.retryable === 'boolean'
     && (value.statusCode === undefined || isNonNegativeInteger(value.statusCode));
+}
+
+function optionalBoundedProviderMetadata(value: unknown): boolean {
+  return value === undefined
+    || (typeof value === 'string' && value.length <= MAX_PROVIDER_METADATA_CODE_UNITS && !/[\u0000-\u001f\u007f]/u.test(value));
 }
 
 function validateContentIndex(value: unknown): asserts value is number {
@@ -1306,35 +1570,57 @@ function validateContentIndex(value: unknown): asserts value is number {
   }
 }
 
-function validateSettlement(settlement: RuntimeToolSettlement, toolCallId: ToolCallId): void {
-  if (!isRecord(settlement) || settlement.toolCallId !== toolCallId || !isRecord(settlement.nextProjection)) {
+function cloneSettlement(
+  settlement: RuntimeToolSettlement,
+  toolCallId: ToolCallId,
+  currentProjectionRevision: number,
+): RuntimeToolSettlement {
+  if (!isRecord(settlement) || settlement.toolCallId !== toolCallId) {
     throw new AgentLoopFailure('RUNTIME_TOOL_SETTLEMENT_INVALID', 'The Tool bridge did not return an atomic settlement.');
   }
-  if (!isToolResultPayload(settlement.result)) {
-    throw new AgentLoopFailure('RUNTIME_TOOL_SETTLEMENT_INVALID', 'The Tool bridge result was malformed.');
+  const result = cloneToolResultPayload(settlement.result);
+  const nextProjection = cloneProjection(settlement.nextProjection);
+  if (nextProjection.revision < currentProjectionRevision) {
+    throw new AgentLoopFailure(
+      'RUNTIME_TOOL_PROJECTION_REVISION_REGRESSION',
+      'The Tool bridge returned a projection revision older than the accepted projection.',
+    );
   }
-  validateProjection(settlement.nextProjection);
+  return { toolCallId, result, nextProjection };
 }
 
 function validateProjection(projection: RuntimeToolProjection): void {
-  if (!isRecord(projection) || !isNonNegativeInteger(projection.revision) || !Array.isArray(projection.tools)) {
-    throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
-  }
-  const names = new Set<string>();
-  for (const tool of projection.tools) {
-    if (!isRecord(tool) || typeof tool.name !== 'string' || !tool.name || names.has(tool.name) || !isRecord(tool.inputSchema)) {
-      throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
-    }
-    names.add(tool.name);
-  }
+  void cloneProjection(projection);
 }
 
-function isToolResultPayload(value: unknown): value is RuntimeToolResultPayload {
-  if (!isRecord(value) || (value.status !== 'succeeded' && value.status !== 'failed')) return false;
-  if (value.status === 'succeeded') return isJsonValue(value.output);
-  return typeof value.code === 'string'
-    && typeof value.message === 'string'
-    && (value.details === undefined || isJsonValue(value.details));
+function cloneToolResultPayload(value: unknown): RuntimeToolResultPayload {
+  if (!isRecord(value)) throw invalidToolSettlement();
+  if (value.status === 'succeeded') {
+    const output = cloneBoundedJsonValue(value.output);
+    if (output === undefined) throw invalidToolSettlement();
+    return { status: 'succeeded', output };
+  }
+  if (
+    value.status !== 'failed'
+    || typeof value.code !== 'string'
+    || !/^[A-Za-z0-9._-]{1,128}$/u.test(value.code)
+    || typeof value.message !== 'string'
+    || value.message.length > MAX_PROVIDER_METADATA_CODE_UNITS
+  ) {
+    throw invalidToolSettlement();
+  }
+  const details = value.details === undefined ? undefined : cloneBoundedJsonValue(value.details);
+  if (value.details !== undefined && details === undefined) throw invalidToolSettlement();
+  return {
+    status: 'failed',
+    code: value.code,
+    message: value.message,
+    ...(details === undefined ? {} : { details }),
+  };
+}
+
+function invalidToolSettlement(): AgentLoopFailure {
+  return new AgentLoopFailure('RUNTIME_TOOL_SETTLEMENT_INVALID', 'The Tool bridge result was malformed.');
 }
 
 function validateToolArguments(value: JsonObject, schema: JsonObject): string | undefined {
@@ -1389,14 +1675,45 @@ function schemaTypeMatches(value: JsonValue, type: string): boolean {
 }
 
 function cloneProjection(projection: RuntimeToolProjection): RuntimeToolProjection {
+  if (
+    !isRecord(projection)
+    || !isNonNegativeInteger(projection.revision)
+    || !Array.isArray(projection.tools)
+    || projection.tools.length > MAX_TOOL_COUNT
+  ) {
+    throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
+  }
+  const names = new Set<string>();
   return {
     revision: projection.revision,
-    tools: projection.tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: tool.inputSchema,
-      risk: tool.risk,
-    } satisfies RuntimeToolDescriptor)),
+    tools: projection.tools.map((tool) => {
+      if (
+        !isRecord(tool)
+        || typeof tool.name !== 'string'
+        || !tool.name
+        || tool.name !== tool.name.trim()
+        || tool.name.length > MAX_TOOL_NAME_CODE_UNITS
+        || /[\u0000-\u001f\u007f]/u.test(tool.name)
+        || names.has(tool.name)
+        || typeof tool.description !== 'string'
+        || tool.description.length > MAX_TOOL_DESCRIPTION_CODE_UNITS
+        || tool.description.includes('\u0000')
+        || (tool.risk !== 'read' && tool.risk !== 'propose' && tool.risk !== 'mutate')
+      ) {
+        throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
+      }
+      const inputSchema = cloneBoundedJsonObject(tool.inputSchema);
+      if (inputSchema === undefined) {
+        throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
+      }
+      names.add(tool.name);
+      return {
+        name: tool.name,
+        description: tool.description,
+        inputSchema,
+        risk: tool.risk,
+      } satisfies RuntimeToolDescriptor;
+    }),
   };
 }
 
@@ -1496,35 +1813,99 @@ function emit<T extends RuntimeEventDraft>(controller: RuntimeRunController, dra
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
-  if (!isRecord(value)) return false;
-  return isJsonValue(value);
+  return isRecord(value) && cloneBoundedJsonObject(value) !== undefined;
 }
 
-function isJsonValue(value: unknown, depth = 0, seen = new WeakSet<object>()): value is JsonValue {
-  if (depth > 16) return false;
-  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
-  if (typeof value === 'number') return Number.isFinite(value);
-  if (typeof value !== 'object') return false;
-  if (seen.has(value)) return false;
+interface JsonCloneBudget {
+  nodes: number;
+  codeUnits: number;
+}
+
+function cloneBoundedJsonValue(value: unknown): JsonValue | undefined {
+  try {
+    return cloneBoundedJsonNode(value, 0, { nodes: 0, codeUnits: 0 }, new WeakSet<object>());
+  } catch (_error) {
+    return undefined;
+  }
+}
+
+function cloneBoundedJsonObject(value: unknown): JsonObject | undefined {
+  const cloned = cloneBoundedJsonValue(value);
+  return isRecord(cloned) ? cloned as JsonObject : undefined;
+}
+
+function cloneBoundedJsonNode(
+  value: unknown,
+  depth: number,
+  budget: JsonCloneBudget,
+  seen: WeakSet<object>,
+): JsonValue | undefined {
+  budget.nodes += 1;
+  if (budget.nodes > MAX_JSON_NODES || depth > MAX_JSON_DEPTH) return undefined;
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+  if (typeof value === 'string') {
+    budget.codeUnits += value.length;
+    return value.length <= MAX_JSON_STRING_CODE_UNITS && budget.codeUnits <= MAX_JSON_TOTAL_CODE_UNITS
+      ? value
+      : undefined;
+  }
+  if (typeof value !== 'object' || seen.has(value)) return undefined;
   seen.add(value);
-  if (Array.isArray(value)) return value.every((item) => isJsonValue(item, depth + 1, seen));
-  return Object.values(value).every((item) => isJsonValue(item, depth + 1, seen));
+  if (Array.isArray(value)) {
+    if (value.length > MAX_JSON_CONTAINER_ITEMS) return undefined;
+    const output: JsonValue[] = [];
+    for (const item of value) {
+      const cloned = cloneBoundedJsonNode(item, depth + 1, budget, seen);
+      if (cloned === undefined) return undefined;
+      output.push(cloned);
+    }
+    seen.delete(value);
+    return output;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return undefined;
+  const entries = Object.entries(value);
+  if (entries.length > MAX_JSON_CONTAINER_ITEMS) return undefined;
+  const output: Record<string, JsonValue> = {};
+  for (const [key, item] of entries) {
+    budget.codeUnits += key.length;
+    if (key.length > MAX_JSON_STRING_CODE_UNITS || budget.codeUnits > MAX_JSON_TOTAL_CODE_UNITS) return undefined;
+    const cloned = cloneBoundedJsonNode(item, depth + 1, budget, seen);
+    if (cloned === undefined) return undefined;
+    Object.defineProperty(output, key, {
+      value: cloned,
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  seen.delete(value);
+  return output;
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+  return cloneBoundedJsonValue(value) !== undefined;
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
   if (!isJsonValue(left) || !isJsonValue(right)) return false;
+  return acceptedJsonValuesEqual(left, right);
+}
+
+function acceptedJsonValuesEqual(left: JsonValue, right: JsonValue): boolean {
   if (left === right) return true;
   if (Array.isArray(left) || Array.isArray(right)) {
     return Array.isArray(left)
       && Array.isArray(right)
       && left.length === right.length
-      && left.every((value, index) => jsonValuesEqual(value, right[index]));
+      && left.every((value, index) => acceptedJsonValuesEqual(value, right[index]!));
   }
   if (isJsonObject(left) && isJsonObject(right)) {
     const leftKeys = Object.keys(left).sort();
     const rightKeys = Object.keys(right).sort();
     return leftKeys.length === rightKeys.length
-      && leftKeys.every((key, index) => key === rightKeys[index] && jsonValuesEqual(left[key], right[key]));
+      && leftKeys.every((key, index) => key === rightKeys[index] && acceptedJsonValuesEqual(left[key]!, right[key]!));
   }
   return false;
 }
@@ -1541,8 +1922,8 @@ function isNonNegativeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
-function nonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+function boundedNonEmptyString(value: unknown, maxCodeUnits: number): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= maxCodeUnits;
 }
 
 interface CombinedAbortSignal extends AbortSignal {

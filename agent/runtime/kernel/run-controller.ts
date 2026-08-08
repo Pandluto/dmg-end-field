@@ -6,7 +6,7 @@
  * persistence or Host knowledge; a Session implementation can subscribe to
  * the marker callback and decide how to append entries later.
  */
-import type { DefTurnId } from '../../core/contracts/ids.ts';
+import type { DefTurnId, ToolCallId } from '../../core/contracts/ids.ts';
 import type { RuntimeRunMarkerEntry } from './session/entries.ts';
 import type {
   RuntimeEvent,
@@ -27,7 +27,20 @@ import type {
   RuntimeMessage,
   RuntimeMessageStart,
 } from './messages.ts';
-import type { ToolCallId } from '../../core/contracts/ids.ts';
+
+interface RuntimeMessageRecord {
+  readonly role: RuntimeMessageStart['role'];
+  readonly defTurnId: DefTurnId;
+  readonly messageDefTurnId: DefTurnId | undefined;
+  readonly turnId: RuntimeTurnId | undefined;
+  readonly assistantDraft: boolean;
+  readonly state: 'open' | 'ended' | 'abandoned';
+}
+
+interface RuntimeToolRecord {
+  readonly turnId: RuntimeTurnId;
+  readonly state: 'running' | 'ended' | 'abandoned';
+}
 
 type RuntimeEventEnvelopeKey = 'sessionId' | 'sequence' | 'occurredAt' | 'runOrdinal';
 
@@ -89,10 +102,11 @@ export class RuntimeRunController {
   private readonly emittedEvents: RuntimeEvent[] = [];
   private readonly emittedMarkers: RuntimeRunMarkerEntry[] = [];
   private readonly listenerFailures: unknown[] = [];
-  private readonly messageTurns = new Map<RuntimeMessageId, DefTurnId>();
-  private readonly messageStates = new Map<RuntimeMessageId, 'open' | 'ended'>();
-  private readonly toolStates = new Map<ToolCallId, 'running' | 'ended'>();
+  private readonly messageRecords = new Map<RuntimeMessageId, RuntimeMessageRecord>();
+  private readonly toolRecords = new Map<ToolCallId, RuntimeToolRecord>();
+  private readonly seenTurnIds = new Set<RuntimeTurnId>();
   private dispatchTail: Promise<void> = Promise.resolve();
+  private settlingListeners = false;
   private externalAbortCleanup: (() => void) | undefined;
   private state: RuntimeRunControllerState = 'created';
   private terminalReserved = false;
@@ -172,6 +186,7 @@ export class RuntimeRunController {
   }
 
   async start(): Promise<RuntimeEvent> {
+    this.rejectListenerReentry('start');
     if (this.state !== 'created') {
       throw new RuntimeRunProtocolError('RUNTIME_RUN_START_DUPLICATE', 'Runtime run.start is not unique.');
     }
@@ -187,32 +202,37 @@ export class RuntimeRunController {
   }
 
   async emit(draft: RuntimeEventDraft): Promise<RuntimeEvent> {
+    this.rejectListenerReentry('emit');
     if (this.state !== 'running' || this.terminalReserved) {
       throw new RuntimeRunProtocolError('RUNTIME_EVENT_AFTER_TERMINAL', 'Runtime event arrived after the run terminal.');
     }
     this.validateDraft(draft);
+    // Commit correlation state before listeners can observe the event. This is
+    // the Runtime adaptation of Pi's push-before-callback event ordering.
+    this.commitDraftState(draft);
     const event = this.allocateEvent(draft);
     await this.dispatch(event);
-    this.commitDraftState(draft);
     return event;
   }
 
   /** Publish the only run.end event, after all previous event listeners settle. */
   async finish(terminal: RuntimeRunTerminal): Promise<RuntimeEvent> {
-    if (this.state !== 'running') {
-      throw new RuntimeRunProtocolError('RUNTIME_RUN_NOT_RUNNING', 'Runtime run.end requires a running run.');
-    }
+    this.rejectListenerReentry('finish');
     if (this.terminalReserved) {
       throw new RuntimeRunProtocolError('RUNTIME_TERMINAL_DUPLICATE', 'Runtime run terminal is not unique.');
     }
-    if (this.activeTurnId !== null || this.toolStatesHasRunning()) {
-      throw new RuntimeRunProtocolError('RUNTIME_RUN_OPEN_WORK', 'Runtime run cannot end with an open turn or Tool.');
+    if (this.state !== 'running') {
+      throw new RuntimeRunProtocolError('RUNTIME_RUN_NOT_RUNNING', 'Runtime run.end requires a running run.');
+    }
+    if (this.activeTurnId !== null || this.toolStatesHasRunning() || this.messageStatesHasOpen()) {
+      throw new RuntimeRunProtocolError('RUNTIME_RUN_OPEN_WORK', 'Runtime run cannot end with an open turn, message, or Tool.');
     }
 
     this.terminalReserved = true;
     const safeTerminal = sanitizeTerminal(terminal);
     this.terminalValue = safeTerminal;
     await this.dispatchTail;
+    this.state = 'terminal';
     await this.publishMarker('end', safeTerminal);
     const event = this.allocateEvent({
       type: 'run.end',
@@ -221,10 +241,39 @@ export class RuntimeRunController {
       terminal: safeTerminal,
     });
     await this.dispatch(event);
-    this.state = 'terminal';
     this.externalAbortCleanup?.();
     this.externalAbortCleanup = undefined;
     return event;
+  }
+
+  /**
+   * Last-resort terminal publication for an already failed/aborted loop.
+   * Normal `finish()` remains strict. This path only abandons state that the
+   * caller already tried to close, so a protocol-repair failure cannot leave a
+   * started run without its sole run.end.
+   */
+  async finishAfterFailure(terminal: RuntimeRunTerminal): Promise<RuntimeEvent> {
+    this.rejectListenerReentry('finishAfterFailure');
+    if (this.terminalReserved) {
+      throw new RuntimeRunProtocolError('RUNTIME_TERMINAL_DUPLICATE', 'Runtime run terminal is not unique.');
+    }
+    if (terminal.status === 'completed') {
+      throw new RuntimeRunProtocolError(
+        'RUNTIME_TERMINAL_REPAIR_INVALID',
+        'Runtime recovery can only publish a failed or aborted terminal.',
+      );
+    }
+    if (this.state !== 'running') {
+      throw new RuntimeRunProtocolError('RUNTIME_RUN_NOT_RUNNING', 'Runtime run.end requires a running run.');
+    }
+    for (const [messageId, record] of this.messageRecords) {
+      if (record.state === 'open') this.messageRecords.set(messageId, { ...record, state: 'abandoned' });
+    }
+    for (const [toolCallId, record] of this.toolRecords) {
+      if (record.state === 'running') this.toolRecords.set(toolCallId, { ...record, state: 'abandoned' });
+    }
+    this.activeTurnId = null;
+    return this.finish(terminal);
   }
 
   dispose(): void {
@@ -233,6 +282,7 @@ export class RuntimeRunController {
   }
 
   async waitForIdle(): Promise<void> {
+    this.rejectListenerReentry('waitForIdle');
     await this.dispatchTail;
   }
 
@@ -258,6 +308,7 @@ export class RuntimeRunController {
     await previous;
     try {
       this.emittedEvents.push(event);
+      this.settlingListeners = true;
       const settlements = await Promise.allSettled(
         [...this.listeners].map((listener) => Promise.resolve().then(() => listener(event))),
       );
@@ -265,6 +316,7 @@ export class RuntimeRunController {
         if (settlement.status === 'rejected') this.listenerFailures.push(settlement.reason);
       }
     } finally {
+      this.settlingListeners = false;
       release();
     }
   }
@@ -302,11 +354,16 @@ export class RuntimeRunController {
         };
     this.emittedMarkers.push(marker);
     this.markerParentId = marker.id;
-    const settlements = await Promise.allSettled(
-      [...this.markerListeners].map((listener) => Promise.resolve().then(() => listener(marker))),
-    );
-    for (const settlement of settlements) {
-      if (settlement.status === 'rejected') this.listenerFailures.push(settlement.reason);
+    this.settlingListeners = true;
+    try {
+      const settlements = await Promise.allSettled(
+        [...this.markerListeners].map((listener) => Promise.resolve().then(() => listener(marker))),
+      );
+      for (const settlement of settlements) {
+        if (settlement.status === 'rejected') this.listenerFailures.push(settlement.reason);
+      }
+    } finally {
+      this.settlingListeners = false;
     }
   }
 
@@ -318,11 +375,18 @@ export class RuntimeRunController {
       );
     }
 
-    if ('runId' in draft && draft.runId !== undefined && draft.runId !== this.runId) {
-      throw new RuntimeRunProtocolError('RUNTIME_RUN_ID_CONFLICT', 'Runtime event changed runId.');
+    const compactionEvent = draft.type === 'compaction.start' || draft.type === 'compaction.end';
+    if (
+      (!compactionEvent && (!('runId' in draft) || draft.runId !== this.runId))
+      || (compactionEvent && 'runId' in draft && draft.runId !== undefined && draft.runId !== this.runId)
+    ) {
+      throw new RuntimeRunProtocolError('RUNTIME_RUN_ID_CONFLICT', 'Runtime event changed or omitted runId.');
     }
-    if ('defTurnId' in draft && draft.defTurnId !== undefined && draft.defTurnId !== this.defTurnId) {
-      throw new RuntimeRunProtocolError('RUNTIME_DEF_TURN_ID_CONFLICT', 'Runtime event changed defTurnId.');
+    if (
+      (!compactionEvent && (!('defTurnId' in draft) || draft.defTurnId !== this.defTurnId))
+      || (compactionEvent && 'defTurnId' in draft && draft.defTurnId !== undefined && draft.defTurnId !== this.defTurnId)
+    ) {
+      throw new RuntimeRunProtocolError('RUNTIME_DEF_TURN_ID_CONFLICT', 'Runtime event changed or omitted defTurnId.');
     }
 
     switch (draft.type) {
@@ -330,14 +394,30 @@ export class RuntimeRunController {
         if (this.activeTurnId !== null) {
           throw new RuntimeRunProtocolError('RUNTIME_TURN_DUPLICATE', 'Runtime turn.start arrived before turn.end.');
         }
-        this.lastTurnId = draft.turnId;
+        if (this.seenTurnIds.has(draft.turnId)) {
+          throw new RuntimeRunProtocolError('RUNTIME_TURN_ID_DUPLICATE', 'Runtime turnId is not unique within its run.');
+        }
         break;
       case 'turn.end':
         this.requireActiveTurn(draft.turnId);
+        if (this.messageStatesHasOpen()) {
+          throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_OPEN', 'Runtime turn.end arrived before every message settled.');
+        }
         this.requireAssistantEnded(draft.assistantMessage);
-        for (const messageId of draft.toolResultMessageIds) {
-          if (this.messageStates.get(messageId) !== 'ended') {
-            throw new RuntimeRunProtocolError('RUNTIME_TOOL_RESULT_OPEN', 'Runtime turn.end referenced an open Tool result.');
+        {
+          const referenced = new Set<RuntimeMessageId>();
+          for (const messageId of draft.toolResultMessageIds) {
+            if (referenced.has(messageId)) {
+              throw new RuntimeRunProtocolError('RUNTIME_TOOL_RESULT_DUPLICATE', 'Runtime turn.end repeated a Tool result message.');
+            }
+            referenced.add(messageId);
+            const record = this.messageRecords.get(messageId);
+            if (record?.state !== 'ended' || record.role !== 'tool-result' || record.turnId !== draft.turnId) {
+              throw new RuntimeRunProtocolError(
+                'RUNTIME_TOOL_RESULT_INVALID',
+                'Runtime turn.end referenced a message that is not an ended Tool result from this turn.',
+              );
+            }
           }
         }
         if (this.toolStatesHasRunning()) {
@@ -355,15 +435,18 @@ export class RuntimeRunController {
         break;
       case 'tool.start':
         this.requireActiveTurn(draft.turnId);
-        if (this.toolStates.has(draft.call.toolCallId)) {
+        if (this.toolRecords.has(draft.call.toolCallId)) {
           throw new RuntimeRunProtocolError('RUNTIME_TOOL_DUPLICATE', 'Runtime Tool call is not unique.');
         }
         break;
       case 'tool.update':
       case 'tool.end':
         this.requireActiveTurn(draft.turnId);
-        if (this.toolStates.get(draft.toolCallId) !== 'running') {
-          throw new RuntimeRunProtocolError('RUNTIME_TOOL_LATE_EVENT', 'Runtime Tool event arrived after settlement.');
+        {
+          const record = this.toolRecords.get(draft.toolCallId);
+          if (record?.state !== 'running' || record.turnId !== draft.turnId) {
+            throw new RuntimeRunProtocolError('RUNTIME_TOOL_LATE_EVENT', 'Runtime Tool event arrived after settlement.');
+          }
         }
         break;
       case 'retry.scheduled':
@@ -382,18 +465,36 @@ export class RuntimeRunController {
     switch (draft.type) {
       case 'turn.start':
         this.activeTurnId = draft.turnId;
+        this.lastTurnId = draft.turnId;
+        this.seenTurnIds.add(draft.turnId);
         break;
       case 'turn.end':
         this.activeTurnId = null;
         break;
+      case 'message.start':
+        this.messageRecords.set(draft.message.id, {
+          role: draft.message.role,
+          defTurnId: draft.defTurnId,
+          messageDefTurnId: draft.message.defTurnId,
+          turnId: draft.message.turnId,
+          assistantDraft: draft.message.role === 'assistant',
+          state: 'open',
+        });
+        break;
       case 'message.end':
-        this.messageStates.set(draft.message.id, 'ended');
+        this.messageRecords.set(draft.message.id, {
+          ...this.messageRecords.get(draft.message.id)!,
+          state: 'ended',
+        });
         break;
       case 'tool.start':
-        this.toolStates.set(draft.call.toolCallId, 'running');
+        this.toolRecords.set(draft.call.toolCallId, { turnId: draft.turnId, state: 'running' });
         break;
       case 'tool.end':
-        this.toolStates.set(draft.toolCallId, 'ended');
+        this.toolRecords.set(draft.toolCallId, {
+          ...this.toolRecords.get(draft.toolCallId)!,
+          state: 'ended',
+        });
         break;
       default:
         break;
@@ -401,25 +502,46 @@ export class RuntimeRunController {
   }
 
   private validateMessageStart(message: RuntimeMessageStart, eventDefTurnId: DefTurnId): void {
-    if (this.messageStates.has(message.id)) {
+    if (this.messageRecords.has(message.id)) {
       throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_DUPLICATE', 'Runtime message.start is not unique.');
     }
-    if (message.role !== 'compaction' && message.defTurnId !== eventDefTurnId) {
+    if (message.defTurnId !== undefined && message.defTurnId !== eventDefTurnId) {
       throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_DEF_TURN_ID_CONFLICT', 'Runtime message changed defTurnId.');
     }
-    this.messageTurns.set(message.id, message.role === 'compaction' ? eventDefTurnId : message.defTurnId);
-    this.messageStates.set(message.id, 'open');
+    if (message.role !== 'compaction') {
+      this.requireActiveTurn(message.turnId);
+      if (message.defTurnId !== eventDefTurnId) {
+        throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_DEF_TURN_ID_CONFLICT', 'Runtime message changed defTurnId.');
+      }
+    } else if (message.turnId !== undefined) {
+      this.requireActiveTurn(message.turnId);
+    }
   }
 
   private validateMessageUpdate(messageId: RuntimeMessageId, eventDefTurnId: DefTurnId): void {
-    if (this.messageStates.get(messageId) !== 'open' || this.messageTurns.get(messageId) !== eventDefTurnId) {
+    const record = this.messageRecords.get(messageId);
+    if (record?.state !== 'open' || record.defTurnId !== eventDefTurnId || !record.assistantDraft || record.role !== 'assistant') {
       throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_LATE_EVENT', 'Runtime message.update arrived outside its message.');
     }
+    if (record.turnId === undefined) {
+      throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_TURN_CONFLICT', 'Runtime assistant draft has no turnId.');
+    }
+    this.requireActiveTurn(record.turnId);
   }
 
   private validateMessageEnd(message: RuntimeMessage, eventDefTurnId: DefTurnId): void {
-    if (this.messageStates.get(message.id) !== 'open' || this.messageTurns.get(message.id) !== eventDefTurnId) {
+    const record = this.messageRecords.get(message.id);
+    if (record?.state !== 'open' || record.defTurnId !== eventDefTurnId) {
       throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_LATE_EVENT', 'Runtime message.end arrived outside its message.');
+    }
+    if (message.role !== record.role) {
+      throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_ROLE_CONFLICT', 'Runtime message.end changed message role.');
+    }
+    if (message.defTurnId !== record.messageDefTurnId || message.turnId !== record.turnId) {
+      throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_TURN_CONFLICT', 'Runtime message.end changed message turn correlation.');
+    }
+    if (message.role !== 'compaction') {
+      this.requireActiveTurn(message.turnId);
     }
     if (message.role !== 'compaction' && message.defTurnId !== eventDefTurnId) {
       throw new RuntimeRunProtocolError('RUNTIME_MESSAGE_DEF_TURN_ID_CONFLICT', 'Runtime message.end changed defTurnId.');
@@ -433,14 +555,36 @@ export class RuntimeRunController {
   }
 
   private requireAssistantEnded(message: RuntimeAssistantMessage): void {
-    if (message.defTurnId !== this.defTurnId || this.messageStates.get(message.id) !== 'ended') {
+    const record = this.messageRecords.get(message.id);
+    if (
+      message.defTurnId !== this.defTurnId
+      || message.turnId !== this.activeTurnId
+      || record?.state !== 'ended'
+      || record.role !== 'assistant'
+      || record.turnId !== this.activeTurnId
+      || record.defTurnId !== this.defTurnId
+    ) {
       throw new RuntimeRunProtocolError('RUNTIME_ASSISTANT_NOT_SETTLED', 'Runtime turn.end referenced an unsettled assistant message.');
     }
   }
 
   private toolStatesHasRunning(): boolean {
-    for (const state of this.toolStates.values()) if (state === 'running') return true;
+    for (const record of this.toolRecords.values()) if (record.state === 'running') return true;
     return false;
+  }
+
+  private messageStatesHasOpen(): boolean {
+    for (const record of this.messageRecords.values()) if (record.state === 'open') return true;
+    return false;
+  }
+
+  private rejectListenerReentry(operation: string): void {
+    if (this.settlingListeners) {
+      throw new RuntimeRunProtocolError(
+        'RUNTIME_LISTENER_REENTRANT',
+        `Runtime listener cannot call ${operation} while its event is settling.`,
+      );
+    }
   }
 }
 
