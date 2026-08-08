@@ -15,10 +15,25 @@
 
   const element = (id) => document.getElementById(id);
   const message = element('message');
+  const agentProfileMessage = element('agent-profile-message');
 
   function setMessage(value, isError = false) {
     message.textContent = value;
     message.classList.toggle('is-error', isError);
+  }
+
+  function setAgentProfileMessage(value, status = 'neutral') {
+    agentProfileMessage.textContent = value;
+    agentProfileMessage.classList.toggle('is-error', status === 'error');
+    agentProfileMessage.classList.toggle('is-success', status === 'success');
+  }
+
+  function agentProfilePayload() {
+    return {
+      apiKey: element('agent-api-key').value,
+      baseUrl: element('agent-base-url').value,
+      modelId: element('agent-model-id').value,
+    };
   }
 
   function errorMessage(error) {
@@ -31,6 +46,7 @@
       'open-browser',
       'open-mcp-fill',
       'open-agent-mode',
+      'test-agent-profile',
       'save-agent-profile',
       'pick-image-source',
       'pick-data-source',
@@ -210,13 +226,9 @@
   });
   element('save-agent-profile').addEventListener('click', async () => {
     setBusy(true);
-    setMessage('正在验证 Provider 配置并安全切换 Agent…');
+    setAgentProfileMessage('正在测试 API Key、Base URL 与模型，并安全切换 Agent…');
     try {
-      const result = await host.saveAgentProfile({
-        apiKey: element('agent-api-key').value,
-        baseUrl: element('agent-base-url').value,
-        modelId: element('agent-model-id').value,
-      });
+      const result = await host.saveAgentProfile(agentProfilePayload());
       if (!result?.ok) {
         const error = new Error(result?.error || 'Provider 配置保存失败。');
         error.code = result?.code || 'AGENT_PROVIDER_UPDATE_FAILED';
@@ -225,12 +237,29 @@
       element('agent-api-key').value = '';
       renderAgentProfile(result.profile);
       renderAgentState(result.runtime || await host.getAgentState());
-      setMessage(result.changed === false
-        ? `Agent Provider 未发生变化：${result.profile.modelId}`
-        : `Agent Provider 已验证并切换：${result.profile.modelId}`);
+      setAgentProfileMessage(result.changed === false
+        ? `连接验证通过，当前配置无需切换：${result.profile.modelId}`
+        : `连接验证通过，Agent Provider 已切换：${result.profile.modelId}`, 'success');
     } catch (error) {
-      setMessage(errorMessage(error), true);
+      setAgentProfileMessage(errorMessage(error), 'error');
       renderAgentState(await host.getAgentState().catch(() => null));
+    } finally {
+      setBusy(false);
+    }
+  });
+  element('test-agent-profile').addEventListener('click', async () => {
+    setBusy(true);
+    setAgentProfileMessage('正在测试 API Key、Base URL 与模型可用性…');
+    try {
+      const result = await host.testAgentProfile(agentProfilePayload());
+      if (!result?.ok) {
+        const error = new Error(result?.error || 'Provider 连接测试失败。');
+        error.code = result?.code || 'AGENT_PROVIDER_PROBE_FAILED';
+        throw error;
+      }
+      setAgentProfileMessage(`连接测试通过：${result.profile.modelId}`, 'success');
+    } catch (error) {
+      setAgentProfileMessage(errorMessage(error), 'error');
     } finally {
       setBusy(false);
     }

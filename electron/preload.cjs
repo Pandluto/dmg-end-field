@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('desktopHost', Object.freeze({
   openMcpFill: () => invoke('desktop:open-mcp-fill'),
   getAgentState: () => invoke('desktop:get-agent-state'),
   getAgentProfile: () => invoke('desktop:get-agent-profile'),
+  testAgentProfile: (profile) => invoke('desktop:test-agent-profile', profile),
   saveAgentProfile: (profile) => invoke('desktop:save-agent-profile', profile),
   openAgentMode: () => invoke('desktop:open-agent-mode'),
   quit: () => invoke('desktop:quit'),

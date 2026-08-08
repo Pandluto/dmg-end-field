@@ -286,6 +286,14 @@ code {
   color: var(--danger);
 }
 
+.message.is-success {
+  color: var(--accent);
+}
+
+.agent-profile-message {
+  margin-bottom: 0;
+}
+
 footer {
   padding: 4px 2px 10px;
   color: var(--muted);

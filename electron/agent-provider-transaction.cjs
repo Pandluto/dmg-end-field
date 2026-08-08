@@ -19,6 +19,59 @@ class AgentProviderUpdateError extends Error {
   }
 }
 
+const PROVIDER_PROBE_MESSAGES = Object.freeze({
+  AGENT_PROVIDER_AUTH_FAILED: 'Provider API Key 验证失败，请检查 Key 与 Base URL。',
+  AGENT_PROVIDER_MODEL_UNAVAILABLE: 'Provider 可以连接，但所选模型不在当前可用目录中。',
+  AGENT_PROVIDER_PROBE_FAILED: 'Provider 连接测试失败，请检查 Base URL 与服务状态。',
+  AGENT_PROVIDER_PROBE_TIMEOUT: 'Provider 连接测试超时，请检查网络或 Base URL。',
+  AGENT_PROVIDER_PROBE_UNAVAILABLE: '当前环境无法执行 Provider 连接测试。',
+});
+
+async function testAgentProviderProfile(options = {}) {
+  const fs = options.fs || fsModule;
+  const profilePath = path.resolve(String(options.profilePath || ''));
+  if (!profilePath || profilePath === path.parse(profilePath).root) {
+    throw new AgentProviderUpdateError('AGENT_PROVIDER_UPDATE_INVALID', 'Provider 配置路径无效。');
+  }
+  const readProfile = options.readProfile || readAgentProviderProfile;
+  const writeProfile = options.writeProfile || writeAgentProviderProfile;
+  const probeProfile = options.probeProfile;
+  if (typeof probeProfile !== 'function') {
+    throw new TypeError('Provider 连接测试缺少候选验证器。');
+  }
+
+  const current = readProfile(profilePath, { fs, includeSecret: true });
+  const payload = options.payload;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new AgentProviderUpdateError('AGENT_PROVIDER_UPDATE_INVALID', 'Provider 配置内容无效。');
+  }
+  const apiKey = typeof payload.apiKey === 'string' && payload.apiKey.trim()
+    ? payload.apiKey.trim()
+    : current?.apiKey || '';
+  fs.mkdirSync(path.dirname(profilePath), { recursive: true });
+  const candidateRoot = fs.mkdtempSync(path.join(path.dirname(profilePath), '.def-agent-provider-test-'));
+  const candidatePath = path.join(candidateRoot, 'provider-profiles.json');
+  try {
+    writeProfile(candidatePath, {
+      ref: payload.ref || current?.ref,
+      providerId: payload.providerId || current?.providerId,
+      displayName: payload.displayName || current?.displayName,
+      baseUrl: payload.baseUrl || current?.baseUrl,
+      modelId: payload.modelId || current?.modelId,
+      apiKey,
+    }, { fs });
+    await probeProfile(candidatePath);
+    return {
+      ...readProfile(candidatePath, { fs }),
+      verified: true,
+    };
+  } catch (error) {
+    throw toUpdateError(error);
+  } finally {
+    fs.rmSync(candidateRoot, { recursive: true, force: true });
+  }
+}
+
 /**
  * Update the desktop Provider profile as a small transaction:
  *
@@ -87,7 +140,7 @@ async function updateAgentProviderProfile(options = {}) {
       }
     }
 
-    const candidate = writeProfile(candidatePath, {
+    writeProfile(candidatePath, {
       ref: payload.ref || current?.ref,
       providerId: payload.providerId || current?.providerId,
       displayName: payload.displayName || current?.displayName,
@@ -96,6 +149,7 @@ async function updateAgentProviderProfile(options = {}) {
       apiKey,
     }, { fs });
     const stagedSecretProfile = readProfile(candidatePath, { fs, includeSecret: true });
+    await probeProfile(candidatePath);
     if (sameProfile(current, stagedSecretProfile)) {
       const runtimeState = runtime ? await ensureRuntimeReady(runtime) : null;
       return {
@@ -105,7 +159,6 @@ async function updateAgentProviderProfile(options = {}) {
       };
     }
 
-    await probeProfile(candidatePath);
     candidateRuntime = await createCandidateRuntime({
       candidateProfilePath: candidatePath,
       candidateRoot,
@@ -228,10 +281,14 @@ function toUpdateError(error) {
     : 'AGENT_PROVIDER_UPDATE_FAILED';
   // Do not forward arbitrary provider/runtime messages: a third-party error
   // body may contain an Authorization header, request URL, or API key.
-  return new AgentProviderUpdateError(code, 'Provider 更新失败，旧配置仍在使用。');
+  return new AgentProviderUpdateError(
+    code,
+    PROVIDER_PROBE_MESSAGES[code] || 'Provider 更新失败，旧配置仍在使用。',
+  );
 }
 
 module.exports = {
   AgentProviderUpdateError,
+  testAgentProviderProfile,
   updateAgentProviderProfile,
 };

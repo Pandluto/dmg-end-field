@@ -14,7 +14,10 @@ const {
   swapAgentProviderProfile,
   writeAgentProviderProfile,
 } = require('./agent-provider-profile.cjs');
-const { updateAgentProviderProfile } = require('./agent-provider-transaction.cjs');
+const {
+  testAgentProviderProfile,
+  updateAgentProviderProfile,
+} = require('./agent-provider-transaction.cjs');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-agent-profile-'));
 const target = path.join(root, 'runtime', 'profiles.json');
@@ -170,6 +173,43 @@ async function run() {
       baseUrl: 'https://api.deepseek.com',
       modelId: DEFAULT_DEEPSEEK_MODEL_ID,
     });
+    const stableProfileBytes = fs.readFileSync(target, 'utf8');
+    const testOnlyResult = await testAgentProviderProfile({
+      profilePath: target,
+      payload: {
+        apiKey: 'test-only-secret',
+        baseUrl: 'https://example.com/v1',
+        modelId: 'test-only-model',
+      },
+      probeProfile: async (candidatePath) => {
+        const tested = readAgentProviderProfile(candidatePath, { includeSecret: true });
+        assert.equal(tested.apiKey, 'test-only-secret');
+        assert.equal(tested.baseUrl, 'https://example.com/v1');
+        assert.equal(tested.modelId, 'test-only-model');
+        return { ...tested, apiKey: undefined, verified: true };
+      },
+    });
+    assert.equal(testOnlyResult.verified, true);
+    assert.equal(fs.readFileSync(target, 'utf8'), stableProfileBytes);
+
+    let unchangedProbeCount = 0;
+    const unchangedResult = await updateAgentProviderProfile({
+      profilePath: target,
+      payload: {
+        baseUrl: 'https://api.deepseek.com',
+        modelId: DEFAULT_DEEPSEEK_MODEL_ID,
+      },
+      runtime: {
+        state: () => ({ running: true, ready: true }),
+        getProviderUpdateSafety: () => ({ allowed: true }),
+        async start() { return { running: true, ready: true, state: 'ready' }; },
+      },
+      probeProfile: async () => { unchangedProbeCount += 1; },
+      createCandidateRuntime: async () => { throw new Error('unchanged profile must not boot a candidate Host'); },
+    });
+    assert.equal(unchangedResult.changed, false);
+    assert.equal(unchangedProbeCount, 1, 'unchanged profiles must still test Provider connectivity');
+
     let failedCandidateStopped = false;
     await assert.rejects(
       () => updateAgentProviderProfile({

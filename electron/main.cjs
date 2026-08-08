@@ -24,7 +24,10 @@ const {
   migrateLegacyAgentProviderProfile,
   readAgentProviderProfile,
 } = require('./agent-provider-profile.cjs');
-const { updateAgentProviderProfile } = require('./agent-provider-transaction.cjs');
+const {
+  testAgentProviderProfile,
+  updateAgentProviderProfile,
+} = require('./agent-provider-transaction.cjs');
 
 const DESKTOP_HOST = '127.0.0.1';
 const DESKTOP_PORT = 31457;
@@ -246,6 +249,14 @@ async function saveAgentProviderProfile(payload) {
   });
 }
 
+async function testAgentProviderConnection(payload) {
+  return testAgentProviderProfile({
+    profilePath: agentProviderProfilePath,
+    payload,
+    probeProfile: (candidatePath) => probeAgentProviderProfile(candidatePath),
+  });
+}
+
 function updateTrayMenu() {
   if (!tray) return;
   tray.setContextMenu(Menu.buildFromTemplate([
@@ -457,6 +468,21 @@ function registerIpc() {
         ok: false,
         code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_UPDATE_FAILED',
         error: error instanceof Error ? error.message : 'Provider 更新失败，旧配置仍在使用。',
+      };
+    }
+  });
+  ipcMain.handle('desktop:test-agent-profile', async (event, payload) => {
+    requireTrustedSender(event);
+    try {
+      return {
+        ok: true,
+        profile: await testAgentProviderConnection(payload || {}),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        code: typeof error?.code === 'string' ? error.code : 'AGENT_PROVIDER_PROBE_FAILED',
+        error: error instanceof Error ? error.message : 'Provider 连接测试失败。',
       };
     }
   });
