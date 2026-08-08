@@ -1,6 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
-import App from '../../App';
-import { AppProvider } from '../../context/AppContext';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { readAccessLeaseStatus } from '../../platform/auth/accessLease';
 import {
   requestPersistentBrowserStorage,
@@ -29,11 +27,6 @@ import {
 import { ensureImageServiceWorkerController } from '../../platform/runtime/serviceWorkerRuntime';
 import { initializeAppTheme } from '../../platform/theme/appTheme';
 import { isDesktopWebHost } from '../../platform/runtime/desktopWebHost';
-import {
-  browserAgentRuntime,
-  desktopAgentBridge,
-  desktopAgentConsumerController,
-} from '../../platform/agent/browserAgentRuntime';
 import { isDesktopAgentModeRoute } from '../../platform/agent/desktopAgentBridge';
 import {
   captureDesktopMcpCapability,
@@ -49,6 +42,11 @@ import { RuntimeFailurePage } from './RuntimeFailurePage';
 import { SecondaryTabPage } from './SecondaryTabPage';
 import { WelcomePage } from './WelcomePage';
 import './web-app.css';
+
+const loadDesktopAgentRuntime = () => import('../../platform/agent/browserAgentRuntime');
+const ReadyApp = lazy(async () => ({
+  default: (await import('./ReadyApp')).ReadyApp,
+}));
 
 type BootstrapPhase =
   | 'checking-access'
@@ -93,8 +91,9 @@ export function WebBootstrap() {
       }
       await webDatabase.initialize();
       if (agentMode) {
-        await browserAgentRuntime.initializeWorkspace();
-        await desktopAgentConsumerController.start();
+        const runtime = await loadDesktopAgentRuntime();
+        await runtime.browserAgentRuntime.initializeWorkspace();
+        await runtime.desktopAgentConsumerController.start();
       }
       await bootstrapPersistentStorage();
       await bootstrapUserWorkspaceBridge();
@@ -166,7 +165,7 @@ export function WebBootstrap() {
   useEffect(() => {
     if (agentMode) {
       let cancelled = false;
-      void desktopAgentBridge.initialize().then((state) => {
+      void loadDesktopAgentRuntime().then(({ desktopAgentBridge }) => desktopAgentBridge.initialize()).then((state) => {
         if (cancelled) return;
         if (state.authorization !== 'authorized' || state.host !== 'ready') {
           setFailure(state.error || 'AI 模式授权无效，请从桌面 Shell 重新打开。');
@@ -281,8 +280,15 @@ export function WebBootstrap() {
   }
 
   return (
-    <AppProvider>
-      <App key={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
-    </AppProvider>
+    <Suspense fallback={(
+      <main className="web-entry-screen">
+        <div className="boot-indicator">
+          <span />
+          <p>正在打开工作区</p>
+        </div>
+      </main>
+    )}>
+      <ReadyApp cacheKey={`${installedPackage?.version || 'web-lts'}:${installedImagePackage?.version || 'no-images'}`} />
+    </Suspense>
   );
 }
