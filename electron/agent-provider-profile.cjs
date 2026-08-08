@@ -7,6 +7,7 @@ const path = require('node:path');
 const PROFILE_SCHEMA_VERSION = 1;
 const DEFAULT_PROFILE_REF = 'default';
 const DEFAULT_DEEPSEEK_MODEL_ID = 'deepseek-v4-flash';
+const LEGACY_DEEPSEEK_MODEL_ID = 'deepseek-v4-pro';
 
 function readAgentProviderProfile(filePath, options = {}) {
   const fs = options.fs || fsModule;
@@ -189,7 +190,17 @@ async function probeAgentProviderProfile(filePath, options = {}) {
 function migrateLegacyAgentProviderProfile(filePath, legacyPaths, options = {}) {
   const fs = options.fs || fsModule;
   const current = readAgentProviderProfile(filePath, { fs });
-  if (current) return { migrated: false, profile: current };
+  if (current) {
+    if (current.providerId === 'deepseek' && current.modelId === LEGACY_DEEPSEEK_MODEL_ID) {
+      const currentWithSecret = readAgentProviderProfile(filePath, { fs, includeSecret: true });
+      const profile = writeAgentProviderProfile(filePath, {
+        modelId: DEFAULT_DEEPSEEK_MODEL_ID,
+        apiKey: currentWithSecret.apiKey,
+      }, { fs });
+      return { migrated: true, profile, sourcePath: filePath };
+    }
+    return { migrated: false, profile: current };
+  }
   for (const legacyPath of legacyPaths || []) {
     let legacy;
     try {
@@ -206,7 +217,9 @@ function migrateLegacyAgentProviderProfile(filePath, legacyPaths, options = {}) 
       providerId: 'deepseek',
       displayName: 'DeepSeek',
       baseUrl: deepseek.baseUrl || 'https://api.deepseek.com',
-      modelId: deepseek.model || DEFAULT_DEEPSEEK_MODEL_ID,
+      modelId: deepseek.model === LEGACY_DEEPSEEK_MODEL_ID
+        ? DEFAULT_DEEPSEEK_MODEL_ID
+        : deepseek.model || DEFAULT_DEEPSEEK_MODEL_ID,
       apiKey: deepseek.apiKey,
     }, { fs });
     return { migrated: true, profile, sourcePath: legacyPath };

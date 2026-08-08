@@ -295,6 +295,52 @@ function testSequenceValidationSurvivesRejectedAppend(): void {
   rmSync(root, { recursive: true, force: true });
 }
 
+function testFailedCreateRemovesUnregisteredDirectory(): void {
+  const root = makeRoot();
+  const record = fixtureRecord('def-session-create-rollback');
+  const store = createFileDefAgentSessionStore({ root });
+  const original = fs.renameSync;
+  fs.renameSync = ((source: fs.PathLike, destination: fs.PathLike) => {
+    if (path.basename(String(destination)) === 'metadata.json') {
+      throw Object.assign(new Error('simulated metadata commit failure'), { code: 'EACCES' });
+    }
+    return original(source, destination);
+  }) as typeof fs.renameSync;
+  syncBuiltinESMExports();
+  try {
+    expectStoreError(() => store.create(record), 'IO_ERROR');
+  } finally {
+    fs.renameSync = original;
+    syncBuiltinESMExports();
+  }
+  assert.equal(
+    existsSync(path.join(root, 'sessions', record.session.defSessionId)),
+    false,
+    'a failed pre-registry create must remove its partial Session directory',
+  );
+  assert.equal(existsSync(path.join(root, 'registry.json')), false);
+  rmSync(root, { recursive: true, force: true });
+}
+
+function testStartupRemovesOnlyAbandonedCreateResidue(): void {
+  const root = makeRoot();
+  const sessionsRoot = path.join(root, 'sessions');
+  const abandoned = path.join(sessionsRoot, 'def-session-abandoned-create');
+  const retained = path.join(sessionsRoot, 'def-session-unknown-content');
+  fs.mkdirSync(abandoned, { recursive: true });
+  fs.mkdirSync(retained, { recursive: true });
+  writeFileSync(path.join(abandoned, 'events.ndjson'), '');
+  writeFileSync(path.join(retained, 'events.ndjson'), '');
+  writeFileSync(path.join(retained, 'keep.txt'), 'user data');
+
+  createFileDefAgentSessionStore({ root });
+
+  assert.equal(existsSync(abandoned), false);
+  assert.equal(existsSync(retained), true);
+  assert.equal(readFileSync(path.join(retained, 'keep.txt'), 'utf8'), 'user data');
+  rmSync(root, { recursive: true, force: true });
+}
+
 function testNormalRestartRecovery(): void {
   const root = makeRoot();
   const record = fixtureRecord();
@@ -569,6 +615,8 @@ testTruncatedTailIsIgnoredAndRepairedBeforeAppend();
 testCompleteTailWithoutNewlineIsRepairedBeforeAppend();
 testIncrementalAppendAndBufferedDeltaDurability();
 testSequenceValidationSurvivesRejectedAppend();
+testFailedCreateRemovesUnregisteredDirectory();
+testStartupRemovesOnlyAbandonedCreateResidue();
 testFrontCorruptionFailsClosed();
 testDeleteIsExactAndClearsActivePointer();
 testIdAndSymlinkEscapeAreRejected();

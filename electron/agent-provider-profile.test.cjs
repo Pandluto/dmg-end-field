@@ -19,6 +19,7 @@ const { updateAgentProviderProfile } = require('./agent-provider-transaction.cjs
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dmg-agent-profile-'));
 const target = path.join(root, 'runtime', 'profiles.json');
 const defaultTarget = path.join(root, 'runtime', 'default-profiles.json');
+const existingTarget = path.join(root, 'runtime', 'existing-profiles.json');
 const legacy = path.join(root, 'legacy.json');
 
 async function run() {
@@ -26,6 +27,18 @@ async function run() {
   assert.equal(DEFAULT_DEEPSEEK_MODEL_ID, 'deepseek-v4-flash');
   const defaultProfile = writeAgentProviderProfile(defaultTarget, { apiKey: 'default-secret' });
   assert.equal(defaultProfile.modelId, 'deepseek-v4-flash');
+
+  writeAgentProviderProfile(existingTarget, {
+    apiKey: 'existing-secret',
+    modelId: 'deepseek-v4-pro',
+  });
+  const existingMigration = migrateLegacyAgentProviderProfile(existingTarget, []);
+  assert.equal(existingMigration.migrated, true);
+  assert.equal(existingMigration.profile.modelId, 'deepseek-v4-flash');
+  assert.equal(
+    readAgentProviderProfile(existingTarget, { includeSecret: true }).apiKey,
+    'existing-secret',
+  );
 
   assert.equal(readAgentProviderProfile(target), null);
   fs.writeFileSync(legacy, JSON.stringify({

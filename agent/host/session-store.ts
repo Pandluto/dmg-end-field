@@ -8,6 +8,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
   unlinkSync,
@@ -617,7 +618,11 @@ function syncDirectory(directory: string): void {
     descriptor = openSync(directory, fsConstants.O_RDONLY);
     fsyncSync(descriptor);
   } catch (error) {
-    if (!isNodeError(error) || !['EINVAL', 'ENOTSUP', 'EBADF', 'EISDIR'].includes(error.code ?? '')) {
+    const unsupported = isNodeError(error) && (
+      ['EINVAL', 'ENOTSUP', 'EBADF', 'EISDIR'].includes(error.code ?? '')
+      || (process.platform === 'win32' && error.code === 'EPERM')
+    );
+    if (!unsupported) {
       fail('IO_ERROR', `Unable to sync directory: ${errorMessage(error)}`, directory);
     }
   } finally {
@@ -946,6 +951,7 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     assertPathWithinRoot(this.root, this.sessionsPath);
     assertDirectory(this.root, 'session store root', true);
     assertDirectory(this.sessionsPath, 'session store sessions directory', true);
+    this.#removeAbandonedSessionCreates();
   }
 
   load(options: DefAgentSessionStoreLoadOptions = {}): DefAgentSessionStoreSnapshot {
@@ -1041,28 +1047,47 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
     if (assertDirectoryExists(sessionDirectory)) {
       fail('SESSION_EXISTS', `Session directory ${id} already exists`, sessionDirectory);
     }
-    assertDirectory(sessionDirectory, `Session ${id} directory`, true);
-    this.#createEmptyJournal(id);
-    this.#journalStates.set(id, {
-      nextSequence: 1,
-      validByteLength: 0,
-      fileByteLength: 0,
-      tail: 'none',
-      dirty: false,
-      pendingWrites: [],
-      pendingByteLength: 0,
-    });
-    this.#cacheJournalPage(id, [], 0);
-    writeAtomicJson(this.#metadataPath(id), this.#toMetadata(record), sessionDirectory);
-    writeAtomicJson(
-      this.registryPath,
-      {
-        schemaVersion: DEF_AGENT_SESSION_STORE_SCHEMA_VERSION,
-        activeSessionId: registry.activeSessionId,
-        sessionIds: [...registry.sessionIds, id],
-      } satisfies RegistryFile,
-      this.root,
-    );
+    let directoryCreated = false;
+    try {
+      assertDirectory(sessionDirectory, `Session ${id} directory`, true);
+      directoryCreated = true;
+      this.#createEmptyJournal(id);
+      this.#journalStates.set(id, {
+        nextSequence: 1,
+        validByteLength: 0,
+        fileByteLength: 0,
+        tail: 'none',
+        dirty: false,
+        pendingWrites: [],
+        pendingByteLength: 0,
+      });
+      this.#cacheJournalPage(id, [], 0);
+      writeAtomicJson(this.#metadataPath(id), this.#toMetadata(record), sessionDirectory);
+      writeAtomicJson(
+        this.registryPath,
+        {
+          schemaVersion: DEF_AGENT_SESSION_STORE_SCHEMA_VERSION,
+          activeSessionId: registry.activeSessionId,
+          sessionIds: [...registry.sessionIds, id],
+        } satisfies RegistryFile,
+        this.root,
+      );
+    } catch (error) {
+      this.#journalStates.delete(id);
+      this.#journalPageCaches.delete(id);
+      if (directoryCreated) {
+        try {
+          const committed = this.#readRegistry().sessionIds.includes(id);
+          if (!committed) {
+            rmSync(sessionDirectory, { recursive: true, force: true });
+            syncDirectory(this.sessionsPath);
+          }
+        } catch {
+          // Preserve the original create failure; uncertain committed state stays fail-closed.
+        }
+      }
+      throw error;
+    }
   }
 
   update(input: DefAgentSessionRecord): void {
@@ -1267,6 +1292,23 @@ export class FileDefAgentSessionStore implements DefAgentSessionStore {
   #ensureLayout(): void {
     assertDirectory(this.root, 'session store root');
     assertDirectory(this.sessionsPath, 'session store sessions directory');
+  }
+
+  #removeAbandonedSessionCreates(): void {
+    const registered = new Set(this.#readRegistry().sessionIds);
+    let removed = false;
+    for (const entry of readdirSync(this.sessionsPath, { withFileTypes: true })) {
+      if (!entry.isDirectory() || registered.has(entry.name) || !PORTABLE_ID_PATTERN.test(entry.name)) continue;
+      const id = asDefSessionId(entry.name);
+      const sessionDirectory = this.#sessionDirectory(id);
+      const children = readdirSync(sessionDirectory, { withFileTypes: true });
+      if (children.length !== 1 || children[0]?.name !== EVENTS_FILE_NAME || !children[0].isFile()) continue;
+      const journalPath = this.#eventsPath(id);
+      if (lstatSync(journalPath).size !== 0) continue;
+      rmSync(sessionDirectory, { recursive: true, force: false });
+      removed = true;
+    }
+    if (removed) syncDirectory(this.sessionsPath);
   }
 
   #readRegistry(): RegistryFile {
