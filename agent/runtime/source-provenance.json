@@ -79,37 +79,37 @@
           "adaptation": "Linear DEF Session graph/lifecycle validator, including Tool and compaction boundaries."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/coding-agent/src/core/messages.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/text.json",
           "adaptation": "Generated normalized Pi text-stream oracle fixture."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/coding-agent/src/core/messages.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/reasoning.json",
           "adaptation": "Generated normalized Pi reasoning-and-text streaming oracle fixture."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/tool.json",
           "adaptation": "Generated normalized Pi Tool lifecycle and argument-delta oracle fixture."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/error.json",
           "adaptation": "Generated normalized Pi provider-error oracle fixture."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/abort.json",
           "adaptation": "Generated normalized Pi mid-stream abort oracle fixture."
         },
         {
-          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/core/messages.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/compaction.json",
           "adaptation": "Generated normalized Pi Session compaction projection oracle fixture."
         },
         {
-          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts"],
+          "sourcePaths": ["packages/agent/package.json", "packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts", "packages/agent/src/stream-fn.ts", "packages/agent/src/types.ts", "packages/ai/src/types.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/config.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/utils/child-process.ts", "packages/coding-agent/src/utils/paths.ts"],
           "targetPath": "agent/runtime/kernel/testing/fixtures/manifest.json",
           "adaptation": "Hash, generation settings, source paths, version, and commit ledger for all normalized Pi oracle fixtures."
         }
