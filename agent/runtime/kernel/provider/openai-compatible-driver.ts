@@ -388,6 +388,13 @@ function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
         }
       }
 
+      // A failed provider attempt can leave an assistant diagnostic without
+      // any display content. It belongs in the local transcript, but an empty
+      // assistant message is not valid Chat Completions history.
+      if (textParts.length === 0 && thinkingParts.length === 0 && toolCalls.length === 0) {
+        return [];
+      }
+
       return [{
         role: 'assistant',
         content: textParts.length > 0 ? textParts.join('') : null,
