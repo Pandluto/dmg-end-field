@@ -3,16 +3,14 @@ import {
   useMemo,
   useState,
 } from 'react';
-import type {
-  AgentNativeUiLaunch,
-  AgentProductSession,
-} from '../../../agent/core/contracts/browser-protocol';
+import type { AgentProductSession } from '../../../agent/core/contracts/browser-protocol';
 import type { DefSessionId } from '../../../agent/core/contracts/ids';
 import type { ProductBinding } from '../../../agent/core/contracts';
 import {
   createDesktopAgentBridge,
   createDesktopAgentConsumerController,
   type AgentConsumerControllerDocument,
+  type AgentSessionSurfaceLaunch,
   type AgentWorkspaceLease,
   type DesktopAgentBridge,
   type DesktopAgentBridgeState,
@@ -55,9 +53,8 @@ function chooseSession(
 }
 
 /**
- * OpenCode's native sidebar intentionally removes archived sessions and has no
- * restore action.  Keep the recovery list in the DEF shell so recovery is
- * explicit and never silently creates a replacement session.
+ * The embedded session page has no restore action. Keep the recovery list in
+ * the DEF shell so recovery is explicit and never silently creates a replacement session.
  */
 export function archivedSessionsForRecovery(
   sessions: readonly AgentProductSession[],
@@ -100,14 +97,14 @@ export function AgentModeOverlay({
   const [consumerState, setConsumerState] = useState<DesktopAgentConsumerSnapshot>(
     () => consumerController.getState(),
   );
-  const [launch, setLaunch] = useState<AgentNativeUiLaunch | null>(null);
+  const [launch, setLaunch] = useState<AgentSessionSurfaceLaunch | null>(null);
   const [launchRevision, setLaunchRevision] = useState(0);
   const [archivedSessions, setArchivedSessions] = useState<readonly AgentProductSession[]>([]);
   const [restoringSessionId, setRestoringSessionId] = useState<DefSessionId | null>(null);
   const [recoveryOpen, setRecoveryOpen] = useState(false);
   const [recoveryLoading, setRecoveryLoading] = useState(false);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
-  const [status, setStatus] = useState('正在连接 OpenCode…');
+  const [status, setStatus] = useState('正在连接 AI 会话…');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -152,7 +149,7 @@ export function AgentModeOverlay({
       return;
     }
     let disposed = false;
-    const openNativeUi = async () => {
+    const openSessionSurface = async () => {
       setError(null);
       setStatus('正在读取 DEF 会话…');
       const [uiState, listed] = await Promise.all([
@@ -165,7 +162,7 @@ export function AgentModeOverlay({
       let selected = chooseSession(listed, uiState.activeDefSessionId);
       if (!selected) {
         if (bridgeState.engine?.state !== 'ready') {
-          throw new Error(bridgeState.engine?.reason || 'OpenCode 引擎尚未就绪。');
+          throw new Error(bridgeState.engine?.reason || 'Agent 引擎尚未就绪。');
         }
         setStatus(archived.length > 0
           ? '正在创建新的 DEF 会话；已归档会话仍可随时恢复…'
@@ -173,13 +170,13 @@ export function AgentModeOverlay({
         selected = await bridge.createSession();
         if (disposed) return;
       }
-      setStatus('正在打开原版 OpenCode UI…');
-      const nextLaunch = await bridge.launchNativeUi(selected.defSessionId);
+      setStatus('正在打开 AI 会话…');
+      const nextLaunch = await bridge.launchSessionSurface(selected.defSessionId);
       if (disposed) return;
       setLaunch(nextLaunch);
       setStatus('');
     };
-    void openNativeUi().catch((cause) => {
+    void openSessionSurface().catch((cause) => {
       if (!disposed) setError(operationMessage(cause));
     });
     return () => {
@@ -202,10 +199,10 @@ export function AgentModeOverlay({
     setRestoringSessionId(session.defSessionId);
     setRecoveryError(null);
     try {
-      const restored = await bridge.restoreNativeUiSession(session.defSessionId);
+      const restored = await bridge.restoreSession(session.defSessionId);
       setArchivedSessions((current) => current.filter((candidate) => candidate.defSessionId !== session.defSessionId));
       setRecoveryOpen(false);
-      const nextLaunch = await bridge.launchNativeUi(restored.defSessionId);
+      const nextLaunch = await bridge.launchSessionSurface(restored.defSessionId);
       setLaunch(nextLaunch);
     } catch (cause) {
       setRecoveryError(operationMessage(cause));
@@ -233,7 +230,7 @@ export function AgentModeOverlay({
 
   const rootClassName = [
     'agent-mode-overlay',
-    'agent-native-opencode-host',
+    'agent-session-surface-host',
     embedded ? 'is-embedded' : '',
     className,
   ].filter(Boolean).join(' ');
@@ -241,7 +238,7 @@ export function AgentModeOverlay({
 
   return (
     <aside className={rootClassName} aria-label="AI 模式">
-      <div className="agent-native-shell-actions">
+      <div className="agent-session-shell-actions">
         {onExit && (
           <button type="button" onClick={onExit} title="退出 AI 模式" aria-label="退出 AI 模式">
             AI
@@ -254,7 +251,7 @@ export function AgentModeOverlay({
             title="Work node 节点树"
             aria-label="Work node 节点树"
           >
-            <WorkNodeTreeIcon className="agent-native-shell-icon" />
+            <WorkNodeTreeIcon className="agent-session-shell-icon" />
           </button>
         )}
         <button
@@ -269,22 +266,22 @@ export function AgentModeOverlay({
       </div>
 
       {recoveryOpen && (
-        <section className="agent-native-recovery" aria-label="已归档 AI 会话">
+        <section className="agent-session-recovery" aria-label="已归档 AI 会话">
           <strong>
             已归档会话
           </strong>
           <p>
-            原版 OpenCode 没有恢复入口，请手动选择要恢复的会话。
+            AI 会话页面没有恢复入口，请手动选择要恢复的会话。
           </p>
-          {recoveryError && <p className="agent-native-recovery-error" role="alert">{recoveryError}</p>}
+          {recoveryError && <p className="agent-session-recovery-error" role="alert">{recoveryError}</p>}
           {recoveryLoading ? (
-            <p className="agent-native-recovery-empty">正在刷新…</p>
+            <p className="agent-session-recovery-empty">正在刷新…</p>
           ) : archivedSessions.length === 0 ? (
-            <p className="agent-native-recovery-empty">没有已归档会话。</p>
+            <p className="agent-session-recovery-empty">没有已归档会话。</p>
           ) : (
-            <div className="agent-native-recovery-list">
+            <div className="agent-session-recovery-list">
               {archivedSessions.map((session) => (
-                <div className="agent-native-recovery-row" key={session.defSessionId}>
+                <div className="agent-session-recovery-row" key={session.defSessionId}>
                   <span>{session.defSessionId}</span>
                   <button
                     type="button"
@@ -301,16 +298,16 @@ export function AgentModeOverlay({
       )}
 
       {launch && !visibleError ? (
-        <iframe
-          key={launch.src}
-          className="agent-native-opencode-frame"
-          src={launch.src}
-          title="DEF OpenCode"
-          allow="clipboard-read; clipboard-write"
-        />
+          <iframe
+            key={launch.src}
+            className="agent-session-surface-frame"
+            src={launch.src}
+            title="DEF AI 会话"
+            allow="clipboard-read; clipboard-write"
+          />
       ) : (
-        <div className="agent-native-opencode-status" role={visibleError ? 'alert' : 'status'}>
-          <strong>{visibleError ? 'OpenCode UI 未能打开' : 'DEF OpenCode'}</strong>
+        <div className="agent-session-status" role={visibleError ? 'alert' : 'status'}>
+          <strong>{visibleError ? 'AI 会话未能打开' : 'DEF AI 会话'}</strong>
           <p>{visibleError || status}</p>
           {visibleError && (
             <button

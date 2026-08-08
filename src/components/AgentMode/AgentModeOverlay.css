@@ -1,4 +1,4 @@
-.agent-mode-overlay.agent-native-opencode-host {
+.agent-mode-overlay.agent-session-surface-host {
   position: relative;
   width: 100%;
   height: 100%;
@@ -9,7 +9,7 @@
   background: var(--theme-bg-content);
 }
 
-.agent-native-opencode-frame {
+.agent-session-surface-frame {
   display: block;
   width: 100%;
   height: 100%;
@@ -17,7 +17,7 @@
   background: var(--theme-bg-content);
 }
 
-.agent-native-shell-actions {
+.agent-session-shell-actions {
   position: absolute;
   z-index: 5;
   top: 7px;
@@ -29,12 +29,12 @@
   transition: opacity 120ms ease;
 }
 
-.agent-native-shell-actions:hover,
-.agent-native-shell-actions:focus-within {
+.agent-session-shell-actions:hover,
+.agent-session-shell-actions:focus-within {
   opacity: 1;
 }
 
-.agent-native-shell-actions button {
+.agent-session-shell-actions button {
   display: grid;
   width: 27px;
   height: 27px;
@@ -50,18 +50,18 @@
   backdrop-filter: blur(10px);
 }
 
-.agent-native-shell-actions button:hover {
+.agent-session-shell-actions button:hover {
   border-color: var(--theme-border-medium);
   color: var(--theme-text-title);
   background: var(--theme-bg-card);
 }
 
-.agent-native-shell-icon {
+.agent-session-shell-icon {
   width: 14px;
   height: 14px;
 }
 
-.agent-native-recovery {
+.agent-session-recovery {
   position: absolute;
   z-index: 4;
   top: 42px;
@@ -77,45 +77,45 @@
   backdrop-filter: blur(10px);
 }
 
-.agent-native-recovery > strong {
+.agent-session-recovery > strong {
   display: block;
   font: 600 12px/1.4 system-ui, sans-serif;
 }
 
-.agent-native-recovery > p {
+.agent-session-recovery > p {
   margin: 3px 0 8px;
   color: var(--theme-text-muted);
   font: 400 11px/1.45 system-ui, sans-serif;
 }
 
-.agent-native-recovery .agent-native-recovery-error {
+.agent-session-recovery .agent-session-recovery-error {
   color: var(--theme-danger, var(--theme-accent-strong));
 }
 
-.agent-native-recovery .agent-native-recovery-empty {
+.agent-session-recovery .agent-session-recovery-empty {
   margin-bottom: 0;
 }
 
-.agent-native-recovery-list {
+.agent-session-recovery-list {
   display: grid;
   gap: 5px;
 }
 
-.agent-native-recovery-row {
+.agent-session-recovery-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.agent-native-recovery-row > span {
+.agent-session-recovery-row > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font: 400 11px/1.4 system-ui, sans-serif;
 }
 
-.agent-native-recovery-row > button {
+.agent-session-recovery-row > button {
   flex: 0 0 auto;
   border: 1px solid var(--theme-border-default);
   border-radius: 5px;
@@ -126,12 +126,12 @@
   font: 500 11px/1.3 system-ui, sans-serif;
 }
 
-.agent-native-recovery-row > button:disabled {
+.agent-session-recovery-row > button:disabled {
   cursor: wait;
   opacity: .55;
 }
 
-.agent-native-opencode-status {
+.agent-session-status {
   position: absolute;
   inset: 0;
   display: grid;
@@ -143,18 +143,18 @@
   background: var(--theme-bg-content);
 }
 
-.agent-native-opencode-status strong {
+.agent-session-status strong {
   font: 600 14px/1.4 system-ui, sans-serif;
 }
 
-.agent-native-opencode-status p {
+.agent-session-status p {
   max-width: 420px;
   margin: 0;
   color: var(--theme-text-muted);
   font: 400 12px/1.55 system-ui, sans-serif;
 }
 
-.agent-native-opencode-status button {
+.agent-session-status button {
   border: 1px solid var(--theme-border-default);
   border-radius: 6px;
   padding: 6px 12px;

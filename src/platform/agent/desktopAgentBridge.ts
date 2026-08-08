@@ -2,7 +2,6 @@ import type {
   AgentInteractionEnvelope,
   AgentInteractionList,
   AgentInteractionRespondInput,
-  AgentNativeUiLaunch,
   AgentEventPage,
   AgentHostHealth,
   AgentProductSession,
@@ -53,10 +52,12 @@ export { DesktopAgentBridgeError };
 export const DESKTOP_AGENT_BRIDGE_ORIGIN = 'http://127.0.0.1:31457';
 export const DESKTOP_AGENT_MODE_PATH = '/timeline/ai';
 export const DESKTOP_AGENT_LAUNCH_PATH = '/agent-host/ui/launch';
+export const DESKTOP_AGENT_SESSION_SURFACE_LAUNCH_PATH = '/agent-host/ui/session-surface/launch';
 export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
 export const DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS = 25_000;
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
+const AGENT_UI_CAPABILITY_FRAGMENT_KEY = 'capability';
 const AUTHORIZATION_FAILURE_CODES = new Set([
   'AGENT_UI_CAPABILITY_INVALID',
   'AGENT_ORIGIN_DENIED',
@@ -179,6 +180,13 @@ export interface DesktopAgentLaunchDependencies {
   readonly fetch?: AgentBridgeFetch;
   readonly bridgeOrigin?: string;
   readonly now?: () => number;
+}
+
+export interface AgentSessionSurfaceLaunch {
+  readonly src: string;
+  readonly defSessionId: DefSessionId;
+  readonly apiOrigin: string;
+  readonly browserOrigin: string;
 }
 
 function defaultLocation(): AgentModeLocation | undefined {
@@ -658,35 +666,92 @@ function asSessionList(data: Record<string, unknown>): readonly AgentProductSess
   return data.sessions.map((session) => asProductSession({ session }));
 }
 
-function asNativeUiLaunch(data: Record<string, unknown>, expectedSessionId: DefSessionId): AgentNativeUiLaunch {
+function normalizeOriginValue(value: string, label: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new DesktopAgentBridgeError(`Agent Session Surface 返回了无效的 ${label}。`, 'INVALID_HOST_RESPONSE');
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol)
+    || url.username
+    || url.password
+    || url.pathname !== '/'
+    || url.search
+    || url.hash
+  ) {
+    throw new DesktopAgentBridgeError(`Agent Session Surface 返回了无效的 ${label}。`, 'INVALID_HOST_RESPONSE');
+  }
+  return url.origin;
+}
+
+function asSessionSurfaceLaunch(
+  data: Record<string, unknown>,
+  expectedSessionId?: DefSessionId,
+): AgentSessionSurfaceLaunch {
   if (!hasOnlyKeys(data, new Set(['protocolVersion', 'launch']))
     || data.protocolVersion !== DEF_AGENT_PROTOCOL_VERSION
     || !isRecord(data.launch)
     || !hasOnlyKeys(data.launch, new Set(['src', 'defSessionId']))
-    || data.launch.defSessionId !== expectedSessionId
     || !isNonEmptyString(data.launch.src)) {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的原生 OpenCode UI 地址。', 'INVALID_HOST_RESPONSE');
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Agent Session Surface 地址。', 'INVALID_HOST_RESPONSE');
   }
+  if (expectedSessionId && data.launch.defSessionId !== expectedSessionId) {
+    throw new DesktopAgentBridgeError('Agent Host 返回的 Session 与请求不匹配。', 'INVALID_HOST_RESPONSE');
+  }
+  if (!isNonEmptyString(data.launch.defSessionId)) {
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Agent Session ID。', 'INVALID_HOST_RESPONSE');
+  }
+  const defSessionId = data.launch.defSessionId as DefSessionId;
   let url: URL;
   try {
     url = new URL(data.launch.src);
   } catch {
-    throw new DesktopAgentBridgeError('Agent Host 返回了无效的原生 OpenCode UI 地址。', 'INVALID_HOST_RESPONSE');
+    throw new DesktopAgentBridgeError('Agent Host 返回了无效的 Agent Session Surface 地址。', 'INVALID_HOST_RESPONSE');
   }
   if (
-    url.protocol !== 'http:'
-    || url.hostname !== '127.0.0.1'
+    !['http:', 'https:'].includes(url.protocol)
+    || !['127.0.0.1', 'localhost'].includes(url.hostname)
     || !url.port
     || url.username
     || url.password
-    || !url.pathname.includes('/session/')
+    || !(url.pathname === '/agent-ui' || url.pathname === '/agent-ui/')
+    || url.hash
   ) {
-    throw new DesktopAgentBridgeError('原生 OpenCode UI 地址不在受信任的本机网关。', 'INVALID_HOST_RESPONSE');
+    throw new DesktopAgentBridgeError('Agent Session Surface 地址不在受信任的本机网关。', 'INVALID_HOST_RESPONSE');
+  }
+  const querySessionId = url.searchParams.get('defSessionId');
+  const apiOriginValue = url.searchParams.get('apiOrigin');
+  const browserOriginValue = url.searchParams.get('browserOrigin');
+  if (
+    querySessionId !== defSessionId
+    || !apiOriginValue
+    || !browserOriginValue
+  ) {
+    throw new DesktopAgentBridgeError(
+      'Agent Host 返回的 Session Surface bootstrap 参数不完整。',
+      'INVALID_HOST_RESPONSE',
+    );
   }
   return {
     src: url.toString(),
-    defSessionId: expectedSessionId,
+    defSessionId,
+    apiOrigin: normalizeOriginValue(apiOriginValue, 'apiOrigin'),
+    browserOrigin: normalizeOriginValue(browserOriginValue, 'browserOrigin'),
   };
+}
+
+function withSessionCapabilityFragment(
+  launch: AgentSessionSurfaceLaunch,
+  capability: string | null,
+): AgentSessionSurfaceLaunch {
+  if (!isSecureCapability(capability)) {
+    throw new DesktopAgentBridgeError('AI 模式页面尚未获得有效授权。', 'AGENT_UNAUTHORIZED', 403);
+  }
+  const url = new URL(launch.src);
+  url.hash = `${AGENT_UI_CAPABILITY_FRAGMENT_KEY}=${encodeURIComponent(capability)}`;
+  return { ...launch, src: url.toString() };
 }
 
 function makeOpaqueId(prefix: string): string {
@@ -1221,12 +1286,20 @@ export class DesktopAgentBridge {
     return asProductSession(data);
   }
 
-  async launchNativeUi(defSessionId: DefSessionId): Promise<AgentNativeUiLaunch> {
-    const data = await this.#requestWithReauthorization('/agent-host/native-ui/launch', {
+  async launchSessionSurface(defSessionId?: DefSessionId): Promise<AgentSessionSurfaceLaunch> {
+    const data = await this.#requestWithReauthorization(DESKTOP_AGENT_SESSION_SURFACE_LAUNCH_PATH, {
       method: 'POST',
-      body: { defSessionId },
+      body: defSessionId ? { defSessionId } : {},
     });
-    return asNativeUiLaunch(data, defSessionId);
+    return withSessionCapabilityFragment(
+      asSessionSurfaceLaunch(data, defSessionId),
+      this.getSessionCapability(),
+    );
+  }
+
+  /** Compatibility alias for callers that still use the pre-Surface method name. */
+  async launchNativeUi(defSessionId: DefSessionId): Promise<AgentSessionSurfaceLaunch> {
+    return this.launchSessionSurface(defSessionId);
   }
 
   async getSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
@@ -1250,17 +1323,9 @@ export class DesktopAgentBridge {
     return asProductSession(data);
   }
 
-  /**
-   * Restore from the native OpenCode recovery surface.  The Host route behind
-   * this method delegates to OpenCodeNativeUiGateway, which atomically clears
-   * OpenCode time.archived and restores the DEF Session with compensation.
-   */
+  /** Compatibility alias for callers that still use the pre-Surface method name. */
   async restoreNativeUiSession(defSessionId: DefSessionId): Promise<AgentProductSession> {
-    const data = await this.#requestWithReauthorization('/agent-host/native-ui/restore', {
-      method: 'POST',
-      body: { defSessionId },
-    });
-    return asProductSession(data);
+    return this.restoreSession(defSessionId);
   }
 
   async deleteSession(defSessionId: DefSessionId): Promise<void> {
