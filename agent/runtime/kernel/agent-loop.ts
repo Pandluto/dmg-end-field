@@ -51,8 +51,11 @@ import type {
   RuntimeToolUpdate,
 } from './tool.ts';
 import {
+  canonicalizeRuntimeMessage,
   RuntimeRunController,
   RuntimeRunProtocolError,
+  type RuntimeDurableEventCommit,
+  type RuntimeDurableTerminalCommit,
   type RuntimeEventDraft,
   type RuntimeRunControllerOptions,
   type RuntimeRunMarkerListener,
@@ -67,6 +70,13 @@ const ZERO_USAGE: RuntimeUsage = Object.freeze({
 });
 
 const DEFAULT_MAX_TURNS = 64;
+const MAX_TURNS = 256;
+const MAX_INPUT_MESSAGES = 1_024;
+const MAX_INPUT_CODE_UNITS = 4 * 1_024 * 1_024;
+const MAX_SYSTEM_PROMPT_CODE_UNITS = 1 * 1_024 * 1_024;
+const MAX_CONNECTION_HEADERS = 128;
+const MAX_CONNECTION_STRING_CODE_UNITS = 64 * 1_024;
+const MAX_PROVIDER_EVENTS = 32_768;
 const MAX_PROVIDER_STRING_CODE_UNITS = 1 * 1_024 * 1_024;
 const MAX_PROVIDER_CONTENT_INDEX = 65_536;
 const MAX_PROVIDER_METADATA_CODE_UNITS = 4_096;
@@ -74,6 +84,7 @@ const MAX_TOOL_NAME_CODE_UNITS = 256;
 const MAX_TOOL_ARGUMENT_CODE_UNITS = 256 * 1_024;
 const MAX_TOOL_DESCRIPTION_CODE_UNITS = 16 * 1_024;
 const MAX_TOOL_COUNT = 256;
+const MAX_TOOL_UPDATES = 1_024;
 const MAX_JSON_DEPTH = 16;
 const MAX_JSON_NODES = 16_384;
 const MAX_JSON_CONTAINER_ITEMS = 4_096;
@@ -96,8 +107,13 @@ export interface AgentLoopInput {
   readonly initialTurnId?: RuntimeTurnId;
   readonly maxTurns?: number;
   readonly now?: () => string;
+  /** Best-effort observers; persistence uses the sole durable commit sink. */
   readonly listeners?: readonly RuntimeEventListener[];
   readonly markerListeners?: readonly RuntimeRunMarkerListener[];
+  /** Atomic run.start pair + non-terminal Runtime event persistence. */
+  readonly durableEventCommit?: RuntimeDurableEventCommit;
+  /** Atomic durable commit for the end marker + run.end pair. */
+  readonly terminalCommit?: RuntimeDurableTerminalCommit;
   /** A fresh controller may be injected when the caller needs to abort it. */
   readonly controller?: RuntimeRunController;
 }
@@ -153,21 +169,23 @@ interface StreamAssistantResult {
 }
 
 interface AssembledToolCall {
+  readonly contentIndex: number;
   readonly block: RuntimeToolCallBlock;
   readonly rawArguments: string;
   readonly started: boolean;
   readonly ended: boolean;
   readonly malformedReason?: string;
-  readonly malformedCode?: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED';
+  readonly malformedCode?: string;
 }
 
 interface MutableToolCall {
+  readonly contentIndex: number;
   block: RuntimeToolCallBlock;
   rawArguments: string;
   started: boolean;
   ended: boolean;
   malformedReason?: string;
-  malformedCode?: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED';
+  malformedCode?: string;
   nameOverflow: boolean;
   argumentsOverflow: boolean;
 }
@@ -177,7 +195,6 @@ interface MutableContentState {
   readonly type: RuntimeAssistantContent['type'];
   readonly blockId: RuntimeContentId;
   text: string;
-  emittedLength: number;
   ended: boolean;
   redacted?: boolean;
 }
@@ -194,6 +211,8 @@ interface AssistantAccumulator {
   providerId: string;
   modelId: string;
   responseId?: string;
+  responseIdRaw?: string;
+  responseModelRaw?: string;
   responseStarted: boolean;
   contentCodeUnits: number;
   usage: RuntimeUsage;
@@ -201,37 +220,66 @@ interface AssistantAccumulator {
   diagnostic?: RuntimeAssistantMessage['diagnostic'];
 }
 
+interface AcceptedAgentLoopInput extends AgentLoopInput {
+  readonly systemPrompt: string;
+  readonly messages: readonly RuntimeMessage[];
+  readonly userMessage?: RuntimeUserMessage;
+  readonly connection: RuntimeModelConnection;
+  readonly tools: RuntimeToolProjection;
+  readonly maxTurns: number;
+  readonly redactions: readonly string[];
+}
+
 /** Run a complete model/Tool loop and return the in-memory transcript. */
 export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResult> {
-  const controller = input.controller ?? new RuntimeRunController(createControllerOptions(input));
-  const signal = combineAbortSignals(input.signal, controller.signal);
-  const context = [...input.messages];
+  // Read the caller-owned envelope once through data descriptors. Accessors are
+  // rejected before any getter can run or any async boundary can be crossed.
+  input = snapshotAgentLoopEnvelope(input);
+  // Everything that can cross an async boundary is accepted synchronously.
+  // A validation failure is retained so it can still receive one failed
+  // Runtime lifecycle after the controller starts.
+  let accepted: AcceptedAgentLoopInput | undefined;
+  let inputFailure: unknown;
+  try {
+    accepted = snapshotLoopInput(input);
+  } catch (error) {
+    inputFailure = error;
+  }
+  const redactions = accepted?.redactions ?? collectPotentialRedactions(input.connection);
+  const controller = input.controller ?? new RuntimeRunController(createControllerOptions(accepted ?? input, redactions));
+  const signal = combineAbortSignals(input.signal, controller.signal, redactions);
+  const context: RuntimeMessage[] = accepted ? [...accepted.messages] : [];
   const turns: RuntimeTurnId[] = [];
-  let projection: RuntimeToolProjection = { revision: 0, tools: [] };
+  let projection: RuntimeToolProjection = Object.freeze({ revision: 0, tools: Object.freeze([]) });
   let terminal: RuntimeRunTerminal = { status: 'failed', code: 'RUNTIME_FAILED', message: 'Run failed.' };
   let started = false;
+  let failedPath = false;
   let currentTurn: RuntimeTurnId | null = null;
   let turnIndex = 0;
   let assistantIndex = 0;
+  let terminalPersistenceError: RuntimeRunProtocolError | undefined;
 
   try {
-    // Clone before the first await so a Host-side mutation cannot race initial
-    // projection acceptance.
-    projection = cloneProjection(input.tools);
-    validateLoopInput(input, context, projection);
     await controller.start();
     started = true;
+  } catch (error) {
+    signal.cleanup();
+    controller.dispose();
+    throw error;
+  }
+
+  try {
+    if (inputFailure !== undefined) throw inputFailure;
+    if (!accepted) {
+      throw new AgentLoopFailure('RUNTIME_INPUT_INVALID', 'Runtime Agent loop input was invalid.');
+    }
+    validateControllerCorrelation(controller, accepted);
+    projection = accepted.tools;
 
     if (signal.aborted) throw createAbortError(signal);
 
-    const prompt = input.userMessage;
+    const prompt = accepted.userMessage;
     if (prompt) {
-      if (prompt.defTurnId !== input.defTurnId) {
-        throw new AgentLoopFailure(
-          'RUNTIME_MESSAGE_DEF_TURN_ID_CONFLICT',
-          'The user message does not belong to this DEF turn.',
-        );
-      }
       if (!context.some((message) => message.id === prompt.id)) context.push(prompt);
     }
 
@@ -239,60 +287,55 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
     while (shouldContinue) {
       if (signal.aborted) throw createAbortError(signal);
       turnIndex += 1;
-      if (turnIndex > (input.maxTurns ?? DEFAULT_MAX_TURNS)) {
+      if (turnIndex > accepted.maxTurns) {
         throw new AgentLoopFailure('RUNTIME_MAX_TURNS', 'The Agent loop reached its bounded turn limit.');
       }
 
-      currentTurn = turnIndex === 1 && (input.initialTurnId ?? prompt?.turnId)
-        ? (input.initialTurnId ?? prompt?.turnId)!
-        : turnIdFor(input.runId, turnIndex);
+      currentTurn = turnIndex === 1 && (accepted.initialTurnId ?? prompt?.turnId)
+        ? (accepted.initialTurnId ?? prompt?.turnId)!
+        : turnIdFor(accepted.runId, turnIndex);
       turns.push(currentTurn);
       await emit(controller, {
         type: 'turn.start',
-        runId: input.runId,
-        defTurnId: input.defTurnId,
+        runId: accepted.runId,
+        defTurnId: accepted.defTurnId,
         turnId: currentTurn,
       });
 
       if (turnIndex === 1 && prompt) {
         await emit(controller, {
           type: 'message.start',
-          runId: input.runId,
-          defTurnId: input.defTurnId,
+          runId: accepted.runId,
+          defTurnId: accepted.defTurnId,
           message: prompt,
         });
         await emit(controller, {
           type: 'message.end',
-          runId: input.runId,
-          defTurnId: input.defTurnId,
+          runId: accepted.runId,
+          defTurnId: accepted.defTurnId,
           message: prompt,
         });
       }
 
       const assistant = await streamAssistantResponse({
-        input,
+        input: accepted,
         controller,
         context,
         projection,
         turnId: currentTurn,
-        assistantId: messageIdFor(input.runId, 'assistant', assistantIndex),
+        assistantId: messageIdFor(accepted.runId, 'assistant', assistantIndex),
         signal,
       });
       assistantIndex += 1;
       context.push(assistant.message);
 
-      if (assistant.terminal) {
-        await finishTurn(controller, input, currentTurn, assistant.message, []);
-        terminal = assistant.terminal;
-        break;
-      }
-
       const toolResultMessages: RuntimeToolResultMessage[] = [];
       const toolCalls = assistant.toolCalls;
+      let executionTerminal: RuntimeRunTerminal | undefined;
       for (const toolCall of toolCalls) {
         if (signal.aborted) throw createAbortError(signal);
         const execution = await executeToolCall({
-          input,
+          input: accepted,
           controller,
           signal,
           turnId: currentTurn,
@@ -305,36 +348,31 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
           toolResultMessages.push(execution.message);
         }
         if (execution.terminal) {
-          await finishTurn(controller, input, currentTurn, assistant.message, toolResultMessages);
-          terminal = execution.terminal;
-          shouldContinue = false;
+          executionTerminal = execution.terminal;
           break;
         }
       }
 
-      if (terminal.status !== 'failed' || terminal.code !== 'RUNTIME_FAILED') {
+      await finishTurn(controller, accepted, currentTurn, assistant.message, toolResultMessages);
+      if (executionTerminal ?? assistant.terminal) {
+        terminal = (executionTerminal ?? assistant.terminal)!;
         shouldContinue = false;
-      }
-
-      if (shouldContinue) {
-        await finishTurn(controller, input, currentTurn, assistant.message, toolResultMessages);
-        const hasToolWork = toolCalls.length > 0;
-        if (!hasToolWork) {
-          terminal = {
-            status: 'completed',
-            ...(assistantText(assistant.message) === '' ? {} : { output: assistantText(assistant.message) }),
-          };
-          shouldContinue = false;
-        }
+      } else if (toolCalls.length === 0) {
+        terminal = {
+          status: 'completed',
+          ...(assistantText(assistant.message) === '' ? {} : { output: assistantText(assistant.message) }),
+        };
+        shouldContinue = false;
       }
     }
   } catch (error) {
+    failedPath = true;
     terminal = terminalFromError(error, signal);
-    if (started && currentTurn !== null) {
+    if (started && accepted && currentTurn !== null) {
       try {
         await closeOpenTurnAfterFailure(
           controller,
-          input,
+          accepted,
           currentTurn,
           context,
           terminal,
@@ -344,45 +382,42 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
         // Strict controller recovery below still guarantees the sole run.end.
       }
     }
-    if (!started && controller.status === 'created') {
-      try {
-        await controller.start();
-        started = true;
-      } catch (startError) {
-        terminal = terminalFromError(startError, signal);
-      }
-    }
-  } finally {
-    signal.cleanup();
   }
 
   if (controller.status === 'running') {
     try {
-      await controller.finish(terminal);
+      if (failedPath) await controller.finishAfterFailure(nonCompletedTerminal(terminal));
+      else await controller.finish(terminal);
     } catch (error) {
+      if (error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_DURABLE_TERMINAL_FAILED') {
+        terminalPersistenceError = error;
+      }
       terminal = terminalFromError(error, signal);
-      const failureTerminal = terminal.status === 'completed'
-        ? { status: 'failed' as const, code: 'RUNTIME_TERMINAL_REPAIR_FAILED', message: 'Runtime terminal repair failed.' }
-        : terminal;
-      if (controller.status === 'running') {
+      if (controller.status === 'running' && controller.terminalPersistenceFailure === undefined) {
         try {
-          await controller.finishAfterFailure(failureTerminal);
+          await controller.finishAfterFailure(nonCompletedTerminal(terminal));
         } catch (_repairError) {
-          // finish() reserves before dispatch; if that happened, its terminal
-          // remains the unique selection even if publication itself failed.
+          // A reserved terminal remains unique; no second publication is legal.
         }
       }
     }
   }
 
+  signal.cleanup();
   controller.dispose();
+  if (terminalPersistenceError ?? controller.terminalPersistenceFailure) {
+    throw terminalPersistenceError ?? new RuntimeRunProtocolError(
+      'RUNTIME_DURABLE_TERMINAL_FAILED',
+      'The durable Runtime terminal commit failed.',
+    );
+  }
   return {
     terminal: controller.terminal ?? terminal,
-    messages: context.slice(),
+    messages: Object.freeze(context.map((message) => canonicalizeRuntimeMessage(message, redactions))),
     events: controller.events,
     runMarkers: controller.runMarkers,
-    turns: turns.slice(),
-    finalProjection: projection,
+    turns: Object.freeze(turns.slice()),
+    finalProjection: cloneProjection(projection, redactions),
     controller,
   };
 }
@@ -390,40 +425,486 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
 /** Alias used by small Runtime facades that prefer a shorter name. */
 export const runAgent = runAgentLoop;
 
-function createControllerOptions(input: AgentLoopInput): RuntimeRunControllerOptions {
+function createControllerOptions(
+  input: AgentLoopInput,
+  redactions: readonly string[],
+): RuntimeRunControllerOptions {
   return {
     sessionId: input.sessionId,
     runId: input.runId,
     defTurnId: input.defTurnId,
-    initialTurnId: input.initialTurnId ?? input.userMessage?.turnId,
+    initialTurnId: input.initialTurnId ?? dataProperty(input.userMessage, 'turnId') as RuntimeTurnId | undefined,
     now: input.now,
     signal: input.signal,
     listeners: input.listeners,
     markerListeners: input.markerListeners,
+    durableEventCommit: input.durableEventCommit,
+    terminalCommit: input.terminalCommit,
+    redactions,
   };
 }
 
-function validateLoopInput(
-  input: AgentLoopInput,
-  messages: readonly RuntimeMessage[],
-  projection: RuntimeToolProjection,
-): void {
-  if (!input.systemPrompt || typeof input.systemPrompt !== 'string') {
+function snapshotAgentLoopEnvelope(value: AgentLoopInput): AgentLoopInput {
+  return snapshotPlainDataObject(
+    value,
+    [
+      'sessionId',
+      'runId',
+      'defTurnId',
+      'systemPrompt',
+      'messages',
+      'userMessage',
+      'connection',
+      'tools',
+      'modelDriver',
+      'toolBridge',
+      'signal',
+      'initialTurnId',
+      'maxTurns',
+      'now',
+      'listeners',
+      'markerListeners',
+      'durableEventCommit',
+      'terminalCommit',
+      'controller',
+    ],
+    'RUNTIME_INPUT_INVALID',
+    'Runtime Agent loop input was invalid.',
+  ) as unknown as AgentLoopInput;
+}
+
+function snapshotPlainDataObject(
+  value: unknown,
+  allowedKeys: readonly string[],
+  code: string,
+  message: string,
+): Readonly<Record<string, unknown>> {
+  if (!isPlainDataContainer(value)) throw new AgentLoopFailure(code, message);
+  let descriptors: Record<PropertyKey, PropertyDescriptor>;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  } catch (_error) {
+    throw new AgentLoopFailure(code, message);
+  }
+  const allowed = new Set(allowedKeys);
+  const output: Record<string, unknown> = {};
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (typeof key !== 'string' || !allowed.has(key)) throw new AgentLoopFailure(code, message);
+    const descriptor = descriptors[key];
+    if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
+      throw new AgentLoopFailure(code, message);
+    }
+    Object.defineProperty(output, key, {
+      value: descriptor.value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Object.freeze(output);
+}
+
+function snapshotDenseDataArray(
+  value: unknown,
+  maxItems: number,
+  code: string,
+  message: string,
+): readonly unknown[] {
+  if (!Array.isArray(value)) {
+    throw new AgentLoopFailure(code, message);
+  }
+  let descriptors: Record<PropertyKey, PropertyDescriptor>;
+  let prototype: unknown;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  } catch (_error) {
+    throw new AgentLoopFailure(code, message);
+  }
+  const lengthDescriptor = descriptors.length;
+  if (
+    prototype !== Array.prototype
+    || !lengthDescriptor
+    || !('value' in lengthDescriptor)
+    || !Number.isSafeInteger(lengthDescriptor.value)
+    || lengthDescriptor.value < 0
+    || lengthDescriptor.value > maxItems
+  ) {
+    throw new AgentLoopFailure(code, message);
+  }
+  const length = lengthDescriptor.value as number;
+  const indexed = new Map<number, unknown>();
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (key === 'length') continue;
+    if (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(key)) {
+      throw new AgentLoopFailure(code, message);
+    }
+    const index = Number(key);
+    const descriptor = descriptors[key];
+    if (
+      !Number.isSafeInteger(index)
+      || index < 0
+      || index >= length
+      || !descriptor
+      || !descriptor.enumerable
+      || !('value' in descriptor)
+    ) {
+      throw new AgentLoopFailure(code, message);
+    }
+    indexed.set(index, descriptor.value);
+  }
+  if (indexed.size !== length) throw new AgentLoopFailure(code, message);
+  const output: unknown[] = [];
+  for (let index = 0; index < length; index += 1) output.push(indexed.get(index));
+  return Object.freeze(output);
+}
+
+function isPlainDataContainer(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    return prototype === Object.prototype || prototype === null;
+  } catch (_error) {
+    return false;
+  }
+}
+
+function dataProperty(value: unknown, key: string): unknown {
+  if (!isPlainDataContainer(value)) return undefined;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+  } catch (_error) {
+    return undefined;
+  }
+}
+
+function snapshotLoopInput(input: AgentLoopInput): AcceptedAgentLoopInput {
+  if (!isRecord(input)) throw new AgentLoopFailure('RUNTIME_INPUT_INVALID', 'Runtime Agent loop input was invalid.');
+  for (const [value, label] of [
+    [input.sessionId, 'sessionId'],
+    [input.runId, 'runId'],
+    [input.defTurnId, 'defTurnId'],
+  ] as const) {
+    if (!boundedNonEmptyString(value, 256)) {
+      throw new AgentLoopFailure('RUNTIME_INPUT_INVALID', `Runtime ${label} was invalid.`);
+    }
+  }
+  if (input.initialTurnId !== undefined && !boundedNonEmptyString(input.initialTurnId, 256)) {
+    throw new AgentLoopFailure('RUNTIME_INPUT_INVALID', 'Runtime initial turnId was invalid.');
+  }
+  if (
+    typeof input.systemPrompt !== 'string'
+    || input.systemPrompt.length === 0
+    || input.systemPrompt.length > MAX_SYSTEM_PROMPT_CODE_UNITS
+  ) {
     throw new AgentLoopFailure('RUNTIME_SYSTEM_PROMPT_INVALID', 'Runtime system prompt is invalid.');
   }
-  if (!input.connection.providerId || !input.connection.modelId) {
+  if (!input.modelDriver || typeof input.modelDriver.stream !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_MODEL_DRIVER_INVALID', 'Runtime ModelDriver is invalid.');
+  }
+  if (!input.toolBridge || typeof input.toolBridge.invoke !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_TOOL_BRIDGE_INVALID', 'Runtime ToolBridge is invalid.');
+  }
+  if (input.now !== undefined && typeof input.now !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_CLOCK_INVALID', 'Runtime clock is invalid.');
+  }
+  if (input.maxTurns !== undefined && !validMaxTurns(input.maxTurns)) {
+    throw new AgentLoopFailure('RUNTIME_MAX_TURNS_INVALID', 'Runtime maxTurns is invalid.');
+  }
+  const connection = cloneConnection(input.connection);
+  const redactions = collectPotentialRedactions(connection);
+  const inputMessages = snapshotDenseDataArray(
+    input.messages,
+    MAX_INPUT_MESSAGES,
+    'RUNTIME_MESSAGES_INVALID',
+    'Runtime input messages are invalid.',
+  );
+  const messages = Object.freeze(inputMessages.map(
+    (message) => canonicalizeRuntimeMessage(message as RuntimeMessage, redactions),
+  ));
+  assertInputBudget(messages);
+  validateInputTranscript(messages);
+  let userMessage: RuntimeUserMessage | undefined;
+  if (input.userMessage !== undefined) {
+    const acceptedUser = canonicalizeRuntimeMessage(input.userMessage, redactions);
+    if (acceptedUser.role !== 'user') {
+      throw new AgentLoopFailure('RUNTIME_USER_MESSAGE_INVALID', 'Runtime userMessage was invalid.');
+    }
+    userMessage = acceptedUser;
+    if (userMessage.defTurnId !== input.defTurnId) {
+      throw new AgentLoopFailure(
+        'RUNTIME_MESSAGE_DEF_TURN_ID_CONFLICT',
+        'The user message does not belong to this DEF turn.',
+      );
+    }
+    const duplicate = messages.find((message) => message.id === userMessage?.id);
+    if (duplicate !== undefined && !plainDeepEqual(duplicate, userMessage)) {
+      throw new AgentLoopFailure('RUNTIME_MESSAGE_DUPLICATE', 'Runtime userMessage conflicted with input context.');
+    }
+    if (input.initialTurnId !== undefined && input.initialTurnId !== userMessage.turnId) {
+      throw new AgentLoopFailure('RUNTIME_MESSAGE_CORRELATION_INVALID', 'Runtime userMessage changed the initial turn.');
+    }
+  }
+
+  const tools = cloneProjection(input.tools, redactions);
+  const listeners = snapshotCallbacks(input.listeners, 'Runtime event listeners');
+  const markerListeners = snapshotCallbacks(input.markerListeners, 'Runtime marker listeners');
+  if (input.terminalCommit !== undefined && typeof input.terminalCommit !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_LISTENER_INVALID', 'Runtime terminal commit is invalid.');
+  }
+  if (input.durableEventCommit !== undefined && typeof input.durableEventCommit !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_LISTENER_INVALID', 'Runtime durable event commit is invalid.');
+  }
+  if ((input.durableEventCommit === undefined) !== (input.terminalCommit === undefined)) {
+    throw new AgentLoopFailure(
+      'RUNTIME_DURABLE_CONFIG_INVALID',
+      'Runtime durable event and terminal commits must be configured together.',
+    );
+  }
+  if (input.controller !== undefined) validateControllerCorrelation(input.controller, input);
+
+  return Object.freeze({
+    sessionId: input.sessionId,
+    runId: input.runId,
+    defTurnId: input.defTurnId,
+    systemPrompt: redactSecrets(input.systemPrompt, redactions),
+    messages,
+    ...(userMessage === undefined ? {} : { userMessage }),
+    connection,
+    tools,
+    modelDriver: input.modelDriver,
+    toolBridge: input.toolBridge,
+    ...(input.signal === undefined ? {} : { signal: input.signal }),
+    ...(input.initialTurnId === undefined ? {} : { initialTurnId: input.initialTurnId }),
+    maxTurns: input.maxTurns ?? DEFAULT_MAX_TURNS,
+    ...(input.now === undefined ? {} : { now: input.now }),
+    ...(listeners === undefined ? {} : { listeners }),
+    ...(markerListeners === undefined ? {} : { markerListeners }),
+    ...(input.durableEventCommit === undefined ? {} : { durableEventCommit: input.durableEventCommit }),
+    ...(input.terminalCommit === undefined ? {} : { terminalCommit: input.terminalCommit }),
+    ...(input.controller === undefined ? {} : { controller: input.controller }),
+    redactions,
+  });
+}
+
+function cloneConnection(value: RuntimeModelConnection): RuntimeModelConnection {
+  const source = snapshotPlainDataObject(
+    value,
+    ['providerId', 'modelId', 'baseUrl', 'apiKey', 'headers', 'contextLimit', 'outputLimit'],
+    'RUNTIME_MODEL_CONNECTION_INVALID',
+    'Runtime model connection is invalid.',
+  ) as unknown as RuntimeModelConnection;
+  for (const key of ['providerId', 'modelId', 'baseUrl', 'apiKey'] as const) {
+    if (!boundedNonEmptyString(source[key], MAX_CONNECTION_STRING_CODE_UNITS)) {
+      throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime model connection is invalid.');
+    }
+  }
+  if (source.apiKey.length < 4) {
     throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime model connection is invalid.');
   }
-  validateProjection(projection);
+  let parsed: URL;
+  try {
+    parsed = new URL(source.baseUrl);
+  } catch (_error) {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime model connection is invalid.');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime model connection is invalid.');
+  }
+  const headers = source.headers === undefined ? undefined : cloneHeaders(source.headers);
+  for (const limit of [source.contextLimit, source.outputLimit]) {
+    if (limit !== undefined && (!isFinitePositiveInteger(limit) || limit > 100_000_000)) {
+      throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime model connection is invalid.');
+    }
+  }
+  return Object.freeze({
+    providerId: source.providerId,
+    modelId: source.modelId,
+    baseUrl: source.baseUrl,
+    apiKey: source.apiKey,
+    ...(headers === undefined ? {} : { headers }),
+    ...(source.contextLimit === undefined ? {} : { contextLimit: source.contextLimit }),
+    ...(source.outputLimit === undefined ? {} : { outputLimit: source.outputLimit }),
+  });
+}
+
+function cloneHeaders(value: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
+  if (!isPlainDataContainer(value)) {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+  }
+  let descriptors: Record<PropertyKey, PropertyDescriptor>;
+  try {
+    descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  } catch (_error) {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+  }
+  if (Reflect.ownKeys(descriptors).some((key) => typeof key === 'symbol')) {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+  }
+  const entries = Object.entries(descriptors);
+  if (entries.length > MAX_CONNECTION_HEADERS) {
+    throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+  }
+  const output: Record<string, string> = {};
+  for (const [key, descriptor] of entries) {
+    if (
+      !('value' in descriptor)
+      || !descriptor.enumerable
+      || !boundedNonEmptyString(key, 256)
+      || /[\u0000-\u001f\u007f]/u.test(key)
+      || typeof descriptor.value !== 'string'
+      || descriptor.value.length > MAX_CONNECTION_STRING_CODE_UNITS
+      || /[\u0000\r\n]/u.test(descriptor.value)
+    ) {
+      throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+    }
+    if (sensitiveHeaderName(key) && headerCredential(descriptor.value).length < 4) {
+      throw new AgentLoopFailure('RUNTIME_MODEL_CONNECTION_INVALID', 'Runtime connection headers are invalid.');
+    }
+    Object.defineProperty(output, key, {
+      value: descriptor.value,
+      enumerable: true,
+      configurable: false,
+      writable: false,
+    });
+  }
+  return Object.freeze(output);
+}
+
+function sensitiveHeaderName(value: string): boolean {
+  return /(?:authorization|proxy-authorization|api[-_]?key|token|cookie|password|secret)/iu.test(value);
+}
+
+function headerCredential(value: string): string {
+  const match = /^(?:Bearer|Basic)\s+(.+)$/iu.exec(value.trim());
+  return match?.[1] ?? value.trim();
+}
+
+function collectPotentialRedactions(value: unknown): readonly string[] {
+  const secrets = new Set<string>();
+  try {
+    if (isPlainDataContainer(value)) {
+      const connectionDescriptors = Object.getOwnPropertyDescriptors(value);
+      const apiKeyDescriptor = connectionDescriptors.apiKey;
+      if (
+        apiKeyDescriptor
+        && 'value' in apiKeyDescriptor
+        && typeof apiKeyDescriptor.value === 'string'
+        && apiKeyDescriptor.value.length >= 4
+        && apiKeyDescriptor.value.length <= MAX_CONNECTION_STRING_CODE_UNITS
+      ) {
+        secrets.add(apiKeyDescriptor.value);
+      }
+      const headersDescriptor = connectionDescriptors.headers;
+      if (headersDescriptor && 'value' in headersDescriptor && isPlainDataContainer(headersDescriptor.value)) {
+        const descriptors = Object.getOwnPropertyDescriptors(headersDescriptor.value);
+        let accepted = 0;
+        for (const descriptor of Object.values(descriptors)) {
+          if (!descriptor.enumerable || !('value' in descriptor) || typeof descriptor.value !== 'string') continue;
+          accepted += 1;
+          if (accepted > MAX_CONNECTION_HEADERS) break;
+          if (descriptor.value.length >= 4 && descriptor.value.length <= MAX_CONNECTION_STRING_CODE_UNITS) {
+            secrets.add(descriptor.value);
+            const credential = /^(?:Bearer|Basic)\s+(.+)$/iu.exec(descriptor.value);
+            if (credential?.[1] && credential[1].length >= 4) secrets.add(credential[1]);
+          }
+        }
+      }
+    }
+  } catch (_error) {
+    // Invalid/hostile connection objects are rejected by cloneConnection. The
+    // fallback redaction probe never invokes accessors and never propagates a
+    // Proxy trap failure before the stable input lifecycle can be emitted.
+  }
+  return Object.freeze([...secrets].sort((left, right) => right.length - left.length));
+}
+
+function snapshotCallbacks<T extends (...args: never[]) => unknown>(
+  value: readonly T[] | undefined,
+  label: string,
+): readonly T[] | undefined {
+  if (value === undefined) return undefined;
+  const callbacks = snapshotDenseDataArray(value, 64, 'RUNTIME_LISTENER_INVALID', `${label} are invalid.`);
+  if (callbacks.some((callback) => typeof callback !== 'function')) {
+    throw new AgentLoopFailure('RUNTIME_LISTENER_INVALID', `${label} are invalid.`);
+  }
+  return callbacks as readonly T[];
+}
+
+function validateControllerCorrelation(
+  controller: RuntimeRunController,
+  input: Pick<AgentLoopInput, 'sessionId' | 'runId' | 'defTurnId'>,
+): void {
+  if (
+    controller.sessionId !== input.sessionId
+    || controller.runId !== input.runId
+    || controller.defTurnId !== input.defTurnId
+  ) {
+    throw new AgentLoopFailure('RUNTIME_CONTROLLER_CORRELATION_INVALID', 'Runtime controller correlation is invalid.');
+  }
+}
+
+function validateInputTranscript(messages: readonly RuntimeMessage[]): void {
+  const messageIds = new Set<string>();
+  const calls = new Map<string, { readonly name: string; consumed: boolean }>();
   for (const message of messages) {
-    if (message.role !== 'compaction' && !message.defTurnId) {
-      throw new AgentLoopFailure('RUNTIME_MESSAGE_CORRELATION_INVALID', 'Runtime message correlation is invalid.');
+    if (messageIds.has(message.id)) {
+      throw new AgentLoopFailure('RUNTIME_MESSAGE_DUPLICATE', 'Runtime input message IDs must be unique.');
+    }
+    messageIds.add(message.id);
+    if (message.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type !== 'tool-call') continue;
+        if (calls.has(block.toolCallId)) {
+          throw new AgentLoopFailure('RUNTIME_TOOL_DUPLICATE', 'Runtime input Tool call IDs must be unique.');
+        }
+        calls.set(block.toolCallId, { name: block.name, consumed: false });
+      }
+    } else if (message.role === 'tool-result') {
+      const call = calls.get(message.toolCallId);
+      if (!call || call.consumed || call.name !== message.toolName) {
+        throw new AgentLoopFailure('RUNTIME_TOOL_RESULT_INVALID', 'Runtime input Tool result pairing is invalid.');
+      }
+      call.consumed = true;
     }
   }
 }
 
+function assertInputBudget(messages: readonly RuntimeMessage[]): void {
+  let codeUnits = 0;
+  let nodes = 0;
+  const stack: unknown[] = [...messages];
+  while (stack.length > 0) {
+    const value = stack.pop();
+    nodes += 1;
+    if (nodes > 65_536) throw new AgentLoopFailure('RUNTIME_MESSAGES_INVALID', 'Runtime input messages are too large.');
+    if (typeof value === 'string') codeUnits += value.length;
+    else if (Array.isArray(value)) stack.push(...value);
+    else if (isRecord(value)) {
+      for (const [key, child] of Object.entries(value)) {
+        codeUnits += key.length;
+        stack.push(child);
+      }
+    }
+    if (codeUnits > MAX_INPUT_CODE_UNITS) {
+      throw new AgentLoopFailure('RUNTIME_MESSAGES_INVALID', 'Runtime input messages are too large.');
+    }
+  }
+}
+
+function validMaxTurns(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= MAX_TURNS;
+}
+
+function nonCompletedTerminal(terminal: RuntimeRunTerminal): Exclude<RuntimeRunTerminal, { readonly status: 'completed' }> {
+  return terminal.status === 'completed'
+    ? { status: 'failed', code: 'RUNTIME_TERMINAL_REPAIR_FAILED', message: 'Runtime terminal repair failed.' }
+    : terminal;
+}
+
 async function streamAssistantResponse(options: {
-  readonly input: AgentLoopInput;
+  readonly input: AcceptedAgentLoopInput;
   readonly controller: RuntimeRunController;
   readonly context: readonly RuntimeMessage[];
   readonly projection: RuntimeToolProjection;
@@ -450,15 +931,15 @@ async function streamAssistantResponse(options: {
   try {
     // ModelDriver.stream is deliberately synchronous by contract. Keeping the
     // call outside a Promise also makes abort-before-stream observable.
-    stream = input.modelDriver.stream({
+    stream = input.modelDriver.stream(Object.freeze({
       runId: input.runId,
       turnId,
       connection: input.connection,
       systemPrompt: input.systemPrompt,
-      messages: context,
-      tools: projection.tools,
+      messages: Object.freeze(context.slice()),
+      tools: Object.freeze(projection.tools.slice()),
       signal,
-    });
+    }));
   } catch (_error) {
     const failure = new AgentLoopFailure('RUNTIME_MODEL_STREAM_FAILED', 'The model stream could not be started.');
     const message = await finalizeAccumulator(accumulator, controller, input, signal, 'error', failure);
@@ -495,22 +976,23 @@ async function streamAssistantResponse(options: {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_ORDINAL_INVALID', 'The model event ordinal was not contiguous.');
       }
       expectedOrdinal += 1;
+      if (expectedOrdinal > MAX_PROVIDER_EVENTS + 1) {
+        throw new AgentLoopFailure('RUNTIME_PROVIDER_EVENT_LIMIT', 'The model emitted too many events.');
+      }
       if (providerTerminal !== null) {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_LATE_EVENT', 'The model emitted an event after its terminal.');
       }
       if (event.type === 'response.done' || event.type === 'response.error') {
+        validateProviderTerminalIdentity(accumulator, event);
         if (event.type === 'response.done') validateSuccessfulProviderTerminal(accumulator, event.stopReason);
         providerTerminal = event;
         if (event.type === 'response.error') {
-          accumulator.diagnostic = diagnosticFromFailure(event.failure, input.connection.apiKey);
+          accumulator.diagnostic = diagnosticFromFailure(event.failure, input.redactions);
           accumulator.stopReason = event.failure.kind === 'aborted' ? 'aborted' : 'error';
           accumulator.usage = ZERO_USAGE;
         } else {
-          accumulator.providerId = input.connection.providerId;
-          accumulator.modelId = event.responseModel?.trim() || accumulator.modelId;
           accumulator.usage = cloneUsage(event.usage);
           accumulator.stopReason = event.stopReason;
-          if (event.responseId !== undefined) accumulator.responseId = event.responseId;
         }
         continue;
       }
@@ -535,14 +1017,16 @@ async function streamAssistantResponse(options: {
         retryable: false,
       };
     }
-    await closeIterator(iterator);
+    closeIteratorDetached(iterator);
   }
 
   if (protocolFailure) {
+    invalidateObservedToolCalls(accumulator, protocolFailure);
+    const calls = finalizeToolCalls(accumulator, undefined, input.redactions);
     const message = await finalizeAccumulator(accumulator, controller, input, signal, 'error', protocolFailure);
     return {
       message,
-      toolCalls: [],
+      toolCalls: calls,
       terminal: { status: 'failed', code: protocolFailure.code, message: protocolFailure.messageForTerminal },
     };
   }
@@ -558,10 +1042,20 @@ async function streamAssistantResponse(options: {
       : {
           status: 'failed' as const,
           code: safeCode(failure.code, 'RUNTIME_PROVIDER_FAILED'),
-          message: safeProviderMessage(failure.message, input.connection.apiKey),
+          message: safeProviderMessage(failure.message, input.redactions),
         };
+    if (accumulator.toolCalls.length > 0) {
+      invalidateObservedToolCalls(
+        accumulator,
+        new AgentLoopFailure(
+          safeCode(failure.code, 'RUNTIME_PROVIDER_FAILED'),
+          'Tool call was not trusted because the provider response failed.',
+        ),
+      );
+    }
+    const calls = finalizeToolCalls(accumulator, undefined, input.redactions);
     const message = await finalizeAccumulator(accumulator, controller, input, signal, 'error');
-    return { message, toolCalls: [], terminal };
+    return { message, toolCalls: calls, terminal };
   }
 
   const done = providerTerminal;
@@ -575,13 +1069,13 @@ async function streamAssistantResponse(options: {
     };
   }
 
-  const calls = finalizeToolCalls(accumulator, done.stopReason);
+  const calls = finalizeToolCalls(accumulator, done.stopReason, input.redactions);
   const message = await finalizeAccumulator(accumulator, controller, input, signal, 'normal');
   return { message, toolCalls: calls };
 }
 
 function createAccumulator(
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   turnId: RuntimeTurnId,
   assistantId: RuntimeMessageId,
 ): AssistantAccumulator {
@@ -589,7 +1083,7 @@ function createAccumulator(
     assistantId,
     defTurnId: input.defTurnId,
     turnId,
-    createdAt: (input.now ?? (() => new Date().toISOString()))(),
+    createdAt: safeLoopTimestamp((input.now ?? (() => new Date().toISOString()))()),
     content: [],
     states: new Map(),
     toolCalls: [],
@@ -621,7 +1115,7 @@ function assistantDraft(accumulator: AssistantAccumulator): RuntimeAssistantMess
 async function finalizeAccumulator(
   accumulator: AssistantAccumulator,
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   signal: CombinedAbortSignal,
   mode: 'normal' | 'error' | 'aborted',
   failure?: AgentLoopFailure,
@@ -654,27 +1148,31 @@ async function finalizeAccumulator(
           },
         }
       : accumulator.diagnostic === undefined ? {} : { diagnostic: accumulator.diagnostic }),
-    completedAt: (input.now ?? (() => new Date().toISOString()))(),
+    completedAt: safeLoopTimestamp((input.now ?? (() => new Date().toISOString()))()),
   };
 
   // `signal` is intentionally read here only to keep the finalization point
   // explicit. A late abort cannot change an already assembled normal message
   // into a second terminal event; the caller owns that decision.
   void signal;
+  const canonical = canonicalizeRuntimeMessage(message, input.redactions);
+  if (canonical.role !== 'assistant') {
+    throw new AgentLoopFailure('RUNTIME_MESSAGE_INVALID', 'Runtime assistant message was invalid.');
+  }
   await emit(controller, {
     type: 'message.end',
     runId: input.runId,
     defTurnId: input.defTurnId,
-    message,
+    message: canonical,
   });
-  return message;
+  return canonical;
 }
 
 async function applyProviderEvent(
   accumulator: AssistantAccumulator,
   event: Exclude<ProviderStreamEvent, { type: 'response.done' | 'response.error' }>,
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   signal: CombinedAbortSignal,
 ): Promise<void> {
   if (signal.aborted) throw createAbortError(signal);
@@ -690,8 +1188,11 @@ async function applyProviderEvent(
         throw new AgentLoopFailure('RUNTIME_PROVIDER_RESPONSE_START_DUPLICATE', 'The model emitted duplicate response.start events.');
       }
       accumulator.responseStarted = true;
-      accumulator.responseId = event.responseId;
-      accumulator.modelId = event.responseModel?.trim() || accumulator.modelId;
+      accumulator.responseIdRaw = event.responseId;
+      accumulator.responseModelRaw = event.responseModel;
+      accumulator.responseId = event.responseId === undefined
+        ? undefined
+        : redactSecrets(event.responseId, input.redactions);
       return;
     case 'text.start':
       createTextState(accumulator, event.contentIndex, 'text');
@@ -729,20 +1230,9 @@ async function applyProviderEvent(
       if (state.block.toolCallId !== event.toolCallId) {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_TOOL_ID_CONFLICT', 'The model changed a Tool call id.');
       }
-      const acceptedNameDelta = appendToolNameDelta(state, event.nameDelta);
-      const acceptedArgumentsDelta = appendToolArgumentsDelta(state, event.argumentsDelta);
+      appendToolNameDelta(state, event.nameDelta);
+      appendToolArgumentsDelta(state, event.argumentsDelta);
       accumulator.content[event.contentIndex] = state.block;
-      if (acceptedNameDelta || acceptedArgumentsDelta) {
-        await emitProviderToolDelta(
-          controller,
-          input,
-          accumulator.assistantId,
-          state.block.id,
-          event.toolCallId,
-          acceptedNameDelta,
-          acceptedArgumentsDelta,
-        );
-      }
       return;
     }
     case 'tool-call.end':
@@ -766,7 +1256,6 @@ function createTextState(
     type,
     blockId,
     text: '',
-    emittedLength: 0,
     ended: false,
   };
   accumulator.states.set(contentIndex, state);
@@ -793,7 +1282,7 @@ async function appendTextState(
   state: MutableContentState,
   delta: string,
   accumulator: AssistantAccumulator,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   controller: RuntimeRunController,
   type: 'text' | 'thinking',
 ): Promise<void> {
@@ -809,17 +1298,19 @@ async function appendTextState(
   if (!block || (block.type !== 'text' && block.type !== 'thinking')) {
     throw new AgentLoopFailure('RUNTIME_PROVIDER_CONTENT_INVALID', 'The model content block was invalid.');
   }
-  accumulator.content[state.contentIndex] = { ...block, text: state.text };
-  const visibleDelta = state.text.slice(state.emittedLength);
-  state.emittedLength = state.text.length;
-  if (visibleDelta) await emitProviderDelta(controller, input, accumulator, state.blockId, type, visibleDelta);
+  accumulator.content[state.contentIndex] = {
+    ...block,
+    text: redactSecrets(state.text, input.redactions),
+  };
+  void controller;
+  void type;
 }
 
 async function finishTextState(
   state: MutableContentState,
   finalText: string,
   accumulator: AssistantAccumulator,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   controller: RuntimeRunController,
   type: 'text' | 'thinking',
 ): Promise<void> {
@@ -837,6 +1328,10 @@ async function finishTextState(
     if (block?.type === 'thinking') {
       accumulator.content[state.contentIndex] = { ...block, redacted: state.redacted };
     }
+  }
+  const visibleText = redactSecrets(state.text, input.redactions);
+  if (visibleText) {
+    await emitProviderDelta(controller, input, accumulator, state.blockId, type, visibleText);
   }
   state.ended = true;
 }
@@ -863,6 +1358,7 @@ function startToolCall(
     arguments: {},
   };
   const state: MutableToolCall = {
+    contentIndex,
     block,
     rawArguments: '',
     started: true,
@@ -922,7 +1418,7 @@ function appendToolArgumentsDelta(state: MutableToolCall, delta: string): string
 
 function markToolMalformed(
   state: MutableToolCall,
-  code: 'RUNTIME_TOOL_MALFORMED' | 'RUNTIME_TOOL_TRUNCATED',
+  code: string,
   reason: string,
 ): void {
   if (state.malformedReason === undefined) state.malformedReason = reason;
@@ -969,6 +1465,7 @@ function endToolCall(
       arguments: acceptedArguments ?? {},
     };
     state = {
+      contentIndex,
       block,
       rawArguments: '',
       started: false,
@@ -1038,9 +1535,11 @@ function endToolCall(
 
 function finalizeToolCalls(
   accumulator: AssistantAccumulator,
-  stopReason: Exclude<RuntimeAssistantStopReason, 'error' | 'aborted'>,
+  stopReason: Exclude<RuntimeAssistantStopReason, 'error' | 'aborted'> | undefined,
+  redactions: readonly string[],
 ): readonly AssembledToolCall[] {
-  return accumulator.toolCalls.map((state) => {
+  const ordered = accumulator.toolCalls.slice().sort((left, right) => left.contentIndex - right.contentIndex);
+  return Object.freeze(ordered.map((state) => {
     if (!state.ended) {
       markToolMalformed(state, 'RUNTIME_TOOL_TRUNCATED', 'Tool call was truncated before tool-call.end.');
     }
@@ -1051,15 +1550,67 @@ function finalizeToolCalls(
       state.malformedReason = 'Tool call was truncated by the model output limit.';
       state.malformedCode = 'RUNTIME_TOOL_TRUNCATED';
     }
-    return {
-      block: state.block,
-      rawArguments: state.rawArguments,
+    const block = Object.freeze({
+      ...state.block,
+      name: redactSecrets(state.block.name, redactions),
+      arguments: cloneBoundedJsonObject(state.block.arguments, redactions) ?? {},
+    });
+    state.block = block;
+    accumulator.content[state.contentIndex] = block;
+    return Object.freeze({
+      contentIndex: state.contentIndex,
+      block,
+      rawArguments: redactSecrets(state.rawArguments, redactions),
       started: state.started,
       ended: state.ended,
       ...(state.malformedReason === undefined ? {} : { malformedReason: state.malformedReason }),
       ...(state.malformedCode === undefined ? {} : { malformedCode: state.malformedCode }),
-    };
-  });
+    });
+  }));
+}
+
+function invalidateObservedToolCalls(
+  accumulator: AssistantAccumulator,
+  failure: AgentLoopFailure,
+): void {
+  for (const state of accumulator.toolCalls) {
+    state.malformedReason = 'Tool call was not trusted because the provider stream violated its protocol.';
+    state.malformedCode = safeCode(failure.code, 'RUNTIME_PROVIDER_PROTOCOL_ERROR');
+  }
+}
+
+function validateProviderTerminalIdentity(
+  accumulator: AssistantAccumulator,
+  event: Extract<ProviderStreamEvent, { readonly type: 'response.done' | 'response.error' }>,
+): void {
+  if (event.type === 'response.done') {
+    if (event.responseId !== accumulator.responseIdRaw) {
+      throw new AgentLoopFailure(
+        'RUNTIME_PROVIDER_RESPONSE_ID_CONFLICT',
+        'The model changed its response identity after response.start.',
+      );
+    }
+    if (
+      accumulator.responseModelRaw !== undefined
+      && event.responseModel !== undefined
+      && event.responseModel !== accumulator.responseModelRaw
+    ) {
+      throw new AgentLoopFailure(
+        'RUNTIME_PROVIDER_RESPONSE_ID_CONFLICT',
+        'The model changed its response identity after response.start.',
+      );
+    }
+    return;
+  }
+  // response.error has no responseId in the F0 Provider contract. It is valid
+  // without response.start for HTTP/auth failures; after an identified start,
+  // accepting it would lose the identity binding and therefore fails closed.
+  if (accumulator.responseStarted && accumulator.responseIdRaw !== undefined) {
+    throw new AgentLoopFailure(
+      'RUNTIME_PROVIDER_RESPONSE_ID_CONFLICT',
+      'The model error terminal could not retain its response identity.',
+    );
+  }
 }
 
 function validateSuccessfulProviderTerminal(
@@ -1096,7 +1647,7 @@ function validateSuccessfulProviderTerminal(
 }
 
 async function executeToolCall(options: {
-  readonly input: AgentLoopInput;
+  readonly input: AcceptedAgentLoopInput;
   readonly controller: RuntimeRunController;
   readonly signal: CombinedAbortSignal;
   readonly turnId: RuntimeTurnId;
@@ -1151,18 +1702,45 @@ async function executeToolCall(options: {
   });
 
   const updatePromises: Promise<void>[] = [];
+  let updateCount = 0;
   let acceptingUpdates = true;
   let updateFailure: AgentLoopFailure | undefined;
   const onUpdate = (update: RuntimeToolUpdate): void | Promise<void> => {
     if (!acceptingUpdates || signal.aborted) return;
-    if (!isRecord(update) || update.toolCallId !== call.block.toolCallId) {
+    updateCount += 1;
+    if (updateCount > MAX_TOOL_UPDATES) {
+      updateFailure ??= new AgentLoopFailure(
+        'RUNTIME_TOOL_UPDATE_LIMIT',
+        'The Tool bridge emitted too many updates.',
+      );
+      return;
+    }
+    let updateSource: Readonly<Record<string, unknown>>;
+    try {
+      updateSource = snapshotPlainDataObject(
+        update,
+        ['toolCallId', 'detail'],
+        'RUNTIME_TOOL_UPDATE_INVALID',
+        'The Tool bridge emitted an invalid update.',
+      );
+    } catch (_error) {
+      updateFailure ??= new AgentLoopFailure(
+        'RUNTIME_TOOL_UPDATE_INVALID',
+        'The Tool bridge emitted an update outside the bounded data contract.',
+      );
+      return;
+    }
+    if (
+      updateSource.toolCallId !== call.block.toolCallId
+      || !Object.prototype.hasOwnProperty.call(updateSource, 'detail')
+    ) {
       updateFailure ??= new AgentLoopFailure(
         'RUNTIME_TOOL_UPDATE_INVALID',
         'The Tool bridge emitted an update for a different Tool call.',
       );
       return;
     }
-    const detail = cloneBoundedJsonValue(update.detail);
+    const detail = cloneBoundedJsonValue(updateSource.detail, input.redactions);
     if (detail === undefined) {
       updateFailure ??= new AgentLoopFailure(
         'RUNTIME_TOOL_UPDATE_INVALID',
@@ -1175,7 +1753,7 @@ async function executeToolCall(options: {
       runId: input.runId,
       defTurnId: input.defTurnId,
       turnId,
-      toolCallId: update.toolCallId,
+      toolCallId: call.block.toolCallId,
       detail,
     }).then(
       () => undefined,
@@ -1193,14 +1771,14 @@ async function executeToolCall(options: {
   let settlement: RuntimeToolSettlement;
   try {
     const pending = input.toolBridge.invoke(
-      {
+      Object.freeze({
         sessionId: input.sessionId,
         defTurnId: input.defTurnId,
         runId: input.runId,
         turnId,
         call: call.block,
         projectionRevision: projection.revision,
-      } satisfies RuntimeToolInvocation,
+      } satisfies RuntimeToolInvocation),
       signal,
       onUpdate,
     );
@@ -1209,7 +1787,12 @@ async function executeToolCall(options: {
     await Promise.all(updatePromises);
     if (updateFailure) throw updateFailure;
     if (signal.aborted) throw createAbortError(signal);
-    settlement = cloneSettlement(returnedSettlement, call.block.toolCallId, projection.revision);
+    settlement = cloneSettlement(
+      returnedSettlement,
+      call.block.toolCallId,
+      projection.revision,
+      input.redactions,
+    );
   } catch (error) {
     acceptingUpdates = false;
     await Promise.all(updatePromises);
@@ -1252,7 +1835,7 @@ async function executeToolCall(options: {
     return { projection, message, terminal };
   }
 
-  const result = sanitizeToolResult(settlement.result, input.connection.apiKey);
+  const result = sanitizeToolResult(settlement.result, input.redactions);
   await emit(controller, {
     type: 'tool.end',
     runId: input.runId,
@@ -1279,7 +1862,7 @@ async function executeToolCall(options: {
 }
 
 function createSyntheticToolFailureMessage(
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   turnId: RuntimeTurnId,
   call: RuntimeToolCallBlock,
   code: string,
@@ -1288,14 +1871,14 @@ function createSyntheticToolFailureMessage(
   const result: RuntimeToolResultPayload = {
     status: 'failed',
     code: safeCode(code, 'RUNTIME_TOOL_FAILED'),
-    message: safeProviderMessage(reason, input.connection.apiKey),
+    message: safeProviderMessage(reason, input.redactions),
   };
   return createToolResultMessage(input, turnId, call, result);
 }
 
 async function emitToolResultMessage(
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   message: RuntimeToolResultMessage,
 ): Promise<void> {
   await emit(controller, {
@@ -1308,28 +1891,33 @@ async function emitToolResultMessage(
 }
 
 function createToolResultMessage(
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   turnId: RuntimeTurnId,
   call: RuntimeToolCallBlock,
   result: RuntimeToolResultPayload,
 ): RuntimeToolResultMessage {
-  return {
+  const message: RuntimeToolResultMessage = {
     schemaVersion: 1,
     id: messageIdForKey(input.runId, 'tool-result', `${turnId}:${call.toolCallId}`),
-    createdAt: (input.now ?? (() => new Date().toISOString()))(),
+    createdAt: safeLoopTimestamp((input.now ?? (() => new Date().toISOString()))()),
     defTurnId: input.defTurnId,
     turnId,
     role: 'tool-result',
     toolCallId: call.toolCallId,
     toolName: call.name,
     result,
-    completedAt: (input.now ?? (() => new Date().toISOString()))(),
+    completedAt: safeLoopTimestamp((input.now ?? (() => new Date().toISOString()))()),
   };
+  const canonical = canonicalizeRuntimeMessage(message, input.redactions);
+  if (canonical.role !== 'tool-result') {
+    throw new AgentLoopFailure('RUNTIME_TOOL_RESULT_INVALID', 'Runtime Tool result message was invalid.');
+  }
+  return canonical;
 }
 
 async function finishTurn(
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   turnId: RuntimeTurnId,
   assistantMessage: RuntimeAssistantMessage,
   toolResults: readonly RuntimeToolResultMessage[],
@@ -1346,7 +1934,7 @@ async function finishTurn(
 
 async function closeOpenTurnAfterFailure(
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   turnId: RuntimeTurnId,
   context: RuntimeMessage[],
   terminal: RuntimeRunTerminal,
@@ -1384,7 +1972,6 @@ async function closeOpenTurnAfterFailure(
       },
       completedAt: (input.now ?? (() => new Date().toISOString()))(),
     };
-    context.push(assistant);
     await emit(controller, {
       type: 'message.start',
       runId: input.runId,
@@ -1407,6 +1994,7 @@ async function closeOpenTurnAfterFailure(
       defTurnId: input.defTurnId,
       message: assistant,
     });
+    context.push(assistant);
   }
   try {
     await finishTurn(controller, input, turnId, assistant, []);
@@ -1417,7 +2005,7 @@ async function closeOpenTurnAfterFailure(
 
 async function emitProviderDelta(
   controller: RuntimeRunController,
-  input: AgentLoopInput,
+  input: AcceptedAgentLoopInput,
   accumulator: AssistantAccumulator,
   contentId: RuntimeContentId,
   type: 'text' | 'thinking',
@@ -1437,100 +2025,196 @@ async function emitProviderDelta(
   });
 }
 
-async function emitProviderToolDelta(
-  controller: RuntimeRunController,
-  input: AgentLoopInput,
-  messageId: RuntimeMessageId,
-  contentId: RuntimeContentId,
-  toolCallId: ToolCallId,
-  nameDelta: string,
-  argumentsDelta: string,
-): Promise<void> {
-  await emit(controller, {
-    type: 'message.update',
-    runId: input.runId,
-    defTurnId: input.defTurnId,
-    messageId,
-    delta: {
-      type: 'tool-call',
-      contentId,
-      toolCallId,
-      nameDelta,
-      argumentsDelta,
-    },
-  });
-}
-
-function validateProviderEvent(event: ProviderStreamEvent): ProviderStreamEvent {
-  if (!isRecord(event) || !isFinitePositiveInteger(event.ordinal) || typeof event.type !== 'string') {
-    throw new AgentLoopFailure('RUNTIME_PROVIDER_EVENT_INVALID', 'The model emitted a malformed event.');
+function validateProviderEvent(value: ProviderStreamEvent): ProviderStreamEvent {
+  const event = snapshotPlainDataObject(
+    value,
+    [
+      'ordinal', 'type', 'responseId', 'responseModel', 'stopReason', 'usage', 'failure',
+      'contentIndex', 'delta', 'text', 'redacted', 'toolCallId', 'name', 'nameDelta',
+      'argumentsDelta', 'arguments',
+    ],
+    'RUNTIME_PROVIDER_EVENT_INVALID',
+    'The model emitted a malformed event.',
+  ) as unknown as ProviderStreamEvent;
+  if (!isFinitePositiveInteger(event.ordinal) || typeof event.type !== 'string') {
+    throw invalidProviderEvent();
   }
-  if (event.type === 'response.done' || event.type === 'response.error') {
-    if (event.type === 'response.done') {
+  switch (event.type) {
+    case 'response.start':
+      assertProviderKeys(event, ['ordinal', 'type'], ['responseId', 'responseModel']);
+      if (
+        !optionalBoundedProviderMetadata(event.responseId)
+        || !optionalBoundedProviderMetadata(event.responseModel)
+      ) {
+        throw invalidProviderEvent();
+      }
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        ...(event.responseId === undefined ? {} : { responseId: event.responseId }),
+        ...(event.responseModel === undefined ? {} : { responseModel: event.responseModel }),
+      });
+    case 'response.done':
+      assertProviderKeys(event, ['ordinal', 'type', 'stopReason', 'usage'], ['responseId', 'responseModel']);
+      {
+        const acceptedUsage = snapshotProviderUsage(event.usage);
       if (
         !['stop', 'length', 'tool-use'].includes(event.stopReason)
-        || !validUsage(event.usage)
+        || acceptedUsage === undefined
         || !optionalBoundedProviderMetadata(event.responseId)
         || !optionalBoundedProviderMetadata(event.responseModel)
       ) {
         throw new AgentLoopFailure('RUNTIME_PROVIDER_TERMINAL_INVALID', 'The model terminal was malformed.');
       }
-    } else if (!validProviderFailure(event.failure)) {
-      throw new AgentLoopFailure('RUNTIME_PROVIDER_TERMINAL_INVALID', 'The model error terminal was malformed.');
-    }
-    return event;
-  }
-  if (event.type === 'response.start') {
-    if (!optionalBoundedProviderMetadata(event.responseId) || !optionalBoundedProviderMetadata(event.responseModel)) {
-      throw invalidProviderEvent();
-    }
-    return event;
-  }
-  if ('contentIndex' in event) validateContentIndex(event.contentIndex);
-  switch (event.type) {
-    case 'text.delta':
-    case 'thinking.delta':
-      if (typeof event.delta !== 'string' || event.delta.length > MAX_PROVIDER_STRING_CODE_UNITS) throw invalidProviderEvent();
-      break;
-    case 'text.end':
-    case 'thinking.end':
-      if (typeof event.text !== 'string' || event.text.length > MAX_PROVIDER_STRING_CODE_UNITS) throw invalidProviderEvent();
-      if (event.type === 'thinking.end' && event.redacted !== undefined && typeof event.redacted !== 'boolean') {
-        throw invalidProviderEvent();
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        stopReason: event.stopReason,
+        usage: acceptedUsage,
+        ...(event.responseId === undefined ? {} : { responseId: event.responseId }),
+        ...(event.responseModel === undefined ? {} : { responseModel: event.responseModel }),
+      });
       }
-      break;
-    case 'tool-call.start':
-      if (typeof event.name !== 'string' || !boundedNonEmptyString(event.toolCallId, 256)) throw invalidProviderEvent();
-      break;
-    case 'tool-call.delta':
-      if (!boundedNonEmptyString(event.toolCallId, 256) || typeof event.nameDelta !== 'string' || typeof event.argumentsDelta !== 'string') {
-        throw invalidProviderEvent();
+    case 'response.error':
+      assertProviderKeys(event, ['ordinal', 'type', 'failure']);
+      {
+      const acceptedFailure = snapshotProviderFailure(event.failure);
+      if (acceptedFailure === undefined) {
+        throw new AgentLoopFailure('RUNTIME_PROVIDER_TERMINAL_INVALID', 'The model error terminal was malformed.');
       }
-      break;
-    case 'tool-call.end':
-      if (!boundedNonEmptyString(event.toolCallId, 256) || typeof event.name !== 'string') throw invalidProviderEvent();
-      break;
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        failure: acceptedFailure,
+      });
+      }
     case 'text.start':
     case 'thinking.start':
-      break;
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex']);
+      validateContentIndex(event.contentIndex);
+      return Object.freeze({ ordinal: event.ordinal, type: event.type, contentIndex: event.contentIndex });
+    case 'text.delta':
+    case 'thinking.delta':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'delta']);
+      validateContentIndex(event.contentIndex);
+      if (typeof event.delta !== 'string' || event.delta.length > MAX_PROVIDER_STRING_CODE_UNITS) {
+        throw invalidProviderEvent();
+      }
+      return Object.freeze({ ordinal: event.ordinal, type: event.type, contentIndex: event.contentIndex, delta: event.delta });
+    case 'text.end':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'text']);
+      validateContentIndex(event.contentIndex);
+      if (typeof event.text !== 'string' || event.text.length > MAX_PROVIDER_STRING_CODE_UNITS) throw invalidProviderEvent();
+      return Object.freeze({ ordinal: event.ordinal, type: event.type, contentIndex: event.contentIndex, text: event.text });
+    case 'thinking.end':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'text'], ['redacted']);
+      validateContentIndex(event.contentIndex);
+      if (
+        typeof event.text !== 'string'
+        || event.text.length > MAX_PROVIDER_STRING_CODE_UNITS
+        || (event.redacted !== undefined && typeof event.redacted !== 'boolean')
+      ) throw invalidProviderEvent();
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        contentIndex: event.contentIndex,
+        text: event.text,
+        ...(event.redacted === undefined ? {} : { redacted: event.redacted }),
+      });
+    case 'tool-call.start':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'toolCallId', 'name']);
+      validateContentIndex(event.contentIndex);
+      if (typeof event.name !== 'string' || !boundedNonEmptyString(event.toolCallId, 256)) throw invalidProviderEvent();
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        contentIndex: event.contentIndex,
+        toolCallId: event.toolCallId,
+        name: event.name,
+      });
+    case 'tool-call.delta':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'toolCallId', 'nameDelta', 'argumentsDelta']);
+      validateContentIndex(event.contentIndex);
+      if (
+        !boundedNonEmptyString(event.toolCallId, 256)
+        || typeof event.nameDelta !== 'string'
+        || event.nameDelta.length > MAX_PROVIDER_STRING_CODE_UNITS
+        || typeof event.argumentsDelta !== 'string'
+        || event.argumentsDelta.length > MAX_PROVIDER_STRING_CODE_UNITS
+      ) {
+        throw invalidProviderEvent();
+      }
+      return Object.freeze({
+        ordinal: event.ordinal,
+        type: event.type,
+        contentIndex: event.contentIndex,
+        toolCallId: event.toolCallId,
+        nameDelta: event.nameDelta,
+        argumentsDelta: event.argumentsDelta,
+      });
+    case 'tool-call.end':
+      assertProviderKeys(event, ['ordinal', 'type', 'contentIndex', 'toolCallId', 'name', 'arguments']);
+      validateContentIndex(event.contentIndex);
+      if (!boundedNonEmptyString(event.toolCallId, 256) || typeof event.name !== 'string') throw invalidProviderEvent();
+      {
+        const args = cloneBoundedJsonObject(event.arguments);
+        if (args === undefined) throw invalidProviderEvent();
+        return Object.freeze({
+          ordinal: event.ordinal,
+          type: event.type,
+          contentIndex: event.contentIndex,
+          toolCallId: event.toolCallId,
+          name: event.name,
+          arguments: args,
+        });
+      }
     default:
       throw invalidProviderEvent();
   }
-  return event;
+}
+
+function assertProviderKeys(
+  value: object,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): void {
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((key) => !(key in value)) || Object.keys(value).some((key) => !allowed.has(key))) {
+    throw invalidProviderEvent();
+  }
 }
 
 function invalidProviderEvent(): AgentLoopFailure {
   return new AgentLoopFailure('RUNTIME_PROVIDER_EVENT_INVALID', 'The model emitted a malformed event.');
 }
 
-function validUsage(value: RuntimeUsage): boolean {
-  if (!isRecord(value)) return false;
-  return isNonNegativeInteger(value.inputTokens)
-    && isNonNegativeInteger(value.outputTokens)
-    && isNonNegativeInteger(value.totalTokens)
-    && optionalUsageNumber(value.reasoningTokens)
-    && optionalUsageNumber(value.cacheReadTokens)
-    && optionalUsageNumber(value.cacheWriteTokens);
+function snapshotProviderUsage(value: RuntimeUsage): RuntimeUsage | undefined {
+  try {
+    const source = snapshotPlainDataObject(
+      value,
+      ['inputTokens', 'outputTokens', 'totalTokens', 'reasoningTokens', 'cacheReadTokens', 'cacheWriteTokens'],
+      'RUNTIME_PROVIDER_TERMINAL_INVALID',
+      'The model terminal was malformed.',
+    );
+    if (
+      !isNonNegativeInteger(source.inputTokens)
+      || !isNonNegativeInteger(source.outputTokens)
+      || !isNonNegativeInteger(source.totalTokens)
+      || !optionalUsageNumber(source.reasoningTokens)
+      || !optionalUsageNumber(source.cacheReadTokens)
+      || !optionalUsageNumber(source.cacheWriteTokens)
+    ) return undefined;
+    return Object.freeze({
+      inputTokens: source.inputTokens,
+      outputTokens: source.outputTokens,
+      totalTokens: source.totalTokens,
+      ...(source.reasoningTokens === undefined ? {} : { reasoningTokens: source.reasoningTokens as number }),
+      ...(source.cacheReadTokens === undefined ? {} : { cacheReadTokens: source.cacheReadTokens as number }),
+      ...(source.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: source.cacheWriteTokens as number }),
+    });
+  } catch (_error) {
+    return undefined;
+  }
 }
 
 function optionalUsageNumber(value: unknown): boolean {
@@ -1548,15 +2232,33 @@ function cloneUsage(value: RuntimeUsage): RuntimeUsage {
   };
 }
 
-function validProviderFailure(value: ProviderFailure): boolean {
-  return isRecord(value)
-    && ['authentication', 'bad-request', 'rate-limit', 'server', 'network', 'context-overflow', 'malformed-response', 'aborted', 'unknown'].includes(value.kind)
-    && typeof value.code === 'string'
-    && value.code.length <= 128
-    && typeof value.message === 'string'
-    && value.message.length <= MAX_PROVIDER_METADATA_CODE_UNITS
-    && typeof value.retryable === 'boolean'
-    && (value.statusCode === undefined || isNonNegativeInteger(value.statusCode));
+function snapshotProviderFailure(value: ProviderFailure): ProviderFailure | undefined {
+  try {
+    const source = snapshotPlainDataObject(
+      value,
+      ['kind', 'code', 'message', 'retryable', 'statusCode'],
+      'RUNTIME_PROVIDER_TERMINAL_INVALID',
+      'The model error terminal was malformed.',
+    );
+    if (
+      !['authentication', 'bad-request', 'rate-limit', 'server', 'network', 'context-overflow', 'malformed-response', 'aborted', 'unknown'].includes(String(source.kind))
+      || typeof source.code !== 'string'
+      || source.code.length > 128
+      || typeof source.message !== 'string'
+      || source.message.length > MAX_PROVIDER_METADATA_CODE_UNITS
+      || typeof source.retryable !== 'boolean'
+      || (source.statusCode !== undefined && !isNonNegativeInteger(source.statusCode))
+    ) return undefined;
+    return Object.freeze({
+      kind: source.kind as ProviderFailure['kind'],
+      code: source.code,
+      message: source.message,
+      retryable: source.retryable,
+      ...(source.statusCode === undefined ? {} : { statusCode: source.statusCode }),
+    });
+  } catch (_error) {
+    return undefined;
+  }
 }
 
 function optionalBoundedProviderMetadata(value: unknown): boolean {
@@ -1574,49 +2276,69 @@ function cloneSettlement(
   settlement: RuntimeToolSettlement,
   toolCallId: ToolCallId,
   currentProjectionRevision: number,
+  redactions: readonly string[],
 ): RuntimeToolSettlement {
-  if (!isRecord(settlement) || settlement.toolCallId !== toolCallId) {
+  const source = snapshotPlainDataObject(
+    settlement,
+    ['toolCallId', 'result', 'nextProjection'],
+    'RUNTIME_TOOL_SETTLEMENT_INVALID',
+    'The Tool bridge did not return an atomic settlement.',
+  );
+  if (
+    source.toolCallId !== toolCallId
+    || !Object.prototype.hasOwnProperty.call(source, 'result')
+    || !Object.prototype.hasOwnProperty.call(source, 'nextProjection')
+  ) {
     throw new AgentLoopFailure('RUNTIME_TOOL_SETTLEMENT_INVALID', 'The Tool bridge did not return an atomic settlement.');
   }
-  const result = cloneToolResultPayload(settlement.result);
-  const nextProjection = cloneProjection(settlement.nextProjection);
+  const result = cloneToolResultPayload(source.result, redactions);
+  const nextProjection = cloneProjection(source.nextProjection as RuntimeToolProjection, redactions);
   if (nextProjection.revision < currentProjectionRevision) {
     throw new AgentLoopFailure(
       'RUNTIME_TOOL_PROJECTION_REVISION_REGRESSION',
       'The Tool bridge returned a projection revision older than the accepted projection.',
     );
   }
-  return { toolCallId, result, nextProjection };
+  return Object.freeze({ toolCallId, result, nextProjection });
 }
 
-function validateProjection(projection: RuntimeToolProjection): void {
-  void cloneProjection(projection);
-}
-
-function cloneToolResultPayload(value: unknown): RuntimeToolResultPayload {
-  if (!isRecord(value)) throw invalidToolSettlement();
-  if (value.status === 'succeeded') {
-    const output = cloneBoundedJsonValue(value.output);
+function cloneToolResultPayload(
+  value: unknown,
+  redactions: readonly string[],
+): RuntimeToolResultPayload {
+  const source = snapshotPlainDataObject(
+    value,
+    ['status', 'output', 'code', 'message', 'details'],
+    'RUNTIME_TOOL_SETTLEMENT_INVALID',
+    'The Tool bridge result was malformed.',
+  );
+  if (source.status === 'succeeded') {
+    if (
+      Object.keys(source).some((key) => key !== 'status' && key !== 'output')
+      || !Object.prototype.hasOwnProperty.call(source, 'output')
+    ) throw invalidToolSettlement();
+    const output = cloneBoundedJsonValue(source.output, redactions);
     if (output === undefined) throw invalidToolSettlement();
-    return { status: 'succeeded', output };
+    return Object.freeze({ status: 'succeeded', output });
   }
   if (
-    value.status !== 'failed'
-    || typeof value.code !== 'string'
-    || !/^[A-Za-z0-9._-]{1,128}$/u.test(value.code)
-    || typeof value.message !== 'string'
-    || value.message.length > MAX_PROVIDER_METADATA_CODE_UNITS
+    source.status !== 'failed'
+    || Object.keys(source).some((key) => !['status', 'code', 'message', 'details'].includes(key))
+    || typeof source.code !== 'string'
+    || !/^[A-Za-z0-9._-]{1,128}$/u.test(source.code)
+    || typeof source.message !== 'string'
+    || source.message.length > MAX_PROVIDER_METADATA_CODE_UNITS
   ) {
     throw invalidToolSettlement();
   }
-  const details = value.details === undefined ? undefined : cloneBoundedJsonValue(value.details);
-  if (value.details !== undefined && details === undefined) throw invalidToolSettlement();
-  return {
+  const details = source.details === undefined ? undefined : cloneBoundedJsonValue(source.details, redactions);
+  if (source.details !== undefined && details === undefined) throw invalidToolSettlement();
+  return Object.freeze({
     status: 'failed',
-    code: value.code,
-    message: value.message,
+    code: source.code,
+    message: safeProviderMessage(source.message, redactions),
     ...(details === undefined ? {} : { details }),
-  };
+  });
 }
 
 function invalidToolSettlement(): AgentLoopFailure {
@@ -1674,55 +2396,74 @@ function schemaTypeMatches(value: JsonValue, type: string): boolean {
   }
 }
 
-function cloneProjection(projection: RuntimeToolProjection): RuntimeToolProjection {
+function cloneProjection(
+  projection: RuntimeToolProjection,
+  redactions: readonly string[] = [],
+): RuntimeToolProjection {
+  const source = snapshotPlainDataObject(
+    projection,
+    ['revision', 'tools'],
+    'RUNTIME_TOOL_PROJECTION_INVALID',
+    'The Tool projection was malformed.',
+  );
   if (
-    !isRecord(projection)
-    || !isNonNegativeInteger(projection.revision)
-    || !Array.isArray(projection.tools)
-    || projection.tools.length > MAX_TOOL_COUNT
+    !isNonNegativeInteger(source.revision)
+    || !Array.isArray(source.tools)
   ) {
     throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
   }
+  const projectedTools = snapshotDenseDataArray(
+    source.tools,
+    MAX_TOOL_COUNT,
+    'RUNTIME_TOOL_PROJECTION_INVALID',
+    'The Tool projection was malformed.',
+  );
   const names = new Set<string>();
-  return {
-    revision: projection.revision,
-    tools: projection.tools.map((tool) => {
+  const tools = projectedTools.map((tool) => {
+      const descriptor = snapshotPlainDataObject(
+        tool,
+        ['name', 'description', 'inputSchema', 'risk'],
+        'RUNTIME_TOOL_PROJECTION_INVALID',
+        'The Tool projection was malformed.',
+      );
       if (
-        !isRecord(tool)
-        || typeof tool.name !== 'string'
-        || !tool.name
-        || tool.name !== tool.name.trim()
-        || tool.name.length > MAX_TOOL_NAME_CODE_UNITS
-        || /[\u0000-\u001f\u007f]/u.test(tool.name)
-        || names.has(tool.name)
-        || typeof tool.description !== 'string'
-        || tool.description.length > MAX_TOOL_DESCRIPTION_CODE_UNITS
-        || tool.description.includes('\u0000')
-        || (tool.risk !== 'read' && tool.risk !== 'propose' && tool.risk !== 'mutate')
+        typeof descriptor.name !== 'string'
+        || !descriptor.name
+        || descriptor.name !== descriptor.name.trim()
+        || descriptor.name.length > MAX_TOOL_NAME_CODE_UNITS
+        || /[\u0000-\u001f\u007f]/u.test(descriptor.name)
+        || names.has(descriptor.name)
+        || typeof descriptor.description !== 'string'
+        || descriptor.description.length > MAX_TOOL_DESCRIPTION_CODE_UNITS
+        || descriptor.description.includes('\u0000')
+        || (descriptor.risk !== 'read' && descriptor.risk !== 'propose' && descriptor.risk !== 'mutate')
       ) {
         throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
       }
-      const inputSchema = cloneBoundedJsonObject(tool.inputSchema);
-      if (inputSchema === undefined) {
+      const acceptedName = redactSecrets(descriptor.name, redactions);
+      const inputSchema = cloneBoundedJsonObject(descriptor.inputSchema, redactions);
+      if (inputSchema === undefined || !acceptedName || names.has(acceptedName)) {
         throw new AgentLoopFailure('RUNTIME_TOOL_PROJECTION_INVALID', 'The Tool projection was malformed.');
       }
-      names.add(tool.name);
-      return {
-        name: tool.name,
-        description: tool.description,
+      names.add(acceptedName);
+      return Object.freeze({
+        name: acceptedName,
+        description: redactSecrets(descriptor.description, redactions),
         inputSchema,
-        risk: tool.risk,
-      } satisfies RuntimeToolDescriptor;
-    }),
-  };
+        risk: descriptor.risk,
+      } satisfies RuntimeToolDescriptor);
+    });
+  return Object.freeze({
+    revision: source.revision,
+    tools: Object.freeze(tools),
+  });
 }
 
-function sanitizeToolResult(result: RuntimeToolResultPayload, apiKey: string): RuntimeToolResultPayload {
-  if (result.status === 'succeeded') return result;
-  return {
-    ...result,
-    message: safeProviderMessage(result.message, apiKey),
-  };
+function sanitizeToolResult(
+  result: RuntimeToolResultPayload,
+  redactions: readonly string[],
+): RuntimeToolResultPayload {
+  return cloneToolResultPayload(result, redactions);
 }
 
 function createAbortError(signal: CombinedAbortSignal): AgentLoopAbortError {
@@ -1730,7 +2471,10 @@ function createAbortError(signal: CombinedAbortSignal): AgentLoopAbortError {
   if (isRecord(reason) && typeof reason.code === 'string') {
     return new AgentLoopAbortError(
       safeCode(reason.code, 'RUNTIME_ABORTED'),
-      safeProviderMessage(typeof reason.message === 'string' ? reason.message : 'Run aborted.', ''),
+      safeProviderMessage(
+        typeof reason.message === 'string' ? reason.message : 'Run aborted.',
+        signal.redactions,
+      ),
     );
   }
   return new AgentLoopAbortError('RUNTIME_ABORTED', 'Run aborted.');
@@ -1763,17 +2507,19 @@ function assistantText(message: RuntimeAssistantMessage): string {
     .join('');
 }
 
-function diagnosticFromFailure(failure: ProviderFailure, apiKey: string): RuntimeAssistantMessage['diagnostic'] {
+function diagnosticFromFailure(
+  failure: ProviderFailure,
+  redactions: readonly string[],
+): RuntimeAssistantMessage['diagnostic'] {
   return {
     code: safeCode(failure.code, 'RUNTIME_PROVIDER_FAILED'),
-    message: safeProviderMessage(failure.message, apiKey),
+    message: safeProviderMessage(failure.message, redactions),
     retryable: failure.retryable,
   };
 }
 
-function safeProviderMessage(value: string, apiKey: string): string {
-  const withKeyRedacted = apiKey ? value.split(apiKey).join('[redacted]') : value;
-  return withKeyRedacted
+function safeProviderMessage(value: string, redactions: readonly string[]): string {
+  return redactSecrets(value, redactions)
     .slice(0, 4_096)
     .replace(/authorization\s*:\s*\S+/giu, 'authorization: [redacted]')
     .replace(/bearer\s+[A-Za-z0-9._~+/=-]{8,}/giu, 'bearer [redacted]')
@@ -1813,7 +2559,9 @@ function emit<T extends RuntimeEventDraft>(controller: RuntimeRunController, dra
 }
 
 function isJsonObject(value: unknown): value is JsonObject {
-  return isRecord(value) && cloneBoundedJsonObject(value) !== undefined;
+  if (!isRecord(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 interface JsonCloneBudget {
@@ -1821,21 +2569,28 @@ interface JsonCloneBudget {
   codeUnits: number;
 }
 
-function cloneBoundedJsonValue(value: unknown): JsonValue | undefined {
+function cloneBoundedJsonValue(
+  value: unknown,
+  redactions: readonly string[] = [],
+): JsonValue | undefined {
   try {
-    return cloneBoundedJsonNode(value, 0, { nodes: 0, codeUnits: 0 }, new WeakSet<object>());
+    return cloneBoundedJsonNode(value, redactions, 0, { nodes: 0, codeUnits: 0 }, new WeakSet<object>());
   } catch (_error) {
     return undefined;
   }
 }
 
-function cloneBoundedJsonObject(value: unknown): JsonObject | undefined {
-  const cloned = cloneBoundedJsonValue(value);
+function cloneBoundedJsonObject(
+  value: unknown,
+  redactions: readonly string[] = [],
+): JsonObject | undefined {
+  const cloned = cloneBoundedJsonValue(value, redactions);
   return isRecord(cloned) ? cloned as JsonObject : undefined;
 }
 
 function cloneBoundedJsonNode(
   value: unknown,
+  redactions: readonly string[],
   depth: number,
   budget: JsonCloneBudget,
   seen: WeakSet<object>,
@@ -1847,40 +2602,89 @@ function cloneBoundedJsonNode(
   if (typeof value === 'string') {
     budget.codeUnits += value.length;
     return value.length <= MAX_JSON_STRING_CODE_UNITS && budget.codeUnits <= MAX_JSON_TOTAL_CODE_UNITS
-      ? value
+      ? redactSecrets(value, redactions)
       : undefined;
   }
   if (typeof value !== 'object' || seen.has(value)) return undefined;
   seen.add(value);
   if (Array.isArray(value)) {
-    if (value.length > MAX_JSON_CONTAINER_ITEMS) return undefined;
+    const descriptors = boundedJsonArrayDescriptors(value);
+    if (descriptors === undefined) return undefined;
     const output: JsonValue[] = [];
-    for (const item of value) {
-      const cloned = cloneBoundedJsonNode(item, depth + 1, budget, seen);
+    for (const descriptor of descriptors) {
+      const cloned = cloneBoundedJsonNode(descriptor.value, redactions, depth + 1, budget, seen);
       if (cloned === undefined) return undefined;
       output.push(cloned);
     }
     seen.delete(value);
-    return output;
+    return Object.freeze(output) as unknown as JsonValue[];
   }
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return undefined;
-  const entries = Object.entries(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Object.getOwnPropertySymbols(value).some((symbol) => Object.prototype.propertyIsEnumerable.call(value, symbol))) {
+    return undefined;
+  }
+  const entries = Object.entries(descriptors).filter(([, descriptor]) => descriptor.enumerable);
   if (entries.length > MAX_JSON_CONTAINER_ITEMS) return undefined;
   const output: Record<string, JsonValue> = {};
-  for (const [key, item] of entries) {
-    budget.codeUnits += key.length;
-    if (key.length > MAX_JSON_STRING_CODE_UNITS || budget.codeUnits > MAX_JSON_TOTAL_CODE_UNITS) return undefined;
-    const cloned = cloneBoundedJsonNode(item, depth + 1, budget, seen);
+  for (const [rawKey, descriptor] of entries) {
+    if (!('value' in descriptor) || descriptor.value === undefined) return undefined;
+    budget.codeUnits += rawKey.length;
+    if (rawKey.length > MAX_JSON_STRING_CODE_UNITS || budget.codeUnits > MAX_JSON_TOTAL_CODE_UNITS) return undefined;
+    const key = redactJsonKey(rawKey, redactions);
+    if (Object.prototype.hasOwnProperty.call(output, key)) return undefined;
+    const cloned = cloneBoundedJsonNode(descriptor.value, redactions, depth + 1, budget, seen);
     if (cloned === undefined) return undefined;
     Object.defineProperty(output, key, {
       value: cloned,
       enumerable: true,
-      configurable: true,
-      writable: true,
+      configurable: false,
+      writable: false,
     });
   }
   seen.delete(value);
+  return Object.freeze(output);
+}
+
+function boundedJsonArrayDescriptors(value: readonly unknown[]): readonly PropertyDescriptor[] | undefined {
+  let descriptors: Record<PropertyKey, PropertyDescriptor>;
+  let prototype: unknown;
+  try {
+    prototype = Object.getPrototypeOf(value);
+    descriptors = Object.getOwnPropertyDescriptors(value) as unknown as Record<PropertyKey, PropertyDescriptor>;
+  } catch (_error) {
+    return undefined;
+  }
+  const lengthDescriptor = descriptors.length;
+  if (
+    prototype !== Array.prototype
+    || !lengthDescriptor
+    || !('value' in lengthDescriptor)
+    || !Number.isSafeInteger(lengthDescriptor.value)
+    || lengthDescriptor.value < 0
+    || lengthDescriptor.value > MAX_JSON_CONTAINER_ITEMS
+  ) return undefined;
+  const length = lengthDescriptor.value as number;
+  const indexed = new Map<number, PropertyDescriptor>();
+  for (const key of Reflect.ownKeys(descriptors)) {
+    if (key === 'length') continue;
+    if (typeof key !== 'string' || !/^(?:0|[1-9][0-9]*)$/u.test(key)) return undefined;
+    const index = Number(key);
+    const descriptor = descriptors[key];
+    if (
+      !Number.isSafeInteger(index)
+      || index < 0
+      || index >= length
+      || !descriptor
+      || !descriptor.enumerable
+      || !('value' in descriptor)
+    ) return undefined;
+    indexed.set(index, descriptor);
+  }
+  if (indexed.size !== length) return undefined;
+  const output: PropertyDescriptor[] = [];
+  for (let index = 0; index < length; index += 1) output.push(indexed.get(index)!);
   return output;
 }
 
@@ -1926,13 +2730,59 @@ function boundedNonEmptyString(value: unknown, maxCodeUnits: number): value is s
   return typeof value === 'string' && value.trim().length > 0 && value.length <= maxCodeUnits;
 }
 
+function redactSecrets(value: string, redactions: readonly string[]): string {
+  let output = value;
+  for (const secret of redactions) output = output.split(secret).join('[redacted]');
+  return output
+    .replace(/authorization\s*:\s*\S+/giu, 'authorization: [redacted]')
+    .replace(/bearer\s+[A-Za-z0-9._~+/=-]{8,}/giu, 'bearer [redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/giu, '[redacted]')
+    .replace(/((?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|password|secret)\s*[:=])\s*[^\s,;]+/giu, '$1 [redacted]');
+}
+
+function redactJsonKey(value: string, redactions: readonly string[]): string {
+  const redacted = redactSecrets(value, redactions);
+  return /(?:authorization|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|password|secret)/iu.test(redacted)
+    ? '[redacted-key]'
+    : redacted;
+}
+
+function plainDeepEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left)
+      && Array.isArray(right)
+      && left.length === right.length
+      && left.every((child, index) => plainDeepEqual(child, right[index]));
+  }
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && plainDeepEqual(left[key], right[key]));
+}
+
+function safeLoopTimestamp(value: unknown): string {
+  if (
+    typeof value !== 'string'
+    || value.length === 0
+    || value.length > 128
+    || !Number.isFinite(Date.parse(value))
+  ) {
+    throw new AgentLoopFailure('RUNTIME_CLOCK_INVALID', 'Runtime clock returned an invalid timestamp.');
+  }
+  return value;
+}
+
 interface CombinedAbortSignal extends AbortSignal {
   readonly cleanup: () => void;
+  readonly redactions: readonly string[];
 }
 
 function combineAbortSignals(
   external: AbortSignal | undefined,
   controller: AbortSignal,
+  redactions: readonly string[],
 ): CombinedAbortSignal {
   const local = new AbortController();
   const forward = (signal: AbortSignal): void => {
@@ -1953,6 +2803,10 @@ function combineAbortSignals(
     value: () => {
       for (const remove of listeners) remove();
     },
+    enumerable: false,
+  });
+  Object.defineProperty(combined, 'redactions', {
+    value: redactions,
     enumerable: false,
   });
   return combined;
@@ -1991,9 +2845,10 @@ async function awaitWithAbort<T>(promise: Promise<T>, signal: CombinedAbortSigna
   }
 }
 
-async function closeIterator<T>(iterator: AsyncIterator<T>): Promise<void> {
+function closeIteratorDetached<T>(iterator: AsyncIterator<T>): void {
   try {
-    await iterator.return?.();
+    const cleanup = iterator.return?.();
+    if (cleanup) void Promise.resolve(cleanup).catch(() => undefined);
   } catch (_error) {
     // Provider cleanup cannot replace the already selected safe terminal.
   }

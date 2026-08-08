@@ -11,7 +11,12 @@ import {
   asRuntimeTurnId,
 } from './ids.ts';
 import { runAgentLoop } from './agent-loop.ts';
-import { RuntimeRunController, RuntimeRunProtocolError } from './run-controller.ts';
+import {
+  RuntimeRunController,
+  RuntimeRunProtocolError,
+  type RuntimeDurableEventWrite,
+  type RuntimeDurableTerminalBundle,
+} from './run-controller.ts';
 import type {
   RuntimeAssistantMessage,
   RuntimeAssistantMessageDraft,
@@ -25,6 +30,7 @@ import type { RuntimeToolProjection } from './tool.ts';
 import {
   FakeModelDriver,
   FakeModelStream,
+  UncooperativeReturnModelStream,
   numberProviderEvents,
   type ProviderEventWithoutOrdinal,
 } from './testing/fake-model-driver.ts';
@@ -57,8 +63,16 @@ function usage(outputTokens = 1) {
   return { inputTokens: 3, outputTokens, totalTokens: 3 + outputTokens };
 }
 
-function done(stopReason: 'stop' | 'length' | 'tool-use' = 'stop'): ProviderEventWithoutOrdinal {
-  return { type: 'response.done', stopReason, usage: usage() };
+function done(
+  stopReason: 'stop' | 'length' | 'tool-use' = 'stop',
+  responseId?: string,
+): ProviderEventWithoutOrdinal {
+  return {
+    type: 'response.done',
+    stopReason,
+    usage: usage(),
+    ...(responseId === undefined ? {} : { responseId }),
+  };
 }
 
 function textResponse(text: string): ProviderStreamEvent[] {
@@ -67,7 +81,7 @@ function textResponse(text: string): ProviderStreamEvent[] {
     { type: 'text.start', contentIndex: 0 },
     { type: 'text.delta', contentIndex: 0, delta: text },
     { type: 'text.end', contentIndex: 0, text },
-    done(),
+    done('stop', 'response-1'),
   ]);
 }
 
@@ -102,7 +116,7 @@ function toolResponse(
       },
     );
   });
-  events.push(done(stopReason));
+  events.push(done(stopReason, 'response-tool'));
   return numberProviderEvents(events);
 }
 
@@ -200,6 +214,25 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise<void>((resolve) => queueMicrotask(resolve));
   }
   assert.fail('fixture did not reach the expected state');
+}
+
+async function emitSettledAssistantTurn(
+  controller: RuntimeRunController,
+  suffix: string,
+): Promise<RuntimeAssistantMessage> {
+  await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+  const assistant = assistantMessage(`message-terminal-${suffix}`);
+  await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+  await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+  await controller.emit({
+    type: 'turn.end',
+    runId,
+    defTurnId,
+    turnId: userTurnId,
+    assistantMessage: assistant,
+    toolResultMessageIds: [],
+  });
+  return assistant;
 }
 
 test('pure text emits one completed run with DefTurnId on messages, events, and markers', async () => {
@@ -434,7 +467,7 @@ test('each terminal is unique and late Runtime events are rejected', async () =>
 test('a late Provider event after response terminal fails the run without a second terminal', async () => {
   const lateProviderEvent = numberProviderEvents([
     { type: 'response.start', responseId: 'response-late' },
-    done(),
+    done('stop', 'response-late'),
     { type: 'text.start', contentIndex: 0 },
   ]);
   const result = await runAgentLoop(baseInput({ modelDriver: new FakeModelDriver([lateProviderEvent]) }));
@@ -598,6 +631,18 @@ test('tool-call.delta must retain the callId established by its contentIndex sta
 
   assert.equal(result.terminal.status === 'failed' ? result.terminal.code : '', 'RUNTIME_PROVIDER_TOOL_ID_CONFLICT');
   assert.equal(bridge.invocations.length, 0);
+  assert.deepEqual(
+    result.events
+      .filter((event) => (event.type === 'tool.start' && event.call.toolCallId === asToolCallId('tool-a'))
+        || (event.type === 'tool.end' && event.toolCallId === asToolCallId('tool-a')))
+      .map((event) => event.type),
+    ['tool.start', 'tool.end'],
+  );
+  assert.ok(result.messages.some(
+    (message) => message.role === 'tool-result'
+      && message.toolCallId === asToolCallId('tool-a')
+      && message.result.status === 'failed',
+  ));
 });
 
 test('Tool presence and provider stopReason must agree', async (t) => {
@@ -755,12 +800,46 @@ test('turn.end rejects forged Tool result message IDs', async () => {
   const user = userMessage();
   await controller.emit({ type: 'message.start', runId, defTurnId, message: user });
   await controller.emit({ type: 'message.end', runId, defTurnId, message: user });
-  const toolResult = toolResultMessage();
-  await controller.emit({ type: 'message.start', runId, defTurnId, message: toolResult });
-  await controller.emit({ type: 'message.end', runId, defTurnId, message: toolResult });
-  const assistant = assistantMessage('message-forged-result-assistant');
+
+  const unboundResult = toolResultMessage('message-unbound-tool-result');
+  await assert.rejects(
+    controller.emit({ type: 'message.start', runId, defTurnId, message: unboundResult }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_TOOL_RESULT_INVALID',
+  );
+
+  const call = {
+    type: 'tool-call' as const,
+    id: asRuntimeContentId('content-forged-result-call'),
+    toolCallId: asToolCallId('call-forged-result'),
+    name: 'echo',
+    arguments: {},
+  };
+  const result: RuntimeToolResultPayload = { status: 'succeeded', output: null };
+  const assistant: RuntimeAssistantMessage = {
+    ...assistantMessage('message-forged-result-assistant'),
+    content: [call],
+    stopReason: 'tool-use',
+  };
   await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
   await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+  await controller.emit({ type: 'tool.start', runId, defTurnId, turnId: userTurnId, call });
+  await controller.emit({
+    type: 'tool.end',
+    runId,
+    defTurnId,
+    turnId: userTurnId,
+    toolCallId: call.toolCallId,
+    result,
+    nextProjectionRevision: 1,
+  });
+  const toolResult: RuntimeToolResultMessage = {
+    ...toolResultMessage('message-bound-tool-result'),
+    toolCallId: call.toolCallId,
+    toolName: call.name,
+    result,
+  };
+  await controller.emit({ type: 'message.start', runId, defTurnId, message: toolResult });
+  await controller.emit({ type: 'message.end', runId, defTurnId, message: toolResult });
   await assert.rejects(
     controller.emit({
       type: 'turn.end',
@@ -856,6 +935,116 @@ test('listener re-entrant emit/finish are rejected without deadlock while abort 
   });
   await controller.finish({ status: 'aborted', code: 'LISTENER_STOP', message: 'listener requested abort' });
   assert.equal(controller.events.filter((event) => event.type === 'run.end').length, 1);
+});
+
+test('concurrent Runtime operations linearize validation, sequence, graph, and finish', async (t) => {
+  await t.test('dependent message events and finish', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const assistant = assistantMessage('message-concurrent-dependent');
+
+    await Promise.all([
+      controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) }),
+      controller.emit({ type: 'message.end', runId, defTurnId, message: assistant }),
+    ]);
+    await Promise.all([
+      controller.emit({
+        type: 'turn.end',
+        runId,
+        defTurnId,
+        turnId: userTurnId,
+        assistantMessage: assistant,
+        toolResultMessageIds: [],
+      }),
+      controller.finish({ status: 'completed' }),
+    ]);
+
+    const events = controller.events;
+    assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ['run.start', 'turn.start', 'message.start', 'message.end', 'turn.end', 'run.end'],
+    );
+  });
+
+  await t.test('concurrent Tool updates preserve call order and dependent graph state', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const call = {
+      type: 'tool-call' as const,
+      id: asRuntimeContentId('content-concurrent-tool'),
+      toolCallId: asToolCallId('call-concurrent-tool'),
+      name: 'echo',
+      arguments: {},
+    };
+    const assistant: RuntimeAssistantMessage = {
+      ...assistantMessage('message-concurrent-tool'),
+      content: [call],
+      stopReason: 'tool-use',
+    };
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+    await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+    await controller.emit({ type: 'tool.start', runId, defTurnId, turnId: userTurnId, call });
+
+    await Promise.all([
+      controller.emit({
+        type: 'tool.update',
+        runId,
+        defTurnId,
+        turnId: userTurnId,
+        toolCallId: call.toolCallId,
+        detail: { order: 1 },
+      }),
+      controller.emit({
+        type: 'tool.update',
+        runId,
+        defTurnId,
+        turnId: userTurnId,
+        toolCallId: call.toolCallId,
+        detail: { order: 2 },
+      }),
+    ]);
+
+    const result: RuntimeToolResultPayload = { status: 'succeeded', output: null };
+    const resultMessage: RuntimeToolResultMessage = {
+      ...toolResultMessage('message-concurrent-tool-result'),
+      toolCallId: call.toolCallId,
+      toolName: call.name,
+      result,
+    };
+    await Promise.all([
+      controller.emit({
+        type: 'tool.end',
+        runId,
+        defTurnId,
+        turnId: userTurnId,
+        toolCallId: call.toolCallId,
+        result,
+        nextProjectionRevision: 1,
+      }),
+      controller.emit({ type: 'message.start', runId, defTurnId, message: resultMessage }),
+    ]);
+    await controller.emit({ type: 'message.end', runId, defTurnId, message: resultMessage });
+    await controller.emit({
+      type: 'turn.end',
+      runId,
+      defTurnId,
+      turnId: userTurnId,
+      assistantMessage: assistant,
+      toolResultMessageIds: [resultMessage.id],
+    });
+    await controller.finish({ status: 'completed' });
+
+    const events = controller.events;
+    const updateOrder = events
+      .filter((event) => event.type === 'tool.update')
+      .map((event) => (event.detail as JsonObject).order);
+    assert.deepEqual(updateOrder, [1, 2]);
+    assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
+    assert.equal(new Set(events.map((event) => event.sequence)).size, events.length);
+  });
 });
 
 test('a Tool name that remains empty at tool-call.end fails without bridge execution', async () => {
@@ -1062,4 +1251,963 @@ test('projection descriptor fields and inputSchema obey bounded unique JSON cont
     assert.equal(result.terminal.status === 'failed' ? result.terminal.code : '', 'RUNTIME_TOOL_PROJECTION_INVALID');
     assert.equal(result.events.filter((event) => event.type === 'run.end').length, 1);
   }
+});
+
+test('response.done cannot drift from the responseId fixed by response.start', async () => {
+  const result = await runAgentLoop(baseInput({
+    modelDriver: new FakeModelDriver([numberProviderEvents([
+      { type: 'response.start', responseId: 'response-fixed' },
+      done('stop', 'response-drifted'),
+    ])]),
+  }));
+
+  assert.equal(
+    result.terminal.status === 'failed' ? result.terminal.code : '',
+    'RUNTIME_PROVIDER_RESPONSE_ID_CONFLICT',
+  );
+  assert.equal(result.events.filter((event) => event.type === 'run.end').length, 1);
+});
+
+test('input is deeply snapshotted before run.start listeners can mutate Host objects', async () => {
+  const driver = new FakeModelDriver([textResponse('snapshotted')]);
+  const mutableUser = userMessage('before mutation') as RuntimeUserMessage & {
+    content: Array<{ type: 'text'; id: ReturnType<typeof asRuntimeContentId>; text: string }>;
+  };
+  const mutableSchema: JsonObject = { type: 'object', properties: { value: { type: 'string' } } };
+  const mutableProjection: RuntimeToolProjection = {
+    revision: 1,
+    tools: [{ name: 'echo', description: 'before description', inputSchema: mutableSchema, risk: 'read' }],
+  };
+  const mutableHeaders: Record<string, string> = { authorization: 'Bearer before-header-secret' };
+  const mutableConnection = {
+    providerId: 'fake-provider',
+    modelId: 'before-model',
+    baseUrl: 'https://provider.invalid',
+    apiKey: 'before-api-secret',
+    headers: mutableHeaders,
+  };
+  let loopInput!: ReturnType<typeof baseInput>;
+  const mutateAtRunStart = (event: RuntimeEvent): void => {
+    if (event.type !== 'run.start') return;
+    loopInput.systemPrompt = 'after prompt';
+    mutableUser.content[0]!.text = 'after message';
+    mutableConnection.modelId = 'after-model';
+    mutableHeaders.authorization = 'Bearer after-header-secret';
+    ((mutableSchema.properties as JsonObject).value as JsonObject).type = 'boolean';
+  };
+  loopInput = baseInput({
+    systemPrompt: 'before prompt',
+    messages: [mutableUser],
+    userMessage: mutableUser,
+    connection: mutableConnection,
+    tools: mutableProjection,
+    modelDriver: driver,
+    listeners: [mutateAtRunStart],
+  });
+
+  const result = await runAgentLoop(loopInput);
+  assert.equal(result.terminal.status, 'completed');
+  const request = driver.requests[0]!;
+  assert.equal(request.systemPrompt, 'before prompt');
+  assert.equal(request.connection.modelId, 'before-model');
+  assert.equal(request.connection.headers?.authorization, 'Bearer before-header-secret');
+  const requestContent = request.messages[0]?.role === 'user' ? request.messages[0].content[0] : undefined;
+  assert.equal(requestContent?.type === 'text' ? requestContent.text : '', 'before mutation');
+  assert.equal(
+    (((request.tools[0]?.inputSchema.properties as JsonObject).value as JsonObject).type),
+    'string',
+  );
+});
+
+test('NaN maxTurns fails closed with one failed Runtime terminal', async () => {
+  const result = await runAgentLoop(baseInput({ maxTurns: Number.NaN }));
+  assert.equal(result.terminal.status === 'failed' ? result.terminal.code : '', 'RUNTIME_MAX_TURNS_INVALID');
+  assert.deepEqual(result.events.map((event) => event.type), ['run.start', 'run.end']);
+});
+
+test('abort settles without awaiting an uncooperative iterator.return', async () => {
+  const stream = new UncooperativeReturnModelStream();
+  const driver = new FakeModelDriver([stream]);
+  const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+  const pending = runAgentLoop(baseInput({ modelDriver: driver, controller }));
+  await waitFor(() => driver.requests.length === 1);
+  stream.push({ ordinal: 1, type: 'response.start' });
+  controller.abort({ code: 'USER_STOP', message: 'uncooperative cleanup' });
+
+  const result = await Promise.race([
+    pending,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('abort waited for iterator.return')), 250)),
+  ]);
+  assert.equal(result.terminal.status, 'aborted');
+  assert.equal(result.events.filter((event) => event.type === 'run.end').length, 1);
+});
+
+test('assistant display, Runtime lifecycle, and Host execution share provider source order', async () => {
+  const firstId = asToolCallId('source-first');
+  const secondId = asToolCallId('source-second');
+  const bridge = new FakeToolBridge();
+  const executed: string[] = [];
+  for (const revision of [2, 3]) {
+    bridge.enqueue(async (invocation) => {
+      executed.push(invocation.call.name);
+      return {
+        toolCallId: invocation.call.toolCallId,
+        result: { status: 'succeeded', output: invocation.call.name },
+        nextProjection: projection(revision, 'first', 'second'),
+      };
+    });
+  }
+  const provider = numberProviderEvents([
+    { type: 'response.start' },
+    { type: 'tool-call.start', contentIndex: 1, toolCallId: secondId, name: 'second' },
+    { type: 'tool-call.end', contentIndex: 1, toolCallId: secondId, name: 'second', arguments: {} },
+    { type: 'tool-call.start', contentIndex: 0, toolCallId: firstId, name: 'first' },
+    { type: 'tool-call.end', contentIndex: 0, toolCallId: firstId, name: 'first', arguments: {} },
+    done('tool-use'),
+  ]);
+  const result = await runAgentLoop(baseInput({
+    modelDriver: new FakeModelDriver([provider, textResponse('ordered')]),
+    toolBridge: bridge,
+  }));
+
+  const assistant = result.messages.find(
+    (message): message is RuntimeAssistantMessage => message.role === 'assistant' && message.stopReason === 'tool-use',
+  );
+  assert.deepEqual(
+    assistant?.content.filter((block) => block.type === 'tool-call').map((block) => block.name),
+    ['first', 'second'],
+  );
+  assert.deepEqual(
+    result.events.filter((event) => event.type === 'tool.start').map((event) => event.call.name),
+    ['first', 'second'],
+  );
+  assert.deepEqual(executed, ['first', 'second']);
+});
+
+test('caller, critical listener, observer, history, and getters cannot mutate canonical events', async () => {
+  const listenerViews: string[] = [];
+  const observerViews: string[] = [];
+  const mutatingListener = (event: RuntimeEvent): void => {
+    if (event.type !== 'message.start' || event.message.role !== 'user') return;
+    const text = event.message.content[0];
+    if (text?.type === 'text') Reflect.set(text, 'text', 'listener poison');
+    Reflect.set(event, 'sequence', 999);
+  };
+  const healthyListener = (event: RuntimeEvent): void => {
+    if (event.type === 'message.start' && event.message.role === 'user') {
+      const text = event.message.content[0];
+      listenerViews.push(text?.type === 'text' ? text.text : '');
+    }
+  };
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    listeners: [mutatingListener, healthyListener],
+  });
+  controller.subscribe((event) => {
+    if (event.type === 'message.start' && event.message.role === 'user') {
+      const text = event.message.content[0];
+      if (text?.type === 'text') Reflect.set(text, 'text', 'observer poison');
+    }
+  });
+  controller.subscribe((event) => {
+    if (event.type === 'message.start' && event.message.role === 'user') {
+      const text = event.message.content[0];
+      observerViews.push(text?.type === 'text' ? text.text : '');
+    }
+  });
+  await controller.start();
+  await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+  const mutable = userMessage('canonical caller') as RuntimeUserMessage & {
+    content: Array<{ type: 'text'; id: ReturnType<typeof asRuntimeContentId>; text: string }>;
+  };
+  const startPromise = controller.emit({ type: 'message.start', runId, defTurnId, message: mutable });
+  mutable.content[0]!.text = 'caller poison';
+  const acceptedStart = await startPromise;
+  assert.equal(listenerViews[0], 'canonical caller');
+  assert.equal(observerViews[0], 'canonical caller');
+  const acceptedContent = acceptedStart.type === 'message.start' && acceptedStart.message.role === 'user'
+    ? acceptedStart.message.content[0]
+    : undefined;
+  assert.equal(acceptedContent?.type === 'text' ? acceptedContent.text : '', 'canonical caller');
+
+  const original = userMessage('canonical caller');
+  await controller.emit({ type: 'message.end', runId, defTurnId, message: original });
+  const history = controller.events;
+  const storedStart = history.find((event) => event.type === 'message.start');
+  if (storedStart?.type === 'message.start' && storedStart.message.role === 'user') {
+    const text = storedStart.message.content[0];
+    if (text?.type === 'text') Reflect.set(text, 'text', 'getter poison');
+  }
+  const reread = controller.events.find((event) => event.type === 'message.start');
+  const rereadContent = reread?.type === 'message.start' && reread.message.role === 'user'
+    ? reread.message.content[0]
+    : undefined;
+  assert.equal(rereadContent?.type === 'text' ? rereadContent.text : '', 'canonical caller');
+
+  const assistant = assistantMessage('message-canonical-isolation');
+  await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+  await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+  await controller.emit({
+    type: 'turn.end', runId, defTurnId, turnId: userTurnId, assistantMessage: assistant, toolResultMessageIds: [],
+  });
+  await controller.finish({ status: 'completed' });
+});
+
+test('message finals and assistant Tool graph are bound to their canonical starts', async (t) => {
+  await t.test('user final payload must be identical', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const user = userMessage('immutable user');
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: user });
+    await assert.rejects(
+      controller.emit({ type: 'message.end', runId, defTurnId, message: userMessage('forged user') }),
+      (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_MESSAGE_PAYLOAD_CONFLICT',
+    );
+    await controller.finishAfterFailure({ status: 'failed', code: 'TEST_CLEANUP', message: 'cleanup' });
+  });
+
+  await t.test('assistant response identity cannot change', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const assistant: RuntimeAssistantMessage = { ...assistantMessage('message-response-identity'), responseId: 'response-final' };
+    const draft: RuntimeAssistantMessageDraft = { ...assistantDraft(assistant), responseId: 'response-draft' };
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: draft });
+    await assert.rejects(
+      controller.emit({ type: 'message.end', runId, defTurnId, message: assistant }),
+      (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_MESSAGE_IDENTITY_CONFLICT',
+    );
+    await controller.finishAfterFailure({ status: 'failed', code: 'TEST_CLEANUP', message: 'cleanup' });
+  });
+
+  await t.test('tool.start must consume the next source-ordered assistant call', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const first = {
+      type: 'tool-call' as const,
+      id: asRuntimeContentId('content-graph-first'),
+      toolCallId: asToolCallId('graph-first'),
+      name: 'first',
+      arguments: {},
+    };
+    const second = {
+      type: 'tool-call' as const,
+      id: asRuntimeContentId('content-graph-second'),
+      toolCallId: asToolCallId('graph-second'),
+      name: 'second',
+      arguments: {},
+    };
+    const assistant: RuntimeAssistantMessage = {
+      ...assistantMessage('message-tool-graph'),
+      content: [first, second],
+      stopReason: 'tool-use',
+    };
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+    await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+    await assert.rejects(
+      controller.emit({ type: 'tool.start', runId, defTurnId, turnId: userTurnId, call: second }),
+      (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_TOOL_GRAPH_INVALID',
+    );
+    await controller.finishAfterFailure({ status: 'failed', code: 'TEST_CLEANUP', message: 'cleanup' });
+  });
+});
+
+test('durable event and terminal commits must be configured as one pair', () => {
+  const options = { sessionId, runId, defTurnId, initialTurnId: userTurnId };
+  assert.throws(
+    () => new RuntimeRunController({ ...options, durableEventCommit: () => undefined }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError
+      && error.code === 'RUNTIME_DURABLE_CONFIG_INVALID',
+  );
+  assert.throws(
+    () => new RuntimeRunController({ ...options, terminalCommit: () => undefined }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError
+      && error.code === 'RUNTIME_DURABLE_CONFIG_INVALID',
+  );
+  assert.doesNotThrow(() => new RuntimeRunController(options));
+});
+
+test('rejected durable run.start leaves no formal lifecycle and runAgentLoop rejects', async () => {
+  const attemptedWrites: string[] = [];
+  const terminalAttempts: RuntimeDurableTerminalBundle[] = [];
+  const observed: string[] = [];
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit: (write) => {
+      attemptedWrites.push(write.kind);
+      throw new Error('start transaction rejected');
+    },
+    terminalCommit: (bundle) => {
+      terminalAttempts.push(bundle);
+    },
+  });
+  controller.subscribe((event) => {
+    observed.push(event.type);
+  });
+  controller.subscribeRunMarkers((marker) => {
+    observed.push(marker.phase);
+  });
+
+  await assert.rejects(
+    runAgentLoop(baseInput({ controller })),
+    (error: unknown) => error instanceof RuntimeRunProtocolError
+      && error.code === 'RUNTIME_DURABLE_START_FAILED',
+  );
+  assert.deepEqual(attemptedWrites, ['run.start']);
+  assert.deepEqual(terminalAttempts, []);
+  assert.deepEqual(controller.events, []);
+  assert.deepEqual(controller.runMarkers, []);
+  assert.deepEqual(observed, []);
+  assert.equal(controller.status, 'created');
+  assert.equal(controller.terminal, undefined);
+  await assert.rejects(
+    controller.start(),
+    (error: unknown) => error instanceof RuntimeRunProtocolError
+      && error.code === 'RUNTIME_DURABLE_START_FAILED',
+  );
+});
+
+test('rejected durable event advances neither sequence nor turn graph', async () => {
+  const durableEvents: RuntimeEvent[] = [];
+  const durableMarkers: string[] = [];
+  const observedEvents: RuntimeEvent[] = [];
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit: (write) => {
+      if (write.kind === 'run.start') {
+        durableMarkers.push(write.bundle.marker.phase);
+        durableEvents.push(write.bundle.event);
+        return;
+      }
+      if (write.event.type === 'turn.end') throw new Error('turn.end transaction rejected');
+      durableEvents.push(write.event);
+    },
+    terminalCommit: (bundle) => {
+      durableMarkers.push(bundle.marker.phase);
+      durableEvents.push(bundle.event);
+    },
+  });
+  controller.subscribe((event) => {
+    observedEvents.push(event);
+  });
+  await controller.start();
+  await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+  const assistant = assistantMessage('message-rejected-durable-turn-end');
+  await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+  await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+
+  await assert.rejects(
+    controller.emit({
+      type: 'turn.end',
+      runId,
+      defTurnId,
+      turnId: userTurnId,
+      assistantMessage: assistant,
+      toolResultMessageIds: [],
+    }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError
+      && error.code === 'RUNTIME_CRITICAL_LISTENER_FAILED',
+  );
+  await assert.rejects(
+    controller.finish({ status: 'completed' }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_RUN_OPEN_WORK',
+  );
+  await controller.finishAfterFailure({ status: 'failed', code: 'DURABLE_EVENT_REJECTED', message: 'failed' });
+
+  const publicEvents = controller.events;
+  assert.equal(publicEvents.some((event) => event.type === 'turn.end'), false);
+  assert.deepEqual(publicEvents.map((event) => event.sequence), publicEvents.map((_, index) => index + 1));
+  assert.deepEqual(durableEvents, publicEvents);
+  assert.deepEqual(observedEvents, publicEvents);
+  assert.deepEqual(durableMarkers, ['start', 'end']);
+  assert.equal(publicEvents.at(-1)?.type, 'run.end');
+  assert.equal(controller.terminal?.status, 'failed');
+});
+
+test('run-level cumulative payload budget rejects legal deltas and updates without a second terminal', async (t) => {
+  const chunk = 'x'.repeat(256 * 1_024);
+
+  await t.test('message deltas', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const assistant = assistantMessage('message-cumulative-delta');
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+    let accepted = 0;
+    let rejected: unknown;
+    for (let index = 0; index < 128; index += 1) {
+      try {
+        await controller.emit({
+          type: 'message.update',
+          runId,
+          defTurnId,
+          messageId: assistant.id,
+          delta: {
+            type: 'text',
+            contentId: asRuntimeContentId('content-cumulative-delta'),
+            delta: chunk,
+          },
+        });
+        accepted += 1;
+      } catch (error) {
+        rejected = error;
+        break;
+      }
+    }
+    assert.equal(
+      rejected instanceof RuntimeRunProtocolError ? rejected.code : '',
+      'RUNTIME_RUN_PAYLOAD_LIMIT',
+    );
+    assert.equal(accepted > 0 && accepted < 128, true);
+    await controller.finishAfterFailure({
+      status: 'failed',
+      code: 'RUNTIME_RUN_PAYLOAD_LIMIT',
+      message: 'cumulative message payload exceeded',
+    });
+    const events = controller.events;
+    assert.equal(events.filter((event) => event.type === 'message.update').length, accepted);
+    assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
+    assert.equal(events.filter((event) => event.type === 'run.end').length, 1);
+    await assert.rejects(
+      controller.finishAfterFailure({ status: 'failed', code: 'SECOND', message: 'second' }),
+      (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_TERMINAL_DUPLICATE',
+    );
+  });
+
+  await t.test('Tool updates', async () => {
+    const controller = new RuntimeRunController({ sessionId, runId, defTurnId, initialTurnId: userTurnId });
+    await controller.start();
+    await controller.emit({ type: 'turn.start', runId, defTurnId, turnId: userTurnId });
+    const call = {
+      type: 'tool-call' as const,
+      id: asRuntimeContentId('content-cumulative-tool'),
+      toolCallId: asToolCallId('call-cumulative-tool'),
+      name: 'echo',
+      arguments: {},
+    };
+    const assistant: RuntimeAssistantMessage = {
+      ...assistantMessage('message-cumulative-tool'),
+      content: [call],
+      stopReason: 'tool-use',
+    };
+    await controller.emit({ type: 'message.start', runId, defTurnId, message: assistantDraft(assistant) });
+    await controller.emit({ type: 'message.end', runId, defTurnId, message: assistant });
+    await controller.emit({ type: 'tool.start', runId, defTurnId, turnId: userTurnId, call });
+    let accepted = 0;
+    let rejected: unknown;
+    for (let index = 0; index < 128; index += 1) {
+      try {
+        await controller.emit({
+          type: 'tool.update',
+          runId,
+          defTurnId,
+          turnId: userTurnId,
+          toolCallId: call.toolCallId,
+          detail: { payload: chunk },
+        });
+        accepted += 1;
+      } catch (error) {
+        rejected = error;
+        break;
+      }
+    }
+    assert.equal(
+      rejected instanceof RuntimeRunProtocolError ? rejected.code : '',
+      'RUNTIME_RUN_PAYLOAD_LIMIT',
+    );
+    assert.equal(accepted > 0 && accepted < 128, true);
+    await controller.finishAfterFailure({
+      status: 'failed',
+      code: 'RUNTIME_RUN_PAYLOAD_LIMIT',
+      message: 'cumulative Tool payload exceeded',
+    });
+    const events = controller.events;
+    assert.equal(events.filter((event) => event.type === 'tool.update').length, accepted);
+    assert.deepEqual(events.map((event) => event.sequence), events.map((_, index) => index + 1));
+    assert.equal(events.filter((event) => event.type === 'run.end').length, 1);
+  });
+});
+
+test('top-level and connection accessors are rejected without invoking getters', async (t) => {
+  await t.test('top-level accessor', async () => {
+    const driver = new FakeModelDriver([textResponse('must not run')]);
+    const hostile = { ...baseInput({ modelDriver: driver }) } as Record<string, unknown>;
+    let getterCalls = 0;
+    Object.defineProperty(hostile, 'systemPrompt', {
+      enumerable: true,
+      configurable: true,
+      get: () => {
+        getterCalls += 1;
+        return 'hostile';
+      },
+    });
+    await assert.rejects(
+      runAgentLoop(hostile as unknown as Parameters<typeof runAgentLoop>[0]),
+      (error: unknown) => error instanceof Error
+        && 'code' in error
+        && error.code === 'RUNTIME_INPUT_INVALID',
+    );
+    assert.equal(getterCalls, 0);
+    assert.equal(driver.requests.length, 0);
+  });
+
+  await t.test('connection accessor', async () => {
+    const driver = new FakeModelDriver([textResponse('must not run')]);
+    let getterCalls = 0;
+    const connection: Record<string, unknown> = {
+      providerId: 'fake-provider',
+      modelId: 'fake-model',
+      baseUrl: 'https://provider.invalid',
+    };
+    Object.defineProperty(connection, 'apiKey', {
+      enumerable: true,
+      get: () => {
+        getterCalls += 1;
+        return 'hostile-secret';
+      },
+    });
+    const result = await runAgentLoop(baseInput({
+      connection: connection as unknown as Parameters<typeof runAgentLoop>[0]['connection'],
+      modelDriver: driver,
+    }));
+    assert.equal(
+      result.terminal.status === 'failed' ? result.terminal.code : '',
+      'RUNTIME_MODEL_CONNECTION_INVALID',
+    );
+    assert.equal(getterCalls, 0);
+    assert.equal(driver.requests.length, 0);
+  });
+
+  await t.test('Proxy get traps are not used for snapshot reads', async () => {
+    const driver = new FakeModelDriver([textResponse('proxy-safe')]);
+    let getCalls = 0;
+    const proxied = new Proxy(baseInput({ modelDriver: driver }), {
+      get: () => {
+        getCalls += 1;
+        throw new Error('Proxy get trap must not run');
+      },
+    });
+    const result = await runAgentLoop(proxied);
+    assert.equal(result.terminal.status, 'completed');
+    assert.equal(getCalls, 0);
+    assert.equal(driver.requests.length, 1);
+  });
+});
+
+test('ordinary persistence failure still durably commits one failed terminal bundle', async () => {
+  const durableTerminal: RuntimeDurableTerminalBundle[] = [];
+  const durableEvents: RuntimeEvent[] = [];
+  const durableMarkers: string[] = [];
+  const observedEvents: string[] = [];
+  const observedTerminals: string[] = [];
+  const durableEventCommit = (write: RuntimeDurableEventWrite): void => {
+    if (write.kind === 'run.start') {
+      durableMarkers.push(write.bundle.marker.phase);
+      durableEvents.push(write.bundle.event);
+      return;
+    }
+    if (write.event.type === 'message.end' && write.event.message.role === 'assistant') {
+      throw new Error('contains secret-fixture-key but must be sanitized');
+    }
+    durableEvents.push(write.event);
+  };
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit,
+    terminalCommit: (bundle) => {
+      durableTerminal.push(bundle);
+      durableMarkers.push(bundle.marker.phase);
+      durableEvents.push(bundle.event);
+    },
+    redactions: ['secret-fixture-key'],
+  });
+  controller.subscribe((event) => {
+    observedEvents.push(event.type);
+    if (event.type === 'run.end') observedTerminals.push(event.terminal.status);
+  });
+
+  const result = await runAgentLoop(baseInput({ controller }));
+  assert.equal(result.terminal.status, 'failed');
+  assert.equal(result.terminal.status === 'failed' ? result.terminal.code : '', 'RUNTIME_CRITICAL_LISTENER_FAILED');
+  assert.equal(durableTerminal.length, 1);
+  assert.equal(
+    durableTerminal[0]?.marker.phase === 'end' ? durableTerminal[0].marker.terminal.status : '',
+    'failed',
+  );
+  assert.equal(durableTerminal[0]?.event.terminal.status, 'failed');
+  assert.deepEqual(durableMarkers, ['start', 'end']);
+  assert.deepEqual(observedTerminals, ['failed']);
+  assert.equal(
+    result.events.some(
+      (event) => event.type === 'message.end' && event.message.role === 'assistant',
+    ),
+    false,
+  );
+  assert.equal(result.messages.some((message) => message.role === 'assistant'), false);
+  assert.equal(observedEvents.filter((type) => type === 'message.end').length, 1);
+  assert.deepEqual(result.events.map((event) => event.sequence), durableEvents.map((event) => event.sequence));
+  assert.deepEqual(durableEvents.map((event) => event.sequence), durableEvents.map((_, index) => index + 1));
+  assert.deepEqual(controller.events, result.events);
+  assert.doesNotMatch(JSON.stringify(result), /secret-fixture-key/u);
+});
+
+test('durable terminal retry never exposes a completed candidate', async (t) => {
+  for (const failurePoint of ['end marker prepare', 'run.end prepare'] as const) {
+    await t.test(failurePoint, async () => {
+      const attempts: string[] = [];
+      const durable: RuntimeDurableTerminalBundle[] = [];
+      const observer: string[] = [];
+      const controller = new RuntimeRunController({
+        sessionId,
+        runId,
+        defTurnId,
+        initialTurnId: userTurnId,
+        durableEventCommit: () => undefined,
+        terminalCommit: (bundle) => {
+          attempts.push(`${bundle.marker.terminal.status}:${bundle.event.terminal.status}`);
+          if (bundle.event.terminal.status === 'completed') {
+            throw new Error(`${failurePoint} rejected before atomic commit`);
+          }
+          durable.push(bundle);
+        },
+      });
+      controller.subscribe((event) => {
+        if (event.type === 'run.end') observer.push(event.terminal.status);
+      });
+      controller.subscribeRunMarkers((marker) => {
+        if (marker.phase === 'end') observer.push(`marker:${marker.terminal.status}`);
+      });
+      await controller.start();
+      await emitSettledAssistantTurn(controller, failurePoint.replaceAll(' ', '-'));
+      const event = await controller.finish({ status: 'completed' });
+
+      assert.equal(event.type === 'run.end' ? event.terminal.status : '', 'failed');
+      assert.deepEqual(attempts, ['completed:completed', 'failed:failed']);
+      assert.equal(durable.length, 1);
+      assert.equal(durable[0]?.event.terminal.status, 'failed');
+      assert.equal(durable.some((bundle) => bundle.event.terminal.status === 'completed'), false);
+      assert.deepEqual(observer, ['marker:failed', 'failed']);
+      assert.equal(controller.events.filter((item) => item.type === 'run.end').length, 1);
+    });
+  }
+});
+
+test('two durable terminal rejections publish no in-memory or observer terminal', async () => {
+  const attempts: string[] = [];
+  const observed: string[] = [];
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit: () => undefined,
+    terminalCommit: (bundle) => {
+      attempts.push(bundle.event.terminal.status);
+      throw new Error('atomic durable store unavailable');
+    },
+  });
+  controller.subscribe((event) => {
+    if (event.type === 'run.end') observed.push(event.terminal.status);
+  });
+  controller.subscribeRunMarkers((marker) => {
+    if (marker.phase === 'end') observed.push(marker.terminal.status);
+  });
+  await controller.start();
+  await emitSettledAssistantTurn(controller, 'double-terminal-reject');
+
+  await assert.rejects(
+    controller.finish({ status: 'completed' }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_DURABLE_TERMINAL_FAILED',
+  );
+  assert.deepEqual(attempts, ['completed', 'failed']);
+  assert.equal(controller.terminal, undefined);
+  assert.deepEqual(controller.terminalPersistenceFailure, {
+    code: 'RUNTIME_DURABLE_TERMINAL_FAILED',
+    message: 'The durable Runtime terminal commit failed.',
+  });
+  assert.equal(controller.events.some((event) => event.type === 'run.end'), false);
+  assert.equal(controller.runMarkers.some((marker) => marker.phase === 'end'), false);
+  assert.deepEqual(observed, []);
+  assert.equal(controller.status, 'running');
+  assert.equal(controller.abort({ code: 'LATE_ABORT' }), false);
+  await assert.rejects(
+    controller.finishAfterFailure({ status: 'failed', code: 'RETRY', message: 'must not retry' }),
+    (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_TERMINAL_DUPLICATE',
+  );
+  controller.dispose();
+});
+
+test('runAgentLoop rejects when its durable terminal and failed retry both reject', async () => {
+  const attempts: string[] = [];
+  const observedEnds: string[] = [];
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit: () => undefined,
+    terminalCommit: (bundle) => {
+      attempts.push(bundle.event.terminal.status);
+      throw new Error('durable terminal unavailable');
+    },
+  });
+  controller.subscribe((event) => {
+    if (event.type === 'run.end') observedEnds.push(event.terminal.status);
+  });
+  controller.subscribeRunMarkers((marker) => {
+    if (marker.phase === 'end') observedEnds.push(marker.terminal.status);
+  });
+
+  await assert.rejects(
+    runAgentLoop(baseInput({ controller })),
+    (error: unknown) => error instanceof RuntimeRunProtocolError && error.code === 'RUNTIME_DURABLE_TERMINAL_FAILED',
+  );
+  assert.deepEqual(attempts, ['completed', 'failed']);
+  assert.equal(controller.terminal, undefined);
+  assert.equal(controller.events.some((event) => event.type === 'run.end'), false);
+  assert.equal(controller.runMarkers.some((marker) => marker.phase === 'end'), false);
+  assert.deepEqual(observedEnds, []);
+  assert.equal(controller.terminalPersistenceFailure?.code, 'RUNTIME_DURABLE_TERMINAL_FAILED');
+});
+
+test('one durable sink failure cannot leak its rejected event to observers', async () => {
+  const healthyOrdinals: number[] = [];
+  const observedAssistantStarts: string[] = [];
+  const observerTerminals: string[] = [];
+  const durableTerminals: string[] = [];
+  const controller = new RuntimeRunController({
+    sessionId,
+    runId,
+    defTurnId,
+    initialTurnId: userTurnId,
+    durableEventCommit: (write) => {
+      if (
+        write.kind === 'event'
+        && write.event.type === 'message.start'
+        && write.event.message.role === 'assistant'
+      ) {
+        throw new Error('persistence failed');
+      }
+    },
+    listeners: [
+      (event) => {
+        if ('runOrdinal' in event && event.runOrdinal !== undefined) healthyOrdinals.push(event.runOrdinal);
+        if (event.type === 'message.start' && event.message.role === 'assistant') {
+          observedAssistantStarts.push(event.message.id);
+        }
+      },
+    ],
+    terminalCommit: (bundle) => {
+      durableTerminals.push(bundle.event.terminal.status);
+    },
+  });
+  controller.subscribe((event) => {
+    if (event.type === 'run.end') observerTerminals.push(event.terminal.status);
+  });
+  const result = await runAgentLoop(baseInput({ controller }));
+
+  assert.equal(healthyOrdinals.length > 0, true);
+  assert.deepEqual(observedAssistantStarts, []);
+  assert.deepEqual(durableTerminals, ['failed']);
+  assert.deepEqual(observerTerminals, ['failed']);
+  assert.equal(result.terminal.status, 'failed');
+});
+
+test('known connection secrets are removed recursively from output, details, updates, errors, and keys', async (t) => {
+  const apiKey = 'secret-fixture-key';
+  const headerSecret = 'header-super-secret-value';
+  await t.test('Tool and text surfaces', async () => {
+    const bridge = new FakeToolBridge();
+    bridge.enqueue(async (invocation, _signal, onUpdate) => {
+      await onUpdate({
+        toolCallId: invocation.call.toolCallId,
+        detail: { [apiKey]: { nested: headerSecret }, error: `Bearer ${headerSecret}` },
+      });
+      return {
+        toolCallId: invocation.call.toolCallId,
+        result: {
+          status: 'succeeded',
+          output: { [apiKey]: { nested: apiKey }, [headerSecret]: `authorization: ${headerSecret}` },
+        },
+        nextProjection: projection(2, 'first', 'second'),
+      };
+    });
+    bridge.enqueue(async (invocation) => ({
+      toolCallId: invocation.call.toolCallId,
+      result: {
+        status: 'failed',
+        code: 'TOOL_FAILED',
+        message: `failed with ${apiKey}`,
+        details: { [headerSecret]: { token: apiKey } },
+      },
+      nextProjection: projection(3, 'first', 'second'),
+    }));
+    const driver = new FakeModelDriver([
+      toolResponse([
+        { id: 'secret-output-call', name: 'first', arguments: {} },
+        { id: 'secret-details-call', name: 'second', arguments: {} },
+      ]),
+      textResponse(`answer ${apiKey} authorization: ${headerSecret}`),
+    ]);
+    const result = await runAgentLoop(baseInput({
+      connection: {
+        providerId: 'fake-provider',
+        modelId: 'fake-model',
+        baseUrl: 'https://provider.invalid',
+        apiKey,
+        headers: { authorization: `Bearer ${headerSecret}` },
+      },
+      modelDriver: driver,
+      toolBridge: bridge,
+      messages: [userMessage(`input ${apiKey} ${headerSecret}`)],
+      userMessage: userMessage(`input ${apiKey} ${headerSecret}`),
+    }));
+    const exposed = JSON.stringify({
+      terminal: result.terminal,
+      messages: result.messages,
+      events: result.events,
+      markers: result.runMarkers,
+      projection: result.finalProjection,
+    });
+    assert.doesNotMatch(exposed, new RegExp(apiKey, 'u'));
+    assert.doesNotMatch(exposed, new RegExp(headerSecret, 'u'));
+    assert.match(exposed, /\[redacted/u);
+  });
+
+  await t.test('Provider error and terminal surfaces', async () => {
+    const result = await runAgentLoop(baseInput({
+      connection: {
+        providerId: 'fake-provider',
+        modelId: 'fake-model',
+        baseUrl: 'https://provider.invalid',
+        apiKey,
+        headers: { authorization: `Bearer ${headerSecret}` },
+      },
+      modelDriver: new FakeModelDriver([numberProviderEvents([{
+        type: 'response.error',
+        failure: {
+          kind: 'authentication',
+          code: 'AUTH_FAILED',
+          message: `authorization: ${apiKey}; Bearer ${headerSecret}`,
+          retryable: false,
+          statusCode: 401,
+        },
+      }])]),
+    }));
+    const exposed = JSON.stringify(result);
+    assert.doesNotMatch(exposed, new RegExp(apiKey, 'u'));
+    assert.doesNotMatch(exposed, new RegExp(headerSecret, 'u'));
+    assert.equal(result.terminal.status, 'failed');
+  });
+});
+
+test('short API keys and sensitive header credentials fail closed before Provider execution', async (t) => {
+  for (const secret of ['§', '§¤', '§¤¶']) {
+    await t.test(`apiKey length ${secret.length}`, async () => {
+      const driver = new FakeModelDriver([textResponse('must not run')]);
+      const result = await runAgentLoop(baseInput({
+        connection: {
+          providerId: 'fake-provider',
+          modelId: 'fake-model',
+          baseUrl: 'https://provider.invalid',
+          apiKey: secret,
+        },
+        modelDriver: driver,
+      }));
+
+      assert.equal(
+        result.terminal.status === 'failed' ? result.terminal.code : '',
+        'RUNTIME_MODEL_CONNECTION_INVALID',
+      );
+      assert.equal(driver.requests.length, 0);
+      assert.deepEqual(result.events.map((event) => event.type), ['run.start', 'run.end']);
+      assert.equal(JSON.stringify(result).includes(secret), false);
+    });
+
+    await t.test(`authorization credential length ${secret.length}`, async () => {
+      const driver = new FakeModelDriver([textResponse('must not run')]);
+      const result = await runAgentLoop(baseInput({
+        connection: {
+          providerId: 'fake-provider',
+          modelId: 'fake-model',
+          baseUrl: 'https://provider.invalid',
+          apiKey: 'valid-fixture-key',
+          headers: { authorization: `Bearer ${secret}` },
+        },
+        modelDriver: driver,
+      }));
+
+      assert.equal(
+        result.terminal.status === 'failed' ? result.terminal.code : '',
+        'RUNTIME_MODEL_CONNECTION_INVALID',
+      );
+      assert.equal(driver.requests.length, 0);
+      assert.equal(JSON.stringify(result).includes(secret), false);
+    });
+
+    await t.test(`API-key header credential length ${secret.length}`, async () => {
+      const driver = new FakeModelDriver([textResponse('must not run')]);
+      const result = await runAgentLoop(baseInput({
+        connection: {
+          providerId: 'fake-provider',
+          modelId: 'fake-model',
+          baseUrl: 'https://provider.invalid',
+          apiKey: 'valid-fixture-key',
+          headers: { 'x-api-key': secret },
+        },
+        modelDriver: driver,
+      }));
+
+      assert.equal(
+        result.terminal.status === 'failed' ? result.terminal.code : '',
+        'RUNTIME_MODEL_CONNECTION_INVALID',
+      );
+      assert.equal(driver.requests.length, 0);
+      assert.equal(JSON.stringify(result).includes(secret), false);
+    });
+  }
+
+  await t.test('short non-sensitive header value remains valid', async () => {
+    const driver = new FakeModelDriver([textResponse('accepted')]);
+    const result = await runAgentLoop(baseInput({
+      connection: {
+        providerId: 'fake-provider',
+        modelId: 'fake-model',
+        baseUrl: 'https://provider.invalid',
+        apiKey: 'valid-fixture-key',
+        headers: { 'x-mode': 'x' },
+      },
+      modelDriver: driver,
+    }));
+
+    assert.equal(result.terminal.status, 'completed');
+    assert.equal(driver.requests.length, 1);
+    assert.equal(driver.requests[0]?.connection.headers?.['x-mode'], 'x');
+  });
+});
+
+test('duplicate input message IDs fail before ModelDriver execution', async () => {
+  const driver = new FakeModelDriver([textResponse('must not run')]);
+  const duplicate = userMessage('duplicate');
+  const result = await runAgentLoop(baseInput({
+    messages: [duplicate, duplicate],
+    userMessage: duplicate,
+    modelDriver: driver,
+  }));
+  assert.equal(result.terminal.status === 'failed' ? result.terminal.code : '', 'RUNTIME_MESSAGE_DUPLICATE');
+  assert.equal(driver.requests.length, 0);
 });

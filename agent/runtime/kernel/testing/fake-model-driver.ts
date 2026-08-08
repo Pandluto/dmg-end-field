@@ -70,6 +70,13 @@ export class FakeModelStream implements ModelStream, AsyncIterator<ProviderStrea
   }
 }
 
+/** Provider fixture whose cleanup never settles, for abort liveness tests. */
+export class UncooperativeReturnModelStream extends FakeModelStream {
+  override return(): Promise<IteratorResult<ProviderStreamEvent>> {
+    return new Promise<IteratorResult<ProviderStreamEvent>>(() => undefined);
+  }
+}
+
 export class FakeModelDriver implements ModelDriver {
   readonly kind = 'fake-model-driver';
   readonly requests: RuntimeModelRequest[] = [];
