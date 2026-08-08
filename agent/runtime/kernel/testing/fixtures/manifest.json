@@ -1,40 +1,40 @@
 {
   "fixtures": [
     {
-      "byteLength": 2503,
+      "byteLength": 2603,
       "file": "text.json",
       "scenario": "text",
-      "sha256": "375043027927f176d6e0f57e7de625fddb0fc75215ace5a446f4dc3ffdef3a2f"
+      "sha256": "2274a4157320a50cb145558e0e5614eb5ac82bebdf656f9f42ccb333b0aa171c"
     },
     {
-      "byteLength": 2844,
+      "byteLength": 3052,
       "file": "reasoning.json",
       "scenario": "reasoning",
-      "sha256": "bc0882b7b9ff11bdec8259a803096398c5d726471789f56acd63ba15704ee8c8"
+      "sha256": "a1f93e7228246c54fea46a2501651433165b244969b017cadb82f61f5720b90d"
     },
     {
-      "byteLength": 5261,
+      "byteLength": 5473,
       "file": "tool.json",
       "scenario": "tool",
-      "sha256": "bc83526db5d195aebef1ba60ae3fef2b6faed3911af1af5ea11b7e5d081f2290"
+      "sha256": "8b5c62d3fdfa2ef14706f4d96ed46f68efe73206573ebc168b0e2b78584345c9"
     },
     {
       "byteLength": 2068,
       "file": "error.json",
       "scenario": "error",
-      "sha256": "e6fa0f81c91dfbfbe3c88c3683fbe75715ee4490e3a5e7797d310d84353fb489"
+      "sha256": "d48588372b9533c48b01dce55923198e9318f72643111b753d4a38957f243a5e"
     },
     {
-      "byteLength": 2066,
+      "byteLength": 2634,
       "file": "abort.json",
       "scenario": "abort",
-      "sha256": "a5403a759937f32657bd57a3a233203cd2a37afdd71a0b7ee99ab6440d804c9d"
+      "sha256": "756fbd4a3e39730167594ba65fb24c4cfa1f6c94577832c14df69b13574ee9e4"
     },
     {
-      "byteLength": 3695,
+      "byteLength": 3807,
       "file": "compaction.json",
       "scenario": "compaction",
-      "sha256": "5af4439719ee6e9e4dc7bdd4e05941f15a989c69e88ade5047fae57696a6c8f5"
+      "sha256": "d964a46fe1f0835404cf08a7bea350ea24d6e2bdb784f5a35d1d969d6fe7097b"
     }
   ],
   "generation": {
@@ -50,12 +50,13 @@
       "packages/coding-agent/src/core/session-manager.ts"
     ],
     "runner": "scripts/agent-runtime-pi-reference.mjs",
-    "runnerVersion": 2,
-    "seed": "pi-golden-oracle-v2",
+    "runnerVersion": 3,
+    "seed": "pi-golden-oracle-v3-streaming-deltas",
+    "streamingDeltaCapture": "Pi Agent message_update assistantMessageEvent deltas",
     "systemPrompt": "Pi Golden Oracle deterministic system prompt",
     "timestampNormalization": "discard raw Pi event timestamps",
     "toolExecution": "sequential",
-    "transport": "scripted AssistantMessageEventStream"
+    "transport": "scripted AssistantMessageEventStream with async multi-chunk deltas"
   },
   "manifestVersion": 1,
   "upstream": {

@@ -56,6 +56,7 @@ interface FixtureManifest {
     readonly referenceSourcePaths: readonly string[];
     readonly idNormalization: string;
     readonly timestampNormalization: string;
+    readonly streamingDeltaCapture: string;
   };
   readonly fixtures: readonly FixtureManifestEntry[];
 }
@@ -66,13 +67,17 @@ test('Pi golden fixture manifest pins the upstream and every fixture hash', () =
   assert.equal(manifest.upstream.commit, PI_REFERENCE_COMMIT);
   assert.equal(manifest.upstream.version, PI_REFERENCE_VERSION);
   assert.equal(manifest.generation.runner, 'scripts/agent-runtime-pi-reference.mjs');
-  assert.equal(manifest.generation.runnerVersion, 2);
+  assert.equal(manifest.generation.runnerVersion, 3);
   assert.equal(
     manifest.generation.compactionProjection,
     'Pi coding-agent buildContextEntries + buildSessionContext',
   );
   assert.deepEqual(manifest.generation.referenceSourcePaths, REFERENCE_SOURCE_PATHS);
   assert.equal(manifest.generation.timestampNormalization, 'discard raw Pi event timestamps');
+  assert.equal(
+    manifest.generation.streamingDeltaCapture,
+    'Pi Agent message_update assistantMessageEvent deltas',
+  );
   assert.deepEqual(
     manifest.fixtures.map((fixture) => fixture.scenario),
     SCENARIOS,
@@ -104,11 +109,26 @@ test('golden fixtures preserve the required observable scenario branches', () =>
     'run.start', 'turn.start', 'message.user', 'context.snapshot', 'response.start',
     'content.text', 'message.assistant', 'turn.end', 'run.end',
   ]);
+  const textContent = text.events.find((event) => event.type === 'content.text');
+  assert.ok(textContent?.type === 'content.text');
+  assert.deepEqual(textContent.data.deltas, ['Determinis', 'tic text ', 'response.']);
+  assert.equal(textContent.data.deltas.join(''), textContent.data.text);
 
   const reasoning = readTrace('reasoning');
   assert.equal(reasoning.events.some((event) => event.type === 'content.reasoning'), true);
+  const reasoningContent = reasoning.events.find((event) => event.type === 'content.reasoning');
+  assert.ok(reasoningContent?.type === 'content.reasoning');
+  assert.deepEqual(reasoningContent.data.deltas, ['Inspect the', ' determinis', 'tic input.']);
+  assert.equal(reasoningContent.data.deltas.join(''), reasoningContent.data.text);
+  const reasoningText = reasoning.events.find((event) => event.type === 'content.text');
+  assert.ok(reasoningText?.type === 'content.text');
+  assert.deepEqual(reasoningText.data.deltas, ['Determinist', 'ic reasoned', ' response.']);
 
   const tool = readTrace('tool');
+  const toolCall = tool.events.find((event) => event.type === 'tool.call');
+  assert.ok(toolCall?.type === 'tool.call');
+  assert.deepEqual(toolCall.data.argumentDeltas, ['{"left"', ':2,"rig', 'ht":40}']);
+  assert.deepEqual(JSON.parse(toolCall.data.argumentDeltas.join('')), toolCall.data.arguments);
   assert.equal(tool.events.filter((event) => event.type === 'tool.call').length, 1);
   assert.equal(tool.events.filter((event) => event.type === 'tool.result').length, 1);
   assert.equal(
@@ -128,7 +148,19 @@ test('golden fixtures preserve the required observable scenario branches', () =>
 
   const abort = readTrace('abort');
   assert.equal(runStatus(abort), 'aborted');
-  assert.equal(abort.events.some((event) => event.type === 'response.start'), false);
+  assert.equal(abort.events.some((event) => event.type === 'response.start'), true);
+  const abortContent = abort.events.find((event) => event.type === 'content.text');
+  assert.ok(abortContent?.type === 'content.text');
+  assert.deepEqual(abortContent.data.deltas, ['Abort after t']);
+  assert.equal(abortContent.data.text, 'Abort after t');
+  assert.equal(abort.events.filter((event) => event.type === 'content.text').length, 1);
+  assert.equal(abort.events.some((event) => event.type === 'content.reasoning'), false);
+  assert.equal(abort.events.some((event) => event.type === 'tool.call'), false);
+  assert.equal(abort.events.some((event) => event.type === 'tool.result'), false);
+  assert.equal(
+    abort.events.some((event) => event.type === 'message.assistant' && event.data.stopReason === 'stop'),
+    false,
+  );
 
   const compaction = readTrace('compaction');
   const compactionEvent = compaction.events.find((event) => event.type === 'compaction');

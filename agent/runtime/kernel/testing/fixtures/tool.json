@@ -58,6 +58,11 @@
     },
     {
       "data": {
+        "argumentDeltas": [
+          "{\"left\"",
+          ":2,\"rig",
+          "ht\":40}"
+        ],
         "arguments": {
           "left": 2,
           "right": 40
@@ -179,6 +184,11 @@
     {
       "data": {
         "contentIndex": 0,
+        "deltas": [
+          "The determin",
+          "istic tool r",
+          "eturned 42."
+        ],
         "text": "The deterministic tool returned 42."
       },
       "messageId": "message-4",
@@ -227,7 +237,7 @@
     }
   ],
   "scenario": "tool",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
     "generatedBy": "scripts/agent-runtime-pi-reference.mjs",

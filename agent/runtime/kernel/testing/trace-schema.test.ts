@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseAgentTrace } from './trace-schema.ts';
+import { AGENT_TRACE_LIMITS, parseAgentTrace } from './trace-schema.ts';
 
 function makeValidTrace(): Record<string, unknown> {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     scenario: 'single tool turn',
     source: {
       kind: 'pi-reference',
@@ -56,7 +56,12 @@ function makeValidTrace(): Record<string, unknown> {
         turnId: 'turn-1',
         messageId: 'message-assistant-1',
         toolCallId: 'tool-1',
-        data: { contentIndex: 0, name: 'read_timeline', arguments: { timelineId: 'fixture' } },
+        data: {
+          contentIndex: 0,
+          name: 'read_timeline',
+          arguments: { timelineId: 'fixture' },
+          argumentDeltas: ['{"timelineId":"', 'fixture"}'],
+        },
       },
       {
         ordinal: 7,
@@ -135,7 +140,11 @@ function makeValidTrace(): Record<string, unknown> {
         runId: 'run-1',
         turnId: 'turn-2',
         messageId: 'message-assistant-2',
-        data: { contentIndex: 0, text: 'The fixture exists.' },
+        data: {
+          contentIndex: 0,
+          text: 'The fixture exists.',
+          deltas: ['The fixture ', 'exists.'],
+        },
       },
       {
         ordinal: 14,
@@ -177,9 +186,54 @@ function findEvent(
 
 test('Agent trace parser accepts a complete deterministic trace', () => {
   const parsed = parseAgentTrace(makeValidTrace());
-  assert.equal(parsed.schemaVersion, 1);
+  assert.equal(parsed.schemaVersion, 2);
   assert.equal(parsed.events.length, 16);
   assert.equal(parsed.events[5]?.type, 'tool.call');
+});
+
+test('Agent trace parser requires streaming deltas to reconstruct their final blocks', () => {
+  const textMismatch = makeValidTrace();
+  findEvent(textMismatch, 'content.text').data = {
+    contentIndex: 0,
+    text: 'The fixture exists.',
+    deltas: ['The fixture ', 'wrong.'],
+  };
+  assert.throws(() => parseAgentTrace(textMismatch), /do not concatenate to final text/u);
+
+  const reasoning = makeValidTrace();
+  const content = findEvent(reasoning, 'content.text');
+  content.type = 'content.reasoning';
+  content.data = {
+    contentIndex: 0,
+    text: 'The fixture exists.',
+    deltas: ['The fixture ', 'exists.'],
+    redacted: false,
+  };
+  findEvent(reasoning, 'message.assistant', 1).data = {
+    stopReason: 'stop',
+    usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+    contentOrder: ['reasoning'],
+  };
+  assert.doesNotThrow(() => parseAgentTrace(reasoning));
+
+  const toolMismatch = makeValidTrace();
+  findEvent(toolMismatch, 'tool.call').data = {
+    contentIndex: 0,
+    name: 'read_timeline',
+    arguments: { timelineId: 'fixture' },
+    argumentDeltas: ['{"timelineId":"other"}'],
+  };
+  assert.throws(() => parseAgentTrace(toolMismatch), /JSON does not match final arguments/u);
+});
+
+test('Agent trace parser rejects an oversized delta stream before joining it', () => {
+  const oversized = makeValidTrace();
+  findEvent(oversized, 'content.text').data = {
+    contentIndex: 0,
+    text: '',
+    deltas: ['x'.repeat(AGENT_TRACE_LIMITS.maxStringCodeUnits), 'x'],
+  };
+  assert.throws(() => parseAgentTrace(oversized), /streaming delta budget/u);
 });
 
 test('Agent trace parser enforces contiguous one-based event ordinals', () => {
@@ -216,6 +270,7 @@ test('Agent trace parser rejects secret fields and credential-shaped strings', (
     contentIndex: 0,
     name: 'read_timeline',
     arguments: { headers: { 'x-api-key': 'secret-value' } },
+    argumentDeltas: ['{"headers":{"x-api-key":"secret-value"}}'],
   };
   assert.throws(() => parseAgentTrace(secretHeader), /forbidden secret field/u);
 

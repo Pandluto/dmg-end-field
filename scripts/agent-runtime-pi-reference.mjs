@@ -15,7 +15,7 @@ import { register } from 'node:module';
 const PINNED_COMMIT = 'e47b8e37a6211ebd0b2942fa87059d64f81eec02';
 const PINNED_VERSION = '0.84.1';
 const PI_REPOSITORY = 'https://github.com/earendil-works/pi-mono';
-const RUNNER_VERSION = 2;
+const RUNNER_VERSION = 3;
 const SYSTEM_PROMPT = 'Pi Golden Oracle deterministic system prompt';
 // Loaded directly from PI_REFERENCE_ROOT at Pi commit
 // e47b8e37a6211ebd0b2942fa87059d64f81eec02; none are copied into the product.
@@ -255,8 +255,15 @@ async function generateScenario(scenario, pi, normalizer) {
   };
   const agent = new pi.Agent(agentOptions);
   agent.subscribe((event) => {
-    if (scenario === 'abort' && event.type === 'agent_start') agent.abort();
     collector.agentEvent(event);
+    if (
+      scenario === 'abort'
+      && event.type === 'message_update'
+      && event.assistantMessageEvent.type === 'text_delta'
+      && !agent.signal?.aborted
+    ) {
+      agent.abort();
+    }
   });
 
   if (scenario === 'compaction') {
@@ -293,7 +300,11 @@ function scriptedResponses(scenario) {
     case 'error':
       return [responseSpec([], 'error', usage(3, 0, 3), 'deterministic provider error')];
     case 'abort':
-      return [responseSpec([], 'aborted', usage(3, 0, 3), 'deterministic abort')];
+      return [responseSpec(
+        [{ type: 'text', text: 'Abort after the first streamed delta.' }],
+        'stop',
+        usage(3, 6, 9),
+      )];
     case 'compaction':
       return [responseSpec(
         [{ type: 'text', text: 'Response after deterministic compaction.' }],
@@ -440,51 +451,175 @@ function createCompactionSessionProjection(pi) {
 
 function createScriptedStream({ model, response, options, collector, streamFactory }) {
   const stream = streamFactory();
-  queueMicrotask(() => {
-    const aborted = options?.signal?.aborted || response.stopReason === 'aborted';
-    if (aborted || response.stopReason === 'error') {
-      const failure = assistantMessage(model, [], aborted ? 'aborted' : 'error', response.responseUsage, response.errorMessage);
-      stream.push({
-        type: 'error',
-        reason: aborted ? 'aborted' : 'error',
-        error: failure,
-      });
+  let partialContent = [];
+  let abortEmitted = false;
+
+  const pushAbort = () => {
+    if (abortEmitted) return;
+    abortEmitted = true;
+    const failure = assistantMessage(
+      model,
+      partialContent,
+      'aborted',
+      response.responseUsage,
+      'deterministic abort',
+    );
+    stream.push({ type: 'error', reason: 'aborted', error: failure });
+  };
+
+  // A macrotask boundary lets Pi consume the pushed event and finish its
+  // awaited Agent.subscribe listeners before the next provider chunk is sent.
+  const boundary = () => new Promise((resolve) => setImmediate(resolve));
+  const pushEvent = async (event) => {
+    if (options?.signal?.aborted) {
+      pushAbort();
+      return false;
+    }
+    stream.push(event);
+    await boundary();
+    if (options?.signal?.aborted) {
+      pushAbort();
+      return false;
+    }
+    return true;
+  };
+
+  void (async () => {
+    if (options?.signal?.aborted) {
+      pushAbort();
+      return;
+    }
+    if (response.stopReason === 'error') {
+      await boundary();
+      if (options?.signal?.aborted) {
+        pushAbort();
+        return;
+      }
+      const failure = assistantMessage(model, [], 'error', response.responseUsage, response.errorMessage);
+      stream.push({ type: 'error', reason: 'error', error: failure });
       return;
     }
 
     const partial = assistantMessage(model, [], 'pending', response.responseUsage);
-    collector.responseStart(partial);
-    stream.push({ type: 'start', partial });
-    let partialContent = [];
+    if (!await pushEvent({ type: 'start', partial })) return;
     for (const [contentIndex, block] of response.content.entries()) {
       if (block.type === 'text') {
         partialContent = [...partialContent, { type: 'text', text: '' }];
-        stream.push({ type: 'text_start', contentIndex, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
-        partialContent = [...partialContent.slice(0, -1), { type: 'text', text: block.text }];
-        stream.push({ type: 'text_delta', contentIndex, delta: block.text, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
-        stream.push({ type: 'text_end', contentIndex, content: block.text, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
+        if (!await pushEvent({
+          type: 'text_start',
+          contentIndex,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
+        let text = '';
+        for (const delta of streamChunks(block.text)) {
+          text += delta;
+          partialContent = [...partialContent.slice(0, -1), { type: 'text', text }];
+          if (!await pushEvent({
+            type: 'text_delta',
+            contentIndex,
+            delta,
+            partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+          })) return;
+        }
+        if (!await pushEvent({
+          type: 'text_end',
+          contentIndex,
+          content: block.text,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
       } else if (block.type === 'thinking') {
         partialContent = [...partialContent, { type: 'thinking', thinking: '' }];
-        stream.push({ type: 'thinking_start', contentIndex, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
-        partialContent = [...partialContent.slice(0, -1), { type: 'thinking', thinking: block.thinking }];
-        stream.push({ type: 'thinking_delta', contentIndex, delta: block.thinking, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
-        stream.push({ type: 'thinking_end', contentIndex, content: block.thinking, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
+        if (!await pushEvent({
+          type: 'thinking_start',
+          contentIndex,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
+        let thinking = '';
+        for (const delta of streamChunks(block.thinking)) {
+          thinking += delta;
+          partialContent = [...partialContent.slice(0, -1), { type: 'thinking', thinking }];
+          if (!await pushEvent({
+            type: 'thinking_delta',
+            contentIndex,
+            delta,
+            partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+          })) return;
+        }
+        if (!await pushEvent({
+          type: 'thinking_end',
+          contentIndex,
+          content: block.thinking,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
       } else if (block.type === 'toolCall') {
         partialContent = [...partialContent, { type: 'toolCall', id: block.id, name: block.name, arguments: {} }];
-        stream.push({ type: 'toolcall_start', contentIndex, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
+        if (!await pushEvent({
+          type: 'toolcall_start',
+          contentIndex,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
+        let argumentText = '';
+        for (const delta of streamChunks(JSON.stringify(block.arguments))) {
+          argumentText += delta;
+          partialContent = [
+            ...partialContent.slice(0, -1),
+            { type: 'toolCall', id: block.id, name: block.name, arguments: parsePartialJsonObject(argumentText) },
+          ];
+          if (!await pushEvent({
+            type: 'toolcall_delta',
+            contentIndex,
+            delta,
+            partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+          })) return;
+        }
         partialContent = [...partialContent.slice(0, -1), block];
-        stream.push({ type: 'toolcall_delta', contentIndex, delta: JSON.stringify(block.arguments), partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
-        stream.push({ type: 'toolcall_end', contentIndex, toolCall: block, partial: assistantMessage(model, partialContent, 'pending', response.responseUsage) });
+        if (!await pushEvent({
+          type: 'toolcall_end',
+          contentIndex,
+          toolCall: block,
+          partial: assistantMessage(model, partialContent, 'pending', response.responseUsage),
+        })) return;
       }
     }
     const finalMessage = assistantMessage(model, response.content, response.stopReason, response.responseUsage);
-    stream.push({
+    await pushEvent({
       type: 'done',
       reason: response.stopReason,
       message: finalMessage,
     });
+  })().catch((error) => {
+    if (options?.signal?.aborted) {
+      pushAbort();
+      return;
+    }
+    const failure = assistantMessage(
+      model,
+      partialContent,
+      'error',
+      response.responseUsage,
+      error instanceof Error ? error.message : String(error),
+    );
+    stream.push({ type: 'error', reason: 'error', error: failure });
   });
   return stream;
+}
+
+function streamChunks(text) {
+  if (text.length < 3) return [text];
+  const firstEnd = Math.max(1, Math.ceil(text.length / 3));
+  const secondEnd = Math.max(firstEnd + 1, Math.ceil((text.length * 2) / 3));
+  return [text.slice(0, firstEnd), text.slice(firstEnd, secondEnd), text.slice(secondEnd)]
+    .filter((chunk) => chunk.length > 0);
+}
+
+function parsePartialJsonObject(text) {
+  try {
+    const value = JSON.parse(text);
+    if (value && typeof value === 'object' && !Array.isArray(value)) return value;
+  } catch {
+    // Pi keeps the partial tool-call arguments as an object while JSON is incomplete.
+  }
+  return {};
 }
 
 function assistantMessage(model, content, stopReason, responseUsage, errorMessage, timestamp = Date.now()) {
@@ -530,6 +665,7 @@ class TraceCollector {
     this.turnId = undefined;
     this.turnStartEvent = undefined;
     this.assistantMessageId = undefined;
+    this.streamingDeltas = new Map();
     this.messageIds = new WeakMap();
     this.emit('run.start', { turnId: undefined, data: {} });
   }
@@ -539,6 +675,7 @@ class TraceCollector {
       this.turnId = randomIdentifier('turn');
       this.turnStartEvent = this.emit('turn.start', { data: { contextItemCount: 0 } });
       this.assistantMessageId = undefined;
+      this.streamingDeltas = new Map();
       return;
     }
     if (event.type === 'message_start' && event.message?.role === 'user') {
@@ -553,6 +690,23 @@ class TraceCollector {
       });
       return;
     }
+    if (event.type === 'message_start' && event.message?.role === 'assistant') {
+      // Pi emits message_start for a provider `start` only when the partial
+      // message is pending. Error/abort responses without a provider start
+      // arrive as a final message_start and must not become response.start.
+      if (event.message.stopReason === 'pending') {
+        this.assistantMessageId = this.idForMessage(event.message, 'message');
+        this.emit('response.start', {
+          messageId: this.assistantMessageId,
+          data: { providerId: event.message.provider, modelId: event.message.model },
+        });
+      }
+      return;
+    }
+    if (event.type === 'message_update') {
+      this.recordStreamingDelta(event.assistantMessageEvent);
+      return;
+    }
     if (event.type === 'message_end' && event.message?.role === 'assistant') {
       this.assistantEnd(event.message);
       return;
@@ -564,14 +718,6 @@ class TraceCollector {
     if (event.type === 'turn_end') {
       this.turnEnd(event.message);
     }
-  }
-
-  responseStart(message) {
-    this.assistantMessageId = this.idForMessage(message, 'message');
-    this.emit('response.start', {
-      messageId: this.assistantMessageId,
-      data: { providerId: message.provider, modelId: message.model },
-    });
   }
 
   contextSnapshot(context, items) {
@@ -609,22 +755,39 @@ class TraceCollector {
     for (const [contentIndex, block] of message.content.entries()) {
       if (block.type === 'text') {
         contentOrder.push('text');
+        const stream = this.streamingDeltas.get(contentIndex);
         this.emit('content.text', {
           messageId: this.assistantMessageId,
-          data: { contentIndex, text: block.text },
+          data: {
+            contentIndex,
+            text: block.text,
+            deltas: stream?.kind === 'text' ? stream.deltas : [],
+          },
         });
       } else if (block.type === 'thinking') {
         contentOrder.push('reasoning');
+        const stream = this.streamingDeltas.get(contentIndex);
         this.emit('content.reasoning', {
           messageId: this.assistantMessageId,
-          data: { contentIndex, text: block.thinking, redacted: block.redacted === true },
+          data: {
+            contentIndex,
+            text: block.thinking,
+            deltas: stream?.kind === 'reasoning' ? stream.deltas : [],
+            redacted: block.redacted === true,
+          },
         });
       } else if (block.type === 'toolCall') {
         contentOrder.push('tool-call');
+        const stream = this.streamingDeltas.get(contentIndex);
         this.emit('tool.call', {
           messageId: this.assistantMessageId,
           toolCallId: block.id,
-          data: { contentIndex, name: block.name, arguments: block.arguments },
+          data: {
+            contentIndex,
+            name: block.name,
+            arguments: block.arguments,
+            argumentDeltas: stream?.kind === 'tool-arguments' ? stream.deltas : [],
+          },
         });
       }
     }
@@ -635,6 +798,25 @@ class TraceCollector {
         usage: normalizeUsage(message.usage),
         contentOrder,
       },
+    });
+  }
+
+  recordStreamingDelta(event) {
+    if (!this.assistantMessageId) return;
+    if (event.type !== 'text_delta' && event.type !== 'thinking_delta' && event.type !== 'toolcall_delta') return;
+    const kind = event.type === 'text_delta'
+      ? 'text'
+      : event.type === 'thinking_delta'
+        ? 'reasoning'
+        : 'tool-arguments';
+    const existing = this.streamingDeltas.get(event.contentIndex);
+    if (existing && existing.kind !== kind) {
+      throw new Error(`Pi content index ${event.contentIndex} changed streaming delta kind`);
+    }
+    if (typeof event.delta !== 'string') throw new TypeError('Pi streaming delta must be a string');
+    this.streamingDeltas.set(event.contentIndex, {
+      kind,
+      deltas: [...(existing?.deltas ?? []), event.delta],
     });
   }
 
@@ -676,7 +858,7 @@ class TraceCollector {
 
   rawTrace() {
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       scenario: this.scenario,
       source: {
         kind: 'pi-reference',
@@ -859,15 +1041,16 @@ function writeFixtures(traces, normalizer) {
     generation: {
       runner: 'scripts/agent-runtime-pi-reference.mjs',
       runnerVersion: RUNNER_VERSION,
-      seed: 'pi-golden-oracle-v2',
+      seed: 'pi-golden-oracle-v3-streaming-deltas',
       systemPrompt: SYSTEM_PROMPT,
       model: MODEL.id,
-      transport: 'scripted AssistantMessageEventStream',
+      transport: 'scripted AssistantMessageEventStream with async multi-chunk deltas',
       toolExecution: 'sequential',
       compactionProjection: 'Pi coding-agent buildContextEntries + buildSessionContext',
       referenceSourcePaths: PI_REFERENCE_SOURCE_PATHS,
       idNormalization: 'first-seen ordinal per namespace',
       timestampNormalization: 'discard raw Pi event timestamps',
+      streamingDeltaCapture: 'Pi Agent message_update assistantMessageEvent deltas',
     },
     fixtures,
   };

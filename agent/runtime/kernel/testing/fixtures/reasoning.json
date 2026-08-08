@@ -57,6 +57,11 @@
     {
       "data": {
         "contentIndex": 0,
+        "deltas": [
+          "Inspect the",
+          " determinis",
+          "tic input."
+        ],
         "redacted": false,
         "text": "Inspect the deterministic input."
       },
@@ -69,6 +74,11 @@
     {
       "data": {
         "contentIndex": 1,
+        "deltas": [
+          "Determinist",
+          "ic reasoned",
+          " response."
+        ],
         "text": "Deterministic reasoned response."
       },
       "messageId": "message-2",
@@ -119,7 +129,7 @@
     }
   ],
   "scenario": "reasoning",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
     "generatedBy": "scripts/agent-runtime-pi-reference.mjs",

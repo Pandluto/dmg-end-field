@@ -45,18 +45,45 @@
     },
     {
       "data": {
-        "contentOrder": [],
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-2",
+      "ordinal": 5,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "contentIndex": 0,
+        "deltas": [
+          "Abort after t"
+        ],
+        "text": "Abort after t"
+      },
+      "messageId": "message-2",
+      "ordinal": 6,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "content.text"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "text"
+        ],
         "stopReason": "aborted",
         "usage": {
           "cacheReadTokens": 0,
           "cacheWriteTokens": 0,
           "inputTokens": 3,
-          "outputTokens": 0,
-          "totalTokens": 3
+          "outputTokens": 6,
+          "totalTokens": 9
         }
       },
       "messageId": "message-2",
-      "ordinal": 5,
+      "ordinal": 7,
       "runId": "run-1",
       "turnId": "turn-1",
       "type": "message.assistant"
@@ -66,7 +93,7 @@
         "stopReason": "aborted",
         "toolResultCount": 0
       },
-      "ordinal": 6,
+      "ordinal": 8,
       "runId": "run-1",
       "turnId": "turn-1",
       "type": "turn.end"
@@ -77,13 +104,13 @@
         "message": "deterministic abort",
         "status": "aborted"
       },
-      "ordinal": 7,
+      "ordinal": 9,
       "runId": "run-1",
       "type": "run.end"
     }
   ],
   "scenario": "abort",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
     "generatedBy": "scripts/agent-runtime-pi-reference.mjs",

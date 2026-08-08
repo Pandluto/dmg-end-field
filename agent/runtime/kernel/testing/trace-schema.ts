@@ -5,7 +5,7 @@
  */
 import type { JsonObject, JsonValue } from '../../../core/contracts/json.ts';
 
-export const AGENT_TRACE_SCHEMA_VERSION = 1 as const;
+export const AGENT_TRACE_SCHEMA_VERSION = 2 as const;
 
 export const AGENT_TRACE_LIMITS = Object.freeze({
   maxEvents: 16_384,
@@ -61,16 +61,25 @@ export interface AgentTracePayloadMap {
   readonly 'turn.start': { readonly contextItemCount: number };
   readonly 'message.user': { readonly text: string; readonly attachmentCount: number };
   readonly 'response.start': { readonly providerId: string; readonly modelId: string };
-  readonly 'content.text': { readonly contentIndex: number; readonly text: string };
+  readonly 'content.text': {
+    readonly contentIndex: number;
+    readonly text: string;
+    /** Ordered raw text_delta chunks observed in Pi message_update events. */
+    readonly deltas: readonly string[];
+  };
   readonly 'content.reasoning': {
     readonly contentIndex: number;
     readonly text: string;
     readonly redacted: boolean;
+    /** Ordered raw thinking_delta chunks observed in Pi message_update events. */
+    readonly deltas: readonly string[];
   };
   readonly 'tool.call': {
     readonly contentIndex: number;
     readonly name: string;
     readonly arguments: JsonObject;
+    /** Ordered raw toolcall_delta chunks whose JSON parses to arguments. */
+    readonly argumentDeltas: readonly string[];
   };
   readonly 'tool.result':
     | { readonly status: 'succeeded'; readonly name: string; readonly output: JsonValue }
@@ -303,21 +312,24 @@ function parsePayload(type: AgentTraceEventType, value: unknown, label: string):
       expectTraceString(data.modelId, `${label}.modelId`, 512);
       return data as unknown as AgentTracePayloadMap['response.start'];
     case 'content.text':
-      expectExactKeys(data, ['contentIndex', 'text'], label);
+      expectExactKeys(data, ['contentIndex', 'deltas', 'text'], label);
       expectCount(data.contentIndex, `${label}.contentIndex`);
       expectTraceString(data.text, `${label}.text`, AGENT_TRACE_LIMITS.maxStringCodeUnits, true);
+      parseTextDeltas(data.deltas, data.text, `${label}.deltas`);
       return data as unknown as AgentTracePayloadMap['content.text'];
     case 'content.reasoning':
-      expectExactKeys(data, ['contentIndex', 'redacted', 'text'], label);
+      expectExactKeys(data, ['contentIndex', 'deltas', 'redacted', 'text'], label);
       expectCount(data.contentIndex, `${label}.contentIndex`);
       expectTraceString(data.text, `${label}.text`, AGENT_TRACE_LIMITS.maxStringCodeUnits, true);
       if (typeof data.redacted !== 'boolean') throw new TypeError(`${label}.redacted must be boolean`);
+      parseTextDeltas(data.deltas, data.text, `${label}.deltas`);
       return data as unknown as AgentTracePayloadMap['content.reasoning'];
     case 'tool.call':
-      expectExactKeys(data, ['arguments', 'contentIndex', 'name'], label);
+      expectExactKeys(data, ['argumentDeltas', 'arguments', 'contentIndex', 'name'], label);
       expectCount(data.contentIndex, `${label}.contentIndex`);
       expectTraceString(data.name, `${label}.name`, 256);
       validateJson(expectRecord(data.arguments, `${label}.arguments`), `${label}.arguments`, 0);
+      parseToolArgumentDeltas(data.argumentDeltas, data.arguments, `${label}.argumentDeltas`);
       return data as unknown as AgentTracePayloadMap['tool.call'];
     case 'tool.result':
       return parseToolResult(data, label);
@@ -353,6 +365,57 @@ function parsePayload(type: AgentTraceEventType, value: unknown, label: string):
     case 'run.end':
       return parseRunTerminal(data, label);
   }
+}
+
+function parseTextDeltas(value: unknown, finalText: unknown, label: string): void {
+  const deltas = parseDeltaArray(value, label, AGENT_TRACE_LIMITS.maxStringCodeUnits);
+  if (deltas.join('') !== finalText) {
+    throw new TypeError(`${label} do not concatenate to final text`);
+  }
+}
+
+function parseToolArgumentDeltas(value: unknown, finalArguments: unknown, label: string): void {
+  const deltas = parseDeltaArray(value, label, AGENT_TRACE_LIMITS.maxTraceCodeUnits);
+  const serialized = deltas.join('');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serialized) as unknown;
+  } catch {
+    throw new TypeError(`${label} do not form valid JSON`);
+  }
+  validateJson(expectRecord(parsed, `${label} JSON`), `${label} JSON`, 0);
+  if (!jsonEquivalent(parsed, finalArguments)) {
+    throw new TypeError(`${label} JSON does not match final arguments`);
+  }
+}
+
+function parseDeltaArray(value: unknown, label: string, maxTotalCodeUnits: number): string[] {
+  if (!Array.isArray(value) || value.length > AGENT_TRACE_LIMITS.maxArrayItems) {
+    throw new TypeError(`${label} must be an array with at most ${AGENT_TRACE_LIMITS.maxArrayItems} items`);
+  }
+  let totalCodeUnits = 0;
+  value.forEach((delta, index) => {
+    expectTraceString(delta, `${label}[${index}]`, AGENT_TRACE_LIMITS.maxStringCodeUnits, true);
+    totalCodeUnits += delta.length;
+    if (totalCodeUnits > maxTotalCodeUnits || totalCodeUnits > AGENT_TRACE_LIMITS.maxTraceCodeUnits) {
+      throw new TypeError(`${label} exceeds its streaming delta budget`);
+    }
+  });
+  return value as string[];
+}
+
+function jsonEquivalent(left: unknown, right: unknown): boolean {
+  return JSON.stringify(sortJsonValue(left)) === JSON.stringify(sortJsonValue(right));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJsonValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortJsonValue(value[key])]),
+  );
 }
 
 function parseToolResult(

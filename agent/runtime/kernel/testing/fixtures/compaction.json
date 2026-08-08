@@ -95,6 +95,11 @@
     {
       "data": {
         "contentIndex": 0,
+        "deltas": [
+          "Response after",
+          " deterministi",
+          "c compaction."
+        ],
         "text": "Response after deterministic compaction."
       },
       "messageId": "message-7",
@@ -143,7 +148,7 @@
     }
   ],
   "scenario": "compaction",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "source": {
     "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
     "generatedBy": "scripts/agent-runtime-pi-reference.mjs",
