@@ -92,9 +92,22 @@ async function testInMemoryAndRedaction(): Promise<void> {
   const headerInspect = inspect(normalized.headers);
   const connectionJson = JSON.stringify(connection);
   const connectionInspect = inspect(connection);
-  assertNoSecrets(profileJson, profileInspect, headerJson, headerInspect, connectionJson, connectionInspect);
+  const connectionHeaderJson = JSON.stringify(connection.headers);
+  const connectionHeaderInspect = inspect(connection.headers);
+  assertNoSecrets(
+    profileJson,
+    profileInspect,
+    headerJson,
+    headerInspect,
+    connectionJson,
+    connectionInspect,
+    connectionHeaderJson,
+    connectionHeaderInspect,
+  );
   assert.match(profileJson, /\[redacted\]/u);
+  assert.match(headerJson, /\[redacted\]/u);
   assert.match(connectionJson, /\[redacted\]/u);
+  assert.match(connectionHeaderJson, /\[redacted\]/u);
   assert.equal(JSON.parse(connectionJson).apiKey, '[redacted]');
 
   rejectedInMemory({ ...profile(), apiKey: 'k'.repeat(PROVIDER_PROFILE_LIMITS.maxApiKeyCodeUnits + 1) }, /too long/u);
@@ -174,14 +187,12 @@ async function testHeaders(): Promise<void> {
   const valid = new InMemoryProviderProfileSource([profile({ headers: { 'X-Trace-Secret': HEADER_SECRET, Accept: 'application/json' } })]);
   assert.equal((await valid.getProfile('default'))?.headers?.Accept, 'application/json');
 
-  const toJsonHeader = new InMemoryProviderProfileSource([profile({
-    headers: { toJSON: HEADER_SECRET, 'X-Trace': 'runtime-value' },
-  })]);
-  const loadedToJsonHeader = await toJsonHeader.getProfile('default');
-  assert.equal(loadedToJsonHeader?.headers?.toJSON, HEADER_SECRET);
-  const connection = toRuntimeModelConnection(loadedToJsonHeader!);
-  assert.equal(connection.headers?.toJSON, HEADER_SECRET);
-  assertNoSecrets(JSON.stringify(loadedToJsonHeader), inspect(loadedToJsonHeader), JSON.stringify(connection), inspect(connection));
+  for (const name of ['toJSON', 'ToJsOn']) {
+    rejectedInMemory(
+      profile({ headers: { [name]: HEADER_SECRET } }),
+      /^profiles\[0\]\.headers contains an invalid, duplicate, or unsafe header$/u,
+    );
+  }
 
   for (const name of [
     'Authorization',

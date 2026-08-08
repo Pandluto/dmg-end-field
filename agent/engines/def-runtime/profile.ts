@@ -37,6 +37,9 @@ const FORBIDDEN_HEADERS = new Set([
   'proxy-connection',
   'set-cookie',
   'te',
+  // Secret-bearing header maps install this method as their JSON redaction
+  // boundary, so accepting a case-insensitive collision would be unsafe.
+  'tojson',
   'trailer',
   'transfer-encoding',
   'upgrade',
@@ -504,18 +507,12 @@ function isForbiddenHeader(name: string): boolean {
 }
 
 function freezeWithRedaction<T extends object>(value: T, view: () => unknown): T {
-  // `toJSON` is also a valid HTTP field name.  Preserve that header instead
-  // of letting the redaction hook collide with it; profile/connection parent
-  // views still redact the complete header map, and inspect remains covered by
-  // the symbol hook below.
-  if (!Object.prototype.hasOwnProperty.call(value, 'toJSON')) {
-    Object.defineProperty(value, 'toJSON', {
-      value: view,
-      enumerable: false,
-      writable: false,
-      configurable: false,
-    });
-  }
+  Object.defineProperty(value, 'toJSON', {
+    value: view,
+    enumerable: false,
+    writable: false,
+    configurable: false,
+  });
   Object.defineProperty(value, INSPECT_CUSTOM, {
     value: view,
     enumerable: false,
