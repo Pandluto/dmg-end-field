@@ -112,15 +112,31 @@ export class OpenAICompatibleDriver implements ModelDriver {
     let retryCount = 0;
     let responseStarted = false;
     let contentEventEmitted = false;
+    let terminalEmitted = false;
+
+    const makeTerminalFailure = (failure: ProviderFailure): ProviderStreamEvent | undefined => {
+      if (terminalEmitted) return undefined;
+      terminalEmitted = true;
+      return makeFailureEvent(++ordinal, failure);
+    };
 
     for (;;) {
       if (input.signal.aborted) {
-        yield makeFailureEvent(++ordinal, abortedProviderFailure());
+        const failureEvent = makeTerminalFailure(abortedProviderFailure());
+        if (failureEvent) yield failureEvent;
         return;
       }
 
       try {
         for await (const event of this.runAttempt(input)) {
+          // A stream reader may resolve a late chunk after abort.  Do not let
+          // that chunk re-enter the observable provider lifecycle.
+          if (input.signal.aborted) {
+            const failureEvent = makeTerminalFailure(abortedProviderFailure());
+            if (failureEvent) yield failureEvent;
+            return;
+          }
+
           if (event.type === 'response.start') {
             if (responseStarted) continue;
             responseStarted = true;
@@ -129,8 +145,20 @@ export class OpenAICompatibleDriver implements ModelDriver {
           }
 
           const orderedEvent = withOrdinal(event, ++ordinal);
+          if (event.type === 'response.done' || event.type === 'response.error') {
+            terminalEmitted = true;
+          }
           yield orderedEvent;
           if (event.type === 'response.done' || event.type === 'response.error') return;
+
+          // The consumer can abort while it is handling the event just
+          // yielded.  The next observable value must be the one terminal,
+          // sanitized aborted failure, never a normal late event.
+          if (input.signal.aborted) {
+            const failureEvent = makeTerminalFailure(abortedProviderFailure());
+            if (failureEvent) yield failureEvent;
+            return;
+          }
         }
 
         // runAttempt only ends after a successful response.done. Reaching this
@@ -138,9 +166,15 @@ export class OpenAICompatibleDriver implements ModelDriver {
         throw new ProviderMalformedResponseError();
       } catch (error) {
         const normalizedError = normalizeAttemptError(error, input.signal);
+        if (input.signal.aborted) {
+          const failureEvent = makeTerminalFailure(abortedProviderFailure());
+          if (failureEvent) yield failureEvent;
+          return;
+        }
         const failure = normalizedError.failure;
         const canRetry = (
           retryCount < this.retryPolicy.maxRetries &&
+          !responseStarted &&
           !contentEventEmitted &&
           isRetryableProviderFailure(failure)
         );
@@ -156,36 +190,39 @@ export class OpenAICompatibleDriver implements ModelDriver {
           try {
             await this.onRetryScheduled?.(retryCount, delayMs, failure);
           } catch (callbackError) {
-            yield makeFailureEvent(
-              ++ordinal,
+            const failureEvent = makeTerminalFailure(
               retryCallbackFailure(callbackError, input.signal),
             );
+            if (failureEvent) yield failureEvent;
             return;
           }
           try {
             await waitForRetry(delayMs, input.signal, this.timers);
           } catch (retryError) {
             if (retryError instanceof RetryAbortedError || input.signal.aborted) {
-              yield makeFailureEvent(++ordinal, abortedProviderFailure());
+              const failureEvent = makeTerminalFailure(abortedProviderFailure());
+              if (failureEvent) yield failureEvent;
               return;
             }
             const retryFailure = providerFailureFromUnknown(retryError);
-            yield makeFailureEvent(++ordinal, retryFailure);
+            const failureEvent = makeTerminalFailure(retryFailure);
+            if (failureEvent) yield failureEvent;
             return;
           }
           try {
             await this.onRetryStarted?.(retryCount);
           } catch (callbackError) {
-            yield makeFailureEvent(
-              ++ordinal,
+            const failureEvent = makeTerminalFailure(
               retryCallbackFailure(callbackError, input.signal),
             );
+            if (failureEvent) yield failureEvent;
             return;
           }
           continue;
         }
 
-        yield makeFailureEvent(++ordinal, failure);
+        const failureEvent = makeTerminalFailure(failure);
+        if (failureEvent) yield failureEvent;
         return;
       }
     }
@@ -246,7 +283,10 @@ export class OpenAICompatibleDriver implements ModelDriver {
           throw new ProviderMalformedResponseError();
         }
 
-        for (const event of state.consume(payload)) yield event;
+        for (const event of state.consume(payload)) {
+          if (input.signal.aborted) throw new ProviderFailureError(abortedProviderFailure());
+          yield event;
+        }
       }
     } catch (error) {
       if (error instanceof ProviderFailureError) throw error;
@@ -258,7 +298,14 @@ export class OpenAICompatibleDriver implements ModelDriver {
       throw new ProviderMalformedResponseError();
     }
 
-    for (const event of state.finish()) yield event;
+    // A provider can deliver [DONE] concurrently with an abort.  Check again
+    // before synthesizing buffered text/tool endings so finish cannot publish
+    // normal events after cancellation.
+    if (input.signal.aborted) throw new ProviderFailureError(abortedProviderFailure());
+    for (const event of state.finish()) {
+      if (input.signal.aborted) throw new ProviderFailureError(abortedProviderFailure());
+      yield event;
+    }
   }
 }
 

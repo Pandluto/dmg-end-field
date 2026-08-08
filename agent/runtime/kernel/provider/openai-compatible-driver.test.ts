@@ -348,6 +348,61 @@ test('mid-stream network drops produce one terminal and never duplicate partial 
   assert.equal(events.filter((event) => event.type === 'text.delta').length, 1);
 });
 
+test('a started response is not retried into a different response lifecycle', async () => {
+  const queued = queuedFetch([
+    responseThatDropsAfter(sseData({ id: 'first-response', choices: [] })),
+    responseFromSse([{ id: 'second-response', choices: [{ delta: { content: 'wrong' } }] }, '[DONE]']),
+  ]);
+  const events = await collect(new OpenAICompatibleDriver({
+    fetch: queued.fetch,
+    retryPolicy: { maxRetries: 2, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 },
+    timers: immediateTimers(),
+  }).stream(makeRequest()));
+
+  assert.equal(queued.calls.length, 1);
+  assert.deepEqual(
+    events.filter((event): event is Extract<ProviderStreamEvent, { type: 'response.start' }> => (
+      event.type === 'response.start'
+    )).map((event) => event.responseId),
+    ['first-response'],
+  );
+  assert.equal(events.some((event) => event.type === 'response.done'), false);
+  assert.equal(requireResponseError(events).failure.kind, 'network');
+});
+
+test('abort during a streamed response suppresses every late event and emits one sanitized terminal', async () => {
+  const controller = new AbortController();
+  const queued = queuedFetch([responseFromSse([
+    { id: 'response-abort', choices: [{ index: 0, delta: { content: 'before abort' } }] },
+    { choices: [{ index: 0, delta: { content: 'late content' } }] },
+    { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] },
+    '[DONE]',
+  ])]);
+  const iterator = new OpenAICompatibleDriver({
+    fetch: queued.fetch,
+    retryPolicy: { maxRetries: 0 },
+  }).stream(makeRequest(controller.signal))[Symbol.asyncIterator]();
+  const events: ProviderStreamEvent[] = [];
+
+  for (;;) {
+    const next = await iterator.next();
+    if (next.done) break;
+    events.push(next.value);
+    if (next.value.type === 'text.delta') controller.abort();
+  }
+
+  assert.deepEqual(events.map((event) => event.type), [
+    'response.start',
+    'text.start',
+    'text.delta',
+    'response.error',
+  ]);
+  assert.equal(terminalEvents(events).length, 1);
+  assert.equal(requireResponseError(events).failure.kind, 'aborted');
+  assert.equal(events.some((event) => event.type === 'text.end' || event.type === 'response.done'), false);
+  assert.equal(JSON.stringify(events).includes('late content'), false);
+});
+
 test('invalid UTF-8 becomes one malformed-response terminal', async () => {
   const queued = queuedFetch([responseFromChunks([
     new TextEncoder().encode('data: '),

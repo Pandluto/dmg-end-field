@@ -33,6 +33,8 @@ export class SseParser {
   private readonly maxBufferChars: number;
   private buffer = '';
   private dataLines: string[] = [];
+  private dataChars = 0;
+  private dataLineCount = 0;
   private eventName: string | undefined;
   private lastEventId: string | undefined;
   private retry: number | undefined;
@@ -62,6 +64,7 @@ export class SseParser {
       this.buffer = '';
       const event = this.consumeLine(line);
       if (event) events.push(event);
+      this.assertBounded();
     }
 
     const finalEvent = this.dispatchEvent();
@@ -105,17 +108,22 @@ export class SseParser {
     switch (field) {
       case 'data':
         this.dataLines.push(value);
-        this.assertBounded();
+        this.dataChars += value.length;
+        this.dataLineCount += 1;
         break;
       case 'event':
         this.eventName = value;
         break;
       case 'id':
-        if (!value.includes('\u0000')) this.lastEventId = value;
+        if (!value.includes('\u0000')) {
+          this.lastEventId = value;
+        }
         break;
       case 'retry': {
         const parsed = Number.parseInt(value, 10);
-        if (/^\d+$/u.test(value) && Number.isSafeInteger(parsed)) this.retry = parsed;
+        if (/^\d+$/u.test(value) && Number.isSafeInteger(parsed)) {
+          this.retry = parsed;
+        }
         break;
       }
       default:
@@ -135,14 +143,34 @@ export class SseParser {
       ...(this.retry !== undefined ? { retry: this.retry } : {}),
     };
     this.dataLines = [];
+    this.dataChars = 0;
+    this.dataLineCount = 0;
     this.eventName = undefined;
     this.retry = undefined;
     return event;
   }
 
   private assertBounded(): void {
-    const dataChars = this.dataLines.reduce((total, line) => total + line.length, 0);
-    if (this.buffer.length + dataChars > this.maxBufferChars) throw new SseParseError();
+    // `buffer` contains the not-yet-dispatched source text.  The other
+    // counters cover retained event state after complete lines have been
+    // consumed: data values, one unit per data line (so empty data lines
+    // cannot bypass the limit), joined data separators, and metadata values.
+    // Keep these totals incrementally so a many-line event stays O(1) per
+    // input line rather than repeatedly reducing the complete data array.
+    const joinedDataSeparators = Math.max(0, this.dataLineCount - 1);
+    const metadataChars = (
+      (this.eventName?.length ?? 0)
+      + (this.lastEventId?.length ?? 0)
+      + (this.retry === undefined ? 0 : String(this.retry).length)
+    );
+    const retainedChars = (
+      this.buffer.length
+      + this.dataChars
+      + this.dataLineCount
+      + joinedDataSeparators
+      + metadataChars
+    );
+    if (retainedChars > this.maxBufferChars) throw new SseParseError();
   }
 
   private decode(chunk: Uint8Array | undefined, stream: boolean): string {

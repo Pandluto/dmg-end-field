@@ -281,7 +281,9 @@ function parseProfile(value: unknown, label: string): ProviderProfile {
     'contextLimit', 'outputLimit', 'headers',
   ]);
   for (const key of Object.keys(profile)) {
-    if (!known.has(key)) throw invalid(`${label}.${key} is not supported`);
+    // Do not echo untrusted property names: a hostile field name can itself
+    // be an API key or a secret header value.
+    if (!known.has(key)) throw invalid(`${label} contains an unsupported field`);
   }
 
   const contextLimitValue = optionalOwnValue(profile, 'contextLimit', label);
@@ -502,12 +504,18 @@ function isForbiddenHeader(name: string): boolean {
 }
 
 function freezeWithRedaction<T extends object>(value: T, view: () => unknown): T {
-  Object.defineProperty(value, 'toJSON', {
-    value: view,
-    enumerable: false,
-    writable: false,
-    configurable: false,
-  });
+  // `toJSON` is also a valid HTTP field name.  Preserve that header instead
+  // of letting the redaction hook collide with it; profile/connection parent
+  // views still redact the complete header map, and inspect remains covered by
+  // the symbol hook below.
+  if (!Object.prototype.hasOwnProperty.call(value, 'toJSON')) {
+    Object.defineProperty(value, 'toJSON', {
+      value: view,
+      enumerable: false,
+      writable: false,
+      configurable: false,
+    });
+  }
   Object.defineProperty(value, INSPECT_CUSTOM, {
     value: view,
     enumerable: false,

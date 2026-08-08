@@ -149,6 +149,15 @@ async function testSchemaAndUrlBoundaries(): Promise<void> {
   await assertDocumentRejected({ schemaVersion: 1, profiles: [{ ...profile(), unsupported: true }] }, /not supported|unsupported field/u);
 }
 
+function testUnknownFieldErrorsNeverEchoSecrets(): void {
+  for (const secretFieldName of [API_KEY, HEADER_SECRET]) {
+    rejectedInMemory({
+      ...profile(),
+      [secretFieldName]: 'attacker-controlled value',
+    } as ProviderProfile, /unsupported field/u);
+  }
+}
+
 async function assertDocumentRejected(value: unknown, message: RegExp): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'def-runtime-profile-schema-'));
   try {
@@ -164,6 +173,15 @@ async function assertDocumentRejected(value: unknown, message: RegExp): Promise<
 async function testHeaders(): Promise<void> {
   const valid = new InMemoryProviderProfileSource([profile({ headers: { 'X-Trace-Secret': HEADER_SECRET, Accept: 'application/json' } })]);
   assert.equal((await valid.getProfile('default'))?.headers?.Accept, 'application/json');
+
+  const toJsonHeader = new InMemoryProviderProfileSource([profile({
+    headers: { toJSON: HEADER_SECRET, 'X-Trace': 'runtime-value' },
+  })]);
+  const loadedToJsonHeader = await toJsonHeader.getProfile('default');
+  assert.equal(loadedToJsonHeader?.headers?.toJSON, HEADER_SECRET);
+  const connection = toRuntimeModelConnection(loadedToJsonHeader!);
+  assert.equal(connection.headers?.toJSON, HEADER_SECRET);
+  assertNoSecrets(JSON.stringify(loadedToJsonHeader), inspect(loadedToJsonHeader), JSON.stringify(connection), inspect(connection));
 
   for (const name of [
     'Authorization',
@@ -255,6 +273,7 @@ async function testFileSecurity(): Promise<void> {
 
 await testInMemoryAndRedaction();
 await testSchemaAndUrlBoundaries();
+testUnknownFieldErrorsNeverEchoSecrets();
 await testHeaders();
 await testFileSecurity();
 console.log('[def-runtime/profile.test] passed');

@@ -56,6 +56,17 @@ test('SseParser enforces a bounded buffered event', () => {
   assert.throws(() => parser.push(bytes('data: too-long')), /Malformed server-sent event stream/u);
 });
 
+test('SseParser bounds retained data line count and metadata, not only data characters', () => {
+  const parser = new SseParser({ maxBufferChars: 8 });
+  assert.throws(() => {
+    for (let index = 0; index < 1_000; index += 1) parser.push(bytes('data:\n'));
+  }, /Malformed server-sent event stream/u);
+
+  const metadata = new SseParser({ maxBufferChars: 8 });
+  metadata.push(bytes('id:xyz\n'));
+  assert.throws(() => metadata.push(bytes('data:\n')), /Malformed server-sent event stream/u);
+});
+
 test('SseParser rejects invalid or incomplete UTF-8 as SseParseError', () => {
   const invalid = new SseParser();
   assert.throws(() => invalid.push(new Uint8Array([0xc3, 0x28])), SseParseError);
