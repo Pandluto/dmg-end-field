@@ -80,6 +80,7 @@ export interface InterruptedRuntimeRun {
   readonly status: 'interrupted';
   readonly runId: RuntimeRunId;
   readonly defTurnId: DefTurnId;
+  /** Last RuntimeTurnId observed before interruption, not necessarily the start turn. */
   readonly turnId: RuntimeTurnId;
   readonly startEntryId: RuntimeEntryId;
   readonly endEntryId: RuntimeEntryId | null;
@@ -89,6 +90,7 @@ export interface InterruptedRuntimeRun {
 export interface RuntimeRunState {
   readonly runId: RuntimeRunId;
   readonly defTurnId: DefTurnId;
+  /** Last RuntimeTurnId observed in the run, not necessarily the start turn. */
   readonly turnId: RuntimeTurnId;
   readonly startEntryId: RuntimeEntryId;
   readonly endEntryId: RuntimeEntryId | null;
@@ -201,29 +203,38 @@ function expectKeys(
   }
 }
 
-function expectBoundedString(
+function expectExactBoundedText(
   value: unknown,
   label: string,
   maxCodeUnits = MAX_STRING_CODE_UNITS,
-  allowEmpty = false,
+  allowEmpty = true,
   recordIndex?: number,
 ): asserts value is string {
   if (
     typeof value !== 'string'
     || (!allowEmpty && value.length === 0)
     || value.length > maxCodeUnits
-    || value.trim() !== value
   ) {
-    invalid(label, 'expected a bounded string', recordIndex);
+    invalid(label, 'expected bounded text', recordIndex);
   }
 }
 
+function expectTrimmedNonEmptyString(
+  value: unknown,
+  label: string,
+  maxCodeUnits = MAX_STRING_CODE_UNITS,
+  recordIndex?: number,
+): asserts value is string {
+  expectExactBoundedText(value, label, maxCodeUnits, false, recordIndex);
+  if (value.trim() !== value) invalid(label, 'expected trimmed metadata', recordIndex);
+}
+
 function expectIdentifier(value: unknown, label: string, recordIndex?: number): asserts value is string {
-  expectBoundedString(value, label, 256, false, recordIndex);
+  expectTrimmedNonEmptyString(value, label, 256, recordIndex);
 }
 
 function expectDateText(value: unknown, label: string, recordIndex?: number): asserts value is string {
-  expectBoundedString(value, label, 128, false, recordIndex);
+  expectTrimmedNonEmptyString(value, label, 128, recordIndex);
   if (Number.isNaN(Date.parse(value))) invalid(label, 'expected a date', recordIndex);
 }
 
@@ -234,15 +245,21 @@ function isSecretFieldName(value: string): boolean {
     || SECRET_FIELD_PATTERN.test(normalized);
 }
 
-function expectSafeString(value: unknown, label: string, recordIndex?: number): asserts value is string {
-  expectBoundedString(value, label, MAX_STRING_CODE_UNITS, false, recordIndex);
+function expectSafeMetadata(value: unknown, label: string, recordIndex?: number): asserts value is string {
+  expectTrimmedNonEmptyString(value, label, MAX_STRING_CODE_UNITS, recordIndex);
   for (const pattern of SECRET_TEXT_PATTERNS) {
     if (pattern.test(value)) invalid(label, 'secret-shaped content is not allowed', recordIndex);
   }
 }
 
-function expectSafeText(value: unknown, label: string, recordIndex?: number): asserts value is string {
-  expectBoundedString(value, label, MAX_STRING_CODE_UNITS, true, recordIndex);
+function expectSafeContentText(
+  value: unknown,
+  label: string,
+  recordIndex?: number,
+  maxCodeUnits = MAX_STRING_CODE_UNITS,
+  allowEmpty = true,
+): asserts value is string {
+  expectExactBoundedText(value, label, maxCodeUnits, allowEmpty, recordIndex);
   for (const pattern of SECRET_TEXT_PATTERNS) {
     if (pattern.test(value)) invalid(label, 'secret-shaped content is not allowed', recordIndex);
   }
@@ -252,7 +269,7 @@ function validateJsonValue(value: unknown, label: string, depth: number, recordI
   if (depth > MAX_JSON_DEPTH) invalid(label, 'maximum depth exceeded', recordIndex);
   if (value === null || typeof value === 'boolean') return;
   if (typeof value === 'string') {
-    expectSafeText(value, label, recordIndex);
+    expectSafeContentText(value, label, recordIndex);
     return;
   }
   if (typeof value === 'number') {
@@ -305,7 +322,7 @@ function parseTextBlock(value: unknown, label: string, recordIndex?: number): Ru
   expectExactKeys(block, ['type', 'id', 'text'], label, recordIndex);
   if (block.type !== 'text') invalid(`${label}.type`, 'expected text', recordIndex);
   expectIdentifier(block.id, `${label}.id`, recordIndex);
-  expectSafeText(block.text, `${label}.text`, recordIndex);
+  expectSafeContentText(block.text, `${label}.text`, recordIndex);
   return block as unknown as RuntimeTextBlock;
 }
 
@@ -314,7 +331,7 @@ function parseThinkingBlock(value: unknown, label: string, recordIndex?: number)
   expectKeys(block, ['type', 'id', 'text'], ['redacted'], label, recordIndex);
   if (block.type !== 'thinking') invalid(`${label}.type`, 'expected thinking', recordIndex);
   expectIdentifier(block.id, `${label}.id`, recordIndex);
-  expectSafeText(block.text, `${label}.text`, recordIndex);
+  expectSafeContentText(block.text, `${label}.text`, recordIndex);
   if (hasOwn(block, 'redacted') && typeof block.redacted !== 'boolean') {
     invalid(`${label}.redacted`, 'expected a boolean', recordIndex);
   }
@@ -326,9 +343,9 @@ function parseFileBlock(value: unknown, label: string, recordIndex?: number): Ru
   expectExactKeys(block, ['type', 'id', 'mime', 'filename', 'url'], label, recordIndex);
   if (block.type !== 'file') invalid(`${label}.type`, 'expected file', recordIndex);
   expectIdentifier(block.id, `${label}.id`, recordIndex);
-  expectSafeString(block.mime, `${label}.mime`, recordIndex);
-  expectSafeString(block.filename, `${label}.filename`, recordIndex);
-  expectSafeString(block.url, `${label}.url`, recordIndex);
+  expectSafeMetadata(block.mime, `${label}.mime`, recordIndex);
+  expectSafeMetadata(block.filename, `${label}.filename`, recordIndex);
+  expectSafeMetadata(block.url, `${label}.url`, recordIndex);
   if (!/^data:[^,\s]+,/u.test(block.url)) invalid(`${label}.url`, 'expected a bounded data URL', recordIndex);
   return block as unknown as RuntimeFileBlock;
 }
@@ -339,7 +356,7 @@ function parseToolCallBlock(value: unknown, label: string, recordIndex?: number)
   if (block.type !== 'tool-call') invalid(`${label}.type`, 'expected tool-call', recordIndex);
   expectIdentifier(block.id, `${label}.id`, recordIndex);
   expectIdentifier(block.toolCallId, `${label}.toolCallId`, recordIndex);
-  expectSafeString(block.name, `${label}.name`, recordIndex);
+  expectSafeMetadata(block.name, `${label}.name`, recordIndex);
   expectJsonObject(block.arguments, `${label}.arguments`, recordIndex);
   return block as unknown as RuntimeToolCallBlock;
 }
@@ -362,8 +379,8 @@ function parseAssistantContent(value: unknown, label: string, recordIndex?: numb
 function parseDiagnostic(value: unknown, label: string, recordIndex?: number): RuntimeProviderDiagnostic {
   const diagnostic = expectRecord(value, label, recordIndex);
   expectExactKeys(diagnostic, ['code', 'message', 'retryable'], label, recordIndex);
-  expectSafeString(diagnostic.code, `${label}.code`, recordIndex);
-  expectSafeString(diagnostic.message, `${label}.message`, recordIndex);
+  expectSafeMetadata(diagnostic.code, `${label}.code`, recordIndex);
+  expectSafeContentText(diagnostic.message, `${label}.message`, recordIndex, MAX_STRING_CODE_UNITS, false);
   if (typeof diagnostic.retryable !== 'boolean') invalid(`${label}.retryable`, 'expected a boolean', recordIndex);
   return diagnostic as unknown as RuntimeProviderDiagnostic;
 }
@@ -377,8 +394,8 @@ function parseResult(value: unknown, label: string, recordIndex?: number): Runti
   }
   if (result.status === 'failed') {
     expectKeys(result, ['status', 'code', 'message'], ['details'], label, recordIndex);
-    expectSafeString(result.code, `${label}.code`, recordIndex);
-    expectSafeString(result.message, `${label}.message`, recordIndex);
+    expectSafeMetadata(result.code, `${label}.code`, recordIndex);
+    expectSafeContentText(result.message, `${label}.message`, recordIndex, MAX_STRING_CODE_UNITS, false);
     if (hasOwn(result, 'details')) validateJsonValue(result.details, `${label}.details`, 0, recordIndex);
     return result as unknown as RuntimeToolResultPayload;
   }
@@ -421,9 +438,9 @@ function parseAssistantMessage(value: Record<string, unknown>, label: string, re
   if (!Array.isArray(value.content) || value.content.length > MAX_JSON_ARRAY_ITEMS) {
     invalid(`${label}.content`, 'expected a bounded array', recordIndex);
   }
-  expectSafeString(value.providerId, `${label}.providerId`, recordIndex);
-  expectSafeString(value.modelId, `${label}.modelId`, recordIndex);
-  if (hasOwn(value, 'responseId')) expectSafeString(value.responseId, `${label}.responseId`, recordIndex);
+  expectSafeMetadata(value.providerId, `${label}.providerId`, recordIndex);
+  expectSafeMetadata(value.modelId, `${label}.modelId`, recordIndex);
+  if (hasOwn(value, 'responseId')) expectSafeMetadata(value.responseId, `${label}.responseId`, recordIndex);
   const usage = parseUsage(value.usage, `${label}.usage`, recordIndex);
   if (typeof value.stopReason !== 'string' || !MESSAGE_STOP_REASONS.has(value.stopReason as RuntimeAssistantMessage['stopReason'])) {
     invalid(`${label}.stopReason`, 'unsupported stop reason', recordIndex);
@@ -459,7 +476,7 @@ function parseToolResultMessage(value: Record<string, unknown>, label: string, r
   );
   if (value.role !== 'tool-result') invalid(`${label}.role`, 'expected tool-result', recordIndex);
   expectIdentifier(value.toolCallId, `${label}.toolCallId`, recordIndex);
-  expectSafeString(value.toolName, `${label}.toolName`, recordIndex);
+  expectSafeMetadata(value.toolName, `${label}.toolName`, recordIndex);
   const result = parseResult(value.result, `${label}.result`, recordIndex);
   expectDateText(value.completedAt, `${label}.completedAt`, recordIndex);
   return {
@@ -513,9 +530,9 @@ function parseHeader(value: unknown, label = 'record[0]', recordIndex = 0): Runt
   if (header.schemaVersion !== RUNTIME_SESSION_SCHEMA_VERSION) invalid(`${label}.schemaVersion`, 'unsupported schema', recordIndex);
   expectIdentifier(header.runtimeSessionId, `${label}.runtimeSessionId`, recordIndex);
   expectIdentifier(header.defSessionId, `${label}.defSessionId`, recordIndex);
-  expectSafeString(header.runtimeVersion, `${label}.runtimeVersion`, recordIndex);
-  expectSafeString(header.providerProfileRef, `${label}.providerProfileRef`, recordIndex);
-  expectSafeString(header.systemPromptVersion, `${label}.systemPromptVersion`, recordIndex);
+  expectSafeMetadata(header.runtimeVersion, `${label}.runtimeVersion`, recordIndex);
+  expectSafeMetadata(header.providerProfileRef, `${label}.providerProfileRef`, recordIndex);
+  expectSafeMetadata(header.systemPromptVersion, `${label}.systemPromptVersion`, recordIndex);
   expectDateText(header.createdAt, `${label}.createdAt`, recordIndex);
   return header as unknown as RuntimeSessionHeader;
 }
@@ -539,9 +556,9 @@ function parseEntry(value: unknown, label: string, recordIndex?: number): Runtim
   }
   if (entry.type === 'model-change') {
     expectExactKeys(entry, ['schemaVersion', 'id', 'parentId', 'createdAt', 'type', 'providerProfileRef', 'providerId', 'modelId'], label, recordIndex);
-    expectSafeString(entry.providerProfileRef, `${label}.providerProfileRef`, recordIndex);
-    expectSafeString(entry.providerId, `${label}.providerId`, recordIndex);
-    expectSafeString(entry.modelId, `${label}.modelId`, recordIndex);
+    expectSafeMetadata(entry.providerProfileRef, `${label}.providerProfileRef`, recordIndex);
+    expectSafeMetadata(entry.providerId, `${label}.providerId`, recordIndex);
+    expectSafeMetadata(entry.modelId, `${label}.modelId`, recordIndex);
     return entry as unknown as RuntimeModelChangeEntry;
   }
   if (entry.type === 'thinking-change') {
@@ -553,8 +570,13 @@ function parseEntry(value: unknown, label: string, recordIndex?: number): Runtim
   }
   if (entry.type === 'compaction') {
     expectKeys(entry, ['schemaVersion', 'id', 'parentId', 'createdAt', 'type', 'summary', 'firstKeptEntryId', 'tokensBefore', 'reason'], ['usage'], label, recordIndex);
-    expectSafeString(entry.summary, `${label}.summary`, recordIndex);
-    if (entry.summary.length > RUNTIME_SESSION_LIMITS.maxSummaryCodeUnits) invalid(`${label}.summary`, 'summary is too large', recordIndex);
+    expectSafeContentText(
+      entry.summary,
+      `${label}.summary`,
+      recordIndex,
+      RUNTIME_SESSION_LIMITS.maxSummaryCodeUnits,
+      false,
+    );
     expectIdentifier(entry.firstKeptEntryId, `${label}.firstKeptEntryId`, recordIndex);
     expectNonNegativeSafeInteger(entry.tokensBefore, `${label}.tokensBefore`, recordIndex);
     if (typeof entry.reason !== 'string' || !COMPACTION_REASONS.has(entry.reason as RuntimeCompactionEntry['reason'])) {
@@ -595,13 +617,15 @@ function parseTerminal(value: unknown, label: string, recordIndex?: number): Run
   }
   if (terminal.status === 'failed' || terminal.status === 'interrupted') {
     expectExactKeys(terminal, ['status', 'code', 'message'], label, recordIndex);
-    expectSafeString(terminal.code, `${label}.code`, recordIndex);
-    expectSafeString(terminal.message, `${label}.message`, recordIndex);
+    expectSafeMetadata(terminal.code, `${label}.code`, recordIndex);
+    expectSafeContentText(terminal.message, `${label}.message`, recordIndex, MAX_STRING_CODE_UNITS, false);
     return terminal as unknown as RuntimeRunMarkerTerminal;
   }
   expectKeys(terminal, ['status', 'code'], ['message'], label, recordIndex);
-  expectSafeString(terminal.code, `${label}.code`, recordIndex);
-  if (hasOwn(terminal, 'message')) expectSafeString(terminal.message, `${label}.message`, recordIndex);
+  expectSafeMetadata(terminal.code, `${label}.code`, recordIndex);
+  if (hasOwn(terminal, 'message')) {
+    expectSafeContentText(terminal.message, `${label}.message`, recordIndex, MAX_STRING_CODE_UNITS, false);
+  }
   return terminal as unknown as RuntimeRunMarkerTerminal;
 }
 
@@ -625,7 +649,7 @@ export const validateSessionHeader = validateRuntimeSessionHeader;
 interface MutableRunState {
   readonly runId: RuntimeRunId;
   readonly defTurnId: DefTurnId;
-  readonly turnId: RuntimeTurnId;
+  turnId: RuntimeTurnId;
   readonly startEntryId: RuntimeEntryId;
   endEntryId: RuntimeEntryId | null;
   status: RuntimeRunState['status'];
@@ -713,8 +737,31 @@ function validateRelations(
 
   for (const [index, entry] of entries.entries()) {
     if (entry.type !== 'compaction') continue;
-    if (!entryIndex.has(entry.firstKeptEntryId)) {
+    const anchorIndex = entryIndex.get(entry.firstKeptEntryId);
+    if (anchorIndex === undefined) {
       invalid(`record[${index + 1}].firstKeptEntryId`, 'unknown entry', index + 1);
+    }
+    if (anchorIndex >= index) {
+      invalid(`record[${index + 1}].firstKeptEntryId`, 'anchor must precede compaction', index + 1);
+    }
+
+    // Pi's session-manager at pinned commit
+    // e47b8e37a6211ebd0b2942fa87059d64f81eec02 rebuilds compacted context by
+    // walking the selected leaf path. DEF therefore requires firstKeptEntryId
+    // to be on the exact lineage selected by this compaction's parentId.
+    let ancestorId = entry.parentId;
+    let anchorIsAncestor = false;
+    while (ancestorId !== null) {
+      if (ancestorId === entry.firstKeptEntryId) {
+        anchorIsAncestor = true;
+        break;
+      }
+      const ancestorIndex = entryIndex.get(ancestorId);
+      if (ancestorIndex === undefined) break;
+      ancestorId = entries[ancestorIndex]?.parentId ?? null;
+    }
+    if (!anchorIsAncestor) {
+      invalid(`record[${index + 1}].firstKeptEntryId`, 'anchor is not on the selected ancestor chain', index + 1);
     }
   }
 
@@ -723,31 +770,30 @@ function validateRelations(
   const toolCallIds = new Set<ToolCallId>();
   const openToolCalls = new Map<ToolCallId, ToolCallReference>();
   const runIds = new Set<RuntimeRunId>();
-  const defToRuntime = new Map<DefTurnId, RuntimeTurnId>();
   const runtimeToDef = new Map<RuntimeTurnId, DefTurnId>();
   const runs: MutableRunState[] = [];
   const interruptedRuns: InterruptedRuntimeRun[] = [];
   let activeRun: MutableRunState | null = null;
 
-  const associateTurn = (defTurnId: DefTurnId, turnId: RuntimeTurnId, index: number): void => {
-    const previousRuntimeTurn = defToRuntime.get(defTurnId);
-    if (previousRuntimeTurn !== undefined && previousRuntimeTurn !== turnId) {
-      invalid(`record[${index}].defTurnId`, 'DefTurnId maps to multiple RuntimeTurnIds', index);
-    }
+  // DEF adapts Pi's session lifecycle at pinned commit
+  // e47b8e37a6211ebd0b2942fa87059d64f81eec02 so one product DefTurn/run may
+  // contain multiple model RuntimeTurns (for example, another model call after
+  // a tool result). Only the reverse mapping must remain globally unique.
+  const associateRuntimeTurn = (defTurnId: DefTurnId, turnId: RuntimeTurnId, index: number): void => {
     const previousDefTurn = runtimeToDef.get(turnId);
     if (previousDefTurn !== undefined && previousDefTurn !== defTurnId) {
       invalid(`record[${index}].turnId`, 'RuntimeTurnId maps to multiple DefTurnIds', index);
     }
-    defToRuntime.set(defTurnId, turnId);
     runtimeToDef.set(turnId, defTurnId);
   };
 
   const assertActiveMessage = (message: RuntimeTurnMessage, index: number): void => {
     if (!activeRun) invalid(`record[${index}].message`, 'message is outside a run', index);
-    if (message.defTurnId !== activeRun.defTurnId || message.turnId !== activeRun.turnId) {
-      invalid(`record[${index}].message`, 'message turn does not match the active run', index);
+    if (message.defTurnId !== activeRun.defTurnId) {
+      invalid(`record[${index}].message`, 'message DefTurnId does not match the active run', index);
     }
-    associateTurn(message.defTurnId, message.turnId, index);
+    associateRuntimeTurn(message.defTurnId, message.turnId, index);
+    activeRun.turnId = message.turnId;
   };
 
   const openCallsForRun = (runId: RuntimeRunId): Array<[ToolCallId, ToolCallReference]> => (
@@ -760,7 +806,7 @@ function validateRelations(
       if (entry.phase === 'start') {
         if (activeRun) invalid(`record[${index}].runId`, 'runs cannot overlap', index);
         if (runIds.has(entry.runId)) invalid(`record[${index}].runId`, 'duplicate run id', index);
-        associateTurn(entry.defTurnId, entry.turnId, index);
+        associateRuntimeTurn(entry.defTurnId, entry.turnId, index);
         runIds.add(entry.runId);
         activeRun = {
           runId: entry.runId,
@@ -781,7 +827,7 @@ function validateRelations(
         || entry.defTurnId !== activeRun.defTurnId
         || entry.turnId !== activeRun.turnId
       ) {
-        invalid(`record[${index}].runId`, 'run end does not match its start', index);
+        invalid(`record[${index}].runId`, 'run end does not match the active run and its last observed turn', index);
       }
       const openCalls = openCallsForRun(activeRun.runId);
       const terminalStatus = entry.terminal.status;
@@ -815,7 +861,8 @@ function validateRelations(
         openToolCalls.set(block.toolCallId, {
           runId: activeRun!.runId,
           defTurnId: activeRun!.defTurnId,
-          turnId: activeRun!.turnId,
+          // Pair to the model turn that emitted the call, not the run's start turn.
+          turnId: message.turnId,
           name: block.name,
         });
       }

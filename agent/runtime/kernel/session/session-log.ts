@@ -4,11 +4,13 @@
  * This module persists only validated Runtime records. Reopening a log builds
  * an in-memory projection; it never replays a tool, product command, approval,
  * or any other mutation outside the log itself.
+ * Its append-only JSONL/header model follows Pi session-manager pinned at
+ * e47b8e37a6211ebd0b2942fa87059d64f81eec02, with DEF-owned validation.
  */
 import {
-  chmodSync,
   closeSync,
   constants as fsConstants,
+  fchmodSync,
   fstatSync,
   fsyncSync,
   lstatSync,
@@ -101,9 +103,11 @@ function openNewSessionFile(filePath: string, header: RuntimeSessionHeader): voi
       fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | NO_FOLLOW,
       0o600,
     );
+    // O_EXCL proves this descriptor names the file created by this call; setting
+    // its mode cannot conceal prior exposure of an existing session file.
+    fchmodSync(descriptor, 0o600);
     writeAll(descriptor, headerBytes);
     fsyncSync(descriptor);
-    chmodSync(filePath, 0o600);
   } catch (error) {
     if (error instanceof SessionLogError) throw error;
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -164,9 +168,19 @@ export class SessionLog {
   }
 
   static createOrReopen(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions = {}): SessionLog {
+    const suppliedHeader = validateSessionRecords([header]).header;
     const target = resolveSessionPath(filePath, options);
-    if (existingPathKind(target) === 'file') return SessionLog.reopen(target, options);
-    return SessionLog.create(target, header, options);
+    const kind = existingPathKind(target);
+    if (kind === 'other') throw new SessionLogError('SESSION_PATH_INVALID', 'Session path is not a regular file.');
+    if (kind === 'missing') return SessionLog.create(target, suppliedHeader, options);
+
+    // Compare before a normal reopen can repair an incomplete tail. A caller
+    // must never mutate or bind to durable bytes owned by another session.
+    const durable = readState(target, { ...options, repairIncompleteTail: false });
+    if (canonical(suppliedHeader) !== canonical(durable.header)) {
+      throw new SessionLogError('SESSION_APPEND_CONFLICT', 'Supplied session header does not match the durable header.');
+    }
+    return SessionLog.reopen(target, options);
   }
 
   get filePath(): string {
@@ -289,9 +303,11 @@ export class SessionLog {
       descriptor = openSync(this.#filePath, fsConstants.O_WRONLY | fsConstants.O_APPEND | NO_FOLLOW);
       const stats = fstatSync(descriptor);
       if (!stats.isFile()) throw new SessionLogError('SESSION_PATH_INVALID', 'Session path is not a regular file.');
+      if ((Number(stats.mode) & 0o7777) !== 0o600) {
+        throw new SessionLogError('SESSION_PATH_INVALID', 'Session file must be mode 0600.');
+      }
       writeAll(descriptor, bytes);
       fsyncSync(descriptor);
-      chmodSync(this.#filePath, 0o600);
     } catch (error) {
       if (error instanceof SessionLogError) throw error;
       throw new SessionLogError('SESSION_IO_ERROR', 'Session entry could not be appended.');

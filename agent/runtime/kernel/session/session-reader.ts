@@ -4,9 +4,10 @@
  * A malformed physical line is incompatible unless it is the final,
  * unterminated line. Such a tail is returned to the caller for explicit
  * truncation; this reader does not replay or execute anything.
+ * The JSONL scan/reopen shape is derived from Pi session-manager pinned at
+ * e47b8e37a6211ebd0b2942fa87059d64f81eec02; DEF adds strict local-file safety.
  */
 import {
-  chmodSync,
   closeSync,
   constants as fsConstants,
   fstatSync,
@@ -84,6 +85,10 @@ function assertOwned(stats: { readonly uid: number | bigint }): void {
   if (uid !== null && Number(stats.uid) !== uid) pathInvalid('file owner is not the current process owner');
 }
 
+function assertStrictPrivateMode(stats: { readonly mode: number | bigint }): void {
+  if ((Number(stats.mode) & 0o7777) !== 0o600) pathInvalid('session file must be mode 0600');
+}
+
 function lstatIfExists(target: string): ReturnType<typeof lstatSync> | null {
   try {
     return lstatSync(target);
@@ -155,7 +160,7 @@ export function ensureSessionParent(filePath: string, options: SessionPathOption
   assertOwned(parentStats);
 }
 
-/** Verify a session file is a current-owner regular file and normalize 0600. */
+/** Verify a session file is already a current-owner regular file with mode 0600. */
 export function assertPrivateSessionFile(filePath: string, options: SessionPathOptions = {}): void {
   const target = resolveSessionPath(filePath, options);
   const stats = lstatIfExists(target);
@@ -163,17 +168,9 @@ export function assertPrivateSessionFile(filePath: string, options: SessionPathO
   if (stats.isSymbolicLink()) pathInvalid('symbolic links are not allowed');
   if (!stats.isFile()) pathInvalid('session path is not a regular file');
   assertOwned(stats);
-  try {
-    chmodSync(target, 0o600);
-  } catch {
-    ioError();
-  }
-  const privateStats = lstatIfExists(target);
-  if (!privateStats || privateStats.isSymbolicLink() || !privateStats.isFile()) {
-    pathInvalid('session path is not a regular file');
-  }
-  assertOwned(privateStats);
-  if ((Number(privateStats.mode) & 0o777) !== 0o600) pathInvalid('session file must be mode 0600');
+  // A permissive historical mode is irreversible exposure, so reopening must
+  // reject it instead of chmod-ing the file into apparent compliance.
+  assertStrictPrivateMode(stats);
 }
 
 function readPrivateFile(filePath: string, options: SessionPathOptions = {}): Buffer {
@@ -184,6 +181,7 @@ function readPrivateFile(filePath: string, options: SessionPathOptions = {}): Bu
     const stats = fstatSync(descriptor);
     if (!stats.isFile()) pathInvalid('session path is not a regular file');
     assertOwned(stats);
+    assertStrictPrivateMode(stats);
     return readFileSync(descriptor);
   } catch (error) {
     if (error instanceof SessionLogError) throw error;
@@ -203,10 +201,11 @@ export function truncateSessionFile(filePath: string, byteLength: number, option
     descriptor = openSync(filePath, fsConstants.O_WRONLY | NO_FOLLOW);
     const stats = fstatSync(descriptor);
     if (!stats.isFile()) pathInvalid('session path is not a regular file');
+    assertOwned(stats);
+    assertStrictPrivateMode(stats);
     if (byteLength > stats.size) pathInvalid('tail offset exceeds file size');
     ftruncateSync(descriptor, byteLength);
     fsyncSync(descriptor);
-    chmodSync(filePath, 0o600);
   } catch (error) {
     if (error instanceof SessionLogError) throw error;
     ioError();

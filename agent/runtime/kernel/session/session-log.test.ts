@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   appendFileSync,
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -30,6 +31,7 @@ import {
 } from '../ids.ts';
 import type {
   RuntimeAssistantMessage,
+  RuntimeToolResultPayload,
   RuntimeToolResultMessage,
   RuntimeUserMessage,
 } from '../messages.ts';
@@ -39,6 +41,7 @@ import type {
   RuntimeSessionHeader,
 } from './entries.ts';
 import {
+  createOrReopenSessionLog,
   createSessionLog,
   reopenSessionLog,
   type SessionLog,
@@ -76,11 +79,12 @@ function startEntry(
   defTurnId = 'def-turn-1',
   turnId = 'runtime-turn-1',
   createdAt = TIME_2,
+  parentId: string | null = null,
 ): RuntimeRunMarkerEntry {
   return {
     schemaVersion: 1,
     id: asRuntimeEntryId(entryId),
-    parentId: null,
+    parentId: parentId === null ? null : asRuntimeEntryId(parentId),
     createdAt,
     type: 'run-marker',
     phase: 'start',
@@ -115,19 +119,33 @@ function endEntry(
   };
 }
 
-function userEntry(parentId: string, entryId = 'entry-user', createdAt = TIME_3): RuntimeSessionEntry {
+interface TurnFixtureOptions {
+  readonly defTurnId?: string;
+  readonly turnId?: string;
+}
+
+interface UserFixtureOptions extends TurnFixtureOptions {
+  readonly text?: string;
+}
+
+function userEntry(
+  parentId: string,
+  entryId = 'entry-user',
+  createdAt = TIME_3,
+  options: UserFixtureOptions = {},
+): RuntimeSessionEntry {
   const message: RuntimeUserMessage = {
     schemaVersion: 1,
     id: asRuntimeMessageId(`${entryId}-message`),
     createdAt,
-    defTurnId: asDefTurnId('def-turn-1'),
-    turnId: asRuntimeTurnId('runtime-turn-1'),
+    defTurnId: asDefTurnId(options.defTurnId ?? 'def-turn-1'),
+    turnId: asRuntimeTurnId(options.turnId ?? 'runtime-turn-1'),
     role: 'user',
     clientTurnId: asClientTurnId('client-turn-1'),
     content: [{
       type: 'text',
       id: asRuntimeContentId(`${entryId}-content`),
-      text: 'Read the current session.',
+      text: options.text ?? 'Read the current session.',
     }],
   };
   return {
@@ -140,37 +158,67 @@ function userEntry(parentId: string, entryId = 'entry-user', createdAt = TIME_3)
   };
 }
 
+interface AssistantFixtureOptions extends TurnFixtureOptions {
+  readonly text?: string;
+  readonly thinkingText?: string;
+  readonly diagnosticMessage?: string;
+  readonly toolCallId?: string;
+  readonly toolName?: string;
+}
+
 function assistantEntry(
   parentId: string,
   entryId = 'entry-assistant',
   withToolCall = false,
   createdAt = TIME_4,
   argumentsValue: JsonObject = { timelineId: 'fixture' },
+  options: AssistantFixtureOptions = {},
 ): RuntimeSessionEntry {
+  const content: RuntimeAssistantMessage['content'][number][] = [];
+  if (options.thinkingText !== undefined) {
+    content.push({
+      type: 'thinking',
+      id: asRuntimeContentId(`${entryId}-thinking`),
+      text: options.thinkingText,
+    });
+  }
+  if (!withToolCall || options.text !== undefined) {
+    content.push({
+      type: 'text',
+      id: asRuntimeContentId(`${entryId}-text`),
+      text: options.text ?? 'Done.',
+    });
+  }
+  if (withToolCall) {
+    content.push({
+      type: 'tool-call',
+      id: asRuntimeContentId(`${entryId}-tool`),
+      toolCallId: asToolCallId(options.toolCallId ?? 'tool-call-1'),
+      name: options.toolName ?? 'read_timeline',
+      arguments: argumentsValue,
+    });
+  }
   const message: RuntimeAssistantMessage = {
     schemaVersion: 1,
     id: asRuntimeMessageId(`${entryId}-message`),
     createdAt,
-    defTurnId: asDefTurnId('def-turn-1'),
-    turnId: asRuntimeTurnId('runtime-turn-1'),
+    defTurnId: asDefTurnId(options.defTurnId ?? 'def-turn-1'),
+    turnId: asRuntimeTurnId(options.turnId ?? 'runtime-turn-1'),
     role: 'assistant',
-    content: withToolCall
-      ? [{
-          type: 'tool-call',
-          id: asRuntimeContentId(`${entryId}-content`),
-          toolCallId: asToolCallId('tool-call-1'),
-          name: 'read_timeline',
-          arguments: argumentsValue,
-        }]
-      : [{
-          type: 'text',
-          id: asRuntimeContentId(`${entryId}-content`),
-          text: 'Done.',
-        }],
+    content,
     providerId: 'fixture-provider',
     modelId: 'fixture-model',
     usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
     stopReason: withToolCall ? 'tool-use' : 'stop',
+    ...(options.diagnosticMessage === undefined
+      ? {}
+      : {
+          diagnostic: {
+            code: 'fixture-diagnostic',
+            message: options.diagnosticMessage,
+            retryable: false,
+          },
+        }),
     completedAt: createdAt,
   };
   return {
@@ -183,17 +231,28 @@ function assistantEntry(
   };
 }
 
-function toolResultEntry(parentId: string, entryId = 'entry-tool-result', createdAt = TIME_5): RuntimeSessionEntry {
+interface ToolResultFixtureOptions extends TurnFixtureOptions {
+  readonly toolCallId?: string;
+  readonly toolName?: string;
+  readonly result?: RuntimeToolResultPayload;
+}
+
+function toolResultEntry(
+  parentId: string,
+  entryId = 'entry-tool-result',
+  createdAt = TIME_5,
+  options: ToolResultFixtureOptions = {},
+): RuntimeSessionEntry {
   const message: RuntimeToolResultMessage = {
     schemaVersion: 1,
     id: asRuntimeMessageId(`${entryId}-message`),
     createdAt,
-    defTurnId: asDefTurnId('def-turn-1'),
-    turnId: asRuntimeTurnId('runtime-turn-1'),
+    defTurnId: asDefTurnId(options.defTurnId ?? 'def-turn-1'),
+    turnId: asRuntimeTurnId(options.turnId ?? 'runtime-turn-1'),
     role: 'tool-result',
-    toolCallId: asToolCallId('tool-call-1'),
-    toolName: 'read_timeline',
-    result: { status: 'succeeded', output: { ok: true } },
+    toolCallId: asToolCallId(options.toolCallId ?? 'tool-call-1'),
+    toolName: options.toolName ?? 'read_timeline',
+    result: options.result ?? { status: 'succeeded', output: { ok: true } },
     completedAt: createdAt,
   };
   return {
@@ -203,6 +262,40 @@ function toolResultEntry(parentId: string, entryId = 'entry-tool-result', create
     createdAt,
     type: 'message',
     message,
+  };
+}
+
+function thinkingChangeEntry(
+  parentId: string | null,
+  entryId: string,
+  createdAt = TIME_2,
+): RuntimeSessionEntry {
+  return {
+    schemaVersion: 1,
+    id: asRuntimeEntryId(entryId),
+    parentId: parentId === null ? null : asRuntimeEntryId(parentId),
+    createdAt,
+    type: 'thinking-change',
+    level: 'low',
+  };
+}
+
+function compactionEntry(
+  parentId: string,
+  firstKeptEntryId: string,
+  entryId = 'entry-compaction',
+  summary = 'Compacted history.',
+): RuntimeSessionEntry {
+  return {
+    schemaVersion: 1,
+    id: asRuntimeEntryId(entryId),
+    parentId: asRuntimeEntryId(parentId),
+    createdAt: TIME_7,
+    type: 'compaction',
+    summary,
+    firstKeptEntryId: asRuntimeEntryId(firstKeptEntryId),
+    tokensBefore: 42,
+    reason: 'manual',
   };
 }
 
@@ -260,6 +353,156 @@ test('SessionLog creates, appends, reopens, derives leaf/updated, and keeps the 
   }
 });
 
+test('content text round-trips exact leading and trailing whitespace', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const userText = '  user body\n\t';
+  const assistantText = '\t assistant preface  ';
+  const thinkingText = '  private reasoning \n';
+  const argumentText = '  tool argument  ';
+  const resultText = '\n tool result value \t';
+  const toolDiagnostic = '  tool diagnostic  ';
+  const providerDiagnostic = '\t provider diagnostic \n';
+  const finalText = '  assistant final  ';
+  const terminalMessage = '  terminal diagnostic  ';
+  const summary = '\n  compacted summary  \t';
+  try {
+    log.append(startEntry());
+    log.append(userEntry('entry-start', 'entry-whitespace-user', TIME_3, { text: userText }));
+    log.append(assistantEntry(
+      'entry-whitespace-user',
+      'entry-whitespace-tool-call',
+      true,
+      TIME_4,
+      { query: argumentText },
+      {
+        text: assistantText,
+        thinkingText,
+        diagnosticMessage: providerDiagnostic,
+      },
+    ));
+    log.append(toolResultEntry(
+      'entry-whitespace-tool-call',
+      'entry-whitespace-tool-result',
+      TIME_5,
+      {
+        result: {
+          status: 'failed',
+          code: 'fixture-tool-failure',
+          message: toolDiagnostic,
+          details: { value: resultText },
+        },
+      },
+    ));
+    log.append(assistantEntry(
+      'entry-whitespace-tool-result',
+      'entry-whitespace-final',
+      false,
+      TIME_6,
+      {},
+      { turnId: 'runtime-turn-2', text: finalText },
+    ));
+    const failedEnd = {
+      ...endEntry('entry-whitespace-final', 'entry-whitespace-end', 'run-1', 'def-turn-1', 'runtime-turn-2'),
+      terminal: { status: 'failed', code: 'fixture-run-failure', message: terminalMessage },
+    } as Extract<RuntimeRunMarkerEntry, { phase: 'end' }>;
+    log.append(failedEnd);
+    log.append(compactionEntry('entry-whitespace-end', 'entry-whitespace-user', 'entry-whitespace-compaction', summary));
+
+    const reopened = reopenSessionLog(filePath, { rootDir: root });
+    const durableUser = reopened.entries[1];
+    if (durableUser?.type !== 'message' || durableUser.message.role !== 'user') assert.fail('expected user entry');
+    const durableUserText = durableUser.message.content[0];
+    if (durableUserText?.type !== 'text') assert.fail('expected user text');
+    assert.equal(durableUserText.text, userText);
+
+    const durableToolCall = reopened.entries[2];
+    if (durableToolCall?.type !== 'message' || durableToolCall.message.role !== 'assistant') {
+      assert.fail('expected assistant tool-call entry');
+    }
+    const durableThinking = durableToolCall.message.content.find((block) => block.type === 'thinking');
+    const durablePreface = durableToolCall.message.content.find((block) => block.type === 'text');
+    const durableCall = durableToolCall.message.content.find((block) => block.type === 'tool-call');
+    assert.equal(durableThinking?.text, thinkingText);
+    assert.equal(durablePreface?.text, assistantText);
+    assert.equal(durableCall?.arguments.query, argumentText);
+    assert.equal(durableToolCall.message.diagnostic?.message, providerDiagnostic);
+
+    const durableToolResult = reopened.entries[3];
+    if (durableToolResult?.type !== 'message' || durableToolResult.message.role !== 'tool-result') {
+      assert.fail('expected tool result entry');
+    }
+    if (durableToolResult.message.result.status !== 'failed') assert.fail('expected failed tool result');
+    assert.equal(durableToolResult.message.result.message, toolDiagnostic);
+    assert.deepEqual(durableToolResult.message.result.details, { value: resultText });
+
+    const durableFinal = reopened.entries[4];
+    if (durableFinal?.type !== 'message' || durableFinal.message.role !== 'assistant') {
+      assert.fail('expected final assistant entry');
+    }
+    const durableFinalText = durableFinal.message.content.find((block) => block.type === 'text');
+    assert.equal(durableFinalText?.text, finalText);
+
+    const durableEnd = reopened.entries[5];
+    if (durableEnd?.type !== 'run-marker' || durableEnd.phase !== 'end') assert.fail('expected run end');
+    if (durableEnd.terminal.status !== 'failed') assert.fail('expected failed run');
+    assert.equal(durableEnd.terminal.message, terminalMessage);
+
+    const durableCompaction = reopened.entries[6];
+    if (durableCompaction?.type !== 'compaction') assert.fail('expected compaction');
+    assert.equal(durableCompaction.summary, summary);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('createOrReopen validates and exactly binds the supplied durable header', () => {
+  const { root, filePath } = makeRootedLog();
+  try {
+    const durableBytes = readFileSync(filePath, 'utf8');
+    const mismatches: RuntimeSessionHeader[] = [
+      { ...header(), runtimeSessionId: asRuntimeSessionId('runtime-session-other') },
+      { ...header(), defSessionId: asDefSessionId('def-session-other') },
+      { ...header(), runtimeVersion: 'runtime-other' },
+      { ...header(), providerProfileRef: 'profile-other' },
+      { ...header(), systemPromptVersion: 'prompt-test-v2' },
+      { ...header(), createdAt: TIME_2 },
+    ];
+    for (const supplied of mismatches) {
+      assert.throws(
+        () => createOrReopenSessionLog(filePath, supplied, { rootDir: root }),
+        (error: unknown) => error instanceof SessionLogError && error.code === 'SESSION_APPEND_CONFLICT',
+      );
+      assert.equal(readFileSync(filePath, 'utf8'), durableBytes);
+    }
+
+    const reopened = createOrReopenSessionLog(filePath, header(), { rootDir: root });
+    assert.deepEqual(reopened.header, header());
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('existing files with mode 0644 are rejected without chmod or tail repair', () => {
+  const { root, filePath, log } = makeRootedLog();
+  try {
+    appendFileSync(filePath, '{"type":"message"');
+    chmodSync(filePath, 0o644);
+    const exposedBytes = readFileSync(filePath, 'utf8');
+    const assertRejectedWithoutMutation = (action: () => unknown): void => {
+      assert.throws(action, /mode 0600/u);
+      assert.equal(statSync(filePath).mode & 0o777, 0o644);
+      assert.equal(readFileSync(filePath, 'utf8'), exposedBytes);
+    };
+
+    assertRejectedWithoutMutation(() => readSessionFile(filePath, { rootDir: root, repairIncompleteTail: true }));
+    assertRejectedWithoutMutation(() => reopenSessionLog(filePath, { rootDir: root }));
+    assertRejectedWithoutMutation(() => createOrReopenSessionLog(filePath, header(), { rootDir: root }));
+    assertRejectedWithoutMutation(() => log.append(startEntry()));
+  } finally {
+    cleanup(root);
+  }
+});
+
 test('reopen truncates only an incomplete final line and rejects middle corruption', () => {
   const { root, filePath, log } = makeRootedLog();
   try {
@@ -305,6 +548,136 @@ test('validator rejects unknown parents, duplicate IDs, cycles, bad Tool pairing
     message: { ...wrongTurnMessage, defTurnId: asDefTurnId('def-turn-other') },
   };
   assertIncompatible(() => validateSessionRecords([root, start, wrongTurnEntry]));
+});
+
+test('one DefTurn run advances across RuntimeTurns and reports the last observed turn', () => {
+  const records = [
+    header(),
+    startEntry(),
+    userEntry('entry-start'),
+    assistantEntry('entry-user', 'entry-assistant-tool', true),
+    toolResultEntry('entry-assistant-tool'),
+    assistantEntry(
+      'entry-tool-result',
+      'entry-assistant-turn-2',
+      false,
+      TIME_6,
+      {},
+      { turnId: 'runtime-turn-2' },
+    ),
+  ] as const;
+  const completed = validateSessionRecords([
+    ...records,
+    endEntry('entry-assistant-turn-2', 'entry-end-turn-2', 'run-1', 'def-turn-1', 'runtime-turn-2'),
+  ]);
+  assert.equal(completed.runs[0]?.turnId, asRuntimeTurnId('runtime-turn-2'));
+  assert.equal(completed.runs[0]?.status, 'completed');
+
+  const interrupted = validateSessionRecords(records);
+  assert.equal(interrupted.interruptedRuns[0]?.turnId, asRuntimeTurnId('runtime-turn-2'));
+
+  const callOnSecondTurn = validateSessionRecords([
+    header(),
+    startEntry(),
+    userEntry('entry-start'),
+    assistantEntry(
+      'entry-user',
+      'entry-second-turn-tool',
+      true,
+      TIME_4,
+      { query: 'fixture' },
+      { turnId: 'runtime-turn-2' },
+    ),
+    toolResultEntry(
+      'entry-second-turn-tool',
+      'entry-second-turn-result',
+      TIME_5,
+      { turnId: 'runtime-turn-2' },
+    ),
+    endEntry('entry-second-turn-result', 'entry-second-turn-end', 'run-1', 'def-turn-1', 'runtime-turn-2'),
+  ]);
+  assert.equal(callOnSecondTurn.runs[0]?.turnId, asRuntimeTurnId('runtime-turn-2'));
+});
+
+test('RuntimeTurn reuse across DefTurns and a stale run-end turn are incompatible', () => {
+  const firstEnd = endEntry('entry-start', 'entry-first-end', 'run-1', 'def-turn-1', 'runtime-turn-1', TIME_3);
+  const conflictingStart = startEntry(
+    'entry-second-start',
+    'run-2',
+    'def-turn-2',
+    'runtime-turn-1',
+    TIME_4,
+    'entry-first-end',
+  );
+  assertIncompatible(() => validateSessionRecords([header(), startEntry(), firstEnd, conflictingStart]));
+
+  const secondTurnMessage = assistantEntry(
+    'entry-start',
+    'entry-message-turn-2',
+    false,
+    TIME_4,
+    {},
+    { turnId: 'runtime-turn-2' },
+  );
+  const staleEnd = endEntry(
+    'entry-message-turn-2',
+    'entry-stale-end',
+    'run-1',
+    'def-turn-1',
+    'runtime-turn-1',
+  );
+  assertIncompatible(() => validateSessionRecords([header(), startEntry(), secondTurnMessage, staleEnd]));
+
+  const secondTurnCall = assistantEntry(
+    'entry-start',
+    'entry-call-turn-2',
+    true,
+    TIME_4,
+    { query: 'fixture' },
+    { turnId: 'runtime-turn-2' },
+  );
+  const wrongTurnResult = toolResultEntry('entry-call-turn-2', 'entry-result-turn-1', TIME_5);
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    secondTurnCall,
+    wrongTurnResult,
+  ]));
+});
+
+test('compaction anchors must precede the entry on its selected ancestor chain', () => {
+  const rootEntry = thinkingChangeEntry(null, 'entry-tree-root', TIME_2);
+  const selected = thinkingChangeEntry('entry-tree-root', 'entry-selected-parent', TIME_3);
+  const branch = thinkingChangeEntry('entry-tree-root', 'entry-other-branch', TIME_4);
+  const validCompaction = compactionEntry(
+    'entry-selected-parent',
+    'entry-tree-root',
+    'entry-valid-compaction',
+  );
+  const valid = validateSessionRecords([header(), rootEntry, selected, branch, validCompaction]);
+  assert.equal(valid.leafId, asRuntimeEntryId('entry-valid-compaction'));
+
+  const branchAnchor = compactionEntry(
+    'entry-selected-parent',
+    'entry-other-branch',
+    'entry-branch-compaction',
+  );
+  assertIncompatible(() => validateSessionRecords([header(), rootEntry, selected, branch, branchAnchor]));
+
+  const selfAnchor = compactionEntry(
+    'entry-selected-parent',
+    'entry-self-compaction',
+    'entry-self-compaction',
+  );
+  assertIncompatible(() => validateSessionRecords([header(), rootEntry, selected, selfAnchor]));
+
+  const futureAnchor = compactionEntry(
+    'entry-selected-parent',
+    'entry-future-child',
+    'entry-future-compaction',
+  );
+  const futureChild = thinkingChangeEntry('entry-future-compaction', 'entry-future-child', TIME_7);
+  assertIncompatible(() => validateSessionRecords([header(), rootEntry, selected, futureAnchor, futureChild]));
 });
 
 test('an unclosed run is recovered as interrupted without appending a product mutation', () => {
