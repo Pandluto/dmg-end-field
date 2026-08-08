@@ -1433,7 +1433,14 @@ function buildToolPart(
   const name = event.type === 'tool.requested' || event.type === 'tool.started'
     ? event.payload.name
     : existing?.name ?? `tool:${toolCallId}`;
-  assertToolStateProgression(existing.state.status, phase);
+  // A recovered Runtime snapshot already contains the Tool's final state,
+  // while the Host journal is replayed from the beginning. Only compare
+  // against a previously replayed Host state; treating the final Runtime
+  // state as the previous Host event makes every completed Tool look like it
+  // regressed when its historical `tool.requested` event is replayed.
+  if (existingHost?.type === 'tool') {
+    assertToolStateProgression(existingHost.state.status, phase);
+  }
   let stateValue: ConversationToolState;
   if (phase === 'pending') {
     stateValue = { status: 'pending', input };
@@ -1482,6 +1489,7 @@ function buildToolPart(
 function buildCommandToolPart(state: MutableProjectionState, event: Extract<DefEvent, { type: CommandEventType }>): ConversationToolPart | null {
   const existing = findToolPart(state, event.toolCallId);
   if (!existing) throw parentNotFound('host', `Tool ${event.toolCallId} is missing for Host command event`);
+  const existingHost = state.hostParts.get(existing.id);
   const input = toolInput(existing.state);
   const name = existing.name;
   let stateValue: ConversationToolState;
@@ -1512,7 +1520,16 @@ function buildCommandToolPart(state: MutableProjectionState, event: Extract<DefE
       title: name,
     };
   }
-  assertToolStateProgression(existing.state.status, stateValue.status);
+  if (existingHost?.type === 'tool') {
+    // Product command execution is nested inside a running Tool. Entering its
+    // queued phase is the one valid running -> pending transition; all other
+    // Host regressions remain invalid.
+    const entersNestedCommandQueue = event.type === 'command.queued'
+      && existingHost.state.status === 'running';
+    if (!entersNestedCommandQueue) {
+      assertToolStateProgression(existingHost.state.status, stateValue.status);
+    }
+  }
   return {
     ...existing,
     state: stateValue,

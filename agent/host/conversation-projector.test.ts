@@ -13,6 +13,7 @@ import {
   FIXTURE_ERROR_PART_ID,
   FIXTURE_REASONING_PART_ID,
   FIXTURE_TEXT_PART_ID,
+  FIXTURE_TOOL_CALL_ID,
   FIXTURE_TOOL_PART_ID,
   FIXTURE_TURN_ID,
   hostInteractionRequested,
@@ -23,11 +24,15 @@ import {
   hostToolStarted,
 } from './testing/conversation-fixtures.ts';
 import {
+  asCommandId,
   asConversationPartId,
   asConversationMessageId,
+  asDatabaseGeneration,
   asEngineSessionId,
   asDefSessionId,
   asDefTurnId,
+  asTimelineId,
+  asWorkspaceId,
   type ConversationPart,
   type ConversationEvent,
   type ConversationSnapshot,
@@ -127,6 +132,87 @@ test('projects Tool pending/running/completed/error from their two authoritative
     const snapshot = await projector(fixture).getSnapshot(fixture.sessionId);
     assert.equal(part(snapshot, 'tool').state.status, expected);
   }
+});
+
+test('replays Host Tool and nested command history over a terminal Runtime snapshot after restart', async () => {
+  const fixture = createConversationFixture();
+  fixture.runtime.append({
+    type: 'part.upsert',
+    part: {
+      id: FIXTURE_TOOL_PART_ID,
+      messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
+      createdAt: NOW,
+      type: 'tool',
+      toolCallId: FIXTURE_TOOL_CALL_ID,
+      name: 'fixture.tool',
+      state: {
+        status: 'completed',
+        input: { value: 'fixture' },
+        output: { runtime: 'already-terminal' },
+        endedAt: NOW,
+      },
+    },
+    index: 2,
+  }, 7);
+
+  const correlation = {
+    schemaVersion: 1 as const,
+    occurredAt: NOW,
+    defSessionId: fixture.sessionId,
+    defTurnId: FIXTURE_TURN_ID,
+    toolCallId: FIXTURE_TOOL_CALL_ID,
+    commandId: asCommandId('conversation-fixture-command'),
+  };
+  const binding = {
+    workspaceId: asWorkspaceId('conversation-fixture-workspace'),
+    databaseGeneration: asDatabaseGeneration('conversation-fixture-generation'),
+    timelineId: asTimelineId('conversation-fixture-timeline'),
+    checkoutTargetId: null,
+    beforeRevision: 1,
+  };
+  fixture.host.append(hostToolRequested(fixture.sessionId, 1));
+  fixture.host.append(hostToolStarted(fixture.sessionId, 2));
+  fixture.host.append({
+    ...correlation,
+    sequence: 3,
+    type: 'command.queued',
+    payload: {
+      ...binding,
+      op: 'fixture.command',
+      afterRevision: null,
+      browserReceiptDigest: null,
+    },
+  });
+  fixture.host.append({
+    ...correlation,
+    sequence: 4,
+    type: 'command.dispatched',
+    payload: {
+      ...binding,
+      op: 'fixture.command',
+      afterRevision: null,
+      browserReceiptDigest: null,
+    },
+  });
+  fixture.host.append({
+    ...correlation,
+    sequence: 5,
+    type: 'command.result',
+    payload: {
+      ...binding,
+      status: 'succeeded',
+      afterRevision: 2,
+      browserReceiptDigest: 'fixture-receipt',
+    },
+  });
+  fixture.host.append(hostToolResult(fixture.sessionId, 6, { host: 'authoritative' }));
+
+  const snapshot = await projector(fixture).getSnapshot(fixture.sessionId);
+  const tool = part(snapshot, 'tool');
+  assert.equal(tool.state.status, 'completed');
+  assert.deepEqual(tool.state.status === 'completed' ? tool.state.output : null, { host: 'authoritative' });
+  assert.equal(snapshot.cursor.runtimeSequence, 7);
+  assert.equal(snapshot.cursor.hostSequence, 6);
 });
 
 test('a durable stopped Turn overrides an interrupted active Tool after recovery', async () => {
