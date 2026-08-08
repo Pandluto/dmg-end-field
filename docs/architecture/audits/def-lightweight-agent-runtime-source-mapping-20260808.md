@@ -648,12 +648,20 @@ interface DefRuntimeSession {
 ```ts
 interface RuntimeTranscriptSource {
   getRuntimeSnapshot(session: EngineSessionRef): Promise<RuntimeTranscriptSnapshot>;
-  subscribeRuntime(session: EngineSessionRef, afterRuntimeSequence: number): AsyncIterable<RuntimeTranscriptEvent>;
+  subscribeRuntime(
+    session: EngineSessionRef,
+    afterRuntimeSequence: number,
+    signal?: AbortSignal,
+  ): AsyncIterable<RuntimeTranscriptEvent>;
 }
 
 interface ConversationProjector {
   getSnapshot(session: DefSessionId): Promise<ConversationSnapshot>;
-  subscribe(session: DefSessionId, cursor: ConversationCursor): AsyncIterable<ConversationEvent>;
+  subscribe(
+    session: DefSessionId,
+    cursor: ConversationCursor,
+    signal?: AbortSignal,
+  ): AsyncIterable<ConversationEvent>;
 }
 ```
 
@@ -1666,6 +1674,7 @@ src/agentSessionSurface/testing/**
 - Tool 四状态；
 - interaction；
 - reconnect 和 gap recovery；
+- disconnect/reconnect 必须通过 `AbortSignal` 终止并等待旧的 Runtime/Host 订阅；
 - 同一 message/part 不重复。
 
 禁止触碰：OpenCode UI 抽取、Host Gateway、Runtime 和协议定义。

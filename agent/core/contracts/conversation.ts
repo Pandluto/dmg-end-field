@@ -402,12 +402,22 @@ export interface RuntimeTranscriptSource {
   subscribeRuntime(
     session: EngineSessionRef,
     afterRuntimeSequence: number,
+    signal?: AbortSignal,
   ): AsyncIterable<RuntimeTranscriptEvent>;
 }
 
 export interface ConversationProjector {
   getSnapshot(session: DefSessionId): Promise<ConversationSnapshot>;
-  subscribe(session: DefSessionId, cursor: ConversationCursor): AsyncIterable<ConversationEvent>;
+  /**
+   * The caller owns cancellation. Implementations must settle the subscription
+   * and release every upstream source after signal aborts; changing a local UI
+   * connection must not leave a hidden Runtime or Host subscription alive.
+   */
+  subscribe(
+    session: DefSessionId,
+    cursor: ConversationCursor,
+    signal?: AbortSignal,
+  ): AsyncIterable<ConversationEvent>;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
