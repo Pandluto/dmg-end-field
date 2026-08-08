@@ -59,11 +59,19 @@
     {
       "data": {
         "argumentDeltas": [
-          "{\"left\"",
-          ":2,\"rig",
-          "ht\":40}"
+          "{\"left\":2,\"right\":40,\"context\":{\"l",
+          "",
+          "abels\":[\"中文\",\"emoji 🧪\"],\"note\":\"es",
+          "caped \\\"quote\\\" \\\\ slash\\nline\"}}"
         ],
         "arguments": {
+          "context": {
+            "labels": [
+              "中文",
+              "emoji 🧪"
+            ],
+            "note": "escaped \"quote\" \\ slash\nline"
+          },
           "left": 2,
           "right": 40
         },
@@ -141,6 +149,13 @@
           },
           {
             "arguments": {
+              "context": {
+                "labels": [
+                  "中文",
+                  "emoji 🧪"
+                ],
+                "note": "escaped \"quote\" \\ slash\nline"
+              },
               "left": 2,
               "right": 40
             },
@@ -185,11 +200,12 @@
       "data": {
         "contentIndex": 0,
         "deltas": [
-          "The determin",
-          "istic tool r",
-          "eturned 42."
+          "确定性工具",
+          "",
+          "返回 4",
+          "2 🧮。"
         ],
-        "text": "The deterministic tool returned 42."
+        "text": "确定性工具返回 42 🧮。"
       },
       "messageId": "message-4",
       "ordinal": 13,

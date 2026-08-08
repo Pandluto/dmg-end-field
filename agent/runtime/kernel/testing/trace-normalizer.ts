@@ -8,7 +8,12 @@
  */
 import { createHash } from 'node:crypto';
 import type { AgentTrace, AgentTraceEventType, AgentTraceSource } from './trace-schema.ts';
-import { AGENT_TRACE_SCHEMA_VERSION, parseAgentTrace } from './trace-schema.ts';
+import {
+  AGENT_TRACE_LIMITS,
+  AGENT_TRACE_SCHEMA_VERSION,
+  assertAgentTraceValueWithinBounds,
+  parseAgentTrace,
+} from './trace-schema.ts';
 
 export const PI_REFERENCE_COMMIT = 'e47b8e37a6211ebd0b2942fa87059d64f81eec02' as const;
 export const PI_REFERENCE_VERSION = '0.84.1' as const;
@@ -46,6 +51,10 @@ interface IdentifierMaps {
  * stable trace consumed by the F0 parser.
  */
 export function normalizePiTrace(value: PiRawTrace): AgentTrace {
+  if (!Array.isArray(value.events) || value.events.length > AGENT_TRACE_LIMITS.maxEvents) {
+    throw new TypeError(`Pi raw trace events must contain at most ${AGENT_TRACE_LIMITS.maxEvents} items`);
+  }
+  assertAgentTraceValueWithinBounds(value);
   if (value.schemaVersion !== AGENT_TRACE_SCHEMA_VERSION) {
     throw new TypeError(`Pi raw trace schema must be ${AGENT_TRACE_SCHEMA_VERSION}`);
   }

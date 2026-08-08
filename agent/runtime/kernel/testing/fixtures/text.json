@@ -58,11 +58,12 @@
       "data": {
         "contentIndex": 0,
         "deltas": [
-          "Determinis",
-          "tic text ",
-          "response."
+          "确定性文本响",
+          "",
+          "应：你好，终",
+          "末地 🧪。"
         ],
-        "text": "Deterministic text response."
+        "text": "确定性文本响应：你好，终末地 🧪。"
       },
       "messageId": "message-2",
       "ordinal": 6,

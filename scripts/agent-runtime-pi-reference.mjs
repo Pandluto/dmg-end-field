@@ -6,26 +6,133 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  realpathSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { register } from 'node:module';
+import { createRequire, register } from 'node:module';
 
 const PINNED_COMMIT = 'e47b8e37a6211ebd0b2942fa87059d64f81eec02';
 const PINNED_VERSION = '0.84.1';
 const PI_REPOSITORY = 'https://github.com/earendil-works/pi-mono';
-const RUNNER_VERSION = 3;
+const RUNNER_VERSION = 4;
+const NODE_VERSION_POLICY = '>=22.19.0 <25.0.0';
+const PI_LOCKFILE_PATH = 'package-lock.json';
+const PI_LOCKFILE_SHA256 = 'b96c0fcb6e21425451e3d22aa93cedb817c2a959597aa5bb41f269da56da94c1';
 const SYSTEM_PROMPT = 'Pi Golden Oracle deterministic system prompt';
 // Loaded directly from PI_REFERENCE_ROOT at Pi commit
 // e47b8e37a6211ebd0b2942fa87059d64f81eec02; none are copied into the product.
 const PI_REFERENCE_SOURCE_PATHS = Object.freeze([
+  'packages/agent/package.json',
+  'packages/agent/src/agent-loop.ts',
   'packages/agent/src/agent.ts',
+  'packages/agent/src/stream-fn.ts',
+  'packages/agent/src/types.ts',
+  'packages/ai/src/types.ts',
   'packages/ai/src/utils/event-stream.ts',
   'packages/ai/src/utils/validation.ts',
   'packages/ai/src/utils/uuid.ts',
+  'packages/coding-agent/src/config.ts',
   'packages/coding-agent/src/core/messages.ts',
   'packages/coding-agent/src/core/session-manager.ts',
+  'packages/coding-agent/src/utils/child-process.ts',
+  'packages/coding-agent/src/utils/paths.ts',
+]);
+const PI_EXTERNAL_PACKAGES = Object.freeze([
+  {
+    name: 'typebox',
+    version: '1.3.7',
+    integrity: 'sha512-meKuifc33Pccx0O6PdIzYMq3Og8zvP4TIi/a+Bw3AEMZMxOD0+RHGQvpglEe6Zdy3wZ8nqn/j95h8LUZLk/6Hg==',
+    fileCount: 1_367,
+    treeSha256: '5bcd99370c3d97530949b9623b365b1b3d5bd0993deec31da016974144d55f63',
+    entrypoints: [
+      {
+        specifier: 'typebox/compile',
+        path: 'build/compile/index.mjs',
+        sha256: 'b1b11d0d7b57c02839b997d7bddf1b34a274de21719e334470617bef56edfb99',
+      },
+      {
+        specifier: 'typebox/value',
+        path: 'build/value/index.mjs',
+        sha256: '8d09532c9198a51443ff5af9423a9d771f999493b065294aae6b71a11b87e0bc',
+      },
+    ],
+  },
+  {
+    name: 'cross-spawn',
+    version: '7.0.6',
+    integrity: 'sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==',
+    fileCount: 9,
+    treeSha256: '9d3e5318cef8fc568a7a42983b226cf54622da99da0b051f43fedf73f563d5f3',
+    entrypoints: [{
+      specifier: 'cross-spawn',
+      path: 'index.js',
+      sha256: 'b8e01cb18ba87ee1b0e5eb2eb1ce6cbb25a2bdd229f9e08671f8a10ed7e3ad35',
+    }],
+  },
+  {
+    name: 'path-key',
+    version: '3.1.1',
+    integrity: 'sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==',
+    fileCount: 5,
+    treeSha256: 'e6d371124a12c3c15e6f80a1ab69fe3ab95a428f8ad8dc716def4b6144d0f3c9',
+    entrypoints: [{
+      specifier: 'path-key',
+      path: 'index.js',
+      sha256: 'fdbafdc163f668fe325333d62387365c9b074e01253e32824a4dbf5cc552705d',
+    }],
+  },
+  {
+    name: 'shebang-command',
+    version: '2.0.0',
+    integrity: 'sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==',
+    fileCount: 4,
+    treeSha256: 'dad4abb3650d89edae1d2b19dab727c8ee3cf88d283fba91581471e962ee8575',
+    entrypoints: [{
+      specifier: 'shebang-command',
+      path: 'index.js',
+      sha256: 'd98c3aa373c72016e990a723e919af495423bc4ac1daa0736c5f45fac0418d7f',
+    }],
+  },
+  {
+    name: 'shebang-regex',
+    version: '3.0.0',
+    integrity: 'sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==',
+    fileCount: 5,
+    treeSha256: 'd1997488a68d31cf2bf6893fade748f8716b41d497913e3c30e3066ee82be78e',
+    entrypoints: [{
+      specifier: 'shebang-regex',
+      path: 'index.js',
+      sha256: 'e91e547bad596a389841fd7938bfcbd22af82f44a01f794e86878e4ff0274250',
+    }],
+  },
+  {
+    name: 'which',
+    version: '2.0.2',
+    integrity: 'sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==',
+    fileCount: 6,
+    treeSha256: 'e3d53524a4415c74f1f922506e585c0a21572b853274ad075482fa718c1de3a5',
+    entrypoints: [{
+      specifier: 'which',
+      path: 'which.js',
+      sha256: '76845e1fe7851267fb7ee72b18f2d916996d330150e31e48f4657a79e9b46b5b',
+    }],
+  },
+  {
+    name: 'isexe',
+    version: '2.0.0',
+    integrity: 'sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==',
+    fileCount: 8,
+    treeSha256: '10bfabbefc99095e1380dd45497d72a1b3fd810b6f1f8a9b90ae5a2db21c9a33',
+    entrypoints: [{
+      specifier: 'isexe',
+      path: 'index.js',
+      sha256: '7af7a68708317ab2b8743b44591d98ca6f5ca787e89e7c289154471fd2f67331',
+    }],
+  },
 ]);
 const MODEL = Object.freeze({
   api: 'faux',
@@ -41,7 +148,7 @@ const MODEL = Object.freeze({
 });
 
 const SCENARIOS = ['text', 'reasoning', 'tool', 'error', 'abort', 'compaction'];
-const SCRIPT_PATH = fileURLToPath(import.meta.url);
+const SCRIPT_PATH = realpathSync(fileURLToPath(import.meta.url));
 const FIXTURE_DIRECTORY = path.resolve(path.dirname(SCRIPT_PATH), '../agent/runtime/kernel/testing/fixtures');
 
 async function main() {
@@ -57,11 +164,11 @@ async function main() {
   }
 
   const options = parseArguments(process.argv.slice(2));
-  const referenceRoot = resolveReferenceRoot();
+  const reference = resolveReferenceRoot();
   const normalizer = await import(
     pathToFileURL(path.resolve(path.dirname(SCRIPT_PATH), '../agent/runtime/kernel/testing/trace-normalizer.ts')).href,
   );
-  const pi = await loadPiSource(referenceRoot);
+  const pi = await loadPiSource(reference.root);
   const scenarioNames = options.scenario === 'all' ? SCENARIOS : [options.scenario];
   const traces = new Map();
 
@@ -70,7 +177,7 @@ async function main() {
   }
 
   if (options.writeFixtures) {
-    const manifest = writeFixtures(traces, normalizer);
+    const manifest = writeFixtures(traces, normalizer, reference.environment);
     process.stdout.write(`${stableJsonStringify(manifest)}\n`);
     return;
   }
@@ -115,11 +222,17 @@ function parseArguments(args) {
 }
 
 function resolveReferenceRoot() {
+  assertNodeVersionPolicy();
   const configuredRoot = process.env.PI_REFERENCE_ROOT;
   if (!configuredRoot || !configuredRoot.trim()) {
     throw new Error('PI_REFERENCE_ROOT is required; the Pi reference must be an explicit temporary clone');
   }
-  const root = path.resolve(configuredRoot);
+  let root;
+  try {
+    root = realpathSync(path.resolve(configuredRoot));
+  } catch {
+    throw new Error('PI_REFERENCE_ROOT must resolve to a readable Pi source root');
+  }
   if (!existsSync(path.join(root, 'packages/agent/src/agent.ts')) || !existsSync(path.join(root, 'package.json'))) {
     throw new Error('PI_REFERENCE_ROOT is not a Pi source root with packages/agent/src/agent.ts');
   }
@@ -163,7 +276,140 @@ function resolveReferenceRoot() {
   if (packageVersion !== PINNED_VERSION) {
     throw new Error(`PI_REFERENCE_ROOT must provide Pi version ${PINNED_VERSION}`);
   }
-  return root;
+  verifyTrackedReferenceInputs(root);
+  const lockfileBytes = readFileSync(path.join(root, PI_LOCKFILE_PATH));
+  if (sha256(lockfileBytes) !== PI_LOCKFILE_SHA256) {
+    throw new Error(`PI_REFERENCE_ROOT ${PI_LOCKFILE_PATH} does not match the pinned SHA-256`);
+  }
+  let lockfile;
+  try {
+    lockfile = JSON.parse(lockfileBytes.toString('utf8'));
+  } catch {
+    throw new Error(`PI_REFERENCE_ROOT ${PI_LOCKFILE_PATH} is not valid JSON`);
+  }
+  const externalPackages = verifyExternalPackages(root, lockfile);
+  return {
+    root,
+    environment: {
+      nodeVersionPolicy: NODE_VERSION_POLICY,
+      piLockfile: { path: PI_LOCKFILE_PATH, sha256: PI_LOCKFILE_SHA256 },
+      referenceSourcePaths: PI_REFERENCE_SOURCE_PATHS,
+      externalPackages,
+    },
+  };
+}
+
+function assertNodeVersionPolicy() {
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (!Number.isInteger(major) || !Number.isInteger(minor)
+    || major < 22 || (major === 22 && minor < 19) || major >= 25) {
+    throw new Error(`Pi reference runner requires Node ${NODE_VERSION_POLICY}; received ${process.versions.node}`);
+  }
+}
+
+function verifyTrackedReferenceInputs(root) {
+  const trackedPaths = [PI_LOCKFILE_PATH, ...PI_REFERENCE_SOURCE_PATHS];
+  try {
+    execFileSync('git', ['-C', root, 'ls-files', '--error-unmatch', '--', ...trackedPaths], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+  } catch {
+    throw new Error('PI_REFERENCE_ROOT must track every pinned oracle source and lockfile');
+  }
+  for (const relativePath of trackedPaths) {
+    const absolutePath = path.join(root, relativePath);
+    let canonicalPath;
+    try {
+      canonicalPath = realpathSync(absolutePath);
+    } catch {
+      throw new Error(`PI_REFERENCE_ROOT is missing pinned input ${relativePath}`);
+    }
+    if (canonicalPath !== absolutePath || !statSync(absolutePath).isFile()) {
+      throw new Error(`PI_REFERENCE_ROOT pinned input must be a regular in-tree file: ${relativePath}`);
+    }
+  }
+}
+
+function verifyExternalPackages(root, lockfile) {
+  const referenceRequire = createRequire(path.join(root, 'package.json'));
+  return PI_EXTERNAL_PACKAGES.map((expected) => {
+    const packageRoot = path.join(root, 'node_modules', expected.name);
+    let canonicalPackageRoot;
+    try {
+      canonicalPackageRoot = realpathSync(packageRoot);
+    } catch {
+      throw new Error(`PI_REFERENCE_ROOT must install pinned external package ${expected.name}`);
+    }
+    if (canonicalPackageRoot !== packageRoot || !statSync(packageRoot).isDirectory()) {
+      throw new Error(`Pi external package ${expected.name} must be a real directory under PI_REFERENCE_ROOT`);
+    }
+    const lockEntry = lockfile?.packages?.[`node_modules/${expected.name}`];
+    if (lockEntry?.version !== expected.version || lockEntry?.integrity !== expected.integrity) {
+      throw new Error(`Pi lockfile metadata drifted for external package ${expected.name}`);
+    }
+    let packageMetadata;
+    try {
+      packageMetadata = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
+    } catch {
+      throw new Error(`Pi external package ${expected.name} has invalid package metadata`);
+    }
+    if (packageMetadata.name !== expected.name || packageMetadata.version !== expected.version) {
+      throw new Error(`Pi external package identity drifted for ${expected.name}`);
+    }
+    const tree = hashDirectoryTree(packageRoot);
+    if (tree.fileCount !== expected.fileCount || tree.sha256 !== expected.treeSha256) {
+      throw new Error(`Pi external package bytes drifted for ${expected.name}`);
+    }
+    for (const entrypoint of expected.entrypoints) {
+      let resolved;
+      try {
+        resolved = realpathSync(referenceRequire.resolve(entrypoint.specifier));
+      } catch {
+        throw new Error(`Pi external entrypoint cannot be resolved: ${entrypoint.specifier}`);
+      }
+      const expectedPath = path.join(packageRoot, ...entrypoint.path.split('/'));
+      if (resolved !== expectedPath || sha256(readFileSync(expectedPath)) !== entrypoint.sha256) {
+        throw new Error(`Pi external entrypoint drifted: ${entrypoint.specifier}`);
+      }
+    }
+    return expected;
+  });
+}
+
+function hashDirectoryTree(root) {
+  const files = listTreeFiles(root);
+  const hash = createHash('sha256');
+  for (const relativePath of files) {
+    const bytes = readFileSync(path.join(root, ...relativePath.split('/')));
+    hash.update(relativePath, 'utf8');
+    hash.update('\0', 'utf8');
+    hash.update(String(bytes.byteLength), 'utf8');
+    hash.update('\0', 'utf8');
+    hash.update(bytes);
+    hash.update('\0', 'utf8');
+  }
+  return { fileCount: files.length, sha256: hash.digest('hex') };
+}
+
+function listTreeFiles(root, relativeDirectory = '') {
+  const directory = relativeDirectory
+    ? path.join(root, ...relativeDirectory.split('/'))
+    : root;
+  const entries = readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+  const files = [];
+  for (const entry of entries) {
+    const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+    if (entry.isSymbolicLink()) throw new Error(`Pi external package contains a symlink: ${relativePath}`);
+    if (entry.isDirectory()) files.push(...listTreeFiles(root, relativePath));
+    else if (entry.isFile()) files.push(relativePath);
+    else throw new Error(`Pi external package contains a non-file entry: ${relativePath}`);
+  }
+  return files;
+}
+
+function sha256(bytes) {
+  return createHash('sha256').update(bytes).digest('hex');
 }
 
 async function loadPiSource(referenceRoot) {
@@ -284,24 +530,36 @@ async function generateScenario(scenario, pi, normalizer) {
 function scriptedResponses(scenario) {
   switch (scenario) {
     case 'text':
-      return [responseSpec([{ type: 'text', text: 'Deterministic text response.' }], 'stop', usage(4, 4, 8))];
+      return [responseSpec([{ type: 'text', text: '确定性文本响应：你好，终末地 🧪。' }], 'stop', usage(4, 4, 8))];
     case 'reasoning':
       return [responseSpec([
-        { type: 'thinking', thinking: 'Inspect the deterministic input.' },
-        { type: 'text', text: 'Deterministic reasoned response.' },
+        { type: 'thinking', thinking: '检查确定性输入：中文与 emoji 🧭。' },
+        { type: 'text', text: '确定性推理完成 ✅。' },
       ], 'stop', usage(6, 7, 13, 3))];
     case 'tool':
       return [
         responseSpec([
-          { type: 'toolCall', id: randomIdentifier('tool-call'), name: 'oracle.add', arguments: { left: 2, right: 40 } },
+          {
+            type: 'toolCall',
+            id: randomIdentifier('tool-call'),
+            name: 'oracle.add',
+            arguments: {
+              left: 2,
+              right: 40,
+              context: {
+                labels: ['中文', 'emoji 🧪'],
+                note: 'escaped "quote" \\ slash\nline',
+              },
+            },
+          },
         ], 'toolUse', usage(8, 5, 13)),
-        responseSpec([{ type: 'text', text: 'The deterministic tool returned 42.' }], 'stop', usage(16, 7, 23)),
+        responseSpec([{ type: 'text', text: '确定性工具返回 42 🧮。' }], 'stop', usage(16, 7, 23)),
       ];
     case 'error':
       return [responseSpec([], 'error', usage(3, 0, 3), 'deterministic provider error')];
     case 'abort':
       return [responseSpec(
-        [{ type: 'text', text: 'Abort after the first streamed delta.' }],
+        [{ type: 'text', text: '首个流式增量后中止 🛑。' }],
         'stop',
         usage(3, 6, 9),
       )];
@@ -605,11 +863,16 @@ function createScriptedStream({ model, response, options, collector, streamFacto
 }
 
 function streamChunks(text) {
-  if (text.length < 3) return [text];
-  const firstEnd = Math.max(1, Math.ceil(text.length / 3));
-  const secondEnd = Math.max(firstEnd + 1, Math.ceil((text.length * 2) / 3));
-  return [text.slice(0, firstEnd), text.slice(firstEnd, secondEnd), text.slice(secondEnd)]
-    .filter((chunk) => chunk.length > 0);
+  const codePoints = Array.from(text);
+  if (codePoints.length === 0) return [''];
+  const firstEnd = Math.max(1, Math.ceil(codePoints.length / 3));
+  const secondEnd = Math.max(firstEnd, Math.ceil((codePoints.length * 2) / 3));
+  return [
+    codePoints.slice(0, firstEnd).join(''),
+    '',
+    codePoints.slice(firstEnd, secondEnd).join(''),
+    codePoints.slice(secondEnd).join(''),
+  ];
 }
 
 function parsePartialJsonObject(text) {
@@ -646,8 +909,17 @@ function createAddTool() {
       properties: {
         left: { type: 'integer' },
         right: { type: 'integer' },
+        context: {
+          type: 'object',
+          properties: {
+            labels: { type: 'array', items: { type: 'string' } },
+            note: { type: 'string' },
+          },
+          required: ['labels', 'note'],
+          additionalProperties: false,
+        },
       },
-      required: ['left', 'right'],
+      required: ['left', 'right', 'context'],
       additionalProperties: false,
     },
     execute: async (_toolCallId, args) => ({
@@ -1015,7 +1287,7 @@ function cryptoRandomHex(byteLength) {
   return [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function writeFixtures(traces, normalizer) {
+function writeFixtures(traces, normalizer, environment) {
   mkdirSync(FIXTURE_DIRECTORY, { recursive: true });
   const fixtures = [];
   for (const scenario of SCENARIOS) {
@@ -1041,13 +1313,16 @@ function writeFixtures(traces, normalizer) {
     generation: {
       runner: 'scripts/agent-runtime-pi-reference.mjs',
       runnerVersion: RUNNER_VERSION,
-      seed: 'pi-golden-oracle-v3-streaming-deltas',
+      seed: 'pi-golden-oracle-v4-bounded-streaming-environment',
       systemPrompt: SYSTEM_PROMPT,
       model: MODEL.id,
       transport: 'scripted AssistantMessageEventStream with async multi-chunk deltas',
       toolExecution: 'sequential',
       compactionProjection: 'Pi coding-agent buildContextEntries + buildSessionContext',
-      referenceSourcePaths: PI_REFERENCE_SOURCE_PATHS,
+      nodeVersionPolicy: environment.nodeVersionPolicy,
+      piLockfile: environment.piLockfile,
+      referenceSourcePaths: environment.referenceSourcePaths,
+      externalPackages: environment.externalPackages,
       idNormalization: 'first-seen ordinal per namespace',
       timestampNormalization: 'discard raw Pi event timestamps',
       streamingDeltaCapture: 'Pi Agent message_update assistantMessageEvent deltas',
@@ -1071,7 +1346,12 @@ function sortJsonValue(value) {
 }
 
 function isMainModule() {
-  return process.argv[1] !== undefined && path.resolve(process.argv[1]) === SCRIPT_PATH;
+  if (process.argv[1] === undefined) return false;
+  try {
+    return realpathSync(path.resolve(process.argv[1])) === SCRIPT_PATH;
+  } catch {
+    return false;
+  }
 }
 
 if (isMainModule()) {

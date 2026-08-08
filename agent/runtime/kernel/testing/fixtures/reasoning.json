@@ -58,12 +58,13 @@
       "data": {
         "contentIndex": 0,
         "deltas": [
-          "Inspect the",
-          " determinis",
-          "tic input."
+          "检查确定性输入",
+          "",
+          "：中文与 em",
+          "oji 🧭。"
         ],
         "redacted": false,
-        "text": "Inspect the deterministic input."
+        "text": "检查确定性输入：中文与 emoji 🧭。"
       },
       "messageId": "message-2",
       "ordinal": 6,
@@ -75,11 +76,12 @@
       "data": {
         "contentIndex": 1,
         "deltas": [
-          "Determinist",
-          "ic reasoned",
-          " response."
+          "确定性推",
+          "",
+          "理完成",
+          " ✅。"
         ],
-        "text": "Deterministic reasoned response."
+        "text": "确定性推理完成 ✅。"
       },
       "messageId": "message-2",
       "ordinal": 7,

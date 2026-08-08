@@ -1,22 +1,22 @@
 {
   "fixtures": [
     {
-      "byteLength": 2603,
+      "byteLength": 2661,
       "file": "text.json",
       "scenario": "text",
-      "sha256": "2274a4157320a50cb145558e0e5614eb5ac82bebdf656f9f42ccb333b0aa171c"
+      "sha256": "7d7c21d77df722be2b0c624f0bd359c92777a9af64cbb442d6b8583452111156"
     },
     {
-      "byteLength": 3052,
+      "byteLength": 3102,
       "file": "reasoning.json",
       "scenario": "reasoning",
-      "sha256": "a1f93e7228246c54fea46a2501651433165b244969b017cadb82f61f5720b90d"
+      "sha256": "671f6dcff749ce7700be38da8fbf32bdab16dafecdf284b3c5c29fd309da8ddf"
     },
     {
-      "byteLength": 5473,
+      "byteLength": 5991,
       "file": "tool.json",
       "scenario": "tool",
-      "sha256": "8b5c62d3fdfa2ef14706f4d96ed46f68efe73206573ebc168b0e2b78584345c9"
+      "sha256": "cdc41d7561aa0def7438850ba9981c30d34a23829b0fc8f79eb8853b48a2f302"
     },
     {
       "byteLength": 2068,
@@ -25,33 +25,151 @@
       "sha256": "d48588372b9533c48b01dce55923198e9318f72643111b753d4a38957f243a5e"
     },
     {
-      "byteLength": 2634,
+      "byteLength": 2632,
       "file": "abort.json",
       "scenario": "abort",
-      "sha256": "756fbd4a3e39730167594ba65fb24c4cfa1f6c94577832c14df69b13574ee9e4"
+      "sha256": "f7fa1d92fb63b856060a8c0099249ed3079b0688e1daaf831943ee0faf06c762"
     },
     {
-      "byteLength": 3807,
+      "byteLength": 3821,
       "file": "compaction.json",
       "scenario": "compaction",
-      "sha256": "d964a46fe1f0835404cf08a7bea350ea24d6e2bdb784f5a35d1d969d6fe7097b"
+      "sha256": "3bb26ce4434f9ef31d5e4594d69decc9e02494417f807f21f688fcb9f63a8e16"
     }
   ],
   "generation": {
     "compactionProjection": "Pi coding-agent buildContextEntries + buildSessionContext",
+    "externalPackages": [
+      {
+        "entrypoints": [
+          {
+            "path": "build/compile/index.mjs",
+            "sha256": "b1b11d0d7b57c02839b997d7bddf1b34a274de21719e334470617bef56edfb99",
+            "specifier": "typebox/compile"
+          },
+          {
+            "path": "build/value/index.mjs",
+            "sha256": "8d09532c9198a51443ff5af9423a9d771f999493b065294aae6b71a11b87e0bc",
+            "specifier": "typebox/value"
+          }
+        ],
+        "fileCount": 1367,
+        "integrity": "sha512-meKuifc33Pccx0O6PdIzYMq3Og8zvP4TIi/a+Bw3AEMZMxOD0+RHGQvpglEe6Zdy3wZ8nqn/j95h8LUZLk/6Hg==",
+        "name": "typebox",
+        "treeSha256": "5bcd99370c3d97530949b9623b365b1b3d5bd0993deec31da016974144d55f63",
+        "version": "1.3.7"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "index.js",
+            "sha256": "b8e01cb18ba87ee1b0e5eb2eb1ce6cbb25a2bdd229f9e08671f8a10ed7e3ad35",
+            "specifier": "cross-spawn"
+          }
+        ],
+        "fileCount": 9,
+        "integrity": "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==",
+        "name": "cross-spawn",
+        "treeSha256": "9d3e5318cef8fc568a7a42983b226cf54622da99da0b051f43fedf73f563d5f3",
+        "version": "7.0.6"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "index.js",
+            "sha256": "fdbafdc163f668fe325333d62387365c9b074e01253e32824a4dbf5cc552705d",
+            "specifier": "path-key"
+          }
+        ],
+        "fileCount": 5,
+        "integrity": "sha512-ojmeN0qd+y0jszEtoY48r0Peq5dwMEkIlCOu6Q5f41lfkswXuKtYrhgoTpLnyIcHm24Uhqx+5Tqm2InSwLhE6Q==",
+        "name": "path-key",
+        "treeSha256": "e6d371124a12c3c15e6f80a1ab69fe3ab95a428f8ad8dc716def4b6144d0f3c9",
+        "version": "3.1.1"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "index.js",
+            "sha256": "d98c3aa373c72016e990a723e919af495423bc4ac1daa0736c5f45fac0418d7f",
+            "specifier": "shebang-command"
+          }
+        ],
+        "fileCount": 4,
+        "integrity": "sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==",
+        "name": "shebang-command",
+        "treeSha256": "dad4abb3650d89edae1d2b19dab727c8ee3cf88d283fba91581471e962ee8575",
+        "version": "2.0.0"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "index.js",
+            "sha256": "e91e547bad596a389841fd7938bfcbd22af82f44a01f794e86878e4ff0274250",
+            "specifier": "shebang-regex"
+          }
+        ],
+        "fileCount": 5,
+        "integrity": "sha512-7++dFhtcx3353uBaq8DDR4NuxBetBzC7ZQOhmTQInHEd6bSrXdiEyzCvG07Z44UYdLShWUyXt5M/yhz8ekcb1A==",
+        "name": "shebang-regex",
+        "treeSha256": "d1997488a68d31cf2bf6893fade748f8716b41d497913e3c30e3066ee82be78e",
+        "version": "3.0.0"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "which.js",
+            "sha256": "76845e1fe7851267fb7ee72b18f2d916996d330150e31e48f4657a79e9b46b5b",
+            "specifier": "which"
+          }
+        ],
+        "fileCount": 6,
+        "integrity": "sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==",
+        "name": "which",
+        "treeSha256": "e3d53524a4415c74f1f922506e585c0a21572b853274ad075482fa718c1de3a5",
+        "version": "2.0.2"
+      },
+      {
+        "entrypoints": [
+          {
+            "path": "index.js",
+            "sha256": "7af7a68708317ab2b8743b44591d98ca6f5ca787e89e7c289154471fd2f67331",
+            "specifier": "isexe"
+          }
+        ],
+        "fileCount": 8,
+        "integrity": "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==",
+        "name": "isexe",
+        "treeSha256": "10bfabbefc99095e1380dd45497d72a1b3fd810b6f1f8a9b90ae5a2db21c9a33",
+        "version": "2.0.0"
+      }
+    ],
     "idNormalization": "first-seen ordinal per namespace",
     "model": "pi-golden-oracle-model",
+    "nodeVersionPolicy": ">=22.19.0 <25.0.0",
+    "piLockfile": {
+      "path": "package-lock.json",
+      "sha256": "b96c0fcb6e21425451e3d22aa93cedb817c2a959597aa5bb41f269da56da94c1"
+    },
     "referenceSourcePaths": [
+      "packages/agent/package.json",
+      "packages/agent/src/agent-loop.ts",
       "packages/agent/src/agent.ts",
+      "packages/agent/src/stream-fn.ts",
+      "packages/agent/src/types.ts",
+      "packages/ai/src/types.ts",
       "packages/ai/src/utils/event-stream.ts",
       "packages/ai/src/utils/validation.ts",
       "packages/ai/src/utils/uuid.ts",
+      "packages/coding-agent/src/config.ts",
       "packages/coding-agent/src/core/messages.ts",
-      "packages/coding-agent/src/core/session-manager.ts"
+      "packages/coding-agent/src/core/session-manager.ts",
+      "packages/coding-agent/src/utils/child-process.ts",
+      "packages/coding-agent/src/utils/paths.ts"
     ],
     "runner": "scripts/agent-runtime-pi-reference.mjs",
-    "runnerVersion": 3,
-    "seed": "pi-golden-oracle-v3-streaming-deltas",
+    "runnerVersion": 4,
+    "seed": "pi-golden-oracle-v4-bounded-streaming-environment",
     "streamingDeltaCapture": "Pi Agent message_update assistantMessageEvent deltas",
     "systemPrompt": "Pi Golden Oracle deterministic system prompt",
     "timestampNormalization": "discard raw Pi event timestamps",

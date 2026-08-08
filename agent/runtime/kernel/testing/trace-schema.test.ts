@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AGENT_TRACE_LIMITS, parseAgentTrace } from './trace-schema.ts';
+import { normalizePiTrace } from './trace-normalizer.ts';
 
 function makeValidTrace(): Record<string, unknown> {
   return {
@@ -236,6 +237,79 @@ test('Agent trace parser rejects an oversized delta stream before joining it', (
   assert.throws(() => parseAgentTrace(oversized), /streaming delta budget/u);
 });
 
+test('trace ingestion rejects 100,000 events before reading or mapping event entries', () => {
+  let eventReads = 0;
+  const events = new Array(100_000);
+  Object.defineProperty(events, 0, {
+    enumerable: true,
+    get() {
+      eventReads += 1;
+      return { ordinal: 1, type: 'run.start', runId: 'run-1', data: {} };
+    },
+  });
+  const oversized = { ...makeValidTrace(), events };
+
+  assert.throws(() => parseAgentTrace(oversized), /event|array.*budget/iu);
+  assert.equal(eventReads, 0, 'parser must reject from array length before reading index 0');
+  assert.throws(
+    () => normalizePiTrace(oversized as unknown as Parameters<typeof normalizePiTrace>[0]),
+    /events.*at most/iu,
+  );
+  assert.equal(eventReads, 0, 'normalizer must reject from array length before reading index 0');
+});
+
+test('bounded walker rejects 1,001,000 nested nodes before visiting the budget-external getter', () => {
+  let budgetExternalReads = 0;
+  const millionNodes: unknown[] = Array.from(
+    { length: 1_000 },
+    () => new Array(1_000).fill(0),
+  );
+  Object.defineProperty(millionNodes, 1_000, {
+    enumerable: true,
+    get() {
+      budgetExternalReads += 1;
+      return [];
+    },
+  });
+  const invalid = makeValidTrace();
+  findEvent(invalid, 'tool.result').data = {
+    status: 'succeeded',
+    name: 'read_timeline',
+    output: { millionNodes },
+  };
+
+  assert.throws(() => parseAgentTrace(invalid), /total node budget/u);
+  assert.equal(budgetExternalReads, 0, 'walker must stop before reading node 1,001,001');
+});
+
+test('bounded walker rejects a 1 MiB field name before evaluating its value', () => {
+  let valueReads = 0;
+  const invalid: Record<string, unknown> = {};
+  Object.defineProperty(invalid, 'x'.repeat(1_024 * 1_024), {
+    enumerable: true,
+    get() {
+      valueReads += 1;
+      return 'unreachable';
+    },
+  });
+  Object.assign(invalid, makeValidTrace());
+
+  assert.throws(() => parseAgentTrace(invalid), /field name.*per-field budget/u);
+  assert.equal(valueReads, 0, 'field-name budget must be checked before property access');
+});
+
+test('bounded walker fails closed on cyclic JSON input', () => {
+  const invalid = makeValidTrace();
+  const cycle: Record<string, unknown> = {};
+  cycle.self = cycle;
+  findEvent(invalid, 'tool.result').data = {
+    status: 'succeeded',
+    name: 'read_timeline',
+    output: cycle,
+  };
+  assert.throws(() => parseAgentTrace(invalid), /cycle/u);
+});
+
 test('Agent trace parser enforces contiguous one-based event ordinals', () => {
   const invalid = makeValidTrace();
   const events = invalid.events as Array<Record<string, unknown>>;
@@ -288,6 +362,45 @@ test('Agent trace parser rejects secret fields and credential-shaped strings', (
     output: { value: 'sk-fixturecredential1234' },
   };
   assert.throws(() => parseAgentTrace(rawKey), /secret-shaped text/u);
+
+  for (const fieldName of ['nested_api_key_value', 'requestAuthorizationHeader', 'prefix-sk-credential123']) {
+    const secretName = makeValidTrace();
+    findEvent(secretName, 'tool.result').data = {
+      status: 'succeeded',
+      name: 'read_timeline',
+      output: { nested: { [fieldName]: 'redacted' } },
+    };
+    assert.throws(() => parseAgentTrace(secretName), /forbidden secret field/u);
+  }
+});
+
+test('Agent trace parser rejects local, credentialed, queried, or unpinned source metadata', () => {
+  for (const repository of [
+    '/Users/example/pi-mono',
+    '/tmp/pi-mono',
+    'file:///tmp/pi-mono',
+    'https://user:pass@github.com/earendil-works/pi-mono',
+    'https://github.com/earendil-works/pi-mono?token=redacted',
+    'http://github.com/earendil-works/pi-mono',
+    'https://github.com/example/pi-mono',
+  ]) {
+    const invalid = makeValidTrace();
+    (invalid.source as Record<string, unknown>).repository = repository;
+    assert.throws(() => parseAgentTrace(invalid), /repository/u);
+  }
+
+  for (const generatedBy of [
+    '/Users/example/runner.mjs',
+    '/tmp/runner.mjs',
+    'file:///tmp/runner.mjs',
+    'scripts/runner.mjs?token=redacted',
+    'scripts/../runner.mjs',
+    'scripts/sk-credential123.mjs',
+  ]) {
+    const invalid = makeValidTrace();
+    (invalid.source as Record<string, unknown>).generatedBy = generatedBy;
+    assert.throws(() => parseAgentTrace(invalid), /generatedBy|secret-shaped/iu);
+  }
 });
 
 test('Agent trace parser requires Tool results unless the run was aborted', () => {
@@ -355,6 +468,61 @@ test('Agent trace parser rejects a completed run that stops immediately after To
   });
   invalid.events = events.map((event, index) => ({ ...event, ordinal: index + 1 }));
   assert.throws(() => parseAgentTrace(invalid), /final assistant response/u);
+});
+
+test('run.end status is bound to the last assistant and turn terminal semantics', () => {
+  const abortedLabelOnly = makeValidTrace();
+  findEvent(abortedLabelOnly, 'run.end').data = {
+    status: 'aborted',
+    code: 'CONTROLLED_ABORT',
+  };
+  assert.throws(() => parseAgentTrace(abortedLabelOnly), /aborted run must end/iu);
+
+  const failedLabelOnly = makeValidTrace();
+  findEvent(failedLabelOnly, 'run.end').data = {
+    status: 'failed',
+    code: 'CONTROLLED_FAILURE',
+    message: 'controlled failure',
+  };
+  assert.throws(() => parseAgentTrace(failedLabelOnly), /failed run must end/iu);
+
+  const completedError = makeValidTrace();
+  findEvent(completedError, 'message.assistant', 1).data = {
+    stopReason: 'error',
+    usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+    contentOrder: ['text'],
+  };
+  findEvent(completedError, 'turn.end', 1).data = { stopReason: 'error', toolResultCount: 0 };
+  assert.throws(() => parseAgentTrace(completedError), /completed run ended/iu);
+});
+
+test('aborted terminal requires a started response and at least one recorded real delta', () => {
+  const validAbort = makeValidTrace();
+  findEvent(validAbort, 'message.assistant', 1).data = {
+    stopReason: 'aborted',
+    usage: { inputTokens: 20, outputTokens: 5, totalTokens: 25 },
+    contentOrder: ['text'],
+  };
+  findEvent(validAbort, 'turn.end', 1).data = { stopReason: 'aborted', toolResultCount: 0 };
+  findEvent(validAbort, 'run.end').data = {
+    status: 'aborted',
+    code: 'CONTROLLED_ABORT',
+  };
+  assert.doesNotThrow(() => parseAgentTrace(validAbort));
+
+  const noDelta = makeValidTrace();
+  findEvent(noDelta, 'content.text').data = { contentIndex: 0, text: '', deltas: [] };
+  findEvent(noDelta, 'message.assistant', 1).data = {
+    stopReason: 'aborted',
+    usage: { inputTokens: 20, outputTokens: 0, totalTokens: 20 },
+    contentOrder: ['text'],
+  };
+  findEvent(noDelta, 'turn.end', 1).data = { stopReason: 'aborted', toolResultCount: 0 };
+  findEvent(noDelta, 'run.end').data = {
+    status: 'aborted',
+    code: 'CONTROLLED_ABORT',
+  };
+  assert.throws(() => parseAgentTrace(noDelta), /real partial delta/iu);
 });
 
 test('Agent trace parser requires a pinned full Git commit', () => {

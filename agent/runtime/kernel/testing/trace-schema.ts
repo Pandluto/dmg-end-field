@@ -11,10 +11,18 @@ export const AGENT_TRACE_LIMITS = Object.freeze({
   maxEvents: 16_384,
   maxTraceCodeUnits: 8 * 1_024 * 1_024,
   maxStringCodeUnits: 256 * 1_024,
+  maxStringTotalCodeUnits: 8 * 1_024 * 1_024,
+  maxNodes: 1_000_000,
+  maxFields: 1_000_000,
+  maxFieldNameCodeUnits: 1_024,
+  maxFieldNameTotalCodeUnits: 1 * 1_024 * 1_024,
   maxDepth: 16,
   maxArrayItems: 4_096,
   maxObjectKeys: 256,
 });
+
+export const PI_TRACE_SOURCE_REPOSITORY = 'https://github.com/earendil-works/pi-mono' as const;
+export const PI_TRACE_GENERATOR = 'scripts/agent-runtime-pi-reference.mjs' as const;
 
 export interface AgentTraceSource {
   readonly kind: 'pi-reference' | 'def-runtime';
@@ -180,7 +188,229 @@ const SECRET_TEXT_PATTERNS = [
   /\b(?:api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|password|secret)\s*[:=]\s*[^\s,;]{4,}/iu,
 ];
 
+const SECRET_FIELD_NAME_PATTERNS = [
+  /sk-/iu,
+  /api[-_ ]?key/iu,
+  /authorization/iu,
+  /credential/iu,
+  /(?:access|refresh|bearer)[-_ ]?token/iu,
+  /password/iu,
+  /secret/iu,
+  /cookie/iu,
+];
+
+type BoundsFrame =
+  | { readonly kind: 'value'; readonly value: unknown; readonly depth: number; readonly arrayLimit?: number }
+  | { readonly kind: 'array'; readonly value: unknown[]; readonly depth: number; readonly index: number }
+  | {
+      readonly kind: 'object';
+      readonly value: Record<string, unknown>;
+      readonly depth: number;
+      readonly iterator: Iterator<string>;
+      readonly fieldCount: number;
+    }
+  | { readonly kind: 'leave'; readonly value: object };
+
+interface BoundsBudget {
+  nodes: number;
+  fields: number;
+  fieldNameCodeUnits: number;
+  stringCodeUnits: number;
+  serializedCodeUnits: number;
+}
+
+/**
+ * Fail closed on hostile or accidentally huge input before the parser maps,
+ * clones, joins, sorts, or stringifies any part of a trace.
+ */
+export function assertAgentTraceValueWithinBounds(value: unknown): void {
+  const budget: BoundsBudget = {
+    nodes: 0,
+    fields: 0,
+    fieldNameCodeUnits: 0,
+    stringCodeUnits: 0,
+    serializedCodeUnits: 0,
+  };
+  const activeAncestors = new WeakSet<object>();
+  const stack: BoundsFrame[] = [{ kind: 'value', value, depth: 0 }];
+
+  while (stack.length > 0) {
+    const frame = stack.pop()!;
+    if (frame.kind === 'leave') {
+      activeAncestors.delete(frame.value);
+      continue;
+    }
+    if (frame.kind === 'array') {
+      if (frame.index >= frame.value.length) continue;
+      const descriptor = Object.getOwnPropertyDescriptor(frame.value, String(frame.index));
+      if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
+        throw new TypeError('trace arrays must contain only dense data properties');
+      }
+      stack.push(
+        { ...frame, index: frame.index + 1 },
+        { kind: 'value', value: descriptor.value, depth: frame.depth + 1 },
+      );
+      continue;
+    }
+    if (frame.kind === 'object') {
+      const next = frame.iterator.next();
+      if (next.done) continue;
+      const fieldCount = frame.fieldCount + 1;
+      if (fieldCount > AGENT_TRACE_LIMITS.maxObjectKeys) {
+        throw new TypeError('trace object exceeds the per-object field budget');
+      }
+      accountFieldName(next.value, budget);
+      accountSerializedCodeUnits(
+        budget,
+        (fieldCount > 1 ? 1 : 0) + 3 + jsonEscapedCodeUnits(next.value),
+      );
+      const descriptor = Object.getOwnPropertyDescriptor(frame.value, next.value);
+      if (!descriptor || !descriptor.enumerable || !('value' in descriptor)) {
+        throw new TypeError('trace objects must contain only enumerable data properties');
+      }
+      stack.push(
+        { ...frame, fieldCount },
+        {
+          kind: 'value',
+          value: descriptor.value,
+          depth: frame.depth + 1,
+          ...(frame.depth === 0 && next.value === 'events'
+            ? { arrayLimit: AGENT_TRACE_LIMITS.maxEvents }
+            : {}),
+        },
+      );
+      continue;
+    }
+
+    budget.nodes += 1;
+    if (budget.nodes > AGENT_TRACE_LIMITS.maxNodes) {
+      throw new TypeError('trace exceeds the total node budget');
+    }
+    if (frame.depth > AGENT_TRACE_LIMITS.maxDepth) {
+      throw new TypeError('trace exceeds the maximum JSON depth');
+    }
+    if (frame.value === null) {
+      accountSerializedCodeUnits(budget, 4);
+      continue;
+    }
+    if (typeof frame.value === 'boolean') {
+      accountSerializedCodeUnits(budget, frame.value ? 4 : 5);
+      continue;
+    }
+    if (typeof frame.value === 'number') {
+      if (!Number.isFinite(frame.value)) throw new TypeError('trace contains a non-finite number');
+      accountSerializedCodeUnits(budget, String(frame.value).length);
+      continue;
+    }
+    if (typeof frame.value === 'string') {
+      if (frame.value.length > AGENT_TRACE_LIMITS.maxStringCodeUnits) {
+        throw new TypeError('trace contains a string exceeding the per-string budget');
+      }
+      budget.stringCodeUnits += frame.value.length;
+      if (budget.stringCodeUnits > AGENT_TRACE_LIMITS.maxStringTotalCodeUnits) {
+        throw new TypeError('trace exceeds the total string budget');
+      }
+      assertNoSecretText(frame.value, 'trace contains secret-shaped text');
+      accountSerializedCodeUnits(budget, 2 + jsonEscapedCodeUnits(frame.value));
+      continue;
+    }
+    if (typeof frame.value !== 'object') {
+      throw new TypeError('trace contains a non-JSON value');
+    }
+    if (activeAncestors.has(frame.value)) throw new TypeError('trace contains a cycle');
+
+    if (Array.isArray(frame.value)) {
+      const arrayLimit = frame.arrayLimit ?? AGENT_TRACE_LIMITS.maxArrayItems;
+      if (frame.value.length > arrayLimit) {
+        throw new TypeError(`trace array exceeds its ${arrayLimit}-item budget`);
+      }
+      assertDenseJsonArray(frame.value);
+      accountSerializedCodeUnits(budget, 2 + Math.max(0, frame.value.length - 1));
+      activeAncestors.add(frame.value);
+      stack.push(
+        { kind: 'leave', value: frame.value },
+        { kind: 'array', value: frame.value, depth: frame.depth, index: 0 },
+      );
+      continue;
+    }
+
+    activeAncestors.add(frame.value);
+    accountSerializedCodeUnits(budget, 2);
+    stack.push(
+      { kind: 'leave', value: frame.value },
+      {
+        kind: 'object',
+        value: frame.value as Record<string, unknown>,
+        depth: frame.depth,
+        iterator: ownEnumerableFieldNames(frame.value as Record<string, unknown>),
+        fieldCount: 0,
+      },
+    );
+  }
+}
+
+function assertDenseJsonArray(value: unknown[]): void {
+  let expectedIndex = 0;
+  for (const key in value) {
+    if (!Object.prototype.hasOwnProperty.call(value, key)) continue;
+    if (key !== String(expectedIndex)) {
+      throw new TypeError('trace arrays must not contain holes or named fields');
+    }
+    expectedIndex += 1;
+  }
+  if (expectedIndex !== value.length) {
+    throw new TypeError('trace arrays must not contain holes or non-enumerable entries');
+  }
+}
+
+function accountFieldName(value: string, budget: BoundsBudget): void {
+  if (value.length > AGENT_TRACE_LIMITS.maxFieldNameCodeUnits) {
+    throw new TypeError('trace contains a field name exceeding the per-field budget');
+  }
+  budget.fields += 1;
+  if (budget.fields > AGENT_TRACE_LIMITS.maxFields) {
+    throw new TypeError('trace exceeds the total field budget');
+  }
+  budget.fieldNameCodeUnits += value.length;
+  if (budget.fieldNameCodeUnits > AGENT_TRACE_LIMITS.maxFieldNameTotalCodeUnits) {
+    throw new TypeError('trace exceeds the total field-name budget');
+  }
+  if (isSecretFieldName(value) || SECRET_FIELD_NAME_PATTERNS.some((pattern) => pattern.test(value))) {
+    throw new TypeError('trace contains a forbidden secret field name');
+  }
+}
+
+function accountSerializedCodeUnits(budget: BoundsBudget, codeUnits: number): void {
+  budget.serializedCodeUnits += codeUnits;
+  if (budget.serializedCodeUnits > AGENT_TRACE_LIMITS.maxTraceCodeUnits) {
+    throw new TypeError('trace exceeds the maximum serialized size');
+  }
+}
+
+function jsonEscapedCodeUnits(value: string): number {
+  let codeUnits = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const unit = value.charCodeAt(index);
+    if (unit === 0x22 || unit === 0x5c || unit === 0x08 || unit === 0x09
+      || unit === 0x0a || unit === 0x0c || unit === 0x0d) {
+      codeUnits += 2;
+    } else if (unit < 0x20) {
+      codeUnits += 6;
+    } else {
+      codeUnits += 1;
+    }
+  }
+  return codeUnits;
+}
+
+function* ownEnumerableFieldNames(value: Record<string, unknown>): Generator<string> {
+  for (const key in value) {
+    if (Object.prototype.hasOwnProperty.call(value, key)) yield key;
+  }
+}
+
 export function parseAgentTrace(value: unknown): AgentTrace {
+  assertAgentTraceValueWithinBounds(value);
   const trace = expectRecord(value, 'trace');
   expectExactKeys(trace, ['events', 'scenario', 'schemaVersion', 'source'], 'trace');
   if (trace.schemaVersion !== AGENT_TRACE_SCHEMA_VERSION) {
@@ -193,10 +423,6 @@ export function parseAgentTrace(value: unknown): AgentTrace {
   }
   const events = trace.events.map((event, index) => parseEvent(event, index));
   validateLifecycle(events);
-  const serialized = JSON.stringify(value);
-  if (serialized.length > AGENT_TRACE_LIMITS.maxTraceCodeUnits) {
-    throw new TypeError('trace exceeds the maximum serialized size');
-  }
   return {
     schemaVersion: AGENT_TRACE_SCHEMA_VERSION,
     scenario: trace.scenario as string,
@@ -212,11 +438,13 @@ function parseSource(value: unknown): AgentTraceSource {
     throw new TypeError('trace.source.kind is invalid');
   }
   expectBoundedString(source.repository, 'trace.source.repository', 1_024);
+  validateSourceRepository(source.repository, source.kind);
   if (typeof source.commit !== 'string' || !/^[0-9a-f]{40}$/u.test(source.commit)) {
     throw new TypeError('trace.source.commit must be a full lowercase Git commit');
   }
   expectBoundedString(source.version, 'trace.source.version', 128);
   expectBoundedString(source.generatedBy, 'trace.source.generatedBy', 256);
+  validateGeneratedBy(source.generatedBy, source.kind);
   return {
     kind: source.kind,
     repository: source.repository as string,
@@ -224,6 +452,52 @@ function parseSource(value: unknown): AgentTraceSource {
     version: source.version as string,
     generatedBy: source.generatedBy as string,
   };
+}
+
+function validateSourceRepository(value: string, kind: AgentTraceSource['kind']): void {
+  let repository: URL;
+  try {
+    repository = new URL(value);
+  } catch {
+    throw new TypeError('trace.source.repository must be a canonical HTTPS GitHub repository URL');
+  }
+  if (
+    repository.protocol !== 'https:'
+    || repository.hostname !== 'github.com'
+    || repository.port
+    || repository.username
+    || repository.password
+    || repository.search
+    || repository.hash
+    || !/^\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u.test(repository.pathname)
+    || repository.href !== value
+  ) {
+    throw new TypeError('trace.source.repository must be a canonical HTTPS GitHub repository URL');
+  }
+  if (kind === 'pi-reference' && value !== PI_TRACE_SOURCE_REPOSITORY) {
+    throw new TypeError(`Pi trace source repository must be ${PI_TRACE_SOURCE_REPOSITORY}`);
+  }
+}
+
+function validateGeneratedBy(value: string, kind: AgentTraceSource['kind']): void {
+  const parts = value.split('/');
+  if (
+    pathLooksAbsolute(value)
+    || value.includes('\\')
+    || value.includes('?')
+    || value.includes('#')
+    || value.includes(':')
+    || parts.some((part) => !part || part === '.' || part === '..' || !/^[A-Za-z0-9._-]+$/u.test(part))
+  ) {
+    throw new TypeError('trace.source.generatedBy must be a canonical repository-relative path');
+  }
+  if (kind === 'pi-reference' && value !== PI_TRACE_GENERATOR) {
+    throw new TypeError(`Pi trace generator must be ${PI_TRACE_GENERATOR}`);
+  }
+}
+
+function pathLooksAbsolute(value: string): boolean {
+  return value.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(value) || value.startsWith('file:');
 }
 
 function parseEvent(value: unknown, index: number): AgentTraceEvent {
@@ -583,6 +857,7 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
   let activeAssistantMessageId: string | null = null;
   let activeAssistantStopReason: AgentTraceStopReason | null = null;
   let activeContentOrder: Array<'text' | 'reasoning' | 'tool-call'> = [];
+  let activeDeltaCount = 0;
   let activeToolCalls = new Map<string, {
     readonly assistantMessageId: string;
     readonly contentIndex: number;
@@ -592,6 +867,9 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
   let activeToolResultCount = 0;
   let lastTurnStopReason: AgentTraceStopReason | null = null;
   let lastTurnToolCallCount = 0;
+  let lastTurnToolResultCount = 0;
+  let lastTurnResponseStarts = 0;
+  let lastTurnDeltaCount = 0;
   for (const event of events) {
     if (event.type === 'turn.start') {
       if (activeTurnId !== null) throw new TypeError(`turn.start overlaps active turn: ${activeTurnId}`);
@@ -601,6 +879,7 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
       activeAssistantMessageId = null;
       activeAssistantStopReason = null;
       activeContentOrder = [];
+      activeDeltaCount = 0;
       activeToolCalls = new Map();
       activeToolResultCount = 0;
       continue;
@@ -621,10 +900,21 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
       if (event.data.toolResultCount !== activeToolResultCount) {
         throw new TypeError(`turn ${activeTurnId} toolResultCount is invalid`);
       }
+      const unsettledCall = [...activeToolCalls.values()].find((call) => !call.settled);
+      if (unsettledCall) {
+        throw new TypeError(`tool.call is missing tool.result in turn ${activeTurnId}`);
+      }
       lastTurnStopReason = activeAssistantStopReason;
       lastTurnToolCallCount = activeToolCalls.size;
+      lastTurnToolResultCount = activeToolResultCount;
+      lastTurnResponseStarts = activeResponseStarts;
+      lastTurnDeltaCount = activeDeltaCount;
       activeTurnId = null;
+      activeAssistantStopReason = null;
       continue;
+    }
+    if (activeAssistantStopReason === 'aborted' || activeAssistantStopReason === 'error') {
+      throw new TypeError(`turn ${activeTurnId} contains an event after its failure terminal`);
     }
     if (event.type !== 'run.start' && event.type !== 'run.end' && event.type !== 'compaction') {
       if (activeTurnId === null || event.turnId !== activeTurnId) {
@@ -670,6 +960,9 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
             ? 'reasoning'
             : 'tool-call',
       );
+      activeDeltaCount += event.type === 'tool.call'
+        ? event.data.argumentDeltas.length
+        : event.data.deltas.length;
     }
     if (event.type === 'message.assistant') {
       if (activeAssistantStopReason !== null) {
@@ -725,18 +1018,30 @@ function validateLifecycle(events: readonly AgentTraceEvent[]): void {
     }
   }
   if (activeTurnId !== null) throw new TypeError(`trace ended with active turn: ${activeTurnId}`);
+  const [missingToolResult] = unresolvedToolCallIds;
+  if (missingToolResult) throw new TypeError(`tool.call is missing tool.result: ${missingToolResult}`);
   const terminal = events.at(-1)!;
-  const aborted = terminal.type === 'run.end' && terminal.data.status === 'aborted';
-  if (!aborted) {
-    const [missingToolResult] = unresolvedToolCallIds;
-    if (missingToolResult) throw new TypeError(`tool.call is missing tool.result: ${missingToolResult}`);
+  if (terminal.type !== 'run.end') throw new TypeError('trace is missing run.end');
+  if (terminal.data.status === 'completed') {
+    if (lastTurnStopReason === 'error' || lastTurnStopReason === 'aborted' || lastTurnToolCallCount > 0) {
+      throw new TypeError('completed run ended before the Agent loop reached a final assistant response');
+    }
+    return;
+  }
+  if (terminal.data.status === 'failed') {
+    if (lastTurnStopReason !== 'error') {
+      throw new TypeError('failed run must end with matching error assistant and turn terminals');
+    }
+    return;
   }
   if (
-    terminal.type === 'run.end'
-    && terminal.data.status === 'completed'
-    && (lastTurnStopReason === 'error' || lastTurnStopReason === 'aborted' || lastTurnToolCallCount > 0)
+    lastTurnStopReason !== 'aborted'
+    || lastTurnResponseStarts !== 1
+    || lastTurnDeltaCount < 1
+    || lastTurnToolCallCount !== 0
+    || lastTurnToolResultCount !== 0
   ) {
-    throw new TypeError('completed run ended before the Agent loop reached a final assistant response');
+    throw new TypeError('aborted run must end after a started response and real partial delta without Tool activity');
   }
 }
 
@@ -764,7 +1069,9 @@ function validateJson(value: unknown, label: string, depth: number): void {
     throw new TypeError(`${label} exceeds maximum object keys`);
   }
   for (const key of keys) {
-    if (isSecretFieldName(key)) throw new TypeError(`${label}.${key} is a forbidden secret field`);
+    if (isSecretFieldName(key) || SECRET_FIELD_NAME_PATTERNS.some((pattern) => pattern.test(key))) {
+      throw new TypeError(`${label} contains a forbidden secret field`);
+    }
     validateJson(value[key], `${label}.${key}`, depth + 1);
   }
 }
@@ -807,8 +1114,12 @@ function expectTraceString(
   allowEmpty = false,
 ): asserts value is string {
   expectBoundedString(value, label, maxCodeUnits, allowEmpty);
+  assertNoSecretText(value, `${label} contains secret-shaped text`);
+}
+
+function assertNoSecretText(value: string, message: string): void {
   for (const pattern of SECRET_TEXT_PATTERNS) {
-    if (pattern.test(value)) throw new TypeError(`${label} contains secret-shaped text`);
+    if (pattern.test(value)) throw new TypeError(message);
   }
 }
 
