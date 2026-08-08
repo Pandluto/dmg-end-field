@@ -601,7 +601,7 @@ async function startApplication() {
   agentRuntimeOptions = {
     applicationRoot: runtimeApplicationRoot,
     runtimeRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host'),
-    engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-opencode-engine'),
+    engineStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-runtime-engine'),
     sessionStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'session-store'),
     productCommandStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'product-commands'),
     engineProfilePath: agentProviderProfilePath,

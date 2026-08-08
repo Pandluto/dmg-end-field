@@ -51,13 +51,13 @@ function createAgentRuntime(options = {}) {
     options.servicePath || path.join(applicationRoot, 'dist', 'agent', 'host-entry.cjs'),
   ));
   const engineRoot = path.resolve(String(
-    options.engineRoot || path.join(applicationRoot, 'dist', 'agent', 'engine', 'opencode'),
+    options.engineRoot || path.join(applicationRoot, 'dist', 'agent', 'engine', 'def-runtime'),
   ));
   const nativeUiRoot = path.resolve(String(
     options.nativeUiRoot || path.join(applicationRoot, 'dist', 'agent', 'ui'),
   ));
   const engineStoreRoot = path.resolve(String(
-    options.engineStoreRoot || path.join(runtimeRoot, 'opencode'),
+    options.engineStoreRoot || path.join(runtimeRoot, 'def-runtime'),
   ));
   const sessionStoreRoot = path.resolve(String(
     options.sessionStoreRoot || path.join(runtimeRoot, 'session-store'),

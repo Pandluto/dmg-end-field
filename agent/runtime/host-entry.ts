@@ -5,22 +5,27 @@ import { BrowserConsumerRegistry } from '../host/browser-consumer-registry.ts';
 import { DefAgentHost } from '../host/def-agent-host.ts';
 import { DefAgentInteropRoute } from '../host/def-agent-interop.ts';
 import { DefAgentHostHttpServer } from '../host/http-server.ts';
+import { AgentUiGateway, type AgentUiGatewayPort } from '../host/agent-ui-gateway.ts';
+import { ConversationProjector } from '../host/conversation-projector.ts';
 import { RemoteBrowserProductGateway } from '../host/remote-browser-product-gateway.ts';
 import { createFileProductCommandStore } from '../host/product-command-store.ts';
 import { createFileDefAgentSessionStore } from '../host/session-store.ts';
 import { AgentTokenAuthority } from '../host/token-authority.ts';
-import { OpenCodeNativeUiGateway } from '../host/opencode-native-ui-gateway.ts';
+import type { AgentUiCapabilityClaims } from '../host/token-authority.ts';
 import { PHASE6_INTERACTIVE_HARNESS_CATALOG } from '../core/harness/catalog.ts';
 import { DefHarnessManager } from '../core/harness/manager.ts';
 import { DefProductToolRegistry } from '../core/tools/interactive-workbench.ts';
-import { OpenCodeEngineAdapter } from '../engines/opencode/adapter.ts';
-import { FileOpenCodeProviderProfileSource } from '../engines/opencode/profile.ts';
-import type { AgentHostHealth, EngineHealth } from '../core/contracts/index.ts';
+import { DefRuntimeEngineAdapter } from '../engines/def-runtime/adapter.ts';
+import { FileProviderProfileSource } from '../engines/def-runtime/profile.ts';
+import type {
+  AgentHostHealth,
+  DefSessionId,
+  EngineHealth,
+} from '../core/contracts/index.ts';
 
 const hostToken = requiredEnv('DEF_AGENT_HOST_TOKEN');
 const browserOrigin = requiredEnv('DEF_AGENT_BROWSER_ORIGIN');
 const readyFile = requiredEnv('DEF_AGENT_READY_FILE');
-const engineRoot = requiredEnv('DEF_AGENT_ENGINE_ROOT');
 const engineStoreRoot = requiredEnv('DEF_AGENT_ENGINE_STORE_ROOT');
 const sessionStoreRoot = requiredEnv('DEF_AGENT_SESSION_STORE_ROOT');
 const productCommandStoreRoot = requiredEnv('DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT');
@@ -31,16 +36,15 @@ const interopEnabled = process.env.DEF_AGENT_INTEROP_ENABLED === '1';
 const parentPid = requiredPidEnv('DEF_AGENT_PARENT_PID');
 const FORCED_SHUTDOWN_TIMEOUT_MS = 8_000;
 
-const engine = new OpenCodeEngineAdapter({
-  runtimeRoot: engineRoot,
+const engine = new DefRuntimeEngineAdapter({
   storeRoot: engineStoreRoot,
-  profileSource: new FileOpenCodeProviderProfileSource(engineProfilePath),
+  profileSource: new FileProviderProfileSource(engineProfilePath),
   probeProfileRef: engineDefaultProfileRef,
 });
 let engineState: AgentHostHealth['engine'] = {
-  kind: 'opencode',
+  kind: 'def-runtime',
   state: 'pending',
-  reason: 'OpenCode Engine 正在检查运行时和模型配置',
+  reason: 'DEF Runtime 正在检查模型配置',
 };
 const tokens = new AgentTokenAuthority();
 let host: DefAgentHost;
@@ -62,25 +66,66 @@ const harnessManager = new DefHarnessManager({
   catalog: PHASE6_INTERACTIVE_HARNESS_CATALOG,
   resolveToolDescriptor: (name) => toolRegistry.resolveDescriptor(name),
 });
+const sessionStore = createFileDefAgentSessionStore({ root: sessionStoreRoot });
 host = new DefAgentHost({
   engine,
   productGateway: gateway,
-  sessionStore: createFileDefAgentSessionStore({ root: sessionStoreRoot }),
+  sessionStore,
   harnessManager,
   toolRegistry,
   requireConsumer: () => {
     consumers.requireActive();
   },
 });
-const nativeUi = new OpenCodeNativeUiGateway({
+const conversation = new ConversationProjector({
+  runtime: engine.transcriptSource,
+  host: sessionStore,
+});
+const uiPort: AgentUiGatewayPort = {
+  listSessions: (binding) => host.listSessions(binding),
+  readSession: (defSessionId, binding) => host.readSession(defSessionId, binding),
+  createSession: (input) => host.createSession(input),
+  startTurn: (input) => host.startHarnessTurn(input),
+  stopTurn: async (input) => {
+    host.readSession(input.defSessionId, input.binding);
+    await host.abortTurn(input.defTurnId, 'USER_STOPPED', input.binding);
+  },
+  archiveSession: (defSessionId, binding) => host.archiveSession(defSessionId, binding),
+  deleteSession: (defSessionId, binding) => host.deleteSession(defSessionId, binding),
+  getSnapshot: (defSessionId) => conversation.getSnapshot(defSessionId),
+  subscribe: (defSessionId, cursor, signal) => conversation.subscribe(defSessionId, cursor, signal),
+  listPendingInteractions: (binding) => host.listPendingInteractions(binding),
+  resolveInteraction: (interactionId, input, binding) => host.resolveInteraction(
+    interactionId,
+    input,
+    binding,
+  ),
+};
+const agentUi = new AgentUiGateway({
   uiRoot: nativeUiRoot,
   browserOrigin,
-  host,
-  engine,
+  port: uiPort,
+  tokens,
   consumers,
-  providerProfileRef: engineDefaultProfileRef,
-  diagnostic: (message) => console.error(`[def-opencode-ui] ${message}`),
+  diagnostic: (message) => console.error(`[def-agent-ui] ${message}`),
 });
+const nativeUi = {
+  listen: (port = 0) => agentUi.listen(port),
+  async launch(defSessionId: DefSessionId, claims: AgentUiCapabilityClaims) {
+    const consumer = consumers.requireActive(claims);
+    host.readSession(defSessionId, consumer.binding);
+    const url = new URL('/agent-ui/', agentUi.origin);
+    url.searchParams.set('apiOrigin', agentUi.origin);
+    url.searchParams.set('browserOrigin', browserOrigin);
+    url.searchParams.set('defSessionId', defSessionId);
+    return { src: url.toString(), defSessionId };
+  },
+  async restoreSession(defSessionId: DefSessionId, claims: AgentUiCapabilityClaims) {
+    const consumer = consumers.requireActive(claims);
+    return host.restoreSession(defSessionId, consumer.binding);
+  },
+  stop: () => agentUi.stop(),
+};
 const interop = new DefAgentInteropRoute({
   host,
   consumers,

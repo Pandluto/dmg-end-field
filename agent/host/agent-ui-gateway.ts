@@ -320,7 +320,7 @@ export class AgentUiGateway {
 
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
     const requestOrigin = this.#requestOrigin(request);
-    this.#setCors(response, requestOrigin);
+    this.#setCors(response, this.#responseOrigin(request, requestOrigin));
     const route = this.#relativeRoute(url.pathname);
 
     if (request.method === 'OPTIONS') {
@@ -710,13 +710,28 @@ export class AgentUiGateway {
     const normalizedOrigin = origin ? normalizeOrigin(origin) : null;
     const normalizedProxyOrigin = proxyOrigin ? normalizeOrigin(proxyOrigin) : null;
     if (normalizedOrigin && normalizedProxyOrigin && normalizedOrigin !== normalizedProxyOrigin) {
-      throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origins do not match', 403);
+      // The standalone Session Surface is served from this loopback gateway,
+      // while its capability still belongs to the parent Workbench origin.
+      // It forwards that parent origin explicitly for capability validation.
+      const localUiOrigin = this.#origin ? normalizeOrigin(this.#origin) : null;
+      if (normalizedOrigin !== localUiOrigin || normalizedProxyOrigin !== this.#browserOrigin) {
+        throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origins do not match', 403);
+      }
     }
-    const candidate = normalizedOrigin ?? normalizedProxyOrigin ?? this.#browserOrigin;
+    const candidate = normalizedProxyOrigin ?? normalizedOrigin ?? this.#browserOrigin;
     if (candidate !== this.#browserOrigin) {
       throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origin is denied', 403);
     }
     return candidate;
+  }
+
+  #responseOrigin(request: IncomingMessage, capabilityOrigin: string): string {
+    const origin = readHeader(request, 'origin');
+    if (!origin) return capabilityOrigin;
+    const normalized = normalizeOrigin(origin);
+    if (normalized === this.#browserOrigin) return normalized;
+    if (this.#origin && normalized === normalizeOrigin(this.#origin)) return normalized;
+    return capabilityOrigin;
   }
 
   #setCors(response: ServerResponse, origin: string): void {

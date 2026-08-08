@@ -221,9 +221,15 @@ export class DefAgentHostHttpServer {
     }
 
     const claims = this.#requireUiCapability(request);
-    if (request.method === 'POST' && url.pathname === '/agent-host/native-ui/launch') {
+    if (
+      request.method === 'POST'
+      && (
+        url.pathname === '/agent-host/ui/session-surface/launch'
+        || url.pathname === '/agent-host/native-ui/launch'
+      )
+    ) {
       if (!this.#nativeUi) {
-        throw new DefAgentHostError('AGENT_NATIVE_UI_ROUTE_NOT_FOUND', 'OpenCode native UI is unavailable', 503);
+        throw new DefAgentHostError('AGENT_NATIVE_UI_ROUTE_NOT_FOUND', 'Agent Session Surface is unavailable', 503);
       }
       const body = expectRecord(await readJson(request));
       expectExactKeys(body, ['defSessionId']);
