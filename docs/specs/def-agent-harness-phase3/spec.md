@@ -15,7 +15,7 @@ Phase 1 已建立引擎无关的 Session、Turn、Event、Engine、Interaction �
 - 当前基线：`a6e8accf`；
 - 旧 AI 参考分支：`codex/def-opencode-spec9-2-implementation@bcea5f12`；
 - 旧五业务默认 Revision：selection `v1`、loadout `v4`、timeline `v13`、buff `v1`、calculation `v1`；
-- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研](../../architecture/audits/opencode-engine-reintegration-research-20260806.md)；
+- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研（归档）](../../architecture/archive/opencode-engine-reintegration-research-20260806.md)；
 - [DEF Agent Host 与 Browser ProductGateway Phase 2](../def-agent-host-phase2/spec.md)。
 
 旧分支只作为语义和测试证据，不作为可直接复制的实现。所有当前产品读取都必须经过 Phase 2 的 ProductGateway snapshot，浏览器继续拥有唯一业务 SQLite。

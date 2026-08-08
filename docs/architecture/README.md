@@ -1,6 +1,6 @@
 # 架构事实源
 
-这里记录跨 Spec、需要长期维护的当前系统事实。历史审计和已经退出 LTS 范围的实验架构由 Git 历史保存，不继续留在本目录。
+这里记录跨 Spec、需要长期维护的当前系统事实。仍有迁移追溯价值的历史方案移入 `archive/`，其余已经退出 LTS 范围的实验架构只由 Git 历史保存。
 
 ## 当前系统
 
@@ -23,7 +23,9 @@
 - [1.8 LTS 第二轮运行时清理记录](../maintenance/1.8-lts-runtime-cleanup.md)
 - [1.8 LTS Web 收口记录](../maintenance/1.8-lts-web-finalization.md)
 - [1.8 Slim 独立 Electron Shell 职责审计与迁移方案](./audits/v1.8-slim-electron-shell-migration-20260806.md)
-- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研](./audits/opencode-engine-reintegration-research-20260806.md)
+- [DEF 轻量 Agent Runtime 源码映射与移植方案](./audits/def-lightweight-agent-runtime-source-mapping-20260808.md)
 - [DEF Agent 解耦迁移回归审计](./audits/def-agent-decoupling-regression-audit-20260808.md)
+
+历史方案放在 [架构归档](./archive/README.md)，只用于追溯，不再作为当前实施入口。
 
 只影响单一 Spec 的研究、验收或修复仍放在对应 `docs/specs/<spec-id>/`；本目录不替代需求事实源。

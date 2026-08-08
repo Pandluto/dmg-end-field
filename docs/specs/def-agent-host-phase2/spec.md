@@ -10,7 +10,7 @@ Phase 1 已建立引擎无关的 DEF 合同和 deterministic Fake Engine。本�
 
 架构事实源：
 
-- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研](../../architecture/audits/opencode-engine-reintegration-research-20260806.md)
+- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研（归档）](../../architecture/archive/opencode-engine-reintegration-research-20260806.md)
 - [DEF Agent Core Phase 1](../def-agent-core-phase1/spec.md)
 
 ## Goal

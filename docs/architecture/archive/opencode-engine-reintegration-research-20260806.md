@@ -1,5 +1,7 @@
 # OpenCode 引擎回迁与可替换 Agent 架构调研
 
+> **归档于 2026-08-08。** 本文保存“先回迁 OpenCode、再通过引擎合同为 Pi 留接口”的历史决策背景，不再作为下一阶段的实施指南。DEF Host、Harness、ProductGateway、浏览器 SQLite 与安全边界仍是有效证据；OpenCode 长期引擎、完整原生 UI 网关及后续 Pi 接入路线由 [DEF 轻量 Agent Runtime 源码映射与移植方案](../audits/def-lightweight-agent-runtime-source-mapping-20260808.md) 重新评估。当前代码在新方案落地前仍受 [ADR-0008](../decisions/0008-native-opencode-ui.md) 约束。
+
 > 2026-08-07 决策更新：本文关于“另建 Slim React Agent UI、原生 OpenCode UI 不进入产品”的结论已被 [ADR-0008](../decisions/0008-native-opencode-ui.md) 取代。Engine、Host、Harness 和 ProductGateway 的解耦边界继续有效；产品 AI 模式改为通过受控网关宿主同版本的原生 OpenCode UI。
 
 日期：2026-08-06
@@ -77,7 +79,7 @@
 当前约束的直接证据见：
 
 - [当前系统全景](../current-system.md)
-- [Slim Electron Shell 迁移审计](./v1.8-slim-electron-shell-migration-20260806.md)
+- [Slim Electron Shell 迁移审计](../audits/v1.8-slim-electron-shell-migration-20260806.md)
 - [桌面运行时边界检查](../../../scripts/check-desktop-runtime-boundaries.mjs)
 - [Electron Shell 主进程](../../../electron/main.cjs)
 - [当前 package 与打包清单](../../../package.json)

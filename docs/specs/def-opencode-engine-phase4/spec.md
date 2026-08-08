@@ -19,7 +19,7 @@ Phase 1 已建立引擎无关的 Session、Turn、Event 与双向 `AgentEngine` 
 - 固定上游版本：OpenCode `1.17.11`；
 - 旧动态 Tool projection 补丁：该分支的 `agent/vendor/opencode/packages/opencode/src/session/llm.ts` 与 `session/llm/request.ts`；
 - 旧插件行为参考：`agent/runtime/def-tools/opencode/plugin.js`；
-- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研](../../architecture/audits/opencode-engine-reintegration-research-20260806.md)；
+- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研（归档）](../../architecture/archive/opencode-engine-reintegration-research-20260806.md)；
 - [DEF Harness 与五业务只读 Tool Phase 3](../def-agent-harness-phase3/spec.md)。
 
 旧分支只提供 OpenCode API、动态 projection patch 和进程行为证据。旧 `def-agent-server.cjs`、Sidecar、固定 `17321/17322`、Node SQLite、旧 Harness Manager、旧 Tool wrapper、原生 OpenCode UI 和 AI CLI 不得复制。

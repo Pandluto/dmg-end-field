@@ -10,7 +10,7 @@
 
 本阶段是正式施工的第一块地基，只实现引擎无关的 DEF 核心合同和确定性 Fake Engine。架构事实源：
 
-- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研](../../architecture/audits/opencode-engine-reintegration-research-20260806.md)
+- [OpenCode 引擎回迁、可替换 Agent 架构与完整生命周期调研（归档）](../../architecture/archive/opencode-engine-reintegration-research-20260806.md)
 
 旧仓库边界当前禁止整个 `agent/` 目录回归。本阶段 SHALL 将其改为精确白名单：允许本规格新增的纯核心文件，继续拒绝旧 AI CLI、Sidecar、REST、Node 业务 SQLite、OpenCode vendor/runtime 和未审计 Agent 文件。
 
