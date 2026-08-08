@@ -15,8 +15,18 @@ import { register } from 'node:module';
 const PINNED_COMMIT = 'e47b8e37a6211ebd0b2942fa87059d64f81eec02';
 const PINNED_VERSION = '0.84.1';
 const PI_REPOSITORY = 'https://github.com/earendil-works/pi-mono';
-const RUNNER_VERSION = 1;
+const RUNNER_VERSION = 2;
 const SYSTEM_PROMPT = 'Pi Golden Oracle deterministic system prompt';
+// Loaded directly from PI_REFERENCE_ROOT at Pi commit
+// e47b8e37a6211ebd0b2942fa87059d64f81eec02; none are copied into the product.
+const PI_REFERENCE_SOURCE_PATHS = Object.freeze([
+  'packages/agent/src/agent.ts',
+  'packages/ai/src/utils/event-stream.ts',
+  'packages/ai/src/utils/validation.ts',
+  'packages/ai/src/utils/uuid.ts',
+  'packages/coding-agent/src/core/messages.ts',
+  'packages/coding-agent/src/core/session-manager.ts',
+]);
 const MODEL = Object.freeze({
   api: 'faux',
   provider: 'pi-golden-oracle',
@@ -125,6 +135,25 @@ function resolveReferenceRoot() {
   if (commit !== PINNED_COMMIT) {
     throw new Error(`PI_REFERENCE_ROOT must be pinned to Pi commit ${PINNED_COMMIT}`);
   }
+  const diff = spawnSync('git', ['-C', root, 'diff', '--quiet', 'HEAD', '--'], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let trackedStatus;
+  try {
+    trackedStatus = execFileSync(
+      'git',
+      ['-C', root, 'status', '--porcelain=v1', '--untracked-files=no', '--ignored=no'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+    ).trim();
+  } catch {
+    throw new Error('PI_REFERENCE_ROOT must be a clean readable Git clone');
+  }
+  if (diff.error || (diff.status !== 0 && diff.status !== 1)) {
+    throw new Error('PI_REFERENCE_ROOT must be a clean readable Git clone');
+  }
+  if (diff.status === 1 || trackedStatus) {
+    throw new Error('PI_REFERENCE_ROOT has tracked modifications; restore the pinned source and lockfiles');
+  }
   let packageVersion;
   try {
     packageVersion = JSON.parse(readFileSync(path.join(root, 'packages/agent/package.json'), 'utf8')).version;
@@ -139,10 +168,12 @@ function resolveReferenceRoot() {
 
 async function loadPiSource(referenceRoot) {
   const aiSource = (relativePath) => pathToFileURL(path.join(referenceRoot, 'packages/ai/src', relativePath)).href;
+  const rootSource = (relativePath) => pathToFileURL(path.join(referenceRoot, relativePath)).href;
   const packageParent = pathToFileURL(path.join(referenceRoot, 'package.json')).href;
   const aiShim = `data:text/javascript,${encodeURIComponent(
     `export { EventStream } from ${JSON.stringify(aiSource('utils/event-stream.ts'))};\n` +
-      `export { validateToolArguments } from ${JSON.stringify(aiSource('utils/validation.ts'))};\n`,
+      `export { validateToolArguments } from ${JSON.stringify(aiSource('utils/validation.ts'))};\n` +
+      `export { uuidv7 } from ${JSON.stringify(aiSource('utils/uuid.ts'))};\n`,
   )}`;
   const sourceLoader = `data:text/javascript,${encodeURIComponent(`
     export async function resolve(specifier, context, nextResolve) {
@@ -157,11 +188,18 @@ async function loadPiSource(referenceRoot) {
   `)}`;
   register(sourceLoader, import.meta.url);
 
-  const agentModule = await import(pathToFileURL(path.join(referenceRoot, 'packages/agent/src/agent.ts')).href);
-  const streamModule = await import(pathToFileURL(path.join(referenceRoot, 'packages/ai/src/utils/event-stream.ts')).href);
+  const [agentModule, streamModule, codingMessagesModule, sessionManagerModule] = await Promise.all([
+    import(rootSource('packages/agent/src/agent.ts')),
+    import(rootSource('packages/ai/src/utils/event-stream.ts')),
+    import(rootSource('packages/coding-agent/src/core/messages.ts')),
+    import(rootSource('packages/coding-agent/src/core/session-manager.ts')),
+  ]);
   return {
     Agent: agentModule.Agent,
     createAssistantMessageEventStream: streamModule.createAssistantMessageEventStream,
+    convertToLlm: codingMessagesModule.convertToLlm,
+    buildContextEntries: sessionManagerModule.buildContextEntries,
+    buildSessionContext: sessionManagerModule.buildSessionContext,
   };
 }
 
@@ -169,20 +207,18 @@ async function generateScenario(scenario, pi, normalizer) {
   const collector = new TraceCollector(scenario);
   const responses = scriptedResponses(scenario);
   let responseIndex = 0;
-  let compactionInserted = false;
-  let agent;
-
-  const compactionMessage = {
-    role: 'compaction',
-    messageId: randomIdentifier('compaction'),
-    summary: 'Compacted prior deterministic turn.',
-    timestamp: Date.now(),
-  };
-
   const tools = scenario === 'tool' ? [createAddTool()] : [];
+  const compactionProjection = scenario === 'compaction'
+    ? createCompactionSessionProjection(pi)
+    : undefined;
+  if (compactionProjection) {
+    collector.compaction(
+      compactionProjection.compactionEntry,
+      compactionProjection.compactionMessage,
+      compactionProjection.firstKeptItemIndex,
+    );
+  }
   const streamFn = (model, context, options) => {
-    const contextItems = contextSnapshotItems(context, collector);
-    collector.contextSnapshot(context, contextItems);
     const response = responses[responseIndex];
     responseIndex += 1;
     if (!response) throw new Error(`Pi scripted response exhausted for ${scenario}`);
@@ -201,32 +237,30 @@ async function generateScenario(scenario, pi, normalizer) {
       model: MODEL,
       thinkingLevel: scenario === 'reasoning' ? 'low' : 'off',
       tools,
+      messages: compactionProjection?.sessionContext.messages ?? [],
     },
     streamFn,
     toolExecution: 'sequential',
-    convertToLlm: (messages) => messages.filter(
-      (message) => message.role === 'user'
-        || message.role === 'assistant'
-        || message.role === 'toolResult'
-        || (scenario === 'compaction' && message.role === 'compaction'),
-    ),
+    convertToLlm: (messages) => {
+      const context = { systemPrompt: SYSTEM_PROMPT, tools, messages };
+      collector.contextSnapshot(context, contextSnapshotItems(context, collector));
+      return scenario === 'compaction'
+        ? pi.convertToLlm(messages)
+        : messages.filter(
+            (message) => message.role === 'user'
+              || message.role === 'assistant'
+              || message.role === 'toolResult',
+          );
+    },
   };
-  if (scenario === 'compaction') {
-    agentOptions.transformContext = async (messages) => (
-      compactionInserted ? [...messages, compactionMessage] : messages
-    );
-  }
-  agent = new pi.Agent(agentOptions);
+  const agent = new pi.Agent(agentOptions);
   agent.subscribe((event) => {
     if (scenario === 'abort' && event.type === 'agent_start') agent.abort();
     collector.agentEvent(event);
   });
 
   if (scenario === 'compaction') {
-    await agent.prompt('first deterministic turn');
-    collector.compaction(compactionMessage);
-    compactionInserted = true;
-    await agent.prompt('second deterministic turn');
+    await agent.prompt('New prompt after compacted session.');
   } else {
     await agent.prompt(promptForScenario(scenario));
   }
@@ -261,10 +295,11 @@ function scriptedResponses(scenario) {
     case 'abort':
       return [responseSpec([], 'aborted', usage(3, 0, 3), 'deterministic abort')];
     case 'compaction':
-      return [
-        responseSpec([{ type: 'text', text: 'Before deterministic compaction.' }], 'stop', usage(5, 5, 10)),
-        responseSpec([{ type: 'text', text: 'After deterministic compaction.' }], 'stop', usage(11, 5, 16)),
-      ];
+      return [responseSpec(
+        [{ type: 'text', text: 'Response after deterministic compaction.' }],
+        'stop',
+        usage(31, 5, 36),
+      )];
     default:
       throw new Error(`Unknown Pi reference scenario: ${scenario}`);
   }
@@ -283,6 +318,123 @@ function usage(input, output, total, reasoning) {
     totalTokens: total,
     ...(reasoning === undefined ? {} : { reasoning }),
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  };
+}
+
+function createCompactionSessionProjection(pi) {
+  const timestamps = [
+    '2025-01-01T00:00:00.000Z',
+    '2025-01-01T00:01:00.000Z',
+    '2025-01-01T00:02:00.000Z',
+    '2025-01-01T00:03:00.000Z',
+    '2025-01-01T00:04:00.000Z',
+    '2025-01-01T00:05:00.000Z',
+    '2025-01-01T00:06:00.000Z',
+    '2025-01-01T00:07:00.000Z',
+  ];
+  const userMessage = (text, timestamp) => ({
+    role: 'user',
+    content: text,
+    timestamp: Date.parse(timestamp),
+  });
+  const seededAssistantMessage = (text, timestamp) => assistantMessage(
+    MODEL,
+    [{ type: 'text', text }],
+    'stop',
+    usage(1, 1, 2),
+    undefined,
+    Date.parse(timestamp),
+  );
+  const messageEntry = (id, parentId, message, timestamp) => ({
+    type: 'message',
+    id,
+    parentId,
+    timestamp,
+    message,
+  });
+
+  const entries = [
+    messageEntry(
+      'session-old-user',
+      null,
+      userMessage('Summarized-away old user message.', timestamps[0]),
+      timestamps[0],
+    ),
+    messageEntry(
+      'session-old-assistant',
+      'session-old-user',
+      seededAssistantMessage('Summarized-away old assistant response.', timestamps[1]),
+      timestamps[1],
+    ),
+    {
+      type: 'compaction',
+      id: 'session-older-compaction',
+      parentId: 'session-old-assistant',
+      timestamp: timestamps[2],
+      summary: 'Superseded earlier compaction summary.',
+      firstKeptEntryId: 'session-old-user',
+      tokensBefore: 32,
+    },
+    messageEntry(
+      'session-retained-user',
+      'session-older-compaction',
+      userMessage('Retained tail user message.', timestamps[3]),
+      timestamps[3],
+    ),
+    messageEntry(
+      'session-retained-assistant',
+      'session-retained-user',
+      seededAssistantMessage('Retained tail assistant response.', timestamps[4]),
+      timestamps[4],
+    ),
+    {
+      type: 'compaction',
+      id: 'session-compaction',
+      parentId: 'session-retained-assistant',
+      timestamp: timestamps[5],
+      summary: 'The obsolete opening exchange was summarized deterministically.',
+      firstKeptEntryId: 'session-retained-user',
+      tokensBefore: 64,
+    },
+    messageEntry(
+      'session-post-user',
+      'session-compaction',
+      userMessage('Post-compaction session user entry.', timestamps[6]),
+      timestamps[6],
+    ),
+    messageEntry(
+      'session-post-assistant',
+      'session-post-user',
+      seededAssistantMessage('Post-compaction session assistant entry.', timestamps[7]),
+      timestamps[7],
+    ),
+  ];
+  const compactionEntry = entries[5];
+
+  // These guards verify the pinned Pi result; selection and projection remain
+  // exclusively implemented by Pi's real coding-agent Session functions.
+  const contextEntries = pi.buildContextEntries(entries);
+  const expectedEntryIds = [
+    'session-compaction',
+    'session-retained-user',
+    'session-retained-assistant',
+    'session-post-user',
+    'session-post-assistant',
+  ];
+  if (JSON.stringify(contextEntries.map((entry) => entry.id)) !== JSON.stringify(expectedEntryIds)) {
+    throw new Error('Pinned Pi buildContextEntries returned an unexpected compaction projection');
+  }
+  const sessionContext = pi.buildSessionContext(entries);
+  const expectedRoles = ['compactionSummary', 'user', 'assistant', 'user', 'assistant'];
+  if (JSON.stringify(sessionContext.messages.map((message) => message.role)) !== JSON.stringify(expectedRoles)) {
+    throw new Error('Pinned Pi buildSessionContext did not project a real compactionSummary message');
+  }
+
+  return {
+    compactionEntry,
+    compactionMessage: sessionContext.messages[0],
+    firstKeptItemIndex: entries.findIndex((entry) => entry.id === compactionEntry.firstKeptEntryId),
+    sessionContext,
   };
 }
 
@@ -335,7 +487,7 @@ function createScriptedStream({ model, response, options, collector, streamFacto
   return stream;
 }
 
-function assistantMessage(model, content, stopReason, responseUsage, errorMessage) {
+function assistantMessage(model, content, stopReason, responseUsage, errorMessage, timestamp = Date.now()) {
   return {
     role: 'assistant',
     content,
@@ -345,7 +497,7 @@ function assistantMessage(model, content, stopReason, responseUsage, errorMessag
     usage: responseUsage,
     stopReason,
     ...(errorMessage === undefined ? {} : { errorMessage }),
-    timestamp: Date.now(),
+    timestamp,
   };
 }
 
@@ -436,15 +588,15 @@ class TraceCollector {
     });
   }
 
-  compaction(message) {
+  compaction(entry, message, firstKeptItemIndex) {
     this.emit('compaction', {
-      messageId: message.messageId,
+      messageId: this.idForMessage(message, 'message'),
       data: {
         status: 'completed',
         reason: 'manual',
-        summary: message.summary,
-        firstKeptItemIndex: 2,
-        tokensBefore: 10,
+        summary: entry.summary,
+        firstKeptItemIndex,
+        tokensBefore: entry.tokensBefore,
       },
       turnId: undefined,
     });
@@ -597,7 +749,7 @@ function contextSnapshotItems(context, collector) {
       });
       continue;
     }
-    if (message.role === 'compaction') {
+    if (message.role === 'compactionSummary') {
       items.push({ kind: 'compaction', messageId, summary: message.summary });
     }
   }
@@ -707,11 +859,13 @@ function writeFixtures(traces, normalizer) {
     generation: {
       runner: 'scripts/agent-runtime-pi-reference.mjs',
       runnerVersion: RUNNER_VERSION,
-      seed: 'pi-golden-oracle-v1',
+      seed: 'pi-golden-oracle-v2',
       systemPrompt: SYSTEM_PROMPT,
       model: MODEL.id,
       transport: 'scripted AssistantMessageEventStream',
       toolExecution: 'sequential',
+      compactionProjection: 'Pi coding-agent buildContextEntries + buildSessionContext',
+      referenceSourcePaths: PI_REFERENCE_SOURCE_PATHS,
       idNormalization: 'first-seen ordinal per namespace',
       timestampNormalization: 'discard raw Pi event timestamps',
     },
