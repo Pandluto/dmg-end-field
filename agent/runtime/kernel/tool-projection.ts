@@ -216,7 +216,7 @@ function normalizeProjection(
       || names.has(name)
       || typeof description !== 'string'
       || description.length > MAX_TOOL_DESCRIPTION_CODE_UNITS
-      || hasControlCharacter(description)
+      || description.includes('\u0000')
       || !isRuntimeToolRisk(risk)
       || !isPlainJsonObject(descriptor.inputSchema)
     ) {
