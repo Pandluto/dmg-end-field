@@ -245,7 +245,7 @@ async function saveAgentProviderProfile(payload) {
     payload,
     runtime: agentRuntime,
     probeProfile: (candidatePath) => probeAgentProviderProfile(candidatePath),
-    createCandidateRuntime,
+    createCandidateRuntime: createCandidateAgentRuntime,
   });
 }
 
