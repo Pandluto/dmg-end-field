@@ -25,7 +25,10 @@ import { HostToolBridge } from '../../runtime/kernel/host-tool-bridge.ts';
 import { asRuntimeContentId, asRuntimeSessionId } from '../../runtime/kernel/ids.ts';
 import type { RuntimeUserContent } from '../../runtime/kernel/messages.ts';
 import { OpenAICompatibleDriver } from '../../runtime/kernel/provider/openai-compatible-driver.ts';
-import type { ModelDriver } from '../../runtime/kernel/provider/model-driver.ts';
+import type {
+  ModelDriver,
+  RuntimeModelConnection,
+} from '../../runtime/kernel/provider/model-driver.ts';
 import {
   RuntimeSession,
   type RuntimeRunHandle,
@@ -33,6 +36,7 @@ import {
 import type { RuntimeRunTerminal } from '../../runtime/kernel/stream-events.ts';
 import {
   toRuntimeModelConnection,
+  type ProviderProfile,
   type ProviderProfileSource,
 } from './profile.ts';
 import { DefRuntimeEngineError } from './errors.ts';
@@ -289,7 +293,7 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
       filePath: input.filePath,
       rootDir: this.#storeRoot,
       modelDriver: this.#modelDriver,
-      connection: async () => toRuntimeModelConnection(await this.#requireProfile(state.profileRef)),
+      connection: async () => runtimeModelConnection(await this.#requireProfile(state.profileRef)),
       toolBridge: () => {
         if (!state.bridge) {
           throw new DefRuntimeEngineError('DEF_RUNTIME_TURN_INACTIVE', 'No Host Tool bridge is active.');
@@ -344,6 +348,22 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
   #assertRunning(): void {
     if (this.#shutdown) throw new DefRuntimeEngineError('DEF_RUNTIME_SHUTDOWN', 'DEF Runtime has stopped.');
   }
+}
+
+function runtimeModelConnection(profile: ProviderProfile): RuntimeModelConnection {
+  const connection = toRuntimeModelConnection(profile);
+  const headers = connection.headers === undefined
+    ? undefined
+    : Object.fromEntries(Object.entries(connection.headers));
+  return {
+    providerId: connection.providerId,
+    modelId: connection.modelId,
+    baseUrl: connection.baseUrl,
+    apiKey: connection.apiKey,
+    ...(headers === undefined ? {} : { headers }),
+    ...(connection.contextLimit === undefined ? {} : { contextLimit: connection.contextLimit }),
+    ...(connection.outputLimit === undefined ? {} : { outputLimit: connection.outputLimit }),
+  };
 }
 
 class DefRuntimeTurnHandle implements EngineTurnHandle {
