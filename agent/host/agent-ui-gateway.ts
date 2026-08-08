@@ -720,6 +720,8 @@ export class AgentUiGateway {
     }
     const candidate = normalizedProxyOrigin ?? normalizedOrigin ?? this.#browserOrigin;
     if (candidate !== this.#browserOrigin) {
+      const localUiOrigin = this.#origin ? normalizeOrigin(this.#origin) : null;
+      if (candidate === localUiOrigin && !normalizedProxyOrigin) return candidate;
       throw new DefAgentHostError('AGENT_ORIGIN_DENIED', 'Agent browser origin is denied', 403);
     }
     return candidate;
