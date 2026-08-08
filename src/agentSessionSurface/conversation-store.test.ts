@@ -18,11 +18,15 @@ import {
   reduceConversationEvent,
 } from './conversation-store.ts';
 import {
+  asConversationMessageId,
+  asConversationPartId,
+  asDefTurnId,
   type ConversationEvent,
   type ConversationProjector as ConversationProjectorContract,
   type ConversationSnapshot,
   type DefSessionId,
 } from '../../agent/core/contracts/index.ts';
+import { selectConversationTurns } from './components/session-model.ts';
 
 test('reduces snapshot and deltas without duplicate Message/Part rows', async () => {
   const fixture = createConversationFixture();
@@ -77,6 +81,58 @@ test('reduces snapshot and deltas without duplicate Message/Part rows', async ()
   const removedSnapshot = reduceConversationEvent(after, removed);
   assert.equal(removedSnapshot?.parts.some((part) => part.id === FIXTURE_ERROR_PART_ID), false);
   assert.equal(removedSnapshot?.messages[1]?.partIds.includes(FIXTURE_ERROR_PART_ID), false);
+});
+
+test('session read model projects every persisted Turn in transcript order', async () => {
+  const fixture = createConversationFixture();
+  const base = await new ConversationProjector({
+    runtime: fixture.runtime,
+    host: fixture.host,
+    epoch: 'all-turns',
+  }).getSnapshot(fixture.sessionId);
+  const secondTurnId = asDefTurnId('conversation-second-turn');
+  const secondUserId = asConversationMessageId('message-user-second');
+  const secondAssistantId = asConversationMessageId('message-assistant-second');
+  const secondTextId = asConversationPartId('part-text-second');
+  const snapshot: ConversationSnapshot = {
+    ...base,
+    messages: [
+      ...base.messages,
+      {
+        id: secondUserId,
+        role: 'user',
+        defTurnId: secondTurnId,
+        createdAt: '2026-08-08T00:01:00.000Z',
+        completedAt: '2026-08-08T00:01:00.000Z',
+        partIds: [],
+      },
+      {
+        id: secondAssistantId,
+        role: 'assistant',
+        defTurnId: secondTurnId,
+        createdAt: '2026-08-08T00:01:01.000Z',
+        completedAt: '2026-08-08T00:01:02.000Z',
+        partIds: [secondTextId],
+      },
+    ],
+    parts: [
+      ...base.parts,
+      {
+        id: secondTextId,
+        messageId: secondAssistantId,
+        createdAt: '2026-08-08T00:01:01.000Z',
+        completedAt: '2026-08-08T00:01:02.000Z',
+        type: 'text',
+        text: 'second reply',
+      },
+    ],
+  };
+
+  const turns = selectConversationTurns(snapshot);
+  assert.equal(turns.length, 2);
+  assert.equal(turns[0]?.turnId, base.messages[0]?.defTurnId);
+  assert.equal(turns[1]?.turnId, secondTurnId);
+  assert.equal(turns[1]?.assistantMessages[0]?.id, secondAssistantId);
 });
 
 test('reduces interaction upsert/resolution and keeps interaction identity stable', async () => {

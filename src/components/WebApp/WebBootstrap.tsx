@@ -165,7 +165,19 @@ export function WebBootstrap() {
   useEffect(() => {
     if (agentMode) {
       let cancelled = false;
-      void loadDesktopAgentRuntime().then(({ desktopAgentBridge }) => desktopAgentBridge.initialize()).then((state) => {
+      void loadDesktopAgentRuntime().then(async ({ desktopAgentBridge }) => {
+        let state = await desktopAgentBridge.initialize();
+        if (state.authorization !== 'authorized' || state.host !== 'ready') {
+          // A browser tab can outlive the Electron Host epoch. Entering or
+          // refreshing the AI route is itself the user gesture that may start
+          // the lazy Host and replace the stale page capability; the Shell UI
+          // does not need to have opened AI mode first.
+          await desktopAgentBridge.retryAuthorization();
+          await desktopAgentBridge.refreshHostState();
+          state = desktopAgentBridge.getState();
+        }
+        return state;
+      }).then((state) => {
         if (cancelled) return;
         if (state.authorization !== 'authorized' || state.host !== 'ready') {
           setFailure(state.error || 'AI 模式授权无效，请从桌面 Shell 重新打开。');

@@ -55,8 +55,11 @@ export const DESKTOP_AGENT_LAUNCH_PATH = '/agent-host/ui/launch';
 export const DESKTOP_AGENT_SESSION_SURFACE_LAUNCH_PATH = '/agent-host/ui/session-surface/launch';
 export const DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS = 5_000;
 export const DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS = 25_000;
+export const DESKTOP_AGENT_CONSUMER_ID_STORAGE_KEY = 'dmg.agent.consumer-id';
+export const DESKTOP_AGENT_EXECUTOR_LEASE_ID_STORAGE_KEY = 'dmg.agent.executor-lease-id';
 
 const CAPABILITY_PATTERN = /^[a-zA-Z0-9_-]{20,200}$/;
+const OPAQUE_ID_PATTERN = /^(?:consumer|executor)-[a-zA-Z0-9._-]{8,200}$/;
 const AGENT_UI_CAPABILITY_FRAGMENT_KEY = 'capability';
 const AUTHORIZATION_FAILURE_CODES = new Set([
   'AGENT_UI_CAPABILITY_INVALID',
@@ -144,6 +147,7 @@ export interface AgentConsumerControllerOptions {
   readonly workspaceLease: AgentWorkspaceLease;
   readonly document?: AgentConsumerControllerDocument;
   readonly getBinding: () => ProductBinding | null;
+  readonly sessionStorage?: AgentBridgeStorage;
   readonly consumerId?: string;
   readonly executorLeaseId?: string;
   readonly heartbeatIntervalMs?: number;
@@ -759,6 +763,22 @@ function makeOpaqueId(prefix: string): string {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function stableOpaqueId(
+  storage: AgentBridgeStorage | undefined,
+  key: string,
+  prefix: 'consumer' | 'executor',
+): string {
+  try {
+    const current = storage?.getItem(key);
+    if (current && OPAQUE_ID_PATTERN.test(current)) return current;
+    const next = makeOpaqueId(prefix);
+    storage?.setItem(key, next);
+    return next;
+  } catch {
+    return makeOpaqueId(prefix);
+  }
 }
 
 export function isDesktopAgentModeRoute(location: AgentModeLocation = defaultLocation() || {
@@ -1477,7 +1497,7 @@ export class DesktopAgentConsumerController {
   readonly #clearInterval: (handle: unknown) => void;
   readonly #listeners = new Set<DesktopAgentConsumerListener>();
   readonly #onVisibilityChange = () => { void this.#synchronize(); };
-  readonly #onPageExit = () => { void this.stop(true); };
+  readonly #onPageExit = () => { this.#detachForPageExit(); };
   readonly #onBridgeState = (state: DesktopAgentBridgeState) => {
     if (
       this.#running
@@ -1503,8 +1523,17 @@ export class DesktopAgentConsumerController {
     this.#workspaceLease = options.workspaceLease;
     this.#document = options.document || defaultAgentDocument();
     this.#getBinding = options.getBinding;
-    this.#consumerId = options.consumerId || makeOpaqueId('consumer');
-    this.#executorLeaseId = options.executorLeaseId || makeOpaqueId('executor');
+    const identityStorage = options.sessionStorage || defaultSessionStorage();
+    this.#consumerId = options.consumerId || stableOpaqueId(
+      identityStorage,
+      DESKTOP_AGENT_CONSUMER_ID_STORAGE_KEY,
+      'consumer',
+    );
+    this.#executorLeaseId = options.executorLeaseId || stableOpaqueId(
+      identityStorage,
+      DESKTOP_AGENT_EXECUTOR_LEASE_ID_STORAGE_KEY,
+      'executor',
+    );
     this.#heartbeatIntervalMs = options.heartbeatIntervalMs || DESKTOP_AGENT_HEARTBEAT_INTERVAL_MS;
     this.#setInterval = options.setInterval || ((handler, timeout) => globalThis.setInterval(handler, timeout));
     this.#clearInterval = options.clearInterval || ((handle) => globalThis.clearInterval(handle as ReturnType<typeof setInterval>));
@@ -1578,6 +1607,35 @@ export class DesktopAgentConsumerController {
       }
     }
     this.#setState({ state: 'closed', visible: this.isVisible(), role: this.#workspaceLease.getRole(), consumer: null });
+  }
+
+  /**
+   * A reload keeps the tab's sessionStorage identity. Do not send a late
+   * keepalive close for that identity: it can race the replacement document's
+   * register request and tear down the newly restored consumer. The Host lease
+   * remains bounded, so a genuinely closed tab still expires normally.
+   */
+  #detachForPageExit(): void {
+    this.#running = false;
+    this.#synchronizeRequested = false;
+    this.#syncVersion += 1;
+    this.#document.removeEventListener('visibilitychange', this.#onVisibilityChange);
+    this.#document.removeEventListener('pagehide', this.#onPageExit);
+    this.#document.removeEventListener('beforeunload', this.#onPageExit);
+    this.#leaseUnsubscribe?.();
+    this.#leaseUnsubscribe = null;
+    this.#bridgeUnsubscribe?.();
+    this.#bridgeUnsubscribe = null;
+    this.#clearHeartbeat();
+    this.#consumer = null;
+    this.#consumerCapabilityRevision = -1;
+    this.#setState({
+      state: 'closed',
+      visible: this.isVisible(),
+      role: this.#workspaceLease.getRole(),
+      consumer: null,
+      error: null,
+    });
   }
 
   async #synchronize(): Promise<void> {

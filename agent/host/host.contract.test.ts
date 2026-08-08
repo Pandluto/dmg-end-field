@@ -671,6 +671,20 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   const observerCapability = 'ui_capability_observer_abcdefghijklmnop';
   const observerLaunchGrant = 'launch_grant_observer_abcdefghijklmnop';
   const engine = new DeterministicFakeAgentEngine();
+  let latestEngineContext: unknown = null;
+  const productEngine: AgentEngine = {
+    kind: engine.kind,
+    probe: () => engine.probe(),
+    createSession: (input) => engine.createSession(input),
+    recoverSession: (ref) => engine.recoverSession(ref),
+    startTurn: (input) => {
+      latestEngineContext = structuredClone(input.context);
+      return engine.startTurn(input);
+    },
+    compact: (ref) => engine.compact(ref),
+    disposeSession: (ref) => engine.disposeSession(ref),
+    shutdown: () => engine.shutdown(),
+  };
   const consumers = new BrowserConsumerRegistry();
   const gateway = new RemoteBrowserProductGateway(consumers);
   const tools = new DefReadToolRegistry();
@@ -678,7 +692,7 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
     resolveToolDescriptor: (name) => tools.resolveDescriptor(name),
   });
   const host = new DefAgentHost({
-    engine,
+    engine: productEngine,
     productGateway: gateway,
     harnessManager: harness,
     toolRegistry: tools,
@@ -921,6 +935,10 @@ function snapshot(expected = binding()): ProductSnapshotEnvelope {
   assert.equal(startResponse.status, 202);
   const started = await startResponse.json() as { defTurnId: string; clientTurnId: string };
   assert.equal(started.clientTurnId, turnBody.clientTurnId);
+  assert.deepEqual(latestEngineContext, {
+    binding: productBinding,
+    snapshot: productSnapshot.payload,
+  }, 'each Engine Turn receives the current SQLite/Timeline/selection snapshot');
 
   const retryResponse = await fetch(
     `${baseUrl}/agent-host/sessions/${created.session.defSessionId}/turns`,

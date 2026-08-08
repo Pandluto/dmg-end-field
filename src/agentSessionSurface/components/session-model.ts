@@ -24,6 +24,26 @@ export interface ConversationTurnView {
   readonly partsByMessage: ReadonlyMap<string, readonly ConversationPart[]>;
 }
 
+export function selectConversationTurns(
+  snapshot: ConversationSnapshot | null,
+  requestedTurnId?: ConversationMessage['defTurnId'],
+): readonly ConversationTurnView[] {
+  if (!snapshot || snapshot.messages.length === 0) return [];
+  if (requestedTurnId) {
+    const selected = selectConversationTurn(snapshot, requestedTurnId);
+    return selected ? [selected] : [];
+  }
+  const seen = new Set<ConversationMessage['defTurnId']>();
+  const turns: ConversationTurnView[] = [];
+  for (const message of snapshot.messages) {
+    if (seen.has(message.defTurnId)) continue;
+    seen.add(message.defTurnId);
+    const turn = selectConversationTurn(snapshot, message.defTurnId);
+    if (turn) turns.push(turn);
+  }
+  return turns;
+}
+
 export function selectConversationTurn(
   snapshot: ConversationSnapshot | null,
   requestedTurnId?: ConversationMessage['defTurnId'],

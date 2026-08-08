@@ -70,6 +70,7 @@ function createAgentRuntime(options = {}) {
   ));
   const engineDefaultProfileRef = String(options.engineDefaultProfileRef || 'default').trim();
   if (!engineDefaultProfileRef) throw new TypeError('Agent runtime requires a default provider profile ref');
+  const interopEnabled = options.interopEnabled === true;
   const browserOrigin = normalizeOrigin(options.browserOrigin || 'http://127.0.0.1:31457');
   const launchService = options.launchService || defaultLaunchService;
   const processKill = typeof options.processKill === 'function' ? options.processKill : process.kill.bind(process);
@@ -939,6 +940,7 @@ function createAgentRuntime(options = {}) {
       DEF_AGENT_PRODUCT_COMMAND_STORE_ROOT: productCommandStoreRoot,
       DEF_AGENT_ENGINE_PROFILE_PATH: engineProfilePath,
       DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF: engineDefaultProfileRef,
+      DEF_AGENT_INTEROP_ENABLED: interopEnabled ? '1' : '0',
     });
     return environment;
   }

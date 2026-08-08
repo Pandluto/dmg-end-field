@@ -22,8 +22,9 @@ import {
   isPinnedToBottom,
   lastAssistantTextPartId,
   scrollElementToBottom,
-  selectConversationTurn,
+  selectConversationTurns,
   textPartsForMessage,
+  type ConversationTurnView,
 } from './session-model.ts';
 import { ToolPartView } from './basic-tool.tsx';
 import { IconButton, TextReveal, TextShimmer } from './opencode-primitives.tsx';
@@ -57,20 +58,21 @@ export interface SessionSurfaceProps {
  * transcript or event store.
  */
 export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
-  const turn = useMemo(
-    () => selectConversationTurn(props.snapshot, props.turnId),
+  const turns = useMemo(
+    () => selectConversationTurns(props.snapshot, props.turnId),
     [props.snapshot, props.turnId],
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
   const interactedRef = useRef(false);
   const working = isActiveSessionStatus(props.snapshot);
+  const latestTurnId = props.snapshot?.messages.at(-1)?.defTurnId;
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
     if (!element || !pinnedRef.current) return;
     scrollElementToBottom(element);
-  }, [props.snapshot?.cursor.runtimeSequence, props.snapshot?.cursor.hostSequence, turn?.turnId, working]);
+  }, [props.snapshot?.cursor.runtimeSequence, props.snapshot?.cursor.hostSequence, turns.length, latestTurnId, working]);
 
   const handleScroll = () => {
     const element = scrollRef.current;
@@ -83,7 +85,7 @@ export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
     }
   };
 
-  if (!turn) {
+  if (turns.length === 0 || !props.snapshot) {
     return (
       <div data-component="session-turn" className={props.className}>
         <div data-slot="session-turn-content" ref={scrollRef} onScroll={handleScroll}>
@@ -93,18 +95,11 @@ export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
     );
   }
 
-  const userText = turn.userMessage ? textPartsForMessage(turn, turn.userMessage)[0] : undefined;
-  const lastTextId = lastAssistantTextPartId(turn);
-  const actionContext: SessionSurfaceActionContext = {
-    sessionId: props.snapshot!.defSessionId,
-    turnId: String(turn.turnId),
-  };
-
   return (
     <div
       data-component="session-turn"
       data-session-id={props.snapshot?.defSessionId}
-      data-turn-id={turn.turnId}
+      data-turn-id={latestTurnId}
       data-session-status={props.snapshot?.status.status}
       className={props.className}
     >
@@ -113,67 +108,96 @@ export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
         onScroll={handleScroll}
         data-slot="session-turn-content"
       >
-        <div
-          data-slot="session-turn-content-inner"
-        >
-          <div
-            data-message={turn.userMessage?.id}
-            data-slot="session-turn-message-container"
-          >
-            <div data-slot="session-turn-message-content" aria-live="off">
-              {turn.userMessage ? (
-                <UserMessageDisplay
-                  message={turn.userMessage}
-                  textPart={userText}
-                  actions={props.actions}
-                  context={actionContext}
-                />
-              ) : null}
-            </div>
-            {turn.compactionParts.length > 0 ? (
-              <div data-slot="session-turn-compaction">
-                {turn.compactionParts.map((part) => <MessageDivider key={part.id} part={part} />)}
-              </div>
-            ) : null}
-            {turn.assistantMessages.length > 0 ? (
-              <div data-slot="session-turn-assistant-content" aria-hidden={working ? 'true' : 'false'}>
-                <AssistantParts
-                  messages={turn.assistantMessages}
-                  partsForMessage={(message) => assistantPartsForMessage(turn, message)}
-                  lastTextId={lastTextId}
-                  actions={props.actions}
-                  context={actionContext}
-                />
-              </div>
-            ) : null}
-            {working && turn.assistantMessages.length === 0 ? (
-              <div data-slot="session-turn-thinking">
-                <TextShimmer text="Thinking" active />
-                <TextReveal text="" className="session-turn-thinking-heading" />
-              </div>
-            ) : null}
-            {props.actions?.onStop && working ? (
-              <div data-slot="session-turn-actions" data-state="working">
-                <IconButton
-                  icon="stop"
-                  label="Stop"
-                  onClick={() => void props.actions?.onStop?.(actionContext)}
-                />
-              </div>
-            ) : null}
-            {props.actions?.onRetry && props.snapshot?.status.status === 'error' ? (
-              <div data-slot="session-turn-actions" data-state="error">
-                <IconButton
-                  icon="reset"
-                  label="Retry"
-                  onClick={() => void props.actions?.onRetry?.(actionContext)}
-                />
-              </div>
-            ) : null}
-          </div>
+        <div data-slot="session-turn-content-inner">
+          {turns.map((turn) => (
+            <ConversationTurnBlock
+              key={turn.turnId}
+              turn={turn}
+              snapshot={props.snapshot!}
+              actions={props.actions}
+              working={working && turn.turnId === latestTurnId}
+              retryable={props.snapshot?.status.status === 'error' && turn.turnId === latestTurnId}
+            />
+          ))}
         </div>
       </div>
     </div>
+  );
+}
+
+function ConversationTurnBlock(props: {
+  readonly turn: ConversationTurnView;
+  readonly snapshot: ConversationSnapshot;
+  readonly actions?: SessionSurfaceActions;
+  readonly working: boolean;
+  readonly retryable: boolean;
+}): JSX.Element {
+  const userText = props.turn.userMessage
+    ? textPartsForMessage(props.turn, props.turn.userMessage)[0]
+    : undefined;
+  const lastTextId = lastAssistantTextPartId(props.turn);
+  const actionContext: SessionSurfaceActionContext = {
+    sessionId: props.snapshot.defSessionId,
+    turnId: String(props.turn.turnId),
+  };
+  return (
+    <section
+      data-component="session-turn-block"
+      data-turn-id={props.turn.turnId}
+      data-message={props.turn.userMessage?.id}
+      data-slot="session-turn-message-container"
+    >
+      <div data-slot="session-turn-message-content" aria-live="off">
+        {props.turn.userMessage ? (
+          <UserMessageDisplay
+            message={props.turn.userMessage}
+            textPart={userText}
+            actions={props.actions}
+            context={actionContext}
+          />
+        ) : null}
+      </div>
+      {props.turn.compactionParts.length > 0 ? (
+        <div data-slot="session-turn-compaction">
+          {props.turn.compactionParts.map((part) => <MessageDivider key={part.id} part={part} />)}
+        </div>
+      ) : null}
+      {props.turn.assistantMessages.length > 0 ? (
+        <div data-slot="session-turn-assistant-content" aria-live="polite">
+          <AssistantParts
+            messages={props.turn.assistantMessages}
+            partsForMessage={(message) => assistantPartsForMessage(props.turn, message)}
+            lastTextId={lastTextId}
+            actions={props.actions}
+            context={actionContext}
+          />
+        </div>
+      ) : null}
+      {props.working && props.turn.assistantMessages.length === 0 ? (
+        <div data-slot="session-turn-thinking">
+          <TextShimmer text="Thinking" active />
+          <TextReveal text="" className="session-turn-thinking-heading" />
+        </div>
+      ) : null}
+      {props.actions?.onStop && props.working ? (
+        <div data-slot="session-turn-actions" data-state="working">
+          <IconButton
+            icon="stop"
+            label="Stop"
+            onClick={() => void props.actions?.onStop?.(actionContext)}
+          />
+        </div>
+      ) : null}
+      {props.actions?.onRetry && props.retryable ? (
+        <div data-slot="session-turn-actions" data-state="error">
+          <IconButton
+            icon="reset"
+            label="Retry"
+            onClick={() => void props.actions?.onRetry?.(actionContext)}
+          />
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -307,9 +331,15 @@ function TextPartDisplay(props: {
 function ReasoningPartDisplay(props: { readonly part: ConversationReasoningPart }): JSX.Element | null {
   if (!props.part.text) return null;
   return (
-    <div data-component="reasoning-part" data-timeline-part-id={props.part.id}>
-      <Markdown text={props.part.text} />
-    </div>
+    <details data-component="reasoning-part" data-timeline-part-id={props.part.id}>
+      <summary data-slot="reasoning-summary">
+        <span>思考过程</span>
+        <small>点击展开</small>
+      </summary>
+      <div data-slot="reasoning-content">
+        <Markdown text={props.part.text} />
+      </div>
+    </details>
   );
 }
 
@@ -468,7 +498,7 @@ export function AgentSessionSurface(props: ConversationSurfaceMountProps): JSX.E
           ) : null}
           {props.onSubmitPrompt ? (
             <PromptComposer
-              disabled={!snapshot || state?.status === 'loading'}
+              disabled={!snapshot || state?.status === 'loading' || isActiveSessionStatus(snapshot)}
               onSubmit={props.onSubmitPrompt}
             />
           ) : null}

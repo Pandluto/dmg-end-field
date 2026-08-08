@@ -1237,7 +1237,7 @@ export class DefAgentHost {
         userMessage: input.userMessage,
         providerProfileRef: record.providerProfileRef,
         toolProjection: input.toolProjection,
-        context: bindingContext(record.binding),
+        context: await this.#engineTurnContext(record.binding),
       });
       const cancellation = this.#startingTurnCancellation(starting);
       if (cancellation) {
@@ -1666,7 +1666,7 @@ export class DefAgentHost {
           ...(input.userAttachments.length > 0 ? { userAttachments: input.userAttachments } : {}),
           providerProfileRef: record.providerProfileRef,
           toolProjection: startedTransition.transaction.projection,
-          context: bindingContext(record.binding),
+          context: await this.#engineTurnContext(record.binding),
         });
         const cancellation = this.#startingTurnCancellation(starting);
         if (cancellation) {
@@ -1957,6 +1957,14 @@ export class DefAgentHost {
     this.#assertRunning();
     this.#assertInitialized();
     return this.#productGateway.getSnapshot(binding);
+  }
+
+  async #engineTurnContext(binding: ProductBinding): Promise<JsonObject> {
+    const snapshot = await this.#productGateway.getSnapshot(binding);
+    return {
+      binding: bindingContext(binding),
+      snapshot: snapshot.payload,
+    };
   }
 
   archiveSession(

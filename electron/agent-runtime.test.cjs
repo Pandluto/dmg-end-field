@@ -131,6 +131,7 @@ async function createFixture({
   gracefulShutdown = true,
   engineIgnoresSigterm = false,
   engineIgnoresSigkill = false,
+  interopEnabled = false,
 } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'def-agent-runtime-test-'));
   const applicationRoot = path.join(root, 'app');
@@ -205,6 +206,7 @@ async function createFixture({
     healthTimeoutMs: 100,
     proxyTimeoutMs,
     commandNextProxyTimeoutMs,
+    interopEnabled,
     stopTimeoutMs: 100,
     launchService({ env }) {
       launchCount += 1;
@@ -293,6 +295,7 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     );
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_PROFILE_PATH, fixture.runtime.engineProfilePath);
     assert.equal(fixture.calls[0].env.DEF_AGENT_ENGINE_DEFAULT_PROFILE_REF, 'default');
+    assert.equal(fixture.calls[0].env.DEF_AGENT_INTEROP_ENABLED, '0');
     assert.equal(fixture.calls[0].env.DEF_AGENT_PARENT_PID, String(process.pid));
     assert.doesNotMatch(JSON.stringify(first), /test-token/u);
 
@@ -313,6 +316,17 @@ test('lazy start, health reuse, private grant registration, and ordered stop', a
     assert.equal(fixture.child.killed, false, '正常 shutdown 应先让 Host 自己退出');
     assert.equal(fs.existsSync(fixture.runtime.readyFile), false);
   } finally {
+    fixture.cleanup();
+  }
+});
+
+test('development interop is forwarded only through the explicit runtime option', async () => {
+  const fixture = await createFixture({ interopEnabled: true });
+  try {
+    await fixture.runtime.start();
+    assert.equal(fixture.calls[0].env.DEF_AGENT_INTEROP_ENABLED, '1');
+  } finally {
+    await fixture.runtime.stop();
     fixture.cleanup();
   }
 });

@@ -36,6 +36,7 @@ import {
   exitDesktopAgentModeToWorkbench,
   type DesktopAgentModeNavigationDependencies,
 } from './browserAgentRuntime';
+import type { DesktopAgentConsumerSnapshot } from './desktopAgentBridge';
 
 const binding = {
   workspaceId: asWorkspaceId('workspace-runtime'),
@@ -250,6 +251,19 @@ class FakeStore implements BrowserProductStore {
   async reconcileCommand(): Promise<ProductCommandResult | null> { return this.result; }
 }
 
+class RestoringStore extends FakeStore {
+  readonly persisted: ProductSnapshotEnvelope;
+
+  constructor(events: string[], persisted: ProductSnapshotEnvelope) {
+    super(events);
+    this.persisted = persisted;
+  }
+
+  override async readRuntimeSnapshot(): Promise<ProductSnapshotEnvelope> {
+    return structuredClone(this.persisted);
+  }
+}
+
 class InputBindingStore extends FakeStore {
   async createRuntimeSnapshot(input: RuntimeSnapshotInput): Promise<ProductSnapshotEnvelope> {
     this.snapshotInputs.push(input);
@@ -421,6 +435,69 @@ await runtime.publishMainWorkbenchSnapshot({
 assert.equal(refreshes, 1);
 assert.equal(bridge.snapshots.length, 1);
 assert.equal(runtime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+
+// A full-page refresh restores the durable browser snapshot before Canvas has
+// rendered again. Every replacement consumer registration republishes that
+// same snapshot so the Host can open the persisted Session immediately.
+{
+  const restoreEvents: string[] = [];
+  const restoreBridge = new FakeBridge(restoreEvents);
+  const restoredSnapshot: ProductSnapshotEnvelope = {
+    protocolVersion: 1,
+    binding,
+    capturedAt: '2026-08-07T00:00:00.000Z',
+    payload: runtimeSnapshotAt(100) as unknown as JsonValue & Record<string, JsonValue>,
+  };
+  const restoreStore = new RestoringStore(restoreEvents, restoredSnapshot);
+  let restoreState: DesktopAgentConsumerSnapshot = {
+    state: 'registered',
+    visible: true,
+    role: 'writer',
+    consumer,
+    error: null,
+  };
+  const restoreListeners = new Set<(state: DesktopAgentConsumerSnapshot) => void>();
+  let restoreRefreshes = 0;
+  const restoreController = {
+    getState: () => restoreState,
+    refreshEligibility: async () => { restoreRefreshes += 1; },
+    subscribe(listener: (state: DesktopAgentConsumerSnapshot) => void) {
+      restoreListeners.add(listener);
+      listener(restoreState);
+      return () => restoreListeners.delete(listener);
+    },
+  };
+  const restoreRuntime = new BrowserAgentRuntime({
+    bridge: restoreBridge,
+    consumerController: restoreController,
+    store: restoreStore,
+  });
+
+  await restoreRuntime.initializeWorkspace();
+  assert.equal(restoreStore.snapshotInputs.length, 0, 'refresh recovery must not rewrite the browser snapshot');
+  assert.equal(restoreRuntime.getBinding()?.snapshotDigest, binding.snapshotDigest);
+  assert.equal(restoreRefreshes, 1);
+  assert.equal(restoreBridge.snapshots.length, 1);
+
+  restoreState = {
+    state: 'blocked',
+    visible: true,
+    role: 'writer',
+    consumer: null,
+    error: 'reloading',
+  };
+  for (const listener of restoreListeners) listener(restoreState);
+  restoreState = {
+    state: 'registered',
+    visible: true,
+    role: 'writer',
+    consumer,
+    error: null,
+  };
+  for (const listener of restoreListeners) listener(restoreState);
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(restoreBridge.snapshots.length, 2, 'a replacement consumer must receive the restored snapshot');
+}
 
 // Re-render churn changes only snapshot/row timestamps. It must not cause a
 // second runtime hash, SQLite write, or Host publication. A real damage report

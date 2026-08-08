@@ -20,6 +20,8 @@ import {
   type EngineTurnHandle,
   type EngineTurnInput,
   type EngineTurnRef,
+  type JsonObject,
+  type ProductBinding,
 } from '../../core/contracts/index.ts';
 import { HostToolBridge } from '../../runtime/kernel/host-tool-bridge.ts';
 import { asRuntimeContentId, asRuntimeSessionId } from '../../runtime/kernel/ids.ts';
@@ -33,6 +35,7 @@ import {
   RuntimeSession,
   type RuntimeRunHandle,
 } from '../../runtime/kernel/runtime-session.ts';
+import type { RuntimeProductContext } from '../../runtime/kernel/session/context-builder.ts';
 import type { RuntimeRunTerminal } from '../../runtime/kernel/stream-events.ts';
 import {
   toRuntimeModelConnection,
@@ -60,6 +63,7 @@ interface SessionState {
   runtime: RuntimeSession;
   profileRef: string;
   systemContext: string;
+  productContext: RuntimeProductContext | undefined;
   bridge: HostToolBridge | null;
 }
 
@@ -170,6 +174,7 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
     await this.#requireProfile(input.providerProfileRef);
     state.profileRef = input.providerProfileRef;
     state.systemContext = input.systemContext;
+    state.productContext = runtimeProductContext(input.context);
 
     const engineTurnId = asEngineTurnId(`def-runtime-turn-${input.defTurnId}`);
     const stream = new EngineEventStream();
@@ -287,6 +292,7 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
       filePath: input.filePath,
       profileRef: input.profileRef,
       systemContext: '',
+      productContext: undefined,
       bridge: null,
     });
     const options = {
@@ -300,7 +306,10 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
         }
         return state.bridge;
       },
-      context: () => ({ stableSystemPrompt: state.systemContext }),
+      context: () => ({
+        stableSystemPrompt: state.systemContext,
+        ...(state.productContext ? { product: state.productContext } : {}),
+      }),
       systemPromptVersion: this.#systemPromptVersion,
     } as const;
     state.runtime = input.create
@@ -348,6 +357,33 @@ export class DefRuntimeEngineAdapter implements AgentEngine {
   #assertRunning(): void {
     if (this.#shutdown) throw new DefRuntimeEngineError('DEF_RUNTIME_SHUTDOWN', 'DEF Runtime has stopped.');
   }
+}
+
+function runtimeProductContext(value: JsonObject | undefined): RuntimeProductContext | undefined {
+  if (!value || !isJsonObject(value.binding) || !isProductBinding(value.binding)) return undefined;
+  const snapshot = isJsonObject(value.snapshot) ? value.snapshot : undefined;
+  return {
+    binding: value.binding,
+    ...(snapshot ? { snapshot } : {}),
+  };
+}
+
+function isProductBinding(value: JsonObject): value is JsonObject & ProductBinding {
+  return typeof value.workspaceId === 'string'
+    && value.workspaceId.length > 0
+    && typeof value.databaseGeneration === 'string'
+    && value.databaseGeneration.length > 0
+    && typeof value.timelineId === 'string'
+    && value.timelineId.length > 0
+    && (value.checkoutTargetId === null || typeof value.checkoutTargetId === 'string')
+    && Number.isSafeInteger(value.checkoutUpdatedAt)
+    && Number.isSafeInteger(value.contentRevision)
+    && typeof value.snapshotDigest === 'string'
+    && value.snapshotDigest.length > 0;
+}
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function runtimeModelConnection(profile: ProviderProfile): RuntimeModelConnection {

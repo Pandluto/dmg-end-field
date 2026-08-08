@@ -3,7 +3,6 @@ import type { ConversationToolPart } from '../../../agent/core/contracts/convers
 import {
   Collapsible,
   Icon,
-  TextShimmer,
 } from './opencode-primitives.tsx';
 import {
   isActiveToolState,

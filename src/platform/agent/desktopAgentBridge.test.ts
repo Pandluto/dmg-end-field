@@ -17,6 +17,8 @@ import {
 import {
   createDesktopAgentBridge,
   createDesktopAgentConsumerController,
+  DESKTOP_AGENT_CONSUMER_ID_STORAGE_KEY,
+  DESKTOP_AGENT_EXECUTOR_LEASE_ID_STORAGE_KEY,
   DesktopAgentBridgeError,
   requestDesktopAgentModeLaunch,
   type AgentBridgeFetchResponse,
@@ -211,6 +213,71 @@ class FakeLease implements AgentWorkspaceLease {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
+}
+
+// A same-tab reload must reclaim the exact Browser consumer identity without
+// a late keepalive close racing the replacement document's registration.
+{
+  const location = makeLocation('http://127.0.0.1:31457/#/timeline/ai');
+  const storage = new MemoryStorage();
+  authorizeStorage(storage);
+  const lease = new FakeLease();
+  const registrations: Array<{ consumerId: string; executorLeaseId: string }> = [];
+  let closes = 0;
+  const bridge = createDesktopAgentBridge({
+    location,
+    sessionStorage: storage,
+    fetch: async (url, init) => {
+      if (url.endsWith('/workbench/register')) {
+        const body = JSON.parse(String(init?.body || '{}')) as {
+          consumerId: string;
+          executorLeaseId: string;
+          binding: ReturnType<typeof binding>;
+        };
+        registrations.push(body);
+        return response({
+          consumer: {
+            consumerId: body.consumerId,
+            executorLeaseId: body.executorLeaseId,
+            binding: body.binding,
+            registeredAt: 1,
+            heartbeatExpiresAt: 20_000,
+          },
+        }, 201);
+      }
+      if (url.endsWith('/workbench/close')) closes += 1;
+      return response({ ok: true });
+    },
+  });
+  const firstDocument = new FakeDocument();
+  const first = createDesktopAgentConsumerController({
+    bridge,
+    workspaceLease: lease,
+    document: firstDocument,
+    getBinding: binding,
+    sessionStorage: storage,
+    setInterval: () => 1,
+    clearInterval: () => undefined,
+  });
+  await first.start();
+  firstDocument.emit('beforeunload');
+  assert.equal(closes, 0, 'reload detaches locally and leaves the bounded Host lease reclaimable');
+
+  const second = createDesktopAgentConsumerController({
+    bridge,
+    workspaceLease: lease,
+    document: new FakeDocument(),
+    getBinding: binding,
+    sessionStorage: storage,
+    setInterval: () => 1,
+    clearInterval: () => undefined,
+  });
+  await second.start();
+  assert.equal(registrations.length, 2);
+  assert.deepEqual(registrations[1], registrations[0]);
+  assert.equal(storage.getItem(DESKTOP_AGENT_CONSUMER_ID_STORAGE_KEY), registrations[0]?.consumerId);
+  assert.equal(storage.getItem(DESKTOP_AGENT_EXECUTOR_LEASE_ID_STORAGE_KEY), registrations[0]?.executorLeaseId);
+  await second.stop();
 }
 
 {
@@ -790,6 +857,10 @@ class FakeLease implements AgentWorkspaceLease {
   const session = productSession();
   const defTurnId = asDefTurnId('def-turn-product');
   const clientTurnId = asClientTurnId('client-turn-product');
+  const sessionSurfaceUrl = new URL('http://127.0.0.1:45678/agent-ui/');
+  sessionSurfaceUrl.searchParams.set('apiOrigin', 'http://127.0.0.1:45678');
+  sessionSurfaceUrl.searchParams.set('browserOrigin', 'http://127.0.0.1:31457');
+  sessionSurfaceUrl.searchParams.set('defSessionId', session.defSessionId);
   const bridge = createDesktopAgentBridge({
     location,
     sessionStorage: storage,
@@ -802,12 +873,12 @@ class FakeLease implements AgentWorkspaceLease {
       if (url.pathname === '/agent-host/sessions' && init?.method === 'POST') {
         return response({ protocolVersion: 2, session }, 201);
       }
-      if (url.pathname === '/agent-host/native-ui/launch' && init?.method === 'POST') {
+      if (url.pathname === '/agent-host/ui/session-surface/launch' && init?.method === 'POST') {
         return response({
           protocolVersion: 2,
           launch: {
             defSessionId: session.defSessionId,
-            src: 'http://127.0.0.1:45678/workbench/session/native?auth_token=opaque',
+            src: sessionSurfaceUrl.toString(),
           },
         }, 201);
       }
@@ -861,10 +932,9 @@ class FakeLease implements AgentWorkspaceLease {
 
   assert.equal((await bridge.listSessions())[0].defSessionId, session.defSessionId);
   assert.equal((await bridge.createSession({ providerProfileRef: 'default' })).defSessionId, session.defSessionId);
-  assert.equal(
-    (await bridge.launchNativeUi(session.defSessionId)).src,
-    'http://127.0.0.1:45678/workbench/session/native?auth_token=opaque',
-  );
+  const surfaceLaunch = await bridge.launchNativeUi(session.defSessionId);
+  assert.equal(new URL(surfaceLaunch.src).pathname, '/agent-ui/');
+  assert.equal(new URL(surfaceLaunch.src).hash, '#capability=ui-capability-12345678901234567890');
   assert.equal((await bridge.getSession(session.defSessionId)).engine.runtimeVersion, '1.0.0');
   assert.equal((await bridge.archiveSession(session.defSessionId)).status, 'archived');
   assert.equal((await bridge.restoreSession(session.defSessionId)).status, 'ready');
@@ -880,13 +950,22 @@ class FakeLease implements AgentWorkspaceLease {
   const createCall = calls.find((call) => (
     call.url.pathname === '/agent-host/sessions' && call.init?.method === 'POST'
   ));
-  assert.deepEqual(JSON.parse(String(createCall?.init?.body)), { providerProfileRef: 'default' });
-  const nativeUiCall = calls.find((call) => call.url.pathname === '/agent-host/native-ui/launch');
-  assert.deepEqual(JSON.parse(String(nativeUiCall?.init?.body)), { defSessionId: session.defSessionId });
-  const nativeUiRestoreCall = calls.find((call) => call.url.pathname === '/agent-host/native-ui/restore');
-  assert.deepEqual(JSON.parse(String(nativeUiRestoreCall?.init?.body)), { defSessionId: session.defSessionId });
+  assert.ok(createCall?.init?.body, 'Session create request must carry its JSON body');
+  assert.deepEqual(JSON.parse(String(createCall.init.body)), { providerProfileRef: 'default' });
+  const nativeUiCall = calls.find((call) => call.url.pathname === '/agent-host/ui/session-surface/launch');
+  assert.ok(nativeUiCall?.init?.body, 'Session Surface launch request must carry its JSON body');
+  assert.deepEqual(JSON.parse(String(nativeUiCall.init.body)), { defSessionId: session.defSessionId });
+  const restoreCalls = calls.filter((call) => (
+    call.url.pathname === `/agent-host/sessions/${session.defSessionId}/restore`
+  ));
+  assert.equal(restoreCalls.length, 2, 'the compatibility restore alias uses the Product Session route');
+  assert.deepEqual(
+    restoreCalls.map((call) => JSON.parse(String(call.init?.body || '{}'))),
+    [{}, {}],
+  );
   const turnCall = calls.find((call) => call.url.pathname.endsWith('/turns'));
-  assert.deepEqual(JSON.parse(String(turnCall?.init?.body)), {
+  assert.ok(turnCall?.init?.body, 'Turn request must carry its JSON body');
+  assert.deepEqual(JSON.parse(String(turnCall.init.body)), {
     clientTurnId,
     userMessage: '检查当前工作区',
   });

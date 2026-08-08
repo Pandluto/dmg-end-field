@@ -605,6 +605,7 @@ async function startApplication() {
     sessionStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'session-store'),
     productCommandStoreRoot: path.join(app.getPath('userData'), 'runtime', 'def-agent-host', 'product-commands'),
     engineProfilePath: agentProviderProfilePath,
+    interopEnabled: !app.isPackaged && process.env.DEF_AGENT_INTEROP_ENABLED === '1',
     browserOrigin,
     diagnostic,
     launchService: ({ servicePath, cwd, env }) => utilityProcess.fork(servicePath, [], {

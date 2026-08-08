@@ -14,6 +14,7 @@ import {
   type Phase2ProductCommand,
   type ProductBinding,
   type ProductCommandResult,
+  type ProductSnapshotEnvelope,
 } from '../../../agent/core/contracts/index.ts';
 import type {
   DefPreparedWorkNodeCandidateRefV1,
@@ -121,7 +122,7 @@ export interface BrowserAgentRuntimeOptions {
   readonly consumerController: Pick<
     DesktopAgentConsumerController,
     'getState' | 'refreshEligibility'
-  >;
+  > & Partial<Pick<DesktopAgentConsumerController, 'subscribe'>>;
   readonly store: BrowserProductStore;
   readonly postCommandSnapshotTimeoutMs?: number;
   readonly commandLongPollWaitMs?: number;
@@ -136,6 +137,12 @@ export class BrowserAgentRuntime {
   readonly #pendingHostResults = new Set<CommandId>();
   #binding: ProductBinding | null = null;
   #latestSnapshot: MainWorkbenchSnapshot | null = null;
+  #latestProductSnapshot: ProductSnapshotEnvelope | null = null;
+  #consumerLifecycleKey = '';
+  #consumerRegistrationRevision = 0;
+  #publishedHostSnapshotKey = '';
+  #hostSnapshotPublishRequested = false;
+  #hostSnapshotPublishPromise: Promise<void> | null = null;
   #commandCursor = 0;
   #consumerRegistrationKey = '';
   #pendingSnapshot: PendingSnapshotPublish | null = null;
@@ -155,6 +162,16 @@ export class BrowserAgentRuntime {
     this.#commandLongPollWaitMs = Number.isSafeInteger(options.commandLongPollWaitMs)
       ? Math.max(0, options.commandLongPollWaitMs as number)
       : DESKTOP_AGENT_COMMAND_LONG_POLL_WAIT_MS;
+    this.#consumerController.subscribe?.((state) => {
+      const nextKey = state.state === 'registered' && state.consumer
+        ? `${state.consumer.consumerId}:${state.consumer.executorLeaseId}`
+        : '';
+      if (nextKey === this.#consumerLifecycleKey) return;
+      this.#consumerLifecycleKey = nextKey;
+      if (!nextKey) return;
+      this.#consumerRegistrationRevision += 1;
+      void this.#requestHostSnapshotPublish().catch(() => undefined);
+    });
   }
 
   isActive(): boolean {
@@ -174,6 +191,8 @@ export class BrowserAgentRuntime {
     this.cancelCommandPull();
     this.#binding = null;
     this.#latestSnapshot = null;
+    this.#latestProductSnapshot = null;
+    this.#publishedHostSnapshotKey = '';
     const pending = this.#pendingSnapshot;
     this.#pendingSnapshot = null;
     if (pending) pending.waiters.forEach((waiter) => waiter.resolve());
@@ -183,12 +202,20 @@ export class BrowserAgentRuntime {
   async initializeWorkspace(): Promise<void> {
     if (!this.isActive()) return;
     await this.#store.initialize();
+    if (this.#binding || this.#latestProductSnapshot) return;
+    const persisted = await this.#store.readRuntimeSnapshot();
+    if (!persisted) return;
+    this.#binding = persisted.binding;
+    this.#latestProductSnapshot = persisted;
+    this.#latestSnapshot = restorableMainWorkbenchSnapshot(persisted.payload);
+    await this.#consumerController.refreshEligibility();
+    await this.#requestHostSnapshotPublish();
   }
 
   publishMainWorkbenchSnapshot(snapshot: MainWorkbenchSnapshot): Promise<void> {
     if (!this.isActive()) return Promise.resolve();
     if (this.#binding && this.#latestSnapshot && sameMainWorkbenchSnapshotSemantics(this.#latestSnapshot, snapshot)) {
-      return Promise.resolve();
+      return this.#requestHostSnapshotPublish();
     }
     const promise = new Promise<void>((resolve, reject) => {
       const pending = this.#pendingSnapshot;
@@ -271,45 +298,81 @@ export class BrowserAgentRuntime {
       capturedAt: new Date(snapshot.updatedAt).toISOString(),
     });
     if (!authorityIsCurrent()) return;
+    this.#binding = runtimeSnapshot.binding;
+    this.#latestProductSnapshot = runtimeSnapshot;
+    this.#latestSnapshot = cloneSnapshot(snapshot);
+    this.#publishedHostSnapshotKey = '';
     const currentConsumer = this.#consumerController.getState().consumer;
     const requiresRegistration = !currentConsumer
       || !sameConsumerScope(currentConsumer.binding, runtimeSnapshot.binding);
     if (requiresRegistration) {
-      this.#binding = runtimeSnapshot.binding;
       try {
         await this.#consumerController.refreshEligibility();
       } catch (error) {
-        this.#binding = null;
         throw error;
       }
       if (!authorityIsCurrent()) return;
     }
-    const consumer = this.#consumerController.getState().consumer;
-    if (!consumer) {
-      if (requiresRegistration) this.#binding = null;
-      return;
-    }
     try {
-      await this.#bridge.publishSnapshot({
-        consumerId: consumer.consumerId,
-        executorLeaseId: consumer.executorLeaseId,
-        snapshot: runtimeSnapshot,
-      });
+      await this.#requestHostSnapshotPublish();
       if (!authorityIsCurrent()) {
         this.#binding = null;
         this.#latestSnapshot = null;
+        this.#latestProductSnapshot = null;
+        this.#publishedHostSnapshotKey = '';
         if (this.isActive()) await this.#consumerController.refreshEligibility().catch(() => undefined);
         return;
       }
     } catch (error) {
+      // The browser-side durable snapshot remains recoverable, but a publish
+      // with an unknown Host outcome must not stay eligible for commands.
       this.#binding = null;
+      this.#publishedHostSnapshotKey = '';
       await this.#consumerController.refreshEligibility().catch(() => undefined);
       throw error;
     }
-    this.#binding = runtimeSnapshot.binding;
-    this.#latestSnapshot = cloneSnapshot(snapshot);
     this.#signalSnapshotPublished();
     await this.#consumerController.refreshEligibility();
+  }
+
+  #requestHostSnapshotPublish(): Promise<void> {
+    this.#hostSnapshotPublishRequested = true;
+    if (this.#hostSnapshotPublishPromise) return this.#hostSnapshotPublishPromise;
+    const loop = (async () => {
+      while (this.#hostSnapshotPublishRequested) {
+        this.#hostSnapshotPublishRequested = false;
+        const snapshot = this.#latestProductSnapshot;
+        const consumer = this.#consumerController.getState().consumer;
+        if (!snapshot || !consumer || !sameConsumerScope(consumer.binding, snapshot.binding)) continue;
+        const publishKey = [
+          this.#consumerRegistrationRevision,
+          consumer.consumerId,
+          consumer.executorLeaseId,
+          snapshot.binding.snapshotDigest,
+        ].join(':');
+        if (publishKey === this.#publishedHostSnapshotKey) continue;
+        await this.#bridge.publishSnapshot({
+          consumerId: consumer.consumerId,
+          executorLeaseId: consumer.executorLeaseId,
+          snapshot,
+        });
+        const current = this.#consumerController.getState().consumer;
+        if (
+          this.#latestProductSnapshot === snapshot
+          && current?.consumerId === consumer.consumerId
+          && current.executorLeaseId === consumer.executorLeaseId
+        ) {
+          this.#publishedHostSnapshotKey = publishKey;
+        } else {
+          this.#hostSnapshotPublishRequested = true;
+        }
+      }
+    })().finally(() => {
+      if (this.#hostSnapshotPublishPromise === loop) this.#hostSnapshotPublishPromise = null;
+      if (this.#hostSnapshotPublishRequested) void this.#requestHostSnapshotPublish().catch(() => undefined);
+    });
+    this.#hostSnapshotPublishPromise = loop;
+    return loop;
   }
 
   #startSnapshotPublishLoop(): void {
@@ -1292,6 +1355,31 @@ function snapshotOperatorConfigMatches(snapshot: MainWorkbenchSnapshot, finalCon
 
 function cloneSnapshot(snapshot: MainWorkbenchSnapshot): MainWorkbenchSnapshot {
   return JSON.parse(JSON.stringify(snapshot)) as MainWorkbenchSnapshot;
+}
+
+function restorableMainWorkbenchSnapshot(payload: JsonObject): MainWorkbenchSnapshot | null {
+  if (
+    payload.schemaVersion !== 1
+    || typeof payload.updatedAt !== 'number'
+    || !Number.isFinite(payload.updatedAt)
+    || (payload.source !== 'app' && payload.source !== 'rest')
+    || !Array.isArray(payload.selectedCharacters)
+    || !Array.isArray(payload.skillButtons)
+  ) return null;
+  const checkout = payload.checkout;
+  if (
+    checkout !== null
+    && checkout !== undefined
+    && (
+      typeof checkout !== 'object'
+      || Array.isArray(checkout)
+      || (checkout as JsonObject).targetType !== 'snapshot' && (checkout as JsonObject).targetType !== 'work-node'
+      || typeof (checkout as JsonObject).targetId !== 'string'
+      || !Number.isSafeInteger((checkout as JsonObject).contentRevision)
+      || !Number.isSafeInteger((checkout as JsonObject).updatedAt)
+    )
+  ) return null;
+  return cloneSnapshot(payload as unknown as MainWorkbenchSnapshot);
 }
 
 function snapshotMergeKey(snapshot: MainWorkbenchSnapshot): string {

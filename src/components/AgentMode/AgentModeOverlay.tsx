@@ -234,7 +234,10 @@ export function AgentModeOverlay({
     embedded ? 'is-embedded' : '',
     className,
   ].filter(Boolean).join(' ');
-  const visibleError = error || bridgeState.error || consumerState.error;
+  // Consumer registration conflicts during a reload are self-healing. Keep
+  // them in the status line instead of replacing the whole conversation with
+  // a fatal error panel while the bounded retry is running.
+  const visibleError = error || bridgeState.error;
 
   return (
     <aside className={rootClassName} aria-label="AI 模式">

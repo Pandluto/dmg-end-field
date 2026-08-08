@@ -23,13 +23,53 @@ try {
   const client = new AgentUiHttpClient(launch);
   const store = new BrowserConversationStore(client);
   let lastSubmittedPrompt = '';
+  let reconnectTimer: number | null = null;
+  let reconnectDelay = 250;
+  let connection: Promise<void> | null = null;
+
+  const scheduleReconnect = () => {
+    if (reconnectTimer !== null || connection) return;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      void connectConversation();
+    }, reconnectDelay);
+    reconnectDelay = Math.min(4_000, reconnectDelay * 2);
+  };
+
+  const connectConversation = (force = false): Promise<void> => {
+    if (connection && !force) return connection;
+    const pending = store.connect(launch.defSessionId);
+    connection = pending;
+    void pending.catch(() => undefined).finally(() => {
+      if (connection !== pending) return;
+      connection = null;
+      const status = store.getState().status;
+      if (status === 'disconnected' || status === 'error') scheduleReconnect();
+    });
+    return pending;
+  };
+
+  store.subscribe((state) => {
+    if (state.status === 'ready' || state.status === 'loading' || state.status === 'reconnecting') {
+      reconnectDelay = 250;
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      return;
+    }
+    if (state.status === 'disconnected' || state.status === 'error') scheduleReconnect();
+  });
 
   const submitPrompt = async (prompt: string) => {
     lastSubmittedPrompt = prompt;
-    await client.startTurn(launch.defSessionId, prompt);
-    const status = store.getState().status;
-    if (status === 'disconnected' || status === 'error') {
-      void store.reconnect().catch(() => undefined);
+    try {
+      await client.startTurn(launch.defSessionId, prompt);
+    } finally {
+      // Re-anchor on the accepted Turn before consuming deltas. This closes
+      // the snapshot/SSE race and also materializes a Host-side preflight
+      // failure without requiring a full Workbench refresh.
+      void connectConversation(true).catch(() => undefined);
     }
   };
 
@@ -37,7 +77,7 @@ try {
     root,
     store,
     sessionId: launch.defSessionId,
-    connect: true,
+    connect: false,
     onSubmitPrompt: submitPrompt,
     actions: {
       onStop: (context) => client.stopTurn(launch.defSessionId, context.turnId),
@@ -47,6 +87,7 @@ try {
       },
     },
   });
+  void connectConversation().catch(() => undefined);
 } catch (error) {
   mountAgentSessionSurface({
     root,
