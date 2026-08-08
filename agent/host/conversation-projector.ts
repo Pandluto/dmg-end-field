@@ -1618,10 +1618,15 @@ function requireOrCreateHostErrorMessage(
     completedAt: event.occurredAt,
     partIds: [],
   };
-  const index = state.messages.length;
-  state.messages.push(message);
+  const laterIndex = state.messages.findIndex((candidate) => candidate.createdAt > message.createdAt);
+  upsertIndexedValue(
+    state.messages,
+    state.messageIndexById,
+    message,
+    laterIndex < 0 ? state.messages.length : laterIndex,
+    (candidate) => candidate.id,
+  );
   state.messageById.set(message.id, message);
-  state.messageIndexById.set(message.id, index);
   indexTurnMessage(state, message);
   refreshMessageSize(state, message);
   return message;
