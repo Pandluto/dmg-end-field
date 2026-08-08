@@ -176,6 +176,7 @@ export class SyntheticRuntimeTranscriptSource implements RuntimeTranscriptSource
   readonly #waiters: Array<() => void> = [];
   readonly #live: boolean;
   #closed = false;
+  readonly metrics = { active: 0, returns: 0, aborts: 0 };
 
   constructor(snapshot: RuntimeTranscriptSnapshot, live = false) {
     this.#snapshot = clone(snapshot);
@@ -189,8 +190,9 @@ export class SyntheticRuntimeTranscriptSource implements RuntimeTranscriptSource
   subscribeRuntime(
     _session: EngineSessionRef,
     afterRuntimeSequence: number,
+    signal?: AbortSignal,
   ): AsyncIterable<RuntimeTranscriptEvent> {
-    return this.#subscribe(afterRuntimeSequence);
+    return this.#subscribe(afterRuntimeSequence, signal);
   }
 
   append(
@@ -220,9 +222,19 @@ export class SyntheticRuntimeTranscriptSource implements RuntimeTranscriptSource
     return clone(this.#snapshot);
   }
 
-  async *#subscribe(afterRuntimeSequence: number): AsyncIterable<RuntimeTranscriptEvent> {
+  async *#subscribe(afterRuntimeSequence: number, signal?: AbortSignal): AsyncIterable<RuntimeTranscriptEvent> {
+    this.metrics.active += 1;
+    let aborted = false;
+    const onAbort = () => {
+      if (aborted) return;
+      aborted = true;
+      this.metrics.aborts += 1;
+      this.#wake();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     let cursor = afterRuntimeSequence;
-    while (!this.#closed) {
+    try {
+    while (!this.#closed && !signal?.aborted) {
       const pending = this.#events.filter((event) => event.sequence > cursor);
       if (pending.length > 0) {
         for (const event of pending) {
@@ -234,6 +246,11 @@ export class SyntheticRuntimeTranscriptSource implements RuntimeTranscriptSource
       }
       if (!this.#live) return;
       await this.#waitForChange();
+    }
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      this.metrics.active -= 1;
+      this.metrics.returns += 1;
     }
   }
 
@@ -254,6 +271,7 @@ export class SyntheticHostJournalSource implements ConversationHostJournalSource
   readonly #waiters: Array<() => void> = [];
   readonly #live: boolean;
   #closed = false;
+  readonly metrics = { active: 0, returns: 0, aborts: 0 };
 
   constructor(sessionId: DefSessionId, engineSession: EngineSessionRef, live = false) {
     this.#sessionId = sessionId;
@@ -270,8 +288,8 @@ export class SyntheticHostJournalSource implements ConversationHostJournalSource
     return this.getCurrentSnapshot();
   }
 
-  subscribe(defSessionId: DefSessionId, afterHostSequence: number): AsyncIterable<DefEvent> {
-    return defSessionId === this.#sessionId ? this.#subscribe(afterHostSequence) : emptyAsyncIterable();
+  subscribe(defSessionId: DefSessionId, afterHostSequence: number, signal?: AbortSignal): AsyncIterable<DefEvent> {
+    return defSessionId === this.#sessionId ? this.#subscribe(afterHostSequence, signal) : emptyAsyncIterable();
   }
 
   append(event: DefEvent): DefEvent {
@@ -293,9 +311,19 @@ export class SyntheticHostJournalSource implements ConversationHostJournalSource
     };
   }
 
-  async *#subscribe(afterHostSequence: number): AsyncIterable<DefEvent> {
+  async *#subscribe(afterHostSequence: number, signal?: AbortSignal): AsyncIterable<DefEvent> {
+    this.metrics.active += 1;
+    let aborted = false;
+    const onAbort = () => {
+      if (aborted) return;
+      aborted = true;
+      this.metrics.aborts += 1;
+      this.#wake();
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     let cursor = afterHostSequence;
-    while (!this.#closed) {
+    try {
+    while (!this.#closed && !signal?.aborted) {
       const pending = this.#events.filter((event) => event.sequence > cursor);
       if (pending.length > 0) {
         for (const event of pending) {
@@ -307,6 +335,11 @@ export class SyntheticHostJournalSource implements ConversationHostJournalSource
       }
       if (!this.#live) return;
       await this.#waitForChange();
+    }
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      this.metrics.active -= 1;
+      this.metrics.returns += 1;
     }
   }
 
@@ -427,14 +460,26 @@ function applyRuntimeMutation(
   if (mutation.type === 'message.upsert') {
     const existing = messages.findIndex((message) => message.id === mutation.message.id);
     if (existing >= 0) messages.splice(existing, 1);
+    const keep = new Set(mutation.message.partIds);
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      if (parts[index]?.messageId === mutation.message.id && !keep.has(parts[index].id)) parts.splice(index, 1);
+    }
     messages.splice(Math.min(mutation.index, messages.length), 0, clone(mutation.message));
   } else if (mutation.type === 'message.remove') {
     const index = messages.findIndex((message) => message.id === mutation.messageId);
     if (index >= 0) messages.splice(index, 1);
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      if (parts[partIndex]?.messageId === mutation.messageId) parts.splice(partIndex, 1);
+    }
   } else if (mutation.type === 'part.upsert') {
     const existing = parts.findIndex((part) => part.id === mutation.part.id);
     if (existing >= 0) parts.splice(existing, 1);
     parts.splice(Math.min(mutation.index, parts.length), 0, clone(mutation.part));
+    const message = messages.find((candidate) => candidate.id === mutation.part.messageId);
+    if (message && !message.partIds.includes(mutation.part.id)) {
+      const messageIndex = messages.indexOf(message);
+      messages[messageIndex] = { ...clone(message), partIds: [...message.partIds, mutation.part.id] };
+    }
   } else if (mutation.type === 'part.delta') {
     const index = parts.findIndex((part) => part.id === mutation.partId);
     const part = parts[index];
@@ -444,6 +489,11 @@ function applyRuntimeMutation(
   } else if (mutation.type === 'part.remove') {
     const index = parts.findIndex((part) => part.id === mutation.partId);
     if (index >= 0) parts.splice(index, 1);
+    const message = messages.find((candidate) => candidate.id === mutation.messageId);
+    if (message) {
+      const messageIndex = messages.indexOf(message);
+      messages[messageIndex] = { ...clone(message), partIds: message.partIds.filter((partId) => partId !== mutation.partId) };
+    }
   }
   return {
     ...clone(snapshot),

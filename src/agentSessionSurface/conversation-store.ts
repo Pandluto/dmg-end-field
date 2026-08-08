@@ -1,4 +1,6 @@
 import {
+  assertConversationEvent,
+  assertConversationSnapshot,
   assertConversationEventTransition,
   DEF_CONVERSATION_LIMITS,
   type ConversationEvent,
@@ -61,8 +63,10 @@ export function reduceConversationEvent(
   snapshot: ConversationSnapshot | null,
   event: ConversationEvent,
 ): ConversationSnapshot | null {
-  if (event.schemaVersion !== 1) {
-    throw new ConversationStoreError('INVALID_EVENT', 'Conversation event schema is unsupported');
+  try {
+    assertConversationEvent(event);
+  } catch (error) {
+    throw new ConversationStoreError('INVALID_EVENT', error instanceof Error ? error.message : 'Conversation event is invalid', error);
   }
   if (event.type === 'conversation.snapshot') {
     if (snapshot && snapshot.defSessionId !== event.defSessionId) {
@@ -73,7 +77,12 @@ export function reduceConversationEvent(
     }
     return clone(event.snapshot);
   }
-  if (event.type === 'conversation.reset-required') return null;
+  if (event.type === 'conversation.reset-required') {
+    if (snapshot && snapshot.defSessionId !== event.defSessionId) {
+      throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation reset belongs to another Session');
+    }
+    return null;
+  }
   if (!snapshot) throw new ConversationStoreError('NO_SNAPSHOT', 'Incremental Conversation event has no snapshot');
   if (event.defSessionId !== snapshot.defSessionId) {
     throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation event belongs to another Session');
@@ -89,8 +98,21 @@ export function reduceConversationEvent(
   }
 
   if (event.type === 'message.upsert') {
+    const partIds = new Set(event.message.partIds);
+    for (const partId of partIds) {
+      const parent = snapshot.parts.find((part) => part.id === partId);
+      if (!parent) throw new ConversationStoreError('SOURCE_GAP', `Message ${event.message.id} references missing Part ${partId}`);
+      if (parent.messageId !== event.message.id) throw new ConversationStoreError('INVALID_EVENT', 'Message upsert would reparent a Part');
+    }
+    for (const part of snapshot.parts) {
+      if (part.messageId === event.message.id && !partIds.has(part.id)) continue;
+      if (partIds.has(part.id) && part.messageId !== event.message.id) {
+        throw new ConversationStoreError('INVALID_EVENT', 'Message upsert would reparent a Part');
+      }
+    }
     const messages = upsertAt(snapshot.messages, event.message, event.index, (message) => message.id);
-    return snapshotWith(snapshot, { messages }, event.cursor);
+    const parts = snapshot.parts.filter((part) => part.messageId !== event.message.id || partIds.has(part.id));
+    return snapshotWith(snapshot, { messages, parts, status: event.status }, event.cursor);
   }
   if (event.type === 'message.remove') {
     if (!snapshot.messages.some((message) => message.id === event.messageId)) {
@@ -98,15 +120,25 @@ export function reduceConversationEvent(
     }
     const messages = snapshot.messages.filter((message) => message.id !== event.messageId);
     const parts = snapshot.parts.filter((part) => part.messageId !== event.messageId);
-    return snapshotWith(snapshot, { messages, parts }, event.cursor);
+    return snapshotWith(snapshot, { messages, parts, status: event.status }, event.cursor);
   }
   if (event.type === 'part.upsert' || event.type === 'interaction.upsert') {
     const part = event.part;
     const message = findMessage(snapshot.messages, part.messageId);
     if (!message) throw new ConversationStoreError('SOURCE_GAP', `Part ${part.id} has no parent Message`);
+    const existing = snapshot.parts.find((candidate) => candidate.id === part.id);
+    if (existing && existing.messageId !== part.messageId) {
+      throw new ConversationStoreError('INVALID_EVENT', `Part ${part.id} changed parent Message`);
+    }
+    if (part.type === 'tool' && snapshot.parts.some((candidate) => candidate.type === 'tool' && candidate.toolCallId === part.toolCallId && candidate.id !== part.id)) {
+      throw new ConversationStoreError('INVALID_EVENT', `Tool call ${part.toolCallId} is duplicated`);
+    }
+    if (part.type === 'interaction' && snapshot.parts.some((candidate) => candidate.type === 'interaction' && candidate.interactionId === part.interactionId && candidate.id !== part.id)) {
+      throw new ConversationStoreError('INVALID_EVENT', `Interaction ${part.interactionId} is duplicated`);
+    }
     const parts = upsertAt(snapshot.parts, part, event.index, (candidate) => candidate.id);
     const messages = ensureMessagePartId(snapshot.messages, message.id, part.id);
-    return snapshotWith(snapshot, { messages, parts }, event.cursor);
+    return snapshotWith(snapshot, { messages, parts, status: event.status }, event.cursor);
   }
   if (event.type === 'part.delta') {
     const part = snapshot.parts.find((candidate) => candidate.id === event.partId);
@@ -123,6 +155,7 @@ export function reduceConversationEvent(
     const updated: ConversationPart = { ...part, text };
     return snapshotWith(snapshot, {
       parts: snapshot.parts.map((candidate) => candidate.id === event.partId ? updated : candidate),
+      status: event.status,
     }, event.cursor);
   }
   if (event.type === 'part.remove') {
@@ -133,17 +166,20 @@ export function reduceConversationEvent(
     return snapshotWith(snapshot, {
       parts: snapshot.parts.filter((part) => part.id !== event.partId),
       messages: removeMessagePartId(snapshot.messages, event.messageId, event.partId),
+      status: event.status,
     }, event.cursor);
   }
   if (event.type === 'interaction.remove') {
     const interaction = snapshot.parts.find((part) => part.id === event.partId);
     if (!interaction) throw new ConversationStoreError('SOURCE_GAP', `Interaction Part ${event.partId} is missing for removal`);
+    if (interaction.messageId !== event.messageId) throw new ConversationStoreError('INVALID_EVENT', 'Interaction removal Message does not match Part');
     if (interaction && (interaction.type !== 'interaction' || interaction.interactionId !== event.interactionId)) {
       throw new ConversationStoreError('INVALID_EVENT', `Interaction removal does not match Part ${event.partId}`);
     }
     return snapshotWith(snapshot, {
       parts: snapshot.parts.filter((part) => part.id !== event.partId),
       messages: removeMessagePartId(snapshot.messages, event.messageId, event.partId),
+      status: event.status,
     }, event.cursor);
   }
   return snapshotWith(snapshot, { status: clone(event.status) }, event.cursor);
@@ -181,6 +217,7 @@ export class BrowserConversationStore implements ConversationStore {
   };
   #generation = 0;
   #sessionId: DefSessionId | null = null;
+  #connectionAbort: AbortController | null = null;
 
   constructor(source: ConversationProjector, options: ConversationStoreOptions = {}) {
     this.#source = source;
@@ -201,7 +238,7 @@ export class BrowserConversationStore implements ConversationStore {
       sessionId: this.#state.sessionId,
       snapshot: this.#state.snapshot ? clone(this.#state.snapshot) : null,
       cursor: this.#state.cursor ? clone(this.#state.cursor) : null,
-      error: this.#state.error,
+      error: this.#state.error ? cloneStoreError(this.#state.error) : null,
     };
   }
 
@@ -211,6 +248,7 @@ export class BrowserConversationStore implements ConversationStore {
   }
 
   async load(defSessionId: DefSessionId): Promise<ConversationSnapshot> {
+    this.#abortConnection();
     ++this.#generation;
     this.#sessionId = defSessionId;
     return this.#loadSnapshot(defSessionId, this.#generation);
@@ -220,8 +258,11 @@ export class BrowserConversationStore implements ConversationStore {
     if (!defSessionId) {
       throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation Store requires a Session ID');
     }
+    this.#abortConnection();
     const generation = ++this.#generation;
     this.#sessionId = defSessionId;
+    const controller = new AbortController();
+    this.#connectionAbort = controller;
     let resetCount = 0;
     try {
       await this.#loadSnapshot(defSessionId, generation);
@@ -230,7 +271,12 @@ export class BrowserConversationStore implements ConversationStore {
         if (!snapshot) throw new ConversationStoreError('NO_SNAPSHOT', 'Conversation snapshot disappeared');
         let mustReset = false;
         try {
-          for await (const event of this.#source.subscribe(defSessionId, snapshot.cursor)) {
+          const iterator = this.#source.subscribe(defSessionId, snapshot.cursor, controller.signal)[Symbol.asyncIterator]();
+          try {
+            while (!controller.signal.aborted) {
+              const result = await nextWithAbort(iterator, controller.signal);
+              if (result.done) break;
+              const event = result.value;
             if (generation !== this.#generation) return;
             try {
               const next = this.apply(event);
@@ -243,6 +289,9 @@ export class BrowserConversationStore implements ConversationStore {
               mustReset = true;
               break;
             }
+            }
+          } finally {
+            await closeAsyncIterator(iterator);
           }
         } catch (error) {
           if (generation !== this.#generation) return;
@@ -271,6 +320,8 @@ export class BrowserConversationStore implements ConversationStore {
         : new ConversationStoreError('SOURCE_FAILED', error instanceof Error ? error.message : String(error), error);
       this.#setState({ status: 'error', error: storeError });
       throw storeError;
+    } finally {
+      if (this.#connectionAbort === controller) this.#connectionAbort = null;
     }
   }
 
@@ -280,6 +331,7 @@ export class BrowserConversationStore implements ConversationStore {
   }
 
   disconnect(): void {
+    this.#abortConnection();
     ++this.#generation;
     if (this.#sessionId) this.#setState({ status: 'disconnected' });
   }
@@ -289,7 +341,7 @@ export class BrowserConversationStore implements ConversationStore {
       throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation event belongs to another Session');
     }
     const next = reduceConversationEvent(this.#state.snapshot, event);
-    if (next === this.#state.snapshot) return next;
+    if (next === this.#state.snapshot) return next ? clone(next) : null;
     if (next) {
       this.#sessionId = event.defSessionId;
       this.#setState({
@@ -302,7 +354,7 @@ export class BrowserConversationStore implements ConversationStore {
     } else {
       this.#setState({ status: 'reconnecting', snapshot: null, cursor: null, error: null });
     }
-    return next;
+    return next ? clone(next) : null;
   }
 
   async #loadSnapshot(defSessionId: DefSessionId, generation: number): Promise<ConversationSnapshot> {
@@ -314,7 +366,12 @@ export class BrowserConversationStore implements ConversationStore {
       error: null,
     });
     const snapshot = await this.#source.getSnapshot(defSessionId);
-    if (generation !== this.#generation) return snapshot;
+    if (generation !== this.#generation) return clone(snapshot);
+    try {
+      assertConversationSnapshot(snapshot);
+    } catch (error) {
+      throw new ConversationStoreError('INVALID_EVENT', error instanceof Error ? error.message : 'Conversation snapshot is invalid', error);
+    }
     if (snapshot.defSessionId !== defSessionId) {
       throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation snapshot belongs to another Session');
     }
@@ -336,6 +393,11 @@ export class BrowserConversationStore implements ConversationStore {
     };
     const state = this.getState();
     for (const listener of this.#listeners) listener(state);
+  }
+
+  #abortConnection(): void {
+    this.#connectionAbort?.abort();
+    this.#connectionAbort = null;
   }
 }
 
@@ -377,11 +439,11 @@ function snapshotWith(
   cursor: ConversationSnapshot['cursor'] = snapshot.cursor,
 ): ConversationSnapshot {
   return {
-    ...clone(snapshot),
+    ...snapshot,
     ...changes,
     cursor: clone(cursor),
-    messages: clone(changes.messages ?? snapshot.messages),
-    parts: clone(changes.parts ?? snapshot.parts),
+    messages: changes.messages ?? snapshot.messages,
+    parts: changes.parts ?? snapshot.parts,
     status: clone(changes.status ?? snapshot.status),
   };
 }
@@ -395,10 +457,12 @@ function ensureMessagePartId(
   messageId: ConversationMessage['id'],
   partId: ConversationPart['id'],
 ): ConversationMessage[] {
-  return messages.map((message) => {
-    if (message.id !== messageId || message.partIds.includes(partId)) return clone(message);
-    return { ...clone(message), partIds: [...message.partIds, partId] };
-  });
+  const index = messages.findIndex((message) => message.id === messageId);
+  if (index < 0) throw new ConversationStoreError('SOURCE_GAP', `Message ${messageId} is missing`);
+  const next = [...messages];
+  const message = messages[index];
+  if (!message.partIds.includes(partId)) next[index] = { ...message, partIds: [...message.partIds, partId] };
+  return next;
 }
 
 function removeMessagePartId(
@@ -406,9 +470,12 @@ function removeMessagePartId(
   messageId: ConversationMessage['id'],
   partId: ConversationPart['id'],
 ): ConversationMessage[] {
-  return messages.map((message) => message.id === messageId
-    ? { ...clone(message), partIds: message.partIds.filter((id) => id !== partId) }
-    : clone(message));
+  const index = messages.findIndex((message) => message.id === messageId);
+  if (index < 0) throw new ConversationStoreError('SOURCE_GAP', `Message ${messageId} is missing`);
+  const next = [...messages];
+  const message = messages[index];
+  next[index] = { ...message, partIds: message.partIds.filter((id) => id !== partId) };
+  return next;
 }
 
 function upsertAt<T>(
@@ -420,11 +487,52 @@ function upsertAt<T>(
   if (!Number.isSafeInteger(index) || index < 0) {
     throw new ConversationStoreError('INVALID_EVENT', 'Conversation mutation index is invalid');
   }
-  const next = values.filter((entry) => identity(entry) !== identity(value)).map((entry) => clone(entry));
+  const next = values.filter((entry) => identity(entry) !== identity(value));
   next.splice(Math.min(index, next.length), 0, clone(value));
   return next;
 }
 
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+const STORE_CLOSE_TIMEOUT_MS = 250;
+
+function nextWithAbort<T>(iterator: AsyncIterator<T>, signal: AbortSignal): Promise<IteratorResult<T>> {
+  if (signal.aborted) return Promise.resolve({ done: true, value: undefined as never });
+  return new Promise<IteratorResult<T>>((resolve, reject) => {
+    let settled = false;
+    const abort = () => finish({ done: true, value: undefined as never });
+    const finish = (result: IteratorResult<T>): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', abort);
+      resolve(result);
+    };
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', abort);
+      reject(error);
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    Promise.resolve().then(() => iterator.next()).then(finish, fail);
+  });
+}
+
+async function closeAsyncIterator<T>(iterator: AsyncIterator<T>): Promise<void> {
+  if (typeof iterator.return !== 'function') return;
+  try {
+    const closing = Promise.resolve(iterator.return());
+    await Promise.race([
+      closing,
+      new Promise<void>((resolve) => setTimeout(resolve, STORE_CLOSE_TIMEOUT_MS)),
+    ]);
+  } catch {
+    // Cleanup is best-effort.  A late/non-cooperative source cannot block UI disconnect.
+  }
+}
+
+function cloneStoreError(error: ConversationStoreError): ConversationStoreError {
+  return new ConversationStoreError(error.code, error.message, error.causeValue === undefined ? undefined : clone(error.causeValue));
 }

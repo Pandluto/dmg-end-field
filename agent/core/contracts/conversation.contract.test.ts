@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  assertConversationEvent,
+  assertConversationSnapshot,
   assertConversationEventTransition,
   conversationCursorEquals,
   parseConversationCursor,
+  asConversationMessageId,
+  asConversationPartId,
   type ConversationEvent,
+  type ConversationMessage,
   type HostTranscriptPart,
   type RuntimeTranscriptPart,
 } from './conversation.ts';
-import { asDefSessionId, asDefTurnId } from './ids.ts';
+import { asDefSessionId, asDefTurnId, asInteractionId } from './ids.ts';
 
 const runtimeInteractionOwnership:
   Extract<RuntimeTranscriptPart, { type: 'interaction' }> extends never ? true : false = true;
@@ -157,4 +162,127 @@ test('Conversation event transitions reject gaps, cross-source movement, and sna
     () => assertConversationEventTransition(null, mismatchedSnapshot),
     /does not match/u,
   );
+});
+
+test('Conversation boundary validators enforce canonical IDs, required fields, ownership, and all interaction identities', () => {
+  const session = asDefSessionId('validator-session');
+  const messageId = asConversationMessageId('validator-message');
+  const partId = asConversationPartId('validator-part');
+  const baseMessage = {
+    id: messageId,
+    role: 'assistant' as const,
+    defTurnId: asDefTurnId('validator-turn'),
+    createdAt: '2026-08-08T00:00:00.000Z',
+    partIds: [partId],
+  };
+  const basePart = {
+    id: partId,
+    messageId,
+    createdAt: '2026-08-08T00:00:00.000Z',
+    completedAt: '2026-08-08T00:00:01.000Z',
+    type: 'error' as const,
+    code: 'ERR',
+    message: 'failed',
+    retryable: true,
+  };
+  const snapshot = {
+    schemaVersion: 1 as const,
+    defSessionId: session,
+    cursor: { epoch: 'validator-epoch', runtimeSequence: 0, hostSequence: 0 },
+    status: { status: 'idle' as const },
+    messages: [baseMessage],
+    parts: [basePart],
+  };
+  assert.doesNotThrow(() => assertConversationSnapshot(snapshot));
+
+  assert.throws(() => assertConversationSnapshot({
+    ...snapshot,
+    messages: [{ ...baseMessage, id: ' validator-message' }],
+  }), /canonical/u);
+  assert.throws(() => assertConversationSnapshot({
+    ...snapshot,
+    parts: [basePart, { ...basePart, id: asConversationPartId('validator-interaction-part'), type: 'interaction', interactionId: asInteractionId('same-interaction'), interactionKind: 'question', prompt: 'q', state: { status: 'pending', expiresAt: '2026-08-08T00:01:00.000Z' } }],
+  }), /fields|duplicate|parent/u);
+
+  const interactionOne = {
+    id: asConversationPartId('validator-interaction-one'),
+    messageId,
+    createdAt: '2026-08-08T00:00:00.000Z',
+    type: 'interaction' as const,
+    interactionId: asInteractionId('duplicate-interaction'),
+    interactionKind: 'question' as const,
+    prompt: 'first',
+    state: { status: 'pending' as const, expiresAt: '2026-08-08T00:01:00.000Z' },
+  };
+  const interactionTwo = {
+    ...interactionOne,
+    id: asConversationPartId('validator-interaction-two'),
+  };
+  assert.throws(() => assertConversationSnapshot({
+    ...snapshot,
+    messages: [{ ...baseMessage, partIds: [interactionOne.id, interactionTwo.id] }],
+    parts: [interactionOne, interactionTwo],
+  }), /duplicate Interaction IDs/u);
+
+  const runtimeEvent = {
+    schemaVersion: 1 as const,
+    source: 'runtime' as const,
+    sourceSequence: 1,
+    defSessionId: session,
+    occurredAt: '2026-08-08T00:00:02.000Z',
+    cursor: { epoch: 'validator-epoch', runtimeSequence: 1, hostSequence: 0 },
+    status: { status: 'idle' as const },
+    type: 'part.delta' as const,
+    messageId,
+    partId,
+    field: 'text' as const,
+    delta: 'x',
+  };
+  assert.doesNotThrow(() => assertConversationEvent(runtimeEvent));
+  assert.throws(() => assertConversationEvent({ ...runtimeEvent, field: 'value' }), /field/u);
+  assert.throws(() => assertConversationEvent({ ...runtimeEvent, status: undefined }), /status/u);
+  assert.throws(() => assertConversationEvent({
+    schemaVersion: 1,
+    source: 'runtime',
+    sourceSequence: 1,
+    defSessionId: session,
+    occurredAt: '2026-08-08T00:00:02.000Z',
+    cursor: { epoch: 'validator-epoch', runtimeSequence: 1, hostSequence: 0 },
+    status: { status: 'idle' },
+    type: 'part.upsert',
+    part: { ...basePart, type: 'text', text: 'x' },
+    index: 1.5,
+  }), /index/u);
+});
+
+test('Conversation snapshot validator scales linearly over a large valid Message↔Part index', () => {
+  const session = asDefSessionId('large-validator-session');
+  const messages: ConversationMessage[] = [];
+  const parts: RuntimeTranscriptPart[] = [];
+  for (let index = 0; index < 1_000; index += 1) {
+    const messageId = asConversationMessageId(`large-message-${index}`);
+    const partId = asConversationPartId(`large-part-${index}`);
+    messages.push({
+      id: messageId,
+      role: 'assistant' as const,
+      defTurnId: asDefTurnId(`large-turn-${index}`),
+      createdAt: '2026-08-08T00:00:00.000Z',
+      partIds: [partId],
+    });
+    parts.push({
+      id: partId,
+      messageId,
+      createdAt: '2026-08-08T00:00:00.000Z',
+      type: 'text' as const,
+      text: 'x',
+    });
+  }
+  assert.doesNotThrow(() => assertConversationSnapshot({
+    schemaVersion: 1,
+    defSessionId: session,
+    cursor: { epoch: 'large-validator-epoch', runtimeSequence: 0, hostSequence: 0 },
+    status: { status: 'idle' },
+    messages,
+    parts,
+  }));
 });

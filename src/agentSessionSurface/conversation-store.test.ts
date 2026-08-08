@@ -70,6 +70,7 @@ test('reduces snapshot and deltas without duplicate Message/Part rows', async ()
     occurredAt: '2026-08-08T00:00:00.000Z',
     cursor: { ...after.cursor, runtimeSequence: 8 },
     type: 'part.remove',
+    status: { status: 'idle' },
     messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
     partId: FIXTURE_ERROR_PART_ID,
   });
@@ -128,6 +129,41 @@ test('connect refetches after projector reset or a forward source gap', async ()
   assert.equal(gapStore.snapshot?.cursor.epoch, 'refetched');
 });
 
+test('a cursor produced by live progress is a same-epoch gap after reconnect, then Store refetches', async () => {
+  const fixture = createConversationFixture();
+  const projector = new ConversationProjector({
+    runtime: fixture.runtime,
+    host: fixture.host,
+    epoch: 'boundary-gap',
+  });
+  const initial = await projector.getSnapshot(fixture.sessionId);
+  fixture.runtime.append({
+    type: 'part.delta',
+    messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
+    partId: FIXTURE_TEXT_PART_ID,
+    field: 'text',
+    delta: ' + live reconnect',
+  }, 7);
+  const [liveEvent] = await collect(projector.subscribe(fixture.sessionId, initial.cursor));
+  assert.ok(liveEvent && liveEvent.source !== 'projector');
+  const [gap] = await collect(projector.subscribe(fixture.sessionId, liveEvent!.cursor));
+  assert.equal(gap?.type, 'conversation.reset-required');
+  assert.equal(gap?.reason, 'gap');
+  assert.equal(gap?.cursor.epoch, initial.cursor.epoch);
+
+  const fresh = await projector.getSnapshot(fixture.sessionId);
+  const source = scriptedSource(
+    fixture.sessionId,
+    initial,
+    fresh,
+    [resetEvent(fixture.sessionId, liveEvent!.cursor, 'gap')],
+  );
+  const store = new BrowserConversationStore(source);
+  await store.connect(fixture.sessionId);
+  assert.equal(source.getSnapshotCalls, 2);
+  assert.deepEqual(store.snapshot, fresh);
+});
+
 test('epoch changes are fail-closed for direct reducer callers', async () => {
   const fixture = createConversationFixture();
   const projector = new ConversationProjector({ runtime: fixture.runtime, host: fixture.host, epoch: 'store-epoch' });
@@ -150,6 +186,29 @@ test('epoch changes are fail-closed for direct reducer callers', async () => {
   assert.throws(() => store.apply(event), (error: unknown) => (
     error instanceof ConversationStoreError && error.code === 'EPOCH_CHANGED'
   ));
+});
+
+test('disconnect settles when the source ignores abort and never settles next or return', async () => {
+  const fixture = createConversationFixture();
+  const snapshot = await new ConversationProjector({
+    runtime: fixture.runtime,
+    host: fixture.host,
+    epoch: 'store-uncooperative',
+  }).getSnapshot(fixture.sessionId);
+  const source: ConversationProjectorContract = {
+    async getSnapshot() {
+      return structuredClone(snapshot);
+    },
+    subscribe() {
+      return neverAsyncIterable<ConversationEvent>();
+    },
+  };
+  const store = new BrowserConversationStore(source);
+  const connection = store.connect(fixture.sessionId);
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  store.disconnect();
+  await settlesWithin(connection);
+  assert.equal(store.state.status, 'disconnected');
 });
 
 function scriptedSource(
@@ -219,4 +278,26 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const values: T[] = [];
   for await (const value of iterable) values.push(value);
   return values;
+}
+
+function neverAsyncIterable<T>(): AsyncIterable<T> {
+  const iterator: AsyncIterator<T> = {
+    next: () => new Promise<IteratorResult<T>>(() => {}),
+    return: () => new Promise<IteratorResult<T>>(() => {}),
+  };
+  return { [Symbol.asyncIterator]: () => iterator };
+}
+
+async function settlesWithin<T>(promise: Promise<T>, limitMs = 1_000): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`promise did not settle within ${limitMs}ms`)), limitMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
