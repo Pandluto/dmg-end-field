@@ -2,18 +2,25 @@ import assert from 'node:assert/strict';
 import {
   appendFileSync,
   chmodSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  truncateSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import { inspect } from 'node:util';
 import {
   asClientTurnId,
   asDefSessionId,
@@ -44,9 +51,14 @@ import {
   createOrReopenSessionLog,
   createSessionLog,
   reopenSessionLog,
-  type SessionLog,
+  SessionLog,
 } from './session-log.ts';
-import { readSessionFile } from './session-reader.ts';
+import {
+  readSessionFile,
+  scanSessionFile,
+  SessionReader,
+  truncateSessionFile,
+} from './session-reader.ts';
 import {
   SessionLogError,
   validateSessionRecords,
@@ -59,6 +71,66 @@ const TIME_4 = '2026-08-08T00:00:03.000Z';
 const TIME_5 = '2026-08-08T00:00:04.000Z';
 const TIME_6 = '2026-08-08T00:00:05.000Z';
 const TIME_7 = '2026-08-08T00:00:06.000Z';
+
+const mutableNodeFs = createRequire(import.meta.url)('node:fs') as Record<string, unknown>;
+
+function withOpenInjection<T>(target: string, inject: () => void, action: () => T): T {
+  const original = mutableNodeFs.openSync as (...args: unknown[]) => unknown;
+  let injected = false;
+  mutableNodeFs.openSync = (...args: unknown[]): unknown => {
+    if (!injected && String(args[0]) === target) {
+      injected = true;
+      inject();
+    }
+    return Reflect.apply(original, mutableNodeFs, args);
+  };
+  syncBuiltinESMExports();
+  try {
+    return action();
+  } finally {
+    mutableNodeFs.openSync = original;
+    syncBuiltinESMExports();
+    assert.equal(injected, true, 'the open injection must run');
+  }
+}
+
+function withReadInjection<T>(inject: () => void, action: () => T): T {
+  const original = mutableNodeFs.readSync as (...args: unknown[]) => unknown;
+  let injected = false;
+  mutableNodeFs.readSync = (...args: unknown[]): unknown => {
+    if (!injected) {
+      injected = true;
+      inject();
+    }
+    return Reflect.apply(original, mutableNodeFs, args);
+  };
+  syncBuiltinESMExports();
+  try {
+    return action();
+  } finally {
+    mutableNodeFs.readSync = original;
+    syncBuiltinESMExports();
+    assert.equal(injected, true, 'the read injection must run');
+  }
+}
+
+function replaceParentWithHardLink(filePath: string, displacedName: string): string {
+  const parent = dirname(filePath);
+  const displacedParent = join(dirname(parent), displacedName);
+  renameSync(parent, displacedParent);
+  mkdirSync(parent, { mode: 0o700 });
+  const displacedFile = join(displacedParent, basename(filePath));
+  linkSync(displacedFile, filePath);
+  return displacedFile;
+}
+
+function replaceEmptyParent(filePath: string, displacedName: string): string {
+  const parent = dirname(filePath);
+  const displacedParent = join(dirname(parent), displacedName);
+  renameSync(parent, displacedParent);
+  mkdirSync(parent, { mode: 0o700 });
+  return displacedParent;
+}
 
 function header(): RuntimeSessionHeader {
   return {
@@ -164,6 +236,7 @@ interface AssistantFixtureOptions extends TurnFixtureOptions {
   readonly diagnosticMessage?: string;
   readonly toolCallId?: string;
   readonly toolName?: string;
+  readonly stopReason?: RuntimeAssistantMessage['stopReason'];
 }
 
 function assistantEntry(
@@ -209,7 +282,7 @@ function assistantEntry(
     providerId: 'fixture-provider',
     modelId: 'fixture-model',
     usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-    stopReason: withToolCall ? 'tool-use' : 'stop',
+    stopReason: options.stopReason ?? (withToolCall ? 'tool-use' : 'stop'),
     ...(options.diagnosticMessage === undefined
       ? {}
       : {
@@ -310,14 +383,22 @@ function cleanup(root: string): void {
   rmSync(root, { recursive: true, force: true });
 }
 
-function assertIncompatible(action: () => unknown): SessionLogError {
-  assert.throws(action, (error: unknown) => error instanceof SessionLogError && error.code === 'SESSION_INCOMPATIBLE');
+function captureSessionError(
+  action: () => unknown,
+  code: SessionLogError['code'],
+): SessionLogError {
   try {
     action();
   } catch (error) {
-    return error as SessionLogError;
+    assert.ok(error instanceof SessionLogError);
+    assert.equal(error.code, code);
+    return error;
   }
-  throw new Error('expected incompatible error');
+  throw new Error(`expected ${code}`);
+}
+
+function assertIncompatible(action: () => unknown): SessionLogError {
+  return captureSessionError(action, 'SESSION_INCOMPATIBLE');
 }
 
 test('SessionLog creates, appends, reopens, derives leaf/updated, and keeps the header immutable', () => {
@@ -757,10 +838,807 @@ test('a valid final record without a newline is accepted, while a truncated tail
     const read = readSessionFile(filePath, { rootDir: root });
     assert.equal(read.tail, 'complete-no-newline');
     assert.equal(read.entries.length, 1);
+    assert.equal(read.validByteLength, read.fileByteLength);
+    assert.equal(read.fileSnapshot.byteLength, read.fileByteLength);
+    assert.equal(read.endsWithNewline, false);
     log.close();
     const reopened = reopenSessionLog(filePath, { rootDir: root });
     reopened.append(userEntry('entry-start'));
-    assert.match(readFileSync(filePath, 'utf8'), /\n\{"schemaVersion":1/u);
+    const appended = readFileSync(filePath, 'utf8');
+    assert.match(appended, /\n\{"schemaVersion":1/u);
+    assert.equal(appended.includes('\n\n'), false);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('all public file entry points require rootDir and return a path-safe error', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-root-required-'));
+  const filePath = join(root, 'existing.jsonl');
+  const createPath = join(root, 'new.jsonl');
+  writeFileSync(filePath, `${JSON.stringify(header())}\n`, { mode: 0o600 });
+  try {
+    const actions: Array<() => unknown> = [
+      () => Reflect.apply(createSessionLog, undefined, [createPath, header()]),
+      () => Reflect.apply(reopenSessionLog, undefined, [filePath]),
+      () => Reflect.apply(createOrReopenSessionLog, undefined, [filePath, header()]),
+      () => Reflect.apply(readSessionFile, undefined, [filePath]),
+      () => Reflect.apply(scanSessionFile, undefined, [filePath]),
+      () => Reflect.apply(truncateSessionFile, undefined, [filePath, 0]),
+      () => Reflect.apply(SessionLog.create, SessionLog, [createPath, header()]),
+      () => Reflect.apply(SessionLog.reopen, SessionLog, [filePath]),
+      () => Reflect.apply(SessionLog.open, SessionLog, [filePath]),
+      () => Reflect.apply(SessionLog.createOrReopen, SessionLog, [filePath, header()]),
+      () => Reflect.construct(SessionReader, [filePath]),
+    ];
+    for (const action of actions) {
+      const error = captureSessionError(action, 'SESSION_PATH_INVALID');
+      assert.equal(error.message.includes(root), false);
+      assert.equal(error.message.includes(filePath), false);
+    }
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('macOS system path aliases are canonicalized below the trusted root', { skip: process.platform !== 'darwin' }, (context) => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-macos-root-'));
+  try {
+    const canonicalRoot = realpathSync(root);
+    const aliasRoot = canonicalRoot.startsWith('/private/var/')
+      ? canonicalRoot.replace(/^\/private\/var\//u, '/var/')
+      : canonicalRoot.startsWith('/private/tmp/')
+        ? canonicalRoot.replace(/^\/private\/tmp\//u, '/tmp/')
+        : root;
+    if (aliasRoot === canonicalRoot) {
+      context.skip('this macOS temporary root has no system alias');
+      return;
+    }
+    assert.equal(realpathSync(aliasRoot), canonicalRoot);
+    const log = createSessionLog(join(aliasRoot, 'session.jsonl'), header(), { rootDir: aliasRoot });
+    log.append(startEntry());
+    assert.equal(log.filePath, join(canonicalRoot, 'session.jsonl'));
+    assert.equal(reopenSessionLog(log.filePath, { rootDir: aliasRoot }).entries.length, 1);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('a symlinked parent beneath rootDir cannot escape the trusted tree', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-parent-link-'));
+  const outside = mkdtempSync(join(tmpdir(), 'def-runtime-session-parent-outside-'));
+  const linkedParent = join(root, 'linked-parent');
+  const outsideFile = join(outside, 'escaped.jsonl');
+  try {
+    symlinkSync(outside, linkedParent);
+    captureSessionError(
+      () => createSessionLog(join(linkedParent, 'escaped.jsonl'), header(), { rootDir: root }),
+      'SESSION_PATH_INVALID',
+    );
+    assert.throws(() => statSync(outsideFile), (error: unknown) => (
+      error instanceof Error
+      && 'code' in error
+      && (error as NodeJS.ErrnoException).code === 'ENOENT'
+    ));
+  } finally {
+    cleanup(root);
+    cleanup(outside);
+  }
+});
+
+test('group- or world-writable trusted directories are rejected', () => {
+  const unsafeRoot = mkdtempSync(join(tmpdir(), 'def-runtime-session-unsafe-root-'));
+  const safeRoot = mkdtempSync(join(tmpdir(), 'def-runtime-session-unsafe-parent-'));
+  const unsafeParent = join(safeRoot, 'unsafe-parent');
+  try {
+    chmodSync(unsafeRoot, 0o777);
+    captureSessionError(
+      () => createSessionLog(join(unsafeRoot, 'session.jsonl'), header(), { rootDir: unsafeRoot }),
+      'SESSION_PATH_INVALID',
+    );
+
+    mkdirSync(unsafeParent, { mode: 0o700 });
+    chmodSync(unsafeParent, 0o775);
+    captureSessionError(
+      () => createSessionLog(join(unsafeParent, 'session.jsonl'), header(), { rootDir: safeRoot }),
+      'SESSION_PATH_INVALID',
+    );
+
+    chmodSync(unsafeParent, 0o755);
+    const accepted = createSessionLog(
+      join(unsafeParent, 'accepted.jsonl'),
+      header(),
+      { rootDir: safeRoot },
+    );
+    assert.equal(accepted.entries.length, 0);
+  } finally {
+    cleanup(unsafeRoot);
+    cleanup(safeRoot);
+  }
+});
+
+test('create detects a parent replacement injected after its pre-open check', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-create-parent-race-'));
+  const parent = join(root, 'active-parent');
+  mkdirSync(parent, { mode: 0o700 });
+  const target = join(realpathSync(parent), 'session.jsonl');
+  let displacedParent = '';
+  try {
+    captureSessionError(
+      () => withOpenInjection(
+        target,
+        () => {
+          displacedParent = replaceEmptyParent(target, 'displaced-parent');
+        },
+        () => createSessionLog(target, header(), { rootDir: root }),
+      ),
+      'SESSION_STALE',
+    );
+    assert.equal(statSync(target).size, 0);
+    assert.throws(() => statSync(join(displacedParent, 'session.jsonl')));
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('read detects a parent replacement even when the final path is the same inode', () => {
+  const { root, log } = makeRootedLog();
+  const target = log.filePath;
+  log.append(startEntry());
+  const durable = readFileSync(target);
+  let displacedFile = '';
+  try {
+    captureSessionError(
+      () => withReadInjection(
+        () => {
+          displacedFile = replaceParentWithHardLink(target, 'displaced-read-parent');
+        },
+        () => readSessionFile(target, { rootDir: root }),
+      ),
+      'SESSION_STALE',
+    );
+    assert.equal(statSync(target).ino, statSync(displacedFile).ino);
+    assert.deepEqual(readFileSync(target), durable);
+    assert.deepEqual(readFileSync(displacedFile), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('append detects a parent replacement before writing through a same-inode hard link', () => {
+  const { root, log } = makeRootedLog();
+  const target = log.filePath;
+  const durable = readFileSync(target);
+  let displacedFile = '';
+  try {
+    captureSessionError(
+      () => withOpenInjection(
+        target,
+        () => {
+          displacedFile = replaceParentWithHardLink(target, 'displaced-append-parent');
+        },
+        () => log.append(startEntry()),
+      ),
+      'SESSION_STALE',
+    );
+    assert.equal(statSync(target).ino, statSync(displacedFile).ino);
+    assert.deepEqual(readFileSync(target), durable);
+    assert.deepEqual(readFileSync(displacedFile), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('tail truncation detects a parent replacement before touching a same-inode hard link', () => {
+  const { root, filePath, log } = makeRootedLog();
+  log.append(startEntry());
+  appendFileSync(filePath, '{"partial":');
+  const scan = scanSessionFile(filePath, { rootDir: root });
+  const damaged = readFileSync(filePath);
+  let displacedFile = '';
+  try {
+    assert.equal(scan.tail, 'incomplete');
+    captureSessionError(
+      () => withOpenInjection(
+        scan.filePath,
+        () => {
+          displacedFile = replaceParentWithHardLink(scan.filePath, 'displaced-truncate-parent');
+        },
+        () => truncateSessionFile(
+          scan.filePath,
+          scan.validByteLength,
+          { rootDir: root },
+          scan.fileSnapshot,
+        ),
+      ),
+      'SESSION_STALE',
+    );
+    assert.deepEqual(readFileSync(scan.filePath), damaged);
+    assert.deepEqual(readFileSync(displacedFile), damaged);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('append rejects a final-inode replacement without modifying either file', () => {
+  const { root, log } = makeRootedLog();
+  const target = log.filePath;
+  const displaced = join(realpathSync(root), 'displaced-session.jsonl');
+  const durable = readFileSync(target);
+  try {
+    renameSync(target, displaced);
+    writeFileSync(target, durable, { mode: 0o600 });
+    chmodSync(target, 0o600);
+    captureSessionError(() => log.append(startEntry()), 'SESSION_STALE');
+    assert.deepEqual(readFileSync(target), durable);
+    assert.deepEqual(readFileSync(displaced), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('bigint revision checks reject a same-size same-inode rewrite', () => {
+  const { root, log } = makeRootedLog();
+  const target = log.filePath;
+  try {
+    const beforeSnapshot = log.state.fileSnapshot;
+    const beforeStats = statSync(target, { bigint: true });
+    const changed = Buffer.from(readFileSync(target));
+    const markerOffset = changed.indexOf(Buffer.from('runtime-test', 'utf8'));
+    assert.notEqual(markerOffset, -1);
+    changed[markerOffset] = 0x73;
+    writeFileSync(target, changed);
+    utimesSync(
+      target,
+      Number(beforeStats.atimeNs) / 1_000_000_000,
+      Number(beforeStats.mtimeNs) / 1_000_000_000,
+    );
+    const afterStats = statSync(target, { bigint: true });
+    assert.equal(Number(afterStats.size), beforeSnapshot.byteLength);
+    assert.notEqual(String(afterStats.ctimeNs), beforeSnapshot.changedAtNs);
+    captureSessionError(() => log.append(startEntry()), 'SESSION_STALE');
+    assert.deepEqual(readFileSync(target), changed);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('append rejects an externally changed size before writing', () => {
+  const { root, log } = makeRootedLog();
+  const target = log.filePath;
+  try {
+    appendFileSync(target, ' ');
+    const externallyChanged = readFileSync(target);
+    captureSessionError(() => log.append(startEntry()), 'SESSION_STALE');
+    assert.deepEqual(readFileSync(target), externallyChanged);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('append idempotency is snapshot-local and requires reopen after another writer', () => {
+  const { root, filePath, log: first } = makeRootedLog();
+  try {
+    const stalePeer = reopenSessionLog(filePath, { rootDir: root });
+    first.append(startEntry());
+    captureSessionError(() => stalePeer.appendEntry(startEntry()), 'SESSION_STALE');
+
+    const currentPeer = reopenSessionLog(filePath, { rootDir: root });
+    const durable = readFileSync(filePath);
+    const idempotent = currentPeer.appendEntry(startEntry());
+    assert.equal(idempotent.appended, false);
+    assert.equal(idempotent.idempotent, true);
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('a cross-chunk tail ending inside UTF-8 repairs to a coherent snapshot and appends cleanly', () => {
+  const { root, filePath, log } = makeRootedLog();
+  try {
+    log.append(startEntry());
+    const valid = readFileSync(filePath);
+    const crossChunkTail = Buffer.concat([
+      Buffer.from('{"payload":"', 'utf8'),
+      Buffer.alloc(70 * 1_024, 0x61),
+      Buffer.from([0xe4, 0xb8]),
+    ]);
+    appendFileSync(filePath, crossChunkTail);
+
+    const beforeRepair = readSessionFile(filePath, { rootDir: root });
+    assert.equal(beforeRepair.tail, 'incomplete');
+    assert.equal(beforeRepair.validByteLength, valid.length);
+    assert.equal(beforeRepair.fileByteLength, valid.length + crossChunkTail.length);
+
+    const repaired = reopenSessionLog(filePath, { rootDir: root });
+    assert.equal(repaired.state.repairedTail, true);
+    assert.equal(repaired.state.tail, 'none');
+    assert.equal(repaired.state.endsWithNewline, true);
+    assert.equal(repaired.state.fileByteLength, valid.length);
+    assert.equal(repaired.state.validByteLength, valid.length);
+    assert.equal(repaired.state.fileSnapshot.byteLength, valid.length);
+    assert.deepEqual(readFileSync(filePath), valid);
+
+    repaired.append(userEntry('entry-start', 'entry-user-after-tail-repair'));
+    const durableText = readFileSync(filePath, 'utf8');
+    assert.equal(durableText.includes('\n\n'), false);
+    const reopened = reopenSessionLog(filePath, { rootDir: root });
+    assert.equal(reopened.entries.length, 2);
+    assert.equal(reopened.state.tail, 'none');
+    assert.equal(reopened.state.fileSnapshot.byteLength, reopened.state.fileByteLength);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('newline-terminated invalid UTF-8 is incompatible rather than tail-repairable', () => {
+  const { root, filePath, log } = makeRootedLog();
+  try {
+    log.append(startEntry());
+    appendFileSync(filePath, Buffer.from([0xff, 0x0a]));
+    const damaged = readFileSync(filePath);
+    assertIncompatible(() => reopenSessionLog(filePath, { rootDir: root }));
+    assert.deepEqual(readFileSync(filePath), damaged);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('tail truncation rejects a replaced final inode at the scanned size boundary', () => {
+  const { root, filePath, log } = makeRootedLog();
+  log.append(startEntry());
+  appendFileSync(filePath, '{"partial":');
+  const scan = scanSessionFile(filePath, { rootDir: root });
+  const damaged = readFileSync(filePath);
+  const displaced = join(realpathSync(root), 'displaced-tail.jsonl');
+  try {
+    renameSync(scan.filePath, displaced);
+    writeFileSync(scan.filePath, damaged, { mode: 0o600 });
+    chmodSync(scan.filePath, 0o600);
+    captureSessionError(
+      () => truncateSessionFile(
+        scan.filePath,
+        scan.validByteLength,
+        { rootDir: root },
+        scan.fileSnapshot,
+      ),
+      'SESSION_STALE',
+    );
+    assert.deepEqual(readFileSync(scan.filePath), damaged);
+    assert.deepEqual(readFileSync(displaced), damaged);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('reader rejects a sparse file above the 512 MiB operational ceiling before reading', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-file-limit-'));
+  const filePath = join(root, 'oversized.jsonl');
+  try {
+    writeFileSync(filePath, `${JSON.stringify(header())}\n`, { mode: 0o600 });
+    truncateSync(filePath, (512 * 1_024 * 1_024) + 1);
+    assert.equal(statSync(filePath).size, (512 * 1_024 * 1_024) + 1);
+    assertIncompatible(() => readSessionFile(filePath, { rootDir: root }));
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('a RuntimeRun may stay on its latest turn but cannot resume an earlier turn', () => {
+  const turn2First = assistantEntry(
+    'entry-start',
+    'entry-turn-2-first',
+    false,
+    TIME_3,
+    {},
+    { turnId: 'runtime-turn-2' },
+  );
+  const turn2Second = assistantEntry(
+    'entry-turn-2-first',
+    'entry-turn-2-second',
+    false,
+    TIME_4,
+    {},
+    { turnId: 'runtime-turn-2' },
+  );
+  const valid = validateSessionRecords([
+    header(),
+    startEntry(),
+    turn2First,
+    turn2Second,
+    endEntry('entry-turn-2-second', 'entry-turn-2-end', 'run-1', 'def-turn-1', 'runtime-turn-2'),
+  ]);
+  assert.equal(valid.runs[0]?.turnId, asRuntimeTurnId('runtime-turn-2'));
+
+  const resumedTurn1 = userEntry(
+    'entry-turn-2-second',
+    'entry-resumed-turn-1',
+    TIME_5,
+    { turnId: 'runtime-turn-1' },
+  );
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    turn2First,
+    turn2Second,
+    resumedTurn1,
+  ]));
+});
+
+test('run terminal markers must name the last newly observed RuntimeTurn', () => {
+  const turn2 = assistantEntry(
+    'entry-start',
+    'entry-terminal-turn-2',
+    false,
+    TIME_3,
+    {},
+    { turnId: 'runtime-turn-2' },
+  );
+  const turn3 = assistantEntry(
+    'entry-terminal-turn-2',
+    'entry-terminal-turn-3',
+    false,
+    TIME_4,
+    {},
+    { turnId: 'runtime-turn-3' },
+  );
+  const staleTerminal = endEntry(
+    'entry-terminal-turn-3',
+    'entry-terminal-stale-end',
+    'run-1',
+    'def-turn-1',
+    'runtime-turn-2',
+  );
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    turn2,
+    turn3,
+    staleTerminal,
+  ]));
+});
+
+test('a RuntimeTurn cannot be remapped to another DefTurn by a later message', () => {
+  const firstEnd = endEntry('entry-start', 'entry-def-first-end', 'run-1', 'def-turn-1', 'runtime-turn-1', TIME_3);
+  const secondStart = startEntry(
+    'entry-def-second-start',
+    'run-2',
+    'def-turn-2',
+    'runtime-turn-2',
+    TIME_4,
+    'entry-def-first-end',
+  );
+  const conflict = assistantEntry(
+    'entry-def-second-start',
+    'entry-def-conflict',
+    false,
+    TIME_5,
+    {},
+    { defTurnId: 'def-turn-2', turnId: 'runtime-turn-1' },
+  );
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    firstEnd,
+    secondStart,
+    conflict,
+  ]));
+});
+
+test('compaction is forbidden while a Tool call is open', () => {
+  const call = assistantEntry('entry-start', 'entry-open-call', true);
+  const compaction = compactionEntry('entry-open-call', 'entry-start', 'entry-open-call-compaction');
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    call,
+    compaction,
+  ]));
+});
+
+test('compaction remains forbidden after an interrupted terminal leaves a Tool call unresolved', () => {
+  const call = assistantEntry('entry-start', 'entry-interrupted-call', true);
+  const interrupted = endEntry(
+    'entry-interrupted-call',
+    'entry-interrupted-end',
+    'run-1',
+    'def-turn-1',
+    'runtime-turn-1',
+    TIME_6,
+    'interrupted',
+  );
+  const compaction = compactionEntry(
+    'entry-interrupted-end',
+    'entry-start',
+    'entry-interrupted-compaction',
+  );
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    call,
+    interrupted,
+    compaction,
+  ]));
+});
+
+test('compaction firstKept boundaries cannot split a completed Tool call/result pair', () => {
+  const call = assistantEntry('entry-user', 'entry-pair-call', true);
+  const result = toolResultEntry('entry-pair-call', 'entry-pair-result');
+  const end = endEntry('entry-pair-result', 'entry-pair-end');
+  const base = [header(), startEntry(), userEntry('entry-start'), call, result, end] as const;
+
+  const keepingPair = validateSessionRecords([
+    ...base,
+    compactionEntry('entry-pair-end', 'entry-pair-call', 'entry-keep-complete-pair'),
+  ]);
+  assert.equal(keepingPair.leafId, asRuntimeEntryId('entry-keep-complete-pair'));
+
+  const droppingPair = validateSessionRecords([
+    ...base,
+    compactionEntry('entry-pair-end', 'entry-pair-end', 'entry-drop-complete-pair'),
+  ]);
+  assert.equal(droppingPair.leafId, asRuntimeEntryId('entry-drop-complete-pair'));
+
+  assertIncompatible(() => validateSessionRecords([
+    ...base,
+    compactionEntry('entry-pair-end', 'entry-pair-result', 'entry-cut-complete-pair'),
+  ]));
+});
+
+test('validator parent traversal is instrumented linear across at least 8k entries', () => {
+  const entryCount = 8_192;
+  const records: unknown[] = [header()];
+  let parentReads = 0;
+  for (let index = 0; index < entryCount; index += 1) {
+    const parentId = index === 0 ? null : `entry-scale-${index - 1}`;
+    const base = thinkingChangeEntry(parentId, `entry-scale-${index}`);
+    const entry = new Proxy(base, {
+      get: (target, property, receiver) => {
+        if (property === 'parentId') parentReads += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    records.push(entry);
+  }
+  parentReads = 0;
+  const validated = validateSessionRecords(records);
+  assert.equal(validated.entries.length, entryCount);
+  assert.equal(validated.leafId, asRuntimeEntryId(`entry-scale-${entryCount - 1}`));
+  assert.ok(
+    parentReads < entryCount * 8,
+    `parent access count ${parentReads} indicates repeated chain traversal`,
+  );
+});
+
+test('reader reopens an 8k-entry deep session through its streaming linear path', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-scale-read-'));
+  const filePath = join(root, 'scale.jsonl');
+  const entryCount = 8_192;
+  const records: Array<RuntimeSessionHeader | RuntimeSessionEntry> = [header()];
+  for (let index = 0; index < entryCount; index += 1) {
+    records.push(thinkingChangeEntry(
+      index === 0 ? null : `entry-reader-scale-${index - 1}`,
+      `entry-reader-scale-${index}`,
+    ));
+  }
+  try {
+    writeFileSync(
+      filePath,
+      `${records.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      { mode: 0o600 },
+    );
+    const reopened = reopenSessionLog(filePath, { rootDir: root });
+    assert.equal(reopened.entries.length, entryCount);
+    assert.equal(reopened.leafId, asRuntimeEntryId(`entry-reader-scale-${entryCount - 1}`));
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('secret-shaped Tool argument keys never leak through errors or durable bytes', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const secretKey = 'sk-fixture-key-material-123456';
+  try {
+    log.append(startEntry());
+    log.append(userEntry('entry-start'));
+    const durable = readFileSync(filePath);
+    const secretKeyCall = assistantEntry(
+      'entry-user',
+      'entry-secret-key-call',
+      true,
+      TIME_4,
+      { [secretKey]: 'benign-value' },
+    );
+    const error = assertIncompatible(() => log.append(secretKeyCall));
+    const rendered = [
+      error.message,
+      String(error),
+      error.stack ?? '',
+      JSON.stringify(error),
+      inspect(error, { depth: 5 }),
+    ].join('\n');
+    assert.equal(rendered.includes(secretKey), false);
+    assert.deepEqual(readFileSync(filePath), durable);
+    assert.equal(readFileSync(filePath, 'utf8').includes(secretKey), false);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('oversized untrusted JSON field names are rejected without echoing the field', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const oversizedKey = 'x'.repeat(257);
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const oversizedKeyCall = assistantEntry(
+      'entry-start',
+      'entry-oversized-key-call',
+      true,
+      TIME_4,
+      { [oversizedKey]: 'benign-value' },
+    );
+    const error = assertIncompatible(() => log.append(oversizedKeyCall));
+    const rendered = `${error.message}\n${JSON.stringify(error)}\n${inspect(error)}`;
+    assert.equal(rendered.includes(oversizedKey), false);
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('assistant tool-use stopReason requires at least one executable Tool call', () => {
+  const message = assistantEntry(
+    'entry-start',
+    'entry-tool-use-without-call',
+    false,
+    TIME_4,
+    {},
+    { stopReason: 'tool-use' },
+  );
+  assertIncompatible(() => validateSessionRecords([header(), startEntry(), message]));
+});
+
+test('assistant non-tool stop reasons reject executable Tool calls', () => {
+  const nonToolReasons = ['stop', 'length', 'error', 'aborted'] as const;
+  for (const reason of nonToolReasons) {
+    const message = assistantEntry(
+      'entry-start',
+      `entry-call-with-${reason}`,
+      true,
+      TIME_4,
+      {},
+      { stopReason: reason },
+    );
+    assertIncompatible(() => validateSessionRecords([header(), startEntry(), message]));
+  }
+});
+
+test('Tool argument accessors are rejected without invoking their getter', () => {
+  const { root, filePath, log } = makeRootedLog();
+  let getterReads = 0;
+  const argumentsWithGetter: Record<string, unknown> = {};
+  Object.defineProperty(argumentsWithGetter, 'payload', {
+    enumerable: true,
+    get: () => {
+      getterReads += 1;
+      return 'should-never-be-read';
+    },
+  });
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const call = assistantEntry(
+      'entry-start',
+      'entry-getter-call',
+      true,
+      TIME_4,
+      argumentsWithGetter as JsonObject,
+    );
+    assertIncompatible(() => log.append(call));
+    assert.equal(getterReads, 0);
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('shared JSON DAG references fail closed before repeated traversal or stringify', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const shared = { value: 'fixture' };
+  const references = Array.from({ length: 4_096 }, () => shared);
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const call = assistantEntry(
+      'entry-start',
+      'entry-shared-dag-call',
+      true,
+      TIME_4,
+      { references } as unknown as JsonObject,
+    );
+    assertIncompatible(() => log.append(call));
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('global JSON node budget stops before a late accessor branch is reached', () => {
+  const { root, filePath, log } = makeRootedLog();
+  let lateGetterReads = 0;
+  const branches: unknown[] = Array.from({ length: 4_095 }, () => [0, 1, 2, 3]);
+  const lateBranch: unknown[] = [];
+  Object.defineProperty(lateBranch, '0', {
+    enumerable: true,
+    get: () => {
+      lateGetterReads += 1;
+      return 0;
+    },
+  });
+  branches.push(lateBranch);
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const call = assistantEntry(
+      'entry-start',
+      'entry-json-budget-call',
+      true,
+      TIME_4,
+      { branches } as unknown as JsonObject,
+    );
+    const error = assertIncompatible(() => log.append(call));
+    assert.match(error.message, /node budget/u);
+    assert.equal(lateGetterReads, 0);
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('global JSON string budget rejects aggregate strings before message serialization', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const parts = Array.from({ length: 1_025 }, () => 'x'.repeat(1_024));
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const call = assistantEntry(
+      'entry-start',
+      'entry-json-string-budget-call',
+      true,
+      TIME_4,
+      { parts } as unknown as JsonObject,
+    );
+    const error = assertIncompatible(() => log.append(call));
+    assert.match(error.message, /string budget/u);
+    assert.deepEqual(readFileSync(filePath), durable);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('global JSON field budget spans every nested container in one record', () => {
+  const { root, filePath, log } = makeRootedLog();
+  const objects = Array.from({ length: 33 }, (_, objectIndex) => Object.fromEntries(
+    Array.from({ length: 256 }, (__, fieldIndex) => [
+      `field_${objectIndex}_${fieldIndex}`,
+      fieldIndex,
+    ]),
+  ));
+  try {
+    log.append(startEntry());
+    const durable = readFileSync(filePath);
+    const call = assistantEntry(
+      'entry-start',
+      'entry-json-field-budget-call',
+      true,
+      TIME_4,
+      { objects } as unknown as JsonObject,
+    );
+    const error = assertIncompatible(() => log.append(call));
+    assert.match(error.message, /field budget/u);
+    assert.deepEqual(readFileSync(filePath), durable);
   } finally {
     cleanup(root);
   }

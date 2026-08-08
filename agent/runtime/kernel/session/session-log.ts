@@ -4,14 +4,14 @@
  * This module persists only validated Runtime records. Reopening a log builds
  * an in-memory projection; it never replays a tool, product command, approval,
  * or any other mutation outside the log itself.
- * Its append-only JSONL/header model follows Pi session-manager pinned at
+ * Its append-only JSONL/header model follows Pi
+ * packages/coding-agent/src/core/session-manager.ts pinned at commit
  * e47b8e37a6211ebd0b2942fa87059d64f81eec02, with DEF-owned validation.
  */
 import {
   closeSync,
   constants as fsConstants,
   fchmodSync,
-  fstatSync,
   fsyncSync,
   lstatSync,
   openSync,
@@ -28,17 +28,22 @@ import type {
   RuntimeSessionRecord,
 } from './entries.ts';
 import {
+  assertBoundSessionFileDescriptor,
   assertPrivateSessionFile,
+  assertSessionParentSnapshot,
+  assertSessionFileSnapshot,
   ensureSessionParent,
   readSessionFile,
   resolveSessionPath,
+  SESSION_FILE_BYTE_LIMIT,
   type SessionPathOptions,
+  type SessionFileSnapshot,
+  type SessionParentSnapshot,
   type SessionReadResult,
 } from './session-reader.ts';
 import {
   SessionLogError,
   type InterruptedRuntimeRun,
-  type ValidatedSession,
   validateRuntimeSessionEntry,
   validateSessionRecords,
 } from './session-validator.ts';
@@ -94,10 +99,32 @@ function existingPathKind(filePath: string): 'missing' | 'file' | 'other' {
   }
 }
 
-function openNewSessionFile(filePath: string, header: RuntimeSessionHeader): void {
+function sameFileBinding(left: SessionFileSnapshot, right: SessionFileSnapshot): boolean {
+  return left.device === right.device
+    && left.inode === right.inode
+    && left.owner === right.owner
+    && left.mode === right.mode
+    && left.parent.directories.length === right.parent.directories.length
+    && left.parent.directories.every((directory, index) => {
+      const other = right.parent.directories[index];
+      return other !== undefined
+        && directory.device === other.device
+        && directory.inode === other.inode
+        && directory.owner === other.owner
+        && directory.mode === other.mode;
+    });
+}
+
+function openNewSessionFile(
+  filePath: string,
+  header: RuntimeSessionHeader,
+  options: SessionLogOptions,
+  expectedParent: SessionParentSnapshot,
+): void {
   const headerBytes = Buffer.from(`${JSON.stringify(header)}\n`, 'utf8');
   let descriptor: number | null = null;
   try {
+    assertSessionParentSnapshot(filePath, expectedParent, options);
     descriptor = openSync(
       filePath,
       fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | NO_FOLLOW,
@@ -106,8 +133,29 @@ function openNewSessionFile(filePath: string, header: RuntimeSessionHeader): voi
     // O_EXCL proves this descriptor names the file created by this call; setting
     // its mode cannot conceal prior exposure of an existing session file.
     fchmodSync(descriptor, 0o600);
+    // Node does not expose a portable openat-style parent-dir capability. We
+    // therefore bind every parent before open and verify it again through the
+    // final path immediately after open and after fsync; any observed swap is
+    // fail-closed even though an undetectably transient swap cannot be locked.
+    const created = assertBoundSessionFileDescriptor(
+      filePath,
+      descriptor,
+      options,
+      undefined,
+      expectedParent,
+    );
     writeAll(descriptor, headerBytes);
     fsyncSync(descriptor);
+    const durable = assertBoundSessionFileDescriptor(
+      filePath,
+      descriptor,
+      options,
+      undefined,
+      expectedParent,
+    );
+    if (!sameFileBinding(created, durable) || durable.byteLength !== headerBytes.length) {
+      throw new SessionLogError('SESSION_IO_ERROR', 'Session header was not durably bound to its new file.');
+    }
   } catch (error) {
     if (error instanceof SessionLogError) throw error;
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'EEXIST') {
@@ -117,7 +165,7 @@ function openNewSessionFile(filePath: string, header: RuntimeSessionHeader): voi
   } finally {
     if (descriptor !== null) closeSync(descriptor);
   }
-  assertPrivateSessionFile(filePath);
+  assertPrivateSessionFile(filePath, options);
 }
 
 function readState(filePath: string, options: SessionLogOptions): SessionReadResult {
@@ -127,47 +175,41 @@ function readState(filePath: string, options: SessionLogOptions): SessionReadRes
   });
 }
 
-function stateRecords(state: ValidatedSession): readonly RuntimeSessionRecord[] {
-  return state.records;
-}
-
-function sameRecords(left: readonly RuntimeSessionRecord[], right: readonly RuntimeSessionRecord[]): boolean {
-  return canonical(left) === canonical(right);
-}
-
 export class SessionLog {
   readonly #filePath: string;
   readonly #options: SessionLogOptions;
+  readonly #entryById: Map<RuntimeEntryId, RuntimeSessionEntry>;
   #state: SessionReadResult;
 
   private constructor(filePath: string, options: SessionLogOptions, state: SessionReadResult) {
     this.#filePath = filePath;
     this.#options = { ...options };
     this.#state = state;
+    this.#entryById = new Map(state.entries.map((entry) => [entry.id, entry]));
   }
 
-  static create(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions = {}): SessionLog {
+  static create(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions): SessionLog {
     const target = resolveSessionPath(filePath, options);
-    ensureSessionParent(target, options);
+    const parentSnapshot = ensureSessionParent(target, options);
     const headerState = validateSessionRecords([header]);
     const kind = existingPathKind(target);
     if (kind === 'other') throw new SessionLogError('SESSION_PATH_INVALID', 'Session path is not a regular file.');
     if (kind === 'file') throw new SessionLogError('SESSION_EXISTS', 'Session file already exists.');
-    openNewSessionFile(target, headerState.header);
+    openNewSessionFile(target, headerState.header, options, parentSnapshot);
     return new SessionLog(target, options, readState(target, options));
   }
 
-  static reopen(filePath: string, options: SessionLogOptions = {}): SessionLog {
+  static reopen(filePath: string, options: SessionLogOptions): SessionLog {
     const target = resolveSessionPath(filePath, options);
     const state = readState(target, options);
     return new SessionLog(target, options, state);
   }
 
-  static open(filePath: string, options: SessionLogOptions = {}): SessionLog {
+  static open(filePath: string, options: SessionLogOptions): SessionLog {
     return SessionLog.reopen(filePath, options);
   }
 
-  static createOrReopen(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions = {}): SessionLog {
+  static createOrReopen(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions): SessionLog {
     const suppliedHeader = validateSessionRecords([header]).header;
     const target = resolveSessionPath(filePath, options);
     const kind = existingPathKind(target);
@@ -180,7 +222,10 @@ export class SessionLog {
     if (canonical(suppliedHeader) !== canonical(durable.header)) {
       throw new SessionLogError('SESSION_APPEND_CONFLICT', 'Supplied session header does not match the durable header.');
     }
-    return SessionLog.reopen(target, options);
+    if (durable.tail === 'incomplete' && options.repairIncompleteTail !== false) {
+      return SessionLog.reopen(target, options);
+    }
+    return new SessionLog(target, options, durable);
   }
 
   get filePath(): string {
@@ -245,8 +290,10 @@ export class SessionLog {
 
   /**
    * Append one validated entry. Repeating the same id and canonical payload is
-   * a no-op; reusing an id with another payload is a conflict. A new id is
-   * never deduplicated by payload, so callers must own entry-id generation.
+   * a no-op within this descriptor-bound instance snapshot; after another
+   * writer changes the file, the caller must reopen before retrying. Reusing an
+   * id with another payload is a conflict. A new id is never deduplicated by
+   * payload, so callers must own entry-id generation.
    */
   append(entry: RuntimeSessionEntry): RuntimeEntryId {
     return this.appendDetailed(entry).entry.id;
@@ -257,35 +304,47 @@ export class SessionLog {
   }
 
   appendDetailed(entry: RuntimeSessionEntry): SessionAppendResult {
-    const current = readState(this.#filePath, this.#options);
-    const incoming = validateRuntimeSessionEntry(entry, current.records.length);
-    const existing = current.entries.find((candidate) => candidate.id === incoming.id);
+    assertSessionFileSnapshot(this.#filePath, this.#state.fileSnapshot, this.#options);
+    if (this.#state.tail === 'incomplete' && !this.#state.repairedTail) {
+      throw new SessionLogError('SESSION_INCOMPATIBLE', 'An incomplete session tail must be repaired before append.');
+    }
+
+    const incoming = clone(validateRuntimeSessionEntry(entry, this.#state.records.length));
+    const existing = this.#entryById.get(incoming.id);
     if (existing) {
       if (canonical(existing) !== canonical(incoming)) {
         throw new SessionLogError('SESSION_APPEND_CONFLICT', 'An entry id already has a different payload.');
       }
-      this.#state = current;
       return {
         entry: clone(existing),
         appended: false,
         idempotent: true,
-        leafId: current.leafId!,
-        updatedAt: current.updatedAt,
+        leafId: this.#state.leafId!,
+        updatedAt: this.#state.updatedAt,
       };
     }
-    if (!sameRecords(stateRecords(current), stateRecords(this.#state))) {
-      throw new SessionLogError('SESSION_STALE', 'Session log changed; reopen before appending.');
-    }
 
-    const candidateRecords = [...current.records, incoming];
+    // One linear in-memory whole-graph validation preserves all lifecycle and
+    // ancestry invariants. Append performs no redundant disk rescan; reopen is
+    // the single streaming recovery/validation path after external changes.
+    const candidateRecords = [...this.#state.records, incoming];
     const candidateState = validateSessionRecords(candidateRecords);
-    this.#appendPhysicalLine(current.endsWithNewline, incoming);
-    this.#state = readState(this.#filePath, this.#options);
-    // The second validation is intentional: the durable bytes, not the
-    // in-memory candidate, are the source of truth after an append.
-    if (!sameRecords(candidateState.records, this.#state.records)) {
-      throw new SessionLogError('SESSION_IO_ERROR', 'Durable session bytes differ from the appended record.');
-    }
+    const durable = this.#appendPhysicalLine(
+      this.#state.endsWithNewline,
+      incoming,
+      this.#state.fileSnapshot,
+    );
+    this.#state = {
+      ...candidateState,
+      filePath: this.#filePath,
+      fileByteLength: durable.byteLength,
+      validByteLength: durable.byteLength,
+      tail: 'none',
+      repairedTail: false,
+      endsWithNewline: true,
+      fileSnapshot: durable,
+    };
+    this.#entryById.set(incoming.id, incoming);
     return {
       entry: clone(incoming),
       appended: true,
@@ -295,25 +354,40 @@ export class SessionLog {
     };
   }
 
-  #appendPhysicalLine(endsWithNewline: boolean, entry: RuntimeSessionEntry): void {
+  #appendPhysicalLine(
+    endsWithNewline: boolean,
+    entry: RuntimeSessionEntry,
+    expected: SessionFileSnapshot,
+  ): SessionFileSnapshot {
     const bytes = Buffer.from(`${endsWithNewline ? '' : '\n'}${JSON.stringify(entry)}\n`, 'utf8');
+    if (expected.byteLength + bytes.length > SESSION_FILE_BYTE_LIMIT) {
+      throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session file would exceed its operational byte limit.');
+    }
     let descriptor: number | null = null;
     try {
-      assertPrivateSessionFile(this.#filePath, this.#options);
       descriptor = openSync(this.#filePath, fsConstants.O_WRONLY | fsConstants.O_APPEND | NO_FOLLOW);
-      const stats = fstatSync(descriptor);
-      if (!stats.isFile()) throw new SessionLogError('SESSION_PATH_INVALID', 'Session path is not a regular file.');
-      if ((Number(stats.mode) & 0o7777) !== 0o600) {
-        throw new SessionLogError('SESSION_PATH_INVALID', 'Session file must be mode 0600.');
-      }
+      // Re-bind immediately before write: stale size or inode means another
+      // writer/replacement won, so this instance must reopen instead of append.
+      const before = assertBoundSessionFileDescriptor(
+        this.#filePath,
+        descriptor,
+        this.#options,
+        expected,
+      );
       writeAll(descriptor, bytes);
       fsyncSync(descriptor);
+      const durable = assertBoundSessionFileDescriptor(this.#filePath, descriptor, this.#options);
+      if (!sameFileBinding(before, durable) || durable.byteLength !== before.byteLength + bytes.length) {
+        throw new SessionLogError('SESSION_STALE', 'Session file changed during append.');
+      }
+      return durable;
     } catch (error) {
       if (error instanceof SessionLogError) throw error;
       throw new SessionLogError('SESSION_IO_ERROR', 'Session entry could not be appended.');
     } finally {
       if (descriptor !== null) closeSync(descriptor);
     }
+    return expected;
   }
 
   /**
@@ -366,12 +440,12 @@ export class SessionLog {
 export function createSessionLog(
   filePath: string,
   header: RuntimeSessionHeader,
-  options: SessionLogOptions = {},
+  options: SessionLogOptions,
 ): SessionLog {
   return SessionLog.create(filePath, header, options);
 }
 
-export function reopenSessionLog(filePath: string, options: SessionLogOptions = {}): SessionLog {
+export function reopenSessionLog(filePath: string, options: SessionLogOptions): SessionLog {
   return SessionLog.reopen(filePath, options);
 }
 
@@ -380,7 +454,7 @@ export const openSessionLog = reopenSessionLog;
 export function createOrReopenSessionLog(
   filePath: string,
   header: RuntimeSessionHeader,
-  options: SessionLogOptions = {},
+  options: SessionLogOptions,
 ): SessionLog {
   return SessionLog.createOrReopen(filePath, header, options);
 }
