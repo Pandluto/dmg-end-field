@@ -1,4 +1,5 @@
 import {
+  asConversationMessageId,
   asConversationPartId,
   assertConversationMessage,
   assertConversationPart,
@@ -1588,7 +1589,7 @@ function buildHostErrorPart(
   code: string,
   message: string,
 ): ConversationErrorPart {
-  const parent = requireTurnMessage(state, event.defTurnId);
+  const parent = requireOrCreateHostErrorMessage(state, event);
   return {
     id: asConversationPartId(`host-error:${event.sequence}`),
     messageId: parent.id,
@@ -1598,6 +1599,32 @@ function buildHostErrorPart(
     message,
     retryable: false,
   };
+}
+
+function requireOrCreateHostErrorMessage(
+  state: MutableProjectionState,
+  event: Extract<DefEvent, { type: 'turn.failed' | 'turn.interrupted' }>,
+): ConversationMessage {
+  const existingId = state.assistantMessageByTurnId.get(event.defTurnId)
+    ?? state.lastMessageByTurnId.get(event.defTurnId);
+  const existing = existingId ? state.messageById.get(existingId) : undefined;
+  if (existing) return existing;
+
+  const message: ConversationMessage = {
+    id: asConversationMessageId(`host-error-message:${event.defTurnId}`),
+    role: 'assistant',
+    defTurnId: event.defTurnId,
+    createdAt: event.occurredAt,
+    completedAt: event.occurredAt,
+    partIds: [],
+  };
+  const index = state.messages.length;
+  state.messages.push(message);
+  state.messageById.set(message.id, message);
+  state.messageIndexById.set(message.id, index);
+  indexTurnMessage(state, message);
+  refreshMessageSize(state, message);
+  return message;
 }
 
 function findToolPart(state: MutableProjectionState, toolCallId: ToolCallId): ConversationToolPart | undefined {
