@@ -1919,6 +1919,7 @@ export interface DesktopAgentModeNavigationDependencies {
   readonly authorize: () => Promise<unknown>;
   readonly initializeWorkspace: () => Promise<void>;
   readonly startConsumer: () => Promise<void>;
+  readonly publishCurrentSnapshot: () => Promise<void>;
   readonly stopConsumer: () => Promise<void>;
   readonly clearCapability: () => void;
 }
@@ -1936,6 +1937,17 @@ function defaultAgentModeNavigationDependencies(): DesktopAgentModeNavigationDep
     authorize: () => desktopAgentBridge.retryAuthorization(),
     initializeWorkspace: () => browserAgentRuntime.initializeWorkspace(),
     startConsumer: () => desktopAgentConsumerController.start(),
+    publishCurrentSnapshot: async () => {
+      const { readMainWorkbenchSnapshot, pushMainWorkbenchSnapshot } = await import('../../utils/mainWorkbenchControl');
+      const snapshot = readMainWorkbenchSnapshot();
+      if (!snapshot?.checkout) {
+        throw new Error('当前工作区快照尚未准备好。');
+      }
+      await pushMainWorkbenchSnapshot(snapshot);
+      if (!browserAgentRuntime.getBinding()) {
+        throw new Error('当前工作区快照未能绑定到 Agent Host。');
+      }
+    },
     stopConsumer: () => desktopAgentConsumerController.stop(),
     clearCapability: () => desktopAgentBridge.clearSessionCapability(),
   };
@@ -1951,10 +1963,10 @@ function agentModeHref(currentHref: string, route: string): string {
 }
 
 /**
- * Authorize and register the existing Workbench before publishing the AI hash
- * route. history.pushState deliberately changes the URL without mounting the
- * overlay yet, preventing initialize/reauthorize races while preserving the
- * current React tree, SQLite connection and writer lease.
+ * Authorize, register and publish the existing Workbench before announcing the
+ * AI hash route. history.pushState deliberately changes the URL without
+ * mounting the overlay yet, preventing initialize/reauthorize races while
+ * preserving the current React tree, SQLite connection and writer lease.
  */
 export async function enterDesktopAgentModeFromWorkbench(
   injected?: DesktopAgentModeNavigationDependencies,
@@ -1968,6 +1980,7 @@ export async function enterDesktopAgentModeFromWorkbench(
     await dependencies.authorize();
     await dependencies.initializeWorkspace();
     await dependencies.startConsumer();
+    await dependencies.publishCurrentSnapshot();
     dependencies.announceRoute(previousHref, nextHref);
   } catch (error) {
     await dependencies.stopConsumer().catch(() => undefined);

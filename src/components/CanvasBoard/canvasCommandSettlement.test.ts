@@ -185,6 +185,16 @@ assert.match(source, /previousSnapshot\.candidateBuffs/, 'candidate Buff changes
 assert.match(source, /candidateBuffRevision/, 'candidate Buff refreshes must trigger a fresh snapshot projection');
 assert.match(
   source,
+  /void pushMainWorkbenchSnapshot\(snapshot\);\n  \}, \[[^\]]*\bisAgentMode\b[^\]]*\]\);/,
+  'entering AI mode must republish the already-mounted Canvas snapshot after authorization becomes active',
+);
+assert.match(
+  source,
+  /serializeWorkbenchSnapshotSemantics\(previousSnapshot\) === serializeWorkbenchSnapshotSemantics\(snapshot\)[\s\S]*?isAgentMode && !browserAgentRuntime\.getBinding\(\)[\s\S]*?pushMainWorkbenchSnapshot\(snapshot\)/,
+  'snapshot semantic deduplication must not suppress the first Agent binding publication',
+);
+assert.match(
+  source,
   /authoritativeCheckoutContentRevision === null\)[\s\S]*?browserAgentRuntime\.suspendWritableBinding\(\)/,
   'Canvas must revoke an old writable binding whenever the formal checkout revision is unavailable',
 );

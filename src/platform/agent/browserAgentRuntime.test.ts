@@ -2132,6 +2132,7 @@ assert.equal(
     authorize: async () => { events.push('authorize'); },
     initializeWorkspace: async () => { events.push('workspace'); },
     startConsumer: async () => { events.push('consumer:start'); },
+    publishCurrentSnapshot: async () => { events.push('snapshot:publish'); },
     stopConsumer: async () => { events.push('consumer:stop'); },
     clearCapability: () => { events.push('capability:clear'); },
   };
@@ -2143,6 +2144,7 @@ assert.equal(
     'authorize',
     'workspace',
     'consumer:start',
+    'snapshot:publish',
     'route:#/timeline/ai',
   ]);
 
@@ -2170,6 +2172,7 @@ assert.equal(
     authorize: async () => { events.push('authorize'); throw failure; },
     initializeWorkspace: async () => { events.push('workspace'); },
     startConsumer: async () => { events.push('consumer:start'); },
+    publishCurrentSnapshot: async () => { events.push('snapshot:publish'); },
     stopConsumer: async () => { events.push('consumer:stop'); },
     clearCapability: () => { events.push('capability:clear'); },
   };

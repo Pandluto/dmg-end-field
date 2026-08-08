@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { validateTimelinePayload } from '../../agentKernel/timelineWorktree/validator';
 import type { PersistedSkillButton } from '../../types/storage';
 import type { TimelineSnapshotPayload } from '../../utils/timelineSnapshotStorage';
-import { buildTimelineButtonsFromSkillButtonTable } from './timelineService';
+import { buildTimelineButtonsFromSkillButtonTable, normalizeTimelineData } from './timelineService';
 
 const button: PersistedSkillButton = {
   id: 'button-selection-buff',
@@ -49,4 +49,9 @@ const payload: TimelineSnapshotPayload = {
 };
 
 assert.deepEqual(validateTimelinePayload(payload), { ok: true, issues: [] });
+assert.deepEqual(
+  normalizeTimelineData(payload.timelineData, [{ name: '干员一' }]).staffLines[0]?.occupiedNodes,
+  [16],
+  'global node indices beyond the first 15-slot visual group must remain occupied',
+);
 console.log('Timeline selection projection keeps Buff mirror identity: PASS');

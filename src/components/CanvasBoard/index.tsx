@@ -5500,11 +5500,14 @@ export function CanvasBoard({
     };
     if (previousSnapshot
       && serializeWorkbenchSnapshotSemantics(previousSnapshot) === serializeWorkbenchSnapshotSemantics(snapshot)) {
+      if (isAgentMode && !browserAgentRuntime.getBinding()) {
+        void pushMainWorkbenchSnapshot(snapshot);
+      }
       return;
     }
     writeMainWorkbenchSnapshot(snapshot);
     void pushMainWorkbenchSnapshot(snapshot);
-  }, [activeCheckoutRef, activeTimelineId, authoritativeCheckoutContentRevision, candidateBuffRevision, checkoutBootstrapRevision, currentView, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
+  }, [activeCheckoutRef, activeTimelineId, authoritativeCheckoutContentRevision, candidateBuffRevision, checkoutBootstrapRevision, currentView, isAgentMode, nodeReviewRefreshRevision, projectionVisibilityRevision, selectedCharacters, skillButtons, timelineData, resistanceRevision]);
 
   useEffect(() => {
     if (isCheckoutBootstrapPendingRef.current || currentView !== 'canvas') return undefined;
@@ -6455,9 +6458,11 @@ export function CanvasBoard({
         await exitDesktopAgentModeToWorkbench();
       }
       else await enterDesktopAgentModeFromWorkbench();
+      setWorkNodeSaveNotice('');
     } catch (error) {
       setWorkNodeSaveNotice(error instanceof Error ? error.message : String(error));
       window.setTimeout(() => setWorkNodeSaveNotice(''), 4_200);
+    } finally {
       setIsAgentModeLaunching(false);
     }
   };
