@@ -258,8 +258,11 @@ agent/
 │   ├── conversation-projector.ts # 组合 Runtime transcript 与 Host audit
 │   └── agent-ui-gateway.ts       # 替代 opencode-native-ui-gateway
 ├── runtime/
+│   ├── NOTICE.md
+│   ├── source-provenance.json
 │   ├── host-entry.ts
 │   └── kernel/
+│       ├── ids.ts
 │       ├── messages.ts
 │       ├── stream-events.ts
 │       ├── agent-loop.ts
@@ -495,10 +498,11 @@ Header 至少包含：
 - schema version；
 - runtime session ID；
 - 对应 DEF Session ID；
-- created/updated time；
+- created time；updated time 由最后一条有效 entry 推导，避免回写 append-only Header；
 - provider profile ref，不含密钥；
-- 当前 leaf/last entry；
 - 来源 Runtime version。
+
+当前 leaf/last entry 同样由最后一条有效 entry 及 parent 链推导，不回写 Header。
 
 每个 entry 至少包含：
 
@@ -1431,14 +1435,18 @@ flowchart TD
 agent/runtime/kernel/messages.ts
 agent/runtime/kernel/stream-events.ts
 agent/runtime/kernel/tool.ts
+agent/runtime/kernel/ids.ts
 agent/runtime/kernel/provider/model-driver.ts
 agent/runtime/kernel/session/entries.ts
 agent/core/contracts/conversation.ts
+agent/core/contracts/conversation.contract.test.ts
 agent/core/contracts/index.ts
 agent/runtime/kernel/testing/trace-schema.ts
+agent/runtime/kernel/testing/trace-schema.test.ts
 agent/runtime/source-provenance.json
 agent/runtime/NOTICE.md
 scripts/repository-check.mjs
+package.json
 ```
 
 交付物：
@@ -1459,12 +1467,16 @@ scripts/repository-check.mjs
 - schema/validator 测试；
 - Trace schema 可以在不加载 Pi SDK 的情况下验证；
 - 每个合同字段都能追溯到 Pi/OpenCode/DEF 中至少一个明确需求；
+- Runtime run/message/run-marker 持久保存 `DefTurnId`，冻结 `RuntimeTurnId ↔ DefTurnId` 关联；
+- assistant `message.start` 使用 draft，不伪造尚未产生的 usage/stopReason/completedAt；
 - Reviewer 确认不存在 UI 类型反向污染 Runtime；
 - `npm run check:repo` 接受预登记的目标骨架，后续 worker 不需要争改仓库白名单。
 
 F0 完成后形成一个明确的 gate commit。后续所有 Wave 1 worker 必须从该提交创建独立 worktree。
 
 F0 修改 `scripts/repository-check.mjs` 不是放宽检查：必须按最终工作包精确登记新文件，并继续禁止 Pi/OpenCode 生产依赖、Node 业务 SQLite、退役 REST 和 Agent core 越界 import。
+
+本地只读参考源码可以放在未跟踪的 `agent/vendor/`；仓库检查只跳过其中未跟踪的文件。一旦文件被暂存或跟踪，仍按普通 `agent/**` 文件执行白名单和依赖检查并失败，防止参考仓库进入产品提交。
 
 #### 20.5.1 P0：Pi Golden Oracle
 
@@ -1992,7 +2004,8 @@ scripts/check-desktop-runtime-boundaries.mjs
 3. 再删除 Gateway/adapter/runtime/plugin/private bridge；
 4. 最后删除打包 vendor/runtime；
 5. 更新 ADR、architecture facts 和 smoke tests；
-6. 运行完整 Electron build/verify。
+6. 将 `agent/runtime/NOTICE.md` 与 `source-provenance.json` 复制进最终 Agent Runtime 发行目录并验证 commit/license；
+7. 运行完整 Electron build/verify。
 
 #### 20.19.1 A1：最终手动验收
 

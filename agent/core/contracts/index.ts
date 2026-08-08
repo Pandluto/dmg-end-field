@@ -1,4 +1,5 @@
 export * from './browser-protocol.ts';
+export * from './conversation.ts';
 export * from './engine.ts';
 export * from './events.ts';
 export * from './harness.ts';

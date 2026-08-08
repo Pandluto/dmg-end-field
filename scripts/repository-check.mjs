@@ -8,6 +8,7 @@ import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const failures = [];
+const localUntrackedReferencePrefixes = ['agent/vendor/'];
 
 function fail(message) {
   failures.push(message);
@@ -18,12 +19,20 @@ function readJson(relativePath) {
 }
 
 function trackedFiles() {
-  return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
+  const tracked = execFileSync('git', ['ls-files', '--cached', '-z'], {
     cwd: root,
     encoding: 'utf8',
   })
     .split('\0')
     .filter(Boolean);
+  const untracked = execFileSync('git', ['ls-files', '--others', '--exclude-standard', '-z'], {
+    cwd: root,
+    encoding: 'utf8',
+  })
+    .split('\0')
+    .filter(Boolean)
+    .filter((file) => !localUntrackedReferencePrefixes.some((prefix) => file.startsWith(prefix)));
+  return [...new Set([...tracked, ...untracked])];
 }
 
 function sha256(filePath) {
@@ -138,6 +147,8 @@ const allowedLegacyFillFiles = new Set([
 ]);
 const allowedAgentFiles = new Set([
   'agent/core/contracts/browser-protocol.ts',
+  'agent/core/contracts/conversation.contract.test.ts',
+  'agent/core/contracts/conversation.ts',
   'agent/core/contracts/engine.ts',
   'agent/core/contracts/events.ts',
   'agent/core/contracts/harness.ts',
@@ -173,6 +184,12 @@ const allowedAgentFiles = new Set([
   'agent/core/tools/read-only-workbench.buff.contract.test.ts',
   'agent/core/tools/read-only-workbench.damage.contract.test.ts',
   'agent/core/tools/read-only-workbench.loadout.contract.test.ts',
+  'agent/engines/def-runtime/adapter.test.ts',
+  'agent/engines/def-runtime/adapter.ts',
+  'agent/engines/def-runtime/errors.ts',
+  'agent/engines/def-runtime/profile.test.ts',
+  'agent/engines/def-runtime/profile.ts',
+  'agent/engines/def-runtime/transcript-source.ts',
   'agent/engines/opencode/LICENSE',
   'agent/engines/opencode/adapter.ts',
   'agent/engines/opencode/errors.ts',
@@ -186,9 +203,15 @@ const allowedAgentFiles = new Set([
   'agent/engines/opencode/runtime.ts',
   'agent/engines/opencode/tool-bindings.ts',
   'agent/host/browser-consumer-registry.ts',
+  'agent/host/agent-ui-gateway.test.ts',
+  'agent/host/agent-ui-gateway.ts',
   'agent/host/approval-capability-signer.contract.test.ts',
   'agent/host/approval-capability-signer.ts',
+  'agent/host/conversation-projector.test.ts',
+  'agent/host/conversation-projector.ts',
   'agent/host/def-agent-host.ts',
+  'agent/host/def-runtime-harness-blackbox.test.ts',
+  'agent/host/def-runtime-lifecycle-blackbox.test.ts',
   'agent/host/def-agent-interop.contract.test.ts',
   'agent/host/def-agent-interop.ts',
   'agent/host/errors.ts',
@@ -205,8 +228,58 @@ const allowedAgentFiles = new Set([
   'agent/host/session-store.contract.test.ts',
   'agent/host/session-store.ts',
   'agent/host/token-authority.ts',
+  'agent/host/testing/conversation-fixtures.ts',
+  'agent/runtime/NOTICE.md',
   'agent/runtime/host-entry.ts',
+  'agent/runtime/kernel/agent-loop.test.ts',
+  'agent/runtime/kernel/agent-loop.ts',
+  'agent/runtime/kernel/host-tool-bridge.test.ts',
+  'agent/runtime/kernel/host-tool-bridge.ts',
+  'agent/runtime/kernel/ids.ts',
+  'agent/runtime/kernel/messages.ts',
+  'agent/runtime/kernel/provider/model-driver.ts',
+  'agent/runtime/kernel/provider/openai-compatible-driver.test.ts',
+  'agent/runtime/kernel/provider/openai-compatible-driver.ts',
+  'agent/runtime/kernel/provider/provider-errors.ts',
+  'agent/runtime/kernel/provider/retry-policy.test.ts',
+  'agent/runtime/kernel/provider/retry-policy.ts',
+  'agent/runtime/kernel/provider/sse-parser.test.ts',
+  'agent/runtime/kernel/provider/sse-parser.ts',
+  'agent/runtime/kernel/run-controller.ts',
+  'agent/runtime/kernel/runtime-session.test.ts',
+  'agent/runtime/kernel/runtime-session.ts',
+  'agent/runtime/kernel/session/compaction-prompt.ts',
+  'agent/runtime/kernel/session/compaction.test.ts',
+  'agent/runtime/kernel/session/compaction.ts',
+  'agent/runtime/kernel/session/context-builder.test.ts',
+  'agent/runtime/kernel/session/context-builder.ts',
+  'agent/runtime/kernel/session/context-recovery.test.ts',
+  'agent/runtime/kernel/session/context-recovery.ts',
+  'agent/runtime/kernel/session/entries.ts',
+  'agent/runtime/kernel/session/session-log.test.ts',
+  'agent/runtime/kernel/session/session-log.ts',
+  'agent/runtime/kernel/session/session-reader.ts',
+  'agent/runtime/kernel/session/session-validator.ts',
+  'agent/runtime/kernel/stream-events.ts',
+  'agent/runtime/kernel/testing/fake-model-driver.ts',
+  'agent/runtime/kernel/testing/fake-tool-bridge.ts',
+  'agent/runtime/kernel/testing/fixtures/abort.json',
+  'agent/runtime/kernel/testing/fixtures/compaction.json',
+  'agent/runtime/kernel/testing/fixtures/error.json',
+  'agent/runtime/kernel/testing/fixtures/manifest.json',
+  'agent/runtime/kernel/testing/fixtures/reasoning.json',
+  'agent/runtime/kernel/testing/fixtures/text.json',
+  'agent/runtime/kernel/testing/fixtures/tool.json',
+  'agent/runtime/kernel/testing/golden-trace.test.ts',
+  'agent/runtime/kernel/testing/runtime-fixtures.ts',
+  'agent/runtime/kernel/testing/trace-normalizer.ts',
+  'agent/runtime/kernel/testing/trace-schema.test.ts',
+  'agent/runtime/kernel/testing/trace-schema.ts',
+  'agent/runtime/kernel/tool-projection.test.ts',
+  'agent/runtime/kernel/tool-projection.ts',
+  'agent/runtime/kernel/tool.ts',
   'agent/runtime/pending-agent-engine.ts',
+  'agent/runtime/source-provenance.json',
 ]);
 const removedRuntimeFiles = new Set([
   'src/components/AgentMode/agentModeModel.test.ts',
@@ -255,8 +328,17 @@ for (const file of files) {
 
 const agentRoot = path.join(root, 'agent');
 const agentCoreRoot = path.join(agentRoot, 'core');
+const agentRootReal = fs.realpathSync(agentRoot);
+const agentVendorRoot = path.join(agentRoot, 'vendor');
+const agentVendorRootReal = fs.existsSync(agentVendorRoot) ? fs.realpathSync(agentVendorRoot) : agentVendorRoot;
 for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))) {
-  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  const absoluteFile = path.join(root, file);
+  const realFile = fs.realpathSync(absoluteFile);
+  if (!isPathInside(agentRootReal, realFile)) {
+    fail(`Agent runtime file resolves outside its boundary: ${file}`);
+    continue;
+  }
+  const content = fs.readFileSync(absoluteFile, 'utf8');
   if (
     !file.endsWith('.test.ts')
     && /17321|17322|ai-cli-rest-server|better-sqlite3|node:sqlite/.test(content)
@@ -265,6 +347,7 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
   }
   if (!file.endsWith('.ts')) continue;
   const isOpenCodeEngine = file.startsWith('agent/engines/opencode/');
+  const isDefRuntimeEngine = file.startsWith('agent/engines/def-runtime/');
   const isOpenCodeUiGatewayTest = file === 'agent/host/opencode-native-ui-gateway.test.ts';
   const dependencyInspection = inspectTypeScriptDependencies(content, file);
   for (const label of dependencyInspection.uninspectable) {
@@ -288,6 +371,7 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
       || file.startsWith('agent/core/harness/')
       || file.startsWith('agent/host/')
       || file.startsWith('agent/runtime/')
+      || isDefRuntimeEngine
       || isOpenCodeEngine;
     if (canUseNodeBuiltins && specifier.startsWith('node:')) continue;
     if (!specifier.startsWith('.')) {
@@ -296,12 +380,107 @@ for (const file of files.filter((candidate) => allowedAgentFiles.has(candidate))
       continue;
     }
     const resolvedImport = path.resolve(path.dirname(path.join(root, file)), specifier);
+    if (isPathInside(agentVendorRoot, resolvedImport)) {
+      fail(`Agent runtime imports the local reference-only vendor tree (${specifier}): ${file}`);
+      continue;
+    }
     if (!isPathInside(agentRoot, resolvedImport)) {
       fail(`Agent runtime import escapes its boundary (${specifier}): ${file}`);
+    }
+    if (fs.existsSync(resolvedImport)) {
+      const resolvedImportReal = fs.realpathSync(resolvedImport);
+      if (!isPathInside(agentRootReal, resolvedImportReal)) {
+        fail(`Agent runtime import resolves outside its real boundary (${specifier}): ${file}`);
+        continue;
+      }
+      if (isPathInside(agentVendorRootReal, resolvedImportReal)) {
+        fail(`Agent runtime import resolves into the local reference-only vendor tree (${specifier}): ${file}`);
+        continue;
+      }
     }
     if (file.startsWith('agent/core/') && !isPathInside(agentCoreRoot, resolvedImport)) {
       fail(`Agent core import escapes its engine-neutral boundary (${specifier}): ${file}`);
     }
+  }
+}
+
+for (const file of files.filter((candidate) => /\.(?:cjs|js|mjs|ts|tsx)$/u.test(candidate))) {
+  const content = fs.readFileSync(path.join(root, file), 'utf8');
+  const dependencyInspection = inspectTypeScriptDependencies(content, file);
+  for (const specifier of dependencyInspection.specifiers.filter((value) => value.startsWith('.'))) {
+    const resolvedImport = path.resolve(path.dirname(path.join(root, file)), specifier);
+    if (isPathInside(agentVendorRoot, resolvedImport)) {
+      fail(`Product code imports the local reference-only Agent vendor tree (${specifier}): ${file}`);
+      continue;
+    }
+    if (fs.existsSync(resolvedImport) && isPathInside(agentVendorRootReal, fs.realpathSync(resolvedImport))) {
+      fail(`Product code resolves into the local reference-only Agent vendor tree (${specifier}): ${file}`);
+    }
+  }
+}
+
+const agentRuntimeProvenance = readJson('agent/runtime/source-provenance.json');
+const provenanceTargets = new Set();
+if (agentRuntimeProvenance.schemaVersion !== 1 || !Array.isArray(agentRuntimeProvenance.sources)) {
+  fail('DEF Agent Runtime source provenance is invalid');
+} else {
+  for (const [sourceIndex, source] of agentRuntimeProvenance.sources.entries()) {
+    if (
+      !source
+      || typeof source !== 'object'
+      || typeof source.repository !== 'string'
+      || !/^https:\/\/github\.com\//u.test(source.repository)
+      || typeof source.commit !== 'string'
+      || !/^[0-9a-f]{40}$/u.test(source.commit)
+      || source.license !== 'MIT'
+      || !Array.isArray(source.targets)
+    ) {
+      fail(`invalid DEF Agent Runtime provenance source at index ${sourceIndex}`);
+      continue;
+    }
+    for (const [targetIndex, target] of source.targets.entries()) {
+      const label = `source ${sourceIndex} target ${targetIndex}`;
+      if (
+        !target
+        || typeof target !== 'object'
+        || !Array.isArray(target.sourcePaths)
+        || target.sourcePaths.length === 0
+        || target.sourcePaths.some((sourcePath) => typeof sourcePath !== 'string' || !sourcePath)
+        || typeof target.targetPath !== 'string'
+        || !allowedAgentFiles.has(target.targetPath)
+        || typeof target.adaptation !== 'string'
+        || !target.adaptation
+      ) {
+        fail(`invalid DEF Agent Runtime provenance ${label}`);
+        continue;
+      }
+      if (provenanceTargets.has(target.targetPath)) {
+        fail(`duplicate DEF Agent Runtime provenance target: ${target.targetPath}`);
+      }
+      provenanceTargets.add(target.targetPath);
+    }
+  }
+}
+if (!Array.isArray(agentRuntimeProvenance.originalTargets)) {
+  fail('DEF Agent Runtime original target provenance is missing');
+} else {
+  for (const [index, target] of agentRuntimeProvenance.originalTargets.entries()) {
+    if (
+      !target
+      || typeof target !== 'object'
+      || typeof target.targetPath !== 'string'
+      || !allowedAgentFiles.has(target.targetPath)
+      || typeof target.note !== 'string'
+      || !target.note
+    ) {
+      fail(`invalid DEF Agent Runtime original target at index ${index}`);
+    }
+  }
+}
+const agentRuntimeNotice = fs.readFileSync(path.join(root, 'agent/runtime/NOTICE.md'), 'utf8');
+for (const source of agentRuntimeProvenance.sources || []) {
+  if (typeof source?.commit === 'string' && !agentRuntimeNotice.includes(source.commit)) {
+    fail(`DEF Agent Runtime NOTICE is missing source commit: ${source.commit}`);
   }
 }
 
@@ -386,8 +565,14 @@ for (const [name, command] of Object.entries(packageJson.scripts || {})) {
 if (packageJson.scripts?.['typecheck:agent'] !== 'tsc -p tsconfig.agent.json') {
   fail('Agent core typecheck script is missing or invalid');
 }
-if (!String(packageJson.scripts?.['test:agent-core'] || '').includes('fake-engine.contract.test.ts')) {
+if (
+  !String(packageJson.scripts?.['test:agent-core'] || '').includes('conversation.contract.test.ts')
+  || !String(packageJson.scripts?.['test:agent-core'] || '').includes('fake-engine.contract.test.ts')
+) {
   fail('Agent core contract test script is missing or invalid');
+}
+if (!String(packageJson.scripts?.['test:agent-runtime'] || '').includes('trace-schema.test.ts')) {
+  fail('DEF Agent Runtime contract test script is missing or invalid');
 }
 if (
   !String(packageJson.scripts?.['test:agent-harness'] || '').includes('harness.contract.test.ts')

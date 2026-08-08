@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "repository": "https://github.com/earendil-works/pi-mono",
+      "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+      "version": "0.84.1",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 Mario Zechner",
+      "targets": [
+        {
+          "sourcePaths": ["packages/ai/src/types.ts"],
+          "targetPath": "agent/runtime/kernel/messages.ts",
+          "adaptation": "Minimal DEF message/content/usage union; removes multi-provider and CLI-specific variants."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/types.ts", "packages/agent/src/types.ts"],
+          "targetPath": "agent/runtime/kernel/stream-events.ts",
+          "adaptation": "Two-level Provider and Runtime event contracts with deterministic ordering and DEF error boundaries."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/types.ts"],
+          "targetPath": "agent/runtime/kernel/tool.ts",
+          "adaptation": "External Host Tool bridge with sequential invocation and atomic result plus next projection."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/types.ts"],
+          "targetPath": "agent/runtime/kernel/provider/model-driver.ts",
+          "adaptation": "Provider-neutral stream port restricted to DEF OpenAI-compatible needs."
+        },
+        {
+          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts"],
+          "targetPath": "agent/runtime/kernel/session/entries.ts",
+          "adaptation": "Append-only DEF Session header and entry union; preserves parent ids and removes CLI extension records."
+        }
+      ]
+    },
+    {
+      "repository": "https://github.com/anomalyco/opencode",
+      "commit": "67aec2212010d67775c35e696d8b8b54902eb338",
+      "version": "1.17.11",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2025 opencode",
+      "targets": [
+        {
+          "sourcePaths": ["packages/schema/src/session-v1.ts"],
+          "targetPath": "agent/core/contracts/conversation.ts",
+          "adaptation": "Engine-neutral DEF Message/Part/ToolState read model with a composite Runtime and Host cursor."
+        }
+      ]
+    }
+  ],
+  "originalTargets": [
+    {
+      "targetPath": "agent/runtime/kernel/ids.ts",
+      "note": "DEF-original nominal Runtime identifiers following the existing local contract convention."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/trace-schema.ts",
+      "note": "DEF-original normalized trace envelope for source-to-target behavioral comparison."
+    }
+  ]
+}
