@@ -15,6 +15,7 @@ import {
   type EngineRecoveryResult,
   type EngineSessionCreateInput,
   type EngineSessionRef,
+  type EngineSteeringInput,
   type EngineToolProjectionInput,
   type EngineToolResultInput,
   type EngineTurnHandle,
@@ -443,6 +444,13 @@ class DefRuntimeTurnHandle implements EngineTurnHandle {
       'DEF_RUNTIME_PROJECTION_UNSUPPORTED',
       'Tool projection changes must be settled atomically with a Tool result.',
     ));
+  }
+
+  steer(input: EngineSteeringInput): Promise<void> {
+    return this.#runtimeHandle.steer({
+      clientTurnId: input.clientTurnId,
+      text: input.userMessage,
+    });
   }
 
   async abort(reason: EngineAbortReason): Promise<AbortResult> {

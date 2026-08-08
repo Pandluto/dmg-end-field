@@ -86,6 +86,7 @@ const uiPort: AgentUiGatewayPort = {
   readSession: (defSessionId, binding) => host.readSession(defSessionId, binding),
   createSession: (input) => host.createSession(input),
   startTurn: (input) => host.startHarnessTurn(input),
+  steerTurn: (input) => host.steerTurn(input),
   stopTurn: async (input) => {
     host.readSession(input.defSessionId, input.binding);
     await host.abortTurn(input.defTurnId, 'USER_STOPPED', input.binding);

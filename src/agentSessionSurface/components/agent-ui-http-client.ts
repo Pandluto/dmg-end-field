@@ -141,6 +141,37 @@ export class AgentUiHttpClient implements ConversationProjector {
     );
   }
 
+  async steerTurn(defSessionId: DefSessionId, defTurnIdValue: string, userMessage: string): Promise<void> {
+    const defTurnId = asDefTurnId(defTurnIdValue);
+    const clientTurnId = asClientTurnId(createClientTurnId());
+    await this.#request(
+      `sessions/${encodeURIComponent(defSessionId)}/steer`,
+      {
+        method: 'POST',
+        headers: this.#headers('application/json', true),
+        body: JSON.stringify({ clientTurnId, defTurnId, userMessage }),
+      },
+    );
+  }
+
+  async respondInteraction(
+    interactionId: string,
+    status: 'answered' | 'approved' | 'rejected',
+    value?: string,
+  ): Promise<void> {
+    await this.#request(
+      `interactions/${encodeURIComponent(interactionId)}/respond`,
+      {
+        method: 'POST',
+        headers: this.#headers('application/json', true),
+        body: JSON.stringify({
+          status,
+          ...(value === undefined ? {} : { value }),
+        }),
+      },
+    );
+  }
+
   #headers(accept: string, json = false): Headers {
     const headers = new Headers({
       Accept: accept,

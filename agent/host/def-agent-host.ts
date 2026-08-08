@@ -1850,6 +1850,38 @@ export class DefAgentHost {
     return structuredClone(resolved.response!);
   }
 
+  async steerTurn(input: {
+    readonly defSessionId: DefSessionId;
+    readonly defTurnId: DefTurnId;
+    readonly clientTurnId: ClientTurnId;
+    readonly userMessage: string;
+    readonly binding?: ProductBinding;
+  }): Promise<void> {
+    const active = this.#turns.get(input.defTurnId);
+    if (
+      !active
+      || active.session.session.defSessionId !== input.defSessionId
+      || active.settled
+      || active.abortRequested
+      || this.#activeTurn !== active
+    ) {
+      throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${input.defTurnId} does not exist`, 404);
+    }
+    if (input.binding) assertStableSessionBinding(active.session.session, input.binding);
+    if (!active.handle.steer) {
+      throw new DefAgentHostError('AGENT_STEERING_UNSUPPORTED', 'The active Agent Engine does not support steering', 409);
+    }
+    await this.#withTurnProtocolLock(active, async () => {
+      if (active.settled || active.abortRequested || this.#activeTurn !== active) {
+        throw new DefAgentHostError('AGENT_TURN_NOT_FOUND', `Active DEF Turn ${input.defTurnId} is stopping`, 409);
+      }
+      await active.handle.steer!({
+        clientTurnId: input.clientTurnId,
+        userMessage: input.userMessage,
+      });
+    });
+  }
+
   async abortTurn(
     defTurnId: DefTurnId,
     code = 'USER_STOPPED',
@@ -2417,15 +2449,18 @@ export class DefAgentHost {
       // can touch the Browser ProductGateway.
       harnessManager.assertToolProjected(transactionId, event.name);
       if (event.name !== 'def.harness.route') {
-        harnessManager.assertToolInput(transactionId, event.input);
         const descriptor = toolRegistry.resolveDescriptor(event.name);
         if (!descriptor) {
           throw new DefAgentHostError('AGENT_TOOL_UNSUPPORTED', `Unsupported DEF Tool: ${event.name}`);
         }
+        const toolInput = descriptor.risk === 'read'
+          ? normalizeReadToolInput(event.name, event.input, descriptor.inputSchema)
+          : event.input;
+        harnessManager.assertToolInput(transactionId, toolInput);
         prepared = {
           status: 'succeeded',
           result: descriptor.risk === 'read'
-            ? await toolRegistry.executeRead(event.name, event.input, {
+            ? await toolRegistry.executeRead(event.name, toolInput, {
               defSessionId: active.session.session.defSessionId,
               defTurnId: active.defTurnId,
               toolCallId: event.toolCallId,
@@ -2475,6 +2510,23 @@ export class DefAgentHost {
             toolName: event.name,
             status: 'succeeded',
           });
+          if (
+            event.name === 'def.user.ask'
+            && isJsonObjectValue(result)
+            && result.contract === 'DefQuestionAnswerV1'
+          ) {
+            const resumed = staged.transition.transaction;
+            result = {
+              ...result,
+              resume: {
+                businessId: resumed.businessId,
+                operation: resumed.operation,
+                phaseId: resumed.phaseId,
+                projectedToolCount: resumed.projection.tools.length,
+                instruction: 'The Harness already resumed the bound original operation. Do not route or ask again; call the currently offered business Tool exactly as named in the active tool list.',
+              },
+            };
+          }
         }
       } catch (error) {
         const failure = harnessToolFailure(error);
@@ -3144,6 +3196,9 @@ export class DefAgentHost {
         kind: request.kind,
         prompt: request.prompt,
         expiresAt: request.expiresAt,
+        ...(request.kind === 'question' && request.details
+          ? { details: structuredClone(request.details) }
+          : {}),
         ...(request.kind === 'approval' && request.candidate
           ? {
               proposal: structuredClone(request.proposal),
@@ -5079,6 +5134,32 @@ function sameStringArray(left: readonly string[], right: readonly string[]): boo
 
 function isJsonObjectValue(value: unknown): value is JsonObject {
   return isJsonValueValue(value) && value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeReadToolInput(toolName: string, input: JsonValue, inputSchema: JsonObject): JsonValue {
+  if (!isJsonObjectValue(input)) return input;
+  const properties = inputSchema.properties;
+  if (!isJsonObjectValue(properties)) return input;
+  const damageAction = toolName === 'def.data.resource.damage' && typeof input.action === 'string'
+    ? input.action
+    : null;
+  const actionKeys = damageAction === 'current' || damageAction === 'aggregate' || damageAction === 'diagnose'
+    ? new Set(['action'])
+    : damageAction === 'compare'
+      ? new Set(['action', 'baseline'])
+      : damageAction === 'attribute' || damageAction === 'explain'
+        ? new Set(['action', 'buttonId', 'hitId'])
+        : damageAction === 'export'
+          ? new Set(['action', 'format', 'maxRows', 'includeCharacters'])
+          : null;
+  const normalized: JsonObject = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (
+      Object.prototype.hasOwnProperty.call(properties, key)
+      && (actionKeys === null || actionKeys.has(key))
+    ) normalized[key] = value;
+  }
+  return normalized;
 }
 
 function isJsonValueValue(value: unknown, depth = 0): value is JsonValue {

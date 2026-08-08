@@ -1107,6 +1107,7 @@ function applyHostEvent(state: MutableProjectionState, event: DefEvent, incremen
     return incremental ? hostStatusEvent(state, event) : null;
   }
   if (event.type === 'turn.failed') {
+    clearActivePartsForTurn(state, event.defTurnId);
     const part = buildHostErrorPart(state, event, event.payload.code, event.payload.message);
     if (event.defTurnId === state.lastTurnId) {
       state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
@@ -1115,6 +1116,7 @@ function applyHostEvent(state: MutableProjectionState, event: DefEvent, incremen
     return incremental ? hostEventBase(state, event, { type: 'part.upsert', part, index }) : null;
   }
   if (event.type === 'turn.interrupted') {
+    clearActivePartsForTurn(state, event.defTurnId);
     const part = buildHostErrorPart(state, event, event.payload.code, event.payload.message);
     if (event.defTurnId === state.lastTurnId) {
       state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
@@ -1123,11 +1125,13 @@ function applyHostEvent(state: MutableProjectionState, event: DefEvent, incremen
     return incremental ? hostEventBase(state, event, { type: 'part.upsert', part, index }) : null;
   }
   if (event.type === 'turn.stopped') {
+    clearActivePartsForTurn(state, event.defTurnId);
     if (event.defTurnId === state.lastTurnId) state.hostStatus = { status: 'idle' };
     refreshEffectiveStatus(state);
     return incremental ? hostStatusEvent(state, event) : null;
   }
   if (event.type === 'turn.completed') {
+    clearActivePartsForTurn(state, event.defTurnId);
     if (event.defTurnId === state.lastTurnId) state.hostStatus = { status: 'idle' };
     refreshEffectiveStatus(state);
     return incremental ? hostStatusEvent(state, event) : null;
@@ -1539,7 +1543,7 @@ function buildInteractionPart(
   }
   const message = existing?.type === 'interaction'
     ? requireMessage(state, existing.messageId, 'host')
-    : requireTurnMessage(state, event.defTurnId);
+    : interactionParentMessage(state, event);
   if (event.payload.kind !== 'question' && event.payload.kind !== 'approval') {
     throw new ConversationProjectionError('SOURCE_INVALID', 'Host interaction kind is invalid', { source: 'host' });
   }
@@ -1558,6 +1562,17 @@ function buildInteractionPart(
       expiresAt: event.payload.expiresAt,
     },
   };
+}
+
+function interactionParentMessage(
+  state: MutableProjectionState,
+  event: Extract<DefEvent, { type: 'interaction.requested' }>,
+): ConversationMessage {
+  if (event.toolCallId) {
+    const tool = findToolPart(state, event.toolCallId);
+    if (tool) return requireMessage(state, tool.messageId, 'host');
+  }
+  return requireTurnMessage(state, event.defTurnId);
 }
 
 function resolveInteractionPart(
@@ -1658,6 +1673,7 @@ function toolInput(state: ConversationToolState): JsonObject {
 
 function interactionPayload(payload: Extract<DefEvent, { type: 'interaction.requested' }>['payload']): JsonObject | undefined {
   const result: JsonObject = {};
+  if (payload.details !== undefined) result.details = clone(payload.details) as unknown as JsonValue;
   if (payload.candidate !== undefined) result.candidate = clone(payload.candidate) as unknown as JsonValue;
   if (payload.candidateReview !== undefined) result.candidateReview = clone(payload.candidateReview) as unknown as JsonValue;
   if (payload.proposal !== undefined) result.proposal = clone(payload.proposal);
@@ -1735,16 +1751,11 @@ function refreshEffectiveStatus(state: MutableProjectionState): void {
 
 function computeEffectiveStatus(state: MutableProjectionState): ConversationSessionStatus {
   if (state.hostStatus?.status === 'archived' || state.hostStatus?.status === 'error') return clone(state.hostStatus);
-  const activeToolId = state.activeToolPartIds.values().next().value as string | undefined;
-  const activeTool = activeToolId ? effectivePart(state, activeToolId) : undefined;
-  if (activeTool) {
-    if (activeTool.type !== 'tool') throw new ConversationProjectionError('SOURCE_INVALID', 'Active Tool index is invalid');
-    return {
-      status: 'waiting-tool',
-      defTurnId: requireMessage(state, activeTool.messageId, 'host').defTurnId,
-      toolCallId: activeTool.toolCallId,
-    };
-  }
+  // A durable Host terminal is authoritative even when a Runtime/Tool source
+  // was interrupted before it could publish its final Tool mutation. Without
+  // this priority, a stopped question can leave the Session falsely stuck in
+  // waiting-tool after Host recovery, blocking the next prompt forever.
+  if (state.hostStatus?.status === 'idle') return { status: 'idle' };
   const pendingInteractionId = state.pendingInteractionPartIds.values().next().value as string | undefined;
   const pendingInteraction = pendingInteractionId ? effectivePart(state, pendingInteractionId) : undefined;
   if (pendingInteraction) {
@@ -1755,9 +1766,20 @@ function computeEffectiveStatus(state: MutableProjectionState): ConversationSess
       interactionId: pendingInteraction.interactionId,
     };
   }
+  // Question/approval is the user-facing blocking state even though the
+  // underlying def.user.ask / approval Tool remains running while it waits.
+  const activeToolId = state.activeToolPartIds.values().next().value as string | undefined;
+  const activeTool = activeToolId ? effectivePart(state, activeToolId) : undefined;
+  if (activeTool) {
+    if (activeTool.type !== 'tool') throw new ConversationProjectionError('SOURCE_INVALID', 'Active Tool index is invalid');
+    return {
+      status: 'waiting-tool',
+      defTurnId: requireMessage(state, activeTool.messageId, 'host').defTurnId,
+      toolCallId: activeTool.toolCallId,
+    };
+  }
   if (state.runtimeStatus.status === 'error') return clone(state.runtimeStatus);
   if (state.runtimeStatus.status === 'compacting') return { status: 'compacting' };
-  if (state.hostStatus?.status === 'idle') return { status: 'idle' };
   if (state.runtimeStatus.status === 'idle') return { status: 'idle' };
   const defTurnId = state.lastTurnId;
   if (!defTurnId) {
@@ -1999,6 +2021,9 @@ function validateHostEvent(event: unknown, defSessionId: DefSessionId): asserts 
     if (!['question', 'approval'].includes(String(event.payload.kind)) || typeof event.payload.prompt !== 'string' || typeof event.payload.expiresAt !== 'string') {
       throw new ConversationProjectionError('SOURCE_INVALID', 'Host Interaction request payload is invalid', { source: 'host' });
     }
+    if (event.payload.details !== undefined && !isRecord(event.payload.details)) {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host Interaction details are invalid', { source: 'host' });
+    }
   } else if (event.type === 'interaction.resolved') {
     if (!['answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale'].includes(String(event.payload.status))) {
       throw new ConversationProjectionError('SOURCE_INVALID', 'Host Interaction resolution payload is invalid', { source: 'host' });
@@ -2140,6 +2165,19 @@ function refreshActivePart(state: MutableProjectionState, partId: string): void 
   }
   if (part?.type === 'interaction' && part.state.status === 'pending') {
     state.pendingInteractionPartIds.add(partId);
+  }
+}
+
+function clearActivePartsForTurn(state: MutableProjectionState, defTurnId: DefTurnId): void {
+  for (const partId of [...state.activeToolPartIds]) {
+    const part = effectivePart(state, partId);
+    const message = part ? state.messageById.get(part.messageId) : undefined;
+    if (message?.defTurnId === defTurnId) state.activeToolPartIds.delete(partId);
+  }
+  for (const partId of [...state.pendingInteractionPartIds]) {
+    const part = effectivePart(state, partId);
+    const message = part ? state.messageById.get(part.messageId) : undefined;
+    if (message?.defTurnId === defTurnId) state.pendingInteractionPartIds.delete(partId);
   }
 }
 

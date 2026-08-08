@@ -18,6 +18,7 @@ import type {
 
 export interface ConversationTurnView {
   readonly turnId: ConversationMessage['defTurnId'];
+  readonly messages: readonly ConversationMessage[];
   readonly userMessage: ConversationMessage | undefined;
   readonly assistantMessages: readonly ConversationMessage[];
   readonly compactionParts: readonly ConversationCompactionPart[];
@@ -53,7 +54,13 @@ export function selectConversationTurn(
   const turnId = requestedTurnId ?? lastMessage?.defTurnId;
   if (!turnId) return null;
 
-  const messages = snapshot.messages.filter((message) => message.defTurnId === turnId);
+  // Runtime and Host deltas can cross in flight. createdAt is durable and
+  // preserves the transcript while the merged message index converges.
+  const messages = snapshot.messages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => message.defTurnId === turnId)
+    .sort((left, right) => left.message.createdAt.localeCompare(right.message.createdAt) || left.index - right.index)
+    .map(({ message }) => message);
   if (messages.length === 0) return null;
   const partById = new Map(snapshot.parts.map((part) => [part.id, part] as const));
   const partsByMessage = new Map<string, readonly ConversationPart[]>();
@@ -75,6 +82,7 @@ export function selectConversationTurn(
 
   return {
     turnId,
+    messages,
     userMessage: messages.find((message) => message.role === 'user'),
     assistantMessages: messages.filter((message) => message.role === 'assistant'),
     compactionParts,

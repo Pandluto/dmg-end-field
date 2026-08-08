@@ -5,6 +5,8 @@ import {
   useRef,
   useState,
 } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type {
   ConversationErrorPart,
   ConversationInteractionPart,
@@ -17,10 +19,10 @@ import type {
 import type { DefSessionId } from '../../../agent/core/contracts/ids.ts';
 import type { ConversationStore, ConversationStoreState } from '../conversation-store.ts';
 import {
-  assistantPartsForMessage,
   isActiveSessionStatus,
   isPinnedToBottom,
   lastAssistantTextPartId,
+  orderedPartsForMessage,
   scrollElementToBottom,
   selectConversationTurns,
   textPartsForMessage,
@@ -40,6 +42,14 @@ export interface SessionSurfaceActions {
   readonly onCopy?: (text: string, context: SessionSurfaceActionContext) => void | Promise<void>;
   readonly onStop?: (context: SessionSurfaceActionContext) => void | Promise<void>;
   readonly onRetry?: (context: SessionSurfaceActionContext) => void | Promise<void>;
+  readonly onRespondInteraction?: (input: SessionSurfaceInteractionResponse) => void | Promise<void>;
+}
+
+export interface SessionSurfaceInteractionResponse extends SessionSurfaceActionContext {
+  readonly interactionId: string;
+  readonly interactionKind: 'question' | 'approval';
+  readonly status: 'answered' | 'approved' | 'rejected';
+  readonly value?: string;
 }
 
 export interface SessionSurfaceProps {
@@ -66,7 +76,8 @@ export function SessionSurface(props: SessionSurfaceProps): JSX.Element {
   const pinnedRef = useRef(true);
   const interactedRef = useRef(false);
   const working = isActiveSessionStatus(props.snapshot);
-  const latestTurnId = props.snapshot?.messages.at(-1)?.defTurnId;
+  const latestTurnId = activeSnapshotTurnId(props.snapshot)
+    ?? props.snapshot?.messages.at(-1)?.defTurnId;
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -132,10 +143,17 @@ function ConversationTurnBlock(props: {
   readonly working: boolean;
   readonly retryable: boolean;
 }): JSX.Element {
-  const userText = props.turn.userMessage
-    ? textPartsForMessage(props.turn, props.turn.userMessage)[0]
-    : undefined;
   const lastTextId = lastAssistantTextPartId(props.turn);
+  const latestMessage = props.turn.messages.at(-1);
+  const latestMessageParts = latestMessage
+    ? orderedPartsForMessage(props.turn, latestMessage)
+    : [];
+  const showThinking = props.working
+    && props.snapshot.status.status !== 'waiting-interaction'
+    && (
+    latestMessage?.role === 'user'
+    || (latestMessage?.role === 'assistant' && latestMessageParts.length === 0)
+  );
   const actionContext: SessionSurfaceActionContext = {
     sessionId: props.snapshot.defSessionId,
     turnId: String(props.turn.turnId),
@@ -147,33 +165,39 @@ function ConversationTurnBlock(props: {
       data-message={props.turn.userMessage?.id}
       data-slot="session-turn-message-container"
     >
-      <div data-slot="session-turn-message-content" aria-live="off">
-        {props.turn.userMessage ? (
-          <UserMessageDisplay
-            message={props.turn.userMessage}
-            textPart={userText}
-            actions={props.actions}
-            context={actionContext}
-          />
-        ) : null}
-      </div>
-      {props.turn.compactionParts.length > 0 ? (
-        <div data-slot="session-turn-compaction">
-          {props.turn.compactionParts.map((part) => <MessageDivider key={part.id} part={part} />)}
-        </div>
-      ) : null}
-      {props.turn.assistantMessages.length > 0 ? (
-        <div data-slot="session-turn-assistant-content" aria-live="polite">
-          <AssistantParts
-            messages={props.turn.assistantMessages}
-            partsForMessage={(message) => assistantPartsForMessage(props.turn, message)}
-            lastTextId={lastTextId}
-            actions={props.actions}
-            context={actionContext}
-          />
-        </div>
-      ) : null}
-      {props.working && props.turn.assistantMessages.length === 0 ? (
+      {props.turn.messages.map((message) => {
+        if (message.role === 'user') {
+          return (
+            <div key={message.id} data-slot="session-turn-message-content" aria-live="off">
+              <UserMessageDisplay
+                message={message}
+                textParts={textPartsForMessage(props.turn, message)}
+                actions={props.actions}
+                context={actionContext}
+              />
+            </div>
+          );
+        }
+        const parts = orderedPartsForMessage(props.turn, message);
+        return (
+          <div key={message.id} data-slot="session-turn-assistant-content" aria-live="polite">
+            {parts.map((part) => (
+              part.type === 'compaction'
+                ? <MessageDivider key={part.id} part={part} />
+                : (
+                  <MessagePart
+                    key={part.id}
+                    part={part}
+                    showCopy={part.id === lastTextId}
+                    actions={props.actions}
+                    context={actionContext}
+                  />
+                )
+            ))}
+          </div>
+        );
+      })}
+      {showThinking ? (
         <div data-slot="session-turn-thinking">
           <TextShimmer text="Thinking" active />
           <TextReveal text="" className="session-turn-thinking-heading" />
@@ -201,22 +225,32 @@ function ConversationTurnBlock(props: {
   );
 }
 
+function activeSnapshotTurnId(snapshot: ConversationSnapshot | null): ConversationMessage['defTurnId'] | null {
+  if (!snapshot) return null;
+  const status = snapshot.status;
+  return status.status === 'running'
+    || status.status === 'waiting-tool'
+    || status.status === 'waiting-interaction'
+    ? status.defTurnId
+    : null;
+}
+
 function UserMessageDisplay(props: {
   readonly message: ConversationMessage;
-  readonly textPart?: ConversationTextPart;
+  readonly textParts: readonly ConversationTextPart[];
   readonly actions?: SessionSurfaceActions;
   readonly context: SessionSurfaceActionContext;
 }): JSX.Element {
   const [copied, setCopied] = useState(false);
-  const text = props.textPart?.text ?? '';
+  const text = props.textParts.map((part) => part.text).filter(Boolean).join('\n');
   const handleCopy = async () => {
     if (!text) return;
-    await copyText(text, { ...props.context, messageId: props.message.id, partId: props.textPart?.id }, props.actions);
+    await copyText(text, { ...props.context, messageId: props.message.id, partId: props.textParts[0]?.id }, props.actions);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 2_000);
   };
   return (
-    <div data-component="user-message" data-timeline-part-id={props.textPart?.id}>
+    <div data-component="user-message" data-timeline-part-id={props.textParts[0]?.id}>
       {text ? (
         <>
           <div data-slot="user-message-body">
@@ -228,49 +262,6 @@ function UserMessageDisplay(props: {
         </>
       ) : null}
     </div>
-  );
-}
-
-function AssistantParts(props: {
-  readonly messages: readonly ConversationMessage[];
-  readonly partsForMessage: (message: ConversationMessage) => readonly ConversationPart[];
-  readonly lastTextId: string | null;
-  readonly actions?: SessionSurfaceActions;
-  readonly context: SessionSurfaceActionContext;
-}): JSX.Element {
-  return (
-    <>
-      {props.messages.map((message) => (
-        <AssistantMessageParts
-          key={message.id}
-          parts={props.partsForMessage(message)}
-          lastTextId={props.lastTextId}
-          actions={props.actions}
-          context={props.context}
-        />
-      ))}
-    </>
-  );
-}
-
-function AssistantMessageParts(props: {
-  readonly parts: readonly ConversationPart[];
-  readonly lastTextId: string | null;
-  readonly actions?: SessionSurfaceActions;
-  readonly context: SessionSurfaceActionContext;
-}): JSX.Element {
-  return (
-    <>
-      {props.parts.map((part) => (
-        <MessagePart
-          key={part.id}
-          part={part}
-          showCopy={part.id === props.lastTextId}
-          actions={props.actions}
-          context={props.context}
-        />
-      ))}
-    </>
   );
 }
 
@@ -288,7 +279,7 @@ function MessagePart(props: {
     case 'tool':
       return <ToolPartView part={props.part} />;
     case 'interaction':
-      return <InteractionDisplay part={props.part} />;
+      return <InteractionDisplay part={props.part} actions={props.actions} context={props.context} />;
     case 'error':
       return <ErrorPartDisplay part={props.part} actions={props.actions} context={props.context} />;
     case 'compaction':
@@ -343,8 +334,37 @@ function ReasoningPartDisplay(props: { readonly part: ConversationReasoningPart 
   );
 }
 
-function InteractionDisplay(props: { readonly part: ConversationInteractionPart }): JSX.Element {
+function InteractionDisplay(props: {
+  readonly part: ConversationInteractionPart;
+  readonly actions?: SessionSurfaceActions;
+  readonly context: SessionSurfaceActionContext;
+}): JSX.Element {
   const resolved = props.part.state.status === 'resolved';
+  const [pending, setPending] = useState(false);
+  const [answer, setAnswer] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const options = interactionOptions(props.part);
+  const respond = async (
+    status: SessionSurfaceInteractionResponse['status'],
+    value?: string,
+  ) => {
+    if (resolved || pending || !props.actions?.onRespondInteraction) return;
+    setPending(true);
+    setError(null);
+    try {
+      await props.actions.onRespondInteraction({
+        ...props.context,
+        interactionId: String(props.part.interactionId),
+        interactionKind: props.part.interactionKind,
+        status,
+        ...(value === undefined ? {} : { value }),
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Interaction response failed');
+    } finally {
+      setPending(false);
+    }
+  };
   return (
     <div
       data-component="question-card"
@@ -353,11 +373,57 @@ function InteractionDisplay(props: { readonly part: ConversationInteractionPart 
       data-interaction-status={props.part.state.status}
       data-timeline-part-id={props.part.id}
     >
-      <div data-slot="question-header">Interaction · {props.part.interactionKind === 'approval' ? 'Approval' : 'Question'}</div>
-      <div data-slot="question-text">{props.part.prompt}</div>
-      <div data-slot="question-footer">
-        {resolved ? `${props.part.state.resolution} · resolved by DEF Host` : 'pending · awaiting DEF Host'}
-      </div>
+      <div data-slot="question-header">{props.part.interactionKind === 'approval' ? '需要确认' : '需要你的回答'}</div>
+      <div data-slot="question-text"><Markdown text={props.part.prompt} /></div>
+      {!resolved && props.part.interactionKind === 'question' ? (
+        <div data-slot="question-actions">
+          {options.length > 0 ? (
+            <div data-slot="question-options">
+              {options.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  data-slot="question-option"
+                  disabled={pending}
+                  onClick={() => void respond('answered', option)}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          <form
+            data-slot="question-custom-answer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = answer.trim();
+              if (value) void respond('answered', value);
+            }}
+          >
+            <input
+              value={answer}
+              disabled={pending}
+              aria-label="自定义回答"
+              placeholder={options.length > 0 ? '或输入其他回答' : '输入回答'}
+              onChange={(event) => setAnswer(event.target.value)}
+            />
+            <button type="submit" disabled={pending || !answer.trim()}>回答</button>
+          </form>
+        </div>
+      ) : null}
+      {!resolved && props.part.interactionKind === 'approval' ? (
+        <div data-slot="question-approval-actions">
+          <button type="button" disabled={pending} onClick={() => void respond('rejected')}>拒绝</button>
+          <button type="button" data-primary="true" disabled={pending} onClick={() => void respond('approved')}>确认</button>
+        </div>
+      ) : null}
+      {resolved ? (
+        <div data-slot="question-footer">
+          {interactionResolutionLabel(props.part)}
+        </div>
+      ) : null}
+      {pending ? <div data-slot="question-footer">正在提交…</div> : null}
+      {error ? <div data-slot="question-error" role="alert">{error}</div> : null}
     </div>
   );
 }
@@ -406,11 +472,51 @@ function MessageDivider(props: {
 function Markdown(props: { readonly text: string }): JSX.Element {
   return (
     <div data-component="markdown">
-      {props.text.split(/\r?\n/).map((line, index) => (
-        <p key={`${index}:${line}`}>{line || '\u00a0'}</p>
-      ))}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          a: ({ href, children }) => <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>,
+          table: ({ children }) => <div data-slot="markdown-table-wrap"><table>{children}</table></div>,
+        }}
+      >
+        {props.text}
+      </ReactMarkdown>
     </div>
   );
+}
+
+function interactionOptions(part: ConversationInteractionPart): readonly string[] {
+  const details = part.payload?.details;
+  if (!details || typeof details !== 'object' || Array.isArray(details)) return [];
+  const options = (details as Record<string, unknown>).options;
+  if (!Array.isArray(options)) return [];
+  return options.filter((option): option is string => typeof option === 'string' && Boolean(option.trim()));
+}
+
+function interactionResolutionLabel(part: ConversationInteractionPart): string {
+  if (part.state.status !== 'resolved') return '';
+  const labels: Record<typeof part.state.resolution, string> = {
+    answered: '已回答',
+    approved: '已确认',
+    rejected: '已拒绝',
+    expired: '已过期',
+    cancelled: '已取消',
+    stale: '已失效',
+  };
+  const value = Object.prototype.hasOwnProperty.call(part.state, 'value')
+    ? formatInteractionValue(part.state.value)
+    : '';
+  return value ? `${labels[part.state.resolution]}：${value}` : labels[part.state.resolution];
+}
+
+function formatInteractionValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value === undefined) return '';
+  try {
+    return JSON.stringify(value) ?? '';
+  } catch {
+    return String(value);
+  }
 }
 
 function HighlightedText(props: { readonly text: string }): JSX.Element {
@@ -498,7 +604,8 @@ export function AgentSessionSurface(props: ConversationSurfaceMountProps): JSX.E
           ) : null}
           {props.onSubmitPrompt ? (
             <PromptComposer
-              disabled={!snapshot || state?.status === 'loading' || isActiveSessionStatus(snapshot)}
+              disabled={!snapshot || state?.status === 'loading' || snapshot.status.status === 'waiting-interaction'}
+              mode={isActiveSessionStatus(snapshot) ? 'steer' : 'prompt'}
               onSubmit={props.onSubmitPrompt}
             />
           ) : null}
@@ -510,6 +617,7 @@ export function AgentSessionSurface(props: ConversationSurfaceMountProps): JSX.E
 
 function PromptComposer(props: {
   readonly disabled: boolean;
+  readonly mode: 'prompt' | 'steer';
   readonly onSubmit: (prompt: string) => void | Promise<void>;
 }): JSX.Element {
   const [draft, setDraft] = useState('');
@@ -542,7 +650,7 @@ function PromptComposer(props: {
       <textarea
         data-slot="session-prompt-input"
         aria-label="Prompt"
-        placeholder="Ask DEF Agent…"
+        placeholder={props.mode === 'steer' ? '输入补充指引…' : '向 DEF Agent 提问…'}
         rows={1}
         value={draft}
         disabled={props.disabled || pending}
@@ -558,7 +666,7 @@ function PromptComposer(props: {
         data-slot="session-prompt-submit"
         disabled={props.disabled || pending || !draft.trim()}
       >
-        {pending ? 'Sending…' : 'Send'}
+        {pending ? '发送中…' : props.mode === 'steer' ? '引导' : '发送'}
       </button>
       {error ? <div data-slot="session-prompt-error" role="alert">{error}</div> : null}
     </form>

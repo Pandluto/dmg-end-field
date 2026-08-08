@@ -99,20 +99,20 @@ test('session read model projects every persisted Turn in transcript order', asy
     messages: [
       ...base.messages,
       {
-        id: secondUserId,
-        role: 'user',
-        defTurnId: secondTurnId,
-        createdAt: '2026-08-08T00:01:00.000Z',
-        completedAt: '2026-08-08T00:01:00.000Z',
-        partIds: [],
-      },
-      {
         id: secondAssistantId,
         role: 'assistant',
         defTurnId: secondTurnId,
         createdAt: '2026-08-08T00:01:01.000Z',
         completedAt: '2026-08-08T00:01:02.000Z',
         partIds: [secondTextId],
+      },
+      {
+        id: secondUserId,
+        role: 'user',
+        defTurnId: secondTurnId,
+        createdAt: '2026-08-08T00:01:00.000Z',
+        completedAt: '2026-08-08T00:01:00.000Z',
+        partIds: [],
       },
     ],
     parts: [
@@ -132,6 +132,7 @@ test('session read model projects every persisted Turn in transcript order', asy
   assert.equal(turns.length, 2);
   assert.equal(turns[0]?.turnId, base.messages[0]?.defTurnId);
   assert.equal(turns[1]?.turnId, secondTurnId);
+  assert.deepEqual(turns[1]?.messages.map((message) => message.role), ['user', 'assistant']);
   assert.equal(turns[1]?.assistantMessages[0]?.id, secondAssistantId);
 });
 

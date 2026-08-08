@@ -62,9 +62,19 @@ try {
   });
 
   const submitPrompt = async (prompt: string) => {
-    lastSubmittedPrompt = prompt;
+    const snapshot = store.getState().snapshot;
+    const status = snapshot?.status;
+    if (status?.status === 'waiting-interaction') {
+      throw new Error('请先回答上方问题，再继续对话。');
+    }
+    const activeTurnId = activeDefTurnId(snapshot);
     try {
-      await client.startTurn(launch.defSessionId, prompt);
+      if (activeTurnId) {
+        await client.steerTurn(launch.defSessionId, activeTurnId, prompt);
+      } else {
+        lastSubmittedPrompt = prompt;
+        await client.startTurn(launch.defSessionId, prompt);
+      }
     } finally {
       // Re-anchor on the accepted Turn before consuming deltas. This closes
       // the snapshot/SSE race and also materializes a Host-side preflight
@@ -80,7 +90,20 @@ try {
     connect: false,
     onSubmitPrompt: submitPrompt,
     actions: {
-      onStop: (context) => client.stopTurn(launch.defSessionId, context.turnId),
+      onStop: async (context) => {
+        try {
+          await client.stopTurn(launch.defSessionId, context.turnId);
+        } finally {
+          void connectConversation(true).catch(() => undefined);
+        }
+      },
+      onRespondInteraction: async (input) => {
+        try {
+          await client.respondInteraction(input.interactionId, input.status, input.value);
+        } finally {
+          void connectConversation(true).catch(() => undefined);
+        }
+      },
       onRetry: async () => {
         const prompt = latestUserPrompt(store.getState().snapshot) ?? lastSubmittedPrompt;
         if (prompt) await submitPrompt(prompt);
@@ -105,6 +128,19 @@ function latestUserPrompt(snapshot: ConversationSnapshot | null): string | null 
       const part = parts.get(message.partIds[partIndex]!);
       if (part?.type === 'text' && part.text.trim()) return part.text;
     }
+  }
+  return null;
+}
+
+function activeDefTurnId(snapshot: ConversationSnapshot | null): string | null {
+  if (!snapshot) return null;
+  if (
+    snapshot.status.status === 'running'
+    || snapshot.status.status === 'waiting-tool'
+    || snapshot.status.status === 'waiting-interaction'
+  ) return String(snapshot.status.defTurnId);
+  if (snapshot.status.status === 'compacting') {
+    return snapshot.messages.at(-1)?.defTurnId ? String(snapshot.messages.at(-1)!.defTurnId) : null;
   }
   return null;
 }

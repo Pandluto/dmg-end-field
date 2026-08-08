@@ -29,6 +29,7 @@ import {
   encodeConversationCursor,
   type AgentUiGatewayPort,
   type AgentUiGatewayStartTurnInput,
+  type AgentUiGatewaySteerTurnInput,
   type AgentUiGatewayStopTurnInput,
   type AgentUiInteractionInput,
 } from './agent-ui-gateway.ts';
@@ -102,6 +103,17 @@ test('Agent UI Gateway covers Session lifecycle, auth, binding, interaction, and
     assert.equal(retryPrompt.status, 202);
     assert.deepEqual(await firstPrompt.json(), await retryPrompt.json());
     assert.equal(fixture.port.acceptedPrompts.length, 1, 'prompt idempotency remains in the injected Host port');
+
+    const steerResponse = await fixture.api(`/sessions/${fixture.session.defSessionId}/steer`, {
+      method: 'POST',
+      body: JSON.stringify({
+        clientTurnId: 'client-steer-1',
+        defTurnId: 'turn-client-turn-1',
+        userMessage: '先检查第二个节点',
+      }),
+    });
+    assert.equal(steerResponse.status, 202);
+    assert.deepEqual(fixture.port.steeredPrompts, ['先检查第二个节点']);
 
     const stopResponse = await fixture.api(`/sessions/${fixture.session.defSessionId}/stop`, {
       method: 'POST',
@@ -322,6 +334,7 @@ class FakeAgentUiPort implements AgentUiGatewayPort {
   readonly sessions = new Map<string, DefSessionV6>();
   readonly pendingInteractions: InteractionRequest[] = [];
   readonly acceptedPrompts: string[] = [];
+  readonly steeredPrompts: string[] = [];
   readonly stoppedTurns: string[] = [];
   readonly deletedSessions: string[] = [];
   readonly #promptResults = new Map<string, { readonly defTurnId: DefTurnId; readonly clientTurnId: ClientTurnId }>();
@@ -373,6 +386,10 @@ class FakeAgentUiPort implements AgentUiGatewayPort {
 
   async stopTurn(input: AgentUiGatewayStopTurnInput): Promise<void> {
     this.stoppedTurns.push(input.defTurnId);
+  }
+
+  async steerTurn(input: AgentUiGatewaySteerTurnInput): Promise<void> {
+    this.steeredPrompts.push(input.userMessage);
   }
 
   archiveSession(defSessionId: DefSessionId): DefSessionV6 {

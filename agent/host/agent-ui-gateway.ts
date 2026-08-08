@@ -48,6 +48,7 @@ export interface AgentUiGatewayPort {
     readonly providerProfileRef: string;
   }): Promise<DefSessionV6>;
   startTurn(input: AgentUiGatewayStartTurnInput): Promise<AgentUiGatewayTurnStartResult>;
+  steerTurn(input: AgentUiGatewaySteerTurnInput): Promise<void>;
   stopTurn(input: AgentUiGatewayStopTurnInput): Promise<void>;
   archiveSession(defSessionId: DefSessionId, binding: ProductBinding): DefSessionV6 | Promise<DefSessionV6>;
   deleteSession(defSessionId: DefSessionId, binding: ProductBinding): Promise<void>;
@@ -81,6 +82,11 @@ export interface AgentUiGatewayStopTurnInput {
   readonly defSessionId: DefSessionId;
   readonly defTurnId: DefTurnId;
   readonly binding: ProductBinding;
+}
+
+export interface AgentUiGatewaySteerTurnInput extends AgentUiGatewayStopTurnInput {
+  readonly clientTurnId: ClientTurnId;
+  readonly userMessage: string;
 }
 
 export interface AgentUiInteractionInput {
@@ -409,7 +415,7 @@ export class AgentUiGateway {
       return;
     }
 
-    const sessionMatch = /^sessions\/([^/]+)(?:\/(prompt|turns|stop|archive|conversation\/snapshot|conversation\/events))?$/u.exec(route);
+    const sessionMatch = /^sessions\/([^/]+)(?:\/(prompt|turns|steer|stop|archive|conversation\/snapshot|conversation\/events))?$/u.exec(route);
     if (sessionMatch) {
       const defSessionId = asDefSessionId(decodeRouteId(sessionMatch[1]!, 'defSessionId'));
       const action = sessionMatch[2] ?? '';
@@ -459,6 +465,29 @@ export class AgentUiGateway {
           defSessionId,
           defTurnId,
           stopped: true,
+        });
+        return;
+      }
+
+      if (request.method === 'POST' && action === 'steer') {
+        const body = await readJson(request);
+        expectOnlyKeys(body, ['clientTurnId', 'defTurnId', 'userMessage']);
+        const clientTurnId = asClientTurnId(expectPortableId(body.clientTurnId, 'clientTurnId', MAX_IDENTIFIER_LENGTH));
+        const defTurnId = asDefTurnId(expectPortableId(body.defTurnId, 'defTurnId', MAX_IDENTIFIER_LENGTH));
+        const userMessage = expectBoundedMessage(body.userMessage);
+        await this.#port.steerTurn({
+          defSessionId,
+          defTurnId,
+          clientTurnId,
+          userMessage,
+          binding: access.consumer.binding,
+        });
+        this.#writeJson(response, 202, {
+          protocolVersion: DEF_AGENT_PROTOCOL_VERSION,
+          defSessionId,
+          defTurnId,
+          clientTurnId,
+          queued: true,
         });
         return;
       }
@@ -847,7 +876,7 @@ function isAllowedStaticPath(pathname: string, files: ReadonlySet<string> | null
 function isPotentialApiRoute(route: string): boolean {
   return route === 'sessions'
     || route === 'interactions'
-    || /^sessions\/[^/]+(?:\/(?:prompt|turns|stop|archive|conversation\/snapshot|conversation\/events))?$/u.test(route)
+    || /^sessions\/[^/]+(?:\/(?:prompt|turns|steer|stop|archive|conversation\/snapshot|conversation\/events))?$/u.test(route)
     || /^interactions\/[^/]+\/respond$/u.test(route);
 }
 

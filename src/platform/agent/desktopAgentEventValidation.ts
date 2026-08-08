@@ -179,12 +179,22 @@ export function isSafeProductEventShape(event: RecordValue): boolean {
         && oneOf(payload.terminalState, ['completed', 'aborted'])
         && (!own(payload, 'code') || typeof payload.code === 'string');
     case 'interaction.requested':
-      return exact(payload, ['kind', 'prompt', 'expiresAt'], ['candidate', 'cleanup'])
+      return exact(payload, ['kind', 'prompt', 'expiresAt'], [
+        'details', 'candidate', 'candidateReview', 'proposal', 'cleanup',
+      ])
         && oneOf(payload.kind, ['question', 'approval'])
         && string(payload, 'prompt') && string(payload, 'expiresAt')
+        && (!own(payload, 'details') || record(payload.details))
         && (!own(payload, 'candidate') || isPreparedWorkNodeCandidateRef(payload.candidate))
+        && (!own(payload, 'candidateReview') || json(payload.candidateReview))
+        && (!own(payload, 'proposal') || json(payload.proposal))
         && (!own(payload, 'cleanup') || isPreparedWorkNodeCleanupAudit(payload.cleanup))
-        && (payload.kind === 'approval' || (!own(payload, 'candidate') && !own(payload, 'cleanup')));
+        && (payload.kind === 'approval'
+          ? !own(payload, 'details')
+          : !own(payload, 'candidate')
+            && !own(payload, 'candidateReview')
+            && !own(payload, 'proposal')
+            && !own(payload, 'cleanup'));
     case 'interaction.resolved':
       return exact(payload, ['status'], ['value'])
         && oneOf(payload.status, ['answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale'])

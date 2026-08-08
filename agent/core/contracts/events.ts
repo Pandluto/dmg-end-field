@@ -13,7 +13,7 @@ import type {
   WorkspaceId,
 } from './ids.ts';
 import type { InteractionKind, InteractionStatus } from './interaction.ts';
-import type { JsonValue } from './json.ts';
+import type { JsonObject, JsonValue } from './json.ts';
 import type {
   DefPreparedWorkNodeCandidateRefV1,
   DefPreparedWorkNodeCleanupAuditV1,
@@ -110,6 +110,7 @@ export interface DefEventPayloadMap {
     readonly kind: InteractionKind;
     readonly prompt: string;
     readonly expiresAt: string;
+    readonly details?: JsonObject;
     readonly candidate?: DefPreparedWorkNodeCandidateRefV1;
     readonly candidateReview?: DefPreparedWorkNodeReviewV1;
     readonly proposal?: JsonValue;

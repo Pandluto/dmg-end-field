@@ -161,6 +161,53 @@ test('new Runtime Session runs two durable turns and refreshes ephemeral product
   }
 });
 
+test('Pi-style steering injects one idempotent user message at the next model boundary', async () => {
+  const root = makeRoot();
+  try {
+    const firstStream = new FakeModelStream();
+    const driver = new FakeModelDriver([firstStream, textResponse('guided answer')]);
+    const session = RuntimeSession.create(makeOptions(root, driver));
+    const handle = await session.startTurn({
+      defTurnId: FIXTURE_DEF_TURN_ID,
+      clientTurnId: FIXTURE_CLIENT_TURN_ID,
+      text: 'start the task',
+    });
+    await waitFor(() => driver.requests.length === 1);
+
+    const steering = {
+      clientTurnId: asClientTurnId('client-turn-p7-steer'),
+      text: 'focus on the second node',
+    };
+    await handle.steer(steering);
+    await handle.steer(steering);
+    for (const event of textResponse('first response')) firstStream.push(event);
+    firstStream.end();
+
+    const result = await handle.result;
+    assert.equal(result.terminal.status, 'completed');
+    assert.equal(driver.requests.length, 2);
+    assert.equal(
+      driver.requests[1]!.messages.filter((message) => (
+        message.role === 'user' && JSON.stringify(message).includes('focus on the second node')
+      )).length,
+      1,
+    );
+    assert.deepEqual(messageEntries(session).map((entry) => entry.message.role), [
+      'user', 'assistant', 'user', 'assistant',
+    ]);
+    await assert.rejects(
+      () => handle.steer({
+        clientTurnId: asClientTurnId('client-turn-p7-steer-late'),
+        text: 'too late',
+      }),
+      (error: unknown) => error instanceof RuntimeSessionError && error.code === 'RUNTIME_STEERING_INACTIVE',
+    );
+    await session.close();
+  } finally {
+    cleanup(root);
+  }
+});
+
 test('Tool chain persists one canonical assistant/tool result pair and blocks the next model round', async () => {
   const root = makeRoot();
   try {

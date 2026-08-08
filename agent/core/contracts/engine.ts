@@ -196,6 +196,11 @@ export interface EngineAbortReason {
   readonly message?: string;
 }
 
+export interface EngineSteeringInput {
+  readonly clientTurnId: ClientTurnId;
+  readonly userMessage: string;
+}
+
 export interface AbortResult {
   readonly status: 'aborted' | 'already-terminal';
   readonly terminalType: EngineTerminalEvent['type'];
@@ -220,6 +225,8 @@ export interface EngineTurnHandle {
   ): Promise<void>;
   submitInteractionResult(input: EngineInteractionResultInput): Promise<void>;
   updateToolProjection(input: EngineToolProjectionInput): Promise<void>;
+  /** Pi Agent-style mid-run guidance; unsupported Engines may omit it. */
+  steer?(input: EngineSteeringInput): Promise<void>;
   abort(reason: EngineAbortReason): Promise<AbortResult>;
 }
 

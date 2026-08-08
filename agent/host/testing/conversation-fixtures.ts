@@ -420,6 +420,7 @@ export function hostInteractionRequested(
   sequence: number,
   interactionId: string = FIXTURE_INTERACTION_ID,
   turnId: string = FIXTURE_TURN_ID,
+  toolCallId: string = FIXTURE_TOOL_CALL_ID,
 ): Extract<DefEvent, { type: 'interaction.requested' }> {
   return {
     schemaVersion: 1,
@@ -428,11 +429,13 @@ export function hostInteractionRequested(
     defSessionId: sessionId,
     defTurnId: asDefTurnId(turnId),
     interactionId: asInteractionId(interactionId),
+    toolCallId: asToolCallId(toolCallId),
     type: 'interaction.requested',
     payload: {
       kind: 'question',
       prompt: 'fixture question?',
       expiresAt: '2026-08-08T00:15:00.000Z',
+      details: { options: ['甲', '乙'] },
     },
   };
 }
@@ -442,9 +445,10 @@ export function hostInteractionResolved(
   sequence: number,
   interactionId: string = FIXTURE_INTERACTION_ID,
   turnId: string = FIXTURE_TURN_ID,
+  toolCallId: string = FIXTURE_TOOL_CALL_ID,
 ): Extract<DefEvent, { type: 'interaction.resolved' }> {
   return {
-    ...hostInteractionRequested(sessionId, sequence, interactionId, turnId),
+    ...hostInteractionRequested(sessionId, sequence, interactionId, turnId, toolCallId),
     type: 'interaction.resolved',
     payload: { status: 'answered', value: 'fixture-answer' },
   };

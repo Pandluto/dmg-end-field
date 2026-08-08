@@ -666,7 +666,9 @@ assert.equal(illegalToolError?.type, 'tool.error');
 if (illegalToolError?.type === 'tool.error') {
   assert.equal(illegalToolError.payload.code, 'HARNESS_TOOL_NOT_PROJECTED');
 }
-assert.equal(gatewaySnapshotReads, readsBeforeOutOfPhaseTool);
+// The Engine receives one startup snapshot; the rejected out-of-phase Tool
+// itself must not trigger another Product read.
+assert.equal(gatewaySnapshotReads, readsBeforeOutOfPhaseTool + 1);
 
 // A projected multi-action Tool must reject an exact-action mismatch before
 // its handler can read ProductGateway or advance the phase.
@@ -707,7 +709,9 @@ assert.equal(wrongActionError?.type, 'tool.error');
 if (wrongActionError?.type === 'tool.error') {
   assert.equal(wrongActionError.payload.code, 'HARNESS_TOOL_INPUT_INVALID');
 }
-assert.equal(gatewaySnapshotReads, readsBeforeWrongAction + 1);
+// One startup read plus the projected context Tool are expected. The invalid
+// damage action must fail before a third Product read.
+assert.equal(gatewaySnapshotReads, readsBeforeWrongAction + 2);
 
 // A Browser snapshot that advanced beyond the Session binding fails closed.
 const advancedBinding = binding({
@@ -738,15 +742,14 @@ engine.enqueueScript([
   { type: 'projection', revision: 3 },
   { type: 'complete' },
 ]);
-const staleTurn = await host.startHarnessTurn({
-  defSessionId: session.defSessionId,
-  userMessage: '读取旧绑定',
-});
-assert.equal((await host.waitForTurnTerminal(staleTurn.defTurnId)).type, 'turn.failed');
-const staleError = turnEvents(host.readEvents(session.defSessionId), staleTurn.defTurnId)
-  .find((event) => event.type === 'tool.error');
-assert.equal(staleError?.type, 'tool.error');
-if (staleError?.type === 'tool.error') assert.equal(staleError.payload.code, 'AGENT_BINDING_CONFLICT');
+await assert.rejects(
+  () => host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '读取旧绑定',
+  }),
+  (error: unknown) => error instanceof DefAgentHostError && error.code === 'AGENT_BINDING_CONFLICT',
+);
+assert.equal(host.getActiveIds().defTurnId, null);
 await host.shutdown();
 
 // Consumer loss aborts both the Engine Turn and its pinned Harness transaction.

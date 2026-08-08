@@ -332,7 +332,7 @@ function cleanupBrowserResult(
       type: 'tool',
       toolCallId: asToolCallId('inspect-after-question'),
       name: 'def.node.crud.context',
-      input: {},
+      input: { buttonId: 'ignored-read-filter', format: 'table' },
     },
     { type: 'complete', output: { ok: true } },
   ]);
@@ -348,6 +348,12 @@ function cleanupBrowserResult(
   );
   assert.equal(interaction.kind, 'question');
   assert.deepEqual(interaction.details, { options: ['甲', '乙'] });
+  const requested = host.readEvents(session.defSessionId).find((event) => (
+    event.type === 'interaction.requested' && event.interactionId === interaction.interactionId
+  ));
+  assert.deepEqual(requested?.type === 'interaction.requested' ? requested.payload.details : undefined, {
+    options: ['甲', '乙'],
+  });
   host.resolveInteraction(interaction.interactionId, { status: 'answered', value: '乙' }, productBinding);
   const terminal = await host.waitForTurnTerminal(turn.defTurnId);
   assert.equal(terminal.type, 'turn.completed');
@@ -360,6 +366,13 @@ function cleanupBrowserResult(
     contract: 'DefQuestionAnswerV1',
     interactionId: interaction.interactionId,
     answer: '乙',
+    resume: {
+      businessId: 'selection',
+      operation: 'inspect',
+      phaseId: 'selection-context',
+      projectedToolCount: 1,
+      instruction: 'The Harness already resumed the bound original operation. Do not route or ask again; call the currently offered business Tool exactly as named in the active tool list.',
+    },
   });
   assert.deepEqual(
     host.readEvents(session.defSessionId)
@@ -371,6 +384,59 @@ function cleanupBrowserResult(
       ['def.node.crud.context'],
       [],
     ],
+  );
+  await host.shutdown();
+}
+
+// Read-only actions discard harmless fields that belong to another action,
+// while the Harness still validates the normalized, currently projected call.
+{
+  const { engine, gateway, host } = fixture();
+  engine.enqueueScript([
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('route-diagnose-extra-fields'),
+      name: 'def.harness.route',
+      input: { businessId: 'calculation', operation: 'diagnose' },
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('context-diagnose-extra-fields'),
+      name: 'def.node.crud.context',
+      input: {},
+    },
+    {
+      type: 'tool',
+      toolCallId: asToolCallId('damage-diagnose-extra-fields'),
+      name: 'def.data.resource.damage',
+      input: {
+        action: 'diagnose',
+        buttonId: 'ignored-for-diagnose',
+        format: 'table',
+        includeCharacters: true,
+      },
+    },
+    { type: 'complete', output: { ok: true } },
+  ]);
+  const session = await createSession(host);
+  const turn = await host.startHarnessTurn({
+    defSessionId: session.defSessionId,
+    userMessage: '执行只读参数适配测试',
+    binding: productBinding,
+  });
+  assert.equal((await host.waitForTurnTerminal(turn.defTurnId)).type, 'turn.completed');
+  assert.equal(gateway.commands.length, 0);
+  const result = host.readEvents(session.defSessionId).find((event) => (
+    event.type === 'tool.result'
+    && event.toolCallId === asToolCallId('damage-diagnose-extra-fields')
+  ));
+  assert.ok(result && result.type === 'tool.result');
+  assert.equal(
+    result.type === 'tool.result' && typeof result.payload.result === 'object'
+      && result.payload.result !== null && !Array.isArray(result.payload.result)
+      ? result.payload.result.status
+      : null,
+    'missing',
   );
   await host.shutdown();
 }

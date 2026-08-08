@@ -161,6 +161,11 @@ export interface RuntimeStartTurnInput {
   readonly currentUsage?: RuntimeUsage;
 }
 
+export interface RuntimeSteerInput {
+  readonly clientTurnId: ClientTurnId | string;
+  readonly text: string;
+}
+
 export interface RuntimeCompactInput {
   readonly reason?: 'manual' | 'threshold' | 'overflow';
   readonly summary?: string;
@@ -202,6 +207,7 @@ export interface RuntimeRunHandle {
   readonly result: Promise<RuntimeRunResult>;
   readonly promise: Promise<RuntimeRunResult>;
   readonly completion: Promise<RuntimeRunResult>;
+  steer(input: RuntimeSteerInput): Promise<void>;
   abort(reason?: RuntimeAbortReason): Promise<RuntimeRunTerminal>;
   waitForIdle(): Promise<void>;
 }
@@ -284,8 +290,12 @@ interface ActiveRun {
   readonly bridgeSet: Set<RuntimeToolBridge>;
   readonly externalSignalCleanup?: () => void;
   readonly firstRunId: RuntimeRunId;
+  readonly steeringQueue: RuntimeUserMessage[];
+  readonly steeringByClientTurnId: Map<string, RuntimeUserMessage>;
   result: Promise<RuntimeRunResult>;
   attempts: number;
+  steeringSequence: number;
+  acceptingSteering: boolean;
   lastRunId?: RuntimeRunId;
   lastResult?: RuntimeRunResult;
   lastContext?: BuiltRuntimeContext;
@@ -328,6 +338,10 @@ class RuntimeRunHandleImpl implements RuntimeRunHandle {
 
   get completion(): Promise<RuntimeRunResult> {
     return this.active.result;
+  }
+
+  steer(input: RuntimeSteerInput): Promise<void> {
+    return this.session.steer(input, this.active.firstRunId);
   }
 
   abort(reason?: RuntimeAbortReason): Promise<RuntimeRunTerminal> {
@@ -454,8 +468,12 @@ export class RuntimeSession {
       abortController,
       bridgeSet: new Set<RuntimeToolBridge>(),
       firstRunId: normalizedInput.runId ?? asRuntimeRunId(`runtime-run-${randomUUID()}`),
+      steeringQueue: [],
+      steeringByClientTurnId: new Map<string, RuntimeUserMessage>(),
       ...(cleanupExternalSignal === undefined ? {} : { externalSignalCleanup: cleanupExternalSignal }),
       attempts: 0,
+      steeringSequence: 0,
+      acceptingSteering: true,
     });
     this.#active = active;
 
@@ -466,6 +484,26 @@ export class RuntimeSession {
 
   start(input: RuntimeStartTurnInput): Promise<RuntimeRunHandle> {
     return this.startTurn(input);
+  }
+
+  async steer(input: RuntimeSteerInput, expectedRunId?: RuntimeRunId): Promise<void> {
+    if (this.#state === 'closed') throw sessionClosed();
+    const active = this.#active;
+    if (!active || (expectedRunId !== undefined && active.firstRunId !== expectedRunId)) {
+      throw new RuntimeSessionError('RUNTIME_STEERING_INACTIVE', 'Runtime Session has no matching active run.');
+    }
+    const normalized = normalizeSteeringInput(input);
+    if (active.steeringByClientTurnId.has(String(normalized.clientTurnId))) return;
+    if (!active.acceptingSteering) {
+      throw new RuntimeSessionError('RUNTIME_STEERING_CLOSED', 'Runtime run is already completing.');
+    }
+    if (active.steeringQueue.length >= 64) {
+      throw new RuntimeSessionError('RUNTIME_STEERING_LIMIT', 'Runtime steering queue is full.');
+    }
+    const message = makeSteeringMessage(active, normalized, this.#options.now);
+    active.steeringSequence += 1;
+    active.steeringQueue.push(message);
+    active.steeringByClientTurnId.set(String(normalized.clientTurnId), message);
   }
 
   async compact(input: RuntimeCompactInput = {}): Promise<CompactionOutcome> {
@@ -546,6 +584,8 @@ export class RuntimeSession {
       if (active.lastResult) return active.lastResult;
       throw error;
     } finally {
+      active.acceptingSteering = false;
+      active.steeringQueue.splice(0);
       active.externalSignalCleanup?.();
       if (this.#active === active) this.#active = undefined;
     }
@@ -558,6 +598,7 @@ export class RuntimeSession {
       ? active.firstRunId
       : asRuntimeRunId(`${active.input.runId ?? active.lastRunId ?? `runtime-run-${randomUUID()}`}:retry:${attempt - 1}`);
     active.lastRunId = runId;
+    active.acceptingSteering = true;
 
     const userMessage = attempt === 1 ? makeUserMessage(active.input, runId, this.#options.now) : undefined;
     let context = await this.#buildContext(userMessage);
@@ -609,6 +650,10 @@ export class RuntimeSession {
       initialTurnId: userMessage?.turnId,
       maxTurns: active.input.maxTurns ?? this.#options.maxTurns,
       now: this.#options.now,
+      getSteeringMessages: (options) => this.#drainSteering(active, options?.closeIfEmpty === true),
+      onSteeringClosed: () => {
+        active.acceptingSteering = false;
+      },
       listeners: [this.#publishEvent.bind(this)],
       markerListeners: [this.#publishMarker.bind(this)],
       durableEventCommit: (write) => this.#durableEventCommit(write),
@@ -770,6 +815,16 @@ export class RuntimeSession {
   async #abortBridges(active: ActiveRun, reason: RuntimeAbortReason): Promise<void> {
     await Promise.all([...active.bridgeSet].map((bridge) => abortBridge(bridge, reason)));
   }
+
+  #drainSteering(active: ActiveRun, closeIfEmpty = false): readonly RuntimeUserMessage[] {
+    if (this.#active !== active) return [];
+    if (active.steeringQueue.length === 0) {
+      if (closeIfEmpty) active.acceptingSteering = false;
+      return [];
+    }
+    const message = active.steeringQueue.shift();
+    return message ? [message] : [];
+  }
 }
 
 export function createRuntimeSession(options: RuntimeSessionCreateOptions): RuntimeSession {
@@ -867,6 +922,20 @@ function normalizeTurnInput(input: RuntimeStartTurnInput): NormalizedTurnInput {
   };
 }
 
+function normalizeSteeringInput(input: RuntimeSteerInput): { readonly clientTurnId: ClientTurnId; readonly text: string } {
+  if (!input || typeof input !== 'object') {
+    throw new RuntimeSessionError('RUNTIME_STEERING_INVALID', 'Runtime steering input is invalid.');
+  }
+  const text = typeof input.text === 'string' ? input.text.trim() : '';
+  if (!text || text.length > 16_000) {
+    throw new RuntimeSessionError('RUNTIME_STEERING_INVALID', 'Runtime steering message is invalid.');
+  }
+  return {
+    clientTurnId: asClientTurnId(String(input.clientTurnId)),
+    text,
+  };
+}
+
 function makeUserMessage(
   input: NormalizedTurnInput,
   runId: RuntimeRunId,
@@ -890,6 +959,30 @@ function makeUserMessage(
     role: 'user',
     clientTurnId: input.clientTurnId ?? asClientTurnId(`${runId}:client-turn`),
     content,
+  };
+}
+
+function makeSteeringMessage(
+  active: ActiveRun,
+  input: { readonly clientTurnId: ClientTurnId; readonly text: string },
+  now: () => string,
+): RuntimeUserMessage {
+  const sequence = active.steeringSequence + 1;
+  const suffix = randomUUID();
+  const messageId = asRuntimeMessageId(`runtime-steer-message-${suffix}`);
+  return {
+    schemaVersion: 1,
+    id: messageId,
+    createdAt: now(),
+    defTurnId: active.input.defTurnId,
+    turnId: asRuntimeTurnId(`runtime-steer-turn-${sequence}-${suffix}`),
+    role: 'user',
+    clientTurnId: input.clientTurnId,
+    content: [{
+      type: 'text',
+      id: asRuntimeContentId(`${messageId}:content:0`),
+      text: input.text,
+    }],
   };
 }
 

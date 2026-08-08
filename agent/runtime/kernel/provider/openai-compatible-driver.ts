@@ -353,7 +353,7 @@ function createProviderToolNames(
   const canonicalToProvider = new Map<string, string>();
   const providerToCanonical = new Map<string, string>();
   for (const tool of tools) {
-    const providerName = tool.name.replace(/[^a-zA-Z0-9_-]/gu, '_');
+    const providerName = toProviderToolName(tool.name);
     if (!providerName || providerToCanonical.has(providerName)) {
       throw new ProviderFailureError(badRequestProviderFailure());
     }
@@ -383,7 +383,7 @@ function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
           toolCalls.push({
             id: String(block.toolCallId),
             type: 'function',
-            function: { name: block.name, arguments: JSON.stringify(block.arguments) },
+            function: { name: toProviderToolName(block.name), arguments: JSON.stringify(block.arguments) },
           });
         }
       }
@@ -415,7 +415,7 @@ function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
       return [{
         role: 'tool',
         tool_call_id: String(message.toolCallId),
-        name: message.toolName,
+        name: toProviderToolName(message.toolName),
         content: JSON.stringify(result) ?? 'null',
       }];
     }
@@ -424,6 +424,10 @@ function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
     default:
       return assertNever(message);
   }
+}
+
+function toProviderToolName(canonicalName: string): string {
+  return canonicalName.replace(/[^a-zA-Z0-9_-]/gu, '_');
 }
 
 function resolveChatCompletionsUrl(baseUrl: string): string {
@@ -516,6 +520,7 @@ type ToolBlock = {
 type ContentBlockState = TextBlock | ToolBlock;
 
 class CompletionState {
+  private readonly providerToCanonicalToolName: ReadonlyMap<string, string>;
   private ordinal = 0;
   private responseStarted = false;
   private responseId: string | undefined;
@@ -531,9 +536,9 @@ class CompletionState {
     totalTokens: 0,
   };
 
-  constructor(
-    private readonly providerToCanonicalToolName: ReadonlyMap<string, string>,
-  ) {}
+  constructor(providerToCanonicalToolName: ReadonlyMap<string, string>) {
+    this.providerToCanonicalToolName = providerToCanonicalToolName;
+  }
 
   get hasFinishReason(): boolean {
     return this.finishReason !== undefined;
@@ -680,6 +685,7 @@ class CompletionState {
     const nameDelta = readString(functionPart.name) ?? '';
     const argumentsDelta = readJsonDelta(functionPart.arguments);
     let block = this.toolsByKey.get(key);
+    let emittedNameDelta = nameDelta;
     if (!block) {
       const providerId = readString(raw.id);
       block = {
@@ -697,19 +703,20 @@ class CompletionState {
         type: 'tool-call.start',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        name: '',
+        name: nameDelta,
       }));
+      emittedNameDelta = '';
     } else {
       block.name += nameDelta;
     }
 
     block.arguments += argumentsDelta;
-    if (argumentsDelta) {
+    if (emittedNameDelta || argumentsDelta) {
       events.push(this.emit({
         type: 'tool-call.delta',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        nameDelta: '',
+        nameDelta: emittedNameDelta,
         argumentsDelta,
       }));
     }
@@ -753,7 +760,9 @@ class CompletionState {
   }
 
   private canonicalToolName(providerName: string): string {
-    return this.providerToCanonicalToolName.get(providerName) ?? providerName;
+    return this.providerToCanonicalToolName.get(providerName)
+      ?? this.providerToCanonicalToolName.get(toProviderToolName(providerName))
+      ?? providerName;
   }
 
   private emit(event: ProviderEventInput): ProviderStreamEvent {

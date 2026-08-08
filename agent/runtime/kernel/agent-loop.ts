@@ -107,6 +107,16 @@ export interface AgentLoopInput {
   readonly initialTurnId?: RuntimeTurnId;
   readonly maxTurns?: number;
   readonly now?: () => string;
+  /**
+   * Pi Agent-style steering queue drain. Messages are injected after the
+   * current assistant/tool cycle and before the next model request.
+   */
+  readonly getSteeringMessages?: (options?: {
+    /** Atomically stop accepting new guidance when the queue is empty. */
+    readonly closeIfEmpty?: boolean;
+  }) => readonly RuntimeUserMessage[] | Promise<readonly RuntimeUserMessage[]>;
+  /** Closes the final queue race before a run publishes its terminal event. */
+  readonly onSteeringClosed?: () => void;
   /** Best-effort observers; persistence uses the sole durable commit sink. */
   readonly listeners?: readonly RuntimeEventListener[];
   readonly markerListeners?: readonly RuntimeRunMarkerListener[];
@@ -258,6 +268,16 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   let turnIndex = 0;
   let assistantIndex = 0;
   let terminalPersistenceError: RuntimeRunProtocolError | undefined;
+  let steeringClosed = false;
+  const closeSteering = () => {
+    if (steeringClosed) return;
+    steeringClosed = true;
+    try {
+      accepted?.onSteeringClosed?.();
+    } catch {
+      // Queue closure is a local liveness signal, not a second failure source.
+    }
+  };
 
   try {
     await controller.start();
@@ -283,6 +303,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
       if (!context.some((message) => message.id === prompt.id)) context.push(prompt);
     }
 
+    let pendingMessages = await drainSteeringMessages(accepted, context);
     let shouldContinue = true;
     while (shouldContinue) {
       if (signal.aborted) throw createAbortError(signal);
@@ -293,7 +314,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
 
       currentTurn = turnIndex === 1 && (accepted.initialTurnId ?? prompt?.turnId)
         ? (accepted.initialTurnId ?? prompt?.turnId)!
-        : turnIdFor(accepted.runId, turnIndex);
+        : pendingMessages[0]?.turnId ?? turnIdFor(accepted.runId, turnIndex);
       turns.push(currentTurn);
       await emit(controller, {
         type: 'turn.start',
@@ -315,6 +336,25 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
           defTurnId: accepted.defTurnId,
           message: prompt,
         });
+      }
+
+      if (pendingMessages.length > 0) {
+        for (const message of pendingMessages) {
+          await emit(controller, {
+            type: 'message.start',
+            runId: accepted.runId,
+            defTurnId: accepted.defTurnId,
+            message,
+          });
+          await emit(controller, {
+            type: 'message.end',
+            runId: accepted.runId,
+            defTurnId: accepted.defTurnId,
+            message,
+          });
+          context.push(message);
+        }
+        pendingMessages = [];
       }
 
       const assistant = await streamAssistantResponse({
@@ -355,9 +395,17 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
 
       await finishTurn(controller, accepted, currentTurn, assistant.message, toolResultMessages);
       if (executionTerminal ?? assistant.terminal) {
+        closeSteering();
         terminal = (executionTerminal ?? assistant.terminal)!;
         shouldContinue = false;
-      } else if (toolCalls.length === 0) {
+        continue;
+      }
+
+      pendingMessages = await drainSteeringMessages(accepted, context, true);
+      if (pendingMessages.length > 0) continue;
+
+      if (toolCalls.length === 0) {
+        closeSteering();
         terminal = {
           status: 'completed',
           ...(assistantText(assistant.message) === '' ? {} : { output: assistantText(assistant.message) }),
@@ -366,6 +414,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
       }
     }
   } catch (error) {
+    closeSteering();
     failedPath = true;
     terminal = terminalFromError(error, signal);
     if (started && accepted && currentTurn !== null) {
@@ -385,6 +434,7 @@ export async function runAgentLoop(input: AgentLoopInput): Promise<AgentLoopResu
   }
 
   if (controller.status === 'running') {
+    closeSteering();
     try {
       if (failedPath) await controller.finishAfterFailure(nonCompletedTerminal(terminal));
       else await controller.finish(terminal);
@@ -462,6 +512,8 @@ function snapshotAgentLoopEnvelope(value: AgentLoopInput): AgentLoopInput {
       'initialTurnId',
       'maxTurns',
       'now',
+      'getSteeringMessages',
+      'onSteeringClosed',
       'listeners',
       'markerListeners',
       'durableEventCommit',
@@ -609,6 +661,12 @@ function snapshotLoopInput(input: AgentLoopInput): AcceptedAgentLoopInput {
   if (input.now !== undefined && typeof input.now !== 'function') {
     throw new AgentLoopFailure('RUNTIME_CLOCK_INVALID', 'Runtime clock is invalid.');
   }
+  if (input.getSteeringMessages !== undefined && typeof input.getSteeringMessages !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_STEERING_INVALID', 'Runtime steering source is invalid.');
+  }
+  if (input.onSteeringClosed !== undefined && typeof input.onSteeringClosed !== 'function') {
+    throw new AgentLoopFailure('RUNTIME_STEERING_INVALID', 'Runtime steering closure is invalid.');
+  }
   if (input.maxTurns !== undefined && !validMaxTurns(input.maxTurns)) {
     throw new AgentLoopFailure('RUNTIME_MAX_TURNS_INVALID', 'Runtime maxTurns is invalid.');
   }
@@ -679,6 +737,8 @@ function snapshotLoopInput(input: AgentLoopInput): AcceptedAgentLoopInput {
     ...(input.initialTurnId === undefined ? {} : { initialTurnId: input.initialTurnId }),
     maxTurns: input.maxTurns ?? DEFAULT_MAX_TURNS,
     ...(input.now === undefined ? {} : { now: input.now }),
+    ...(input.getSteeringMessages === undefined ? {} : { getSteeringMessages: input.getSteeringMessages }),
+    ...(input.onSteeringClosed === undefined ? {} : { onSteeringClosed: input.onSteeringClosed }),
     ...(listeners === undefined ? {} : { listeners }),
     ...(markerListeners === undefined ? {} : { markerListeners }),
     ...(input.durableEventCommit === undefined ? {} : { durableEventCommit: input.durableEventCommit }),
@@ -686,6 +746,33 @@ function snapshotLoopInput(input: AgentLoopInput): AcceptedAgentLoopInput {
     ...(input.controller === undefined ? {} : { controller: input.controller }),
     redactions,
   });
+}
+
+async function drainSteeringMessages(
+  input: AcceptedAgentLoopInput,
+  context: readonly RuntimeMessage[],
+  closeIfEmpty = false,
+): Promise<readonly RuntimeUserMessage[]> {
+  if (!input.getSteeringMessages) return [];
+  const raw = await input.getSteeringMessages(closeIfEmpty ? { closeIfEmpty: true } : undefined);
+  const values = snapshotDenseDataArray(
+    raw,
+    64,
+    'RUNTIME_STEERING_INVALID',
+    'Runtime steering messages are invalid.',
+  );
+  const known = new Set(context.map((message) => String(message.id)));
+  const messages: RuntimeUserMessage[] = [];
+  for (const value of values) {
+    const message = canonicalizeRuntimeMessage(value as RuntimeMessage, input.redactions);
+    if (message.role !== 'user' || message.defTurnId !== input.defTurnId || known.has(String(message.id))) {
+      throw new AgentLoopFailure('RUNTIME_STEERING_INVALID', 'Runtime steering message correlation is invalid.');
+    }
+    known.add(String(message.id));
+    messages.push(message);
+  }
+  assertInputBudget([...context, ...messages]);
+  return Object.freeze(messages);
 }
 
 function cloneConnection(value: RuntimeModelConnection): RuntimeModelConnection {
@@ -1502,7 +1589,11 @@ function endToolCall(
   }
   const streamedName = state.block.name;
   const finalName = acceptedName.value || streamedName;
-  if (acceptedName.value && streamedName && acceptedName.value !== streamedName) {
+  if (
+    acceptedName.value
+    && streamedName
+    && !equivalentProviderToolNames(acceptedName.value, streamedName)
+  ) {
     markToolMalformed(state, 'RUNTIME_TOOL_MALFORMED', 'Tool name did not match its streamed name.');
   }
   if (!finalName.trim()) {
@@ -1531,6 +1622,11 @@ function endToolCall(
     }
   }
   state.ended = true;
+}
+
+function equivalentProviderToolNames(left: string, right: string): boolean {
+  const providerSafe = (value: string): string => value.replace(/[^a-zA-Z0-9_-]/gu, '_');
+  return left === right || providerSafe(left) === providerSafe(right);
 }
 
 function finalizeToolCalls(

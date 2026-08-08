@@ -85,8 +85,25 @@ const binding: ProductBinding = {
   snapshotDigest: 'sha256:recovery',
 };
 
-const unavailableGateway: ProductGateway<Phase2ProductOperationSchema> = {
-  async getSnapshot() { throw new Error('not used'); },
+// Recovery tests do not execute Browser mutations, but every fresh Engine
+// Turn receives the current read-only Product context.
+const recoveryReadGateway: ProductGateway<Phase2ProductOperationSchema> = {
+  async getSnapshot(requestedBinding) {
+    return {
+      protocolVersion: 1,
+      binding: structuredClone(requestedBinding),
+      capturedAt: '2026-08-08T00:00:00.000Z',
+      payload: {
+        schemaVersion: 1,
+        currentView: 'canvas',
+        activeTimelineId: requestedBinding.timelineId,
+        timelineId: requestedBinding.timelineId,
+        selectedCharacters: [],
+        skillButtons: [],
+        operatorConfigs: [],
+      },
+    };
+  },
   async dispatch() { throw new Error('not used'); },
   async awaitResult() { throw new Error('not used'); },
   async reconcile() { return null; },
@@ -231,7 +248,7 @@ store.setActive(defSessionId);
 
 const host = new DefAgentHost({
   engine,
-  productGateway: unavailableGateway,
+  productGateway: recoveryReadGateway,
   sessionStore: store,
   requireConsumer: () => undefined,
   clock: () => 1_800_000_000_000,
@@ -322,7 +339,7 @@ assert.equal(store.loadSession(defSessionId)?.session.status, 'archived');
 
 const restarted = new DefAgentHost({
   engine,
-  productGateway: unavailableGateway,
+  productGateway: recoveryReadGateway,
   sessionStore: store,
   requireConsumer: () => undefined,
   clock: () => 1_800_000_001_000,
@@ -581,7 +598,7 @@ lazyStore.setActive(lazyActiveId);
 
 const lazyHost = new DefAgentHost({
   engine: lazyEngine,
-  productGateway: unavailableGateway,
+  productGateway: recoveryReadGateway,
   sessionStore: lazyStore,
   requireConsumer: () => undefined,
 });
@@ -648,7 +665,7 @@ const failedRecoveryEngineSession = await seedStoredSession(
 failedRecoveryEngine.failRecoveryFor.add(failedRecoveryEngineSession.sessionId);
 const failedRecoveryHost = new DefAgentHost({
   engine: failedRecoveryEngine,
-  productGateway: unavailableGateway,
+  productGateway: recoveryReadGateway,
   sessionStore: failedRecoveryStore,
   requireConsumer: () => undefined,
 });
@@ -694,7 +711,7 @@ const gatedRecoveryId = asDefSessionId('def-session-gated-recovery');
 await seedStoredSession(gatedRecoveryEngine, gatedRecoveryStore, gatedRecoveryId, 'ready');
 const gatedRecoveryHost = new DefAgentHost({
   engine: gatedRecoveryEngine,
-  productGateway: unavailableGateway,
+  productGateway: recoveryReadGateway,
   sessionStore: gatedRecoveryStore,
   requireConsumer: () => undefined,
 });

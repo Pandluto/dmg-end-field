@@ -248,6 +248,90 @@ test('OpenAI-compatible driver emits complete incremental tool calls only', asyn
   assert.equal((terminalEvents(events)[0] as Extract<ProviderStreamEvent, { type: 'response.done' }>).stopReason, 'tool-use');
 });
 
+test('OpenAI-compatible driver keeps canonical Tool names behind provider-safe history aliases', async () => {
+  const queued = queuedFetch([responseFromSse([
+    {
+      id: 'response-canonical-tool',
+      choices: [{
+        index: 0,
+        delta: {
+          tool_calls: [{
+            index: 0,
+            id: 'call-context',
+            type: 'function',
+            function: { name: 'def.node_crud_context', arguments: '{}' },
+          }],
+        },
+      }],
+    },
+    { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] },
+    '[DONE]',
+  ])]);
+  const base = makeRequest();
+  const request = {
+    ...base,
+    messages: [
+      ...base.messages,
+      {
+        schemaVersion: 1,
+        id: 'assistant-route-history',
+        createdAt: '2026-08-08T00:00:01.000Z',
+        completedAt: '2026-08-08T00:00:02.000Z',
+        defTurnId: 'def-turn-1',
+        turnId: 'turn-1',
+        role: 'assistant',
+        providerId: 'deepseek',
+        modelId: 'deepseek-reasoner',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        stopReason: 'tool-use',
+        content: [{
+          type: 'tool-call',
+          id: 'route-content-history',
+          toolCallId: 'call-route-history',
+          name: 'def.harness.route',
+          arguments: { businessId: 'calculation', operation: 'diagnose' },
+        }],
+      },
+      {
+        schemaVersion: 1,
+        id: 'tool-route-history',
+        createdAt: '2026-08-08T00:00:02.000Z',
+        completedAt: '2026-08-08T00:00:02.000Z',
+        defTurnId: 'def-turn-1',
+        turnId: 'turn-1',
+        role: 'tool-result',
+        toolCallId: 'call-route-history',
+        toolName: 'def.harness.route',
+        result: { status: 'succeeded', output: { ok: true } },
+      },
+    ],
+    tools: [{
+      name: 'def.node.crud.context',
+      description: 'Read current context.',
+      inputSchema: { type: 'object', properties: {} },
+      risk: 'read',
+    }],
+  } as unknown as RuntimeModelRequest;
+
+  const events = await collect(new OpenAICompatibleDriver({
+    fetch: queued.fetch,
+    retryPolicy: { maxRetries: 0 },
+  }).stream(request));
+  const body = JSON.parse(String(queued.calls[0]?.init?.body)) as {
+    tools: Array<{ function: { name: string } }>;
+    messages: Array<{
+      role: string;
+      name?: string;
+      tool_calls?: Array<{ function: { name: string } }>;
+    }>;
+  };
+  assert.equal(body.tools[0]?.function.name, 'def_node_crud_context');
+  assert.equal(body.messages.find((message) => message.role === 'assistant')?.tool_calls?.[0]?.function.name, 'def_harness_route');
+  assert.equal(body.messages.find((message) => message.role === 'tool')?.name, 'def_harness_route');
+  const toolEnd = events.find((event) => event.type === 'tool-call.end');
+  assert.equal(toolEnd?.type === 'tool-call.end' ? toolEnd.name : '', 'def.node.crud.context');
+});
+
 test('malformed or truncated tool arguments never produce tool-call.end', async () => {
   const queued = queuedFetch([responseFromSse([
     {

@@ -258,6 +258,27 @@ test('pure text emits one completed run with DefTurnId on messages, events, and 
   }]);
 });
 
+test('natural completion atomically closes an empty steering queue', async () => {
+  let closeIfEmptySeen = false;
+  let acceptingSteering = true;
+  const result = await runAgentLoop(baseInput({
+    getSteeringMessages: (options) => {
+      if (options?.closeIfEmpty) {
+        closeIfEmptySeen = true;
+        acceptingSteering = false;
+      }
+      return [];
+    },
+    onSteeringClosed: () => {
+      acceptingSteering = false;
+    },
+  }));
+
+  assert.equal(result.terminal.status, 'completed');
+  assert.equal(closeIfEmptySeen, true);
+  assert.equal(acceptingSteering, false);
+});
+
 test('reasoning and text remain separate and preserve source order', async () => {
   const events = numberProviderEvents([
     { type: 'response.start', responseModel: 'fake-model' },
@@ -610,6 +631,35 @@ test('an initially empty OpenAI Tool name may be completed by later nameDelta ch
   assert.equal(result.terminal.status, 'completed');
   assert.equal(bridge.invocations.length, 1);
   assert.equal(bridge.invocations[0]?.call.name, 'echo');
+});
+
+test('a provider-safe streamed Tool name may finish with its canonical DEF name', async () => {
+  const bridge = new FakeToolBridge();
+  const callId = asToolCallId('tool-provider-safe-name');
+  bridge.enqueue(async (input) => ({
+    toolCallId: input.call.toolCallId,
+    result: { status: 'succeeded', output: 'context' },
+    nextProjection: projection(2, 'def.node.crud.context'),
+  }));
+  const driver = new FakeModelDriver([
+    numberProviderEvents([
+      { type: 'response.start' },
+      { type: 'tool-call.start', contentIndex: 0, toolCallId: callId, name: 'def_node_crud_context' },
+      { type: 'tool-call.delta', contentIndex: 0, toolCallId: callId, nameDelta: '', argumentsDelta: '{}' },
+      { type: 'tool-call.end', contentIndex: 0, toolCallId: callId, name: 'def.node.crud.context', arguments: {} },
+      done('tool-use'),
+    ]),
+    textResponse('canonical name executed'),
+  ]);
+  const result = await runAgentLoop(baseInput({
+    modelDriver: driver,
+    toolBridge: bridge,
+    tools: projection(1, 'def.node.crud.context'),
+  }));
+
+  assert.equal(result.terminal.status, 'completed');
+  assert.equal(bridge.invocations.length, 1);
+  assert.equal(bridge.invocations[0]?.call.name, 'def.node.crud.context');
 });
 
 test('tool-call.delta must retain the callId established by its contentIndex start', async () => {

@@ -88,7 +88,9 @@ test('composes Runtime transcript with Host Tool/Interaction state without Host 
   const tool = part(snapshot, 'tool');
   assert.equal(tool.state.status, 'completed');
   assert.deepEqual(tool.state.status === 'completed' ? tool.state.output : undefined, { result: 'done' });
-  assert.equal(part(snapshot, 'interaction').state.status, 'resolved');
+  const interaction = part(snapshot, 'interaction');
+  assert.equal(interaction.state.status, 'resolved');
+  assert.deepEqual(interaction.payload, { details: { options: ['甲', '乙'] } });
   assert.deepEqual(snapshot.status, { status: 'idle' });
   const assistant = snapshot.messages.find((message) => message.id === FIXTURE_ASSISTANT_MESSAGE_ID)!;
   assert.equal(new Set(assistant.partIds).size, assistant.partIds.length);
@@ -125,6 +127,86 @@ test('projects Tool pending/running/completed/error from their two authoritative
     const snapshot = await projector(fixture).getSnapshot(fixture.sessionId);
     assert.equal(part(snapshot, 'tool').state.status, expected);
   }
+});
+
+test('a durable stopped Turn overrides an interrupted active Tool after recovery', async () => {
+  const fixture = createConversationFixture();
+  fixture.host.append(hostToolStarted(fixture.sessionId, 1));
+  fixture.host.append({
+    schemaVersion: 1,
+    sequence: 2,
+    occurredAt: NOW,
+    defSessionId: fixture.sessionId,
+    defTurnId: FIXTURE_TURN_ID,
+    type: 'turn.stopped',
+    payload: { code: 'USER_STOPPED', message: 'Stopped by user' },
+  });
+
+  const projectorInstance = projector(fixture);
+  const snapshot = await projectorInstance.getSnapshot(fixture.sessionId);
+  assert.equal(part(snapshot, 'tool').state.status, 'running');
+  assert.deepEqual(snapshot.status, { status: 'idle' });
+
+  const nextTurn = asDefTurnId('conversation-after-stopped-tool');
+  fixture.runtime.append({
+    type: 'message.upsert',
+    message: {
+      id: asConversationMessageId('conversation-after-stopped-tool-message'),
+      role: 'user',
+      defTurnId: nextTurn,
+      createdAt: NOW,
+      completedAt: NOW,
+      partIds: [],
+    },
+    index: snapshot.messages.length,
+  }, 7);
+  fixture.runtime.append({ type: 'session.status', status: { status: 'running' } }, 8);
+
+  const resumed = await projectorInstance.getSnapshot(fixture.sessionId);
+  assert.deepEqual(resumed.status, { status: 'running', defTurnId: nextTurn });
+});
+
+test('a pending user Interaction takes priority over its still-running Tool', async () => {
+  const fixture = createConversationFixture();
+  fixture.host.append(hostToolStarted(fixture.sessionId, 1));
+  fixture.host.append(hostInteractionRequested(fixture.sessionId, 2));
+
+  const snapshot = await projector(fixture).getSnapshot(fixture.sessionId);
+  const interaction = part(snapshot, 'interaction');
+  assert.deepEqual(snapshot.status, {
+    status: 'waiting-interaction',
+    defTurnId: FIXTURE_TURN_ID,
+    interactionId: interaction.interactionId,
+  });
+});
+
+test('keeps a Tool-backed Interaction on the Tool message after Runtime continues', async () => {
+  const fixture = createConversationFixture();
+  fixture.host.append(hostInteractionRequested(fixture.sessionId, 1));
+  const projectorInstance = projector(fixture);
+  const pending = await projectorInstance.getSnapshot(fixture.sessionId);
+  const pendingInteraction = part(pending, 'interaction');
+  assert.equal(pendingInteraction.messageId, FIXTURE_ASSISTANT_MESSAGE_ID);
+
+  const continuationMessageId = asConversationMessageId('message-assistant-after-interaction');
+  fixture.runtime.append({
+    type: 'message.upsert',
+    message: {
+      id: continuationMessageId,
+      role: 'assistant',
+      defTurnId: FIXTURE_TURN_ID,
+      createdAt: '2026-08-08T00:00:11.000Z',
+      partIds: [],
+    },
+    index: pending.messages.length,
+  }, 7, '2026-08-08T00:00:11.000Z');
+  fixture.host.append(hostInteractionResolved(fixture.sessionId, 2));
+
+  const recovered = await projectorInstance.getSnapshot(fixture.sessionId);
+  const resolvedInteraction = part(recovered, 'interaction');
+  assert.equal(resolvedInteraction.messageId, pendingInteraction.messageId);
+  assert.equal(resolvedInteraction.state.status, 'resolved');
+  assert.equal(recovered.messages.find((message) => message.id === continuationMessageId)?.partIds.length, 0);
 });
 
 test('captures Runtime/Host high-water marks before subscribe and advances one source at a time', async () => {
