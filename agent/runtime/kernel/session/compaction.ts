@@ -8,12 +8,14 @@
 import { randomUUID } from 'node:crypto';
 import type { DefTurnId } from '../../../core/contracts/ids.ts';
 import type {
+  RuntimeCompactionMessage,
   RuntimeCompactionReason,
   RuntimeMessage,
   RuntimeUsage,
 } from '../messages.ts';
 import {
   asRuntimeEntryId,
+  asRuntimeMessageId,
   asRuntimeRunId,
   asRuntimeTurnId,
   type RuntimeEntryId,
@@ -183,15 +185,35 @@ export function createCompactionPlan(options: Pick<CompactionOptions, 'session' 
     return undefined;
   }
 
-  const sourceEntries = Object.freeze(lineage.slice(0, firstKeptIndex));
-  const sourceMessages = Object.freeze(sourceEntries
-    .filter((entry): entry is RuntimeMessageEntry => entry.type === 'message')
-    .map((entry) => entry.message));
-  const compactedMessages = sourceEntries
-    .slice(minimumNewHistoryIndex)
+  const newHistoryEntries = lineage.slice(minimumNewHistoryIndex, firstKeptIndex);
+  const compactedMessages = newHistoryEntries
     .filter((entry): entry is RuntimeMessageEntry => entry.type === 'message')
     .map((entry) => entry.message);
   if (compactedMessages.length === 0) return undefined;
+
+  let sourceEntries: readonly RuntimeSessionEntry[];
+  if (projection.latestCompaction === undefined) {
+    sourceEntries = Object.freeze(lineage.slice(0, firstKeptIndex));
+  } else {
+    const previousFirstKeptIndex = indexById.get(projection.latestCompaction.firstKeptEntryId);
+    if (previousFirstKeptIndex === undefined) {
+      throw new CompactionError('COMPACTION_CONTEXT_INVALID', 'The latest compaction anchor is unavailable.');
+    }
+    // The latest summary already replaces everything before its anchor. Feed
+    // that summary plus only the retained tail and the newly compacted prefix.
+    sourceEntries = Object.freeze([
+      projection.latestCompaction,
+      ...lineage
+        .slice(previousFirstKeptIndex, latestCompactionIndex)
+        .filter((entry) => entry.type !== 'compaction'),
+      ...newHistoryEntries,
+    ]);
+  }
+  const sourceMessages = Object.freeze(sourceEntries.flatMap((entry): readonly RuntimeMessage[] => {
+    if (entry.type === 'message') return [entry.message];
+    if (entry.type === 'compaction') return [compactionEntryMessage(entry)];
+    return [];
+  }));
 
   const prompt = buildCompactionPrompt({ entries: sourceEntries });
   const tokensBefore = nonNegativeInteger(options.currentInputTokens)
@@ -405,6 +427,20 @@ function entryTokenEstimate(entry: RuntimeSessionEntry): number {
   if (entry.type !== 'message') return 1;
   const serialized = JSON.stringify(entry.message);
   return Math.max(1, Math.ceil(serialized.length / 4));
+}
+
+function compactionEntryMessage(entry: RuntimeCompactionEntry): RuntimeCompactionMessage {
+  return {
+    schemaVersion: 1,
+    id: asRuntimeMessageId(String(entry.id)),
+    createdAt: entry.createdAt,
+    role: 'compaction',
+    summary: entry.summary,
+    firstKeptEntryId: entry.firstKeptEntryId,
+    tokensBefore: entry.tokensBefore,
+    reason: entry.reason,
+    completedAt: entry.createdAt,
+  };
 }
 
 function failedOutcome(

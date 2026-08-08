@@ -39,10 +39,14 @@ export interface CompactionPromptInput {
   readonly firstKeptEntryId?: RuntimeEntryId;
 }
 
+interface TranscriptBlock {
+  readonly text: string;
+  readonly isSummary: boolean;
+}
+
 /** Build a bounded, deterministic summarization prompt from transcript data. */
 export function buildCompactionPrompt(input: CompactionPromptInput): string {
-  const transcript = transcriptForPrompt(input);
-  const boundedTranscript = boundPromptText(transcript, MAX_TRANSCRIPT_CODE_UNITS);
+  const boundedTranscript = boundTranscript(transcriptBlocksForPrompt(input), MAX_TRANSCRIPT_CODE_UNITS);
   const prompt = [
     `DEF Runtime compaction prompt (${COMPACTION_PROMPT_VERSION}).`,
     'Create a concise durable summary of the transcript below.',
@@ -77,23 +81,62 @@ export function normalizeCompactionSummary(value: string, maximum = 256 * 1_024)
   return redacted;
 }
 
-function transcriptForPrompt(input: CompactionPromptInput): string {
+function transcriptBlocksForPrompt(input: CompactionPromptInput): readonly TranscriptBlock[] {
   if (input.entries) {
     let entries = input.entries;
     if (input.firstKeptEntryId !== undefined) {
       const index = entries.findIndex((entry) => entry.id === input.firstKeptEntryId);
       if (index >= 0) entries = entries.slice(0, index);
     }
-    return entries
-      .map((entry) => entry.type === 'message'
-        ? formatMessage(entry.message)
-        : entry.type === 'compaction'
-          ? `[COMPACTION SUMMARY]\n${safeText(entry.summary)}`
-          : '')
-      .filter(Boolean)
-      .join('\n\n');
+    return entries.flatMap((entry): readonly TranscriptBlock[] => {
+      if (entry.type === 'message') {
+        return [{ text: formatMessage(entry.message), isSummary: false }];
+      }
+      if (entry.type === 'compaction') {
+        return [{ text: `[COMPACTION SUMMARY]\n${safeText(entry.summary)}`, isSummary: true }];
+      }
+      return [];
+    });
   }
-  return (input.messages ?? []).map(formatMessage).join('\n\n');
+  return (input.messages ?? []).map((message) => ({
+    text: formatMessage(message),
+    isSummary: message.role === 'compaction',
+  }));
+}
+
+function boundTranscript(blocks: readonly TranscriptBlock[], maximum: number): string {
+  const separator = '\n\n';
+  const complete = blocks.map((block) => block.text).join(separator);
+  if (complete.length <= maximum) return complete;
+
+  let latestSummaryIndex = -1;
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    if (blocks[index]?.isSummary) {
+      latestSummaryIndex = index;
+      break;
+    }
+  }
+
+  const anchorIndex = latestSummaryIndex >= 0 ? latestSummaryIndex : 0;
+  const anchor = blocks[anchorIndex]?.text ?? '';
+  const prefix = [anchor, '[earlier transcript omitted]'].filter(Boolean).join(separator);
+  let remaining = Math.max(0, maximum - prefix.length);
+  const recent: string[] = [];
+  for (let index = blocks.length - 1; index > anchorIndex; index -= 1) {
+    const block = blocks[index];
+    if (!block) continue;
+    const cost = separator.length + block.text.length;
+    if (cost <= remaining) {
+      recent.unshift(block.text);
+      remaining -= cost;
+      continue;
+    }
+    if (recent.length === 0 && remaining > separator.length) {
+      recent.unshift(boundRecentText(block.text, remaining - separator.length));
+    }
+    break;
+  }
+  return [prefix, ...recent].filter(Boolean).join(separator);
 }
 
 function formatMessage(message: RuntimeMessage): string {
@@ -138,7 +181,17 @@ function boundMessage(value: string): string {
 
 function boundPromptText(value: string, maximum: number): string {
   if (value.length <= maximum) return value;
-  return `${value.slice(0, Math.max(0, maximum - 24))}\n[transcript truncated]`;
+  const marker = '\n[content middle truncated]\n';
+  const available = Math.max(0, maximum - marker.length);
+  const headLength = Math.ceil(available / 2);
+  return `${value.slice(0, headLength)}${marker}${value.slice(-(available - headLength))}`;
+}
+
+function boundRecentText(value: string, maximum: number): string {
+  if (value.length <= maximum) return value;
+  const marker = '[earlier message content omitted]\n';
+  if (maximum <= marker.length) return value.slice(-maximum);
+  return `${marker}${value.slice(-(maximum - marker.length))}`;
 }
 
 function safeText(value: string): string {
