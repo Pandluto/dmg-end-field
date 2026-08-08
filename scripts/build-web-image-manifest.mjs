@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFile } from './write-generated-file.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const outputPath = path.join(projectRoot, 'public', 'web-image-manifest.json');
@@ -60,7 +61,7 @@ const manifest = {
   },
 };
 
-fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+writeGeneratedFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
 const updatedAt = Date.parse(manifest.generatedAt) || Date.now();
 const browserIndex = manifest.files.map((entry) => {
   const fileName = path.posix.basename(entry.path);
@@ -79,7 +80,7 @@ const browserIndex = manifest.files.map((entry) => {
     rootPriority: -1,
   };
 });
-fs.writeFileSync(browserIndexPath, `${JSON.stringify(browserIndex, null, 2)}\n`, 'utf8');
+writeGeneratedFile(browserIndexPath, `${JSON.stringify(browserIndex, null, 2)}\n`);
 console.log(
   `Web image manifest: ${manifest.files.length} files, `
   + `${manifest.archive.size} archive bytes, ${manifest.totalBytes} extracted bytes.`,

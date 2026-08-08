@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFile } from './write-generated-file.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = path.join(projectRoot, 'public', 'web-image-manifest.json');
@@ -64,7 +65,7 @@ for (let offset = 0, index = 0; offset < archive.length; offset += partSize, ind
   const bytes = archive.subarray(offset, Math.min(offset + partSize, archive.length));
   const fileName = `${manifest.archive.fileName}.part-${String(index + 1).padStart(3, '0')}`;
   const outputPath = path.join(packageDirectory, fileName);
-  fs.writeFileSync(outputPath, bytes);
+  writeGeneratedFile(outputPath, bytes);
   parts.push({
     path: `packages/${fileName}`,
     fileName,
@@ -74,7 +75,7 @@ for (let offset = 0, index = 0; offset < archive.length; offset += partSize, ind
 }
 
 manifest.archive.parts = parts;
-fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+writeGeneratedFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 const legacyPath = path.join(projectRoot, 'public', manifest.archive.path);
 if (legacyPath !== targetPath) fs.rmSync(legacyPath, { force: true });

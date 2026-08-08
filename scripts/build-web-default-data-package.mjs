@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFile } from './write-generated-file.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const sourcePath = path.join(
@@ -348,7 +349,7 @@ const archive = {
 };
 
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-fs.writeFileSync(outputPath, `${JSON.stringify(archive)}\n`);
+writeGeneratedFile(outputPath, `${JSON.stringify(archive)}\n`);
 console.log(
   `Web default data package: ${operatorCount} operators, ${weaponCount} weapons, `
   + `${timelineArchives.length} shared timelines, ${Object.keys(local).length} storage keys, `

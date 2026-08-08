@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeGeneratedFile } from './write-generated-file.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const publicRoot = path.join(repositoryRoot, 'public');
@@ -53,5 +54,5 @@ const manifest = {
   generatedAt,
 };
 
-fs.writeFileSync(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
+writeGeneratedFile(outputPath, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`Web data manifest: ${files.length} files, ${manifest.totalBytes} bytes.`);
