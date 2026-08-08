@@ -23,6 +23,7 @@ import {
   fixtureContext,
   fixtureSettlement,
   fixtureUserMessage,
+  overflowResponse,
   textResponse,
   toolResponse,
 } from './testing/runtime-fixtures.ts';
@@ -298,6 +299,91 @@ test('the same Runtime Session rejects a second active run', async () => {
     );
     await session.abort({ code: 'TEST_STOP' });
     assert.equal((await first.result).terminal.status, 'aborted');
+    await session.close();
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('threshold compacts before the model request and overflow retries exactly once without duplicating the user', async () => {
+  const root = makeRoot();
+  try {
+    const driver = new FakeModelDriver([
+      textResponse('history-answer-1', 'response-history-1'),
+      textResponse('history-answer-2', 'response-history-2'),
+      textResponse('history-answer-3', 'response-history-3'),
+      textResponse('THRESHOLD_SUMMARY', 'response-threshold-summary'),
+      textResponse('threshold continued', 'response-threshold-run'),
+      overflowResponse(),
+      textResponse('OVERFLOW_SUMMARY', 'response-overflow-summary'),
+      textResponse('overflow recovered', 'response-overflow-retry'),
+    ]);
+    const eventKinds: string[] = [];
+    const session = RuntimeSession.create(makeOptions(root, driver, new FixtureToolBridge(), fixtureContext(), {
+      retainLastMessages: 1,
+      thresholdTokens: 100_000,
+      listeners: [
+        (event) => {
+          eventKinds.push(`${event.type}:${'reason' in event ? event.reason : ''}`);
+        },
+      ],
+    }));
+
+    for (let index = 1; index <= 3; index += 1) {
+      const history = await session.startTurn({
+        defTurnId: asDefTurnId(`def-turn-p7-threshold-history-${index}`),
+        clientTurnId: asClientTurnId(`client-turn-p7-threshold-history-${index}`),
+        text: `compressible-history-${index}`,
+      });
+      assert.equal((await history.result).terminal.status, 'completed');
+    }
+
+    const threshold = await session.startTurn({
+      defTurnId: asDefTurnId('def-turn-p7-threshold'),
+      clientTurnId: asClientTurnId('client-turn-p7-threshold'),
+      text: 'threshold-trigger',
+      currentInputTokens: 100,
+      contextLimit: 128,
+      thresholdTokens: 1,
+    });
+    assert.equal((await threshold.result).terminal.status, 'completed');
+    assert.equal(driver.requests.length, 5);
+    assert.equal(driver.requests[3]!.messages.length, 0);
+    assert.match(JSON.stringify(driver.requests[4]!.messages), /threshold-trigger/u);
+
+    const thresholdStart = eventKinds.indexOf('compaction.start:threshold');
+    const thresholdEnd = eventKinds.indexOf('compaction.end:threshold');
+    const thresholdRunStart = eventKinds.findIndex(
+      (kind, index) => index > thresholdEnd && kind === 'run.start:',
+    );
+    assert.ok(thresholdStart >= 0);
+    assert.ok(thresholdEnd > thresholdStart);
+    assert.ok(thresholdRunStart > thresholdEnd);
+    assert.equal(session.entries.filter((entry) => entry.type === 'compaction' && entry.reason === 'threshold').length, 1);
+
+    const overflow = await session.startTurn({
+      defTurnId: asDefTurnId('def-turn-p7-overflow'),
+      clientTurnId: asClientTurnId('client-turn-p7-overflow'),
+      text: 'overflow-once',
+      currentInputTokens: 0,
+      contextLimit: 128,
+      thresholdTokens: 100_000,
+    });
+    const overflowResult = await overflow.result;
+    assert.equal(overflowResult.terminal.status, 'completed');
+    assert.equal(overflowResult.attempt, 2);
+    assert.equal(driver.requests.length, 8);
+    assert.equal(eventKinds.filter((kind) => kind === 'compaction.start:overflow').length, 1);
+    assert.equal(eventKinds.filter((kind) => kind === 'compaction.end:overflow').length, 1);
+    assert.equal(session.entries.filter((entry) => entry.type === 'compaction').length, 2);
+    assert.equal(
+      messageEntries(session).filter(
+        (entry) => entry.message.role === 'user' && JSON.stringify(entry.message).includes('overflow-once'),
+      ).length,
+      1,
+    );
+    assert.match(JSON.stringify(driver.requests[5]!.messages), /overflow-once/u);
+    assert.match(JSON.stringify(driver.requests[7]!.messages), /OVERFLOW_SUMMARY/u);
     await session.close();
   } finally {
     cleanup(root);
