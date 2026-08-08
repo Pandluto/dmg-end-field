@@ -47,6 +47,7 @@ import type {
   RuntimeSessionEntry,
   RuntimeSessionHeader,
 } from './entries.ts';
+import { RUNTIME_SESSION_LIMITS } from './entries.ts';
 import {
   createOrReopenSessionLog,
   createSessionLog,
@@ -54,12 +55,15 @@ import {
   SessionLog,
 } from './session-log.ts';
 import {
+  createSessionPlatformAdapter,
   readSessionFile,
   scanSessionFile,
   SessionReader,
   truncateSessionFile,
 } from './session-reader.ts';
 import {
+  createSessionValidationCursor,
+  createSessionValidationMetrics,
   SessionLogError,
   validateSessionRecords,
 } from './session-validator.ts';
@@ -198,6 +202,7 @@ interface TurnFixtureOptions {
 
 interface UserFixtureOptions extends TurnFixtureOptions {
   readonly text?: string;
+  readonly clientTurnId?: string;
 }
 
 function userEntry(
@@ -213,7 +218,7 @@ function userEntry(
     defTurnId: asDefTurnId(options.defTurnId ?? 'def-turn-1'),
     turnId: asRuntimeTurnId(options.turnId ?? 'runtime-turn-1'),
     role: 'user',
-    clientTurnId: asClientTurnId('client-turn-1'),
+    clientTurnId: asClientTurnId(options.clientTurnId ?? 'client-turn-1'),
     content: [{
       type: 'text',
       id: asRuntimeContentId(`${entryId}-content`),
@@ -417,7 +422,7 @@ test('SessionLog creates, appends, reopens, derives leaf/updated, and keeps the 
     assert.equal(reopened.leafId, asRuntimeEntryId('entry-end'));
     assert.equal(reopened.updatedAt, TIME_7);
     assert.equal(readFileSync(filePath, 'utf8').split('\n')[0], originalHeaderLine);
-    assert.equal(statSync(filePath).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') assert.equal(statSync(filePath).mode & 0o777, 0o600);
     assert.equal(reopened.interruptedRuns.length, 0);
 
     const beforeIdempotent = readFileSync(filePath, 'utf8');
@@ -563,7 +568,9 @@ test('createOrReopen validates and exactly binds the supplied durable header', (
   }
 });
 
-test('existing files with mode 0644 are rejected without chmod or tail repair', () => {
+test('existing files with mode 0644 are rejected without chmod or tail repair', {
+  skip: process.platform === 'win32',
+}, () => {
   const { root, filePath, log } = makeRootedLog();
   try {
     appendFileSync(filePath, '{"type":"message"');
@@ -729,9 +736,9 @@ test('RuntimeTurn reuse across DefTurns and a stale run-end turn are incompatibl
 test('compaction anchors must precede the entry on its selected ancestor chain', () => {
   const rootEntry = thinkingChangeEntry(null, 'entry-tree-root', TIME_2);
   const selected = thinkingChangeEntry('entry-tree-root', 'entry-selected-parent', TIME_3);
-  const branch = thinkingChangeEntry('entry-tree-root', 'entry-other-branch', TIME_4);
+  const branch = thinkingChangeEntry('entry-selected-parent', 'entry-other-branch', TIME_4);
   const validCompaction = compactionEntry(
-    'entry-selected-parent',
+    'entry-other-branch',
     'entry-tree-root',
     'entry-valid-compaction',
   );
@@ -767,6 +774,7 @@ test('an unclosed run is recovered as interrupted without appending a product mu
     log.append(startEntry());
     log.append(userEntry('entry-start'));
     log.append(assistantEntry('entry-user', 'entry-assistant-tool', true));
+    assert.equal(log.interruptedRuns.length, 1);
     const bytesBeforeReopen = readFileSync(filePath, 'utf8');
     const reopened = reopenSessionLog(filePath, { rootDir: root });
     assert.equal(reopened.interruptedRuns.length, 1);
@@ -807,7 +815,9 @@ test('secret-shaped content is rejected before bytes are appended', () => {
   }
 });
 
-test('path boundaries reject escape, symlink, and non-regular targets', () => {
+test('path boundaries reject escape, symlink, and non-regular targets', {
+  skip: process.platform === 'win32',
+}, () => {
   const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-path-'));
   try {
     assert.throws(() => createSessionLog(join(root, '..', 'escape.jsonl'), header(), { rootDir: root }), /escapes/u);
@@ -904,7 +914,9 @@ test('macOS system path aliases are canonicalized below the trusted root', { ski
   }
 });
 
-test('a symlinked parent beneath rootDir cannot escape the trusted tree', () => {
+test('a symlinked parent beneath rootDir cannot escape the trusted tree', {
+  skip: process.platform === 'win32',
+}, () => {
   const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-parent-link-'));
   const outside = mkdtempSync(join(tmpdir(), 'def-runtime-session-parent-outside-'));
   const linkedParent = join(root, 'linked-parent');
@@ -926,7 +938,9 @@ test('a symlinked parent beneath rootDir cannot escape the trusted tree', () => 
   }
 });
 
-test('group- or world-writable trusted directories are rejected', () => {
+test('group- or world-writable trusted directories are rejected', {
+  skip: process.platform === 'win32',
+}, () => {
   const unsafeRoot = mkdtempSync(join(tmpdir(), 'def-runtime-session-unsafe-root-'));
   const safeRoot = mkdtempSync(join(tmpdir(), 'def-runtime-session-unsafe-parent-'));
   const unsafeParent = join(safeRoot, 'unsafe-parent');
@@ -974,7 +988,11 @@ test('create detects a parent replacement injected after its pre-open check', ()
       ),
       'SESSION_STALE',
     );
-    assert.equal(statSync(target).size, 0);
+    assert.throws(() => statSync(target), (error: unknown) => (
+      error instanceof Error
+      && 'code' in error
+      && (error as NodeJS.ErrnoException).code === 'ENOENT'
+    ));
     assert.throws(() => statSync(join(displacedParent, 'session.jsonl')));
   } finally {
     cleanup(root);
@@ -1641,5 +1659,158 @@ test('global JSON field budget spans every nested container in one record', () =
     assert.deepEqual(readFileSync(filePath), durable);
   } finally {
     cleanup(root);
+  }
+});
+
+test('platform adapter keeps Windows functional without applying POSIX uid/mode semantics', () => {
+  const windows = createSessionPlatformAdapter('win32', null);
+  assert.equal(windows.directoryIssue({ uid: 0, mode: 0o777 }), null);
+  assert.equal(windows.privateFileIssue({ uid: 0, mode: 0o666 }), null);
+
+  const posix = createSessionPlatformAdapter('darwin', 501);
+  assert.equal(posix.directoryIssue({ uid: 501, mode: 0o755 }), null);
+  assert.equal(posix.directoryIssue({ uid: 501, mode: 0o775 }), 'writable-directory');
+  assert.equal(posix.privateFileIssue({ uid: 501, mode: 0o600 }), null);
+  assert.equal(posix.privateFileIssue({ uid: 501, mode: 0o644 }), 'private-mode');
+  assert.equal(posix.privateFileIssue({ uid: 502, mode: 0o600 }), 'owner');
+});
+
+test('the first Session format rejects every non-leaf parent, including Tool results', () => {
+  const records = [
+    header(),
+    startEntry(),
+    userEntry('entry-start'),
+    assistantEntry('entry-user', 'entry-linear-call', true),
+    thinkingChangeEntry('entry-user', 'entry-other-branch', TIME_5),
+    toolResultEntry('entry-other-branch', 'entry-result-from-branch', TIME_6),
+  ];
+  assertIncompatible(() => validateSessionRecords(records));
+});
+
+test('Tool messages are FIFO, pending calls block assistants, and clientTurnId is unique', () => {
+  const callOne = assistantEntry('entry-start', 'entry-call-one', true, TIME_3, {}, {
+    toolCallId: 'tool-call-1',
+    toolName: 'tool_one',
+  });
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    callOne,
+    assistantEntry('entry-call-one', 'entry-assistant-before-result', false, TIME_4),
+  ]));
+
+  const resultOne = toolResultEntry('entry-call-one', 'entry-result-one', TIME_4, {
+    toolCallId: 'tool-call-1',
+    toolName: 'tool_one',
+  });
+  const callTwo = assistantEntry('entry-result-one', 'entry-call-two', true, TIME_5, {}, {
+    toolCallId: 'tool-call-2',
+    toolName: 'tool_two',
+  });
+  const resultTwo = toolResultEntry('entry-call-two', 'entry-result-two', TIME_6, {
+    toolCallId: 'tool-call-2',
+    toolName: 'tool_two',
+  });
+  const valid = validateSessionRecords([
+    header(),
+    startEntry(),
+    callOne,
+    resultOne,
+    callTwo,
+    resultTwo,
+    endEntry('entry-result-two'),
+  ]);
+  assert.equal(valid.leafId, asRuntimeEntryId('entry-end'));
+
+  const multiCall = assistantEntry('entry-start', 'entry-multi-call', true, TIME_3, {}, {
+    toolCallId: 'tool-call-1',
+    toolName: 'tool_one',
+  });
+  if (multiCall.type !== 'message' || multiCall.message.role !== 'assistant') assert.fail('expected assistant');
+  const firstCall = multiCall.message.content.find((block) => block.type === 'tool-call');
+  if (!firstCall || firstCall.type !== 'tool-call') assert.fail('expected Tool call');
+  const twoCallAssistant: RuntimeSessionEntry = {
+    ...multiCall,
+    message: {
+      ...multiCall.message,
+      content: [
+        ...multiCall.message.content,
+        {
+          ...firstCall,
+          id: asRuntimeContentId('entry-multi-call-tool-two'),
+          toolCallId: asToolCallId('tool-call-2'),
+          name: 'tool_two',
+        },
+      ],
+    },
+  };
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    twoCallAssistant,
+    toolResultEntry('entry-multi-call', 'entry-result-two-first', TIME_4, {
+      toolCallId: 'tool-call-2',
+      toolName: 'tool_two',
+    }),
+  ]));
+
+  assertIncompatible(() => validateSessionRecords([
+    header(),
+    startEntry(),
+    userEntry('entry-start', 'entry-client-one', TIME_3, { clientTurnId: 'client-duplicate' }),
+    userEntry('entry-client-one', 'entry-client-two', TIME_4, { clientTurnId: 'client-duplicate' }),
+  ]));
+});
+
+test('complete JSONL line limits are checked before create or append writes', () => {
+  const root = mkdtempSync(join(tmpdir(), 'def-runtime-session-line-limit-'));
+  const oversizedHeaderPath = join(root, 'oversized-header.jsonl');
+  try {
+    assertIncompatible(() => createSessionLog(
+      oversizedHeaderPath,
+      { ...header(), runtimeVersion: 'x'.repeat(RUNTIME_SESSION_LIMITS.maxLineCodeUnits) },
+      { rootDir: root },
+    ));
+    assert.throws(() => statSync(oversizedHeaderPath), (error: unknown) => (
+      error instanceof Error
+      && 'code' in error
+      && (error as NodeJS.ErrnoException).code === 'ENOENT'
+    ));
+
+    const filePath = join(root, 'oversized-terminal.jsonl');
+    const log = createSessionLog(filePath, header(), { rootDir: root });
+    log.append(startEntry());
+    const before = readFileSync(filePath);
+    const terminalBase = endEntry('entry-start');
+    if (terminalBase.phase !== 'end') assert.fail('expected end marker');
+    const terminal: RuntimeSessionEntry = {
+      ...terminalBase,
+      terminal: {
+        status: 'failed',
+        code: 'line-limit',
+        message: 'x'.repeat(RUNTIME_SESSION_LIMITS.maxLineCodeUnits),
+      },
+    };
+    assertIncompatible(() => log.append(terminal));
+    assert.deepEqual(readFileSync(filePath), before);
+  } finally {
+    cleanup(root);
+  }
+});
+
+test('incremental append validation work scales with new entries rather than durable prefix size', () => {
+  for (const entryCount of [1_000, 2_000, 4_000, 8_000]) {
+    const metrics = createSessionValidationMetrics();
+    const cursor = createSessionValidationCursor([header()], metrics);
+    for (let index = 0; index < entryCount; index += 1) {
+      cursor.prepare(thinkingChangeEntry(
+        index === 0 ? null : `entry-incremental-${index - 1}`,
+        `entry-incremental-${index}`,
+      )).commit();
+    }
+    assert.equal(metrics.relationEntries, entryCount);
+    assert.equal(metrics.committedEntries, entryCount);
+    assert.ok(metrics.parsedRecords <= (entryCount * 2) + 1);
+    assert.equal(metrics.projectedEntries, 0);
   }
 });

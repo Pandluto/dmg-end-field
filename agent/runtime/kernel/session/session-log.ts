@@ -15,6 +15,7 @@ import {
   fsyncSync,
   lstatSync,
   openSync,
+  unlinkSync,
   writeSync,
 } from 'node:fs';
 import { randomUUID } from 'node:crypto';
@@ -36,6 +37,8 @@ import {
   readSessionFile,
   resolveSessionPath,
   SESSION_FILE_BYTE_LIMIT,
+  SESSION_LINE_BYTE_LIMIT,
+  SESSION_VALIDATION_CURSOR,
   type SessionPathOptions,
   type SessionFileSnapshot,
   type SessionParentSnapshot,
@@ -44,9 +47,11 @@ import {
 import {
   SessionLogError,
   type InterruptedRuntimeRun,
+  type SessionValidationCursor,
   validateRuntimeSessionEntry,
   validateSessionRecords,
 } from './session-validator.ts';
+import { RUNTIME_SESSION_LIMITS } from './entries.ts';
 
 const NO_FOLLOW = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0;
 
@@ -88,6 +93,23 @@ function writeAll(descriptor: number, bytes: Buffer): void {
   }
 }
 
+function encodeRecordLine(record: RuntimeSessionRecord): Buffer {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(record);
+  } catch {
+    throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session record could not be serialized.');
+  }
+  const payload = Buffer.from(serialized, 'utf8');
+  if (
+    serialized.length > RUNTIME_SESSION_LIMITS.maxLineCodeUnits
+    || payload.length > SESSION_LINE_BYTE_LIMIT
+  ) {
+    throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session record exceeds the JSONL line limit.');
+  }
+  return Buffer.concat([payload, Buffer.from([0x0a])]);
+}
+
 function existingPathKind(filePath: string): 'missing' | 'file' | 'other' {
   try {
     const stats = lstatSync(filePath);
@@ -117,12 +139,12 @@ function sameFileBinding(left: SessionFileSnapshot, right: SessionFileSnapshot):
 
 function openNewSessionFile(
   filePath: string,
-  header: RuntimeSessionHeader,
+  headerBytes: Buffer,
   options: SessionLogOptions,
   expectedParent: SessionParentSnapshot,
 ): void {
-  const headerBytes = Buffer.from(`${JSON.stringify(header)}\n`, 'utf8');
   let descriptor: number | null = null;
+  let createdByCall = false;
   try {
     assertSessionParentSnapshot(filePath, expectedParent, options);
     descriptor = openSync(
@@ -130,9 +152,10 @@ function openNewSessionFile(
       fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | NO_FOLLOW,
       0o600,
     );
+    createdByCall = true;
     // O_EXCL proves this descriptor names the file created by this call; setting
     // its mode cannot conceal prior exposure of an existing session file.
-    fchmodSync(descriptor, 0o600);
+    if (process.platform !== 'win32') fchmodSync(descriptor, 0o600);
     // Node does not expose a portable openat-style parent-dir capability. We
     // therefore bind every parent before open and verify it again through the
     // final path immediately after open and after fsync; any observed swap is
@@ -157,6 +180,18 @@ function openNewSessionFile(
       throw new SessionLogError('SESSION_IO_ERROR', 'Session header was not durably bound to its new file.');
     }
   } catch (error) {
+    if (descriptor !== null) {
+      closeSync(descriptor);
+      descriptor = null;
+    }
+    if (createdByCall) {
+      try {
+        unlinkSync(filePath);
+      } catch {
+        // The create error remains authoritative; a later reopen will reject
+        // any non-complete target left by an underlying filesystem failure.
+      }
+    }
     if (error instanceof SessionLogError) throw error;
     if (error instanceof Error && 'code' in error && (error as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new SessionLogError('SESSION_EXISTS', 'Session file already exists.');
@@ -179,23 +214,26 @@ export class SessionLog {
   readonly #filePath: string;
   readonly #options: SessionLogOptions;
   readonly #entryById: Map<RuntimeEntryId, RuntimeSessionEntry>;
+  readonly #validator: SessionValidationCursor;
   #state: SessionReadResult;
 
   private constructor(filePath: string, options: SessionLogOptions, state: SessionReadResult) {
     this.#filePath = filePath;
     this.#options = { ...options };
     this.#state = state;
+    this.#validator = state[SESSION_VALIDATION_CURSOR];
     this.#entryById = new Map(state.entries.map((entry) => [entry.id, entry]));
   }
 
   static create(filePath: string, header: RuntimeSessionHeader, options: SessionLogOptions): SessionLog {
     const target = resolveSessionPath(filePath, options);
-    const parentSnapshot = ensureSessionParent(target, options);
     const headerState = validateSessionRecords([header]);
+    const headerBytes = encodeRecordLine(headerState.header);
+    const parentSnapshot = ensureSessionParent(target, options);
     const kind = existingPathKind(target);
     if (kind === 'other') throw new SessionLogError('SESSION_PATH_INVALID', 'Session path is not a regular file.');
     if (kind === 'file') throw new SessionLogError('SESSION_EXISTS', 'Session file already exists.');
-    openNewSessionFile(target, headerState.header, options, parentSnapshot);
+    openNewSessionFile(target, headerBytes, options, parentSnapshot);
     return new SessionLog(target, options, readState(target, options));
   }
 
@@ -257,11 +295,11 @@ export class SessionLog {
   }
 
   get interruptedRuns(): readonly InterruptedRuntimeRun[] {
-    return clone(this.#state.interruptedRuns);
+    return clone(this.#validator.lifecycleSnapshot().interruptedRuns);
   }
 
   get state(): SessionReadResult {
-    return clone(this.#state);
+    return clone({ ...this.#state, ...this.#validator.snapshot() });
   }
 
   getEntries(): readonly RuntimeSessionEntry[] {
@@ -310,6 +348,7 @@ export class SessionLog {
     }
 
     const incoming = clone(validateRuntimeSessionEntry(entry, this.#state.records.length));
+    const line = encodeRecordLine(incoming);
     const existing = this.#entryById.get(incoming.id);
     if (existing) {
       if (canonical(existing) !== canonical(incoming)) {
@@ -324,18 +363,25 @@ export class SessionLog {
       };
     }
 
-    // One linear in-memory whole-graph validation preserves all lifecycle and
-    // ancestry invariants. Append performs no redundant disk rescan; reopen is
-    // the single streaming recovery/validation path after external changes.
-    const candidateRecords = [...this.#state.records, incoming];
-    const candidateState = validateSessionRecords(candidateRecords);
+    // Reopen built this cursor in one linear pass; append validates only the
+    // new record and commits its indexes after the bytes are durable.
+    const prepared = this.#validator.prepare(incoming, this.#state.records.length);
     const durable = this.#appendPhysicalLine(
       this.#state.endsWithNewline,
-      incoming,
+      line,
       this.#state.fileSnapshot,
     );
+    prepared.commit();
+    const entries = this.#state.entries as RuntimeSessionEntry[];
+    const records = this.#state.records as RuntimeSessionRecord[];
+    entries.push(prepared.entry);
+    records.push(prepared.entry);
     this.#state = {
-      ...candidateState,
+      ...this.#state,
+      entries,
+      records,
+      updatedAt: prepared.entry.createdAt,
+      leafId: prepared.entry.id,
       filePath: this.#filePath,
       fileByteLength: durable.byteLength,
       validByteLength: durable.byteLength,
@@ -343,10 +389,11 @@ export class SessionLog {
       repairedTail: false,
       endsWithNewline: true,
       fileSnapshot: durable,
+      [SESSION_VALIDATION_CURSOR]: this.#validator,
     };
-    this.#entryById.set(incoming.id, incoming);
+    this.#entryById.set(prepared.entry.id, prepared.entry);
     return {
-      entry: clone(incoming),
+      entry: clone(prepared.entry),
       appended: true,
       idempotent: false,
       leafId: this.#state.leafId!,
@@ -356,10 +403,10 @@ export class SessionLog {
 
   #appendPhysicalLine(
     endsWithNewline: boolean,
-    entry: RuntimeSessionEntry,
+    line: Buffer,
     expected: SessionFileSnapshot,
   ): SessionFileSnapshot {
-    const bytes = Buffer.from(`${endsWithNewline ? '' : '\n'}${JSON.stringify(entry)}\n`, 'utf8');
+    const bytes = endsWithNewline ? line : Buffer.concat([Buffer.from([0x0a]), line]);
     if (expected.byteLength + bytes.length > SESSION_FILE_BYTE_LIMIT) {
       throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session file would exceed its operational byte limit.');
     }
@@ -401,7 +448,9 @@ export class SessionLog {
     readonly code?: string;
     readonly message?: string;
   } = {}): RuntimeEntryId | null {
-    const run = this.#state.interruptedRuns.find((candidate) => candidate.endEntryId === null);
+    const run = this.#validator.lifecycleSnapshot().interruptedRuns.find(
+      (candidate) => candidate.endEntryId === null,
+    );
     if (!run) return null;
     const entry: RuntimeRunMarkerEntry = {
       schemaVersion: 1,

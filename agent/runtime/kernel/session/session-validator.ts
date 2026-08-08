@@ -2,12 +2,12 @@
  * Runtime Session JSON validator.
  *
  * The validator is deliberately independent from the file reader. It accepts
- * only the frozen F0 entry union, checks the append-only tree and lifecycle
+ * only the frozen F0 entry union, checks the append-only chain and lifecycle
  * invariants, and never performs a product-side replay or mutation.
  * Behavioral provenance: Pi packages/coding-agent/src/core/session-manager.ts
  * and packages/coding-agent/src/core/messages.ts at pinned commit
  * e47b8e37a6211ebd0b2942fa87059d64f81eec02. DEF replaces Pi-specific records
- * with its frozen contracts and adds linear parent-graph, run lifecycle,
+ * with its frozen contracts and adds a linear parent chain, run lifecycle,
  * RuntimeTurn/DefTurn, Tool pairing, and compaction-boundary validation.
  */
 import type {
@@ -842,7 +842,7 @@ function parseTerminal(value: unknown, label: string, recordIndex?: number): Run
 }
 
 /** Parse one untrusted JSON value into the frozen Runtime Session union. */
-export function parseRuntimeSessionRecord(value: unknown, recordIndex = 0): RuntimeSessionRecord {
+function parseRuntimeSessionRecordUnsafe(value: unknown, recordIndex = 0): RuntimeSessionRecord {
   const record = expectRecord(value, `record[${recordIndex}]`, recordIndex);
   if (record.type === 'session') return parseHeader(record, `record[${recordIndex}]`, recordIndex);
   return parseEntry(
@@ -853,10 +853,14 @@ export function parseRuntimeSessionRecord(value: unknown, recordIndex = 0): Runt
   );
 }
 
+export function parseRuntimeSessionRecord(value: unknown, recordIndex = 0): RuntimeSessionRecord {
+  return parseRuntimeSessionRecordUnsafe(value, recordIndex);
+}
+
 export const parseSessionRecord = parseRuntimeSessionRecord;
 
 export function validateRuntimeSessionHeader(value: unknown): RuntimeSessionHeader {
-  const record = parseRuntimeSessionRecord(value);
+  const record = parseRuntimeSessionRecordUnsafe(value);
   if (record.type !== 'session') invalid('session header', 'expected a session header');
   return record;
 }
@@ -875,11 +879,28 @@ interface MutableRunState {
 }
 
 interface ToolCallReference {
+  readonly toolCallId: ToolCallId;
   readonly runId: RuntimeRunId;
   readonly defTurnId: DefTurnId;
   readonly turnId: RuntimeTurnId;
   readonly name: string;
   readonly entryIndex: number;
+}
+
+interface CompletedToolPair {
+  readonly callIndex: number;
+  readonly resultIndex: number;
+}
+
+export interface SessionValidationMetrics {
+  parsedRecords: number;
+  relationEntries: number;
+  committedEntries: number;
+  projectedEntries: number;
+}
+
+export function createSessionValidationMetrics(): SessionValidationMetrics {
+  return { parsedRecords: 0, relationEntries: 0, committedEntries: 0, projectedEntries: 0 };
 }
 
 function immutableRunState(run: MutableRunState): RuntimeRunState {
@@ -906,169 +927,182 @@ function immutableInterruptedRun(run: MutableRunState): InterruptedRuntimeRun {
   };
 }
 
-function validateRelations(
-  header: RuntimeSessionHeader,
-  entries: readonly RuntimeSessionEntry[],
-  records: readonly RuntimeSessionRecord[],
-): ValidatedSession {
-  const entryIndex = new Map<RuntimeEntryId, number>();
+function preflightParentGraph(entries: readonly RuntimeSessionEntry[]): void {
+  const indices = new Map<RuntimeEntryId, number>();
   for (const [index, entry] of entries.entries()) {
-    if (entryIndex.has(entry.id)) invalid(`record[${index + 1}].id`, 'duplicate entry id', index + 1);
-    entryIndex.set(entry.id, index);
+    if (indices.has(entry.id)) invalid(`record[${index + 1}].id`, 'duplicate entry id', index + 1);
+    indices.set(entry.id, index);
   }
-
-  const parentIndices = new Int32Array(entries.length);
-  parentIndices.fill(-1);
-  const children = Array.from({ length: entries.length }, () => [] as number[]);
+  const parents = new Int32Array(entries.length);
+  parents.fill(-1);
   for (const [index, entry] of entries.entries()) {
     if (entry.parentId === null) continue;
-    const parentIndex = entryIndex.get(entry.parentId);
-    if (parentIndex === undefined) invalid(`record[${index + 1}].parentId`, 'unknown parent', index + 1);
-    if (entry.parentId === entry.id) invalid(`record[${index + 1}].parentId`, 'parent cycle', index + 1);
-    parentIndices[index] = parentIndex;
-    children[parentIndex]!.push(index);
+    const parent = indices.get(entry.parentId);
+    if (parent === undefined) invalid(`record[${index + 1}].parentId`, 'unknown parent', index + 1);
+    parents[index] = parent;
   }
-
-  // The parent relation is a functional graph. Tri-color traversal detects all
-  // cycles in O(n), including imported logs whose parents appear out of order.
-  const visitState = new Uint8Array(entries.length);
+  const state = new Uint8Array(entries.length);
   for (let start = 0; start < entries.length; start += 1) {
-    if (visitState[start] !== 0) continue;
+    if (state[start] !== 0) continue;
     const path: number[] = [];
     let current = start;
-    while (current >= 0 && visitState[current] === 0) {
-      visitState[current] = 1;
+    while (current >= 0 && state[current] === 0) {
+      state[current] = 1;
       path.push(current);
-      current = parentIndices[current]!;
+      current = parents[current]!;
     }
-    if (current >= 0 && visitState[current] === 1) {
+    if (current >= 0 && state[current] === 1) {
       invalid(`record[${start + 1}].parentId`, 'parent cycle', start + 1);
     }
-    for (const node of path) visitState[node] = 2;
+    for (const index of path) state[index] = 2;
+  }
+}
+
+export interface PreparedSessionEntry {
+  readonly entry: RuntimeSessionEntry;
+  commit(): void;
+}
+
+/**
+ * Mutable append cursor used after one O(n) reopen validation. Every prepare /
+ * commit touches only the incoming entry plus bounded indexes; it never copies
+ * or revalidates the durable prefix.
+ */
+export class SessionValidationCursor {
+  readonly #header: RuntimeSessionHeader;
+  readonly #entries: RuntimeSessionEntry[] = [];
+  readonly #records: RuntimeSessionRecord[];
+  readonly #entryIndex = new Map<RuntimeEntryId, number>();
+  readonly #messageIds = new Set<string>();
+  readonly #clientTurnIds = new Set<ClientTurnId>();
+  readonly #contentIds = new Set<RuntimeContentId>();
+  readonly #toolCallIds = new Set<ToolCallId>();
+  readonly #pendingToolCalls: ToolCallReference[] = [];
+  readonly #unresolvedToolCalls = new Set<ToolCallId>();
+  readonly #completedToolPairs: CompletedToolPair[] = [];
+  readonly #runIds = new Set<RuntimeRunId>();
+  readonly #runtimeToDef = new Map<RuntimeTurnId, DefTurnId>();
+  readonly #runs: MutableRunState[] = [];
+  readonly #interruptedRuns: InterruptedRuntimeRun[] = [];
+  readonly #metrics: SessionValidationMetrics;
+  #activeRun: MutableRunState | null = null;
+
+  constructor(header: RuntimeSessionHeader, metrics = createSessionValidationMetrics()) {
+    this.#header = header;
+    this.#records = [header];
+    this.#metrics = metrics;
   }
 
-  for (const [index] of entries.entries()) {
-    const parentIndex = parentIndices[index]!;
-    if (parentIndex < 0) continue;
-    if (parentIndex >= index) invalid(`record[${index + 1}].parentId`, 'parent must precede child', index + 1);
+  get header(): RuntimeSessionHeader {
+    return this.#header;
   }
-  if (entries.length > 0 && parentIndices[0] !== -1) {
-    invalid('record[1].parentId', 'the first entry must be the root', 1);
+
+  get entries(): readonly RuntimeSessionEntry[] {
+    return this.#entries;
   }
-  for (let index = 1; index < entries.length; index += 1) {
-    if (parentIndices[index] === -1) {
-      invalid(`record[${index + 1}].parentId`, 'multiple roots are not allowed', index + 1);
+
+  get records(): readonly RuntimeSessionRecord[] {
+    return this.#records;
+  }
+
+  get leafId(): RuntimeEntryId | null {
+    return this.#entries.at(-1)?.id ?? null;
+  }
+
+  get updatedAt(): string {
+    return this.#entries.at(-1)?.createdAt ?? this.#header.createdAt;
+  }
+
+  get metrics(): SessionValidationMetrics {
+    return this.#metrics;
+  }
+
+  prepare(value: unknown, recordIndex = this.#records.length): PreparedSessionEntry {
+    const parsed = parseRuntimeSessionRecordUnsafe(value, recordIndex);
+    this.#metrics.parsedRecords += 1;
+    if (parsed.type === 'session') {
+      invalid(`record[${recordIndex}]`, 'a session header cannot be appended', recordIndex);
     }
+    return this.#prepareParsed(parsed, recordIndex);
   }
 
-  // Euler intervals make every compaction ancestor query O(1) after one
-  // iterative O(n) tree walk, avoiding a deep parent-chain walk per entry.
-  const enteredAt = new Int32Array(entries.length);
-  const exitedAt = new Int32Array(entries.length);
-  enteredAt.fill(-1);
-  exitedAt.fill(-1);
-  let traversalClock = 0;
-  if (entries.length > 0) {
-    const stack: Array<readonly [number, boolean]> = [[0, false]];
-    while (stack.length > 0) {
-      const [node, exiting] = stack.pop()!;
-      if (exiting) {
-        exitedAt[node] = traversalClock;
-        traversalClock += 1;
-        continue;
+  #prepareParsed(entry: RuntimeSessionEntry, recordIndex: number): PreparedSessionEntry {
+    this.#metrics.relationEntries += 1;
+    const zeroBasedIndex = this.#entries.length;
+    if (this.#entryIndex.has(entry.id)) invalid(`record[${recordIndex}].id`, 'duplicate entry id', recordIndex);
+    const expectedParent = this.#entries.at(-1)?.id ?? null;
+    if (entry.parentId !== expectedParent) {
+      if (entry.parentId === entry.id) invalid(`record[${recordIndex}].parentId`, 'parent cycle', recordIndex);
+      if (entry.parentId !== null && !this.#entryIndex.has(entry.parentId)) {
+        invalid(`record[${recordIndex}].parentId`, 'unknown parent', recordIndex);
       }
-      enteredAt[node] = traversalClock;
-      traversalClock += 1;
-      stack.push([node, true]);
-      const nodeChildren = children[node]!;
-      for (let child = nodeChildren.length - 1; child >= 0; child -= 1) {
-        stack.push([nodeChildren[child]!, false]);
+      invalid(`record[${recordIndex}].parentId`, 'parent must equal the current leaf', recordIndex);
+    }
+
+    const updates: Array<() => void> = [];
+    const associateRuntimeTurn = (defTurnId: DefTurnId, turnId: RuntimeTurnId): void => {
+      const previous = this.#runtimeToDef.get(turnId);
+      if (previous !== undefined && previous !== defTurnId) {
+        invalid(`record[${recordIndex}].turnId`, 'RuntimeTurnId maps to multiple DefTurnIds', recordIndex);
       }
-    }
-  }
-  const isAncestor = (ancestor: number, descendant: number): boolean => (
-    enteredAt[ancestor]! <= enteredAt[descendant]!
-    && exitedAt[descendant]! <= exitedAt[ancestor]!
-  );
+      if (previous === undefined) updates.push(() => this.#runtimeToDef.set(turnId, defTurnId));
+    };
 
-  const compactionAnchors: Array<{ readonly entryIndex: number; readonly anchorIndex: number }> = [];
-  for (const [index, entry] of entries.entries()) {
-    if (entry.type !== 'compaction') continue;
-    const anchorIndex = entryIndex.get(entry.firstKeptEntryId);
-    if (anchorIndex === undefined) {
-      invalid(`record[${index + 1}].firstKeptEntryId`, 'unknown entry', index + 1);
-    }
-    if (anchorIndex >= index) {
-      invalid(`record[${index + 1}].firstKeptEntryId`, 'anchor must precede compaction', index + 1);
-    }
-
-    // Pi's session-manager at pinned commit
-    // e47b8e37a6211ebd0b2942fa87059d64f81eec02 rebuilds compacted context by
-    // walking the selected leaf path. DEF therefore requires firstKeptEntryId
-    // to be on the exact lineage selected by this compaction's parentId.
-    const parentIndex = parentIndices[index]!;
-    if (parentIndex < 0 || !isAncestor(anchorIndex, parentIndex)) {
-      invalid(`record[${index + 1}].firstKeptEntryId`, 'anchor is not on the selected ancestor chain', index + 1);
-    }
-    compactionAnchors.push({ entryIndex: index, anchorIndex });
-  }
-
-  const messageIds = new Set<string>();
-  const contentIds = new Set<RuntimeContentId>();
-  const toolCallIds = new Set<ToolCallId>();
-  const openToolCalls = new Map<ToolCallId, ToolCallReference>();
-  const unresolvedToolCalls = new Set<ToolCallId>();
-  const completedToolPairs: Array<readonly [number, number]> = [];
-  const runIds = new Set<RuntimeRunId>();
-  const runtimeToDef = new Map<RuntimeTurnId, DefTurnId>();
-  const runs: MutableRunState[] = [];
-  const interruptedRuns: InterruptedRuntimeRun[] = [];
-  let activeRun: MutableRunState | null = null;
-
-  // DEF adapts Pi's session lifecycle at pinned commit
-  // e47b8e37a6211ebd0b2942fa87059d64f81eec02 so one product DefTurn/run may
-  // contain multiple model RuntimeTurns (for example, another model call after
-  // a tool result). Only the reverse mapping must remain globally unique.
-  const associateRuntimeTurn = (defTurnId: DefTurnId, turnId: RuntimeTurnId, index: number): void => {
-    const previousDefTurn = runtimeToDef.get(turnId);
-    if (previousDefTurn !== undefined && previousDefTurn !== defTurnId) {
-      invalid(`record[${index}].turnId`, 'RuntimeTurnId maps to multiple DefTurnIds', index);
-    }
-    runtimeToDef.set(turnId, defTurnId);
-  };
-
-  const assertActiveMessage = (message: RuntimeTurnMessage, index: number): void => {
-    if (!activeRun) invalid(`record[${index}].message`, 'message is outside a run', index);
-    if (message.defTurnId !== activeRun.defTurnId) {
-      invalid(`record[${index}].message`, 'message DefTurnId does not match the active run', index);
-    }
-    if (message.turnId !== activeRun.turnId) {
-      if (activeRun.seenTurnIds.has(message.turnId)) {
-        invalid(`record[${index}].message.turnId`, 'a prior RuntimeTurn cannot resume', index);
+    let nextTurn: RuntimeTurnId | null = null;
+    const assertActiveMessage = (message: RuntimeTurnMessage): MutableRunState => {
+      const run = this.#activeRun;
+      if (!run) invalid(`record[${recordIndex}].message`, 'message is outside a run', recordIndex);
+      if (message.defTurnId !== run.defTurnId) {
+        invalid(`record[${recordIndex}].message`, 'message DefTurnId does not match the active run', recordIndex);
       }
-      associateRuntimeTurn(message.defTurnId, message.turnId, index);
-      activeRun.seenTurnIds.add(message.turnId);
-      activeRun.turnId = message.turnId;
-      return;
-    }
-    associateRuntimeTurn(message.defTurnId, message.turnId, index);
-  };
+      associateRuntimeTurn(message.defTurnId, message.turnId);
+      if (message.turnId !== run.turnId) {
+        if (run.seenTurnIds.has(message.turnId)) {
+          invalid(`record[${recordIndex}].message.turnId`, 'a prior RuntimeTurn cannot resume', recordIndex);
+        }
+        nextTurn = message.turnId;
+        updates.push(() => {
+          run.seenTurnIds.add(message.turnId);
+          run.turnId = message.turnId;
+        });
+      }
+      return run;
+    };
 
-  for (const [zeroBasedIndex, entry] of entries.entries()) {
-    const index = zeroBasedIndex + 1;
     if (entry.type === 'compaction') {
-      if (openToolCalls.size > 0 || unresolvedToolCalls.size > 0) {
-        invalid(`record[${index}]`, 'compaction cannot cross an unresolved Tool call', index);
+      if (this.#pendingToolCalls.length > 0 || this.#unresolvedToolCalls.size > 0) {
+        invalid(`record[${recordIndex}]`, 'compaction cannot cross an unresolved Tool call', recordIndex);
       }
-      continue;
-    }
-    if (entry.type === 'run-marker') {
+      const anchorIndex = this.#entryIndex.get(entry.firstKeptEntryId);
+      if (anchorIndex === undefined) {
+        invalid(`record[${recordIndex}].firstKeptEntryId`, 'unknown entry', recordIndex);
+      }
+      if (anchorIndex >= zeroBasedIndex) {
+        invalid(`record[${recordIndex}].firstKeptEntryId`, 'anchor must precede compaction', recordIndex);
+      }
+      // The first format is deliberately linear. Consequently every earlier
+      // entry is on the selected parent lineage, but an anchor still may not
+      // split a completed Tool call/result interval.
+      let low = 0;
+      let high = this.#completedToolPairs.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (this.#completedToolPairs[middle]!.callIndex < anchorIndex) low = middle + 1;
+        else high = middle;
+      }
+      const pair = this.#completedToolPairs[low - 1];
+      if (pair && pair.callIndex < anchorIndex && pair.resultIndex >= anchorIndex) {
+        invalid(`record[${recordIndex}].firstKeptEntryId`, 'anchor cuts a Tool call/result pair', recordIndex);
+      }
+    } else if (entry.type === 'run-marker') {
       if (entry.phase === 'start') {
-        if (activeRun) invalid(`record[${index}].runId`, 'runs cannot overlap', index);
-        if (runIds.has(entry.runId)) invalid(`record[${index}].runId`, 'duplicate run id', index);
-        associateRuntimeTurn(entry.defTurnId, entry.turnId, index);
-        runIds.add(entry.runId);
-        activeRun = {
+        if (this.#pendingToolCalls.length > 0) {
+          invalid(`record[${recordIndex}]`, 'a Tool result is required before another entry', recordIndex);
+        }
+        if (this.#activeRun) invalid(`record[${recordIndex}].runId`, 'runs cannot overlap', recordIndex);
+        if (this.#runIds.has(entry.runId)) invalid(`record[${recordIndex}].runId`, 'duplicate run id', recordIndex);
+        associateRuntimeTurn(entry.defTurnId, entry.turnId);
+        const run: MutableRunState = {
           runId: entry.runId,
           defTurnId: entry.defTurnId,
           turnId: entry.turnId,
@@ -1078,127 +1112,156 @@ function validateRelations(
           unresolvedToolCallIds: [],
           seenTurnIds: new Set([entry.turnId]),
         };
-        runs.push(activeRun);
-        continue;
-      }
-
-      if (!activeRun) invalid(`record[${index}].runId`, 'run end has no active start', index);
-      if (
-        entry.runId !== activeRun.runId
-        || entry.defTurnId !== activeRun.defTurnId
-        || entry.turnId !== activeRun.turnId
-      ) {
-        invalid(`record[${index}].runId`, 'run end does not match the active run and its last observed turn', index);
-      }
-      const openCalls = [...openToolCalls.entries()];
-      const terminalStatus = entry.terminal.status;
-      if (openCalls.length > 0 && terminalStatus !== 'aborted' && terminalStatus !== 'interrupted') {
-        invalid(`record[${index}].terminal`, 'run ended with an unmatched tool call', index);
-      }
-      activeRun.endEntryId = entry.id;
-      activeRun.status = terminalStatus;
-      activeRun.unresolvedToolCallIds = openCalls.map(([toolCallId]) => toolCallId);
-      if (terminalStatus === 'interrupted') interruptedRuns.push(immutableInterruptedRun(activeRun));
-      for (const [toolCallId] of openCalls) unresolvedToolCalls.add(toolCallId);
-      openToolCalls.clear();
-      activeRun = null;
-      continue;
-    }
-
-    if (entry.type !== 'message') continue;
-    const message = entry.message;
-    if (messageIds.has(message.id)) invalid(`record[${index}].message.id`, 'duplicate message id', index);
-    messageIds.add(message.id);
-    assertActiveMessage(message, index);
-
-    if (message.role === 'assistant') {
-      for (const block of message.content) {
-        if (contentIds.has(block.id)) invalid(`record[${index}].message`, 'duplicate content id', index);
-        contentIds.add(block.id);
-        if (block.type !== 'tool-call') continue;
-        if (toolCallIds.has(block.toolCallId)) invalid(`record[${index}].message`, 'duplicate tool call id', index);
-        toolCallIds.add(block.toolCallId);
-        openToolCalls.set(block.toolCallId, {
-          runId: activeRun!.runId,
-          defTurnId: activeRun!.defTurnId,
-          // Pair to the model turn that emitted the call, not the run's start turn.
-          turnId: message.turnId,
-          name: block.name,
-          entryIndex: zeroBasedIndex,
+        updates.push(() => {
+          this.#runIds.add(entry.runId);
+          this.#runs.push(run);
+          this.#activeRun = run;
+        });
+      } else {
+        const run = this.#activeRun;
+        if (!run) invalid(`record[${recordIndex}].runId`, 'run end has no active start', recordIndex);
+        if (entry.runId !== run.runId || entry.defTurnId !== run.defTurnId || entry.turnId !== run.turnId) {
+          invalid(`record[${recordIndex}].runId`, 'run end does not match the active run and its last observed turn', recordIndex);
+        }
+        const status = entry.terminal.status;
+        if (this.#pendingToolCalls.length > 0 && status !== 'aborted' && status !== 'interrupted') {
+          invalid(`record[${recordIndex}].terminal`, 'run ended with an unmatched tool call', recordIndex);
+        }
+        const unresolved = this.#pendingToolCalls.map((call) => call.toolCallId);
+        updates.push(() => {
+          run.endEntryId = entry.id;
+          run.status = status;
+          run.unresolvedToolCallIds = unresolved;
+          if (status === 'interrupted') this.#interruptedRuns.push(immutableInterruptedRun(run));
+          for (const toolCallId of unresolved) this.#unresolvedToolCalls.add(toolCallId);
+          this.#pendingToolCalls.length = 0;
+          this.#activeRun = null;
         });
       }
-      continue;
-    }
-
-    if (message.role === 'user') {
-      for (const block of message.content) {
-        if (contentIds.has(block.id)) invalid(`record[${index}].message`, 'duplicate content id', index);
-        contentIds.add(block.id);
+    } else if (entry.type === 'message') {
+      const message = entry.message;
+      if (this.#messageIds.has(message.id)) {
+        invalid(`record[${recordIndex}].message.id`, 'duplicate message id', recordIndex);
       }
-    }
+      const run = assertActiveMessage(message);
+      updates.push(() => this.#messageIds.add(message.id));
 
-    if (message.role !== 'tool-result') continue;
-    const call = openToolCalls.get(message.toolCallId);
-    if (!call) invalid(`record[${index}].message.toolCallId`, 'unknown or already paired tool call', index);
-    if (
-      call.runId !== activeRun!.runId
-      || call.defTurnId !== message.defTurnId
-      || call.turnId !== message.turnId
-      || call.name !== message.toolName
-    ) {
-      invalid(`record[${index}].message`, 'tool result does not match its call', index);
-    }
-    completedToolPairs.push([call.entryIndex, zeroBasedIndex]);
-    openToolCalls.delete(message.toolCallId);
-  }
-
-  if (activeRun) {
-    activeRun.status = 'interrupted';
-    activeRun.unresolvedToolCallIds = [...openToolCalls.keys()];
-    interruptedRuns.push(immutableInterruptedRun(activeRun));
-  }
-  if (!activeRun && openToolCalls.size > 0) {
-    invalid('session.toolCalls', 'unmatched tool calls remain', entries.length);
-  }
-
-  if (completedToolPairs.length > 0 && compactionAnchors.length > 0) {
-    const pairBoundaryDelta = new Float64Array(entries.length + 1);
-    for (const [callIndex, resultIndex] of completedToolPairs) {
-      pairBoundaryDelta[callIndex + 1]! += 1;
-      pairBoundaryDelta[resultIndex + 1]! -= 1;
-    }
-    const pairCutAtBoundary = new Uint8Array(entries.length);
-    let crossingPairs = 0;
-    for (let index = 0; index < entries.length; index += 1) {
-      crossingPairs += pairBoundaryDelta[index]!;
-      if (crossingPairs > 0) pairCutAtBoundary[index] = 1;
-    }
-    for (const compaction of compactionAnchors) {
-      if (pairCutAtBoundary[compaction.anchorIndex] === 1) {
-        invalid(
-          `record[${compaction.entryIndex + 1}].firstKeptEntryId`,
-          'anchor cuts a Tool call/result pair',
-          compaction.entryIndex + 1,
-        );
+      if (message.role !== 'tool-result' && this.#pendingToolCalls.length > 0) {
+        invalid(`record[${recordIndex}].message`, 'a Tool result is required before another message', recordIndex);
       }
+
+      if (message.role === 'user') {
+        if (this.#clientTurnIds.has(message.clientTurnId)) {
+          invalid(`record[${recordIndex}].message.clientTurnId`, 'duplicate client turn id', recordIndex);
+        }
+        updates.push(() => this.#clientTurnIds.add(message.clientTurnId));
+      }
+
+      if (message.role === 'assistant' || message.role === 'user') {
+        const localContentIds = new Set<RuntimeContentId>();
+        const localToolCallIds = new Set<ToolCallId>();
+        const calls: ToolCallReference[] = [];
+        for (const block of message.content) {
+          if (this.#contentIds.has(block.id) || localContentIds.has(block.id)) {
+            invalid(`record[${recordIndex}].message`, 'duplicate content id', recordIndex);
+          }
+          localContentIds.add(block.id);
+          if (message.role !== 'assistant' || block.type !== 'tool-call') continue;
+          if (this.#toolCallIds.has(block.toolCallId) || localToolCallIds.has(block.toolCallId)) {
+            invalid(`record[${recordIndex}].message`, 'duplicate tool call id', recordIndex);
+          }
+          localToolCallIds.add(block.toolCallId);
+          calls.push({
+            toolCallId: block.toolCallId,
+            runId: run.runId,
+            defTurnId: run.defTurnId,
+            // Pi's message ordering is retained, while DEF binds each call to
+            // the RuntimeTurn that emitted it rather than the run's first turn.
+            turnId: message.turnId,
+            name: block.name,
+            entryIndex: zeroBasedIndex,
+          });
+        }
+        updates.push(() => {
+          for (const id of localContentIds) this.#contentIds.add(id);
+          for (const id of localToolCallIds) this.#toolCallIds.add(id);
+          this.#pendingToolCalls.push(...calls);
+        });
+      } else {
+        const call = this.#pendingToolCalls[0];
+        if (!call || call.toolCallId !== message.toolCallId) {
+          invalid(`record[${recordIndex}].message.toolCallId`, 'Tool results must follow call order', recordIndex);
+        }
+        const observedTurn = nextTurn ?? run.turnId;
+        if (
+          call.runId !== run.runId
+          || call.defTurnId !== message.defTurnId
+          || call.turnId !== message.turnId
+          || call.turnId !== observedTurn
+          || call.name !== message.toolName
+        ) {
+          invalid(`record[${recordIndex}].message`, 'tool result does not match its call', recordIndex);
+        }
+        updates.push(() => {
+          this.#pendingToolCalls.shift();
+          this.#completedToolPairs.push({ callIndex: call.entryIndex, resultIndex: zeroBasedIndex });
+        });
+      }
+    } else if (this.#pendingToolCalls.length > 0) {
+      invalid(`record[${recordIndex}]`, 'a Tool result is required before another entry', recordIndex);
     }
+
+    const expectedLength = this.#entries.length;
+    let committed = false;
+    return {
+      entry,
+      commit: (): void => {
+        if (committed || this.#entries.length !== expectedLength) {
+          throw new SessionValidationError('Prepared Session entry is stale.', recordIndex);
+        }
+        for (const update of updates) update();
+        this.#entryIndex.set(entry.id, zeroBasedIndex);
+        this.#entries.push(entry);
+        this.#records.push(entry);
+        this.#metrics.committedEntries += 1;
+        committed = true;
+      },
+    };
   }
 
-  const immutableRuns = runs.map(immutableRunState);
-  const lastEntry = entries.at(-1);
-  return {
-    header,
-    entries: [...entries],
-    records: [...records],
-    updatedAt: lastEntry?.createdAt ?? header.createdAt,
-    leafId: lastEntry?.id ?? null,
-    runs: immutableRuns,
-    interruptedRuns: [...interruptedRuns],
-  };
+  snapshot(): ValidatedSession {
+    this.#metrics.projectedEntries += this.#entries.length;
+    const lifecycle = this.lifecycleSnapshot();
+    return {
+      header: this.#header,
+      entries: [...this.#entries],
+      records: [...this.#records],
+      updatedAt: this.updatedAt,
+      leafId: this.leafId,
+      ...lifecycle,
+    };
+  }
+
+  lifecycleSnapshot(): Pick<ValidatedSession, 'runs' | 'interruptedRuns'> {
+    const runs = this.#runs.map((run) => {
+      const immutable = immutableRunState(run);
+      return run === this.#activeRun ? { ...immutable, status: 'interrupted' as const } : immutable;
+    });
+    const interruptedRuns = [...this.#interruptedRuns];
+    if (this.#activeRun) {
+      interruptedRuns.push(immutableInterruptedRun({
+        ...this.#activeRun,
+        unresolvedToolCallIds: this.#pendingToolCalls.map((call) => call.toolCallId),
+      }));
+    }
+    return { runs, interruptedRuns };
+  }
 }
 
-/** Validate a complete in-memory session, including all cross-record links. */
-export function validateSessionRecords(value: unknown): ValidatedSession {
+function createSessionValidationCursorUnsafe(
+  value: unknown,
+  metrics = createSessionValidationMetrics(),
+): SessionValidationCursor {
   if (!Array.isArray(value) || value.length === 0) {
     invalid('session.records', 'expected a non-empty array');
   }
@@ -1209,7 +1272,8 @@ export function validateSessionRecords(value: unknown): ValidatedSession {
   );
   const records: RuntimeSessionRecord[] = [];
   for (const [index, record] of untrustedRecords.entries()) {
-    const parsed = parseRuntimeSessionRecord(record, index);
+    const parsed = parseRuntimeSessionRecordUnsafe(record, index);
+    metrics.parsedRecords += 1;
     if (index > 0 && parsed.type === 'session') {
       invalid(`record[${index}]`, 'only the first record may be a session header', index);
     }
@@ -1218,14 +1282,29 @@ export function validateSessionRecords(value: unknown): ValidatedSession {
   const header = records[0];
   if (!header || header.type !== 'session') invalid('record[0]', 'session header is required', 0);
   const entries = records.slice(1) as RuntimeSessionEntry[];
-  return validateRelations(header, entries, records);
+  preflightParentGraph(entries);
+  const cursor = new SessionValidationCursor(header, metrics);
+  for (const [index, entry] of entries.entries()) cursor.prepare(entry, index + 1).commit();
+  return cursor;
+}
+
+export function createSessionValidationCursor(
+  value: unknown,
+  metrics = createSessionValidationMetrics(),
+): SessionValidationCursor {
+  return createSessionValidationCursorUnsafe(value, metrics);
+}
+
+/** Validate a complete in-memory session, including all cross-record links. */
+export function validateSessionRecords(value: unknown): ValidatedSession {
+  return createSessionValidationCursor(value).snapshot();
 }
 
 export const validateSession = validateSessionRecords;
 
 /** Validate a single entry before it is considered for append. */
 export function validateRuntimeSessionEntry(value: unknown, recordIndex = 1): RuntimeSessionEntry {
-  const record = parseRuntimeSessionRecord(value, recordIndex);
+  const record = parseRuntimeSessionRecordUnsafe(value, recordIndex);
   if (record.type === 'session') invalid(`record[${recordIndex}]`, 'a session header cannot be appended', recordIndex);
   return record;
 }

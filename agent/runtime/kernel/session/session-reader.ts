@@ -25,15 +25,17 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { TextDecoder } from 'node:util';
 import { RUNTIME_SESSION_LIMITS } from './entries.ts';
 import {
+  createSessionValidationCursor,
   SessionLogError,
+  type SessionValidationCursor,
   type ValidatedSession,
-  validateSessionRecords,
 } from './session-validator.ts';
 
 const NO_FOLLOW = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0;
 const READ_CHUNK_BYTES = 64 * 1_024;
-const MAX_PHYSICAL_LINE_BYTES = RUNTIME_SESSION_LIMITS.maxLineCodeUnits * 4;
+export const SESSION_LINE_BYTE_LIMIT = RUNTIME_SESSION_LIMITS.maxLineCodeUnits * 4;
 export const SESSION_FILE_BYTE_LIMIT = 512 * 1_024 * 1_024;
+export const SESSION_VALIDATION_CURSOR = Symbol('sessionValidationCursor');
 
 export type SessionTailState = 'none' | 'incomplete' | 'complete-no-newline';
 
@@ -76,6 +78,7 @@ export interface SessionFileScan {
   readonly tail: SessionTailState;
   readonly endsWithNewline: boolean;
   readonly fileSnapshot: SessionFileSnapshot;
+  readonly [SESSION_VALIDATION_CURSOR]: SessionValidationCursor;
 }
 
 export interface SessionReadResult extends ValidatedSession {
@@ -86,6 +89,7 @@ export interface SessionReadResult extends ValidatedSession {
   readonly repairedTail: boolean;
   readonly endsWithNewline: boolean;
   readonly fileSnapshot: SessionFileSnapshot;
+  readonly [SESSION_VALIDATION_CURSOR]: SessionValidationCursor;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
@@ -95,6 +99,40 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 function currentUid(): number | null {
   return typeof process.getuid === 'function' ? process.getuid() : null;
 }
+
+export type SessionPlatformStatIssue = 'owner' | 'private-mode' | 'writable-directory' | null;
+
+export interface SessionPlatformAdapter {
+  readonly platform: NodeJS.Platform;
+  directoryIssue(stats: { readonly uid: number | bigint; readonly mode: number | bigint }): SessionPlatformStatIssue;
+  privateFileIssue(stats: { readonly uid: number | bigint; readonly mode: number | bigint }): SessionPlatformStatIssue;
+}
+
+/**
+ * Node exposes POSIX ownership/mode semantics only on POSIX. On Windows the
+ * adapter relies on lstat/fstat type, symlink and identity checks elsewhere in
+ * this module instead of misinterpreting synthetic uid/mode values.
+ */
+export function createSessionPlatformAdapter(
+  platform: NodeJS.Platform,
+  uid: number | null,
+): SessionPlatformAdapter {
+  return {
+    platform,
+    directoryIssue: (stats) => {
+      if (platform === 'win32') return null;
+      if (uid !== null && Number(stats.uid) !== uid) return 'owner';
+      return (Number(stats.mode) & 0o022) === 0 ? null : 'writable-directory';
+    },
+    privateFileIssue: (stats) => {
+      if (platform === 'win32') return null;
+      if (uid !== null && Number(stats.uid) !== uid) return 'owner';
+      return (Number(stats.mode) & 0o7777) === 0o600 ? null : 'private-mode';
+    },
+  };
+}
+
+const PLATFORM_ADAPTER = createSessionPlatformAdapter(process.platform, currentUid());
 
 function pathInvalid(reason: string): never {
   throw new SessionLogError('SESSION_PATH_INVALID', `Session path is invalid: ${reason}`);
@@ -112,25 +150,11 @@ function stale(): never {
   throw new SessionLogError('SESSION_STALE', 'Session file changed during operation.');
 }
 
-function assertOwned(stats: { readonly uid: number | bigint }): void {
-  const uid = currentUid();
-  if (uid !== null && Number(stats.uid) !== uid) pathInvalid('file owner is not the current process owner');
-}
-
-function assertStrictPrivateMode(stats: { readonly mode: number | bigint }): void {
-  if ((Number(stats.mode) & 0o7777) !== 0o600) pathInvalid('session file must be mode 0600');
-}
-
 function assertSafeDirectoryStats(stats: BigIntStats, label: string): void {
   if (!stats.isDirectory()) pathInvalid(`${label} is not a directory`);
-  if (process.platform === 'win32') {
-    // Node's POSIX mode/uid projection does not prove Windows ACL ownership or
-    // rename rights. Until an ACL-aware boundary exists, fail closed instead of
-    // treating synthetic mode bits as an equivalent security guarantee.
-    pathInvalid('Windows directory ACL validation is unsupported');
-  }
-  assertOwned(stats);
-  if ((Number(stats.mode) & 0o022) !== 0) {
+  const issue = PLATFORM_ADAPTER.directoryIssue(stats);
+  if (issue === 'owner') pathInvalid(`${label} owner is not the current process owner`);
+  if (issue === 'writable-directory') {
     pathInvalid(`${label} is group- or world-writable`);
   }
 }
@@ -194,8 +218,9 @@ function samePreOperationSnapshot(left: SessionFileSnapshot, right: SessionFileS
 
 function assertPrivateRegularStats(stats: BigIntStats): void {
   if (!stats.isFile()) pathInvalid('session path is not a regular file');
-  assertOwned(stats);
-  assertStrictPrivateMode(stats);
+  const issue = PLATFORM_ADAPTER.privateFileIssue(stats);
+  if (issue === 'owner') pathInvalid('file owner is not the current process owner');
+  if (issue === 'private-mode') pathInvalid('session file must be mode 0600');
 }
 
 function lstatIfExists(target: string): BigIntStats | null {
@@ -513,7 +538,7 @@ function scanSessionDescriptor(descriptor: number, fileByteLength: number): Desc
       const segment = chunk.subarray(segmentStart, index);
       if (segment.length > 0) lineParts.push(segment);
       lineByteLength += segment.length;
-      if (lineByteLength > MAX_PHYSICAL_LINE_BYTES) {
+      if (lineByteLength > SESSION_LINE_BYTE_LIMIT) {
         throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session contains an oversized JSONL record.', lineNumber);
       }
       const lineBuffer = lineByteLength === 0
@@ -535,7 +560,7 @@ function scanSessionDescriptor(descriptor: number, fileByteLength: number): Desc
       const segment = chunk.subarray(segmentStart, requested);
       lineParts.push(segment);
       lineByteLength += segment.length;
-      if (lineByteLength > MAX_PHYSICAL_LINE_BYTES) {
+      if (lineByteLength > SESSION_LINE_BYTE_LIMIT) {
         throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session contains an oversized tail record.', lineNumber);
       }
     }
@@ -595,7 +620,8 @@ export function scanSessionFile(filePath: string, options: SessionPathOptions): 
     }
     const scanned = scanSessionDescriptor(descriptor, bound.byteLength);
     const stable = assertBoundSessionFileDescriptor(target, descriptor, options, expected);
-    const validation = validateSessionRecords(scanned.records);
+    const validationCursor = createSessionValidationCursor(scanned.records);
+    const validation = validationCursor.snapshot();
     return {
       filePath: target,
       records: scanned.records,
@@ -605,6 +631,7 @@ export function scanSessionFile(filePath: string, options: SessionPathOptions): 
       tail: scanned.tail,
       endsWithNewline: scanned.endsWithNewline,
       fileSnapshot: stable,
+      [SESSION_VALIDATION_CURSOR]: validationCursor,
     };
   } catch (error) {
     if (error instanceof SessionLogError) throw error;
@@ -641,6 +668,7 @@ export function readSessionFile(filePath: string, options: SessionReaderOptions)
     repairedTail,
     endsWithNewline,
     fileSnapshot,
+    [SESSION_VALIDATION_CURSOR]: scan[SESSION_VALIDATION_CURSOR],
   };
 }
 
