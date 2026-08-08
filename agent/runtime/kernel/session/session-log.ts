@@ -341,6 +341,22 @@ export class SessionLog {
     return this.appendDetailed(entry);
   }
 
+  /**
+   * Persist a marker emitted by RuntimeRunController onto the durable linear
+   * Session graph. The controller's end marker remains parented to its start
+   * marker, while the first Session format requires every stored parent to be
+   * the current leaf; only that storage edge is adapted here.
+   */
+  appendControllerRunMarker(marker: RuntimeRunMarkerEntry): SessionAppendResult {
+    if (marker.type !== 'run-marker') {
+      throw new SessionLogError('SESSION_INCOMPATIBLE', 'Session run marker is invalid.');
+    }
+    return this.appendDetailed({
+      ...marker,
+      parentId: this.#state.leafId,
+    });
+  }
+
   appendDetailed(entry: RuntimeSessionEntry): SessionAppendResult {
     assertSessionFileSnapshot(this.#filePath, this.#state.fileSnapshot, this.#options);
     if (this.#state.tail === 'incomplete' && !this.#state.repairedTail) {

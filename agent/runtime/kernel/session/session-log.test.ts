@@ -42,6 +42,11 @@ import type {
   RuntimeToolResultMessage,
   RuntimeUserMessage,
 } from '../messages.ts';
+import {
+  RuntimeRunController,
+  type RuntimeDurableStartBundle,
+  type RuntimeDurableTerminalBundle,
+} from '../run-controller.ts';
 import type {
   RuntimeRunMarkerEntry,
   RuntimeSessionEntry,
@@ -1685,6 +1690,65 @@ test('the first Session format rejects every non-leaf parent, including Tool res
     toolResultEntry('entry-other-branch', 'entry-result-from-branch', TIME_6),
   ];
   assertIncompatible(() => validateSessionRecords(records));
+});
+
+test('SessionLog adapts real controller run markers to the current durable leaf', async () => {
+  const { root, filePath, log } = makeRootedLog();
+  let startBundle: RuntimeDurableStartBundle | undefined;
+  let terminalBundle: RuntimeDurableTerminalBundle | undefined;
+  const controllerTimes = [TIME_2, TIME_2, TIME_6, TIME_6];
+  let clockIndex = 0;
+  const controller = new RuntimeRunController({
+    sessionId: header().runtimeSessionId,
+    runId: asRuntimeRunId('run-controller-adapter'),
+    defTurnId: asDefTurnId('def-turn-controller-adapter'),
+    initialTurnId: asRuntimeTurnId('runtime-turn-controller-adapter'),
+    parentEntryId: null,
+    now: () => controllerTimes[clockIndex++] ?? TIME_6,
+    durableEventCommit: (write) => {
+      if (write.kind === 'run.start') startBundle = write.bundle;
+    },
+    terminalCommit: (bundle) => {
+      terminalBundle = bundle;
+    },
+  });
+
+  try {
+    await controller.start();
+    const controllerStart = startBundle;
+    assert.ok(controllerStart);
+    const durableStart = log.appendControllerRunMarker(controllerStart.marker);
+    assert.equal(durableStart.entry.parentId, null);
+
+    const user = userEntry(controllerStart.marker.id, 'entry-controller-user', TIME_3, {
+      defTurnId: 'def-turn-controller-adapter',
+      turnId: 'runtime-turn-controller-adapter',
+      clientTurnId: 'client-turn-controller-adapter',
+    });
+    log.append(user);
+    const assistant = assistantEntry(user.id, 'entry-controller-assistant', false, TIME_4, {}, {
+      defTurnId: 'def-turn-controller-adapter',
+      turnId: 'runtime-turn-controller-adapter',
+    });
+    log.append(assistant);
+
+    await controller.finish({ status: 'completed' });
+    const controllerTerminal = terminalBundle;
+    assert.ok(controllerTerminal);
+    assert.equal(controllerTerminal.marker.parentId, controllerStart.marker.id);
+    assertIncompatible(() => log.append(controllerTerminal.marker));
+
+    const durableEnd = log.appendControllerRunMarker(controllerTerminal.marker);
+    assert.equal(durableEnd.entry.parentId, assistant.id);
+    assert.equal(controllerTerminal.marker.parentId, controllerStart.marker.id);
+
+    const reopened = reopenSessionLog(filePath, { rootDir: root });
+    assert.equal(reopened.leafId, controllerTerminal.marker.id);
+    assert.equal(reopened.entries.at(-1)?.parentId, assistant.id);
+  } finally {
+    controller.dispose();
+    cleanup(root);
+  }
 });
 
 test('Tool messages are FIFO, pending calls block assistants, and clientTurnId is unique', () => {
