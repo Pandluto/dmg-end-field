@@ -35,6 +35,8 @@ OpenCode UI 参考基线：`anomalyco/opencode@67aec2212010d67775c35e696d8b8b549
 
 这条路线成立并不依赖当前已经存在 `AgentEngine` 接口。现有接口只会降低集成成本；目标 Runtime 的内部设计必须首先忠于正确的 Agent、Session 和上下文生命周期，不能被当前接口过早限制。
 
+并行开工结论：不能把整份迁移平均切成几块后同时改。第一步必须由主 Agent 用 Sol xhigh 冻结共享合同、Trace Schema、目标文件清单和仓库边界；随后才允许 Luna Max 编码 subagent 在互不重叠的目录中并行实现 Pi Golden Oracle、Provider、Profile、Agent loop、Session Log 和 Conversation Store。后续 Context/Compaction、Tool Bridge、Runtime Session、UI Surface 和 UI Gateway 按依赖进入第二波并行，最终由主 Agent 独占共享入口和联调。完整派工设计见第 20 节。
+
 ## 1. “对着源码抄”的工程定义
 
 这里的“抄”不是复制整个目录，也不是看到类名后自行想象一套相似实现。它包含四层要求。
@@ -237,9 +239,10 @@ flowchart LR
 | DEF Session/Binding | 不采用 Pi 实现 | `session.ts`、`session-store.ts` | 保留现有 | 保留 |
 | Harness/审批 | 不采用 Pi Harness | `manager.ts`、InteractionBroker | 保留现有 | 保留 |
 | ProductGateway | 无对应 Pi 模块 | `remote-browser-product-gateway.ts` | 保留现有 | 保留 |
-| UI Message/Part | OpenCode `session-v1.ts` | Native UI gateway | `agent/ui/protocol.ts` | C/B |
-| UI reducer | OpenCode `server-session.ts` | OpenCode SSE proxy | `agent/ui/conversation-store.ts` | C/B |
-| Turn/Tool 视图 | OpenCode `session-turn.tsx`、`message-part.tsx` | iframe | `agent/ui/session-surface/` | A/C |
+| UI Message/Part | OpenCode `session-v1.ts` | Native UI gateway | `agent/core/contracts/conversation.ts` | C/B |
+| Conversation 投影 | OpenCode `server-session.ts` | OpenCode SSE proxy | `agent/host/conversation-projector.ts` | C/B |
+| UI reducer | OpenCode `server-session.ts` | OpenCode SSE proxy | `src/agentSessionSurface/conversation-store.ts` | C/B |
+| Turn/Tool 视图 | OpenCode `session-turn.tsx`、`message-part.tsx` | iframe | `src/agentSessionSurface/` | A/C |
 | UI Gateway | 不保留 OpenCode API | `opencode-native-ui-gateway.ts` | `agent-ui-gateway.ts` | B |
 | Shell 生命周期 | 无须抄 Pi | Electron Agent supervisor | 保留并换启动目标 | 保留/改写 |
 
@@ -248,8 +251,11 @@ flowchart LR
 ```text
 agent/
 ├── core/                         # 现有 DEF 产品合同、Harness、Tool
+│   └── contracts/
+│       └── conversation.ts      # Runtime/Host/UI 共享的只读会话合同
 ├── host/                         # 现有 Host、ProductGateway、Interaction
 │   ├── def-agent-host.ts
+│   ├── conversation-projector.ts # 组合 Runtime transcript 与 Host audit
 │   └── agent-ui-gateway.ts       # 替代 opencode-native-ui-gateway
 ├── runtime/
 │   ├── host-entry.ts
@@ -279,10 +285,14 @@ agent/
 │   │   ├── adapter.ts
 │   │   └── profile.ts
 │   └── opencode/                 # 迁移完成后删除
-└── ui/
-    ├── protocol.ts
+
+src/
+└── agentSessionSurface/          # OpenCode-derived、独立 Vite UI 入口
+    ├── index.html
+    ├── main.tsx
     ├── conversation-store.ts
-    └── session-surface/          # OpenCode-derived、独立小型 UI bundle
+    ├── components/
+    └── styles/
 ```
 
 目标代码不使用 `pi` 命名空间。来源写在 provenance/NOTICE 中，产品 API 使用 DEF 自己的术语，避免未来错误地把上游内部 API 当成兼容承诺。
@@ -595,7 +605,7 @@ DEF 摘要模板至少保留：
 ```ts
 interface DefRuntimeSession {
   readonly id: RuntimeSessionId;
-  readTranscript(): Promise<ConversationSnapshot>;
+  readTranscript(): Promise<RuntimeTranscriptSnapshot>;
   subscribe(listener: RuntimeEventListener): () => void;
   start(input: RuntimeRunInput): Promise<RuntimeRunHandle>;
   compact(reason: CompactionReason): Promise<CompactionOutcome>;
@@ -629,12 +639,17 @@ interface DefRuntimeSession {
 - `disposeSession()`；
 - `shutdown()`。
 
-当前 `EngineEvent` 适合 Host 控制流，但不足以承载完整 UI。不要把 OpenCode `Message/Part` 塞进 `EngineEvent`。新增独立的只读会话视图合同：
+当前 `EngineEvent` 适合 Host 控制流，但不足以承载完整 UI。不要把 OpenCode `Message/Part` 塞进 `EngineEvent`。新增 Runtime transcript 合同，并由 Host 的 ConversationProjector 组合 Runtime transcript 与 Host audit：
 
 ```ts
-interface AgentTranscriptSource {
-  getSnapshot(session: EngineSessionRef): Promise<ConversationSnapshot>;
-  subscribe(session: EngineSessionRef, afterSequence: number): AsyncIterable<ConversationEvent>;
+interface RuntimeTranscriptSource {
+  getRuntimeSnapshot(session: EngineSessionRef): Promise<RuntimeTranscriptSnapshot>;
+  subscribeRuntime(session: EngineSessionRef, afterRuntimeSequence: number): AsyncIterable<RuntimeTranscriptEvent>;
+}
+
+interface ConversationProjector {
+  getSnapshot(session: DefSessionId): Promise<ConversationSnapshot>;
+  subscribe(session: DefSessionId, cursor: ConversationCursor): AsyncIterable<ConversationEvent>;
 }
 ```
 
@@ -643,7 +658,9 @@ interface AgentTranscriptSource {
 - Host 的业务事件不被 UI 细节污染；
 - UI 不直接读取 Runtime 内部 JSONL；
 - 将来再换模型内核时，只需投影同一 Conversation 协议；
-- Runtime Session 仍是对话事实源。
+- Runtime Session 仍是对话事实源；
+- Interaction、审批和业务 Tool 状态仍由 Host Journal 持有；
+- ConversationProjector 只在读取时组合两份权威数据，不新增第三份永久日志。
 
 ### 8.12 DEF Host、Harness 与 ProductGateway
 
@@ -696,15 +713,41 @@ session.status
 interaction.upsert / interaction.remove
 ```
 
+Conversation 不伪造一个跨两份日志的永久全局序号。游标使用：
+
+```ts
+interface ConversationCursor {
+  epoch: string;
+  runtimeSequence: number;
+  hostSequence: number;
+}
+```
+
+其中：
+
+- `runtimeSequence` 只推进 Runtime transcript；
+- `hostSequence` 只推进 DEF Host Journal；
+- `epoch` 标识当前 projector/gateway 实例；Host 重启、投影规则变化或任一日志无法补齐时必须换 epoch；
+- epoch 不匹配时 UI 丢弃增量游标并重新获取 Snapshot；
+- Snapshot 由 Runtime Log 与 Host Journal 即时组合，不写回第三份 Conversation 日志。
+
 每个事件带：
 
 - session ID；
-- monotonic sequence；
+- event source；
+- 对应 source sequence；
+- 应用事件后的复合 cursor；
 - message/part stable ID；
 - occurredAt；
 - bounded payload。
 
-UI 首次打开先取 snapshot，再从 snapshot sequence 订阅 SSE；断线后用 `Last-Event-ID` 或显式 `afterSequence` 补齐。
+UI 首次打开先取 Snapshot，再从 Snapshot cursor 订阅 SSE。断线后提交完整 cursor 补齐；不能只用单个 `Last-Event-ID` 猜测两份日志的位置。
+
+HTTP 层把复合 cursor 编码为有界、版本化的不透明 token，可放在显式 query/header 或 `Last-Event-ID` 中；Gateway 必须完整校验后再解码，不能接受浏览器直接拼接的任意 sequence。
+
+Snapshot 必须先分别捕获 Runtime/Host 的 high-water mark，再只读取到这两个边界，并把边界写入返回 cursor；随后订阅必须重放严格大于各自 high-water mark 的事件。任一来源无法保证这条 snapshot-to-subscribe 连续性时，Projector 必须返回 gap/epoch-changed，要求 UI 全量重取，不能静默跳过。
+
+两份来源不按 wall-clock timestamp 强行排序。跨来源因果关系使用 `messageId`、`toolCallId`、`interactionId` 和 Turn correlation 合并：Runtime 先创建 Tool part，Host 再更新该 part 的 running/interaction/result 状态。若增量引用的父对象尚不存在，projector 只允许有界等待或要求重新取 Snapshot，不能凭时间猜顺序。
 
 ### 8.14 Pi Runtime 事件到 UI Part 的对应关系
 
@@ -1223,3 +1266,889 @@ OpenCode 固定源码：
 - `src/components/AgentMode/AgentModeOverlay.tsx`
 - `src/platform/agent/desktopAgentBridge.ts`
 - `docs/testing/def-agent-blackbox.md`
+
+## 20. 多 Subagent 并行开工设计
+
+### 20.1 拆分目标
+
+多人并行不是为了让每个 Agent 同时“做一点”，而是让每个工作包满足：
+
+1. 只有一个明确责任；
+2. 写入文件集合互不重叠；
+3. 输入合同在派发前已经冻结；
+4. 不依赖另一个尚未完成工作包的内部实现；
+5. 可以用 fake/stub 独立测试；
+6. 最终只通过公开接口被主 Agent 组装；
+7. 任何需要改变共享合同的发现必须上报，不能由 worker 自行扩展范围。
+
+本工程的并行瓶颈不是代码量，而是五类共享事实：
+
+- Runtime Message/Event；
+- ModelDriver；
+- ToolBridge；
+- Session Entry/Context；
+- Conversation Protocol。
+
+这五类合同未冻结前，开更多 subagent 只会制造类型、命名和生命周期冲突。
+
+### 20.2 Agent 角色与模型选择
+
+| 角色 | 模型与思考档 | 适合工作 | 不应独立决定 |
+| --- | --- | --- | --- |
+| 主架构与联调 Agent | `gpt-5.6-sol`，`xhigh` | 合同冻结、依赖排序、共享文件、冲突处理、跨模块联调、最终判断 | 不把自身变成所有模块的编码 worker |
+| 编码 Worker | `gpt-5.6-luna`，`max` | 在冻结合同下完成单一目录的生产代码、单元测试和 fixture | 不改共享合同、Host 总体语义或迁移范围 |
+| 独立架构/安全 Reviewer | 新开的 `gpt-5.6-sol`，`xhigh` | 状态机、恢复、压缩、权限、密钥、幂等和 gate review | 不直接接管 worker 写集，避免审查与实现混在一起 |
+| UI 编码 Worker | `gpt-5.6-luna`，`max` | OpenCode-derived 组件抽取、store、样式和交互测试 | 不重新设计产品 UI，不自行改变 Conversation 协议 |
+| 测试编码 Worker | `gpt-5.6-luna`，`max` | trace comparator、provider fixture、黑盒场景和回归脚本 | 不因测试难写而放宽产品合同 |
+
+模型选择原则：
+
+- 凡是“合同已经定好，只需实现并验证”的任务，优先 Luna Max；
+- 凡是会决定多个模块边界、涉及恢复/安全/幂等，或需要判断上游语义是否抄对的任务，使用 Sol xhigh；
+- Luna Max 可以发现合同问题，但只能提交 `contract-change-request`，不能越权修改；
+- Sol xhigh Reviewer 必须使用新上下文独立审查，不能只让主 Agent 自我确认；
+- 不为简单机械任务额外开启 Sol，以免把高推理额度消耗在可并行编码上。
+- 本轮不单独分配 Terra：任务已经自然分成“冻结合同后的编码”和“高风险架构判断”两类，引入中间档不会减少交接面。
+
+### 20.3 总体依赖图
+
+```mermaid
+flowchart TD
+  F0["F0 · 合同、文件清单与 Trace Schema<br/>主 Agent · Sol xhigh"]
+
+  P0["P0 · Pi Golden Oracle<br/>Luna Max"]
+  P1["P1 · Provider Transport<br/>Luna Max"]
+  PS["PS · Profile Security<br/>Luna Max"]
+  P2["P2 · Agent Loop<br/>Luna Max"]
+  P3["P3 · Session Log<br/>Luna Max"]
+  P4["P4 · Conversation Projection + Store<br/>Luna Max"]
+
+  P5["P5 · Context + Compaction<br/>Luna Max"]
+  P6["P6 · Tool Bridge + Projection<br/>Luna Max"]
+  P7["P7 · Runtime Session<br/>Luna Max"]
+  U0["U0 · UI 技术门禁<br/>Luna Max spike + Sol xhigh decision"]
+  P8["P8 · Session Surface UI<br/>Luna Max"]
+  P9["P9 · Agent UI Gateway<br/>Luna Max"]
+
+  P10["P10 · Engine Adapter<br/>Luna Max"]
+  I1["I1 · Kernel/Host 联调<br/>主 Agent · Sol xhigh"]
+  P11["P11 · UI/Browser 接入<br/>Luna Max + 主 Agent"]
+  T1["T1 · 生命周期黑盒<br/>Luna Max"]
+  P12["P12 · Packaging + Retirement<br/>Luna Max + 主 Agent"]
+  V1["V1 · 独立 Gate Review<br/>Sol xhigh"]
+  A1["A1 · Computer Use / 双平台验收<br/>主 Agent"]
+
+  F0 --> P1
+  F0 --> P0
+  F0 --> PS
+  F0 --> P2
+  F0 --> P3
+  F0 --> P4
+  P1 --> P5
+  P3 --> P5
+  P2 --> P6
+  P1 --> P7
+  P0 --> P7
+  P2 --> P7
+  P3 --> P7
+  P5 --> P7
+  P6 --> P7
+  P4 --> U0
+  U0 --> P8
+  P4 --> P9
+  P7 --> P10
+  PS --> P10
+  P9 --> I1
+  P10 --> I1
+  I1 --> P11
+  P8 --> P11
+  I1 --> T1
+  P8 --> T1
+  P11 --> V1
+  T1 --> V1
+  V1 --> P12
+  P12 --> A1
+```
+
+### 20.4 并行波次
+
+| 波次 | 可同时运行的工作包 | 主 Agent 同期工作 | 进入条件 | 退出门禁 |
+| --- | --- | --- | --- | --- |
+| Wave 0 | 只有 F0 | 直接完成合同、Trace Schema、文件清单和仓库边界 | 本文已接受 | G0 合同冻结 |
+| Wave 1 | 可运行池：P0、P1、PS、P2、P3、P4；最多同时四个 | 审查 worker 反馈、维护 contract change queue | G0 | G1 各包独立测试 |
+| Wave 2A | P5、P6、P9、U0；U0 通过后启动 P8 | 准备 Runtime Session 集成 fixture | 对应 Wave 1 包通过 | G2 子系统合同通过 |
+| Wave 2B | P7 | 对 P5/P6 做 Sol xhigh 复核 | P0/P1/P2/P3/P5/P6 通过 | G3 Kernel 可独立多轮运行 |
+| Wave 3A | P10；P8/P9 遗留收口可并行 | 只准备 I1 fixture，不提前修改共享入口 | G3，且 PS 已通过 | P9/P10 均达到可集成状态 |
+| Wave 3B | 只有 I1 | 主 Agent 修改共享 Host/entry/contracts | P9/P10 完成 | G4 Host Harness 黑盒通过 |
+| Wave 4 | P11、T1 | 主 Agent 做真实模型与浏览器联调 | G4，且 P8 完成 | G5 UI/生命周期通过 |
+| Wave 5 | P12 的机械打包修改 | 主 Agent 负责删除决策、ADR 和发布候选构建 | 独立 V1 review 通过 | 无 OpenCode 的可回退发布候选 |
+| Wave 6 | 只有 A1 | 主 Agent 做 Computer Use 与 Mac/Windows 验收 | Wave 5 发布候选完成 | G6 OpenCode 退役验收 |
+
+建议并发上限：
+
+- Wave 1 最多四个编码 subagent；
+- Wave 2 最多四个编码 subagent；
+- 同一时间最多一个 Agent 拥有现有共享文件写权；
+- Reviewer 不与被审查 worker 共用写集；
+- 不为了填满并发槽提前启动尚未满足依赖的工作包。
+
+默认四槽调度：Wave 1 先派 P0/P1/P2/P3，任一完成后依次补 P4/PS；Wave 2 先派 P5/P6/P9/U0，U0 出结论后用释放的槽位派 P8。这样优先推进 Runtime 关键路径，同时不让 UI 路径空等。
+
+#### 20.4.1 快速派工表
+
+| ID | 工作包 | 主模型 | 复杂度 | 强制复核 | 可与谁并行 |
+| --- | --- | --- | --- | --- | --- |
+| F0 | 合同、文件清单与 Trace Schema | Sol xhigh | XL | 新 Sol xhigh | 不并行，所有包前置 |
+| P0 | Pi Golden Oracle | Luna Max | M/L | Sol xhigh 语义 review | P1/PS/P2/P3/P4 |
+| P1 | Provider/SSE | Luna Max | L | Sol xhigh 安全 review | P2/P3/P4 |
+| PS | Provider Profile 安全 | Luna Max | M | Sol xhigh 安全 review | P0/P1/P2/P3/P4 |
+| P2 | Agent Loop | Luna Max | L | Sol xhigh 状态机 review | P1/P3/P4 |
+| P3 | Session Log | Luna Max | L | Sol xhigh 恢复 review | P1/P2/P4 |
+| P4 | Conversation Projector/Store | Luna Max | M/L | Sol xhigh cursor review | P0/P1/PS/P2/P3 |
+| P5 | Context/Compaction | Luna Max | L | Sol xhigh 强制 gate | P6/P9/U0 |
+| P6 | Tool Bridge/Projection | Luna Max | M/L | Sol xhigh 强制 gate | P5/P9/U0 |
+| U0 | React/Solid UI spike | Luna Max + Sol xhigh | S | 主 Agent 决策 | P5/P6/P9 |
+| P8 | Session Surface | Luna Max | L | 主 Agent + 视觉验收 | P5/P6/P9，需 U0 |
+| P9 | Agent UI Gateway | Luna Max | L | Sol xhigh 安全 review | P5/P6/U0/P8 |
+| P7 | Runtime Session | Luna Max | XL | 主 Agent + Sol xhigh | 依赖 P0/P1/P2/P3/P5/P6 |
+| P10 | Engine Adapter | Luna Max | L | 主 Agent | P8/P9 收口 |
+| I1 | Kernel/Host 联调 | Sol xhigh 主 Agent | XL | 新 Sol xhigh | 不委派整体联调 |
+| P11 | UI/Browser 接入 | Luna Max | M | 主 Agent + Computer Use | 测试补充 worker |
+| T1 | 生命周期自动黑盒 | Luna Max | M | 主 Agent | 与 P11 并行 |
+| V1 | 独立全生命周期审查 | 新 Sol xhigh | L | 主 Agent 只接收结论 | 不与 P12 并行 |
+| P12 | Packaging/Retirement | Luna Max 机械修改 + 主 Agent | XL | 独立 Sol xhigh | 最后一波 |
+| A1 | Mac/Windows 手动验收 | Sol xhigh 主 Agent | L | 用户实机结果 | 不委派最终判断 |
+
+### 20.5 F0：合同、文件清单与 Trace Schema 冻结
+
+负责人：主 Agent，Sol xhigh。
+
+性质：串行关键路径，不委派给普通编码 worker。
+
+独占写集：
+
+```text
+agent/runtime/kernel/messages.ts
+agent/runtime/kernel/stream-events.ts
+agent/runtime/kernel/tool.ts
+agent/runtime/kernel/provider/model-driver.ts
+agent/runtime/kernel/session/entries.ts
+agent/core/contracts/conversation.ts
+agent/core/contracts/index.ts
+agent/runtime/kernel/testing/trace-schema.ts
+agent/runtime/source-provenance.json
+agent/runtime/NOTICE.md
+scripts/repository-check.mjs
+```
+
+交付物：
+
+- 最小消息与事件 union；
+- ModelDriver/ModelStream 接口；
+- ToolBridge/ToolProjection 接口；
+- Session entry schema；
+- Conversation snapshot/event 协议；
+- 规范化 trace schema；
+- 来源台账和 MIT NOTICE；
+- 完整目标文件清单、唯一 owner 和 `allowedAgentFiles` 预登记；
+- `agent/engines/def-runtime/` 的 Node builtin/外部依赖边界规则。
+
+验收：
+
+- TypeScript 编译；
+- schema/validator 测试；
+- Trace schema 可以在不加载 Pi SDK 的情况下验证；
+- 每个合同字段都能追溯到 Pi/OpenCode/DEF 中至少一个明确需求；
+- Reviewer 确认不存在 UI 类型反向污染 Runtime；
+- `npm run check:repo` 接受预登记的目标骨架，后续 worker 不需要争改仓库白名单。
+
+F0 完成后形成一个明确的 gate commit。后续所有 Wave 1 worker 必须从该提交创建独立 worktree。
+
+F0 修改 `scripts/repository-check.mjs` 不是放宽检查：必须按最终工作包精确登记新文件，并继续禁止 Pi/OpenCode 生产依赖、Node 业务 SQLite、退役 REST 和 Agent core 越界 import。
+
+#### 20.5.1 P0：Pi Golden Oracle
+
+负责人：Luna Max 编码，Sol xhigh 复核参考语义。
+
+独占写集：
+
+```text
+scripts/agent-runtime-pi-reference.mjs
+agent/runtime/kernel/testing/trace-normalizer.ts
+agent/runtime/kernel/testing/golden-trace.test.ts
+agent/runtime/kernel/testing/fixtures/**
+```
+
+输入：F0 Trace schema、Pi `0.84.1/e47b8e37` 临时源码根目录。
+
+输出：可重复生成的 text/reasoning/tool/error/abort/compaction trace、规范化器和 fixture hash。
+
+约束：
+
+- reference runner 通过显式 `PI_REFERENCE_ROOT` 使用临时 clone；
+- Pi 包不进入 package.json、产品 bundle 或运行时依赖；
+- fixture 记录上游 commit 和生成参数；
+- 随机 ID/timestamp 可以规范化，消息顺序、Tool、terminal 和 context 不得规范化掉；
+- worker 不写产品 Runtime 实现。
+
+验收：同一固定源码和输入重复生成相同规范化 trace/hash；Sol xhigh 确认 fixture 没有误读 Pi 的 Session/compaction 语义。
+
+### 20.6 P1：Provider Transport
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+agent/runtime/kernel/provider/openai-compatible-driver.ts
+agent/runtime/kernel/provider/sse-parser.ts
+agent/runtime/kernel/provider/provider-errors.ts
+agent/runtime/kernel/provider/retry-policy.ts
+agent/runtime/kernel/provider/openai-compatible-driver.test.ts
+agent/runtime/kernel/provider/sse-parser.test.ts
+agent/runtime/kernel/provider/retry-policy.test.ts
+```
+
+输入：F0 的 `messages.ts`、`stream-events.ts`、`model-driver.ts`。
+
+输出：实现 `ModelDriver` 的 OpenAI-compatible/DeepSeek driver。
+
+必须测试：
+
+- 任意 chunk 边界；
+- UTF-8 跨 chunk；
+- text/reasoning；
+- Tool name/arguments 增量；
+- 401/403、429、5xx、network drop；
+- abort 与 retry timer；
+- 错误脱敏。
+
+禁止触碰：
+
+- `agent/core/**`；
+- `agent/host/**`；
+- Session、ToolBridge 和 UI；
+- F0 合同。
+
+审查：Sol xhigh 只审查 provider 安全、重试边界和 Tool 参数完整性。
+
+#### 20.6.1 PS：Provider Profile 安全
+
+负责人：Luna Max 编码，Sol xhigh 安全复核。
+
+独占写集：
+
+```text
+agent/engines/def-runtime/profile.ts
+agent/engines/def-runtime/profile.test.ts
+```
+
+输入：当前 `agent/engines/opencode/profile.ts` 的 0600、owner、symlink、schema 和脱敏规则，以及 F0 登记的目标文件/依赖边界。
+
+输出：不绑定 OpenCode 的 ProviderProfileSource。
+
+必须测试：
+
+- 文件 owner/mode；
+- symlink 和非普通文件；
+- profile ref 唯一性；
+- base URL scheme/host/header 边界；
+- model ID 和 API Key 有界；
+- 错误、日志和序列化永不包含密钥。
+
+禁止触碰：Provider HTTP driver、Electron profile writer、OpenCode profile 和 Engine adapter。
+
+### 20.7 P2：Agent Loop
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+agent/runtime/kernel/agent-loop.ts
+agent/runtime/kernel/run-controller.ts
+agent/runtime/kernel/agent-loop.test.ts
+agent/runtime/kernel/testing/fake-model-driver.ts
+agent/runtime/kernel/testing/fake-tool-bridge.ts
+```
+
+输入：F0 消息、事件、ModelDriver 和 ToolBridge 合同。
+
+输出：不依赖真实 Provider/Host/磁盘的纯 Agent loop。
+
+必须测试：
+
+- 纯文本；
+- reasoning + text；
+- 单 Tool；
+- 多 Tool 按调用顺序执行；
+- Tool failure 后继续；
+- malformed/truncated Tool 不执行；
+- abort before stream / during stream / waiting tool；
+- `run.end` 在 listener settlement 后发出。
+
+禁止触碰：Provider 实现、Session、Host、UI 和共享合同。
+
+审查：Sol xhigh 复核状态机、terminal 唯一性和晚到事件。
+
+### 20.8 P3：Session Log 与恢复
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+agent/runtime/kernel/session/session-log.ts
+agent/runtime/kernel/session/session-reader.ts
+agent/runtime/kernel/session/session-validator.ts
+agent/runtime/kernel/session/session-log.test.ts
+```
+
+输入：F0 message 和 entry schema。
+
+输出：append-only JSONL、恢复、tail 截断和 incompatible 判定。
+
+必须测试：
+
+- create/append/reopen；
+- 不完整尾行；
+- 中间损坏；
+- parent 链和循环；
+- Tool call/result 配对；
+- interrupted run；
+- 0600 文件和路径边界；
+- 不保存 API Key。
+
+禁止触碰：Context/Compaction、Host Session Store、Provider 和 UI。
+
+审查：Sol xhigh 复核损坏处理、幂等和产品 mutation 不重放原则。
+
+### 20.9 P4：Conversation Projection 与 Store
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+agent/host/conversation-projector.ts
+agent/host/conversation-projector.test.ts
+agent/host/testing/conversation-fixtures.ts
+src/agentSessionSurface/conversation-store.ts
+src/agentSessionSurface/conversation-store.test.ts
+src/agentSessionSurface/testing/**
+```
+
+输入：F0 Conversation 协议和 Trace Schema。P4 在自己的 testing 写集中构造最小 Runtime/Host synthetic fixture，不等待 P0，因此仍可并行开工；G1 时再用 P0 Golden Trace 做一次字段与顺序交叉核验。
+
+输出：Runtime/Host 事件到 Conversation Message/Part 的确定性投影、复合游标，以及浏览器 snapshot/delta reducer。Projector 与 UI 框架无关，Store 不依赖 Runtime 内部类型。
+
+必须测试：
+
+- Runtime transcript + Host Journal 组合 Snapshot；
+- 双来源 high-water mark 与 snapshot/subscribe 并发窗口；
+- `{epoch, runtimeSequence, hostSequence}` 断点续传；
+- epoch 变化强制重新取 Snapshot；
+- duplicate/out-of-order source sequence；
+- part upsert/delta/remove；
+- Runtime text/reasoning/tool/compaction 到 Part 的逐项映射；
+- Tool 四状态；
+- interaction；
+- reconnect 和 gap recovery；
+- 同一 message/part 不重复。
+
+禁止触碰：OpenCode UI 抽取、Host Gateway、Runtime 和协议定义。
+
+P4 必须由 Sol xhigh 复核复合 cursor、双来源 gap recovery 和“无第三份永久日志”；如果 reducer 试图改变协议，则退回 F0 contract review。
+
+### 20.10 P5：Context 与 Compaction
+
+负责人：Luna Max 编码，Sol xhigh 强制复核。
+
+独占写集：
+
+```text
+agent/runtime/kernel/session/context-builder.ts
+agent/runtime/kernel/session/compaction.ts
+agent/runtime/kernel/session/context-recovery.ts
+agent/runtime/kernel/session/compaction-prompt.ts
+agent/runtime/kernel/session/context-builder.test.ts
+agent/runtime/kernel/session/context-recovery.test.ts
+agent/runtime/kernel/session/compaction.test.ts
+```
+
+输入：P1 ModelDriver、P3 SessionLog、F0 entry/message。
+
+输出：上下文重建、threshold/manual/overflow compaction 和一次恢复重试。
+
+必须测试：
+
+- product context 每轮更新但不污染历史；
+- latest compaction + retained tail；
+- unresolved Tool/Interaction 不被拆开；
+- summary 失败保留原历史；
+- overflow 只重试一次；
+- compaction 后 restart 上下文一致；
+- 旧 usage 不触发连续压缩。
+
+禁止触碰：Agent loop、Host、UI 和 Provider 实现。
+
+这是高风险包。Luna Max 完成编码后不能直接进入 P7，必须经过独立 Sol xhigh gate review。
+
+### 20.11 P6：Host Tool Bridge 与 Projection
+
+负责人：Luna Max 编码，Sol xhigh 强制复核。
+
+独占写集：
+
+```text
+agent/runtime/kernel/host-tool-bridge.ts
+agent/runtime/kernel/tool-projection.ts
+agent/runtime/kernel/host-tool-bridge.test.ts
+agent/runtime/kernel/tool-projection.test.ts
+```
+
+输入：P2 Agent loop 的 ToolBridge 合同、当前 `EngineTurnHandle` 语义、Harness fixture。
+
+输出：外置 Tool wait、result/abort、原子 projection 更新。
+
+必须测试：
+
+- stale/unknown tool；
+- duplicate/late result；
+- result + projection 原子顺序；
+- abort waiting tool；
+- interaction pending；
+- parallel result 被首版策略拒绝；
+- Tool result 序列化有界。
+
+禁止触碰：现有 `DefAgentHost`、Harness manager、ProductGateway 和共享合同。
+
+Sol xhigh 重点审查：审批绕过、晚结果推进、projection race 和 mutation 幂等。
+
+### 20.12 P7：Runtime Session Orchestrator
+
+负责人：Luna Max 编码，主 Agent 集成，Sol xhigh 复核。
+
+独占写集：
+
+```text
+agent/runtime/kernel/runtime-session.ts
+agent/runtime/kernel/runtime-session.test.ts
+agent/runtime/kernel/testing/runtime-fixtures.ts
+```
+
+输入：P0 Golden Trace，以及 P1、P2、P3、P5、P6 的公开接口。
+
+输出：create/recover/start/compact/abort/waitForIdle/close 的最小 Runtime Session。
+
+必须测试：
+
+- 新 Session 多轮；
+- Tool chain；
+- restart 后继续；
+- threshold/overflow compaction；
+- Provider retry；
+- consumer abort；
+- Session close settlement；
+- 同一 Session 单 active run。
+
+禁止触碰各下层模块内部和现有 Host。发现接口缺口时提交 change request，由主 Agent 决定修改哪一个上游包。
+
+### 20.13 U0：Session Surface 技术门禁
+
+负责人：Luna Max 做有界 spike，主 Agent/Sol xhigh 做决定。
+
+目的：在 P8 正式编码前，用同一份 Conversation fixture 比较两个最小原型：
+
+- 直接保留 OpenCode-derived Solid micro-bundle；
+- 按相同 DOM/data-slot/CSS 机械移植到 React。
+
+Spike 只能放在临时 worktree 或明确的 prototype 目录，不得直接改生产 Overlay。比较指标：
+
+- text/reasoning/generic tool 三种最小视图的视觉差异；
+- production bundle 增量；
+- 需要复制的 `@opencode-ai/ui` primitive 数；
+- 独立 build/tsconfig 复杂度；
+- 主题变量接入；
+- 后续 Tool renderer 的维护成本；
+- OpenCode MIT 来源追踪是否清楚。
+
+决策原则：长期维护明显更优时选 React；只有 Solid 能以显著更低的改写量保持原 UI 且 bundle 可控时才选 Solid。U0 只决定技术承载，不允许重新设计 UI。
+
+U0 输出一个短 decision record 和固定截图。未通过 U0，不派发 P8。
+
+U0 的原型源码不进入产品提交。Luna Max 只提交以下证据写集，主 Agent 另行在 ADR 中记录最终选择：
+
+```text
+docs/architecture/audits/agent-session-surface-ui-spike-evidence.md
+docs/architecture/audits/assets/agent-session-surface-ui-spike/**
+```
+
+下节列出的 `src/agentSessionSurface/**` 是 React 方案的正式写集。若 U0 最终选择 Solid，主 Agent 必须先用单独 gate commit 把正式写集改到独立于 `src` 的 UI 根目录，并补独立 tsconfig/Vite 配置与仓库文件清单；禁止把 Solid TSX 直接塞进当前 `jsx: react-jsx` 的前端编译边界后让 P8 自行修补。
+
+### 20.14 P8：OpenCode-derived Session Surface
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+src/agentSessionSurface/index.html
+src/agentSessionSurface/main.tsx
+src/agentSessionSurface/components/**
+src/agentSessionSurface/styles/**
+src/agentSessionSurface/session-surface.spec.ts
+vite.agent-session-surface.config.ts
+```
+
+输入：P4 Conversation Store、U0 技术决定和固定 OpenCode `v1.17.11` 视觉源码。
+
+输出：独立小型会话 UI bundle。
+
+必须保留：SessionTurn、text、reasoning、Tool 四状态、interaction、compaction、自动滚动、copy/stop/retry 和主题变量。
+
+必须删除：OpenCode client/global sync、文件浏览、终端、VCS、provider 管理、task/todo/sub-agent。
+
+必须测试：
+
+- fixture render；
+- Tool 顺序；
+- 长会话滚动；
+- pending/running/completed/error；
+- snapshot/SSE 更新；
+- 与 OpenCode 基准截图视觉对比；
+- CSS 主题只改变颜色，不改变布局。
+
+该目录必须拥有独立的 Vite UI 构建/测试入口。当前 `tsconfig.agent.json` 只覆盖 Agent `.ts`，前端 `tsconfig.json` 只覆盖 `src`；因此 UI 放在 `src/agentSessionSurface/`，但必须使用独立 Vite entry 输出到 Agent UI 静态目录。P8 不得为了 `.tsx` 偷偷扩大 Agent Host 的 TypeScript 编译边界。
+
+禁止触碰：`src/components/AgentMode/**`、Host Gateway、Conversation 协议和 Runtime。
+
+### 20.15 P9：Agent UI Gateway
+
+负责人：Luna Max 编码，Sol xhigh 安全复核。
+
+独占写集：
+
+```text
+agent/host/agent-ui-gateway.ts
+agent/host/agent-ui-gateway.test.ts
+```
+
+输入：F0 Conversation 协议、P4 `ConversationProjector`/reducer fixture、现有 token/consumer 能力。
+
+输出：静态 UI、Session CRUD、prompt/stop、snapshot/SSE、interaction API。
+
+必须测试：
+
+- grant/token/origin；
+- Session 只显示当前 ProductBinding；
+- Snapshot/SSE 复合 cursor；
+- prompt 去重；
+- stop；
+- archive/delete；
+- interaction；
+- consumer lost；
+- bounded error 和路径逃逸。
+
+禁止触碰：旧 Gateway、Host 组装、Runtime、Overlay 和共享协议。
+
+### 20.16 P10：DEF Runtime Engine Adapter
+
+负责人：Luna Max。
+
+独占写集：
+
+```text
+agent/engines/def-runtime/adapter.ts
+agent/engines/def-runtime/errors.ts
+agent/engines/def-runtime/transcript-source.ts
+agent/engines/def-runtime/adapter.test.ts
+```
+
+输入：P7 Runtime Session、PS ProviderProfileSource、当前 AgentEngine 合同。
+
+输出：`AgentEngine + RuntimeTranscriptSource` 实现。
+
+必须测试：
+
+- probe/create/recover/start/compact/dispose/shutdown；
+- profile ref 与密钥脱敏；
+- accepted client turn/message ID；
+- Tool result/interaction；
+- terminal/abort；
+- transcript snapshot/SSE；
+- Host restart recovery。
+
+禁止触碰：`engine.ts`、`host-entry.ts`、旧 adapter、Host 和 UI。共享接口适配由主 Agent负责。
+
+### 20.17 I1：Kernel 与 DEF Host 联调
+
+负责人：主 Agent，Sol xhigh。禁止委派整个联调给单个 worker。
+
+独占共享写集：
+
+```text
+agent/core/contracts/**
+agent/host/def-agent-host.ts
+agent/runtime/host-entry.ts
+agent/host/http-server.ts
+agent/host/def-agent-interop.ts
+package.json
+tsconfig.agent.json
+scripts/build-agent-runtime.mjs
+```
+
+主 Agent 职责：
+
+- 按公开接口组装 P7/P9/P10；
+- 处理实际合同缺口；
+- 保持 Harness、ProductGateway 和审计语义；
+- 运行全部 Agent core/tool/host/harness/engine tests；
+- 处理跨包错误映射和生命周期；
+- 决定 feature flag 默认值；
+- 按 worker 交接的来源条目更新中央 `source-provenance.json`/NOTICE；
+- 不在联调时顺手重写 worker 模块内部。
+
+G4 门禁：
+
+- fake provider 完整 Host 黑盒通过；
+- 真实 Provider 最小 text/tool 多轮通过；
+- Session restart 通过；
+- Harness mutation 不重复；
+- Interop 能读取 turn/tool/question/failure；
+- OpenCode 仍可通过 flag 回退。
+
+### 20.18 P11：UI 与浏览器接入
+
+Luna Max 可负责有界 UI/bridge 代码，主 Agent 负责最终联调。
+
+建议 worker 独占写集：
+
+```text
+src/components/AgentMode/AgentModeOverlay.tsx
+src/components/AgentMode/AgentModeOverlay.css
+src/components/AgentMode/AgentModeOverlay.test.ts
+src/platform/agent/desktopAgentBridge.ts
+src/platform/agent/desktopAgentBridge.test.ts
+```
+
+开始前主 Agent 必须冻结 Host launch/Conversation API；worker 不得同时修改 Electron supervisor。
+
+验收：
+
+- SVG 入口可冷启动；
+- iframe 指向新 Session Surface；
+- 创建/恢复/归档/删除；
+- prompt/stop/retry；
+- Provider 配置错误恢复；
+- 主题、大小和现有 AI 模式布局不退化。
+
+#### 20.18.1 T1：生命周期自动黑盒
+
+负责人：Luna Max；只写测试，不修改生产代码。
+
+独占写集：
+
+```text
+agent/host/def-runtime-harness-blackbox.test.ts
+agent/host/def-runtime-lifecycle-blackbox.test.ts
+tests/e2e/agent-mode-def-runtime.spec.ts
+```
+
+输入：G4 Host 候选、P8 Session Surface、固定 fake provider 和 `DefCodexInteropProtocol v1`。
+
+必须覆盖：多轮上下文、Tool/Interaction 顺序、产品 mutation 回执唯一性、stop/abort、Host restart recovery、Provider 错误映射、归档/删除、SSE 重连和浏览器 SVG 冷启动。测试发现生产问题时只提交 finding，不得顺手修生产文件。
+
+#### 20.18.2 V1：独立全生命周期审查
+
+负责人：新开的 Sol xhigh，只读审查，不与 I1/P11 共用上下文，也不直接改代码。
+
+输入：G5 候选提交、Pi Golden Trace、OpenCode UI 基准截图、Host/Harness/Interop 测试结果。
+
+必须逐项审查：浏览器 SVG 冷启动、Session 创建与恢复、多轮上下文、Tool 调用顺序、Question/Approval、产品 mutation 回执、stop/abort、compaction、刷新、Host/Shell 重启、Provider 认证失败后恢复、归档和删除。输出按“阻断/高/普通”分级的 finding；存在“阻断”或“高”问题时禁止进入 P12。
+
+### 20.19 P12：Packaging 与 OpenCode Retirement
+
+Luna Max 负责机械修改和测试更新；主 Agent 负责删除批准、最终 diff 和回滚判断。
+
+Luna Max worker 的允许写集必须在派工时从下列范围中精确选择，默认只负责新增/改写构建和验证脚本：
+
+```text
+electron/agent-runtime.cjs
+electron/agent-runtime.test.cjs
+electron/agent-provider-profile.cjs
+electron/agent-provider-profile.test.cjs
+scripts/build-agent-runtime.mjs
+scripts/check-packaged-agent-host.mjs
+scripts/check-desktop-runtime-boundaries.mjs
+```
+
+`package.json`、OpenCode prepare/verify scripts、`agent/engines/opencode/**` 和旧 Gateway 的删除只由主 Agent 执行。P12 跨域且包含删除，不能与 I1/P11 并行修改。开始前必须满足 G5，并创建最后一个可回退提交。
+
+执行顺序：
+
+1. 先让 build/package tests 不再依赖 OpenCode；
+2. 再删除 prepare/verify scripts 和 locks；
+3. 再删除 Gateway/adapter/runtime/plugin/private bridge；
+4. 最后删除打包 vendor/runtime；
+5. 更新 ADR、architecture facts 和 smoke tests；
+6. 运行完整 Electron build/verify。
+
+#### 20.19.1 A1：最终手动验收
+
+负责人：主 Agent，Sol xhigh；Mac 使用 Computer Use，Windows 使用实际发布候选并记录用户实机结果。
+
+验收必须从“Shell 未预启动、浏览器已打开工作台”开始，覆盖 SVG 进入 AI 模式、单实例 Electron、会话创建、多轮追问、至少一次 Tool/Interaction、刷新、Shell 重启、Provider 错误恢复、归档/删除和长会话滚动。任何一次上下文丢失、重复产品 mutation、图片/工作区回归、空白窗口或第二个 Electron 实例都阻断 G6。
+
+### 20.20 主 Agent 专属文件
+
+为避免合并事故，下列文件默认只有主 Agent可以修改；worker 只有在派工中被明确授权才例外：
+
+```text
+agent/core/contracts/**
+agent/host/def-agent-host.ts
+agent/runtime/host-entry.ts
+agent/host/http-server.ts
+agent/host/def-agent-interop.ts
+electron/main.cjs
+electron/agent-runtime.cjs
+package.json
+tsconfig.agent.json
+scripts/repository-check.mjs
+scripts/build-agent-runtime.mjs
+agent/runtime/source-provenance.json
+agent/runtime/NOTICE.md
+docs/architecture/decisions/**
+docs/testing/def-agent-blackbox.md
+```
+
+`agent/host/def-agent-host.ts` 当前约 5,000 行，是本轮最大的冲突热点，任何 worker 都不得顺手修改。旧 OpenCode 文件在退役前也视为主 Agent 专属，避免一个 worker 为了“清理”提前破坏回退线。P12 如需修改上表中的构建或 supervisor 文件，必须获得一次性的精确文件授权，且不能与主 Agent 同时写入。
+
+### 20.21 Subagent 派工模板
+
+每次派工必须包含以下内容，不能只说“实现 Provider”或“做 Session”：
+
+```text
+工作包 ID：P?
+基线提交：<gate commit>
+参考源码：<repo@commit:path>
+允许写入：<精确目录/文件>
+禁止写入：<共享合同与其他包>
+输入合同：<类型/接口/fixture>
+交付物：<生产代码、测试、来源记录>
+必须通过：<命令和场景>
+不得实现：<明确排除范围>
+发现合同缺口时：停止扩域，提交 contract-change-request
+交接内容：commit、changed files、tests、deviations、risks
+```
+
+编码 worker 必须直接在独立 worktree 修改并提交一个可审查的原子 commit。不得把多个工作包混在一个 commit，也不得自动合并回主分支。
+
+F0 结束时，主 Agent 还要为每个包写明实际测试命令。Node 侧至少包含该包自有 `node --experimental-strip-types <test-file>`、`npm run typecheck:agent` 和 `npm run check:repo`；UI 侧至少包含定向测试、独立 bundle build 和 fixture render。worker 不得只汇报“测试通过”而不列命令。
+
+`contract-change-request` 必须写清：触发 fixture、现有合同为何无法表达、建议的最小字段/语义变化、受影响工作包以及不改会造成的错误。主 Agent 在单独 gate commit 中处理；其他 worker 继续以旧合同工作或暂停受影响部分，不能各自发明兼容字段。
+
+### 20.22 Worker 交接模板
+
+```text
+Package: P?
+Commit: <sha>
+Changed files:
+- ...
+
+Contracts consumed:
+- ...
+
+Tests run:
+- <command>: pass/fail
+
+Upstream behavior copied:
+- <source path/function>
+
+Provenance entries proposed:
+- <source@commit:path -> target>
+
+Intentional deviations:
+- ...
+
+Contract change requests:
+- none / ...
+
+Known risks:
+- ...
+```
+
+主 Agent 先检查写集是否越界，再检查测试和来源，最后才按依赖顺序 cherry-pick/rebase。发现越界时优先要求 worker 修正原 commit，不在主分支默默吸收。
+
+### 20.23 合并门禁
+
+| Gate | 负责人 | 必须证明 | 通过后可启动 |
+| --- | --- | --- | --- |
+| G0 合同冻结 | 主 Agent + Sol xhigh Reviewer | 共享合同、Trace Schema、文件清单、边界规则和 provenance schema 稳定 | Wave 1 |
+| G1 独立模块 | 主 Agent | P0/P1/PS/P2/P3/P4 各自测试、无写集越界 | Wave 2 |
+| G2 高风险子系统 | Sol xhigh Reviewer | P5/P6 的压缩、恢复、Tool/approval 安全 | P7 |
+| G3 Kernel | 主 Agent + Reviewer | 多轮、Tool、Session、compaction、abort | P10；P9/P10 完成后 I1 |
+| G4 Host | 主 Agent | Harness、ProductGateway、Interop、重启 | P11 |
+| G5 产品 UI | 主 Agent + Computer Use | OpenCode 视觉等价、完整生命周期 | V1；V1 无阻断后 P12 |
+| G6 退役 | 主 Agent + 独立 Sol xhigh | 无 OpenCode 依赖、可打包、双平台通过 | 发布 |
+
+每个 Gate 都要形成一个提交和简短记录。未通过 Gate 时，不允许靠“下一阶段顺便修”推进。
+
+### 20.24 独立 Review 分配
+
+以下内容必须由 Sol xhigh 独立复核：
+
+- F0 message/event/session/conversation 合同；
+- P0 Golden Oracle 的上游语义；
+- P1 密钥、错误和 retry；
+- PS profile 文件与密钥安全；
+- P2 terminal/abort/tool ordering；
+- P3 corruption/recovery；
+- P4 双来源投影、复合 cursor 和 gap recovery；
+- P5 compaction/context overflow；
+- P6 approval/projection/mutation 幂等；
+- P7 Runtime Session 生命周期；
+- U0 React/Solid 技术决定；
+- P9 grant/origin/SSE replay；
+- P10 Engine recovery；
+- G5 后的全生命周期；
+- OpenCode 删除前的最终 diff。
+
+以下内容通常不需要 Sol 单独编码或长时间审查：
+
+- 明确 fixture 下的 reducer；
+- CSS/DOM 的机械抽取；
+- 已冻结 schema 下的 serializer；
+- build script 的路径替换；
+- 测试名称和文档链接更新。
+
+### 20.25 主 Agent 最终联调清单
+
+主 Agent 不只是把 commit 合在一起。最终联调必须逐条核对：
+
+1. Provider event 能否无损进入 Runtime message；
+2. Runtime Tool call 能否经过 Harness 返回 Tool result；
+3. projection 是否在下一模型 Turn 前原子更新；
+4. Runtime Session 与 DEF Session ID 是否稳定绑定；
+5. Runtime transcript 与 Host audit 是否没有双事实源；
+6. compaction 后 UI 历史和模型上下文是否各自正确；
+7. snapshot/SSE 断线恢复是否无重复和缺口；
+8. InteractionBroker 与 UI 卡片是否同一状态；
+9. Browser consumer 丢失是否停止 Provider/Tool wait；
+10. Provider 配置更新是否不破坏已有 Session；
+11. SVG 冷启动、刷新、Shell 重启和归档是否完整；
+12. OpenCode 回退线在删除前是否始终可用；
+13. 最终包是否没有 OpenCode binary、私有服务和多余依赖；
+14. Mac/Windows 实测和 Interop 记录是否一致。
+
+### 20.26 并行方案的最终判断
+
+按此拆分后，真正可并行的是模块实现，不是架构决策：
+
+- 主 Agent/Sol xhigh 掌握合同、共享文件、Gate 和联调；
+- Luna Max subagent 负责边界冻结后的高密度编码；
+- 高风险模块由新的 Sol xhigh reviewer 独立复核；
+- 每个 worker 有互斥写集、可独立测试和原子 commit；
+- OpenCode 删除始终位于最后一波，不会因为前面并行而失去回退能力。
+
+这能把开工初期从“一个 Agent 顺序写完所有模块”缩短为两轮主要并行开发，同时不牺牲 Session、Tool、审批和上下文正确性。
