@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { SseParser, parseSseChunks } from './sse-parser.ts';
+import { SseParseError, SseParser, parseSseChunks } from './sse-parser.ts';
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -54,4 +54,13 @@ test('parseSseChunks preserves event order across mixed string and byte chunks',
 test('SseParser enforces a bounded buffered event', () => {
   const parser = new SseParser({ maxBufferChars: 8 });
   assert.throws(() => parser.push(bytes('data: too-long')), /Malformed server-sent event stream/u);
+});
+
+test('SseParser rejects invalid or incomplete UTF-8 as SseParseError', () => {
+  const invalid = new SseParser();
+  assert.throws(() => invalid.push(new Uint8Array([0xc3, 0x28])), SseParseError);
+
+  const incomplete = new SseParser();
+  assert.deepEqual(incomplete.push(new Uint8Array([0xe9])), []);
+  assert.throws(() => incomplete.finish(), SseParseError);
 });

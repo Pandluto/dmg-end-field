@@ -1,3 +1,8 @@
+/**
+ * DEF-owned provider failure projection.
+ * Behaviorally derived from pi-mono packages/ai/src/utils/provider-retry.ts at
+ * e47b8e37a6211ebd0b2942fa87059d64f81eec02.
+ */
 import type { ProviderFailure } from '../stream-events.ts';
 
 const AUTHENTICATION_FAILURE: ProviderFailure = {

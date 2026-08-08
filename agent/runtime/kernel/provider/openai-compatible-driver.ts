@@ -1,3 +1,9 @@
+/**
+ * DEF-owned OpenAI-compatible Chat Completions transport.
+ * Behaviorally derived from pi-mono
+ * packages/ai/src/api/openai-completions.ts at
+ * e47b8e37a6211ebd0b2942fa87059d64f81eec02.
+ */
 import type { RuntimeMessage } from '../messages.ts';
 import type {
   ModelDriver,
@@ -147,7 +153,15 @@ export class OpenAICompatibleDriver implements ModelDriver {
             normalizedError.retryAfterMs,
             this.random,
           );
-          await this.onRetryScheduled?.(retryCount, delayMs, failure);
+          try {
+            await this.onRetryScheduled?.(retryCount, delayMs, failure);
+          } catch (callbackError) {
+            yield makeFailureEvent(
+              ++ordinal,
+              retryCallbackFailure(callbackError, input.signal),
+            );
+            return;
+          }
           try {
             await waitForRetry(delayMs, input.signal, this.timers);
           } catch (retryError) {
@@ -159,7 +173,15 @@ export class OpenAICompatibleDriver implements ModelDriver {
             yield makeFailureEvent(++ordinal, retryFailure);
             return;
           }
-          await this.onRetryStarted?.(retryCount);
+          try {
+            await this.onRetryStarted?.(retryCount);
+          } catch (callbackError) {
+            yield makeFailureEvent(
+              ++ordinal,
+              retryCallbackFailure(callbackError, input.signal),
+            );
+            return;
+          }
           continue;
         }
 
@@ -326,11 +348,32 @@ function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
 }
 
 function resolveChatCompletionsUrl(baseUrl: string): string {
-  const normalized = baseUrl.trim().replace(/\/+$/u, '');
-  if (!normalized) throw new ProviderFailureError(badRequestProviderFailure());
-  return normalized.endsWith('/chat/completions')
-    ? normalized
-    : `${normalized}/chat/completions`;
+  let resolved: URL;
+  try {
+    const normalized = baseUrl.trim();
+    if (!normalized) throw new TypeError('empty base URL');
+    resolved = new URL(normalized);
+  } catch {
+    throw new ProviderFailureError(badRequestProviderFailure());
+  }
+
+  if (
+    (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') ||
+    resolved.username !== '' ||
+    resolved.password !== '' ||
+    resolved.search !== '' ||
+    resolved.hash !== '' ||
+    resolved.href.includes('?') ||
+    resolved.href.includes('#')
+  ) {
+    throw new ProviderFailureError(badRequestProviderFailure());
+  }
+
+  const normalizedPath = resolved.pathname.replace(/\/+$/u, '');
+  resolved.pathname = normalizedPath.endsWith('/chat/completions')
+    ? normalizedPath
+    : `${normalizedPath}/chat/completions`;
+  return resolved.toString();
 }
 
 function normalizeAttemptError(error: unknown, signal: AbortSignal): ProviderFailureError {
@@ -338,6 +381,13 @@ function normalizeAttemptError(error: unknown, signal: AbortSignal): ProviderFai
   if (signal.aborted || isAbortError(error)) return new ProviderFailureError(abortedProviderFailure());
   if (error instanceof SseParseError) return new ProviderMalformedResponseError();
   return new ProviderFailureError(providerFailureFromUnknown(error));
+}
+
+function retryCallbackFailure(error: unknown, signal: AbortSignal): ProviderFailure {
+  if (signal.aborted || isAbortError(error)) return abortedProviderFailure();
+  // Retry hooks are control-plane callbacks. Their arbitrary exception text is
+  // never a provider diagnostic because it may contain request credentials.
+  return providerFailureFromUnknown(undefined);
 }
 
 function makeFailureEvent(ordinal: number, failure: ProviderFailure): ProviderStreamEvent {
@@ -546,6 +596,7 @@ class CompletionState {
     const functionPart = isRecord(raw.function) ? raw.function : raw;
     const nameDelta = readString(functionPart.name) ?? '';
     const argumentsDelta = readJsonDelta(functionPart.arguments);
+    let emittedNameDelta = nameDelta;
     let block = this.toolsByKey.get(key);
     if (!block) {
       const providerId = readString(raw.id);
@@ -554,7 +605,7 @@ class CompletionState {
         contentIndex: this.contentIndex++,
         key,
         toolCallId: asToolCallId(providerId ?? `tool-call-${choiceIndex}-${toolIndex}`),
-        name: '',
+        name: nameDelta,
         arguments: '',
         ended: false,
       };
@@ -566,16 +617,18 @@ class CompletionState {
         toolCallId: block.toolCallId,
         name: nameDelta,
       }));
+      emittedNameDelta = '';
+    } else {
+      block.name += nameDelta;
     }
 
-    block.name += nameDelta;
     block.arguments += argumentsDelta;
-    if (nameDelta || argumentsDelta) {
+    if (emittedNameDelta || argumentsDelta) {
       events.push(this.emit({
         type: 'tool-call.delta',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        nameDelta,
+        nameDelta: emittedNameDelta,
         argumentsDelta,
       }));
     }

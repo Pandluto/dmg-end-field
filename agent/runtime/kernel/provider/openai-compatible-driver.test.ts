@@ -11,14 +11,17 @@ async function collect(stream: AsyncIterable<ProviderStreamEvent>): Promise<Prov
   return events;
 }
 
-function makeRequest(signal: AbortSignal = new AbortController().signal): RuntimeModelRequest {
+function makeRequest(
+  signal: AbortSignal = new AbortController().signal,
+  baseUrl = 'https://provider.test/v1',
+): RuntimeModelRequest {
   return {
     runId: 'run-1',
     turnId: 'turn-1',
     connection: {
       providerId: 'deepseek',
       modelId: 'deepseek-reasoner',
-      baseUrl: 'https://provider.test/v1',
+      baseUrl,
       apiKey: 'sk-test-secret',
       headers: { 'X-Provider-Test': 'present' },
       outputLimit: 512,
@@ -214,14 +217,30 @@ test('OpenAI-compatible driver emits complete incremental tool calls only', asyn
     retryPolicy: { maxRetries: 0 },
   }).stream(makeRequest()));
 
-  const starts = events.filter((event) => event.type === 'tool-call.start');
-  const deltas = events.filter((event) => event.type === 'tool-call.delta');
-  const ends = events.filter((event) => event.type === 'tool-call.end');
+  const starts = events.filter((event): event is Extract<ProviderStreamEvent, { type: 'tool-call.start' }> => (
+    event.type === 'tool-call.start'
+  ));
+  const deltas = events.filter((event): event is Extract<ProviderStreamEvent, { type: 'tool-call.delta' }> => (
+    event.type === 'tool-call.delta'
+  ));
+  const ends = events.filter((event): event is Extract<ProviderStreamEvent, { type: 'tool-call.end' }> => (
+    event.type === 'tool-call.end'
+  ));
   assert.equal(starts.length, 1);
   assert.equal(deltas.length, 2);
   assert.equal(ends.length, 1);
-  assert.equal(ends[0]?.type === 'tool-call.end' ? ends[0].name : '', 'read_timeline');
-  assert.deepEqual(ends[0]?.type === 'tool-call.end' ? ends[0].arguments : undefined, {
+  const reconstructedName = deltas.reduce((name, event) => name + event.nameDelta, starts[0]!.name);
+  const reconstructedArguments = deltas.reduce(
+    (argumentsJson, event) => argumentsJson + event.argumentsDelta,
+    '',
+  );
+  assert.equal(starts[0]!.name, 'read_');
+  assert.deepEqual(deltas.map((event) => event.nameDelta), ['', 'timeline']);
+  assert.deepEqual(deltas.map((event) => event.argumentsDelta), ['{"timelineId":', '"a"}']);
+  assert.equal(reconstructedName, 'read_timeline');
+  assert.equal(reconstructedArguments, '{"timelineId":"a"}');
+  assert.equal(ends[0]!.name, reconstructedName);
+  assert.deepEqual(ends[0]!.arguments, {
     timelineId: 'a',
   });
   assert.equal(terminalEvents(events).length, 1);
@@ -329,6 +348,67 @@ test('mid-stream network drops produce one terminal and never duplicate partial 
   assert.equal(events.filter((event) => event.type === 'text.delta').length, 1);
 });
 
+test('invalid UTF-8 becomes one malformed-response terminal', async () => {
+  const queued = queuedFetch([responseFromChunks([
+    new TextEncoder().encode('data: '),
+    new Uint8Array([0xff]),
+    new TextEncoder().encode('\n\n'),
+  ])]);
+  const events = await collect(new OpenAICompatibleDriver({
+    fetch: queued.fetch,
+    retryPolicy: { maxRetries: 0 },
+  }).stream(makeRequest()));
+
+  assert.equal(terminalEvents(events).length, 1);
+  assert.equal(requireResponseError(events).failure.kind, 'malformed-response');
+});
+
+test('onRetryScheduled exceptions become one sanitized response.error', async () => {
+  const secret = 'sk-scheduled-callback-secret';
+  const queued = queuedFetch([new Response(null, { status: 429 })]);
+  let events: ProviderStreamEvent[] = [];
+  await assert.doesNotReject(async () => {
+    events = await collect(new OpenAICompatibleDriver({
+      fetch: queued.fetch,
+      retryPolicy: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 },
+      timers: immediateTimers(),
+      onRetryScheduled: () => {
+        throw new Error(`scheduled callback leaked ${secret}`);
+      },
+    }).stream(makeRequest()));
+  });
+
+  assert.equal(queued.calls.length, 1);
+  assert.equal(terminalEvents(events).length, 1);
+  assert.equal(requireResponseError(events).failure.kind, 'unknown');
+  assert.equal(JSON.stringify(events).includes(secret), false);
+  assert.equal(JSON.stringify(events).includes('sk-test-secret'), false);
+});
+
+test('onRetryStarted exceptions become aborted when the signal was aborted', async () => {
+  const secret = 'sk-started-callback-secret';
+  const controller = new AbortController();
+  const queued = queuedFetch([new Response(null, { status: 503 })]);
+  let events: ProviderStreamEvent[] = [];
+  await assert.doesNotReject(async () => {
+    events = await collect(new OpenAICompatibleDriver({
+      fetch: queued.fetch,
+      retryPolicy: { maxRetries: 1, baseDelayMs: 0, maxDelayMs: 0, jitterRatio: 0 },
+      timers: immediateTimers(),
+      onRetryStarted: () => {
+        controller.abort();
+        throw new Error(`started callback leaked ${secret}`);
+      },
+    }).stream(makeRequest(controller.signal)));
+  });
+
+  assert.equal(queued.calls.length, 1);
+  assert.equal(terminalEvents(events).length, 1);
+  assert.equal(requireResponseError(events).failure.kind, 'aborted');
+  assert.equal(JSON.stringify(events).includes(secret), false);
+  assert.equal(JSON.stringify(events).includes('sk-test-secret'), false);
+});
+
 test('abort before or during retry is terminal and does not leak the API key', async () => {
   const controller = new AbortController();
   const queued = queuedFetch([new Response(null, { status: 429 })]);
@@ -354,4 +434,47 @@ test('unknown transport errors are mapped without preserving credential-shaped t
   assert.equal(events.at(-1)?.type, 'response.error');
   assert.equal(JSON.stringify(events).includes(secret), false);
   assert.equal(JSON.stringify(events).includes('Authorization'), false);
+});
+
+test('chat completions URL construction preserves base paths without duplication', async () => {
+  for (const [baseUrl, expected] of [
+    ['https://provider.test/v1/', 'https://provider.test/v1/chat/completions'],
+    ['https://provider.test/chat/completions', 'https://provider.test/chat/completions'],
+    ['https://provider.test/v1/chat/completions/', 'https://provider.test/v1/chat/completions'],
+  ] as const) {
+    const queued = queuedFetch([responseFromSse(['[DONE]'])]);
+    const events = await collect(new OpenAICompatibleDriver({
+      fetch: queued.fetch,
+      retryPolicy: { maxRetries: 0 },
+    }).stream(makeRequest(new AbortController().signal, baseUrl)));
+
+    assert.equal(String(queued.calls[0]?.input), expected);
+    assert.equal(terminalEvents(events).length, 1);
+    assert.equal(terminalEvents(events)[0]?.type, 'response.done');
+  }
+});
+
+test('chat completions URL construction rejects unsafe URLs without leaking them', async () => {
+  const secret = 'sk-url-secret';
+  const invalidBaseUrls = [
+    `https://user:${secret}@provider.test/v1`,
+    `https://provider.test/v1?api_key=${secret}`,
+    `https://provider.test/v1#${secret}`,
+    `file:///private/tmp/${secret}`,
+    `not a URL ${secret}`,
+  ];
+
+  for (const baseUrl of invalidBaseUrls) {
+    const queued = queuedFetch([responseFromSse(['[DONE]'])]);
+    const events = await collect(new OpenAICompatibleDriver({
+      fetch: queued.fetch,
+      retryPolicy: { maxRetries: 0 },
+    }).stream(makeRequest(new AbortController().signal, baseUrl)));
+
+    assert.equal(queued.calls.length, 0);
+    assert.equal(terminalEvents(events).length, 1);
+    assert.equal(requireResponseError(events).failure.kind, 'bad-request');
+    assert.equal(JSON.stringify(events).includes(secret), false);
+    assert.equal(JSON.stringify(events).includes(baseUrl), false);
+  }
 });

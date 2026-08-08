@@ -1,3 +1,8 @@
+/**
+ * DEF-owned bounded event-stream decoder.
+ * Behaviorally derived from pi-mono packages/ai/src/utils/event-stream.ts at
+ * e47b8e37a6211ebd0b2942fa87059d64f81eec02.
+ */
 export interface SseEvent {
   readonly event?: string;
   readonly data: string;
@@ -24,7 +29,7 @@ const DEFAULT_MAX_BUFFER_CHARS = 4 * 1024 * 1024;
  * a multi-byte UTF-8 code point split across ReadableStream chunks survives.
  */
 export class SseParser {
-  private readonly decoder = new TextDecoder('utf-8');
+  private readonly decoder = new TextDecoder('utf-8', { fatal: true });
   private readonly maxBufferChars: number;
   private buffer = '';
   private dataLines: string[] = [];
@@ -42,13 +47,13 @@ export class SseParser {
   push(chunk: Uint8Array | string): SseEvent[] {
     this.buffer += typeof chunk === 'string'
       ? chunk
-      : this.decoder.decode(chunk, { stream: true });
+      : this.decode(chunk, true);
     this.assertBounded();
     return this.consumeCompleteLines(false);
   }
 
   finish(): SseEvent[] {
-    this.buffer += this.decoder.decode();
+    this.buffer += this.decode(undefined, false);
     this.assertBounded();
 
     const events = this.consumeCompleteLines(true);
@@ -138,6 +143,16 @@ export class SseParser {
   private assertBounded(): void {
     const dataChars = this.dataLines.reduce((total, line) => total + line.length, 0);
     if (this.buffer.length + dataChars > this.maxBufferChars) throw new SseParseError();
+  }
+
+  private decode(chunk: Uint8Array | undefined, stream: boolean): string {
+    try {
+      return chunk === undefined
+        ? this.decoder.decode()
+        : this.decoder.decode(chunk, { stream });
+    } catch {
+      throw new SseParseError();
+    }
   }
 }
 
