@@ -217,6 +217,7 @@ export class DefAgentHost {
   readonly #turns = new Map<DefTurnId, ActiveTurn>();
   readonly #settledTurns = new Map<DefTurnId, SettledTurn>();
   readonly #timelineCleanupPromises = new Set<Promise<void>>();
+  readonly #timelineCleanupBySession = new Map<DefSessionId, Promise<void>>();
   #activeTurn: ActiveTurn | null = null;
   #startingTurn: StartingTurn | null = null;
   #activeSessionId: DefSessionId | null = null;
@@ -381,6 +382,9 @@ export class DefAgentHost {
         await this.#finishDeletingSession(active);
       } else {
         await this.#recoverSessionIfNeeded(active);
+        if (this.#timelineCleanupBySession.has(active.session.defSessionId)) {
+          await this.#awaitTimelineCleanup(active);
+        }
         await this.#cleanupStalePreparedTimelinePreviews(active, active.binding);
       }
       this.#trimEventWindow(active);
@@ -1203,6 +1207,9 @@ export class DefAgentHost {
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+      await this.#awaitTimelineCleanup(record);
+    }
     await this.#cleanupStalePreparedCandidates(record, record.binding);
     await this.#cleanupStalePreparedTimelinePreviews(record, record.binding);
     if (previous) return previous.result;
@@ -1307,6 +1314,9 @@ export class DefAgentHost {
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+      await this.#awaitTimelineCleanup(record);
+    }
     await this.#cleanupStalePreparedCandidates(record, input.binding ?? record.binding);
     await this.#cleanupStalePreparedTimelinePreviews(record, input.binding ?? record.binding);
     if (previous) return previous.result;
@@ -1452,6 +1462,9 @@ export class DefAgentHost {
     this.#assertRecoveryOutcome(record, recoveryOutcome);
     this.#ensureEventsLoaded(record);
     this.#assertTurnAvailable();
+    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+      await this.#awaitTimelineCleanup(record);
+    }
     await this.#cleanupStalePreparedCandidates(record, input.binding);
     await this.#cleanupStalePreparedTimelinePreviews(record, input.binding);
     if (previous) return previous.result;
@@ -3648,7 +3661,12 @@ export class DefAgentHost {
   }
 
   #trackIncompleteTimelinePreviewCleanup(active: ActiveTurn): void {
-    const cleanup = this.#cleanupIncompleteTimelinePreviews(active);
+    const sessionId = active.session.session.defSessionId;
+    const previous = this.#timelineCleanupBySession.get(sessionId);
+    const cleanup = (previous ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => this.#cleanupIncompleteTimelinePreviews(active));
+    this.#timelineCleanupBySession.set(sessionId, cleanup);
     this.#timelineCleanupPromises.add(cleanup);
     void cleanup
       .catch((error: unknown) => {
@@ -3678,7 +3696,25 @@ export class DefAgentHost {
           // do not turn an event-capacity failure into an unhandled rejection.
         }
       })
-      .finally(() => this.#timelineCleanupPromises.delete(cleanup));
+      .finally(() => {
+        this.#timelineCleanupPromises.delete(cleanup);
+        if (this.#timelineCleanupBySession.get(sessionId) === cleanup) {
+          this.#timelineCleanupBySession.delete(sessionId);
+        }
+      });
+  }
+
+  /**
+   * A failed asynchronous cleanup is intentionally swallowed here so the
+   * canonical stale-preview recovery path can inspect the journal and retry
+   * or fail closed. The important ordering guarantee is that the next Turn
+   * cannot inspect/dispatch cleanup until this attempt has finished journaling
+   * its command and receipt (or its failure).
+   */
+  async #awaitTimelineCleanup(record: SessionRecord): Promise<void> {
+    const cleanup = this.#timelineCleanupBySession.get(record.session.defSessionId);
+    if (!cleanup) return;
+    await cleanup.catch(() => undefined);
   }
 
   #settle(active: ActiveTurn, terminal: DefEvent): void {
@@ -4743,14 +4779,28 @@ function timelinePreviewIdentityWasConsumed(
         ? timelineIdentityFromObject(input, 'superseded')
         : null;
     if (!requested || !timelinePreviewIdentityMatches(requested, identity)) return false;
-    // A request is consumed only after Host has journaled its successful
-    // result. Failed validation, approval, cleanup, or Product commands keep
-    // the identity retryable; the next Turn will re-verify the full history.
-    return events.some((result) => (
+    // A request is consumed after Host has journaled either a successful
+    // result or a typed deletion/abandonment audit. An approval rejection,
+    // timeout, or apply failure therefore remains retryable only when cleanup
+    // was preserved/failed; once the isolated candidate is proven gone, the
+    // four-field identity must not be presented to another Turn.
+    const successfulResult = events.some((result) => (
       result.type === 'tool.result'
         && result.defTurnId === event.defTurnId
         && result.toolCallId === event.toolCallId
         && result.sequence > event.sequence
+    ));
+    if (successfulResult) return true;
+    return events.some((resolution) => (
+      resolution.type === 'interaction.resolved'
+        && resolution.defTurnId === event.defTurnId
+        && resolution.toolCallId === event.toolCallId
+        && resolution.sequence > event.sequence
+        && resolution.payload.cleanup !== undefined
+        && resolution.payload.cleanup.proposalId === identity.proposalId
+        && resolution.payload.cleanup.nodeId === identity.nodeId
+        && (resolution.payload.cleanup.status === 'deleted'
+          || resolution.payload.cleanup.status === 'abandoned')
     ));
   });
 }
