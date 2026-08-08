@@ -540,7 +540,7 @@ export class DefProductToolRegistry implements DefWorkbenchToolRegistry {
       handler(
         descriptor(
           'def.worknode.use',
-          'Checkout the exact reviewed Work Node revision and digests after explicit user approval.',
+          'Checkout the exact reviewed Buff-only Work Node revision and digests after explicit user approval. Any Timeline, selection or loadout change is rejected by the Product scope gate.',
           'mutate',
           objectSchema({
             required: [
@@ -1177,7 +1177,7 @@ async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolP
   const nodeId = requiredString(value.nodeId, 'nodeId', 200);
   return mutationPlan(
     `检出 Work Node ${nodeId}`,
-    ['timeline.work-node', 'timeline.checkout'],
+    ['timeline.buffs', 'timeline.resistance', 'timeline.work-node', 'timeline.checkout'],
     {
       op: 'checkoutAiTimelineWorkNode',
       nodeId,
@@ -1193,6 +1193,7 @@ async function prepareWorkNodeUse(input: JsonValue): Promise<DefInteractiveToolP
         'expectedWorkingPayloadDigest',
       ),
       expectedDiffDigest: requiredSha256Digest(value.expectedDiffDigest, 'expectedDiffDigest'),
+      expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
       reload: false,
       approval: {
         mode: 'manual',

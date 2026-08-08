@@ -1665,6 +1665,7 @@ function makeExactWorkNodeSnapshot(
           expectedNodeRevision: 7,
           expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
           expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+          expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
           reload: false,
           approval: { mode: 'manual', approvedBy: 'user', rationale: 'use test' },
         },

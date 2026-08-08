@@ -2458,14 +2458,18 @@ export function CanvasBoard({
     const nodeDiff = diffTimelinePayloads(node.basePayload, node.workingPayload);
     const hasReviewReceipt = command.expectedNodeRevision !== undefined
       || command.expectedWorkingPayloadDigest !== undefined
-      || command.expectedDiffDigest !== undefined;
+      || command.expectedDiffDigest !== undefined
+      || command.expectedSemanticScope !== undefined;
     const nodeRevision = hasReviewReceipt
       ? authoritativePreparedNodeRevision(node)
       : operatorConfigNodeRevision(node);
     if (hasReviewReceipt) {
       if (command.expectedNodeRevision === undefined
         || !command.expectedWorkingPayloadDigest
-        || !command.expectedDiffDigest) {
+        || !command.expectedDiffDigest
+        || command.expectedSemanticScope?.length !== 2
+        || command.expectedSemanticScope[0] !== 'buff.attachments'
+        || command.expectedSemanticScope[1] !== 'buff.resistance') {
         throw new Error('AI_WORKNODE_REVIEW_RECEIPT_INCOMPLETE: Work Node 审阅凭据不完整。');
       }
       const observedIdentity = await buildReviewedWorkNodeIdentity({
@@ -2486,6 +2490,13 @@ export function CanvasBoard({
       });
       if (!reviewVerification.pass) {
         throw new Error(`AI_WORKNODE_REVIEW_STALE: ${reviewVerification.reason || 'Work Node 已变化。'}`);
+      }
+      const semanticDiff = diffPreparedPayloads(node.basePayload, node.workingPayload);
+      const semanticScopeGate = checkPreparedScope(semanticDiff, command.expectedSemanticScope);
+      if (!semanticScopeGate.pass) {
+        throw new Error(
+          `AI_WORKNODE_SCOPE_OVERREACH: Buff Work Node 包含未批准范围：${semanticScopeGate.violations.map((violation) => violation.path).join('、')}`,
+        );
       }
     }
     const checkoutDecision = buildAiTimelineCheckoutDecision({

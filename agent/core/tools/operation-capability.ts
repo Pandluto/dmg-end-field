@@ -332,7 +332,7 @@ const ENTRIES = {
       [tool(TOOL.current), tool(TOOL.buff, 'coverage')],
     ),
     apply: available(
-      '由 worknode.use 在审批后 checkout 已审阅 Buff Work Node，并校验附件和 checkout。',
+      '由 worknode.use 在审批后 checkout 已审阅 Buff-only Work Node；Product 在 commit 前拒绝任何 Timeline、选人或配装越界 diff。',
       [tool(TOOL.worknodeUse), command(COMMAND.checkout)],
       true,
     ),

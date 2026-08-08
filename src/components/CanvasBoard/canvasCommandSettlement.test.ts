@@ -66,10 +66,16 @@ const checkoutEnd = source.indexOf('\n  const ensureTimelineDocumentBaselineWork
 assert.ok(checkoutStart >= 0 && checkoutEnd > checkoutStart, 'Work Node checkout boundary must remain detectable');
 const checkoutSource = source.slice(checkoutStart, checkoutEnd);
 const reviewGuardIndex = checkoutSource.indexOf('verifyReviewedWorkNodeIdentity({');
+const scopeGuardIndex = checkoutSource.indexOf('checkPreparedScope(semanticDiff, command.expectedSemanticScope)');
+const firstCommitIndex = checkoutSource.indexOf('client.commit(');
 const firstLiveSaveIndex = checkoutSource.indexOf('saveTimelineData();');
 assert.ok(
   reviewGuardIndex >= 0 && firstLiveSaveIndex > reviewGuardIndex,
   'the exact reviewed revision/payload/diff receipt must be verified before checkout can save live Canvas state',
+);
+assert.ok(
+  scopeGuardIndex > reviewGuardIndex && firstCommitIndex > scopeGuardIndex,
+  'a reviewed Buff checkout must reject mixed-scope payloads before creating a commit',
 );
 assert.match(
   dispatcher,

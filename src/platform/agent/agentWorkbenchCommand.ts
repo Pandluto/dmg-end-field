@@ -254,7 +254,8 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
   if (operation === 'checkoutAiTimelineWorkNode') {
     exact(value, [
       'op', 'nodeId', 'commitId', 'expectedNodeRevision',
-      'expectedWorkingPayloadDigest', 'expectedDiffDigest', 'reload', 'approval',
+      'expectedWorkingPayloadDigest', 'expectedDiffDigest', 'expectedSemanticScope',
+      'reload', 'approval',
     ]);
     if (value.reload === true) invalid('Agent Work Node checkout must not request a reload');
     const approval = parseManualUserApproval(value.approval, 'checkoutAiTimelineWorkNode');
@@ -263,6 +264,12 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
       'expectedWorkingPayloadDigest',
     );
     const expectedDiffDigest = exactSha256Digest(value.expectedDiffDigest, 'expectedDiffDigest');
+    if (!Array.isArray(value.expectedSemanticScope)
+      || value.expectedSemanticScope.length !== 2
+      || value.expectedSemanticScope[0] !== 'buff.attachments'
+      || value.expectedSemanticScope[1] !== 'buff.resistance') {
+      invalid('checkoutAiTimelineWorkNode expectedSemanticScope must be the complete Buff boundary');
+    }
     return {
       op: 'checkoutAiTimelineWorkNode',
       nodeId: string(value.nodeId, 'nodeId', 200),
@@ -275,6 +282,7 @@ export function parseAgentWorkbenchCommand(value: JsonObject): MainWorkbenchComm
       ),
       expectedWorkingPayloadDigest,
       expectedDiffDigest,
+      expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
       reload: false,
       approval,
     };

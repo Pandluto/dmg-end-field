@@ -14,6 +14,7 @@ import {
   type JsonObject,
 } from '../../core/contracts/index.ts';
 import { OpenCodeEngineAdapter, type OpenCodeRuntimeController } from './adapter.ts';
+import { DEF_HARNESS_CANONICAL_TOOL_NAMES } from '../../core/harness/catalog.ts';
 import { OpenCodeEngineError } from './errors.ts';
 import DefOpenCodeEnginePlugin from './plugin-entry.ts';
 import {
@@ -95,6 +96,10 @@ assert.deepEqual(OPENCODE_TOOL_BINDINGS.map(([canonical]) => canonical), [
   'def.worknode.delete',
   'def.worknode.use',
   'def.worknode.restore',
+  'def.timeline.preview',
+  'def.timeline.apply_prepared',
+  'def.timeline.reject_preview',
+  'def.timeline.revise_preview',
   'def.loadout.preview',
   'def.loadout.apply_prepared',
   'def.team.selection.apply',
@@ -113,6 +118,13 @@ assert.equal(
 assert.equal(
   new Set(OPENCODE_TOOL_BINDINGS.map(([, safe]) => safe)).size,
   OPENCODE_TOOL_BINDINGS.length,
+);
+assert.deepEqual(
+  DEF_HARNESS_CANONICAL_TOOL_NAMES.filter((name) => (
+    !OPENCODE_TOOL_BINDINGS.some(([canonical]) => canonical === name)
+  )),
+  [],
+  'every Harness-visible Tool must have an OpenCode-safe binding',
 );
 assert.throws(() => toOpenCodeSafeToolName('def.unknown'), /Unsupported DEF Tool binding/u);
 

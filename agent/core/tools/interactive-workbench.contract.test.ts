@@ -678,7 +678,9 @@ const usePlan = await prepare('def.worknode.use', {
   expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
   expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
 });
-assert.deepEqual(usePlan.scope, ['timeline.work-node', 'timeline.checkout']);
+assert.deepEqual(usePlan.scope, [
+  'timeline.buffs', 'timeline.resistance', 'timeline.work-node', 'timeline.checkout',
+]);
 assert.deepEqual(usePlan.command, {
   op: 'checkoutAiTimelineWorkNode',
   nodeId: 'node-ready',
@@ -686,6 +688,7 @@ assert.deepEqual(usePlan.command, {
   expectedNodeRevision: 0,
   expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
   expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
   reload: false,
   approval: {
     mode: 'manual',

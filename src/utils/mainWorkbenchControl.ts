@@ -411,6 +411,8 @@ export type MainWorkbenchCommand =
       expectedNodeRevision?: number;
       expectedWorkingPayloadDigest?: string;
       expectedDiffDigest?: string;
+      /** Product-enforced semantic boundary for an Agent-reviewed checkout. */
+      expectedSemanticScope?: PreparedWorkNodeScope[];
       reload?: boolean;
       approval?: {
         mode?: 'auto' | 'manual';

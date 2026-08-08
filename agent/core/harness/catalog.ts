@@ -626,7 +626,7 @@ const buffOperations: readonly DefHarnessOperationDefinition[] = [
     operation: 'apply',
     phases: [
       phase('buff-apply-read', 'context', T.worknodeRead, 'Read the explicitly reviewed Buff Work Node and retain reviewIdentity.nodeRevision, reviewIdentity.workingPayloadDigest and reviewIdentity.diffDigest exactly.'),
-      phase('buff-apply', 'mutation', T.worknodeUse, 'Use only that explicitly reviewed Buff Work Node. Copy the three reviewIdentity values into the expected fields unchanged; after approval verify exact Buff attachments and checkout.', buffMutationWrites),
+      phase('buff-apply', 'mutation', T.worknodeUse, 'Use only that explicitly reviewed Buff Work Node. Copy the three reviewIdentity values into the expected fields unchanged; the Product rejects any Timeline, selection or loadout diff before commit. After approval verify exact Buff state and checkout.', BUFF_WRITE_SCOPE),
     ],
   }),
   defineOperation({

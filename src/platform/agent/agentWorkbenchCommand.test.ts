@@ -473,6 +473,7 @@ assert.equal(parseAgentWorkbenchCommand({
   expectedNodeRevision: 0,
   expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
   expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
   reload: false,
   approval: { mode: 'manual', approvedBy: 'user' },
 }).op, 'checkoutAiTimelineWorkNode');
@@ -488,6 +489,7 @@ rejected({
   expectedNodeRevision: 1,
   expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
   expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
   reload: true,
   approval: { mode: 'manual', approvedBy: 'user' },
 });
@@ -503,6 +505,17 @@ rejected({
   expectedNodeRevision: 1,
   expectedWorkingPayloadDigest: 'sha256:not-exact',
   expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  expectedSemanticScope: ['buff.attachments', 'buff.resistance'],
+  reload: false,
+  approval: { mode: 'manual', approvedBy: 'user' },
+});
+rejected({
+  op: 'checkoutAiTimelineWorkNode',
+  nodeId: 'node-test',
+  expectedNodeRevision: 1,
+  expectedWorkingPayloadDigest: `sha256:${'a'.repeat(64)}`,
+  expectedDiffDigest: `sha256:${'b'.repeat(64)}`,
+  expectedSemanticScope: ['timeline.structure'],
   reload: false,
   approval: { mode: 'manual', approvedBy: 'user' },
 });
