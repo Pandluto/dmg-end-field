@@ -2,115 +2,79 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
-import {
-  resolveCacheLayout,
-  inspectRuntimeCode,
-  verifyArtifact,
-  verifyDarwinCodeSignature,
-} from './opencode-runtime-contract.mjs';
-import {
-  resolveOpenCodeUiLayout,
-  verifyOpenCodeUiTree,
-} from './opencode-ui-contract.mjs';
+import { build as esbuild } from 'esbuild';
+import { build as viteBuild } from 'vite';
 
 const projectRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const entryPoint = path.join(projectRoot, 'agent', 'runtime', 'host-entry.ts');
-const pluginEntryPoint = path.join(projectRoot, 'agent', 'engines', 'opencode', 'plugin-entry.ts');
+const uiConfigFile = path.join(projectRoot, 'vite.agent-session-surface.config.ts');
+const noticeFile = path.join(projectRoot, 'agent', 'runtime', 'NOTICE.md');
+const provenanceFile = path.join(projectRoot, 'agent', 'runtime', 'source-provenance.json');
 const outputDirectory = path.join(projectRoot, 'dist', 'agent');
 const outputFile = path.join(outputDirectory, 'host-entry.cjs');
-const engineOutputDirectory = path.join(outputDirectory, 'engine', 'opencode');
-const pluginOutputFile = path.join(engineOutputDirectory, 'plugin.mjs');
-const nativeUiOutputDirectory = path.join(outputDirectory, 'ui');
+const engineOutputDirectory = path.join(outputDirectory, 'engine', 'def-runtime');
+const manifestFile = path.join(engineOutputDirectory, 'manifest.json');
+const uiOutputDirectory = path.join(outputDirectory, 'ui');
+const evidenceOutputDirectory = path.join(outputDirectory, 'runtime-evidence');
+const runtimeVersion = 'def-runtime-v1';
+const runtimeSchemaVersion = 1;
 
-if (!fs.existsSync(entryPoint)) {
-  throw new Error(`缺少 DEF Agent Host runtime entry：${entryPoint}`);
-}
-if (!fs.existsSync(pluginEntryPoint)) {
-  throw new Error(`缺少 DEF OpenCode plugin entry：${pluginEntryPoint}`);
+for (const [label, filePath] of [
+  ['DEF Agent Host runtime entry', entryPoint],
+  ['P8 Session Surface Vite config', uiConfigFile],
+  ['runtime NOTICE', noticeFile],
+  ['runtime source provenance', provenanceFile],
+]) {
+  if (!fs.existsSync(filePath)) throw new Error(`缺少 ${label}：${filePath}`);
 }
 
 fs.rmSync(outputDirectory, { recursive: true, force: true });
 fs.mkdirSync(outputDirectory, { recursive: true });
-fs.mkdirSync(engineOutputDirectory, { recursive: true });
-await Promise.all([
-  build({
-    entryPoints: [entryPoint],
-    outfile: outputFile,
-    bundle: true,
-    platform: 'node',
-    format: 'cjs',
-    target: 'node24',
-    sourcemap: false,
-    logLevel: 'warning',
-  }),
-  build({
-    entryPoints: [pluginEntryPoint],
-    outfile: pluginOutputFile,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    target: 'es2022',
-    sourcemap: false,
-    logLevel: 'warning',
-  }),
-]);
 
-const layout = resolveCacheLayout(projectRoot);
-const nativeUiLayout = resolveOpenCodeUiLayout(projectRoot);
-verifyArtifact(layout.binaryPath, layout.lock.binary, 'binary');
-verifyDarwinCodeSignature(layout.binaryPath, layout.lock.target);
-verifyArtifact(layout.licensePath, layout.lock.license, 'license');
-const binaryOutputFile = path.join(
-  engineOutputDirectory,
-  ...layout.lock.binary.runtimePath.split('/'),
-);
-const licenseOutputFile = path.join(
-  engineOutputDirectory,
-  ...layout.lock.license.runtimePath.split('/'),
-);
-fs.mkdirSync(path.dirname(binaryOutputFile), { recursive: true });
-fs.copyFileSync(layout.binaryPath, binaryOutputFile);
-fs.chmodSync(binaryOutputFile, 0o755);
-verifyDarwinCodeSignature(binaryOutputFile, layout.lock.target);
-fs.copyFileSync(layout.licensePath, licenseOutputFile);
-fs.copyFileSync(layout.lockPath, path.join(engineOutputDirectory, 'runtime-lock.json'));
-verifyOpenCodeUiTree(nativeUiLayout.cachePath, nativeUiLayout.lock.artifact);
-fs.cpSync(nativeUiLayout.cachePath, nativeUiOutputDirectory, { recursive: true });
-verifyOpenCodeUiTree(nativeUiOutputDirectory, nativeUiLayout.lock.artifact);
+await esbuild({
+  entryPoints: [entryPoint],
+  outfile: outputFile,
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  target: 'node24',
+  sourcemap: false,
+  logLevel: 'warning',
+});
 
-const binaryCode = inspectRuntimeCode(binaryOutputFile, layout.lock.target);
+await viteBuild({
+  configFile: uiConfigFile,
+  mode: 'production',
+  logLevel: 'warn',
+});
+
+if (!fs.existsSync(outputFile)) throw new Error(`Host bundle 未生成：${outputFile}`);
+if (!fs.existsSync(path.join(uiOutputDirectory, 'index.html'))) {
+  throw new Error(`Session Surface UI 未生成：${uiOutputDirectory}`);
+}
+
 const manifest = {
   schemaVersion: 1,
-  name: 'def-opencode-engine-runtime',
-  engineKind: 'opencode',
-  upstreamVersion: layout.lock.upstreamVersion,
-  runtimeVersion: layout.lock.runtimeVersion,
-  storeSchemaVersion: layout.lock.storeSchemaVersion,
-  target: layout.lock.target,
-  sourceRef: layout.lock.sourceRef,
-  binary: layout.lock.binary.runtimePath,
-  binaryVersion: layout.lock.binary.version,
-  binaryCodeBytes: binaryCode.bytes,
-  binaryCodeSha256: binaryCode.sha256,
-  plugin: 'plugin.mjs',
-  pluginSha256: sha256(pluginOutputFile),
-  license: layout.lock.license.runtimePath,
-  licenseBytes: layout.lock.license.bytes,
-  licenseSha256: layout.lock.license.sha256,
+  engineKind: 'def-runtime',
+  runtimeVersion,
+  runtimeSchemaVersion,
+  hostBundleSha256: sha256(outputFile),
 };
-fs.writeFileSync(
-  path.join(engineOutputDirectory, 'manifest.json'),
-  `${JSON.stringify(manifest, null, 2)}\n`,
-  { encoding: 'utf8', mode: 0o644 },
-);
+fs.mkdirSync(engineOutputDirectory, { recursive: true });
+fs.writeFileSync(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, {
+  encoding: 'utf8',
+  mode: 0o644,
+});
 
-process.stdout.write(`[build-agent-runtime] built ${path.relative(projectRoot, outputFile)}\n`);
+fs.mkdirSync(evidenceOutputDirectory, { recursive: true });
+fs.copyFileSync(noticeFile, path.join(evidenceOutputDirectory, 'NOTICE.md'));
+fs.copyFileSync(provenanceFile, path.join(evidenceOutputDirectory, 'source-provenance.json'));
+
+process.stdout.write(`[build-agent-runtime] host ${path.relative(projectRoot, outputFile)}\n`);
+process.stdout.write(`[build-agent-runtime] ui ${path.relative(projectRoot, uiOutputDirectory)}\n`);
 process.stdout.write(
-  `[build-agent-runtime] bundled OpenCode ${manifest.runtimeVersion} for ${manifest.target}\n`,
-);
-process.stdout.write(
-  `[build-agent-runtime] bundled native OpenCode UI ${nativeUiLayout.lock.upstreamVersion}\n`,
+  `[build-agent-runtime] ${manifest.engineKind} ${manifest.runtimeVersion} `
+  + `host=${manifest.hostBundleSha256.slice(0, 12)}…\n`,
 );
 
 function sha256(filePath) {
