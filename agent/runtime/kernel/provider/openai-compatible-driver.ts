@@ -233,7 +233,8 @@ export class OpenAICompatibleDriver implements ModelDriver {
       throw new ProviderFailureError(badRequestProviderFailure());
     }
 
-    const requestBody = buildRequestBody(input);
+    const toolNames = createProviderToolNames(input.tools);
+    const requestBody = buildRequestBody(input, toolNames);
     const headers = new Headers(input.connection.headers ?? {});
     headers.set('Accept', 'text/event-stream');
     headers.set('Content-Type', 'application/json');
@@ -260,7 +261,7 @@ export class OpenAICompatibleDriver implements ModelDriver {
     }
     if (!response.body) throw new ProviderMalformedResponseError();
 
-    const state = new CompletionState();
+    const state = new CompletionState(toolNames.providerToCanonical);
     let sawDoneMarker = false;
 
     try {
@@ -312,7 +313,15 @@ export class OpenAICompatibleDriver implements ModelDriver {
 export { OpenAICompatibleDriver as OpenAICompatibleModelDriver };
 export default OpenAICompatibleDriver;
 
-function buildRequestBody(input: RuntimeModelRequest): Record<string, unknown> {
+interface ProviderToolNames {
+  readonly canonicalToProvider: ReadonlyMap<string, string>;
+  readonly providerToCanonical: ReadonlyMap<string, string>;
+}
+
+function buildRequestBody(
+  input: RuntimeModelRequest,
+  toolNames: ProviderToolNames,
+): Record<string, unknown> {
   const messages: ProviderMessage[] = [];
   if (input.systemPrompt) messages.push({ role: 'system', content: input.systemPrompt });
   for (const message of input.messages) messages.push(...toProviderMessages(message));
@@ -320,7 +329,7 @@ function buildRequestBody(input: RuntimeModelRequest): Record<string, unknown> {
   const tools = input.tools.map((tool) => ({
     type: 'function',
     function: {
-      name: tool.name,
+      name: toolNames.canonicalToProvider.get(tool.name),
       description: tool.description,
       parameters: tool.inputSchema,
     },
@@ -336,6 +345,22 @@ function buildRequestBody(input: RuntimeModelRequest): Record<string, unknown> {
       : { max_tokens: input.connection.outputLimit }),
     ...(tools.length === 0 ? {} : { tools }),
   };
+}
+
+function createProviderToolNames(
+  tools: RuntimeModelRequest['tools'],
+): ProviderToolNames {
+  const canonicalToProvider = new Map<string, string>();
+  const providerToCanonical = new Map<string, string>();
+  for (const tool of tools) {
+    const providerName = tool.name.replace(/[^a-zA-Z0-9_-]/gu, '_');
+    if (!providerName || providerToCanonical.has(providerName)) {
+      throw new ProviderFailureError(badRequestProviderFailure());
+    }
+    canonicalToProvider.set(tool.name, providerName);
+    providerToCanonical.set(providerName, tool.name);
+  }
+  return { canonicalToProvider, providerToCanonical };
 }
 
 function toProviderMessages(message: RuntimeMessage): ProviderMessage[] {
@@ -499,6 +524,10 @@ class CompletionState {
     totalTokens: 0,
   };
 
+  constructor(
+    private readonly providerToCanonicalToolName: ReadonlyMap<string, string>,
+  ) {}
+
   get hasFinishReason(): boolean {
     return this.finishReason !== undefined;
   }
@@ -583,7 +612,7 @@ class CompletionState {
           type: 'tool-call.end',
           contentIndex: block.contentIndex,
           toolCallId: block.toolCallId,
-          name: block.name,
+          name: this.canonicalToolName(block.name),
           arguments: parsedArguments.get(block.key) as ToolArguments,
         }));
       }
@@ -643,7 +672,6 @@ class CompletionState {
     const functionPart = isRecord(raw.function) ? raw.function : raw;
     const nameDelta = readString(functionPart.name) ?? '';
     const argumentsDelta = readJsonDelta(functionPart.arguments);
-    let emittedNameDelta = nameDelta;
     let block = this.toolsByKey.get(key);
     if (!block) {
       const providerId = readString(raw.id);
@@ -662,20 +690,19 @@ class CompletionState {
         type: 'tool-call.start',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        name: nameDelta,
+        name: '',
       }));
-      emittedNameDelta = '';
     } else {
       block.name += nameDelta;
     }
 
     block.arguments += argumentsDelta;
-    if (emittedNameDelta || argumentsDelta) {
+    if (argumentsDelta) {
       events.push(this.emit({
         type: 'tool-call.delta',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        nameDelta: emittedNameDelta,
+        nameDelta: '',
         argumentsDelta,
       }));
     }
@@ -712,10 +739,14 @@ class CompletionState {
         type: 'tool-call.end',
         contentIndex: block.contentIndex,
         toolCallId: block.toolCallId,
-        name: block.name,
+        name: this.canonicalToolName(block.name),
         arguments: argumentsValue as ToolArguments,
       });
     });
+  }
+
+  private canonicalToolName(providerName: string): string {
+    return this.providerToCanonicalToolName.get(providerName) ?? providerName;
   }
 
   private emit(event: ProviderEventInput): ProviderStreamEvent {
