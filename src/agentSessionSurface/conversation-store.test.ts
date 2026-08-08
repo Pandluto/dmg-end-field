@@ -17,11 +17,11 @@ import {
   ConversationStoreError,
   reduceConversationEvent,
 } from './conversation-store.ts';
-import type {
-  ConversationEvent,
-  ConversationProjector as ConversationProjectorContract,
-  ConversationSnapshot,
-  DefSessionId,
+import {
+  type ConversationEvent,
+  type ConversationProjector as ConversationProjectorContract,
+  type ConversationSnapshot,
+  type DefSessionId,
 } from '../../agent/core/contracts/index.ts';
 
 test('reduces snapshot and deltas without duplicate Message/Part rows', async () => {
@@ -209,6 +209,53 @@ test('disconnect settles when the source ignores abort and never settles next or
   store.disconnect();
   await settlesWithin(connection);
   assert.equal(store.state.status, 'disconnected');
+});
+
+test('listeners receive isolated immutable views and one throwing listener cannot poison connection state', async () => {
+  const fixture = createConversationFixture();
+  const projector = new ConversationProjector({ runtime: fixture.runtime, host: fixture.host, epoch: 'listener-isolation' });
+  const store = new BrowserConversationStore(projector);
+  const seen: Array<ReturnType<typeof store.getState>> = [];
+  store.subscribe((state) => {
+    if (state.snapshot) assert.throws(() => (state.snapshot!.parts as ConversationSnapshot['parts'] & unknown[]).push({} as never), TypeError);
+    throw new Error('listener failure must be isolated');
+  });
+  store.subscribe((state) => seen.push(state));
+  await store.load(fixture.sessionId);
+  assert.equal(store.state.status, 'ready');
+  assert.ok(seen.length > 0);
+  assert.equal(seen.at(-1)?.snapshot?.parts.length, store.snapshot?.parts.length);
+  assert.notEqual(seen.at(-1), store.state);
+});
+
+test('Store rejects Part identity changes', async () => {
+  const fixture = createConversationFixture();
+  const projector = new ConversationProjector({ runtime: fixture.runtime, host: fixture.host, epoch: 'store-identity' });
+  const store = new BrowserConversationStore(projector);
+  const snapshot = await store.load(fixture.sessionId);
+  const identityChange: ConversationEvent = {
+    schemaVersion: 1,
+    source: 'runtime',
+    sourceSequence: snapshot.cursor.runtimeSequence + 1,
+    defSessionId: fixture.sessionId,
+    occurredAt: '2026-08-08T00:00:00.000Z',
+    cursor: { ...snapshot.cursor, runtimeSequence: snapshot.cursor.runtimeSequence + 1 },
+    status: snapshot.status,
+    type: 'part.upsert',
+    index: 0,
+    part: {
+      id: FIXTURE_TEXT_PART_ID,
+      messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
+      createdAt: '2026-08-08T00:00:00.000Z',
+      type: 'file',
+      mime: 'text/plain',
+      filename: 'changed.txt',
+      url: 'data:text/plain,changed',
+    },
+  };
+  assert.throws(() => store.apply(identityChange), (error: unknown) => (
+    error instanceof ConversationStoreError && error.code === 'INVALID_EVENT'
+  ));
 });
 
 function scriptedSource(

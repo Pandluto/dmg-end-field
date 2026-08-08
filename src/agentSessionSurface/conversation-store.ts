@@ -29,6 +29,13 @@ export interface ConversationStoreState {
 
 export type ConversationStoreListener = (state: ConversationStoreState) => void;
 
+interface PartIdentity {
+  readonly messageId: string;
+  readonly type: ConversationPart['type'];
+  readonly toolCallId?: string;
+  readonly interactionId?: string;
+}
+
 export type ConversationStoreErrorCode =
   | 'NO_SNAPSHOT'
   | 'SESSION_MISMATCH'
@@ -127,9 +134,7 @@ export function reduceConversationEvent(
     const message = findMessage(snapshot.messages, part.messageId);
     if (!message) throw new ConversationStoreError('SOURCE_GAP', `Part ${part.id} has no parent Message`);
     const existing = snapshot.parts.find((candidate) => candidate.id === part.id);
-    if (existing && existing.messageId !== part.messageId) {
-      throw new ConversationStoreError('INVALID_EVENT', `Part ${part.id} changed parent Message`);
-    }
+    if (existing) assertStablePartIdentity(existing, part);
     if (part.type === 'tool' && snapshot.parts.some((candidate) => candidate.type === 'tool' && candidate.toolCallId === part.toolCallId && candidate.id !== part.id)) {
       throw new ConversationStoreError('INVALID_EVENT', `Tool call ${part.toolCallId} is duplicated`);
     }
@@ -218,6 +223,8 @@ export class BrowserConversationStore implements ConversationStore {
   #generation = 0;
   #sessionId: DefSessionId | null = null;
   #connectionAbort: AbortController | null = null;
+  readonly #partIndexById = new Map<string, number>();
+  readonly #partIdentityById = new Map<string, PartIdentity>();
 
   constructor(source: ConversationProjector, options: ConversationStoreOptions = {}) {
     this.#source = source;
@@ -229,15 +236,15 @@ export class BrowserConversationStore implements ConversationStore {
   }
 
   get snapshot(): ConversationSnapshot | null {
-    return this.#state.snapshot ? clone(this.#state.snapshot) : null;
+    return this.#state.snapshot ? cloneFrozen(this.#state.snapshot) : null;
   }
 
   getState(): ConversationStoreState {
     return {
       status: this.#state.status,
       sessionId: this.#state.sessionId,
-      snapshot: this.#state.snapshot ? clone(this.#state.snapshot) : null,
-      cursor: this.#state.cursor ? clone(this.#state.cursor) : null,
+      snapshot: this.#state.snapshot ? cloneFrozen(this.#state.snapshot) : null,
+      cursor: this.#state.cursor ? cloneFrozen(this.#state.cursor) : null,
       error: this.#state.error ? cloneStoreError(this.#state.error) : null,
     };
   }
@@ -250,7 +257,7 @@ export class BrowserConversationStore implements ConversationStore {
   async load(defSessionId: DefSessionId): Promise<ConversationSnapshot> {
     this.#abortConnection();
     ++this.#generation;
-    this.#sessionId = defSessionId;
+    this.#selectSession(defSessionId);
     return this.#loadSnapshot(defSessionId, this.#generation);
   }
 
@@ -260,7 +267,7 @@ export class BrowserConversationStore implements ConversationStore {
     }
     this.#abortConnection();
     const generation = ++this.#generation;
-    this.#sessionId = defSessionId;
+    this.#selectSession(defSessionId);
     const controller = new AbortController();
     this.#connectionAbort = controller;
     let resetCount = 0;
@@ -276,10 +283,10 @@ export class BrowserConversationStore implements ConversationStore {
             while (!controller.signal.aborted) {
               const result = await nextWithAbort(iterator, controller.signal);
               if (result.done) break;
-              const event = result.value;
+            const event = result.value;
             if (generation !== this.#generation) return;
             try {
-              const next = this.apply(event);
+              const next = this.#applyEvent(event);
               if (next === null) {
                 mustReset = true;
                 break;
@@ -337,12 +344,20 @@ export class BrowserConversationStore implements ConversationStore {
   }
 
   apply(event: ConversationEvent): ConversationSnapshot | null {
+    const next = this.#applyEvent(event);
+    return next ? cloneFrozen(next) : null;
+  }
+
+  #applyEvent(event: ConversationEvent): ConversationSnapshot | null {
     if (this.#sessionId && event.defSessionId !== this.#sessionId) {
       throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation event belongs to another Session');
     }
-    const next = reduceConversationEvent(this.#state.snapshot, event);
-    if (next === this.#state.snapshot) return next ? clone(next) : null;
+    const next = event.type === 'part.delta'
+      ? this.#applyTextDelta(event)
+      : reduceConversationEvent(this.#state.snapshot, event);
+    if (next === this.#state.snapshot) return next;
     if (next) {
+      if (event.type !== 'part.delta') this.#rememberPartIdentities(next, event);
       this.#sessionId = event.defSessionId;
       this.#setState({
         status: 'ready',
@@ -352,9 +367,10 @@ export class BrowserConversationStore implements ConversationStore {
         error: null,
       });
     } else {
+      this.#partIndexById.clear();
       this.#setState({ status: 'reconnecting', snapshot: null, cursor: null, error: null });
     }
-    return next ? clone(next) : null;
+    return next;
   }
 
   async #loadSnapshot(defSessionId: DefSessionId, generation: number): Promise<ConversationSnapshot> {
@@ -376,6 +392,7 @@ export class BrowserConversationStore implements ConversationStore {
       throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation snapshot belongs to another Session');
     }
     this.#sessionId = defSessionId;
+    this.#rebuildPartIndexes(snapshot);
     this.#setState({
       status: 'ready',
       sessionId: defSessionId,
@@ -386,18 +403,110 @@ export class BrowserConversationStore implements ConversationStore {
     return clone(snapshot);
   }
 
+  #applyTextDelta(event: Extract<ConversationEvent, { type: 'part.delta' }>): ConversationSnapshot {
+    try {
+      assertConversationEvent(event);
+    } catch (error) {
+      throw new ConversationStoreError('INVALID_EVENT', error instanceof Error ? error.message : 'Conversation event is invalid', error);
+    }
+    const snapshot = this.#state.snapshot;
+    if (!snapshot) throw new ConversationStoreError('NO_SNAPSHOT', 'Incremental Conversation event has no snapshot');
+    if (event.defSessionId !== snapshot.defSessionId) {
+      throw new ConversationStoreError('SESSION_MISMATCH', 'Conversation event belongs to another Session');
+    }
+    if (event.cursor.epoch !== snapshot.cursor.epoch) {
+      throw new ConversationStoreError('EPOCH_CHANGED', 'Conversation event epoch changed; snapshot is required');
+    }
+    if (isStale(snapshot, event)) return snapshot;
+    try {
+      assertConversationEventTransition(snapshot.cursor, event);
+    } catch (error) {
+      throw mapTransitionError(error);
+    }
+    const index = this.#partIndexById.get(event.partId);
+    if (index === undefined) {
+      throw new ConversationStoreError('SOURCE_GAP', `Part ${event.partId} is missing for delta`);
+    }
+    const part = snapshot.parts[index];
+    if (!part || part.id !== event.partId || part.messageId !== event.messageId) {
+      throw new ConversationStoreError('SOURCE_GAP', `Part ${event.partId} is missing for delta`);
+    }
+    if (part.type !== 'text' && part.type !== 'reasoning') {
+      throw new ConversationStoreError('INVALID_EVENT', `Part ${event.partId} cannot receive a text delta`);
+    }
+    const text = part.text + event.delta;
+    if (text.length > DEF_CONVERSATION_LIMITS.maxTextCodeUnitsPerPart) {
+      throw new ConversationStoreError('INVALID_EVENT', `Part ${event.partId} exceeds the text limit`);
+    }
+    const parts = snapshot.parts as ConversationPart[];
+    parts[index] = { ...part, text };
+    return {
+      ...snapshot,
+      cursor: clone(event.cursor),
+      status: clone(event.status),
+      parts,
+    };
+  }
+
+  #rememberPartIdentities(snapshot: ConversationSnapshot, event: ConversationEvent): void {
+    if (event.type === 'part.upsert' || event.type === 'interaction.upsert') {
+      const existing = this.#partIdentityById.get(event.part.id);
+      if (existing) assertPartIdentityRecord(existing, event.part);
+    }
+    this.#rebuildPartIndexes(snapshot);
+  }
+
+  #rebuildPartIndexes(snapshot: ConversationSnapshot): void {
+    this.#partIndexById.clear();
+    for (const [index, part] of snapshot.parts.entries()) {
+      const existing = this.#partIdentityById.get(part.id);
+      if (existing) assertPartIdentityRecord(existing, part);
+      else this.#partIdentityById.set(part.id, partIdentity(part));
+      this.#partIndexById.set(part.id, index);
+    }
+  }
+
   #setState(partial: Partial<ConversationStoreState>): void {
     this.#state = {
       ...this.#state,
       ...partial,
     };
-    const state = this.getState();
-    for (const listener of this.#listeners) listener(state);
+    for (const listener of this.#listeners) {
+      try {
+        listener(this.#listenerState());
+      } catch {
+        // A view listener is not part of the source lifecycle.
+      }
+    }
+  }
+
+  #listenerState(): ConversationStoreState {
+    const current = this.#state;
+    let snapshot: ConversationSnapshot | null | undefined;
+    const view = {
+      status: current.status,
+      sessionId: current.sessionId,
+      get snapshot() {
+        if (snapshot === undefined) snapshot = current.snapshot ? cloneFrozen(current.snapshot) : null;
+        return snapshot;
+      },
+      cursor: current.cursor ? cloneFrozen(current.cursor) : null,
+      error: current.error ? cloneStoreError(current.error) : null,
+    } satisfies ConversationStoreState;
+    return Object.freeze(view);
   }
 
   #abortConnection(): void {
     this.#connectionAbort?.abort();
     this.#connectionAbort = null;
+  }
+
+  #selectSession(defSessionId: DefSessionId): void {
+    if (this.#sessionId !== defSessionId) {
+      this.#partIndexById.clear();
+      this.#partIdentityById.clear();
+    }
+    this.#sessionId = defSessionId;
   }
 }
 
@@ -492,8 +601,44 @@ function upsertAt<T>(
   return next;
 }
 
+function partIdentity(part: ConversationPart): PartIdentity {
+  return {
+    messageId: part.messageId,
+    type: part.type,
+    ...(part.type === 'tool' ? { toolCallId: part.toolCallId } : {}),
+    ...(part.type === 'interaction' ? { interactionId: part.interactionId } : {}),
+  };
+}
+
+function assertStablePartIdentity(existing: ConversationPart, next: ConversationPart): void {
+  assertPartIdentityRecord(partIdentity(existing), next);
+}
+
+function assertPartIdentityRecord(existing: PartIdentity, next: ConversationPart): void {
+  const identity = partIdentity(next);
+  if (
+    existing.messageId !== identity.messageId
+    || existing.type !== identity.type
+    || existing.toolCallId !== identity.toolCallId
+    || existing.interactionId !== identity.interactionId
+  ) {
+    throw new ConversationStoreError('INVALID_EVENT', `Part ${next.id} changed stable identity`);
+  }
+}
+
 function clone<T>(value: T): T {
   return structuredClone(value);
+}
+
+function cloneFrozen<T>(value: T): T {
+  return deepFreeze(clone(value));
+}
+
+function deepFreeze<T>(value: T, seen = new WeakSet<object>()): T {
+  if (!value || typeof value !== 'object' || seen.has(value as object)) return value;
+  seen.add(value as object);
+  for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child, seen);
+  return Object.freeze(value);
 }
 
 const STORE_CLOSE_TIMEOUT_MS = 250;

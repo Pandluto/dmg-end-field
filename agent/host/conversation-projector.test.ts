@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   ConversationProjectionError,
   ConversationProjector,
+  createConversationHostJournalSource,
   type ConversationHostJournalSource,
 } from './conversation-projector.ts';
 import {
@@ -23,8 +24,10 @@ import {
 } from './testing/conversation-fixtures.ts';
 import {
   asConversationPartId,
+  asConversationMessageId,
   asEngineSessionId,
   asDefSessionId,
+  asDefTurnId,
   type ConversationPart,
   type ConversationEvent,
   type ConversationSnapshot,
@@ -508,6 +511,203 @@ test('projector cancellation settles against uncooperative next and return metho
   controller.abort();
   const result = await settlesWithin(pending);
   assert.equal(result.done, true);
+});
+
+test('Host authority cannot regress and Runtime projection preserves Host-only parts', async () => {
+  const fixture = createConversationFixture();
+  fixture.host.append(hostToolRequested(fixture.sessionId, 1));
+  fixture.host.append(hostToolStarted(fixture.sessionId, 2));
+  fixture.host.append(hostToolResult(fixture.sessionId, 3, { authoritative: true }));
+  const projectorInstance = projector(fixture);
+  const completed = await projectorInstance.getSnapshot(fixture.sessionId);
+
+  fixture.runtime.append({
+    type: 'part.upsert',
+    part: {
+      id: FIXTURE_TOOL_PART_ID,
+      messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
+      createdAt: NOW,
+      type: 'tool',
+      toolCallId: part(completed, 'tool').toolCallId,
+      name: 'fixture.tool',
+      state: { status: 'pending', input: { late: true } },
+    },
+    index: 2,
+  }, 7);
+  const [lateRuntime] = await collect(projectorInstance.subscribe(fixture.sessionId, completed.cursor));
+  assert.equal(lateRuntime?.type, 'part.upsert');
+  assert.equal(lateRuntime?.type === 'part.upsert' && lateRuntime.part.type === 'tool'
+    ? lateRuntime.part.state.status
+    : null, 'completed');
+  let live = applyTestEvent(completed, lateRuntime as Extract<ConversationEvent, { source: 'runtime' | 'host' }>);
+  assert.deepEqual(live, await projectorInstance.getSnapshot(fixture.sessionId));
+
+  fixture.host.append(hostInteractionRequested(fixture.sessionId, 4));
+  const withInteraction = await projectorInstance.getSnapshot(fixture.sessionId);
+  const interaction = part(withInteraction, 'interaction');
+  const runtimeMessage = fixture.runtimeSnapshot.messages.find((message) => message.id === FIXTURE_ASSISTANT_MESSAGE_ID)!;
+  fixture.runtime.append({
+    type: 'message.upsert',
+    message: { ...runtimeMessage, partIds: runtimeMessage.partIds.filter((id) => id !== interaction.id) },
+    index: 1,
+  }, 8);
+  const [messageEvent] = await collect(projectorInstance.subscribe(fixture.sessionId, withInteraction.cursor));
+  assert.equal(messageEvent?.type, 'message.upsert');
+  assert.equal(messageEvent?.type === 'message.upsert' && messageEvent.message.partIds.includes(interaction.id), true);
+  live = applyTestEvent(withInteraction, messageEvent as Extract<ConversationEvent, { source: 'runtime' | 'host' }>);
+  assert.deepEqual(live, await projectorInstance.getSnapshot(fixture.sessionId));
+});
+
+test('effective status updates atomically for Tool priority, Interaction, and a new Runtime Turn', async () => {
+  const fixture = createConversationFixture();
+  fixture.host.append(hostToolResult(fixture.sessionId, 1));
+  const projectorInstance = projector(fixture);
+  let boundary = await projectorInstance.getSnapshot(fixture.sessionId);
+  assert.deepEqual(boundary.status, { status: 'idle' });
+
+  fixture.host.append(hostInteractionRequested(fixture.sessionId, 2));
+  const [interactionEvent] = await collect(projectorInstance.subscribe(fixture.sessionId, boundary.cursor));
+  assert.equal(interactionEvent?.type, 'interaction.upsert');
+  assert.deepEqual(interactionEvent?.source === 'host' ? interactionEvent.status : null, {
+    status: 'waiting-interaction',
+    defTurnId: FIXTURE_TURN_ID,
+    interactionId: part(await projectorInstance.getSnapshot(fixture.sessionId), 'interaction').interactionId,
+  });
+
+  boundary = await projectorInstance.getSnapshot(fixture.sessionId);
+  fixture.runtime.append({ type: 'session.status', status: { status: 'running' } }, 7);
+  const [running] = await collect(projectorInstance.subscribe(fixture.sessionId, boundary.cursor));
+  assert.deepEqual(running?.source === 'runtime' ? running.status : null, {
+    status: 'waiting-interaction',
+    defTurnId: FIXTURE_TURN_ID,
+    interactionId: part(boundary, 'interaction').interactionId,
+  });
+
+  fixture.host.append(hostInteractionResolved(fixture.sessionId, 3));
+  fixture.host.append({
+    schemaVersion: 1,
+    sequence: 4,
+    occurredAt: NOW,
+    defSessionId: fixture.sessionId,
+    defTurnId: FIXTURE_TURN_ID,
+    type: 'turn.completed',
+    payload: {},
+  });
+  boundary = await projectorInstance.getSnapshot(fixture.sessionId);
+  assert.deepEqual(boundary.status, { status: 'idle' });
+  const nextTurn = asDefTurnId('conversation-next-turn');
+  fixture.runtime.append({
+    type: 'message.upsert',
+    message: {
+      id: asConversationMessageId('conversation-next-message'),
+      role: 'assistant',
+      defTurnId: nextTurn,
+      createdAt: NOW,
+      partIds: [],
+    },
+    index: boundary.messages.length,
+  }, 8);
+  const [newTurn] = await collect(projectorInstance.subscribe(fixture.sessionId, boundary.cursor));
+  assert.equal(newTurn?.type, 'message.upsert');
+  assert.deepEqual(newTurn?.source === 'runtime' ? newTurn.status : null, { status: 'running', defTurnId: nextTurn });
+  assert.deepEqual(applyTestEvent(boundary, newTurn as Extract<ConversationEvent, { source: 'runtime' | 'host' }>), await projectorInstance.getSnapshot(fixture.sessionId));
+});
+
+test('Host journal validation rejects sequence gaps, unknown variants, and terminal regressions', async () => {
+  const gap = createConversationFixture();
+  gap.host.append(hostToolRequested(gap.sessionId, 1));
+  gap.host.append(hostToolResult(gap.sessionId, 3));
+  await assert.rejects(() => projector(gap).getSnapshot(gap.sessionId), (error: unknown) => (
+    error instanceof ConversationProjectionError && error.code === 'SOURCE_GAP'
+  ));
+
+  const unknown = createConversationFixture();
+  unknown.host.append({
+    ...hostToolRequested(unknown.sessionId, 1),
+    type: 'tool.unknown',
+  } as unknown as DefEvent);
+  await assert.rejects(() => projector(unknown).getSnapshot(unknown.sessionId), (error: unknown) => (
+    error instanceof ConversationProjectionError && error.code === 'SOURCE_INVALID'
+  ));
+
+  const toolRegression = createConversationFixture();
+  toolRegression.host.append(hostToolResult(toolRegression.sessionId, 1));
+  toolRegression.host.append(hostToolStarted(toolRegression.sessionId, 2));
+  await assert.rejects(() => projector(toolRegression).getSnapshot(toolRegression.sessionId), (error: unknown) => (
+    error instanceof ConversationProjectionError && error.code === 'SOURCE_INVALID'
+  ));
+
+  const interactionRegression = createConversationFixture();
+  interactionRegression.host.append(hostInteractionRequested(interactionRegression.sessionId, 1));
+  interactionRegression.host.append(hostInteractionResolved(interactionRegression.sessionId, 2));
+  interactionRegression.host.append(hostInteractionRequested(interactionRegression.sessionId, 3));
+  await assert.rejects(() => projector(interactionRegression).getSnapshot(interactionRegression.sessionId), (error: unknown) => (
+    error instanceof ConversationProjectionError && error.code === 'SOURCE_INVALID'
+  ));
+});
+
+test('Part identity remains frozen across Runtime upserts', async () => {
+  const fixture = createConversationFixture();
+  const projectorInstance = projector(fixture);
+  const boundary = await projectorInstance.getSnapshot(fixture.sessionId);
+  fixture.runtime.append({
+    type: 'part.upsert',
+    part: {
+      id: FIXTURE_TEXT_PART_ID,
+      messageId: FIXTURE_ASSISTANT_MESSAGE_ID,
+      createdAt: NOW,
+      type: 'tool',
+      toolCallId: part(boundary, 'tool').toolCallId,
+      name: 'identity-change',
+      state: { status: 'pending', input: {} },
+    },
+    index: 0,
+  }, 7);
+  const [reset] = await collect(projectorInstance.subscribe(fixture.sessionId, boundary.cursor));
+  assert.equal(reset?.type, 'conversation.reset-required');
+  assert.equal(reset?.reason, 'gap');
+});
+
+test('SessionStore adapter pages Host journals and Session LRU re-entry receives a new epoch', async () => {
+  const fixture = createConversationFixture();
+  const journal = [hostToolRequested(fixture.sessionId, 1), hostToolResult(fixture.sessionId, 2)];
+  let loadEventsCalls = 0;
+  let loadPageCalls = 0;
+  const source = createConversationHostJournalSource({
+    loadSession: () => ({ session: { engine: fixture.engineSession } }) as never,
+    loadEvents: () => {
+      loadEventsCalls += 1;
+      return journal;
+    },
+    loadEventPage: (_session, after, limit) => {
+      loadPageCalls += 1;
+      return journal.filter((event) => event.sequence > after).slice(0, limit);
+    },
+  });
+  assert.equal((await source.getSnapshot(fixture.sessionId)).sequence, 2);
+  assert.equal(loadEventsCalls, 0);
+  assert.ok(loadPageCalls > 0);
+
+  const fixtures = Array.from({ length: 66 }, (_, index) => createConversationFixture({
+    sessionId: asDefSessionId(`lru-session-${index}`),
+    engineSession: { ...fixture.engineSession, sessionId: asEngineSessionId(`lru-engine-${index}`) },
+  }));
+  const byEngine = new Map(fixtures.map((entry) => [entry.engineSession.sessionId, entry]));
+  const bySession = new Map(fixtures.map((entry) => [entry.sessionId, entry]));
+  const runtime: RuntimeTranscriptSource = {
+    getRuntimeSnapshot: (engine) => byEngine.get(engine.sessionId)!.runtime.getRuntimeSnapshot(engine),
+    subscribeRuntime: (engine, after, signal) => byEngine.get(engine.sessionId)!.runtime.subscribeRuntime(engine, after, signal),
+  };
+  const host: ConversationHostJournalSource = {
+    getSession: (session) => bySession.get(session)?.host.getSession(session) ?? null,
+    getSnapshot: (session) => bySession.get(session)!.host.getSnapshot(session),
+    subscribe: (session, after, signal) => bySession.get(session)!.host.subscribe(session, after, signal),
+  };
+  const bounded = new ConversationProjector({ runtime, host, epoch: 'lru-epoch' });
+  const first = await bounded.getSnapshot(fixtures[0]!.sessionId);
+  for (const entry of fixtures.slice(1)) await bounded.getSnapshot(entry.sessionId);
+  const reentered = await bounded.getSnapshot(fixtures[0]!.sessionId);
+  assert.notEqual(reentered.cursor.epoch, first.cursor.epoch);
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {

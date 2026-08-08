@@ -141,11 +141,22 @@ interface MutableProjectionState {
   lastTurnId: DefTurnId | null;
   messages: ConversationMessage[];
   messageById: Map<string, ConversationMessage>;
+  messageIndexById: Map<string, number>;
+  runtimeMessageIds: Set<string>;
+  runtimeMessagePartIds: Map<string, Set<string>>;
+  hostPartIdsByMessage: Map<string, Set<string>>;
+  messageIdsByTurnId: Map<string, Set<string>>;
+  assistantMessageByTurnId: Map<string, string>;
+  lastMessageByTurnId: Map<string, string>;
   partOrder: string[];
+  partIndexById: Map<string, number>;
   runtimeParts: Map<string, RuntimeTranscriptPart>;
   hostParts: Map<string, HostTranscriptPart | ConversationInteractionPart>;
+  partIdentityById: Map<string, PartIdentity>;
   toolCallToPartId: Map<string, string>;
   interactionToPartId: Map<string, string>;
+  activeToolPartIds: Set<string>;
+  pendingInteractionPartIds: Set<string>;
   serializedCodeUnits: number;
   messageSerializedSizes: Map<string, number>;
   partSerializedSizes: Map<string, number>;
@@ -153,7 +164,15 @@ interface MutableProjectionState {
   effectiveStatusValue: ConversationSessionStatus;
 }
 
+interface PartIdentity {
+  readonly messageId: string;
+  readonly type: ConversationPart['type'];
+  readonly toolCallId?: string;
+  readonly interactionId?: string;
+}
+
 type SessionStoreSource = Pick<DefAgentSessionStore, 'loadSession' | 'loadEvents'> & {
+  readonly loadEventPage?: DefAgentSessionStore['loadEventPage'];
   readonly subscribeHost?: (defSessionId: DefSessionId, afterHostSequence: number, signal?: AbortSignal) => AsyncIterable<DefEvent>;
 };
 
@@ -163,6 +182,7 @@ interface HostSourceShape {
   readonly getSnapshot?: ConversationHostJournalSource['getSnapshot'];
   readonly getHostSnapshot?: ConversationHostJournalSource['getSnapshot'];
   readonly loadEvents?: SessionStoreSource['loadEvents'];
+  readonly loadEventPage?: SessionStoreSource['loadEventPage'];
   readonly subscribe?: ConversationHostJournalSource['subscribe'];
   readonly subscribeHost?: SessionStoreSource['subscribeHost'];
 }
@@ -206,6 +226,16 @@ const MAX_CAUSAL_EVENT_RETRIES = 3;
 const CLOSE_TIMEOUT_MS = 250;
 const MAX_GLOBAL_CACHE_ENTRIES = 128;
 const MAX_CACHED_SESSIONS = 64;
+const KNOWN_HOST_EVENT_TYPES = new Set<DefEvent['type']>([
+  'session.ready', 'session.recovered', 'session.archived', 'session.orphaned',
+  'turn.accepted', 'response.first-token', 'response.delta',
+  'tool.requested', 'tool.started', 'tool.result', 'tool.error',
+  'harness.routed', 'harness.resumed', 'harness.phase.entered', 'harness.tool.projected', 'harness.terminal',
+  'interaction.requested', 'interaction.resolved',
+  'command.queued', 'command.dispatched', 'command.claimed', 'command.committed',
+  'command.result', 'command.reconciled', 'command.orphaned',
+  'turn.completed', 'turn.stopped', 'turn.interrupted', 'turn.failed',
+]);
 
 /**
  * Deterministic projection of the Runtime transcript and Host journal.
@@ -233,8 +263,9 @@ export class ConversationProjector implements ConversationProjectorContract {
   readonly #sessionEpochs = new Map<string, string>();
   readonly #activeSubscriptions = new Map<string, Set<AbortController>>();
   readonly #instrumentation: ConversationProjectorInstrumentation | null;
-  readonly #cacheOrder: string[] = [];
-  readonly #sessionCacheOrder: string[] = [];
+  readonly #cacheOrder = new Map<string, true>();
+  readonly #sessionCacheOrder = new Map<string, true>();
+  #initialEpochIssued = false;
 
   constructor(options: ConversationProjectorOptions) {
     this.#runtime = options.runtime;
@@ -530,10 +561,7 @@ export class ConversationProjector implements ConversationProjectorContract {
     if (priorEngine && !engineSessionEquals(priorEngine, engine)) this.#rotateSession(defSessionId);
     this.#sessionEngines.set(defSessionId, clone(engine));
     if (!this.#sessionEpochs.has(defSessionId)) {
-      const initial = this.#sessionEpochs.size === 0
-        ? this.#initialEpoch
-        : `${this.#epochPrefix}-${++this.#epochCounter}`;
-      this.#sessionEpochs.set(defSessionId, validateEpoch(initial));
+      this.#sessionEpochs.set(defSessionId, this.#allocateEpoch());
     }
     return this.#epochFor(defSessionId);
   }
@@ -541,14 +569,19 @@ export class ConversationProjector implements ConversationProjectorContract {
   #epochFor(defSessionId: DefSessionId): string {
     const epoch = this.#sessionEpochs.get(defSessionId);
     if (!epoch) {
-      const initial = this.#sessionEpochs.size === 0
-        ? this.#initialEpoch
-        : `${this.#epochPrefix}-${++this.#epochCounter}`;
-      const validated = validateEpoch(initial);
+      const validated = this.#allocateEpoch();
       this.#sessionEpochs.set(defSessionId, validated);
       return validated;
     }
     return epoch;
+  }
+
+  #allocateEpoch(): string {
+    if (!this.#initialEpochIssued) {
+      this.#initialEpochIssued = true;
+      return this.#initialEpoch;
+    }
+    return validateEpoch(`${this.#epochPrefix}-${++this.#epochCounter}`);
   }
 
   #rotateSession(
@@ -568,7 +601,7 @@ export class ConversationProjector implements ConversationProjectorContract {
       );
     }
     this.#sessionEpochs.set(defSessionId, epoch);
-    this.#dropSessionCache(defSessionId);
+    this.#dropSessionCache(defSessionId, false);
     const active = this.#activeSubscriptions.get(defSessionId);
     if (active) {
       for (const controller of active) if (controller !== except) controller.abort();
@@ -597,36 +630,39 @@ export class ConversationProjector implements ConversationProjectorContract {
     // The latest entry is the same internal boundary copy, not a second full
     // state clone.  It is never mutated by a live subscription.
     this.#latestStates.set(sessionKey, cached);
-    this.#cacheOrder.push(cacheKey(sessionKey, key));
+    const globalKey = cacheKey(sessionKey, key);
+    this.#cacheOrder.delete(globalKey);
+    this.#cacheOrder.set(globalKey, true);
     this.#touchSession(sessionKey);
-    while (this.#cacheOrder.length > MAX_GLOBAL_CACHE_ENTRIES) {
-      const oldest = this.#cacheOrder.shift();
+    while (this.#cacheOrder.size > MAX_GLOBAL_CACHE_ENTRIES) {
+      const oldest = this.#cacheOrder.keys().next().value as string | undefined;
       if (!oldest) break;
+      this.#cacheOrder.delete(oldest);
       const separator = oldest.indexOf('\u0000');
       if (separator < 0) continue;
       this.#removeCacheKey(oldest.slice(0, separator), oldest.slice(separator + 1));
     }
-    while (this.#sessionCacheOrder.length > MAX_CACHED_SESSIONS) {
-      const oldestSession = this.#sessionCacheOrder.shift();
-      if (!oldestSession || this.#activeSubscriptions.has(oldestSession)) continue;
-      this.#dropSessionCache(oldestSession);
+    while (this.#sessionCacheOrder.size > MAX_CACHED_SESSIONS) {
+      let evicted = false;
+      for (const oldestSession of this.#sessionCacheOrder.keys()) {
+        if (this.#activeSubscriptions.has(oldestSession)) continue;
+        this.#evictSession(oldestSession);
+        evicted = true;
+        break;
+      }
+      if (!evicted) break;
     }
   }
 
   #touchCache(defSessionId: string, key: string): void {
     const global = cacheKey(defSessionId, key);
-    const index = this.#cacheOrder.indexOf(global);
-    if (index >= 0) {
-      this.#cacheOrder.splice(index, 1);
-      this.#cacheOrder.push(global);
-    }
+    if (this.#cacheOrder.delete(global)) this.#cacheOrder.set(global, true);
     this.#touchSession(defSessionId);
   }
 
   #touchSession(defSessionId: string): void {
-    const index = this.#sessionCacheOrder.indexOf(defSessionId);
-    if (index >= 0) this.#sessionCacheOrder.splice(index, 1);
-    this.#sessionCacheOrder.push(defSessionId);
+    this.#sessionCacheOrder.delete(defSessionId);
+    this.#sessionCacheOrder.set(defSessionId, true);
   }
 
   #removeCacheKey(defSessionId: string, key: string): void {
@@ -636,23 +672,26 @@ export class ConversationProjector implements ConversationProjectorContract {
     const latest = this.#latestStates.get(defSessionId);
     if (latest && cursorKey(cursorForState(latest)) === key) this.#latestStates.delete(defSessionId);
     const global = cacheKey(defSessionId, key);
-    const index = this.#cacheOrder.indexOf(global);
-    if (index >= 0) this.#cacheOrder.splice(index, 1);
+    this.#cacheOrder.delete(global);
   }
 
-  #dropSessionCache(defSessionId: string): void {
+  #dropSessionCache(defSessionId: string, removeFromLru = true): void {
     const sessionStates = this.#states.get(defSessionId);
     if (sessionStates) {
       for (const key of sessionStates.keys()) {
         const global = cacheKey(defSessionId, key);
-        const index = this.#cacheOrder.indexOf(global);
-        if (index >= 0) this.#cacheOrder.splice(index, 1);
+        this.#cacheOrder.delete(global);
       }
     }
     this.#states.delete(defSessionId);
     this.#latestStates.delete(defSessionId);
-    const sessionIndex = this.#sessionCacheOrder.indexOf(defSessionId);
-    if (sessionIndex >= 0) this.#sessionCacheOrder.splice(sessionIndex, 1);
+    if (removeFromLru) this.#sessionCacheOrder.delete(defSessionId);
+  }
+
+  #evictSession(defSessionId: string): void {
+    this.#dropSessionCache(defSessionId);
+    this.#sessionEngines.delete(defSessionId);
+    this.#sessionEpochs.delete(defSessionId);
   }
 }
 
@@ -680,7 +719,7 @@ export function createConversationHostJournalSource(
       return record ? { engine: clone(record.session.engine) } : null;
     },
     getSnapshot(defSessionId) {
-      const events = store.loadEvents(defSessionId).map((event) => clone(event));
+      const events = loadBoundedHostEvents(store, defSessionId);
       return {
         sequence: events.at(-1)?.sequence ?? 0,
         events,
@@ -712,10 +751,14 @@ function normalizeHostSource(
   if (candidate.loadSession && candidate.loadEvents) {
     const loadSession = candidate.loadSession;
     const loadEvents = candidate.loadEvents;
+    const loadEventPage = candidate.loadEventPage;
     const subscribeHost = candidate.subscribeHost;
     return createConversationHostJournalSource({
       loadSession: (defSessionId) => loadSession.call(source, defSessionId),
       loadEvents: (defSessionId) => loadEvents.call(source, defSessionId),
+      ...(loadEventPage ? {
+        loadEventPage: (defSessionId, afterSequence, limit) => loadEventPage.call(source, defSessionId, afterSequence, limit),
+      } : {}),
       ...(subscribeHost ? {
         subscribeHost: (defSessionId, afterHostSequence, signal) => subscribeHost.call(source, defSessionId, afterHostSequence, signal),
       } : {}),
@@ -731,20 +774,42 @@ function createState(
   runtimeSnapshot: RuntimeTranscriptSnapshot,
 ): MutableProjectionState {
   const messages = runtimeSnapshot.messages.map((message) => clone(message));
+  const messageById = new Map<string, ConversationMessage>();
+  const messageIndexById = new Map<string, number>();
+  const runtimeMessageIds = new Set<string>();
+  const runtimeMessagePartIds = new Map<string, Set<string>>();
+  const hostPartIdsByMessage = new Map<string, Set<string>>();
+  const messageIdsByTurnId = new Map<string, Set<string>>();
+  const assistantMessageByTurnId = new Map<string, string>();
+  const lastMessageByTurnId = new Map<string, string>();
+  for (const [index, message] of messages.entries()) {
+    messageById.set(message.id, message);
+    messageIndexById.set(message.id, index);
+    runtimeMessageIds.add(message.id);
+    runtimeMessagePartIds.set(message.id, new Set(message.partIds));
+    indexTurnMessageMaps(message, messageIdsByTurnId, assistantMessageByTurnId, lastMessageByTurnId);
+  }
   const runtimeParts = new Map<string, RuntimeTranscriptPart>();
   const partOrder: string[] = [];
+  const partIndexById = new Map<string, number>();
+  const partIdentityById = new Map<string, PartIdentity>();
   const toolCallToPartId = new Map<string, string>();
+  const activeToolPartIds = new Set<string>();
+  const pendingInteractionPartIds = new Set<string>();
   for (const part of runtimeSnapshot.parts) {
     if (runtimeParts.has(part.id)) {
       throw new ConversationProjectionError('SOURCE_INVALID', `Runtime part ${part.id} is duplicated`, { source: 'runtime' });
     }
     runtimeParts.set(part.id, clone(part));
+    rememberPartIdentity(partIdentityById, part, 'runtime');
+    partIndexById.set(part.id, partOrder.length);
     partOrder.push(part.id);
     if (part.type === 'tool') {
       if (toolCallToPartId.has(part.toolCallId)) {
         throw new ConversationProjectionError('SOURCE_INVALID', `Runtime Tool call ${part.toolCallId} is duplicated`, { source: 'runtime' });
       }
       toolCallToPartId.set(part.toolCallId, part.id);
+      if (part.state.status === 'pending' || part.state.status === 'running') activeToolPartIds.add(part.id);
     }
   }
   for (const message of messages) {
@@ -757,7 +822,6 @@ function createState(
     ?? (lastPartMessageId
       ? messages.find((message) => message.id === lastPartMessageId)?.defTurnId ?? null
       : null);
-  const messageById = new Map(messages.map((message) => [message.id, message]));
   const messageSerializedSizes = new Map(messages.map((message) => [message.id, serializedSize(message)]));
   const partSerializedSizes = new Map([...runtimeParts.entries()].map(([id, part]) => [id, serializedSize(part)]));
   const initialStatus = runtimeStatusAsConversationStatus(runtimeSnapshot.status, messages);
@@ -773,11 +837,22 @@ function createState(
     lastTurnId,
     messages,
     messageById,
+    messageIndexById,
+    runtimeMessageIds,
+    runtimeMessagePartIds,
+    hostPartIdsByMessage,
+    messageIdsByTurnId,
+    assistantMessageByTurnId,
+    lastMessageByTurnId,
     partOrder,
+    partIndexById,
     runtimeParts,
     hostParts: new Map(),
+    partIdentityById,
     toolCallToPartId,
     interactionToPartId: new Map(),
+    activeToolPartIds,
+    pendingInteractionPartIds,
     serializedCodeUnits: 1
       + [...messageSerializedSizes.values()].reduce((sum, size) => sum + size, 0)
       + [...partSerializedSizes.values()].reduce((sum, size) => sum + size, 0)
@@ -792,6 +867,7 @@ function createState(
 }
 
 function cloneState(state: MutableProjectionState): MutableProjectionState {
+  const messages = state.messages.map((message) => ({ ...message, partIds: [...message.partIds] }));
   return {
     defSessionId: state.defSessionId,
     engineSession: clone(state.engineSession),
@@ -801,13 +877,24 @@ function cloneState(state: MutableProjectionState): MutableProjectionState {
     runtimeStatus: clone(state.runtimeStatus),
     hostStatus: clone(state.hostStatus),
     lastTurnId: state.lastTurnId,
-    messages: [...state.messages],
-    messageById: new Map(state.messageById),
+    messages,
+    messageById: new Map(messages.map((message) => [message.id, message])),
+    messageIndexById: new Map(state.messageIndexById),
+    runtimeMessageIds: new Set(state.runtimeMessageIds),
+    runtimeMessagePartIds: cloneSetMap(state.runtimeMessagePartIds),
+    hostPartIdsByMessage: cloneSetMap(state.hostPartIdsByMessage),
+    messageIdsByTurnId: cloneSetMap(state.messageIdsByTurnId),
+    assistantMessageByTurnId: new Map(state.assistantMessageByTurnId),
+    lastMessageByTurnId: new Map(state.lastMessageByTurnId),
     partOrder: [...state.partOrder],
+    partIndexById: new Map(state.partIndexById),
     runtimeParts: new Map(state.runtimeParts),
     hostParts: new Map(state.hostParts),
+    partIdentityById: new Map(state.partIdentityById),
     toolCallToPartId: new Map(state.toolCallToPartId),
     interactionToPartId: new Map(state.interactionToPartId),
+    activeToolPartIds: new Set(state.activeToolPartIds),
+    pendingInteractionPartIds: new Set(state.pendingInteractionPartIds),
     serializedCodeUnits: state.serializedCodeUnits,
     messageSerializedSizes: new Map(state.messageSerializedSizes),
     partSerializedSizes: new Map(state.partSerializedSizes),
@@ -852,16 +939,30 @@ function snapshotFromState(state: MutableProjectionState): ConversationSnapshot 
 function applyRuntimeEvent(state: MutableProjectionState, event: RuntimeTranscriptEvent): ConversationEvent {
   const mutation = event.mutation;
   if (mutation.type === 'message.upsert') {
+    const startsNewTurn = state.lastTurnId !== mutation.message.defTurnId;
     state.lastTurnId = mutation.message.defTurnId;
-    upsertMessage(state, mutation.message, mutation.index);
+    // A Host idle marker belongs to the previous Turn. Runtime may publish the
+    // next Turn's Message before Host turn.accepted crosses the other stream.
+    if (startsNewTurn && state.hostStatus?.status === 'idle') state.hostStatus = null;
+    const index = upsertMessage(state, mutation.message, mutation.index);
+    refreshEffectiveStatus(state);
+    const effectiveMessage = requireMessage(state, mutation.message.id, 'runtime');
     return runtimeEventBase(state, event, {
       type: 'message.upsert',
-      message: clone(mutation.message),
-      index: normalizeIndex(mutation.index, state.messages.length),
+      message: clone(effectiveMessage),
+      index,
     });
   }
   if (mutation.type === 'message.remove') {
-    removeMessage(state, mutation.messageId);
+    const retained = removeRuntimeMessage(state, mutation.messageId);
+    refreshEffectiveStatus(state);
+    if (retained) {
+      return runtimeEventBase(state, event, {
+        type: 'message.upsert',
+        message: clone(retained.message),
+        index: retained.index,
+      });
+    }
     return runtimeEventBase(state, event, { type: 'message.remove', messageId: mutation.messageId });
   }
   if (mutation.type === 'part.upsert') {
@@ -874,11 +975,15 @@ function applyRuntimeEvent(state: MutableProjectionState, event: RuntimeTranscri
     }
     const message = requireMessage(state, mutation.part.messageId, 'runtime');
     state.lastTurnId = message.defTurnId;
-    upsertRuntimePart(state, mutation.part, mutation.index);
+    const index = upsertRuntimePart(state, mutation.part, mutation.index);
+    const effective = effectivePart(state, mutation.part.id);
+    if (!effective || effective.type === 'interaction') {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Runtime Part has no valid effective projection', { source: 'runtime' });
+    }
     return runtimeEventBase(state, event, {
       type: 'part.upsert',
-      part: clone(mutation.part),
-      index: normalizeIndex(mutation.index, state.partOrder.length),
+      part: clone(effective),
+      index,
     });
   }
   if (mutation.type === 'part.delta') {
@@ -948,7 +1053,7 @@ function applyHostEvent(state: MutableProjectionState, event: DefEvent, incremen
   if (!incremental) state.hostSequence = event.sequence;
   if (event.type === 'turn.accepted') {
     state.hostStatus = null;
-    state.lastTurnId = event.defTurnId;
+    if (state.runtimeStatus.status !== 'running' || !state.lastTurnId) state.lastTurnId = event.defTurnId;
     refreshEffectiveStatus(state);
     return incremental ? hostStatusEvent(state, event) : null;
   }
@@ -1002,23 +1107,27 @@ function applyHostEvent(state: MutableProjectionState, event: DefEvent, incremen
   }
   if (event.type === 'turn.failed') {
     const part = buildHostErrorPart(state, event, event.payload.code, event.payload.message);
-    state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
+    if (event.defTurnId === state.lastTurnId) {
+      state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
+    }
     const index = upsertHostPart(state, part, findPartIndex(state, part.id));
     return incremental ? hostEventBase(state, event, { type: 'part.upsert', part, index }) : null;
   }
   if (event.type === 'turn.interrupted') {
     const part = buildHostErrorPart(state, event, event.payload.code, event.payload.message);
-    state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
+    if (event.defTurnId === state.lastTurnId) {
+      state.hostStatus = { status: 'error', code: event.payload.code, message: event.payload.message };
+    }
     const index = upsertHostPart(state, part, findPartIndex(state, part.id));
     return incremental ? hostEventBase(state, event, { type: 'part.upsert', part, index }) : null;
   }
   if (event.type === 'turn.stopped') {
-    state.hostStatus = { status: 'idle' };
+    if (event.defTurnId === state.lastTurnId) state.hostStatus = { status: 'idle' };
     refreshEffectiveStatus(state);
     return incremental ? hostStatusEvent(state, event) : null;
   }
   if (event.type === 'turn.completed') {
-    state.hostStatus = { status: 'idle' };
+    if (event.defTurnId === state.lastTurnId) state.hostStatus = { status: 'idle' };
     refreshEffectiveStatus(state);
     return incremental ? hostStatusEvent(state, event) : null;
   }
@@ -1105,47 +1214,79 @@ function validateSequence(previous: number, actual: number, source: 'runtime' | 
   );
 }
 
-function upsertMessage(state: MutableProjectionState, message: ConversationMessage, index: number): void {
-  const existing = state.messages.findIndex((entry) => entry.id === message.id);
-  if (existing >= 0) {
-    state.messages.splice(existing, 1);
-    state.messageById.delete(message.id);
+function upsertMessage(state: MutableProjectionState, message: ConversationMessage, index: number): number {
+  const existing = state.messageById.get(message.id);
+  if (existing) unindexTurnMessage(state, existing);
+
+  const nextRuntimeIds = new Set<string>(message.partIds);
+  const previousRuntimeIds = state.runtimeMessagePartIds.get(message.id) ?? new Set<string>();
+  for (const partId of previousRuntimeIds) {
+    if (!nextRuntimeIds.has(partId)) removePart(state, partId, 'runtime');
   }
-  const allowedParts = new Set(message.partIds);
-  for (const [partId, part] of [...state.runtimeParts.entries()]) {
-    if (part.messageId === message.id && !allowedParts.has(partId as ConversationPart['id'])) removePart(state, partId, 'runtime');
+  for (const partId of nextRuntimeIds) {
+    const part = state.runtimeParts.get(partId) ?? state.hostParts.get(partId);
+    if (!part || part.messageId !== message.id) {
+      throw parentNotFound('runtime', `Runtime message ${message.id} references unavailable Part ${partId}`);
+    }
   }
-  for (const [partId, part] of [...state.hostParts.entries()]) {
-    if (part.messageId === message.id && !allowedParts.has(partId as ConversationPart['id'])) removePart(state, partId, 'host');
+  state.runtimeMessageIds.add(message.id);
+  state.runtimeMessagePartIds.set(message.id, nextRuntimeIds);
+
+  const mergedPartIds = [...message.partIds];
+  const mergedSet = new Set<string>(mergedPartIds);
+  for (const partId of state.hostPartIdsByMessage.get(message.id) ?? []) {
+    if (!mergedSet.has(partId)) {
+      mergedSet.add(partId);
+      mergedPartIds.push(partId as ConversationPart['id']);
+    }
   }
-  const nextMessage = clone(message);
-  state.messages.splice(normalizeIndex(index, state.messages.length), 0, nextMessage);
+  const nextMessage: ConversationMessage = { ...clone(message), partIds: mergedPartIds };
+  const actualIndex = upsertIndexedValue(state.messages, state.messageIndexById, nextMessage, index, (entry) => entry.id);
   state.messageById.set(nextMessage.id, nextMessage);
+  indexTurnMessage(state, nextMessage);
   refreshMessageSize(state, nextMessage);
+  return actualIndex;
 }
 
-function removeMessage(state: MutableProjectionState, messageId: ConversationMessage['id']): void {
-  const index = state.messages.findIndex((message) => message.id === messageId);
-  if (index < 0) throw parentNotFound('runtime', `Runtime message ${messageId} was not found`);
+function removeRuntimeMessage(
+  state: MutableProjectionState,
+  messageId: ConversationMessage['id'],
+): { readonly message: ConversationMessage; readonly index: number } | null {
+  if (!state.runtimeMessageIds.has(messageId)) throw parentNotFound('runtime', `Runtime message ${messageId} was not found`);
+  for (const id of [...(state.runtimeMessagePartIds.get(messageId) ?? [])]) removePart(state, id, 'runtime');
+  state.runtimeMessagePartIds.delete(messageId);
+  state.runtimeMessageIds.delete(messageId);
+  const hostIds = state.hostPartIdsByMessage.get(messageId);
+  const existing = state.messageById.get(messageId);
+  if (existing && hostIds && hostIds.size > 0) {
+    const retainedIds = existing.partIds.filter((id) => hostIds.has(id));
+    const retained: ConversationMessage = { ...existing, partIds: retainedIds };
+    const index = state.messageIndexById.get(messageId)!;
+    state.messages[index] = retained;
+    state.messageById.set(messageId, retained);
+    refreshMessageSize(state, retained);
+    return { message: retained, index };
+  }
+  removeEffectiveMessage(state, messageId);
+  return null;
+}
+
+function removeEffectiveMessage(state: MutableProjectionState, messageId: ConversationMessage['id']): void {
+  const index = state.messageIndexById.get(messageId);
+  if (index === undefined) throw parentNotFound('runtime', `Runtime message ${messageId} was not found`);
+  const message = state.messageById.get(messageId)!;
+  unindexTurnMessage(state, message);
   state.serializedCodeUnits -= state.messageSerializedSizes.get(messageId) ?? 0;
   state.messageSerializedSizes.delete(messageId);
   state.messageById.delete(messageId);
+  state.messageIndexById.delete(messageId);
   state.messages.splice(index, 1);
-  for (const id of [...state.runtimeParts.keys()]) {
-    if (state.runtimeParts.get(id)?.messageId === messageId) removePart(state, id, 'runtime');
-  }
-  for (const id of [...state.hostParts.keys()]) {
-    if (state.hostParts.get(id)?.messageId === messageId) removePart(state, id, 'host');
-  }
+  reindexValues(state.messages, state.messageIndexById, index, (entry) => entry.id);
 }
 
-function upsertRuntimePart(state: MutableProjectionState, part: RuntimeTranscriptPart, index: number): void {
+function upsertRuntimePart(state: MutableProjectionState, part: RuntimeTranscriptPart, index: number): number {
   const existingRuntime = state.runtimeParts.get(part.id);
-  if (existingRuntime && existingRuntime.messageId !== part.messageId) {
-    throw new ConversationProjectionError('SOURCE_INVALID', `Runtime part ${part.id} changed parent message`, { source: 'runtime' });
-  }
-  const oldTool = existingRuntime?.type === 'tool' ? existingRuntime : undefined;
-  if (oldTool && state.toolCallToPartId.get(oldTool.toolCallId) === part.id) state.toolCallToPartId.delete(oldTool.toolCallId);
+  rememberPartIdentity(state.partIdentityById, part, 'runtime');
   if (part.type === 'tool') {
     const mappedId = state.toolCallToPartId.get(part.toolCallId);
     if (mappedId && mappedId !== part.id) {
@@ -1153,11 +1294,16 @@ function upsertRuntimePart(state: MutableProjectionState, part: RuntimeTranscrip
     }
   }
   state.runtimeParts.set(part.id, clone(part));
+  const runtimeIds = state.runtimeMessagePartIds.get(part.messageId) ?? new Set<string>();
+  runtimeIds.add(part.id);
+  state.runtimeMessagePartIds.set(part.messageId, runtimeIds);
   refreshEffectivePartSize(state, part.id);
-  reorderPart(state.partOrder, part.id, index);
+  const actualIndex = reorderPart(state.partOrder, state.partIndexById, part.id, index);
   ensureStateMessagePartId(state, part.messageId, part.id);
   if (part.type === 'tool') state.toolCallToPartId.set(part.toolCallId, part.id);
-  if (part.type === 'tool' || existingRuntime?.type === 'tool') refreshEffectiveStatus(state);
+  refreshActivePart(state, part.id);
+  if (part.type === 'tool' || existingRuntime?.type === 'tool' || state.hostParts.get(part.id)?.type === 'tool') refreshEffectiveStatus(state);
+  return actualIndex;
 }
 
 function upsertHostPart(
@@ -1165,13 +1311,7 @@ function upsertHostPart(
   part: HostTranscriptPart,
   index: number,
 ): number {
-  const existing = state.hostParts.get(part.id);
-  if (existing && existing.messageId !== part.messageId) {
-    throw new ConversationProjectionError('SOURCE_INVALID', `Host part ${part.id} changed parent message`, { source: 'host' });
-  }
-  if (existing?.type === 'tool' && part.type === 'tool' && existing.toolCallId !== part.toolCallId) {
-    throw new ConversationProjectionError('SOURCE_INVALID', `Host Tool ${part.id} changed Tool call identity`, { source: 'host' });
-  }
+  rememberPartIdentity(state.partIdentityById, part, 'host');
   if (part.type === 'tool') {
     const mappedId = state.toolCallToPartId.get(part.toolCallId);
     if (mappedId && mappedId !== part.id) {
@@ -1179,12 +1319,16 @@ function upsertHostPart(
     }
   }
   state.hostParts.set(part.id, clone(part));
+  const hostIds = state.hostPartIdsByMessage.get(part.messageId) ?? new Set<string>();
+  hostIds.add(part.id);
+  state.hostPartIdsByMessage.set(part.messageId, hostIds);
   refreshEffectivePartSize(state, part.id);
-  reorderPart(state.partOrder, part.id, index);
+  const actualIndex = reorderPart(state.partOrder, state.partIndexById, part.id, index);
   ensureStateMessagePartId(state, part.messageId, part.id);
   if (part.type === 'tool') state.toolCallToPartId.set(part.toolCallId, part.id);
+  refreshActivePart(state, part.id);
   refreshEffectiveStatus(state);
-  return mergedPartIndex(state, part.id);
+  return actualIndex;
 }
 
 function upsertInteractionPart(
@@ -1192,42 +1336,42 @@ function upsertInteractionPart(
   part: ConversationInteractionPart,
   index: number,
 ): number {
-  const existing = state.hostParts.get(part.id);
-  if (existing && existing.type !== 'interaction') {
-    throw new ConversationProjectionError('SOURCE_INVALID', `Host part ${part.id} changed type`, { source: 'host' });
-  }
+  rememberPartIdentity(state.partIdentityById, part, 'host');
   const mappedId = state.interactionToPartId.get(part.interactionId);
   if (mappedId && mappedId !== part.id) {
     throw new ConversationProjectionError('SOURCE_INVALID', `Interaction ${part.interactionId} is duplicated`, { source: 'host' });
   }
   state.hostParts.set(part.id, clone(part));
+  const hostIds = state.hostPartIdsByMessage.get(part.messageId) ?? new Set<string>();
+  hostIds.add(part.id);
+  state.hostPartIdsByMessage.set(part.messageId, hostIds);
   refreshEffectivePartSize(state, part.id);
   if (!state.interactionToPartId.has(part.interactionId)) {
     state.interactionToPartId.set(part.interactionId, part.id);
   }
-  reorderPart(state.partOrder, part.id, index);
+  const actualIndex = reorderPart(state.partOrder, state.partIndexById, part.id, index);
   ensureStateMessagePartId(state, part.messageId, part.id);
-  return mergedPartIndex(state, part.id);
+  refreshActivePart(state, part.id);
+  refreshEffectiveStatus(state);
+  return actualIndex;
 }
 
 function removePart(state: MutableProjectionState, partId: string, source: 'runtime' | 'host'): void {
   const part = source === 'runtime' ? state.runtimeParts.get(partId) : state.hostParts.get(partId);
   if (!part) return;
-  if (source === 'runtime') state.runtimeParts.delete(partId);
-  else state.hostParts.delete(partId);
+  if (source === 'runtime') {
+    state.runtimeParts.delete(partId);
+    state.runtimeMessagePartIds.get(part.messageId)?.delete(partId);
+  } else {
+    state.hostParts.delete(partId);
+    state.hostPartIdsByMessage.get(part.messageId)?.delete(partId);
+  }
   refreshEffectivePartSize(state, partId);
   if (!state.runtimeParts.has(partId) && !state.hostParts.has(partId)) {
-    state.partOrder = state.partOrder.filter((id) => id !== partId);
-  }
-  if (part.type === 'tool' && state.toolCallToPartId.get(part.toolCallId) === partId) {
-    const remaining = state.hostParts.get(partId) ?? state.runtimeParts.get(partId);
-    if (remaining?.type === 'tool') state.toolCallToPartId.set(remaining.toolCallId, partId);
-    else state.toolCallToPartId.delete(part.toolCallId);
-  }
-  if (part.type === 'interaction' && state.interactionToPartId.get(part.interactionId) === partId) {
-    state.interactionToPartId.delete(part.interactionId);
+    removeIndexedValue(state.partOrder, state.partIndexById, partId);
   }
   if (!state.runtimeParts.has(partId) && !state.hostParts.has(partId)) removeStateMessagePartId(state, part.messageId, partId);
+  refreshActivePart(state, partId);
   if (part.type === 'tool' || part.type === 'interaction') refreshEffectiveStatus(state);
 }
 
@@ -1277,10 +1421,14 @@ function buildToolPart(
   }
   const message = requireMessage(state, existing.messageId, 'host');
   const partId = existing.id;
-  const input = toolInput(existing.state);
+  const existingHost = state.hostParts.get(partId);
+  const input = event.type === 'tool.requested'
+    ? clone(event.payload.input) as JsonObject
+    : toolInput(existing.state);
   const name = event.type === 'tool.requested' || event.type === 'tool.started'
     ? event.payload.name
     : existing?.name ?? `tool:${toolCallId}`;
+  assertToolStateProgression(existing.state.status, phase);
   let stateValue: ConversationToolState;
   if (phase === 'pending') {
     stateValue = { status: 'pending', input };
@@ -1317,7 +1465,7 @@ function buildToolPart(
   const part: ConversationToolPart = {
     id: partId,
     messageId: message.id,
-    createdAt: existing.createdAt,
+    createdAt: existingHost?.type === 'tool' ? existingHost.createdAt : event.occurredAt,
     type: 'tool',
     toolCallId,
     name,
@@ -1359,6 +1507,7 @@ function buildCommandToolPart(state: MutableProjectionState, event: Extract<DefE
       title: name,
     };
   }
+  assertToolStateProgression(existing.state.status, stateValue.status);
   return {
     ...existing,
     state: stateValue,
@@ -1384,6 +1533,9 @@ function buildInteractionPart(
 ): ConversationInteractionPart {
   const existingId = state.interactionToPartId.get(event.interactionId);
   const existing = existingId ? state.hostParts.get(existingId) : undefined;
+  if (existing?.type === 'interaction' && existing.state.status === 'resolved') {
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Resolved Interaction cannot return to pending', { source: 'host' });
+  }
   const message = existing?.type === 'interaction'
     ? requireMessage(state, existing.messageId, 'host')
     : requireTurnMessage(state, event.defTurnId);
@@ -1415,6 +1567,9 @@ function resolveInteractionPart(
   const current = id ? state.hostParts.get(id) : undefined;
   if (!current || current.type !== 'interaction') {
     throw parentNotFound('host', `Interaction ${event.interactionId} was not requested`);
+  }
+  if (current.state.status !== 'pending') {
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Resolved Interaction cannot be resolved again', { source: 'host' });
   }
   return {
     ...current,
@@ -1453,10 +1608,9 @@ function findToolPart(state: MutableProjectionState, toolCallId: ToolCallId): Co
 }
 
 function requireTurnMessage(state: MutableProjectionState, defTurnId: DefTurnId): ConversationMessage {
-  const message = [...state.messages].reverse().find((entry) => entry.defTurnId === defTurnId && entry.role === 'assistant')
-    ?? [...state.messages].reverse().find((entry) => entry.defTurnId === defTurnId);
+  const messageId = state.assistantMessageByTurnId.get(defTurnId) ?? state.lastMessageByTurnId.get(defTurnId);
+  const message = messageId ? state.messageById.get(messageId) : undefined;
   if (!message) throw parentNotFound('host', `Conversation message for Turn ${defTurnId} was not found`);
-  state.lastTurnId = defTurnId;
   return message;
 }
 
@@ -1549,25 +1703,24 @@ function refreshEffectiveStatus(state: MutableProjectionState): void {
 
 function computeEffectiveStatus(state: MutableProjectionState): ConversationSessionStatus {
   if (state.hostStatus?.status === 'archived' || state.hostStatus?.status === 'error') return clone(state.hostStatus);
-  const mergedParts = mergedPartValues(state);
-  const pendingInteraction = mergedParts.find(
-    (part): part is ConversationInteractionPart => part.type === 'interaction' && part.state.status === 'pending',
-  );
-  if (pendingInteraction) {
-    return {
-      status: 'waiting-interaction',
-      defTurnId: requireMessage(state, pendingInteraction.messageId, 'host').defTurnId,
-      interactionId: pendingInteraction.interactionId,
-    };
-  }
-  const activeTool = mergedParts.find(
-    (part): part is ConversationToolPart => part.type === 'tool' && (part.state.status === 'pending' || part.state.status === 'running'),
-  );
+  const activeToolId = state.activeToolPartIds.values().next().value as string | undefined;
+  const activeTool = activeToolId ? effectivePart(state, activeToolId) : undefined;
   if (activeTool) {
+    if (activeTool.type !== 'tool') throw new ConversationProjectionError('SOURCE_INVALID', 'Active Tool index is invalid');
     return {
       status: 'waiting-tool',
       defTurnId: requireMessage(state, activeTool.messageId, 'host').defTurnId,
       toolCallId: activeTool.toolCallId,
+    };
+  }
+  const pendingInteractionId = state.pendingInteractionPartIds.values().next().value as string | undefined;
+  const pendingInteraction = pendingInteractionId ? effectivePart(state, pendingInteractionId) : undefined;
+  if (pendingInteraction) {
+    if (pendingInteraction.type !== 'interaction') throw new ConversationProjectionError('SOURCE_INVALID', 'Pending Interaction index is invalid');
+    return {
+      status: 'waiting-interaction',
+      defTurnId: requireMessage(state, pendingInteraction.messageId, 'host').defTurnId,
+      interactionId: pendingInteraction.interactionId,
     };
   }
   if (state.runtimeStatus.status === 'error') return clone(state.runtimeStatus);
@@ -1717,20 +1870,17 @@ function validateHostSnapshot(snapshot: ConversationHostJournalSnapshot, defSess
     throw new ConversationProjectionError('SOURCE_INVALID', 'Host snapshot contains too many events', { source: 'host' });
   }
   let previous = 0;
-  for (const [index, event] of snapshot.events.entries()) {
+  for (const event of snapshot.events) {
     validateHostEvent(event, defSessionId);
-    if (event.sequence <= previous) {
+    if (event.sequence !== previous + 1) {
       throw new ConversationProjectionError(
-        event.sequence === previous ? 'SOURCE_DUPLICATE' : 'SOURCE_OUT_OF_ORDER',
-        'Host snapshot events are not strictly ordered',
+        event.sequence === previous
+          ? 'SOURCE_DUPLICATE'
+          : event.sequence < previous
+            ? 'SOURCE_OUT_OF_ORDER'
+            : 'SOURCE_GAP',
+        'Host snapshot events are not contiguous',
         { source: 'host', expectedSequence: previous + 1, actualSequence: event.sequence },
-      );
-    }
-    if (index === 0 && event.sequence !== 1) {
-      throw new ConversationProjectionError(
-        'SOURCE_GAP',
-        `Host snapshot starts at ${event.sequence} instead of sequence 1`,
-        { source: 'host', expectedSequence: 1, actualSequence: event.sequence },
       );
     }
     if (event.sequence > snapshot.sequence) {
@@ -1773,6 +1923,9 @@ function validateHostEvent(event: unknown, defSessionId: DefSessionId): asserts 
   if (!isRecord(event) || event.schemaVersion !== 1 || event.defSessionId !== defSessionId || typeof event.type !== 'string') {
     throw new ConversationProjectionError('SOURCE_INVALID', 'Host snapshot contains an invalid event', { source: 'host' });
   }
+  if (!KNOWN_HOST_EVENT_TYPES.has(event.type as DefEvent['type'])) {
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Host snapshot contains an unknown event variant', { source: 'host' });
+  }
   if (typeof event.sequence !== 'number' || !Number.isSafeInteger(event.sequence) || event.sequence < 1 || typeof event.occurredAt !== 'string' || event.occurredAt.length > 256) {
     throw new ConversationProjectionError('SOURCE_INVALID', 'Host snapshot contains an invalid event header', { source: 'host' });
   }
@@ -1797,6 +1950,31 @@ function validateHostEvent(event: unknown, defSessionId: DefSessionId): asserts 
   }
   if ((event.type === 'interaction.requested' || event.type === 'interaction.resolved') && !isIdentifier(event.interactionId)) {
     throw new ConversationProjectionError('SOURCE_INVALID', 'Host event Interaction correlation is invalid', { source: 'host' });
+  }
+  if (event.type === 'tool.requested') {
+    if (!isIdentifier(event.payload.name) || !['read', 'propose', 'mutate'].includes(String(event.payload.risk))) {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host Tool request payload is invalid', { source: 'host' });
+    }
+  } else if (event.type === 'tool.started') {
+    if (!isIdentifier(event.payload.name)) throw new ConversationProjectionError('SOURCE_INVALID', 'Host Tool start payload is invalid', { source: 'host' });
+  } else if (event.type === 'tool.result') {
+    if (!Object.prototype.hasOwnProperty.call(event.payload, 'result')) throw new ConversationProjectionError('SOURCE_INVALID', 'Host Tool result payload is invalid', { source: 'host' });
+  } else if (event.type === 'tool.error' || event.type === 'turn.failed' || event.type === 'turn.interrupted') {
+    if (!isIdentifier(event.payload.code) || typeof event.payload.message !== 'string') {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host terminal error payload is invalid', { source: 'host' });
+    }
+  } else if (event.type === 'interaction.requested') {
+    if (!['question', 'approval'].includes(String(event.payload.kind)) || typeof event.payload.prompt !== 'string' || typeof event.payload.expiresAt !== 'string') {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host Interaction request payload is invalid', { source: 'host' });
+    }
+  } else if (event.type === 'interaction.resolved') {
+    if (!['answered', 'approved', 'rejected', 'expired', 'cancelled', 'stale'].includes(String(event.payload.status))) {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host Interaction resolution payload is invalid', { source: 'host' });
+    }
+  } else if (event.type === 'session.orphaned') {
+    if (!isIdentifier(event.payload.code) || typeof event.payload.message !== 'string') {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host orphaned Session payload is invalid', { source: 'host' });
+    }
   }
 }
 
@@ -1840,8 +2018,7 @@ function findPartIndex(state: MutableProjectionState, partId: string): number {
 }
 
 function mergedPartIndex(state: MutableProjectionState, partId: string): number {
-  const index = state.partOrder.indexOf(partId);
-  return index >= 0 ? index : state.partOrder.length;
+  return state.partIndexById.get(partId) ?? state.partOrder.length;
 }
 
 function normalizeIndex(index: number, length: number): number {
@@ -1851,17 +2028,15 @@ function normalizeIndex(index: number, length: number): number {
   return Math.min(index, length);
 }
 
-function reorderPart(order: string[], partId: string, index: number): void {
-  const existing = order.indexOf(partId);
-  if (existing >= 0) order.splice(existing, 1);
-  order.splice(normalizeIndex(index, order.length), 0, partId);
+function reorderPart(order: string[], indexes: Map<string, number>, partId: string, index: number): number {
+  return upsertIndexedValue(order, indexes, partId, index, (entry) => entry);
 }
 
 function ensureStateMessagePartId(state: MutableProjectionState, messageId: string, partId: string): void {
-  const messageIndex = state.messages.findIndex((candidate) => candidate.id === messageId);
+  const messageIndex = state.messageIndexById.get(messageId);
   const message = state.messageById.get(messageId);
-  if (!message) throw parentNotFound('runtime', `Conversation message ${messageId} was not found`);
-  if (!message.partIds.includes(partId as ConversationPart['id'])) {
+  if (!message || messageIndex === undefined) throw parentNotFound('runtime', `Conversation message ${messageId} was not found`);
+  if (!new Set(message.partIds).has(partId as ConversationPart['id'])) {
     const next = { ...message, partIds: [...message.partIds, partId as ConversationPart['id']] };
     state.messages[messageIndex] = next;
     state.messageById.set(messageId, next);
@@ -1870,13 +2045,152 @@ function ensureStateMessagePartId(state: MutableProjectionState, messageId: stri
 }
 
 function removeStateMessagePartId(state: MutableProjectionState, messageId: string, partId: string): void {
-  const messageIndex = state.messages.findIndex((candidate) => candidate.id === messageId);
+  const messageIndex = state.messageIndexById.get(messageId);
   const message = state.messageById.get(messageId);
-  if (!message) return;
+  if (!message || messageIndex === undefined) return;
   const next = { ...message, partIds: message.partIds.filter((candidate) => candidate !== partId) };
   state.messages[messageIndex] = next;
   state.messageById.set(messageId, next);
   refreshMessageSize(state, next);
+}
+
+function upsertIndexedValue<T>(
+  values: T[],
+  indexes: Map<string, number>,
+  value: T,
+  requestedIndex: number,
+  identity: (entry: T) => string,
+): number {
+  const id = identity(value);
+  const existingIndex = indexes.get(id);
+  if (existingIndex !== undefined) {
+    values.splice(existingIndex, 1);
+    indexes.delete(id);
+    reindexValues(values, indexes, existingIndex, identity);
+  }
+  const index = normalizeIndex(requestedIndex, values.length);
+  values.splice(index, 0, value);
+  reindexValues(values, indexes, Math.min(index, existingIndex ?? index), identity);
+  return index;
+}
+
+function removeIndexedValue(
+  values: string[],
+  indexes: Map<string, number>,
+  id: string,
+): void {
+  const index = indexes.get(id);
+  if (index === undefined) return;
+  values.splice(index, 1);
+  indexes.delete(id);
+  reindexValues(values, indexes, index, (entry) => entry);
+}
+
+function reindexValues<T>(
+  values: readonly T[],
+  indexes: Map<string, number>,
+  start: number,
+  identity: (entry: T) => string,
+): void {
+  for (let index = start; index < values.length; index += 1) indexes.set(identity(values[index]!), index);
+}
+
+function effectivePart(state: MutableProjectionState, partId: string): ConversationPart | undefined {
+  return state.hostParts.get(partId) ?? state.runtimeParts.get(partId);
+}
+
+function refreshActivePart(state: MutableProjectionState, partId: string): void {
+  state.activeToolPartIds.delete(partId);
+  state.pendingInteractionPartIds.delete(partId);
+  const part = effectivePart(state, partId);
+  if (part?.type === 'tool' && (part.state.status === 'pending' || part.state.status === 'running')) {
+    state.activeToolPartIds.add(partId);
+  }
+  if (part?.type === 'interaction' && part.state.status === 'pending') {
+    state.pendingInteractionPartIds.add(partId);
+  }
+}
+
+function rememberPartIdentity(
+  identities: Map<string, PartIdentity>,
+  part: ConversationPart,
+  source: 'runtime' | 'host',
+): void {
+  const next: PartIdentity = {
+    messageId: part.messageId,
+    type: part.type,
+    ...(part.type === 'tool' ? { toolCallId: part.toolCallId } : {}),
+    ...(part.type === 'interaction' ? { interactionId: part.interactionId } : {}),
+  };
+  const existing = identities.get(part.id);
+  if (existing && (
+    existing.messageId !== next.messageId
+    || existing.type !== next.type
+    || existing.toolCallId !== next.toolCallId
+    || existing.interactionId !== next.interactionId
+  )) {
+    throw new ConversationProjectionError('SOURCE_INVALID', `Conversation Part ${part.id} changed stable identity`, { source });
+  }
+  if (!existing) identities.set(part.id, next);
+}
+
+function cloneSetMap(source: Map<string, Set<string>>): Map<string, Set<string>> {
+  return new Map([...source].map(([key, values]) => [key, new Set(values)]));
+}
+
+function indexTurnMessageMaps(
+  message: ConversationMessage,
+  idsByTurn: Map<string, Set<string>>,
+  assistantByTurn: Map<string, string>,
+  lastByTurn: Map<string, string>,
+): void {
+  const ids = idsByTurn.get(message.defTurnId) ?? new Set<string>();
+  ids.delete(message.id);
+  ids.add(message.id);
+  idsByTurn.set(message.defTurnId, ids);
+  lastByTurn.set(message.defTurnId, message.id);
+  if (message.role === 'assistant') assistantByTurn.set(message.defTurnId, message.id);
+}
+
+function indexTurnMessage(state: MutableProjectionState, message: ConversationMessage): void {
+  indexTurnMessageMaps(
+    message,
+    state.messageIdsByTurnId,
+    state.assistantMessageByTurnId,
+    state.lastMessageByTurnId,
+  );
+}
+
+function unindexTurnMessage(state: MutableProjectionState, message: ConversationMessage): void {
+  const ids = state.messageIdsByTurnId.get(message.defTurnId);
+  ids?.delete(message.id);
+  if (!ids || ids.size === 0) {
+    state.messageIdsByTurnId.delete(message.defTurnId);
+    state.assistantMessageByTurnId.delete(message.defTurnId);
+    state.lastMessageByTurnId.delete(message.defTurnId);
+    return;
+  }
+  if (state.lastMessageByTurnId.get(message.defTurnId) === message.id) {
+    state.lastMessageByTurnId.set(message.defTurnId, [...ids].at(-1)!);
+  }
+  if (state.assistantMessageByTurnId.get(message.defTurnId) === message.id) {
+    let replacement: string | undefined;
+    for (const id of ids) if (state.messageById.get(id)?.role === 'assistant') replacement = id;
+    if (replacement) state.assistantMessageByTurnId.set(message.defTurnId, replacement);
+    else state.assistantMessageByTurnId.delete(message.defTurnId);
+  }
+}
+
+function assertToolStateProgression(
+  previous: ConversationToolState['status'],
+  next: ConversationToolState['status'],
+): void {
+  const rank = (status: ConversationToolState['status']): number => (
+    status === 'pending' ? 0 : status === 'running' ? 1 : 2
+  );
+  if (rank(next) < rank(previous)) {
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Terminal Tool state cannot regress', { source: 'host' });
+  }
 }
 
 function appendBoundedText(current: string, delta: string): string {
@@ -1889,19 +2203,6 @@ function appendBoundedText(current: string, delta: string): string {
 
 function parentNotFound(source: 'runtime' | 'host' | 'projector', message: string): ConversationProjectionError {
   return new ConversationProjectionError('PARENT_NOT_FOUND', message, { source });
-}
-
-function mergedPartValues(state: MutableProjectionState): ConversationPart[] {
-  const parts: ConversationPart[] = [];
-  const seen = new Set<string>();
-  for (const id of state.partOrder) {
-    if (seen.has(id)) continue;
-    const part = state.hostParts.get(id) ?? state.runtimeParts.get(id);
-    if (!part) continue;
-    seen.add(id);
-    parts.push(part);
-  }
-  return parts;
 }
 
 function clone<T>(value: T): T {
@@ -1981,6 +2282,40 @@ function isEngineSession(value: unknown): value is EngineSessionRef {
     && Number.isSafeInteger(value.storeSchemaVersion);
 }
 
+const HOST_EVENT_PAGE_SIZE = 256;
+
+function loadBoundedHostEvents(store: SessionStoreSource, defSessionId: DefSessionId): DefEvent[] {
+  if (store.loadEventPage) {
+    const events: DefEvent[] = [];
+    let afterSequence = 0;
+    while (events.length <= DEF_CONVERSATION_LIMITS.maxEventsPerSnapshot) {
+      const page = store.loadEventPage(defSessionId, afterSequence, HOST_EVENT_PAGE_SIZE);
+      if (!Array.isArray(page) || page.length > HOST_EVENT_PAGE_SIZE) {
+        throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store returned an invalid event page', { source: 'host' });
+      }
+      if (page.length === 0) return events;
+      for (const event of page) {
+        events.push(clone(event));
+        if (events.length > DEF_CONVERSATION_LIMITS.maxEventsPerSnapshot) {
+          throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store journal exceeds its bounded limit', { source: 'host' });
+        }
+      }
+      const nextSequence = page.at(-1)?.sequence;
+      if (!Number.isSafeInteger(nextSequence) || Number(nextSequence) <= afterSequence) {
+        throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store event page did not advance', { source: 'host' });
+      }
+      afterSequence = Number(nextSequence);
+      if (page.length < HOST_EVENT_PAGE_SIZE) return events;
+    }
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store journal exceeds its bounded limit', { source: 'host' });
+  }
+  const loaded = store.loadEvents(defSessionId);
+  if (!Array.isArray(loaded) || loaded.length > DEF_CONVERSATION_LIMITS.maxEventsPerSnapshot) {
+    throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store fallback journal exceeds its bounded limit', { source: 'host' });
+  }
+  return loaded.map((event) => clone(event));
+}
+
 async function* pollSessionStore(
   store: SessionStoreSource,
   defSessionId: DefSessionId,
@@ -1990,8 +2325,15 @@ async function* pollSessionStore(
 ): AsyncIterable<DefEvent> {
   let cursor = afterHostSequence;
   while (!signal?.aborted) {
-    const events = store.loadEvents(defSessionId);
-    const next = events.filter((event) => event.sequence > cursor);
+    const events = store.loadEventPage
+      ? store.loadEventPage(defSessionId, cursor, HOST_EVENT_PAGE_SIZE)
+      : store.loadEvents(defSessionId);
+    if (!Array.isArray(events) || events.length > (store.loadEventPage ? HOST_EVENT_PAGE_SIZE : DEF_CONVERSATION_LIMITS.maxEventsPerSnapshot)) {
+      throw new ConversationProjectionError('SOURCE_INVALID', 'Host Session Store polling page exceeds its bounded limit', { source: 'host' });
+    }
+    const next = store.loadEventPage
+      ? events
+      : events.filter((event) => event.sequence > cursor).slice(0, HOST_EVENT_PAGE_SIZE);
     if (next.length > 0) {
       for (const event of next) {
         cursor = event.sequence;
