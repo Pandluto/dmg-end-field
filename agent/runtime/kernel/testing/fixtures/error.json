@@ -1,0 +1,94 @@
+{
+  "events": [
+    {
+      "data": {},
+      "ordinal": 1,
+      "runId": "run-1",
+      "type": "run.start"
+    },
+    {
+      "data": {
+        "contextItemCount": 1
+      },
+      "ordinal": 2,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "attachmentCount": 0,
+        "text": "produce deterministic error"
+      },
+      "messageId": "message-1",
+      "ordinal": 3,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.user"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "produce deterministic error"
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": []
+      },
+      "ordinal": 4,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "contentOrder": [],
+        "stopReason": "error",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 3,
+          "outputTokens": 0,
+          "totalTokens": 3
+        }
+      },
+      "messageId": "message-2",
+      "ordinal": 5,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "stopReason": "error",
+        "toolResultCount": 0
+      },
+      "ordinal": 6,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "code": "PI_REFERENCE_ERROR",
+        "message": "deterministic provider error",
+        "status": "failed"
+      },
+      "ordinal": 7,
+      "runId": "run-1",
+      "type": "run.end"
+    }
+  ],
+  "scenario": "error",
+  "schemaVersion": 1,
+  "source": {
+    "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+    "generatedBy": "scripts/agent-runtime-pi-reference.mjs",
+    "kind": "pi-reference",
+    "repository": "https://github.com/earendil-works/pi-mono",
+    "version": "0.84.1"
+  }
+}

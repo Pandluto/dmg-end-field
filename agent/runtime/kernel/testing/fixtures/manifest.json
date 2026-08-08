@@ -1,0 +1,57 @@
+{
+  "fixtures": [
+    {
+      "byteLength": 2503,
+      "file": "text.json",
+      "scenario": "text",
+      "sha256": "375043027927f176d6e0f57e7de625fddb0fc75215ace5a446f4dc3ffdef3a2f"
+    },
+    {
+      "byteLength": 2844,
+      "file": "reasoning.json",
+      "scenario": "reasoning",
+      "sha256": "bc0882b7b9ff11bdec8259a803096398c5d726471789f56acd63ba15704ee8c8"
+    },
+    {
+      "byteLength": 5261,
+      "file": "tool.json",
+      "scenario": "tool",
+      "sha256": "bc83526db5d195aebef1ba60ae3fef2b6faed3911af1af5ea11b7e5d081f2290"
+    },
+    {
+      "byteLength": 2068,
+      "file": "error.json",
+      "scenario": "error",
+      "sha256": "e6fa0f81c91dfbfbe3c88c3683fbe75715ee4490e3a5e7797d310d84353fb489"
+    },
+    {
+      "byteLength": 2066,
+      "file": "abort.json",
+      "scenario": "abort",
+      "sha256": "a5403a759937f32657bd57a3a233203cd2a37afdd71a0b7ee99ab6440d804c9d"
+    },
+    {
+      "byteLength": 5244,
+      "file": "compaction.json",
+      "scenario": "compaction",
+      "sha256": "d6b56789913db023b8be72cc7477ae6cebd52bfa53c946925863ceb698f78778"
+    }
+  ],
+  "generation": {
+    "idNormalization": "first-seen ordinal per namespace",
+    "model": "pi-golden-oracle-model",
+    "runner": "scripts/agent-runtime-pi-reference.mjs",
+    "runnerVersion": 1,
+    "seed": "pi-golden-oracle-v1",
+    "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+    "timestampNormalization": "discard raw Pi event timestamps",
+    "toolExecution": "sequential",
+    "transport": "scripted AssistantMessageEventStream"
+  },
+  "manifestVersion": 1,
+  "upstream": {
+    "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+    "repository": "https://github.com/earendil-works/pi-mono",
+    "version": "0.84.1"
+  }
+}

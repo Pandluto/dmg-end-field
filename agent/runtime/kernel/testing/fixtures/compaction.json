@@ -1,0 +1,233 @@
+{
+  "events": [
+    {
+      "data": {},
+      "ordinal": 1,
+      "runId": "run-1",
+      "type": "run.start"
+    },
+    {
+      "data": {
+        "contextItemCount": 1
+      },
+      "ordinal": 2,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "attachmentCount": 0,
+        "text": "first deterministic turn"
+      },
+      "messageId": "message-1",
+      "ordinal": 3,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.user"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "first deterministic turn"
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": []
+      },
+      "ordinal": 4,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-2",
+      "ordinal": 5,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "contentIndex": 0,
+        "text": "Before deterministic compaction."
+      },
+      "messageId": "message-2",
+      "ordinal": 6,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "content.text"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "text"
+        ],
+        "stopReason": "stop",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 5,
+          "outputTokens": 5,
+          "totalTokens": 10
+        }
+      },
+      "messageId": "message-2",
+      "ordinal": 7,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "stopReason": "stop",
+        "toolResultCount": 0
+      },
+      "ordinal": 8,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "firstKeptItemIndex": 2,
+        "reason": "manual",
+        "status": "completed",
+        "summary": "Compacted prior deterministic turn.",
+        "tokensBefore": 10
+      },
+      "messageId": "message-3",
+      "ordinal": 9,
+      "runId": "run-1",
+      "type": "compaction"
+    },
+    {
+      "data": {
+        "contextItemCount": 4
+      },
+      "ordinal": 10,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "attachmentCount": 0,
+        "text": "second deterministic turn"
+      },
+      "messageId": "message-4",
+      "ordinal": 11,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "message.user"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "first deterministic turn"
+          },
+          {
+            "kind": "assistant-text",
+            "messageId": "message-2",
+            "text": "Before deterministic compaction."
+          },
+          {
+            "kind": "user-text",
+            "messageId": "message-4",
+            "text": "second deterministic turn"
+          },
+          {
+            "kind": "compaction",
+            "messageId": "message-3",
+            "summary": "Compacted prior deterministic turn."
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": []
+      },
+      "ordinal": 12,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-5",
+      "ordinal": 13,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "contentIndex": 0,
+        "text": "After deterministic compaction."
+      },
+      "messageId": "message-5",
+      "ordinal": 14,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "content.text"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "text"
+        ],
+        "stopReason": "stop",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 11,
+          "outputTokens": 5,
+          "totalTokens": 16
+        }
+      },
+      "messageId": "message-5",
+      "ordinal": 15,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "stopReason": "stop",
+        "toolResultCount": 0
+      },
+      "ordinal": 16,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "ordinal": 17,
+      "runId": "run-1",
+      "type": "run.end"
+    }
+  ],
+  "scenario": "compaction",
+  "schemaVersion": 1,
+  "source": {
+    "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+    "generatedBy": "scripts/agent-runtime-pi-reference.mjs",
+    "kind": "pi-reference",
+    "repository": "https://github.com/earendil-works/pi-mono",
+    "version": "0.84.1"
+  }
+}

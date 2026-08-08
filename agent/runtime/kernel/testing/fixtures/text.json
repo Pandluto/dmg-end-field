@@ -1,0 +1,116 @@
+{
+  "events": [
+    {
+      "data": {},
+      "ordinal": 1,
+      "runId": "run-1",
+      "type": "run.start"
+    },
+    {
+      "data": {
+        "contextItemCount": 1
+      },
+      "ordinal": 2,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "attachmentCount": 0,
+        "text": "produce deterministic text"
+      },
+      "messageId": "message-1",
+      "ordinal": 3,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.user"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "produce deterministic text"
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": []
+      },
+      "ordinal": 4,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-2",
+      "ordinal": 5,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "contentIndex": 0,
+        "text": "Deterministic text response."
+      },
+      "messageId": "message-2",
+      "ordinal": 6,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "content.text"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "text"
+        ],
+        "stopReason": "stop",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 4,
+          "outputTokens": 4,
+          "totalTokens": 8
+        }
+      },
+      "messageId": "message-2",
+      "ordinal": 7,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "stopReason": "stop",
+        "toolResultCount": 0
+      },
+      "ordinal": 8,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "ordinal": 9,
+      "runId": "run-1",
+      "type": "run.end"
+    }
+  ],
+  "scenario": "text",
+  "schemaVersion": 1,
+  "source": {
+    "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+    "generatedBy": "scripts/agent-runtime-pi-reference.mjs",
+    "kind": "pi-reference",
+    "repository": "https://github.com/earendil-works/pi-mono",
+    "version": "0.84.1"
+  }
+}

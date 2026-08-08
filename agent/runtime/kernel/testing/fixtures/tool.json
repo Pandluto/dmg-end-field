@@ -1,0 +1,238 @@
+{
+  "events": [
+    {
+      "data": {},
+      "ordinal": 1,
+      "runId": "run-1",
+      "type": "run.start"
+    },
+    {
+      "data": {
+        "contextItemCount": 1
+      },
+      "ordinal": 2,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "attachmentCount": 0,
+        "text": "add the deterministic operands"
+      },
+      "messageId": "message-1",
+      "ordinal": 3,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.user"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "add the deterministic operands"
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": [
+          "oracle.add"
+        ]
+      },
+      "ordinal": 4,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-2",
+      "ordinal": 5,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "arguments": {
+          "left": 2,
+          "right": 40
+        },
+        "contentIndex": 0,
+        "name": "oracle.add"
+      },
+      "messageId": "message-2",
+      "ordinal": 6,
+      "runId": "run-1",
+      "toolCallId": "tool-call-1",
+      "turnId": "turn-1",
+      "type": "tool.call"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "tool-call"
+        ],
+        "stopReason": "tool-use",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 8,
+          "outputTokens": 5,
+          "totalTokens": 13
+        }
+      },
+      "messageId": "message-2",
+      "ordinal": 7,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "name": "oracle.add",
+        "output": {
+          "sum": 42
+        },
+        "status": "succeeded"
+      },
+      "messageId": "message-3",
+      "ordinal": 8,
+      "runId": "run-1",
+      "toolCallId": "tool-call-1",
+      "turnId": "turn-1",
+      "type": "tool.result"
+    },
+    {
+      "data": {
+        "stopReason": "tool-use",
+        "toolResultCount": 1
+      },
+      "ordinal": 9,
+      "runId": "run-1",
+      "turnId": "turn-1",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "contextItemCount": 3
+      },
+      "ordinal": 10,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "turn.start"
+    },
+    {
+      "data": {
+        "items": [
+          {
+            "kind": "user-text",
+            "messageId": "message-1",
+            "text": "add the deterministic operands"
+          },
+          {
+            "arguments": {
+              "left": 2,
+              "right": 40
+            },
+            "kind": "assistant-tool-call",
+            "messageId": "message-2",
+            "name": "oracle.add",
+            "toolCallId": "tool-call-1"
+          },
+          {
+            "kind": "tool-result",
+            "messageId": "message-3",
+            "name": "oracle.add",
+            "output": {
+              "sum": 42
+            },
+            "status": "succeeded",
+            "toolCallId": "tool-call-1"
+          }
+        ],
+        "systemPrompt": "Pi Golden Oracle deterministic system prompt",
+        "toolNames": [
+          "oracle.add"
+        ]
+      },
+      "ordinal": 11,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "context.snapshot"
+    },
+    {
+      "data": {
+        "modelId": "pi-golden-oracle-model",
+        "providerId": "pi-golden-oracle"
+      },
+      "messageId": "message-4",
+      "ordinal": 12,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "response.start"
+    },
+    {
+      "data": {
+        "contentIndex": 0,
+        "text": "The deterministic tool returned 42."
+      },
+      "messageId": "message-4",
+      "ordinal": 13,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "content.text"
+    },
+    {
+      "data": {
+        "contentOrder": [
+          "text"
+        ],
+        "stopReason": "stop",
+        "usage": {
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0,
+          "inputTokens": 16,
+          "outputTokens": 7,
+          "totalTokens": 23
+        }
+      },
+      "messageId": "message-4",
+      "ordinal": 14,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "message.assistant"
+    },
+    {
+      "data": {
+        "stopReason": "stop",
+        "toolResultCount": 0
+      },
+      "ordinal": 15,
+      "runId": "run-1",
+      "turnId": "turn-2",
+      "type": "turn.end"
+    },
+    {
+      "data": {
+        "status": "completed"
+      },
+      "ordinal": 16,
+      "runId": "run-1",
+      "type": "run.end"
+    }
+  ],
+  "scenario": "tool",
+  "schemaVersion": 1,
+  "source": {
+    "commit": "e47b8e37a6211ebd0b2942fa87059d64f81eec02",
+    "generatedBy": "scripts/agent-runtime-pi-reference.mjs",
+    "kind": "pi-reference",
+    "repository": "https://github.com/earendil-works/pi-mono",
+    "version": "0.84.1"
+  }
+}
