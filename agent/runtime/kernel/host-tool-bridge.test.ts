@@ -93,6 +93,72 @@ test('invoke exposes a source-ordered request and atomically settles result plus
   assert.equal(bridge.pendingToolCallId, null);
 });
 
+test('ordinary submit result atomically reuses the current projection for the next model round', async () => {
+  const requests: HostToolBridgeRequest[] = [];
+  const bridge = new HostToolBridge({
+    initialProjection: hostProjection(5, 'def.node.crud.context'),
+    emitRequest: (request) => { requests.push(request); },
+  });
+  const first = bridge.invoke(
+    invocation('def.node.crud.context', 5, 'call-ordinary-1'),
+    new AbortController().signal,
+    async () => {},
+  );
+  await flush();
+
+  await requests[0]!.submitResult({
+    toolCallId: asToolCallId('call-ordinary-1'),
+    status: 'succeeded',
+    result: { observed: true },
+  });
+  const firstSettlement = await first;
+  assert.equal(firstSettlement.nextProjection.revision, 5);
+  assert.equal(bridge.projection.revision, 5);
+  assert.equal(Object.isFrozen(firstSettlement.nextProjection), true);
+  assert.deepEqual(firstSettlement.nextProjection, bridge.projection);
+
+  // P2 receives the settlement projection as its next model-round projection;
+  // a second call using that unchanged revision must remain valid.
+  const second = bridge.invoke(
+    invocation('def.node.crud.context', firstSettlement.nextProjection.revision, 'call-ordinary-2'),
+    new AbortController().signal,
+    async () => {},
+  );
+  await flush();
+  assert.equal(requests.length, 2);
+  await bridge.submitToolResult({
+    toolCallId: asToolCallId('call-ordinary-2'),
+    status: 'succeeded',
+    result: { observed: 'again' },
+  });
+  assert.equal((await second).nextProjection.revision, 5);
+});
+
+test('explicit projection settlement rejects same-revision conflicts and regressions', async () => {
+  for (const [suffix, revision] of [['same', 4], ['older', 3]] as const) {
+    const bridge = new HostToolBridge({
+      initialProjection: hostProjection(4, 'def.node.crud.context'),
+      emitRequest: () => {},
+    });
+    const callId = `call-explicit-${suffix}`;
+    const pending = bridge.invoke(
+      invocation('def.node.crud.context', 4, callId),
+      new AbortController().signal,
+      async () => {},
+    );
+    await flush();
+    const submitted = bridge.submitToolResultAndUpdateProjection({
+      toolCallId: asToolCallId(callId),
+      status: 'succeeded',
+      result: { observed: true },
+    }, nextProjection(revision, 'def.other'));
+
+    await assert.rejects(submitted, code('RUNTIME_TOOL_PROJECTION_STALE'));
+    await assert.rejects(pending, code('RUNTIME_TOOL_PROJECTION_STALE'));
+    assert.equal(bridge.projection.revision, 4);
+  }
+});
+
 test('Host failure is a model-visible failed result and still advances the phase projection', async () => {
   let request: HostToolBridgeRequest | undefined;
   const bridge = new HostToolBridge({

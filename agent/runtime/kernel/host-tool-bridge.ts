@@ -72,7 +72,9 @@ export interface HostToolBridgeRequest {
   readonly invocation: RuntimeToolInvocation;
   /** Forward a Host/Harness progress update into the P2 Runtime event stream. */
   readonly update: RuntimeToolUpdateListener;
-  /** Optional convenience capability; the adapter may call HostToolBridge.settle directly. */
+  /** Ordinary Host result path: retain the current immutable projection snapshot. */
+  readonly submitResult: (input: EngineToolResultInput) => Promise<void>;
+  /** Harness phase path: settle with an explicitly newer Host projection. */
   readonly settle: (settlement: HostToolSettlementInput) => Promise<void>;
 }
 
@@ -114,9 +116,10 @@ type PendingInvocation = {
  * Sequential Runtime Tool bridge.
  *
  * `invoke()` creates the pending request and calls `emitRequest`.  The
- * adapter/Host later calls `submitToolResultAndUpdateProjection()` (or
- * `settle()`).  The projection state is advanced before the invocation
- * promise is resolved, so P2 cannot enter its next provider turn early.
+ * adapter/Host later calls either `submitToolResult()` to retain the current
+ * projection or `submitToolResultAndUpdateProjection()`/`settle()` to advance
+ * it.  Result and selected projection are released together, so P2 cannot
+ * enter its next provider turn early.
  */
 export class HostToolBridge implements RuntimeToolBridge {
   readonly #projectionState: RuntimeToolProjectionState;
@@ -189,6 +192,7 @@ export class HostToolBridge implements RuntimeToolBridge {
     const request: HostToolBridgeRequest = Object.freeze({
       invocation,
       update: (update: RuntimeToolUpdate) => this.submitToolUpdate(update),
+      submitResult: (input: EngineToolResultInput) => this.submitToolResult(input),
       settle: (settlement: HostToolSettlementInput) => this.settle(settlement),
     });
     // Do not await an adapter callback that may itself wait for the Host
@@ -218,8 +222,36 @@ export class HostToolBridge implements RuntimeToolBridge {
     }
   }
 
-  /** Resolve the pending invocation with an atomic Runtime settlement. */
-  async settle(settlement: HostToolSettlementInput): Promise<void> {
+  /** Resolve with an explicitly newer Host projection (Harness phase path). */
+  settle(settlement: HostToolSettlementInput): Promise<void> {
+    return this.#settleAtomic(settlement, 'advance');
+  }
+
+  /** Existing EngineTurnHandle ordinary result path; projection stays unchanged. */
+  submitToolResult(input: EngineToolResultInput): Promise<void> {
+    return this.#settleAtomic({
+      toolCallId: input.toolCallId,
+      result: engineResultToRuntimeResult(input),
+      nextProjection: this.#projectionState.current,
+    }, 'current');
+  }
+
+  /** Existing EngineTurnHandle Harness path; projection must move forward. */
+  submitToolResultAndUpdateProjection(
+    input: EngineToolResultInput,
+    projection: EngineToolProjectionInput,
+  ): Promise<void> {
+    return this.#settleAtomic({
+      toolCallId: input.toolCallId,
+      result: engineResultToRuntimeResult(input),
+      nextProjection: projection,
+    }, 'advance');
+  }
+
+  async #settleAtomic(
+    settlement: HostToolSettlementInput,
+    projectionMode: 'current' | 'advance',
+  ): Promise<void> {
     const pending = this.#pending;
     if (!pending || pending.settled) throw resultLate();
     if (settlement.toolCallId !== pending.invocation.call.toolCallId) {
@@ -229,10 +261,16 @@ export class HostToolBridge implements RuntimeToolBridge {
     let normalized: RuntimeToolSettlement;
     try {
       normalized = normalizeSettlement(settlement, this.#projectionState.current.revision);
-      if (normalized.nextProjection.revision <= this.#projectionState.current.revision) {
+      if (projectionMode === 'advance') {
+        if (normalized.nextProjection.revision <= this.#projectionState.current.revision) {
+          throw projectionStale();
+        }
+        this.#projectionState.apply(normalized.nextProjection);
+      } else if (normalized.nextProjection.revision !== this.#projectionState.current.revision) {
+        // The ordinary entry point supplies the accepted current snapshot; it
+        // never manufactures or accepts a caller-provided revision.
         throw projectionStale();
       }
-      this.#projectionState.apply(normalized.nextProjection);
     } catch (error) {
       const bridgeError = error instanceof HostToolBridgeError
         ? error
@@ -247,18 +285,6 @@ export class HostToolBridge implements RuntimeToolBridge {
     // Only now is the Runtime settlement released to P2.
     this.#finishPending(pending);
     pending.resolve(normalized);
-  }
-
-  /** Existing EngineTurnHandle result shape, adapted to the Runtime result shape. */
-  submitToolResultAndUpdateProjection(
-    input: EngineToolResultInput,
-    projection: EngineToolProjectionInput,
-  ): Promise<void> {
-    return this.settle({
-      toolCallId: input.toolCallId,
-      result: engineResultToRuntimeResult(input),
-      nextProjection: projection,
-    });
   }
 
   /** Explicitly abort the current wait and reject every late Host settlement. */
