@@ -281,6 +281,12 @@ const allowedAgentFiles = new Set([
   'agent/runtime/pending-agent-engine.ts',
   'agent/runtime/source-provenance.json',
 ]);
+const allowedAgentProvenanceTargets = new Set([
+  ...allowedAgentFiles,
+  'scripts/agent-runtime-pi-reference.mjs',
+  'src/agentSessionSurface/conversation-store.test.ts',
+  'src/agentSessionSurface/conversation-store.ts',
+]);
 const removedRuntimeFiles = new Set([
   'src/components/AgentMode/agentModeModel.test.ts',
   'src/components/AgentMode/agentModeModel.ts',
@@ -447,7 +453,8 @@ if (agentRuntimeProvenance.schemaVersion !== 1 || !Array.isArray(agentRuntimePro
         || target.sourcePaths.length === 0
         || target.sourcePaths.some((sourcePath) => typeof sourcePath !== 'string' || !sourcePath)
         || typeof target.targetPath !== 'string'
-        || !allowedAgentFiles.has(target.targetPath)
+        || !allowedAgentProvenanceTargets.has(target.targetPath)
+        || !files.includes(target.targetPath)
         || typeof target.adaptation !== 'string'
         || !target.adaptation
       ) {
@@ -469,12 +476,19 @@ if (!Array.isArray(agentRuntimeProvenance.originalTargets)) {
       !target
       || typeof target !== 'object'
       || typeof target.targetPath !== 'string'
-      || !allowedAgentFiles.has(target.targetPath)
+      || !allowedAgentProvenanceTargets.has(target.targetPath)
+      || !files.includes(target.targetPath)
       || typeof target.note !== 'string'
       || !target.note
     ) {
       fail(`invalid DEF Agent Runtime original target at index ${index}`);
+      continue;
     }
+    if (provenanceTargets.has(target.targetPath)) {
+      fail(`duplicate DEF Agent Runtime provenance target: ${target.targetPath}`);
+      continue;
+    }
+    provenanceTargets.add(target.targetPath);
   }
 }
 const agentRuntimeNotice = fs.readFileSync(path.join(root, 'agent/runtime/NOTICE.md'), 'utf8');
@@ -571,8 +585,30 @@ if (
 ) {
   fail('Agent core contract test script is missing or invalid');
 }
-if (!String(packageJson.scripts?.['test:agent-runtime'] || '').includes('trace-schema.test.ts')) {
+if (
+  !String(packageJson.scripts?.['test:agent-runtime'] || '').includes('trace-schema.test.ts')
+  || !String(packageJson.scripts?.['test:agent-runtime'] || '').includes('golden-trace.test.ts')
+  || !String(packageJson.scripts?.['test:agent-runtime'] || '').includes('openai-compatible-driver.test.ts')
+  || !String(packageJson.scripts?.['test:agent-runtime'] || '').includes('agent-loop.test.ts')
+  || !String(packageJson.scripts?.['test:agent-runtime'] || '').includes('session-log.test.ts')
+) {
   fail('DEF Agent Runtime contract test script is missing or invalid');
+}
+if (
+  !String(packageJson.scripts?.['test:agent-conversation'] || '').includes('conversation-projector.test.ts')
+  || !String(packageJson.scripts?.['test:agent-conversation'] || '').includes('conversation-store.test.ts')
+) {
+  fail('DEF Conversation projection test script is missing or invalid');
+}
+if (!String(packageJson.scripts?.['test:agent-engine:def-runtime'] || '').includes('profile.test.ts')) {
+  fail('DEF Runtime engine test script is missing or invalid');
+}
+if (
+  !String(packageJson.scripts?.['test:agent-wave1'] || '').includes('test:agent-runtime')
+  || !String(packageJson.scripts?.['test:agent-wave1'] || '').includes('test:agent-conversation')
+  || !String(packageJson.scripts?.['test:agent-wave1'] || '').includes('test:agent-engine:def-runtime')
+) {
+  fail('DEF Agent Wave 1 gate script is missing or invalid');
 }
 if (
   !String(packageJson.scripts?.['test:agent-harness'] || '').includes('harness.contract.test.ts')

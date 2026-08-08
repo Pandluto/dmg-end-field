@@ -24,7 +24,7 @@
           "adaptation": "External Host Tool bridge with sequential invocation and atomic result plus next projection."
         },
         {
-          "sourcePaths": ["packages/ai/src/types.ts"],
+          "sourcePaths": ["packages/agent/src/stream-fn.ts", "packages/ai/src/types.ts"],
           "targetPath": "agent/runtime/kernel/provider/model-driver.ts",
           "adaptation": "Provider-neutral stream port restricted to DEF OpenAI-compatible needs."
         },
@@ -32,6 +32,86 @@
           "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts"],
           "targetPath": "agent/runtime/kernel/session/entries.ts",
           "adaptation": "Append-only DEF Session header and entry union; preserves parent ids and removes CLI extension records."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/api/openai-completions.ts"],
+          "targetPath": "agent/runtime/kernel/provider/openai-compatible-driver.ts",
+          "adaptation": "Bounded OpenAI-compatible Chat Completions SSE transport for DEF messages and Tool calls."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/utils/event-stream.ts"],
+          "targetPath": "agent/runtime/kernel/provider/sse-parser.ts",
+          "adaptation": "Incremental UTF-8/SSE parser with DEF-specific byte, line, field, and buffer limits."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/utils/provider-retry.ts"],
+          "targetPath": "agent/runtime/kernel/provider/provider-errors.ts",
+          "adaptation": "Stable, sanitized DEF provider failure taxonomy."
+        },
+        {
+          "sourcePaths": ["packages/ai/src/utils/provider-retry.ts", "packages/ai/src/utils/retry.ts"],
+          "targetPath": "agent/runtime/kernel/provider/retry-policy.ts",
+          "adaptation": "Abort-aware bounded exponential retry policy without provider-specific global state."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent-loop.ts", "packages/agent/src/agent.ts"],
+          "targetPath": "agent/runtime/kernel/agent-loop.ts",
+          "adaptation": "Pure DEF loop with external Host Tool bridge, sequential calls, strict lifecycle validation, and no Pi runtime dependency."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/agent/src/types.ts"],
+          "targetPath": "agent/runtime/kernel/run-controller.ts",
+          "adaptation": "DEF-owned immutable event controller with durable-listener settlement and unique terminal semantics."
+        },
+        {
+          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts"],
+          "targetPath": "agent/runtime/kernel/session/session-log.ts",
+          "adaptation": "Secure append-only JSONL writer with DEF entry validation and no product mutation replay."
+        },
+        {
+          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts"],
+          "targetPath": "agent/runtime/kernel/session/session-reader.ts",
+          "adaptation": "Bounded JSONL recovery scanner with file identity, path, corruption, and tail-repair checks."
+        },
+        {
+          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/core/messages.ts"],
+          "targetPath": "agent/runtime/kernel/session/session-validator.ts",
+          "adaptation": "Linear DEF Session graph/lifecycle validator, including Tool and compaction boundaries."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/coding-agent/src/core/messages.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/text.json",
+          "adaptation": "Generated normalized Pi text-stream oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/coding-agent/src/core/messages.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/reasoning.json",
+          "adaptation": "Generated normalized Pi reasoning-and-text streaming oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/tool.json",
+          "adaptation": "Generated normalized Pi Tool lifecycle and argument-delta oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/error.json",
+          "adaptation": "Generated normalized Pi provider-error oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/abort.json",
+          "adaptation": "Generated normalized Pi mid-stream abort oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/coding-agent/src/core/session-manager.ts", "packages/coding-agent/src/core/messages.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/compaction.json",
+          "adaptation": "Generated normalized Pi Session compaction projection oracle fixture."
+        },
+        {
+          "sourcePaths": ["packages/agent/src/agent.ts", "packages/ai/src/utils/event-stream.ts", "packages/ai/src/utils/validation.ts", "packages/ai/src/utils/uuid.ts", "packages/coding-agent/src/core/messages.ts", "packages/coding-agent/src/core/session-manager.ts"],
+          "targetPath": "agent/runtime/kernel/testing/fixtures/manifest.json",
+          "adaptation": "Hash, generation settings, source paths, version, and commit ledger for all normalized Pi oracle fixtures."
         }
       ]
     },
@@ -45,12 +125,20 @@
         {
           "sourcePaths": ["packages/schema/src/session-v1.ts"],
           "targetPath": "agent/core/contracts/conversation.ts",
-          "adaptation": "Engine-neutral DEF Message/Part/ToolState read model with a composite Runtime and Host cursor."
+          "adaptation": "Engine-neutral DEF Message/Part/ToolState read model with composite Runtime and Host cursor, bounded validation, and cancellable subscriptions."
         }
       ]
     }
   ],
   "originalTargets": [
+    {
+      "targetPath": "agent/core/contracts/conversation.contract.test.ts",
+      "note": "DEF-original adversarial tests for the engine-neutral Conversation contract."
+    },
+    {
+      "targetPath": "agent/core/contracts/index.ts",
+      "note": "DEF-original public contract export."
+    },
     {
       "targetPath": "agent/runtime/kernel/ids.ts",
       "note": "DEF-original nominal Runtime identifiers following the existing local contract convention."
@@ -58,6 +146,78 @@
     {
       "targetPath": "agent/runtime/kernel/testing/trace-schema.ts",
       "note": "DEF-original normalized trace envelope for source-to-target behavioral comparison."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/trace-schema.test.ts",
+      "note": "DEF-original strict and bounded trace-schema tests."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/trace-normalizer.ts",
+      "note": "DEF-original deterministic normalization and serialization boundary for pinned oracle output."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/golden-trace.test.ts",
+      "note": "DEF-original regeneration, manifest, hash, and semantic assertions over generated Pi fixtures."
+    },
+    {
+      "targetPath": "scripts/agent-runtime-pi-reference.mjs",
+      "note": "DEF-original development-only harness that loads the pinned Pi checkout directly; it is not a product dependency."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/provider/openai-compatible-driver.test.ts",
+      "note": "DEF-original adversarial transport, retry, abort, Tool streaming, and secret-boundary tests."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/provider/sse-parser.test.ts",
+      "note": "DEF-original arbitrary-chunk, UTF-8, and bounded-parser tests."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/provider/retry-policy.test.ts",
+      "note": "DEF-original retry timing and cancellation tests."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/agent-loop.test.ts",
+      "note": "DEF-original state-machine, Tool ordering, abort, listener, mutation, and redaction tests against the Pi behavioral oracle."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/fake-model-driver.ts",
+      "note": "DEF-original deterministic ModelDriver test double."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/testing/fake-tool-bridge.ts",
+      "note": "DEF-original deterministic Host Tool bridge test double."
+    },
+    {
+      "targetPath": "agent/runtime/kernel/session/session-log.test.ts",
+      "note": "DEF-original append, recovery, corruption, path, identity, lifecycle, and secret-boundary tests."
+    },
+    {
+      "targetPath": "agent/engines/def-runtime/profile.ts",
+      "note": "DEF-original neutral provider-profile source hardened from the project’s prior OpenCode adapter boundary."
+    },
+    {
+      "targetPath": "agent/engines/def-runtime/profile.test.ts",
+      "note": "DEF-original provider-profile filesystem, schema, header, and redaction tests."
+    },
+    {
+      "targetPath": "agent/host/conversation-projector.ts",
+      "note": "DEF-original dual-source Runtime/Host projection and composite-cursor implementation."
+    },
+    {
+      "targetPath": "agent/host/conversation-projector.test.ts",
+      "note": "DEF-original snapshot, replay, causal ordering, gap, cancellation, and projection tests."
+    },
+    {
+      "targetPath": "agent/host/testing/conversation-fixtures.ts",
+      "note": "DEF-original bounded Runtime/Host synthetic sources for Conversation tests."
+    },
+    {
+      "targetPath": "src/agentSessionSurface/conversation-store.ts",
+      "note": "DEF-original framework-neutral browser Conversation store and reducer."
+    },
+    {
+      "targetPath": "src/agentSessionSurface/conversation-store.test.ts",
+      "note": "DEF-original browser store reconnect, cursor, immutability, and reducer tests."
     }
   ]
 }
