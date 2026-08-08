@@ -132,6 +132,10 @@ type StartingTurn = {
   abortCode: string | null;
 };
 
+type TurnStartPreparation = {
+  readonly session: SessionRecord;
+};
+
 type ActiveTurn = {
   readonly session: SessionRecord;
   readonly defTurnId: DefTurnId;
@@ -220,6 +224,7 @@ export class DefAgentHost {
   readonly #timelineCleanupBySession = new Map<DefSessionId, Promise<void>>();
   #activeTurn: ActiveTurn | null = null;
   #startingTurn: StartingTurn | null = null;
+  #turnStartPreparation: TurnStartPreparation | null = null;
   #activeSessionId: DefSessionId | null = null;
   #pendingSessionCreations = 0;
   #pendingInteractionsRevision = 0;
@@ -1203,19 +1208,25 @@ export class DefAgentHost {
         && record.eventsReconciled
         && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
-    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
-    this.#assertRecoveryOutcome(record, recoveryOutcome);
-    this.#ensureEventsLoaded(record);
-    this.#assertTurnAvailable();
-    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
-      await this.#awaitTimelineCleanup(record);
+    const preparation = this.#beginTurnStartPreparation(record);
+    let defTurnId!: DefTurnId;
+    let starting!: StartingTurn;
+    try {
+      const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+      this.#assertRecoveryOutcome(record, recoveryOutcome);
+      this.#ensureEventsLoaded(record);
+      if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+        await this.#awaitTimelineCleanup(record);
+      }
+      await this.#cleanupStalePreparedCandidates(record, record.binding);
+      await this.#cleanupStalePreparedTimelinePreviews(record, record.binding);
+      if (previous) return previous.result;
+      this.#assertSessionCanStartTurn(record, input.userMessage);
+      defTurnId = this.#ids.turn();
+      starting = this.#beginStartingTurn(record, defTurnId, preparation);
+    } finally {
+      this.#finishTurnStartPreparation(preparation);
     }
-    await this.#cleanupStalePreparedCandidates(record, record.binding);
-    await this.#cleanupStalePreparedTimelinePreviews(record, record.binding);
-    if (previous) return previous.result;
-    this.#assertSessionCanStartTurn(record, input.userMessage);
-    const defTurnId = this.#ids.turn();
-    const starting = this.#beginStartingTurn(record, defTurnId);
     try {
       const handle = await this.#engine.startTurn({
         engineSession: record.session.engine,
@@ -1310,96 +1321,100 @@ export class DefAgentHost {
         && record.eventsReconciled
         && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
-    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
-    this.#assertRecoveryOutcome(record, recoveryOutcome);
-    this.#ensureEventsLoaded(record);
-    this.#assertTurnAvailable();
-    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
-      await this.#awaitTimelineCleanup(record);
-    }
-    await this.#cleanupStalePreparedCandidates(record, input.binding ?? record.binding);
-    await this.#cleanupStalePreparedTimelinePreviews(record, input.binding ?? record.binding);
-    if (previous) return previous.result;
-    this.#assertSessionCanStartTurn(record, input.userMessage);
-    if (input.binding) {
-      const previousBinding = record.binding;
-      const previousSession = record.session;
-      record.binding = input.binding;
-      record.session = {
-        ...record.session,
-        lastDatabaseGeneration: input.binding.databaseGeneration,
-        boundNodeId: input.binding.checkoutTargetId,
-        updatedAt: new Date(this.#clock()).toISOString(),
+    const preparation = this.#beginTurnStartPreparation(record);
+    try {
+      const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+      this.#assertRecoveryOutcome(record, recoveryOutcome);
+      this.#ensureEventsLoaded(record);
+      if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+        await this.#awaitTimelineCleanup(record);
+      }
+      await this.#cleanupStalePreparedCandidates(record, input.binding ?? record.binding);
+      await this.#cleanupStalePreparedTimelinePreviews(record, input.binding ?? record.binding);
+      if (previous) return previous.result;
+      this.#assertSessionCanStartTurn(record, input.userMessage);
+      if (input.binding) {
+        const previousBinding = record.binding;
+        const previousSession = record.session;
+        record.binding = input.binding;
+        record.session = {
+          ...record.session,
+          lastDatabaseGeneration: input.binding.databaseGeneration,
+          boundNodeId: input.binding.checkoutTargetId,
+          updatedAt: new Date(this.#clock()).toISOString(),
+        };
+        try {
+          this.#persistRecord(record);
+        } catch (error) {
+          record.binding = previousBinding;
+          record.session = previousSession;
+          throw error;
+        }
+      }
+      const continuation = this.#resolveDeterministicContinuation(record, input.userMessage, harnessManager);
+      const harnessStartInput: HarnessTurnStartInput = {
+        clientTurnId,
+        userMessage: input.userMessage,
+        engineUserMessageId: input.engineUserMessageId,
+        userAttachments,
+        attachmentDigest,
       };
+      if (continuation?.kind === 'resume') {
+        harnessStartInput.createHarnessTransaction = (defTurnId) => harnessManager.resumeFromInterrupted({
+          sourceTransactionId: continuation.sourceTransactionId,
+          defSessionId: input.defSessionId,
+          defTurnId,
+          expectedCatalogRevision: harnessManager.catalogRevision,
+          expectedBindingSnapshotDigest: record.binding.snapshotDigest,
+        });
+        harnessStartInput.systemContext = [
+          harnessManager.buildPreRoutedSystemContext(continuation.transaction),
+          'This is a safe continuation of a persisted interrupted transaction. Preserve completed plan steps and continue from the projected current phase. Do not execute any mutation automatically; normal fresh approval is required.',
+        ].join('\n');
+      } else if (continuation?.kind === 'reject') {
+        harnessStartInput.deterministicRoute = {
+          businessId: 'conversation',
+          operation: 'respond',
+        };
+        harnessStartInput.systemContext = [
+          'The user rejected the previously interrupted Harness action. Keep the Browser Workbench unchanged and acknowledge the rejection directly.',
+          'Do not call another route or business Tool.',
+        ].join('\n');
+      }
+      const promise = this.#startHarnessTurn(record, harnessManager, {
+        ...harnessStartInput,
+      }, preparation);
+      record.clientTurns.set(clientTurnId, {
+        userMessage: input.userMessage,
+        attachmentDigest,
+        state: 'pending',
+        promise,
+      });
       try {
-        this.#persistRecord(record);
+        const result = await promise;
+        const current = record.clientTurns.get(clientTurnId);
+        if (current?.state === 'pending' && current.promise === promise) {
+          const acceptedAt = this.#sessionStore
+            .loadAcceptedClientTurn(record.session.defSessionId, clientTurnId)?.acceptedAt
+            ?? new Date(this.#clock()).toISOString();
+          record.clientTurns.set(clientTurnId, {
+            userMessage: input.userMessage,
+            attachmentDigest,
+            state: 'accepted',
+            result,
+            acceptedAt,
+          });
+        }
+        return result;
       } catch (error) {
-        record.binding = previousBinding;
-        record.session = previousSession;
+        const current = record.clientTurns.get(clientTurnId);
+        if (current?.state === 'pending' && current.promise === promise) {
+          record.clientTurns.delete(clientTurnId);
+        }
         throw error;
       }
-    }
-    const continuation = this.#resolveDeterministicContinuation(record, input.userMessage, harnessManager);
-    const harnessStartInput: HarnessTurnStartInput = {
-      clientTurnId,
-      userMessage: input.userMessage,
-      engineUserMessageId: input.engineUserMessageId,
-      userAttachments,
-      attachmentDigest,
-    };
-    if (continuation?.kind === 'resume') {
-      harnessStartInput.createHarnessTransaction = (defTurnId) => harnessManager.resumeFromInterrupted({
-        sourceTransactionId: continuation.sourceTransactionId,
-        defSessionId: input.defSessionId,
-        defTurnId,
-        expectedCatalogRevision: harnessManager.catalogRevision,
-        expectedBindingSnapshotDigest: record.binding.snapshotDigest,
-      });
-      harnessStartInput.systemContext = [
-        harnessManager.buildPreRoutedSystemContext(continuation.transaction),
-        'This is a safe continuation of a persisted interrupted transaction. Preserve completed plan steps and continue from the projected current phase. Do not execute any mutation automatically; normal fresh approval is required.',
-      ].join('\n');
-    } else if (continuation?.kind === 'reject') {
-      harnessStartInput.deterministicRoute = {
-        businessId: 'conversation',
-        operation: 'respond',
-      };
-      harnessStartInput.systemContext = [
-        'The user rejected the previously interrupted Harness action. Keep the Browser Workbench unchanged and acknowledge the rejection directly.',
-        'Do not call another route or business Tool.',
-      ].join('\n');
-    }
-    const promise = this.#startHarnessTurn(record, harnessManager, {
-      ...harnessStartInput,
-    });
-    record.clientTurns.set(clientTurnId, {
-      userMessage: input.userMessage,
-      attachmentDigest,
-      state: 'pending',
-      promise,
-    });
-    try {
-      const result = await promise;
-      const current = record.clientTurns.get(clientTurnId);
-      if (current?.state === 'pending' && current.promise === promise) {
-        const acceptedAt = this.#sessionStore
-          .loadAcceptedClientTurn(record.session.defSessionId, clientTurnId)?.acceptedAt
-          ?? new Date(this.#clock()).toISOString();
-        record.clientTurns.set(clientTurnId, {
-          userMessage: input.userMessage,
-          attachmentDigest,
-          state: 'accepted',
-          result,
-          acceptedAt,
-        });
-      }
-      return result;
-    } catch (error) {
-      const current = record.clientTurns.get(clientTurnId);
-      if (current?.state === 'pending' && current.promise === promise) {
-        record.clientTurns.delete(clientTurnId);
-      }
-      throw error;
+    } finally {
+      this.#finishTurnStartPreparation(preparation);
     }
   }
 
@@ -1458,92 +1473,96 @@ export class DefAgentHost {
         && record.eventsReconciled
         && this.#stalePreparedCleanupRequests(record).length === 0) return previous.result;
     }
-    const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
-    this.#assertRecoveryOutcome(record, recoveryOutcome);
-    this.#ensureEventsLoaded(record);
-    this.#assertTurnAvailable();
-    if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
-      await this.#awaitTimelineCleanup(record);
-    }
-    await this.#cleanupStalePreparedCandidates(record, input.binding);
-    await this.#cleanupStalePreparedTimelinePreviews(record, input.binding);
-    if (previous) return previous.result;
-    this.#assertSessionCanStartTurn(record, input.userMessage);
-    const interruptedSource = harnessManager.getTransaction(input.sourceTransactionId);
-    const questionAnswerContext = input.questionAnswer === undefined
-      ? undefined
-      : formatResumedQuestionAnswer(input.questionAnswer);
-    if (input.questionAnswer !== undefined && interruptedSource.operation !== 'ask') {
-      throw new DefAgentHostError(
-        'AGENT_REQUEST_INVALID',
-        'A question answer can only resume an interrupted ask phase',
-        409,
-      );
-    }
-    const resumeSystemContext = input.questionAnswer === undefined
-      ? harnessManager.buildPreRoutedSystemContext(interruptedSource)
-      : [
-          'The DEF Harness has already applied the typed answer to the persisted clarification and activated its bound original business phase.',
-          'Do not call def.harness.route or def.user.ask again. Use only the currently projected original business Tool.',
-        ].join('\n');
-    const promise = this.#startHarnessTurn(record, harnessManager, {
-      clientTurnId,
-      userMessage: input.userMessage,
-      engineUserMessageId: input.engineUserMessageId,
-      userAttachments,
-      attachmentDigest,
-      createHarnessTransaction: (defTurnId) => {
-        const resumed = harnessManager.resumeFromInterrupted({
-          sourceTransactionId: input.sourceTransactionId,
-          defSessionId: input.defSessionId,
-          defTurnId,
-          expectedCatalogRevision: harnessManager.catalogRevision,
-          expectedBindingSnapshotDigest: input.binding.snapshotDigest,
-        });
-        if (input.questionAnswer === undefined) return resumed;
-        const answered = harnessManager.completeTool(resumed.transaction.transactionId, {
-          toolName: 'def.user.ask',
-          status: 'succeeded',
-        });
-        return {
-          transaction: answered.transaction,
-          trace: [...resumed.trace, ...answered.trace],
-        };
-      },
-      systemContext: [
-        resumeSystemContext,
-        'This is an explicit continuation of an interrupted Harness transaction. Preserve the completed plan steps and continue only from the projected current step. Do not repeat completed steps. Any proposal or mutation must go through the normal fresh approval flow.',
-        ...(questionAnswerContext ? [questionAnswerContext] : []),
-      ].join('\n'),
-    });
-    record.clientTurns.set(clientTurnId, {
-      userMessage: input.userMessage,
-      attachmentDigest,
-      state: 'pending',
-      promise,
-    });
+    const preparation = this.#beginTurnStartPreparation(record);
     try {
-      const result = await promise;
-      const current = record.clientTurns.get(clientTurnId);
-      if (current?.state === 'pending' && current.promise === promise) {
-        const acceptedAt = this.#sessionStore
-          .loadAcceptedClientTurn(record.session.defSessionId, clientTurnId)?.acceptedAt
-          ?? new Date(this.#clock()).toISOString();
-        record.clientTurns.set(clientTurnId, {
-          userMessage: input.userMessage,
-          attachmentDigest,
-          state: 'accepted',
-          result,
-          acceptedAt,
-        });
+      const recoveryOutcome = await this.#recoverSessionIfNeeded(record);
+      this.#assertRecoveryOutcome(record, recoveryOutcome);
+      this.#ensureEventsLoaded(record);
+      if (this.#timelineCleanupBySession.has(record.session.defSessionId)) {
+        await this.#awaitTimelineCleanup(record);
       }
-      return result;
-    } catch (error) {
-      const current = record.clientTurns.get(clientTurnId);
-      if (current?.state === 'pending' && current.promise === promise) {
-        record.clientTurns.delete(clientTurnId);
+      await this.#cleanupStalePreparedCandidates(record, input.binding);
+      await this.#cleanupStalePreparedTimelinePreviews(record, input.binding);
+      if (previous) return previous.result;
+      this.#assertSessionCanStartTurn(record, input.userMessage);
+      const interruptedSource = harnessManager.getTransaction(input.sourceTransactionId);
+      const questionAnswerContext = input.questionAnswer === undefined
+        ? undefined
+        : formatResumedQuestionAnswer(input.questionAnswer);
+      if (input.questionAnswer !== undefined && interruptedSource.operation !== 'ask') {
+        throw new DefAgentHostError(
+          'AGENT_REQUEST_INVALID',
+          'A question answer can only resume an interrupted ask phase',
+          409,
+        );
       }
-      throw error;
+      const resumeSystemContext = input.questionAnswer === undefined
+        ? harnessManager.buildPreRoutedSystemContext(interruptedSource)
+        : [
+            'The DEF Harness has already applied the typed answer to the persisted clarification and activated its bound original business phase.',
+            'Do not call def.harness.route or def.user.ask again. Use only the currently projected original business Tool.',
+          ].join('\n');
+      const promise = this.#startHarnessTurn(record, harnessManager, {
+        clientTurnId,
+        userMessage: input.userMessage,
+        engineUserMessageId: input.engineUserMessageId,
+        userAttachments,
+        attachmentDigest,
+        createHarnessTransaction: (defTurnId) => {
+          const resumed = harnessManager.resumeFromInterrupted({
+            sourceTransactionId: input.sourceTransactionId,
+            defSessionId: input.defSessionId,
+            defTurnId,
+            expectedCatalogRevision: harnessManager.catalogRevision,
+            expectedBindingSnapshotDigest: input.binding.snapshotDigest,
+          });
+          if (input.questionAnswer === undefined) return resumed;
+          const answered = harnessManager.completeTool(resumed.transaction.transactionId, {
+            toolName: 'def.user.ask',
+            status: 'succeeded',
+          });
+          return {
+            transaction: answered.transaction,
+            trace: [...resumed.trace, ...answered.trace],
+          };
+        },
+        systemContext: [
+          resumeSystemContext,
+          'This is an explicit continuation of an interrupted Harness transaction. Preserve the completed plan steps and continue only from the projected current step. Do not repeat completed steps. Any proposal or mutation must go through the normal fresh approval flow.',
+          ...(questionAnswerContext ? [questionAnswerContext] : []),
+        ].join('\n'),
+      }, preparation);
+      record.clientTurns.set(clientTurnId, {
+        userMessage: input.userMessage,
+        attachmentDigest,
+        state: 'pending',
+        promise,
+      });
+      try {
+        const result = await promise;
+        const current = record.clientTurns.get(clientTurnId);
+        if (current?.state === 'pending' && current.promise === promise) {
+          const acceptedAt = this.#sessionStore
+            .loadAcceptedClientTurn(record.session.defSessionId, clientTurnId)?.acceptedAt
+            ?? new Date(this.#clock()).toISOString();
+          record.clientTurns.set(clientTurnId, {
+            userMessage: input.userMessage,
+            attachmentDigest,
+            state: 'accepted',
+            result,
+            acceptedAt,
+          });
+        }
+        return result;
+      } catch (error) {
+        const current = record.clientTurns.get(clientTurnId);
+        if (current?.state === 'pending' && current.promise === promise) {
+          record.clientTurns.delete(clientTurnId);
+        }
+        throw error;
+      }
+    } finally {
+      this.#finishTurnStartPreparation(preparation);
     }
   }
 
@@ -1577,9 +1596,10 @@ export class DefAgentHost {
     record: SessionRecord,
     harnessManager: DefHarnessManager,
     input: HarnessTurnStartInput,
+    preparation: TurnStartPreparation,
   ): Promise<TurnStartResult> {
     const defTurnId = this.#ids.turn();
-    const starting = this.#beginStartingTurn(record, defTurnId);
+    const starting = this.#beginStartingTurn(record, defTurnId, preparation);
     try {
       let started: DefHarnessTransition | null = null;
       try {
@@ -2478,23 +2498,24 @@ export class DefAgentHost {
         return;
       }
 
-      const transition = harnessManager.commitPrepared(staged);
       this.#append(active.session, {
         type: 'tool.result',
         defTurnId: active.defTurnId,
         toolCallId: event.toolCallId,
         payload: { result },
       });
-      this.#appendHarnessTrace(active, transition.trace);
-      // Journal a successful prepared result before handing it back to the
-      // Engine. If the process dies after Product preparation but before the
-      // Engine observes the result, recovery can still identify and clean an
-      // incomplete preview candidate instead of losing its identity.
+      // Persist the complete prepared result before handing it to the Engine,
+      // so recovery retains an isolated candidate identity after a crash. The
+      // Harness transition itself remains staged until the Engine accepts the
+      // result and its next projection; a rejected atomic update must leave an
+      // active transaction that the event-loop failure path can abort.
       await active.handle.submitToolResultAndUpdateProjection({
         toolCallId: event.toolCallId,
         status: 'succeeded',
         result,
-      }, transition.transaction.projection);
+      }, staged.transition.transaction.projection);
+      const transition = harnessManager.commitPrepared(staged);
+      this.#appendHarnessTrace(active, transition.trace);
     });
   }
 
@@ -3918,7 +3939,7 @@ export class DefAgentHost {
   }
 
   #assertTurnAvailable(): void {
-    if (this.#activeTurn || this.#startingTurn) {
+    if (this.#activeTurn || this.#startingTurn || this.#turnStartPreparation) {
       throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench already has an active or starting turn');
     }
   }
@@ -3970,7 +3991,30 @@ export class DefAgentHost {
     );
   }
 
-  #beginStartingTurn(record: SessionRecord, defTurnId: DefTurnId): StartingTurn {
+  #beginTurnStartPreparation(record: SessionRecord): TurnStartPreparation {
+    this.#assertTurnAvailable();
+    const preparation = { session: record };
+    this.#turnStartPreparation = preparation;
+    return preparation;
+  }
+
+  #finishTurnStartPreparation(preparation: TurnStartPreparation): void {
+    if (this.#turnStartPreparation === preparation) this.#turnStartPreparation = null;
+  }
+
+  #beginStartingTurn(
+    record: SessionRecord,
+    defTurnId: DefTurnId,
+    preparation?: TurnStartPreparation,
+  ): StartingTurn {
+    if (preparation) {
+      if (this.#turnStartPreparation !== preparation || preparation.session !== record) {
+        throw new DefAgentHostError('AGENT_TURN_BUSY', 'The workbench Turn start reservation is no longer active');
+      }
+      this.#turnStartPreparation = null;
+    } else {
+      this.#assertTurnAvailable();
+    }
     const starting: StartingTurn = { session: record, defTurnId, abortCode: null };
     this.#startingTurn = starting;
     this.#setActiveSession(record.session.defSessionId);
@@ -4026,7 +4070,8 @@ export class DefAgentHost {
       );
     }
     if (
-      this.#startingTurn?.session === record
+      this.#turnStartPreparation?.session === record
+      || this.#startingTurn?.session === record
       || (this.#activeTurn?.session === record && !this.#activeTurn.settled)
     ) {
       throw new DefAgentHostError(

@@ -708,6 +708,16 @@ const gatedTurn = gatedRecoveryHost.startTurn({
 });
 await gatedRecoveryEngine.started;
 await assert.rejects(
+  () => gatedRecoveryHost.startTurn({
+    defSessionId: gatedRecoveryId,
+    clientTurnId: asClientTurnId('client-turn-gated-recovery-concurrent'),
+    userMessage: '恢复尚未完成时并发启动',
+    systemContext: 'shutdown recovery contract',
+    toolProjection: { revision: 1, tools: [] },
+  }),
+  (error: unknown) => error instanceof DefAgentHostError && error.code === 'AGENT_TURN_BUSY',
+);
+await assert.rejects(
   () => gatedRecoveryHost.deleteSession(gatedRecoveryId, binding),
   (error: unknown) => error instanceof DefAgentHostError && error.code === 'AGENT_TURN_BUSY',
 );
