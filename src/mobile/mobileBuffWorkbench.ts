@@ -44,7 +44,7 @@ export const MOBILE_BUFF_CATALOG_MODES: Array<{ key: MobileBuffCatalogMode; labe
   { key: 'anomaly', label: '异常伤害', shortLabel: '异常伤害' },
   { key: 'anomaly-state', label: '异常状态', shortLabel: '异常状态' },
   { key: 'state', label: '状态区', shortLabel: '状态区' },
-  { key: 'extra-hit', label: '导弹 / 额外 Hit', shortLabel: '导弹' },
+  { key: 'extra-hit', label: '额外 Hit', shortLabel: '额外 Hit' },
 ];
 
 export const MOBILE_OPERATOR_BUFF_GROUPS: Array<{ key: MobileOperatorBuffGroup; label: string }> = [
@@ -269,37 +269,15 @@ export function getRequiredPotentialCount(buffName: string): number | null {
   return token ? CHINESE_POTENTIAL_NUMBERS[token] ?? Number(token) : null;
 }
 
-function fuzzyScore(buff: SkillButtonBuff, keyword: string): number {
-  const normalized = keyword.toLocaleLowerCase().trim();
-  if (!normalized) return 0;
-  const haystack = [buff.displayName, buff.name, buff.sourceName, buff.source, buff.type, buff.description, buff.condition]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase();
-  if (haystack.includes(normalized)) return 0;
-  let cursor = 0;
-  let gaps = 0;
-  for (const character of normalized) {
-    const index = haystack.indexOf(character, cursor);
-    if (index < 0) return Number.POSITIVE_INFINITY;
-    gaps += index - cursor;
-    cursor = index + 1;
-  }
-  return gaps + haystack.length / 1000;
-}
-
 export function filterMobileBuffCandidates(input: {
   buffs: SkillButtonBuff[];
-  selectedBuffIds: ReadonlySet<string>;
   mode: MobileBuffCatalogMode;
-  keyword: string;
   characterId: string | null;
   operatorBuffGroup: MobileOperatorBuffGroup | null;
   potentialCounts: Record<string, number>;
 }): SkillButtonBuff[] {
   if (['anomaly', 'anomaly-state', 'state'].includes(input.mode)) return [];
   return input.buffs
-    .filter((buff) => !input.selectedBuffIds.has(buff.id))
     .filter((buff) => {
       if (input.mode === 'extra-hit') return buff.effectKind === 'extraHit' && Boolean(buff.extraHitConfig);
       if (buff.effectKind === 'extraHit') return false;
@@ -324,12 +302,7 @@ export function filterMobileBuffCandidates(input: {
       const required = getRequiredPotentialCount(buff.displayName || buff.name);
       if (required === null) return true;
       return (input.potentialCounts[buff.ownerCharacterId ?? ''] ?? 0) > required;
-    })
-    .map((buff, index) => ({ buff, index, score: fuzzyScore(buff, input.keyword) }))
-    .filter((entry) => Number.isFinite(entry.score))
-    .sort((left, right) => left.score - right.score || left.index - right.index)
-    .slice(0, input.keyword.trim() ? 60 : 40)
-    .map((entry) => entry.buff);
+    });
 }
 
 export function getMobileBuffSourceLabel(buff: SkillButtonBuff): string {

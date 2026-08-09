@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { Character } from '../../types';
 import type { SkillButtonBuff } from '../../types/storage';
-import { normalizeAssetUrl, resolveAvatarUrl } from '../../utils/assetResolver';
 import type { MobileTimelineAction } from '../model';
 import {
   MOBILE_ANOMALY_GROUPS,
@@ -31,7 +30,7 @@ interface MobileBuffCatalogSheetProps {
   catalogBuffs: SkillButtonBuff[];
   operators: Character[];
   operatorSnapshots: Record<string, ConfigSnapshot>;
-  onAddBuff: (buff: SkillButtonBuff) => void;
+  onToggleBuff: (buff: SkillButtonBuff) => void;
   onActionChange: (nextAction: MobileTimelineAction) => void;
   onClose: () => void;
 }
@@ -50,10 +49,6 @@ const ANOMALY_HINTS: Record<string, string> = {
   'combo-state': '战技与终结技使用独立连击区',
   'imbalance-state': '固定提供 30% 失衡伤害区',
 };
-
-function operatorAvatar(character: Character): string {
-  return normalizeAssetUrl(character.avatarUrl) || resolveAvatarUrl(character.name);
-}
 
 function getModeTitle(mode: MobileBuffCatalogMode): string {
   return MOBILE_BUFF_CATALOG_MODES.find((item) => item.key === mode)?.label ?? 'Buff 组';
@@ -150,12 +145,11 @@ export function MobileBuffCatalogSheet({
   catalogBuffs,
   operators,
   operatorSnapshots,
-  onAddBuff,
+  onToggleBuff,
   onActionChange,
   onClose,
 }: MobileBuffCatalogSheetProps) {
   const [activeMode, setActiveMode] = useState<MobileBuffCatalogMode>('operator');
-  const [searchKeyword, setSearchKeyword] = useState('');
   const [characterFilter, setCharacterFilter] = useState<string | null>(action.operatorId || null);
   const [operatorBuffGroup, setOperatorBuffGroup] = useState<MobileOperatorBuffGroup | null>(null);
   const [anomalyCategory, setAnomalyCategory] = useState<MobileAnomalyCategory>('magic');
@@ -176,13 +170,11 @@ export function MobileBuffCatalogSheet({
   ), [operatorSnapshots]);
   const candidates = useMemo(() => filterMobileBuffCandidates({
     buffs: catalogBuffs,
-    selectedBuffIds,
     mode: activeMode,
-    keyword: searchKeyword,
     characterId: characterFilter,
     operatorBuffGroup,
     potentialCounts,
-  }), [activeMode, catalogBuffs, characterFilter, operatorBuffGroup, potentialCounts, searchKeyword, selectedBuffIds]);
+  }), [activeMode, catalogBuffs, characterFilter, operatorBuffGroup, potentialCounts]);
   const activeAnomaly = MOBILE_ANOMALY_GROUPS
     .flatMap((group) => group.items)
     .find((option) => option.key === activeAnomalyKey) ?? null;
@@ -194,7 +186,6 @@ export function MobileBuffCatalogSheet({
 
   const changeMode = (mode: MobileBuffCatalogMode) => {
     setActiveMode(mode);
-    setSearchKeyword('');
   };
 
   const selectAnomaly = (option: MobileAnomalyOption) => {
@@ -293,8 +284,7 @@ export function MobileBuffCatalogSheet({
         onClick={() => setCharacterFilter(null)}
         aria-pressed={!characterFilter}
       >
-        <span>全</span>
-        <small>全部</small>
+        全部
       </button>
       {operators.map((operator) => (
         <button
@@ -304,8 +294,7 @@ export function MobileBuffCatalogSheet({
           onClick={() => setCharacterFilter((current) => current === operator.id ? null : operator.id)}
           aria-pressed={characterFilter === operator.id}
         >
-          <span><img src={operatorAvatar(operator)} alt="" /></span>
-          <small>{operator.name}</small>
+          {operator.name}
         </button>
       ))}
     </div>
@@ -313,16 +302,6 @@ export function MobileBuffCatalogSheet({
 
   const renderBuffCatalog = () => (
     <>
-      <label className="mobile-buff-sheet-search">
-        <span aria-hidden="true">⌕</span>
-        <input
-          value={searchKeyword}
-          onChange={(event) => setSearchKeyword(event.target.value)}
-          placeholder={`搜索${getModeTitle(activeMode)}`}
-          aria-label={`搜索${getModeTitle(activeMode)}`}
-        />
-        {searchKeyword ? <button type="button" onClick={() => setSearchKeyword('')} aria-label="清除搜索">×</button> : null}
-      </label>
       {activeMode !== 'buff-group' ? renderCharacterFilters() : null}
       {activeMode === 'operator' ? (
         <div className="mobile-buff-sheet-group-filters" aria-label="干员 Buff 分组">
@@ -350,24 +329,27 @@ export function MobileBuffCatalogSheet({
       </div>
       {candidates.length === 0 ? (
         <div className="mobile-buff-sheet-empty">
-          <strong>没有可添加项目</strong>
-          <span>可以切换干员、分组或清空搜索条件。</span>
+          <strong>当前分类没有项目</strong>
+          <span>可以切换干员或分组。</span>
         </div>
       ) : (
         <div className="mobile-buff-sheet-result-list">
           {candidates.map((buff) => {
-            const owner = operators.find((operator) => operator.id === buff.ownerCharacterId);
+            const isSelected = selectedBuffIds.has(buff.id);
             return (
-              <button key={buff.id} type="button" className="mobile-buff-sheet-result" onClick={() => onAddBuff(buff)}>
-                <span className="mobile-buff-sheet-result-icon">
-                  {owner ? <img src={operatorAvatar(owner)} alt="" /> : buff.effectKind === 'extraHit' ? '✦' : 'B'}
-                </span>
+              <button
+                key={buff.id}
+                type="button"
+                className={`mobile-buff-sheet-result${isSelected ? ' is-selected' : ''}`}
+                onClick={() => onToggleBuff(buff)}
+                aria-pressed={isSelected}
+              >
                 <span className="mobile-buff-sheet-result-copy">
-                  <span><b>{getMobileBuffSourceLabel(buff)}</b>{buff.effectKind === 'extraHit' ? <i>导弹 / 额外伤害</i> : null}</span>
+                  <span><b>{getMobileBuffSourceLabel(buff)}</b>{buff.effectKind === 'extraHit' ? <i>额外伤害</i> : null}</span>
                   <strong>{buff.displayName || buff.name}</strong>
                   <small>{getBuffMeta(buff) || buff.description || '在线 Buff 目录'}</small>
                 </span>
-                <span className="mobile-buff-sheet-add" aria-hidden="true">＋</span>
+                <span className="mobile-buff-sheet-add" aria-hidden="true">{isSelected ? '✓' : '＋'}</span>
               </button>
             );
           })}
@@ -517,7 +499,7 @@ export function MobileBuffCatalogSheet({
         <section className="mobile-buff-sheet-config-card">
           <div className="mobile-buff-sheet-config-heading">
             <div><span>异常状态设置</span><h3>{activeAnomalyState.label}</h3></div>
-            <b>按来源技艺快照</b>
+            <b>按源石技艺快照</b>
           </div>
           <div className="mobile-buff-sheet-field">
             <span>来源干员</span>
@@ -529,8 +511,7 @@ export function MobileBuffCatalogSheet({
                   className={anomalyStateSourceId === operator.id ? 'is-active' : ''}
                   onClick={() => setAnomalyStateSourceId(operator.id)}
                 >
-                  <img src={operatorAvatar(operator)} alt="" />
-                  <span><strong>{operator.name}</strong><small>技艺 {operatorSnapshots[operator.id]?.panel.display.sourceSkill ?? 0}</small></span>
+                  <span><strong>{operator.name}</strong><small>源石技艺 {operatorSnapshots[operator.id]?.panel.display.sourceSkill ?? 0}</small></span>
                 </button>
               ))}
             </div>
@@ -622,20 +603,19 @@ export function MobileBuffCatalogSheet({
 
   return (
     <MobilePortal>
-      <div className="mobile-buff-sheet-backdrop" role="presentation" onClick={onClose}>
+      <div className="mobile-buff-sheet-backdrop" role="presentation">
         <section
           className="mobile-buff-sheet"
           role="dialog"
           aria-modal="true"
           aria-labelledby="mobile-buff-sheet-title"
-          onClick={(event) => event.stopPropagation()}
         >
           <header className="mobile-buff-sheet-header">
             <div>
               <p>BUFF WORKBENCH</p>
               <h2 id="mobile-buff-sheet-title">分类与特殊效果</h2>
             </div>
-            <button type="button" onClick={onClose} aria-label="关闭 Buff 分类弹窗">完成</button>
+            <button type="button" onClick={onClose} aria-label="关闭 Buff 分类页面">完成</button>
           </header>
 
           <nav className="mobile-buff-sheet-tabs" aria-label="Buff 分类">

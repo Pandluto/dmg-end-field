@@ -141,10 +141,10 @@
 }
 
 .mobile-operator-config-switcher-item.is-active {
-  border-color: rgba(29, 119, 116, 0.46);
+  border-color: var(--mobile-config-accent);
   color: var(--mobile-config-accent);
   background: rgba(225, 245, 235, 0.9);
-  box-shadow: inset 0 0 0 1px rgba(29, 119, 116, 0.08);
+  box-shadow: inset 0 0 0 1px var(--mobile-config-accent);
 }
 
 .mobile-operator-config-identity-card {
@@ -979,9 +979,9 @@
 
 .mobile-operator-config-picker-card:hover,
 .mobile-operator-config-picker-card.is-selected {
-  border-color: rgba(29, 119, 116, 0.48);
+  border-color: var(--mobile-config-accent);
   background: rgba(225, 245, 235, 0.92);
-  box-shadow: inset 0 -4px 0 var(--mobile-config-ready), inset 3px 0 0 var(--mobile-config-owner);
+  box-shadow: inset 0 0 0 1px var(--mobile-config-accent);
 }
 
 .mobile-operator-config-picker-card.is-empty {

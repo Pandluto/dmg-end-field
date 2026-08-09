@@ -228,56 +228,6 @@
   margin-bottom: 12px;
 }
 
-.mobile-selection-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 48px;
-  padding: 0 12px;
-  border: 1px solid rgba(42, 83, 82, 0.14);
-  border-radius: 14px;
-  background: rgba(243, 247, 245, 0.9);
-}
-
-.mobile-selection-search:focus-within {
-  border-color: rgba(29, 119, 116, 0.52);
-  box-shadow: 0 0 0 4px rgba(29, 119, 116, 0.08);
-}
-
-.mobile-selection-search-icon {
-  color: var(--mobile-selection-accent);
-  font-size: 22px;
-  line-height: 1;
-}
-
-.mobile-selection-search input {
-  min-width: 0;
-  flex: 1;
-  border: 0;
-  outline: 0;
-  color: var(--mobile-selection-ink);
-  background: transparent;
-  font: inherit;
-  font-size: 14px;
-}
-
-.mobile-selection-search input::placeholder {
-  color: #a1adab;
-}
-
-.mobile-selection-search button {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: none;
-  place-items: center;
-  border: 0;
-  border-radius: 50%;
-  color: #5e7976;
-  background: rgba(217, 231, 226, 0.78);
-  font-size: 18px;
-}
-
 .mobile-selection-roster-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -317,9 +267,9 @@
 }
 
 .mobile-selection-roster-card.is-selected {
-  border-color: rgba(29, 119, 116, 0.45);
+  border-color: var(--mobile-selection-accent);
   background: rgba(240, 248, 244, 0.96);
-  box-shadow: inset 0 -4px 0 var(--mobile-selection-ready), inset 3px 0 0 var(--mobile-selection-owner);
+  box-shadow: inset 0 0 0 1px var(--mobile-selection-accent);
 }
 
 .mobile-selection-avatar-wrap {

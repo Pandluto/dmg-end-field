@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import type { Character } from '../../types';
 import { normalizeAssetUrl, resolveAvatarUrl } from '../../utils/assetResolver';
 import './MobileSelectionPage.css';
@@ -40,23 +40,6 @@ function getAvatarUrl(character: Character): string {
   return normalizeAssetUrl(character.avatarUrl) || resolveAvatarUrl(character.name);
 }
 
-function getSearchText(character: Character): string {
-  return [
-    character.id,
-    character.name,
-    character.nameEn,
-    character.profession,
-    character.element,
-    ELEMENT_LABELS[character.element],
-    character.mainStat,
-    character.subStat,
-    ...(character.tags ?? []),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase();
-}
-
 function getCharacterLabel(character: Character): string {
   return `${character.name} · ${character.profession || '未分类'}`;
 }
@@ -69,8 +52,6 @@ export function MobileSelectionPage({
   onSelectionChange,
   onContinue,
 }: MobileSelectionPageProps) {
-  const [query, setQuery] = useState('');
-
   const officialCharacters = useMemo(
     () => characters.filter((character) => character.librarySource !== 'local'),
     [characters],
@@ -92,12 +73,6 @@ export function MobileSelectionPage({
       .filter((character): character is Character => Boolean(character)),
     [characterMap, selectedIds],
   );
-
-  const filteredCharacters = useMemo(() => {
-    const keyword = query.trim().toLocaleLowerCase();
-    if (!keyword) return officialCharacters;
-    return officialCharacters.filter((character) => getSearchText(character).includes(keyword));
-  }, [officialCharacters, query]);
 
   const updateSelection = (operatorId: string) => {
     if (selectedIds.includes(operatorId)) {
@@ -192,24 +167,8 @@ export function MobileSelectionPage({
               <span className="mobile-selection-section-kicker">ROSTER</span>
               <h2 id="mobile-selection-roster-title">官方干员</h2>
             </div>
-            <span className="mobile-selection-result-count">{filteredCharacters.length} 位</span>
+            <span className="mobile-selection-result-count">{officialCharacters.length} 位</span>
           </div>
-
-          <label className="mobile-selection-search">
-            <span className="mobile-selection-search-icon" aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索名称、职业、属性或标签"
-              aria-label="搜索官方干员"
-            />
-            {query && (
-              <button type="button" onClick={() => setQuery('')} aria-label="清除搜索">
-                ×
-              </button>
-            )}
-          </label>
 
           {officialCharacters.length === 0 ? (
             <div className="mobile-selection-empty-state">
@@ -217,16 +176,9 @@ export function MobileSelectionPage({
               <strong>线上干员目录暂未载入</strong>
               <p>请确认当前网络可访问最新版数据后重新进入手机版。</p>
             </div>
-          ) : filteredCharacters.length === 0 ? (
-            <div className="mobile-selection-empty-state">
-              <span className="mobile-selection-empty-mark" aria-hidden="true">⌕</span>
-              <strong>没有匹配的干员</strong>
-              <p>换个名称、职业或属性关键词试试。</p>
-              <button type="button" onClick={() => setQuery('')}>清除搜索</button>
-            </div>
           ) : (
             <div className="mobile-selection-roster-list">
-              {filteredCharacters.map((character) => {
+              {officialCharacters.map((character) => {
                 const isSelected = selectedIds.includes(character.id);
                 const isDisabled = !isSelected && selectedIds.length >= MAX_SELECTED_OPERATORS;
                 const tone = ELEMENT_TONES[character.element] || 'neutral';

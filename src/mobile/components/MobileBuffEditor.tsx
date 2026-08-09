@@ -362,8 +362,11 @@ export function MobileBuffEditor({
     });
   };
 
-  const addBuff = (buff: SkillButtonBuff) => {
-    if (buffs.some((current) => current.id === buff.id)) return;
+  const toggleCatalogBuff = (buff: SkillButtonBuff) => {
+    if (buffs.some((current) => current.id === buff.id)) {
+      removeBuff(buff.id);
+      return;
+    }
     const maxStacks = getMaxStacks(buff);
     updateAction({
       ...action,
@@ -543,7 +546,7 @@ export function MobileBuffEditor({
                         ) : (
                           <>
                             <p><span>等级系数</span><b>{activeSpecialSegment.levelCoefficientText}</b></p>
-                            <p><span>技艺强度区</span><b>{activeSpecialSegment.sourceSkillZoneText}</b></p>
+                            <p><span>源石技艺</span><b>{activeSpecialSegment.sourceSkillZoneText}</b></p>
                           </>
                         )}
                       </div>
@@ -649,7 +652,7 @@ export function MobileBuffEditor({
               <span className="mobile-buff-workbench-arrow" aria-hidden="true">›</span>
               <span className="mobile-buff-workbench-tags" aria-hidden="true">
                 <i>天赋 / 潜能 / 技能</i>
-                <i>异常 / 燃烧 / 导弹</i>
+                <i>异常 / 燃烧 / 额外 Hit</i>
               </span>
             </button>
 
@@ -865,7 +868,7 @@ export function MobileBuffEditor({
                             <strong>{formatNumber(segment.expectedValue)}</strong>
                           </summary>
                           <div className="mobile-buff-zone-details">
-                            <p><span>来源</span><b>{segment.sourceKind === 'buff-extra-hit' ? '导弹 / 额外 Hit' : '异常伤害'}</b></p>
+                            <p><span>来源</span><b>{segment.sourceKind === 'buff-extra-hit' ? '额外 Hit' : '异常伤害'}</b></p>
                             <p><span>元素 / 类型</span><b>{segment.elementText}{segment.skillTypeText ? ` · ${segment.skillTypeText}` : ''}</b></p>
                             <p><span>基础倍率</span><b>{segment.baseMultiplierText}</b></p>
                             <p><span>最终倍率</span><b>{segment.multiplierText}</b></p>
@@ -896,7 +899,7 @@ export function MobileBuffEditor({
           catalogBuffs={catalogBuffs}
           operators={operators}
           operatorSnapshots={operatorSnapshots}
-          onAddBuff={addBuff}
+          onToggleBuff={toggleCatalogBuff}
           onActionChange={updateAction}
           onClose={() => setCatalogOpen(false)}
         />
@@ -986,7 +989,7 @@ function getSpecialZoneDetails(
           ...(segment.sourceKind === 'anomaly' ? [
             { label: '源石技艺强度', value: segment.sourceSkillBoostText },
             { label: '等级系数区', value: segment.levelCoefficientText },
-            { label: '技艺强度区', value: segment.sourceSkillZoneText },
+            { label: '源石技艺', value: segment.sourceSkillZoneText },
           ] : []),
         ],
       };

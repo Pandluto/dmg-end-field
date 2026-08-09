@@ -158,6 +158,7 @@
 .mobile-app-bottom-nav button.is-active {
   color: #185f69;
   background: rgba(31, 111, 139, 0.1);
+  box-shadow: inset 0 0 0 2px rgba(31, 111, 139, 0.48);
 }
 
 .mobile-app-bottom-nav button.is-active > span {
