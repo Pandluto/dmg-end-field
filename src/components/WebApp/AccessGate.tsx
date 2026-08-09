@@ -24,6 +24,8 @@ export function AccessGate({ onUnlocked, variant = 'desktop' }: AccessGateProps)
         return;
       }
       onUnlocked();
+    } catch {
+      setError('验证暂时不可用，请刷新页面后重试。');
     } finally {
       setSubmitting(false);
     }

@@ -25,6 +25,7 @@ class MemoryStorage {
 }
 
 const originalWindow = globalThis.window;
+const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
 const storage = new MemoryStorage();
 Object.defineProperty(globalThis, 'window', {
   configurable: true,
@@ -72,7 +73,25 @@ try {
   });
   clearAccessLease();
   assert.equal(storage.getItem(ACCESS_LEASE_KEY), null);
+
+  Object.defineProperty(globalThis, 'crypto', {
+    configurable: true,
+    value: undefined,
+  });
+  assert.deepEqual(await grantAccessLease('wrong-password', now), {
+    granted: false,
+    issuedAt: null,
+    expiresAt: null,
+  });
+  const httpGranted = await grantAccessLease('zmd', now);
+  assert.equal(httpGranted.granted, true);
+  assert.deepEqual(await readAccessLeaseStatus(now + 1), httpGranted);
 } finally {
+  if (originalCryptoDescriptor) {
+    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+  } else {
+    delete (globalThis as { crypto?: Crypto }).crypto;
+  }
   if (originalWindow === undefined) {
     delete (globalThis as { window?: Window }).window;
   } else {
