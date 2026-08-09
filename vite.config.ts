@@ -46,6 +46,8 @@ export default defineConfig(async () => {
           run_worker_first: [
             '/',
             '/index.html',
+            '/mobile',
+            '/mobile/*',
             '/sw.js',
             '/version.json',
             '/manifest.webmanifest',

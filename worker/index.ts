@@ -131,6 +131,7 @@ async function proxyImagePackagePart(request: Request, env: Env): Promise<Respon
 export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url)
+    const isMobileRoute = url.pathname === '/mobile' || url.pathname.startsWith('/mobile/')
     try {
       const packageResponse = await proxyImagePackagePart(request, env)
       if (packageResponse) return packageResponse
@@ -145,11 +146,24 @@ export default {
       })
     }
 
-    const response = await env.ASSETS.fetch(request)
+    let response = await env.ASSETS.fetch(request)
+    if (
+      response.status === 404
+      && isMobileRoute
+      && (request.method === 'GET' || request.method === 'HEAD')
+    ) {
+      response = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url), {
+        method: request.method,
+        headers: request.headers,
+        redirect: request.redirect,
+      }))
+    }
+
     const acceptsHtml = request.headers.get('Accept')?.includes('text/html') ?? false
     const mustRevalidate = (
       request.mode === 'navigate'
       || acceptsHtml
+      || isMobileRoute
       || url.pathname === '/'
       || url.pathname === '/index.html'
       || url.pathname === '/sw.js'

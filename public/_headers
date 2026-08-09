@@ -10,6 +10,10 @@
   Cache-Control: no-store, no-cache, must-revalidate
   Pragma: no-cache
 
+/mobile/*
+  Cache-Control: no-store, no-cache, must-revalidate
+  Pragma: no-cache
+
 /sw.js
   Cache-Control: no-store, no-cache, must-revalidate
   Pragma: no-cache
