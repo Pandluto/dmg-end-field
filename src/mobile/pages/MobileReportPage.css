@@ -533,8 +533,12 @@
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-icons {
   height: 100%;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 1px;
+  grid-template-columns: repeat(2, max-content);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: row;
+  justify-content: center;
+  column-gap: 3px;
+  row-gap: 1px;
   padding: 1px;
 }
 
@@ -543,19 +547,22 @@
 }
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-icons > strong {
+  grid-row: 1 / -1;
+  grid-column: 1 / -1;
   font-size: 7px;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-weapon-equipment-item {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 8px;
+  display: flex;
+  width: max-content;
+  height: 100%;
   gap: 1px;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-image-frame {
-  width: 100%;
+  width: auto;
   height: 100%;
-  aspect-ratio: auto;
+  aspect-ratio: 1 / 1;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-name {
