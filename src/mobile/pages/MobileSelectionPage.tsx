@@ -94,12 +94,6 @@ export function MobileSelectionPage({
 
   return (
     <main className="mobile-selection-page">
-      <div className="mobile-selection-portrait-warning" role="status">
-        <span className="mobile-selection-portrait-warning-icon" aria-hidden="true">↻</span>
-        <strong>请旋转回竖屏</strong>
-        <span>手机版工作台为竖屏布局</span>
-      </div>
-
       <div className="mobile-selection-page-content">
         <header className="mobile-selection-header">
           <div className="mobile-selection-eyebrow">ONLINE WORKBENCH</div>

@@ -20,10 +20,6 @@
   padding: calc(20px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom));
 }
 
-.mobile-operator-config-portrait-warning {
-  display: none;
-}
-
 .mobile-operator-config-header {
   display: flex;
   align-items: flex-start;
@@ -1020,32 +1016,6 @@
 .mobile-operator-config-picker-card:focus-visible {
   outline: 3px solid rgba(29, 119, 116, 0.22);
   outline-offset: 2px;
-}
-
-@media (orientation: landscape) {
-  .mobile-operator-config-content {
-    display: none;
-  }
-
-  .mobile-operator-config-portrait-warning {
-    display: grid;
-    min-height: 100svh;
-    place-items: center;
-    align-content: center;
-    gap: 8px;
-    padding: 24px;
-    text-align: center;
-  }
-
-  .mobile-operator-config-portrait-warning span {
-    color: var(--mobile-config-accent);
-    font-size: 42px;
-  }
-
-  .mobile-operator-config-portrait-warning small {
-    color: var(--mobile-config-muted);
-    font-size: 13px;
-  }
 }
 
 @media (min-width: 520px) {

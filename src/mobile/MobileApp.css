@@ -165,40 +165,6 @@
   color: #1f6f8b;
 }
 
-.mobile-app-orientation-blocker {
-  display: none;
-}
-
-@media (orientation: landscape) and (max-height: 600px) {
-  .mobile-app-orientation-blocker {
-    position: fixed;
-    inset: 0;
-    z-index: 10000;
-    display: grid;
-    place-content: center;
-    justify-items: center;
-    gap: 8px;
-    padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
-    color: #eef4f0;
-    background: #0b0e0d;
-    text-align: center;
-  }
-
-  .mobile-app-orientation-blocker > span {
-    font-size: 34px;
-  }
-
-  .mobile-app-orientation-blocker strong {
-    font-size: 20px;
-  }
-
-  .mobile-app-orientation-blocker p {
-    margin: 0;
-    color: #91a098;
-    font-size: 12px;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .mobile-app-page-track {
     transition: none;

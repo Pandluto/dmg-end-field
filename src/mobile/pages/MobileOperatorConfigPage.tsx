@@ -334,12 +334,6 @@ export function MobileOperatorConfigPage({
 
   return (
     <main className="mobile-operator-config-page">
-      <div className="mobile-operator-config-portrait-warning" role="status">
-        <span aria-hidden="true">↻</span>
-        <strong>请旋转回竖屏</strong>
-        <small>手机版配置页为竖屏布局</small>
-      </div>
-
       <div className="mobile-operator-config-content">
         <header className="mobile-operator-config-header">
           <div>

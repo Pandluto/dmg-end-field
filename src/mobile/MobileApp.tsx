@@ -257,12 +257,6 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
           onClose={closeArchive}
         />
       ) : null}
-
-      <div className="mobile-app-orientation-blocker" role="status">
-        <span aria-hidden="true">↻</span>
-        <strong>请旋转回竖屏</strong>
-        <p>手机版工作台只提供竖屏布局。</p>
-      </div>
     </div>
   );
 }

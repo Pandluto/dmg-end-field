@@ -20,10 +20,6 @@
   padding: calc(20px + env(safe-area-inset-top)) 16px calc(28px + env(safe-area-inset-bottom));
 }
 
-.mobile-selection-portrait-warning {
-  display: none;
-}
-
 .mobile-selection-eyebrow,
 .mobile-selection-section-kicker {
   color: var(--mobile-selection-accent);
@@ -466,34 +462,6 @@
   cursor: not-allowed;
   opacity: 0.42;
   box-shadow: none;
-}
-
-@media (orientation: landscape) {
-  .mobile-selection-page-content {
-    display: none;
-  }
-
-  .mobile-selection-portrait-warning {
-    display: flex;
-    min-height: 100svh;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 24px;
-    color: var(--mobile-selection-ink);
-    text-align: center;
-  }
-
-  .mobile-selection-portrait-warning-icon {
-    color: var(--mobile-selection-accent);
-    font-size: 42px;
-  }
-
-  .mobile-selection-portrait-warning span:last-child {
-    color: var(--mobile-selection-muted);
-    font-size: 13px;
-  }
 }
 
 @media (min-width: 520px) {
