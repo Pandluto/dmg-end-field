@@ -7,7 +7,7 @@ const env = {
     async fetch(request: Request) {
       const pathname = new URL(request.url).pathname
       requestedPaths.push(pathname)
-      if (pathname === '/index.html') {
+      if (pathname === '/') {
         return new Response('<main>mobile shell</main>', {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         })
@@ -27,7 +27,7 @@ const mobileResponse = await sitesWorker.fetch(
 assert.equal(mobileResponse.status, 200)
 assert.equal(await mobileResponse.text(), '<main>mobile shell</main>')
 assert.equal(mobileResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
-assert.deepEqual(requestedPaths, ['/index.html'])
+assert.deepEqual(requestedPaths, ['/'])
 
 requestedPaths.length = 0
 const unrelatedResponse = await sitesWorker.fetch(

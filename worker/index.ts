@@ -150,7 +150,7 @@ export default {
       isMobileRoute
       && (request.method === 'GET' || request.method === 'HEAD')
     )
-      ? new Request(new URL('/index.html', request.url), {
+      ? new Request(new URL('/', request.url), {
         method: request.method,
         headers: request.headers,
         redirect: request.redirect,
