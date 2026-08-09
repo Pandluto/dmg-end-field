@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import type { Character, SkillType } from '../../types';
+import { MobilePortal } from '../components/MobilePortal';
 import { createMobileId } from '../mobileDraft';
 import type { MobileSlotCalculation, MobileTimelineAction, MobileTimelineSlot } from '../model';
 import './MobileTimelinePage.css';
@@ -364,102 +365,110 @@ export function MobileTimelinePage({
       </button>
 
       {dragSourceAction && dragState ? (
-        <div className="mobile-timeline-drag-hint" role="status" aria-live="polite">
-          正在移动：{dragSourceAction.skillName} · 松开即可插入
-        </div>
+        <MobilePortal>
+          <div className="mobile-timeline-drag-hint" role="status" aria-live="polite">
+            正在移动：{dragSourceAction.skillName} · 松开即可插入
+          </div>
+        </MobilePortal>
       ) : null}
 
       {chooser ? (
-        <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={closeOverlays}>
-          <section
-            className="mobile-timeline-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mobile-timeline-chooser-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <header className="mobile-timeline-modal-header">
-              <div>
-                <p className="mobile-timeline-kicker">添加到槽位</p>
-                <h2 id="mobile-timeline-chooser-title">{chooser.step === 'operator' ? '选择干员' : '选择技能'}</h2>
-              </div>
-              <button type="button" className="mobile-timeline-close-button" onClick={() => setChooser(null)} aria-label="关闭">×</button>
-            </header>
-            {chooser.step === 'operator' ? (
-              <div className="mobile-timeline-choice-grid">
-                {availableOperators.map((operator) => (
-                  <button key={operator.id} type="button" className="mobile-timeline-operator-choice" onClick={() => chooseOperator(operator.id)}>
-                    <span className="mobile-timeline-operator-avatar">
-                      {operator.avatarUrl ? <img src={operator.avatarUrl} alt="" /> : operator.name.slice(0, 1)}
-                    </span>
-                    <span>{operator.name}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <>
-                <button type="button" className="mobile-timeline-back-choice" onClick={() => setChooser((current) => current ? { ...current, step: 'operator' } : current)}>‹ 重新选择干员</button>
-                <div className="mobile-timeline-skill-choice-list">
-                  {chooserSkills.map((skill) => (
-                    <button key={skill.id} type="button" className="mobile-timeline-skill-choice" onClick={() => chooseSkill(skill)}>
-                      {skill.skillIconUrl ? <img src={skill.skillIconUrl} alt="" /> : <span className="mobile-timeline-skill-placeholder">{skill.skillType}</span>}
-                      <span><strong>{skill.skillName}</strong><small>{SKILL_LABELS[skill.skillType]}</small></span>
-                      <span aria-hidden="true">›</span>
+        <MobilePortal>
+          <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={closeOverlays}>
+            <section
+              className="mobile-timeline-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-timeline-chooser-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="mobile-timeline-modal-header">
+                <div>
+                  <p className="mobile-timeline-kicker">添加到槽位</p>
+                  <h2 id="mobile-timeline-chooser-title">{chooser.step === 'operator' ? '选择干员' : '选择技能'}</h2>
+                </div>
+                <button type="button" className="mobile-timeline-close-button" onClick={() => setChooser(null)} aria-label="关闭">×</button>
+              </header>
+              {chooser.step === 'operator' ? (
+                <div className="mobile-timeline-choice-grid">
+                  {availableOperators.map((operator) => (
+                    <button key={operator.id} type="button" className="mobile-timeline-operator-choice" onClick={() => chooseOperator(operator.id)}>
+                      <span className="mobile-timeline-operator-avatar">
+                        {operator.avatarUrl ? <img src={operator.avatarUrl} alt="" /> : operator.name.slice(0, 1)}
+                      </span>
+                      <span>{operator.name}</span>
                     </button>
                   ))}
                 </div>
-              </>
-            )}
-          </section>
-        </div>
+              ) : (
+                <>
+                  <button type="button" className="mobile-timeline-back-choice" onClick={() => setChooser((current) => current ? { ...current, step: 'operator' } : current)}>‹ 重新选择干员</button>
+                  <div className="mobile-timeline-skill-choice-list">
+                    {chooserSkills.map((skill) => (
+                      <button key={skill.id} type="button" className="mobile-timeline-skill-choice" onClick={() => chooseSkill(skill)}>
+                        {skill.skillIconUrl ? <img src={skill.skillIconUrl} alt="" /> : <span className="mobile-timeline-skill-placeholder">{skill.skillType}</span>}
+                        <span><strong>{skill.skillName}</strong><small>{SKILL_LABELS[skill.skillType]}</small></span>
+                        <span aria-hidden="true">›</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          </div>
+        </MobilePortal>
       ) : null}
 
       {actionSheetSlotId && actionSheetAction ? (
-        <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={() => setActionSheetSlotId(null)}>
-          <section className="mobile-timeline-action-sheet" role="dialog" aria-modal="true" aria-label="技能槽位操作" onClick={(event) => event.stopPropagation()}>
-            <div className="mobile-timeline-sheet-handle" aria-hidden="true" />
-            <p>{actionSheetOperator?.name ?? '未知干员'} · {actionSheetAction.skillName}</p>
-            <button type="button" onClick={() => {
-              onDeleteSlotAction(actionSheetSlotId);
-              setActionSheetSlotId(null);
-            }}>删除</button>
-            <button type="button" onClick={() => {
-              setMoveSourceSlotId(actionSheetSlotId);
-              setActionSheetSlotId(null);
-            }}>移动</button>
-            <button type="button" onClick={() => {
-              onOpenBuffEditor?.(actionSheetSlotId);
-              setActionSheetSlotId(null);
-            }}>编辑 Buff</button>
-            <button type="button" className="is-muted" onClick={() => setActionSheetSlotId(null)}>取消</button>
-          </section>
-        </div>
+        <MobilePortal>
+          <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={() => setActionSheetSlotId(null)}>
+            <section className="mobile-timeline-action-sheet" role="dialog" aria-modal="true" aria-label="技能槽位操作" onClick={(event) => event.stopPropagation()}>
+              <div className="mobile-timeline-sheet-handle" aria-hidden="true" />
+              <p>{actionSheetOperator?.name ?? '未知干员'} · {actionSheetAction.skillName}</p>
+              <button type="button" onClick={() => {
+                onDeleteSlotAction(actionSheetSlotId);
+                setActionSheetSlotId(null);
+              }}>删除</button>
+              <button type="button" onClick={() => {
+                setMoveSourceSlotId(actionSheetSlotId);
+                setActionSheetSlotId(null);
+              }}>移动</button>
+              <button type="button" onClick={() => {
+                onOpenBuffEditor?.(actionSheetSlotId);
+                setActionSheetSlotId(null);
+              }}>编辑 Buff</button>
+              <button type="button" className="is-muted" onClick={() => setActionSheetSlotId(null)}>取消</button>
+            </section>
+          </div>
+        </MobilePortal>
       ) : null}
 
       {moveSourceSlotId ? (
-        <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={() => setMoveSourceSlotId(null)}>
-          <section className="mobile-timeline-modal" role="dialog" aria-modal="true" aria-labelledby="mobile-timeline-move-title" onClick={(event) => event.stopPropagation()}>
-            <header className="mobile-timeline-modal-header">
-              <div>
-                <p className="mobile-timeline-kicker">重新排列</p>
-                <h2 id="mobile-timeline-move-title">选择目标槽位</h2>
+        <MobilePortal>
+          <div className="mobile-timeline-modal-backdrop" role="presentation" onClick={() => setMoveSourceSlotId(null)}>
+            <section className="mobile-timeline-modal" role="dialog" aria-modal="true" aria-labelledby="mobile-timeline-move-title" onClick={(event) => event.stopPropagation()}>
+              <header className="mobile-timeline-modal-header">
+                <div>
+                  <p className="mobile-timeline-kicker">重新排列</p>
+                  <h2 id="mobile-timeline-move-title">选择目标槽位</h2>
+                </div>
+                <button type="button" className="mobile-timeline-close-button" onClick={() => setMoveSourceSlotId(null)} aria-label="关闭">×</button>
+              </header>
+              <div className="mobile-timeline-move-list">
+                {moveTargets.map((slot) => (
+                  <button key={slot.id} type="button" onClick={() => {
+                    onMoveSlotAction(moveSourceSlotId, slot.id);
+                    setMoveSourceSlotId(null);
+                  }}>
+                    <span>第 {slots.findIndex((item) => item.id === slot.id) + 1} 槽</span>
+                    <small>{slot.action ? `插入到 ${getActionOperator(availableOperators, slot.action)?.name ?? '未知干员'} 前` : '空槽位，直接移动'}</small>
+                    <strong>›</strong>
+                  </button>
+                ))}
               </div>
-              <button type="button" className="mobile-timeline-close-button" onClick={() => setMoveSourceSlotId(null)} aria-label="关闭">×</button>
-            </header>
-            <div className="mobile-timeline-move-list">
-              {moveTargets.map((slot) => (
-                <button key={slot.id} type="button" onClick={() => {
-                  onMoveSlotAction(moveSourceSlotId, slot.id);
-                  setMoveSourceSlotId(null);
-                }}>
-                  <span>第 {slots.findIndex((item) => item.id === slot.id) + 1} 槽</span>
-                  <small>{slot.action ? `插入到 ${getActionOperator(availableOperators, slot.action)?.name ?? '未知干员'} 前` : '空槽位，直接移动'}</small>
-                  <strong>›</strong>
-                </button>
-              ))}
-            </div>
-          </section>
-        </div>
+            </section>
+          </div>
+        </MobilePortal>
       ) : null}
     </main>
   );

@@ -12,6 +12,7 @@ import type {
   MobileEquipmentSlotKey,
   MobileOperatorConfig,
 } from '../model';
+import { MobilePortal } from '../components/MobilePortal';
 import { normalizeAssetUrl, resolveAvatarUrl, resolveSkillIconUrl } from '../../utils/assetResolver';
 import './MobileOperatorConfigPage.css';
 
@@ -51,6 +52,10 @@ const ELEMENT_LABELS: Record<string, string> = {
   electric: '电磁',
   nature: '自然',
 };
+
+type ConfigPicker =
+  | { kind: 'weapon' }
+  | { kind: 'equipment'; slotKey: MobileEquipmentSlotKey };
 
 export interface MobileOperatorConfigPageProps {
   /** 当前线上官方目录中的干员，顺序由选人页决定。 */
@@ -196,6 +201,21 @@ function getEquipmentImageUrl(item?: EquipmentItem): string {
   return normalizeAssetUrl(item?.imgUrl);
 }
 
+function createEquipmentSelection(
+  item?: EquipmentItem,
+): MobileOperatorConfig['equipment'][MobileEquipmentSlotKey] {
+  if (!item) return createEmptyEquipmentSelection();
+  return {
+    equipmentId: item.equipmentId,
+    effectLevels: Object.fromEntries(
+      Object.entries(item.effects).map(([effectId, effect]) => [
+        effectId,
+        getDefaultEffectLevel(effect as EquipmentEffect),
+      ]),
+    ) as MobileOperatorConfig['equipment'][MobileEquipmentSlotKey]['effectLevels'],
+  };
+}
+
 export function MobileOperatorConfigPage({
   characters,
   selectedOperatorIds,
@@ -208,6 +228,7 @@ export function MobileOperatorConfigPage({
   onConfigChange,
 }: MobileOperatorConfigPageProps) {
   const [isPanelDetailOpen, setIsPanelDetailOpen] = useState(false);
+  const [picker, setPicker] = useState<ConfigPicker | null>(null);
 
   const selectedCharacters = useMemo(() => {
     const characterMap = new Map(
@@ -229,6 +250,7 @@ export function MobileOperatorConfigPage({
 
   useEffect(() => {
     setIsPanelDetailOpen(false);
+    setPicker(null);
   }, [resolvedActiveOperatorId]);
 
   const equipmentItems = useMemo(() => getEquipmentItems(equipment), [equipment]);
@@ -268,6 +290,20 @@ export function MobileOperatorConfigPage({
     }));
   };
 
+  const chooseWeapon = (weaponId: string) => {
+    patchConfig((config) => ({
+      ...config,
+      weapon: { ...config.weapon, weaponId },
+    }));
+    setPicker(null);
+  };
+
+  const chooseEquipment = (slotKey: MobileEquipmentSlotKey, equipmentId: string) => {
+    const nextItem = equipmentItems.find((item) => item.equipmentId === equipmentId);
+    patchEquipment(slotKey, () => createEquipmentSelection(nextItem));
+    setPicker(null);
+  };
+
   if (!activeCharacter || !currentConfig) {
     return (
       <main className="mobile-operator-config-page">
@@ -285,6 +321,15 @@ export function MobileOperatorConfigPage({
   const selectedWeaponIsCompatible = compatibleWeapons.some(
     ([key, weapon]) => getWeaponId(key, weapon) === currentConfig.weapon.weaponId,
   );
+  const pickerEquipmentSlot = picker?.kind === 'equipment'
+    ? EQUIPMENT_SLOTS.find(({ key }) => key === picker.slotKey) ?? null
+    : null;
+  const pickerEquipmentItems = pickerEquipmentSlot
+    ? equipmentItems.filter((item) => item.part === pickerEquipmentSlot.part)
+    : [];
+  const pickerEquipmentSelection = pickerEquipmentSlot
+    ? currentConfig.equipment[pickerEquipmentSlot.key]
+    : null;
 
   return (
     <main className="mobile-operator-config-page">
@@ -444,22 +489,23 @@ export function MobileOperatorConfigPage({
             <span className="mobile-operator-config-card-note">{activeCharacter.weapon ? `类型：${activeCharacter.weapon}` : '全部类型'}</span>
           </div>
 
-          <label className="mobile-operator-config-select-field">
-            <span>兼容武器</span>
-            <select
-              value={selectedWeaponIsCompatible ? currentConfig.weapon.weaponId : ''}
-              onChange={(event) => patchConfig((config) => ({
-                ...config,
-                weapon: { ...config.weapon, weaponId: event.target.value },
-              }))}
-            >
-              <option value="">暂不装备武器</option>
-              {compatibleWeapons.map(([key, weapon]) => {
-                const weaponId = getWeaponId(key, weapon);
-                return <option value={weaponId} key={weaponId}>{weapon.name}{weapon.rarity ? ` · ${weapon.rarity}★` : ''}</option>;
-              })}
-            </select>
-          </label>
+          <button
+            type="button"
+            className="mobile-operator-config-picker-trigger"
+            onClick={() => setPicker({ kind: 'weapon' })}
+            aria-haspopup="dialog"
+            aria-expanded={picker?.kind === 'weapon'}
+          >
+            <span className="mobile-operator-config-picker-image">
+              {getWeaponImageUrl(currentWeapon) ? <img src={getWeaponImageUrl(currentWeapon)} alt="" /> : <span aria-hidden="true">◇</span>}
+            </span>
+            <span className="mobile-operator-config-picker-copy">
+              <small>兼容武器</small>
+              <strong>{currentWeapon?.name || '暂不装备武器'}</strong>
+              <span>{currentWeapon?.type || '点击打开图片卡片选择'}</span>
+            </span>
+            <span className="mobile-operator-config-picker-arrow" aria-hidden="true">›</span>
+          </button>
 
           {currentWeapon && !selectedWeaponIsCompatible && (
             <p className="mobile-operator-config-warning">当前配置的武器与干员武器类型不匹配，请重新选择。</p>
@@ -467,16 +513,6 @@ export function MobileOperatorConfigPage({
           {activeCharacter.weapon && compatibleWeapons.length === 0 && (
             <p className="mobile-operator-config-muted">线上目录中暂时没有匹配“{activeCharacter.weapon}”的武器。</p>
           )}
-
-          <div className="mobile-operator-config-weapon-preview">
-            <div className="mobile-operator-config-weapon-image">
-              {getWeaponImageUrl(currentWeapon) ? <img src={getWeaponImageUrl(currentWeapon)} alt="" /> : <span aria-hidden="true">◇</span>}
-            </div>
-            <div>
-              <strong>{currentWeapon?.name || '未选择武器'}</strong>
-              <small>{currentWeapon?.type || '选择兼容武器后配置技能'}</small>
-            </div>
-          </div>
 
           <div className="mobile-operator-config-field-grid">
             <label className="mobile-operator-config-field">
@@ -568,27 +604,17 @@ export function MobileOperatorConfigPage({
                     </div>
                     <span className="mobile-operator-config-equipment-count">{options.length}</span>
                   </div>
-                  <select
-                    value={selection.equipmentId}
-                    onChange={(event) => {
-                      const nextItem = options.find((item) => item.equipmentId === event.target.value);
-                      patchEquipment(key, () => nextItem
-                        ? {
-                          equipmentId: nextItem.equipmentId,
-                          effectLevels: Object.fromEntries(
-                            Object.entries(nextItem.effects).map(([effectId, effect]) => [
-                              effectId,
-                              getDefaultEffectLevel(effect as EquipmentEffect),
-                            ]),
-                          ) as MobileOperatorConfig['equipment'][MobileEquipmentSlotKey]['effectLevels'],
-                        }
-                        : createEmptyEquipmentSelection());
-                    }}
-                    aria-label={`${label}选择`}
+                  <button
+                    type="button"
+                    className="mobile-operator-config-equipment-picker"
+                    onClick={() => setPicker({ kind: 'equipment', slotKey: key })}
+                    aria-haspopup="dialog"
+                    aria-expanded={picker?.kind === 'equipment' && picker.slotKey === key}
                   >
-                    <option value="">暂不装备</option>
-                    {options.map((item) => <option value={item.equipmentId} key={item.equipmentId}>{item.name}</option>)}
-                  </select>
+                    <span>{selectedItem ? '更换装备' : '选择装备'}</span>
+                    <small>{options.length} 件图片卡片可选</small>
+                    <strong aria-hidden="true">›</strong>
+                  </button>
 
                   {selectedItem && Object.values(selectedItem.effects).length > 0 && (
                     <div className="mobile-operator-config-effect-list">
@@ -668,6 +694,123 @@ export function MobileOperatorConfigPage({
           )}
         </section>
       </div>
+
+      {picker ? (
+        <MobilePortal>
+          <div
+            className="mobile-operator-config-picker-backdrop"
+            role="presentation"
+            onClick={() => setPicker(null)}
+          >
+            <section
+              className="mobile-operator-config-picker-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-operator-config-picker-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <header className="mobile-operator-config-picker-header">
+                <div>
+                  <span className="mobile-operator-config-section-kicker">LOADOUT</span>
+                  <h2 id="mobile-operator-config-picker-title">
+                    {picker.kind === 'weapon'
+                      ? '选择武器'
+                      : `${pickerEquipmentSlot?.label ?? '装备'} · 选择装备`}
+                  </h2>
+                  <p>
+                    {picker.kind === 'weapon'
+                      ? `${compatibleWeapons.length} 件兼容武器`
+                      : `${pickerEquipmentItems.length} 件${pickerEquipmentSlot?.part ?? '装备'}可选`}
+                  </p>
+                </div>
+                <button type="button" className="mobile-operator-config-picker-close" onClick={() => setPicker(null)} aria-label="关闭">×</button>
+              </header>
+
+              {picker.kind === 'weapon' ? (
+                <div className="mobile-operator-config-picker-grid">
+                  <button
+                    type="button"
+                    className={`mobile-operator-config-picker-card is-empty${!selectedWeaponIsCompatible ? ' is-selected' : ''}`}
+                    onClick={() => chooseWeapon('')}
+                    aria-pressed={!selectedWeaponIsCompatible}
+                  >
+                    <span className="mobile-operator-config-picker-card-image" aria-hidden="true">◇</span>
+                    <span className="mobile-operator-config-picker-card-copy">
+                      <strong>暂不装备武器</strong>
+                      <small>清空当前武器</small>
+                    </span>
+                    <span className="mobile-operator-config-picker-check" aria-hidden="true">{!selectedWeaponIsCompatible ? '✓' : '＋'}</span>
+                  </button>
+                  {compatibleWeapons.map(([key, weapon]) => {
+                    const weaponId = getWeaponId(key, weapon);
+                    const selected = selectedWeaponIsCompatible && currentConfig.weapon.weaponId === weaponId;
+                    return (
+                      <button
+                        type="button"
+                        key={weaponId}
+                        className={`mobile-operator-config-picker-card${selected ? ' is-selected' : ''}`}
+                        onClick={() => chooseWeapon(weaponId)}
+                        aria-pressed={selected}
+                      >
+                        <span className="mobile-operator-config-picker-card-image">
+                          {getWeaponImageUrl(weapon) ? <img src={getWeaponImageUrl(weapon)} alt="" loading="lazy" /> : <span aria-hidden="true">◇</span>}
+                        </span>
+                        <span className="mobile-operator-config-picker-card-copy">
+                          <strong>{weapon.name}</strong>
+                          <small>{weapon.type || '未分类'}{weapon.rarity ? ` · ${weapon.rarity}★` : ''}</small>
+                        </span>
+                        <span className="mobile-operator-config-picker-check" aria-hidden="true">{selected ? '✓' : '›'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : pickerEquipmentSlot ? (
+                <div className="mobile-operator-config-picker-grid">
+                  <button
+                    type="button"
+                    className={`mobile-operator-config-picker-card is-empty${!pickerEquipmentSelection?.equipmentId ? ' is-selected' : ''}`}
+                    onClick={() => chooseEquipment(pickerEquipmentSlot.key, '')}
+                    aria-pressed={!pickerEquipmentSelection?.equipmentId}
+                  >
+                    <span className="mobile-operator-config-picker-card-image" aria-hidden="true">＋</span>
+                    <span className="mobile-operator-config-picker-card-copy">
+                      <strong>暂不装备</strong>
+                      <small>清空{pickerEquipmentSlot.label}</small>
+                    </span>
+                    <span className="mobile-operator-config-picker-check" aria-hidden="true">{!pickerEquipmentSelection?.equipmentId ? '✓' : '＋'}</span>
+                  </button>
+                  {pickerEquipmentItems.map((item) => {
+                    const selected = pickerEquipmentSelection?.equipmentId === item.equipmentId;
+                    const effectLabels = Object.values(item.effects)
+                      .filter((effect): effect is EquipmentEffect => Boolean(effect))
+                      .slice(0, 2)
+                      .map((effect) => effect.label)
+                      .join(' · ');
+                    return (
+                      <button
+                        type="button"
+                        key={item.equipmentId}
+                        className={`mobile-operator-config-picker-card${selected ? ' is-selected' : ''}`}
+                        onClick={() => chooseEquipment(pickerEquipmentSlot.key, item.equipmentId)}
+                        aria-pressed={selected}
+                      >
+                        <span className="mobile-operator-config-picker-card-image">
+                          {getEquipmentImageUrl(item) ? <img src={getEquipmentImageUrl(item)} alt="" loading="lazy" /> : <span aria-hidden="true">＋</span>}
+                        </span>
+                        <span className="mobile-operator-config-picker-card-copy">
+                          <strong>{item.name}</strong>
+                          <small>{effectLabels || item.part}</small>
+                        </span>
+                        <span className="mobile-operator-config-picker-check" aria-hidden="true">{selected ? '✓' : '›'}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </MobilePortal>
+      ) : null}
     </main>
   );
 }

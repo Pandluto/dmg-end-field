@@ -346,6 +346,81 @@
   margin-bottom: 11px;
 }
 
+.mobile-operator-config-picker-trigger {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  min-height: 76px;
+  margin-bottom: 11px;
+  padding: 9px;
+  border: 1px solid rgba(29, 119, 116, 0.16);
+  border-radius: 16px;
+  color: var(--mobile-config-ink);
+  background: linear-gradient(110deg, rgba(232, 247, 238, 0.92), rgba(247, 250, 247, 0.9));
+  font: inherit;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.mobile-operator-config-picker-trigger:hover {
+  border-color: rgba(29, 119, 116, 0.34);
+  background: linear-gradient(110deg, rgba(224, 245, 235, 0.98), rgba(247, 250, 247, 0.96));
+}
+
+.mobile-operator-config-picker-image,
+.mobile-operator-config-picker-card-image {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #77a09b;
+  background: #dcebe3;
+}
+
+.mobile-operator-config-picker-image {
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  font-size: 23px;
+}
+
+.mobile-operator-config-picker-image img,
+.mobile-operator-config-picker-card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-operator-config-picker-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.mobile-operator-config-picker-copy small,
+.mobile-operator-config-picker-copy span {
+  overflow: hidden;
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-picker-copy strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-picker-arrow {
+  color: var(--mobile-config-accent);
+  font-size: 25px;
+  font-weight: 350;
+  line-height: 1;
+}
+
 .mobile-operator-config-warning,
 .mobile-operator-config-muted {
   margin: 0 0 11px;
@@ -500,6 +575,48 @@
 .mobile-operator-config-equipment-heading small {
   color: var(--mobile-config-muted);
   font-size: 10px;
+}
+
+.mobile-operator-config-equipment-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid rgba(29, 119, 116, 0.15);
+  border-radius: 12px;
+  color: var(--mobile-config-accent);
+  background: rgba(232, 247, 238, 0.64);
+  font: inherit;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.mobile-operator-config-equipment-picker:hover {
+  border-color: rgba(29, 119, 116, 0.34);
+  background: rgba(224, 245, 235, 0.92);
+}
+
+.mobile-operator-config-equipment-picker span {
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.mobile-operator-config-equipment-picker small {
+  grid-column: 1;
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+}
+
+.mobile-operator-config-equipment-picker strong {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--mobile-config-accent);
+  font-size: 24px;
+  font-weight: 350;
+  line-height: 1;
 }
 
 .mobile-operator-config-equipment-count {
@@ -731,6 +848,156 @@
   padding: 0;
 }
 
+.mobile-operator-config-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100vw;
+  max-width: 100vw;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: rgba(15, 31, 30, 0.42);
+}
+
+.mobile-operator-config-picker-sheet {
+  display: flex;
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(84dvh, 720px);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 24px;
+  color: var(--mobile-config-ink);
+  background: #f9fbf8;
+  box-shadow: 0 24px 70px rgba(15, 31, 30, 0.28);
+}
+
+.mobile-operator-config-picker-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 0 0 auto;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--mobile-config-line);
+}
+
+.mobile-operator-config-picker-header h2 {
+  margin: 5px 0 0;
+  font-size: 20px;
+  letter-spacing: -0.04em;
+}
+
+.mobile-operator-config-picker-header p {
+  margin: 5px 0 0;
+  color: var(--mobile-config-muted);
+  font-size: 11px;
+}
+
+.mobile-operator-config-picker-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--mobile-config-line);
+  border-radius: 50%;
+  color: var(--mobile-config-muted);
+  background: transparent;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.mobile-operator-config-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-operator-config-picker-card {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 68px;
+  padding: 8px;
+  border: 1px solid rgba(42, 80, 79, 0.1);
+  border-radius: 15px;
+  color: var(--mobile-config-ink);
+  background: rgba(247, 250, 247, 0.9);
+  font: inherit;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.mobile-operator-config-picker-card:hover,
+.mobile-operator-config-picker-card.is-selected {
+  border-color: rgba(29, 119, 116, 0.48);
+  background: rgba(225, 245, 235, 0.92);
+  box-shadow: 0 0 0 2px rgba(29, 119, 116, 0.08);
+}
+
+.mobile-operator-config-picker-card.is-empty {
+  background: rgba(241, 245, 242, 0.82);
+}
+
+.mobile-operator-config-picker-card-image {
+  width: 50px;
+  height: 50px;
+  border-radius: 13px;
+  font-size: 20px;
+}
+
+.mobile-operator-config-picker-card-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-operator-config-picker-card-copy strong,
+.mobile-operator-config-picker-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-picker-card-copy strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mobile-operator-config-picker-card-copy small {
+  color: var(--mobile-config-muted);
+  font-size: 9px;
+}
+
+.mobile-operator-config-picker-check {
+  color: var(--mobile-config-accent);
+  font-size: 19px;
+  font-weight: 400;
+  text-align: center;
+}
+
+.mobile-operator-config-picker-close:focus-visible,
+.mobile-operator-config-picker-trigger:focus-visible,
+.mobile-operator-config-equipment-picker:focus-visible,
+.mobile-operator-config-picker-card:focus-visible {
+  outline: 3px solid rgba(29, 119, 116, 0.22);
+  outline-offset: 2px;
+}
+
 @media (orientation: landscape) {
   .mobile-operator-config-content {
     display: none;
@@ -765,6 +1032,10 @@
 }
 
 @media (max-width: 380px) {
+  .mobile-operator-config-picker-grid {
+    grid-template-columns: 1fr;
+  }
+
   .mobile-operator-config-summary-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
