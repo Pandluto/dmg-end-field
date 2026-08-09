@@ -3,6 +3,7 @@ import type { Character } from '../types';
 import {
   createDefaultMobileOperatorConfig,
   createEmptyMobileSlot,
+  normalizeMobileDraft,
   readMobileDraft,
   writeMobileDraft,
 } from './mobileDraft';
@@ -101,6 +102,11 @@ export function useMobileWorkbench(catalog: MobileCatalog) {
   const setActivePage = useCallback((activePage: MobilePageId) => {
     setDraft((current) => ({ ...current, activePage, updatedAt: Date.now() }));
   }, []);
+
+  const restoreDraft = useCallback((snapshot: MobileDraft) => {
+    const restored = reconcileDraftWithCatalog(normalizeMobileDraft(snapshot), catalog);
+    setDraft({ ...restored, updatedAt: Date.now() });
+  }, [catalog]);
 
   const setSelection = useCallback((operatorIds: string[]) => {
     setDraft((current) => {
@@ -229,6 +235,7 @@ export function useMobileWorkbench(catalog: MobileCatalog) {
     runtimeError: runtimeResult.error,
     interactionLocked,
     setInteractionLocked,
+    restoreDraft,
     setActivePage,
     setSelection,
     setActiveOperatorId,

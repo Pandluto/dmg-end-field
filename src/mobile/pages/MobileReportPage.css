@@ -1040,6 +1040,118 @@
   background: var(--report-accent);
 }
 
+.mobile-report-export-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--report-line-strong);
+  border-radius: 3px;
+  background: var(--report-paper);
+}
+
+.mobile-report-export-control > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.mobile-report-export-control small {
+  color: var(--report-accent);
+  font-size: 7px;
+  font-weight: 820;
+  letter-spacing: 0.11em;
+}
+
+.mobile-report-export-control strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mobile-report-export-control p {
+  margin: 0;
+  color: var(--report-muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.mobile-report-export-control button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 11px;
+  border: 1px solid var(--report-accent);
+  border-radius: 8px 2px 8px 2px;
+  color: #fff;
+  background: var(--report-accent);
+  font-size: 10px;
+  font-weight: 780;
+  white-space: nowrap;
+}
+
+.mobile-report-export-control button span {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.mobile-report-export-control button:disabled {
+  cursor: progress;
+  opacity: 0.58;
+}
+
+.mobile-report-export-message {
+  margin: 7px 0 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(31, 111, 139, 0.18);
+  color: var(--report-accent);
+  background: rgba(255, 255, 255, 0.62);
+  font-size: 8px;
+}
+
+.mobile-report-export-message.is-error {
+  border-color: rgba(153, 58, 48, 0.24);
+  color: #923c33;
+  background: #fff5f3;
+}
+
+.mobile-report-export-stage.mobile-report-page {
+  position: fixed;
+  top: 0;
+  left: -100000px;
+  z-index: -100;
+  display: flex;
+  width: max-content;
+  max-width: none;
+  min-height: 0;
+  align-items: flex-start;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: var(--report-paper);
+}
+
+.mobile-report-export-panel {
+  display: flex;
+  width: var(--mobile-report-export-panel-width, 360px);
+  min-width: var(--mobile-report-export-panel-width, 360px);
+  flex: 0 0 var(--mobile-report-export-panel-width, 360px);
+  align-items: stretch;
+  overflow: hidden;
+  background: var(--report-paper);
+}
+
+.mobile-report-export-panel > .mobile-report-slide,
+.mobile-report-export-panel > .mobile-report-ppt-team-slide {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  flex: 1 1 auto;
+  margin: 0;
+}
+
 @media (max-width: 350px) {
   .mobile-report-page {
     padding-right: 10px;

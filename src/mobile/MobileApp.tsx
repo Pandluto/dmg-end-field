@@ -1,10 +1,12 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { MobileArchiveManager } from './components/MobileArchiveManager';
 import { MobileBuffEditor } from './components/MobileBuffEditor';
 import { MobileOperatorConfigPage } from './pages/MobileOperatorConfigPage';
 import { MobileReportPage } from './pages/MobileReportPage';
@@ -44,6 +46,7 @@ function pageIndex(page: MobilePageId): number {
 export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAppProps) {
   const workbench = useMobileWorkbench(catalog);
   const [buffEditorSlotId, setBuffEditorSlotId] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
   const pagerPointerRef = useRef<{
     pointerId: number;
     startX: number;
@@ -71,12 +74,14 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
   }, [buffEditorSlotId, editorAction]);
 
   const changePage = (nextPage: MobilePageId) => {
-    if (workbench.interactionLocked || buffEditorSlotId) return;
+    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen) return;
     workbench.setActivePage(nextPage);
   };
 
+  const closeArchive = useCallback(() => setArchiveOpen(false), []);
+
   const handlePagerPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (workbench.interactionLocked || buffEditorSlotId) return;
+    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest(PAGER_INTERACTIVE_SELECTOR)) return;
@@ -161,6 +166,7 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
               imageVersion={catalog.imageVersion}
               onSelectionChange={workbench.setSelection}
               onContinue={() => changePage('config')}
+              onOpenArchives={() => setArchiveOpen(true)}
             />
           </section>
 
@@ -238,6 +244,17 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
           onActionChange={(nextAction) => workbench.updateSlotAction(editorSlot.id, nextAction)}
           onClose={() => setBuffEditorSlotId(null)}
           onInteractionLockChange={workbench.setInteractionLocked}
+        />
+      ) : null}
+
+      {archiveOpen ? (
+        <MobileArchiveManager
+          draft={workbench.draft}
+          onRestore={(snapshot) => {
+            setBuffEditorSlotId(null);
+            workbench.restoreDraft(snapshot);
+          }}
+          onClose={closeArchive}
         />
       ) : null}
 

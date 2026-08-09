@@ -34,6 +34,8 @@ export interface MobileSelectionPageProps {
   onSelectionChange: (selectedOperatorIds: string[]) => void;
   /** 可选的下一页入口；不传时页面仍可独立完成选人。 */
   onContinue?: () => void;
+  /** 打开浏览器本机快照存档。 */
+  onOpenArchives?: () => void;
 }
 
 function getAvatarUrl(character: Character): string {
@@ -51,6 +53,7 @@ export function MobileSelectionPage({
   imageVersion,
   onSelectionChange,
   onContinue,
+  onOpenArchives,
 }: MobileSelectionPageProps) {
   const officialCharacters = useMemo(
     () => characters.filter((character) => character.librarySource !== 'local'),
@@ -105,9 +108,17 @@ export function MobileSelectionPage({
               <h1>选择干员</h1>
               <p>从线上官方目录组建本次计算队伍</p>
             </div>
-            <div className="mobile-selection-version" aria-label={`数据版本 ${versionText}`}>
-              <span className="mobile-selection-version-dot" aria-hidden="true" />
-              <span>{versionText}</span>
+            <div className="mobile-selection-header-actions">
+              {onOpenArchives ? (
+                <button type="button" className="mobile-selection-archive-button" onClick={onOpenArchives}>
+                  <span aria-hidden="true">▣</span>
+                  <strong>存档</strong>
+                </button>
+              ) : null}
+              <div className="mobile-selection-version" aria-label={`数据版本 ${versionText}`}>
+                <span className="mobile-selection-version-dot" aria-hidden="true" />
+                <span>{versionText}</span>
+              </div>
             </div>
           </div>
           <div className="mobile-selection-version-meta">

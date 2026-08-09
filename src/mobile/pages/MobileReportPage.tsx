@@ -1,4 +1,6 @@
-import { useId, useMemo, useState, type CSSProperties } from 'react';
+import { useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { flushSync } from 'react-dom';
+import { toCanvas } from 'html-to-image';
 import {
   handleReportImageError,
   ReportLevelRows,
@@ -17,6 +19,7 @@ import type {
   MobileSlotCalculation,
   MobileTimelineSlot,
 } from '../model';
+import { MobilePortal } from '../components/MobilePortal';
 import { MobileTimelinePage } from './MobileTimelinePage';
 import './MobileReportPage.css';
 
@@ -118,11 +121,21 @@ function getSkillLabelParts(label: string): { groupLabel: string; skillLabel: st
   return { groupLabel: parts[0], skillLabel: parts.slice(1).join(' · ') };
 }
 
-function ReportSlideHeader({ index, title, note }: { index: string; title: string; note: string }) {
+function ReportSlideHeader({
+  index,
+  title,
+  note,
+  titleId,
+}: {
+  index: string;
+  title: string;
+  note: string;
+  titleId?: string;
+}) {
   return (
     <header className="mobile-report-slide-heading">
       <span>{index}</span>
-      <div><h2>{title}</h2><p>{note}</p></div>
+      <div><h2 id={titleId}>{title}</h2><p>{note}</p></div>
     </header>
   );
 }
@@ -137,23 +150,25 @@ function TeamReportSlide({
   operatorSnapshots,
   weapons,
   equipmentMap,
+  titleId = 'mobile-report-team-title',
 }: {
   operators: Character[];
   operatorConfigs: Record<string, MobileOperatorConfig>;
   operatorSnapshots: Record<string, ConfigSnapshot>;
   weapons: MobileCatalog['weapons'];
   equipmentMap: Map<string, EquipmentItem>;
+  titleId?: string;
 }) {
   const displayOperators: Array<Character | null> = operators.length > 0
     ? operators.slice(0, 4)
     : Array.from({ length: 4 }, () => null);
 
   return (
-    <section className="report-ppt-slide mobile-report-ppt-team-slide" aria-labelledby="mobile-report-team-title">
+    <section className="report-ppt-slide mobile-report-ppt-team-slide" aria-labelledby={titleId}>
       <div className="report-ppt-slide-inner">
         <header className="report-ppt-slide-head">
           <span>01</span>
-          <h1 id="mobile-report-team-title">队伍配置</h1>
+          <h1 id={titleId}>队伍配置</h1>
         </header>
         <div className="report-ppt-team-list">
           {displayOperators.map((operator, operatorIndex) => {
@@ -335,7 +350,7 @@ function CumulativeDamageChart({ entries }: { entries: TimelineReportEntry[] }) 
     y: 122 - (point.value / maxValue) * 92,
   }));
   const linePath = chartPoints.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
-  const areaPath = `${linePath} L ${chartPoints.at(-1)?.x ?? 24} 122 L ${chartPoints[0]?.x ?? 24} 122 Z`;
+  const areaPath = `${linePath} L ${chartPoints[chartPoints.length - 1]?.x ?? 24} 122 L ${chartPoints[0]?.x ?? 24} 122 Z`;
 
   return (
     <svg className="mobile-report-line-chart" viewBox="0 0 320 150" role="img" aria-label="累计伤害时序折线图">
@@ -382,15 +397,17 @@ function ChartReportSlide({
   operatorRows,
   skillRows,
   entries,
+  titleId = 'mobile-report-charts-title',
 }: {
   report: MobileDamageReport;
   operatorRows: DisplayReportRow[];
   skillRows: DisplayReportRow[];
   entries: TimelineReportEntry[];
+  titleId?: string;
 }) {
   return (
-    <section className="mobile-report-slide" aria-labelledby="mobile-report-charts-title">
-      <ReportSlideHeader index="03" title="伤害图表" note="复用 PPT 的占比、时序与技能明细" />
+    <section className="mobile-report-slide" aria-labelledby={titleId}>
+      <ReportSlideHeader index="03" title="伤害图表" note="复用 PPT 的占比、时序与技能明细" titleId={titleId} />
       <div className="mobile-report-damage-strip">
         <span><small>期望</small><strong>{formatDamage(report.totalExpected)}</strong></span>
         <span><small>非暴击</small><strong>{formatDamage(report.totalNonCrit)}</strong></span>
@@ -412,6 +429,74 @@ function ChartReportSlide({
   );
 }
 
+function TimelineReportSlide({
+  slots,
+  operators,
+  slotCalculations,
+  titleId = 'mobile-report-timeline-title',
+}: {
+  slots: MobileTimelineSlot[];
+  operators: Character[];
+  slotCalculations: Record<string, MobileSlotCalculation>;
+  titleId?: string;
+}) {
+  return (
+    <section className="mobile-report-slide" aria-labelledby={titleId}>
+      <ReportSlideHeader
+        index="02"
+        title="排轴概览"
+        note="与主排轴保持相同槽位、顺序和卡片信息"
+        titleId={titleId}
+      />
+      <MobileTimelinePage
+        slots={slots}
+        operators={operators}
+        slotCalculations={slotCalculations}
+        onAddSlot={() => undefined}
+        onSetSlotAction={() => undefined}
+        onDeleteSlotAction={() => undefined}
+        onMoveSlotAction={() => undefined}
+        embedded
+        readOnly
+        hideEmptySlots
+      />
+    </section>
+  );
+}
+
+function nextPaint(): Promise<void> {
+  return new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+async function waitForReportAssets(root: HTMLElement): Promise<void> {
+  if (document.fonts?.ready) await document.fonts.ready.catch(() => undefined);
+  const images = Array.from(root.querySelectorAll('img'));
+  await Promise.all(images.map(async (image) => {
+    if (!image.complete) {
+      await new Promise<void>((resolve) => {
+        image.addEventListener('load', () => resolve(), { once: true });
+        image.addEventListener('error', () => resolve(), { once: true });
+      });
+    }
+    if (typeof image.decode === 'function') await image.decode().catch(() => undefined);
+  }));
+}
+
+function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('浏览器没有生成 PNG 数据。'));
+    }, 'image/png');
+  });
+}
+
+function buildReportFilename(timestamp = Date.now()): string {
+  const date = new Date(timestamp);
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return `终末地战术报告-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.png`;
+}
+
 export function MobileReportPage({
   report,
   operators,
@@ -423,6 +508,11 @@ export function MobileReportPage({
   slotCalculations,
 }: MobileReportPageProps) {
   const [activePage, setActivePage] = useState<ReportPageId>('team');
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportStageMounted, setExportStageMounted] = useState(false);
+  const [exportMessage, setExportMessage] = useState('');
+  const reportPageRef = useRef<HTMLElement>(null);
+  const exportStageRef = useRef<HTMLDivElement>(null);
   const safeReport = report ?? {
     totalExpected: 0,
     totalCrit: 0,
@@ -448,8 +538,61 @@ export function MobileReportPage({
     }];
   }), [operatorById, slotCalculations, slots]);
 
+  const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    setExportMessage('');
+    flushSync(() => setExportStageMounted(true));
+    try {
+      await nextPaint();
+      const stage = exportStageRef.current;
+      const visibleSlide = reportPageRef.current?.querySelector<HTMLElement>(
+        ':scope > .mobile-report-ppt-team-slide, :scope > .mobile-report-slide',
+      );
+      if (!stage) throw new Error('导出画布尚未准备完成。');
+
+      const pageWidth = Math.max(280, Math.ceil(visibleSlide?.getBoundingClientRect().width ?? 0));
+      stage.style.setProperty('--mobile-report-export-panel-width', `${pageWidth}px`);
+      stage.style.height = 'auto';
+      const panels = Array.from(stage.querySelectorAll<HTMLElement>('.mobile-report-export-panel'));
+      panels.forEach((panel) => { panel.style.height = 'auto'; });
+
+      await waitForReportAssets(stage);
+      await nextPaint();
+      const maxHeight = Math.max(...panels.map((panel) => Math.ceil(panel.scrollHeight)), 1);
+      panels.forEach((panel) => { panel.style.height = `${maxHeight}px`; });
+      stage.style.height = `${maxHeight}px`;
+      await nextPaint();
+
+      const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+      const canvas = await toCanvas(stage, {
+        backgroundColor: '#fbfcfb',
+        cacheBust: true,
+        pixelRatio,
+        skipAutoScale: true,
+        width: pageWidth * panels.length,
+        height: maxHeight,
+      });
+      const blob = await canvasToPngBlob(canvas);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = buildReportFilename();
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      setExportMessage(`已生成 ${canvas.width} × ${canvas.height} PNG`);
+    } catch (error) {
+      setExportMessage(error instanceof Error ? `导出失败：${error.message}` : '导出失败，请稍后重试。');
+    } finally {
+      setExportStageMounted(false);
+      setIsExporting(false);
+    }
+  };
+
   return (
-    <main className="mobile-report-page" aria-label="伤害报表">
+    <main ref={reportPageRef} className="mobile-report-page" aria-label="伤害报表">
       <header className="mobile-report-page-header">
         <div><p>04 / 伤害报表</p><h1>战术报告</h1></div>
         <span><small>总期望</small><strong>{safeReport.slotCount > 0 ? formatDamage(safeReport.totalExpected) : '—'}</strong></span>
@@ -478,24 +621,60 @@ export function MobileReportPage({
           equipmentMap={equipmentMap}
         />
       ) : activePage === 'timeline' ? (
-        <section className="mobile-report-slide" aria-labelledby="mobile-report-timeline-title">
-          <ReportSlideHeader index="02" title="排轴概览" note="与主排轴保持相同槽位、顺序和卡片信息" />
-          <MobileTimelinePage
-            slots={slots}
-            operators={operators}
-            slotCalculations={slotCalculations}
-            onAddSlot={() => undefined}
-            onSetSlotAction={() => undefined}
-            onDeleteSlotAction={() => undefined}
-            onMoveSlotAction={() => undefined}
-            embedded
-            readOnly
-            hideEmptySlots
-          />
-        </section>
+        <TimelineReportSlide slots={slots} operators={operators} slotCalculations={slotCalculations} />
       ) : (
         <ChartReportSlide report={safeReport} operatorRows={operatorRows} skillRows={skillRows} entries={entries} />
       )}
+
+      <section className="mobile-report-export-control" data-mobile-pager-lock>
+        <span>
+          <small>EXPORT COMPOSITE</small>
+          <strong>导出三联战术报告</strong>
+          <p>01 / 02 / 03 原尺寸横向拼接，按最高页面补齐</p>
+        </span>
+        <button type="button" onClick={handleExport} disabled={isExporting}>
+          <span aria-hidden="true">⇩</span>{isExporting ? '正在生成' : '导出 PNG'}
+        </button>
+      </section>
+      {exportMessage ? (
+        <p className={`mobile-report-export-message${exportMessage.startsWith('导出失败') ? ' is-error' : ''}`} role="status">
+          {exportMessage}
+        </p>
+      ) : null}
+
+      {exportStageMounted ? (
+        <MobilePortal>
+          <div ref={exportStageRef} className="mobile-report-page mobile-report-export-stage" aria-hidden="true">
+            <div className="mobile-report-export-panel">
+              <TeamReportSlide
+                operators={operators}
+                operatorConfigs={operatorConfigs}
+                operatorSnapshots={operatorSnapshots}
+                weapons={weapons}
+                equipmentMap={equipmentMap}
+                titleId="mobile-report-export-team-title"
+              />
+            </div>
+            <div className="mobile-report-export-panel">
+              <TimelineReportSlide
+                slots={slots}
+                operators={operators}
+                slotCalculations={slotCalculations}
+                titleId="mobile-report-export-timeline-title"
+              />
+            </div>
+            <div className="mobile-report-export-panel">
+              <ChartReportSlide
+                report={safeReport}
+                operatorRows={operatorRows}
+                skillRows={skillRows}
+                entries={entries}
+                titleId="mobile-report-export-charts-title"
+              />
+            </div>
+          </div>
+        </MobilePortal>
+      ) : null}
     </main>
   );
 }

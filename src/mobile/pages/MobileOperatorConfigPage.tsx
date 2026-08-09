@@ -169,7 +169,8 @@ function getEffectLevelOptions(effect: EquipmentEffect): number[] {
 }
 
 function getDefaultEffectLevel(effect: EquipmentEffect): number {
-  return getEffectLevelOptions(effect).at(-1) ?? 0;
+  const levels = getEffectLevelOptions(effect);
+  return levels[levels.length - 1] ?? 0;
 }
 
 function formatNumber(value: number | undefined): string {
