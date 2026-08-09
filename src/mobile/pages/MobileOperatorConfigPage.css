@@ -897,25 +897,22 @@
 
 .mobile-operator-config-picker-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px;
+  padding: 8px;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 
 .mobile-operator-config-picker-card {
   position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
-  grid-template-rows: 62px auto;
-  align-items: end;
-  gap: 5px;
+  display: block;
   min-width: 0;
-  min-height: 112px;
-  padding: 8px;
+  min-height: 96px;
+  padding: 6px;
+  overflow: hidden;
   border: 1px solid rgba(42, 80, 79, 0.1);
   border-radius: 7px 2px 7px 2px;
   color: var(--mobile-config-ink);
@@ -938,61 +935,81 @@
 
 .mobile-operator-config-picker-card-image {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 58px;
-  height: 58px;
+  z-index: 0;
+  top: 7px;
+  right: 4px;
+  width: min(78px, 76%);
+  height: auto;
+  aspect-ratio: 1 / 1;
   border-radius: 0;
-  font-size: 20px;
+  font-size: 18px;
+  pointer-events: none;
 }
 
 .mobile-operator-config-picker-card-image img {
-  max-width: 58px;
-  max-height: 58px;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
   object-fit: contain;
 }
 
 .mobile-operator-config-picker-card-copy {
-  display: contents;
+  position: absolute;
+  z-index: 2;
+  inset: 6px;
+  display: block;
+  min-width: 0;
+  pointer-events: none;
 }
 
 .mobile-operator-config-picker-card-copy strong,
 .mobile-operator-config-picker-card-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .mobile-operator-config-picker-card-copy strong {
-  grid-column: 1;
-  grid-row: 2;
+  position: absolute;
+  right: 15px;
+  bottom: 0;
+  left: 0;
+  display: -webkit-box;
   min-width: 0;
-  align-self: end;
-  font-size: 12px;
+  font-size: 10px;
   font-weight: 800;
+  line-height: 1.16;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .mobile-operator-config-picker-card-copy small {
-  z-index: 1;
-  grid-column: 1 / -1;
-  grid-row: 1;
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: -webkit-box;
   min-width: 0;
-  align-self: start;
-  padding-right: 64px;
   color: var(--mobile-config-muted);
-  font-size: 9px;
-  line-height: 1.35;
+  font-size: 8px;
+  line-height: 1.25;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  white-space: normal;
 }
 
 .mobile-operator-config-picker-check {
+  position: absolute;
+  z-index: 3;
+  right: 4px;
+  bottom: 4px;
   display: grid;
-  grid-column: 2;
-  grid-row: 2;
-  width: 24px;
-  min-height: 40px;
+  width: 16px;
+  height: 18px;
   place-items: center;
   color: var(--mobile-config-accent);
-  font-size: 19px;
+  font-size: 15px;
   font-weight: 400;
   text-align: center;
 }

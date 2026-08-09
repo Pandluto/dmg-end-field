@@ -438,12 +438,7 @@
   --mobile-report-ppt-row-height: 96px;
   --mobile-report-ppt-square-column: calc(var(--mobile-report-ppt-row-height) - 8px);
   --mobile-report-ppt-weapon-image-size: calc(var(--mobile-report-ppt-square-column) - 2px);
-  --mobile-report-ppt-weapon-level-column: 11px;
-  --mobile-report-ppt-weapon-column: calc(
-    var(--mobile-report-ppt-weapon-image-size)
-    + var(--mobile-report-ppt-weapon-level-column)
-    + 2px
-  );
+  --mobile-report-ppt-weapon-column: var(--mobile-report-ppt-square-column);
 
   display: block;
   min-height: 0;
@@ -542,9 +537,16 @@
 }
 
 .mobile-report-ppt-team-slide .report-ppt-weapon-level-rows {
-  width: var(--mobile-report-ppt-weapon-level-column);
-  padding: 0;
+  position: absolute;
+  z-index: 6;
+  right: 3px;
+  bottom: 15px;
+  width: 8px;
+  height: auto;
+  padding: 1px 0;
   gap: 0;
+  background: rgba(255, 255, 255, 0.76);
+  pointer-events: none;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-set-name {

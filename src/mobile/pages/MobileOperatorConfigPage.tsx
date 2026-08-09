@@ -779,7 +779,7 @@ export function MobileOperatorConfigPage({
                     const selected = pickerEquipmentSelection?.equipmentId === item.equipmentId;
                     const effectLabels = Object.values(item.effects)
                       .filter((effect): effect is EquipmentEffect => Boolean(effect))
-                      .slice(0, 2)
+                      .slice(0, 3)
                       .map((effect) => effect.label)
                       .join(' · ');
                     return (
