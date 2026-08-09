@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-core-data",
-  "version": "1.8.2",
+  "version": "1.8.4",
   "files": [
     {
       "path": "data/akedb-raw-index/buff-skill-links.json",
@@ -220,8 +220,8 @@
     },
     {
       "path": "data/default-local-data.json",
-      "sha256": "b81a44f13eba5303bab55e2c7c4432964ed01e82accc0b9c2823dcce4aebfc0e",
-      "size": 2820850
+      "sha256": "6790133e278e4b61cfa0c5405c69f5849a47e72c4bcddbfd10d6b92598ec15ed",
+      "size": 2840724
     },
     {
       "path": "data/equipments/equipments.json",
@@ -504,6 +504,6 @@
       "size": 5705
     }
   ],
-  "totalBytes": 5574599,
-  "generatedAt": "2026-07-29T17:58:27.566Z"
+  "totalBytes": 5594473,
+  "generatedAt": "2026-08-09T03:30:56.050Z"
 }

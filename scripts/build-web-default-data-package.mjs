@@ -7,6 +7,12 @@ const sourcePath = path.join(
   repositoryRoot,
   'data',
   'sharedata',
+  'share-20260809-030612-8-9.json',
+);
+const legacyTimelineSourcePath = path.join(
+  repositoryRoot,
+  'data',
+  'sharedata',
   'share-20260718-003031-7-18.json',
 );
 const outputPath = path.join(repositoryRoot, 'public', 'data', 'default-local-data.json');
@@ -147,7 +153,16 @@ function normalizeImagePath(value) {
   }
 
   let candidates = [];
-  if (normalized.startsWith('assets/images/')) return normalized;
+  if (normalized.startsWith('assets/images/')) {
+    if (availableImages.has(normalized)) return normalized;
+    const fileName = path.posix.basename(normalized);
+    const mapped = availableImagePath([normalized], fileName);
+    if (mapped) {
+      normalizedImageUrlCount += 1;
+      return mapped;
+    }
+    return normalized;
+  }
   if (normalized.startsWith('assets/avatars/')) {
     const mapped = normalizeLegacyAvatarPath(normalized);
     if (!mapped) throw new Error(`图片包中不存在旧干员引用：${normalized}`);
@@ -221,12 +236,26 @@ if (
   throw new Error(`默认 Web 数据源无效：${path.relative(repositoryRoot, sourcePath)}`);
 }
 
+const sourceLocal = source.storage.local;
+const sourceSession = recordValue(source.storage.session);
+const sourceHasTimelineData = Boolean(
+  sourceLocal[timelineSnapshotArchiveKey]
+  || Object.values(workspaceStorageKeys).some((key) => (
+    Object.prototype.hasOwnProperty.call(sourceSession, key)
+  )),
+);
+const timelineSource = sourceHasTimelineData || !fs.existsSync(legacyTimelineSourcePath)
+  ? source
+  : readJson(legacyTimelineSourcePath);
+const timelineSourceLocal = recordValue(timelineSource.storage?.local);
+const timelineSourceSession = recordValue(timelineSource.storage?.session);
+
 const local = normalizeWebValues(Object.fromEntries(
   Object.entries(source.storage.local)
     .filter(([key]) => isIndependentLibraryKey(key)),
 ));
 const sourceSnapshotArchive = recordValue(storedValue(
-  source.storage.local,
+  timelineSourceLocal,
   timelineSnapshotArchiveKey,
   {},
 ));
@@ -235,7 +264,7 @@ const timelineArchives = sourceSnapshots.flatMap((value, index) => {
   const snapshot = recordValue(value);
   const payload = recordValue(snapshot.payload);
   if (Object.keys(payload).length === 0) return [];
-  const createdAt = Number(snapshot.createdAt) || Date.parse(source.createdAt) || Date.now();
+  const createdAt = Number(snapshot.createdAt) || Date.parse(timelineSource.createdAt) || Date.now();
   return [{
     type: 'dmg.timeline-archive.v1',
     archiveVersion: 1,
@@ -246,7 +275,7 @@ const timelineArchives = sourceSnapshots.flatMap((value, index) => {
     payload: normalizeWebValues(payload),
   }];
 });
-const session = recordValue(source.storage.session);
+const session = timelineSourceSession;
 const hasCurrentWorkspace = Object.values(workspaceStorageKeys).some((key) => (
   Object.prototype.hasOwnProperty.call(session, key)
 ));
@@ -262,7 +291,7 @@ if (hasCurrentWorkspace) {
     source: 'shared',
     archiveId: 'web-lts-1.8-shared-current',
     label: 'Web LTS 1.8 基础数据（当前态）',
-    createdAt: source.createdAt || source.exportedAt,
+    createdAt: timelineSource.createdAt || timelineSource.exportedAt,
     payload: normalizeWebValues({
       selectedCharacters: arrayValue(storedValue(
         session,
@@ -332,7 +361,7 @@ const archive = {
   schemaVersion: 1,
   id: 'web-lts-1.8-default-data',
   name: 'Web LTS 1.8 基础数据',
-  description: '从 7-18 Share Data 整理的干员、武器、装备、Buff 本地库与共享排轴。',
+  description: '从最新 Share Data 整理的干员、武器、装备、Buff 本地库，并保留共享排轴。',
   createdAt: source.createdAt || source.exportedAt,
   exportedAt: source.exportedAt || source.createdAt,
   sections: ['operators', 'weapons', 'equipments', 'buffs', 'timeline'],

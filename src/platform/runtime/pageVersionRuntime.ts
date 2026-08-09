@@ -4,7 +4,6 @@ const PAGE_VERSION_PATH = '/version.json';
 const PAGE_VERSION_META_NAME = 'dmg-app-shell-version';
 const APP_SHELL_CACHE_PREFIX = 'dmg-app-shell-';
 const CONTROLLER_VERSION_TIMEOUT_MS = 750;
-const RELEASE_VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const SHELL_VERSION_PATTERN = /^[a-f0-9]{16}$/;
 
 export type PageVersionManifest = {
@@ -24,7 +23,7 @@ function isPageVersionManifest(value: unknown): value is PageVersionManifest {
   const candidate = value as Partial<PageVersionManifest>;
   return candidate.schemaVersion === 1
     && typeof candidate.releaseVersion === 'string'
-    && RELEASE_VERSION_PATTERN.test(candidate.releaseVersion)
+    && candidate.releaseVersion.trim().length > 0
     && typeof candidate.shellVersion === 'string'
     && (
       SHELL_VERSION_PATTERN.test(candidate.shellVersion)

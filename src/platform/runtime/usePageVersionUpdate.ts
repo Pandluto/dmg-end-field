@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { APP_VERSION_LABEL } from './appVersion';
+import { APP_VERSION_LABEL, formatVersionLabel } from './appVersion';
 import {
   checkLatestPageVersion,
   type PageVersionCheckResult,
@@ -27,8 +27,8 @@ export type PageVersionUpdateState = {
 function checkedState(result: PageVersionCheckResult): PageVersionUpdateState {
   return {
     phase: result.updateAvailable ? 'update-available' : 'up-to-date',
-    currentVersionLabel: `v${result.current.releaseVersion}`,
-    latestVersionLabel: `v${result.latest.releaseVersion}`,
+    currentVersionLabel: formatVersionLabel(result.current.releaseVersion),
+    latestVersionLabel: formatVersionLabel(result.latest.releaseVersion),
     error: '',
   };
 }

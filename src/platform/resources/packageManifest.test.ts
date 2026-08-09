@@ -11,7 +11,7 @@ import {
 const resourceManifest: ResourcePackageManifest = {
   schemaVersion: 1,
   packageId: 'dmg-end-field-core-data',
-  version: '1.8.2',
+  version: 'v1.8-LTS-slim',
   generatedAt: '2026-08-02T00:00:00.000Z',
   files: [{ path: 'data/default-local-data.json', sha256: 'abc', size: 3 }],
   totalBytes: 3,

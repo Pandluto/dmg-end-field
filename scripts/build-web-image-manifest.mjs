@@ -56,7 +56,7 @@ const manifest = {
     fileName: String(source.package.fileName),
     sha256: String(source.package.sha256),
     size: Number(source.package.sizeBytes),
-    sourceUrl: `https://github.com/Pandluto/dmg-end-field/releases/download/${encodeURIComponent(releaseTag)}/${encodeURIComponent(source.package.fileName)}`,
+    sourceUrl: `https://github.com/Pandluto/dmg-end-field/releases/latest/download/${encodeURIComponent(source.package.fileName)}`,
   },
 };
 
