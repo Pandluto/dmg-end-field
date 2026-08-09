@@ -169,7 +169,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     let idleHandle: number | null = null;
-    let timerHandle: number | null = null;
+    let timerHandle: ReturnType<typeof globalThis.setTimeout> | null = null;
     let preloadIndex = 1;
 
     const scheduleNext = () => {
@@ -201,7 +201,7 @@ function App() {
       if (idleHandle !== null && typeof cancelIdle === 'function') {
         cancelIdle.call(window, idleHandle);
       }
-      if (timerHandle !== null) window.clearTimeout(timerHandle);
+      if (timerHandle !== null) globalThis.clearTimeout(timerHandle);
     };
   }, []);
 
