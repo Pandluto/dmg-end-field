@@ -1,0 +1,780 @@
+.mobile-operator-config-page {
+  --mobile-config-ink: #172128;
+  --mobile-config-muted: #78878a;
+  --mobile-config-line: rgba(31, 56, 64, 0.13);
+  --mobile-config-surface: rgba(255, 255, 255, 0.88);
+  --mobile-config-accent: #1d7774;
+  min-height: 100%;
+  color: var(--mobile-config-ink);
+  background:
+    radial-gradient(circle at 92% 0%, rgba(134, 196, 178, 0.23), transparent 28%),
+    linear-gradient(180deg, #eef3f0 0%, #f7f8f5 50%, #edf2ef 100%);
+  font-family: Inter, "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+}
+
+.mobile-operator-config-content {
+  width: min(100%, 560px);
+  margin: 0 auto;
+  padding: calc(20px + env(safe-area-inset-top)) 16px calc(30px + env(safe-area-inset-bottom));
+}
+
+.mobile-operator-config-portrait-warning {
+  display: none;
+}
+
+.mobile-operator-config-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px 18px;
+}
+
+.mobile-operator-config-eyebrow,
+.mobile-operator-config-section-kicker {
+  display: block;
+  color: var(--mobile-config-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+.mobile-operator-config-header h1 {
+  margin: 7px 0 0;
+  font-size: clamp(28px, 8vw, 38px);
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+
+.mobile-operator-config-header p {
+  margin: 8px 0 0;
+  color: var(--mobile-config-muted);
+  font-size: 13px;
+}
+
+.mobile-operator-config-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  margin-top: 5px;
+  padding: 7px 9px;
+  border: 1px solid rgba(29, 119, 116, 0.17);
+  border-radius: 999px;
+  color: var(--mobile-config-accent);
+  background: rgba(227, 245, 236, 0.72);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mobile-operator-config-live-badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2fa875;
+  box-shadow: 0 0 0 3px rgba(47, 168, 117, 0.12);
+}
+
+.mobile-operator-config-switcher,
+.mobile-operator-config-card,
+.mobile-operator-config-summary-card {
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: var(--mobile-config-surface);
+  box-shadow: 0 12px 30px rgba(35, 65, 65, 0.06);
+  backdrop-filter: blur(18px);
+}
+
+.mobile-operator-config-switcher {
+  padding: 14px;
+}
+
+.mobile-operator-config-section-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--mobile-config-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mobile-operator-config-switcher-list {
+  display: flex;
+  gap: 8px;
+  margin-top: 11px;
+  overflow-x: auto;
+  padding: 1px 1px 3px;
+  scrollbar-width: none;
+}
+
+.mobile-operator-config-switcher-list::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-operator-config-switcher-item {
+  display: flex;
+  min-width: 76px;
+  min-height: 62px;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--mobile-config-line);
+  border-radius: 14px;
+  color: var(--mobile-config-muted);
+  background: rgba(246, 249, 246, 0.84);
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  touch-action: manipulation;
+}
+
+.mobile-operator-config-switcher-item img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+.mobile-operator-config-switcher-item.is-active {
+  border-color: rgba(29, 119, 116, 0.46);
+  color: var(--mobile-config-accent);
+  background: rgba(225, 245, 235, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(29, 119, 116, 0.08);
+}
+
+.mobile-operator-config-identity-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(47, 106, 105, 0.13);
+  border-radius: 20px;
+  background: linear-gradient(110deg, rgba(226, 245, 235, 0.94), rgba(255, 255, 255, 0.88));
+}
+
+.mobile-operator-config-identity-avatar {
+  width: 58px;
+  height: 58px;
+  overflow: hidden;
+  flex: none;
+  border-radius: 17px;
+  background: rgba(210, 229, 220, 0.8);
+}
+
+.mobile-operator-config-identity-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-operator-config-identity-copy {
+  min-width: 0;
+}
+
+.mobile-operator-config-identity-copy h2 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+
+.mobile-operator-config-identity-copy p {
+  margin: 5px 0 0;
+  overflow: hidden;
+  color: var(--mobile-config-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-identity-index {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  border-radius: 50%;
+  color: var(--mobile-config-accent);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.mobile-operator-config-card,
+.mobile-operator-config-summary-card {
+  margin-top: 12px;
+  padding: 16px;
+}
+
+.mobile-operator-config-card-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mobile-operator-config-card-heading h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  letter-spacing: -0.035em;
+}
+
+.mobile-operator-config-card-note {
+  color: #90a19e;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.mobile-operator-config-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.mobile-operator-config-field,
+.mobile-operator-config-select-field {
+  display: grid;
+  gap: 6px;
+  color: var(--mobile-config-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mobile-operator-config-field input,
+.mobile-operator-config-field select,
+.mobile-operator-config-select-field select,
+.mobile-operator-config-skill-row select,
+.mobile-operator-config-weapon-skill select,
+.mobile-operator-config-equipment-slot > select,
+.mobile-operator-config-effect-row select {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 11px;
+  border: 1px solid var(--mobile-config-line);
+  border-radius: 12px;
+  outline: 0;
+  color: var(--mobile-config-ink);
+  background: rgba(247, 250, 247, 0.92);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mobile-operator-config-field input:focus,
+.mobile-operator-config-field select:focus,
+.mobile-operator-config-select-field select:focus,
+.mobile-operator-config-skill-row select:focus,
+.mobile-operator-config-weapon-skill select:focus,
+.mobile-operator-config-equipment-slot > select:focus,
+.mobile-operator-config-effect-row select:focus {
+  border-color: rgba(29, 119, 116, 0.54);
+  box-shadow: 0 0 0 4px rgba(29, 119, 116, 0.08);
+}
+
+.mobile-operator-config-skill-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-operator-config-skill-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 92px;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 7px 8px;
+  border: 1px solid rgba(42, 80, 79, 0.09);
+  border-radius: 15px;
+  background: rgba(247, 250, 247, 0.78);
+}
+
+.mobile-operator-config-skill-icon {
+  position: relative;
+  display: block;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #dbece4;
+}
+
+.mobile-operator-config-skill-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-operator-config-skill-icon b {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  color: #fff;
+  font-size: 9px;
+  line-height: 1;
+  text-shadow: 0 1px 2px rgba(13, 35, 34, 0.8);
+}
+
+.mobile-operator-config-skill-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-operator-config-skill-copy strong,
+.mobile-operator-config-skill-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-skill-copy strong {
+  font-size: 13px;
+}
+
+.mobile-operator-config-skill-copy small {
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+}
+
+.mobile-operator-config-select-field {
+  margin-bottom: 11px;
+}
+
+.mobile-operator-config-warning,
+.mobile-operator-config-muted {
+  margin: 0 0 11px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  color: #927348;
+  background: rgba(255, 239, 201, 0.54);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.mobile-operator-config-muted {
+  color: var(--mobile-config-muted);
+  background: rgba(241, 245, 242, 0.85);
+}
+
+.mobile-operator-config-weapon-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  margin-bottom: 12px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(239, 246, 241, 0.78);
+}
+
+.mobile-operator-config-weapon-image {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 13px;
+  color: #77a09b;
+  background: #dcebe3;
+  font-size: 22px;
+}
+
+.mobile-operator-config-weapon-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-operator-config-weapon-preview > div:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-operator-config-weapon-preview strong,
+.mobile-operator-config-weapon-preview small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-weapon-preview strong {
+  font-size: 13px;
+}
+
+.mobile-operator-config-weapon-preview small {
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+}
+
+.mobile-operator-config-weapon-skills {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 11px;
+}
+
+.mobile-operator-config-weapon-skill {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+  font-weight: 750;
+}
+
+.mobile-operator-config-weapon-skill small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-weapon-skill select {
+  min-height: 40px;
+  padding-right: 5px;
+  padding-left: 7px;
+  font-size: 11px;
+}
+
+.mobile-operator-config-equipment-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mobile-operator-config-equipment-slot {
+  padding: 10px;
+  border: 1px solid rgba(42, 80, 79, 0.09);
+  border-radius: 16px;
+  background: rgba(247, 250, 247, 0.76);
+}
+
+.mobile-operator-config-equipment-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+}
+
+.mobile-operator-config-equipment-image {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 11px;
+  color: #7d9c96;
+  background: #deece4;
+}
+
+.mobile-operator-config-equipment-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-operator-config-equipment-heading > div:nth-child(2) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-operator-config-equipment-heading strong,
+.mobile-operator-config-equipment-heading small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-equipment-heading strong {
+  font-size: 13px;
+}
+
+.mobile-operator-config-equipment-heading small {
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+}
+
+.mobile-operator-config-equipment-count {
+  display: grid;
+  width: 28px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+  margin-left: auto;
+  border-radius: 8px;
+  color: #6d8c87;
+  background: rgba(222, 237, 229, 0.86);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mobile-operator-config-effect-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 9px;
+  border-top: 1px solid rgba(42, 80, 79, 0.08);
+}
+
+.mobile-operator-config-effect-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 9px;
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mobile-operator-config-effect-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-effect-row select {
+  min-height: 38px;
+  padding-right: 5px;
+  padding-left: 7px;
+  font-size: 11px;
+}
+
+.mobile-operator-config-summary-card {
+  overflow: hidden;
+  padding: 0;
+}
+
+.mobile-operator-config-summary-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 66px;
+  padding: 12px 16px;
+  border: 0;
+  color: var(--mobile-config-ink);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  touch-action: manipulation;
+}
+
+.mobile-operator-config-summary-toggle > span:first-child {
+  display: grid;
+  gap: 4px;
+}
+
+.mobile-operator-config-summary-toggle strong {
+  font-size: 17px;
+  letter-spacing: -0.03em;
+}
+
+.mobile-operator-config-summary-chevron {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mobile-config-accent);
+  background: rgba(224, 243, 233, 0.84);
+  font-size: 18px;
+}
+
+.mobile-operator-config-summary-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 16px 16px;
+}
+
+.mobile-operator-config-summary-metrics > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: rgba(239, 246, 241, 0.78);
+}
+
+.mobile-operator-config-summary-metrics span {
+  overflow: hidden;
+  color: var(--mobile-config-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-summary-metrics strong {
+  overflow: hidden;
+  color: var(--mobile-config-accent);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-operator-config-summary-details {
+  padding: 0 16px 16px;
+}
+
+.mobile-operator-config-summary-detail-line {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr auto 1fr;
+  align-items: center;
+  gap: 5px;
+  padding: 10px;
+  border-radius: 12px;
+  color: var(--mobile-config-muted);
+  background: rgba(239, 246, 241, 0.78);
+  font-size: 10px;
+}
+
+.mobile-operator-config-summary-detail-line strong {
+  color: var(--mobile-config-ink);
+  font-size: 11px;
+  text-align: right;
+}
+
+.mobile-operator-config-display-group {
+  margin-top: 8px;
+  border: 1px solid rgba(42, 80, 79, 0.09);
+  border-radius: 12px;
+  background: rgba(247, 250, 247, 0.74);
+}
+
+.mobile-operator-config-display-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 0 10px;
+  color: var(--mobile-config-ink);
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mobile-operator-config-display-group summary span {
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.mobile-operator-config-display-group > div {
+  padding: 0 10px 7px;
+  border-top: 1px solid rgba(42, 80, 79, 0.07);
+}
+
+.mobile-operator-config-display-group p {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 7px 0;
+  color: var(--mobile-config-muted);
+  font-size: 10px;
+}
+
+.mobile-operator-config-display-group p + p {
+  border-top: 1px solid rgba(42, 80, 79, 0.06);
+}
+
+.mobile-operator-config-display-group p strong {
+  color: var(--mobile-config-ink);
+  font-weight: 800;
+  text-align: right;
+}
+
+.mobile-operator-config-summary-empty,
+.mobile-operator-config-empty p {
+  margin: 0;
+  padding: 0 16px 16px;
+  color: var(--mobile-config-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.mobile-operator-config-empty {
+  display: grid;
+  min-height: 100svh;
+  place-items: center;
+  align-content: center;
+  gap: 9px;
+  padding: 24px;
+  text-align: center;
+}
+
+.mobile-operator-config-empty-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mobile-config-accent);
+  background: rgba(221, 241, 232, 0.86);
+  font-size: 26px;
+}
+
+.mobile-operator-config-empty strong {
+  font-size: 16px;
+}
+
+.mobile-operator-config-empty p {
+  max-width: 270px;
+  padding: 0;
+}
+
+@media (orientation: landscape) {
+  .mobile-operator-config-content {
+    display: none;
+  }
+
+  .mobile-operator-config-portrait-warning {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    align-content: center;
+    gap: 8px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .mobile-operator-config-portrait-warning span {
+    color: var(--mobile-config-accent);
+    font-size: 42px;
+  }
+
+  .mobile-operator-config-portrait-warning small {
+    color: var(--mobile-config-muted);
+    font-size: 13px;
+  }
+}
+
+@media (min-width: 520px) {
+  .mobile-operator-config-content {
+    padding-right: 24px;
+    padding-left: 24px;
+  }
+}
+
+@media (max-width: 380px) {
+  .mobile-operator-config-summary-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mobile-operator-config-summary-detail-line {
+    grid-template-columns: auto 1fr auto 1fr;
+  }
+
+  .mobile-operator-config-summary-detail-line span:nth-of-type(3),
+  .mobile-operator-config-summary-detail-line strong:nth-of-type(3) {
+    display: none;
+  }
+}
