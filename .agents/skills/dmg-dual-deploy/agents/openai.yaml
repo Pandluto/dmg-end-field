@@ -1,0 +1,4 @@
+interface:
+  display_name: "DMG 国内外双线路部署"
+  short_description: "同时发布海外 Sites 与国内静态服务器并完成双端验收"
+  default_prompt: "Use $dmg-dual-deploy to publish the current validated build to both the overseas Sites project and the domestic server."
