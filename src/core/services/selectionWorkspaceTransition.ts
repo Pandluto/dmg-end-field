@@ -92,7 +92,11 @@ function buildSelectionBranchMetadata(
 
 async function createNewTemporaryWorkspace(
   input: ApplySelectionWorkspaceTransitionInput,
+  options: { preserveActiveWorkspace?: boolean; labelPrefix?: string } = {},
 ): Promise<ApplySelectionWorkspaceTransitionResult> {
+  if (input.nextCharacters.length === 0) {
+    throw new Error('请先选择至少一位干员。');
+  }
   const repository = createTimelineRepositoryClient();
   const createdAt = Date.now();
   const nonce = typeof globalThis.crypto?.randomUUID === 'function'
@@ -100,7 +104,7 @@ async function createNewTemporaryWorkspace(
     : Math.random().toString(36).slice(2, 12);
   const timelineId = `timeline-${createdAt}-${nonce}`;
   const snapshotId = `${timelineId}-initial`;
-  const documentLabel = `排轴 ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`;
+  const documentLabel = `${options.labelPrefix || '排轴'} ${new Date(createdAt).toLocaleString('zh-CN', { hour12: false })}`;
   const payload = buildEmptySelectionPayload(input.nextCharacters);
   const imported = await repository.importDocumentBundle({
     document: { id: timelineId, label: documentLabel, isTemporary: true, createdAt },
@@ -114,7 +118,7 @@ async function createNewTemporaryWorkspace(
     updatedAt: createdAt,
   };
 
-  if (input.activeTimelineIsTemporary) {
+  if (input.activeTimelineIsTemporary && !options.preserveActiveWorkspace) {
     try {
       await repository.deleteDocument(input.activeTimelineId);
     } catch (error) {
@@ -128,6 +132,18 @@ async function createNewTemporaryWorkspace(
   await flushUserWorkspaceState();
   activateTimelineSession({ document: imported.document, checkoutRef, workingPayload: payload });
   return { transition: 'new-temporary-workspace', timelineId: imported.document.id, checkoutRef, workingPayload: payload };
+}
+
+export async function createDetachedSelectionWorkspace(
+  input: ApplySelectionWorkspaceTransitionInput,
+): Promise<ApplySelectionWorkspaceTransitionResult> {
+  if (input.actor === 'ai' && (input.approval?.mode !== 'manual' || input.approval.approvedBy !== 'user')) {
+    throw new Error('AI 选人必须取得用户手动审批后才能应用。');
+  }
+  return createNewTemporaryWorkspace(input, {
+    preserveActiveWorkspace: true,
+    labelPrefix: '独立存档',
+  });
 }
 
 async function createHorizontalSelectionBranch(
