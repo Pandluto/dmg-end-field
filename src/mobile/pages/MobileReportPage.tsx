@@ -66,6 +66,17 @@ const REPORT_PAGES: Array<{ id: ReportPageId; index: string; label: string }> = 
 const EQUIPMENT_SLOT_ORDER = ['armor', 'glove', 'accessory1', 'accessory2'] as const;
 const SKILL_LEVEL_ORDER = ['A', 'B', 'E', 'Q', 'Dot'] as const;
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
+const REPORT_CHART_COLORS = {
+  accent: '#1f6f8b',
+  ink: '#172d32',
+  muted: '#68787a',
+  paper: '#ffffff',
+  paperSoft: '#f4f6f5',
+  line: 'rgba(23, 45, 50, 0.18)',
+  grid: 'rgba(23, 45, 50, 0.08)',
+  axis: 'rgba(23, 45, 50, 0.44)',
+  area: 'rgba(31, 111, 139, 0.1)',
+} as const;
 
 function toSafeAmount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(0, value ?? 0) : 0;
@@ -306,7 +317,17 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
         <svg className="mobile-report-share-svg" viewBox="0 0 200 200" role="img" aria-labelledby={`${titleId} ${descriptionId}`} focusable="false">
           <title id={titleId}>干员伤害占比</title>
           <desc id={descriptionId}>{description}</desc>
-          <circle className="mobile-report-share-track" cx="100" cy="100" r="66" pathLength="100" />
+          <circle
+            className="mobile-report-share-track"
+            cx="100"
+            cy="100"
+            r="66"
+            pathLength="100"
+            fill="none"
+            stroke={REPORT_CHART_COLORS.grid}
+            strokeWidth="34"
+            style={{ fill: 'none', stroke: REPORT_CHART_COLORS.grid, strokeWidth: 34 }}
+          />
           {segments.map((row) => (
             <circle
               key={`${row.id}-${row.index}`}
@@ -315,15 +336,47 @@ function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
               cy="100"
               r="66"
               pathLength="100"
+              fill="none"
               stroke={getSeriesColor(row.index)}
+              strokeWidth="34"
+              strokeLinecap="butt"
               strokeDasharray={`${row.share * 100} ${100 - row.share * 100}`}
               strokeDashoffset={-row.offset * 100}
               transform="rotate(-90 100 100)"
+              style={{
+                fill: 'none',
+                stroke: getSeriesColor(row.index),
+                strokeWidth: 34,
+                strokeLinecap: 'butt',
+                strokeDasharray: `${row.share * 100} ${100 - row.share * 100}`,
+                strokeDashoffset: -row.offset * 100,
+              }}
             />
           ))}
-          <circle className="mobile-report-share-hole" cx="100" cy="100" r="46" />
-          <text className="mobile-report-share-total-label" x="100" y="94" textAnchor="middle">干员</text>
-          <text className="mobile-report-share-total" x="100" y="113" textAnchor="middle">{positiveRows.length}</text>
+          <circle
+            className="mobile-report-share-hole"
+            cx="100"
+            cy="100"
+            r="46"
+            fill={REPORT_CHART_COLORS.paper}
+            style={{ fill: REPORT_CHART_COLORS.paper }}
+          />
+          <text
+            className="mobile-report-share-total-label"
+            x="100"
+            y="94"
+            textAnchor="middle"
+            fill={REPORT_CHART_COLORS.muted}
+            style={{ fill: REPORT_CHART_COLORS.muted }}
+          >干员</text>
+          <text
+            className="mobile-report-share-total"
+            x="100"
+            y="113"
+            textAnchor="middle"
+            fill={REPORT_CHART_COLORS.ink}
+            style={{ fill: REPORT_CHART_COLORS.ink }}
+          >{positiveRows.length}</text>
         </svg>
       </div>
       <ol className="mobile-report-share-legend" aria-label="干员伤害占比明细">
@@ -361,13 +414,62 @@ function CumulativeDamageChart({ entries }: { entries: TimelineReportEntry[] }) 
 
   return (
     <svg className="mobile-report-line-chart" viewBox="0 0 320 150" role="img" aria-label="累计伤害时序折线图">
-      {[30, 61, 92, 122].map((y) => <path key={y} d={`M 24 ${y} H 300`} className="mobile-report-chart-grid-line" />)}
-      <path d="M 24 20 V 122 H 300" className="mobile-report-chart-axis" />
-      <path d={areaPath} className="mobile-report-chart-area" />
-      <path d={linePath} className="mobile-report-chart-line" />
-      {chartPoints.map((point) => <circle key={point.label} cx={point.x} cy={point.y} r="3.2" />)}
-      <text x="24" y="14">累计总伤 {formatDamage(runningTotal)}</text>
-      <text x="300" y="142" textAnchor="end">{entries.length} 次技能</text>
+      {[30, 61, 92, 122].map((y) => (
+        <path
+          key={y}
+          d={`M 24 ${y} H 300`}
+          className="mobile-report-chart-grid-line"
+          fill="none"
+          stroke={REPORT_CHART_COLORS.grid}
+          strokeWidth="1"
+          style={{ fill: 'none', stroke: REPORT_CHART_COLORS.grid, strokeWidth: 1 }}
+        />
+      ))}
+      <path
+        d="M 24 20 V 122 H 300"
+        className="mobile-report-chart-axis"
+        fill="none"
+        stroke={REPORT_CHART_COLORS.axis}
+        strokeWidth="1"
+        style={{ fill: 'none', stroke: REPORT_CHART_COLORS.axis, strokeWidth: 1 }}
+      />
+      <path
+        d={areaPath}
+        className="mobile-report-chart-area"
+        fill={REPORT_CHART_COLORS.area}
+        stroke="none"
+        style={{ fill: REPORT_CHART_COLORS.area, stroke: 'none' }}
+      />
+      <path
+        d={linePath}
+        className="mobile-report-chart-line"
+        fill="none"
+        stroke={REPORT_CHART_COLORS.ink}
+        strokeWidth="2"
+        style={{ fill: 'none', stroke: REPORT_CHART_COLORS.ink, strokeWidth: 2 }}
+      />
+      {chartPoints.map((point) => (
+        <circle
+          key={point.label}
+          cx={point.x}
+          cy={point.y}
+          r="3.2"
+          fill={REPORT_CHART_COLORS.paper}
+          stroke={REPORT_CHART_COLORS.ink}
+          strokeWidth="1.5"
+          style={{ fill: REPORT_CHART_COLORS.paper, stroke: REPORT_CHART_COLORS.ink, strokeWidth: 1.5 }}
+        />
+      ))}
+      <text x="24" y="14" fill={REPORT_CHART_COLORS.muted} style={{ fill: REPORT_CHART_COLORS.muted }}>
+        累计总伤 {formatDamage(runningTotal)}
+      </text>
+      <text
+        x="300"
+        y="142"
+        textAnchor="end"
+        fill={REPORT_CHART_COLORS.muted}
+        style={{ fill: REPORT_CHART_COLORS.muted }}
+      >{entries.length} 次技能</text>
     </svg>
   );
 }
@@ -389,8 +491,18 @@ function SkillDamageBars({ rows }: { rows: DisplayReportRow[] }) {
               </span>
               <strong>{formatDamage(row.expected)}</strong>
             </div>
-            <div className="mobile-report-skill-bar-track" aria-hidden="true">
-              <span className="mobile-report-skill-bar-fill" style={{ width: `${width}%` } as CSSProperties} />
+            <div
+              className="mobile-report-skill-bar-track"
+              aria-hidden="true"
+              style={{
+                borderColor: REPORT_CHART_COLORS.line,
+                backgroundColor: REPORT_CHART_COLORS.paperSoft,
+              }}
+            >
+              <span
+                className="mobile-report-skill-bar-fill"
+                style={{ width: `${width}%`, backgroundColor: REPORT_CHART_COLORS.accent } as CSSProperties}
+              />
             </div>
           </li>
         );
