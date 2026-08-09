@@ -1,0 +1,619 @@
+.mobile-timeline-page {
+  --mobile-timeline-bg: #f1f4f3;
+  --mobile-timeline-surface: rgba(255, 255, 255, 0.94);
+  --mobile-timeline-surface-strong: #ffffff;
+  --mobile-timeline-line: rgba(27, 46, 50, 0.13);
+  --mobile-timeline-line-strong: rgba(27, 46, 50, 0.23);
+  --mobile-timeline-ink: #183036;
+  --mobile-timeline-muted: #687a7d;
+  --mobile-timeline-faint: #9aa8a8;
+  --mobile-timeline-accent: #1f6f8b;
+  --mobile-timeline-warm: #d17742;
+  position: relative;
+  width: min(100%, 36rem);
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) calc(26px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  color: var(--mobile-timeline-ink);
+  background: var(--mobile-timeline-bg);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+.mobile-timeline-page.is-dragging {
+  overflow: hidden;
+  user-select: none;
+  touch-action: none;
+}
+
+.mobile-timeline-header,
+.mobile-timeline-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.mobile-timeline-header {
+  margin-bottom: 18px;
+}
+
+.mobile-timeline-kicker {
+  margin: 0 0 6px;
+  color: var(--mobile-timeline-accent);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+}
+
+.mobile-timeline-header h1,
+.mobile-timeline-modal h2 {
+  margin: 0;
+  color: var(--mobile-timeline-ink);
+  font-size: clamp(22px, 6vw, 30px);
+  font-weight: 730;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.mobile-timeline-count {
+  flex: 0 0 auto;
+  margin-top: 3px;
+  padding: 6px 9px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 999px;
+  color: var(--mobile-timeline-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.mobile-timeline-empty-state {
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px dashed rgba(31, 111, 139, 0.34);
+  border-radius: 16px;
+  background: rgba(31, 111, 139, 0.055);
+}
+
+.mobile-timeline-empty-state strong {
+  display: block;
+  font-size: 14px;
+}
+
+.mobile-timeline-empty-state p {
+  margin: 5px 0 0;
+  color: var(--mobile-timeline-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mobile-timeline-slots {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-timeline-slot {
+  position: relative;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 7px;
+  min-height: 76px;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+.mobile-timeline-slot::before {
+  position: absolute;
+  top: 0;
+  bottom: -9px;
+  left: 15px;
+  z-index: 0;
+  width: 1px;
+  background: var(--mobile-timeline-line);
+  content: "";
+}
+
+.mobile-timeline-slot:last-child::before {
+  bottom: 38px;
+}
+
+.mobile-timeline-slot-index {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 31px;
+  padding-top: 15px;
+  border-radius: 999px;
+  color: var(--mobile-timeline-faint);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 720;
+}
+
+.mobile-timeline-slot.is-filled .mobile-timeline-slot-index::before,
+.mobile-timeline-slot.is-empty .mobile-timeline-slot-index::before {
+  position: absolute;
+  top: 13px;
+  left: 10px;
+  z-index: -1;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--mobile-timeline-bg);
+  border-radius: 50%;
+  background: var(--mobile-timeline-accent);
+  box-shadow: 0 0 0 1px rgba(31, 111, 139, 0.3);
+  content: "";
+}
+
+.mobile-timeline-slot.is-empty .mobile-timeline-slot-index::before {
+  background: var(--mobile-timeline-surface-strong);
+  box-shadow: 0 0 0 1px var(--mobile-timeline-line-strong);
+}
+
+.mobile-timeline-action-card,
+.mobile-timeline-empty-slot {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 76px;
+  padding: 12px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 16px;
+  color: inherit;
+  text-align: left;
+  transition: border-color 160ms ease, background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.mobile-timeline-action-card {
+  gap: 9px;
+  cursor: grab;
+  background: var(--mobile-timeline-surface);
+  box-shadow: 0 8px 20px rgba(29, 54, 58, 0.06);
+  touch-action: pan-y;
+}
+
+.mobile-timeline-action-card:active {
+  cursor: grabbing;
+}
+
+.mobile-timeline-empty-slot {
+  gap: 11px;
+  width: 100%;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.mobile-timeline-empty-slot:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.mobile-timeline-action-card:focus-visible,
+.mobile-timeline-empty-slot:focus-visible,
+.mobile-timeline-add-slot:focus-visible,
+.mobile-timeline-modal button:focus-visible {
+  outline: 3px solid rgba(31, 111, 139, 0.25);
+  outline-offset: 2px;
+}
+
+.mobile-timeline-slot.is-drag-source .mobile-timeline-action-card {
+  border-color: var(--mobile-timeline-accent);
+  background: rgba(31, 111, 139, 0.12);
+  box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.16);
+  opacity: 0.64;
+  transform: scale(0.98);
+}
+
+.mobile-timeline-slot.is-drag-target .mobile-timeline-action-card,
+.mobile-timeline-slot.is-drag-target .mobile-timeline-empty-slot {
+  border-color: var(--mobile-timeline-accent);
+  background: rgba(31, 111, 139, 0.12);
+  box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.18);
+}
+
+.mobile-timeline-operator-avatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  overflow: hidden;
+  border: 1px solid rgba(31, 111, 139, 0.18);
+  border-radius: 13px;
+  color: var(--mobile-timeline-accent);
+  background: rgba(31, 111, 139, 0.1);
+  font-size: 16px;
+  font-weight: 750;
+}
+
+.mobile-timeline-operator-avatar img,
+.mobile-timeline-skill-icon,
+.mobile-timeline-skill-choice img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mobile-timeline-action-copy {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 3px;
+}
+
+.mobile-timeline-action-copy strong,
+.mobile-timeline-action-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-timeline-action-copy strong {
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.mobile-timeline-action-copy span {
+  color: var(--mobile-timeline-muted);
+  font-size: 11px;
+}
+
+.mobile-timeline-skill-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 9px;
+}
+
+.mobile-timeline-action-damage {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 2px;
+  max-width: 78px;
+}
+
+.mobile-timeline-action-damage small {
+  color: var(--mobile-timeline-muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.mobile-timeline-action-damage strong {
+  color: var(--mobile-timeline-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-timeline-plus {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 35px;
+  height: 35px;
+  border: 1px dashed var(--mobile-timeline-line-strong);
+  border-radius: 11px;
+  color: var(--mobile-timeline-accent);
+  font-size: 21px;
+  line-height: 1;
+}
+
+.mobile-timeline-empty-slot > span:last-child {
+  display: grid;
+  gap: 2px;
+}
+
+.mobile-timeline-empty-slot strong {
+  font-size: 12px;
+}
+
+.mobile-timeline-empty-slot small {
+  color: var(--mobile-timeline-muted);
+  font-size: 10px;
+}
+
+.mobile-timeline-drop-label {
+  position: absolute;
+  right: 10px;
+  bottom: 5px;
+  color: var(--mobile-timeline-accent);
+  font-size: 9px;
+  font-weight: 720;
+}
+
+.mobile-timeline-add-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: calc(100% - 38px);
+  min-height: 48px;
+  margin: 13px 0 0 38px;
+  border: 1px dashed var(--mobile-timeline-line-strong);
+  border-radius: 14px;
+  color: var(--mobile-timeline-accent);
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-timeline-add-slot span:first-child {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.mobile-timeline-drag-hint {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(17px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  z-index: 30;
+  width: min(calc(100% - 32px), 34rem);
+  margin: 0 auto;
+  padding: 11px 14px;
+  border: 1px solid rgba(31, 111, 139, 0.24);
+  border-radius: 13px;
+  color: var(--mobile-timeline-accent);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 30px rgba(29, 54, 58, 0.15);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+}
+
+.mobile-timeline-move-target {
+  position: absolute;
+  right: 0;
+  bottom: -4px;
+  left: 38px;
+  z-index: 3;
+  min-height: 28px;
+  border: 1px solid rgba(31, 111, 139, 0.22);
+  border-radius: 9px;
+  color: var(--mobile-timeline-accent);
+  background: rgba(229, 242, 245, 0.98);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mobile-timeline-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  background: rgba(15, 28, 31, 0.38);
+}
+
+.mobile-timeline-modal,
+.mobile-timeline-action-sheet {
+  width: min(100%, 35rem);
+  max-height: min(78vh, 40rem);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 22px;
+  background: var(--mobile-timeline-surface-strong);
+  box-shadow: 0 20px 60px rgba(15, 28, 31, 0.25);
+}
+
+.mobile-timeline-modal {
+  padding: 20px;
+}
+
+.mobile-timeline-modal-header {
+  margin-bottom: 18px;
+}
+
+.mobile-timeline-close-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 50%;
+  color: var(--mobile-timeline-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 24px;
+  line-height: 1;
+}
+
+.mobile-timeline-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.mobile-timeline-operator-choice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 58px;
+  padding: 8px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 14px;
+  color: var(--mobile-timeline-ink);
+  background: rgba(241, 244, 243, 0.7);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 680;
+  text-align: left;
+}
+
+.mobile-timeline-operator-choice .mobile-timeline-operator-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.mobile-timeline-back-choice {
+  margin: -2px 0 13px;
+  padding: 0;
+  border: 0;
+  color: var(--mobile-timeline-accent);
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mobile-timeline-skill-choice-list,
+.mobile-timeline-move-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mobile-timeline-skill-choice,
+.mobile-timeline-move-list button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 58px;
+  padding: 9px 10px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 14px;
+  color: var(--mobile-timeline-ink);
+  background: rgba(241, 244, 243, 0.7);
+  cursor: pointer;
+  text-align: left;
+}
+
+.mobile-timeline-skill-choice img,
+.mobile-timeline-skill-placeholder {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+
+.mobile-timeline-skill-placeholder {
+  color: var(--mobile-timeline-accent);
+  background: rgba(31, 111, 139, 0.11);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.mobile-timeline-skill-choice > span:nth-child(2),
+.mobile-timeline-move-list button span:first-child {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.mobile-timeline-skill-choice strong,
+.mobile-timeline-skill-choice small,
+.mobile-timeline-move-list button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-timeline-skill-choice strong,
+.mobile-timeline-move-list button span:first-child {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-timeline-skill-choice small,
+.mobile-timeline-move-list button small {
+  color: var(--mobile-timeline-muted);
+  font-size: 10px;
+}
+
+.mobile-timeline-skill-choice > span:last-child,
+.mobile-timeline-move-list button strong {
+  flex: 0 0 auto;
+  color: var(--mobile-timeline-accent);
+  font-size: 20px;
+  font-weight: 400;
+}
+
+.mobile-timeline-action-sheet {
+  padding: 10px 16px max(10px, env(safe-area-inset-bottom));
+}
+
+.mobile-timeline-sheet-handle {
+  width: 38px;
+  height: 4px;
+  margin: 1px auto 14px;
+  border-radius: 999px;
+  background: var(--mobile-timeline-line-strong);
+}
+
+.mobile-timeline-action-sheet p {
+  margin: 0 0 8px;
+  color: var(--mobile-timeline-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.mobile-timeline-action-sheet button {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-top: 1px solid var(--mobile-timeline-line);
+  color: var(--mobile-timeline-accent);
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.mobile-timeline-action-sheet button:first-of-type {
+  color: #b95757;
+}
+
+.mobile-timeline-action-sheet button.is-muted {
+  color: var(--mobile-timeline-muted);
+  font-weight: 600;
+}
+
+@media (max-width: 390px) {
+  .mobile-timeline-action-damage {
+    display: none;
+  }
+
+  .mobile-timeline-choice-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-timeline-slot,
+  .mobile-timeline-action-card,
+  .mobile-timeline-empty-slot {
+    transition: none;
+  }
+}
