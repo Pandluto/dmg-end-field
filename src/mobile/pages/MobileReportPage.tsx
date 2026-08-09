@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
 import { toCanvas } from 'html-to-image';
 import {
@@ -48,6 +48,13 @@ interface TimelineReportEntry {
   operator: Character;
   action: NonNullable<MobileTimelineSlot['action']>;
   calculation?: MobileSlotCalculation;
+}
+
+interface ReportExportPreview {
+  url: string;
+  filename: string;
+  width: number;
+  height: number;
 }
 
 const REPORT_PAGES: Array<{ id: ReportPageId; index: string; label: string }> = [
@@ -491,6 +498,25 @@ function canvasToPngBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   });
 }
 
+function assertCanvasHasVisibleContent(canvas: HTMLCanvasElement): void {
+  const probe = document.createElement('canvas');
+  probe.width = 64;
+  probe.height = 64;
+  const context = probe.getContext('2d', { willReadFrequently: true });
+  if (!context) throw new Error('浏览器无法检查导出结果。');
+  context.drawImage(canvas, 0, 0, probe.width, probe.height);
+  const pixels = context.getImageData(0, 0, probe.width, probe.height).data;
+  let visiblePixelCount = 0;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const alpha = pixels[index + 3];
+    const distanceFromPaper = Math.abs(pixels[index] - 251)
+      + Math.abs(pixels[index + 1] - 252)
+      + Math.abs(pixels[index + 2] - 251);
+    if (alpha > 24 && distanceFromPaper > 42) visiblePixelCount += 1;
+  }
+  if (visiblePixelCount < 24) throw new Error('生成图片为空白，已取消下载。');
+}
+
 function buildReportFilename(timestamp = Date.now()): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
@@ -511,8 +537,10 @@ export function MobileReportPage({
   const [isExporting, setIsExporting] = useState(false);
   const [exportStageMounted, setExportStageMounted] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
+  const [exportPreview, setExportPreview] = useState<ReportExportPreview | null>(null);
   const reportPageRef = useRef<HTMLElement>(null);
   const exportStageRef = useRef<HTMLDivElement>(null);
+  const exportPreviewUrlRef = useRef<string | null>(null);
   const safeReport = report ?? {
     totalExpected: 0,
     totalCrit: 0,
@@ -537,6 +565,16 @@ export function MobileReportPage({
       calculation: slotCalculations[slot.id],
     }];
   }), [operatorById, slotCalculations, slots]);
+
+  useEffect(() => () => {
+    if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
+  }, []);
+
+  const closeExportPreview = () => {
+    if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
+    exportPreviewUrlRef.current = null;
+    setExportPreview(null);
+  };
 
   const handleExport = async () => {
     if (isExporting) return;
@@ -572,16 +610,27 @@ export function MobileReportPage({
         skipAutoScale: true,
         width: pageWidth * panels.length,
         height: maxHeight,
+        style: {
+          position: 'static',
+          top: 'auto',
+          left: 'auto',
+          zIndex: 'auto',
+          transform: 'none',
+        },
       });
+      assertCanvasHasVisibleContent(canvas);
       const blob = await canvasToPngBlob(canvas);
       const url = URL.createObjectURL(blob);
+      const filename = buildReportFilename();
+      if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
+      exportPreviewUrlRef.current = url;
+      setExportPreview({ url, filename, width: canvas.width, height: canvas.height });
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = buildReportFilename();
+      anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
       setExportMessage(`已生成 ${canvas.width} × ${canvas.height} PNG`);
     } catch (error) {
       setExportMessage(error instanceof Error ? `导出失败：${error.message}` : '导出失败，请稍后重试。');
@@ -672,6 +721,34 @@ export function MobileReportPage({
                 titleId="mobile-report-export-charts-title"
               />
             </div>
+          </div>
+        </MobilePortal>
+      ) : null}
+
+      {exportPreview ? (
+        <MobilePortal>
+          <div className="mobile-report-preview" role="presentation" data-mobile-pager-lock>
+            <section
+              className="mobile-report-preview-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-report-preview-title"
+            >
+              <header>
+                <span>
+                  <small>EXPORT PREVIEW</small>
+                  <strong id="mobile-report-preview-title">三联战术报告</strong>
+                </span>
+                <button type="button" onClick={closeExportPreview} aria-label="关闭导出预览">×</button>
+              </header>
+              <div className="mobile-report-preview-image-frame">
+                <img className="mobile-report-preview-image" src={exportPreview.url} alt="三联战术报告导出预览" />
+              </div>
+              <footer>
+                <span>{exportPreview.width} × {exportPreview.height} PNG</span>
+                <a href={exportPreview.url} download={exportPreview.filename}>再次下载</a>
+              </footer>
+            </section>
           </div>
         </MobilePortal>
       ) : null}
