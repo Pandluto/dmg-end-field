@@ -1,5 +1,10 @@
 import type { Character } from '../types';
-import type { HitResistanceInput, SkillButtonBuff } from '../types/storage';
+import type {
+  AnomalyStateSnapshot,
+  HitResistanceInput,
+  PersistedAnomalyCard,
+  SkillButtonBuff,
+} from '../types/storage';
 import {
   MOBILE_DRAFT_SCHEMA_VERSION,
   MOBILE_EQUIPMENT_SLOT_KEYS,
@@ -97,6 +102,37 @@ function normalizeStringArray(value: unknown): string[] {
     : [];
 }
 
+function normalizeAnomalyCards(value: unknown, kind: PersistedAnomalyCard['kind']): PersistedAnomalyCard[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((card): card is PersistedAnomalyCard => (
+    isRecord(card)
+    && typeof card.id === 'string'
+    && typeof card.key === 'string'
+    && typeof card.label === 'string'
+    && card.kind === kind
+    && (card.category === 'magic' || card.category === 'physical')
+    && typeof card.level === 'number'
+  )).map((card) => ({
+    ...card,
+    selectedBuffIds: normalizeStringArray(card.selectedBuffIds),
+  }));
+}
+
+function normalizeAnomalyStateSnapshots(value: unknown): AnomalyStateSnapshot[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((snapshot): snapshot is AnomalyStateSnapshot => (
+    isRecord(snapshot)
+    && typeof snapshot.id === 'number'
+    && Number.isFinite(snapshot.id)
+    && ['conductive', 'corrosion', 'armor-break'].includes(String(snapshot.key))
+    && typeof snapshot.label === 'string'
+    && typeof snapshot.sourceCharacterId === 'string'
+    && typeof snapshot.sourceCharacterName === 'string'
+    && typeof snapshot.effectValue === 'number'
+    && Number.isFinite(snapshot.effectValue)
+  ));
+}
+
 function normalizeAction(value: unknown): MobileTimelineAction | null {
   if (!isRecord(value)) return null;
   const skillType = typeof value.skillType === 'string'
@@ -150,6 +186,9 @@ function normalizeAction(value: unknown): MobileTimelineAction | null {
     disabledBuffIdsByHitKey,
     disabledHitKeys: normalizeStringArray(value.disabledHitKeys),
     targetResistance,
+    anomalyStatuses: normalizeAnomalyCards(value.anomalyStatuses, 'state'),
+    anomalyDamages: normalizeAnomalyCards(value.anomalyDamages, 'damage'),
+    anomalyStateSnapshots: normalizeAnomalyStateSnapshots(value.anomalyStateSnapshots),
   };
 }
 

@@ -77,12 +77,35 @@ try {
     disabledBuffIdsByHitKey: {},
     disabledHitKeys: [],
     targetResistance: {},
+    anomalyStatuses: [],
+    anomalyDamages: [],
+    anomalyStateSnapshots: [],
   };
   const runtime = buildMobileRuntimeState(draft, catalog);
   assert.equal(runtime.report.slotCount, 1);
   assert.ok(Number.isFinite(runtime.report.totalExpected));
   assert.ok(runtime.slotCalculations[draft.slots[0].id]?.result.hits.length > 0);
   assert.ok(runtime.availableBuffs.some((buff) => buff.ownerCharacterId === character.id));
+
+  draft.slots[0].action.anomalyDamages = [{
+    id: 'mobile-test-burn',
+    key: 'burn',
+    label: '燃烧',
+    kind: 'damage',
+    category: 'magic',
+    level: 1,
+    includeDotInTotal: true,
+    burnDamageMode: 'dotOnly',
+    durationSeconds: 10,
+    primaryText: '燃烧 Lv1',
+    secondaryText: '160% 初始 Hit',
+    tertiaryText: '仅持续总伤 · 10s',
+    selectedBuffIds: [],
+  }];
+  const runtimeWithBurn = buildMobileRuntimeState(draft, catalog);
+  const burnCalculation = runtimeWithBurn.slotCalculations[draft.slots[0].id];
+  assert.ok(burnCalculation?.specialSegments?.some((segment) => segment.compactTitle.includes('燃烧')));
+  assert.ok(runtimeWithBurn.report.totalExpected > runtime.report.totalExpected);
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow) {

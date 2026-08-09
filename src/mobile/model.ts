@@ -2,8 +2,14 @@ import type { ConfigSnapshot } from '../core/calculators/operatorPanelCalculator
 import type { SkillDamageCalcResultV2 } from '../core/calculators/skillDamage.types';
 import type { EquipmentLibrary } from '../core/services/operatorEquipmentLibrary';
 import type { Character, SkillType } from '../types';
-import type { HitResistanceInput, SkillButtonBuff } from '../types/storage';
+import type {
+  AnomalyStateSnapshot,
+  HitResistanceInput,
+  PersistedAnomalyCard,
+  SkillButtonBuff,
+} from '../types/storage';
 import type { WeaponDraft } from '../components/weaponDraftModel';
+import type { AnomalyDamageSegmentView } from '../components/CanvasBoard/skillButton.shared';
 
 export const MOBILE_DRAFT_SCHEMA_VERSION = 1 as const;
 export const MOBILE_INITIAL_SLOT_COUNT = 8;
@@ -50,6 +56,10 @@ export interface MobileTimelineAction {
   disabledBuffIdsByHitKey: Record<string, string[]>;
   disabledHitKeys: string[];
   targetResistance: HitResistanceInput;
+  /** Mobile drafts own their anomaly data instead of relying on desktop SQLite/local caches. */
+  anomalyStatuses?: PersistedAnomalyCard[];
+  anomalyDamages?: PersistedAnomalyCard[];
+  anomalyStateSnapshots?: AnomalyStateSnapshot[];
 }
 
 export interface MobileTimelineSlot {
@@ -89,6 +99,7 @@ export interface MobileSlotCalculation {
   operatorName: string;
   skillName: string;
   result: SkillDamageCalcResultV2;
+  specialSegments?: AnomalyDamageSegmentView[];
 }
 
 export interface MobileDamageReportRow {

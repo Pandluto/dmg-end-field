@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
+import type { Character } from '../../types';
 import type { HitCalcResult, SkillDamageCalcResultV2 } from '../../core/calculators/skillDamage.types';
 import type { MobileSlotCalculation, MobileTimelineAction } from '../model';
+import { getMobileBuffSourceLabel } from '../mobileBuffWorkbench';
+import { MobileBuffCatalogSheet } from './MobileBuffCatalogSheet';
 import './MobileBuffEditor.css';
 
 export interface MobileBuffEditorProps {
@@ -11,6 +15,8 @@ export interface MobileBuffEditorProps {
   /** Online catalog Buffs are read-only candidates; selected copies live on the action. */
   catalogBuffs?: SkillButtonBuff[];
   characterName?: string;
+  operators?: Character[];
+  operatorSnapshots?: Record<string, ConfigSnapshot>;
   onActionChange: (nextAction: MobileTimelineAction) => void;
   onClose: () => void;
   /** Locks the outer four-page pager for the lifetime of this fullscreen editor. */
@@ -91,26 +97,6 @@ function getBuffLabel(buff: SkillButtonBuff): string {
 
 function getBuffSource(buff: SkillButtonBuff): string {
   return buff.sourceName || buff.source || '未知来源';
-}
-
-function fuzzyScore(buff: SkillButtonBuff, keyword: string): number {
-  if (!keyword) return 0;
-  const haystack = [buff.displayName, buff.name, buff.sourceName, buff.source, buff.type, buff.description]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase();
-  const normalized = keyword.toLocaleLowerCase().trim();
-  if (!normalized) return 0;
-  if (haystack.includes(normalized)) return 0;
-  let cursor = 0;
-  let gaps = 0;
-  for (const character of normalized) {
-    const index = haystack.indexOf(character, cursor);
-    if (index < 0) return Number.POSITIVE_INFINITY;
-    gaps += index - cursor;
-    cursor = index + 1;
-  }
-  return gaps + haystack.length / 1000;
 }
 
 function getEffectiveStack(action: MobileTimelineAction, buff: SkillButtonBuff, hitKey?: string): number {
@@ -197,17 +183,20 @@ export function MobileBuffEditor({
   result,
   catalogBuffs = [],
   characterName,
+  operators = [],
+  operatorSnapshots = {},
   onActionChange,
   onClose,
   onInteractionLockChange,
 }: MobileBuffEditorProps) {
   const [activePage, setActivePage] = useState<EditorPage>(0);
   const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
-  const [searchKeyword, setSearchKeyword] = useState('');
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const pagerPointerRef = useRef<{ pointerId: number; startX: number; startY: number; horizontal: boolean } | null>(null);
   const safeResult = calculation?.result ?? result ?? null;
   const buffs = action.buffs ?? [];
   const hits = safeResult?.hits ?? [];
+  const specialSegments = calculation?.specialSegments ?? [];
   const activeHit = hits.find((hit) => hit.hit.key === selectedHitKey) ?? hits[0] ?? null;
   const currentHitKey = activeHit?.hit.key ?? null;
   const globallyDisabled = new Set(action.globallyDisabledBuffIds ?? []);
@@ -227,23 +216,13 @@ export function MobileBuffEditor({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        if (catalogOpen) setCatalogOpen(false);
+        else onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
-  const availableBuffs = useMemo(() => {
-    const selectedIds = new Set(buffs.map((buff) => buff.id));
-    return catalogBuffs
-      .filter((buff) => !selectedIds.has(buff.id))
-      .map((buff, index) => ({ buff, index, score: fuzzyScore(buff, searchKeyword) }))
-      .filter((entry) => Number.isFinite(entry.score))
-      .sort((left, right) => left.score - right.score || left.index - right.index)
-      .slice(0, searchKeyword.trim() ? 30 : 12)
-      .map((entry) => entry.buff);
-  }, [buffs, catalogBuffs, searchKeyword]);
+  }, [catalogOpen, onClose]);
 
   const updateAction = (nextAction: MobileTimelineAction) => {
     onActionChange(nextAction);
@@ -340,7 +319,6 @@ export function MobileBuffEditor({
       },
       globallyDisabledBuffIds: (action.globallyDisabledBuffIds ?? []).filter((id) => id !== buff.id),
     });
-    setSearchKeyword('');
   };
 
   const toggleGlobalBuff = (buffId: string) => {
@@ -352,7 +330,32 @@ export function MobileBuffEditor({
 
   const activeHitBuffs = activeHit ? buffs.filter((buff) => isBuffApplicableToHit(buff, activeHit)) : [];
   const isCurrentHitDisabled = currentHitKey ? action.disabledHitKeys?.includes(currentHitKey) ?? false : false;
-  const selectedBuffIds = new Set(buffs.map((buff) => buff.id));
+  const specialConfigCount = (action.anomalyDamages?.length ?? 0)
+    + (action.anomalyStatuses?.length ?? 0)
+    + (action.anomalyStateSnapshots?.length ?? 0);
+
+  const removeAnomalyCard = (kind: 'damage' | 'state', cardId: string) => {
+    updateAction({
+      ...action,
+      ...(kind === 'damage'
+        ? { anomalyDamages: (action.anomalyDamages ?? []).filter((card) => card.id !== cardId) }
+        : { anomalyStatuses: (action.anomalyStatuses ?? []).filter((card) => card.id !== cardId) }),
+    });
+  };
+
+  const removeAnomalyStateSnapshot = (snapshotId: number) => {
+    updateAction({
+      ...action,
+      anomalyStateSnapshots: (action.anomalyStateSnapshots ?? []).filter((snapshot) => snapshot.id !== snapshotId),
+    });
+  };
+
+  const toggleSpecialSegment = (segmentKey: string) => {
+    updateAction({
+      ...action,
+      disabledHitKeys: toggleId(action.disabledHitKeys, segmentKey),
+    });
+  };
 
   return (
     <div className="mobile-buff-editor" role="dialog" aria-modal="true" aria-label="技能 Buff 编辑器">
@@ -396,7 +399,7 @@ export function MobileBuffEditor({
                 <p className="mobile-buff-kicker">01 / HIT</p>
                 <h2>命中详情与微调</h2>
               </div>
-              <span>{hits.length} 段</span>
+              <span>{hits.length + specialSegments.length} 段</span>
             </div>
             {hits.length === 0 ? (
               <p className="mobile-buff-empty">当前技能没有可编辑的 Hit。</p>
@@ -422,6 +425,22 @@ export function MobileBuffEditor({
                       </button>
                     );
                   })}
+                  {specialSegments.map((segment, index) => (
+                    <button
+                      key={segment.key}
+                      type="button"
+                      className={`mobile-buff-hit-card is-special${segment.isDisabled ? ' is-disabled' : ''}`}
+                      onClick={() => toggleSpecialSegment(segment.key)}
+                      aria-pressed={!segment.isDisabled}
+                    >
+                      <span className="mobile-buff-hit-number">{String(hits.length + index + 1).padStart(2, '0')}</span>
+                      <span className="mobile-buff-hit-copy">
+                        <strong>{segment.compactTitle}</strong>
+                        <small>{segment.sourceKind === 'buff-extra-hit' ? '额外 Hit' : '异常伤害'} · {segment.elementText} · {segment.isDisabled ? '已禁用' : '启用'}</small>
+                      </span>
+                      <span className="mobile-buff-hit-expected">{formatNumber(segment.expectedValue)}</span>
+                    </button>
+                  ))}
                 </div>
 
                 {activeHit ? (
@@ -473,20 +492,24 @@ export function MobileBuffEditor({
             <div className="mobile-buff-page-heading">
               <div>
                 <p className="mobile-buff-kicker">02 / BUFF</p>
-                <h2>选择与添加 Buff</h2>
+                <h2>Buff 与特殊效果</h2>
               </div>
-              <span>{buffs.length} 个已选</span>
+              <span>{buffs.length + specialConfigCount} 个已选</span>
             </div>
-            <label className="mobile-buff-search">
-              <span aria-hidden="true">⌕</span>
-              <input
-                value={searchKeyword}
-                onChange={(event) => setSearchKeyword(event.target.value)}
-                placeholder="模糊搜索名称、类型或来源"
-                aria-label="搜索 Buff"
-              />
-              {searchKeyword ? <button type="button" onClick={() => setSearchKeyword('')} aria-label="清除搜索">×</button> : null}
-            </label>
+
+            <button type="button" className="mobile-buff-workbench-launch" onClick={() => setCatalogOpen(true)}>
+              <span className="mobile-buff-workbench-icon" aria-hidden="true">⌘</span>
+              <span className="mobile-buff-workbench-copy">
+                <small>BUFF WORKBENCH</small>
+                <strong>打开分类与特殊效果</strong>
+                <span>按干员、武器、装备、潜能与异常类型筛选</span>
+              </span>
+              <span className="mobile-buff-workbench-arrow" aria-hidden="true">›</span>
+              <span className="mobile-buff-workbench-tags" aria-hidden="true">
+                <i>天赋 / 潜能 / 技能</i>
+                <i>异常 / 燃烧 / 导弹</i>
+              </span>
+            </button>
 
             <section className="mobile-buff-panel" aria-labelledby="mobile-buff-selected-title">
               <div className="mobile-buff-panel-heading">
@@ -496,7 +519,7 @@ export function MobileBuffEditor({
                 </div>
                 <span>{buffs.length}</span>
               </div>
-              {buffs.length === 0 ? <p className="mobile-buff-empty">还没有 Buff，使用下面的搜索结果添加。</p> : (
+              {buffs.length === 0 ? <p className="mobile-buff-empty">还没有常规 Buff，打开分类台从干员、武器或装备中添加。</p> : (
                 <div className="mobile-buff-selected-list">
                   {buffs.map((buff) => {
                     const disabled = globallyDisabled.has(buff.id);
@@ -506,7 +529,7 @@ export function MobileBuffEditor({
                           <span className="mobile-buff-status-dot" aria-hidden="true" />
                           <span>
                             <strong>{getBuffLabel(buff)}</strong>
-                            <small>{getBuffSource(buff)}{buff.type ? ` · ${buff.type}` : ''}</small>
+                            <small>{getMobileBuffSourceLabel(buff)} · {getBuffSource(buff)}{buff.type ? ` · ${buff.type}` : ''}</small>
                           </span>
                         </button>
                         {isCountable(buff) ? (
@@ -520,28 +543,79 @@ export function MobileBuffEditor({
               )}
             </section>
 
-            <section className="mobile-buff-panel mobile-buff-candidates" aria-labelledby="mobile-buff-candidate-title">
+            <section className="mobile-buff-panel mobile-buff-special-configs" aria-labelledby="mobile-buff-special-title">
               <div className="mobile-buff-panel-heading">
                 <div>
-                  <p className="mobile-buff-kicker">线上目录</p>
-                  <h3 id="mobile-buff-candidate-title">添加候选</h3>
+                  <p className="mobile-buff-kicker">SPECIAL EFFECTS</p>
+                  <h3 id="mobile-buff-special-title">异常与状态</h3>
                 </div>
-                <span>{selectedBuffIds.size > 0 ? '只显示未选' : '可添加'}</span>
+                <span>{specialConfigCount}</span>
               </div>
-              {availableBuffs.length === 0 ? <p className="mobile-buff-empty">没有匹配的 Buff。</p> : (
-                <div className="mobile-buff-candidate-list">
-                  {availableBuffs.map((buff) => (
-                    <button type="button" key={buff.id} className="mobile-buff-candidate-row" onClick={() => addBuff(buff)}>
+              {specialConfigCount === 0 ? <p className="mobile-buff-empty">尚未挂载异常伤害、异常状态或状态区效果。</p> : (
+                <div className="mobile-buff-special-config-list">
+                  {(action.anomalyDamages ?? []).map((card) => (
+                    <article key={card.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind">异常伤害</span>
                       <span>
-                        <strong>{getBuffLabel(buff)}</strong>
-                        <small>{getBuffSource(buff)}{buff.description ? ` · ${buff.description}` : ''}</small>
+                        <strong>{card.primaryText}</strong>
+                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
                       </span>
-                      <b aria-hidden="true">＋</b>
-                    </button>
+                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyCard('damage', card.id)} aria-label={`移除 ${card.primaryText}`}>×</button>
+                    </article>
+                  ))}
+                  {(action.anomalyStateSnapshots ?? []).map((snapshot) => (
+                    <article key={snapshot.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind is-state">异常状态</span>
+                      <span>
+                        <strong>{snapshot.primaryText}</strong>
+                        <small>{[snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyStateSnapshot(snapshot.id)} aria-label={`移除 ${snapshot.primaryText}`}>×</button>
+                    </article>
+                  ))}
+                  {(action.anomalyStatuses ?? []).map((card) => (
+                    <article key={card.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind is-zone">状态区</span>
+                      <span>
+                        <strong>{card.primaryText}</strong>
+                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyCard('state', card.id)} aria-label={`移除 ${card.primaryText}`}>×</button>
+                    </article>
                   ))}
                 </div>
               )}
             </section>
+
+            {specialSegments.length > 0 ? (
+              <section className="mobile-buff-panel mobile-buff-special-damage" aria-labelledby="mobile-buff-special-damage-title">
+                <div className="mobile-buff-panel-heading">
+                  <div>
+                    <p className="mobile-buff-kicker">EXTRA DAMAGE</p>
+                    <h3 id="mobile-buff-special-damage-title">特殊伤害段</h3>
+                  </div>
+                  <span>{specialSegments.length}</span>
+                </div>
+                <div className="mobile-buff-special-damage-list">
+                  {specialSegments.map((segment) => (
+                    <button
+                      type="button"
+                      key={segment.key}
+                      className={segment.isDisabled ? 'is-disabled' : ''}
+                      onClick={() => toggleSpecialSegment(segment.key)}
+                      aria-pressed={!segment.isDisabled}
+                    >
+                      <span className="mobile-buff-special-damage-index">{segment.sourceKind === 'buff-extra-hit' ? 'HIT' : 'EX'}</span>
+                      <span>
+                        <strong>{segment.compactTitle}</strong>
+                        <small>{segment.elementText} · {segment.baseMultiplierText} · {segment.isDisabled ? '已停用' : segment.buffText}</small>
+                      </span>
+                      <b>{formatNumber(segment.expectedValue)}</b>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
           </section>
 
           <section className="mobile-buff-page mobile-buff-calculation-page" aria-label="计算过程与目标抗性">
@@ -560,7 +634,7 @@ export function MobileBuffEditor({
                   <div className="mobile-buff-summary-grid">
                     <SummaryMetric label="暴击" value={formatNumber(safeResult.summary.totalCrit)} />
                     <SummaryMetric label="非暴" value={formatNumber(safeResult.summary.totalNonCrit)} />
-                    <SummaryMetric label="Hit" value={`${hits.length} 段`} />
+                    <SummaryMetric label="Hit" value={`${hits.length + specialSegments.length} 段`} />
                   </div>
                 </section>
 
@@ -629,6 +703,36 @@ export function MobileBuffEditor({
                     </section>
                   </>
                 ) : <p className="mobile-buff-empty">选择一个 Hit 后查看乘区计算。</p>}
+
+                {specialSegments.length > 0 ? (
+                  <section className="mobile-buff-panel" aria-labelledby="mobile-buff-special-formula-title">
+                    <div className="mobile-buff-panel-heading">
+                      <div>
+                        <p className="mobile-buff-kicker">SPECIAL SEGMENTS</p>
+                        <h3 id="mobile-buff-special-formula-title">异常与额外 Hit 计算</h3>
+                      </div>
+                      <span>{specialSegments.length}</span>
+                    </div>
+                    <div className="mobile-buff-zone-list">
+                      {specialSegments.map((segment) => (
+                        <details key={segment.key} className={`mobile-buff-zone mobile-buff-special-formula${segment.isDisabled ? ' is-disabled' : ''}`}>
+                          <summary>
+                            <span>{segment.compactTitle}</span>
+                            <strong>{formatNumber(segment.expectedValue)}</strong>
+                          </summary>
+                          <div className="mobile-buff-zone-details">
+                            <p><span>来源</span><b>{segment.sourceKind === 'buff-extra-hit' ? '导弹 / 额外 Hit' : '异常伤害'}</b></p>
+                            <p><span>元素 / 类型</span><b>{segment.elementText}{segment.skillTypeText ? ` · ${segment.skillTypeText}` : ''}</b></p>
+                            <p><span>基础倍率</span><b>{segment.baseMultiplierText}</b></p>
+                            <p><span>最终倍率</span><b>{segment.multiplierText}</b></p>
+                            <p><span>暴击 / 非暴</span><b>{segment.critText} / {segment.nonCritText}</b></p>
+                            <p className="mobile-buff-special-formula-line"><span>公式</span><b>{segment.formulaText}</b></p>
+                          </div>
+                        </details>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
               </>
             ) : <p className="mobile-buff-empty">当前还没有可用计算结果。</p>}
           </section>
@@ -641,6 +745,18 @@ export function MobileBuffEditor({
         </span>
         <span>左右滑动切换 · 修改自动保留</span>
       </footer>
+
+      {catalogOpen ? (
+        <MobileBuffCatalogSheet
+          action={action}
+          catalogBuffs={catalogBuffs}
+          operators={operators}
+          operatorSnapshots={operatorSnapshots}
+          onAddBuff={addBuff}
+          onActionChange={updateAction}
+          onClose={() => setCatalogOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

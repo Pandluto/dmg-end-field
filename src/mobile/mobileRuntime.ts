@@ -5,12 +5,18 @@ import type {
   OperatorPanelInput,
 } from '../core/calculators/operatorPanelCalculator';
 import { calculateSkillButtonDamageV2 } from '../core/calculators/skillButtonDamageCalculatorV2';
+import { calculateBuffTotals } from '../core/calculators/buffCalculator';
 import type {
   ResolvedHitTemplate,
   ResolvedSkillDamageTemplate,
   SkillDamagePanelBase,
 } from '../core/calculators/skillDamage.types';
 import { buildOperatorEquipmentSetBuffs } from '../core/services/operatorEquipmentLibrary';
+import {
+  buildAnomalyStateDerivedBuffs,
+  buildAnomalyStateSnapshotBuffs,
+} from '../core/services/anomalyStateBuffs';
+import { buildAnomalyDamageSegments } from '../components/CanvasBoard/skillButtonAnomalyDamage';
 import type { Character, Skill, SkillType } from '../types';
 import type { DamageBonusSnapshot, SkillButtonBuff } from '../types/storage';
 import type {
@@ -234,18 +240,28 @@ function calculateMobileSlot(
   catalog: MobileCatalog,
   config: MobileOperatorConfig,
   snapshot: ConfigSnapshot,
+  operatorSnapshots: Record<string, ConfigSnapshot>,
 ): MobileSlotCalculation | null {
   const character = getCharacterById(catalog, action.operatorId);
   if (!character) return null;
   const template = resolveMobileSkillTemplate(character, config, action);
   if (template.hits.length === 0) return null;
   const globallyDisabled = new Set(action.globallyDisabledBuffIds);
+  const enabledBuffs = action.buffs.filter((buff) => !globallyDisabled.has(buff.id));
+  const modifierBuffs = enabledBuffs.filter((buff) => buff.effectKind !== 'extraHit');
+  const extraHitBuffs = enabledBuffs.filter((buff): buff is SkillButtonBuff & {
+    effectKind: 'extraHit';
+    extraHitConfig: NonNullable<SkillButtonBuff['extraHitConfig']>;
+  } => buff.effectKind === 'extraHit' && Boolean(buff.extraHitConfig));
+  const stateDerivedBuffs = buildAnomalyStateDerivedBuffs(action.anomalyStatuses ?? [], action.skillType);
+  const anomalyStateBuffs = buildAnomalyStateSnapshotBuffs(action.anomalyStateSnapshots ?? []);
+  const combinedModifierBuffs = [...modifierBuffs, ...stateDerivedBuffs, ...anomalyStateBuffs];
   const result = calculateSkillButtonDamageV2({
     buttonId: action.id,
     characterId: character.id,
     runtimeSkillId: template.runtimeSkillId,
     template,
-    buffs: action.buffs.filter((buff) => !globallyDisabled.has(buff.id)),
+    buffs: combinedModifierBuffs,
     buffStackCounts: action.buffStackCounts,
     buffStackCountsByHitKey: action.buffStackCountsByHitKey,
     panel: {
@@ -259,13 +275,52 @@ function calculateMobileSlot(
     damageBonus: snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS,
     targetResistance: action.targetResistance,
   });
+  const specialSegments = buildAnomalyDamageSegments({
+    panelBase: buildPanelBase(snapshot),
+    panelData: {
+      atk: snapshot.panel.display.atk,
+      critRate: snapshot.panel.display.critRate,
+      critDmg: snapshot.panel.display.critDmg,
+    },
+    hitCards: result.hits.map((hit) => ({
+      displayName: hit.hit.displayName,
+      nonCritText: hit.nonCrit.final.toFixed(0),
+    })),
+    selectedAnomalyDamages: action.anomalyDamages ?? [],
+    buttonCharacterId: character.id,
+    element: character.element,
+    damageBonus: snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS,
+    targetResistance: action.targetResistance,
+    fullCombinedModifierBuffList: combinedModifierBuffs,
+    extraHitBuffList: extraHitBuffs,
+    buffStackCounts: action.buffStackCounts,
+    buffStackCountsBySegmentKey: action.buffStackCountsByHitKey,
+    manuallyDisabledBuffIdsBySegmentKey: action.disabledBuffIdsByHitKey,
+    disabledHitKeys: action.disabledHitKeys,
+    getEffectiveCharacterSourceSkillBoost: (characterId, buffs = []) => (
+      (characterId ? operatorSnapshots[characterId]?.panel.display.sourceSkill ?? 0 : 0)
+      + calculateBuffTotals(buffs).sourceSkillBoost
+    ),
+  });
+  const specialExpected = specialSegments.reduce((sum, segment) => sum + segment.expectedValue, 0);
+  const specialCrit = specialSegments.reduce((sum, segment) => sum + segment.critValue, 0);
+  const specialNonCrit = specialSegments.reduce((sum, segment) => sum + segment.nonCritValue, 0);
+  const combinedResult = {
+    ...result,
+    summary: {
+      totalExpected: result.summary.totalExpected + specialExpected,
+      totalCrit: result.summary.totalCrit + specialCrit,
+      totalNonCrit: result.summary.totalNonCrit + specialNonCrit,
+    },
+  };
   return {
     slotId,
     actionId: action.id,
     operatorId: character.id,
     operatorName: character.name,
     skillName: template.displayName,
-    result,
+    result: combinedResult,
+    specialSegments,
   };
 }
 
@@ -444,7 +499,7 @@ export function buildMobileRuntimeState(
     const config = draft.operatorConfigs[slot.action.operatorId];
     const snapshot = operatorSnapshots[slot.action.operatorId];
     if (!config || !snapshot) return;
-    const calculation = calculateMobileSlot(slot.id, slot.action, catalog, config, snapshot);
+    const calculation = calculateMobileSlot(slot.id, slot.action, catalog, config, snapshot, operatorSnapshots);
     if (calculation) slotCalculations[slot.id] = calculation;
   });
 

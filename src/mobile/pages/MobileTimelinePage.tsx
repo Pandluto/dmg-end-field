@@ -86,6 +86,9 @@ function buildAction(character: Character, skill: MobileTimelineSkillOption): Mo
     disabledBuffIdsByHitKey: {},
     disabledHitKeys: [],
     targetResistance: {},
+    anomalyStatuses: [],
+    anomalyDamages: [],
+    anomalyStateSnapshots: [],
   };
 }
 

@@ -219,6 +219,8 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
           calculation={workbench.runtime.slotCalculations[editorSlot.id] ?? null}
           catalogBuffs={workbench.runtime.availableBuffs}
           characterName={editorOperator?.name}
+          operators={selectedOperators}
+          operatorSnapshots={workbench.runtime.operatorSnapshots}
           onActionChange={(nextAction) => workbench.updateSlotAction(editorSlot.id, nextAction)}
           onClose={() => setBuffEditorSlotId(null)}
           onInteractionLockChange={workbench.setInteractionLocked}
