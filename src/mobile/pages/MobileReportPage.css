@@ -469,7 +469,7 @@
 }
 
 .mobile-report-ppt-team-slide .report-ppt-operator-row {
-  grid-template-columns: 72px 66px minmax(0, 1fr) 30px;
+  grid-template-columns: 72px minmax(0, 1fr) 104px 30px;
   gap: 2px;
   padding: 3px;
 }
