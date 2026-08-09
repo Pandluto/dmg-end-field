@@ -146,18 +146,17 @@ export default {
       })
     }
 
-    let response = await env.ASSETS.fetch(request)
-    if (
-      response.status === 404
-      && isMobileRoute
+    const assetRequest = (
+      isMobileRoute
       && (request.method === 'GET' || request.method === 'HEAD')
-    ) {
-      response = await env.ASSETS.fetch(new Request(new URL('/index.html', request.url), {
+    )
+      ? new Request(new URL('/index.html', request.url), {
         method: request.method,
         headers: request.headers,
         redirect: request.redirect,
-      }))
-    }
+      })
+      : request
+    const response = await env.ASSETS.fetch(assetRequest)
 
     const acceptsHtml = request.headers.get('Accept')?.includes('text/html') ?? false
     const mustRevalidate = (

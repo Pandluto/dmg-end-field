@@ -12,6 +12,9 @@ const env = {
           headers: { 'Content-Type': 'text/html; charset=utf-8' },
         })
       }
+      if (pathname === '/mobile') {
+        return Response.redirect('https://dmgendfield.online/', 307)
+      }
       return new Response('not found', { status: 404 })
     },
   },
@@ -24,7 +27,7 @@ const mobileResponse = await sitesWorker.fetch(
 assert.equal(mobileResponse.status, 200)
 assert.equal(await mobileResponse.text(), '<main>mobile shell</main>')
 assert.equal(mobileResponse.headers.get('Cache-Control'), 'no-store, no-cache, must-revalidate')
-assert.deepEqual(requestedPaths, ['/mobile', '/index.html'])
+assert.deepEqual(requestedPaths, ['/index.html'])
 
 requestedPaths.length = 0
 const unrelatedResponse = await sitesWorker.fetch(
