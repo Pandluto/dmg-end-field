@@ -201,6 +201,7 @@ export function MobileReportPage({ report }: MobileReportPageProps) {
   const operatorRows = normalizeRows(safeReport.byOperator);
   const skillRows = normalizeRows(safeReport.bySkill);
   const filledSlotCount = toSafeCount(safeReport.slotCount);
+  const hasDamageData = filledSlotCount > 0;
 
   return (
     <main className="mobile-report-page" aria-label="伤害报表">
@@ -212,18 +213,18 @@ export function MobileReportPage({ report }: MobileReportPageProps) {
           </div>
           <span className="mobile-report-module-index" aria-hidden="true">01</span>
         </div>
-        <div className="mobile-report-kpi" aria-label={`总预计伤害 ${formatDamage(safeReport.totalExpected)}`}>
+        <div className="mobile-report-kpi" aria-label={hasDamageData ? `总预计伤害 ${formatDamage(safeReport.totalExpected)}` : '暂无总伤害数据'}>
           <span>总预计伤害</span>
-          <strong>{formatDamage(safeReport.totalExpected)}</strong>
+          <strong>{hasDamageData ? formatDamage(safeReport.totalExpected) : '—'}</strong>
         </div>
         <dl className="mobile-report-metrics">
           <div>
             <dt>暴击伤害</dt>
-            <dd>{formatDamage(safeReport.totalCrit)}</dd>
+            <dd>{hasDamageData ? formatDamage(safeReport.totalCrit) : '—'}</dd>
           </div>
           <div>
             <dt>非暴击伤害</dt>
-            <dd>{formatDamage(safeReport.totalNonCrit)}</dd>
+            <dd>{hasDamageData ? formatDamage(safeReport.totalNonCrit) : '—'}</dd>
           </div>
           <div>
             <dt>已填槽位</dt>

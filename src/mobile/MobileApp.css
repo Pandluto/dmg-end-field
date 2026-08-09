@@ -1,0 +1,205 @@
+.mobile-app-shell,
+.mobile-app-shell * {
+  box-sizing: border-box;
+}
+
+.mobile-app-shell {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+  overflow: hidden;
+  flex-direction: column;
+  color: #183036;
+  background: #f1f4f3;
+  overscroll-behavior: none;
+}
+
+.mobile-app-notices {
+  position: relative;
+  z-index: 25;
+  flex: none;
+}
+
+.mobile-app-update-notice,
+.mobile-app-runtime-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: max(8px, env(safe-area-inset-top)) 12px 8px;
+  font-size: 11px;
+}
+
+.mobile-app-update-notice {
+  color: #e8fff2;
+  background: #173d38;
+  box-shadow: 0 4px 16px rgba(16, 43, 39, 0.16);
+}
+
+.mobile-app-update-notice span {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.mobile-app-update-notice i {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: #8ff0b9;
+  box-shadow: 0 0 0 3px rgba(143, 240, 185, 0.14);
+}
+
+.mobile-app-update-notice button {
+  flex: none;
+  padding: 7px 10px;
+  border: 1px solid rgba(232, 255, 242, 0.24);
+  border-radius: 999px;
+  color: #102c28;
+  background: #8ff0b9;
+  font: inherit;
+  font-weight: 800;
+}
+
+.mobile-app-runtime-error {
+  justify-content: center;
+  color: #7b2d28;
+  background: #fff0ed;
+  text-align: center;
+}
+
+.mobile-app-pager {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.mobile-app-page-track {
+  display: flex;
+  width: 400%;
+  height: 100%;
+  align-items: stretch;
+  transition: transform 260ms cubic-bezier(0.22, 0.72, 0.22, 1);
+  will-change: transform;
+}
+
+.mobile-app-page {
+  width: 25%;
+  height: 100%;
+  min-width: 0;
+  flex: 0 0 25%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-app-page > .mobile-timeline-page,
+.mobile-app-page > .mobile-report-page {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.mobile-app-bottom-nav {
+  position: relative;
+  z-index: 20;
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  padding: 7px max(8px, env(safe-area-inset-right)) max(7px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  border-top: 1px solid rgba(27, 46, 50, 0.12);
+  background: rgba(249, 251, 250, 0.94);
+  box-shadow: 0 -8px 26px rgba(27, 46, 50, 0.07);
+  backdrop-filter: blur(18px) saturate(1.3);
+}
+
+.mobile-app-bottom-nav button {
+  display: flex;
+  min-width: 0;
+  min-height: 45px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 13px;
+  color: #7a8a8c;
+  background: transparent;
+  font: inherit;
+  touch-action: manipulation;
+}
+
+.mobile-app-bottom-nav button > span {
+  color: #9aa8a8;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.mobile-app-bottom-nav button > strong {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-app-bottom-nav button.is-active {
+  color: #185f69;
+  background: rgba(31, 111, 139, 0.1);
+}
+
+.mobile-app-bottom-nav button.is-active > span {
+  color: #1f6f8b;
+}
+
+.mobile-app-orientation-blocker {
+  display: none;
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .mobile-app-orientation-blocker {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 8px;
+    padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
+    color: #eef4f0;
+    background: #0b0e0d;
+    text-align: center;
+  }
+
+  .mobile-app-orientation-blocker > span {
+    font-size: 34px;
+  }
+
+  .mobile-app-orientation-blocker strong {
+    font-size: 20px;
+  }
+
+  .mobile-app-orientation-blocker p {
+    margin: 0;
+    color: #91a098;
+    font-size: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-app-page-track {
+    transition: none;
+  }
+}

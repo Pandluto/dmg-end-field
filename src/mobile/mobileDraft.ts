@@ -1,4 +1,5 @@
 import type { Character } from '../types';
+import type { HitResistanceInput, SkillButtonBuff } from '../types/storage';
 import {
   MOBILE_DRAFT_SCHEMA_VERSION,
   MOBILE_EQUIPMENT_SLOT_KEYS,
@@ -7,6 +8,7 @@ import {
   type MobileDraft,
   type MobileOperatorConfig,
   type MobilePageId,
+  type MobileTimelineAction,
   type MobileTimelineSlot,
 } from './model';
 
@@ -42,7 +44,7 @@ export function createDefaultMobileOperatorConfig(character: Character): MobileO
       weaponId: '',
       level: 90,
       potential: '0潜',
-      skillLevels: { skill1: 1, skill2: 1, skill3: 1 },
+      skillLevels: { skill1: 9, skill2: 9, skill3: 4 },
     },
     equipment: Object.fromEntries(
       MOBILE_EQUIPMENT_SLOT_KEYS.map((slotKey) => [
@@ -69,6 +71,88 @@ function isMobilePageId(value: unknown): value is MobilePageId {
   return typeof value === 'string' && MOBILE_PAGE_IDS.includes(value as MobilePageId);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeNumberMap(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter((entry): entry is [string, number] => (
+      typeof entry[1] === 'number' && Number.isFinite(entry[1])
+    )),
+  );
+}
+
+function normalizeNestedNumberMap(value: unknown): Record<string, Record<string, number>> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).map(([key, counts]) => [key, normalizeNumberMap(counts)]),
+  );
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string' && item.length > 0)
+    : [];
+}
+
+function normalizeAction(value: unknown): MobileTimelineAction | null {
+  if (!isRecord(value)) return null;
+  const skillType = typeof value.skillType === 'string'
+    && ['A', 'B', 'E', 'Q', 'Dot'].includes(value.skillType)
+    ? value.skillType as MobileTimelineAction['skillType']
+    : null;
+  if (
+    typeof value.id !== 'string'
+    || typeof value.operatorId !== 'string'
+    || !value.id
+    || !value.operatorId
+    || !skillType
+  ) return null;
+  const disabledBuffIdsByHitKey = isRecord(value.disabledBuffIdsByHitKey)
+    ? Object.fromEntries(
+        Object.entries(value.disabledBuffIdsByHitKey)
+          .map(([key, ids]) => [key, normalizeStringArray(ids)]),
+      )
+    : {};
+  const resistanceKeys = new Set<keyof HitResistanceInput>([
+    'physicalResistance',
+    'fireResistance',
+    'electricResistance',
+    'iceResistance',
+    'natureResistance',
+  ]);
+  const targetResistance = isRecord(value.targetResistance)
+    ? Object.fromEntries(
+        Object.entries(value.targetResistance).filter((entry): entry is [keyof HitResistanceInput, number] => (
+          resistanceKeys.has(entry[0] as keyof HitResistanceInput)
+          && typeof entry[1] === 'number'
+          && Number.isFinite(entry[1])
+        )),
+      ) as HitResistanceInput
+    : {};
+  return {
+    id: value.id,
+    operatorId: value.operatorId,
+    skillType,
+    runtimeSkillId: typeof value.runtimeSkillId === 'string' ? value.runtimeSkillId : '',
+    skillName: typeof value.skillName === 'string' ? value.skillName : skillType,
+    ...(typeof value.skillIconUrl === 'string' ? { skillIconUrl: value.skillIconUrl } : {}),
+    buffs: Array.isArray(value.buffs)
+      ? value.buffs.filter((buff): buff is SkillButtonBuff => (
+          isRecord(buff) && typeof buff.id === 'string'
+        ))
+      : [],
+    buffStackCounts: normalizeNumberMap(value.buffStackCounts),
+    buffStackCountsByHitKey: normalizeNestedNumberMap(value.buffStackCountsByHitKey),
+    globallyDisabledBuffIds: normalizeStringArray(value.globallyDisabledBuffIds),
+    disabledBuffIdsByHitKey,
+    disabledHitKeys: normalizeStringArray(value.disabledHitKeys),
+    targetResistance,
+  };
+}
+
 export function normalizeMobileDraft(raw: unknown, now = Date.now()): MobileDraft {
   const fallback = createEmptyMobileDraft(now);
   if (!raw || typeof raw !== 'object') return fallback;
@@ -84,7 +168,7 @@ export function normalizeMobileDraft(raw: unknown, now = Date.now()): MobileDraf
   const slots = Array.isArray(candidate.slots)
     ? candidate.slots
       .filter((slot): slot is MobileTimelineSlot => Boolean(slot && typeof slot.id === 'string'))
-      .map((slot) => ({ id: slot.id, action: slot.action ?? null }))
+      .map((slot) => ({ id: slot.id, action: normalizeAction(slot.action) }))
     : [];
   while (slots.length < MOBILE_INITIAL_SLOT_COUNT) {
     slots.push(createEmptyMobileSlot(slots.length));

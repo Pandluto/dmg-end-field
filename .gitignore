@@ -5,6 +5,8 @@ public/packages/*.zip
 public/packages/*.partial
 public/packages/*.part-*
 public/data/catalog.sqlite
+public/assets/images/**
+!public/assets/images/_manifest.json
 release
 release-latest/
 .DS_Store

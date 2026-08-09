@@ -318,6 +318,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // The portrait mobile workbench is online-only. Never answer its entry
+  // navigation from the offline app-shell cache, even when this worker still
+  // controls the origin from a previous desktop visit.
+  if (request.mode === 'navigate' && /^\/mobile\/?$/.test(url.pathname)) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   // The generated browser image index lives below /assets/images/, but it is
   // application code metadata rather than an installed image. Serve every
   // explicit non-navigation shell entry before the generic package routes.

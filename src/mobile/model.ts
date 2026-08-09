@@ -110,5 +110,6 @@ export interface MobileDamageReport {
 export interface MobileRuntimeState {
   operatorSnapshots: Record<string, ConfigSnapshot>;
   slotCalculations: Record<string, MobileSlotCalculation>;
+  availableBuffs: SkillButtonBuff[];
   report: MobileDamageReport;
 }

@@ -12,7 +12,7 @@ import type {
 } from '../core/calculators/skillDamage.types';
 import { buildOperatorEquipmentSetBuffs } from '../core/services/operatorEquipmentLibrary';
 import type { Character, Skill, SkillType } from '../types';
-import type { DamageBonusSnapshot } from '../types/storage';
+import type { DamageBonusSnapshot, SkillButtonBuff } from '../types/storage';
 import type {
   MobileCatalog,
   MobileDamageReport,
@@ -316,6 +316,116 @@ function buildMobileDamageReport(
   };
 }
 
+function readRawDescription(raw: unknown): string | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const value = (raw as { description?: unknown; raw?: unknown }).description
+    ?? (raw as { raw?: unknown }).raw;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function buildMobileConfigCandidateBuffs(
+  snapshots: Record<string, ConfigSnapshot>,
+): SkillButtonBuff[] {
+  return Object.values(snapshots).flatMap((snapshot) => {
+    const operatorBuffs = (['talent', 'potential', 'skill'] as const).flatMap((groupKey) => (
+      Object.entries(snapshot.operator.buffs[groupKey]?.effects ?? {}).flatMap(([effectKey, effect]) => {
+        if (effect.category === 'passive' || effect.category === 'positive') return [];
+        return [{
+          schemaVersion: 2,
+          id: `mobile-operator:${snapshot.operator.id}:${groupKey}:${effectKey}`,
+          name: effect.name || effect.effectId || effectKey,
+          displayName: effect.name || effect.effectId || effectKey,
+          sourceName: snapshot.operator.name,
+          source: 'operator-config',
+          level: groupKey,
+          type: effect.type,
+          value: effect.value,
+          description: effect.description || effect.raw,
+          category: effect.category === 'countable' ? 'countable' : 'condition',
+          maxStacks: effect.maxStacks,
+          ownerBuffDomain: 'operator',
+          ownerCharacterId: snapshot.operator.id,
+          ownerBuffGroup: groupKey,
+          valueMode: effect.valueMode,
+          derivedValue: effect.derivedValue,
+          effectKind: effect.effectKind,
+          extraHitConfig: effect.extraHitConfig,
+          multiplier: effect.multiplier,
+          refCount: 1,
+        } satisfies SkillButtonBuff];
+      })
+    ));
+
+    const weaponBuffs = snapshot.weapon.skills.skill3.effects.flatMap((effect, index) => {
+      if (effect.category === 'passive' || !snapshot.weapon.id) return [];
+      return [{
+        schemaVersion: 2,
+        id: `mobile-weapon:${snapshot.operator.id}:${snapshot.weapon.id}:${effect.effectKey || index}`,
+        name: effect.label || effect.effectKey || `weapon-effect-${index + 1}`,
+        displayName: effect.label || effect.effectKey || `武器特效 ${index + 1}`,
+        sourceName: snapshot.weapon.name || snapshot.weapon.id,
+        source: 'weapon-config',
+        level: `${effect.level} 级`,
+        type: effect.typeKey,
+        value: effect.value,
+        description: readRawDescription(effect.raw),
+        category: effect.category === 'countable' ? 'countable' : 'condition',
+        maxStacks: effect.maxStacks,
+        ownerBuffDomain: 'weapon',
+        ownerCharacterId: snapshot.operator.id,
+        ownerBuffGroup: 'weaponSkill',
+        valueMode: effect.valueMode,
+        derivedValue: effect.derivedValue,
+        effectKind: effect.effectKind,
+        extraHitConfig: effect.extraHitConfig,
+        multiplier: effect.multiplier,
+        refCount: 1,
+      } satisfies SkillButtonBuff];
+    });
+
+    const equipmentBuffs = snapshot.equipment.setBuffs.flatMap((effect, index) => {
+      if (effect.category === 'passive' || effect.category === 'positive') return [];
+      return [{
+        schemaVersion: 2,
+        id: `mobile-equipment:${snapshot.operator.id}:${effect.gearSetId}:${effect.effectId || index}`,
+        name: effect.label || effect.effectId || `equipment-effect-${index + 1}`,
+        displayName: effect.label || effect.effectId || `三件套效果 ${index + 1}`,
+        sourceName: effect.gearSetName || effect.gearSetId,
+        source: 'equipment-config',
+        level: '三件套',
+        type: effect.typeKey,
+        value: effect.value,
+        description: effect.raw,
+        category: 'condition',
+        maxStacks: effect.maxStacks,
+        ownerBuffDomain: 'equipment',
+        ownerCharacterId: snapshot.operator.id,
+        ownerBuffGroup: 'threePiece',
+        valueMode: effect.valueMode,
+        derivedValue: effect.derivedValue,
+        effectKind: effect.effectKind,
+        extraHitConfig: effect.extraHitConfig,
+        multiplier: effect.multiplier,
+        refCount: 1,
+      } satisfies SkillButtonBuff];
+    });
+
+    return [...operatorBuffs, ...weaponBuffs, ...equipmentBuffs];
+  });
+}
+
+function buildAvailableBuffs(
+  catalogBuffs: SkillButtonBuff[],
+  snapshots: Record<string, ConfigSnapshot>,
+): SkillButtonBuff[] {
+  const seen = new Set<string>();
+  return [...catalogBuffs, ...buildMobileConfigCandidateBuffs(snapshots)].filter((buff) => {
+    if (!buff.id || seen.has(buff.id)) return false;
+    seen.add(buff.id);
+    return true;
+  });
+}
+
 export function buildMobileRuntimeState(
   draft: MobileDraft,
   catalog: MobileCatalog,
@@ -341,6 +451,7 @@ export function buildMobileRuntimeState(
   return {
     operatorSnapshots,
     slotCalculations,
+    availableBuffs: buildAvailableBuffs(catalog.buffs, operatorSnapshots),
     report: buildMobileDamageReport(Object.values(slotCalculations)),
   };
 }

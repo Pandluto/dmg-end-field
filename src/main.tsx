@@ -1,12 +1,12 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { WebBootstrap } from './components/WebApp/WebBootstrap'
 
 declare global {
   interface Window {
     __DMG_MARK_MODULE_READY__?: () => void
     __DMG_RECOVER_STARTUP__?: () => Promise<void>
     __DMG_ENSURE_SERVICE_WORKER__?: () => Promise<boolean>
+    __DMG_MOBILE_ENTRY__?: boolean
   }
 }
 
@@ -18,13 +18,22 @@ declare global {
 //   return event.returnValue
 // }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <WebBootstrap />
-  </React.StrictMode>,
-)
+const root = ReactDOM.createRoot(document.getElementById('root')!)
 
-// The bundled application shell is usable without an optional theme package.
-// The selected theme is loaded by WebBootstrap only after the image service is
-// ready, so theme image requests cannot race the controlling service worker.
-window.__DMG_MARK_MODULE_READY__?.()
+async function mountEntry() {
+  const Entry = window.__DMG_MOBILE_ENTRY__
+    ? (await import('./mobile/MobileBootstrap')).MobileBootstrap
+    : (await import('./components/WebApp/WebBootstrap')).WebBootstrap
+
+  root.render(
+    <React.StrictMode>
+      <Entry />
+    </React.StrictMode>,
+  )
+
+  // The selected entry module is now usable. Desktop themes and image services
+  // continue their own initialization after WebBootstrap mounts.
+  window.__DMG_MARK_MODULE_READY__?.()
+}
+
+void mountEntry()

@@ -642,7 +642,7 @@ export function MobileOperatorConfigPage({
                 <div><span>攻击力</span><strong>{formatNumber(configSnapshot.panel.display.atk)}</strong></div>
                 <div><span>生命值</span><strong>{formatNumber(configSnapshot.panel.display.hp)}</strong></div>
                 <div><span>暴击率</span><strong>{formatPercent(configSnapshot.panel.display.critRate)}</strong></div>
-                <div><span>源石技艺</span><strong>{formatPercent(configSnapshot.panel.display.sourceSkill)}</strong></div>
+                <div><span>源石技艺</span><strong>{formatNumber(configSnapshot.panel.display.sourceSkill)}</strong></div>
               </div>
 
               {isPanelDetailOpen && (

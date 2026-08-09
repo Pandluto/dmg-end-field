@@ -487,7 +487,7 @@ export async function loadMobileCatalog(): Promise<MobileCatalog> {
   }
 
   const rawImageManifest = await fetchJson(
-    resolvePublicPath(IMAGE_MANIFEST_PATH),
+    appendQuery(resolvePublicPath(IMAGE_MANIFEST_PATH), 'mobile', createMobileEntryQuery()),
     '移动端图片清单加载',
   );
   let imageManifest: MobileImageManifest;

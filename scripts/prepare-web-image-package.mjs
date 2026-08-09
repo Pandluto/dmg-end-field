@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
+import { unzipSync } from 'fflate';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifestPath = path.join(projectRoot, 'public', 'web-image-manifest.json');
@@ -76,10 +77,44 @@ for (let offset = 0, index = 0; offset < archive.length; offset += partSize, ind
 manifest.archive.parts = parts;
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
+// The desktop workspace still installs the verified archive into Cache
+// Storage. The online-only mobile entry cannot depend on that PWA path, so the
+// same verified archive also becomes ordinary version-addressed site assets.
+const extracted = new Map(
+  Object.entries(unzipSync(new Uint8Array(archive)))
+    .map(([archivePath, bytes]) => [archivePath.replace(/\\/g, '/'), bytes]),
+);
+let extractedBytes = 0;
+for (const entry of manifest.files) {
+  const publicPath = String(entry.path || '').replace(/\\/g, '/');
+  if (!publicPath.startsWith('assets/images/')) {
+    throw new Error(`图片清单路径不在 assets/images：${publicPath}`);
+  }
+  const archivePath = publicPath.replace(/^assets\//, '');
+  const bytes = extracted.get(archivePath);
+  if (!bytes) throw new Error(`图片压缩包缺少文件：${publicPath}`);
+  if (bytes.byteLength !== Number(entry.size)) {
+    throw new Error(`图片体积不符：${publicPath}`);
+  }
+  const digest = crypto.createHash('sha256').update(bytes).digest('hex');
+  if (digest !== entry.sha256) {
+    throw new Error(`图片 SHA-256 不符：${publicPath}`);
+  }
+  const outputPath = path.resolve(projectRoot, 'public', publicPath);
+  const imageRoot = path.resolve(projectRoot, 'public', 'assets', 'images');
+  if (!outputPath.startsWith(`${imageRoot}${path.sep}`)) {
+    throw new Error(`拒绝写入图片目录外路径：${publicPath}`);
+  }
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  fs.writeFileSync(outputPath, bytes);
+  extractedBytes += bytes.byteLength;
+}
+
 const legacyPath = path.join(projectRoot, 'public', manifest.archive.path);
 if (legacyPath !== targetPath) fs.rmSync(legacyPath, { force: true });
 
 console.log(
   `Web image package prepared: ${parts.length} parts, `
-  + `${archive.byteLength} bytes (${parts.map((part) => part.size).join(' + ')}).`,
+  + `${archive.byteLength} bytes (${parts.map((part) => part.size).join(' + ')}); `
+  + `${manifest.files.length} online image files, ${extractedBytes} bytes.`,
 );

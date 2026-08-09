@@ -19,6 +19,7 @@ import { buildMobileRuntimeState } from './mobileRuntime';
 const EMPTY_RUNTIME: MobileRuntimeState = {
   operatorSnapshots: {},
   slotCalculations: {},
+  availableBuffs: [],
   report: {
     totalExpected: 0,
     totalCrit: 0,
@@ -39,11 +40,14 @@ function reconcileDraftWithCatalog(draft: MobileDraft, catalog: MobileCatalog): 
     .filter((operatorId) => availableIds.has(operatorId))
     .slice(0, 4);
   const selectedSet = new Set(selectedOperatorIds);
-  const operatorConfigs = { ...draft.operatorConfigs };
+  let operatorConfigs = draft.operatorConfigs;
   selectedOperatorIds.forEach((operatorId) => {
     if (operatorConfigs[operatorId]) return;
     const character = findCharacter(catalog, operatorId);
-    if (character) operatorConfigs[operatorId] = createDefaultMobileOperatorConfig(character);
+    if (character) {
+      if (operatorConfigs === draft.operatorConfigs) operatorConfigs = { ...draft.operatorConfigs };
+      operatorConfigs[operatorId] = createDefaultMobileOperatorConfig(character);
+    }
   });
   const slots = draft.slots.map((slot) => (
     slot.action && !selectedSet.has(slot.action.operatorId)

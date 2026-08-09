@@ -1,0 +1,112 @@
+:root[data-mobile-entry='true'] {
+  color-scheme: dark;
+  background: #0b0e0d;
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+}
+
+:root[data-mobile-entry='true'],
+:root[data-mobile-entry='true'] body,
+:root[data-mobile-entry='true'] #root {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+  background: #0b0e0d;
+}
+
+:root[data-mobile-entry='true'] .web-entry-screen {
+  width: 100%;
+  min-width: 0;
+  min-height: 100dvh;
+  padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+}
+
+:root[data-mobile-entry='true'] .access-card {
+  width: min(100%, 420px);
+  padding: 28px 22px;
+  border-radius: 22px;
+}
+
+:root[data-mobile-entry='true'] .brand-mark {
+  width: 78px;
+  height: 56px;
+  margin-bottom: 22px;
+}
+
+:root[data-mobile-entry='true'] .access-card h1 {
+  font-size: clamp(26px, 8vw, 31px);
+}
+
+:root[data-mobile-entry='true'] .access-input-row input,
+:root[data-mobile-entry='true'] .access-input-row button {
+  min-height: 46px;
+}
+
+@media (max-width: 390px) {
+  :root[data-mobile-entry='true'] .access-input-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.mobile-bootstrap-state {
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
+  color: #eef4f0;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 10%, rgba(112, 226, 169, 0.13), transparent 42%),
+    #0b0e0d;
+}
+
+.mobile-bootstrap-state strong {
+  font-size: 18px;
+  letter-spacing: 0.02em;
+}
+
+.mobile-bootstrap-state small,
+.mobile-bootstrap-state p {
+  max-width: 320px;
+  margin: 0;
+  color: #91a098;
+  line-height: 1.6;
+}
+
+.mobile-bootstrap-state button {
+  min-height: 46px;
+  padding: 0 22px;
+  border: 1px solid rgba(158, 255, 202, 0.35);
+  border-radius: 14px;
+  color: #08110c;
+  background: #8ff0b9;
+  font: inherit;
+  font-weight: 750;
+}
+
+.mobile-bootstrap-spinner {
+  width: 30px;
+  height: 30px;
+  border: 2px solid rgba(143, 240, 185, 0.2);
+  border-top-color: #8ff0b9;
+  border-radius: 50%;
+  animation: mobile-bootstrap-spin 0.8s linear infinite;
+}
+
+.mobile-bootstrap-error-mark {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(255, 141, 128, 0.45);
+  border-radius: 50%;
+  color: #ff9e91;
+  font-weight: 800;
+}
+
+@keyframes mobile-bootstrap-spin {
+  to { transform: rotate(360deg); }
+}

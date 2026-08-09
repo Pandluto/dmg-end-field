@@ -20,6 +20,15 @@ export interface MobileBuffEditorProps {
 type EditorPage = 0 | 1 | 2;
 
 const PAGE_LABELS = ['Hit 微调', 'Buff', '计算与抗性'] as const;
+const EDITOR_PAGER_INTERACTIVE_SELECTOR = [
+  'button',
+  'input',
+  'select',
+  'textarea',
+  'a',
+  'summary',
+  '[data-mobile-pager-lock]',
+].join(',');
 const RESISTANCE_FIELDS: Array<[keyof HitResistanceInput, string]> = [
   ['physicalResistance', '物理'],
   ['fireResistance', '灼热'],
@@ -242,6 +251,8 @@ export function MobileBuffEditor({
 
   const handlePagerPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest(EDITOR_PAGER_INTERACTIVE_SELECTOR)) return;
     pagerPointerRef.current = {
       pointerId: event.pointerId,
       startX: event.clientX,
