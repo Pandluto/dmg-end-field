@@ -26,9 +26,8 @@ export function classifySelectionWorkspaceTransition(
 
   const previousSet = new Set(previous);
   const hasSharedCharacter = next.some((characterId) => previousSet.has(characterId));
-  const replacesEntireFullRoster = previous.length === 4 && next.length === 4 && !hasSharedCharacter;
 
-  return replacesEntireFullRoster ? 'new-temporary-workspace' : 'horizontal-branch';
+  return hasSharedCharacter ? 'horizontal-branch' : 'new-temporary-workspace';
 }
 
 export function resolveSelectionHorizontalParentId(

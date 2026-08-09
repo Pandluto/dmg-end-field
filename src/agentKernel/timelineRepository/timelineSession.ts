@@ -39,6 +39,13 @@ export type TimelineSessionSnapshot = {
   revision: number;
 };
 
+export function shouldHydrateTimelineCheckoutOnCanvasMount(
+  activeTimelineIsTemporary: boolean,
+  workingPayloadSource: TimelineSessionSnapshot['workingPayloadSource'],
+): boolean {
+  return !activeTimelineIsTemporary && workingPayloadSource !== 'runtime';
+}
+
 function readPersistedTimelineId(): string {
   if (typeof window === 'undefined') return DEFAULT_TIMELINE_ID;
   return readTimelineIdFromStorages(window.sessionStorage, persistentLocalStorage);

@@ -15,8 +15,11 @@ import type {
   OperatorConfigPageEntryState,
 } from '../types/storage';
 import { getOperatorConfigPageCache, getRuntimeOperatorTemplateMap, safeSessionStorage, setOperatorConfigPageCache } from '../utils/storage';
+import { getCurrentTimelineSnapshotPayload } from '../utils/timelineSnapshotStorage';
+import { flushUserWorkspaceState } from '../utils/userWorkspaceBridge';
 import { APP_ROUTE_PATHS, navigateToAppPath } from '../utils/appRoute';
 import { normalizeAssetUrl } from '../utils/assetResolver';
+import { setTimelineSessionWorkingPayload } from '../agentKernel/timelineRepository/timelineSession';
 import type { BuffEffectKind, BuffExtraHitConfig, BuffMultiplier } from '../core/domain/buff';
 import { DEFAULT_WEAPON_SKILL_LEVELS } from '../core/services/operatorConfigSnapshotRefreshService';
 import {
@@ -1212,6 +1215,22 @@ export function OperatorConfigPage() {
     setConfigMap(nextConfigMap);
   }, []);
 
+  const persistCharacterSnapshot = React.useCallback((characterId: string, snapshot: ConfigSnapshot) => {
+    const snapshotCache = getOperatorConfigPageCache();
+    if (isSameConfigSnapshot(snapshotCache[characterId], snapshot)) return;
+    setOperatorConfigPageCache({
+      ...snapshotCache,
+      [characterId]: snapshot,
+    });
+    const workingPayload = getCurrentTimelineSnapshotPayload();
+    if (workingPayload) {
+      setTimelineSessionWorkingPayload(workingPayload, 'runtime');
+    }
+    void flushUserWorkspaceState().catch((error) => {
+      console.error('[OperatorConfigPage] 保存干员配置失败', error);
+    });
+  }, []);
+
   const getCharacterById = React.useCallback(
     (characterId: string) => visibleCharacters.find((character) => character.id === characterId) ?? null,
     [visibleCharacters]
@@ -1359,13 +1378,8 @@ export function OperatorConfigPage() {
 
   React.useEffect(() => {
     if (!activeCharacterId || !configSnapshot) return;
-    const snapshotCache = getOperatorConfigPageCache();
-    if (isSameConfigSnapshot(snapshotCache[activeCharacterId], configSnapshot)) return;
-    setOperatorConfigPageCache({
-      ...snapshotCache,
-      [activeCharacterId]: configSnapshot,
-    });
-  }, [activeCharacterId, configSnapshot]);
+    persistCharacterSnapshot(activeCharacterId, configSnapshot);
+  }, [activeCharacterId, configSnapshot, persistCharacterSnapshot]);
 
   const attributeItems = React.useMemo<ReadonlyArray<AttributeItem>>(() => {
     const calc = configSnapshot?.panel.calc;
@@ -1399,11 +1413,15 @@ export function OperatorConfigPage() {
 
     const nextConfig = updater(baseConfig);
     const { sourceSnapshot: _sourceSnapshot, ...nextConfigWithoutSourceSnapshot } = nextConfig;
+    const nextInput = buildOperatorPanelInput(nextConfigWithoutSourceSnapshot, sourceCharacter, equipmentLibrary);
+    if (nextInput) {
+      persistCharacterSnapshot(activeCharacterId, buildConfigSnapshot(nextInput));
+    }
     persistConfigMap({
       ...configMap,
       [activeCharacterId]: nextConfigWithoutSourceSnapshot,
     });
-  }, [activeCharacterId, configMap, getCharacterById, persistConfigMap]);
+  }, [activeCharacterId, configMap, equipmentLibrary, getCharacterById, persistCharacterSnapshot, persistConfigMap]);
 
   const getNextWeaponConfigCount = React.useCallback((currentCount: number, buttonNumber: number) => {
     if (buttonNumber <= currentCount) {
