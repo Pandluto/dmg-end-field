@@ -28,6 +28,10 @@ export interface MobileTimelinePageProps {
   onOpenBuffEditor?: (slotId: string) => void;
   /** Locks the outer four-page pager while a long-press drag is active. */
   onInteractionLockChange?: (locked: boolean) => void;
+  /** Reuses the main timeline surface inside another page without its page header. */
+  embedded?: boolean;
+  /** Keeps the shared timeline rendering while disabling mutations and overlays. */
+  readOnly?: boolean;
 }
 
 type EmptySlotChooser = {
@@ -118,6 +122,8 @@ export function MobileTimelinePage({
   onMoveSlotAction,
   onOpenBuffEditor,
   onInteractionLockChange,
+  embedded = false,
+  readOnly = false,
 }: MobileTimelinePageProps) {
   const availableOperators = operators ?? selectedOperators ?? [];
   const [chooser, setChooser] = useState<EmptySlotChooser | null>(null);
@@ -176,6 +182,7 @@ export function MobileTimelinePage({
   };
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>, slotId: string) => {
+    if (readOnly) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const sourceSlot = slots.find((slot) => slot.id === slotId);
     if (!sourceSlot?.action) return;
@@ -238,6 +245,7 @@ export function MobileTimelinePage({
   };
 
   const openSlot = (slot: MobileTimelineSlot) => {
+    if (readOnly) return;
     if (slot.action) {
       if (suppressClickRef.current) {
         suppressClickRef.current = false;
@@ -266,43 +274,46 @@ export function MobileTimelinePage({
   };
 
   const moveTargets = moveSourceSlotId ? slots.filter((slot) => slot.id !== moveSourceSlotId) : [];
+  const RootElement: 'main' | 'section' = embedded ? 'section' : 'main';
 
   return (
-    <main
-      className={`mobile-timeline-page${dragState ? ' is-dragging' : ''}`}
+    <RootElement
+      className={`mobile-timeline-page${embedded ? ' is-embedded' : ''}${readOnly ? ' is-read-only' : ''}${dragState ? ' is-dragging' : ''}`}
       data-mobile-dragging={dragState ? 'true' : undefined}
       aria-label="竖向排轴"
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
     >
-      <header className="mobile-timeline-header">
-        <div>
-          <p className="mobile-timeline-kicker">03 / 排轴</p>
-          <h1>技能队列</h1>
-        </div>
-        <div className="mobile-timeline-header-tools">
-          <div className="mobile-timeline-view-switch" aria-label="排轴显示模式">
-            <button
-              type="button"
-              className={viewMode === 'queue' ? 'is-active' : ''}
-              onClick={() => setViewMode('queue')}
-              aria-pressed={viewMode === 'queue'}
-            >
-              列表
-            </button>
-            <button
-              type="button"
-              className={viewMode === 'damage' ? 'is-active' : ''}
-              onClick={() => setViewMode('damage')}
-              aria-pressed={viewMode === 'damage'}
-            >
-              伤害
-            </button>
+      {!embedded ? (
+        <header className="mobile-timeline-header">
+          <div>
+            <p className="mobile-timeline-kicker">03 / 排轴</p>
+            <h1>技能队列</h1>
           </div>
-          <span className="mobile-timeline-count">{slots.filter((slot) => slot.action).length} 个动作</span>
-        </div>
-      </header>
+          <div className="mobile-timeline-header-tools">
+            <div className="mobile-timeline-view-switch" aria-label="排轴显示模式">
+              <button
+                type="button"
+                className={viewMode === 'queue' ? 'is-active' : ''}
+                onClick={() => setViewMode('queue')}
+                aria-pressed={viewMode === 'queue'}
+              >
+                列表
+              </button>
+              <button
+                type="button"
+                className={viewMode === 'damage' ? 'is-active' : ''}
+                onClick={() => setViewMode('damage')}
+                aria-pressed={viewMode === 'damage'}
+              >
+                伤害
+              </button>
+            </div>
+            <span className="mobile-timeline-count">{slots.filter((slot) => slot.action).length} 个动作</span>
+          </div>
+        </header>
+      ) : null}
 
       {availableOperators.length === 0 ? (
         <section className="mobile-timeline-empty-state" role="status">
@@ -332,8 +343,10 @@ export function MobileTimelinePage({
                   className={`mobile-timeline-action-card${viewMode === 'damage' ? ' is-damage-view' : ''}`}
                   onClick={() => openSlot(slot)}
                   onPointerDown={(event) => handlePointerDown(event, slot.id)}
-                  onContextMenu={(event) => event.preventDefault()}
-                  aria-label={`${action.skillName}，${operator.name}，点击查看操作，长按拖动`}
+                  onContextMenu={(event) => { if (!readOnly) event.preventDefault(); }}
+                  aria-label={readOnly
+                    ? `${action.skillName}，${operator.name}`
+                    : `${action.skillName}，${operator.name}，点击查看操作，长按拖动`}
                 >
                   <span className="mobile-timeline-action-skill-icon">
                     {action.skillIconUrl ? <img src={action.skillIconUrl} alt="" /> : SKILL_LABELS[action.skillType]}
@@ -359,13 +372,13 @@ export function MobileTimelinePage({
                   type="button"
                   className="mobile-timeline-empty-slot"
                   onClick={() => openSlot(slot)}
-                  disabled={availableOperators.length === 0}
-                  aria-label={`第 ${index + 1} 个空槽，点击添加技能`}
+                  disabled={readOnly || availableOperators.length === 0}
+                  aria-label={readOnly ? `第 ${index + 1} 个空槽` : `第 ${index + 1} 个空槽，点击添加技能`}
                 >
                   <span className="mobile-timeline-plus" aria-hidden="true">＋</span>
                   <span>
                     <strong>{isDragTarget ? '放到这里' : '空槽位'}</strong>
-                    <small>{isDragTarget ? '松开以插入技能' : '点击选择干员和技能'}</small>
+                    <small>{isDragTarget ? '松开以插入技能' : readOnly ? '尚未安排技能' : '点击选择干员和技能'}</small>
                   </span>
                 </button>
               )}
@@ -386,10 +399,12 @@ export function MobileTimelinePage({
         })}
       </ol>
 
-      <button type="button" className="mobile-timeline-add-slot" onClick={onAddSlot}>
-        <span aria-hidden="true">＋</span>
-        <span>新增槽位</span>
-      </button>
+      {!readOnly ? (
+        <button type="button" className="mobile-timeline-add-slot" onClick={onAddSlot}>
+          <span aria-hidden="true">＋</span>
+          <span>新增槽位</span>
+        </button>
+      ) : null}
 
       {dragSourceAction && dragState ? (
         <MobilePortal>
@@ -497,7 +512,7 @@ export function MobileTimelinePage({
           </div>
         </MobilePortal>
       ) : null}
-    </main>
+    </RootElement>
   );
 }
 

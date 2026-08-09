@@ -600,14 +600,31 @@
 }
 
 .mobile-buff-sheet-option-remove {
-  min-height: 38px;
-  margin: 0 8px 8px;
-  border: 1px solid rgba(167, 79, 79, 0.3);
-  border-radius: 9px;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 3;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  place-items: center;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(152, 71, 71, 0.42);
+  border-radius: 7px 2px 7px 2px;
   color: #984747;
-  background: rgba(255, 255, 255, 0.72);
-  font-size: 9px;
-  font-weight: 760;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 8px rgba(53, 38, 38, 0.12);
+  font-size: 19px;
+  font-weight: 520;
+  line-height: 1;
+  touch-action: manipulation;
+}
+
+.mobile-buff-sheet-option-remove:active {
+  background: #f8eaea;
+  transform: scale(0.94);
 }
 
 .mobile-buff-sheet-option-grid span {

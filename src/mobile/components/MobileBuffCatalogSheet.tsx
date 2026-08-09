@@ -134,7 +134,7 @@ function SpecialOptionCard({
           onClick={onRemove}
           aria-label={`取消挂载 ${title}`}
         >
-          取消挂载
+          ×
         </button>
       ) : null}
     </article>

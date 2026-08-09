@@ -178,8 +178,8 @@
 
 .mobile-report-loadout-row {
   display: grid;
-  grid-template-columns: minmax(86px, 29%) minmax(0, 1fr);
-  min-height: 226px;
+  grid-template-columns: minmax(92px, 29%) minmax(0, 1fr);
+  min-height: 0;
   gap: 5px;
   padding: 5px;
   border: 1px solid var(--report-line);
@@ -224,7 +224,10 @@
 }
 
 .mobile-report-operator-portrait {
-  min-height: 214px;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 1 / 1;
+  align-self: start;
   border: 1px solid var(--report-line);
 }
 

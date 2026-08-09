@@ -595,26 +595,22 @@ export function MobileOperatorConfigPage({
               return (
                 <article className="mobile-operator-config-equipment-slot" key={key}>
                   <div className="mobile-operator-config-equipment-heading">
-                    <div className="mobile-operator-config-equipment-image">
-                      {getEquipmentImageUrl(selectedItem) ? <img src={getEquipmentImageUrl(selectedItem)} alt="" /> : <span aria-hidden="true">＋</span>}
-                    </div>
-                    <div>
+                    <div className="mobile-operator-config-equipment-copy">
                       <strong>{label}</strong>
-                      <small>{part} · {selectedItem?.name || '未选择'}</small>
+                      <small>{selectedItem?.name || '未配置'}</small>
+                      <span>{part} · {options.length} 件</span>
                     </div>
-                    <span className="mobile-operator-config-equipment-count">{options.length}</span>
+                    <button
+                      type="button"
+                      className="mobile-operator-config-equipment-image"
+                      onClick={() => setPicker({ kind: 'equipment', slotKey: key })}
+                      aria-label={`${selectedItem ? '更换' : '选择'}${label}`}
+                      aria-haspopup="dialog"
+                      aria-expanded={picker?.kind === 'equipment' && picker.slotKey === key}
+                    >
+                      {getEquipmentImageUrl(selectedItem) ? <img src={getEquipmentImageUrl(selectedItem)} alt="" /> : <span aria-hidden="true">＋</span>}
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    className="mobile-operator-config-equipment-picker"
-                    onClick={() => setPicker({ kind: 'equipment', slotKey: key })}
-                    aria-haspopup="dialog"
-                    aria-expanded={picker?.kind === 'equipment' && picker.slotKey === key}
-                  >
-                    <span>{selectedItem ? '更换装备' : '选择装备'}</span>
-                    <small>{options.length} 件图片卡片可选</small>
-                    <strong aria-hidden="true">›</strong>
-                  </button>
 
                   {selectedItem && Object.values(selectedItem.effects).length > 0 && (
                     <div className="mobile-operator-config-effect-list">

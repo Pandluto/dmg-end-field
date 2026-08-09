@@ -200,15 +200,12 @@ export function MobileSelectionPage({
                     </span>
                     <span className="mobile-selection-roster-copy">
                       <strong>{character.name}</strong>
-                      <span>{character.nameEn || character.profession || '官方干员'}</span>
+                      <span>
+                        <b>{ELEMENT_LABELS[character.element] || character.element}</b>
+                        <i>{character.profession || '—'}</i>
+                      </span>
                     </span>
-                    <span className="mobile-selection-roster-meta">
-                      <span className="mobile-selection-element">{ELEMENT_LABELS[character.element] || character.element}</span>
-                      <span className="mobile-selection-profession">{character.profession || '—'}</span>
-                    </span>
-                    <span className="mobile-selection-add-indicator" aria-hidden="true">
-                      {isSelected ? '✓' : '+'}
-                    </span>
+                    {isSelected ? <span className="mobile-selection-selection-stamp" aria-hidden="true">✓</span> : null}
                   </button>
                 );
               })}

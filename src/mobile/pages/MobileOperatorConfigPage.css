@@ -548,29 +548,26 @@
 }
 
 .mobile-operator-config-equipment-heading {
-  position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: end;
-  min-height: 66px;
-  gap: 3px;
-  margin-bottom: 8px;
-  padding-right: 62px;
+  grid-template-columns: minmax(0, 1fr) 58px;
+  align-items: center;
+  min-height: 58px;
+  gap: 7px;
 }
 
 .mobile-operator-config-equipment-image {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: grid;
   width: 58px;
   height: 58px;
-  flex: none;
   place-items: center;
+  padding: 0;
   overflow: hidden;
-  border-radius: 0;
+  border: 1px solid rgba(42, 80, 79, 0.13);
+  border-radius: 5px 1px 5px 1px;
   color: #7d9c96;
-  background: transparent;
+  background: rgba(255, 255, 255, 0.72);
+  font: inherit;
+  touch-action: manipulation;
 }
 
 .mobile-operator-config-equipment-image img {
@@ -582,104 +579,56 @@
   object-fit: contain;
 }
 
-.mobile-operator-config-equipment-heading > div:nth-child(2) {
+.mobile-operator-config-equipment-image:active {
+  border-color: var(--mobile-config-accent);
+  background: rgba(232, 247, 238, 0.8);
+  transform: scale(0.97);
+}
+
+.mobile-operator-config-equipment-copy {
   display: grid;
-  grid-column: 1;
   min-width: 0;
-  align-self: end;
   gap: 2px;
 }
 
-.mobile-operator-config-equipment-heading strong,
-.mobile-operator-config-equipment-heading small {
+.mobile-operator-config-equipment-copy strong,
+.mobile-operator-config-equipment-copy small,
+.mobile-operator-config-equipment-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-operator-config-equipment-heading strong {
+.mobile-operator-config-equipment-copy strong {
   font-size: 13px;
 }
 
-.mobile-operator-config-equipment-heading small {
+.mobile-operator-config-equipment-copy small {
+  color: var(--mobile-config-ink);
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.mobile-operator-config-equipment-copy span {
   color: var(--mobile-config-muted);
-  font-size: 10px;
-}
-
-.mobile-operator-config-equipment-picker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 3px 10px;
-  width: 100%;
-  min-height: 44px;
-  padding: 7px 10px;
-  border: 1px solid rgba(29, 119, 116, 0.15);
-  border-radius: 12px;
-  color: var(--mobile-config-accent);
-  background: rgba(232, 247, 238, 0.64);
-  font: inherit;
-  text-align: left;
-  touch-action: manipulation;
-}
-
-.mobile-operator-config-equipment-picker:hover {
-  border-color: rgba(29, 119, 116, 0.34);
-  background: rgba(224, 245, 235, 0.92);
-}
-
-.mobile-operator-config-equipment-picker span {
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.mobile-operator-config-equipment-picker small {
-  grid-column: 1;
-  color: var(--mobile-config-muted);
-  font-size: 10px;
-}
-
-.mobile-operator-config-equipment-picker strong {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-  color: var(--mobile-config-accent);
-  font-size: 24px;
-  font-weight: 350;
-  line-height: 1;
-}
-
-.mobile-operator-config-equipment-count {
-  position: absolute;
-  top: 0;
-  left: 0;
-  display: grid;
-  width: 28px;
-  height: 24px;
-  flex: none;
-  place-items: center;
-  margin-left: 0;
-  border-radius: 4px 1px 4px 1px;
-  color: #6d8c87;
-  background: rgba(222, 237, 229, 0.86);
-  font-size: 10px;
-  font-weight: 800;
+  font-size: 9px;
 }
 
 .mobile-operator-config-effect-list {
   display: grid;
-  gap: 6px;
-  margin-top: 9px;
-  padding-top: 9px;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
   border-top: 1px solid rgba(42, 80, 79, 0.08);
 }
 
 .mobile-operator-config-effect-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 58px;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   color: var(--mobile-config-muted);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
 }
 
@@ -691,10 +640,9 @@
 
 .mobile-operator-config-effect-row select {
   width: 100%;
-  min-height: 38px;
-  padding-right: 5px;
-  padding-left: 7px;
-  font-size: 11px;
+  min-height: 30px;
+  padding: 3px 4px;
+  font-size: 10px;
 }
 
 .mobile-operator-config-summary-card {
@@ -1051,7 +999,7 @@
 
 .mobile-operator-config-picker-close:focus-visible,
 .mobile-operator-config-picker-trigger:focus-visible,
-.mobile-operator-config-equipment-picker:focus-visible,
+.mobile-operator-config-equipment-image:focus-visible,
 .mobile-operator-config-picker-card:focus-visible {
   outline: 3px solid rgba(29, 119, 116, 0.22);
   outline-offset: 2px;

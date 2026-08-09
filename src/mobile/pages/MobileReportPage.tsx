@@ -11,6 +11,7 @@ import type {
   MobileSlotCalculation,
   MobileTimelineSlot,
 } from '../model';
+import { MobileTimelinePage } from './MobileTimelinePage';
 import './MobileReportPage.css';
 
 export interface MobileReportPageProps {
@@ -207,62 +208,6 @@ function TeamReportSlide({
                       <span key={skillKey}><b>{skillKey}</b><strong>{config?.skillLevels[skillKey] ?? '—'}</strong></span>
                     ))}
                   </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function TimelineReportSlide({
-  operators,
-  entries,
-  totalExpected,
-}: {
-  operators: Character[];
-  entries: TimelineReportEntry[];
-  totalExpected: number;
-}) {
-  return (
-    <section className="mobile-report-slide" aria-labelledby="mobile-report-timeline-title">
-      <ReportSlideHeader index="02" title="排轴概览" note="按干员轨道保留技能先后顺序" />
-      <div className="mobile-report-timeline-summary">
-        <span><small>有效动作</small><strong>{entries.length}</strong></span>
-        <span><small>累计期望</small><strong>{formatDamage(totalExpected)}</strong></span>
-      </div>
-      {entries.length === 0 ? <EmptyReportState>完成排轴后，这里会按干员生成技能轨道。</EmptyReportState> : (
-        <div className="mobile-report-lanes">
-          {operators.map((operator) => {
-            const operatorEntries = entries.filter((entry) => entry.operator.id === operator.id);
-            const operatorTotal = operatorEntries.reduce(
-              (sum, entry) => sum + toSafeAmount(entry.calculation?.result.summary.totalExpected),
-              0,
-            );
-            const avatarUrl = normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name);
-            return (
-              <article key={operator.id} className="mobile-report-lane">
-                <header>
-                  <span className="mobile-report-lane-avatar" data-fallback={operator.name.slice(0, 1)}>
-                    {avatarUrl ? <img src={avatarUrl} alt="" onError={handleImageError} /> : null}
-                  </span>
-                  <span><strong>{operator.name}</strong><small>{operatorEntries.length} 次技能 · {formatDamage(operatorTotal)}</small></span>
-                </header>
-                <div className="mobile-report-lane-track" data-mobile-pager-lock>
-                  {operatorEntries.length === 0 ? <span className="mobile-report-lane-empty">本轴暂无动作</span> : operatorEntries.map((entry) => (
-                    <div key={entry.slotId} className="mobile-report-axis-action">
-                      <span className="mobile-report-axis-order">{String(entry.order).padStart(2, '0')}</span>
-                      <span className="mobile-report-axis-icon" data-fallback={entry.action.skillType}>
-                        {entry.action.skillIconUrl ? <img src={normalizeAssetUrl(entry.action.skillIconUrl)} alt="" onError={handleImageError} /> : null}
-                      </span>
-                      <span className="mobile-report-axis-copy">
-                        <strong>{entry.action.skillName}</strong>
-                        <small>{formatDamage(entry.calculation?.result.summary.totalExpected)}</small>
-                      </span>
-                    </div>
-                  ))}
                 </div>
               </article>
             );
@@ -496,7 +441,20 @@ export function MobileReportPage({
           equipmentMap={equipmentMap}
         />
       ) : activePage === 'timeline' ? (
-        <TimelineReportSlide operators={operators} entries={entries} totalExpected={safeReport.totalExpected} />
+        <section className="mobile-report-slide" aria-labelledby="mobile-report-timeline-title">
+          <ReportSlideHeader index="02" title="排轴概览" note="与主排轴保持相同槽位、顺序和卡片信息" />
+          <MobileTimelinePage
+            slots={slots}
+            operators={operators}
+            slotCalculations={slotCalculations}
+            onAddSlot={() => undefined}
+            onSetSlotAction={() => undefined}
+            onDeleteSlotAction={() => undefined}
+            onMoveSlotAction={() => undefined}
+            embedded
+            readOnly
+          />
+        </section>
       ) : (
         <ChartReportSlide report={safeReport} operatorRows={operatorRows} skillRows={skillRows} entries={entries} />
       )}

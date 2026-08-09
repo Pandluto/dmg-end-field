@@ -30,6 +30,28 @@
   touch-action: none;
 }
 
+.mobile-timeline-page.is-embedded {
+  --mobile-timeline-bg: var(--report-paper, #fbfcfb);
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible;
+  background: transparent;
+}
+
+.mobile-timeline-page.is-read-only .mobile-timeline-action-card,
+.mobile-timeline-page.is-read-only .mobile-timeline-action-card:active {
+  cursor: default;
+  touch-action: pan-y;
+}
+
+.mobile-timeline-page.is-read-only .mobile-timeline-empty-slot:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .mobile-timeline-header,
 .mobile-timeline-modal-header {
   display: flex;
