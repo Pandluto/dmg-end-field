@@ -241,7 +241,8 @@
 }
 
 .mobile-timeline-operator-avatar img,
-.mobile-timeline-skill-icon,
+.mobile-timeline-action-skill-icon img,
+.mobile-timeline-action-operator-avatar img,
 .mobile-timeline-skill-choice img {
   display: block;
   width: 100%;
@@ -264,8 +265,8 @@
 }
 
 .mobile-timeline-action-copy strong {
-  font-size: 13px;
-  font-weight: 720;
+  font-size: 14px;
+  font-weight: 760;
 }
 
 .mobile-timeline-action-copy span {
@@ -273,12 +274,31 @@
   font-size: 11px;
 }
 
-.mobile-timeline-skill-icon {
+.mobile-timeline-action-skill-icon,
+.mobile-timeline-action-operator-avatar {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border: 1px solid var(--mobile-timeline-line);
+  color: var(--mobile-timeline-accent);
+  background: rgba(31, 111, 139, 0.08);
+  font-weight: 750;
+}
+
+.mobile-timeline-action-skill-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  font-size: 11px;
+}
+
+.mobile-timeline-action-operator-avatar {
   width: 30px;
   height: 30px;
-  border: 1px solid var(--mobile-timeline-line);
   border-radius: 9px;
+  font-size: 11px;
 }
 
 .mobile-timeline-action-damage {

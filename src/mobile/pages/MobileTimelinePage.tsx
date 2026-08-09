@@ -308,16 +308,18 @@ export function MobileTimelinePage({
                   onClick={() => openSlot(slot)}
                   onPointerDown={(event) => handlePointerDown(event, slot.id)}
                   onContextMenu={(event) => event.preventDefault()}
-                  aria-label={`${operator.name} ${action.skillName}，点击查看操作，长按拖动`}
+                  aria-label={`${action.skillName}，${operator.name}，点击查看操作，长按拖动`}
                 >
-                  <span className="mobile-timeline-operator-avatar">
-                    {operator.avatarUrl ? <img src={operator.avatarUrl} alt="" /> : operator.name.slice(0, 1)}
+                  <span className="mobile-timeline-action-skill-icon">
+                    {action.skillIconUrl ? <img src={action.skillIconUrl} alt="" /> : SKILL_LABELS[action.skillType]}
                   </span>
                   <span className="mobile-timeline-action-copy">
-                    <strong>{operator.name}</strong>
-                    <span>{SKILL_LABELS[action.skillType]} · {action.skillName}</span>
+                    <strong>{action.skillName}</strong>
+                    <span>{SKILL_LABELS[action.skillType]} · {operator.name}</span>
                   </span>
-                  {action.skillIconUrl ? <img className="mobile-timeline-skill-icon" src={action.skillIconUrl} alt="" /> : null}
+                  <span className="mobile-timeline-action-operator-avatar">
+                    {operator.avatarUrl ? <img src={operator.avatarUrl} alt="" /> : operator.name.slice(0, 1)}
+                  </span>
                   <span className="mobile-timeline-action-damage">
                     <small>期望伤害</small>
                     <strong>{formatDamage(calculation?.result.summary.totalExpected)}</strong>
