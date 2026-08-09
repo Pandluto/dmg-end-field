@@ -592,6 +592,51 @@ export function MobileBuffEditor({
               <span>{buffs.length + specialConfigCount} 个已选</span>
             </div>
 
+            <section className="mobile-buff-panel mobile-buff-special-configs mobile-buff-state-manager" aria-labelledby="mobile-buff-special-title">
+              <div className="mobile-buff-panel-heading">
+                <div>
+                  <p className="mobile-buff-kicker">STATE MANAGER</p>
+                  <h3 id="mobile-buff-special-title">当前状态管理</h3>
+                </div>
+                <span>{specialConfigCount}</span>
+              </div>
+              <p className="mobile-buff-state-manager-note">导电、腐蚀、碎甲、异常伤害与状态区效果统一在这里管理。</p>
+              {specialConfigCount === 0 ? <p className="mobile-buff-empty">当前没有特殊状态；可从下方分类台添加。</p> : (
+                <div className="mobile-buff-special-config-list">
+                  {(action.anomalyDamages ?? []).map((card) => (
+                    <article key={card.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind">异常伤害</span>
+                      <span>
+                        <strong>{card.primaryText}</strong>
+                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('damage', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
+                    </article>
+                  ))}
+                  {(action.anomalyStateSnapshots ?? []).map((snapshot) => (
+                    <article key={snapshot.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind is-state">异常状态</span>
+                      <span>
+                        <strong>{snapshot.primaryText}</strong>
+                        <small>{[snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyStateSnapshot(snapshot.id)} aria-label={`删除 ${snapshot.primaryText}`}>删除</button>
+                    </article>
+                  ))}
+                  {(action.anomalyStatuses ?? []).map((card) => (
+                    <article key={card.id} className="mobile-buff-special-config-row">
+                      <span className="mobile-buff-special-kind is-zone">状态区</span>
+                      <span>
+                        <strong>{card.primaryText}</strong>
+                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('state', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
             <button type="button" className="mobile-buff-workbench-launch" onClick={() => setCatalogOpen(true)}>
               <span className="mobile-buff-workbench-icon" aria-hidden="true">⌘</span>
               <span className="mobile-buff-workbench-copy">
@@ -634,50 +679,6 @@ export function MobileBuffEditor({
                       </article>
                     );
                   })}
-                </div>
-              )}
-            </section>
-
-            <section className="mobile-buff-panel mobile-buff-special-configs" aria-labelledby="mobile-buff-special-title">
-              <div className="mobile-buff-panel-heading">
-                <div>
-                  <p className="mobile-buff-kicker">SPECIAL EFFECTS</p>
-                  <h3 id="mobile-buff-special-title">异常与状态</h3>
-                </div>
-                <span>{specialConfigCount}</span>
-              </div>
-              {specialConfigCount === 0 ? <p className="mobile-buff-empty">尚未挂载异常伤害、异常状态或状态区效果。</p> : (
-                <div className="mobile-buff-special-config-list">
-                  {(action.anomalyDamages ?? []).map((card) => (
-                    <article key={card.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind">异常伤害</span>
-                      <span>
-                        <strong>{card.primaryText}</strong>
-                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyCard('damage', card.id)} aria-label={`移除 ${card.primaryText}`}>×</button>
-                    </article>
-                  ))}
-                  {(action.anomalyStateSnapshots ?? []).map((snapshot) => (
-                    <article key={snapshot.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind is-state">异常状态</span>
-                      <span>
-                        <strong>{snapshot.primaryText}</strong>
-                        <small>{[snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyStateSnapshot(snapshot.id)} aria-label={`移除 ${snapshot.primaryText}`}>×</button>
-                    </article>
-                  ))}
-                  {(action.anomalyStatuses ?? []).map((card) => (
-                    <article key={card.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind is-zone">状态区</span>
-                      <span>
-                        <strong>{card.primaryText}</strong>
-                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove" onClick={() => removeAnomalyCard('state', card.id)} aria-label={`移除 ${card.primaryText}`}>×</button>
-                    </article>
-                  ))}
                 </div>
               )}
             </section>

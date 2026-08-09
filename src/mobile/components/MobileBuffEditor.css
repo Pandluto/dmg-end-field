@@ -593,6 +593,17 @@
   line-height: 1;
 }
 
+.mobile-buff-remove.is-labeled {
+  width: auto;
+  min-width: 46px;
+  min-height: 34px;
+  padding: 0 7px;
+  border: 1px solid rgba(185, 87, 87, 0.16);
+  border-radius: 5px 1px 5px 1px;
+  font-size: 9px;
+  font-weight: 720;
+}
+
 .mobile-buff-search {
   display: flex;
   align-items: center;
@@ -734,6 +745,25 @@
   display: grid;
 }
 
+.mobile-buff-state-manager {
+  border-color: rgba(31, 111, 139, 0.23);
+  border-radius: 7px 2px 7px 2px;
+  background: linear-gradient(125deg, rgba(31, 111, 139, 0.09), rgba(255, 255, 255, 0.94));
+  box-shadow: inset 3px 0 0 var(--mobile-buff-owner), 0 8px 22px rgba(29, 54, 58, 0.055);
+}
+
+.mobile-buff-state-manager-note {
+  margin: -4px 0 9px;
+  color: var(--mobile-buff-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.mobile-buff-state-manager .mobile-buff-empty {
+  min-height: 64px;
+  padding: 12px;
+}
+
 .mobile-buff-special-config-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) 29px;
@@ -742,6 +772,10 @@
   min-width: 0;
   padding: 9px 0;
   border-top: 1px solid var(--mobile-buff-line);
+}
+
+.mobile-buff-state-manager .mobile-buff-special-config-row {
+  grid-template-columns: auto minmax(0, 1fr) 46px;
 }
 
 .mobile-buff-special-config-row > span:nth-child(2) {

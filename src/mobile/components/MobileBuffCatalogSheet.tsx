@@ -95,6 +95,54 @@ function ChoiceRail({
   );
 }
 
+interface ManagedSpecialItem {
+  id: string;
+  kind: string;
+  title: string;
+  detail: string;
+  tone?: 'damage' | 'state' | 'zone';
+}
+
+function ManagedSpecialBoard({
+  title,
+  description,
+  emptyText,
+  items,
+  onSelect,
+  onRemove,
+}: {
+  title: string;
+  description: string;
+  emptyText: string;
+  items: ManagedSpecialItem[];
+  onSelect: (id: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section className="mobile-buff-sheet-managed" aria-label={title}>
+      <div className="mobile-buff-sheet-managed-heading">
+        <span><small>当前生效</small><strong>{title}</strong></span>
+        <b>{items.length}</b>
+      </div>
+      <p>{description}</p>
+      {items.length === 0 ? <div className="mobile-buff-sheet-managed-empty">{emptyText}</div> : (
+        <div className="mobile-buff-sheet-managed-list">
+          {items.map((item) => (
+            <article key={item.id} className="mobile-buff-sheet-managed-row">
+              <span className={`mobile-buff-sheet-managed-kind is-${item.tone ?? 'state'}`}>{item.kind}</span>
+              <button type="button" className="mobile-buff-sheet-managed-copy" onClick={() => onSelect(item.id)}>
+                <strong>{item.title}</strong>
+                <small>{item.detail || '点此载入并调整参数'}</small>
+              </button>
+              <button type="button" className="mobile-buff-sheet-managed-remove" onClick={() => onRemove(item.id)} aria-label={`删除 ${item.title}`}>删除</button>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function MobileBuffCatalogSheet({
   action,
   catalogBuffs,
@@ -148,10 +196,25 @@ export function MobileBuffCatalogSheet({
   };
 
   const selectAnomaly = (option: MobileAnomalyOption) => {
+    const existing = (action.anomalyDamages ?? []).find((card) => card.key === option.key);
     setActiveAnomalyKey(option.key);
-    setAnomalyLevel(option.levelOptions[0] ?? 1);
-    setAnomalyDuration(getMobileAnomalyDurationOptions(option)[0] ?? 0);
-    setBurnDamageMode(option.key === 'burn' ? 'dotOnly' : 'initialOnly');
+    setAnomalyLevel(existing?.level ?? option.levelOptions[0] ?? 1);
+    setAnomalyDuration(existing?.durationSeconds ?? getMobileAnomalyDurationOptions(option)[0] ?? 0);
+    setBurnDamageMode(existing?.burnDamageMode ?? (option.key === 'burn' ? 'dotOnly' : 'initialOnly'));
+  };
+
+  const selectAnomalyState = (option: MobileAnomalyStateOption) => {
+    const existing = (action.anomalyStateSnapshots ?? []).find((snapshot) => snapshot.key === option.key);
+    setActiveAnomalyStateKey(option.key);
+    setAnomalyStateLevel(existing?.level ?? 1);
+    setAnomalyStateDuration(existing?.durationSeconds ?? getMobileAnomalyStateDurationOptions(option)[0] ?? 0);
+    if (existing?.sourceCharacterId) setAnomalyStateSourceId(existing.sourceCharacterId);
+  };
+
+  const selectFixedState = (option: MobileAnomalyOption) => {
+    const existing = (action.anomalyStatuses ?? []).find((card) => card.key === option.key);
+    setActiveStateKey(option.key);
+    setStateLevel(existing?.level ?? option.levelOptions[0] ?? 1);
   };
 
   const applyAnomaly = () => {
@@ -201,6 +264,22 @@ export function MobileBuffCatalogSheet({
         ...(action.anomalyStateSnapshots ?? []).filter((snapshot) => snapshot.key !== nextSnapshot.key),
         nextSnapshot,
       ],
+    });
+  };
+
+  const removeAnomalyCard = (kind: 'damage' | 'state', cardId: string) => {
+    onActionChange({
+      ...action,
+      ...(kind === 'damage'
+        ? { anomalyDamages: (action.anomalyDamages ?? []).filter((card) => card.id !== cardId) }
+        : { anomalyStatuses: (action.anomalyStatuses ?? []).filter((card) => card.id !== cardId) }),
+    });
+  };
+
+  const removeAnomalyStateSnapshot = (snapshotId: number) => {
+    onActionChange({
+      ...action,
+      anomalyStateSnapshots: (action.anomalyStateSnapshots ?? []).filter((snapshot) => snapshot.id !== snapshotId),
     });
   };
 
@@ -300,6 +379,26 @@ export function MobileBuffCatalogSheet({
     const durationOptions = activeAnomaly ? getMobileAnomalyDurationOptions(activeAnomaly) : [];
     return (
       <>
+        <ManagedSpecialBoard
+          title="已挂载异常伤害"
+          description="异常伤害会生成独立伤害段。点条目可继续调整，或直接删除。"
+          emptyText="当前没有异常伤害段。"
+          items={(action.anomalyDamages ?? []).map((card) => ({
+            id: card.id,
+            kind: '异常伤害',
+            title: card.primaryText,
+            detail: [card.secondaryText, card.tertiaryText].filter(Boolean).join(' · '),
+            tone: 'damage',
+          }))}
+          onSelect={(id) => {
+            const card = (action.anomalyDamages ?? []).find((item) => item.id === id);
+            const option = MOBILE_ANOMALY_GROUPS.flatMap((item) => item.items).find((item) => item.key === card?.key);
+            if (!option) return;
+            setAnomalyCategory(option.category);
+            selectAnomaly(option);
+          }}
+          onRemove={(id) => removeAnomalyCard('damage', id)}
+        />
         <ChoiceRail
           values={MOBILE_ANOMALY_GROUPS.map((item) => ({ value: item.key, label: item.label }))}
           value={anomalyCategory}
@@ -381,17 +480,31 @@ export function MobileBuffCatalogSheet({
     const durationOptions = getMobileAnomalyStateDurationOptions(activeAnomalyState);
     return (
       <>
+        <ManagedSpecialBoard
+          title="当前异常状态"
+          description="导电、腐蚀与碎甲统一在这里管理；删除后会立即从当前技能实例移除。"
+          emptyText="当前没有导电、腐蚀或碎甲状态。"
+          items={(action.anomalyStateSnapshots ?? []).map((snapshot) => ({
+            id: String(snapshot.id),
+            kind: '异常状态',
+            title: snapshot.primaryText,
+            detail: [snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · '),
+            tone: 'state',
+          }))}
+          onSelect={(id) => {
+            const snapshot = (action.anomalyStateSnapshots ?? []).find((item) => item.id === Number(id));
+            const option = MOBILE_ANOMALY_STATE_OPTIONS.find((item) => item.key === snapshot?.key);
+            if (option) selectAnomalyState(option);
+          }}
+          onRemove={(id) => removeAnomalyStateSnapshot(Number(id))}
+        />
         <div className="mobile-buff-sheet-option-grid is-three">
           {MOBILE_ANOMALY_STATE_OPTIONS.map((option) => (
             <button
               key={option.key}
               type="button"
               className={`${activeAnomalyStateKey === option.key ? 'is-active' : ''}${selectedAnomalyStateKeys.has(option.key) ? ' is-selected' : ''}`}
-              onClick={() => {
-                setActiveAnomalyStateKey(option.key);
-                setAnomalyStateLevel(1);
-                setAnomalyStateDuration(getMobileAnomalyStateDurationOptions(option)[0] ?? 0);
-              }}
+              onClick={() => selectAnomalyState(option)}
             >
               <span>{selectedAnomalyStateKeys.has(option.key) ? '已挂载' : '状态快照'}</span>
               <strong>{option.label}</strong>
@@ -450,16 +563,31 @@ export function MobileBuffCatalogSheet({
 
   const renderFixedState = () => (
     <>
+      <ManagedSpecialBoard
+        title="已启用状态区"
+        description="连击区与失衡区在这里集中管理，点条目载入参数，点删除立即停用。"
+        emptyText="当前没有启用状态区效果。"
+        items={(action.anomalyStatuses ?? []).map((card) => ({
+          id: card.id,
+          kind: '状态区',
+          title: card.primaryText,
+          detail: [card.secondaryText, card.tertiaryText].filter(Boolean).join(' · '),
+          tone: 'zone',
+        }))}
+        onSelect={(id) => {
+          const card = (action.anomalyStatuses ?? []).find((item) => item.id === id);
+          const option = MOBILE_FIXED_STATE_OPTIONS.find((item) => item.key === card?.key);
+          if (option) selectFixedState(option);
+        }}
+        onRemove={(id) => removeAnomalyCard('state', id)}
+      />
       <div className="mobile-buff-sheet-option-grid is-two">
         {MOBILE_FIXED_STATE_OPTIONS.map((option) => (
           <button
             key={option.key}
             type="button"
             className={`${activeStateKey === option.key ? 'is-active' : ''}${selectedStateKeys.has(option.key) ? ' is-selected' : ''}`}
-            onClick={() => {
-              setActiveStateKey(option.key);
-              setStateLevel(option.levelOptions[0] ?? 1);
-            }}
+            onClick={() => selectFixedState(option)}
           >
             <span>{selectedStateKeys.has(option.key) ? '已启用' : '状态区'}</span>
             <strong>{option.label}</strong>
