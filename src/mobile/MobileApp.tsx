@@ -122,7 +122,12 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
   const activeIndex = pageIndex(workbench.draft.activePage);
 
   return (
-    <div className="mobile-app-shell">
+    <div
+      className="mobile-app-shell"
+      data-terra-faction="blacksteel-contract"
+      data-terra-depth="complex"
+      data-terra-task="menu"
+    >
       <div className="mobile-app-notices" aria-live="polite">
         {updateAvailable ? (
           <div className="mobile-app-update-notice">

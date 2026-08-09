@@ -61,8 +61,8 @@ function getModeTitle(mode: MobileBuffCatalogMode): string {
 
 function getBuffMeta(buff: SkillButtonBuff): string {
   if (buff.effectKind === 'extraHit' && buff.extraHitConfig) {
-    const { damageType, skillType, baseMultiplier, cooldownSeconds } = buff.extraHitConfig;
-    return `${damageType} · ${skillType} · ${(baseMultiplier * 100).toFixed(0)}% · CD ${cooldownSeconds}s`;
+    const { damageType, skillType, baseMultiplier, imbalanceValue, cooldownSeconds } = buff.extraHitConfig;
+    return `${damageType} · ${skillType || '独立'} · ${(baseMultiplier * 100).toFixed(0)}% · 失衡 ${imbalanceValue} · CD ${cooldownSeconds}s`;
   }
   return [buff.sourceName, buff.type, buff.level].filter(Boolean).join(' · ');
 }

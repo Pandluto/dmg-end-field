@@ -320,6 +320,7 @@ function calculateMobileSlot(
     operatorName: character.name,
     skillName: template.displayName,
     result: combinedResult,
+    modifierBuffs: combinedModifierBuffs,
     specialSegments,
   };
 }

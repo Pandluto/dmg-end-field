@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { HitResistanceInput, SkillButtonBuff } from '../../types/storage';
 import type { Character } from '../../types';
-import type { HitCalcResult, SkillDamageCalcResultV2 } from '../../core/calculators/skillDamage.types';
+import type {
+  AppliedBuffTagViewModel,
+  HitCalcResult,
+  SkillDamageCalcResultV2,
+} from '../../core/calculators/skillDamage.types';
+import type { AnomalyDamageSegmentView } from '../../components/CanvasBoard/skillButton.shared';
 import type { MobileSlotCalculation, MobileTimelineAction } from '../model';
 import { getMobileBuffSourceLabel } from '../mobileBuffWorkbench';
 import { MobileBuffCatalogSheet } from './MobileBuffCatalogSheet';
@@ -56,6 +61,32 @@ const ZONE_LABELS: Array<{ key: string; label: string }> = [
   { key: 'combo', label: '连击' },
   { key: 'imbalance', label: '失衡' },
 ];
+const SPECIAL_ZONE_LABELS = [...ZONE_LABELS, { key: 'result', label: '结果' }] as const;
+const FLAT_APPLIED_BUFF_TYPES = new Set([
+  'flatAtk',
+  'mainStatBoost',
+  'subStatBoost',
+  'allStatBoost',
+  'strengthBoost',
+  'agilityBoost',
+  'intelligenceBoost',
+  'willBoost',
+  'sourceSkillBoost',
+  'allCorrosion',
+  'physicalCorrosion',
+  'magicCorrosion',
+  'fireCorrosion',
+  'electricCorrosion',
+  'iceCorrosion',
+  'natureCorrosion',
+  'allResistanceIgnore',
+  'physicalResistanceIgnore',
+  'magicResistanceIgnore',
+  'fireResistanceIgnore',
+  'electricResistanceIgnore',
+  'iceResistanceIgnore',
+  'natureResistanceIgnore',
+]);
 
 function finite(value: number | undefined, fallback = 0): number {
   return Number.isFinite(value) ? value ?? fallback : fallback;
@@ -97,6 +128,14 @@ function getBuffLabel(buff: SkillButtonBuff): string {
 
 function getBuffSource(buff: SkillButtonBuff): string {
   return buff.sourceName || buff.source || '未知来源';
+}
+
+function getBuffEffectMeta(buff: SkillButtonBuff): string {
+  if (buff.effectKind === 'extraHit' && buff.extraHitConfig) {
+    const config = buff.extraHitConfig;
+    return `${config.damageType} · ${config.skillType || '独立'} · ${(config.baseMultiplier * 100).toFixed(1)}% · 失衡 ${config.imbalanceValue} · CD ${config.cooldownSeconds}s`;
+  }
+  return buff.type || '普通加成';
 }
 
 function getEffectiveStack(action: MobileTimelineAction, buff: SkillButtonBuff, hitKey?: string): number {
@@ -190,17 +229,26 @@ export function MobileBuffEditor({
   onInteractionLockChange,
 }: MobileBuffEditorProps) {
   const [activePage, setActivePage] = useState<EditorPage>(0);
-  const [selectedHitKey, setSelectedHitKey] = useState<string | null>(null);
+  const [selectedSegmentKey, setSelectedSegmentKey] = useState<string | null>(null);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const pagerPointerRef = useRef<{ pointerId: number; startX: number; startY: number; horizontal: boolean } | null>(null);
   const safeResult = calculation?.result ?? result ?? null;
   const buffs = action.buffs ?? [];
   const hits = safeResult?.hits ?? [];
   const specialSegments = calculation?.specialSegments ?? [];
-  const activeHit = hits.find((hit) => hit.hit.key === selectedHitKey) ?? hits[0] ?? null;
-  const currentHitKey = activeHit?.hit.key ?? null;
+  const selectedHit = hits.find((hit) => hit.hit.key === selectedSegmentKey) ?? null;
+  const activeSpecialSegment = specialSegments.find((segment) => segment.key === selectedSegmentKey) ?? null;
+  const activeHit = selectedHit ?? (activeSpecialSegment ? null : hits[0] ?? null);
+  const currentSegmentKey = activeSpecialSegment?.key ?? activeHit?.hit.key ?? null;
+  const activeAnomalyCardId = activeSpecialSegment?.sourceKind === 'anomaly'
+    ? (action.anomalyDamages ?? []).find((card) => (
+        activeSpecialSegment.key === card.id || activeSpecialSegment.key.startsWith(`${card.id}-dot`)
+      ))?.id ?? null
+    : null;
+  const currentBuffScopeKey = activeAnomalyCardId ?? currentSegmentKey;
   const globallyDisabled = new Set(action.globallyDisabledBuffIds ?? []);
-  const disabledForCurrentHit = new Set(currentHitKey ? action.disabledBuffIdsByHitKey?.[currentHitKey] ?? [] : []);
+  const disabledForCurrentSegment = new Set(currentBuffScopeKey ? action.disabledBuffIdsByHitKey?.[currentBuffScopeKey] ?? [] : []);
+  const modifierBuffs = calculation?.modifierBuffs ?? buffs.filter((buff) => buff.effectKind !== 'extraHit');
 
   useEffect(() => {
     onInteractionLockChange?.(true);
@@ -208,9 +256,12 @@ export function MobileBuffEditor({
   }, [onInteractionLockChange]);
 
   useEffect(() => {
-    if (selectedHitKey && hits.some((hit) => hit.hit.key === selectedHitKey)) return;
-    setSelectedHitKey(hits[0]?.hit.key ?? null);
-  }, [hits, selectedHitKey]);
+    const segmentExists = selectedSegmentKey
+      && (hits.some((hit) => hit.hit.key === selectedSegmentKey)
+        || specialSegments.some((segment) => segment.key === selectedSegmentKey));
+    if (segmentExists) return;
+    setSelectedSegmentKey(hits[0]?.hit.key ?? specialSegments[0]?.key ?? null);
+  }, [hits, selectedSegmentKey, specialSegments]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -272,26 +323,29 @@ export function MobileBuffEditor({
     pagerPointerRef.current = null;
   };
 
-  const toggleCurrentHit = () => {
-    if (!currentHitKey) return;
+  const toggleCurrentSegment = () => {
+    if (!currentSegmentKey) return;
     updateAction({
       ...action,
-      disabledHitKeys: toggleId(action.disabledHitKeys, currentHitKey),
+      disabledHitKeys: toggleId(action.disabledHitKeys, currentSegmentKey),
     });
   };
 
-  const toggleCurrentHitBuff = (buffId: string) => {
-    if (!currentHitKey) return;
-    updateAction(withHitDisabledBuffs(action, currentHitKey, buffId));
+  const toggleCurrentSegmentBuff = (buffId: string) => {
+    if (!currentBuffScopeKey) return;
+    updateAction(withHitDisabledBuffs(action, currentBuffScopeKey, buffId));
   };
 
   const removeBuff = (buffId: string) => {
+    const extraHitSegmentPrefix = `buff-extra-hit-${buffId}`;
     const nextByHit = Object.fromEntries(
       Object.entries(action.disabledBuffIdsByHitKey ?? {})
+        .filter(([hitKey]) => !hitKey.startsWith(extraHitSegmentPrefix))
         .map(([hitKey, ids]) => [hitKey, ids.filter((id) => id !== buffId)]),
     );
     const nextStacksByHit = Object.fromEntries(
       Object.entries(action.buffStackCountsByHitKey ?? {})
+        .filter(([hitKey]) => !hitKey.startsWith(extraHitSegmentPrefix))
         .map(([hitKey, counts]) => {
           const { [buffId]: _removed, ...rest } = counts;
           return [hitKey, rest];
@@ -304,6 +358,7 @@ export function MobileBuffEditor({
       buffStackCountsByHitKey: nextStacksByHit,
       globallyDisabledBuffIds: (action.globallyDisabledBuffIds ?? []).filter((id) => id !== buffId),
       disabledBuffIdsByHitKey: nextByHit,
+      disabledHitKeys: (action.disabledHitKeys ?? []).filter((hitKey) => !hitKey.startsWith(extraHitSegmentPrefix)),
     });
   };
 
@@ -328,8 +383,14 @@ export function MobileBuffEditor({
     });
   };
 
-  const activeHitBuffs = activeHit ? buffs.filter((buff) => isBuffApplicableToHit(buff, activeHit)) : [];
-  const isCurrentHitDisabled = currentHitKey ? action.disabledHitKeys?.includes(currentHitKey) ?? false : false;
+  const activeSegmentBuffs = activeSpecialSegment
+    ? modifierBuffs
+    : activeHit
+      ? modifierBuffs.filter((buff) => isBuffApplicableToHit(buff, activeHit))
+      : [];
+  const isCurrentSegmentDisabled = currentSegmentKey
+    ? action.disabledHitKeys?.includes(currentSegmentKey) ?? false
+    : false;
   const specialConfigCount = (action.anomalyDamages?.length ?? 0)
     + (action.anomalyStatuses?.length ?? 0)
     + (action.anomalyStateSnapshots?.length ?? 0);
@@ -350,10 +411,14 @@ export function MobileBuffEditor({
     });
   };
 
-  const toggleSpecialSegment = (segmentKey: string) => {
+  const resetCurrentSegmentBuffs = () => {
+    if (!currentBuffScopeKey) return;
+    const { [currentBuffScopeKey]: _disabled, ...nextDisabledByHit } = action.disabledBuffIdsByHitKey ?? {};
+    const { [currentBuffScopeKey]: _stacks, ...nextStacksByHit } = action.buffStackCountsByHitKey ?? {};
     updateAction({
       ...action,
-      disabledHitKeys: toggleId(action.disabledHitKeys, segmentKey),
+      disabledBuffIdsByHitKey: nextDisabledByHit,
+      buffStackCountsByHitKey: nextStacksByHit,
     });
   };
 
@@ -401,20 +466,21 @@ export function MobileBuffEditor({
               </div>
               <span>{hits.length + specialSegments.length} 段</span>
             </div>
-            {hits.length === 0 ? (
-              <p className="mobile-buff-empty">当前技能没有可编辑的 Hit。</p>
+            {hits.length + specialSegments.length === 0 ? (
+              <p className="mobile-buff-empty">当前技能没有可编辑的伤害段。</p>
             ) : (
               <>
                 <div className="mobile-buff-hit-list" role="list" aria-label="Hit 列表">
                   {hits.map((hit) => {
-                    const selected = hit.hit.key === currentHitKey;
+                    const selected = hit.hit.key === currentSegmentKey;
                     const disabled = action.disabledHitKeys?.includes(hit.hit.key) ?? false;
                     return (
                       <button
                         key={hit.hit.key}
                         type="button"
                         className={`mobile-buff-hit-card${selected ? ' is-selected' : ''}${disabled ? ' is-disabled' : ''}`}
-                        onClick={() => setSelectedHitKey(hit.hit.key)}
+                        onClick={() => setSelectedSegmentKey(hit.hit.key)}
+                        aria-current={selected ? 'true' : undefined}
                       >
                         <span className="mobile-buff-hit-number">{String(hits.indexOf(hit) + 1).padStart(2, '0')}</span>
                         <span className="mobile-buff-hit-copy">
@@ -429,9 +495,9 @@ export function MobileBuffEditor({
                     <button
                       key={segment.key}
                       type="button"
-                      className={`mobile-buff-hit-card is-special${segment.isDisabled ? ' is-disabled' : ''}`}
-                      onClick={() => toggleSpecialSegment(segment.key)}
-                      aria-pressed={!segment.isDisabled}
+                      className={`mobile-buff-hit-card is-special${segment.key === currentSegmentKey ? ' is-selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
+                      onClick={() => setSelectedSegmentKey(segment.key)}
+                      aria-current={segment.key === currentSegmentKey ? 'true' : undefined}
                     >
                       <span className="mobile-buff-hit-number">{String(hits.length + index + 1).padStart(2, '0')}</span>
                       <span className="mobile-buff-hit-copy">
@@ -443,39 +509,68 @@ export function MobileBuffEditor({
                   ))}
                 </div>
 
-                {activeHit ? (
-                  <section className="mobile-buff-panel mobile-buff-hit-tuning" aria-label={`${activeHit.hit.displayName} 微调`}>
+                {activeHit || activeSpecialSegment ? (
+                  <section className="mobile-buff-panel mobile-buff-hit-tuning" aria-label={`${activeHit?.hit.displayName ?? activeSpecialSegment?.compactTitle ?? '伤害段'} 微调`}>
                     <div className="mobile-buff-panel-heading">
                       <div>
-                        <p className="mobile-buff-kicker">当前 Hit</p>
-                        <h3>{activeHit.hit.displayName}</h3>
+                        <p className="mobile-buff-kicker">
+                          {activeSpecialSegment?.sourceKind === 'buff-extra-hit'
+                            ? 'EXTRA HIT / 当前段'
+                            : activeSpecialSegment
+                              ? 'ANOMALY / 当前段'
+                              : 'NORMAL HIT / 当前段'}
+                        </p>
+                        <h3>{activeHit?.hit.displayName ?? activeSpecialSegment?.compactTitle}</h3>
                       </div>
-                      <button type="button" className={`mobile-buff-toggle${isCurrentHitDisabled ? ' is-off' : ''}`} onClick={toggleCurrentHit} aria-pressed={!isCurrentHitDisabled}>
-                        {isCurrentHitDisabled ? '启用 Hit' : '禁用 Hit'}
+                      <button type="button" className={`mobile-buff-toggle${isCurrentSegmentDisabled ? ' is-off' : ''}`} onClick={toggleCurrentSegment} aria-pressed={!isCurrentSegmentDisabled}>
+                        {isCurrentSegmentDisabled ? '启用本段' : '禁用本段'}
                       </button>
                     </div>
                     <div className="mobile-buff-summary-grid">
-                      <SummaryMetric label="期望" value={formatNumber(activeHit.expected.final)} />
-                      <SummaryMetric label="暴击" value={formatNumber(activeHit.crit.final)} />
-                      <SummaryMetric label="非暴" value={formatNumber(activeHit.nonCrit.final)} />
+                      <SummaryMetric label="期望" value={formatNumber(activeHit?.expected.final ?? activeSpecialSegment?.expectedValue)} />
+                      <SummaryMetric label="暴击" value={formatNumber(activeHit?.crit.final ?? activeSpecialSegment?.critValue)} />
+                      <SummaryMetric label="非暴" value={formatNumber(activeHit?.nonCrit.final ?? activeSpecialSegment?.nonCritValue)} />
                     </div>
+                    {activeSpecialSegment ? (
+                      <div className="mobile-buff-segment-scope" aria-label="特殊伤害段参数">
+                        <p><span>属性 / 类型</span><b>{activeSpecialSegment.elementText}{activeSpecialSegment.skillTypeText ? ` · ${activeSpecialSegment.skillTypeText}` : ' · 独立段'}</b></p>
+                        <p><span>基础 / 最终倍率</span><b>{activeSpecialSegment.baseMultiplierText} / {activeSpecialSegment.multiplierText}</b></p>
+                        {activeSpecialSegment.sourceKind === 'buff-extra-hit' ? (
+                          <>
+                            <p><span>失衡值</span><b>{activeSpecialSegment.imbalanceText || '0'}</b></p>
+                            <p><span>冷却</span><b>{activeSpecialSegment.cooldownText || '0s'}</b></p>
+                          </>
+                        ) : (
+                          <>
+                            <p><span>等级系数</span><b>{activeSpecialSegment.levelCoefficientText}</b></p>
+                            <p><span>技艺强度区</span><b>{activeSpecialSegment.sourceSkillZoneText}</b></p>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                     <div className="mobile-buff-tuning-list">
-                      <p>本段 Buff</p>
-                      {activeHitBuffs.length === 0 ? <span className="mobile-buff-muted-line">没有匹配到作用于本段的 Buff。</span> : activeHitBuffs.map((buff) => {
-                        const hitDisabled = disabledForCurrentHit.has(buff.id);
+                      <div className="mobile-buff-tuning-list-heading">
+                        <p>{activeAnomalyCardId ? '异常配置 Buff · 拆分持续段共享' : '本段 Buff · 可逐项停用或覆盖层数'}</p>
+                        <button type="button" onClick={resetCurrentSegmentBuffs} disabled={!currentBuffScopeKey}>重置</button>
+                      </div>
+                      {activeSegmentBuffs.length === 0 ? <span className="mobile-buff-muted-line">没有匹配到作用于本段的 Buff。</span> : activeSegmentBuffs.map((buff) => {
+                        const segmentDisabled = disabledForCurrentSegment.has(buff.id);
                         const globalDisabled = globallyDisabled.has(buff.id);
                         const countable = isCountable(buff);
                         return (
-                          <div key={buff.id} className={`mobile-buff-tuning-row${hitDisabled || globalDisabled ? ' is-disabled' : ''}`}>
-                            <button type="button" className="mobile-buff-tuning-name" onClick={() => toggleCurrentHitBuff(buff.id)} aria-pressed={!hitDisabled}>
-                              <strong>{getBuffLabel(buff)}</strong>
-                              <small>{globalDisabled ? 'Buff 页已停用' : hitDisabled ? '本段已停用' : getBuffSource(buff)}</small>
+                          <div key={buff.id} className={`mobile-buff-tuning-row${segmentDisabled || globalDisabled ? ' is-disabled' : ''}`}>
+                            <button type="button" className="mobile-buff-tuning-name" onClick={() => toggleCurrentSegmentBuff(buff.id)} aria-pressed={!segmentDisabled}>
+                              <span className="mobile-buff-segment-latch" aria-hidden="true">{segmentDisabled ? '×' : '✓'}</span>
+                              <span>
+                                <strong>{getBuffLabel(buff)}</strong>
+                                <small>{globalDisabled ? 'Buff 页已停用' : segmentDisabled ? '本段已停用' : getBuffSource(buff)}</small>
+                              </span>
                             </button>
                             {countable ? (
                               <StackControl
-                                value={getEffectiveStack(action, buff, currentHitKey ?? undefined)}
+                                value={getEffectiveStack(action, buff, currentBuffScopeKey ?? undefined)}
                                 max={getMaxStacks(buff)}
-                                onChange={(value) => currentHitKey && updateAction(withHitStack(action, currentHitKey, buff, value))}
+                                onChange={(value) => currentBuffScopeKey && updateAction(withHitStack(action, currentBuffScopeKey, buff, value))}
                               />
                             ) : null}
                           </div>
@@ -529,7 +624,7 @@ export function MobileBuffEditor({
                           <span className="mobile-buff-status-dot" aria-hidden="true" />
                           <span>
                             <strong>{getBuffLabel(buff)}</strong>
-                            <small>{getMobileBuffSourceLabel(buff)} · {getBuffSource(buff)}{buff.type ? ` · ${buff.type}` : ''}</small>
+                            <small>{getMobileBuffSourceLabel(buff)} · {getBuffSource(buff)} · {getBuffEffectMeta(buff)}</small>
                           </span>
                         </button>
                         {isCountable(buff) ? (
@@ -601,16 +696,19 @@ export function MobileBuffEditor({
                     <button
                       type="button"
                       key={segment.key}
-                      className={segment.isDisabled ? 'is-disabled' : ''}
-                      onClick={() => toggleSpecialSegment(segment.key)}
-                      aria-pressed={!segment.isDisabled}
+                      className={`${segment.key === currentSegmentKey ? 'is-selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
+                      onClick={() => {
+                        setSelectedSegmentKey(segment.key);
+                        setActivePage(0);
+                      }}
+                      aria-current={segment.key === currentSegmentKey ? 'true' : undefined}
                     >
                       <span className="mobile-buff-special-damage-index">{segment.sourceKind === 'buff-extra-hit' ? 'HIT' : 'EX'}</span>
                       <span>
                         <strong>{segment.compactTitle}</strong>
                         <small>{segment.elementText} · {segment.baseMultiplierText} · {segment.isDisabled ? '已停用' : segment.buffText}</small>
                       </span>
-                      <b>{formatNumber(segment.expectedValue)}</b>
+                      <b>{segment.isDisabled ? '已停用' : formatNumber(segment.expectedValue)}</b>
                     </button>
                   ))}
                 </div>
@@ -624,7 +722,7 @@ export function MobileBuffEditor({
                 <p className="mobile-buff-kicker">03 / CALCULATION</p>
                 <h2>计算过程与抗性</h2>
               </div>
-              <span>{activeHit ? activeHit.hit.displayName : '—'}</span>
+              <span>{activeHit?.hit.displayName ?? activeSpecialSegment?.compactTitle ?? '—'}</span>
             </div>
             {safeResult ? (
               <>
@@ -639,70 +737,109 @@ export function MobileBuffEditor({
                 </section>
 
                 {activeHit ? (
-                  <>
-                    <section className="mobile-buff-panel" aria-labelledby="mobile-buff-zone-title">
-                      <div className="mobile-buff-panel-heading">
-                        <div>
-                          <p className="mobile-buff-kicker">当前 Hit</p>
-                          <h3 id="mobile-buff-zone-title">乘区计算</h3>
-                        </div>
-                        <span>{formatNumber(activeHit.expected.final)}</span>
+                  <section className="mobile-buff-panel" aria-labelledby="mobile-buff-zone-title">
+                    <div className="mobile-buff-panel-heading">
+                      <div>
+                        <p className="mobile-buff-kicker">NORMAL HIT / 当前段</p>
+                        <h3 id="mobile-buff-zone-title">完整乘区计算</h3>
                       </div>
-                      <div className="mobile-buff-zone-list">
-                        {ZONE_LABELS.map((zone) => {
-                          const details = getZoneDetails(activeHit, zone.key);
-                          return (
-                            <details key={zone.key} className="mobile-buff-zone" open={zone.key === 'attack' || zone.key === 'resistance'}>
-                              <summary><span>{zone.label}</span><strong>{details.value}</strong></summary>
-                              <div className="mobile-buff-zone-details">
-                                {details.lines.map((line) => <p key={line.label}><span>{line.label}</span><b>{line.value}</b></p>)}
-                                {getZoneContributions(activeHit, zone.key, buffs).length > 0 ? (
-                                  <div className="mobile-buff-contribution-list">
-                                    <small>作用于本区的 Buff</small>
-                                    {getZoneContributions(activeHit, zone.key, buffs).map((contribution) => (
-                                      <p key={`${zone.key}-${contribution.buffId}`}><span>{getBuffLabel(buffs.find((buff) => buff.id === contribution.buffId) ?? ({ id: contribution.buffId, name: contribution.buffId, displayName: contribution.buffId, sourceName: '', refCount: 0 } as SkillButtonBuff))}</span><b>{formatContribution(contribution)}</b></p>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </details>
-                          );
-                        })}
+                      <span>{formatNumber(activeHit.expected.final)}</span>
+                    </div>
+                    <div className="mobile-buff-zone-list">
+                      {ZONE_LABELS.map((zone) => {
+                        const details = getZoneDetails(activeHit, zone.key);
+                        return (
+                          <details key={zone.key} className="mobile-buff-zone" open={zone.key === 'attack' || zone.key === 'resistance'}>
+                            <summary><span>{zone.label}</span><strong>{details.value}</strong></summary>
+                            <div className="mobile-buff-zone-details">
+                              {details.lines.map((line) => <p key={line.label}><span>{line.label}</span><b>{line.value}</b></p>)}
+                              {getZoneContributions(activeHit, zone.key, modifierBuffs).length > 0 ? (
+                                <div className="mobile-buff-contribution-list">
+                                  <small>作用于本区的 Buff</small>
+                                  {getZoneContributions(activeHit, zone.key, modifierBuffs).map((contribution) => (
+                                    <p key={`${zone.key}-${contribution.buffId}`}><span>{getBuffLabel(modifierBuffs.find((buff) => buff.id === contribution.buffId) ?? ({ id: contribution.buffId, name: contribution.buffId, displayName: contribution.buffId, sourceName: '', refCount: 0 } as SkillButtonBuff))}</span><b>{formatContribution(contribution)}</b></p>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </details>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : activeSpecialSegment ? (
+                  <section className="mobile-buff-panel mobile-buff-special-calculation" aria-labelledby="mobile-buff-special-zone-title">
+                    <div className="mobile-buff-panel-heading">
+                      <div>
+                        <p className="mobile-buff-kicker">{activeSpecialSegment.sourceKind === 'buff-extra-hit' ? 'EXTRA HIT / 当前段' : 'ANOMALY / 当前段'}</p>
+                        <h3 id="mobile-buff-special-zone-title">完整乘区计算</h3>
                       </div>
-                    </section>
+                      <span>{formatNumber(activeSpecialSegment.expectedValue)}</span>
+                    </div>
+                    <div className="mobile-buff-special-calculation-meta">
+                      <span>{activeSpecialSegment.elementText}</span>
+                      <span>{activeSpecialSegment.skillTypeText || '独立伤害'}</span>
+                      <span>{activeSpecialSegment.baseMultiplierText} 基础</span>
+                      {activeSpecialSegment.cooldownText ? <span>CD {activeSpecialSegment.cooldownText}</span> : null}
+                    </div>
+                    <div className="mobile-buff-zone-list">
+                      {SPECIAL_ZONE_LABELS.map((zone) => {
+                        const details = getSpecialZoneDetails(activeSpecialSegment, zone.key);
+                        return (
+                          <details key={zone.key} className="mobile-buff-zone" open={zone.key === 'attack' || zone.key === 'result'}>
+                            <summary><span>{zone.label}</span><strong>{details.value}</strong></summary>
+                            <div className="mobile-buff-zone-details">
+                              {details.lines.map((line) => <p key={line.label}><span>{line.label}</span><b>{line.value}</b></p>)}
+                            </div>
+                          </details>
+                        );
+                      })}
+                    </div>
+                    <div className="mobile-buff-special-applied">
+                      <small>本段实际生效 Buff</small>
+                      {activeSpecialSegment.appliedBuffTags.length > 0 ? activeSpecialSegment.appliedBuffTags.map((buff) => (
+                        <p key={buff.id}><span>{buff.displayLabel || buff.label}</span><b>{formatAppliedBuffTag(buff)}</b></p>
+                      )) : <p><span>无生效 Buff</span><b>—</b></p>}
+                    </div>
+                  </section>
+                ) : <p className="mobile-buff-empty">选择一个伤害段后查看乘区计算。</p>}
 
-                    <section className="mobile-buff-panel mobile-buff-resistance-panel" aria-labelledby="mobile-buff-resistance-title">
-                      <div className="mobile-buff-panel-heading">
-                        <div>
-                          <p className="mobile-buff-kicker">目标设置</p>
-                          <h3 id="mobile-buff-resistance-title">目标抗性</h3>
-                        </div>
-                        <span>{formatNumber(activeHit.zones.resistance.effectiveResistance, 1)} 有效</span>
+                {activeHit || activeSpecialSegment ? (
+                  <section className="mobile-buff-panel mobile-buff-resistance-panel" aria-labelledby="mobile-buff-resistance-title">
+                    <div className="mobile-buff-panel-heading">
+                      <div>
+                        <p className="mobile-buff-kicker">目标设置</p>
+                        <h3 id="mobile-buff-resistance-title">目标抗性</h3>
                       </div>
-                      <div className="mobile-buff-resistance-fields">
-                        {RESISTANCE_FIELDS.map(([key, label]) => (
-                          <label key={key}>
-                            <span>{label}</span>
-                            <input
-                              type="number"
-                              inputMode="decimal"
-                              step="1"
-                              value={finite(action.targetResistance?.[key])}
-                              onChange={(event) => updateAction({
-                                ...action,
-                                targetResistance: {
-                                  ...(action.targetResistance ?? {}),
-                                  [key]: Number.isFinite(Number(event.target.value)) ? Number(event.target.value) : 0,
-                                },
-                              })}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                      <p className="mobile-buff-formula">{activeHit.zones.resistance.formulaText}</p>
-                    </section>
-                  </>
-                ) : <p className="mobile-buff-empty">选择一个 Hit 后查看乘区计算。</p>}
+                      <span>
+                        {activeHit
+                          ? formatNumber(activeHit.zones.resistance.effectiveResistance, 1)
+                          : (Number(activeSpecialSegment?.resistanceBaseText ?? 0) - Number(activeSpecialSegment?.corrosionText ?? 0)).toFixed(1)} 有效
+                      </span>
+                    </div>
+                    <div className="mobile-buff-resistance-fields">
+                      {RESISTANCE_FIELDS.map(([key, label]) => (
+                        <label key={key}>
+                          <span>{label}</span>
+                          <input
+                            type="number"
+                            inputMode="decimal"
+                            step="1"
+                            value={finite(action.targetResistance?.[key])}
+                            onChange={(event) => updateAction({
+                              ...action,
+                              targetResistance: {
+                                ...(action.targetResistance ?? {}),
+                                [key]: Number.isFinite(Number(event.target.value)) ? Number(event.target.value) : 0,
+                              },
+                            })}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mobile-buff-formula">{activeHit?.zones.resistance.formulaText ?? activeSpecialSegment?.resistanceFormulaText}</p>
+                  </section>
+                ) : null}
 
                 {specialSegments.length > 0 ? (
                   <section className="mobile-buff-panel" aria-labelledby="mobile-buff-special-formula-title">
@@ -825,6 +962,110 @@ function getZoneDetails(hit: HitCalcResult, zoneKey: string): { value: string; l
     default:
       return { value: '—', lines: [] };
   }
+}
+
+function getSpecialZoneDetails(
+  segment: AnomalyDamageSegmentView,
+  zoneKey: string,
+): { value: string; lines: Array<{ label: string; value: string }> } {
+  switch (zoneKey) {
+    case 'attack':
+      return {
+        value: segment.panelAtkText,
+        lines: [
+          { label: '最终攻击力', value: segment.panelAtkText },
+          { label: '暴击率', value: segment.critRateText },
+          { label: '暴击伤害', value: segment.critDmgText },
+          ...(segment.sourceKind === 'anomaly' ? [
+            { label: '源石技艺强度', value: segment.sourceSkillBoostText },
+            { label: '等级系数区', value: segment.levelCoefficientText },
+            { label: '技艺强度区', value: segment.sourceSkillZoneText },
+          ] : []),
+        ],
+      };
+    case 'multiplier':
+      return {
+        value: segment.multiplierText,
+        lines: [
+          { label: '基础倍率', value: segment.baseMultiplierText },
+          { label: '最终倍率', value: segment.multiplierText },
+          { label: '倍率计算', value: segment.multiplierFormulaText },
+        ],
+      };
+    case 'crit':
+      return {
+        value: segment.expectedText,
+        lines: [
+          { label: '暴击结果', value: segment.critText },
+          { label: '非暴击结果', value: segment.nonCritText },
+          { label: '期望结果', value: segment.expectedText },
+        ],
+      };
+    case 'damageBonus':
+      return {
+        value: segment.damageBonusRateText,
+        lines: [
+          { label: '元素伤害加成', value: segment.elementBonusText },
+          { label: '技能伤害加成', value: segment.skillBonusText },
+          { label: '全伤害加成', value: segment.allDamageBonusText },
+          { label: '加成区系数', value: segment.damageBonusRateText },
+        ],
+      };
+    case 'defense':
+      return { value: segment.defenseZoneText, lines: [{ label: '防御区系数', value: segment.defenseZoneText }] };
+    case 'resistance':
+      return {
+        value: segment.resistanceZoneText,
+        lines: [
+          { label: '目标基础抗性', value: segment.resistanceBaseText },
+          { label: '降抗', value: segment.corrosionText },
+          { label: '无视抗性', value: segment.resistanceIgnoreText },
+          { label: '抗性区系数', value: segment.resistanceZoneText },
+          { label: '抗性计算', value: segment.resistanceFormulaText },
+        ],
+      };
+    case 'amplify':
+      return { value: segment.amplifyFormulaText, lines: [{ label: '增幅区计算', value: segment.amplifyFormulaText }] };
+    case 'fragile':
+      return { value: segment.fragileFormulaText, lines: [{ label: '易伤区计算', value: segment.fragileFormulaText }] };
+    case 'vulnerability':
+      return { value: segment.vulnerabilityFormulaText, lines: [{ label: '脆弱区计算', value: segment.vulnerabilityFormulaText }] };
+    case 'combo':
+      return { value: segment.comboDamageBonusText, lines: [{ label: '连击区计算', value: segment.comboFormulaText }] };
+    case 'imbalance':
+      return { value: segment.imbalanceDamageBonusText, lines: [
+        { label: '失衡区计算', value: segment.imbalanceFormulaText },
+        ...(segment.imbalanceText ? [{ label: '本段失衡值', value: segment.imbalanceText }] : []),
+      ] };
+    case 'result':
+      return {
+        value: segment.nonCritText,
+        lines: [
+          { label: '倍率公式', value: segment.formulaText },
+          { label: '非暴击全链路', value: segment.nonCritFormulaText },
+          { label: '期望伤害', value: segment.expectedText },
+          { label: '暴击伤害', value: segment.critText },
+          { label: '非暴击伤害', value: segment.nonCritText },
+        ],
+      };
+    default:
+      return { value: '—', lines: [] };
+  }
+}
+
+function formatAppliedBuffTag(buff: AppliedBuffTagViewModel): string {
+  const stackText = buff.isCountable && typeof buff.stackCount === 'number' ? ` · ${buff.stackCount}层` : '';
+  if (buff.isMultiplier) {
+    return `× ${finite(buff.multiplierCoefficient, 1).toFixed(3)}${stackText}`;
+  }
+  const value = typeof buff.effectiveValue === 'number' ? buff.effectiveValue : buff.value;
+  if (typeof value === 'number') {
+    const valueText = FLAT_APPLIED_BUFF_TYPES.has(buff.type || '')
+      ? Number(value.toFixed(3)).toString()
+      : `${(value * 100).toFixed(1)}%`;
+    return `${value >= 0 ? '+' : ''}${valueText}${stackText}`;
+  }
+  return buff.type || `已生效${stackText}`;
 }
 
 function getZoneContributions(hit: HitCalcResult, zoneKey: string, buffs: SkillButtonBuff[]) {

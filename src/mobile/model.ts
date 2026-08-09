@@ -99,6 +99,8 @@ export interface MobileSlotCalculation {
   operatorName: string;
   skillName: string;
   result: SkillDamageCalcResultV2;
+  /** Stable modifier candidates used by normal/anomaly/extra-hit segment tuning. */
+  modifierBuffs?: SkillButtonBuff[];
   specialSegments?: AnomalyDamageSegmentView[];
 }
 

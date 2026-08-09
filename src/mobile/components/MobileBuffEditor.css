@@ -8,6 +8,8 @@
   --mobile-buff-muted: #687a7d;
   --mobile-buff-faint: #9aa8a8;
   --mobile-buff-accent: #1f6f8b;
+  --mobile-buff-ready: #d4b837;
+  --mobile-buff-owner: rgba(91, 71, 132, 0.52);
   position: fixed;
   inset: 0;
   z-index: 100;
@@ -241,20 +243,24 @@
 
 .mobile-buff-hit-list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 12px;
 }
 
 .mobile-buff-hit-card {
+  position: relative;
   display: grid;
-  grid-template-columns: 29px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr);
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 9px;
+  gap: 5px 7px;
   width: 100%;
-  min-height: 59px;
+  min-width: 0;
+  min-height: 78px;
   padding: 8px 10px;
   border: 1px solid var(--mobile-buff-line);
-  border-radius: 14px;
+  border-radius: 7px 2px 7px 2px;
   color: var(--mobile-buff-ink);
   background: rgba(255, 255, 255, 0.68);
   cursor: pointer;
@@ -264,7 +270,7 @@
 .mobile-buff-hit-card.is-selected {
   border-color: rgba(31, 111, 139, 0.42);
   background: rgba(31, 111, 139, 0.09);
-  box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.08);
+  box-shadow: inset 0 -4px 0 var(--mobile-buff-ready), inset 3px 0 0 var(--mobile-buff-owner);
 }
 
 .mobile-buff-hit-card.is-special {
@@ -277,11 +283,19 @@
   color: #9a5d28;
 }
 
+.mobile-buff-hit-card.is-special.is-selected {
+  border-style: solid;
+  border-color: rgba(154, 93, 40, 0.42);
+  background: rgba(186, 111, 49, 0.1);
+}
+
 .mobile-buff-hit-card.is-disabled {
   opacity: 0.58;
 }
 
 .mobile-buff-hit-number {
+  grid-column: 1;
+  grid-row: 1 / span 2;
   color: var(--mobile-buff-faint);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -290,6 +304,8 @@
 
 .mobile-buff-hit-copy {
   display: grid;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   gap: 3px;
 }
@@ -307,11 +323,18 @@
 }
 
 .mobile-buff-hit-copy small {
+  display: -webkit-box;
   color: var(--mobile-buff-muted);
-  font-size: 10px;
+  font-size: 9px;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .mobile-buff-hit-expected {
+  grid-column: 2;
+  grid-row: 2;
   color: var(--mobile-buff-ink);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -383,6 +406,31 @@
   font-weight: 700;
 }
 
+.mobile-buff-tuning-list-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mobile-buff-tuning-list-heading p {
+  margin: 0;
+  color: var(--mobile-buff-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mobile-buff-tuning-list-heading button {
+  min-width: 48px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--mobile-buff-line);
+  border-radius: 5px 1px 5px 1px;
+  color: var(--mobile-buff-muted);
+  background: rgba(241, 244, 243, 0.72);
+  font-size: 9px;
+}
+
 .mobile-buff-tuning-row,
 .mobile-buff-selected-row {
   display: flex;
@@ -413,11 +461,61 @@
   text-align: left;
 }
 
-.mobile-buff-tuning-name > span,
+.mobile-buff-tuning-name > span:last-child,
 .mobile-buff-selected-main > span:last-child {
   display: grid;
   min-width: 0;
   gap: 2px;
+}
+
+.mobile-buff-segment-latch {
+  display: grid;
+  width: 28px;
+  height: 32px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 1px solid rgba(31, 111, 139, 0.2);
+  border-radius: 5px 1px 5px 1px;
+  color: var(--mobile-buff-accent);
+  background: rgba(31, 111, 139, 0.08);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.mobile-buff-tuning-row.is-disabled .mobile-buff-segment-latch {
+  color: var(--mobile-buff-muted);
+  background: rgba(27, 46, 50, 0.05);
+}
+
+.mobile-buff-segment-scope {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mobile-buff-segment-scope p {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  margin: 0;
+  padding: 8px;
+  border: 1px solid var(--mobile-buff-line);
+  border-radius: 5px 1px 5px 1px;
+  background: rgba(241, 244, 243, 0.62);
+}
+
+.mobile-buff-segment-scope span {
+  color: var(--mobile-buff-muted);
+  font-size: 8px;
+}
+
+.mobile-buff-segment-scope b {
+  overflow: hidden;
+  color: var(--mobile-buff-ink);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mobile-buff-tuning-name strong,
@@ -711,6 +809,15 @@
   opacity: 0.48;
 }
 
+.mobile-buff-special-damage-list > button.is-selected {
+  margin: 0 -7px;
+  padding-right: 7px;
+  padding-left: 7px;
+  border-top-color: rgba(31, 111, 139, 0.3);
+  background: rgba(31, 111, 139, 0.07);
+  box-shadow: inset 3px 0 0 var(--mobile-buff-owner);
+}
+
 .mobile-buff-special-damage-index {
   display: grid;
   width: 31px;
@@ -762,6 +869,69 @@
 .mobile-buff-special-formula-line b {
   max-width: 72%;
   overflow-wrap: anywhere;
+}
+
+.mobile-buff-special-calculation-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: -2px 0 11px;
+}
+
+.mobile-buff-special-calculation-meta span {
+  min-width: 0;
+  padding: 6px 8px;
+  overflow: hidden;
+  border: 1px solid var(--mobile-buff-line);
+  border-radius: 5px 1px 5px 1px;
+  color: var(--mobile-buff-muted);
+  background: rgba(241, 244, 243, 0.62);
+  font-size: 9px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-buff-special-applied {
+  display: grid;
+  gap: 0;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--mobile-buff-line);
+  border-radius: 7px 2px 7px 2px;
+  background: rgba(241, 244, 243, 0.5);
+}
+
+.mobile-buff-special-applied > small {
+  margin-bottom: 4px;
+  color: var(--mobile-buff-muted);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.mobile-buff-special-applied p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 6px 0;
+  border-top: 1px solid var(--mobile-buff-line);
+  font-size: 9px;
+}
+
+.mobile-buff-special-applied p span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-buff-special-applied p b {
+  flex: 0 0 auto;
+  color: var(--mobile-buff-accent);
+  font-variant-numeric: tabular-nums;
 }
 
 .mobile-buff-selected-list,
@@ -897,6 +1067,9 @@
 
 .mobile-buff-zone-details > p b,
 .mobile-buff-contribution-list p b {
+  min-width: 0;
+  max-width: 72%;
+  overflow-wrap: anywhere;
   color: var(--mobile-buff-ink);
   font-variant-numeric: tabular-nums;
   font-weight: 680;
