@@ -435,6 +435,16 @@
 
 /* Page 01 uses the desktop PPT structure verbatim; these rules only compress it to portrait width. */
 .mobile-report-ppt-team-slide {
+  --mobile-report-ppt-row-height: 96px;
+  --mobile-report-ppt-square-column: calc(var(--mobile-report-ppt-row-height) - 8px);
+  --mobile-report-ppt-weapon-image-size: calc(var(--mobile-report-ppt-square-column) - 2px);
+  --mobile-report-ppt-weapon-level-column: 11px;
+  --mobile-report-ppt-weapon-column: calc(
+    var(--mobile-report-ppt-weapon-image-size)
+    + var(--mobile-report-ppt-weapon-level-column)
+    + 2px
+  );
+
   display: block;
   min-height: 0;
   padding: 0;
@@ -464,14 +474,24 @@
 .mobile-report-ppt-team-slide .report-ppt-team-list {
   height: auto;
   grid-template-rows: none;
-  grid-auto-rows: 96px;
+  grid-auto-rows: var(--mobile-report-ppt-row-height);
   gap: 3px;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-operator-row {
-  grid-template-columns: 72px minmax(0, 1fr) 104px 30px;
+  grid-template-columns:
+    var(--mobile-report-ppt-square-column)
+    var(--mobile-report-ppt-weapon-column)
+    minmax(0, 1fr)
+    30px;
   gap: 2px;
   padding: 3px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-avatar-frame {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1 / 1;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-potential-star-wrap {
@@ -511,9 +531,10 @@
 }
 
 .mobile-report-ppt-team-slide .report-ppt-weapon-image-frame {
-  width: calc(100% - 11px);
+  flex-basis: var(--mobile-report-ppt-weapon-image-size);
+  width: var(--mobile-report-ppt-weapon-image-size);
   height: 100%;
-  aspect-ratio: auto;
+  aspect-ratio: 1 / 1;
 }
 
 .mobile-report-ppt-team-slide .report-ppt-weapon-name {
@@ -521,7 +542,7 @@
 }
 
 .mobile-report-ppt-team-slide .report-ppt-weapon-level-rows {
-  width: 11px;
+  width: var(--mobile-report-ppt-weapon-level-column);
   padding: 0;
   gap: 0;
 }
@@ -533,10 +554,10 @@
 
 .mobile-report-ppt-team-slide .report-ppt-equipment-icons {
   height: 100%;
-  grid-template-columns: repeat(2, max-content);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   grid-template-rows: repeat(2, minmax(0, 1fr));
   grid-auto-flow: row;
-  justify-content: center;
+  justify-items: center;
   column-gap: 3px;
   row-gap: 1px;
   padding: 1px;
