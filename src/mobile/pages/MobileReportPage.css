@@ -433,6 +433,178 @@
   white-space: nowrap;
 }
 
+/* Page 01 uses the desktop PPT structure verbatim; these rules only compress it to portrait width. */
+.mobile-report-ppt-team-slide {
+  display: block;
+  min-height: 0;
+  padding: 0;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-slide-inner {
+  width: 100%;
+  aspect-ratio: auto;
+  padding: 8px;
+  border-color: var(--report-line-strong);
+}
+
+.mobile-report-ppt-team-slide .report-ppt-slide-head {
+  height: 28px;
+  gap: 7px;
+  margin-bottom: 7px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-slide-head span {
+  font-size: 8px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-slide-head h1 {
+  font-size: 16px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-team-list {
+  height: auto;
+  grid-template-rows: none;
+  grid-auto-rows: 96px;
+  gap: 3px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-operator-row {
+  grid-template-columns: 72px 66px minmax(0, 1fr) 30px;
+  gap: 2px;
+  padding: 3px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-potential-star-wrap {
+  width: 31px;
+  height: 31px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-potential-star {
+  top: 2px;
+  left: 2px;
+  width: 19px;
+  height: 19px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-operator-main {
+  padding: 1px 25px 1px 3px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-operator-main h2,
+.mobile-report-ppt-team-slide .report-ppt-weapon-name,
+.mobile-report-ppt-team-slide .report-ppt-equipment-set-name {
+  font-size: 7px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-operator-level,
+.mobile-report-ppt-team-slide .report-ppt-weapon-level {
+  right: 2px;
+  bottom: 2px;
+  min-width: 22px;
+  height: 12px;
+  padding: 0 2px;
+  font-size: 5px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-weapon-block {
+  width: 100%;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-weapon-image-frame {
+  width: calc(100% - 11px);
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-weapon-name {
+  padding: 1px 24px 1px 2px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-weapon-level-rows {
+  width: 11px;
+  padding: 0;
+  gap: 0;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-set-name {
+  height: 12px;
+  padding: 0 2px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-icons {
+  height: 100%;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  padding: 1px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-set-name + .report-ppt-equipment-icons {
+  height: calc(100% - 12px);
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-icons > strong {
+  font-size: 7px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-weapon-equipment-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 8px;
+  gap: 1px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-image-frame {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-name {
+  padding: 1px;
+  font-size: 4.5px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-equipment-level-rows {
+  width: 8px;
+  min-width: 8px;
+  flex-basis: 8px;
+  gap: 0;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-level-row {
+  grid-template-columns: 5px 3px;
+  gap: 0;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-level-capsule {
+  width: 5px;
+  height: 5px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-level-capsule i {
+  width: 5px;
+  height: 2px;
+  border-width: 0.5px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-level-row strong {
+  font-size: 4px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-skill-levels {
+  gap: 1px;
+  padding: 1px;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-skill-levels span {
+  gap: 0;
+  padding: 0;
+}
+
+.mobile-report-ppt-team-slide .report-ppt-skill-levels b,
+.mobile-report-ppt-team-slide .report-ppt-skill-levels strong {
+  font-size: 4.5px;
+}
+
 .mobile-report-timeline-summary,
 .mobile-report-damage-strip {
   display: grid;
@@ -632,50 +804,57 @@
   font-size: 8px;
 }
 
-.mobile-report-rose-layout {
+.mobile-report-share-layout {
   display: grid;
-  grid-template-columns: minmax(132px, 0.95fr) minmax(0, 1.05fr);
+  grid-template-columns: minmax(126px, 0.86fr) minmax(0, 1.14fr);
   align-items: center;
-  gap: 9px;
+  gap: 10px;
 }
 
-.mobile-report-rose {
+.mobile-report-share-chart {
+  width: min(100%, 170px);
+  margin: 0 auto;
+}
+
+.mobile-report-share-svg {
   display: block;
   width: 100%;
-  max-height: 176px;
+  height: auto;
+  overflow: visible;
 }
 
-.mobile-report-petal-base {
-  fill: #ecebe6;
-  stroke: #d8d7d1;
-  stroke-width: 1.4;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+.mobile-report-share-track,
+.mobile-report-share-segment {
+  fill: none;
 }
 
-.mobile-report-petal-value {
-  stroke: #ffffff;
-  stroke-width: 1.7;
-  stroke-linejoin: round;
-  vector-effect: non-scaling-stroke;
+.mobile-report-share-track {
+  stroke: rgba(23, 45, 50, 0.08);
+  stroke-width: 34;
 }
 
-.mobile-report-petal-value.is-segment-0,
-.mobile-report-chart-legend i.is-segment-0 { fill: #1c1c1a; background: #1c1c1a; }
-.mobile-report-petal-value.is-segment-1,
-.mobile-report-chart-legend i.is-segment-1 { fill: #55554f; background: #55554f; }
-.mobile-report-petal-value.is-segment-2,
-.mobile-report-chart-legend i.is-segment-2 { fill: #8f8e88; background: #8f8e88; }
-.mobile-report-petal-value.is-segment-3,
-.mobile-report-chart-legend i.is-segment-3 { fill: #b0afa9; background: #b0afa9; }
+.mobile-report-share-segment {
+  stroke-linecap: butt;
+  stroke-width: 34;
+}
 
-.mobile-report-petal-hub {
+.mobile-report-share-hole {
+  fill: #ffffff;
+}
+
+.mobile-report-share-total-label {
+  fill: var(--report-muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.mobile-report-share-total {
   fill: var(--report-ink);
-  stroke: #ffffff;
-  stroke-width: 1;
+  font-size: 25px;
+  font-weight: 800;
 }
 
-.mobile-report-chart-legend {
+.mobile-report-share-legend {
   display: grid;
   gap: 7px;
   min-width: 0;
@@ -684,7 +863,7 @@
   list-style: none;
 }
 
-.mobile-report-chart-legend li {
+.mobile-report-legend-item {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr) auto;
   align-items: center;
@@ -692,36 +871,40 @@
   min-width: 0;
 }
 
-.mobile-report-chart-legend i {
+.mobile-report-legend-swatch {
   width: 8px;
   height: 8px;
 }
 
-.mobile-report-chart-legend li > span {
+.mobile-report-legend-copy {
   display: grid;
   min-width: 0;
   gap: 1px;
 }
 
-.mobile-report-chart-legend strong,
-.mobile-report-chart-legend small {
+.mobile-report-legend-label,
+.mobile-report-legend-value {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-report-chart-legend strong {
+.mobile-report-legend-label {
   font-size: 9px;
+  font-weight: 760;
 }
 
-.mobile-report-chart-legend small {
+.mobile-report-legend-value {
   color: var(--report-muted);
   font-size: 7px;
+  font-variant-numeric: tabular-nums;
 }
 
-.mobile-report-chart-legend b {
+.mobile-report-legend-share {
   font-size: 8px;
   font-variant-numeric: tabular-nums;
+  font-weight: 760;
+  white-space: nowrap;
 }
 
 .mobile-report-line-chart {
@@ -773,7 +956,11 @@
   list-style: none;
 }
 
-.mobile-report-skill-bars li > div {
+.mobile-report-skill-bar-row {
+  min-width: 0;
+}
+
+.mobile-report-skill-bar-heading {
   display: flex;
   align-items: end;
   justify-content: space-between;
@@ -781,43 +968,43 @@
   margin-bottom: 5px;
 }
 
-.mobile-report-skill-bars li > div > span {
+.mobile-report-skill-label {
   display: grid;
   min-width: 0;
   gap: 1px;
 }
 
-.mobile-report-skill-bars small,
-.mobile-report-skill-bars strong {
+.mobile-report-skill-group,
+.mobile-report-skill-label > span:last-child {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-report-skill-bars small {
+.mobile-report-skill-group {
   color: var(--report-muted);
   font-size: 7px;
 }
 
-.mobile-report-skill-bars strong,
-.mobile-report-skill-bars b {
+.mobile-report-skill-label > span:last-child,
+.mobile-report-skill-bar-heading strong {
   font-size: 9px;
 }
 
-.mobile-report-skill-bars b {
+.mobile-report-skill-bar-heading strong {
   flex: 0 0 auto;
   font-variant-numeric: tabular-nums;
 }
 
-.mobile-report-skill-track {
-  display: block;
+.mobile-report-skill-bar-track {
+  width: 100%;
   height: 7px;
   overflow: hidden;
   border: 1px solid var(--report-line);
   background: var(--report-paper-soft);
 }
 
-.mobile-report-skill-track i {
+.mobile-report-skill-bar-fill {
   display: block;
   height: 100%;
   background: var(--report-accent);

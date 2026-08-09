@@ -32,6 +32,8 @@ export interface MobileTimelinePageProps {
   embedded?: boolean;
   /** Keeps the shared timeline rendering while disabling mutations and overlays. */
   readOnly?: boolean;
+  /** Report views can omit unfilled planning slots while preserving their original order numbers. */
+  hideEmptySlots?: boolean;
 }
 
 type EmptySlotChooser = {
@@ -124,6 +126,7 @@ export function MobileTimelinePage({
   onInteractionLockChange,
   embedded = false,
   readOnly = false,
+  hideEmptySlots = false,
 }: MobileTimelinePageProps) {
   const availableOperators = operators ?? selectedOperators ?? [];
   const [chooser, setChooser] = useState<EmptySlotChooser | null>(null);
@@ -274,6 +277,7 @@ export function MobileTimelinePage({
   };
 
   const moveTargets = moveSourceSlotId ? slots.filter((slot) => slot.id !== moveSourceSlotId) : [];
+  const visibleSlots = hideEmptySlots ? slots.filter((slot) => slot.action) : slots;
   const RootElement: 'main' | 'section' = embedded ? 'section' : 'main';
 
   return (
@@ -322,8 +326,16 @@ export function MobileTimelinePage({
         </section>
       ) : null}
 
+      {hideEmptySlots && visibleSlots.length === 0 ? (
+        <section className="mobile-timeline-empty-state" role="status">
+          <strong>暂无已排技能</strong>
+          <p>完成排轴后，这里只展示实际加入的技能。</p>
+        </section>
+      ) : null}
+
       <ol className="mobile-timeline-slots" aria-label="技能排轴槽位">
-        {slots.map((slot, index) => {
+        {visibleSlots.map((slot) => {
+          const index = slots.findIndex((item) => item.id === slot.id);
           const action = slot.action;
           const operator = getActionOperator(availableOperators, action);
           const calculation = slotCalculations[slot.id];

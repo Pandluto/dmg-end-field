@@ -1,4 +1,10 @@
-import { useMemo, useState, type CSSProperties, type SyntheticEvent } from 'react';
+import { useId, useMemo, useState, type CSSProperties } from 'react';
+import {
+  handleReportImageError,
+  ReportLevelRows,
+  ReportPotentialStar,
+} from '../../components/DamageReportPptPrimitives';
+import '../../components/DamageReportPptPage.css';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { EquipmentItem, EquipmentLibrary } from '../../core/services/operatorEquipmentLibrary';
 import type { Character } from '../../types';
@@ -49,13 +55,7 @@ const REPORT_PAGES: Array<{ id: ReportPageId; index: string; label: string }> = 
 
 const EQUIPMENT_SLOT_ORDER = ['armor', 'glove', 'accessory1', 'accessory2'] as const;
 const SKILL_LEVEL_ORDER = ['A', 'B', 'E', 'Q', 'Dot'] as const;
-const ELEMENT_LABELS: Record<string, string> = {
-  physical: '物理',
-  fire: '灼热',
-  ice: '寒冷',
-  electric: '电磁',
-  nature: '自然',
-};
+const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
 
 function toSafeAmount(value: number | undefined): number {
   return Number.isFinite(value) ? Math.max(0, value ?? 0) : 0;
@@ -86,10 +86,6 @@ function getPotentialCount(value: string | undefined): number {
   return Number.isFinite(parsed) ? Math.min(6, Math.max(1, parsed + 1)) : 1;
 }
 
-function handleImageError(event: SyntheticEvent<HTMLImageElement>) {
-  event.currentTarget.style.display = 'none';
-}
-
 function buildEquipmentMap(library: EquipmentLibrary): Map<string, EquipmentItem> {
   const result = new Map<string, EquipmentItem>();
   Object.values(library.gearSets).forEach((gearSet) => {
@@ -108,17 +104,18 @@ function findWeapon(
   return Object.entries(weapons).find(([key, weapon]) => key === weaponId || weapon.id === weaponId)?.[1] ?? null;
 }
 
-function getEquipmentLevelText(
-  config: MobileOperatorConfig | undefined,
-  slotKey: (typeof EQUIPMENT_SLOT_ORDER)[number],
-): string {
-  const levels = Object.values(config?.equipment[slotKey]?.effectLevels ?? {})
-    .filter((level): level is number => Number.isFinite(level));
-  return levels.length > 0 ? levels.map((level) => `Lv.${level}`).join(' / ') : '未设词条';
-}
-
 function getEquipmentSetName(snapshot: ConfigSnapshot | undefined): string {
   return Array.from(new Set(snapshot?.equipment.setBuffs.map((buff) => buff.gearSetName).filter(Boolean) ?? [])).join(' / ');
+}
+
+function getSeriesColor(index: number): string {
+  return SERIES_COLORS[index % SERIES_COLORS.length];
+}
+
+function getSkillLabelParts(label: string): { groupLabel: string; skillLabel: string } {
+  const parts = label.split(/\s*[·｜|]\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 2) return { groupLabel: '', skillLabel: label };
+  return { groupLabel: parts[0], skillLabel: parts.slice(1).join(' · ') };
 }
 
 function ReportSlideHeader({ index, title, note }: { index: string; title: string; note: string }) {
@@ -147,144 +144,175 @@ function TeamReportSlide({
   weapons: MobileCatalog['weapons'];
   equipmentMap: Map<string, EquipmentItem>;
 }) {
+  const displayOperators: Array<Character | null> = operators.length > 0
+    ? operators.slice(0, 4)
+    : Array.from({ length: 4 }, () => null);
+
   return (
-    <section className="mobile-report-slide" aria-labelledby="mobile-report-team-title">
-      <ReportSlideHeader index="01" title="队伍配置" note="当前干员、武器、装备与技能等级" />
-      {operators.length === 0 ? <EmptyReportState>选好干员后，这里会生成队伍配置页。</EmptyReportState> : (
-        <div className="mobile-report-team-list">
-          {operators.map((operator) => {
-            const config = operatorConfigs[operator.id];
-            const snapshot = operatorSnapshots[operator.id];
+    <section className="report-ppt-slide mobile-report-ppt-team-slide" aria-labelledby="mobile-report-team-title">
+      <div className="report-ppt-slide-inner">
+        <header className="report-ppt-slide-head">
+          <span>01</span>
+          <h1 id="mobile-report-team-title">队伍配置</h1>
+        </header>
+        <div className="report-ppt-team-list">
+          {displayOperators.map((operator, operatorIndex) => {
+            const operatorId = operator?.id ?? `empty-${operatorIndex}`;
+            const operatorName = operator?.name ?? '未选择';
+            const config = operator ? operatorConfigs[operator.id] : undefined;
+            const snapshot = operator ? operatorSnapshots[operator.id] : undefined;
             const weapon = findWeapon(weapons, config?.weapon.weaponId);
-            const avatarUrl = normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name);
+            const weaponName = snapshot?.weapon.name || weapon?.name || '';
+            const avatarUrl = operator
+              ? normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name)
+              : '';
             const setName = getEquipmentSetName(snapshot);
             const potentialCount = snapshot?.operator.potentialCount ?? getPotentialCount(config?.potential);
+            const equipmentPieces = EQUIPMENT_SLOT_ORDER.flatMap((slotKey) => {
+              const selection = config?.equipment[slotKey];
+              const snapshotPiece = snapshot?.equipment.pieces.find((piece) => piece.slotKey === slotKey);
+              const item = equipmentMap.get(selection?.equipmentId || snapshotPiece?.equipmentId || '');
+              const name = snapshotPiece?.name || item?.name || '';
+              if (!name) return [];
+              const snapshotLevels = snapshotPiece?.effects.map((effect) => Number(effect.level) || 0) ?? [];
+              const configuredLevels = Object.values(selection?.effectLevels ?? {})
+                .filter((level): level is number => Number.isFinite(level));
+              return [{
+                slotKey,
+                name,
+                part: snapshotPiece?.part || item?.part || '',
+                imageUrl: normalizeAssetUrl(snapshotPiece?.imgUrl || item?.imgUrl),
+                levels: snapshotLevels.length > 0 ? snapshotLevels : configuredLevels,
+              }];
+            });
+            const weaponLevels = [
+              snapshot?.weapon.config.skillLevels.skill1 ?? config?.weapon.skillLevels.skill1 ?? 0,
+              snapshot?.weapon.config.skillLevels.skill2 ?? config?.weapon.skillLevels.skill2 ?? 0,
+              snapshot?.weapon.config.skillLevels.skill3 ?? config?.weapon.skillLevels.skill3 ?? 0,
+            ];
             return (
-              <article key={operator.id} className="mobile-report-loadout-row">
-                <div className="mobile-report-operator-portrait" data-fallback={operator.name.slice(0, 1)}>
-                  {avatarUrl ? <img src={avatarUrl} alt={operator.name} onError={handleImageError} /> : null}
-                  <span className="mobile-report-potential">★ {potentialCount}</span>
-                  <span className="mobile-report-operator-caption">
-                    <strong>{operator.name}</strong>
-                    <small>Lv.{config?.level ?? '—'} · {ELEMENT_LABELS[operator.element] ?? operator.element} · {operator.profession}</small>
-                  </span>
+              <article key={operatorId} className="report-ppt-operator-row">
+                <div className="report-ppt-avatar-frame">
+                  {avatarUrl ? (
+                    <img
+                      className="report-ppt-avatar"
+                      src={avatarUrl}
+                      data-fallback-src={operator ? resolveAvatarUrl(operator.name) : undefined}
+                      alt={operatorName}
+                      onError={handleReportImageError(operatorName.slice(0, 2))}
+                    />
+                  ) : null}
+                  <ReportPotentialStar count={potentialCount} potential={config?.potential} />
+                  <div className="report-ppt-operator-main"><h2>{operatorName}</h2></div>
+                  <div className="report-ppt-operator-level">Lv.{snapshot?.operator.level ?? config?.level ?? '-'}</div>
                 </div>
-
-                <div className="mobile-report-loadout-body">
-                  <section className="mobile-report-weapon-panel">
-                    <span className="mobile-report-block-label">WEAPON</span>
-                    <strong>{weapon?.name || '未配置武器'}</strong>
-                    <small>Lv.{config?.weapon.level ?? '—'} · {config?.weapon.potential || '无潜能配置'}</small>
-                    <div className="mobile-report-level-rail" aria-label="武器技能等级">
-                      <span>能力 {config?.weapon.skillLevels.skill1 ?? '—'}</span>
-                      <span>属性 {config?.weapon.skillLevels.skill2 ?? '—'}</span>
-                      <span>特效 {config?.weapon.skillLevels.skill3 ?? '—'}</span>
+                <div className="report-ppt-weapon-block">
+                  <div className="report-ppt-weapon-image-frame">
+                    <div className="report-ppt-weapon-image" data-fallback={weaponName ? undefined : '无'}>
+                      {weapon?.imgUrl ? (
+                        <img
+                          src={normalizeAssetUrl(weapon.imgUrl)}
+                          alt={weaponName}
+                          onError={handleReportImageError(weaponName.slice(0, 2))}
+                        />
+                      ) : null}
                     </div>
-                    <div className="mobile-report-weapon-art" data-fallback="无">
-                      {weapon?.imgUrl ? <img src={normalizeAssetUrl(weapon.imgUrl)} alt={weapon.name} onError={handleImageError} /> : null}
-                    </div>
-                  </section>
-
-                  {setName ? <div className="mobile-report-set-name">套装 / {setName}</div> : null}
-                  <div className="mobile-report-equipment-grid">
-                    {EQUIPMENT_SLOT_ORDER.map((slotKey) => {
-                      const equipmentId = config?.equipment[slotKey]?.equipmentId ?? '';
-                      const item = equipmentMap.get(equipmentId);
-                      return (
-                        <section key={slotKey} className="mobile-report-equipment-panel">
-                          <span>{item?.part || (slotKey.startsWith('accessory') ? '配件' : slotKey === 'armor' ? '护甲' : '护手')}</span>
-                          <strong>{item?.name || '未配置'}</strong>
-                          <small>{getEquipmentLevelText(config, slotKey)}</small>
-                          <div className="mobile-report-equipment-art" data-fallback="＋">
-                            {item?.imgUrl ? <img src={normalizeAssetUrl(item.imgUrl)} alt={item.name} onError={handleImageError} /> : null}
-                          </div>
-                        </section>
-                      );
-                    })}
+                    <ReportPotentialStar
+                      count={snapshot?.weapon.config.potentialCount}
+                      potential={snapshot?.weapon.config.potential || config?.weapon.potential}
+                    />
+                    <div className="report-ppt-weapon-name">{weaponName || '无'}</div>
+                    <div className="report-ppt-weapon-level">Lv.{snapshot?.weapon.config.level ?? config?.weapon.level ?? '-'}</div>
                   </div>
-
-                  <div className="mobile-report-skill-levels" aria-label={`${operator.name}技能等级`}>
-                    {SKILL_LEVEL_ORDER.map((skillKey) => (
-                      <span key={skillKey}><b>{skillKey}</b><strong>{config?.skillLevels[skillKey] ?? '—'}</strong></span>
+                  <ReportLevelRows levels={weaponLevels} className="report-ppt-weapon-level-rows" />
+                </div>
+                <div className="report-ppt-equipment-block">
+                  {setName ? <div className="report-ppt-equipment-set-name">{setName}</div> : null}
+                  <div className="report-ppt-equipment-icons">
+                    {equipmentPieces.length === 0 ? <strong>未配置</strong> : equipmentPieces.map((piece) => (
+                      <div key={`${operatorId}-${piece.slotKey}`} className="report-ppt-weapon-equipment-item" title={piece.name}>
+                        <div className="report-ppt-equipment-image-frame">
+                          <div className="report-ppt-equipment-icon">
+                            {piece.imageUrl ? (
+                              <img src={piece.imageUrl} alt={piece.name} onError={handleReportImageError(piece.part || piece.name.slice(0, 2))} />
+                            ) : (
+                              <span>{piece.part || piece.name.slice(0, 2)}</span>
+                            )}
+                          </div>
+                          <div className="report-ppt-equipment-name">{piece.name}</div>
+                        </div>
+                        <ReportLevelRows levels={piece.levels} className="report-ppt-equipment-level-rows" />
+                      </div>
                     ))}
                   </div>
+                </div>
+                <div className="report-ppt-skill-levels" aria-label={`${operatorName}技能等级`}>
+                  {SKILL_LEVEL_ORDER.map((skillKey) => (
+                    <span key={skillKey}><b>{skillKey}</b><strong>{config?.skillLevels[skillKey] ?? '-'}</strong></span>
+                  ))}
                 </div>
               </article>
             );
           })}
         </div>
-      )}
+      </div>
     </section>
   );
 }
 
-function getPolarPoint(cx: number, cy: number, radius: number, angle: number) {
-  const radians = angle * (Math.PI / 180);
-  return { x: cx + Math.cos(radians) * radius, y: cy + Math.sin(radians) * radius };
-}
-
-function getRoundedSectorPath(cx: number, cy: number, radius: number, startAngle: number, endAngle: number) {
-  const angleSpan = endAngle - startAngle;
-  if (angleSpan >= 359.999) {
-    const outerStart = getPolarPoint(cx, cy, radius, startAngle);
-    const opposite = getPolarPoint(cx, cy, radius, startAngle + 180);
-    return `M ${outerStart.x} ${outerStart.y} A ${radius} ${radius} 0 1 1 ${opposite.x} ${opposite.y} A ${radius} ${radius} 0 1 1 ${outerStart.x} ${outerStart.y} Z`;
-  }
-  const cornerRadius = Math.min(4, radius * 0.22);
-  const cornerAngle = (cornerRadius / radius) * (180 / Math.PI);
-  const innerRadius = Math.min(3.2, radius * 0.24);
-  const innerStart = getPolarPoint(cx, cy, innerRadius, startAngle);
-  const innerEnd = getPolarPoint(cx, cy, innerRadius, endAngle);
-  const radialStart = getPolarPoint(cx, cy, radius - cornerRadius, startAngle);
-  const outerStartControl = getPolarPoint(cx, cy, radius, startAngle);
-  const outerStart = getPolarPoint(cx, cy, radius, startAngle + cornerAngle);
-  const outerEnd = getPolarPoint(cx, cy, radius, endAngle - cornerAngle);
-  const outerEndControl = getPolarPoint(cx, cy, radius, endAngle);
-  const radialEnd = getPolarPoint(cx, cy, radius - cornerRadius, endAngle);
-  return [
-    `M ${innerStart.x} ${innerStart.y}`,
-    `L ${radialStart.x} ${radialStart.y}`,
-    `Q ${outerStartControl.x} ${outerStartControl.y} ${outerStart.x} ${outerStart.y}`,
-    `A ${radius} ${radius} 0 ${angleSpan > 180 ? 1 : 0} 1 ${outerEnd.x} ${outerEnd.y}`,
-    `Q ${outerEndControl.x} ${outerEndControl.y} ${radialEnd.x} ${radialEnd.y}`,
-    `L ${innerEnd.x} ${innerEnd.y}`,
-    `Q ${cx} ${cy} ${innerStart.x} ${innerStart.y}`,
-    'Z',
-  ].join(' ');
-}
-
-function OperatorRoseChart({ rows }: { rows: DisplayReportRow[] }) {
+function OperatorShareChart({ rows }: { rows: DisplayReportRow[] }) {
+  const titleId = useId();
+  const descriptionId = useId();
   const positiveRows = rows.filter((row) => row.expected > 0);
   const total = positiveRows.reduce((sum, row) => sum + row.expected, 0);
   if (positiveRows.length === 0 || total <= 0) return <EmptyReportState>暂无干员伤害数据</EmptyReportState>;
 
-  const maxExpected = Math.max(...positiveRows.map((row) => row.expected), 1);
-  const slotAngle = 360 / positiveRows.length;
-  const petals = positiveRows.map((row, index) => ({
-    row,
-    index,
-    startAngle: -180 + index * slotAngle + Math.min(2.4, slotAngle * 0.025) / 2,
-    endAngle: -180 + (index + 1) * slotAngle - Math.min(2.4, slotAngle * 0.025) / 2,
-    radius: 47 * Math.sqrt(row.expected / maxExpected),
-  }));
+  let accumulatedShare = 0;
+  const segments = positiveRows.map((row, index) => {
+    const share = row.expected / total;
+    const segment = { ...row, index, share, offset: accumulatedShare };
+    accumulatedShare += share;
+    return segment;
+  });
+  const description = segments
+    .map((row) => `${row.label} ${formatDamage(row.expected)}，占比 ${formatPercentage(row.share)}`)
+    .join('；');
 
   return (
-    <div className="mobile-report-rose-layout">
-      <svg viewBox="0 0 100 100" className="mobile-report-rose" role="img" aria-label="干员伤害占比扇瓣图">
-        {petals.map(({ row, startAngle, endAngle }) => (
-          <path key={`base-${row.id}`} className="mobile-report-petal-base" d={getRoundedSectorPath(50, 50, 47, startAngle, endAngle)} />
-        ))}
-        {petals.map(({ row, index, startAngle, endAngle, radius }) => (
-          <path key={row.id} className={`mobile-report-petal-value is-segment-${index % 4}`} d={getRoundedSectorPath(50, 50, radius, startAngle, endAngle)} />
-        ))}
-        <circle cx="50" cy="50" r="2.2" className="mobile-report-petal-hub" />
-      </svg>
-      <ol className="mobile-report-chart-legend">
-        {positiveRows.map((row, index) => (
-          <li key={row.id}>
-            <i className={`is-segment-${index % 4}`} />
-            <span><strong>{row.label}</strong><small>{formatDamage(row.expected)}</small></span>
-            <b>{formatPercentage(row.expected / total)}</b>
+    <div className="mobile-report-share-layout">
+      <div className="mobile-report-share-chart">
+        <svg className="mobile-report-share-svg" viewBox="0 0 200 200" role="img" aria-labelledby={`${titleId} ${descriptionId}`} focusable="false">
+          <title id={titleId}>干员伤害占比</title>
+          <desc id={descriptionId}>{description}</desc>
+          <circle className="mobile-report-share-track" cx="100" cy="100" r="66" pathLength="100" />
+          {segments.map((row) => (
+            <circle
+              key={`${row.id}-${row.index}`}
+              className="mobile-report-share-segment"
+              cx="100"
+              cy="100"
+              r="66"
+              pathLength="100"
+              stroke={getSeriesColor(row.index)}
+              strokeDasharray={`${row.share * 100} ${100 - row.share * 100}`}
+              strokeDashoffset={-row.offset * 100}
+              transform="rotate(-90 100 100)"
+            />
+          ))}
+          <circle className="mobile-report-share-hole" cx="100" cy="100" r="46" />
+          <text className="mobile-report-share-total-label" x="100" y="94" textAnchor="middle">干员</text>
+          <text className="mobile-report-share-total" x="100" y="113" textAnchor="middle">{positiveRows.length}</text>
+        </svg>
+      </div>
+      <ol className="mobile-report-share-legend" aria-label="干员伤害占比明细">
+        {segments.map((row) => (
+          <li key={`${row.id}-legend`} className="mobile-report-legend-item">
+            <span className="mobile-report-legend-swatch" style={{ backgroundColor: getSeriesColor(row.index) }} aria-hidden="true" />
+            <span className="mobile-report-legend-copy">
+              <span className="mobile-report-legend-label">{row.label}</span>
+              <span className="mobile-report-legend-value">{formatDamage(row.expected)}</span>
+            </span>
+            <span className="mobile-report-legend-share">{formatPercentage(row.share)}</span>
           </li>
         ))}
       </ol>
@@ -326,13 +354,22 @@ function SkillDamageBars({ rows }: { rows: DisplayReportRow[] }) {
   const maxExpected = Math.max(...rows.map((row) => row.expected), 0);
   if (rows.length === 0 || maxExpected <= 0) return <EmptyReportState>暂无技能伤害数据</EmptyReportState>;
   return (
-    <ol className="mobile-report-skill-bars">
-      {rows.map((row) => {
-        const parts = row.label.split(/\s*[·｜|]\s*/).filter(Boolean);
+    <ol className="mobile-report-skill-bars" aria-label="按干员和技能排列的预计伤害">
+      {rows.map((row, index) => {
+        const { groupLabel, skillLabel } = getSkillLabelParts(row.label);
+        const width = row.expected > 0 ? Math.max((row.expected / maxExpected) * 100, 1.5) : 0;
         return (
-          <li key={row.id}>
-            <div><span><small>{parts[0]}</small><strong>{parts.slice(1).join(' · ') || row.label}</strong></span><b>{formatDamage(row.expected)}</b></div>
-            <span className="mobile-report-skill-track"><i style={{ width: `${Math.max(1.5, row.expected / maxExpected * 100)}%` } as CSSProperties} /></span>
+          <li key={`${row.id}-${index}`} className="mobile-report-skill-bar-row">
+            <div className="mobile-report-skill-bar-heading">
+              <span className="mobile-report-skill-label">
+                {groupLabel ? <span className="mobile-report-skill-group">{groupLabel}</span> : null}
+                <span>{skillLabel}</span>
+              </span>
+              <strong>{formatDamage(row.expected)}</strong>
+            </div>
+            <div className="mobile-report-skill-bar-track" aria-hidden="true">
+              <span className="mobile-report-skill-bar-fill" style={{ width: `${width}%` } as CSSProperties} />
+            </div>
           </li>
         );
       })}
@@ -361,7 +398,7 @@ function ChartReportSlide({
       </div>
       <article className="mobile-report-chart-card">
         <h3><span>图 1</span>干员伤害占比</h3>
-        <OperatorRoseChart rows={operatorRows} />
+        <OperatorShareChart rows={operatorRows} />
       </article>
       <article className="mobile-report-chart-card">
         <h3><span>图 2</span>伤害过程时序</h3>
@@ -453,6 +490,7 @@ export function MobileReportPage({
             onMoveSlotAction={() => undefined}
             embedded
             readOnly
+            hideEmptySlots
           />
         </section>
       ) : (
