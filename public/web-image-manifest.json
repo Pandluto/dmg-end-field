@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "packageId": "dmg-end-field-image-pack",
-  "version": "v1.7.3",
-  "generatedAt": "2026-07-17T16:33:38.663Z",
-  "releaseTag": "v1.7.3",
+  "version": "v1.8.3",
+  "generatedAt": "2026-08-09T03:11:32.691Z",
+  "releaseTag": "v1.8.3",
   "files": [
     {
       "path": "assets/images/img-equipment/icon_cn/50式应龙短刃.png",
@@ -1446,6 +1446,36 @@
       "size": 93839
     },
     {
+      "path": "assets/images/img-operator/梨诺/梨诺.png",
+      "sha256": "74e7f1cdad07f8e0ddcb9389dda7efffae9415880899c0976a4c34d039084260",
+      "size": 160336
+    },
+    {
+      "path": "assets/images/img-operator/梨诺/梨诺立绘.png",
+      "sha256": "b910295302c86f6e4fd07f5db3478340f52fb384b9dd2e23fd44185235d9041e",
+      "size": 16788036
+    },
+    {
+      "path": "assets/images/img-operator/梨诺/梨诺连携技.png",
+      "sha256": "8cb625e6b20eadfc2d16e2cf58e77944e9ad154e654f8d3bd9b7682c2e45627d",
+      "size": 43453
+    },
+    {
+      "path": "assets/images/img-operator/梨诺/梨诺战技.png",
+      "sha256": "34ebb1d5656621ae5e233fce478dbbef3d89846bdf2ff19266a9c4fdf2191f23",
+      "size": 43453
+    },
+    {
+      "path": "assets/images/img-operator/梨诺/梨诺终结技.png",
+      "sha256": "7d5e719ff14614f9f0890fb157c2f0a2c18a09a92af5dc873121d933d1523cb6",
+      "size": 43453
+    },
+    {
+      "path": "assets/images/img-operator/梨诺/曜夜的首演.png",
+      "sha256": "02e434f140d5a63db7767f236e057d263072c0904055f22d8dda1c8898eb0dbf",
+      "size": 262604
+    },
+    {
       "path": "assets/images/img-operator/黎风.png",
       "sha256": "0ee06a3e68c7b0bab5e8f222ade308d4c0fed996010cac77359558fd9a8a7a4e",
       "size": 91680
@@ -2801,61 +2831,67 @@
       "size": 1181235
     }
   ],
-  "totalBytes": 37102489,
+  "totalBytes": 54443824,
   "archive": {
-    "path": "packages/assets-v1.7.3-full.zip",
-    "fileName": "assets-v1.7.3-full.zip",
-    "sha256": "99ffd2062bf94485520276c75b64c7695cdaacc72b2d324d414954554e28e148",
-    "size": 31030117,
-    "sourceUrl": "https://github.com/Pandluto/dmg-end-field/releases/download/v1.7.3/assets-v1.7.3-full.zip",
+    "path": "packages/assets-v1.8.3-full.zip",
+    "fileName": "assets-v1.8.3-full.zip",
+    "sha256": "580fa76ff3bfc4462239b569fadb1b9dd059987188a4a4f50139a5f5a2af4a20",
+    "size": 36995767,
+    "sourceUrl": "https://github.com/Pandluto/dmg-end-field/releases/download/v1.8.3/assets-v1.8.3-full.zip",
     "parts": [
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-001",
-        "fileName": "assets-v1.7.3-full.zip.part-001",
-        "sha256": "a85b87c806133da96f6dfab3b2b556b32018ab468516067224eff92d22085384",
+        "path": "packages/assets-v1.8.3-full.zip.part-001",
+        "fileName": "assets-v1.8.3-full.zip.part-001",
+        "sha256": "62e579bcca6f2309211551d624e6c575507f795f4a454ffda0b38d0273985c34",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-002",
-        "fileName": "assets-v1.7.3-full.zip.part-002",
-        "sha256": "d44dd42b4a4b95aa1b0ffa339415db5b7e468f5d20d7da5b602a23df8f4bb4c0",
+        "path": "packages/assets-v1.8.3-full.zip.part-002",
+        "fileName": "assets-v1.8.3-full.zip.part-002",
+        "sha256": "8b1f7389f70d06158953ed9828a1604428b048168e7b64ee25ed3658b7fab547",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-003",
-        "fileName": "assets-v1.7.3-full.zip.part-003",
-        "sha256": "a51808dc0a22463addd6665d18ad15352b2c88cd9ce79bdfb17570dd3d080671",
+        "path": "packages/assets-v1.8.3-full.zip.part-003",
+        "fileName": "assets-v1.8.3-full.zip.part-003",
+        "sha256": "42e2acd5213c5150f049b576cae41b05bc20ee3dd33a7610d3fe64d90f642145",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-004",
-        "fileName": "assets-v1.7.3-full.zip.part-004",
-        "sha256": "94c8826cc48b1e5b6b5cd6af585bfb1ed5ee82a60e917a2054078656b3c0ede0",
+        "path": "packages/assets-v1.8.3-full.zip.part-004",
+        "fileName": "assets-v1.8.3-full.zip.part-004",
+        "sha256": "88c7599ebaa58f9ed8aa97395702e440daa8be7e626d5f12308d512b040a163d",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-005",
-        "fileName": "assets-v1.7.3-full.zip.part-005",
-        "sha256": "4bfa30ffd3abb57425285d55703d474fccb0e0d55ac8aa7c6c77010ca38ebe26",
+        "path": "packages/assets-v1.8.3-full.zip.part-005",
+        "fileName": "assets-v1.8.3-full.zip.part-005",
+        "sha256": "aa632789dcb90ce69fa33e53998b19ef22127ed86512f2ad36aa286e579b19ee",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-006",
-        "fileName": "assets-v1.7.3-full.zip.part-006",
-        "sha256": "4437979dfa1114883ae9a58d4fb6d04638d174a1f9cd3a238ab1f34d51b26d27",
+        "path": "packages/assets-v1.8.3-full.zip.part-006",
+        "fileName": "assets-v1.8.3-full.zip.part-006",
+        "sha256": "eb4ca3659042295d7163a615e3ecdb3b38f96468886ce72a622bccc88d8c7c9a",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-007",
-        "fileName": "assets-v1.7.3-full.zip.part-007",
-        "sha256": "bed5bd0482d59ba07c29cef2b4d8ffc3a8880a0790764134452814ea401a4919",
+        "path": "packages/assets-v1.8.3-full.zip.part-007",
+        "fileName": "assets-v1.8.3-full.zip.part-007",
+        "sha256": "db209aee8be9920c88f88d0dc84b034551c3bfec19913f5a5434ec004ccaa04f",
         "size": 4194304
       },
       {
-        "path": "packages/assets-v1.7.3-full.zip.part-008",
-        "fileName": "assets-v1.7.3-full.zip.part-008",
-        "sha256": "21685e3c64c0a232a10b346404079f633185a743ac834b6a7235995480a94ee2",
-        "size": 1669989
+        "path": "packages/assets-v1.8.3-full.zip.part-008",
+        "fileName": "assets-v1.8.3-full.zip.part-008",
+        "sha256": "e224beb2c960f92b39c4e9b4776c4806c32096cac376b4d86d5e48b52782e819",
+        "size": 4194304
+      },
+      {
+        "path": "packages/assets-v1.8.3-full.zip.part-009",
+        "fileName": "assets-v1.8.3-full.zip.part-009",
+        "sha256": "8aeadc9c08f02d7c8d9d23ede50686daa9c04c58fdfa78fa7e32d5f653df2243",
+        "size": 3441335
       }
     ]
   }
