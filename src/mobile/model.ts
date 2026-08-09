@@ -45,6 +45,8 @@ export interface MobileTimelineAction {
   skillIconUrl?: string;
   buffs: SkillButtonBuff[];
   buffStackCounts: Record<string, number>;
+  buffStackCountsByHitKey: Record<string, Record<string, number>>;
+  globallyDisabledBuffIds: string[];
   disabledBuffIdsByHitKey: Record<string, string[]>;
   disabledHitKeys: string[];
   targetResistance: HitResistanceInput;

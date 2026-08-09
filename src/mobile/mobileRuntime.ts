@@ -1,0 +1,346 @@
+import { buildConfigSnapshot } from '../core/calculators/operatorPanelCalculator';
+import type {
+  ConfigSnapshot,
+  EquipmentPieceInput,
+  OperatorPanelInput,
+} from '../core/calculators/operatorPanelCalculator';
+import { calculateSkillButtonDamageV2 } from '../core/calculators/skillButtonDamageCalculatorV2';
+import type {
+  ResolvedHitTemplate,
+  ResolvedSkillDamageTemplate,
+  SkillDamagePanelBase,
+} from '../core/calculators/skillDamage.types';
+import { buildOperatorEquipmentSetBuffs } from '../core/services/operatorEquipmentLibrary';
+import type { Character, Skill, SkillType } from '../types';
+import type { DamageBonusSnapshot } from '../types/storage';
+import type {
+  MobileCatalog,
+  MobileDamageReport,
+  MobileDamageReportRow,
+  MobileDraft,
+  MobileEquipmentSlotKey,
+  MobileOperatorConfig,
+  MobileRuntimeState,
+  MobileSlotCalculation,
+  MobileTimelineAction,
+} from './model';
+
+const EMPTY_DAMAGE_BONUS: DamageBonusSnapshot = {
+  physicalDmgBonus: 0,
+  fireDmgBonus: 0,
+  electricDmgBonus: 0,
+  iceDmgBonus: 0,
+  natureDmgBonus: 0,
+  magicDmgBonus: 0,
+  normalAttackDmgBonus: 0,
+  dotDmgBonus: 0,
+  skillDmgBonus: 0,
+  chainSkillDmgBonus: 0,
+  ultimateDmgBonus: 0,
+  allSkillDmgBonus: 0,
+  imbalanceDmgBonus: 0,
+  allDmgBonus: 0,
+};
+
+function getCharacterById(catalog: MobileCatalog, characterId: string): Character | null {
+  return catalog.characters.find((character) => character.id === characterId) ?? null;
+}
+
+function getEquipmentPieces(
+  config: MobileOperatorConfig,
+  catalog: MobileCatalog,
+): EquipmentPieceInput[] {
+  const allEquipment = Object.values(catalog.equipment.gearSets)
+    .flatMap((gearSet) => Object.values(gearSet.equipments));
+
+  return (Object.entries(config.equipment) as Array<[
+    MobileEquipmentSlotKey,
+    MobileOperatorConfig['equipment'][MobileEquipmentSlotKey],
+  ]>).flatMap(([slotKey, selection]) => {
+    if (!selection.equipmentId) return [];
+    const item = allEquipment.find((candidate) => candidate.equipmentId === selection.equipmentId);
+    if (!item) return [];
+    const effects = Object.entries(item.effects).flatMap(([effectId, effect]) => {
+      if (!effect) return [];
+      const level = selection.effectLevels[effectId as keyof typeof selection.effectLevels] ?? 0;
+      const value = effect.levels[String(level) as keyof typeof effect.levels] ?? 0;
+      return [{
+        effectId,
+        label: effect.label,
+        typeKey: effect.typeKey,
+        level,
+        value,
+        unit: effect.unit,
+        raw: effect.raw,
+      }];
+    });
+    return [{
+      slotKey,
+      equipmentId: item.equipmentId,
+      name: item.name,
+      part: item.part,
+      imgUrl: item.imgUrl,
+      fixedStat: item.fixedStat,
+      effects,
+    }];
+  });
+}
+
+export function buildMobileOperatorSnapshot(
+  character: Character,
+  config: MobileOperatorConfig,
+  catalog: MobileCatalog,
+): ConfigSnapshot {
+  const weapon = catalog.weapons[config.weapon.weaponId];
+  const equipmentPieces = getEquipmentPieces(config, catalog);
+  const selectedEquipmentIds = equipmentPieces.map((piece) => piece.equipmentId);
+  const input: OperatorPanelInput = {
+    operator: {
+      id: character.id,
+      name: character.name,
+      level: config.level,
+      potential: config.potential,
+      element: character.element,
+      mainStat: character.mainStat,
+      subStat: character.subStat,
+      favorValue: config.favorValue,
+      mainStatFlatBonus: config.mainStatFlatBonus,
+      subStatFlatBonus: config.subStatFlatBonus,
+      skillConfig: config.skillLevels,
+      attributes: character.attributes,
+      buffs: character.operatorBuffs as OperatorPanelInput['operator']['buffs'],
+    },
+    weapon: {
+      id: weapon?.id ?? '',
+      name: weapon?.name ?? '',
+      config: {
+        level: config.weapon.level,
+        potential: config.weapon.potential,
+        skillLevels: config.weapon.skillLevels,
+      },
+      data: {
+        attackGrowth: weapon?.attackGrowth ?? {},
+        skills: weapon?.skills ?? {},
+      },
+    },
+    equipment: {
+      pieces: equipmentPieces,
+      setBuffs: buildOperatorEquipmentSetBuffs(selectedEquipmentIds, catalog.equipment),
+    },
+  };
+  return buildConfigSnapshot(input);
+}
+
+function legacySkillForType(character: Character, skillType: SkillType): Skill | null {
+  if (skillType === 'A') return character.skills.normalAttack;
+  if (skillType === 'B') return character.skills.skill;
+  if (skillType === 'E') return character.skills.chainSkill;
+  if (skillType === 'Q') return character.skills.ultimate;
+  return null;
+}
+
+function buildLegacyHits(
+  skill: Skill | null,
+  skillType: SkillType,
+  character: Character,
+  levelKey: string,
+): ResolvedHitTemplate[] {
+  const multiplier = skill?.multipliers[levelKey]
+    ?? skill?.multipliers.M3
+    ?? skill?.multipliers.L9
+    ?? {};
+  return Object.entries(multiplier).flatMap(([key, value]) => (
+    typeof value === 'number'
+      ? [{
+          key,
+          displayName: key,
+          multiplier: value,
+          element: character.element,
+          skillType,
+        } satisfies ResolvedHitTemplate]
+      : []
+  ));
+}
+
+export function resolveMobileSkillTemplate(
+  character: Character,
+  config: MobileOperatorConfig,
+  action: MobileTimelineAction,
+): ResolvedSkillDamageTemplate {
+  const sandboxSkill = character.sandboxSkills?.find((skill) => (
+    skill.id === action.runtimeSkillId || skill.buttonType === action.skillType
+  ));
+  const levelKey = config.skillLevels[action.skillType] ?? 'M3';
+  const sandboxHits = sandboxSkill?.customHits?.map((hit) => ({
+    key: hit.key,
+    displayName: hit.displayName,
+    multiplier: hit.levels?.[levelKey] ?? hit.multiplier,
+    element: hit.element,
+    skillType: hit.skillType,
+  })) ?? [];
+  const legacySkill = legacySkillForType(character, action.skillType);
+  const hits = sandboxHits.length > 0
+    ? sandboxHits
+    : buildLegacyHits(legacySkill, action.skillType, character, levelKey);
+
+  return {
+    characterId: character.id,
+    characterName: character.name,
+    runtimeSkillId: action.runtimeSkillId || `${character.id}-${action.skillType}`,
+    displayName: action.skillName || sandboxSkill?.displayName || legacySkill?.name || action.skillType,
+    buttonType: action.skillType,
+    hits,
+  };
+}
+
+function resolveAbilityField(value: string): SkillDamagePanelBase['mainStatField'] {
+  if (value === '力量') return 'strength';
+  if (value === '敏捷') return 'agility';
+  if (value === '智识') return 'intelligence';
+  if (value === '意志') return 'will';
+  return undefined;
+}
+
+function buildPanelBase(snapshot: ConfigSnapshot): SkillDamagePanelBase {
+  const calc = snapshot.panel.calc;
+  const display = snapshot.panel.display;
+  return {
+    baseAtk: display.baseAtk,
+    characterAtk: calc.operatorAtk,
+    weaponAtk: calc.weaponAtk,
+    weaponAtkPercent: display.weaponAtkPercent,
+    abilityBonus: display.abilityBonus,
+    critRate: display.critRate,
+    critDmg: display.critDmg,
+    strength: display.abilityValues.strength,
+    agility: display.abilityValues.agility,
+    intelligence: display.abilityValues.intelligence,
+    will: display.abilityValues.will,
+    mainStatFinal: display.mainStatFinal,
+    subStatFinal: display.subStatFinal,
+    mainStatRaw: display.abilityDetail.rawMainStat,
+    subStatRaw: display.abilityDetail.rawSubStat,
+    mainStatField: resolveAbilityField(snapshot.operator.mainStat),
+    subStatField: resolveAbilityField(snapshot.operator.subStat),
+    mainStatScale: display.abilityDetail.mainStatScale,
+    subStatScale: display.abilityDetail.subStatScale,
+    allStatScale: display.abilityDetail.allStatScale,
+  };
+}
+
+function calculateMobileSlot(
+  slotId: string,
+  action: MobileTimelineAction,
+  catalog: MobileCatalog,
+  config: MobileOperatorConfig,
+  snapshot: ConfigSnapshot,
+): MobileSlotCalculation | null {
+  const character = getCharacterById(catalog, action.operatorId);
+  if (!character) return null;
+  const template = resolveMobileSkillTemplate(character, config, action);
+  if (template.hits.length === 0) return null;
+  const globallyDisabled = new Set(action.globallyDisabledBuffIds);
+  const result = calculateSkillButtonDamageV2({
+    buttonId: action.id,
+    characterId: character.id,
+    runtimeSkillId: template.runtimeSkillId,
+    template,
+    buffs: action.buffs.filter((buff) => !globallyDisabled.has(buff.id)),
+    buffStackCounts: action.buffStackCounts,
+    buffStackCountsByHitKey: action.buffStackCountsByHitKey,
+    panel: {
+      atk: snapshot.panel.display.atk,
+      critRate: snapshot.panel.display.critRate,
+      critDmg: snapshot.panel.display.critDmg,
+    },
+    panelBase: buildPanelBase(snapshot),
+    disabledBuffIdsByHitKey: action.disabledBuffIdsByHitKey,
+    disabledHitKeys: action.disabledHitKeys,
+    damageBonus: snapshot.panel.display.damageBonus ?? EMPTY_DAMAGE_BONUS,
+    targetResistance: action.targetResistance,
+  });
+  return {
+    slotId,
+    actionId: action.id,
+    operatorId: character.id,
+    operatorName: character.name,
+    skillName: template.displayName,
+    result,
+  };
+}
+
+function buildRows(
+  entries: Array<{ id: string; label: string; expected: number }>,
+  totalExpected: number,
+): MobileDamageReportRow[] {
+  return entries
+    .filter((entry) => entry.expected > 0)
+    .sort((left, right) => right.expected - left.expected)
+    .map((entry) => ({
+      ...entry,
+      share: totalExpected > 0 ? entry.expected / totalExpected : 0,
+    }));
+}
+
+function buildMobileDamageReport(
+  calculations: MobileSlotCalculation[],
+): MobileDamageReport {
+  const totalExpected = calculations.reduce((sum, item) => sum + item.result.summary.totalExpected, 0);
+  const totalCrit = calculations.reduce((sum, item) => sum + item.result.summary.totalCrit, 0);
+  const totalNonCrit = calculations.reduce((sum, item) => sum + item.result.summary.totalNonCrit, 0);
+  const operatorMap = new Map<string, { label: string; expected: number }>();
+  const skillMap = new Map<string, { label: string; expected: number }>();
+  calculations.forEach((item) => {
+    const expected = item.result.summary.totalExpected;
+    const operator = operatorMap.get(item.operatorId) ?? { label: item.operatorName, expected: 0 };
+    operator.expected += expected;
+    operatorMap.set(item.operatorId, operator);
+    const skillId = `${item.operatorId}:${item.skillName}`;
+    const skill = skillMap.get(skillId) ?? { label: `${item.operatorName} · ${item.skillName}`, expected: 0 };
+    skill.expected += expected;
+    skillMap.set(skillId, skill);
+  });
+  return {
+    totalExpected,
+    totalCrit,
+    totalNonCrit,
+    slotCount: calculations.length,
+    byOperator: buildRows(
+      [...operatorMap].map(([id, item]) => ({ id, ...item })),
+      totalExpected,
+    ),
+    bySkill: buildRows(
+      [...skillMap].map(([id, item]) => ({ id, ...item })),
+      totalExpected,
+    ),
+  };
+}
+
+export function buildMobileRuntimeState(
+  draft: MobileDraft,
+  catalog: MobileCatalog,
+): MobileRuntimeState {
+  const operatorSnapshots: Record<string, ConfigSnapshot> = {};
+  draft.selectedOperatorIds.forEach((operatorId) => {
+    const character = getCharacterById(catalog, operatorId);
+    const config = draft.operatorConfigs[operatorId];
+    if (!character || !config) return;
+    operatorSnapshots[operatorId] = buildMobileOperatorSnapshot(character, config, catalog);
+  });
+
+  const slotCalculations: Record<string, MobileSlotCalculation> = {};
+  draft.slots.forEach((slot) => {
+    if (!slot.action) return;
+    const config = draft.operatorConfigs[slot.action.operatorId];
+    const snapshot = operatorSnapshots[slot.action.operatorId];
+    if (!config || !snapshot) return;
+    const calculation = calculateMobileSlot(slot.id, slot.action, catalog, config, snapshot);
+    if (calculation) slotCalculations[slot.id] = calculation;
+  });
+
+  return {
+    operatorSnapshots,
+    slotCalculations,
+    report: buildMobileDamageReport(Object.values(slotCalculations)),
+  };
+}
