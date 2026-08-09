@@ -193,7 +193,16 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
           </section>
 
           <section className="mobile-app-page" aria-hidden={workbench.draft.activePage !== 'report'}>
-            <MobileReportPage report={workbench.runtime.report} />
+            <MobileReportPage
+              report={workbench.runtime.report}
+              operators={selectedOperators}
+              operatorConfigs={workbench.draft.operatorConfigs}
+              operatorSnapshots={workbench.runtime.operatorSnapshots}
+              weapons={catalog.weapons}
+              equipment={catalog.equipment}
+              slots={workbench.draft.slots}
+              slotCalculations={workbench.runtime.slotCalculations}
+            />
           </section>
         </div>
       </div>

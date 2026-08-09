@@ -98,6 +98,49 @@ interface ManagedSpecialItem {
   tone?: 'damage' | 'state' | 'zone';
 }
 
+function SpecialOptionCard({
+  title,
+  status,
+  description,
+  active,
+  selected,
+  onSelect,
+  onRemove,
+}: {
+  title: string;
+  status: string;
+  description: string;
+  active: boolean;
+  selected: boolean;
+  onSelect: () => void;
+  onRemove?: () => void;
+}) {
+  return (
+    <article className={`${active ? 'is-active' : ''}${selected ? ' is-selected' : ''}`}>
+      <button
+        type="button"
+        className="mobile-buff-sheet-option-main"
+        onClick={onSelect}
+        aria-pressed={active}
+      >
+        <span>{selected ? `✓ ${status}` : status}</span>
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </button>
+      {selected && onRemove ? (
+        <button
+          type="button"
+          className="mobile-buff-sheet-option-remove"
+          onClick={onRemove}
+          aria-label={`取消挂载 ${title}`}
+        >
+          取消挂载
+        </button>
+      ) : null}
+    </article>
+  );
+}
+
 function ManagedSpecialBoard({
   title,
   description,
@@ -395,18 +438,21 @@ export function MobileBuffCatalogSheet({
           ariaLabel="异常伤害分类"
         />
         <div className="mobile-buff-sheet-option-grid">
-          {group.items.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`${activeAnomalyKey === option.key ? 'is-active' : ''}${selectedAnomalyKeys.has(option.key) ? ' is-selected' : ''}`}
-              onClick={() => selectAnomaly(option)}
-            >
-              <span>{selectedAnomalyKeys.has(option.key) ? '已挂载' : option.category === 'magic' ? '法术' : '物理'}</span>
-              <strong>{option.label}</strong>
-              <small>{ANOMALY_HINTS[option.key]}</small>
-            </button>
-          ))}
+          {group.items.map((option) => {
+            const mountedCard = (action.anomalyDamages ?? []).find((card) => card.key === option.key);
+            return (
+              <SpecialOptionCard
+                key={option.key}
+                title={option.label}
+                status={mountedCard ? '已挂载' : option.category === 'magic' ? '法术' : '物理'}
+                description={ANOMALY_HINTS[option.key]}
+                active={activeAnomalyKey === option.key}
+                selected={Boolean(mountedCard)}
+                onSelect={() => selectAnomaly(option)}
+                onRemove={mountedCard ? () => removeAnomalyCard('damage', mountedCard.id) : undefined}
+              />
+            );
+          })}
         </div>
         {activeAnomaly ? (
           <section className="mobile-buff-sheet-config-card">
@@ -483,18 +529,21 @@ export function MobileBuffCatalogSheet({
           onRemove={(id) => removeAnomalyStateSnapshot(Number(id))}
         />
         <div className="mobile-buff-sheet-option-grid is-three">
-          {MOBILE_ANOMALY_STATE_OPTIONS.map((option) => (
-            <button
-              key={option.key}
-              type="button"
-              className={`${activeAnomalyStateKey === option.key ? 'is-active' : ''}${selectedAnomalyStateKeys.has(option.key) ? ' is-selected' : ''}`}
-              onClick={() => selectAnomalyState(option)}
-            >
-              <span>{selectedAnomalyStateKeys.has(option.key) ? '已挂载' : '状态快照'}</span>
-              <strong>{option.label}</strong>
-              <small>{ANOMALY_HINTS[option.key]}</small>
-            </button>
-          ))}
+          {MOBILE_ANOMALY_STATE_OPTIONS.map((option) => {
+            const mountedSnapshot = (action.anomalyStateSnapshots ?? []).find((snapshot) => snapshot.key === option.key);
+            return (
+              <SpecialOptionCard
+                key={option.key}
+                title={option.label}
+                status={mountedSnapshot ? '已挂载' : '状态快照'}
+                description={ANOMALY_HINTS[option.key]}
+                active={activeAnomalyStateKey === option.key}
+                selected={Boolean(mountedSnapshot)}
+                onSelect={() => selectAnomalyState(option)}
+                onRemove={mountedSnapshot ? () => removeAnomalyStateSnapshot(mountedSnapshot.id) : undefined}
+              />
+            );
+          })}
         </div>
         <section className="mobile-buff-sheet-config-card">
           <div className="mobile-buff-sheet-config-heading">
@@ -565,18 +614,21 @@ export function MobileBuffCatalogSheet({
         onRemove={(id) => removeAnomalyCard('state', id)}
       />
       <div className="mobile-buff-sheet-option-grid is-two">
-        {MOBILE_FIXED_STATE_OPTIONS.map((option) => (
-          <button
-            key={option.key}
-            type="button"
-            className={`${activeStateKey === option.key ? 'is-active' : ''}${selectedStateKeys.has(option.key) ? ' is-selected' : ''}`}
-            onClick={() => selectFixedState(option)}
-          >
-            <span>{selectedStateKeys.has(option.key) ? '已启用' : '状态区'}</span>
-            <strong>{option.label}</strong>
-            <small>{ANOMALY_HINTS[option.key]}</small>
-          </button>
-        ))}
+        {MOBILE_FIXED_STATE_OPTIONS.map((option) => {
+          const mountedCard = (action.anomalyStatuses ?? []).find((card) => card.key === option.key);
+          return (
+            <SpecialOptionCard
+              key={option.key}
+              title={option.label}
+              status={mountedCard ? '已启用' : '状态区'}
+              description={ANOMALY_HINTS[option.key]}
+              active={activeStateKey === option.key}
+              selected={Boolean(mountedCard)}
+              onSelect={() => selectFixedState(option)}
+              onRemove={mountedCard ? () => removeAnomalyCard('state', mountedCard.id) : undefined}
+            />
+          );
+        })}
       </div>
       <section className="mobile-buff-sheet-config-card">
         <div className="mobile-buff-sheet-config-heading">

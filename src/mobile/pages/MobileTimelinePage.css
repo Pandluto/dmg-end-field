@@ -73,6 +73,38 @@
   font-weight: 700;
 }
 
+.mobile-timeline-header-tools {
+  display: grid;
+  flex: 0 0 auto;
+  justify-items: end;
+  gap: 6px;
+}
+
+.mobile-timeline-view-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(42px, 1fr));
+  border: 1px solid var(--mobile-timeline-line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.mobile-timeline-view-switch button {
+  min-height: 31px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--mobile-timeline-muted);
+  background: transparent;
+  font-size: 10px;
+  font-weight: 740;
+}
+
+.mobile-timeline-view-switch button.is-active {
+  color: #ffffff;
+  background: var(--mobile-timeline-accent);
+  box-shadow: inset 0 0 0 1px var(--mobile-timeline-accent);
+}
+
 .mobile-timeline-empty-state {
   margin-bottom: 14px;
   padding: 16px;
@@ -183,6 +215,12 @@
   background: var(--mobile-timeline-surface);
   box-shadow: 0 8px 20px rgba(29, 54, 58, 0.06);
   touch-action: pan-y;
+}
+
+.mobile-timeline-action-card.is-damage-view {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 30px;
+  align-items: center;
 }
 
 .mobile-timeline-action-card:active {
@@ -303,10 +341,21 @@
 
 .mobile-timeline-action-damage {
   display: grid;
-  flex: 0 0 auto;
-  justify-items: end;
+  grid-column: 2 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.mobile-timeline-action-damage > span {
+  display: grid;
+  min-width: 0;
   gap: 2px;
-  max-width: 78px;
+  padding: 6px 7px;
+  border: 1px solid var(--mobile-timeline-line);
+  border-radius: 9px;
+  background: rgba(241, 244, 243, 0.78);
 }
 
 .mobile-timeline-action-damage small {
@@ -316,9 +365,12 @@
 }
 
 .mobile-timeline-action-damage strong {
+  overflow: hidden;
   color: var(--mobile-timeline-ink);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mobile-timeline-plus {
@@ -624,8 +676,12 @@
 }
 
 @media (max-width: 390px) {
-  .mobile-timeline-action-damage {
-    display: none;
+  .mobile-timeline-header {
+    gap: 8px;
+  }
+
+  .mobile-timeline-view-switch {
+    grid-template-columns: repeat(2, minmax(38px, 1fr));
   }
 
   .mobile-timeline-choice-grid {

@@ -123,6 +123,7 @@ export function MobileTimelinePage({
   const [chooser, setChooser] = useState<EmptySlotChooser | null>(null);
   const [actionSheetSlotId, setActionSheetSlotId] = useState<string | null>(null);
   const [moveSourceSlotId, setMoveSourceSlotId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'queue' | 'damage'>('queue');
   const [dragState, setDragState] = useState<{ sourceSlotId: string; targetSlotId: string | null } | null>(null);
   const pointerRef = useRef<{
     pointerId: number;
@@ -280,7 +281,27 @@ export function MobileTimelinePage({
           <p className="mobile-timeline-kicker">03 / 排轴</p>
           <h1>技能队列</h1>
         </div>
-        <span className="mobile-timeline-count">{slots.filter((slot) => slot.action).length} 个动作</span>
+        <div className="mobile-timeline-header-tools">
+          <div className="mobile-timeline-view-switch" aria-label="排轴显示模式">
+            <button
+              type="button"
+              className={viewMode === 'queue' ? 'is-active' : ''}
+              onClick={() => setViewMode('queue')}
+              aria-pressed={viewMode === 'queue'}
+            >
+              列表
+            </button>
+            <button
+              type="button"
+              className={viewMode === 'damage' ? 'is-active' : ''}
+              onClick={() => setViewMode('damage')}
+              aria-pressed={viewMode === 'damage'}
+            >
+              伤害
+            </button>
+          </div>
+          <span className="mobile-timeline-count">{slots.filter((slot) => slot.action).length} 个动作</span>
+        </div>
       </header>
 
       {availableOperators.length === 0 ? (
@@ -308,7 +329,7 @@ export function MobileTimelinePage({
               {action && operator ? (
                 <button
                   type="button"
-                  className="mobile-timeline-action-card"
+                  className={`mobile-timeline-action-card${viewMode === 'damage' ? ' is-damage-view' : ''}`}
                   onClick={() => openSlot(slot)}
                   onPointerDown={(event) => handlePointerDown(event, slot.id)}
                   onContextMenu={(event) => event.preventDefault()}
@@ -324,10 +345,13 @@ export function MobileTimelinePage({
                   <span className="mobile-timeline-action-operator-avatar">
                     {operator.avatarUrl ? <img src={operator.avatarUrl} alt="" /> : operator.name.slice(0, 1)}
                   </span>
-                  <span className="mobile-timeline-action-damage">
-                    <small>期望伤害</small>
-                    <strong>{formatDamage(calculation?.result.summary.totalExpected)}</strong>
-                  </span>
+                  {viewMode === 'damage' ? (
+                    <span className="mobile-timeline-action-damage" aria-label="技能伤害">
+                      <span><small>期望</small><strong>{formatDamage(calculation?.result.summary.totalExpected)}</strong></span>
+                      <span><small>非暴击</small><strong>{formatDamage(calculation?.result.summary.totalNonCrit)}</strong></span>
+                      <span><small>暴击</small><strong>{formatDamage(calculation?.result.summary.totalCrit)}</strong></span>
+                    </span>
+                  ) : null}
                   {isDragTarget ? <span className="mobile-timeline-drop-label">放到这里</span> : null}
                 </button>
               ) : (

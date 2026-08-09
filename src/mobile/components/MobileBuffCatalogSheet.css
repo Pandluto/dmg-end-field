@@ -566,14 +566,11 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.mobile-buff-sheet-option-grid > button {
+.mobile-buff-sheet-option-grid > article {
   position: relative;
   display: grid;
   min-width: 0;
   min-height: 92px;
-  align-content: start;
-  gap: 4px;
-  padding: 10px;
   overflow: hidden;
   border: 1px solid var(--sheet-line);
   border-radius: 14px;
@@ -582,21 +579,35 @@
   text-align: left;
 }
 
-.mobile-buff-sheet-option-grid > button.is-active,
-.mobile-buff-sheet-option-grid > button.is-selected {
+.mobile-buff-sheet-option-grid > article.is-active,
+.mobile-buff-sheet-option-grid > article.is-selected {
   border-color: var(--sheet-accent);
   background: rgba(31, 111, 139, 0.08);
   box-shadow: inset 0 0 0 1px var(--sheet-accent);
 }
 
-.mobile-buff-sheet-option-grid > button.is-selected::after {
-  position: absolute;
-  top: 7px;
-  right: 8px;
-  color: var(--sheet-accent);
-  content: "✓";
-  font-size: 11px;
-  font-weight: 800;
+.mobile-buff-sheet-option-main {
+  display: grid;
+  min-width: 0;
+  min-height: 90px;
+  align-content: start;
+  gap: 4px;
+  padding: 10px;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: left;
+}
+
+.mobile-buff-sheet-option-remove {
+  min-height: 38px;
+  margin: 0 8px 8px;
+  border: 1px solid rgba(167, 79, 79, 0.3);
+  border-radius: 9px;
+  color: #984747;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 9px;
+  font-weight: 760;
 }
 
 .mobile-buff-sheet-option-grid span {
