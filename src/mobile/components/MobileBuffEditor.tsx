@@ -592,50 +592,52 @@ export function MobileBuffEditor({
               <span>{buffs.length + specialConfigCount} 个已选</span>
             </div>
 
-            <section className="mobile-buff-panel mobile-buff-special-configs mobile-buff-state-manager" aria-labelledby="mobile-buff-special-title">
-              <div className="mobile-buff-panel-heading">
+            <details className="mobile-buff-panel mobile-buff-disclosure mobile-buff-special-configs mobile-buff-state-manager">
+              <summary className="mobile-buff-panel-heading mobile-buff-panel-summary">
                 <div>
                   <p className="mobile-buff-kicker">STATE MANAGER</p>
                   <h3 id="mobile-buff-special-title">当前状态管理</h3>
                 </div>
                 <span>{specialConfigCount}</span>
+              </summary>
+              <div className="mobile-buff-panel-body">
+                <p className="mobile-buff-state-manager-note">导电、腐蚀、碎甲、异常伤害与状态区效果统一在这里管理。</p>
+                {specialConfigCount === 0 ? <p className="mobile-buff-empty">当前没有特殊状态；可从下方分类台添加。</p> : (
+                  <div className="mobile-buff-special-config-list">
+                    {(action.anomalyDamages ?? []).map((card) => (
+                      <article key={card.id} className="mobile-buff-special-config-row">
+                        <span className="mobile-buff-special-kind">异常伤害</span>
+                        <span>
+                          <strong>{card.primaryText}</strong>
+                          <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
+                        </span>
+                        <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('damage', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
+                      </article>
+                    ))}
+                    {(action.anomalyStateSnapshots ?? []).map((snapshot) => (
+                      <article key={snapshot.id} className="mobile-buff-special-config-row">
+                        <span className="mobile-buff-special-kind is-state">异常状态</span>
+                        <span>
+                          <strong>{snapshot.primaryText}</strong>
+                          <small>{[snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · ')}</small>
+                        </span>
+                        <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyStateSnapshot(snapshot.id)} aria-label={`删除 ${snapshot.primaryText}`}>删除</button>
+                      </article>
+                    ))}
+                    {(action.anomalyStatuses ?? []).map((card) => (
+                      <article key={card.id} className="mobile-buff-special-config-row">
+                        <span className="mobile-buff-special-kind is-zone">状态区</span>
+                        <span>
+                          <strong>{card.primaryText}</strong>
+                          <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
+                        </span>
+                        <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('state', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </div>
-              <p className="mobile-buff-state-manager-note">导电、腐蚀、碎甲、异常伤害与状态区效果统一在这里管理。</p>
-              {specialConfigCount === 0 ? <p className="mobile-buff-empty">当前没有特殊状态；可从下方分类台添加。</p> : (
-                <div className="mobile-buff-special-config-list">
-                  {(action.anomalyDamages ?? []).map((card) => (
-                    <article key={card.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind">异常伤害</span>
-                      <span>
-                        <strong>{card.primaryText}</strong>
-                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('damage', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
-                    </article>
-                  ))}
-                  {(action.anomalyStateSnapshots ?? []).map((snapshot) => (
-                    <article key={snapshot.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind is-state">异常状态</span>
-                      <span>
-                        <strong>{snapshot.primaryText}</strong>
-                        <small>{[snapshot.secondaryText, snapshot.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyStateSnapshot(snapshot.id)} aria-label={`删除 ${snapshot.primaryText}`}>删除</button>
-                    </article>
-                  ))}
-                  {(action.anomalyStatuses ?? []).map((card) => (
-                    <article key={card.id} className="mobile-buff-special-config-row">
-                      <span className="mobile-buff-special-kind is-zone">状态区</span>
-                      <span>
-                        <strong>{card.primaryText}</strong>
-                        <small>{[card.secondaryText, card.tertiaryText].filter(Boolean).join(' · ')}</small>
-                      </span>
-                      <button type="button" className="mobile-buff-remove is-labeled" onClick={() => removeAnomalyCard('state', card.id)} aria-label={`删除 ${card.primaryText}`}>删除</button>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
+            </details>
 
             <button type="button" className="mobile-buff-workbench-launch" onClick={() => setCatalogOpen(true)}>
               <span className="mobile-buff-workbench-icon" aria-hidden="true">⌘</span>
@@ -651,69 +653,73 @@ export function MobileBuffEditor({
               </span>
             </button>
 
-            <section className="mobile-buff-panel" aria-labelledby="mobile-buff-selected-title">
-              <div className="mobile-buff-panel-heading">
+            <details className="mobile-buff-panel mobile-buff-disclosure">
+              <summary className="mobile-buff-panel-heading mobile-buff-panel-summary">
                 <div>
                   <p className="mobile-buff-kicker">当前实例</p>
                   <h3 id="mobile-buff-selected-title">已选 Buff</h3>
                 </div>
                 <span>{buffs.length}</span>
+              </summary>
+              <div className="mobile-buff-panel-body">
+                {buffs.length === 0 ? <p className="mobile-buff-empty">还没有常规 Buff，打开分类台从干员、武器或装备中添加。</p> : (
+                  <div className="mobile-buff-selected-list">
+                    {buffs.map((buff) => {
+                      const disabled = globallyDisabled.has(buff.id);
+                      return (
+                        <article key={buff.id} className={`mobile-buff-selected-row${disabled ? ' is-disabled' : ''}`}>
+                          <button type="button" className="mobile-buff-selected-main" onClick={() => toggleGlobalBuff(buff.id)} aria-pressed={!disabled}>
+                            <span className="mobile-buff-status-dot" aria-hidden="true" />
+                            <span>
+                              <strong>{getBuffLabel(buff)}</strong>
+                              <small>{getMobileBuffSourceLabel(buff)} · {getBuffSource(buff)} · {getBuffEffectMeta(buff)}</small>
+                            </span>
+                          </button>
+                          {isCountable(buff) ? (
+                            <StackControl value={getEffectiveStack(action, buff)} max={getMaxStacks(buff)} onChange={(value) => updateAction(withGlobalStack(action, buff, value))} />
+                          ) : null}
+                          <button type="button" className="mobile-buff-remove" onClick={() => removeBuff(buff.id)} aria-label={`移除 ${getBuffLabel(buff)}`}>×</button>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-              {buffs.length === 0 ? <p className="mobile-buff-empty">还没有常规 Buff，打开分类台从干员、武器或装备中添加。</p> : (
-                <div className="mobile-buff-selected-list">
-                  {buffs.map((buff) => {
-                    const disabled = globallyDisabled.has(buff.id);
-                    return (
-                      <article key={buff.id} className={`mobile-buff-selected-row${disabled ? ' is-disabled' : ''}`}>
-                        <button type="button" className="mobile-buff-selected-main" onClick={() => toggleGlobalBuff(buff.id)} aria-pressed={!disabled}>
-                          <span className="mobile-buff-status-dot" aria-hidden="true" />
-                          <span>
-                            <strong>{getBuffLabel(buff)}</strong>
-                            <small>{getMobileBuffSourceLabel(buff)} · {getBuffSource(buff)} · {getBuffEffectMeta(buff)}</small>
-                          </span>
-                        </button>
-                        {isCountable(buff) ? (
-                          <StackControl value={getEffectiveStack(action, buff)} max={getMaxStacks(buff)} onChange={(value) => updateAction(withGlobalStack(action, buff, value))} />
-                        ) : null}
-                        <button type="button" className="mobile-buff-remove" onClick={() => removeBuff(buff.id)} aria-label={`移除 ${getBuffLabel(buff)}`}>×</button>
-                      </article>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            </details>
 
             {specialSegments.length > 0 ? (
-              <section className="mobile-buff-panel mobile-buff-special-damage" aria-labelledby="mobile-buff-special-damage-title">
-                <div className="mobile-buff-panel-heading">
+              <details className="mobile-buff-panel mobile-buff-disclosure mobile-buff-special-damage">
+                <summary className="mobile-buff-panel-heading mobile-buff-panel-summary">
                   <div>
                     <p className="mobile-buff-kicker">EXTRA DAMAGE</p>
                     <h3 id="mobile-buff-special-damage-title">特殊伤害段</h3>
                   </div>
                   <span>{specialSegments.length}</span>
+                </summary>
+                <div className="mobile-buff-panel-body">
+                  <div className="mobile-buff-special-damage-list">
+                    {specialSegments.map((segment) => (
+                      <button
+                        type="button"
+                        key={segment.key}
+                        className={`${segment.key === currentSegmentKey ? 'is-selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
+                        onClick={() => {
+                          setSelectedSegmentKey(segment.key);
+                          setActivePage(0);
+                        }}
+                        aria-current={segment.key === currentSegmentKey ? 'true' : undefined}
+                      >
+                        <span className="mobile-buff-special-damage-index">{segment.sourceKind === 'buff-extra-hit' ? 'HIT' : 'EX'}</span>
+                        <span>
+                          <strong>{segment.compactTitle}</strong>
+                          <small>{segment.elementText} · {segment.baseMultiplierText} · {segment.isDisabled ? '已停用' : segment.buffText}</small>
+                        </span>
+                        <b>{segment.isDisabled ? '已停用' : formatNumber(segment.expectedValue)}</b>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mobile-buff-special-damage-list">
-                  {specialSegments.map((segment) => (
-                    <button
-                      type="button"
-                      key={segment.key}
-                      className={`${segment.key === currentSegmentKey ? 'is-selected' : ''}${segment.isDisabled ? ' is-disabled' : ''}`}
-                      onClick={() => {
-                        setSelectedSegmentKey(segment.key);
-                        setActivePage(0);
-                      }}
-                      aria-current={segment.key === currentSegmentKey ? 'true' : undefined}
-                    >
-                      <span className="mobile-buff-special-damage-index">{segment.sourceKind === 'buff-extra-hit' ? 'HIT' : 'EX'}</span>
-                      <span>
-                        <strong>{segment.compactTitle}</strong>
-                        <small>{segment.elementText} · {segment.baseMultiplierText} · {segment.isDisabled ? '已停用' : segment.buffText}</small>
-                      </span>
-                      <b>{segment.isDisabled ? '已停用' : formatNumber(segment.expectedValue)}</b>
-                    </button>
-                  ))}
-                </div>
-              </section>
+              </details>
             ) : null}
           </section>
 

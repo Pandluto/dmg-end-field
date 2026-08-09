@@ -119,27 +119,29 @@ function ManagedSpecialBoard({
   onRemove: (id: string) => void;
 }) {
   return (
-    <section className="mobile-buff-sheet-managed" aria-label={title}>
-      <div className="mobile-buff-sheet-managed-heading">
+    <details className="mobile-buff-sheet-managed">
+      <summary className="mobile-buff-sheet-managed-heading">
         <span><small>当前生效</small><strong>{title}</strong></span>
         <b>{items.length}</b>
+      </summary>
+      <div className="mobile-buff-sheet-managed-content">
+        <p>{description}</p>
+        {items.length === 0 ? <div className="mobile-buff-sheet-managed-empty">{emptyText}</div> : (
+          <div className="mobile-buff-sheet-managed-list">
+            {items.map((item) => (
+              <article key={item.id} className="mobile-buff-sheet-managed-row">
+                <span className={`mobile-buff-sheet-managed-kind is-${item.tone ?? 'state'}`}>{item.kind}</span>
+                <button type="button" className="mobile-buff-sheet-managed-copy" onClick={() => onSelect(item.id)}>
+                  <strong>{item.title}</strong>
+                  <small>{item.detail || '点此载入并调整参数'}</small>
+                </button>
+                <button type="button" className="mobile-buff-sheet-managed-remove" onClick={() => onRemove(item.id)} aria-label={`删除 ${item.title}`}>删除</button>
+              </article>
+            ))}
+          </div>
+        )}
       </div>
-      <p>{description}</p>
-      {items.length === 0 ? <div className="mobile-buff-sheet-managed-empty">{emptyText}</div> : (
-        <div className="mobile-buff-sheet-managed-list">
-          {items.map((item) => (
-            <article key={item.id} className="mobile-buff-sheet-managed-row">
-              <span className={`mobile-buff-sheet-managed-kind is-${item.tone ?? 'state'}`}>{item.kind}</span>
-              <button type="button" className="mobile-buff-sheet-managed-copy" onClick={() => onSelect(item.id)}>
-                <strong>{item.title}</strong>
-                <small>{item.detail || '点此载入并调整参数'}</small>
-              </button>
-              <button type="button" className="mobile-buff-sheet-managed-remove" onClick={() => onRemove(item.id)} aria-label={`删除 ${item.title}`}>删除</button>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
+    </details>
   );
 }
 

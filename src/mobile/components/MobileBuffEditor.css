@@ -223,6 +223,54 @@
   font-size: 15px;
 }
 
+.mobile-buff-disclosure {
+  padding: 0;
+  overflow: hidden;
+}
+
+.mobile-buff-panel-summary {
+  position: relative;
+  min-height: 64px;
+  margin: 0;
+  padding: 13px 44px 13px 15px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mobile-buff-panel-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-buff-panel-summary::marker {
+  content: "";
+}
+
+.mobile-buff-panel-summary::after {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--mobile-buff-muted);
+  border-bottom: 1.5px solid var(--mobile-buff-muted);
+  content: "";
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.mobile-buff-disclosure[open] .mobile-buff-panel-summary::after {
+  transform: translateY(-30%) rotate(225deg);
+}
+
+.mobile-buff-panel-summary > span {
+  margin-top: 0;
+}
+
+.mobile-buff-panel-body {
+  padding: 12px 15px 15px;
+  border-top: 1px solid var(--mobile-buff-line);
+}
+
 .mobile-buff-empty,
 .mobile-buff-muted-line {
   color: var(--mobile-buff-muted);
@@ -745,15 +793,8 @@
   display: grid;
 }
 
-.mobile-buff-state-manager {
-  border-color: rgba(31, 111, 139, 0.23);
-  border-radius: 7px 2px 7px 2px;
-  background: linear-gradient(125deg, rgba(31, 111, 139, 0.09), rgba(255, 255, 255, 0.94));
-  box-shadow: inset 3px 0 0 var(--mobile-buff-owner), 0 8px 22px rgba(29, 54, 58, 0.055);
-}
-
 .mobile-buff-state-manager-note {
-  margin: -4px 0 9px;
+  margin: 0 0 9px;
   color: var(--mobile-buff-muted);
   font-size: 9px;
   line-height: 1.45;
@@ -804,9 +845,10 @@
 .mobile-buff-special-kind {
   min-width: 52px;
   padding: 4px 6px;
-  border-radius: 7px;
+  border: 1px solid var(--mobile-buff-line);
+  border-radius: 6px;
   color: #9a5d28;
-  background: rgba(186, 111, 49, 0.1);
+  background: transparent;
   font-size: 8px;
   font-weight: 730;
   text-align: center;
@@ -815,12 +857,10 @@
 
 .mobile-buff-special-kind.is-state {
   color: #6d579b;
-  background: rgba(109, 87, 155, 0.1);
 }
 
 .mobile-buff-special-kind.is-zone {
   color: var(--mobile-buff-accent);
-  background: rgba(31, 111, 139, 0.09);
 }
 
 .mobile-buff-special-damage-list > button {
@@ -1224,7 +1264,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mobile-buff-editor-track {
+  .mobile-buff-editor-track,
+  .mobile-buff-panel-summary::after {
     transition: none;
   }
 }

@@ -323,13 +323,13 @@
 .mobile-buff-sheet-result {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 54px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 32px;
+  grid-template-rows: 58px auto auto;
   align-items: start;
   gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 132px;
+  min-height: 118px;
   padding: 8px;
   overflow: hidden;
   border: 1px solid var(--sheet-line);
@@ -344,15 +344,18 @@
 }
 
 .mobile-buff-sheet-result-icon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: grid;
-  width: 100%;
-  height: 54px;
+  width: 56px;
+  height: 56px;
   place-items: center;
   overflow: hidden;
-  border: 1px solid var(--sheet-line);
-  border-radius: 4px 1px 4px 1px;
+  border: 0;
+  border-radius: 0;
   color: var(--sheet-accent);
-  background: #e8eeec;
+  background: transparent;
   font-size: 16px;
   font-weight: 740;
 }
@@ -361,23 +364,26 @@
   display: block;
   width: auto;
   height: auto;
-  max-width: 42px;
-  max-height: 42px;
+  max-width: 56px;
+  max-height: 56px;
   object-fit: contain;
 }
 
 .mobile-buff-sheet-result-copy {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
+  display: contents;
 }
 
 .mobile-buff-sheet-result-copy > span {
   display: flex;
+  z-index: 1;
+  grid-column: 1 / -1;
+  grid-row: 1;
   align-items: center;
+  align-self: start;
   gap: 5px;
   min-width: 0;
   overflow: hidden;
+  padding-right: 62px;
 }
 
 .mobile-buff-sheet-result-copy b,
@@ -404,6 +410,10 @@
 }
 
 .mobile-buff-sheet-result-copy strong {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  padding-right: 34px;
   display: -webkit-box;
   font-size: 11px;
   font-weight: 710;
@@ -414,14 +424,17 @@
 }
 
 .mobile-buff-sheet-result-copy small {
+  grid-column: 1;
+  grid-row: 3;
+  min-width: 0;
   color: var(--sheet-muted);
   font-size: 9px;
 }
 
 .mobile-buff-sheet-add {
   position: absolute;
-  top: 14px;
-  right: 14px;
+  right: 8px;
+  bottom: 8px;
   display: grid;
   width: 30px;
   height: 30px;
@@ -457,18 +470,48 @@
 
 .mobile-buff-sheet-managed {
   margin-bottom: 12px;
-  padding: 12px;
-  border: 1px solid rgba(31, 111, 139, 0.22);
-  border-radius: 7px 2px 7px 2px;
-  background: linear-gradient(125deg, rgba(31, 111, 139, 0.1), rgba(255, 255, 255, 0.9));
-  box-shadow: inset 3px 0 0 rgba(91, 71, 132, 0.45);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--sheet-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .mobile-buff-sheet-managed-heading {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  min-height: 58px;
+  padding: 10px 43px 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mobile-buff-sheet-managed-heading::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-buff-sheet-managed-heading::marker {
+  content: "";
+}
+
+.mobile-buff-sheet-managed-heading::after {
+  position: absolute;
+  top: 50%;
+  right: 15px;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid var(--sheet-muted);
+  border-bottom: 1.5px solid var(--sheet-muted);
+  content: "";
+  transform: translateY(-70%) rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.mobile-buff-sheet-managed[open] .mobile-buff-sheet-managed-heading::after {
+  transform: translateY(-30%) rotate(225deg);
 }
 
 .mobile-buff-sheet-managed-heading > span {
@@ -493,14 +536,20 @@
   height: 26px;
   place-items: center;
   padding: 0 7px;
-  border-radius: 4px 1px 4px 1px;
-  color: #fff;
-  background: var(--sheet-accent);
+  border: 1px solid var(--sheet-line);
+  border-radius: 8px;
+  color: var(--sheet-muted);
+  background: transparent;
   font-size: 10px;
 }
 
-.mobile-buff-sheet-managed > p {
-  margin: 7px 0 0;
+.mobile-buff-sheet-managed-content {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--sheet-line);
+}
+
+.mobile-buff-sheet-managed-content > p {
+  margin: 0;
   color: var(--sheet-muted);
   font-size: 9px;
   line-height: 1.45;
@@ -531,16 +580,17 @@
   min-width: 0;
   padding: 7px;
   border: 1px solid var(--sheet-line);
-  border-radius: 6px 1px 6px 1px;
+  border-radius: 9px;
   background: rgba(255, 255, 255, 0.82);
 }
 
 .mobile-buff-sheet-managed-kind {
   min-width: 46px;
   padding: 4px 5px;
-  border-radius: 5px;
+  border: 1px solid var(--sheet-line);
+  border-radius: 6px;
   color: #6d579b;
-  background: rgba(109, 87, 155, 0.1);
+  background: transparent;
   font-size: 8px;
   font-weight: 740;
   text-align: center;
@@ -549,12 +599,10 @@
 
 .mobile-buff-sheet-managed-kind.is-damage {
   color: #9a5d28;
-  background: rgba(186, 111, 49, 0.1);
 }
 
 .mobile-buff-sheet-managed-kind.is-zone {
   color: var(--sheet-accent);
-  background: rgba(31, 111, 139, 0.09);
 }
 
 .mobile-buff-sheet-managed-copy {
@@ -589,7 +637,7 @@
   min-height: 34px;
   padding: 0 7px;
   border: 1px solid rgba(185, 87, 87, 0.18);
-  border-radius: 5px 1px 5px 1px;
+  border-radius: 8px;
   color: #a74f4f;
   background: rgba(185, 87, 87, 0.07);
   font-size: 9px;
