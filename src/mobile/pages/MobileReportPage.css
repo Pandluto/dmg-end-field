@@ -866,16 +866,24 @@
 
 .mobile-report-timeline-note-button.has-note,
 .mobile-report-timeline-note-static {
-  border: 1px dashed rgba(31, 111, 139, 0.42);
+  border: 1px solid rgba(23, 45, 50, 0.34);
   color: var(--report-ink);
-  background: rgba(31, 111, 139, 0.07);
+  background: #dfe3e1;
 }
 
-.mobile-report-timeline-note-button:hover:not(:disabled),
-.mobile-report-timeline-note-button:focus-visible {
+.mobile-report-timeline-note-button:not(.has-note):hover:not(:disabled),
+.mobile-report-timeline-note-button:not(.has-note):focus-visible {
   border-color: rgba(31, 111, 139, 0.42);
   color: var(--report-accent);
   background: rgba(31, 111, 139, 0.07);
+  outline: none;
+}
+
+.mobile-report-timeline-note-button.has-note:hover:not(:disabled),
+.mobile-report-timeline-note-button.has-note:focus-visible {
+  border-color: rgba(23, 45, 50, 0.52);
+  color: var(--report-ink);
+  background: #d6dcda;
   outline: none;
 }
 
