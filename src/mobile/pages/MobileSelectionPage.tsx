@@ -36,6 +36,8 @@ export interface MobileSelectionPageProps {
   onContinue?: () => void;
   /** 打开浏览器本机快照存档。 */
   onOpenArchives?: () => void;
+  /** 从手机相册读取带二维码的战术报告。 */
+  onOpenShareImport?: () => void;
 }
 
 function getAvatarUrl(character: Character): string {
@@ -54,6 +56,7 @@ export function MobileSelectionPage({
   onSelectionChange,
   onContinue,
   onOpenArchives,
+  onOpenShareImport,
 }: MobileSelectionPageProps) {
   const officialCharacters = useMemo(
     () => characters.filter((character) => character.librarySource !== 'local'),
@@ -103,12 +106,20 @@ export function MobileSelectionPage({
               <p>从线上官方目录组建本次计算队伍</p>
             </div>
             <div className="mobile-selection-header-actions">
-              {onOpenArchives ? (
-                <button type="button" className="mobile-selection-archive-button" onClick={onOpenArchives}>
-                  <span aria-hidden="true">▣</span>
-                  <strong>存档</strong>
-                </button>
-              ) : null}
+              <div className="mobile-selection-storage-actions">
+                {onOpenShareImport ? (
+                  <button type="button" className="mobile-selection-share-button" onClick={onOpenShareImport}>
+                    <span aria-hidden="true">▦</span>
+                    <strong>导入分享</strong>
+                  </button>
+                ) : null}
+                {onOpenArchives ? (
+                  <button type="button" className="mobile-selection-archive-button" onClick={onOpenArchives}>
+                    <span aria-hidden="true">▣</span>
+                    <strong>存档</strong>
+                  </button>
+                ) : null}
+              </div>
               <div className="mobile-selection-version" aria-label={`数据版本 ${versionText}`}>
                 <span className="mobile-selection-version-dot" aria-hidden="true" />
                 <span>{versionText}</span>

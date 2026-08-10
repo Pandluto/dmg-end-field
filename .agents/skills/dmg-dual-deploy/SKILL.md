@@ -69,6 +69,8 @@ Do not rebuild between packaging and saving the Sites version unless source chan
 
 Use interactive SSH or an already authenticated session. If authentication is unavailable, ask for access without echoing a secret into a shell command.
 
+If the source commit changes `server/mobile-share-server.mjs` or `ops/mobile-share/`, also follow `ops/mobile-share/README.md`: stage the new service file separately, preserve the previous one, install or refresh the systemd/Nginx configuration, and require the share health endpoint to pass through ports 8787, 8080, and the public route. Never replace the persistent SQLite database during deployment.
+
 1. Check disk space, service health, current `version.json`, and the exact release/backup paths.
 2. Upload the archive to an explicit `/tmp/dmg-static-<sha>.tar.gz` path.
 3. Compute SHA-256 on the server and require an exact match before extraction.

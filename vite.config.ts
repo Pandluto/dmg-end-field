@@ -23,10 +23,40 @@ logger.info = (message, options) => {
 
 export default defineConfig(async () => {
   const sitesBuild = process.env.SITES_BUILD === '1'
+  const mobileShareEnabled = process.env.DEF_MOBILE_SHARE_ENABLED
+    ? process.env.DEF_MOBILE_SHARE_ENABLED === '1'
+    : !sitesBuild
   const plugins = [
     react(),
     tailwindcss(),
   ]
+
+  if (!sitesBuild) {
+    plugins.push({
+      name: 'def-mobile-share-development-api',
+      async configureServer(server) {
+        const mobileShareService = await import('./server/mobile-share-server.mjs') as unknown as {
+          createMobileShareRequestHandler: (options: {
+            dbPath: string
+            trustProxy: boolean
+          }) => ((request: unknown, response: unknown) => Promise<void>) & { close: () => void }
+          getDefaultDevelopmentShareDatabasePath: () => string
+        }
+        const mobileShareHandler = mobileShareService.createMobileShareRequestHandler({
+          dbPath: process.env.DEF_MOBILE_SHARE_DB || mobileShareService.getDefaultDevelopmentShareDatabasePath(),
+          trustProxy: true,
+        })
+        server.middlewares.use((request, response, next) => {
+          if (!request.url?.startsWith('/api/mobile-shares')) {
+            next()
+            return
+          }
+          void mobileShareHandler(request, response)
+        })
+        server.httpServer?.once('close', () => mobileShareHandler.close())
+      },
+    })
+  }
 
   if (sitesBuild) {
     process.env.WRANGLER_WRITE_LOGS ??= 'false'
@@ -61,6 +91,9 @@ export default defineConfig(async () => {
 
   return {
     base: sitesBuild ? '/' : './',
+    define: {
+      __DEF_MOBILE_SHARE_ENABLED__: JSON.stringify(mobileShareEnabled),
+    },
     customLogger: logger,
     plugins,
     optimizeDeps: {

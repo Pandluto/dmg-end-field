@@ -229,6 +229,14 @@ export function useMobileWorkbench(catalog: MobileCatalog) {
     });
   }, []);
 
+  const setReportNotes = useCallback((reportNotes: Record<string, string>) => {
+    setDraft((current) => ({
+      ...current,
+      reportNotes,
+      updatedAt: Date.now(),
+    }));
+  }, []);
+
   return {
     draft,
     runtime: runtimeResult.state,
@@ -245,5 +253,6 @@ export function useMobileWorkbench(catalog: MobileCatalog) {
     deleteSlotAction,
     updateSlotAction,
     moveSlotAction,
+    setReportNotes,
   };
 }

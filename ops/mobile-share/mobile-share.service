@@ -1,0 +1,24 @@
+[Unit]
+Description=DMG Endfield mobile tactical share service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/dmg-end-field-share
+Environment=NODE_ENV=production
+Environment=DEF_MOBILE_SHARE_HOST=127.0.0.1
+Environment=DEF_MOBILE_SHARE_PORT=8787
+Environment=DEF_MOBILE_SHARE_DB=/var/lib/dmg-end-field/mobile-shares.sqlite
+ExecStart=/usr/bin/node /opt/dmg-end-field-share/mobile-share-server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/dmg-end-field
+
+[Install]
+WantedBy=multi-user.target

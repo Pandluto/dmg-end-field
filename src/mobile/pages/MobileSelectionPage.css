@@ -64,7 +64,14 @@
   gap: 7px;
 }
 
-.mobile-selection-archive-button {
+.mobile-selection-storage-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.mobile-selection-archive-button,
+.mobile-selection-share-button {
   display: inline-flex;
   min-height: 34px;
   align-items: center;
@@ -77,12 +84,19 @@
   font: inherit;
 }
 
-.mobile-selection-archive-button span {
+.mobile-selection-share-button {
+  color: var(--mobile-selection-accent);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.mobile-selection-archive-button span,
+.mobile-selection-share-button span {
   font-size: 13px;
   line-height: 1;
 }
 
-.mobile-selection-archive-button strong {
+.mobile-selection-archive-button strong,
+.mobile-selection-share-button strong {
   font-size: 11px;
   font-weight: 780;
 }

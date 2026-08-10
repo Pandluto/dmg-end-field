@@ -66,6 +66,7 @@ export function createEmptyMobileDraft(now = Date.now()): MobileDraft {
     selectedOperatorIds: [],
     operatorConfigs: {},
     slots: Array.from({ length: MOBILE_INITIAL_SLOT_COUNT }, (_, index) => createEmptyMobileSlot(index)),
+    reportNotes: {},
     activePage: 'selection',
     activeOperatorId: '',
     updatedAt: now,
@@ -215,6 +216,15 @@ export function normalizeMobileDraft(raw: unknown, now = Date.now()): MobileDraf
   const operatorConfigs = candidate.operatorConfigs && typeof candidate.operatorConfigs === 'object'
     ? candidate.operatorConfigs
     : {};
+  const reportNotes = isRecord(candidate.reportNotes)
+    ? Object.fromEntries(
+        Object.entries(candidate.reportNotes)
+          .filter((entry): entry is [string, string] => (
+            typeof entry[1] === 'string' && entry[1].trim().length > 0
+          ))
+          .map(([key, note]) => [key, note.trim().slice(0, 160)]),
+      )
+    : {};
   const activeOperatorId = selectedOperatorIds.includes(candidate.activeOperatorId || '')
     ? candidate.activeOperatorId || ''
     : selectedOperatorIds[0] || '';
@@ -224,6 +234,7 @@ export function normalizeMobileDraft(raw: unknown, now = Date.now()): MobileDraf
     selectedOperatorIds,
     operatorConfigs,
     slots,
+    reportNotes,
     activePage: isMobilePageId(candidate.activePage) ? candidate.activePage : 'selection',
     activeOperatorId,
     updatedAt: Number.isFinite(candidate.updatedAt) ? Number(candidate.updatedAt) : now,

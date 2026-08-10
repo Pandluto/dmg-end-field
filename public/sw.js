@@ -318,6 +318,13 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Tactical share records are short-lived server state. They must never be
+  // answered from an app-shell or resource cache.
+  if (url.pathname.startsWith('/api/mobile-shares')) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   // The portrait mobile workbench is online-only. Never answer its entry
   // navigation from the offline app-shell cache, even when this worker still
   // controls the origin from a previous desktop visit.

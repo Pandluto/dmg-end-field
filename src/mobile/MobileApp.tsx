@@ -8,6 +8,9 @@ import {
 } from 'react';
 import { MobileArchiveManager } from './components/MobileArchiveManager';
 import { MobileBuffEditor } from './components/MobileBuffEditor';
+import { MobileShareImporter } from './components/MobileShareImporter';
+import { saveMobileArchive } from './mobileArchives';
+import { isMobileShareEnabled, parseMobileShareId } from './mobileShare';
 import { MobileOperatorConfigPage } from './pages/MobileOperatorConfigPage';
 import { MobileReportPage } from './pages/MobileReportPage';
 import { MobileSelectionPage } from './pages/MobileSelectionPage';
@@ -47,6 +50,9 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
   const workbench = useMobileWorkbench(catalog);
   const [buffEditorSlotId, setBuffEditorSlotId] = useState<string | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
+  const [shareImportOpen, setShareImportOpen] = useState(false);
+  const [initialShareId, setInitialShareId] = useState<string | null>(null);
+  const shareEnabled = isMobileShareEnabled();
   const pagerPointerRef = useRef<{
     pointerId: number;
     startX: number;
@@ -73,15 +79,23 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
     if (buffEditorSlotId && !editorAction) setBuffEditorSlotId(null);
   }, [buffEditorSlotId, editorAction]);
 
+  useEffect(() => {
+    if (!shareEnabled) return;
+    const shareId = parseMobileShareId(window.location.href);
+    if (!shareId) return;
+    setInitialShareId(shareId);
+    setShareImportOpen(true);
+  }, [shareEnabled]);
+
   const changePage = (nextPage: MobilePageId) => {
-    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen) return;
+    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen || shareImportOpen) return;
     workbench.setActivePage(nextPage);
   };
 
   const closeArchive = useCallback(() => setArchiveOpen(false), []);
 
   const handlePagerPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen) return;
+    if (workbench.interactionLocked || buffEditorSlotId || archiveOpen || shareImportOpen) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest(PAGER_INTERACTIVE_SELECTOR)) return;
@@ -126,6 +140,16 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
 
   const activeIndex = pageIndex(workbench.draft.activePage);
 
+  const closeShareImport = useCallback(() => {
+    setShareImportOpen(false);
+    setInitialShareId(null);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('share')) {
+      url.searchParams.delete('share');
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  }, []);
+
   return (
     <div
       className="mobile-app-shell"
@@ -167,6 +191,10 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
               onSelectionChange={workbench.setSelection}
               onContinue={() => changePage('config')}
               onOpenArchives={() => setArchiveOpen(true)}
+              onOpenShareImport={shareEnabled ? () => {
+                setInitialShareId(null);
+                setShareImportOpen(true);
+              } : undefined}
             />
           </section>
 
@@ -208,6 +236,12 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
               equipment={catalog.equipment}
               slots={workbench.draft.slots}
               slotCalculations={workbench.runtime.slotCalculations}
+              draft={workbench.draft}
+              dataVersion={catalog.dataVersion}
+              imageVersion={catalog.imageVersion}
+              shareEnabled={shareEnabled}
+              timelineNotes={workbench.draft.reportNotes}
+              onTimelineNotesChange={workbench.setReportNotes}
             />
           </section>
         </div>
@@ -255,6 +289,19 @@ export function MobileApp({ catalog, updateAvailable, onReloadLatest }: MobileAp
             workbench.restoreDraft(snapshot);
           }}
           onClose={closeArchive}
+        />
+      ) : null}
+
+      {shareImportOpen ? (
+        <MobileShareImporter
+          catalog={catalog}
+          initialShareId={initialShareId}
+          onSave={(snapshot, archiveName) => {
+            saveMobileArchive(snapshot, archiveName);
+            closeShareImport();
+            setArchiveOpen(true);
+          }}
+          onClose={closeShareImport}
         />
       ) : null}
     </div>

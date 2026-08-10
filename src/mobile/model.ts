@@ -72,6 +72,8 @@ export interface MobileDraft {
   selectedOperatorIds: string[];
   operatorConfigs: Record<string, MobileOperatorConfig>;
   slots: MobileTimelineSlot[];
+  /** Notes placed in empty report timeline cells, keyed by slot and lane. */
+  reportNotes: Record<string, string>;
   activePage: MobilePageId;
   activeOperatorId: string;
   updatedAt: number;

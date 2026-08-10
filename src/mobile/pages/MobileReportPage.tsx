@@ -18,11 +18,17 @@ import {
 import type {
   MobileCatalog,
   MobileDamageReport,
+  MobileDraft,
   MobileDamageReportRow,
   MobileOperatorConfig,
   MobileSlotCalculation,
   MobileTimelineSlot,
 } from '../model';
+import {
+  buildMobileShareUrl,
+  createMobileShare,
+  createMobileShareQrDataUrl,
+} from '../mobileShare';
 import { MobilePortal } from '../components/MobilePortal';
 import './MobileReportPage.css';
 
@@ -35,6 +41,12 @@ export interface MobileReportPageProps {
   equipment: EquipmentLibrary;
   slots: MobileTimelineSlot[];
   slotCalculations: Record<string, MobileSlotCalculation>;
+  draft: MobileDraft;
+  dataVersion: string;
+  imageVersion: string;
+  shareEnabled: boolean;
+  timelineNotes: Record<string, string>;
+  onTimelineNotesChange: (notes: Record<string, string>) => void;
 }
 
 type ReportPageId = 'team' | 'timeline' | 'charts';
@@ -58,6 +70,13 @@ interface ReportExportPreview {
   filename: string;
   width: number;
   height: number;
+}
+
+interface ReportShareQr {
+  id: string;
+  url: string;
+  qrDataUrl: string;
+  expiresAt: number;
 }
 
 interface TimelineReportNoteTarget {
@@ -771,10 +790,24 @@ function assertCanvasHasVisibleContent(canvas: HTMLCanvasElement): void {
   if (visiblePixelCount < 24) throw new Error('生成图片为空白，已取消下载。');
 }
 
-function buildReportFilename(timestamp = Date.now()): string {
+function buildReportFilename(timestamp = Date.now(), shared = false): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
-  return `终末地战术报告-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.png`;
+  return `终末地战术报告${shared ? '-分享' : ''}-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.png`;
+}
+
+function ReportShareQrCard({ share }: { share: ReportShareQr }) {
+  return (
+    <aside className="mobile-report-share-qr" aria-label="战术报告分享二维码">
+      <img src={share.qrDataUrl} alt="战术报告分享二维码" />
+      <span>
+        <small>MOBILE TACTICAL SHARE</small>
+        <strong>从手机版 01 页导入此报告</strong>
+        <p>保存图片后选择“导入分享”，队伍、配装、排轴、Buff 与批注将加入本机存档。</p>
+        <code>{share.id}</code>
+      </span>
+    </aside>
+  );
 }
 
 export function MobileReportPage({
@@ -786,13 +819,19 @@ export function MobileReportPage({
   equipment,
   slots,
   slotCalculations,
+  draft,
+  dataVersion,
+  imageVersion,
+  shareEnabled,
+  timelineNotes,
+  onTimelineNotesChange,
 }: MobileReportPageProps) {
   const [activePage, setActivePage] = useState<ReportPageId>('team');
   const [isExporting, setIsExporting] = useState(false);
   const [exportStageMounted, setExportStageMounted] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
   const [exportPreview, setExportPreview] = useState<ReportExportPreview | null>(null);
-  const [timelineNotes, setTimelineNotes] = useState<Record<string, string>>({});
+  const [exportShareQr, setExportShareQr] = useState<ReportShareQr | null>(null);
   const [timelineNoteEditor, setTimelineNoteEditor] = useState<TimelineReportNoteEditor | null>(null);
   const reportPageRef = useRef<HTMLElement>(null);
   const exportStageRef = useRef<HTMLDivElement>(null);
@@ -830,6 +869,7 @@ export function MobileReportPage({
     if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
     exportPreviewUrlRef.current = null;
     setExportPreview(null);
+    setExportStageMounted(false);
   };
 
   const openTimelineNoteEditor = (target: TimelineReportNoteTarget) => {
@@ -839,31 +879,32 @@ export function MobileReportPage({
   const saveTimelineNote = () => {
     if (!timelineNoteEditor) return;
     const nextNote = timelineNoteEditor.draft.trim();
-    setTimelineNotes((current) => {
-      const next = { ...current };
-      if (nextNote) next[timelineNoteEditor.key] = nextNote;
-      else delete next[timelineNoteEditor.key];
-      return next;
-    });
+    const next = { ...timelineNotes };
+    if (nextNote) next[timelineNoteEditor.key] = nextNote;
+    else delete next[timelineNoteEditor.key];
+    onTimelineNotesChange(next);
     setTimelineNoteEditor(null);
   };
 
   const removeTimelineNote = () => {
     if (!timelineNoteEditor) return;
-    setTimelineNotes((current) => {
-      const next = { ...current };
-      delete next[timelineNoteEditor.key];
-      return next;
-    });
+    const next = { ...timelineNotes };
+    delete next[timelineNoteEditor.key];
+    onTimelineNotesChange(next);
     setTimelineNoteEditor(null);
   };
 
-  const handleExport = async () => {
+  const exportReport = async (createShareQr?: () => Promise<ReportShareQr>) => {
     if (isExporting) return;
     setIsExporting(true);
     setExportMessage('');
-    flushSync(() => setExportStageMounted(true));
+    let previewReady = false;
     try {
+      const shareQr = createShareQr ? await createShareQr() : null;
+      flushSync(() => {
+        setExportShareQr(shareQr);
+        setExportStageMounted(true);
+      });
       await nextPaint();
       const stage = exportStageRef.current;
       const visibleSlide = reportPageRef.current?.querySelector<HTMLElement>(
@@ -879,7 +920,17 @@ export function MobileReportPage({
 
       await waitForReportAssets(stage);
       await nextPaint();
-      const maxHeight = Math.max(...panels.map((panel) => Math.ceil(panel.scrollHeight)), 1);
+      const shareQrCard = stage.querySelector<HTMLElement>('.mobile-report-share-qr');
+      if (shareQr && !shareQrCard) throw new Error('分享二维码没有进入导出画布。');
+      const chartSlide = stage.querySelector<HTMLElement>('.mobile-report-export-panel-stack > .mobile-report-slide');
+      const chartShareHeight = shareQrCard
+        ? Math.ceil((chartSlide?.scrollHeight ?? 0) + shareQrCard.scrollHeight + 16)
+        : 0;
+      const maxHeight = Math.max(
+        ...panels.map((panel) => Math.ceil(panel.scrollHeight)),
+        chartShareHeight,
+        1,
+      );
       panels.forEach((panel) => { panel.style.height = `${maxHeight}px`; });
       stage.style.height = `${maxHeight}px`;
       await nextPaint();
@@ -903,24 +954,40 @@ export function MobileReportPage({
       assertCanvasHasVisibleContent(canvas);
       const blob = await canvasToPngBlob(canvas);
       const url = URL.createObjectURL(blob);
-      const filename = buildReportFilename();
+      const filename = buildReportFilename(Date.now(), Boolean(shareQr));
       if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
       exportPreviewUrlRef.current = url;
       setExportPreview({ url, filename, width: canvas.width, height: canvas.height });
+      previewReady = true;
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.download = filename;
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      setExportMessage(`已生成 ${canvas.width} × ${canvas.height} PNG`);
+      setExportMessage(shareQr
+        ? `分享版已生成；二维码在 ${new Date(shareQr.expiresAt).toLocaleString('zh-CN', { hour12: false })} 前有效`
+        : `已生成 ${canvas.width} × ${canvas.height} PNG`);
     } catch (error) {
       setExportMessage(error instanceof Error ? `导出失败：${error.message}` : '导出失败，请稍后重试。');
     } finally {
-      setExportStageMounted(false);
+      if (!previewReady) setExportStageMounted(false);
       setIsExporting(false);
     }
   };
+
+  const handleExport = () => void exportReport();
+
+  const handleShareExport = () => void exportReport(async () => {
+    const share = await createMobileShare(draft, dataVersion, imageVersion);
+    const url = buildMobileShareUrl(share.id);
+    return {
+      id: share.id,
+      url,
+      qrDataUrl: await createMobileShareQrDataUrl(url),
+      expiresAt: share.expiresAt,
+    };
+  });
 
   return (
     <main ref={reportPageRef} className="mobile-report-page" aria-label="伤害报表">
@@ -968,9 +1035,16 @@ export function MobileReportPage({
           <strong>导出三联战术报告</strong>
           <p>01 / 02 / 03 原尺寸横向拼接，按最高页面补齐</p>
         </span>
-        <button type="button" onClick={handleExport} disabled={isExporting}>
-          <span aria-hidden="true">⇩</span>{isExporting ? '正在生成' : '导出 PNG'}
-        </button>
+        <div className="mobile-report-export-actions">
+          <button type="button" onClick={handleExport} disabled={isExporting}>
+            <span aria-hidden="true">⇩</span>{isExporting ? '正在生成' : '普通导出'}
+          </button>
+          {shareEnabled ? (
+            <button type="button" className="is-share" onClick={handleShareExport} disabled={isExporting}>
+              <span aria-hidden="true">▦</span>{isExporting ? '请稍候' : '生成分享版'}
+            </button>
+          ) : null}
+        </div>
       </section>
       {exportMessage ? (
         <p className={`mobile-report-export-message${exportMessage.startsWith('导出失败') ? ' is-error' : ''}`} role="status">
@@ -1000,13 +1074,16 @@ export function MobileReportPage({
               />
             </div>
             <div className="mobile-report-export-panel">
-              <ChartReportSlide
-                report={safeReport}
-                operatorRows={operatorRows}
-                skillRows={skillRows}
-                entries={entries}
-                titleId="mobile-report-export-charts-title"
-              />
+              <div className="mobile-report-export-panel-stack">
+                <ChartReportSlide
+                  report={safeReport}
+                  operatorRows={operatorRows}
+                  skillRows={skillRows}
+                  entries={entries}
+                  titleId="mobile-report-export-charts-title"
+                />
+                {exportShareQr ? <ReportShareQrCard share={exportShareQr} /> : null}
+              </div>
             </div>
           </div>
         </MobilePortal>

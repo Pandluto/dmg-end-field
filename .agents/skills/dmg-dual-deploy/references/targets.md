@@ -38,7 +38,17 @@ Current topology:
 
 ```text
 Internet :80 -> Caddy -> 127.0.0.1:8080 -> Nginx -> /var/www/dmg-static
+                                                     -> /api/mobile-shares -> 127.0.0.1:8787
 ```
+
+Domestic mobile tactical sharing uses:
+
+- service source: `server/mobile-share-server.mjs`;
+- service root: `/opt/dmg-end-field-share`;
+- SQLite database: `/var/lib/dmg-end-field/mobile-shares.sqlite`;
+- systemd unit and Nginx snippet: `ops/mobile-share/`.
+
+When a release changes the share service or its Nginx/systemd configuration, deploy and verify that sidecar as part of the same domestic release. Preserve the previous service file and never replace or remove the SQLite database during a code rollout.
 
 The domestic desktop route cannot provide the full workspace while it remains plain HTTP because public-IP HTTP is not a secure context. Its HTTP 200 response is only a shell response, not a functional desktop acceptance result. The domestic mobile route is the usable domestic entry during this period.
 

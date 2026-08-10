@@ -1200,6 +1200,11 @@
   line-height: 1.4;
 }
 
+.mobile-report-export-actions {
+  display: grid;
+  gap: 5px;
+}
+
 .mobile-report-export-control button {
   display: inline-flex;
   min-height: 40px;
@@ -1213,6 +1218,16 @@
   font-size: 10px;
   font-weight: 780;
   white-space: nowrap;
+}
+
+.mobile-report-export-actions button:first-child {
+  color: var(--report-accent);
+  background: #fff;
+}
+
+.mobile-report-export-actions button.is-share {
+  color: #fff;
+  background: var(--report-accent);
 }
 
 .mobile-report-export-control button span {
@@ -1273,6 +1288,81 @@
   min-height: 100%;
   flex: 1 1 auto;
   margin: 0;
+}
+
+.mobile-report-export-panel-stack {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: max-content;
+  flex: 0 0 auto;
+  align-self: flex-start;
+  flex-direction: column;
+  background: var(--report-paper);
+}
+
+.mobile-report-export-panel-stack > .mobile-report-slide {
+  width: 100%;
+  min-width: 0;
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.mobile-report-share-qr {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  margin: 8px;
+  padding: 9px;
+  border: 1px solid var(--report-line-strong);
+  color: var(--report-ink);
+  background: #fff;
+  flex: 0 0 auto;
+}
+
+.mobile-report-share-qr > img {
+  display: block;
+  width: 108px;
+  height: 108px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.mobile-report-share-qr > span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.mobile-report-share-qr small {
+  color: var(--report-accent);
+  font-size: 7px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+}
+
+.mobile-report-share-qr strong {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.mobile-report-share-qr p {
+  margin: 0;
+  color: var(--report-muted);
+  font-size: 7px;
+  line-height: 1.45;
+}
+
+.mobile-report-share-qr code {
+  width: max-content;
+  padding: 2px 4px;
+  border: 1px solid var(--report-line);
+  color: var(--report-ink);
+  background: var(--report-paper-soft);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 7px;
+  letter-spacing: 0.05em;
 }
 
 .mobile-report-preview {
