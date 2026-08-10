@@ -855,7 +855,7 @@
   place-items: center;
   margin: 0 3px;
   padding: 3px 4px;
-  border-radius: 4px;
+  border-radius: 0;
 }
 
 .mobile-report-timeline-note-button {
@@ -867,9 +867,9 @@
 
 .mobile-report-timeline-note-button.has-note,
 .mobile-report-timeline-note-static {
-  border: 1px solid rgba(23, 45, 50, 0.34);
+  border: 2px solid var(--report-ink);
   color: var(--report-ink);
-  background: #dfe3e1;
+  background: #eef0ef;
 }
 
 .mobile-report-timeline-note-button:not(.has-note):hover:not(:disabled),
@@ -882,9 +882,9 @@
 
 .mobile-report-timeline-note-button.has-note:hover:not(:disabled),
 .mobile-report-timeline-note-button.has-note:focus-visible {
-  border-color: rgba(23, 45, 50, 0.52);
+  border-color: #000;
   color: var(--report-ink);
-  background: #d6dcda;
+  background: #e4e7e6;
   outline: none;
 }
 
