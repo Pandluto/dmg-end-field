@@ -46,7 +46,7 @@ type MobileImageManifest = {
   packageId: string;
   version: string;
   generatedAt?: string;
-  files: unknown[];
+  files: MobileManifestEntry[];
 };
 
 type MobileArchive = {
@@ -184,7 +184,7 @@ function normalizeImageManifest(value: unknown): MobileImageManifest {
     packageId: value.packageId.trim(),
     version: value.version.trim(),
     ...(typeof value.generatedAt === 'string' ? { generatedAt: value.generatedAt } : {}),
-    files: value.files,
+    files: value.files.map(normalizeManifestEntry),
   };
 }
 
@@ -323,19 +323,51 @@ function normalizeOperatorLibrary(value: unknown, imageVersion: string): Charact
   ));
 }
 
-function normalizeWeaponLibrary(value: unknown, imageVersion: string): Record<string, WeaponDraft> {
+function imageStem(imagePath: string): string {
+  const fileName = imagePath.replace(/\\/g, '/').split('/').pop() || '';
+  const extensionIndex = fileName.lastIndexOf('.');
+  return (extensionIndex > 0 ? fileName.slice(0, extensionIndex) : fileName)
+    .normalize('NFKC');
+}
+
+function weaponImagePathPriority(imagePath: string): number {
+  if (imagePath.includes('/img-wepaon/')) return 0;
+  if (imagePath.includes('/img-operator/')) return 1;
+  return 2;
+}
+
+function buildImagePathByStem(files: MobileManifestEntry[]): Map<string, string> {
+  const paths = new Map<string, string>();
+  files.forEach((entry) => {
+    const stem = imageStem(entry.path);
+    if (!stem) return;
+    const current = paths.get(stem);
+    if (!current || weaponImagePathPriority(entry.path) < weaponImagePathPriority(current)) {
+      paths.set(stem, entry.path);
+    }
+  });
+  return paths;
+}
+
+function normalizeWeaponLibrary(
+  value: unknown,
+  imageVersion: string,
+  imageFiles: MobileManifestEntry[],
+): Record<string, WeaponDraft> {
   const source = requireRecord(value, '武器库');
+  const imagePathByStem = buildImagePathByStem(imageFiles);
   return Object.fromEntries(
     Object.entries(source).map(([libraryKey, rawWeapon]) => {
       if (!isRecord(rawWeapon)) {
         throw new Error(`武器 ${libraryKey} 必须是对象。`);
       }
       const weapon = normalizeWeaponDraft(cloneJson(rawWeapon) as RawWeaponDraft);
+      const imagePath = weapon.imgUrl || imagePathByStem.get(weapon.name.trim().normalize('NFKC'));
       return [
         libraryKey,
         {
           ...weapon,
-          imgUrl: versionImageUrl(weapon.imgUrl, imageVersion) || '',
+          imgUrl: versionImageUrl(imagePath, imageVersion) || '',
         },
       ] as const;
     }),
@@ -425,6 +457,7 @@ function buildMobileCatalog(
     const weapons = normalizeWeaponLibrary(
       local['def.weapon-sheet.library.v1'],
       imageVersion,
+      imageManifest.files,
     );
     const equipmentSource = requireRecord(
       local['def.equipment-sheet.library.v1'],

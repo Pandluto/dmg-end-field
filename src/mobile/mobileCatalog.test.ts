@@ -46,6 +46,11 @@ try {
   assert.ok(
     catalog.characters.some((character) => character.avatarUrl?.includes(`imageVersion=${encodeURIComponent(imageManifest.version)}`)),
   );
+  for (const weaponName of ['曜夜的首演', '黄金时代']) {
+    const weapon = Object.values(catalog.weapons).find((candidate) => candidate.name === weaponName);
+    assert.ok(weapon?.imgUrl.includes(`/assets/images/img-operator/`));
+    assert.ok(weapon?.imgUrl.includes(`imageVersion=${encodeURIComponent(imageManifest.version)}`));
+  }
   assert.ok(requests.some((url) => /web-data-manifest\.json.*mobile=/.test(url)));
   assert.ok(requests.some((url) => /default-local-data\.json.*sha256=/.test(url)));
   assert.ok(requests.some((url) => /web-image-manifest\.json.*mobile=/.test(url)));
