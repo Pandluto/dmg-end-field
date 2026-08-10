@@ -3,9 +3,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import {
-  MOBILE_SHARE_TTL_MS,
+  MOBILE_SHARE_DEVICE_COOKIE,
+  MOBILE_SHARE_RATE_WINDOW_MS,
   MobileShareServiceError,
   createMobileShareRequestHandler,
   createMobileShareStore,
@@ -257,7 +259,14 @@ async function readJson(response) {
   return response.json();
 }
 
-test('keeps only the latest three active shares per IP and expires them after 24 hours', () => {
+function readDeviceCookie(response) {
+  const setCookie = response.headers.get('set-cookie') || '';
+  assert.match(setCookie, new RegExp(`^${MOBILE_SHARE_DEVICE_COOKIE}=[A-Za-z0-9_.%-]+;`));
+  assert.match(setCookie, /; Max-Age=\d+; HttpOnly; SameSite=Lax/);
+  return setCookie.split(';')[0];
+}
+
+test('keeps every created share permanently while rate events age out', () => {
   let timestamp = FIXED_NOW;
   const store = createMobileShareStore({
     dbPath: ':memory:',
@@ -266,36 +275,76 @@ test('keeps only the latest three active shares per IP and expires them after 24
   try {
     const shares = [];
     for (let index = 0; index < 4; index += 1) {
-      shares.push(store.create(createPayload(`批注 ${index + 1}`), '203.0.113.8'));
+      shares.push(store.create(
+        createPayload(`批注 ${index + 1}`),
+        '203.0.113.8',
+        `device-${index + 1}`,
+      ));
       timestamp += 1;
     }
-    assert.equal(store.get(shares[0].id), null);
+    assert.equal(store.get(shares[0].id)?.payload.draft.reportNotes['slot-1::lane-0'], '批注 1');
     assert.equal(store.get(shares[1].id)?.payload.draft.reportNotes['slot-1::lane-0'], '批注 2');
-    assert.equal(store.stats().active, 3);
-    assert.equal(store.stats().createdLastHour, 4);
+    assert.deepEqual(store.stats(), { active: 4, permanent: 4, createdLast24Hours: 4 });
 
-    timestamp += MOBILE_SHARE_TTL_MS + 1;
-    assert.equal(store.get(shares[3].id), null);
-    assert.equal(store.stats().active, 0);
+    timestamp += MOBILE_SHARE_RATE_WINDOW_MS * 365;
+    assert.ok(store.get(shares[0].id));
+    assert.ok(store.get(shares[3].id));
+    assert.deepEqual(store.stats(), { active: 4, permanent: 4, createdLast24Hours: 0 });
   } finally {
     store.close();
   }
 });
 
-test('enforces the global hourly creation limit without deleting valid shares', () => {
+test('reuses an identical permanent payload without spending another creation slot', () => {
   const store = createMobileShareStore({
     dbPath: ':memory:',
     now: () => FIXED_NOW,
-    hourlyLimit: 2,
+    dailyLimit: 1,
   });
   try {
-    const first = store.create(createPayload('第一份'), '203.0.113.1');
-    const second = store.create(createPayload('第二份'), '203.0.113.2');
+    const payload = createPayload('完全相同');
+    const first = store.create(payload, '203.0.113.1', 'device-a');
+    const reused = store.create(payload, '203.0.113.2', 'device-b');
+    assert.equal(first.reused, false);
+    assert.equal(reused.reused, true);
+    assert.equal(reused.id, first.id);
+    assert.equal(reused.createdAt, first.createdAt);
+    assert.deepEqual(store.stats(), { active: 1, permanent: 1, createdLast24Hours: 1 });
+  } finally {
+    store.close();
+  }
+});
+
+test('accepts only server-signed device tokens and replaces tampered identities', () => {
+  const store = createMobileShareStore({ dbPath: ':memory:' });
+  try {
+    const issued = store.resolveDevice('');
+    const verified = store.resolveDevice(issued.token);
+    const replacement = issued.token.endsWith('A') ? 'B' : 'A';
+    const tampered = store.resolveDevice(`${issued.token.slice(0, -1)}${replacement}`);
+    assert.equal(verified.id, issued.id);
+    assert.equal(verified.token, issued.token);
+    assert.notEqual(tampered.id, issued.id);
+    assert.notEqual(tampered.token, issued.token);
+  } finally {
+    store.close();
+  }
+});
+
+test('enforces the global 24-hour creation limit without deleting permanent shares', () => {
+  const store = createMobileShareStore({
+    dbPath: ':memory:',
+    now: () => FIXED_NOW,
+    dailyLimit: 2,
+  });
+  try {
+    const first = store.create(createPayload('第一份'), '203.0.113.1', 'device-a');
+    const second = store.create(createPayload('第二份'), '203.0.113.2', 'device-b');
     assert.throws(
-      () => store.create(createPayload('第三份'), '203.0.113.3'),
+      () => store.create(createPayload('第三份'), '203.0.113.3', 'device-c'),
       (error) => error instanceof MobileShareServiceError
         && error.status === 429
-        && error.code === 'HOURLY_LIMIT',
+        && error.code === 'DAILY_LIMIT',
     );
     assert.ok(store.get(first.id));
     assert.ok(store.get(second.id));
@@ -314,20 +363,29 @@ test('round-trips a complete mobile workspace through real HTTP without losing n
       headers: {
         'content-type': 'application/json; charset=utf-8',
         'x-forwarded-for': '203.0.113.41, 127.0.0.1',
+        'x-forwarded-proto': 'https',
       },
       body: JSON.stringify(payload),
     });
     assert.equal(createResponse.status, 201);
     assert.equal(createResponse.headers.get('cache-control'), 'no-store');
+    const setCookie = createResponse.headers.get('set-cookie') || '';
+    readDeviceCookie(createResponse);
+    assert.match(setCookie, /; Secure$/);
     const created = await readJson(createResponse);
     assert.match(created.id, /^[A-Za-z0-9_-]{16}$/);
     assert.equal(created.createdAt, FIXED_NOW);
-    assert.equal(created.expiresAt, FIXED_NOW + MOBILE_SHARE_TTL_MS);
+    assert.equal(created.expiresAt, null);
+    assert.equal(created.permanent, true);
+    assert.equal(created.reused, false);
 
     const getResponse = await fetch(`${service.baseUrl}/api/mobile-shares/${created.id}`);
     assert.equal(getResponse.status, 200);
     assert.equal(getResponse.headers.get('cache-control'), 'no-store');
-    assert.deepEqual((await readJson(getResponse)).payload, payload);
+    const restored = await readJson(getResponse);
+    assert.equal(restored.expiresAt, null);
+    assert.equal(restored.permanent, true);
+    assert.deepEqual(restored.payload, payload);
   } finally {
     await service.close();
   }
@@ -350,7 +408,10 @@ test('keeps a complete share readable after the SQLite service is restarted', as
     await service.close();
     service = undefined;
 
-    service = await startHttpService({ dbPath, now: () => FIXED_NOW + 10_000 });
+    service = await startHttpService({
+      dbPath,
+      now: () => FIXED_NOW + (MOBILE_SHARE_RATE_WINDOW_MS * 365),
+    });
     const restoredResponse = await fetch(`${service.baseUrl}/api/mobile-shares/${created.id}`);
     assert.equal(restoredResponse.status, 200);
     assert.deepEqual((await readJson(restoredResponse)).payload, payload);
@@ -360,61 +421,89 @@ test('keeps a complete share readable after the SQLite service is restarted', as
   }
 });
 
-test('keeps per-IP eviction and hourly counters effective across service restarts', async () => {
+test('keeps the signed browser-device limit effective across service restarts', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'dmg-mobile-share-limits-test-'));
   const dbPath = join(directory, 'mobile-shares.sqlite');
   let service;
   try {
     const firstGenerationIds = [];
-    service = await startHttpService({ dbPath, now: () => FIXED_NOW, hourlyLimit: 4 });
+    let deviceCookie = '';
+    service = await startHttpService({
+      dbPath,
+      now: () => FIXED_NOW,
+      perDeviceDailyLimit: 3,
+      perIpDailyLimit: 100,
+      dailyLimit: 100,
+    });
     for (let index = 0; index < 3; index += 1) {
       const response = await fetch(`${service.baseUrl}/api/mobile-shares`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'x-forwarded-for': '198.51.100.44',
+          'x-forwarded-for': `198.51.100.${index + 40}`,
+          ...(deviceCookie ? { cookie: deviceCookie } : {}),
         },
         body: JSON.stringify(createPayload(`重启前 ${index + 1}`)),
       });
       assert.equal(response.status, 201);
+      if (!deviceCookie) {
+        deviceCookie = readDeviceCookie(response);
+        assert.doesNotMatch(response.headers.get('set-cookie') || '', /; Secure/);
+      }
       firstGenerationIds.push((await readJson(response)).id);
     }
     await service.close();
     service = undefined;
 
-    service = await startHttpService({ dbPath, now: () => FIXED_NOW + 1, hourlyLimit: 4 });
+    service = await startHttpService({
+      dbPath,
+      now: () => FIXED_NOW + 1,
+      perDeviceDailyLimit: 3,
+      perIpDailyLimit: 100,
+      dailyLimit: 100,
+    });
     const fourthResponse = await fetch(`${service.baseUrl}/api/mobile-shares`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        'x-forwarded-for': '198.51.100.44',
+        'x-forwarded-for': '203.0.113.200',
+        cookie: deviceCookie,
       },
       body: JSON.stringify(createPayload('重启后第 4 份')),
     });
-    assert.equal(fourthResponse.status, 201);
-    const fourthId = (await readJson(fourthResponse)).id;
-    assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${firstGenerationIds[0]}`)).status, 404);
-    assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${fourthId}`)).status, 200);
+    assert.equal(fourthResponse.status, 429);
+    assert.equal((await readJson(fourthResponse)).code, 'DEVICE_DAILY_LIMIT');
+    for (const id of firstGenerationIds) {
+      assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${id}`)).status, 200);
+    }
 
-    const overHourlyLimit = await fetch(`${service.baseUrl}/api/mobile-shares`, {
+    const duplicateResponse = await fetch(`${service.baseUrl}/api/mobile-shares`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
         'x-forwarded-for': '203.0.113.200',
+        cookie: deviceCookie,
       },
-      body: JSON.stringify(createPayload('重启后超出每小时上限')),
+      body: JSON.stringify(createPayload('重启前 1')),
     });
-    assert.equal(overHourlyLimit.status, 429);
-    assert.equal((await readJson(overHourlyLimit)).code, 'HOURLY_LIMIT');
+    assert.equal(duplicateResponse.status, 200);
+    const duplicate = await readJson(duplicateResponse);
+    assert.equal(duplicate.reused, true);
+    assert.equal(duplicate.id, firstGenerationIds[0]);
   } finally {
     if (service) await service.close();
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('accepts new shares after the rolling one-hour creation window has elapsed', async () => {
+test('accepts new shares after the rolling 24-hour creation window has elapsed', async () => {
   let timestamp = FIXED_NOW;
-  const service = await startHttpService({ now: () => timestamp, hourlyLimit: 1 });
+  const service = await startHttpService({
+    now: () => timestamp,
+    perDeviceDailyLimit: 100,
+    perIpDailyLimit: 100,
+    dailyLimit: 1,
+  });
   try {
     const first = await fetch(`${service.baseUrl}/api/mobile-shares`, {
       method: 'POST',
@@ -423,7 +512,7 @@ test('accepts new shares after the rolling one-hour creation window has elapsed'
     });
     assert.equal(first.status, 201);
 
-    timestamp += 60 * 60 * 1_000 + 1;
+    timestamp += MOBILE_SHARE_RATE_WINDOW_MS + 1;
     const nextWindow = await fetch(`${service.baseUrl}/api/mobile-shares`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -431,15 +520,25 @@ test('accepts new shares after the rolling one-hour creation window has elapsed'
     });
     assert.equal(nextWindow.status, 201);
     const health = await fetch(`${service.baseUrl}/api/mobile-shares/health`);
-    assert.deepEqual(await readJson(health), { ok: true, active: 2, createdLastHour: 1 });
+    assert.deepEqual(await readJson(health), {
+      ok: true,
+      active: 2,
+      permanent: 2,
+      createdLast24Hours: 1,
+    });
   } finally {
     await service.close();
   }
 });
 
-test('honors forwarded client IPs and removes the oldest share on the fourth creation', async () => {
+test('honors forwarded client IPs and rejects excess creation without deleting shares', async () => {
   let timestamp = FIXED_NOW;
-  const service = await startHttpService({ now: () => timestamp });
+  const service = await startHttpService({
+    now: () => timestamp,
+    perDeviceDailyLimit: 100,
+    perIpDailyLimit: 3,
+    dailyLimit: 100,
+  });
   try {
     const ids = [];
     for (let index = 0; index < 4; index += 1) {
@@ -451,50 +550,104 @@ test('honors forwarded client IPs and removes the oldest share on the fourth cre
         },
         body: JSON.stringify(createPayload(`HTTP 分享 ${index + 1}`)),
       });
-      assert.equal(response.status, 201);
-      ids.push((await readJson(response)).id);
+      if (index < 3) {
+        assert.equal(response.status, 201);
+        ids.push((await readJson(response)).id);
+      } else {
+        assert.equal(response.status, 429);
+        assert.equal((await readJson(response)).code, 'IP_DAILY_LIMIT');
+      }
       timestamp += 1;
     }
 
-    assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${ids[0]}`)).status, 404);
-    for (const id of ids.slice(1)) {
+    for (const id of ids) {
       assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${id}`)).status, 200);
     }
     const health = await fetch(`${service.baseUrl}/api/mobile-shares/health`);
     assert.equal(health.status, 200);
-    assert.deepEqual(await readJson(health), { ok: true, active: 3, createdLastHour: 4 });
+    assert.deepEqual(await readJson(health), {
+      ok: true,
+      active: 3,
+      permanent: 3,
+      createdLast24Hours: 3,
+    });
   } finally {
     await service.close();
   }
 });
 
-test('returns an expired share as not found and removes it from health statistics', async () => {
-  let timestamp = FIXED_NOW;
-  const service = await startHttpService({ now: () => timestamp });
+test('migrates an old expiring SQLite database in place and preserves its share IDs', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dmg-mobile-share-migration-test-'));
+  const dbPath = join(directory, 'mobile-shares.sqlite');
+  const legacyId = 'LegacyShare00001';
+  const legacyPayload = createPayload('旧版二维码仍然可用');
+  let database = new DatabaseSync(dbPath);
   try {
-    const createResponse = await fetch(`${service.baseUrl}/api/mobile-shares`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(createPayload('即将过期')),
-    });
-    const { id } = await readJson(createResponse);
-    timestamp += MOBILE_SHARE_TTL_MS;
+    database.exec(`
+      CREATE TABLE mobile_share_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE mobile_shares (
+        id TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        payload_bytes INTEGER NOT NULL,
+        ip_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL
+      ) STRICT;
+      CREATE TABLE mobile_share_creation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ip_hash TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      ) STRICT;
+    `);
+    const serialized = JSON.stringify(legacyPayload);
+    database.prepare(`
+      INSERT INTO mobile_shares (
+        id, payload, payload_bytes, ip_hash, created_at, expires_at
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      legacyId,
+      serialized,
+      Buffer.byteLength(serialized),
+      'legacy-ip-hash',
+      FIXED_NOW - MOBILE_SHARE_RATE_WINDOW_MS,
+      FIXED_NOW - 1,
+    );
+    database.prepare("INSERT INTO mobile_share_meta (key, value) VALUES ('ip_salt', ?)")
+      .run('a'.repeat(64));
+    database.close();
 
-    const expiredResponse = await fetch(`${service.baseUrl}/api/mobile-shares/${id}`);
-    assert.equal(expiredResponse.status, 404);
-    assert.deepEqual(await readJson(expiredResponse), {
-      code: 'SHARE_NOT_FOUND',
-      message: '分享不存在或已经过期。',
-    });
-    const health = await fetch(`${service.baseUrl}/api/mobile-shares/health`);
-    assert.deepEqual(await readJson(health), { ok: true, active: 0, createdLastHour: 0 });
+    const store = createMobileShareStore({ dbPath, now: () => FIXED_NOW });
+    const migrated = store.get(legacyId);
+    assert.equal(migrated?.permanent, true);
+    assert.equal(migrated?.expiresAt, null);
+    assert.deepEqual(migrated?.payload, legacyPayload);
+    store.close();
+
+    database = new DatabaseSync(dbPath);
+    const shareColumns = database.prepare('PRAGMA table_info(mobile_shares)').all();
+    const eventColumns = database.prepare('PRAGMA table_info(mobile_share_creation_events)').all();
+    assert.ok(shareColumns.some((column) => column.name === 'payload_hash'));
+    assert.ok(eventColumns.some((column) => column.name === 'device_hash'));
+    assert.equal(database.prepare('SELECT expires_at FROM mobile_shares WHERE id = ?')
+      .get(legacyId)?.expires_at, 0);
+    assert.equal(database.prepare("SELECT value FROM mobile_share_meta WHERE key = 'identity_salt'")
+      .get()?.value, 'a'.repeat(64));
   } finally {
-    await service.close();
+    try { database.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('enforces the hourly limit over HTTP and keeps earlier shares readable', async () => {
-  const service = await startHttpService({ now: () => FIXED_NOW, hourlyLimit: 2 });
+test('enforces the global 24-hour limit over HTTP and keeps earlier shares readable', async () => {
+  const service = await startHttpService({
+    now: () => FIXED_NOW,
+    perDeviceDailyLimit: 100,
+    perIpDailyLimit: 100,
+    dailyLimit: 2,
+  });
   try {
     const ids = [];
     for (let index = 0; index < 2; index += 1) {
@@ -519,8 +672,8 @@ test('enforces the hourly limit over HTTP and keeps earlier shares readable', as
     });
     assert.equal(limited.status, 429);
     assert.deepEqual(await readJson(limited), {
-      code: 'HOURLY_LIMIT',
-      message: '本小时分享名额已用完，请稍后再试。',
+      code: 'DAILY_LIMIT',
+      message: '服务器 24 小时内最多创建 2 份永久分享，请稍后再试。',
     });
     for (const id of ids) {
       assert.equal((await fetch(`${service.baseUrl}/api/mobile-shares/${id}`)).status, 200);
@@ -597,6 +750,19 @@ test('returns no-store JSON for health and stable 404 responses for unknown API 
     assert.equal(health.headers.get('content-type'), 'application/json; charset=utf-8');
     assert.equal(health.headers.get('cache-control'), 'no-store');
     assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
+    assert.deepEqual(await readJson(health), {
+      ok: true,
+      active: 0,
+      permanent: 0,
+      createdLast24Hours: 0,
+    });
+
+    const missingShare = await fetch(`${service.baseUrl}/api/mobile-shares/AAAAAAAAAAAAAAAA`);
+    assert.equal(missingShare.status, 404);
+    assert.deepEqual(await readJson(missingShare), {
+      code: 'SHARE_NOT_FOUND',
+      message: '分享不存在。',
+    });
 
     const invalidId = await fetch(`${service.baseUrl}/api/mobile-shares/not-a-share-id`);
     assert.equal(invalidId.status, 404);

@@ -15,7 +15,9 @@ export interface MobileSharePayload {
 export interface MobileShareRecord {
   id: string;
   createdAt: number;
-  expiresAt: number;
+  expiresAt: number | null;
+  permanent: boolean;
+  reused: boolean;
   payload: MobileSharePayload;
 }
 
@@ -52,10 +54,14 @@ function normalizeShareRecord(value: unknown): MobileShareRecord {
   ) {
     throw new Error('该分享版本无法由当前手机版读取。');
   }
+  const permanent = value.permanent === true || value.expiresAt === null;
+  const expiresAt = Number(value.expiresAt);
   return {
     id: String(value.id),
     createdAt: Number(value.createdAt) || Date.now(),
-    expiresAt: Number(value.expiresAt) || Date.now(),
+    expiresAt: permanent ? null : (Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : Date.now()),
+    permanent,
+    reused: value.reused === true,
     payload: {
       schemaVersion: MOBILE_SHARE_SCHEMA_VERSION,
       dataVersion: typeof payload.dataVersion === 'string' ? payload.dataVersion : '',

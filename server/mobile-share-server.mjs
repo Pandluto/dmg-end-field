@@ -1,4 +1,9 @@
-import { createHash, randomBytes } from 'node:crypto';
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -6,12 +11,17 @@ import { dirname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
-export const MOBILE_SHARE_TTL_MS = 24 * 60 * 60 * 1000;
-export const MOBILE_SHARE_PER_IP_LIMIT = 3;
-export const MOBILE_SHARE_HOURLY_LIMIT = 100;
-export const MOBILE_SHARE_MAX_PAYLOAD_BYTES = 768 * 1024;
+export const MOBILE_SHARE_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const MOBILE_SHARE_PER_DEVICE_DAILY_LIMIT = 3;
+export const MOBILE_SHARE_PER_IP_DAILY_LIMIT = 10;
+export const MOBILE_SHARE_DAILY_LIMIT = 100;
+export const MOBILE_SHARE_MAX_PAYLOAD_BYTES = 256 * 1024;
+export const MOBILE_SHARE_DEVICE_COOKIE = 'dmg_share_device';
+export const MOBILE_SHARE_DEVICE_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
 
 const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;
+const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
+const DEVICE_SIGNATURE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 export class MobileShareServiceError extends Error {
   constructor(status, code, message) {
@@ -58,6 +68,21 @@ function createShareId() {
   return randomBytes(12).toString('base64url');
 }
 
+function sha256(value) {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function tableHasColumn(database, tableName, columnName) {
+  return database.prepare(`PRAGMA table_info(${tableName})`)
+    .all()
+    .some((column) => column.name === columnName);
+}
+
+function ensureColumn(database, tableName, columnName, definition) {
+  if (tableHasColumn(database, tableName, columnName)) return;
+  database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`);
+}
+
 function openDatabase(dbPath) {
   if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
   const database = new DatabaseSync(dbPath);
@@ -73,68 +98,134 @@ function openDatabase(dbPath) {
       id TEXT PRIMARY KEY,
       payload TEXT NOT NULL,
       payload_bytes INTEGER NOT NULL,
+      payload_hash TEXT NOT NULL DEFAULT '',
       ip_hash TEXT NOT NULL,
       created_at INTEGER NOT NULL,
-      expires_at INTEGER NOT NULL
+      expires_at INTEGER NOT NULL DEFAULT 0
     ) STRICT;
-    CREATE INDEX IF NOT EXISTS mobile_shares_ip_created
-      ON mobile_shares (ip_hash, created_at);
-    CREATE INDEX IF NOT EXISTS mobile_shares_expires
-      ON mobile_shares (expires_at);
     CREATE TABLE IF NOT EXISTS mobile_share_creation_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ip_hash TEXT NOT NULL,
+      device_hash TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     ) STRICT;
+  `);
+  ensureColumn(database, 'mobile_shares', 'payload_hash', "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(database, 'mobile_share_creation_events', 'device_hash', "TEXT NOT NULL DEFAULT ''");
+  database.exec(`
+    DROP INDEX IF EXISTS mobile_shares_expires;
+    CREATE UNIQUE INDEX IF NOT EXISTS mobile_shares_payload_hash
+      ON mobile_shares (payload_hash) WHERE payload_hash <> '';
+    CREATE INDEX IF NOT EXISTS mobile_shares_ip_created
+      ON mobile_shares (ip_hash, created_at);
     CREATE INDEX IF NOT EXISTS mobile_share_events_created
       ON mobile_share_creation_events (created_at);
+    CREATE INDEX IF NOT EXISTS mobile_share_events_ip_created
+      ON mobile_share_creation_events (ip_hash, created_at);
+    CREATE INDEX IF NOT EXISTS mobile_share_events_device_created
+      ON mobile_share_creation_events (device_hash, created_at);
   `);
+  const legacyShares = database.prepare(
+    "SELECT id, payload FROM mobile_shares WHERE payload_hash = ''",
+  ).all();
+  const backfillPayloadHash = database.prepare(
+    "UPDATE OR IGNORE mobile_shares SET payload_hash = ? WHERE id = ? AND payload_hash = ''",
+  );
+  legacyShares.forEach((share) => backfillPayloadHash.run(sha256(String(share.payload)), share.id));
+  database.exec('UPDATE mobile_shares SET expires_at = 0 WHERE expires_at <> 0');
   return database;
 }
 
-function getOrCreateIpSalt(database) {
-  const existing = database.prepare("SELECT value FROM mobile_share_meta WHERE key = 'ip_salt'").get();
+function getOrCreateMetaSecret(database, key, fallbackKey = '') {
+  const existing = database.prepare('SELECT value FROM mobile_share_meta WHERE key = ?').get(key);
   if (existing?.value) return String(existing.value);
-  const salt = randomBytes(32).toString('hex');
-  database.prepare("INSERT INTO mobile_share_meta (key, value) VALUES ('ip_salt', ?)").run(salt);
-  return salt;
+  const fallback = fallbackKey
+    ? database.prepare('SELECT value FROM mobile_share_meta WHERE key = ?').get(fallbackKey)
+    : null;
+  const secret = fallback?.value ? String(fallback.value) : randomBytes(32).toString('hex');
+  database.prepare('INSERT INTO mobile_share_meta (key, value) VALUES (?, ?)').run(key, secret);
+  return secret;
 }
 
 export function createMobileShareStore(options = {}) {
   const database = openDatabase(options.dbPath || ':memory:');
   const now = options.now || (() => Date.now());
-  const ttlMs = options.ttlMs || MOBILE_SHARE_TTL_MS;
-  const perIpLimit = options.perIpLimit || MOBILE_SHARE_PER_IP_LIMIT;
-  const hourlyLimit = options.hourlyLimit || MOBILE_SHARE_HOURLY_LIMIT;
-  const maxPayloadBytes = options.maxPayloadBytes || MOBILE_SHARE_MAX_PAYLOAD_BYTES;
-  const ipSalt = getOrCreateIpSalt(database);
+  const rateWindowMs = options.rateWindowMs ?? MOBILE_SHARE_RATE_WINDOW_MS;
+  const perDeviceDailyLimit = options.perDeviceDailyLimit ?? MOBILE_SHARE_PER_DEVICE_DAILY_LIMIT;
+  const perIpDailyLimit = options.perIpDailyLimit ?? MOBILE_SHARE_PER_IP_DAILY_LIMIT;
+  const dailyLimit = options.dailyLimit ?? MOBILE_SHARE_DAILY_LIMIT;
+  const maxPayloadBytes = options.maxPayloadBytes ?? MOBILE_SHARE_MAX_PAYLOAD_BYTES;
+  const identitySalt = getOrCreateMetaSecret(database, 'identity_salt', 'ip_salt');
+  const deviceSecret = getOrCreateMetaSecret(database, 'device_secret');
 
-  const deleteExpiredShares = database.prepare('DELETE FROM mobile_shares WHERE expires_at <= ?');
   const deleteOldEvents = database.prepare('DELETE FROM mobile_share_creation_events WHERE created_at < ?');
   const countRecentEvents = database.prepare('SELECT COUNT(*) AS count FROM mobile_share_creation_events WHERE created_at >= ?');
-  const findIpShares = database.prepare('SELECT id FROM mobile_shares WHERE ip_hash = ? AND expires_at > ? ORDER BY created_at ASC');
-  const deleteShare = database.prepare('DELETE FROM mobile_shares WHERE id = ?');
-  const insertShare = database.prepare(`
-    INSERT INTO mobile_shares (id, payload, payload_bytes, ip_hash, created_at, expires_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+  const countRecentIpEvents = database.prepare(`
+    SELECT COUNT(*) AS count FROM mobile_share_creation_events
+    WHERE ip_hash = ? AND created_at >= ?
   `);
-  const insertEvent = database.prepare('INSERT INTO mobile_share_creation_events (ip_hash, created_at) VALUES (?, ?)');
+  const countRecentDeviceEvents = database.prepare(`
+    SELECT COUNT(*) AS count FROM mobile_share_creation_events
+    WHERE device_hash = ? AND created_at >= ?
+  `);
+  const findShareByPayloadHash = database.prepare(`
+    SELECT id, created_at AS createdAt FROM mobile_shares WHERE payload_hash = ?
+  `);
+  const insertShare = database.prepare(`
+    INSERT INTO mobile_shares (
+      id, payload, payload_bytes, payload_hash, ip_hash, created_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 0)
+  `);
+  const insertEvent = database.prepare(`
+    INSERT INTO mobile_share_creation_events (ip_hash, device_hash, created_at)
+    VALUES (?, ?, ?)
+  `);
   const findShare = database.prepare(`
-    SELECT id, payload, created_at AS createdAt, expires_at AS expiresAt
+    SELECT id, payload, created_at AS createdAt
     FROM mobile_shares
-    WHERE id = ? AND expires_at > ?
+    WHERE id = ?
   `);
 
   function hashIp(ipAddress) {
-    return createHash('sha256').update(`${ipSalt}:${ipAddress}`).digest('hex');
+    return sha256(`${identitySalt}:${ipAddress}`);
+  }
+
+  function hashDevice(deviceId) {
+    return sha256(`${identitySalt}:device:${deviceId}`);
+  }
+
+  function signDeviceId(deviceId) {
+    return createHmac('sha256', Buffer.from(deviceSecret, 'hex'))
+      .update(deviceId)
+      .digest('base64url');
+  }
+
+  function verifyDeviceToken(token) {
+    const [deviceId, signature, extra] = String(token || '').split('.');
+    if (
+      extra !== undefined
+      || !DEVICE_ID_PATTERN.test(deviceId || '')
+      || !DEVICE_SIGNATURE_PATTERN.test(signature || '')
+    ) return null;
+    const expected = Buffer.from(signDeviceId(deviceId));
+    const received = Buffer.from(signature);
+    return expected.length === received.length && timingSafeEqual(expected, received)
+      ? deviceId
+      : null;
+  }
+
+  function resolveDevice(token) {
+    const verifiedId = verifyDeviceToken(token);
+    if (verifiedId) return { id: verifiedId, token: `${verifiedId}.${signDeviceId(verifiedId)}` };
+    const id = randomBytes(16).toString('base64url');
+    return { id, token: `${id}.${signDeviceId(id)}` };
   }
 
   function cleanup(timestamp = now()) {
-    deleteExpiredShares.run(timestamp);
-    deleteOldEvents.run(timestamp - MOBILE_SHARE_TTL_MS);
+    deleteOldEvents.run(timestamp - rateWindowMs);
   }
 
-  function create(payload, ipAddress) {
+  function create(payload, ipAddress, deviceId = 'unknown-device') {
     validatePayload(payload);
     const serialized = JSON.stringify(payload);
     const payloadBytes = Buffer.byteLength(serialized);
@@ -143,25 +234,55 @@ export function createMobileShareStore(options = {}) {
     }
 
     const timestamp = now();
-    const expiresAt = timestamp + ttlMs;
+    const windowStart = timestamp - rateWindowMs;
     const ipHash = hashIp(ipAddress || 'unknown');
+    const deviceHash = hashDevice(deviceId || 'unknown-device');
+    const payloadHash = sha256(serialized);
     database.exec('BEGIN IMMEDIATE');
     try {
       cleanup(timestamp);
-      const hourlyCount = Number(countRecentEvents.get(timestamp - 60 * 60 * 1000)?.count || 0);
-      if (hourlyCount >= hourlyLimit) {
-        throw new MobileShareServiceError(429, 'HOURLY_LIMIT', '本小时分享名额已用完，请稍后再试。');
+      const existing = findShareByPayloadHash.get(payloadHash);
+      if (existing) {
+        database.exec('COMMIT');
+        return {
+          id: String(existing.id),
+          createdAt: Number(existing.createdAt),
+          expiresAt: null,
+          permanent: true,
+          reused: true,
+        };
       }
 
-      const activeShares = findIpShares.all(ipHash, timestamp);
-      const removeCount = Math.max(0, activeShares.length - perIpLimit + 1);
-      activeShares.slice(0, removeCount).forEach((share) => deleteShare.run(share.id));
+      const deviceCount = Number(countRecentDeviceEvents.get(deviceHash, windowStart)?.count || 0);
+      if (deviceCount >= perDeviceDailyLimit) {
+        throw new MobileShareServiceError(
+          429,
+          'DEVICE_DAILY_LIMIT',
+          `当前浏览器 24 小时内最多创建 ${perDeviceDailyLimit} 份永久分享。`,
+        );
+      }
+      const ipCount = Number(countRecentIpEvents.get(ipHash, windowStart)?.count || 0);
+      if (ipCount >= perIpDailyLimit) {
+        throw new MobileShareServiceError(
+          429,
+          'IP_DAILY_LIMIT',
+          `当前网络 24 小时内最多创建 ${perIpDailyLimit} 份永久分享。`,
+        );
+      }
+      const dailyCount = Number(countRecentEvents.get(windowStart)?.count || 0);
+      if (dailyCount >= dailyLimit) {
+        throw new MobileShareServiceError(
+          429,
+          'DAILY_LIMIT',
+          `服务器 24 小时内最多创建 ${dailyLimit} 份永久分享，请稍后再试。`,
+        );
+      }
 
       let id = '';
       for (let attempt = 0; attempt < 4; attempt += 1) {
         id = createShareId();
         try {
-          insertShare.run(id, serialized, payloadBytes, ipHash, timestamp, expiresAt);
+          insertShare.run(id, serialized, payloadBytes, payloadHash, ipHash, timestamp);
           break;
         } catch (error) {
           if (attempt === 3 || !String(error).includes('UNIQUE')) throw error;
@@ -169,9 +290,15 @@ export function createMobileShareStore(options = {}) {
         }
       }
       if (!id) throw new Error('Unable to allocate a share id.');
-      insertEvent.run(ipHash, timestamp);
+      insertEvent.run(ipHash, deviceHash, timestamp);
       database.exec('COMMIT');
-      return { id, createdAt: timestamp, expiresAt };
+      return {
+        id,
+        createdAt: timestamp,
+        expiresAt: null,
+        permanent: true,
+        reused: false,
+      };
     } catch (error) {
       database.exec('ROLLBACK');
       throw error;
@@ -180,14 +307,14 @@ export function createMobileShareStore(options = {}) {
 
   function get(id) {
     if (!SHARE_ID_PATTERN.test(id)) return null;
-    const timestamp = now();
-    cleanup(timestamp);
-    const row = findShare.get(id, timestamp);
+    cleanup(now());
+    const row = findShare.get(id);
     if (!row) return null;
     return {
       id: String(row.id),
       createdAt: Number(row.createdAt),
-      expiresAt: Number(row.expiresAt),
+      expiresAt: null,
+      permanent: true,
       payload: JSON.parse(String(row.payload)),
     };
   }
@@ -195,9 +322,11 @@ export function createMobileShareStore(options = {}) {
   function stats() {
     const timestamp = now();
     cleanup(timestamp);
+    const permanent = Number(database.prepare('SELECT COUNT(*) AS count FROM mobile_shares').get()?.count || 0);
     return {
-      active: Number(database.prepare('SELECT COUNT(*) AS count FROM mobile_shares').get()?.count || 0),
-      createdLastHour: Number(countRecentEvents.get(timestamp - 60 * 60 * 1000)?.count || 0),
+      active: permanent,
+      permanent,
+      createdLast24Hours: Number(countRecentEvents.get(timestamp - rateWindowMs)?.count || 0),
     };
   }
 
@@ -206,6 +335,7 @@ export function createMobileShareStore(options = {}) {
     get,
     cleanup,
     stats,
+    resolveDevice,
     close: () => database.close(),
   };
 }
@@ -245,10 +375,46 @@ function resolveClientIp(request, trustProxy) {
   return request.socket.remoteAddress || 'unknown';
 }
 
+function readCookie(request, name) {
+  const cookieHeader = Array.isArray(request.headers.cookie)
+    ? request.headers.cookie.join(';')
+    : String(request.headers.cookie || '');
+  for (const part of cookieHeader.split(';')) {
+    const separator = part.indexOf('=');
+    if (separator < 0 || part.slice(0, separator).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(separator + 1).trim());
+    } catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function requestIsSecure(request, trustProxy) {
+  if (request.socket.encrypted) return true;
+  if (!trustProxy) return false;
+  const forwardedProto = request.headers['x-forwarded-proto'];
+  const first = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto?.split(',')[0];
+  return first?.trim().toLowerCase() === 'https';
+}
+
+function buildDeviceCookie(token, secure) {
+  const parts = [
+    `${MOBILE_SHARE_DEVICE_COOKIE}=${encodeURIComponent(token)}`,
+    'Path=/api/mobile-shares',
+    `Max-Age=${MOBILE_SHARE_DEVICE_COOKIE_MAX_AGE_SECONDS}`,
+    'HttpOnly',
+    'SameSite=Lax',
+  ];
+  if (secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
 export function createMobileShareRequestHandler(options = {}) {
   const store = createMobileShareStore(options);
   const trustProxy = options.trustProxy !== false;
-  const maxRequestBytes = (options.maxPayloadBytes || MOBILE_SHARE_MAX_PAYLOAD_BYTES) + 16 * 1024;
+  const maxRequestBytes = (options.maxPayloadBytes ?? MOBILE_SHARE_MAX_PAYLOAD_BYTES) + 16 * 1024;
 
   const handler = async (request, response) => {
     try {
@@ -268,13 +434,23 @@ export function createMobileShareRequestHandler(options = {}) {
           throw new MobileShareServiceError(415, 'JSON_REQUIRED', '分享接口只接受 JSON。');
         }
         const payload = await readJsonBody(request, maxRequestBytes);
-        sendJson(response, 201, store.create(payload, resolveClientIp(request, trustProxy)));
+        const device = store.resolveDevice(readCookie(request, MOBILE_SHARE_DEVICE_COOKIE));
+        response.setHeader('set-cookie', buildDeviceCookie(
+          device.token,
+          requestIsSecure(request, trustProxy),
+        ));
+        const result = store.create(
+          payload,
+          resolveClientIp(request, trustProxy),
+          device.id,
+        );
+        sendJson(response, result.reused ? 200 : 201, result);
         return;
       }
       const match = url.pathname.match(/^\/api\/mobile-shares\/([A-Za-z0-9_-]{16})$/);
       if (request.method === 'GET' && match) {
         const share = store.get(match[1]);
-        if (!share) throw new MobileShareServiceError(404, 'SHARE_NOT_FOUND', '分享不存在或已经过期。');
+        if (!share) throw new MobileShareServiceError(404, 'SHARE_NOT_FOUND', '分享不存在。');
         sendJson(response, 200, share);
         return;
       }

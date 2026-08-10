@@ -181,7 +181,11 @@ export function MobileShareImporter({
                 </dl>
                 <div className="mobile-share-import-meta">
                   <span>数据版本 {state.share.payload.dataVersion || '未知'}</span>
-                  <span>{formatExpiry(state.share.expiresAt)} 前可读取</span>
+                  <span>
+                    {state.share.permanent || state.share.expiresAt === null
+                      ? '永久保存'
+                      : `${formatExpiry(state.share.expiresAt)} 前可读取`}
+                  </span>
                 </div>
                 {versionMismatch ? (
                   <p className="mobile-share-import-warning">

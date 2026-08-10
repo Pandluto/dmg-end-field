@@ -76,7 +76,7 @@ interface ReportShareQr {
   id: string;
   url: string;
   qrDataUrl: string;
-  expiresAt: number;
+  reused: boolean;
 }
 
 interface TimelineReportNoteTarget {
@@ -803,7 +803,7 @@ function ReportShareQrCard({ share }: { share: ReportShareQr }) {
       <span>
         <small>MOBILE TACTICAL SHARE</small>
         <strong>从手机版 01 页导入此报告</strong>
-        <p>保存图片后选择“导入分享”，队伍、配装、排轴、Buff 与批注将加入本机存档。</p>
+        <p>此二维码永久有效。保存图片后选择“导入分享”，队伍、配装、排轴、Buff 与批注将加入本机存档。</p>
         <code>{share.id}</code>
       </span>
     </aside>
@@ -966,7 +966,9 @@ export function MobileReportPage({
       anchor.click();
       anchor.remove();
       setExportMessage(shareQr
-        ? `分享版已生成；二维码在 ${new Date(shareQr.expiresAt).toLocaleString('zh-CN', { hour12: false })} 前有效`
+        ? (shareQr.reused
+          ? '分享版已生成；已复用相同内容的永久二维码'
+          : '分享版已生成；永久二维码已写入报告')
         : `已生成 ${canvas.width} × ${canvas.height} PNG`);
     } catch (error) {
       setExportMessage(error instanceof Error ? `导出失败：${error.message}` : '导出失败，请稍后重试。');
@@ -985,7 +987,7 @@ export function MobileReportPage({
       id: share.id,
       url,
       qrDataUrl: await createMobileShareQrDataUrl(url),
-      expiresAt: share.expiresAt,
+      reused: share.reused,
     };
   });
 
