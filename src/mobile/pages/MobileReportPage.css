@@ -688,10 +688,10 @@
 .mobile-report-timeline-lane-heading {
   position: relative;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   min-width: 0;
-  min-height: 30px;
+  min-height: 36px;
   gap: 4px;
   padding: 3px 4px;
   background: var(--report-paper-soft);
@@ -714,8 +714,8 @@
 }
 
 .mobile-report-timeline-operator-avatar {
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--report-line);
 }
 
@@ -734,7 +734,7 @@
 .mobile-report-timeline-lane-heading strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 8px;
+  font-size: 9.5px;
   font-weight: 780;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1547,19 +1547,19 @@
   }
 
   .mobile-report-timeline-lane-heading {
-    grid-template-columns: 18px minmax(0, 1fr);
-    min-height: 26px;
-    gap: 2px;
+    grid-template-columns: 28px minmax(0, 1fr);
+    min-height: 34px;
+    gap: 3px;
     padding: 2px 3px;
   }
 
   .mobile-report-timeline-operator-avatar {
-    width: 18px;
-    height: 18px;
+    width: 28px;
+    height: 28px;
   }
 
   .mobile-report-timeline-lane-heading strong {
-    font-size: 7px;
+    font-size: 9px;
   }
 
   .mobile-report-timeline-rows {
@@ -1579,18 +1579,15 @@
   .mobile-report-timeline-action {
     --mobile-report-timeline-action-media-size: 28px;
 
+    grid-template-columns:
+      var(--mobile-report-timeline-action-media-size)
+      minmax(0, 1fr);
     min-height: 34px;
     gap: 2px;
     padding: 2px;
   }
 
-  .mobile-report-page:not(.mobile-report-export-stage) .mobile-report-timeline-action {
-    grid-template-columns:
-      var(--mobile-report-timeline-action-media-size)
-      minmax(0, 1fr);
-  }
-
-  .mobile-report-page:not(.mobile-report-export-stage) .mobile-report-timeline-card-avatar {
+  .mobile-report-timeline-card-avatar {
     display: none;
   }
 
