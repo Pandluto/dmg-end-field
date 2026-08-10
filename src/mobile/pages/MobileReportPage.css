@@ -201,7 +201,6 @@
 .mobile-report-weapon-art::after,
 .mobile-report-equipment-art::after,
 .mobile-report-timeline-operator-avatar::after,
-.mobile-report-timeline-skill-icon::after,
 .mobile-report-timeline-card-avatar::after {
   position: absolute;
   inset: 0;

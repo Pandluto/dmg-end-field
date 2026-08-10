@@ -9,8 +9,12 @@ import {
 import '../../components/DamageReportPptPage.css';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { EquipmentItem, EquipmentLibrary } from '../../core/services/operatorEquipmentLibrary';
-import { SKILL_LABELS, type Character } from '../../types';
-import { normalizeAssetUrl, resolveAvatarUrl } from '../../utils/assetResolver';
+import type { Character, SkillType } from '../../types';
+import {
+  getElementBackgroundColor,
+  normalizeAssetUrl,
+  resolveAvatarUrl,
+} from '../../utils/assetResolver';
 import type {
   MobileCatalog,
   MobileDamageReport,
@@ -64,6 +68,13 @@ const REPORT_PAGES: Array<{ id: ReportPageId; index: string; label: string }> = 
 
 const EQUIPMENT_SLOT_ORDER = ['armor', 'glove', 'accessory1', 'accessory2'] as const;
 const SKILL_LEVEL_ORDER = ['A', 'B', 'E', 'Q', 'Dot'] as const;
+const REPORT_SKILL_TYPE_LABELS: Record<SkillType, string> = {
+  A: '重击',
+  B: '战技',
+  E: '连携技',
+  Q: '终结技',
+  Dot: '持续',
+};
 const SERIES_COLORS = ['#1f6f8b', '#d17742', '#688a55', '#8d6b9e', '#bf5d62', '#be9852'];
 const REPORT_CHART_COLORS = {
   accent: '#1f6f8b',
@@ -626,19 +637,19 @@ function TimelineReportSlide({
                         <article className="mobile-report-timeline-action" aria-label={`${String(slotIndex + 1).padStart(2, '0')}，${operator.name}，${action.skillName}`}>
                           <span
                             className="mobile-report-timeline-skill-icon"
-                            data-fallback={action.skillType}
+                            style={{ backgroundColor: getElementBackgroundColor(operator.element) }}
                           >
                             {skillIconUrl ? (
                               <img
                                 src={skillIconUrl}
                                 alt=""
-                                onError={handleReportImageError(action.skillType)}
+                                onError={handleReportImageError('')}
                               />
                             ) : null}
                           </span>
                           <span className="mobile-report-timeline-action-copy">
                             <strong title={action.skillName}>{action.skillName}</strong>
-                            <small><b>{String(slotIndex + 1).padStart(2, '0')}</b>{SKILL_LABELS[action.skillType]}</small>
+                            <small><b>{String(slotIndex + 1).padStart(2, '0')}</b>{REPORT_SKILL_TYPE_LABELS[action.skillType]}</small>
                           </span>
                           <span
                             className="mobile-report-timeline-card-avatar"
