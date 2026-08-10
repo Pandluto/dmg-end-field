@@ -721,9 +721,15 @@
 }
 
 .mobile-report-timeline-operator-avatar > img,
-.mobile-report-timeline-card-avatar > img,
-.mobile-report-timeline-skill-icon > img {
+.mobile-report-timeline-skill-icon > img,
+.mobile-report-timeline-card-avatar > img {
   object-fit: cover;
+}
+
+.mobile-report-timeline-operator-avatar > img,
+.mobile-report-timeline-card-avatar > img {
+  transform: scale(1.35);
+  transform-origin: center;
 }
 
 .mobile-report-timeline-lane-heading strong {
