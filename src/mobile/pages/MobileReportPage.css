@@ -867,9 +867,9 @@
 
 .mobile-report-timeline-note-button.has-note,
 .mobile-report-timeline-note-static {
-  border: 2px solid var(--report-ink);
+  border: 1px solid var(--report-ink);
   color: var(--report-ink);
-  background: #eef0ef;
+  background: #fff;
 }
 
 .mobile-report-timeline-note-button:not(.has-note):hover:not(:disabled),
@@ -884,7 +884,7 @@
 .mobile-report-timeline-note-button.has-note:focus-visible {
   border-color: #000;
   color: var(--report-ink);
-  background: #e4e7e6;
+  background: #f7f8f7;
   outline: none;
 }
 
