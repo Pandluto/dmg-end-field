@@ -780,7 +780,7 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: 27px minmax(0, 1fr) 21px;
+  grid-template-columns: 27px minmax(0, 1fr) 27px;
   align-items: center;
   width: 100%;
   min-width: 0;
@@ -801,8 +801,8 @@
 }
 
 .mobile-report-timeline-card-avatar {
-  width: 21px;
-  height: 21px;
+  width: 27px;
+  height: 27px;
   border: 1px solid var(--report-line);
   border-radius: 3px;
   font-size: 7px;
@@ -1348,7 +1348,7 @@
   }
 
   .mobile-report-timeline-action {
-    grid-template-columns: 22px minmax(0, 1fr) 17px;
+    grid-template-columns: 22px minmax(0, 1fr) 22px;
     min-height: 38px;
     gap: 2px;
     padding: 3px;
@@ -1360,8 +1360,8 @@
   }
 
   .mobile-report-timeline-card-avatar {
-    width: 17px;
-    height: 17px;
+    width: 22px;
+    height: 22px;
   }
 
   .mobile-report-timeline-action-copy strong {
