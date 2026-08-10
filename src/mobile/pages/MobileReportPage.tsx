@@ -9,7 +9,7 @@ import {
 import '../../components/DamageReportPptPage.css';
 import type { ConfigSnapshot } from '../../core/calculators/operatorPanelCalculator';
 import type { EquipmentItem, EquipmentLibrary } from '../../core/services/operatorEquipmentLibrary';
-import type { Character } from '../../types';
+import { SKILL_LABELS, type Character } from '../../types';
 import { normalizeAssetUrl, resolveAvatarUrl } from '../../utils/assetResolver';
 import type {
   MobileCatalog,
@@ -20,7 +20,6 @@ import type {
   MobileTimelineSlot,
 } from '../model';
 import { MobilePortal } from '../components/MobilePortal';
-import { MobileTimelinePage } from './MobileTimelinePage';
 import './MobileReportPage.css';
 
 export interface MobileReportPageProps {
@@ -551,34 +550,118 @@ function ChartReportSlide({
 function TimelineReportSlide({
   slots,
   operators,
-  slotCalculations,
   titleId = 'mobile-report-timeline-title',
 }: {
   slots: MobileTimelineSlot[];
   operators: Character[];
-  slotCalculations: Record<string, MobileSlotCalculation>;
   titleId?: string;
 }) {
+  const lanes: Array<Character | null> = Array.from(
+    { length: 4 },
+    (_, index) => operators[index] ?? null,
+  );
+  const rows = slots.flatMap((slot, slotIndex) => (
+    slot.action ? [{ slot, slotIndex, action: slot.action }] : []
+  ));
+
   return (
     <section className="mobile-report-slide" aria-labelledby={titleId}>
       <ReportSlideHeader
         index="02"
         title="排轴概览"
-        note="与主排轴保持相同槽位、顺序和卡片信息"
+        note="四列对应四名干员，排轴顺序沿竖向推进"
         titleId={titleId}
       />
-      <MobileTimelinePage
-        slots={slots}
-        operators={operators}
-        slotCalculations={slotCalculations}
-        onAddSlot={() => undefined}
-        onSetSlotAction={() => undefined}
-        onDeleteSlotAction={() => undefined}
-        onMoveSlotAction={() => undefined}
-        embedded
-        readOnly
-        hideEmptySlots
-      />
+      {operators.length === 0 ? (
+        <EmptyReportState>暂无队伍配置，无法生成排轴概览。</EmptyReportState>
+      ) : rows.length === 0 ? (
+        <EmptyReportState>暂无已排技能。</EmptyReportState>
+      ) : (
+        <div className="mobile-report-timeline-matrix" role="table" aria-label="四列竖向排轴概览">
+          <div className="mobile-report-timeline-head" role="row">
+            {lanes.map((operator, laneIndex) => {
+              const avatarUrl = operator
+                ? normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name)
+                : '';
+              return (
+                <div
+                  key={operator?.id ?? `empty-lane-${laneIndex}`}
+                  className={`mobile-report-timeline-lane-heading${operator ? '' : ' is-empty'}`}
+                  role="columnheader"
+                >
+                  <span
+                    className="mobile-report-timeline-operator-avatar"
+                    data-fallback={operator?.name.slice(0, 1) ?? String(laneIndex + 1)}
+                  >
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt=""
+                        onError={handleReportImageError(operator?.name.slice(0, 1) ?? '')}
+                      />
+                    ) : null}
+                  </span>
+                  <strong>{operator?.name ?? `位置 ${laneIndex + 1}`}</strong>
+                </div>
+              );
+            })}
+          </div>
+
+          <ol className="mobile-report-timeline-rows" role="rowgroup">
+            {rows.map(({ slot, slotIndex, action }) => (
+              <li key={slot.id} className="mobile-report-timeline-row" role="row">
+                {lanes.map((operator, laneIndex) => {
+                  const isActiveLane = operator?.id === action.operatorId;
+                  const avatarUrl = operator
+                    ? normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name)
+                    : '';
+                  const skillIconUrl = normalizeAssetUrl(action.skillIconUrl);
+                  return (
+                    <div
+                      key={operator?.id ?? `empty-cell-${laneIndex}`}
+                      className={`mobile-report-timeline-cell${isActiveLane ? ' is-active' : ''}`}
+                      role="cell"
+                    >
+                      {isActiveLane && operator ? (
+                        <article className="mobile-report-timeline-action" aria-label={`${String(slotIndex + 1).padStart(2, '0')}，${operator.name}，${action.skillName}`}>
+                          <span
+                            className="mobile-report-timeline-skill-icon"
+                            data-fallback={action.skillType}
+                          >
+                            {skillIconUrl ? (
+                              <img
+                                src={skillIconUrl}
+                                alt=""
+                                onError={handleReportImageError(action.skillType)}
+                              />
+                            ) : null}
+                          </span>
+                          <span className="mobile-report-timeline-action-copy">
+                            <strong title={action.skillName}>{action.skillName}</strong>
+                            <small><b>{String(slotIndex + 1).padStart(2, '0')}</b>{SKILL_LABELS[action.skillType]}</small>
+                          </span>
+                          <span
+                            className="mobile-report-timeline-card-avatar"
+                            data-fallback={operator.name.slice(0, 1)}
+                          >
+                            {avatarUrl ? (
+                              <img
+                                src={avatarUrl}
+                                alt=""
+                                onError={handleReportImageError(operator.name.slice(0, 1))}
+                              />
+                            ) : null}
+                          </span>
+                        </article>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
     </section>
   );
 }
@@ -782,7 +865,7 @@ export function MobileReportPage({
           equipmentMap={equipmentMap}
         />
       ) : activePage === 'timeline' ? (
-        <TimelineReportSlide slots={slots} operators={operators} slotCalculations={slotCalculations} />
+        <TimelineReportSlide slots={slots} operators={operators} />
       ) : (
         <ChartReportSlide report={safeReport} operatorRows={operatorRows} skillRows={skillRows} entries={entries} />
       )}
@@ -820,7 +903,6 @@ export function MobileReportPage({
               <TimelineReportSlide
                 slots={slots}
                 operators={operators}
-                slotCalculations={slotCalculations}
                 titleId="mobile-report-export-timeline-title"
               />
             </div>

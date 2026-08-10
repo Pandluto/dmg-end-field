@@ -189,8 +189,9 @@
 .mobile-report-operator-portrait,
 .mobile-report-weapon-art,
 .mobile-report-equipment-art,
-.mobile-report-lane-avatar,
-.mobile-report-axis-icon {
+.mobile-report-timeline-operator-avatar,
+.mobile-report-timeline-skill-icon,
+.mobile-report-timeline-card-avatar {
   position: relative;
   overflow: hidden;
   background: var(--report-paper-soft);
@@ -199,8 +200,9 @@
 .mobile-report-operator-portrait::after,
 .mobile-report-weapon-art::after,
 .mobile-report-equipment-art::after,
-.mobile-report-lane-avatar::after,
-.mobile-report-axis-icon::after {
+.mobile-report-timeline-operator-avatar::after,
+.mobile-report-timeline-skill-icon::after,
+.mobile-report-timeline-card-avatar::after {
   position: absolute;
   inset: 0;
   display: grid;
@@ -214,8 +216,9 @@
 .mobile-report-operator-portrait > img,
 .mobile-report-weapon-art > img,
 .mobile-report-equipment-art > img,
-.mobile-report-lane-avatar > img,
-.mobile-report-axis-icon > img {
+.mobile-report-timeline-operator-avatar > img,
+.mobile-report-timeline-skill-icon > img,
+.mobile-report-timeline-card-avatar > img {
   position: relative;
   z-index: 1;
   display: block;
@@ -635,7 +638,6 @@
   font-size: 4.5px;
 }
 
-.mobile-report-timeline-summary,
 .mobile-report-damage-strip {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -643,7 +645,6 @@
   margin-bottom: 8px;
 }
 
-.mobile-report-timeline-summary > span,
 .mobile-report-damage-strip > span {
   display: grid;
   gap: 3px;
@@ -653,13 +654,11 @@
   background: var(--report-paper-soft);
 }
 
-.mobile-report-timeline-summary small,
 .mobile-report-damage-strip small {
   color: var(--report-muted);
   font-size: 8px;
 }
 
-.mobile-report-timeline-summary strong,
 .mobile-report-damage-strip strong {
   overflow: hidden;
   font-size: 16px;
@@ -668,133 +667,171 @@
   white-space: nowrap;
 }
 
-.mobile-report-lanes {
+.mobile-report-timeline-matrix {
+  --mobile-report-timeline-column-gap: 4px;
   display: grid;
-  gap: 7px;
-}
-
-.mobile-report-lane {
+  gap: 4px;
   min-width: 0;
-  padding: 7px;
-  border: 1px solid var(--report-line);
-  background: #ffffff;
 }
 
-.mobile-report-lane > header {
-  display: flex;
+.mobile-report-timeline-head,
+.mobile-report-timeline-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--mobile-report-timeline-column-gap);
+}
+
+.mobile-report-timeline-head {
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--report-line);
+}
+
+.mobile-report-timeline-lane-heading {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: center;
-  gap: 7px;
-  margin-bottom: 6px;
+  min-width: 0;
+  min-height: 30px;
+  gap: 4px;
+  padding: 3px 4px;
+  background: var(--report-paper-soft);
 }
 
-.mobile-report-lane-avatar {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+.mobile-report-timeline-lane-heading::after {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  z-index: 0;
+  width: 1px;
+  height: 9px;
+  background: rgba(31, 111, 139, 0.24);
+  content: "";
+}
+
+.mobile-report-timeline-lane-heading.is-empty {
+  color: var(--report-muted);
+  opacity: 0.55;
+}
+
+.mobile-report-timeline-operator-avatar {
+  width: 22px;
+  height: 22px;
   border: 1px solid var(--report-line);
 }
 
-.mobile-report-lane-avatar > img {
+.mobile-report-timeline-operator-avatar > img,
+.mobile-report-timeline-card-avatar > img,
+.mobile-report-timeline-skill-icon > img {
   object-fit: cover;
 }
 
-.mobile-report-lane > header > span:last-child {
+.mobile-report-timeline-lane-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 8px;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-report-timeline-rows {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mobile-report-timeline-row {
+  min-height: 46px;
+}
+
+.mobile-report-timeline-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 46px;
+}
+
+.mobile-report-timeline-cell::before {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 50%;
+  z-index: 0;
+  width: 1px;
+  background: rgba(31, 111, 139, 0.24);
+  content: "";
+}
+
+.mobile-report-timeline-row:last-child .mobile-report-timeline-cell::before {
+  bottom: 50%;
+}
+
+.mobile-report-timeline-action {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 27px minmax(0, 1fr) 21px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--report-line-strong);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.mobile-report-timeline-skill-icon {
+  width: 27px;
+  height: 27px;
+  border: 1px solid var(--report-line);
+  border-radius: 3px;
+  font-size: 8px;
+}
+
+.mobile-report-timeline-card-avatar {
+  width: 21px;
+  height: 21px;
+  border: 1px solid var(--report-line);
+  border-radius: 3px;
+  font-size: 7px;
+}
+
+.mobile-report-timeline-action-copy {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
-.mobile-report-lane > header strong,
-.mobile-report-lane > header small {
+.mobile-report-timeline-action-copy strong,
+.mobile-report-timeline-action-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.mobile-report-lane > header strong {
-  font-size: 11px;
+.mobile-report-timeline-action-copy strong {
+  font-size: 8.5px;
+  line-height: 1.1;
 }
 
-.mobile-report-lane > header small {
-  color: var(--report-muted);
-  font-size: 8px;
-}
-
-.mobile-report-lane-track {
+.mobile-report-timeline-action-copy small {
   display: flex;
-  max-width: 100%;
-  min-height: 58px;
-  gap: 4px;
-  padding: 5px;
-  overflow-x: auto;
-  border: 1px solid var(--report-line);
-  background:
-    repeating-linear-gradient(to right, transparent 0, transparent 42px, rgba(23, 45, 50, 0.06) 42px, rgba(23, 45, 50, 0.06) 43px),
-    var(--report-paper-soft);
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
-}
-
-.mobile-report-lane-empty {
-  align-self: center;
-  padding: 0 8px;
-  color: var(--report-muted);
-  font-size: 9px;
-}
-
-.mobile-report-axis-action {
-  position: relative;
-  display: grid;
-  flex: 0 0 116px;
-  grid-template-columns: 35px minmax(0, 1fr);
   align-items: center;
-  min-width: 0;
-  gap: 5px;
-  padding: 5px;
-  border: 1px solid var(--report-line-strong);
-  background: rgba(255, 255, 255, 0.94);
-}
-
-.mobile-report-axis-order {
-  position: absolute;
-  top: 2px;
-  right: 3px;
-  color: rgba(23, 45, 50, 0.42);
-  font-size: 6px;
-  font-weight: 820;
-}
-
-.mobile-report-axis-icon {
-  width: 35px;
-  height: 35px;
-  border: 1px solid var(--report-line);
-}
-
-.mobile-report-axis-icon > img {
-  object-fit: cover;
-}
-
-.mobile-report-axis-copy {
-  display: grid;
-  min-width: 0;
   gap: 3px;
-}
-
-.mobile-report-axis-copy strong,
-.mobile-report-axis-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mobile-report-axis-copy strong {
-  font-size: 8px;
-}
-
-.mobile-report-axis-copy small {
   color: var(--report-muted);
-  font-size: 7px;
+  font-size: 6.5px;
   font-variant-numeric: tabular-nums;
+}
+
+.mobile-report-timeline-action-copy small b {
+  color: var(--report-accent);
+  font-size: 6px;
 }
 
 .mobile-report-damage-strip {
@@ -1267,6 +1304,68 @@
   background: var(--report-accent);
   font-weight: 780;
   text-decoration: none;
+}
+
+@media (max-width: 430px) {
+  .mobile-report-timeline-matrix {
+    --mobile-report-timeline-column-gap: 2px;
+  }
+
+  .mobile-report-timeline-lane-heading {
+    grid-template-columns: 18px minmax(0, 1fr);
+    min-height: 26px;
+    gap: 2px;
+    padding: 2px 3px;
+  }
+
+  .mobile-report-timeline-operator-avatar {
+    width: 18px;
+    height: 18px;
+  }
+
+  .mobile-report-timeline-lane-heading strong {
+    font-size: 7px;
+  }
+
+  .mobile-report-timeline-rows {
+    gap: 3px;
+  }
+
+  .mobile-report-timeline-row,
+  .mobile-report-timeline-cell {
+    min-height: 42px;
+  }
+
+  .mobile-report-timeline-cell::before {
+    top: -3px;
+    bottom: -3px;
+  }
+
+  .mobile-report-timeline-action {
+    grid-template-columns: 22px minmax(0, 1fr) 17px;
+    min-height: 38px;
+    gap: 2px;
+    padding: 3px;
+  }
+
+  .mobile-report-timeline-skill-icon {
+    width: 22px;
+    height: 22px;
+  }
+
+  .mobile-report-timeline-card-avatar {
+    width: 17px;
+    height: 17px;
+  }
+
+  .mobile-report-timeline-action-copy strong {
+    font-size: 7.5px;
+  }
+
+  .mobile-report-timeline-action-copy small {
+    gap: 2px;
+    font-size: 6px;
+  }
 }
 
 @media (max-width: 350px) {
