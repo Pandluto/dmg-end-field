@@ -849,10 +849,11 @@
   position: relative;
   z-index: 1;
   display: grid;
-  width: 100%;
+  width: calc(100% - 6px);
   min-width: 0;
-  min-height: 42px;
+  min-height: 36px;
   place-items: center;
+  margin: 0 3px;
   padding: 3px 4px;
   border-radius: 4px;
 }
@@ -1585,7 +1586,9 @@
 
   .mobile-report-timeline-note-button,
   .mobile-report-timeline-note-static {
-    min-height: 34px;
+    width: calc(100% - 4px);
+    min-height: 30px;
+    margin: 0 2px;
     padding: 2px 3px;
   }
 
