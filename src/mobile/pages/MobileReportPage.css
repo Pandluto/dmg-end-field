@@ -688,10 +688,10 @@
 .mobile-report-timeline-lane-heading {
   position: relative;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
+  grid-template-columns: 36px minmax(0, 1fr);
   align-items: center;
   min-width: 0;
-  min-height: 36px;
+  min-height: 44px;
   gap: 4px;
   padding: 3px 4px;
   background: var(--report-paper-soft);
@@ -714,8 +714,8 @@
 }
 
 .mobile-report-timeline-operator-avatar {
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border: 1px solid var(--report-line);
 }
 
@@ -734,7 +734,7 @@
 .mobile-report-timeline-lane-heading strong {
   min-width: 0;
   overflow: hidden;
-  font-size: 9.5px;
+  font-size: 10.5px;
   font-weight: 780;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -783,8 +783,7 @@
   display: grid;
   grid-template-columns:
     var(--mobile-report-timeline-action-media-size)
-    minmax(0, 1fr)
-    var(--mobile-report-timeline-action-media-size);
+    minmax(0, 1fr);
   align-items: center;
   width: 100%;
   min-width: 0;
@@ -805,6 +804,7 @@
 }
 
 .mobile-report-timeline-card-avatar {
+  display: none;
   width: var(--mobile-report-timeline-action-media-size);
   height: var(--mobile-report-timeline-action-media-size);
   border: 1px solid var(--report-line);
@@ -1547,19 +1547,19 @@
   }
 
   .mobile-report-timeline-lane-heading {
-    grid-template-columns: 28px minmax(0, 1fr);
-    min-height: 34px;
+    grid-template-columns: 36px minmax(0, 1fr);
+    min-height: 42px;
     gap: 3px;
     padding: 2px 3px;
   }
 
   .mobile-report-timeline-operator-avatar {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
   }
 
   .mobile-report-timeline-lane-heading strong {
-    font-size: 9px;
+    font-size: 10.5px;
   }
 
   .mobile-report-timeline-rows {
@@ -1579,16 +1579,9 @@
   .mobile-report-timeline-action {
     --mobile-report-timeline-action-media-size: 28px;
 
-    grid-template-columns:
-      var(--mobile-report-timeline-action-media-size)
-      minmax(0, 1fr);
     min-height: 34px;
     gap: 2px;
     padding: 2px;
-  }
-
-  .mobile-report-timeline-card-avatar {
-    display: none;
   }
 
   .mobile-report-timeline-note-button,
