@@ -60,6 +60,17 @@ interface ReportExportPreview {
   height: number;
 }
 
+interface TimelineReportNoteTarget {
+  key: string;
+  order: number;
+  laneLabel: string;
+  note: string;
+}
+
+interface TimelineReportNoteEditor extends TimelineReportNoteTarget {
+  draft: string;
+}
+
 const REPORT_PAGES: Array<{ id: ReportPageId; index: string; label: string }> = [
   { id: 'team', index: '01', label: '队伍配置' },
   { id: 'timeline', index: '02', label: '排轴概览' },
@@ -141,6 +152,10 @@ function getEquipmentSetName(snapshot: ConfigSnapshot | undefined): string {
 
 function getSeriesColor(index: number): string {
   return SERIES_COLORS[index % SERIES_COLORS.length];
+}
+
+function getTimelineReportNoteKey(slotId: string, laneIndex: number): string {
+  return `${slotId}::lane-${laneIndex}`;
 }
 
 function getSkillLabelParts(label: string): { groupLabel: string; skillLabel: string } {
@@ -561,10 +576,14 @@ function ChartReportSlide({
 function TimelineReportSlide({
   slots,
   operators,
+  notes = {},
+  onEditNote,
   titleId = 'mobile-report-timeline-title',
 }: {
   slots: MobileTimelineSlot[];
   operators: Character[];
+  notes?: Record<string, string>;
+  onEditNote?: (target: TimelineReportNoteTarget) => void;
   titleId?: string;
 }) {
   const lanes: Array<Character | null> = Array.from(
@@ -627,6 +646,9 @@ function TimelineReportSlide({
                     ? normalizeAssetUrl(operator.avatarUrl) || resolveAvatarUrl(operator.name)
                     : '';
                   const skillIconUrl = normalizeAssetUrl(action.skillIconUrl);
+                  const noteKey = getTimelineReportNoteKey(slot.id, laneIndex);
+                  const note = notes[noteKey]?.trim() ?? '';
+                  const laneLabel = operator?.name ?? `位置 ${laneIndex + 1}`;
                   return (
                     <div
                       key={operator?.id ?? `empty-cell-${laneIndex}`}
@@ -664,6 +686,32 @@ function TimelineReportSlide({
                             ) : null}
                           </span>
                         </article>
+                      ) : onEditNote ? (
+                        <button
+                          type="button"
+                          className={`mobile-report-timeline-note-button${note ? ' has-note' : ''}`}
+                          title={note || '添加批注'}
+                          aria-label={note
+                            ? `编辑第 ${slotIndex + 1} 行 ${laneLabel} 批注：${note}`
+                            : `为第 ${slotIndex + 1} 行 ${laneLabel} 添加批注`}
+                          data-mobile-pager-lock
+                          onClick={() => onEditNote({
+                            key: noteKey,
+                            order: slotIndex + 1,
+                            laneLabel,
+                            note,
+                          })}
+                        >
+                          {note ? (
+                            <span className="mobile-report-timeline-note-text">{note}</span>
+                          ) : (
+                            <span className="mobile-report-timeline-note-placeholder" aria-hidden="true">＋</span>
+                          )}
+                        </button>
+                      ) : note ? (
+                        <span className="mobile-report-timeline-note-static">
+                          <span className="mobile-report-timeline-note-text">{note}</span>
+                        </span>
                       ) : null}
                     </div>
                   );
@@ -744,6 +792,8 @@ export function MobileReportPage({
   const [exportStageMounted, setExportStageMounted] = useState(false);
   const [exportMessage, setExportMessage] = useState('');
   const [exportPreview, setExportPreview] = useState<ReportExportPreview | null>(null);
+  const [timelineNotes, setTimelineNotes] = useState<Record<string, string>>({});
+  const [timelineNoteEditor, setTimelineNoteEditor] = useState<TimelineReportNoteEditor | null>(null);
   const reportPageRef = useRef<HTMLElement>(null);
   const exportStageRef = useRef<HTMLDivElement>(null);
   const exportPreviewUrlRef = useRef<string | null>(null);
@@ -780,6 +830,32 @@ export function MobileReportPage({
     if (exportPreviewUrlRef.current) URL.revokeObjectURL(exportPreviewUrlRef.current);
     exportPreviewUrlRef.current = null;
     setExportPreview(null);
+  };
+
+  const openTimelineNoteEditor = (target: TimelineReportNoteTarget) => {
+    setTimelineNoteEditor({ ...target, draft: target.note });
+  };
+
+  const saveTimelineNote = () => {
+    if (!timelineNoteEditor) return;
+    const nextNote = timelineNoteEditor.draft.trim();
+    setTimelineNotes((current) => {
+      const next = { ...current };
+      if (nextNote) next[timelineNoteEditor.key] = nextNote;
+      else delete next[timelineNoteEditor.key];
+      return next;
+    });
+    setTimelineNoteEditor(null);
+  };
+
+  const removeTimelineNote = () => {
+    if (!timelineNoteEditor) return;
+    setTimelineNotes((current) => {
+      const next = { ...current };
+      delete next[timelineNoteEditor.key];
+      return next;
+    });
+    setTimelineNoteEditor(null);
   };
 
   const handleExport = async () => {
@@ -876,7 +952,12 @@ export function MobileReportPage({
           equipmentMap={equipmentMap}
         />
       ) : activePage === 'timeline' ? (
-        <TimelineReportSlide slots={slots} operators={operators} />
+        <TimelineReportSlide
+          slots={slots}
+          operators={operators}
+          notes={timelineNotes}
+          onEditNote={openTimelineNoteEditor}
+        />
       ) : (
         <ChartReportSlide report={safeReport} operatorRows={operatorRows} skillRows={skillRows} entries={entries} />
       )}
@@ -914,6 +995,7 @@ export function MobileReportPage({
               <TimelineReportSlide
                 slots={slots}
                 operators={operators}
+                notes={timelineNotes}
                 titleId="mobile-report-export-timeline-title"
               />
             </div>
@@ -954,6 +1036,65 @@ export function MobileReportPage({
                 <a href={exportPreview.url} download={exportPreview.filename}>再次下载</a>
               </footer>
             </section>
+          </div>
+        </MobilePortal>
+      ) : null}
+
+      {timelineNoteEditor ? (
+        <MobilePortal>
+          <div
+            className="mobile-report-note-editor-backdrop"
+            role="presentation"
+            data-mobile-pager-lock
+            onClick={() => setTimelineNoteEditor(null)}
+          >
+            <form
+              className="mobile-report-note-editor-dialog"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="mobile-report-note-editor-title"
+              onClick={(event) => event.stopPropagation()}
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveTimelineNote();
+              }}
+            >
+              <header>
+                <span>
+                  <small>TIMELINE NOTE</small>
+                  <strong id="mobile-report-note-editor-title">
+                    {timelineNoteEditor.note ? '编辑批注' : '添加批注'}
+                  </strong>
+                </span>
+                <button type="button" onClick={() => setTimelineNoteEditor(null)} aria-label="关闭批注编辑器">×</button>
+              </header>
+              <label htmlFor="mobile-report-note-editor-input">
+                第 {String(timelineNoteEditor.order).padStart(2, '0')} 行 · {timelineNoteEditor.laneLabel}
+              </label>
+              <textarea
+                id="mobile-report-note-editor-input"
+                autoFocus
+                maxLength={80}
+                placeholder="输入小笔记或批注…"
+                value={timelineNoteEditor.draft}
+                onChange={(event) => setTimelineNoteEditor((current) => (
+                  current ? { ...current, draft: event.target.value } : current
+                ))}
+              />
+              <div className="mobile-report-note-editor-meta">
+                <span>留空保存也会移除批注</span>
+                <small>{timelineNoteEditor.draft.length} / 80</small>
+              </div>
+              <footer>
+                {timelineNoteEditor.note ? (
+                  <button type="button" className="is-remove" onClick={removeTimelineNote}>移除批注</button>
+                ) : <span />}
+                <span>
+                  <button type="button" onClick={() => setTimelineNoteEditor(null)}>取消</button>
+                  <button type="submit" className="is-primary">保存</button>
+                </span>
+              </footer>
+            </form>
           </div>
         </MobilePortal>
       ) : null}

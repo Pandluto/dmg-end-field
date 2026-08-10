@@ -844,6 +844,73 @@
   font-size: 6px;
 }
 
+.mobile-report-timeline-note-button,
+.mobile-report-timeline-note-static {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  place-items: center;
+  padding: 3px 4px;
+  border-radius: 4px;
+}
+
+.mobile-report-timeline-note-button {
+  border: 1px dashed transparent;
+  color: var(--report-accent);
+  background: transparent;
+  cursor: text;
+}
+
+.mobile-report-timeline-note-button.has-note,
+.mobile-report-timeline-note-static {
+  border: 1px dashed rgba(31, 111, 139, 0.42);
+  color: var(--report-ink);
+  background: rgba(31, 111, 139, 0.07);
+}
+
+.mobile-report-timeline-note-button:hover:not(:disabled),
+.mobile-report-timeline-note-button:focus-visible {
+  border-color: rgba(31, 111, 139, 0.42);
+  color: var(--report-accent);
+  background: rgba(31, 111, 139, 0.07);
+  outline: none;
+}
+
+.mobile-report-timeline-note-button:focus-visible {
+  box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.18);
+}
+
+.mobile-report-timeline-note-placeholder {
+  color: var(--report-accent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  opacity: 0.24;
+}
+
+.mobile-report-timeline-note-button:hover .mobile-report-timeline-note-placeholder,
+.mobile-report-timeline-note-button:focus-visible .mobile-report-timeline-note-placeholder {
+  opacity: 0.72;
+}
+
+.mobile-report-timeline-note-text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 7.5px;
+  font-weight: 680;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: left;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
 .mobile-report-damage-strip {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -1316,6 +1383,155 @@
   text-decoration: none;
 }
 
+.mobile-report-note-editor-backdrop {
+  --report-paper: #fbfcfb;
+  --report-paper-soft: #f4f6f5;
+  --report-ink: #172d32;
+  --report-muted: #68787a;
+  --report-line: rgba(23, 45, 50, 0.18);
+  --report-line-strong: rgba(23, 45, 50, 0.54);
+  --report-accent: #1f6f8b;
+  position: fixed;
+  inset: 0;
+  z-index: 270;
+  display: grid;
+  place-items: center;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+  background: rgba(18, 29, 32, 0.7);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+.mobile-report-note-editor-backdrop *,
+.mobile-report-note-editor-backdrop *::before,
+.mobile-report-note-editor-backdrop *::after {
+  box-sizing: border-box;
+}
+
+.mobile-report-note-editor-dialog {
+  display: grid;
+  width: min(100%, 420px);
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--report-line-strong);
+  border-radius: 12px 3px 12px 3px;
+  color: var(--report-ink);
+  background: var(--report-paper);
+  box-shadow: 0 18px 60px rgba(10, 20, 22, 0.3);
+}
+
+.mobile-report-note-editor-dialog > header,
+.mobile-report-note-editor-dialog > footer,
+.mobile-report-note-editor-dialog > footer > span {
+  display: flex;
+  align-items: center;
+}
+
+.mobile-report-note-editor-dialog > header,
+.mobile-report-note-editor-dialog > footer {
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mobile-report-note-editor-dialog > header > span {
+  display: grid;
+  gap: 2px;
+}
+
+.mobile-report-note-editor-dialog > header small {
+  color: var(--report-accent);
+  font-size: 8px;
+  font-weight: 820;
+  letter-spacing: 0.11em;
+}
+
+.mobile-report-note-editor-dialog > header strong {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.mobile-report-note-editor-dialog > header button {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--report-line);
+  border-radius: 3px;
+  color: var(--report-ink);
+  background: transparent;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.mobile-report-note-editor-dialog > label {
+  color: var(--report-muted);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.mobile-report-note-editor-dialog > textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: none;
+  padding: 10px;
+  border: 1px solid var(--report-line-strong);
+  border-radius: 4px;
+  outline: none;
+  color: var(--report-ink);
+  background: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.mobile-report-note-editor-dialog > textarea:focus {
+  border-color: var(--report-accent);
+  box-shadow: 0 0 0 2px rgba(31, 111, 139, 0.14);
+}
+
+.mobile-report-note-editor-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--report-muted);
+  font-size: 8px;
+}
+
+.mobile-report-note-editor-meta small {
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-report-note-editor-dialog > footer {
+  padding-top: 2px;
+}
+
+.mobile-report-note-editor-dialog > footer > span {
+  gap: 7px;
+}
+
+.mobile-report-note-editor-dialog > footer button {
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid var(--report-line-strong);
+  border-radius: 4px;
+  color: var(--report-ink);
+  background: var(--report-paper-soft);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.mobile-report-note-editor-dialog > footer button.is-primary {
+  border-color: var(--report-accent);
+  color: #ffffff;
+  background: var(--report-accent);
+}
+
+.mobile-report-note-editor-dialog > footer button.is-remove {
+  border-color: rgba(146, 60, 51, 0.28);
+  color: #923c33;
+  background: #fff5f3;
+}
+
 @media (max-width: 430px) {
   .mobile-report-timeline-matrix {
     --mobile-report-timeline-column-gap: 2px;
@@ -1357,6 +1573,16 @@
     min-height: 34px;
     gap: 2px;
     padding: 2px;
+  }
+
+  .mobile-report-timeline-note-button,
+  .mobile-report-timeline-note-static {
+    min-height: 34px;
+    padding: 2px 3px;
+  }
+
+  .mobile-report-timeline-note-text {
+    font-size: 6.5px;
   }
 
   .mobile-report-timeline-action-copy strong {
