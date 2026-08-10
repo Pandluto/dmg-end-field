@@ -1,5 +1,13 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import type { Character, SkillType } from '../../types';
+import { getElementBackgroundColor } from '../../utils/assetResolver';
 import { MobilePortal } from '../components/MobilePortal';
 import { createMobileId } from '../mobileDraft';
 import type { MobileSlotCalculation, MobileTimelineAction, MobileTimelineSlot } from '../model';
@@ -50,11 +58,11 @@ const LEGACY_SKILLS: Array<{ skillType: SkillType; key: 'normalAttack' | 'skill'
 ];
 
 const SKILL_LABELS: Record<SkillType, string> = {
-  A: '普攻',
+  A: '重击',
   B: '战技',
   E: '连携技',
   Q: '终结技',
-  Dot: '持续伤害',
+  Dot: '持续',
 };
 
 function getSkillOptions(character: Character): MobileTimelineSkillOption[] {
@@ -353,6 +361,9 @@ export function MobileTimelinePage({
                 <button
                   type="button"
                   className={`mobile-timeline-action-card${viewMode === 'damage' ? ' is-damage-view' : ''}`}
+                  style={{
+                    '--mobile-timeline-operator-element-color': getElementBackgroundColor(operator.element),
+                  } as CSSProperties}
                   onClick={() => openSlot(slot)}
                   onPointerDown={(event) => handlePointerDown(event, slot.id)}
                   onContextMenu={(event) => { if (!readOnly) event.preventDefault(); }}
@@ -459,8 +470,16 @@ export function MobileTimelinePage({
                   <button type="button" className="mobile-timeline-back-choice" onClick={() => setChooser((current) => current ? { ...current, step: 'operator' } : current)}>‹ 重新选择干员</button>
                   <div className="mobile-timeline-skill-choice-list">
                     {chooserSkills.map((skill) => (
-                      <button key={skill.id} type="button" className="mobile-timeline-skill-choice" onClick={() => chooseSkill(skill)}>
-                        {skill.skillIconUrl ? <img src={skill.skillIconUrl} alt="" /> : <span className="mobile-timeline-skill-placeholder">{skill.skillType}</span>}
+                      <button
+                        key={skill.id}
+                        type="button"
+                        className="mobile-timeline-skill-choice"
+                        style={{
+                          '--mobile-timeline-operator-element-color': getElementBackgroundColor(chooserOperator?.element ?? ''),
+                        } as CSSProperties}
+                        onClick={() => chooseSkill(skill)}
+                      >
+                        {skill.skillIconUrl ? <img src={skill.skillIconUrl} alt="" /> : <span className="mobile-timeline-skill-placeholder">{SKILL_LABELS[skill.skillType]}</span>}
                         <span><strong>{skill.skillName}</strong><small>{SKILL_LABELS[skill.skillType]}</small></span>
                         <span aria-hidden="true">›</span>
                       </button>

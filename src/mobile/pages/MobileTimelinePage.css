@@ -351,6 +351,7 @@
   width: 42px;
   height: 42px;
   border-radius: 13px;
+  background: var(--mobile-timeline-operator-element-color, rgba(31, 111, 139, 0.08));
   font-size: 11px;
 }
 
@@ -611,12 +612,12 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
+  background: var(--mobile-timeline-operator-element-color, rgba(31, 111, 139, 0.11));
 }
 
 .mobile-timeline-skill-placeholder {
   color: var(--mobile-timeline-accent);
-  background: rgba(31, 111, 139, 0.11);
-  font-size: 12px;
+  font-size: 9px;
   font-weight: 760;
 }
 
