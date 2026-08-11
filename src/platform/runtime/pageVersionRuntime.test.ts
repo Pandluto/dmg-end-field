@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { APP_VERSION } from './appVersion';
 import { checkLatestPageVersion, type PageVersionManifest } from './pageVersionRuntime';
 
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
@@ -14,7 +15,7 @@ let cacheNames = ['dmg-app-shell-1111111111111111'];
 let documentShellVersion = '1111111111111111';
 let latestManifest: PageVersionManifest = {
   schemaVersion: 1,
-  releaseVersion: '1.8.4',
+  releaseVersion: APP_VERSION,
   shellVersion: '1111111111111111',
 };
 let versionFetches = 0;
