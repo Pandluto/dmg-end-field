@@ -31923,7 +31923,7 @@
                 "effect4": {
                   "schemaVersion": 2,
                   "effectId": "effect4",
-                  "name": "终结技·晨星的协奏曲·每点意志电磁增幅0.018%",
+                  "name": "终结技·晨星的协奏曲·每点意志电磁增幅0.04%",
                   "type": "electricAmplify",
                   "category": "condition",
                   "unit": "percent",
@@ -31931,16 +31931,16 @@
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "will",
-                    "perPointValue": 0.00018
+                    "perPointValue": 0.0004
                   },
-                  "description": "终结技晨星的协奏曲（Lv.1）：施加受意志提升的电磁增幅，每点意志+0.018%，增幅上限40%。",
-                  "raw": "每点意志提升的增幅效果0.018%（Lv.1），意志提升的增幅上限40%。",
+                  "description": "终结技晨星的协奏曲（Lv.1）：施加受意志提升的电磁增幅，每点意志+0.04%，增幅上限40%。",
+                  "raw": "每点意志提升的增幅效果0.04%（Lv.1），意志提升的增幅上限40%。",
                   "effectKind": "modifier"
                 },
                 "effect5": {
                   "schemaVersion": 2,
                   "effectId": "effect5",
-                  "name": "终结技·晨星的协奏曲·每点意志自然增幅0.018%",
+                  "name": "终结技·晨星的协奏曲·每点意志自然增幅0.04%",
                   "type": "natureAmplify",
                   "category": "condition",
                   "unit": "percent",
@@ -31948,10 +31948,10 @@
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "will",
-                    "perPointValue": 0.00018
+                    "perPointValue": 0.0004
                   },
-                  "description": "终结技晨星的协奏曲（Lv.1）：施加受意志提升的自然增幅，每点意志+0.018%，增幅上限40%。",
-                  "raw": "每点意志提升的增幅效果0.018%（Lv.1），意志提升的增幅上限40%。",
+                  "description": "终结技晨星的协奏曲（Lv.1）：施加受意志提升的自然增幅，每点意志+0.04%，增幅上限40%。",
+                  "raw": "每点意志提升的增幅效果0.04%（Lv.1），意志提升的增幅上限40%。",
                   "effectKind": "modifier"
                 },
                 "effect1": {
@@ -31985,7 +31985,7 @@
                 "effect7": {
                   "schemaVersion": 2,
                   "effectId": "effect7",
-                  "name": "终结技·五潜协奏曲·每点意志电磁增幅0.018% ",
+                  "name": "终结技·五潜协奏曲·每点意志电磁增幅0.048% ",
                   "type": "electricAmplify",
                   "category": "condition",
                   "unit": "percent",
@@ -31993,7 +31993,7 @@
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "will",
-                    "perPointValue": 0.00216
+                    "perPointValue": 0.00048
                   },
                   "description": "",
                   "raw": "",
@@ -32002,7 +32002,7 @@
                 "effect8": {
                   "schemaVersion": 2,
                   "effectId": "effect8",
-                  "name": "终结技·五潜协奏曲·每点意志自然增幅0.018%",
+                  "name": "终结技·五潜协奏曲·每点意志自然增幅0.048%",
                   "type": "natureAmplify",
                   "category": "condition",
                   "unit": "percent",
@@ -32010,7 +32010,7 @@
                   "valueMode": "derived",
                   "derivedValue": {
                     "source": "will",
-                    "perPointValue": 0.00216
+                    "perPointValue": 0.00048
                   },
                   "description": "",
                   "raw": "",
