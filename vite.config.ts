@@ -78,6 +78,7 @@ export default defineConfig(async () => {
             '/index.html',
             '/mobile',
             '/mobile/*',
+            '/cache-recovery.html',
             '/sw.js',
             '/version.json',
             '/manifest.webmanifest',

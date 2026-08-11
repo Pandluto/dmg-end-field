@@ -2,6 +2,7 @@ const RESOURCE_CACHE_NAME = 'dmg-resource-pack-v1';
 const IMAGE_CACHE_NAME = 'dmg-image-pack-v1';
 const THEME_CACHE_NAME = 'dmg-theme-assets-v1';
 const APP_SHELL_CACHE_PREFIX = 'dmg-app-shell-';
+const CACHE_RECOVERY_PATH = '/cache-recovery.html';
 const APP_SHELL_COMPLETE_MARKER = '/__dmg_app_shell_complete__';
 const APP_RELEASE_VERSION = '__DMG_APP_RELEASE_VERSION__';
 const APP_SHELL_VERSION = '__DMG_APP_SHELL_VERSION__';
@@ -317,6 +318,14 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
+
+  // Keep the emergency recovery page independent from every installed page
+  // version. It must always reach the server so it can unregister this worker
+  // and remove stale application caches without touching workspace storage.
+  if (url.pathname === CACHE_RECOVERY_PATH) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
 
   // Tactical share records are short-lived server state. They must never be
   // answered from an app-shell or resource cache.

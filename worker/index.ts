@@ -163,6 +163,7 @@ export default {
       request.mode === 'navigate'
       || acceptsHtml
       || isMobileRoute
+      || url.pathname === '/cache-recovery.html'
       || url.pathname === '/'
       || url.pathname === '/index.html'
       || url.pathname === '/sw.js'
