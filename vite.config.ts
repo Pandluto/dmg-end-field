@@ -25,7 +25,7 @@ export default defineConfig(async () => {
   const sitesBuild = process.env.SITES_BUILD === '1'
   const mobileShareEnabled = process.env.DEF_MOBILE_SHARE_ENABLED
     ? process.env.DEF_MOBILE_SHARE_ENABLED === '1'
-    : !sitesBuild
+    : true
   const plugins = [
     react(),
     tailwindcss(),
@@ -78,6 +78,7 @@ export default defineConfig(async () => {
             '/index.html',
             '/mobile',
             '/mobile/*',
+            '/share/*',
             '/cache-recovery.html',
             '/sw.js',
             '/version.json',

@@ -15,9 +15,17 @@ export const MOBILE_SHARE_RATE_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const MOBILE_SHARE_PER_DEVICE_DAILY_LIMIT = 3;
 export const MOBILE_SHARE_PER_IP_DAILY_LIMIT = 10;
 export const MOBILE_SHARE_DAILY_LIMIT = 100;
-export const MOBILE_SHARE_MAX_PAYLOAD_BYTES = 256 * 1024;
+export const MOBILE_SHARE_MAX_PAYLOAD_BYTES = 8 * 1024 * 1024;
 export const MOBILE_SHARE_DEVICE_COOKIE = 'dmg_share_device';
 export const MOBILE_SHARE_DEVICE_COOKIE_MAX_AGE_SECONDS = 365 * 24 * 60 * 60;
+
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://dmgendfield.online',
+  'https://150.158.133.176',
+  'http://150.158.133.176',
+  'http://127.0.0.1:3030',
+  'http://localhost:3030',
+];
 
 const SHARE_ID_PATTERN = /^[A-Za-z0-9_-]{16}$/;
 const DEVICE_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
@@ -36,12 +44,10 @@ function isRecord(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
-function validatePayload(payload) {
-  if (!isRecord(payload) || payload.schemaVersion !== 1 || !isRecord(payload.draft)) {
-    throw new MobileShareServiceError(400, 'INVALID_SHARE', '分享数据格式不正确。');
-  }
-  const { draft } = payload;
+function validateMobileDraft(draft) {
   if (
+    !isRecord(draft)
+    ||
     draft.schemaVersion !== 1
     || !Array.isArray(draft.selectedOperatorIds)
     || draft.selectedOperatorIds.length > 4
@@ -52,15 +58,79 @@ function validatePayload(payload) {
   ) {
     throw new MobileShareServiceError(400, 'INVALID_DRAFT', '工作区快照格式不正确。');
   }
+  const notes = Object.values(draft.reportNotes ?? {});
+  if (notes.length > 128 || notes.some((note) => typeof note !== 'string' || note.length > 160)) {
+    throw new MobileShareServiceError(400, 'INVALID_NOTES', '报表批注数量或长度超出限制。');
+  }
+}
+
+function validateTimelinePayload(payload, index) {
+  if (
+    !isRecord(payload)
+    || !Array.isArray(payload.selectedCharacters)
+    || payload.selectedCharacters.length > 4
+    || !isRecord(payload.timelineData)
+    || !Array.isArray(payload.timelineData.staffLines)
+    || payload.timelineData.staffLines.length > 4
+    || !isRecord(payload.skillButtonTable)
+    || !Array.isArray(payload.allBuffList)
+    || payload.allBuffList.length > 2048
+    || !Array.isArray(payload.anomalyStateSnapshots ?? [])
+  ) {
+    throw new MobileShareServiceError(
+      400,
+      'INVALID_TIMELINE_PAYLOAD',
+      `桌面工作树的第 ${index + 1} 份恢复数据格式不正确。`,
+    );
+  }
+  const buttonCount = Object.keys(payload.skillButtonTable).length;
+  const timelineButtonCount = payload.timelineData.staffLines.reduce((count, line) => (
+    count + (Array.isArray(line?.buttons) ? line.buttons.length : 0)
+  ), 0);
+  if (buttonCount > 2048 || timelineButtonCount > 2048) {
+    throw new MobileShareServiceError(400, 'TIMELINE_TOO_LARGE', '桌面工作树中的排轴项目过多。');
+  }
+}
+
+function validateDesktopBundle(bundle) {
+  if (
+    !isRecord(bundle)
+    || bundle.type !== 'dmg.timeline-bundle.v2'
+    || bundle.schemaVersion !== 2
+    || !isRecord(bundle.manifest)
+    || !isRecord(bundle.document)
+    || !Array.isArray(bundle.payloads)
+    || bundle.payloads.length === 0
+    || bundle.payloads.length > 512
+    || !Array.isArray(bundle.snapshots)
+    || bundle.snapshots.length > 1024
+    || (bundle.workNodes !== undefined && (!Array.isArray(bundle.workNodes) || bundle.workNodes.length > 1024))
+    || (bundle.commits !== undefined && (!Array.isArray(bundle.commits) || bundle.commits.length > 2048))
+  ) {
+    throw new MobileShareServiceError(400, 'INVALID_DESKTOP_BUNDLE', '桌面工作树格式不正确。');
+  }
+  bundle.payloads.forEach(validateTimelinePayload);
+}
+
+function validatePayload(payload) {
+  if (!isRecord(payload)) {
+    throw new MobileShareServiceError(400, 'INVALID_SHARE', '分享数据格式不正确。');
+  }
+  if (payload.schemaVersion === 1) {
+    validateMobileDraft(payload.draft);
+  } else if (payload.schemaVersion === 2 && payload.source === 'mobile') {
+    validateMobileDraft(payload.draft);
+  } else if (payload.schemaVersion === 2 && payload.source === 'desktop') {
+    validateDesktopBundle(payload.bundle);
+    validateMobileDraft(payload.presentedDraft);
+  } else {
+    throw new MobileShareServiceError(400, 'INVALID_SHARE', '分享来源或版本不受支持。');
+  }
   if (
     (typeof payload.dataVersion !== 'string' || payload.dataVersion.length > 80)
     || (typeof payload.imageVersion !== 'string' || payload.imageVersion.length > 80)
   ) {
     throw new MobileShareServiceError(400, 'INVALID_VERSION', '分享版本信息不正确。');
-  }
-  const notes = Object.values(draft.reportNotes ?? {});
-  if (notes.length > 128 || notes.some((note) => typeof note !== 'string' || note.length > 160)) {
-    throw new MobileShareServiceError(400, 'INVALID_NOTES', '报表批注数量或长度超出限制。');
   }
 }
 
@@ -70,6 +140,26 @@ function createShareId() {
 
 function sha256(value) {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function hashablePayloadJson(payload, serialized) {
+  if (
+    payload?.schemaVersion !== 2
+    || payload.source !== 'desktop'
+    || !isRecord(payload.bundle)
+    || !isRecord(payload.bundle.manifest)
+  ) return serialized;
+  return JSON.stringify({
+    ...payload,
+    bundle: {
+      ...payload.bundle,
+      manifest: {
+        ...payload.bundle.manifest,
+        // Export time is transport metadata, not part of the SQLite tree.
+        exportedAt: 0,
+      },
+    },
+  });
 }
 
 function tableHasColumn(database, tableName, columnName) {
@@ -237,7 +327,7 @@ export function createMobileShareStore(options = {}) {
     const windowStart = timestamp - rateWindowMs;
     const ipHash = hashIp(ipAddress || 'unknown');
     const deviceHash = hashDevice(deviceId || 'unknown-device');
-    const payloadHash = sha256(serialized);
+    const payloadHash = sha256(hashablePayloadJson(payload, serialized));
     database.exec('BEGIN IMMEDIATE');
     try {
       cleanup(timestamp);
@@ -411,14 +501,36 @@ function buildDeviceCookie(token, secure) {
   return parts.join('; ');
 }
 
+function normalizeAllowedOrigins(value) {
+  const source = Array.isArray(value) ? value : DEFAULT_ALLOWED_ORIGINS;
+  return new Set(source.map((origin) => String(origin || '').trim().replace(/\/$/, '')).filter(Boolean));
+}
+
+function applyCorsHeaders(request, response, allowedOrigins) {
+  const origin = String(request.headers.origin || '').trim().replace(/\/$/, '');
+  if (!origin) return;
+  if (!allowedOrigins.has(origin)) {
+    throw new MobileShareServiceError(403, 'ORIGIN_NOT_ALLOWED', '当前网页来源不能访问分享服务。');
+  }
+  response.setHeader('access-control-allow-origin', origin);
+  response.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+  response.setHeader('access-control-allow-headers', 'Accept, Content-Type');
+  response.setHeader('access-control-max-age', '600');
+  response.setHeader('vary', 'Origin');
+}
+
 export function createMobileShareRequestHandler(options = {}) {
   const store = createMobileShareStore(options);
   const trustProxy = options.trustProxy !== false;
   const maxRequestBytes = (options.maxPayloadBytes ?? MOBILE_SHARE_MAX_PAYLOAD_BYTES) + 16 * 1024;
+  const allowedOrigins = normalizeAllowedOrigins(options.allowedOrigins);
 
   const handler = async (request, response) => {
     try {
       const url = new URL(request.url || '/', 'http://127.0.0.1');
+      if (url.pathname.startsWith('/api/mobile-shares')) {
+        applyCorsHeaders(request, response, allowedOrigins);
+      }
       if (request.method === 'OPTIONS' && url.pathname.startsWith('/api/mobile-shares')) {
         response.writeHead(204, { 'cache-control': 'no-store' });
         response.end();
@@ -482,7 +594,15 @@ if (isMainModule()) {
   const port = Number(process.env.DEF_MOBILE_SHARE_PORT || 8787);
   const dbPath = process.env.DEF_MOBILE_SHARE_DB
     || resolve(process.cwd(), 'var/mobile-shares.sqlite');
-  const handler = createMobileShareRequestHandler({ dbPath, trustProxy: true });
+  const allowedOrigins = process.env.DEF_MOBILE_SHARE_ALLOWED_ORIGINS
+    ?.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  const handler = createMobileShareRequestHandler({
+    dbPath,
+    trustProxy: true,
+    ...(allowedOrigins?.length ? { allowedOrigins } : {}),
+  });
   const server = createServer(handler);
   const cleanupTimer = setInterval(() => handler.cleanup(), 60 * 60 * 1000);
   cleanupTimer.unref();

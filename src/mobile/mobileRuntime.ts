@@ -177,6 +177,13 @@ export function resolveMobileSkillTemplate(
     skill.id === action.runtimeSkillId || skill.buttonType === action.skillType
   ));
   const levelKey = config.skillLevels[action.skillType] ?? 'M3';
+  const frozenHits = action.customHits?.map((hit) => ({
+    key: hit.key,
+    displayName: hit.displayName,
+    multiplier: hit.levels?.[levelKey] ?? hit.multiplier,
+    element: hit.element,
+    skillType: hit.skillType,
+  })) ?? [];
   const sandboxHits = sandboxSkill?.customHits?.map((hit) => ({
     key: hit.key,
     displayName: hit.displayName,
@@ -185,8 +192,10 @@ export function resolveMobileSkillTemplate(
     skillType: hit.skillType,
   })) ?? [];
   const legacySkill = legacySkillForType(character, action.skillType);
-  const hits = sandboxHits.length > 0
-    ? sandboxHits
+  const hits = frozenHits.length > 0
+    ? frozenHits
+    : sandboxHits.length > 0
+      ? sandboxHits
     : buildLegacyHits(legacySkill, action.skillType, character, levelKey);
 
   return {

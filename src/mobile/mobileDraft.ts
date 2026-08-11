@@ -1,4 +1,4 @@
-import type { Character } from '../types';
+import type { Character, SandboxSkillHit } from '../types';
 import type {
   AnomalyStateSnapshot,
   HitResistanceInput,
@@ -103,6 +103,29 @@ function normalizeStringArray(value: unknown): string[] {
     : [];
 }
 
+function normalizeCustomHits(value: unknown): SandboxSkillHit[] {
+  if (!Array.isArray(value)) return [];
+  const elements = new Set(['physical', 'fire', 'ice', 'electric', 'nature']);
+  const skillTypes = new Set(['A', 'B', 'E', 'Q', 'Dot']);
+  return value.filter((hit): hit is Record<string, unknown> => (
+    isRecord(hit)
+    && typeof hit.key === 'string'
+    && Boolean(hit.key)
+    && typeof hit.displayName === 'string'
+    && typeof hit.multiplier === 'number'
+    && Number.isFinite(hit.multiplier)
+    && elements.has(String(hit.element))
+    && skillTypes.has(String(hit.skillType))
+  )).map((hit) => ({
+    key: String(hit.key),
+    displayName: String(hit.displayName),
+    multiplier: Number(hit.multiplier),
+    ...(isRecord(hit.levels) ? { levels: normalizeNumberMap(hit.levels) } : {}),
+    element: hit.element as SandboxSkillHit['element'],
+    skillType: hit.skillType as SandboxSkillHit['skillType'],
+  }));
+}
+
 function normalizeAnomalyCards(value: unknown, kind: PersistedAnomalyCard['kind']): PersistedAnomalyCard[] {
   if (!Array.isArray(value)) return [];
   return value.filter((card): card is PersistedAnomalyCard => (
@@ -176,6 +199,7 @@ function normalizeAction(value: unknown): MobileTimelineAction | null {
     runtimeSkillId: typeof value.runtimeSkillId === 'string' ? value.runtimeSkillId : '',
     skillName: typeof value.skillName === 'string' ? value.skillName : skillType,
     ...(typeof value.skillIconUrl === 'string' ? { skillIconUrl: value.skillIconUrl } : {}),
+    ...(Array.isArray(value.customHits) ? { customHits: normalizeCustomHits(value.customHits) } : {}),
     buffs: Array.isArray(value.buffs)
       ? value.buffs.filter((buff): buff is SkillButtonBuff => (
           isRecord(buff) && typeof buff.id === 'string'

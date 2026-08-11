@@ -14,7 +14,13 @@ export const APP_ROUTE_PATHS = {
   operatorConfig: '/timeline/operator-config',
   timelineSkillDetail: '/timeline/skill',
   damageReportPpt: '/timeline/report/presentation',
+  tacticalShare: '/share',
 } as const;
+
+export function getTacticalShareId(path: string): string | null {
+  const match = path.match(/^\/share\/([A-Za-z0-9_-]{16})$/);
+  return match?.[1] ?? null;
+}
 
 export function getTimelineSkillDetailPath(buttonId: string): string {
   return `${APP_ROUTE_PATHS.timelineSkillDetail}/${encodeURIComponent(buttonId)}`;
