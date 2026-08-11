@@ -70,6 +70,11 @@ assert.match(
 assert.match(cacheRecoveryHtml, /caches\.keys\(\)/, 'Cache recovery must enumerate app caches.');
 assert.doesNotMatch(
   cacheRecoveryHtml,
+  /searchParams\.set\(['"]cache-recovery['"]/,
+  'Cache recovery must return to the clean root URL without a recovery query.',
+);
+assert.doesNotMatch(
+  cacheRecoveryHtml,
   /(?:localStorage|sessionStorage)\.clear\(|indexedDB\.deleteDatabase\(/,
   'Cache recovery must preserve workspace and browser storage.',
 );

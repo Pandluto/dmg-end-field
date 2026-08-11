@@ -176,9 +176,7 @@
         let redirectTimer;
 
         function createReturnUrl() {
-          const url = new URL('/', window.location.origin);
-          url.searchParams.set('cache-recovery', Date.now().toString());
-          return url;
+          return new URL('/', window.location.origin);
         }
 
         function setStatus(state, message) {
