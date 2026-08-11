@@ -6,10 +6,11 @@ import {
   assertResourceDescriptor,
   assertSha256,
   normalizePortablePath,
+  releaseSourceDate,
   stableJson,
   type ResourceReleaseManifest,
 } from './resourceReleaseCore.ts';
-import { sha256Bytes } from './resourceReleasePackager.ts';
+import { releaseBuildStamp, sha256Bytes } from './resourceReleasePackager.ts';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -217,7 +218,21 @@ export async function verifyResourceReleaseBundle(bytes: Uint8Array): Promise<{
     },
   })));
   if (rootSha256 !== manifest.rootSha256) throw new Error('资源根 SHA-256 不符。');
-  const expectedVersion = `${manifest.source.exportedAt.slice(0, 10).replace(/-/g, '')}.${rootSha256.slice(0, 12)}`;
-  if (manifest.releaseVersion !== expectedVersion) throw new Error('资源版本号与内容不一致。');
+  const releaseStamp = releaseBuildStamp(manifest.generatedAt);
+  const timestampedVersion = `${releaseStamp}.${rootSha256.slice(0, 12)}`;
+  const legacyStamp = releaseSourceDate(manifest.source.exportedAt);
+  const legacyVersion = `${legacyStamp}.${rootSha256.slice(0, 12)}`;
+  const versionStamp = manifest.releaseVersion === timestampedVersion
+    ? releaseStamp
+    : manifest.releaseVersion === legacyVersion
+      ? legacyStamp
+      : null;
+  if (!versionStamp) throw new Error('资源版本号与生成时间或内容不一致。');
+  if (manifest.data.version !== `${versionStamp}.${manifest.data.file.sha256.slice(0, 8)}`) {
+    throw new Error('数据版本号与版本时间或内容不一致。');
+  }
+  if (manifest.images.version !== `${versionStamp}.${manifest.images.indexSha256.slice(0, 12)}`) {
+    throw new Error('图片版本号与版本时间或内容不一致。');
+  }
   return { manifest, dataBytes, imageArchiveBytes, imageFiles };
 }

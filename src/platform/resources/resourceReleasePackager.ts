@@ -4,7 +4,6 @@ import {
   RESOURCE_RELEASE_TYPE,
   buildCanonicalOfficialArchive,
   normalizePortablePath,
-  releaseSourceDate,
   stableJson,
   type ResourceFileDescriptor,
   type ResourceReleaseManifest,
@@ -44,6 +43,34 @@ export async function sha256Bytes(bytes: Uint8Array): Promise<string> {
     .join('');
 }
 
+function normalizeGeneratedAt(value: string | undefined): string {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) throw new Error('资源包生成时间无效。');
+  return date.toISOString();
+}
+
+/**
+ * Public resource versions use the real package-generation time in China
+ * Standard Time. Source Share Data timestamps remain provenance metadata and
+ * must never make a newly generated package look like an older release.
+ */
+export function releaseBuildStamp(generatedAt: string): string {
+  const date = new Date(generatedAt);
+  if (Number.isNaN(date.getTime())) throw new Error('资源包生成时间无效。');
+  const chinaTime = new Date(date.getTime() + 8 * 60 * 60 * 1_000);
+  const datePart = [
+    chinaTime.getUTCFullYear(),
+    String(chinaTime.getUTCMonth() + 1).padStart(2, '0'),
+    String(chinaTime.getUTCDate()).padStart(2, '0'),
+  ].join('');
+  const timePart = [
+    String(chinaTime.getUTCHours()).padStart(2, '0'),
+    String(chinaTime.getUTCMinutes()).padStart(2, '0'),
+    String(chinaTime.getUTCSeconds()).padStart(2, '0'),
+  ].join('');
+  return `${datePart}.${timePart}`;
+}
+
 function deterministicMtime(exportedAt: string): Date {
   const source = new Date(exportedAt);
   const year = source.getUTCFullYear();
@@ -62,6 +89,8 @@ export async function buildResourceRelease(input: {
   shareData: unknown;
   shareDataFileName: string;
   images: ResourceReleaseInputImage[];
+  /** Test-only override. Browser and CLI packaging always omit this value. */
+  generatedAt?: string;
   onProgress?: (progress: ResourceReleaseBuildProgress) => void;
 }): Promise<BuiltResourceRelease> {
   input.onProgress?.({
@@ -111,7 +140,6 @@ export async function buildResourceRelease(input: {
   }
 
   const imageIndexSha256 = await sha256Bytes(textEncoder.encode(stableJson(imageFiles)));
-  const sourceDate = releaseSourceDate(archive.exportedAt);
   const rootSha256 = await sha256Bytes(textEncoder.encode(stableJson({
     schemaVersion: RESOURCE_RELEASE_SCHEMA_VERSION,
     data: { sha256: dataSha256, size: canonicalData.byteLength },
@@ -121,9 +149,11 @@ export async function buildResourceRelease(input: {
       totalBytes: imageFiles.reduce((total, entry) => total + entry.size, 0),
     },
   })));
-  const releaseVersion = `${sourceDate}.${rootSha256.slice(0, 12)}`;
-  const dataVersion = `${sourceDate}.${dataSha256.slice(0, 8)}`;
-  const imageVersion = `${sourceDate}.${imageIndexSha256.slice(0, 12)}`;
+  const generatedAt = normalizeGeneratedAt(input.generatedAt);
+  const releaseStamp = releaseBuildStamp(generatedAt);
+  const releaseVersion = `${releaseStamp}.${rootSha256.slice(0, 12)}`;
+  const dataVersion = `${releaseStamp}.${dataSha256.slice(0, 8)}`;
+  const imageVersion = `${releaseStamp}.${imageIndexSha256.slice(0, 12)}`;
   const imageArchiveFileName = `assets-${imageVersion}-full.zip`;
   const mtime = deterministicMtime(archive.exportedAt);
 
@@ -148,7 +178,7 @@ export async function buildResourceRelease(input: {
     schemaVersion: RESOURCE_RELEASE_SCHEMA_VERSION,
     releaseVersion,
     rootSha256,
-    generatedAt: archive.exportedAt,
+    generatedAt,
     source: {
       fileName: safeSourceFileName(input.shareDataFileName),
       archiveId: archive.source.archiveId,

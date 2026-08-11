@@ -1,16 +1,16 @@
 {
   "type": "dmg.resource-deployment.v1",
   "schemaVersion": 1,
-  "releaseVersion": "20260809.81dad1733b7d",
+  "releaseVersion": "20260812.001238.81dad1733b7d",
   "rootSha256": "81dad1733b7d024e3b6740f03821ffdab1aec7e7c9362aae6c1b276cfec9c165",
-  "generatedAt": "2026-08-09T03:06:12.585Z",
+  "generatedAt": "2026-08-11T16:12:38.621Z",
   "source": {
     "fileName": "share-20260809-030612-8-9.json",
     "archiveId": "local-20260809030612",
     "exportedAt": "2026-08-09T03:06:12.585Z"
   },
   "data": {
-    "version": "20260809.b205d8e9",
+    "version": "20260812.001238.b205d8e9",
     "file": {
       "path": "data/default-local-data.json",
       "sha256": "b205d8e9421bd33f5dfbd80e2861b3d673135617e764cf944b3a0348650a3e8a",
@@ -23,12 +23,12 @@
     }
   },
   "images": {
-    "version": "20260809.a814b4dd6288",
+    "version": "20260812.001238.a814b4dd6288",
     "totalBytes": 54443824,
     "indexSha256": "a814b4dd6288efb89656350feb46c0f7a7717a73ddd75eb3734d911cab300d01",
     "archive": {
-      "path": "images/assets-20260809.a814b4dd6288-full.zip",
-      "fileName": "assets-20260809.a814b4dd6288-full.zip",
+      "path": "images/assets-20260812.001238.a814b4dd6288-full.zip",
+      "fileName": "assets-20260812.001238.a814b4dd6288-full.zip",
       "sha256": "df95acc83ea1fae96ce40889306dbc42708a6040e9cfa943d97d0800d0ac784d",
       "size": 36979581
     },
@@ -2862,14 +2862,14 @@
   },
   "delivery": {
     "dataManifest": {
-      "path": "resources/releases/20260809.81dad1733b7d/web-data-manifest.json",
-      "sha256": "1d306e04b561f95618fe4051babc0d84cd805859fa3b815016204b4996d75983",
-      "size": 571
+      "path": "resources/releases/20260812.001238.81dad1733b7d/web-data-manifest.json",
+      "sha256": "666dc0ba63d5c93718c2f9cdf6abcb6b48cf9a853b5285d0df7b09f5249d8b40",
+      "size": 592
     },
     "imageManifest": {
-      "path": "resources/releases/20260809.81dad1733b7d/web-image-manifest.json",
-      "sha256": "60ccb3a45aa2db39d720060d273953a48a1779ee4a877e751c1e5d78209e8158",
-      "size": 112327
+      "path": "resources/releases/20260812.001238.81dad1733b7d/web-image-manifest.json",
+      "sha256": "8cb4c183821ee6d53b81acb27ff28c7b8ae9a71a026dacbadb44873d5bf4fbf3",
+      "size": 112558
     }
   }
 }
